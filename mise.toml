@@ -1,2 +1,6 @@
 [tools]
 go = "1.27.1"
+
+[env]
+# gioui.org/app needs vulkan.h for its Vulkan backend; build on OpenGL instead.
+GOFLAGS = "-tags=novulkan"
