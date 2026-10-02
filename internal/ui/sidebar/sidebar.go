@@ -112,6 +112,7 @@ type Sidebar struct {
 	renaming      string // workspace whose name is being edited
 	renamingGroup string // or the group's
 	focusEditor   bool
+	editorLaidOut bool
 	selectAll     bool   // select the name once the field has focus
 	renameFrom    string // the name the field started with
 	editor        widget.Editor
@@ -163,6 +164,14 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 	}
 	s.events = s.events[:0]
 	v := newView(gtx, th, st, activeWorkspace)
+	if s.renaming != "" {
+		if _, ok := v.activity[s.renaming]; !ok {
+			s.cancelRename()
+		}
+	}
+	if s.renamingGroup != "" && !slices.ContainsFunc(st.Projects, func(p model.Project) bool { return p.ID == s.renamingGroup }) {
+		s.cancelRename()
+	}
 	if v.activeProject != s.activeProject {
 		s.activeProject = v.activeProject
 		if v.activeProject != "" {
@@ -200,6 +209,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 
 	gtx.Constraints = layout.Exact(image.Pt(w-1, h))
 	animating := false
+	s.editorLaidOut = false
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.header(gtx, th) }),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -209,6 +219,9 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.footer(gtx, v) }),
 	)
+	if !s.editorLaidOut {
+		s.cancelRename()
+	}
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(w-1, 0), Max: size}.Op())
 
 	if animating {
@@ -357,6 +370,11 @@ func (s *Sidebar) startRename(ws, group, name string) {
 	s.editor.SetText(name)
 	s.editor.SetCaret(utf8.RuneCountInString(name), 0)
 	s.renameFrom = name
+}
+
+func (s *Sidebar) cancelRename() {
+	s.renaming, s.renamingGroup = "", ""
+	s.focusEditor, s.selectAll = false, false
 }
 
 // update drains input from last frame's widgets before anything is drawn,
@@ -517,7 +535,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 						s.events = append(s.events, RenameWorkspace{WorkspaceID: s.renaming, Name: name})
 					}
 				}
-				s.renaming, s.renamingGroup = "", ""
+				s.cancelRename()
 			}
 		}
 		for {
@@ -525,7 +543,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			if !ok {
 				break
 			}
-			s.renaming, s.renamingGroup = "", ""
+			s.cancelRename()
+		}
+		if !s.focusEditor && !gtx.Focused(&s.editor) {
+			s.cancelRename()
 		}
 	}
 	for s.newSession.Clicked(gtx) {
@@ -1028,6 +1049,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 }
 
 func (s *Sidebar) renameField(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	s.editorLaidOut = true
 	switch {
 	case s.focusEditor:
 		gtx.Execute(key.FocusCmd{Tag: &s.editor})

@@ -1,17 +1,79 @@
 package sidebar
 
 import (
+	"image"
 	"math"
 	"slices"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
+
+func TestRenameEndsWhenHiddenOrBlurred(t *testing.T) {
+	for _, name := range []string{"visible session", "visible group", "collapsed", "deleted session", "deleted group", "archived", "blurred session", "blurred group"} {
+		t.Run(name, func(t *testing.T) {
+			st := model.State{
+				Projects:   []model.Project{{ID: "g", Name: "Group", Kind: model.ProjectGroup}},
+				Workspaces: []model.Workspace{{ID: "w", Name: "Session", ProjectID: "g"}},
+			}
+			var s Sidebar
+			var r input.Router
+			var ops op.Ops
+			th := theme.Dark()
+			frame := func() []Event {
+				ops.Reset()
+				gtx := layout.Context{Ops: &ops, Source: r.Source(),
+					Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+					Constraints: layout.Exact(image.Pt(288, 600)), Now: time.Now()}
+				_, events := s.Layout(gtx, th, &st, "w")
+				r.Frame(&ops)
+				return events
+			}
+			frame()
+			group := name == "visible group" || name == "deleted group" || name == "blurred group"
+			if group {
+				s.startRename("", "g", "Group")
+			} else {
+				s.startRename("w", "", "Session")
+			}
+			frame()
+			frame()
+			if !s.Editing() || !r.Source().Focused(&s.editor) {
+				t.Fatal("visible rename did not retain editor focus")
+			}
+			switch name {
+			case "collapsed":
+				s.expanded["g"] = false
+			case "deleted session":
+				st.Workspaces = nil
+				r.Queue(key.Event{Name: key.NameReturn, State: key.Press})
+			case "deleted group":
+				st.Projects = nil
+				r.Queue(key.Event{Name: key.NameReturn, State: key.Press})
+			case "archived":
+				st.Workspaces[0].Archived = true
+			case "blurred session", "blurred group":
+				r.Source().Execute(key.FocusCmd{})
+			}
+			if events := frame(); len(events) != 0 {
+				t.Fatalf("cancel emitted events: %v", events)
+			}
+			want := name == "visible session" || name == "visible group"
+			if s.Editing() != want {
+				t.Fatalf("Editing() = %v, want %v", s.Editing(), want)
+			}
+		})
+	}
+}
 
 func TestRelTime(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
