@@ -13,23 +13,28 @@ type ProjectKind string
 const (
 	ProjectGit    ProjectKind = "git"
 	ProjectFolder ProjectKind = "folder"
+	ProjectGroup  ProjectKind = "group" // made by grouping sessions; no Root
 )
 
+// Project is a group of sessions. Sessions start ungrouped; a group is made
+// after the fact from sessions the user picks. Git and folder projects also
+// carry a Root, which new-worktree actions use.
 type Project struct {
 	ID    string
 	Name  string
-	Root  string // repo root or folder path
+	Root  string // repo root or folder path; "" for a group
 	Kind  ProjectKind
 	Color string // aide color id: "neutral", "red", "blue", ...
 	Icon  string // aide lucide icon name ("folder", "code", ...); "" means "folder"
 }
 
+// Workspace is one session: a split tree of panes started in Path.
 type Workspace struct {
 	ID        string
-	ProjectID string
+	ProjectID string // "" while the session is ungrouped
 	Name      string
-	Branch    string
-	Path      string // worktree path; equals Project.Root for folder projects
+	Branch    string // git branch of Path, "" outside a repo
+	Path      string // directory the session started in
 	Archived  bool
 	UpdatedAt time.Time
 	Layout    *layout.Node // nil until the first pane opens

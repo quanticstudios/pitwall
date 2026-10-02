@@ -16,6 +16,38 @@ const Version = 1
 type Hello struct {
 	Version int
 	Kind    string // "gui", "hook", "cli"
+	// Cwd is where the GUI was launched. When no session exists yet, the
+	// daemon opens one there with a shell, so pitwall starts like tmux.
+	Cwd string
+}
+
+// NewSession opens an ungrouped session (or one in GroupID) with a shell
+// pane in Cwd ("" means $HOME). The name defaults to Cwd's base name.
+type NewSession struct {
+	Cwd     string
+	GroupID string
+}
+
+// SetSessionGroup moves a session into a group; "" ungroups it.
+type SetSessionGroup struct {
+	WorkspaceID string
+	GroupID     string
+}
+
+// NewGroup makes a group from sessions picked after the fact.
+type NewGroup struct {
+	Name         string
+	WorkspaceIDs []string
+}
+
+type RenameGroup struct {
+	GroupID string
+	Name    string
+}
+
+// DeleteGroup removes the group and ungroups its sessions; nothing closes.
+type DeleteGroup struct {
+	GroupID string
 }
 
 type Input struct {
@@ -112,5 +144,6 @@ type Error struct {
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
 	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
+	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 }
