@@ -5,6 +5,7 @@ package pane
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -42,14 +43,18 @@ type Pane struct {
 	closeOnce sync.Once
 }
 
+// Shell is the program Start runs for a Config without Cmd.
+func Shell() string {
+	if sh := os.Getenv("SHELL"); sh != "" {
+		return sh
+	}
+	return "/bin/sh"
+}
+
 func Start(c Config) (*Pane, error) {
 	argv := c.Cmd
 	if len(argv) == 0 {
-		sh := os.Getenv("SHELL")
-		if sh == "" {
-			sh = "/bin/sh"
-		}
-		argv = []string{sh}
+		argv = []string{Shell()}
 	}
 	env := append(environ(), c.Env...)
 	env = append(env, "PITWALL_PANE="+c.ID, "TERM=xterm-256color", "COLORTERM=truecolor")
@@ -68,7 +73,10 @@ func Start(c Config) (*Pane, error) {
 		done:     make(chan struct{}),
 	}
 	if d, ok := p.vt.(interface{ SetDirtyFunc(func()) }); ok {
-		d.SetDirtyFunc(p.signal)
+		// invariant: the callback holds the channel, not p. A method value
+		// would let the emulator keep its own pane alive.
+		dirty := p.dirty
+		d.SetDirtyFunc(func() { signal(dirty) })
 	}
 	go p.read()
 	go p.wait()
@@ -168,12 +176,19 @@ func (p *Pane) wait() {
 	p.ptmx.SetReadDeadline(time.Now().Add(drainTimeout))
 	<-p.readDone
 	p.ptmx.Close()
+	// Nothing reads replies once the PTY is gone, so the emulator's reply
+	// goroutines stop here instead of whenever the GC frees it.
+	if c, ok := p.vt.(io.Closer); ok {
+		c.Close()
+	}
 	close(p.done)
 }
 
-func (p *Pane) signal() {
+func (p *Pane) signal() { signal(p.dirty) }
+
+func signal(dirty chan struct{}) {
 	select {
-	case p.dirty <- struct{}{}:
+	case dirty <- struct{}{}:
 	default:
 	}
 }

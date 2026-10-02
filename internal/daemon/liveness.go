@@ -146,10 +146,13 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.det, id)
 		}
 	}
-	for _, a := range slices.Clone(d.st.Activities) {
-		f, ok := d.panes[a.PaneID].(foregrounder)
-		if want := d.live.fg[a.PaneID]; ok && want > 0 && f.Foreground() != want {
-			d.dropActivity(a.PaneID)
+	// Hooks own a pane only while their agent's group is in the foreground.
+	// Once it leaves, an agent started later without hooks is detect's.
+	for id, want := range d.live.fg {
+		if f, ok := d.panes[id].(foregrounder); ok && f.Foreground() != want {
+			delete(d.live.fg, id)
+			delete(d.live.hookAt, id)
+			d.dropActivity(id)
 		}
 	}
 }

@@ -63,13 +63,14 @@ func liveDaemon(t *testing.T, state model.AgentState) (*Daemon, *livePane, strin
 
 // openLive opens one shell pane with fg in the foreground, under the process
 // table of fakeProcs, and runs the liveness loop.
-func openLive(t *testing.T, fg int) (*Daemon, *livePane, string) {
+func openLive(t *testing.T, fg int, cmd ...string) (*Daemon, *livePane, string) {
 	t.Helper()
-	oldDelay, oldStill, oldPoll, oldSession, oldIdentify := settleDelay, stillFor, livePoll, sessionOf, identify
+	oldDelay, oldStill, oldPoll, oldSession, oldIdentify, oldComm := settleDelay, stillFor, livePoll, sessionOf, identify, commOf
 	settleDelay, stillFor, livePoll = 60*time.Millisecond, 20*time.Millisecond, 10*time.Millisecond
-	sessionOf, identify = fakeSession, fakeIdentify
+	sessionOf, identify, commOf = fakeSession, fakeIdentify, fakeComm
+	execd.Store(false)
 	t.Cleanup(func() {
-		settleDelay, stillFor, livePoll, sessionOf, identify = oldDelay, oldStill, oldPoll, oldSession, oldIdentify
+		settleDelay, stillFor, livePoll, sessionOf, identify, commOf = oldDelay, oldStill, oldPoll, oldSession, oldIdentify, oldComm
 	})
 
 	f := &fakes{statsCalls: map[string]int{}}
@@ -95,7 +96,7 @@ func openLive(t *testing.T, fg int) (*Daemon, *livePane, string) {
 	d.mu.Lock()
 	ws := d.st.Workspaces[0].ID
 	d.mu.Unlock()
-	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws}))
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws, Cmd: cmd}))
 	d.mu.Lock()
 	id := d.st.Panes[0].ID
 	d.mu.Unlock()
