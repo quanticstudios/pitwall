@@ -39,6 +39,16 @@ func (d *Daemon) firstSession(ctx context.Context, cwd string) error {
 func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 	home := homeDir()
 	path := m.Cwd
+	if m.FromPane != "" {
+		d.mu.Lock()
+		p := d.panes[m.FromPane]
+		d.mu.Unlock()
+		if p != nil {
+			if c := p.Cwd(); c != "" {
+				path = c
+			}
+		}
+	}
 	if path == "" {
 		path = home
 	}

@@ -169,7 +169,12 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.NewSession:
 		u.nav.expectSession(st)
-		u.send(proto.NewSession{Cwd: newSessionCwd(st, u.nav.workspace, e.GroupID), GroupID: e.GroupID})
+		cwd := newSessionCwd(st, u.nav.workspace, e.GroupID)
+		from := ""
+		if w := findWorkspace(st, u.nav.workspace); w != nil && cwd == w.Path {
+			from = u.nav.focused() // where the open session's shell is now
+		}
+		u.send(proto.NewSession{Cwd: cwd, GroupID: e.GroupID, FromPane: from})
 	case sidebar.MoveToGroup:
 		for _, id := range e.WorkspaceIDs {
 			u.send(proto.SetSessionGroup{WorkspaceID: id, GroupID: e.GroupID})

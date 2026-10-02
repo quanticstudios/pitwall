@@ -210,7 +210,7 @@ func TestNavGroups(t *testing.T) {
 
 	// Alt+Shift+T opens a session in the open one's folder and selects it.
 	msg := n.key(&st, press("T", alt|key.ModShift))
-	if msg != (proto.NewSession{Cwd: fakeHome + "/Work/pitwall"}) {
+	if msg != (proto.NewSession{Cwd: fakeHome + "/Work/pitwall", FromPane: "a"}) {
 		t.Fatalf("Alt+Shift+T: %#v", msg)
 	}
 	b.Send(msg)

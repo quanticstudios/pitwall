@@ -250,7 +250,7 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		}
 		n.expectSession(st)
 		if w := findWorkspace(st, ws); w != nil {
-			return proto.NewSession{Cwd: w.Path}
+			return proto.NewSession{Cwd: w.Path, FromPane: n.focused()}
 		}
 		return proto.NewSession{}
 	default: // 1..9
