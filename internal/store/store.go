@@ -97,7 +97,9 @@ func RestoreCmd(p model.Pane) []string {
 	}
 	binary := string(p.Provider)
 	var args []string
-	if len(p.Cmd) > 0 {
+	// Hooks identify the agent inside a pane, not the command that launched it.
+	// Reusing a shell or wrapper can execute the original script again.
+	if len(p.Cmd) > 0 && filepath.Base(p.Cmd[0]) == binary {
 		binary, args = p.Cmd[0], p.Cmd[1:]
 	}
 	cmd := []string{binary}
