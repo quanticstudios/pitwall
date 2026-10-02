@@ -265,6 +265,18 @@ func kittyKey(e key.Event, m vt.Modes) []byte {
 // Text encodes committed text from a key.EditEvent.
 func Text(s string) []byte { return []byte(s) }
 
+// Focus encodes a focus-in or focus-out report for mode 1004, or nil when the
+// mode is off.
+func Focus(in, mode bool) []byte {
+	switch {
+	case !mode:
+		return nil
+	case in:
+		return []byte("\x1b[I")
+	}
+	return []byte("\x1b[O")
+}
+
 func Paste(s string, m vt.Modes) []byte {
 	s = strings.ReplaceAll(s, "\x1b", "")
 	if m.BracketedPaste {

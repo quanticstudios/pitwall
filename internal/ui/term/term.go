@@ -76,6 +76,10 @@ type View struct {
 	blinkAt    time.Time
 	wasFocused bool
 
+	keyFocus  bool // Gio key focus with the window focused
+	focusIn   bool // the focus state the program was last told
+	focusMode bool // the program had mode 1004 on in the last frame
+
 	filters []event.Filter
 }
 

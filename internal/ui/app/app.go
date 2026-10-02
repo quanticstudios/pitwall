@@ -184,6 +184,17 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 }
 
 func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
+	live := map[string]bool{}
+	defer func() { // a pane no longer drawn has lost focus
+		for id, p := range u.panes {
+			if live[id] {
+				continue
+			}
+			if b := p.view.Blur(); b != nil {
+				u.send(proto.Input{Pane: id, Data: b})
+			}
+		}
+	}()
 	ws := findWorkspace(st, u.nav.workspace)
 	if ws == nil {
 		return
@@ -209,7 +220,6 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		focused = "" // the dialog holds key focus
 	}
 	sole := root.Pane != ""
-	live := map[string]bool{}
 	for id, r := range rectsOf(root, area, gap) {
 		live[id] = true
 		p := u.panes[id]
