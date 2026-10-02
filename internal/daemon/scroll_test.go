@@ -12,9 +12,7 @@ func TestScroll(t *testing.T) {
 	sock, stop := run(t, f)
 	defer stop()
 	gui := dial(t, sock, "gui")
-	gui.send(proto.AddProject{Path: t.TempDir()})
-	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 1 })
-	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[0].ID})
+	// The first session's shell is the pane under test.
 	id := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 }).Panes[0].ID
 	p := f.pane(0)
 
