@@ -342,3 +342,24 @@ func TestDroppedEmulatorStopsReplyPump(t *testing.T) {
 	}
 	t.Fatalf("goroutines: %d before, %d after", before, runtime.NumGoroutine())
 }
+
+// stuckWriter never returns from Write until released, like a PTY whose
+// child never reads its input.
+type stuckWriter chan struct{}
+
+func (w stuckWriter) Write(p []byte) (int, error) { <-w; return len(p), nil }
+
+func TestReplyFloodIsCapped(t *testing.T) {
+	w := make(stuckWriter)
+	defer close(w)
+	e := New(10, 1, w).(*emulator)
+	const queries = 1 << 17
+	_, _ = e.Write([]byte(strings.Repeat("\x1b[c", queries)))
+	total := uint64(queries * len("\x1b[?62;1;6;22c"))
+	// Kept: the one read the stuck writer took, plus at most replyCap pending.
+	for deadline := time.Now().Add(2 * time.Second); total-e.st.dropped.Load() > replyCap+4096; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("kept %d of %d reply bytes, cap %d", total-e.st.dropped.Load(), total, replyCap)
+		}
+	}
+}

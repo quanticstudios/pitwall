@@ -35,8 +35,10 @@ type Pane struct {
 	vt vt.Emulator
 
 	dirty     chan struct{}
-	done      chan struct{}
-	exit      int // written before done closes
+	exited    chan struct{} // closed once the process is reaped
+	readDone  chan struct{}
+	done      chan struct{} // closed once the process is reaped and its output read
+	exit      int           // written before exited closes
 	closeOnce sync.Once
 }
 
@@ -57,13 +59,19 @@ func Start(c Config) (*Pane, error) {
 		return nil, err
 	}
 	p := &Pane{
-		ptmx:  ptmx,
-		cmd:   cmd,
-		vt:    c.NewVT(c.Cols, c.Rows, ptmx),
-		dirty: make(chan struct{}, 1),
-		done:  make(chan struct{}),
+		ptmx:     ptmx,
+		cmd:      cmd,
+		vt:       c.NewVT(c.Cols, c.Rows, ptmx),
+		dirty:    make(chan struct{}, 1),
+		exited:   make(chan struct{}),
+		readDone: make(chan struct{}),
+		done:     make(chan struct{}),
+	}
+	if d, ok := p.vt.(interface{ SetDirtyFunc(func()) }); ok {
+		d.SetDirtyFunc(p.signal)
 	}
 	go p.read()
+	go p.wait()
 	return p, nil
 }
 
@@ -84,6 +92,11 @@ func spawn(c Config, argv, env []string) (*os.File, *exec.Cmd, error) {
 		attrs := &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 		ptmx, err := pty.StartWithAttrs(cmd, &pty.Winsize{Cols: uint16(c.Cols), Rows: uint16(c.Rows)}, attrs)
 		if err == nil {
+			if ptmx, err = pollable(ptmx); err != nil {
+				cmd.Process.Kill()
+				cmd.Wait()
+				return nil, nil, fmt.Errorf("start %s: %w", argv[0], err)
+			}
 			return ptmx, cmd, nil
 		}
 		if attempt < spawnAttempts && errors.Is(err, syscall.EPERM) {
@@ -92,6 +105,22 @@ func spawn(c Config, argv, env []string) (*os.File, *exec.Cmd, error) {
 		}
 		return nil, nil, fmt.Errorf("start %s: %w", argv[0], err)
 	}
+}
+
+// pollable swaps the master for a non-blocking duplicate on Go's poller.
+// creack/pty calls File.Fd, which leaves the master blocking, and a blocking
+// read ignores deadlines.
+func pollable(f *os.File) (*os.File, error) {
+	defer f.Close()
+	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_DUPFD_CLOEXEC, 0)
+	if errno != 0 {
+		return nil, errno
+	}
+	if err := syscall.SetNonblock(int(fd), true); err != nil {
+		syscall.Close(int(fd))
+		return nil, err
+	}
+	return os.NewFile(fd, f.Name()), nil
 }
 
 // environ is os.Environ() without the variables that make nested tools think
@@ -108,7 +137,13 @@ func environ() []string {
 	return out
 }
 
+// drainTimeout is how long output may still be read once the process is
+// reaped. EOF normally comes first; this bounds the wait when a detached
+// descendant holds the slave open.
+const drainTimeout = 500 * time.Millisecond
+
 func (p *Pane) read() {
+	defer close(p.readDone)
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := p.ptmx.Read(buf)
@@ -116,31 +151,56 @@ func (p *Pane) read() {
 			p.mu.Lock()
 			p.vt.Write(buf[:n])
 			p.mu.Unlock()
-			select {
-			case p.dirty <- struct{}{}:
-			default:
-			}
+			p.signal()
 		}
 		if err != nil {
-			break // EIO once every holder of the slave is gone
+			return // EIO once every holder of the slave is gone, or the drain deadline
 		}
 	}
+}
+
+// wait reaps the process without waiting for PTY EOF, which a detached
+// descendant holding the slave can delay forever.
+func (p *Pane) wait() {
 	p.cmd.Wait()
 	p.exit = p.cmd.ProcessState.ExitCode()
+	close(p.exited)
+	p.ptmx.SetReadDeadline(time.Now().Add(drainTimeout))
+	<-p.readDone
 	p.ptmx.Close()
 	close(p.done)
+}
+
+func (p *Pane) signal() {
+	select {
+	case p.dirty <- struct{}{}:
+	default:
+	}
 }
 
 // Write sends input bytes to the process.
 func (p *Pane) Write(b []byte) (int, error) { return p.ptmx.Write(b) }
 
+// Size limits for Resize: a side fits the kernel's uint16 and the cell count
+// bounds the emulator's memory.
+const (
+	maxSide  = 1000
+	maxCells = 500_000
+)
+
+// Resize sets the kernel and emulator sizes under one lock, so concurrent
+// calls cannot leave the two disagreeing.
 func (p *Pane) Resize(cols, rows int) error {
-	if err := pty.Setsize(p.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}); err != nil {
-		return err
+	if cols < 1 || rows < 1 || cols > maxSide || rows > maxSide || cols*rows > maxCells {
+		return fmt.Errorf("pane size %dx%d out of range", cols, rows)
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	ws := pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}
+	if err := p.ioctl(syscall.TIOCSWINSZ, unsafe.Pointer(&ws)); err != nil {
+		return err
+	}
 	p.vt.Resize(cols, rows)
-	p.mu.Unlock()
 	return nil
 }
 
@@ -203,33 +263,46 @@ func (p *Pane) Cwd() string {
 // foreground is the PTY's foreground process group, or 0 if unknown.
 func (p *Pane) foreground() int {
 	var pgid int32
-	rc, err := p.ptmx.SyscallConn()
-	if err != nil {
+	if p.ioctl(syscall.TIOCGPGRP, unsafe.Pointer(&pgid)) != nil {
 		return 0
 	}
-	rc.Control(func(fd uintptr) {
-		if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCGPGRP, uintptr(unsafe.Pointer(&pgid))); e != 0 {
-			pgid = 0
-		}
-	})
 	return int(pgid)
 }
 
+// ioctl runs req on the master through SyscallConn. File.Fd, which
+// creack/pty's helpers call, would put the master back in blocking mode, and
+// a blocking read ignores the deadline wait sets.
+func (p *Pane) ioctl(req uintptr, arg unsafe.Pointer) error {
+	rc, err := p.ptmx.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var errno syscall.Errno
+	if err := rc.Control(func(fd uintptr) {
+		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(arg))
+	}); err != nil {
+		return err
+	}
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
 // Close sends SIGHUP and kills the process group after 2s. It returns once the
-// process is reaped.
-// ponytail: a process that left the session's process group and still holds
-// the slave keeps the reader, and so Close, waiting until it exits.
+// process is reaped and the master closed; a process that left the group and
+// still holds the slave is left running.
 func (p *Pane) Close() error {
 	p.closeOnce.Do(func() {
 		pg := -p.cmd.Process.Pid // Setsid made the child a group leader
 		select {
-		case <-p.done:
+		case <-p.exited:
 			return
 		default:
 		}
 		syscall.Kill(pg, syscall.SIGHUP)
 		select {
-		case <-p.done:
+		case <-p.exited:
 		case <-time.After(2 * time.Second):
 			// A shell runs its foreground job in a group of its own.
 			if fg := p.foreground(); fg > 0 {
