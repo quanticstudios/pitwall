@@ -150,6 +150,11 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 }
 
 func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []byte {
+	held := v.buttons
+	v.buttons = e.Buttons
+	if e.Kind == pointer.Cancel {
+		v.buttons = 0
+	}
 	if g.Cols == 0 || g.Rows == 0 {
 		return nil
 	}
@@ -160,6 +165,11 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 	// Shift forces local selection even when the program owns the mouse.
 	if m.Mouse != vt.MouseOff && e.Modifiers&key.ModShift == 0 {
 		if focused {
+			// Gio reports the buttons held after the event; the program
+			// wants the one pressed or released.
+			if c := e.Buttons ^ held; (e.Kind == pointer.Press || e.Kind == pointer.Release) && c != 0 {
+				e.Buttons = c
+			}
 			return input.Mouse(e, cell.X, cell.Y, m)
 		}
 		return nil
