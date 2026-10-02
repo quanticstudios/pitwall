@@ -485,3 +485,37 @@ func TestMouseButtonChange(t *testing.T) {
 		}
 	}
 }
+
+// TestFocusReports checks mode 1004: the pane losing and regaining focus,
+// the window doing the same, and a pane no longer drawn each send CSI O or
+// CSI I once, and nothing goes out with the mode off.
+func TestFocusReports(t *testing.T) {
+	v, frame := routedPane(t)
+	on := vt.Modes{FocusEvents: true}
+	for _, tc := range []struct {
+		name    string
+		m       vt.Modes
+		focused bool
+		evs     []event.Event
+		want    string
+	}{
+		{"pane blur", on, false, nil, "\x1b[O"},
+		{"still blurred", on, false, nil, ""},
+		{"pane focus", on, true, nil, "\x1b[I"},
+		{"window blur", on, true, []event.Event{key.FocusEvent{Focus: false}}, "\x1b[O"},
+		{"window focus", on, true, []event.Event{key.FocusEvent{Focus: true}}, "\x1b[I"},
+		{"off blur", vt.Modes{}, false, nil, ""},
+		{"off focus", vt.Modes{}, true, nil, ""},
+	} {
+		if got := frame(tc.m, tc.focused, tc.evs...); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	frame(on, true)
+	if got := string(v.Blur()); got != "\x1b[O" {
+		t.Errorf("Blur = %q", got)
+	}
+	if got := v.Blur(); got != nil {
+		t.Errorf("second Blur = %q", got)
+	}
+}

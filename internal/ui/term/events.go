@@ -144,7 +144,15 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			out = append(out, input.Paste(string(b), m)...)
 		case pointer.Event:
 			out = append(out, v.pointer(e, g, m, focused)...)
+		case key.FocusEvent:
+			// Gio sends these for key focus moves and the window's focus.
+			v.keyFocus = e.Focus
 		}
+	}
+	v.focusMode = m.FocusEvents
+	if in := focused && v.keyFocus; in != v.focusIn {
+		v.focusIn = in
+		out = append(out, input.Focus(in, m.FocusEvents)...)
 	}
 	return out
 }
@@ -290,4 +298,14 @@ func wordAt(g *vt.Grid, x, y int) (int, int) {
 		x1++
 	}
 	return x0, x1
+}
+
+// Blur reports focus loss for a pane that is no longer drawn, such as one on
+// the workspace just left, and returns the bytes for its PTY.
+func (v *View) Blur() []byte {
+	if !v.focusIn {
+		return nil
+	}
+	v.focusIn = false
+	return input.Focus(false, v.focusMode)
 }
