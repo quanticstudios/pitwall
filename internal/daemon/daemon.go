@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -92,9 +91,7 @@ func New() (*Daemon, error) {
 			}
 			return p, nil
 		},
-		// workaround(until vt exports New): vt declares NewFunc but no
-		// constructor yet, so NewVT stays nil here; wire vt.New at integration.
-		NewVT:          nil,
+		NewVT:          vt.New,
 		Derive:         agent.Derive,
 		SessionID:      agent.SessionID,
 		RepoRoot:       gitstat.RepoRoot,
@@ -373,7 +370,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		return fmt.Errorf("no project %s", m.ProjectID)
 	}
 	if m.Name == "" {
-		return errors.New("workspace name is empty")
+		m.Name = d.nextWorkspaceName(p.ID)
 	}
 
 	path, branch := p.Root, ""
@@ -562,6 +559,21 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		d.changed()
 	}
 	return nil
+}
+
+// nextWorkspaceName is "workspace-N", the first N not taken in the project,
+// so it is also a valid, unused branch name.
+func (d *Daemon) nextWorkspaceName(projectID string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for n := 1; ; n++ {
+		name := fmt.Sprintf("workspace-%d", n)
+		if !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool {
+			return w.ProjectID == projectID && (w.Name == name || w.Branch == name)
+		}) {
+			return name
+		}
+	}
 }
 
 func (d *Daemon) statsLoop(ctx context.Context) {
