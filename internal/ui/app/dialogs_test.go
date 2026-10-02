@@ -64,9 +64,14 @@ func TestSidebarEvents(t *testing.T) {
 	st := b.State()
 	u.nav.sync(&st)
 
-	u.sidebarEvent(&st, sidebar.ArchiveWorkspace{WorkspaceID: "w2"})
-	u.sidebarEvent(&st, sidebar.ArchiveWorkspace{WorkspaceID: "w2"}) // twice still archives
-	u.sidebarEvent(&st, sidebar.RestoreWorkspace{WorkspaceID: "w2"})
+	u.sidebarEvent(&st, sidebar.DetachSession{WorkspaceID: "w2"})
+	u.sidebarEvent(&st, sidebar.DetachSession{WorkspaceID: "w2"}) // twice still detaches
+	u.sidebarEvent(&st, sidebar.AttachSession{WorkspaceID: "w2"})
+	if u.nav.workspace != "w2" {
+		t.Fatalf("attach did not select the session: %s", u.nav.workspace)
+	}
+	u.sidebarEvent(&st, sidebar.KillSession{WorkspaceID: "w8"})
+	u.sidebarEvent(&st, sidebar.GroupByFolder{WorkspaceID: "w1"})
 	u.sidebarEvent(&st, sidebar.SetProjectAppearance{ProjectID: "g1", Icon: "code", Color: "sky"})
 	u.sidebarEvent(&st, sidebar.MoveToGroup{WorkspaceIDs: []string{"w1", "w2"}, GroupID: "g2"})
 	u.sidebarEvent(&st, sidebar.MoveToGroup{WorkspaceIDs: []string{"w4"}})
@@ -84,9 +89,11 @@ func TestSidebarEvents(t *testing.T) {
 	u.modal.removeBranch = true
 	u.confirmModal()
 	want := []any{
-		proto.ArchiveWorkspace{WorkspaceID: "w2", Archived: true},
-		proto.ArchiveWorkspace{WorkspaceID: "w2", Archived: true},
-		proto.ArchiveWorkspace{WorkspaceID: "w2", Archived: false},
+		proto.DetachSession{WorkspaceID: "w2", Detached: true},
+		proto.DetachSession{WorkspaceID: "w2", Detached: true},
+		proto.DetachSession{WorkspaceID: "w2", Detached: false},
+		proto.KillSession{WorkspaceID: "w8"},
+		proto.GroupByFolder{WorkspaceID: "w1"},
 		proto.SetProjectAppearance{ProjectID: "g1", Icon: "code", Color: "sky"},
 		proto.SetSessionGroup{WorkspaceID: "w1", GroupID: "g2"},
 		proto.SetSessionGroup{WorkspaceID: "w2", GroupID: "g2"},
@@ -94,9 +101,9 @@ func TestSidebarEvents(t *testing.T) {
 		proto.NewGroup{Name: "New group", WorkspaceIDs: []string{"w2", "w3"}},
 		proto.RenameGroup{GroupID: "g1", Name: "bots"},
 		proto.DeleteGroup{GroupID: "g1"},
-		proto.NewSession{Cwd: fakeHome + "/Work/pitwall", FromPane: "a"}, // the open session, where its shell is now
-		proto.NewSession{Cwd: fakeHome + "/src/web-app", GroupID: "g2"},    // the group's root
-		proto.NewSession{GroupID: "g1"},                                  // no root, open session elsewhere
+		proto.NewSession{Cwd: fakeHome, FromPane: "d"},                // the attached session, where its shell is now
+		proto.NewSession{Cwd: fakeHome + "/src/web-app", GroupID: "g2"}, // the group's root
+		proto.NewSession{GroupID: "g1"},                               // no root, open session elsewhere
 		proto.NewWorkspace{ProjectID: "g2"},
 		proto.DeleteWorkspace{WorkspaceID: "w3", RemoveBranch: true},
 	}
