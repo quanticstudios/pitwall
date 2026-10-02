@@ -2,21 +2,30 @@ package pane
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"os"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
+
+	"github.com/creack/pty"
 
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // fakeVT records every byte the pane feeds it.
 type fakeVT struct {
-	mu   sync.Mutex
-	buf  bytes.Buffer
-	size [2]int
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	size  [2]int
+	check func(cols, rows int) // called from Resize, while the pane holds its lock
 }
 
 func (f *fakeVT) Write(b []byte) (int, error) {
@@ -24,7 +33,14 @@ func (f *fakeVT) Write(b []byte) (int, error) {
 	defer f.mu.Unlock()
 	return f.buf.Write(b)
 }
-func (f *fakeVT) Resize(c, r int)          { f.mu.Lock(); f.size = [2]int{c, r}; f.mu.Unlock() }
+func (f *fakeVT) Resize(c, r int) {
+	if f.check != nil {
+		f.check(c, r)
+	}
+	f.mu.Lock()
+	f.size = [2]int{c, r}
+	f.mu.Unlock()
+}
 func (f *fakeVT) Snapshot() vt.Grid        { return vt.Grid{} }
 func (f *fakeVT) SnapshotAt(int) vt.Grid   { return vt.Grid{} }
 func (f *fakeVT) ScrollbackLen() int       { return 0 }
@@ -154,5 +170,140 @@ func TestScrollback(t *testing.T) {
 	}
 	if p.ScrollbackPushed() != 26 {
 		t.Fatalf("pushed %d", p.ScrollbackPushed())
+	}
+}
+
+// A detached descendant that keeps the slave open must not keep the pane
+// alive, or Close, once the pane's own process is gone.
+func TestDetachedSlaveHolder(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		close bool
+		after string
+	}{
+		{"exits", false, "sleep 0.2"},
+		{"closed", true, "sleep 100"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, f := start(t, "p1", "sh", "-c",
+				`setsid sh -c 'echo holder=$$; exec sleep 1000' </dev/null >/dev/tty 2>&1 & `+tc.after)
+			holder := waitHolder(t, f)
+			t.Cleanup(func() { syscall.Kill(holder, syscall.SIGKILL) }) // runs before start's Close
+			finished := make(chan struct{})
+			go func() {
+				if tc.close {
+					p.Close()
+				}
+				<-p.Done()
+				close(finished)
+			}()
+			select {
+			case <-finished:
+			case <-time.After(3 * time.Second):
+				t.Fatal("pane never finished while a detached process held its PTY")
+			}
+			if syscall.Kill(holder, 0) != nil {
+				t.Fatal("the holder died; the test no longer covers a held slave")
+			}
+		})
+	}
+}
+
+func waitHolder(t *testing.T, f *fakeVT) int {
+	t.Helper()
+	re := regexp.MustCompile(`holder=(\d+)`)
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if m := re.FindStringSubmatch(f.String()); m != nil {
+			pid, _ := strconv.Atoi(m[1])
+			if comm, _ := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid)); strings.TrimSpace(string(comm)) != "sleep" {
+				continue // not exec'd yet
+			}
+			return pid
+		}
+	}
+	t.Fatalf("holder pid not printed; output %q", f.String())
+	return 0
+}
+
+func TestResizeRejectsBadSizes(t *testing.T) {
+	p, f := start(t, "p1", "sleep", "100")
+	for _, s := range [][2]int{{0, 24}, {80, 0}, {-1, 24}, {80, -1}, {70000, 24}, {80, 70000}, {1000, 1000}} {
+		if err := p.Resize(s[0], s[1]); err == nil {
+			t.Errorf("Resize(%d, %d) accepted", s[0], s[1])
+		}
+	}
+	if f.size != [2]int{} {
+		t.Fatalf("emulator resized to %v", f.size)
+	}
+	if err := p.Resize(1000, 500); err != nil {
+		t.Fatalf("Resize(1000, 500): %v", err)
+	}
+}
+
+func TestConcurrentResizesAgree(t *testing.T) {
+	p, f := start(t, "p1", "sleep", "100")
+	kernel := func() [2]int {
+		var ws pty.Winsize
+		if err := p.ioctl(syscall.TIOCGWINSZ, unsafe.Pointer(&ws)); err != nil {
+			t.Error(err)
+		}
+		return [2]int{int(ws.Cols), int(ws.Rows)}
+	}
+	// Another resize must not reach the kernel while this one is still
+	// resizing the emulator.
+	f.check = func(c, r int) {
+		time.Sleep(100 * time.Microsecond)
+		if k := kernel(); k != [2]int{c, r} {
+			t.Errorf("emulator resizing to %dx%d while the kernel has %v", c, r, k)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			for j := range 50 {
+				if err := p.Resize(10+i, 10+j%50); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if k := kernel(); f.size != k {
+		t.Fatalf("emulator %v, kernel %v", f.size, k)
+	}
+}
+
+// A synchronized-output frame that never ends must still reach the screen
+// once its timeout passes, without the child writing anything else.
+func TestSyncFrameTimeoutSignalsDirty(t *testing.T) {
+	p, err := Start(Config{ID: "p1", Cols: 10, Rows: 1, NewVT: vt.New, Cmd: []string{"sh", "-c",
+		`printf old; sleep 0.3; printf '\033[?2026h\r\033[Knew'; exec sleep 100`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	row := func() string {
+		g := p.Snapshot()
+		var s strings.Builder
+		for x := range g.Cols {
+			s.WriteString(g.At(x, 0).Content)
+		}
+		return strings.TrimSpace(s.String())
+	}
+	for deadline := time.Now().Add(3 * time.Second); row() != "old"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("screen %q, want old", row())
+		}
+	}
+	timeout := time.After(3 * time.Second)
+	for row() != "new" {
+		select {
+		case <-p.Dirty():
+		case <-timeout:
+			t.Fatalf("no dirty signal showed the timed-out frame; screen %q", row())
+		}
 	}
 }
