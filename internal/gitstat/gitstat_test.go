@@ -249,8 +249,8 @@ func TestRemoveKeepsUnmergedBranch(t *testing.T) {
 	}
 	writeFile(t, path, "unmerged.txt", "keep this commit\n")
 	commit(t, path)
-	if err := RemoveWorktree(ctx, dir, path, true); err == nil {
-		t.Fatal("unmerged branch deleted")
+	if err := RemoveWorktree(ctx, dir, path, true); !errors.Is(err, ErrBranchKept) {
+		t.Fatalf("got %v, want ErrBranchKept", err)
 	}
 	runGit(t, dir, "show-ref", "--verify", "refs/heads/"+branch)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {

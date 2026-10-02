@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
@@ -567,4 +570,37 @@ func TestSetLayoutValidates(t *testing.T) {
 	if len(r) != 2 || math.Abs(r[0]+r[1]-1) > 1e-9 || r[1] <= 0 {
 		t.Fatalf("ratios %v", r)
 	}
+}
+
+// A branch that git refuses to delete must not keep a workspace whose
+// worktree is already gone.
+func TestDeleteWorkspaceBranchKept(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.RemoveWorktree = func(context.Context, string, string, bool) error {
+		return fmt.Errorf("%w: branch not fully merged", gitstat.ErrBranchKept)
+	}
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), "repo")
+	mkdir(t, repo)
+	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
+	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: d.st.Projects[0].ID, Name: "feat"}))
+	ws := d.st.Workspaces[0].ID
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws}))
+
+	err = d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: ws, RemoveBranch: true})
+	if !errors.Is(err, gitstat.ErrBranchKept) {
+		t.Fatalf("got %v, want the kept branch reported", err)
+	}
+	d.mu.Lock()
+	n, np := len(d.st.Workspaces), len(d.st.Panes)
+	d.mu.Unlock()
+	if n != 0 || np != 0 {
+		t.Fatalf("workspace or pane left: %d %d", n, np)
+	}
+	waitUntil(t, "pane closed", func() bool { p := f.pane(0); p.mu.Lock(); defer p.mu.Unlock(); return p.closed })
 }
