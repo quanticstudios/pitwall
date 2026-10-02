@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -25,6 +26,10 @@ var _ NewFunc = New
 const syncTimeout = time.Second
 
 const kittyStackMax = 64
+
+// replyCap bounds reply bytes waiting for the PTY. A child that floods
+// queries without reading its input cannot use the replies anyway.
+const replyCap = 1 << 20
 
 var modeSync = ansi.DECMode(2026)
 
@@ -47,7 +52,8 @@ type state struct {
 	syncStart time.Time
 	last      *Grid // the previous Snapshot, shown while syncing
 	hist      history
-	term      byte // the last byte of the chunk x/vt is parsing: BEL or ESC when it ends an OSC
+	term      byte          // the last byte of the chunk x/vt is parsing: BEL or ESC when it ends an OSC
+	dropped   atomic.Uint64 // reply bytes dropped at replyCap
 }
 
 // New returns an Emulator backed by github.com/charmbracelet/x/vt.
@@ -99,7 +105,7 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	// instead of unrecognized.
 	_, _ = e.WriteString("\x1b[?2026l")
 
-	go pumpReplies(e, reply)
+	go pumpReplies(e, reply, &st.dropped)
 	t := &emulator{e: e, st: st}
 	runtime.AddCleanup(t, func(w io.Writer) { _ = w.(*io.PipeWriter).Close() }, e.InputPipe())
 	return t
@@ -415,9 +421,10 @@ func registerKitty(e *xvt.Emulator, st *state) {
 	})
 }
 
-// pumpReplies moves x/vt's replies from its pipe to reply through an
-// unbounded buffer, so a slow reply writer never stalls Write.
-func pumpReplies(src io.Reader, dst io.Writer) {
+// pumpReplies moves x/vt's replies from its pipe to reply through a buffer,
+// so a slow reply writer never stalls Write. Past replyCap pending bytes it
+// drops what x/vt sends and counts it in dropped.
+func pumpReplies(src io.Reader, dst io.Writer, dropped *atomic.Uint64) {
 	var mu sync.Mutex
 	var pending []byte
 	wake := make(chan struct{}, 1)
@@ -436,7 +443,11 @@ func pumpReplies(src io.Reader, dst io.Writer) {
 	for {
 		n, err := src.Read(buf)
 		mu.Lock()
-		pending = append(pending, buf[:n]...)
+		if len(pending)+n > replyCap {
+			dropped.Add(uint64(n))
+		} else {
+			pending = append(pending, buf[:n]...)
+		}
 		mu.Unlock()
 		select {
 		case wake <- struct{}{}:
