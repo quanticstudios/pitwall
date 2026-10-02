@@ -1,0 +1,1 @@
+{"session_id":"019a3c2e-7b41-7d20-9f3e-5c8a1b2d4e6f","transcript_path":"/home/u/.codex/sessions/2026/10/02/rollout-2026-10-02T10-00-00-019a3c2e.jsonl","cwd":"/home/u/repo","model":"gpt-6.1-sol","turn_id":"12","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"rename foo to bar"}
