@@ -26,6 +26,9 @@ type Hello struct {
 type NewSession struct {
 	Cwd     string
 	GroupID string
+	// FromPane, when set, starts the session in that pane's current
+	// directory (where its shell is now), falling back to Cwd.
+	FromPane string
 }
 
 // SetSessionGroup moves a session into a group; "" ungroups it.

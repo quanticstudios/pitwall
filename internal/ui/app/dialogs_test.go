@@ -45,7 +45,7 @@ func TestSidebarEvents(t *testing.T) {
 		proto.NewGroup{Name: "New group", WorkspaceIDs: []string{"w2", "w3"}},
 		proto.RenameGroup{GroupID: "g1", Name: "bots"},
 		proto.DeleteGroup{GroupID: "g1"},
-		proto.NewSession{Cwd: fakeHome + "/Work/pitwall"},             // the open session's folder
+		proto.NewSession{Cwd: fakeHome + "/Work/pitwall", FromPane: "a"}, // the open session, where its shell is now
 		proto.NewSession{Cwd: fakeHome + "/Work/aide", GroupID: "g2"}, // the group's root
 		proto.NewSession{GroupID: "g1"},                               // no root, open session elsewhere
 		proto.DeleteWorkspace{WorkspaceID: "w3", RemoveBranch: true},

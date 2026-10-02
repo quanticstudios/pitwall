@@ -158,3 +158,25 @@ func TestDeleteGroupedSessionKeepsDirectory(t *testing.T) {
 		t.Fatalf("RemoveWorktree ran %d times, want only for the pitwall worktree", removed)
 	}
 }
+
+func TestNewSessionFromPaneCwd(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	start, there := t.TempDir(), t.TempDir()
+	must(t, d.handle(ctx, proto.NewSession{Cwd: start}))
+	pane := d.st.Panes[0].ID
+	// The shell cd'd since the session opened; the fake reports cfg.Cwd.
+	d.panes[pane].(*fakePane).cfg.Cwd = there
+	must(t, d.handle(ctx, proto.NewSession{Cwd: start, FromPane: pane}))
+	if got := d.st.Workspaces[1].Path; got != there {
+		t.Fatalf("new session in %s, want the pane's current %s", got, there)
+	}
+	must(t, d.handle(ctx, proto.NewSession{Cwd: start, FromPane: "gone"}))
+	if got := d.st.Workspaces[2].Path; got != start {
+		t.Fatalf("unknown pane: session in %s, want Cwd %s", got, start)
+	}
+}
