@@ -68,3 +68,11 @@ func (b *backend) recvLoop() {
 		}
 	}
 }
+
+// Scroll implements app.Scroller from the pane's last frame.
+func (b *backend) Scroll(pane string) (offset, max int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	f := b.frames[pane]
+	return f.ScrollOffset, f.ScrollMax
+}
