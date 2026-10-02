@@ -111,6 +111,12 @@ func (f *fakes) options() Options {
 		RepoRoot: func(_ context.Context, path string) (string, bool) {
 			return path, strings.HasSuffix(path, "repo")
 		},
+		Branch: func(_ context.Context, path string) (string, bool) {
+			if strings.Contains(path, "repo") {
+				return filepath.Base(path), true
+			}
+			return "", false
+		},
 		Stats: func(_ context.Context, wt string) (model.BranchStats, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
@@ -201,12 +207,18 @@ type testClient struct {
 
 func dial(t *testing.T, sock, kind string) *testClient {
 	t.Helper()
+	return dialIn(t, sock, kind, t.TempDir())
+}
+
+// dialIn says Hello as if launched in cwd.
+func dialIn(t *testing.T, sock, kind, cwd string) *testClient {
+	t.Helper()
 	c, err := proto.Dial(sock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
-	if err := c.Send(proto.Hello{Version: proto.Version, Kind: kind}); err != nil {
+	if err := c.Send(proto.Hello{Version: proto.Version, Kind: kind, Cwd: cwd}); err != nil {
 		t.Fatal(err)
 	}
 	tc := &testClient{t: t, conn: c, in: make(chan any, 1024)}
@@ -266,7 +278,8 @@ func TestDaemonFlow(t *testing.T) {
 	sock, stop := run(t, f)
 	defer stop()
 	gui := dial(t, sock, "gui")
-	gui.waitState("initial state", func(model.State) bool { return true })
+	// Workspace 0 and pane 0 are the session the GUI's Hello opened.
+	gui.waitState("first session", func(s model.State) bool { return len(s.Workspaces) == 1 })
 
 	folder := t.TempDir()
 	repo := filepath.Join(t.TempDir(), "repo")
@@ -274,63 +287,63 @@ func TestDaemonFlow(t *testing.T) {
 	gui.send(proto.AddProject{Path: folder})
 	gui.send(proto.AddProject{Path: repo})
 	st := gui.waitState("two projects", func(s model.State) bool { return len(s.Projects) == 2 })
-	if len(st.Workspaces) != 1 || st.Workspaces[0].Path != folder || st.Projects[0].Kind != model.ProjectFolder || st.Projects[1].Kind != model.ProjectGit {
+	if len(st.Workspaces) != 2 || st.Workspaces[1].Path != folder || st.Projects[0].Kind != model.ProjectFolder || st.Projects[1].Kind != model.ProjectGit {
 		t.Fatalf("folder project should get one workspace at the folder: %+v", st)
 	}
-	folderWS, gitProj := st.Workspaces[0].ID, st.Projects[1].ID
+	folderWS, gitProj := st.Workspaces[1].ID, st.Projects[1].ID
 
 	gui.send(proto.NewWorkspace{ProjectID: gitProj, Name: "feat"})
-	st = gui.waitState("git workspace", func(s model.State) bool { return len(s.Workspaces) == 2 })
-	gw := st.Workspaces[1]
+	st = gui.waitState("git workspace", func(s model.State) bool { return len(s.Workspaces) == 3 })
+	gw := st.Workspaces[2]
 	if gw.Branch != "feat" || gw.Path != filepath.Join(repo, ".worktrees", "feat") {
 		t.Fatalf("git workspace: %+v", gw)
 	}
 
 	gui.send(proto.OpenPane{WorkspaceID: folderWS, Cmd: []string{"claude"}})
-	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
-	p0 := st.Panes[0].ID
-	if f.pane(0).cfg.Cwd != folder || f.pane(0).cfg.ID != p0 || st.Workspaces[0].Layout.Pane != p0 {
-		t.Fatalf("pane start: cfg %+v layout %+v", f.pane(0).cfg, st.Workspaces[0].Layout)
+	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 2 })
+	p0 := st.Panes[1].ID
+	if f.pane(1).cfg.Cwd != folder || f.pane(1).cfg.ID != p0 || st.Workspaces[1].Layout.Pane != p0 {
+		t.Fatalf("pane start: cfg %+v layout %+v", f.pane(1).cfg, st.Workspaces[1].Layout)
 	}
 
 	gui.send(proto.OpenPane{WorkspaceID: folderWS, Target: p0, Dir: layout.Vertical})
-	st = gui.waitState("split", func(s model.State) bool { return len(s.Panes) == 2 })
-	if l := st.Workspaces[0].Layout; len(l.Children) != 2 || l.Dir != layout.Vertical {
+	st = gui.waitState("split", func(s model.State) bool { return len(s.Panes) == 3 })
+	if l := st.Workspaces[1].Layout; len(l.Children) != 2 || l.Dir != layout.Vertical {
 		t.Fatalf("split layout: %+v", l)
 	}
 
 	gui.send(proto.Input{Pane: p0, Data: []byte("ls\r")})
 	gui.send(proto.Resize{Pane: p0, Cols: 120, Rows: 40})
-	waitUntil(t, "input reaches pane", func() bool { return f.pane(0).got() == "ls\r" })
+	waitUntil(t, "input reaches pane", func() bool { return f.pane(1).got() == "ls\r" })
 
 	hook := dial(t, sock, "hook")
 	hook.send(proto.AgentEvent{Pane: p0, Provider: model.ProviderClaude, Payload: []byte("working")})
 	st = gui.waitState("activity", func(s model.State) bool { return len(s.Activities) == 1 })
-	a, p := st.Activities[0], st.Panes[0]
+	a, p := st.Activities[0], st.Panes[1]
 	if a.State != model.StateWorking || a.PaneID != p0 || a.WorkspaceID != folderWS || p.SessionID != "sess-1" || p.Provider != model.ProviderClaude {
 		t.Fatalf("activity %+v pane %+v", a, p)
 	}
 
 	// A git workspace pane going completed refreshes that workspace's stats.
 	gui.send(proto.OpenPane{WorkspaceID: gw.ID})
-	st = gui.waitState("git pane", func(s model.State) bool { return len(s.Panes) == 3 })
-	hook.send(proto.AgentEvent{Pane: st.Panes[2].ID, Provider: model.ProviderCodex, Payload: []byte("completed")})
+	st = gui.waitState("git pane", func(s model.State) bool { return len(s.Panes) == 4 })
+	hook.send(proto.AgentEvent{Pane: st.Panes[3].ID, Provider: model.ProviderCodex, Payload: []byte("completed")})
 	gui.waitState("stats after completed", func(s model.State) bool { return s.Stats[gw.ID].Ahead == 1 })
 
 	hook.send(proto.AgentEvent{Pane: p0, Provider: model.ProviderClaude, Payload: []byte("clear")})
 	gui.waitState("activity removed", func(s model.State) bool { return len(s.Activities) == 1 })
 
 	gui.send(proto.ClosePane{Pane: p0})
-	st = gui.waitState("pane closed", func(s model.State) bool { return len(s.Panes) == 2 })
-	if l := st.Workspaces[0].Layout; l.Pane == "" || l.Pane == p0 {
+	st = gui.waitState("pane closed", func(s model.State) bool { return len(s.Panes) == 3 })
+	if l := st.Workspaces[1].Layout; l.Pane == "" || l.Pane == p0 {
 		t.Fatalf("layout after close: %+v", l)
 	}
-	waitUntil(t, "closed pane handle", func() bool { f.pane(0).mu.Lock(); defer f.pane(0).mu.Unlock(); return f.pane(0).closed })
+	waitUntil(t, "closed pane handle", func() bool { f.pane(1).mu.Lock(); defer f.pane(1).mu.Unlock(); return f.pane(1).closed })
 
 	gui.send(proto.RenameWorkspace{WorkspaceID: gw.ID, Name: "renamed"})
 	gui.send(proto.DeleteWorkspace{WorkspaceID: gw.ID})
-	st = gui.waitState("workspace deleted", func(s model.State) bool { return len(s.Workspaces) == 1 })
-	if len(st.Panes) != 1 || len(st.Stats) != 0 {
+	st = gui.waitState("workspace deleted", func(s model.State) bool { return len(s.Workspaces) == 2 })
+	if len(st.Panes) != 2 || len(st.Stats) != 0 {
 		t.Fatalf("delete left panes or stats: %+v", st)
 	}
 }
@@ -340,11 +353,7 @@ func TestFrameThrottle(t *testing.T) {
 	sock, stop := run(t, f)
 	defer stop()
 	gui := dial(t, sock, "gui")
-	folder := t.TempDir()
-	gui.send(proto.AddProject{Path: folder})
-	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 1 })
-	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[0].ID})
-	gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	gui.waitState("first session's pane", func(s model.State) bool { return len(s.Panes) == 1 })
 	p := f.pane(0)
 
 	const burst = 500 * time.Millisecond
@@ -358,8 +367,9 @@ func TestFrameThrottle(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 	n := p.snaps.Load()
-	// 60/s over the burst, plus the first frame that goes out immediately.
-	if max := int64(burst/frameInterval) + 2; n < 5 || n > max {
+	// 60/s over the burst, plus the frame sent on Hello and the first one
+	// that goes out immediately.
+	if max := int64(burst/frameInterval) + 3; n < 5 || n > max {
 		t.Fatalf("%d frames in %v, want 5..%d", n, burst, max)
 	}
 	gui.waitFor("frame", func(m any) bool { fr, ok := m.(proto.Frame); return ok && fr.Grid.Cells[0].Content == "x" })
@@ -390,18 +400,18 @@ func TestRestoreOnRestart(t *testing.T) {
 	gui := dial(t, sock, "gui")
 	folder := t.TempDir()
 	gui.send(proto.AddProject{Path: folder})
-	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 1 })
-	ws := st.Workspaces[0].ID
+	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 2 })
+	ws := st.Workspaces[1].ID
 	gui.send(proto.OpenPane{WorkspaceID: ws, Cmd: []string{"claude"}})
 	gui.send(proto.OpenPane{WorkspaceID: ws, Cmd: []string{"make"}})
-	st = gui.waitState("panes", func(s model.State) bool { return len(s.Panes) == 2 })
-	agentPane, donePane := st.Panes[0].ID, st.Panes[1].ID
+	st = gui.waitState("panes", func(s model.State) bool { return len(s.Panes) == 3 })
+	agentPane, donePane := st.Panes[1].ID, st.Panes[2].ID
 	dial(t, sock, "hook").send(proto.AgentEvent{Pane: agentPane, Provider: model.ProviderClaude, Payload: []byte("working")})
-	gui.waitState("session", func(s model.State) bool { return s.Panes[0].SessionID != "" })
+	gui.waitState("session", func(s model.State) bool { return s.Panes[1].SessionID != "" })
 
-	f.pane(1).code = 3
-	f.pane(1).Close() // the process exits on its own
-	gui.waitState("exited", func(s model.State) bool { return s.Panes[1].Exited })
+	f.pane(2).code = 3
+	f.pane(2).Close() // the process exits on its own
+	gui.waitState("exited", func(s model.State) bool { return s.Panes[2].Exited })
 	// The writer sends the pending StateMsg before PaneExited.
 	gui.waitFor("PaneExited", func(m any) bool { e, ok := m.(proto.PaneExited); return ok && e.Pane == donePane && e.ExitCode == 3 })
 	stop()
@@ -409,7 +419,7 @@ func TestRestoreOnRestart(t *testing.T) {
 	f.mu.Lock()
 	saved, started := f.saved, len(f.panes)
 	f.mu.Unlock()
-	if len(saved.Panes) != 2 || saved.Panes[0].Exited || !saved.Panes[1].Exited {
+	if len(saved.Panes) != 3 || saved.Panes[1].Exited || !saved.Panes[2].Exited {
 		t.Fatalf("shutdown must save live panes as not exited: %+v", saved.Panes)
 	}
 
@@ -418,14 +428,15 @@ func TestRestoreOnRestart(t *testing.T) {
 	f.mu.Lock()
 	restarted := f.panes[started:]
 	f.mu.Unlock()
-	if len(restarted) != 1 {
-		t.Fatalf("restarted %d panes, want only the live one", len(restarted))
+	if len(restarted) != 2 {
+		t.Fatalf("restarted %d panes, want the two live ones", len(restarted))
 	}
-	if c := restarted[0].cfg; c.ID != agentPane || c.Cwd != folder || !slices.Equal(c.Cmd, []string{"claude", "--resume", "sess-1"}) {
+	if c := restarted[1].cfg; c.ID != agentPane || c.Cwd != folder || !slices.Equal(c.Cmd, []string{"claude", "--resume", "sess-1"}) {
 		t.Fatalf("restore config: %+v", c)
 	}
 	st = dial(t, sock, "gui").waitState("restored state", func(model.State) bool { return true })
-	if len(st.Panes) != 2 || len(st.Activities) != 0 {
+	// A restored session means no new one.
+	if len(st.Workspaces) != 2 || len(st.Panes) != 3 || len(st.Activities) != 0 {
 		t.Fatalf("restored state: %+v", st)
 	}
 }
@@ -478,14 +489,14 @@ func TestShutdownWithBlockedWrite(t *testing.T) {
 	gui := dial(t, sock, "gui")
 	folder := t.TempDir()
 	gui.send(proto.AddProject{Path: folder})
-	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 1 })
-	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[0].ID})
-	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 2 })
+	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[1].ID})
+	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 2 })
 	gui.waitFor("raw mode", func(m any) bool {
 		fr, ok := m.(proto.Frame)
-		return ok && len(fr.Grid.Cells) > 0 && fr.Grid.Cells[0].Content == "r"
+		return ok && fr.Pane == st.Panes[1].ID && len(fr.Grid.Cells) > 0 && fr.Grid.Cells[0].Content == "r"
 	})
-	gui.send(proto.Input{Pane: st.Panes[0].ID, Data: make([]byte, 1<<20)})
+	gui.send(proto.Input{Pane: st.Panes[1].ID, Data: make([]byte, 1<<20)})
 	time.Sleep(200 * time.Millisecond) // the handler is now stuck in the write
 
 	cancel()
@@ -496,7 +507,7 @@ func TestShutdownWithBlockedWrite(t *testing.T) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.saved.Panes) != 1 || f.saved.Panes[0].Exited || f.saved.Panes[0].Cwd != folder {
+	if len(f.saved.Panes) != 2 || f.saved.Panes[1].Exited || f.saved.Panes[1].Cwd != folder {
 		t.Fatalf("final save: %+v", f.saved.Panes)
 	}
 }
