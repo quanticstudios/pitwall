@@ -87,6 +87,18 @@ func TestHookStopsDetection(t *testing.T) {
 	}
 }
 
+// Hooks own a pane only while the hooked agent's group is in the foreground:
+// an agent without hooks started after it exits is read from its screen.
+func TestHookOwnershipEndsWithItsGroup(t *testing.T) {
+	d, lp, id := openLive(t, 300)
+	must(t, d.handle(context.Background(), proto.AgentEvent{Pane: id, Provider: model.ProviderCodex, Payload: []byte("clear")}))
+	lp.fgGroup.Store(200) // the hooked codex exited to the shell
+	polls()
+	lp.show(formScreen, false)
+	lp.fgGroup.Store(100) // claude, started without hooks
+	waitUntil(t, "approval", func() bool { return d.stateOf(id) == model.StatePendingApproval })
+}
+
 func TestForegroundLeavingDetectedAgentClears(t *testing.T) {
 	d, lp, id := openLive(t, 300)
 	lp.show(codexWorking, false)
