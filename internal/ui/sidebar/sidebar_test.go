@@ -19,7 +19,7 @@ import (
 )
 
 func TestRenameEndsWhenHiddenOrBlurred(t *testing.T) {
-	for _, name := range []string{"visible session", "visible group", "collapsed", "deleted session", "deleted group", "archived", "blurred session", "blurred group"} {
+	for _, name := range []string{"visible session", "visible group", "collapsed", "deleted session", "deleted group", "detached", "blurred session", "blurred group"} {
 		t.Run(name, func(t *testing.T) {
 			st := model.State{
 				Projects:   []model.Project{{ID: "g", Name: "Group", Kind: model.ProjectGroup}},
@@ -59,8 +59,8 @@ func TestRenameEndsWhenHiddenOrBlurred(t *testing.T) {
 			case "deleted group":
 				st.Projects = nil
 				r.Queue(key.Event{Name: key.NameReturn, State: key.Press})
-			case "archived":
-				st.Workspaces[0].Archived = true
+			case "detached":
+				st.Workspaces[0].Detached = true
 			case "blurred session", "blurred group":
 				r.Source().Execute(key.FocusCmd{})
 			}

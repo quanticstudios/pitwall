@@ -96,7 +96,7 @@ func TestNav(t *testing.T) {
 	check("new pane takes focus", "w5", "n1")
 	st = NewFakeBackend().State()
 	n.key(&st, press("1", alt))
-	if msg := n.key(&st, press("N", alt|key.ModShift)); !reflect.DeepEqual(msg, proto.OpenPane{WorkspaceID: "w1", Target: "c", Dir: layout.Vertical}) {
+	if msg := n.key(&st, press("N", alt|key.ModShift)); !reflect.DeepEqual(msg, proto.OpenPane{WorkspaceID: "w1", TabID: "t1", Target: "c", Dir: layout.Vertical}) {
 		t.Fatalf("Alt+Shift+N: %#v", msg)
 	}
 	if msg := n.key(&st, press("W", alt|key.ModShift)); msg != (proto.ClosePane{Pane: "c"}) {
@@ -116,7 +116,7 @@ func TestNav(t *testing.T) {
 	}
 }
 
-// TestNavSync covers a closed focused pane and an archived session.
+// TestNavSync covers a closed focused pane and a detached session.
 func TestNavSync(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
@@ -129,11 +129,11 @@ func TestNavSync(t *testing.T) {
 	if n.workspace != "w3" || n.focused() != "e" {
 		t.Fatalf("after close: %s/%s", n.workspace, n.focused())
 	}
-	b.Send(proto.ArchiveWorkspace{WorkspaceID: "w3", Archived: true})
+	b.Send(proto.DetachSession{WorkspaceID: "w3", Detached: true})
 	st = b.State()
 	n.sync(&st)
-	if n.workspace != "w1" {
-		t.Fatalf("after archive: %s", n.workspace)
+	if n.workspace != "w4" {
+		t.Fatalf("after detach: %s, want the next session in sidebar order", n.workspace)
 	}
 }
 
@@ -227,7 +227,7 @@ func TestStartup(t *testing.T) {
 	var n nav
 	st := model.State{}
 	n.sync(&st)
-	st.Workspaces = []model.Workspace{{ID: "s1", Path: "/home/me", Layout: layout.Leaf("p1")}}
+	st.Workspaces = []model.Workspace{{ID: "s1", Path: "/home/me", Tabs: []model.Tab{{ID: "t", Layout: layout.Leaf("p1")}}}}
 	n.sync(&st)
 	if n.workspace != "s1" || n.focused() != "p1" {
 		t.Fatalf("at %s/%s", n.workspace, n.focused())
