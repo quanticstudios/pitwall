@@ -67,6 +67,9 @@ func Start(c Config) (*Pane, error) {
 		readDone: make(chan struct{}),
 		done:     make(chan struct{}),
 	}
+	if d, ok := p.vt.(interface{ SetDirtyFunc(func()) }); ok {
+		d.SetDirtyFunc(p.signal)
+	}
 	go p.read()
 	go p.wait()
 	return p, nil
@@ -148,10 +151,7 @@ func (p *Pane) read() {
 			p.mu.Lock()
 			p.vt.Write(buf[:n])
 			p.mu.Unlock()
-			select {
-			case p.dirty <- struct{}{}:
-			default:
-			}
+			p.signal()
 		}
 		if err != nil {
 			return // EIO once every holder of the slave is gone, or the drain deadline
@@ -169,6 +169,13 @@ func (p *Pane) wait() {
 	<-p.readDone
 	p.ptmx.Close()
 	close(p.done)
+}
+
+func (p *Pane) signal() {
+	select {
+	case p.dirty <- struct{}{}:
+	default:
+	}
 }
 
 // Write sends input bytes to the process.

@@ -275,3 +275,35 @@ func TestConcurrentResizesAgree(t *testing.T) {
 		t.Fatalf("emulator %v, kernel %v", f.size, k)
 	}
 }
+
+// A synchronized-output frame that never ends must still reach the screen
+// once its timeout passes, without the child writing anything else.
+func TestSyncFrameTimeoutSignalsDirty(t *testing.T) {
+	p, err := Start(Config{ID: "p1", Cols: 10, Rows: 1, NewVT: vt.New, Cmd: []string{"sh", "-c",
+		`printf old; sleep 0.3; printf '\033[?2026h\r\033[Knew'; exec sleep 100`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	row := func() string {
+		g := p.Snapshot()
+		var s strings.Builder
+		for x := range g.Cols {
+			s.WriteString(g.At(x, 0).Content)
+		}
+		return strings.TrimSpace(s.String())
+	}
+	for deadline := time.Now().Add(3 * time.Second); row() != "old"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("screen %q, want old", row())
+		}
+	}
+	timeout := time.After(3 * time.Second)
+	for row() != "new" {
+		select {
+		case <-p.Dirty():
+		case <-timeout:
+			t.Fatalf("no dirty signal showed the timed-out frame; screen %q", row())
+		}
+	}
+}
