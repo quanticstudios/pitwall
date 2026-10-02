@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	gioui.org v0.10.3
-	github.com/charmbracelet/ultraviolet v0.0.0-20261001125412-878653296cfd
-	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
+	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/vt v0.0.0-20261001101533-953920dd3285
 	github.com/creack/pty v1.1.24
 )
