@@ -225,13 +225,7 @@ func (u *ui) confirmModal() {
 // this offers to delete the branch too.
 func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl.Dimensions {
 	th := u.th
-	var proj model.Project
-	for _, p := range st.Projects {
-		if p.ID == ws.ProjectID {
-			proj = p
-		}
-	}
-	worktree := proj.Kind == model.ProjectGit && ws.Path != "" && ws.Path != proj.Root
+	worktree := ws.WorktreeRoot != "" // the daemon removes only worktrees it made
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Delete \""+ws.Name+"\"?")

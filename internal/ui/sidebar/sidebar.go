@@ -64,6 +64,10 @@ type RenameGroup struct{ GroupID, Name string }
 // Ungroup deletes the group; its sessions become ungrouped.
 type Ungroup struct{ GroupID string }
 
+// NewWorktreeSession asks for a session in a fresh git worktree of the
+// group's repository.
+type NewWorktreeSession struct{ GroupID string }
+
 // Width is aide's w-72.
 const Width unit.Dp = 288
 
@@ -90,7 +94,7 @@ type Sidebar struct {
 	dismiss  int                          // tag for the click-outside catcher
 
 	groupMenu string // group whose overflow menu is open
-	groupItem [3]widget.Clickable
+	groupItem [4]widget.Clickable
 
 	// pending holds the group ids from before a NewGroup; the id that is
 	// not in it once the state changes is the new group, renamed inline.
@@ -422,6 +426,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			}
 			if s.groupItem[2].Clicked(gtx) {
 				s.events = append(s.events, Ungroup{GroupID: p.ID})
+				s.groupMenu = ""
+			}
+			if s.groupItem[3].Clicked(gtx) {
+				s.events = append(s.events, NewWorktreeSession{GroupID: p.ID})
 				s.groupMenu = ""
 			}
 		}
@@ -801,11 +809,15 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	if s.groupMenu == p.ID {
 		m := op.Record(gtx.Ops)
 		s.catcher(gtx)
-		s.menuList(gtx, th, btn, []menuEntry{
+		entries := []menuEntry{
 			{&s.groupItem[0], icPencil, "Rename group", false, false},
 			{&s.groupItem[1], projectIcon("palette"), "Icon and color", false, false},
-			{&s.groupItem[2], projectIcon("layers"), "Ungroup", false, true},
-		})
+		}
+		if p.Kind == model.ProjectGit {
+			entries = append(entries, menuEntry{&s.groupItem[3], projectIcon("git-branch"), "New worktree session", false, false})
+		}
+		entries = append(entries, menuEntry{&s.groupItem[2], projectIcon("layers"), "Ungroup", false, true})
+		s.menuList(gtx, th, btn, entries)
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	off.Pop()

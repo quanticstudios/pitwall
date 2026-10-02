@@ -28,6 +28,7 @@ func TestSidebarEvents(t *testing.T) {
 	u.sidebarEvent(&st, sidebar.NewSession{})
 	u.sidebarEvent(&st, sidebar.NewSession{GroupID: "g2"})
 	u.sidebarEvent(&st, sidebar.NewSession{GroupID: "g1"})
+	u.sidebarEvent(&st, sidebar.NewWorktreeSession{GroupID: "g2"})
 	u.sidebarEvent(&st, sidebar.DeleteWorkspace{WorkspaceID: "w3"})
 	if u.modal.kind != modalDelete || u.modal.ws != "w3" {
 		t.Fatalf("delete did not open the dialog: %+v", u.modal.kind)
@@ -48,6 +49,7 @@ func TestSidebarEvents(t *testing.T) {
 		proto.NewSession{Cwd: fakeHome + "/Work/pitwall", FromPane: "a"}, // the open session, where its shell is now
 		proto.NewSession{Cwd: fakeHome + "/src/web-app", GroupID: "g2"},    // the group's root
 		proto.NewSession{GroupID: "g1"},                                  // no root, open session elsewhere
+		proto.NewWorkspace{ProjectID: "g2"},
 		proto.DeleteWorkspace{WorkspaceID: "w3", RemoveBranch: true},
 	}
 	if got := b.Sent(); !reflect.DeepEqual(got, want) {
