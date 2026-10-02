@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -23,7 +22,7 @@ func (d *Daemon) firstSession(ctx context.Context, cwd string) error {
 	d.helloMu.Lock()
 	defer d.helloMu.Unlock()
 	d.mu.Lock()
-	open := slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return !w.Archived })
+	open := slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return !w.Detached })
 	d.mu.Unlock()
 	if open {
 		return nil
@@ -34,8 +33,9 @@ func (d *Daemon) firstSession(ctx context.Context, cwd string) error {
 	return d.newSession(ctx, proto.NewSession{Cwd: cwd})
 }
 
-// newSession opens a session with a shell pane in m.Cwd ("" means $HOME),
-// named after the directory.
+// newSession opens a session with one tab holding a shell in m.Cwd ("" means
+// $HOME), named m.Name or a generated name. Without a group, it joins the
+// project whose folder holds its directory.
 func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 	home := homeDir()
 	path := m.Cwd
@@ -62,27 +62,26 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 		return fmt.Errorf("%s is not a directory", path)
 	}
 	branch, _ := d.o.Branch(ctx, path)
-	base := filepath.Base(path)
-	if path == home {
-		base = "~"
-	}
+	root := d.repoRoot(ctx, path)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if m.GroupID != "" && d.project(m.GroupID) == nil {
 		return fmt.Errorf("no group %s", m.GroupID)
 	}
-	name := base
-	for n := 2; slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Name == name }); n++ {
-		name = fmt.Sprintf("%s %d", base, n)
+	name := m.Name
+	if name == "" {
+		name = d.freshName()
+	} else if d.nameTaken(name, "") {
+		return fmt.Errorf("a session is already named %s", name)
 	}
-	w := model.Workspace{ID: newID(), ProjectID: m.GroupID, Name: name, Branch: branch, Path: path, UpdatedAt: time.Now()}
-	id := newID()
-	if err := d.start(id, nil, path); err != nil {
+	if m.GroupID == "" {
+		m.GroupID = d.projectAt(path)
+	}
+	w := model.Workspace{ID: newID(), ProjectID: m.GroupID, Name: name, Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
+	if err := d.addTab(&w, path); err != nil {
 		return err
 	}
-	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cwd: path})
-	w.Layout = &layout.Node{Pane: id}
 	d.st.Workspaces = append(d.st.Workspaces, w)
 	d.changed()
 	if branch != "" {

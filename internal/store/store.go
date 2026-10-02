@@ -3,6 +3,8 @@
 package store
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
-// formatVersion 2 added Workspace.WorktreeRoot; version 1 files are
-// migrated once on load.
-const formatVersion = 2
+// formatVersion 3 moved Workspace.Layout into Tabs and renamed Archived to
+// Detached; version 2 added Workspace.WorktreeRoot. Older files are migrated
+// once on load.
+const formatVersion = 3
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -81,7 +85,7 @@ func Load(path string) (model.State, error) {
 	if err := json.Unmarshal(data, &saved); err != nil {
 		return model.State{}, fmt.Errorf("load state: %w", err)
 	}
-	if saved.FormatVersion != 1 && saved.FormatVersion != formatVersion {
+	if saved.FormatVersion < 1 || saved.FormatVersion > formatVersion {
 		return model.State{}, fmt.Errorf("unsupported state format version %d", saved.FormatVersion)
 	}
 	if saved.State == nil {
@@ -89,6 +93,11 @@ func Load(path string) (model.State, error) {
 	}
 	if saved.FormatVersion == 1 {
 		migrateWorktrees(saved.State)
+	}
+	if saved.FormatVersion < 3 {
+		if err := migrateTabs(data, saved.State); err != nil {
+			return model.State{}, err
+		}
 	}
 	return *saved.State, nil
 }
@@ -179,4 +188,34 @@ func migrateWorktrees(s *model.State) {
 			s.Workspaces[i].WorktreeRoot = root
 		}
 	}
+}
+
+// migrateTabs moves each version 2 workspace's Layout into a first tab and
+// turns Archived into Detached. Those fields left model.Workspace, so they
+// are read from the raw file.
+func migrateTabs(data []byte, s *model.State) error {
+	var old struct {
+		State struct {
+			Workspaces []struct {
+				Layout   *layout.Node
+				Archived bool
+			}
+		}
+	}
+	if err := json.Unmarshal(data, &old); err != nil {
+		return fmt.Errorf("load state: %w", err)
+	}
+	for i := range s.Workspaces {
+		w := &s.Workspaces[i]
+		o := old.State.Workspaces[i]
+		w.Tabs = []model.Tab{{ID: newID(), Layout: o.Layout}}
+		w.ActiveTab, w.Detached = w.Tabs[0].ID, o.Archived
+	}
+	return nil
+}
+
+func newID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }

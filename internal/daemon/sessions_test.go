@@ -19,7 +19,7 @@ func TestFirstSessionOnHello(t *testing.T) {
 		t.Fatalf("first state should hold one session with one pane: %+v", st)
 	}
 	w, p := st.Workspaces[0], st.Panes[0]
-	if w.Path != cwd || w.Name != filepath.Base(cwd) || w.ProjectID != "" || w.Layout.Pane != p.ID || p.Cwd != cwd || len(p.Cmd) != 0 || f.pane(0).cfg.Cwd != cwd {
+	if w.Path != cwd || w.Name == "" || w.ProjectID != "" || len(w.Tabs) != 1 || w.ActiveTab != w.Tabs[0].ID || lay(w).Pane != p.ID || p.Cwd != cwd || len(p.Cmd) != 0 || f.pane(0).cfg.Cwd != cwd {
 		t.Fatalf("session %+v pane %+v", w, p)
 	}
 
@@ -43,7 +43,7 @@ func TestHelloCwdFallsBackToHome(t *testing.T) {
 	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
 	defer stop()
 	st := dialIn(t, sock, "gui", filepath.Join(home, "missing")).waitState("first state", func(model.State) bool { return true })
-	if len(st.Workspaces) != 1 || st.Workspaces[0].Path != home || st.Workspaces[0].Name != "~" {
+	if len(st.Workspaces) != 1 || st.Workspaces[0].Path != home {
 		t.Fatalf("session: %+v", st.Workspaces)
 	}
 }
@@ -68,12 +68,12 @@ func TestSessionsAndGroups(t *testing.T) {
 		t.Fatal("NewSession in a missing directory succeeded")
 	}
 	ws := func() []model.Workspace { d.mu.Lock(); defer d.mu.Unlock(); return d.snapshot().Workspaces }
-	var names []string
+	var branches []string
 	for _, w := range ws() {
-		names = append(names, w.Name+"|"+w.Branch)
+		branches = append(branches, w.Branch)
 	}
-	if want := []string{"api|", "api 2|", "api 3|", "~|", "repo|repo"}; !slices.Equal(names, want) {
-		t.Fatalf("names %v, want %v", names, want)
+	if want := []string{"", "", "", "", "repo"}; !slices.Equal(branches, want) {
+		t.Fatalf("branches %v, want %v", branches, want)
 	}
 	if len(d.st.Panes) != 5 {
 		t.Fatalf("every session should open a shell: %d panes", len(d.st.Panes))
@@ -90,7 +90,7 @@ func TestSessionsAndGroups(t *testing.T) {
 		t.Fatalf("named group: %+v", d.st.Projects[1])
 	}
 	must(t, d.handle(ctx, proto.NewSession{Cwd: dir, GroupID: g.ID}))
-	if w := ws()[5]; w.ProjectID != g.ID || w.Name != "api 4" {
+	if w := ws()[5]; w.ProjectID != g.ID {
 		t.Fatalf("grouped session: %+v", w)
 	}
 	must(t, d.handle(ctx, proto.SetSessionGroup{WorkspaceID: a}))
@@ -106,7 +106,7 @@ func TestSessionsAndGroups(t *testing.T) {
 	}
 
 	must(t, d.handle(ctx, proto.DeleteGroup{GroupID: g.ID}))
-	if len(d.st.Projects) != 1 || ws()[1].ProjectID != "" || ws()[5].ProjectID != "" || len(d.st.Panes) != 6 || ws()[1].Layout == nil {
+	if len(d.st.Projects) != 1 || ws()[1].ProjectID != "" || ws()[5].ProjectID != "" || len(d.st.Panes) != 6 || lay(ws()[1]) == nil {
 		t.Fatalf("delete group: projects %+v sessions %+v", d.st.Projects, ws())
 	}
 	for i := range 6 {
@@ -199,10 +199,7 @@ func TestHandmadeWorktreeSurvivesRestart(t *testing.T) {
 	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
 	must(t, d.handle(ctx, proto.NewSession{Cwd: handmade, GroupID: d.st.Projects[0].ID}))
 	id := d.st.Workspaces[0].ID
-	f.saved = d.saveSnapshot()
-	for _, p := range d.panes {
-		p.Close()
-	}
+	d.shutdown()
 
 	d, err = NewWith(o)
 	if err != nil {
