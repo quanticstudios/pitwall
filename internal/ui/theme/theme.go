@@ -5,6 +5,7 @@ package theme
 import (
 	"image/color"
 
+	"gioui.org/font"
 	"gioui.org/text"
 	"gioui.org/unit"
 )
@@ -16,6 +17,13 @@ type Theme struct {
 	Border, Fg, Muted, Primary                              color.NRGBA
 	Red, Yellow, Green, Blue, Purple                        color.NRGBA
 
+	// Terminal colors: ANSI 0-15, and the default foreground, background
+	// and cursor.
+	ANSI                    [16]color.NRGBA
+	TermFg, TermBg, TermCur color.NRGBA
+
+	// Shaper is loaded with both faces.
+	UIFont, MonoFont              font.Font
 	TextSize, SmallSize, MonoSize unit.Sp
 }
 
