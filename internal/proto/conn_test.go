@@ -2,10 +2,16 @@ package proto
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/gob"
+	"errors"
+	"fmt"
+	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,6 +73,7 @@ func TestRoundTrip(t *testing.T) {
 	if len(msgs) != len(Messages) {
 		t.Fatalf("test covers %d of %d message types", len(msgs), len(Messages))
 	}
+	msgs = append(msgs, msgs...)
 	go func() {
 		for _, m := range msgs {
 			if err := ca.Send(m); err != nil {
@@ -82,6 +89,73 @@ func TestRoundTrip(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("%T round trip:\n got %+v\nwant %+v", want, got, want)
+		}
+	}
+}
+
+func TestRecvRejectsOversizedFrame(t *testing.T) {
+	for _, size := range []uint32{64<<20 + 1, ^uint32(0)} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			a, b := net.Pipe()
+			defer a.Close()
+			defer b.Close()
+			b.SetReadDeadline(time.Now().Add(time.Second))
+			c := NewConn(b)
+			go func() {
+				var header [4]byte
+				binary.BigEndian.PutUint32(header[:], size)
+				a.Write(header[:])
+			}()
+			if _, err := c.Recv(); err == nil || !strings.Contains(err.Error(), "exceeds") {
+				t.Fatalf("Recv() = %v; want size rejection before reading a body", err)
+			}
+		})
+	}
+}
+
+func TestRecvTruncatedFrame(t *testing.T) {
+	for _, data := range [][]byte{{0, 0, 0}, {0, 0, 0, 10, 1, 2, 3}} {
+		t.Run(fmt.Sprint(data), func(t *testing.T) {
+			a, b := net.Pipe()
+			defer b.Close()
+			go func() {
+				defer a.Close()
+				a.Write(data)
+			}()
+			if _, err := NewConn(b).Recv(); !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("Recv() = %v; want a truncated frame error", err)
+			}
+		})
+	}
+}
+
+func TestConcurrentSend(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	a.SetDeadline(time.Now().Add(5 * time.Second))
+	b.SetDeadline(time.Now().Add(5 * time.Second))
+	sender, receiver := NewConn(a), NewConn(b)
+	const n = 32
+	errs := make(chan error, n)
+	for i := range n {
+		go func() { errs <- sender.Send(Input{Pane: fmt.Sprint(i), Data: []byte("input")}) }()
+	}
+	seen := make(map[string]bool)
+	for range n {
+		m, err := receiver.Recv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		input, ok := m.(Input)
+		if !ok || seen[input.Pane] || string(input.Data) != "input" {
+			t.Fatalf("unexpected message: %#v", m)
+		}
+		seen[input.Pane] = true
+	}
+	for range n {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
 		}
 	}
 }
@@ -147,7 +221,48 @@ func TestDial(t *testing.T) {
 func TestSocketPath(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
-	if got, want := SocketPath(), filepath.Join(dir, "pitwall", "pitwall.sock"); got != want {
-		t.Fatalf("got %s want %s", got, want)
+	if got, err := SocketPath(); err != nil || got != filepath.Join(dir, "pitwall", "pitwall.sock") {
+		t.Fatalf("SocketPath() = %q, %v", got, err)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "pitwall"))
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("socket directory permissions: %v, %v", info, err)
+	}
+}
+
+func TestSocketPathRejectsUnsafeDirectory(t *testing.T) {
+	for _, kind := range []string{"group read", "group write", "group execute", "other read", "other write", "other execute", "symlink", "file", "foreign owner"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("XDG_RUNTIME_DIR", root)
+			dir := filepath.Join(root, "pitwall")
+			switch kind {
+			case "symlink":
+				if err := os.Symlink(t.TempDir(), dir); err != nil {
+					t.Fatal(err)
+				}
+			case "file":
+				if err := os.WriteFile(dir, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				if err := os.Mkdir(dir, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "foreign owner" {
+					if err := os.Chown(dir, os.Getuid()+1, -1); err != nil {
+						t.Skipf("cannot create a foreign-owned directory: %v", err)
+					}
+				} else {
+					bits := map[string]os.FileMode{"group read": 0o040, "group write": 0o020, "group execute": 0o010, "other read": 0o004, "other write": 0o002, "other execute": 0o001}
+					if err := os.Chmod(dir, 0o700|bits[kind]); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if path, err := SocketPath(); err == nil || path != "" {
+				t.Fatalf("SocketPath() = %q, %v; want an error and no path", path, err)
+			}
+		})
 	}
 }
