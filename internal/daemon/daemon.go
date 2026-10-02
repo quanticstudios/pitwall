@@ -32,6 +32,8 @@ const (
 	saveDelay     = time.Second
 	// New panes start at this size; the GUI sends Resize once it lays them out.
 	defaultCols, defaultRows = 80, 24
+	// inputQueue is how many Input messages may wait behind a PTY write.
+	inputQueue = 64
 )
 
 // Pane is what the daemon needs from a running pane; *pane.Pane has it.
@@ -74,8 +76,9 @@ type Daemon struct {
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
-	views       map[string]*view     // scroll positions, see scroll.go
-	clients     map[*client]struct{} // gui clients only
+	inputs      map[string]chan []byte // per pane, drained by writeInput
+	views       map[string]*view       // scroll positions, see scroll.go
+	clients     map[*client]struct{}   // gui clients only
 	closing     bool
 	savePending bool
 	live        liveness
@@ -125,7 +128,7 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, clients: map[*client]struct{}{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}}
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
 	for i := range d.st.Panes {
@@ -307,15 +310,20 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
-		p, err := d.pane(m.Pane)
-		if err != nil {
-			return err
+		d.mu.Lock()
+		p, in := d.panes[m.Pane], d.inputs[m.Pane]
+		d.mu.Unlock()
+		if p == nil {
+			return fmt.Errorf("no pane %s", m.Pane)
 		}
 		d.unscroll(m.Pane, p)
-		if _, err = p.Write(m.Data); err == nil {
+		select {
+		case in <- m.Data:
 			d.noteInput(m.Pane, m.Data)
+			return nil
+		default:
+			return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", m.Pane, len(m.Data))
 		}
-		return err
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
 		if err != nil {
@@ -500,6 +508,7 @@ func (d *Daemon) closePane(id string) error {
 func (d *Daemon) dropPane(id string) Pane {
 	h := d.panes[id]
 	delete(d.panes, id)
+	delete(d.inputs, id)
 	delete(d.views, id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
@@ -639,8 +648,28 @@ func (d *Daemon) start(id string, cmd []string, cwd string) error {
 		return err
 	}
 	d.panes[id] = p
+	in := make(chan []byte, inputQueue)
+	d.inputs[id] = in
 	go d.watch(id, p)
+	go writeInput(p, in)
 	return nil
+}
+
+// writeInput writes one pane's input on a goroutine of its own: a program
+// that stops reading stdin blocks this goroutine, never a client connection
+// or shutdown.
+// ponytail: the PTY fd is in blocking mode, so a write stuck when the pane
+// closes leaks this goroutine and the fd until the daemon exits; a
+// non-blocking fd in package pane would let Close interrupt it.
+func writeInput(p Pane, in <-chan []byte) {
+	for {
+		select {
+		case b := <-in:
+			p.Write(b) // a pane that cannot take input has exited, which watch reports
+		case <-p.Done():
+			return
+		}
+	}
 }
 
 // watch pushes at most 60 frames a second for one pane. Dirty has capacity

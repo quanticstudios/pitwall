@@ -440,3 +440,57 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 	}
 	t.Fatalf("timed out: %s", what)
 }
+
+// A paste into a program that never reads stdin blocks the handler in the PTY
+// write; shutdown must still save and close the pane.
+func TestShutdownWithBlockedWrite(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.NewVT = vt.New
+	o.StartPane = func(c pane.Config) (Pane, error) {
+		c.Cmd = []string{"sh", "-c", "stty raw -echo; echo ready; exec sleep 60"} // raw: a full input queue blocks the writer
+		p, err := pane.Start(c)
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
+	}
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	served := make(chan error, 1)
+	go func() { served <- d.Serve(ctx, ln) }()
+
+	gui := dial(t, sock, "gui")
+	folder := t.TempDir()
+	gui.send(proto.AddProject{Path: folder})
+	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 1 })
+	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[0].ID})
+	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	gui.waitFor("raw mode", func(m any) bool {
+		fr, ok := m.(proto.Frame)
+		return ok && len(fr.Grid.Cells) > 0 && fr.Grid.Cells[0].Content == "r"
+	})
+	gui.send(proto.Input{Pane: st.Panes[0].ID, Data: make([]byte, 1<<20)})
+	time.Sleep(200 * time.Millisecond) // the handler is now stuck in the write
+
+	cancel()
+	select {
+	case <-served:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve did not return with a PTY write pending")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.saved.Panes) != 1 || f.saved.Panes[0].Exited || f.saved.Panes[0].Cwd != folder {
+		t.Fatalf("final save: %+v", f.saved.Panes)
+	}
+}
