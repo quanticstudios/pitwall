@@ -5,6 +5,7 @@ package pane
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -68,7 +69,10 @@ func Start(c Config) (*Pane, error) {
 		done:     make(chan struct{}),
 	}
 	if d, ok := p.vt.(interface{ SetDirtyFunc(func()) }); ok {
-		d.SetDirtyFunc(p.signal)
+		// invariant: the callback holds the channel, not p. A method value
+		// would let the emulator keep its own pane alive.
+		dirty := p.dirty
+		d.SetDirtyFunc(func() { signal(dirty) })
 	}
 	go p.read()
 	go p.wait()
@@ -168,12 +172,19 @@ func (p *Pane) wait() {
 	p.ptmx.SetReadDeadline(time.Now().Add(drainTimeout))
 	<-p.readDone
 	p.ptmx.Close()
+	// Nothing reads replies once the PTY is gone, so the emulator's reply
+	// goroutines stop here instead of whenever the GC frees it.
+	if c, ok := p.vt.(io.Closer); ok {
+		c.Close()
+	}
 	close(p.done)
 }
 
-func (p *Pane) signal() {
+func (p *Pane) signal() { signal(p.dirty) }
+
+func signal(dirty chan struct{}) {
 	select {
-	case p.dirty <- struct{}{}:
+	case dirty <- struct{}{}:
 	default:
 	}
 }
