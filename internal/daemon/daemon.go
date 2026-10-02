@@ -143,6 +143,16 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
+	for i, w := range st.Workspaces {
+		if w.WorktreeRoot == "" && w.ProjectID != "" {
+			for _, p := range st.Projects {
+				if p.ID == w.ProjectID {
+					// State saved before WorktreeRoot existed.
+					st.Workspaces[i].WorktreeRoot = worktreeRoot(p, w.Path)
+				}
+			}
+		}
+	}
 	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}}
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
@@ -443,6 +453,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	defer d.mu.Unlock()
 	d.st.Workspaces = append(d.st.Workspaces, model.Workspace{
 		ID: newID(), ProjectID: p.ID, Name: m.Name, Branch: branch, Path: path, UpdatedAt: time.Now(),
+		WorktreeRoot: worktreeRoot(p, path),
 	})
 	d.changed()
 	return nil
@@ -525,25 +536,20 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	d.mu.Lock()
 	w := d.workspace(m.WorkspaceID)
 	var ws model.Workspace
-	var proj model.Project
 	if w != nil {
 		ws = *w
-		if i := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.ID == ws.ProjectID }); i >= 0 {
-			proj = d.st.Projects[i]
-		}
 	}
 	d.mu.Unlock()
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
-	// The main checkout is never removed: only worktrees pitwall could have
-	// added. A session grouped in later can sit anywhere, so the path must be
-	// where AddWorktree puts them.
+	// Only a worktree pitwall created for this session is removed. Sessions
+	// can be regrouped anywhere, so neither the group nor the path decides.
 	var err error
-	if proj.Kind == model.ProjectGit && filepath.Dir(ws.Path) == filepath.Join(proj.Root, ".worktrees") {
+	if ws.WorktreeRoot != "" {
 		// A kept branch is still reported, but the worktree is gone, so the
 		// workspace goes too.
-		if err = d.o.RemoveWorktree(ctx, proj.Root, ws.Path, m.RemoveBranch); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
+		if err = d.o.RemoveWorktree(ctx, ws.WorktreeRoot, ws.Path, m.RemoveBranch); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
 			return err
 		}
 	}
@@ -954,4 +960,13 @@ func newID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// worktreeRoot is p.Root when path is a worktree AddWorktree made for p,
+// which puts them in <root>/.worktrees/<name>.
+func worktreeRoot(p model.Project, path string) string {
+	if p.Kind == model.ProjectGit && filepath.Dir(path) == filepath.Join(p.Root, ".worktrees") {
+		return p.Root
+	}
+	return ""
 }

@@ -35,9 +35,13 @@ type Workspace struct {
 	Name      string
 	Branch    string // git branch of Path, "" outside a repo
 	Path      string // directory the session started in
-	Archived  bool
-	UpdatedAt time.Time
-	Layout    *layout.Node // nil until the first pane opens
+	// WorktreeRoot is the repo root when pitwall created Path as a git
+	// worktree for this session. Only then does deleting the session remove
+	// the directory.
+	WorktreeRoot string
+	Archived     bool
+	UpdatedAt    time.Time
+	Layout       *layout.Node // nil until the first pane opens
 }
 
 type Provider string
