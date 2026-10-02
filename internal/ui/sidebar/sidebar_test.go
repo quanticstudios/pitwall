@@ -2,10 +2,12 @@ package sidebar
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -84,5 +86,71 @@ func TestProjectIcons(t *testing.T) {
 	}
 	if projectIcon("code") == icFolder || projectIcon("no-such-icon") != icFolder || projectIcon("") != icFolder {
 		t.Error("projectIcon lookup or fallback is wrong")
+	}
+}
+
+func TestShortPathAndPill(t *testing.T) {
+	for in, want := range map[string]string{
+		"/home/me": "~", "/home/me/Work/x": "~/Work/x", "/home/meow": "/home/meow", "/tmp": "/tmp", "": "",
+	} {
+		if got := shortPath(in, "/home/me"); got != want {
+			t.Errorf("shortPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+	run := model.Activity{Provider: model.ProviderTerminal, State: model.StateTerminalRunning, Detail: "go"}
+	if PillText(run) != "go" {
+		t.Errorf("running terminal pill = %q", PillText(run))
+	}
+	run.Detail = ""
+	if PillText(run) != "Running" {
+		t.Errorf("no command = %q", PillText(run))
+	}
+}
+
+// TestSelection walks plain, Ctrl and Shift clicks over ungrouped w1..w3
+// and w4 in an expanded group.
+func TestSelection(t *testing.T) {
+	st := &model.State{
+		Projects: []model.Project{{ID: "g", Name: "g", Kind: model.ProjectGroup}},
+		Workspaces: []model.Workspace{
+			{ID: "w4", ProjectID: "g"}, {ID: "w1"}, {ID: "w2"}, {ID: "w3", ProjectID: "gone"},
+		},
+	}
+	s := Sidebar{expanded: map[string]bool{"g": true}, selected: map[string]bool{}}
+	v := &view{st: st, active: "w1", byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}}
+	v.byProject[""] = st.Workspaces[1:]
+	v.byProject["g"] = st.Workspaces[:1]
+	if got := s.order(v); !slices.Equal(got, []string{"w1", "w2", "w3", "w4"}) {
+		t.Fatalf("order %v", got)
+	}
+	picked := func() []string {
+		var out []string
+		for _, id := range s.order(v) {
+			if s.selected[id] {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	s.click(v, "w3", key.ModShortcut)
+	if got := picked(); !slices.Equal(got, []string{"w1", "w3"}) {
+		t.Fatalf("Ctrl+click from the open session: %v", got)
+	}
+	if len(s.events) != 0 {
+		t.Fatalf("Ctrl+click selected a session: %v", s.events)
+	}
+	s.click(v, "w4", key.ModShift)
+	if got := picked(); !slices.Equal(got, []string{"w3", "w4"}) {
+		t.Fatalf("Shift+click from the anchor: %v", got)
+	}
+	if got := s.targets(v, "w4"); !slices.Equal(got, []string{"w4", "w3"}) {
+		t.Fatalf("targets in state order: %v", got)
+	}
+	if got := s.targets(v, "w2"); !slices.Equal(got, []string{"w2"}) {
+		t.Fatalf("a row outside the selection targets itself: %v", got)
+	}
+	s.click(v, "w2", 0)
+	if len(s.selected) != 0 || len(s.events) != 1 || s.events[0] != (SelectWorkspace{WorkspaceID: "w2"}) {
+		t.Fatalf("plain click: %v %v", s.selected, s.events)
 	}
 }

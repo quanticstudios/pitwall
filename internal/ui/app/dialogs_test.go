@@ -19,7 +19,15 @@ func TestSidebarEvents(t *testing.T) {
 	u.sidebarEvent(&st, sidebar.ArchiveWorkspace{WorkspaceID: "w2"})
 	u.sidebarEvent(&st, sidebar.ArchiveWorkspace{WorkspaceID: "w2"}) // twice still archives
 	u.sidebarEvent(&st, sidebar.RestoreWorkspace{WorkspaceID: "w2"})
-	u.sidebarEvent(&st, sidebar.SetProjectAppearance{ProjectID: "p1", Icon: "code", Color: "sky"})
+	u.sidebarEvent(&st, sidebar.SetProjectAppearance{ProjectID: "g1", Icon: "code", Color: "sky"})
+	u.sidebarEvent(&st, sidebar.MoveToGroup{WorkspaceIDs: []string{"w1", "w2"}, GroupID: "g2"})
+	u.sidebarEvent(&st, sidebar.MoveToGroup{WorkspaceIDs: []string{"w4"}})
+	u.sidebarEvent(&st, sidebar.NewGroup{WorkspaceIDs: []string{"w2", "w3"}})
+	u.sidebarEvent(&st, sidebar.RenameGroup{GroupID: "g1", Name: "bots"})
+	u.sidebarEvent(&st, sidebar.Ungroup{GroupID: "g1"})
+	u.sidebarEvent(&st, sidebar.NewSession{})
+	u.sidebarEvent(&st, sidebar.NewSession{GroupID: "g2"})
+	u.sidebarEvent(&st, sidebar.NewSession{GroupID: "g1"})
 	u.sidebarEvent(&st, sidebar.DeleteWorkspace{WorkspaceID: "w3"})
 	if u.modal.kind != modalDelete || u.modal.ws != "w3" {
 		t.Fatalf("delete did not open the dialog: %+v", u.modal.kind)
@@ -30,7 +38,16 @@ func TestSidebarEvents(t *testing.T) {
 		proto.ArchiveWorkspace{WorkspaceID: "w2", Archived: true},
 		proto.ArchiveWorkspace{WorkspaceID: "w2", Archived: true},
 		proto.ArchiveWorkspace{WorkspaceID: "w2", Archived: false},
-		proto.SetProjectAppearance{ProjectID: "p1", Icon: "code", Color: "sky"},
+		proto.SetProjectAppearance{ProjectID: "g1", Icon: "code", Color: "sky"},
+		proto.SetSessionGroup{WorkspaceID: "w1", GroupID: "g2"},
+		proto.SetSessionGroup{WorkspaceID: "w2", GroupID: "g2"},
+		proto.SetSessionGroup{WorkspaceID: "w4"},
+		proto.NewGroup{Name: "New group", WorkspaceIDs: []string{"w2", "w3"}},
+		proto.RenameGroup{GroupID: "g1", Name: "bots"},
+		proto.DeleteGroup{GroupID: "g1"},
+		proto.NewSession{Cwd: fakeHome + "/Work/pitwall"},             // the open session's folder
+		proto.NewSession{Cwd: fakeHome + "/src/web-app", GroupID: "g2"}, // the group's root
+		proto.NewSession{GroupID: "g1"},                               // no root, open session elsewhere
 		proto.DeleteWorkspace{WorkspaceID: "w3", RemoveBranch: true},
 	}
 	if got := b.Sent(); !reflect.DeepEqual(got, want) {
