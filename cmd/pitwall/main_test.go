@@ -141,6 +141,7 @@ func fakeOldDaemon(mode string) error {
 }
 
 func TestDialOrStartRestartsOldDaemon(t *testing.T) {
+	t.Setenv("PITWALL_SOCKET", "")
 	for _, mode := range []string{"raw", "error", "silent", "empty", "stuck"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
@@ -235,6 +236,7 @@ func TestDialOrStartRestartsOldDaemon(t *testing.T) {
 }
 
 func TestDialOrStartHealthyDaemon(t *testing.T) {
+	t.Setenv("PITWALL_SOCKET", "")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())

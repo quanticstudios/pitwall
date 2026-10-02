@@ -1,10 +1,12 @@
 package main
 
 import (
+	"os"
 	"sync"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/app"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -12,6 +14,7 @@ import (
 type backend struct {
 	conn    *proto.Conn
 	changed chan struct{}
+	focus   chan proto.FocusSession
 
 	mu     sync.Mutex
 	state  model.State
@@ -19,8 +22,14 @@ type backend struct {
 }
 
 func newBackend(c *proto.Conn) *backend {
-	return &backend{conn: c, changed: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
+	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), frames: map[string]proto.Frame{}}
+	if id := os.Getenv("PITWALL_ATTACH"); id != "" {
+		b.focus <- proto.FocusSession{WorkspaceID: id}
+	}
+	return b
 }
+
+var _ app.Focuser = (*backend)(nil)
 
 func (b *backend) State() model.State {
 	b.mu.Lock()
@@ -35,8 +44,9 @@ func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 	return f.Grid, f.Modes, ok
 }
 
-func (b *backend) Send(msg any) error       { return b.conn.Send(msg) }
-func (b *backend) Changed() <-chan struct{} { return b.changed }
+func (b *backend) Send(msg any) error               { return b.conn.Send(msg) }
+func (b *backend) Changed() <-chan struct{}         { return b.changed }
+func (b *backend) Focus() <-chan proto.FocusSession { return b.focus }
 
 func (b *backend) recvLoop() {
 	defer close(b.changed)
@@ -44,6 +54,14 @@ func (b *backend) recvLoop() {
 		msg, err := b.conn.Recv()
 		if err != nil {
 			return
+		}
+		if focus, ok := msg.(proto.FocusSession); ok {
+			b.focus <- focus
+			select {
+			case b.changed <- struct{}{}:
+			default:
+			}
+			continue
 		}
 		b.mu.Lock()
 		switch m := msg.(type) {
