@@ -120,9 +120,21 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			if textKey(e) && !kittyAll {
 				continue
 			}
+			v.keyText = ""
+			if kittyAll && e.State == key.Press && textKey(e) {
+				v.keyText = string(e.Name)
+				if e.Name == key.NameSpace {
+					v.keyText = " "
+				}
+			}
 			out = append(out, input.Key(e, m)...)
 		case key.EditEvent:
-			if !kittyAll {
+			// Report-all already encoded a plain key press; its text event
+			// follows it and is dropped. IME and compose commits have no
+			// such press and go through.
+			dup := kittyAll && v.keyText != "" && strings.EqualFold(e.Text, v.keyText)
+			v.keyText = ""
+			if !dup {
 				out = append(out, input.Text(e.Text)...)
 			}
 		case transfer.DataEvent:

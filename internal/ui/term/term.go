@@ -66,6 +66,8 @@ type View struct {
 	lastPress pointer.Event
 	lastCell  image.Point
 
+	keyText string // text of the key press report-all just encoded
+
 	scrollPx          float32 // wheel distance not yet a whole line
 	scrollLines       int
 	scrollOff, scrMax int
