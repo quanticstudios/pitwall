@@ -423,3 +423,99 @@ func TestCursorBlink(t *testing.T) {
 		}
 	}
 }
+
+// routedPane lays a View out through a real Gio router. Each call queues
+// evs, draws one frame and returns the PTY bytes it produced. Two empty
+// frames first register the handler and take key focus.
+func routedPane(t *testing.T) (*View, func(m vt.Modes, focused bool, evs ...event.Event) string) {
+	t.Helper()
+	var r input.Router
+	v := new(View)
+	th := testTheme()
+	g := denseGrid(20, 5, 0, 7)
+	frame := func(m vt.Modes, focused bool, evs ...event.Event) string {
+		r.Queue(evs...)
+		gtx := testContext(image.Pt(400, 300))
+		gtx.Source = r.Source()
+		_, in, _, _ := v.Layout(gtx, th, g, m, focused)
+		r.Frame(gtx.Ops)
+		return string(in)
+	}
+	frame(vt.Modes{}, true)
+	frame(vt.Modes{}, true)
+	return v, frame
+}
+
+// TestKittyReportAllText checks committed text in kitty report-all mode:
+// a plain key's duplicate text event is dropped, while IME and compose
+// commits with no matching key press reach the program once.
+func TestKittyReportAllText(t *testing.T) {
+	_, frame := routedPane(t)
+	m := vt.Modes{KittyKeyboard: 8}
+	a := key.Event{Name: "A", State: key.Press}
+	got := frame(m, true, a, key.EditEvent{Text: "a"}, key.EditEvent{Text: "日本語"}, key.EditEvent{Text: "é"})
+	if want := "\x1b[97;1u日本語é"; got != want {
+		t.Errorf("report-all = %q, want %q", got, want)
+	}
+	if got := frame(vt.Modes{}, true, a, key.EditEvent{Text: "a"}, key.EditEvent{Text: "日本語"}); got != "a日本語" {
+		t.Errorf("legacy = %q", got)
+	}
+}
+
+// TestMouseButtonChange checks SGR reports name the button that changed:
+// Gio's release event carries the buttons still held, not the released one.
+func TestMouseButtonChange(t *testing.T) {
+	v, frame := routedPane(t)
+	m := vt.Modes{Mouse: vt.MouseNormal, MouseSGR: true}
+	pad := float32(testContext(image.Pt(1, 1)).Dp(padding))
+	at := f32.Pt(pad+float32(2*v.cell.X)+1, pad+float32(v.cell.Y)+1) // cell (2,1)
+	for _, tc := range []struct {
+		e    pointer.Event
+		want string
+	}{
+		{pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonSecondary, Position: at}, "\x1b[<2;3;2M"},
+		{pointer.Event{Kind: pointer.Release, Position: at}, "\x1b[<2;3;2m"},
+		{pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonPrimary, Position: at}, "\x1b[<0;3;2M"},
+		{pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonPrimary | pointer.ButtonTertiary, Position: at}, "\x1b[<1;3;2M"},
+		{pointer.Event{Kind: pointer.Release, Buttons: pointer.ButtonPrimary, Position: at}, "\x1b[<1;3;2m"},
+		{pointer.Event{Kind: pointer.Release, Position: at}, "\x1b[<0;3;2m"},
+	} {
+		if got := frame(m, true, tc.e); got != tc.want {
+			t.Errorf("%v %v: got %q, want %q", tc.e.Kind, tc.e.Buttons, got, tc.want)
+		}
+	}
+}
+
+// TestFocusReports checks mode 1004: the pane losing and regaining focus,
+// the window doing the same, and a pane no longer drawn each send CSI O or
+// CSI I once, and nothing goes out with the mode off.
+func TestFocusReports(t *testing.T) {
+	v, frame := routedPane(t)
+	on := vt.Modes{FocusEvents: true}
+	for _, tc := range []struct {
+		name    string
+		m       vt.Modes
+		focused bool
+		evs     []event.Event
+		want    string
+	}{
+		{"pane blur", on, false, nil, "\x1b[O"},
+		{"still blurred", on, false, nil, ""},
+		{"pane focus", on, true, nil, "\x1b[I"},
+		{"window blur", on, true, []event.Event{key.FocusEvent{Focus: false}}, "\x1b[O"},
+		{"window focus", on, true, []event.Event{key.FocusEvent{Focus: true}}, "\x1b[I"},
+		{"off blur", vt.Modes{}, false, nil, ""},
+		{"off focus", vt.Modes{}, true, nil, ""},
+	} {
+		if got := frame(tc.m, tc.focused, tc.evs...); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	frame(on, true)
+	if got := string(v.Blur()); got != "\x1b[O" {
+		t.Errorf("Blur = %q", got)
+	}
+	if got := v.Blur(); got != nil {
+		t.Errorf("second Blur = %q", got)
+	}
+}

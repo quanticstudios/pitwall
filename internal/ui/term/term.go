@@ -65,6 +65,9 @@ type View struct {
 	dragging  bool
 	lastPress pointer.Event
 	lastCell  image.Point
+	buttons   pointer.Buttons // held as of the last pointer event
+
+	keyText string // text of the key press report-all just encoded
 
 	scrollPx          float32 // wheel distance not yet a whole line
 	scrollLines       int
@@ -72,6 +75,10 @@ type View struct {
 
 	blinkAt    time.Time
 	wasFocused bool
+
+	keyFocus  bool // Gio key focus with the window focused
+	focusIn   bool // the focus state the program was last told
+	focusMode bool // the program had mode 1004 on in the last frame
 
 	filters []event.Filter
 }
