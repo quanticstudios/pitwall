@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -44,6 +45,30 @@ func ReadScreen(g vt.Grid) Screen {
 		return ScreenBusy
 	}
 	return ScreenNone
+}
+
+// State is what an agent's screen says when no hook reports for it: working,
+// pending-approval, plan-ready or awaiting-input. It is "" for a screen with
+// none of them, which is an idle prompt or a reply streaming without a
+// spinner; the caller tells those apart by whether the screen still moves.
+func State(g vt.Grid) model.AgentState {
+	switch ReadScreen(g) {
+	case ScreenBusy:
+		return model.StateWorking
+	case ScreenNone:
+		return ""
+	}
+	for _, l := range bottomLines(g, screenLines) {
+		low := strings.ToLower(l)
+		switch {
+		case strings.Contains(low, "would you like to proceed"):
+			return model.StatePlanReady
+		// Claude's AskUserQuestion and MCP input forms, Codex's question form.
+		case strings.Contains(low, "enter to select"), strings.Contains(low, "requests your input"), strings.Contains(low, "enter to submit"):
+			return model.StateAwaitingInput
+		}
+	}
+	return model.StatePendingApproval
 }
 
 // bottomLines returns up to n non-empty rows of g, bottom row first.

@@ -11,8 +11,8 @@ import (
 
 // Liveness timings; tests shorten them.
 var (
-	// livePoll is how often panes with an activity get their foreground
-	// process group read: one TIOCGPGRP ioctl per such pane, nothing else.
+	// livePoll is how often every pane gets its foreground process group
+	// read, for the exit check here and for detect.
 	livePoll = time.Second
 	// settleDelay is how long after a key the screen is judged, and stillFor
 	// how long before that the first of the two compared snapshots is taken.
@@ -25,6 +25,7 @@ var (
 type liveness struct {
 	hookAt map[string]time.Time // pane: when its agent last sent a hook
 	fg     map[string]int       // pane: its foreground process group at that hook
+	det    map[string]*detected // pane: what detect saw at its last poll
 }
 
 // foregrounder is the optional Pane method behind the exit check;
@@ -127,16 +128,22 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		case <-t.C:
 		}
 		d.checkForeground()
+		d.detect(ctx)
 	}
 }
 
 func (d *Daemon) checkForeground() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for id := range d.live.fg {
+	for id := range d.live.hookAt {
 		if d.panes[id] == nil {
 			delete(d.live.fg, id)
 			delete(d.live.hookAt, id)
+		}
+	}
+	for id := range d.live.det {
+		if d.panes[id] == nil {
+			delete(d.live.det, id)
 		}
 	}
 	for _, a := range slices.Clone(d.st.Activities) {

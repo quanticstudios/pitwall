@@ -633,8 +633,9 @@ func TestSlowClientDisconnected(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go d.Serve(ctx, ln)
+	served := make(chan error)
+	defer func() { cancel(); <-served }() // its liveness loop reads globals later tests set
+	go func() { served <- d.Serve(ctx, ln) }()
 
 	good := dial(t, sock, "gui")
 	good.waitState("initial", func(model.State) bool { return true })
