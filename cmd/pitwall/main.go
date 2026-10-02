@@ -31,6 +31,15 @@ const usage = `usage:
   pitwall hooks              print the Claude Code and Codex config that calls the hook
   pitwall hooks install      merge hooks into agent config files (--dry-run)
   pitwall hooks uninstall    remove this binary's hooks (--dry-run)
+  pitwall ls [--json]        list sessions
+  pitwall new [-n name] [-d] [dir]  create a session (-d detaches it)
+  pitwall attach [name]      show a session in the window
+  pitwall detach [name]      hide a session, keeping its processes running
+  pitwall kill [-f] <name>   close a session and its processes
+  pitwall rename [old] <new> rename a session
+  pitwall tab new            open a tab in the calling pane's session
+  pitwall tab rename [name...]  name the calling pane's tab (empty clears)
+  pitwall tab close          close the calling pane's tab
 `
 
 func main() {
@@ -48,6 +57,8 @@ func main() {
 		runHook(os.Args[2:])
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)
+	case "ls", "new", "attach", "detach", "kill", "rename", "tab":
+		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -188,6 +199,11 @@ func printHooks() error {
 }
 
 func runGUI() error {
+	lock, err := guiLock()
+	if err != nil || lock == nil {
+		return err
+	}
+	defer lock.Close()
 	conn, initial, err := dialOrStart()
 	if err != nil {
 		return err
@@ -202,7 +218,7 @@ func runGUI() error {
 // dialOrStart completes the GUI handshake before starting the window. An
 // incompatible daemon gets one graceful restart so it can save its state.
 func dialOrStart() (*proto.Conn, proto.StateMsg, error) {
-	path, err := proto.SocketPath()
+	path, err := socketPath()
 	if err != nil {
 		return nil, proto.StateMsg{}, err
 	}

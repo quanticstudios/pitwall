@@ -1,6 +1,6 @@
 # pitwall
 
-pitwall is a native terminal multiplexer for coding agents on Linux and Hyprland. It opens straight into a shell, like tmux. Each session is a set of split panes, and the sidebar shows what every session is doing: a running command, or a Claude Code or Codex agent working, waiting for input, asking for approval, done, or failed. Sessions start ungrouped; you group the ones that belong together later. Go and Gio draw the window, so it is not limited to terminal cells.
+pitwall is a native terminal multiplexer for coding agents on Linux and Hyprland. It opens straight into a shell, like tmux. Each session has tabs of split panes, and the sidebar shows what every session is doing: a running command, or a Claude Code or Codex agent working, waiting for input, asking for approval, done, or failed. Sessions start ungrouped; you group the ones that belong together later. Go and Gio draw the window, so it is not limited to terminal cells.
 
 A daemon owns the PTYs, so closing the window leaves sessions running. It saves sessions, groups, pane commands, and agent session IDs to disk, and brings them back after a reboot.
 
@@ -38,9 +38,13 @@ pitwall
 
 ## Sessions and groups
 
-Sessions start ungrouped, at the top of the sidebar, named after their folder. Each row shows the session's state: the command a terminal is running, or the agent's state and what it is asking. A second line shows `+added -deleted` lines and the branch inside a Git repo, otherwise the folder.
+Sessions get unique generated names such as `swift-otter`. Ungrouped sessions appear at the top of the sidebar. Each row shows the session's state: the command a terminal is running, or the agent's state and what it is asking. A second line shows `+added -deleted` lines and the branch inside a Git repo, otherwise the folder.
 
 To group sessions, Ctrl+click or Shift+click to pick several, then right-click and choose **New group**, or **Move to group** for an existing one. **Remove from group** and the group's **Ungroup** never close anything. **Open folder as group** in the footer makes a group for a folder; for a Git repo, the group's new-worktree action creates a session in a fresh worktree under `<repo>/.worktrees/`. Deleting such a session removes that worktree; deleting any other session leaves its folder alone.
+
+To group by folder, right-click a session and choose `Group sessions in <folder>`. Ungrouped sessions from that folder join the group. New sessions inside a group's folder join it automatically.
+
+**Detach** hides a session from the sidebar and keeps its processes running. Use `pitwall attach <name>` to show it again.
 
 Agents report their state through hooks (below). Without hooks, pitwall still recognizes `claude` and `codex` as the pane's foreground process and reads their state from the screen, which is less exact. When a session needs you and you are not looking at it, pitwall sends a desktop notification with `notify-send`.
 
@@ -48,6 +52,49 @@ Close the window and run `pitwall` again to reconnect to the same daemon. To run
 
 ```sh
 pitwall daemon
+```
+
+## Sessions from the command line
+
+| Command                            | Action                                                                                                                                                    |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pitwall ls [--json]`              | List session name, highest-priority activity or `idle`, tab count, folder, group and a `(detached)` marker. `--json` prints the sessions as a JSON array. |
+| `pitwall new [-n name] [-d] [dir]` | Create a session in `dir` or the current directory and print its name. `-n` sets the name; `-d` detaches it.                                              |
+| `pitwall attach [name]`            | Show the session in the GUI. Start the GUI if no window holds its lock.                                                                                   |
+| `pitwall detach [name]`            | Hide the session and keep its processes running.                                                                                                          |
+| `pitwall kill [-f] <name>`         | Close the session and its processes, keeping its files. On a TTY, ask `kill <name>? [y/N]`; `-f` skips confirmation.                                      |
+| `pitwall rename [old] <new>`       | Rename the session.                                                                                                                                       |
+| `pitwall tab new`                  | Open a tab in the calling pane's session, in the pane's current directory.                                                                                |
+| `pitwall tab rename [name...]`     | Set the calling pane's tab name. No name restores its automatic title.                                                                                    |
+| `pitwall tab close`                | Close the tab containing the calling pane.                                                                                                                |
+
+Session names match exactly first, then by unique prefix. Ambiguous prefixes report the matching names. Inside a pitwall pane, omitted names for `attach`, `detach` and `rename` select the pane's own session through `PITWALL_PANE`. Outside a pane, supply a session name.
+
+Tab commands require `PITWALL_PANE`. They print nothing on success and exit with status 1 on failure. When no daemon runs, `ls` prints nothing and exits with status 0; other session commands report `pitwall is not running`. Commands use `PITWALL_SOCKET` when set and the default daemon socket otherwise.
+
+```sh
+pitwall new -n auth -d ./service
+pitwall ls
+pitwall attach auth
+pitwall rename auth login
+pitwall detach login
+pitwall kill -f login
+```
+
+## Let agents name their tab
+
+Claude Code and Codex set terminal titles that pitwall shows on the tab automatically. For an explicit name, an agent can run:
+
+```sh
+pitwall tab rename "Fix login redirects"
+```
+
+Put this instruction in `CLAUDE.md` or `AGENTS.md`:
+
+```markdown
+At the start of a task inside a pitwall pane, run
+`pitwall tab rename "<short description of the task>"`.
+Run `pitwall tab rename` to restore the automatic terminal title.
 ```
 
 ## Hooks
@@ -80,23 +127,29 @@ For manual configuration, `pitwall hooks` prints Claude Code and Codex JSON bloc
 
 These bindings match the settings dialog and navigation code:
 
-| Keys                          | Action                                |
-| ----------------------------- | ------------------------------------- |
-| Alt+J / Alt+K                 | Next / previous session in the group  |
-| Alt+H / Alt+L                 | Previous / next pane                  |
-| Alt+Arrows                    | Same as J / K / H / L                 |
-| Hold Alt                      | Show the session switcher             |
-| Alt+Space                     | Pin the switcher open                 |
-| Alt+1-9                       | Jump to session                       |
-| Alt+N                         | Split the pane to the right           |
-| Alt+Shift+N                   | Split the pane below                  |
-| Alt+Shift+W                   | Close the pane                        |
-| Alt+Shift+T                   | New session in this folder            |
-| Ctrl+Shift+C / Ctrl+Shift+V   | Copy selection / paste                |
-| Escape                        | Close the switcher or dialog          |
-| Tab in the folder field       | Complete a folder name                |
-| Enter in the folder field     | Open the folder as a group            |
-| Shift+PageUp / Shift+PageDown | Scroll backward / forward by one page |
+| Keys                              | Action                                |
+| --------------------------------- | ------------------------------------- |
+| Alt+J / Alt+K                     | Next / previous session in the group  |
+| Alt+H / Alt+L                     | Previous / next pane                  |
+| Alt+Arrows                        | Same as J / K / H / L                 |
+| Hold Alt                          | Show the session switcher             |
+| Alt+Space                         | Pin the switcher open                 |
+| Alt+1-9                           | Jump to session                       |
+| Alt+N                             | Split the pane to the right           |
+| Alt+Shift+N                       | Split the pane below                  |
+| Alt+Shift+W                       | Close the pane                        |
+| Alt+Shift+T                       | New session in this folder            |
+| Ctrl+T then n                     | New tab                               |
+| Ctrl+T then x                     | Close the tab                         |
+| Ctrl+T then r                     | Rename the tab                        |
+| Ctrl+T then h / l or Left / Right | Previous / next tab                   |
+| Ctrl+T then 1-9                   | Jump to tab                           |
+| Ctrl+T twice                      | Send Ctrl+T to the terminal           |
+| Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                |
+| Escape                            | Close the switcher or dialog          |
+| Tab in the folder field           | Complete a folder name                |
+| Enter in the folder field         | Open the folder as a group            |
+| Shift+PageUp / Shift+PageDown     | Scroll backward / forward by one page |
 
 Alt+J/K cycles within the current group when the switcher is hidden; ungrouped sessions count as one group. With the switcher visible, it moves through every session, and releasing Alt switches to the selected one. Alt+1-9 follows the switcher's order. Alt+Down/Up changes session; Alt+Left/Right changes pane. Ctrl+click and Shift+click in the sidebar pick sessions for grouping.
 
