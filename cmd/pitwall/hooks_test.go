@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -16,6 +17,7 @@ func hooksHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "")
 	previous := hookExecutable
 	hookExecutable = func() (string, error) { return "/opt/pitwall/bin/pitwall", nil }
 	t.Cleanup(func() { hookExecutable = previous })
@@ -170,7 +172,7 @@ func TestHooksRefuseTemporaryExecutable(t *testing.T) {
 func TestHooksMergeMixedGroups(t *testing.T) {
 	bin := "/opt/pitwall/bin/pitwall"
 	original := []byte(`{"hooks":{"Stop":[{"matcher":"*","extra":true,"hooks":[{"command":"'/opt/pitwall/bin/pitwall' hook claude"},{"command":"'/opt/other/pitwall' hook claude"},{"command":"echo /opt/pitwall/bin/pitwall hook claude"}]}],"Empty":[]}}`)
-	installed, changes, err := mergeHooks(original, agent.ClaudeHooks(bin), bin, true)
+	installed, changes, err := mergeHooks(original, agent.ClaudeHooks(bin), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +181,7 @@ func TestHooksMergeMixedGroups(t *testing.T) {
 			t.Fatal("duplicated command inside existing group")
 		}
 	}
-	removed, _, err := mergeHooks(installed, nil, bin, false)
+	removed, _, err := mergeHooks(installed, agent.ClaudeHooks(bin), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,25 +210,173 @@ func TestHooksInvalidConfigWritesNothing(t *testing.T) {
 	}
 }
 
-func TestIsPitwallHook(t *testing.T) {
-	for _, tc := range []struct {
-		command, bin string
-		want         bool
-	}{
-		{`'/opt/pitwall' hook claude`, "/opt/pitwall", true},
-		{`"/opt/pitwall" hook codex`, "/opt/pitwall", true},
-		{`/opt/pitwall hook claude`, "/opt/pitwall", true},
-		{`echo /opt/pitwall hook claude`, "/opt/pitwall", false},
-		{`/opt/pitwall-other hook claude`, "/opt/pitwall", false},
-		{`/opt/pitwall hooks install`, "/opt/pitwall", false},
-		{`'/opt/my pitwall' hook claude`, "/opt/my pitwall", true},
-		{`/opt/my pitwall hook claude`, "/opt/my pitwall", false},
-		{`'/opt/it'\''s pitwall' hook claude`, "/opt/it's pitwall", true},
-		{`"/opt/\$pitwall" hook codex`, "/opt/$pitwall", true},
-		{`"/opt/$pitwall" hook codex`, "/opt/$pitwall", false},
-	} {
-		if got := isPitwallHook(tc.command, tc.bin); got != tc.want {
-			t.Errorf("isPitwallHook(%q, %q) = %v, want %v", tc.command, tc.bin, got, tc.want)
+func TestHooksConcurrentEdit(t *testing.T) {
+	for _, action := range []string{"install", "uninstall"} {
+		t.Run(action, func(t *testing.T) {
+			home := hooksHome(t)
+			t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+			paths := []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".codex", "hooks.json")}
+			if err := runHooks([]string{"install"}, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			if action == "install" {
+				if err := runHooks([]string{"uninstall"}, &bytes.Buffer{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fresh := map[string][]byte{}
+			previous := hookBeforeWrite
+			hookBeforeWrite = func(path string) {
+				lock, err := os.OpenFile(filepath.Join(stateDir(), "hooks.lock"), os.O_RDWR, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer lock.Close()
+				if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EWOULDBLOCK {
+					t.Fatalf("hook update does not hold the lock: %v", err)
+				}
+				root, err := hookJSON[hookObject](readHooksTestFile(t, path))
+				if err != nil {
+					t.Fatal(err)
+				}
+				root["concurrent"] = []byte(`"keep me"`)
+				fresh[path], err = json.Marshal(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, fresh[path], 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Cleanup(func() { hookBeforeWrite = previous })
+			if err := runHooks([]string{action}, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range paths {
+				root, err := hookJSON[hookObject](readHooksTestFile(t, path))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(root["concurrent"]) != `"keep me"` {
+					t.Fatalf("concurrent edit lost: %s", root)
+				}
+				backups, err := filepath.Glob(path + ".pitwall-backup-*")
+				if err != nil || len(backups) == 0 {
+					t.Fatalf("backups: %v, %v", backups, err)
+				}
+				if !bytes.Equal(readHooksTestFile(t, backups[len(backups)-1]), fresh[path]) {
+					t.Fatal("backup lost concurrent edit")
+				}
+			}
+		})
+	}
+}
+
+func TestHooksConcurrentInvalidEdit(t *testing.T) {
+	home := hooksHome(t)
+	path := filepath.Join(home, ".claude", "settings.json")
+	writeHooksTestFile(t, path, `{}`)
+	previous := hookBeforeWrite
+	hookBeforeWrite = func(path string) { writeHooksTestFile(t, path, `{`) }
+	t.Cleanup(func() { hookBeforeWrite = previous })
+	err := runHooks([]string{"install"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "changed during hook update") {
+		t.Fatalf("got %v", err)
+	}
+	if string(readHooksTestFile(t, path)) != "{" {
+		t.Fatal("overwrote concurrent invalid edit")
+	}
+	if backups, _ := filepath.Glob(path + ".pitwall-backup-*"); len(backups) != 0 {
+		t.Fatal("backed up stale config")
+	}
+}
+
+func TestHooksUninstallExactCommands(t *testing.T) {
+	home := hooksHome(t)
+	bin := "/opt/pitwall/bin/pitwall"
+	for _, provider := range []string{"claude", "codex"} {
+		path := filepath.Join(home, ".claude", "settings.json")
+		other := "codex"
+		if provider == "codex" {
+			path = filepath.Join(home, ".codex", "hooks.json")
+			other = "claude"
+		}
+		exact := "'" + bin + "' hook " + provider
+		commands := []string{exact, exact + " && ~/bin/audit-agent", exact + " --custom", "'" + bin + "' hook " + other, bin + " hook " + provider, `"` + bin + `" hook ` + provider}
+		handlers := []hookObject{}
+		for _, command := range commands {
+			raw, _ := json.Marshal(command)
+			handlers = append(handlers, hookObject{"command": raw})
+		}
+		raw, _ := json.Marshal(handlers)
+		writeHooksTestFile(t, path, `{"hooks":{"Stop":[{"hooks":`+string(raw)+`}]}}`)
+		if err := runHooks([]string{"uninstall"}, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		root, _ := hookJSON[hookObject](readHooksTestFile(t, path))
+		events, _ := hookJSON[hookObject](root["hooks"])
+		groups, _ := hookJSON[[]hookObject](events["Stop"])
+		kept, _ := hookJSON[[]hookObject](groups[0]["hooks"])
+		if !reflect.DeepEqual(kept, handlers[1:]) {
+			t.Fatalf("uninstall removed user commands: %s", events["Stop"])
+		}
+	}
+}
+
+func TestHooksPreserveSymlinks(t *testing.T) {
+	home := hooksHome(t)
+	paths := []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".codex", "hooks.json")}
+	original := `{"keep":true}`
+	for _, path := range paths {
+		target := filepath.Join(home, "dotfiles", filepath.Base(filepath.Dir(path)), filepath.Base(path))
+		writeHooksTestFile(t, target, original)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		relative, err := filepath.Rel(filepath.Dir(path), target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(relative, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, action := range []string{"install", "uninstall"} {
+		var out bytes.Buffer
+		if err := runHooks([]string{action}, &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range paths {
+			info, err := os.Lstat(path)
+			if err != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("config is no longer a symlink: %v", err)
+			}
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err = os.Stat(target)
+			if err != nil || info.Mode().Perm() != 0o640 {
+				t.Fatalf("target mode changed: %v", err)
+			}
+			data := readHooksTestFile(t, target)
+			root, err := hookJSON[hookObject](data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := root["hooks"]; ok != (action == "install") {
+				t.Fatalf("target hooks: %s", data)
+			}
+			backups, _ := filepath.Glob(target + ".pitwall-backup-*")
+			if len(backups) == 0 || string(readHooksTestFile(t, backups[0])) != original {
+				t.Fatal("backup is missing beside target")
+			}
+			if !strings.Contains(out.String(), "Backup: "+target+".pitwall-backup-") {
+				t.Fatal("output omitted target backup")
+			}
+			if backups, _ := filepath.Glob(path + ".pitwall-backup-*"); len(backups) != 0 {
+				t.Fatal("backup is beside symlink")
+			}
 		}
 	}
 }
