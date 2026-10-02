@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/vt v0.0.0-20261001101533-953920dd3285
 	github.com/creack/pty v1.1.24
 	github.com/go-text/typesetting v0.3.5
+	golang.org/x/image v0.26.0
 )
 
 require (
@@ -27,7 +28,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
 	golang.org/x/exp/shiny v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
-	golang.org/x/image v0.26.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
