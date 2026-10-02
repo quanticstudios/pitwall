@@ -127,6 +127,10 @@ func AddWorktree(ctx context.Context, repoRoot, name string) (path, branch strin
 	return path, branch, err
 }
 
+// ErrBranchKept wraps the error of a RemoveWorktree that removed the worktree
+// but could not delete its branch, such as an unmerged one.
+var ErrBranchKept = errors.New("worktree removed, branch kept")
+
 func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch bool) error {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(repoRoot, path)
@@ -152,8 +156,9 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch boo
 		return err
 	}
 	if branch != "" {
-		_, err := git(ctx, repoRoot, "branch", "-d", "--", branch)
-		return err
+		if _, err := git(ctx, repoRoot, "branch", "-d", "--", branch); err != nil {
+			return fmt.Errorf("%w: %w", ErrBranchKept, err)
+		}
 	}
 	return nil
 }

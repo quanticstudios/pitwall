@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -494,8 +495,11 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
 	// The main checkout is never removed: only worktrees pitwall could have added.
+	var err error
 	if proj.Kind == model.ProjectGit && ws.Path != proj.Root {
-		if err := d.o.RemoveWorktree(ctx, proj.Root, ws.Path, m.RemoveBranch); err != nil {
+		// A kept branch is still reported, but the worktree is gone, so the
+		// workspace goes too.
+		if err = d.o.RemoveWorktree(ctx, proj.Root, ws.Path, m.RemoveBranch); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
 			return err
 		}
 	}
@@ -513,7 +517,7 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	d.changed()
 	d.mu.Unlock()
 	closeAll(closing)
-	return nil
+	return err
 }
 
 func (d *Daemon) openPane(m proto.OpenPane) error {
