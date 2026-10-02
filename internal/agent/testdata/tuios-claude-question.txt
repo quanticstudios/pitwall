@@ -1,0 +1,6 @@
+⏺ I need to pick a base branch.
+────────────────────────────────────────────
+ Which branch should the PR target?
+ ❯ main
+   release/2.1
+ Enter to select · ↑/↓ to navigate · Esc to cancel
