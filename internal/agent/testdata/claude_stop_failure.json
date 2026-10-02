@@ -1,0 +1,1 @@
+{"session_id":"0f6c1a52-8d0e-4c1b-9a51-2b7f7d3e9a10","transcript_path":"/home/u/.claude/projects/-home-u-repo/0f6c1a52-8d0e-4c1b-9a51-2b7f7d3e9a10.jsonl","cwd":"/home/u/repo","hook_event_name":"StopFailure","error":"rate_limit","error_details":"429 Too Many Requests","last_assistant_message":"API Error: Rate limit reached"}
