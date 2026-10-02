@@ -2,8 +2,10 @@ package main
 
 import (
 	"os"
+	"slices"
 	"sync"
 
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
@@ -78,6 +80,11 @@ func (b *backend) recvLoop() {
 			}
 		case proto.Frame:
 			b.frames[m.Pane] = m
+			if !shown(&b.state, m.Pane) {
+				// Kept for when its tab is shown; no redraw for it now.
+				b.mu.Unlock()
+				continue
+			}
 		}
 		b.mu.Unlock()
 		select {
@@ -93,4 +100,20 @@ func (b *backend) Scroll(pane string) (offset, max int) {
 	defer b.mu.Unlock()
 	f := b.frames[pane]
 	return f.ScrollOffset, f.ScrollMax
+}
+
+// shown reports whether pane is in the active tab of a session the window
+// can show, so output in a background tab does not redraw the window.
+func shown(st *model.State, pane string) bool {
+	for _, w := range st.Workspaces {
+		if w.Detached {
+			continue
+		}
+		for _, t := range w.Tabs {
+			if t.ID == w.ActiveTab && slices.Contains(layout.Panes(t.Layout), pane) {
+				return true
+			}
+		}
+	}
+	return false
 }

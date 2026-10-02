@@ -27,7 +27,7 @@ type Hello struct {
 }
 
 // NewSession opens an ungrouped session (or one in GroupID) with a shell
-// pane in Cwd ("" means $HOME). The name defaults to Cwd's base name.
+// pane in Cwd ("" means $HOME). An empty Name gets a generated one.
 type NewSession struct {
 	Name    string // "" generates one
 	Cwd     string
