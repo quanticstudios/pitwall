@@ -220,7 +220,9 @@ func TestDialOrStartRestartsOldDaemon(t *testing.T) {
 				t.Fatal("old daemon did not start")
 			}
 			conn, initial, err := dialOrStart()
-			if mode == "empty" || mode == "stuck" {
+			// "empty" is a daemon from before the pid was written: it is
+			// found through /proc/locks and replaced like the others.
+			if mode == "stuck" {
 				if conn != nil {
 					conn.Close()
 				}
@@ -319,5 +321,20 @@ func TestDialOrStartHealthyDaemon(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(stateDir(), "daemon.log")); !os.IsNotExist(err) {
 		t.Fatalf("healthy daemon triggered a start: %v", err)
+	}
+}
+
+func TestLockHolderFromProcLocks(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "pitwall.sock.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	pid, err := lockHolder(f)
+	if err != nil || pid != os.Getpid() {
+		t.Fatalf("lockHolder = %d, %v; want %d", pid, err, os.Getpid())
 	}
 }

@@ -9,7 +9,11 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
-const Version = 1
+// Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
+// RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
+// to a message's fields or meaning must bump it; TestWireFingerprint fails
+// until it does.
+const Version = 2
 
 // Client to daemon.
 
