@@ -50,7 +50,9 @@ type state struct {
 	kitty     [2][]uint8 // flag stacks for the main and alt screens
 	syncing   bool       // mode 2026 is set
 	syncStart time.Time
-	last      *Grid // the previous Snapshot, shown while syncing
+	syncTimer *time.Timer // fires wake when a frame outlives syncTimeout
+	wake      func()      // set by SetDirtyFunc
+	last      *Grid       // the previous Snapshot, shown while syncing
 	hist      history
 	term      byte          // the last byte of the chunk x/vt is parsing: BEL or ESC when it ends an OSC
 	dropped   atomic.Uint64 // reply bytes dropped at replyCap
@@ -76,11 +78,15 @@ func New(cols, rows int, reply io.Writer) Emulator {
 		EnableMode: func(m ansi.Mode) {
 			if m == modeSync && !st.syncing {
 				st.syncStart = time.Now()
+				st.armSync()
 			}
 			st.modes[m] = true
 			st.syncing = st.modes[modeSync]
 		},
 		DisableMode: func(m ansi.Mode) {
+			if m == modeSync && st.syncTimer != nil {
+				st.syncTimer.Stop()
+			}
 			st.modes[m] = false
 			st.syncing = st.modes[modeSync]
 		},
@@ -109,6 +115,26 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	t := &emulator{e: e, st: st}
 	runtime.AddCleanup(t, func(w io.Writer) { _ = w.(*io.PipeWriter).Close() }, e.InputPipe())
 	return t
+}
+
+// SetDirtyFunc sets f to be called when what Snapshot returns changes
+// without new input: a synchronized-output frame outlived syncTimeout. Call
+// it before the first Write. Panes find it through an interface check, so
+// NewFunc stays as it is.
+func (t *emulator) SetDirtyFunc(f func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.st.wake = f
+}
+
+func (st *state) armSync() {
+	switch {
+	case st.wake == nil:
+	case st.syncTimer == nil:
+		st.syncTimer = time.AfterFunc(syncTimeout, st.wake)
+	default:
+		st.syncTimer.Reset(syncTimeout)
+	}
 }
 
 // Write cuts p after every BEL and ESC so the OSC handlers know which
