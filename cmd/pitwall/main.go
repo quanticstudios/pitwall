@@ -31,6 +31,11 @@ const usage = `usage:
   pitwall hooks              print the Claude Code and Codex config that calls the hook
   pitwall hooks install      merge hooks into agent config files (--dry-run)
   pitwall hooks uninstall    remove this binary's hooks (--dry-run)
+  pitwall ls [--json]        list sessions
+  pitwall new [-n name] [-d] [dir]  create a session (-d detaches it)
+  pitwall detach [name]      hide a session, keeping its processes running
+  pitwall kill [-f] <name>   close a session and its processes
+  pitwall rename [old] <new> rename a session
 `
 
 func main() {
@@ -48,6 +53,8 @@ func main() {
 		runHook(os.Args[2:])
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)
+	case "ls", "new", "detach", "kill", "rename":
+		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)

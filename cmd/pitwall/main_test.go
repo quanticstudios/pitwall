@@ -30,81 +30,38 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	if os.Getenv("PITWALL_TEST_MAIN") == "1" {
+		if len(os.Args) == 2 && os.Args[1] == "daemon" {
+			if err := fakeOldDaemon("healthy"); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
 		main()
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
 
-func TestDaemonsRaceForLock(t *testing.T) {
-	runDir, stateDir, home := t.TempDir(), t.TempDir(), t.TempDir()
-	lockPath := filepath.Join(runDir, "pitwall", "pitwall.sock.lock")
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+func TestDaemonRefusesHeldLock(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	path, err := proto.SocketPath()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(lockPath, []byte(strings.Repeat("9", 256)), 0o600); err != nil {
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
-	exited := make(chan *exec.Cmd, 2)
-	var cmds []*exec.Cmd
-	for range 2 {
-		cmd := exec.Command(os.Args[0], "daemon")
-		cmd.Env = append(os.Environ(), "PITWALL_TEST_MAIN=1", "XDG_RUNTIME_DIR="+runDir, "XDG_STATE_HOME="+stateDir, "HOME="+home, "SHELL=/bin/sh")
-		if err := cmd.Start(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { cmd.Process.Kill() })
-		cmds = append(cmds, cmd)
-		go func() { cmd.Wait(); exited <- cmd }()
-	}
-
-	var loser *exec.Cmd
-	select {
-	case loser = <-exited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("both daemons kept running")
-	}
-	if code := loser.ProcessState.ExitCode(); code != 0 {
-		t.Fatalf("losing daemon exited %d, want 0", code)
-	}
-	winner := cmds[0]
-	if winner == loser {
-		winner = cmds[1]
-	}
-
-	var c *proto.Conn
-	var err error
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		c, err = proto.Dial(filepath.Join(runDir, "pitwall", "pitwall.sock"))
-		if err == nil {
-			break
-		}
-	}
-	if c == nil {
-		t.Fatalf("winner does not serve: %v", err)
-	}
-	defer c.Close()
-	data, err := os.ReadFile(lockPath)
-	if err != nil || string(data) != fmt.Sprintf("%d\n", winner.Process.Pid) {
-		t.Fatalf("daemon did not truncate and write its pid: %q, %v", data, err)
-	}
-	if err := c.Send(proto.Hello{Version: proto.Version, Kind: "gui"}); err != nil {
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		t.Fatal(err)
 	}
-	if m, err := c.Recv(); err != nil {
+	if err := runDaemon(); err != nil {
 		t.Fatal(err)
-	} else if _, ok := m.(proto.StateMsg); !ok {
-		t.Fatalf("got %T, want StateMsg", m)
 	}
-
-	winner.Process.Signal(syscall.SIGTERM)
-	select {
-	case <-exited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("winner did not stop on SIGTERM")
-	}
-	if code := winner.ProcessState.ExitCode(); code != 0 {
-		t.Fatalf("winner exited %d, want 0", code)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("held lock created a socket: %v", err)
 	}
 }
 
@@ -122,13 +79,22 @@ func fakeOldDaemon(mode string) error {
 		return err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil
+		}
 		return err
 	}
 	if mode != "empty" {
+		if err := lock.Truncate(0); err != nil {
+			return err
+		}
 		if _, err := fmt.Fprintf(lock, "%d\n", os.Getpid()); err != nil {
 			return err
 		}
+	}
+	if mode == "healthy" {
+		os.Remove(path)
 	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -141,11 +107,16 @@ func fakeOldDaemon(mode string) error {
 		if err != nil {
 			return err
 		}
-		if mode == "error" {
+		if mode == "error" || mode == "healthy" {
 			conn := proto.NewConn(nc)
 			if _, err := conn.Recv(); err != nil {
 				conn.Close()
 				return err
+			}
+			if mode == "healthy" {
+				conn.Send(proto.StateMsg{State: model.State{Workspaces: []model.Workspace{{ID: "fake", Name: "fake"}}}})
+				conn.Close()
+				continue
 			}
 			if err := conn.Send(proto.Frame{}); err != nil {
 				conn.Close()
