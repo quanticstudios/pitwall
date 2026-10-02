@@ -54,13 +54,27 @@ func main() {
 	}
 }
 
+// runDaemon holds an exclusive lock next to the socket for its lifetime, so
+// of two daemons started at once only one restores panes and binds; the
+// other exits cleanly.
 func runDaemon() error {
 	path := proto.SocketPath()
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); errors.Is(err, syscall.EWOULDBLOCK) {
+		fmt.Fprintln(os.Stderr, "pitwall: a daemon is already running on", path)
+		return nil
+	} else if err != nil {
+		return err
+	}
 	if c, err := net.Dial("unix", path); err == nil {
 		c.Close()
 		return errors.New("a daemon is already running on " + path)
 	}
-	os.Remove(path) // stale socket from a crashed daemon
+	os.Remove(path) // stale socket from a crashed daemon: the lock holder owns it
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return err
@@ -123,7 +137,8 @@ func runGUI() error {
 }
 
 // dialOrStart connects to the daemon, launching a detached one first if
-// nothing is listening.
+// nothing is listening. A daemon that loses the start race to another exits,
+// and the loop below dials the winner.
 func dialOrStart() (*proto.Conn, error) {
 	path := proto.SocketPath()
 	if c, err := proto.Dial(path); err == nil {
@@ -148,7 +163,7 @@ func dialOrStart() (*proto.Conn, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	cmd.Process.Release()
+	go cmd.Wait() // reap it if it exits while the window is open
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if c, err := proto.Dial(path); err == nil {
 			return c, nil
