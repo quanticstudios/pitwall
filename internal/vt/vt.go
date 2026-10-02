@@ -84,6 +84,17 @@ type Emulator interface {
 	Write(p []byte) (int, error)
 	Resize(cols, rows int)
 	Snapshot() Grid
+	// SnapshotAt is the view off lines above the live screen: history lines
+	// fill the top rows. 0 equals Snapshot. Clamped to ScrollbackLen; the alt
+	// screen ignores it.
+	SnapshotAt(off int) Grid
+	// ScrollbackLen is how many lines of main-screen history there are, up to
+	// 10,000; 0 while the alt screen is up.
+	ScrollbackLen() int
+	// ScrollbackPushed counts lines that ever entered history. It keeps
+	// growing once the oldest lines drop out, so the change between two calls
+	// is how far the screen scrolled.
+	ScrollbackPushed() uint64
 	Modes() Modes
 }
 

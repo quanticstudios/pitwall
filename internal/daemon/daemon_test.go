@@ -31,6 +31,9 @@ type fakePane struct {
 	input  []byte
 	size   [2]int
 	closed bool
+	hist   int    // ScrollbackLen
+	pushed uint64 // ScrollbackPushed
+	off    int    // the last SnapshotAt offset
 }
 
 func (p *fakePane) Write(b []byte) (int, error) {
@@ -49,11 +52,19 @@ func (p *fakePane) Snapshot() vt.Grid {
 	p.snaps.Add(1)
 	return vt.Grid{Cols: 1, Rows: 1, Cells: []vt.Cell{{Content: "x", Width: 1}}}
 }
-func (p *fakePane) Modes() vt.Modes        { return vt.Modes{} }
-func (p *fakePane) Dirty() <-chan struct{} { return p.dirty }
-func (p *fakePane) Done() <-chan struct{}  { return p.done }
-func (p *fakePane) ExitCode() int          { return p.code }
-func (p *fakePane) Cwd() string            { return p.cfg.Cwd }
+func (p *fakePane) SnapshotAt(off int) vt.Grid {
+	p.mu.Lock()
+	p.off = off
+	p.mu.Unlock()
+	return p.Snapshot()
+}
+func (p *fakePane) ScrollbackLen() int       { p.mu.Lock(); defer p.mu.Unlock(); return p.hist }
+func (p *fakePane) ScrollbackPushed() uint64 { p.mu.Lock(); defer p.mu.Unlock(); return p.pushed }
+func (p *fakePane) Modes() vt.Modes          { return vt.Modes{} }
+func (p *fakePane) Dirty() <-chan struct{}   { return p.dirty }
+func (p *fakePane) Done() <-chan struct{}    { return p.done }
+func (p *fakePane) ExitCode() int            { return p.code }
+func (p *fakePane) Cwd() string              { return p.cfg.Cwd }
 func (p *fakePane) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
