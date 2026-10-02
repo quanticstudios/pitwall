@@ -322,3 +322,61 @@ func TestHooksUninstallExactCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestHooksPreserveSymlinks(t *testing.T) {
+	home := hooksHome(t)
+	paths := []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".codex", "hooks.json")}
+	original := `{"keep":true}`
+	for _, path := range paths {
+		target := filepath.Join(home, "dotfiles", filepath.Base(filepath.Dir(path)), filepath.Base(path))
+		writeHooksTestFile(t, target, original)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		relative, err := filepath.Rel(filepath.Dir(path), target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(relative, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, action := range []string{"install", "uninstall"} {
+		var out bytes.Buffer
+		if err := runHooks([]string{action}, &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range paths {
+			info, err := os.Lstat(path)
+			if err != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("config is no longer a symlink: %v", err)
+			}
+			target, err := filepath.EvalSymlinks(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err = os.Stat(target)
+			if err != nil || info.Mode().Perm() != 0o640 {
+				t.Fatalf("target mode changed: %v", err)
+			}
+			data := readHooksTestFile(t, target)
+			root, err := hookJSON[hookObject](data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := root["hooks"]; ok != (action == "install") {
+				t.Fatalf("target hooks: %s", data)
+			}
+			backups, _ := filepath.Glob(target + ".pitwall-backup-*")
+			if len(backups) == 0 || string(readHooksTestFile(t, backups[0])) != original {
+				t.Fatal("backup is missing beside target")
+			}
+			if !strings.Contains(out.String(), "Backup: "+target+".pitwall-backup-") {
+				t.Fatal("output omitted target backup")
+			}
+			if backups, _ := filepath.Glob(path + ".pitwall-backup-*"); len(backups) != 0 {
+				t.Fatal("backup is beside symlink")
+			}
+		}
+	}
+}
