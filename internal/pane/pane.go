@@ -43,14 +43,18 @@ type Pane struct {
 	closeOnce sync.Once
 }
 
+// Shell is the program Start runs for a Config without Cmd.
+func Shell() string {
+	if sh := os.Getenv("SHELL"); sh != "" {
+		return sh
+	}
+	return "/bin/sh"
+}
+
 func Start(c Config) (*Pane, error) {
 	argv := c.Cmd
 	if len(argv) == 0 {
-		sh := os.Getenv("SHELL")
-		if sh == "" {
-			sh = "/bin/sh"
-		}
-		argv = []string{sh}
+		argv = []string{Shell()}
 	}
 	env := append(environ(), c.Env...)
 	env = append(env, "PITWALL_PANE="+c.ID, "TERM=xterm-256color", "COLORTERM=truecolor")

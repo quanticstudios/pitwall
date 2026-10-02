@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -23,7 +25,16 @@ import (
 var (
 	sessionOf = procSession
 	identify  = procIdentify
+	commOf    = readComm
 )
+
+// shellComm is the comm of the shell a pane without a command starts: the
+// base of its path, cut to the kernel's 15 bytes. A session leader with
+// another comm exec'd something else.
+var shellComm = func() string {
+	b := filepath.Base(pane.Shell())
+	return b[:min(len(b), 15)]
+}()
 
 // detected is what the poll keeps per pane. Guarded by d.mu.
 type detected struct {
@@ -42,8 +53,8 @@ type look struct {
 }
 
 // detect polls every live pane. A pane whose foreground is its own shell
-// costs one TIOCGPGRP ioctl; any other foreground adds a comm and exe read,
-// and a detected agent without hooks adds a screen snapshot.
+// costs one TIOCGPGRP ioctl and a comm read; any other foreground adds an exe
+// read, and a detected agent without hooks adds a screen snapshot.
 func (d *Daemon) detect(ctx context.Context) {
 	d.mu.Lock()
 	var looks []look
@@ -77,7 +88,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	var comm string
 	var g vt.Grid
 	switch {
-	case own && l.shell: // the shell at its prompt
+	case own && l.shell && commOf(fg) == shellComm: // the shell at its prompt, not exec'd into something else
 	case l.hooked && fg == l.hookFg:
 		return // the hooked agent: hooks own it
 	default:
