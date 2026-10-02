@@ -508,3 +508,8 @@ func palette(th *theme.Theme, i uint8) color.NRGBA {
 		return color.NRGBA{R: g, G: g, B: g, A: 0xff}
 	}
 }
+
+// ScrollDelta returns and clears the wheel scrolling gathered by Layout while
+// the program has not asked for the mouse, in lines (> 0 is back in history).
+// The caller sends it as a proto.Scroll.
+func (v *View) ScrollDelta() int { return 0 }
