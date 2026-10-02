@@ -1,5 +1,6 @@
 // Command pwdemo-term shows the term renderer on a hand-built grid. With
-// -bench it streams a changing 250x70 grid and logs frame times.
+// -bench it streams a changing 250x70 grid and logs frame times; with
+// -scrolled it shows the scrollbar, which the wheel then moves.
 package main
 
 import (
@@ -25,6 +26,7 @@ import (
 
 var (
 	bench = flag.Bool("bench", false, "stream a changing 250x70 grid and log frame times")
+	back  = flag.Int("scrolled", 0, "start this many lines back in a fake 500-line scrollback")
 	size  = flag.Float64("size", 13, "font size in sp")
 )
 
@@ -51,6 +53,7 @@ func run(w *app.Window, th *theme.Theme) error {
 		last  = time.Now()
 		cost  time.Duration
 		n     int
+		off   = *back
 	)
 	for {
 		switch e := w.Event().(type) {
@@ -64,12 +67,15 @@ func run(w *app.Window, th *theme.Theme) error {
 				gtx.Execute(op.InvalidateCmd{})
 			}
 			t := time.Now()
+			// The grid stays put; only the scrollbar shows the offset.
+			off = min(max(off+v.ScrollDelta(), 0), 500)
+			v.SetScroll(off, 500)
 			_, _, cols, rows := v.Layout(gtx, th, g, vt.Modes{}, true)
+			e.Frame(gtx.Ops)
 			cost += time.Since(t)
 			n++
-			e.Frame(gtx.Ops)
 			if d := time.Since(last); d > 2*time.Second {
-				log.Printf("%d frames in %v: %.1f fps, Layout %v/frame, fits %dx%d", n, d.Round(time.Millisecond),
+				log.Printf("%d frames in %v: %.1f fps, Layout+Frame %v/frame, fits %dx%d", n, d.Round(time.Millisecond),
 					float64(n)/d.Seconds(), (cost / time.Duration(n)).Round(time.Microsecond), cols, rows)
 				last, cost, n = time.Now(), 0, 0
 			}

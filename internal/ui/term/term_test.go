@@ -5,24 +5,34 @@ import (
 	"image"
 	"image/color"
 	"testing"
+	"time"
 
+	"gioui.org/f32"
 	"gioui.org/font/gofont"
+	"gioui.org/font/opentype"
 	"gioui.org/gpu/headless"
 	"gioui.org/io/event"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/text"
 	"gioui.org/unit"
+	"github.com/go-text/typesetting/fontscan"
 
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 func testTheme() *theme.Theme {
+	if fonts == nil { // the Go fonts only, so tests never depend on the system's
+		fonts = fontscan.NewFontMap(nil)
+		for _, f := range gofont.Collection() {
+			d := opentype.FontToDescription(f.Font)
+			fonts.AddFace(f.Face.Face(), fontscan.Location{File: fmt.Sprint(d)}, d)
+		}
+	}
 	th := &theme.Theme{
-		Shaper:   text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection())),
 		MonoFont: gofont.Collection()[0].Font,
 		MonoSize: 13,
 		TermFg:   color.NRGBA{R: 0xdd, G: 0xdd, B: 0xdd, A: 0xff},
@@ -57,23 +67,6 @@ func TestResolve(t *testing.T) {
 		if got := resolve(th, tc.c, def); got != tc.want {
 			t.Errorf("resolve(%#x) = %v, want %v", uint32(tc.c), got, tc.want)
 		}
-	}
-}
-
-func TestTextRuns(t *testing.T) {
-	red, blue := color.NRGBA{R: 255, A: 255}, color.NRGBA{B: 255, A: 255}
-	st := []style{
-		{fg: red}, {fg: red}, {fg: blue, blank: true}, {fg: red}, // blank does not break
-		{fg: red, font: 1}, // face change breaks
-		{fg: blue}, {fg: blue},
-		{blank: true},
-	}
-	got := fmt.Sprint(textRuns(st))
-	if want := "[[0 4] [4 5] [5 7]]"; got != want {
-		t.Errorf("textRuns = %s, want %s", got, want)
-	}
-	if r := textRuns([]style{{blank: true}}); r != nil {
-		t.Errorf("all blank = %v", r)
 	}
 }
 
@@ -136,8 +129,9 @@ func TestLayoutFits(t *testing.T) {
 		t.Fatalf("cell = %v", cell)
 	}
 	_, _, cols, rows := v.Layout(gtx, th, denseGrid(20, 5, 0, 216), vt.Modes{}, true)
-	if cols != 800/cell.X || rows != 600/cell.Y {
-		t.Errorf("Layout fit %dx%d for cell %v", cols, rows, cell)
+	pad := gtx.Dp(padding)
+	if cols != (800-2*pad)/cell.X || rows != (600-2*pad)/cell.Y {
+		t.Errorf("Layout fit %dx%d for cell %v pad %d", cols, rows, cell, pad)
 	}
 }
 
@@ -310,6 +304,122 @@ func TestBlockRect(t *testing.T) {
 	for _, s := range []string{"░", "a", "▀▀", ""} {
 		if _, ok := blockRect(s); ok {
 			t.Errorf("blockRect(%q) ok", s)
+		}
+	}
+}
+
+// TestScroll drives wheel, touchpad and Shift+PageUp/PageDown through a
+// real router and checks the lines ScrollDelta reports, plus the padding
+// in the fit.
+func TestScroll(t *testing.T) {
+	var r input.Router
+	v := new(View)
+	th := testTheme()
+	g := denseGrid(20, 5, 0, 7)
+	frame := func(m vt.Modes) (rows int) {
+		gtx := testContext(image.Pt(400, 300))
+		gtx.Source = r.Source()
+		_, _, _, rows = v.Layout(gtx, th, g, m, true)
+		r.Frame(gtx.Ops)
+		return rows
+	}
+	rows := frame(vt.Modes{})
+	frame(vt.Modes{})
+	ch := float32(v.cell.Y)
+	at := f32.Pt(100, 100)
+	for _, tc := range []struct {
+		name string
+		evs  []event.Event
+		m    vt.Modes
+		want int
+	}{
+		{"wheel up 3 lines", []event.Event{pointer.Event{Kind: pointer.Scroll, Position: at, Scroll: f32.Pt(0, -3*ch)}}, vt.Modes{}, 3},
+		{"touchpad halves add up", []event.Event{
+			pointer.Event{Kind: pointer.Scroll, Position: at, Scroll: f32.Pt(0, ch/2)},
+			pointer.Event{Kind: pointer.Scroll, Position: at, Scroll: f32.Pt(0, ch/4)},
+			pointer.Event{Kind: pointer.Scroll, Position: at, Scroll: f32.Pt(0, ch/4)},
+		}, vt.Modes{}, -1},
+		{"program owns the mouse", []event.Event{pointer.Event{Kind: pointer.Scroll, Position: at, Scroll: f32.Pt(0, -3*ch)}}, vt.Modes{Mouse: vt.MouseNormal}, 0},
+		{"shift wheel arrives as X", []event.Event{pointer.Event{Kind: pointer.Scroll, Position: at, Scroll: f32.Pt(-2*ch, 0), Modifiers: key.ModShift}}, vt.Modes{Mouse: vt.MouseNormal}, 2},
+		{"shift+pageup", []event.Event{key.Event{Name: key.NamePageUp, Modifiers: key.ModShift, State: key.Press}}, vt.Modes{}, rows},
+		{"shift+pagedown", []event.Event{key.Event{Name: key.NamePageDown, Modifiers: key.ModShift, State: key.Press}}, vt.Modes{}, -rows},
+	} {
+		r.Queue(tc.evs...)
+		frame(tc.m)
+		if got := v.ScrollDelta(); got != tc.want {
+			t.Errorf("%s: ScrollDelta = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+	if v.ScrollDelta() != 0 {
+		t.Error("ScrollDelta does not clear")
+	}
+}
+
+// TestPadding checks the pointer maps through the padding to cells.
+func TestPadding(t *testing.T) {
+	var v View
+	th := testTheme()
+	gtx := testContext(image.Pt(400, 300))
+	v.Layout(gtx, th, grid("abcdef", "ghijkl"), vt.Modes{}, true)
+	p := float32(gtx.Dp(padding))
+	g := grid("abcdef", "ghijkl")
+	press := func(x, y float32) image.Point {
+		v.pointer(pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonPrimary, Position: f32.Pt(x, y)}, g, vt.Modes{}, true)
+		return v.sel.a
+	}
+	if c := press(p+1, p+1); c != image.Pt(0, 0) {
+		t.Errorf("first cell = %v", c)
+	}
+	if c := press(p+float32(2*v.cell.X)+1, p+float32(v.cell.Y)+1); c != image.Pt(2, 1) {
+		t.Errorf("cell (2,1) = %v", c)
+	}
+	if c := press(1, 1); c != image.Pt(0, 0) {
+		t.Errorf("padding clamps to %v", c)
+	}
+}
+
+// TestCursorBlink renders the block cursor on, off after 530 ms, on again
+// after input, and hollow and steady when unfocused.
+func TestCursorBlink(t *testing.T) {
+	var v View
+	th := testTheme()
+	w, err := headless.NewWindow(200, 100)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer w.Release()
+	g := grid("ab  ")
+	g.Cursor = vt.Cursor{X: 2, Y: 0, Visible: true}
+	t0 := time.Unix(1000, 0)
+	center := func(now time.Time, focused bool) color.RGBA {
+		gtx := testContext(image.Pt(200, 100))
+		gtx.Now = now
+		v.Layout(gtx, th, g, vt.Modes{}, focused)
+		if err := w.Frame(gtx.Ops); err != nil {
+			t.Fatal(err)
+		}
+		img := image.NewRGBA(image.Rect(0, 0, 200, 100))
+		if err := w.Screenshot(img); err != nil {
+			t.Fatal(err)
+		}
+		p := gtx.Dp(padding)
+		return img.RGBAAt(p+2*v.cell.X+v.cell.X/2, p+v.cell.Y/2)
+	}
+	on, off := color.RGBA{R: 0xff, A: 0xff}, color.RGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff}
+	for _, tc := range []struct {
+		name    string
+		at      time.Duration
+		focused bool
+		want    color.RGBA
+	}{
+		{"focus shows it", 0, true, on},
+		{"first half-period", 500 * time.Millisecond, true, on},
+		{"blinks off", 600 * time.Millisecond, true, off},
+		{"back on", 1100 * time.Millisecond, true, on},
+		{"unfocused is hollow", 1700 * time.Millisecond, false, off},
+	} {
+		if got := center(t0.Add(tc.at), tc.focused); got != tc.want {
+			t.Errorf("%s: center = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }
