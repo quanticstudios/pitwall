@@ -46,6 +46,7 @@ func allMessages() []any {
 		ArchiveWorkspace{WorkspaceID: "w", Archived: true},
 		DeleteWorkspace{WorkspaceID: "w", RemoveBranch: true},
 		OpenPane{WorkspaceID: "w", Target: "a", Dir: layout.Vertical, Cmd: []string{"codex"}},
+		Scroll{Pane: "a", Lines: -3},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},
 		AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(`{"x":1}`)},
