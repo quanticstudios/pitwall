@@ -6,17 +6,22 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
+
+	"github.com/creack/pty"
 
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // fakeVT records every byte the pane feeds it.
 type fakeVT struct {
-	mu   sync.Mutex
-	buf  bytes.Buffer
-	size [2]int
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	size  [2]int
+	check func(cols, rows int) // called from Resize, while the pane holds its lock
 }
 
 func (f *fakeVT) Write(b []byte) (int, error) {
@@ -24,7 +29,14 @@ func (f *fakeVT) Write(b []byte) (int, error) {
 	defer f.mu.Unlock()
 	return f.buf.Write(b)
 }
-func (f *fakeVT) Resize(c, r int)          { f.mu.Lock(); f.size = [2]int{c, r}; f.mu.Unlock() }
+func (f *fakeVT) Resize(c, r int) {
+	if f.check != nil {
+		f.check(c, r)
+	}
+	f.mu.Lock()
+	f.size = [2]int{c, r}
+	f.mu.Unlock()
+}
 func (f *fakeVT) Snapshot() vt.Grid        { return vt.Grid{} }
 func (f *fakeVT) SnapshotAt(int) vt.Grid   { return vt.Grid{} }
 func (f *fakeVT) ScrollbackLen() int       { return 0 }
@@ -154,5 +166,56 @@ func TestScrollback(t *testing.T) {
 	}
 	if p.ScrollbackPushed() != 26 {
 		t.Fatalf("pushed %d", p.ScrollbackPushed())
+	}
+}
+
+func TestResizeRejectsBadSizes(t *testing.T) {
+	p, f := start(t, "p1", "sleep", "100")
+	for _, s := range [][2]int{{0, 24}, {80, 0}, {-1, 24}, {80, -1}, {70000, 24}, {80, 70000}, {1000, 1000}} {
+		if err := p.Resize(s[0], s[1]); err == nil {
+			t.Errorf("Resize(%d, %d) accepted", s[0], s[1])
+		}
+	}
+	if f.size != [2]int{} {
+		t.Fatalf("emulator resized to %v", f.size)
+	}
+	if err := p.Resize(1000, 500); err != nil {
+		t.Fatalf("Resize(1000, 500): %v", err)
+	}
+}
+
+func TestConcurrentResizesAgree(t *testing.T) {
+	p, f := start(t, "p1", "sleep", "100")
+	kernel := func() [2]int {
+		var ws pty.Winsize
+		if err := p.ioctl(syscall.TIOCGWINSZ, unsafe.Pointer(&ws)); err != nil {
+			t.Error(err)
+		}
+		return [2]int{int(ws.Cols), int(ws.Rows)}
+	}
+	// Another resize must not reach the kernel while this one is still
+	// resizing the emulator.
+	f.check = func(c, r int) {
+		time.Sleep(100 * time.Microsecond)
+		if k := kernel(); k != [2]int{c, r} {
+			t.Errorf("emulator resizing to %dx%d while the kernel has %v", c, r, k)
+		}
+	}
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			for j := range 50 {
+				if err := p.Resize(10+i, 10+j%50); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if k := kernel(); f.size != k {
+		t.Fatalf("emulator %v, kernel %v", f.size, k)
 	}
 }

@@ -134,13 +134,26 @@ func (p *Pane) read() {
 // Write sends input bytes to the process.
 func (p *Pane) Write(b []byte) (int, error) { return p.ptmx.Write(b) }
 
+// Size limits for Resize: a side fits the kernel's uint16 and the cell count
+// bounds the emulator's memory.
+const (
+	maxSide  = 1000
+	maxCells = 500_000
+)
+
+// Resize sets the kernel and emulator sizes under one lock, so concurrent
+// calls cannot leave the two disagreeing.
 func (p *Pane) Resize(cols, rows int) error {
-	if err := pty.Setsize(p.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}); err != nil {
-		return err
+	if cols < 1 || rows < 1 || cols > maxSide || rows > maxSide || cols*rows > maxCells {
+		return fmt.Errorf("pane size %dx%d out of range", cols, rows)
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
+	ws := pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}
+	if err := p.ioctl(syscall.TIOCSWINSZ, unsafe.Pointer(&ws)); err != nil {
+		return err
+	}
 	p.vt.Resize(cols, rows)
-	p.mu.Unlock()
 	return nil
 }
 
@@ -203,16 +216,30 @@ func (p *Pane) Cwd() string {
 // foreground is the PTY's foreground process group, or 0 if unknown.
 func (p *Pane) foreground() int {
 	var pgid int32
-	rc, err := p.ptmx.SyscallConn()
-	if err != nil {
+	if p.ioctl(syscall.TIOCGPGRP, unsafe.Pointer(&pgid)) != nil {
 		return 0
 	}
-	rc.Control(func(fd uintptr) {
-		if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCGPGRP, uintptr(unsafe.Pointer(&pgid))); e != 0 {
-			pgid = 0
-		}
-	})
 	return int(pgid)
+}
+
+// ioctl runs req on the master through SyscallConn. File.Fd, which
+// creack/pty's helpers call, would put the master back in blocking mode, and
+// a blocking read ignores the deadline wait sets.
+func (p *Pane) ioctl(req uintptr, arg unsafe.Pointer) error {
+	rc, err := p.ptmx.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var errno syscall.Errno
+	if err := rc.Control(func(fd uintptr) {
+		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(arg))
+	}); err != nil {
+		return err
+	}
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }
 
 // Close sends SIGHUP and kills the process group after 2s. It returns once the
