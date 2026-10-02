@@ -17,7 +17,8 @@ import (
 
 // Status for panes no hook reports on, read on the liveness poll: an agent
 // started without hooks gets its state from its screen, and a shell running
-// a command gets terminal-running with the command's name.
+// a command, or a pane opened with one, gets terminal-running with the
+// command's name.
 
 // Process reads behind detection; tests replace them. Only stat, comm, the
 // exe link and the children lists are read: cmdline and the environment carry
@@ -28,13 +29,32 @@ var (
 	commOf    = readComm
 )
 
-// shellComm is the comm of the shell a pane without a command starts: the
-// base of its path, cut to the kernel's 15 bytes. A session leader with
-// another comm exec'd something else.
-var shellComm = func() string {
-	b := filepath.Base(pane.Shell())
+// shellComm is the comm of the shell a pane without a command starts. A
+// session leader with another comm exec'd something else.
+var shellComm = pathComm(pane.Shell())
+
+// shells are the programs a pane's command may name and still be a shell,
+// which at its prompt is no terminal command.
+var shells = []string{"sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish", "xonsh"}
+
+// pathComm is the comm the kernel gives a program exec'd from path: its base,
+// cut to 15 bytes.
+func pathComm(path string) string {
+	b := filepath.Base(path)
 	return b[:min(len(b), 15)]
-}()
+}
+
+// paneShell is the comm of the shell a pane runs, or "" when its command is
+// no shell.
+func paneShell(cmd []string) string {
+	if len(cmd) == 0 {
+		return shellComm
+	}
+	if c := pathComm(cmd[0]); c == shellComm || slices.Contains(shells, c) {
+		return c
+	}
+	return ""
+}
 
 // detected is what the poll keeps per pane. Guarded by d.mu.
 type detected struct {
@@ -46,9 +66,9 @@ type detected struct {
 type look struct {
 	id     string
 	p      Pane
-	shell  bool // the pane runs the user's shell, not a command of its own
-	hooked bool // a hook has reported from the pane: hooks own its agent
-	hookFg int  // the foreground group of the last hook
+	shell  string // the comm of the shell the pane runs, or "" for a command
+	hooked bool   // a hook has reported from the pane: hooks own its agent
+	hookFg int    // the foreground group of the last hook
 	sid    int
 }
 
@@ -63,7 +83,7 @@ func (d *Daemon) detect(ctx context.Context) {
 		if _, ok := p.(foregrounder); !ok || sp.Exited {
 			continue
 		}
-		l := look{id: sp.ID, p: p, shell: len(sp.Cmd) == 0, hooked: !d.live.hookAt[sp.ID].IsZero(), hookFg: d.live.fg[sp.ID]}
+		l := look{id: sp.ID, p: p, shell: paneShell(sp.Cmd), hooked: !d.live.hookAt[sp.ID].IsZero(), hookFg: d.live.fg[sp.ID]}
 		if det := d.live.det[sp.ID]; det != nil {
 			l.sid = det.sid
 		}
@@ -88,7 +108,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	var comm string
 	var g vt.Grid
 	switch {
-	case own && l.shell && commOf(fg) == shellComm: // the shell at its prompt, not exec'd into something else
+	case own && l.shell != "" && commOf(fg) == l.shell: // the shell at its prompt, not exec'd into something else
 	case l.hooked && fg == l.hookFg:
 		return // the hooked agent: hooks own it
 	default:
@@ -134,7 +154,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		}
 		det.cells = g.Cells
 		d.setActivity(ctx, l.id, prov, s, "")
-	case !own:
+	case !own || l.shell == "": // a job, or the command the pane was opened with
 		det.cells = nil
 		d.setActivity(ctx, l.id, model.ProviderTerminal, model.StateTerminalRunning, comm)
 	default:
