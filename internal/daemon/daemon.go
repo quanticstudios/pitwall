@@ -296,6 +296,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.newWorkspace(ctx, m)
 	case proto.RenameWorkspace:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Name = m.Name })
+	case proto.SetProjectAppearance:
+		return d.setAppearance(m)
 	case proto.ArchiveWorkspace:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Archived = m.Archived })
 	case proto.SetLayout:
