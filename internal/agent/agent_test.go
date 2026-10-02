@@ -128,6 +128,9 @@ func TestSessionID(t *testing.T) {
 			t.Errorf("%s: %q, want %q", name, got, want)
 		}
 	}
+	if got := SessionID(model.ProviderCodex, fixture(t, "codex_side_fork")); got != "" {
+		t.Errorf("side fork: %q", got)
+	}
 	if got := SessionID(model.ProviderClaude, []byte("nope")); got != "" {
 		t.Errorf("garbage: %q", got)
 	}
