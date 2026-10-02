@@ -1,2 +1,7 @@
 [tools]
 go = "1.27.1"
+
+[env]
+# Gio links Vulkan only when its headers exist; this machine has none, and
+# the OpenGL path draws the same.
+GOFLAGS = "-tags=novulkan"
