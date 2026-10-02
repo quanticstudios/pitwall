@@ -1,0 +1,30 @@
+  eighty-one
+  eighty-two
+  eighty-three
+  eighty-four
+  eighty-five
+  eighty-six
+  eighty-seven
+  eighty-eight
+  eighty-nine
+  ninety
+  ninety-one
+  ninety-two
+  ninety-three
+  ninety-four
+  ninety-five
+  ninety-six
+  ninety-seven
+  ninety-eight
+  ninety-nine
+  one hundred
+  one hundred one
+  one hundred two
+  one hundred three
+  You've used 76% of your weekly limit · resets 9pm (Europe/Podgorica) · /usage-credits to keep u…
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_C…
+  Opus 5.5 · high · aide main* · 6% 56k/1.0M
+  ⏸ manual mode on

@@ -72,7 +72,8 @@ type payload struct {
 //
 // Tool failures stay working: an agent recovers from a failed command inside
 // the same turn, so error is reserved for turns the API ended. A Claude turn
-// the user interrupts fires no hook, so it stays working until the next one.
+// the user interrupts fires no hook; the daemon ends it from the keys it
+// forwards and ReadScreen.
 func Derive(prev *model.Activity, provider model.Provider, payload []byte, now time.Time) (next model.Activity, ok bool) {
 	p, err := decode(payload)
 	if err != nil {
