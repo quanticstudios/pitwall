@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -101,6 +102,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return errors.New(usage)
 	}
 	command := args[0]
+	if command == "tab" {
+		return tabCommand(args[1:])
+	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var asJSON, detached, force bool
@@ -229,6 +233,9 @@ func resolveSession(state model.State, name string) (model.Workspace, error) {
 				}
 			}
 		}
+		if pane != "" {
+			return model.Workspace{}, fmt.Errorf("pane %q has no session in daemon state", pane)
+		}
 		return model.Workspace{}, errors.New("specify a session name outside a pitwall pane (see pitwall ls)")
 	}
 	var matches []model.Workspace
@@ -291,4 +298,46 @@ func listSessions(out io.Writer, state model.State) error {
 		}
 	}
 	return w.Flush()
+}
+
+func tabCommand(args []string) error {
+	if len(args) == 0 || (args[0] != "new" && args[0] != "rename" && args[0] != "close") || (args[0] != "rename" && len(args) != 1) {
+		return errors.New("usage: pitwall tab new|rename [name...]|close")
+	}
+	pane := os.Getenv("PITWALL_PANE")
+	if pane == "" {
+		return errors.New("tab commands must run inside a pitwall pane (PITWALL_PANE is not set)")
+	}
+	conn, err := dialCLI()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	var request any
+	switch args[0] {
+	case "new":
+		request = proto.NewTab{FromPane: pane}
+	case "rename":
+		request = proto.RenameTab{Pane: pane, Name: strings.Join(args[1:], " ")}
+	case "close":
+		state, err := syncCLI(conn)
+		if err != nil {
+			return err
+		}
+		w, err := resolveSession(state, "")
+		if err != nil {
+			return err
+		}
+		for _, tab := range w.Tabs {
+			if slices.Contains(layout.Panes(tab.Layout), pane) {
+				request = proto.CloseTab{WorkspaceID: w.ID, TabID: tab.ID}
+				break
+			}
+		}
+		if request == nil {
+			return fmt.Errorf("pane %q has no tab in daemon state", pane)
+		}
+	}
+	_, err = syncCLI(conn, request)
+	return err
 }

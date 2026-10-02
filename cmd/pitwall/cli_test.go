@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -259,6 +260,78 @@ func TestCLIConfirmKill(t *testing.T) {
 			var out, stderr bytes.Buffer
 			if code := runCLI([]string{"kill", "alpha"}, slave, &out, &stderr); code != 0 || out.Len() != 0 || stderr.String() != "kill alpha? [y/N] " {
 				t.Fatalf("%d: %s %s", code, out.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestCLITabCommands(t *testing.T) {
+	for _, tc := range []struct {
+		args    []string
+		request any
+		initial bool
+	}{
+		{[]string{"tab", "new"}, proto.NewTab{FromPane: "pa"}, false},
+		{[]string{"tab", "rename", "fix", "login"}, proto.RenameTab{Pane: "pa", Name: "fix login"}, false},
+		{[]string{"tab", "rename"}, proto.RenameTab{Pane: "pa"}, false},
+		{[]string{"tab", "rename", "--literal"}, proto.RenameTab{Pane: "pa", Name: "--literal"}, false},
+		{[]string{"tab", "close"}, proto.CloseTab{WorkspaceID: "a", TabID: "ta"}, true},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			state := cliState()
+			state.Workspaces[0].ActiveTab = "tb"
+			state.Workspaces[0].Tabs[0].Layout = &layout.Node{Children: []*layout.Node{layout.Leaf("other"), layout.Leaf("pa")}}
+			exchanges := []cliExchange{}
+			if tc.initial {
+				exchanges = append(exchanges, cliExchange{state: state})
+			}
+			exchanges = append(exchanges, cliExchange{request: tc.request, state: state})
+			fakeCLI(t, exchanges...)
+			t.Setenv("PITWALL_PANE", "pa")
+			if code, out, stderr := cliOutput(tc.args...); code != 0 || out != "" || stderr != "" {
+				t.Fatalf("%d: %s %s", code, out, stderr)
+			}
+		})
+	}
+}
+
+func TestCLITabOutsidePane(t *testing.T) {
+	t.Setenv("PITWALL_PANE", "")
+	t.Setenv("PITWALL_SOCKET", filepath.Join(t.TempDir(), "missing.sock"))
+	for _, action := range []string{"new", "rename", "close"} {
+		if code, out, stderr := cliOutput("tab", action); code != 1 || out != "" || !strings.Contains(stderr, "inside a pitwall pane") {
+			t.Fatalf("%d: %s %s", code, out, stderr)
+		}
+	}
+	cmd := exec.Command(os.Args[0], "tab", "rename", "work")
+	cmd.Env = append(os.Environ(), "PITWALL_TEST_MAIN=1")
+	if err := cmd.Run(); err == nil || cmd.ProcessState.ExitCode() != 1 {
+		t.Fatalf("outside pane: %v", err)
+	}
+}
+
+func TestCLITabErrors(t *testing.T) {
+	for _, cause := range []string{"daemon", "missing pane", "missing tab"} {
+		t.Run(cause, func(t *testing.T) {
+			state := cliState()
+			exchange := cliExchange{state: state}
+			args := []string{"tab", "close"}
+			want := "has no tab"
+			if cause == "missing pane" {
+				state.Panes = nil
+				exchange.state = state
+				want = "has no session"
+			}
+			if cause == "daemon" {
+				args = []string{"tab", "rename", "work"}
+				exchange.request = proto.RenameTab{Pane: "pa", Name: "work"}
+				exchange.error = "cannot rename"
+				want = "cannot rename"
+			}
+			fakeCLI(t, exchange)
+			t.Setenv("PITWALL_PANE", "pa")
+			if code, out, stderr := cliOutput(args...); code != 1 || out != "" || !strings.Contains(stderr, want) {
+				t.Fatalf("%d: %s %s", code, out, stderr)
 			}
 		})
 	}
