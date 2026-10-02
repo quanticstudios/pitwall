@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -16,6 +17,7 @@ func hooksHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", "")
 	previous := hookExecutable
 	hookExecutable = func() (string, error) { return "/opt/pitwall/bin/pitwall", nil }
 	t.Cleanup(func() { hookExecutable = previous })
@@ -228,5 +230,86 @@ func TestIsPitwallHook(t *testing.T) {
 		if got := isPitwallHook(tc.command, tc.bin); got != tc.want {
 			t.Errorf("isPitwallHook(%q, %q) = %v, want %v", tc.command, tc.bin, got, tc.want)
 		}
+	}
+}
+
+func TestHooksConcurrentEdit(t *testing.T) {
+	for _, action := range []string{"install", "uninstall"} {
+		t.Run(action, func(t *testing.T) {
+			home := hooksHome(t)
+			t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+			paths := []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".codex", "hooks.json")}
+			if err := runHooks([]string{"install"}, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			if action == "install" {
+				if err := runHooks([]string{"uninstall"}, &bytes.Buffer{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fresh := map[string][]byte{}
+			previous := hookBeforeWrite
+			hookBeforeWrite = func(path string) {
+				lock, err := os.OpenFile(filepath.Join(stateDir(), "hooks.lock"), os.O_RDWR, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer lock.Close()
+				if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EWOULDBLOCK {
+					t.Fatalf("hook update does not hold the lock: %v", err)
+				}
+				root, err := hookJSON[hookObject](readHooksTestFile(t, path))
+				if err != nil {
+					t.Fatal(err)
+				}
+				root["concurrent"] = []byte(`"keep me"`)
+				fresh[path], err = json.Marshal(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, fresh[path], 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Cleanup(func() { hookBeforeWrite = previous })
+			if err := runHooks([]string{action}, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range paths {
+				root, err := hookJSON[hookObject](readHooksTestFile(t, path))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(root["concurrent"]) != `"keep me"` {
+					t.Fatalf("concurrent edit lost: %s", root)
+				}
+				backups, err := filepath.Glob(path + ".pitwall-backup-*")
+				if err != nil || len(backups) == 0 {
+					t.Fatalf("backups: %v, %v", backups, err)
+				}
+				if !bytes.Equal(readHooksTestFile(t, backups[len(backups)-1]), fresh[path]) {
+					t.Fatal("backup lost concurrent edit")
+				}
+			}
+		})
+	}
+}
+
+func TestHooksConcurrentInvalidEdit(t *testing.T) {
+	home := hooksHome(t)
+	path := filepath.Join(home, ".claude", "settings.json")
+	writeHooksTestFile(t, path, `{}`)
+	previous := hookBeforeWrite
+	hookBeforeWrite = func(path string) { writeHooksTestFile(t, path, `{`) }
+	t.Cleanup(func() { hookBeforeWrite = previous })
+	err := runHooks([]string{"install"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "changed during hook update") {
+		t.Fatalf("got %v", err)
+	}
+	if string(readHooksTestFile(t, path)) != "{" {
+		t.Fatal("overwrote concurrent invalid edit")
+	}
+	if backups, _ := filepath.Glob(path + ".pitwall-backup-*"); len(backups) != 0 {
+		t.Fatal("backed up stale config")
 	}
 }

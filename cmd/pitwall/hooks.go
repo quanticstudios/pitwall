@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -22,6 +23,8 @@ var hookExecutable = func() (string, error) {
 	}
 	return filepath.EvalSymlinks(bin)
 }
+
+var hookBeforeWrite = func(path string) {}
 
 func runHooks(args []string, out io.Writer) error {
 	if len(args) == 0 {
@@ -53,32 +56,35 @@ func runHooks(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(filepath.Join(stateDir(), "hooks.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
 	type config struct {
-		path           string
-		data, original []byte
-		mode           os.FileMode
-		changes        []string
+		path                      string
+		data, original, generated []byte
+		mode                      os.FileMode
+		changes                   []string
 	}
 	files := []config{{path: filepath.Join(home, ".claude", "settings.json")}, {path: filepath.Join(home, ".codex", "hooks.json")}}
 	for i := range files {
 		f := &files[i]
-		f.mode = 0o600
 		f.original, err = os.ReadFile(f.path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err == nil {
-			info, err := os.Stat(f.path)
-			if err != nil {
-				return err
-			}
-			f.mode = info.Mode().Perm()
-		}
-		generated := agent.ClaudeHooks(bin)
+		f.generated = agent.ClaudeHooks(bin)
 		if i == 1 {
-			generated = agent.CodexHooks(bin)
+			f.generated = agent.CodexHooks(bin)
 		}
-		f.data, f.changes, err = mergeHooks(f.original, generated, bin, install)
+		f.data, f.changes, err = mergeHooks(f.original, f.generated, bin, install)
 		if err != nil {
 			return fmt.Errorf("%s: %w", f.path, err)
 		}
@@ -87,6 +93,26 @@ func runHooks(args []string, out io.Writer) error {
 		if dry {
 			fmt.Fprintf(out, "# %s\n%s\n", f.path, f.data)
 			continue
+		}
+		hookBeforeWrite(f.path)
+		fresh, err := os.ReadFile(f.path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("re-read %s: %w", f.path, err)
+		}
+		if !bytes.Equal(fresh, f.original) || (fresh == nil) != (f.original == nil) {
+			f.data, f.changes, err = mergeHooks(fresh, f.generated, bin, install)
+			if err != nil {
+				return fmt.Errorf("%s changed during hook update; refusing to overwrite: %w", f.path, err)
+			}
+			f.original = fresh
+		}
+		f.mode = 0o600
+		if fresh != nil {
+			info, err := os.Stat(f.path)
+			if err != nil {
+				return err
+			}
+			f.mode = info.Mode().Perm()
 		}
 		if len(f.changes) == 0 {
 			fmt.Fprintf(out, "%s: unchanged\n", f.path)
