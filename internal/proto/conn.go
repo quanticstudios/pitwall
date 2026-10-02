@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 )
 
 func init() {
@@ -17,14 +18,30 @@ func init() {
 
 // SocketPath is $XDG_RUNTIME_DIR/pitwall/pitwall.sock, or
 // /tmp/pitwall-<uid>/pitwall.sock without XDG_RUNTIME_DIR. It creates the
-// directory with mode 0700.
-func SocketPath() string {
+// directory with mode 0700 and rejects unsafe existing directories.
+func SocketPath() (string, error) {
 	dir := filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "pitwall")
 	if os.Getenv("XDG_RUNTIME_DIR") == "" {
 		dir = fmt.Sprintf("/tmp/pitwall-%d", os.Getuid())
 	}
-	_ = os.MkdirAll(dir, 0o700)
-	return filepath.Join(dir, "pitwall.sock")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create socket directory: %w", err)
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return "", fmt.Errorf("inspect socket directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("socket directory %s must be a directory, not a symlink", dir)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Getuid()) {
+		return "", fmt.Errorf("socket directory %s must belong to uid %d", dir, os.Getuid())
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("socket directory %s must have no group or other permissions", dir)
+	}
+	return filepath.Join(dir, "pitwall.sock"), nil
 }
 
 // envelope carries one message; gob needs a concrete struct around the

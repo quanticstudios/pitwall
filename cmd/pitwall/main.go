@@ -55,7 +55,10 @@ func main() {
 }
 
 func runDaemon() error {
-	path := proto.SocketPath()
+	path, err := proto.SocketPath()
+	if err != nil {
+		return err
+	}
 	if c, err := net.Dial("unix", path); err == nil {
 		c.Close()
 		return errors.New("a daemon is already running on " + path)
@@ -89,7 +92,11 @@ func runHook(args []string) {
 	} else {
 		payload, _ = io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
 	}
-	conn, err := proto.Dial(proto.SocketPath())
+	path, err := proto.SocketPath()
+	if err != nil {
+		return
+	}
+	conn, err := proto.Dial(path)
 	if err != nil {
 		return
 	}
@@ -125,7 +132,10 @@ func runGUI() error {
 // dialOrStart connects to the daemon, launching a detached one first if
 // nothing is listening.
 func dialOrStart() (*proto.Conn, error) {
-	path := proto.SocketPath()
+	path, err := proto.SocketPath()
+	if err != nil {
+		return nil, err
+	}
 	if c, err := proto.Dial(path); err == nil {
 		return c, nil
 	}

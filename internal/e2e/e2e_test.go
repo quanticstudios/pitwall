@@ -134,7 +134,11 @@ func isolate(t *testing.T) {
 
 func startDaemon(t *testing.T) func() {
 	t.Helper()
-	ln, err := net.Listen("unix", proto.SocketPath())
+	path, err := proto.SocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +176,11 @@ type client struct {
 
 func connect(t *testing.T, kind string) *client {
 	t.Helper()
-	conn, err := proto.Dial(proto.SocketPath())
+	path, err := proto.SocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := proto.Dial(path)
 	if err != nil {
 		t.Fatal(err)
 	}
