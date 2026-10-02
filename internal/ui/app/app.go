@@ -37,6 +37,12 @@ type Backend interface {
 	Changed() <-chan struct{}
 }
 
+// Focuser is optionally implemented by a Backend: proto.FocusSession
+// requests from `pitwall attach`, including one queued at startup.
+type Focuser interface {
+	Focus() <-chan proto.FocusSession
+}
+
 const (
 	sidebarWidth = unit.Dp(288)
 	minRatio     = 0.05
