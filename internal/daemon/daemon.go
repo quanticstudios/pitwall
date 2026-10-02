@@ -75,6 +75,7 @@ type Daemon struct {
 	clients     map[*client]struct{} // gui clients only
 	closing     bool
 	savePending bool
+	live        liveness
 
 	saveMu sync.Mutex // serializes snapshot+write so an old save never lands last
 }
@@ -143,6 +144,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	defer cancel()
 	context.AfterFunc(ctx, func() { ln.Close() })
 	go d.statsLoop(ctx)
+	go d.livenessLoop(ctx)
 
 	var wg sync.WaitGroup
 	var acceptErr error
@@ -310,7 +312,9 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		if err != nil {
 			return err
 		}
-		_, err = p.Write(m.Data)
+		if _, err = p.Write(m.Data); err == nil {
+			d.noteInput(m.Pane, m.Data)
+		}
 		return err
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
@@ -516,6 +520,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
+	d.sawHook(p.ID)
 	ai := slices.IndexFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
 	var prev *model.Activity
 	if ai >= 0 {
@@ -682,6 +687,7 @@ func (d *Daemon) exited(id string, p Pane) {
 	}
 	code := p.ExitCode()
 	d.st.Panes[i].Exited, d.st.Panes[i].ExitCode = true, code
+	d.dropActivity(id)
 	d.changed()
 	for c := range d.clients {
 		c.push(func() { c.msgs = append(c.msgs, proto.PaneExited{Pane: id, ExitCode: code}) })
