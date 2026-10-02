@@ -91,6 +91,50 @@ func TestPersistenceAndRestore(t *testing.T) {
 	restored.waitFor(t, timeout, frameContains(p.ID, "hello"))
 }
 
+// A GUI connecting to an empty daemon lands in a live shell; sessions group
+// after the fact and a restart brings both back.
+func TestSessions(t *testing.T) {
+	isolate(t)
+	shutdown := startDaemon(t)
+	cwd := t.TempDir()
+	gui := connectIn(t, "gui", cwd)
+	s := gui.waitFor(t, timeout, func(msg any) bool {
+		_, ok := msg.(proto.StateMsg)
+		return ok
+	}).(proto.StateMsg).State
+	if len(s.Workspaces) != 1 || len(s.Panes) != 1 || s.Workspaces[0].Path != cwd || s.Workspaces[0].ProjectID != "" {
+		t.Fatalf("first state: %+v", s)
+	}
+	first, shell := s.Workspaces[0].ID, s.Panes[0].ID
+	gui.send(t, proto.Input{Pane: shell, Data: []byte("echo hi\r")})
+	gui.waitFor(t, timeout, frameContains(shell, "\nhi\n"))
+
+	gui.send(t, proto.NewSession{Cwd: t.TempDir()})
+	s = gui.waitFor(t, timeout, func(msg any) bool {
+		s, ok := msg.(proto.StateMsg)
+		return ok && len(s.State.Workspaces) == 2
+	}).(proto.StateMsg).State
+	second := s.Workspaces[1].ID
+	gui.send(t, proto.NewGroup{Name: "agents", WorkspaceIDs: []string{first, second}})
+	gui.waitFor(t, timeout, func(msg any) bool {
+		s, ok := msg.(proto.StateMsg)
+		return ok && len(s.State.Projects) == 1 && !slices.ContainsFunc(s.State.Workspaces, func(w model.Workspace) bool {
+			return w.ProjectID != s.State.Projects[0].ID
+		})
+	})
+	before := snapshot(t)
+	shutdown()
+
+	startDaemon(t)
+	after := snapshot(t)
+	if !reflect.DeepEqual(after.Projects, before.Projects) || !reflect.DeepEqual(after.Workspaces, before.Workspaces) || len(after.Panes) != 2 {
+		t.Fatalf("restored %+v, want %+v", after, before)
+	}
+	if g := after.Projects[0]; g.Name != "agents" || g.Kind != model.ProjectGroup {
+		t.Fatalf("group: %+v", g)
+	}
+}
+
 func TestBinaryHook(t *testing.T) {
 	isolate(t)
 	bin := filepath.Join(t.TempDir(), "pitwall")
@@ -130,6 +174,7 @@ func isolate(t *testing.T) {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("SHELL", "/bin/sh") // the first session's shell, without the user's rc files
 }
 
 func startDaemon(t *testing.T) func() {
@@ -176,6 +221,12 @@ type client struct {
 
 func connect(t *testing.T, kind string) *client {
 	t.Helper()
+	return connectIn(t, kind, t.TempDir())
+}
+
+// connectIn says Hello as if launched in cwd.
+func connectIn(t *testing.T, kind, cwd string) *client {
+	t.Helper()
 	path, err := proto.SocketPath()
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +264,7 @@ func connect(t *testing.T, kind string) *client {
 			t.Error("client receive loop did not stop")
 		}
 	})
-	c.send(t, proto.Hello{Version: proto.Version, Kind: kind})
+	c.send(t, proto.Hello{Version: proto.Version, Kind: kind, Cwd: cwd})
 	return c
 }
 
@@ -268,11 +319,12 @@ func newWorkspace(t *testing.T, gui *client) model.Workspace {
 		t.Fatalf("project: %+v", p)
 	}
 	gui.send(t, proto.NewWorkspace{ProjectID: p.ID})
+	inProject := func(w model.Workspace) bool { return w.ProjectID == p.ID }
 	s = gui.waitFor(t, timeout, func(msg any) bool {
 		s, ok := msg.(proto.StateMsg)
-		return ok && len(s.State.Workspaces) == 1
+		return ok && slices.ContainsFunc(s.State.Workspaces, inProject)
 	}).(proto.StateMsg).State
-	w := s.Workspaces[0]
+	w := s.Workspaces[slices.IndexFunc(s.Workspaces, inProject)]
 	if w.Name != "workspace-1" || w.Branch != "workspace-1" || w.ProjectID != p.ID || w.Path == repo {
 		t.Fatalf("workspace: %+v", w)
 	}

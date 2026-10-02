@@ -68,6 +68,7 @@ type Options struct {
 	Derive         func(prev *model.Activity, provider model.Provider, payload []byte, now time.Time) (model.Activity, bool)
 	SessionID      func(provider model.Provider, payload []byte) string
 	RepoRoot       func(ctx context.Context, path string) (string, bool)
+	Branch         func(ctx context.Context, path string) (branch string, inRepo bool)
 	Stats          func(ctx context.Context, worktree string) (model.BranchStats, error)
 	AddWorktree    func(ctx context.Context, repoRoot, name string) (path, branch string, err error)
 	RemoveWorktree func(ctx context.Context, repoRoot, path string, deleteBranch bool) error
@@ -92,7 +93,8 @@ type Daemon struct {
 	savePending bool
 	live        liveness
 
-	saveMu sync.Mutex // serializes snapshot+write so an old save never lands last
+	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
+	helloMu sync.Mutex // see firstSession
 }
 
 // New loads state from store.Path() and relaunches saved panes with
@@ -111,6 +113,7 @@ func New() (*Daemon, error) {
 		Derive:         agent.Derive,
 		SessionID:      agent.SessionID,
 		RepoRoot:       gitstat.RepoRoot,
+		Branch:         gitBranch,
 		Stats:          gitstat.Stats,
 		AddWorktree:    gitstat.AddWorktree,
 		RemoveWorktree: gitstat.RemoveWorktree,
@@ -128,6 +131,9 @@ func New() (*Daemon, error) {
 func NewWith(o Options) (*Daemon, error) {
 	if o.StatsInterval == 0 {
 		o.StatsInterval = 30 * time.Second
+	}
+	if o.Branch == nil {
+		o.Branch = gitBranch
 	}
 	st, err := o.Load()
 	if err != nil {
@@ -287,6 +293,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	go d.writeLoop(c, done)
 
 	if hello.Kind == "gui" {
+		if err := d.firstSession(ctx, hello.Cwd); err != nil {
+			c.queue(proto.Error{Message: err.Error()})
+		}
 		d.mu.Lock()
 		d.clients[c] = struct{}{}
 		c.push(func() {
@@ -359,6 +368,16 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.scroll(m)
 	case proto.AgentEvent:
 		return d.agentEvent(ctx, m)
+	case proto.NewSession:
+		return d.newSession(ctx, m)
+	case proto.SetSessionGroup:
+		return d.setSessionGroup(m)
+	case proto.NewGroup:
+		return d.newGroup(m)
+	case proto.RenameGroup:
+		return d.renameGroup(m)
+	case proto.DeleteGroup:
+		return d.deleteGroup(m)
 	}
 	return fmt.Errorf("unexpected message %T", m)
 }
@@ -517,9 +536,11 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
-	// The main checkout is never removed: only worktrees pitwall could have added.
+	// The main checkout is never removed: only worktrees pitwall could have
+	// added. A session grouped in later can sit anywhere, so the path must be
+	// where AddWorktree puts them.
 	var err error
-	if proj.Kind == model.ProjectGit && ws.Path != proj.Root {
+	if proj.Kind == model.ProjectGit && filepath.Dir(ws.Path) == filepath.Join(proj.Root, ".worktrees") {
 		// A kept branch is still reported, but the worktree is gone, so the
 		// workspace goes too.
 		if err = d.o.RemoveWorktree(ctx, proj.Root, ws.Path, m.RemoveBranch); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
@@ -695,34 +716,57 @@ func (d *Daemon) statsLoop(ctx context.Context) {
 	}
 }
 
-// refreshStats runs git for every non-archived git workspace, or only for
-// workspace only when it is not "".
+// refreshStats reads the branch and stats of every non-archived session in a
+// git repo, or of session only when it is not "". Sessions outside a repo
+// have no branch and no stats.
 func (d *Daemon) refreshStats(ctx context.Context, only string) {
 	d.mu.Lock()
 	paths := map[string]string{}
 	for _, w := range d.st.Workspaces {
-		if w.Archived || (only != "" && w.ID != only) {
-			continue
-		}
-		if i := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.ID == w.ProjectID }); i >= 0 && d.st.Projects[i].Kind == model.ProjectGit {
+		if !w.Archived && (only == "" || w.ID == only) {
 			paths[w.ID] = w.Path
 		}
 	}
 	d.mu.Unlock()
 
-	got := map[string]model.BranchStats{}
+	type git struct {
+		branch string
+		repo   bool
+		stats  *model.BranchStats
+	}
+	got := map[string]git{}
 	for id, path := range paths {
-		if s, err := d.o.Stats(ctx, path); err == nil {
-			got[id] = s
+		var g git
+		g.branch, g.repo = d.o.Branch(ctx, path)
+		if g.repo {
+			if s, err := d.o.Stats(ctx, path); err == nil {
+				g.stats = &s
+			}
 		}
+		got[id] = g
+	}
+	if ctx.Err() != nil {
+		return // git was cut short, not answering "not a repo"
 	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	changed := false
-	for id, s := range got {
-		if old, ok := d.st.Stats[id]; d.workspace(id) != nil && (!ok || old != s) {
-			d.st.Stats[id], changed = s, true
+	for id, g := range got {
+		w := d.workspace(id)
+		if w == nil {
+			continue
+		}
+		if w.Branch != g.branch {
+			w.Branch, changed = g.branch, true
+		}
+		old, had := d.st.Stats[id]
+		switch {
+		case !g.repo && had:
+			delete(d.st.Stats, id)
+			changed = true
+		case g.stats != nil && (!had || old != *g.stats):
+			d.st.Stats[id], changed = *g.stats, true
 		}
 	}
 	if changed {
