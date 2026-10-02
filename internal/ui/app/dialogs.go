@@ -142,9 +142,9 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	}
 	if confirm {
 		u.confirmModal()
-		if m.kind == modalNone {
-			return
-		}
+	}
+	if m.kind == modalNone { // closed by Escape, Cancel, or a confirm above
+		return
 	}
 
 	// Backdrop: catches clicks outside the dialog and holds key focus when
