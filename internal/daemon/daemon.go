@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -302,7 +303,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ArchiveWorkspace:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Archived = m.Archived })
 	case proto.SetLayout:
-		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Layout = m.Layout })
+		return d.setLayout(m)
 	case proto.DeleteWorkspace:
 		return d.deleteWorkspace(ctx, m)
 	case proto.OpenPane:
@@ -414,6 +415,67 @@ func (d *Daemon) editWorkspace(id string, f func(*model.Workspace)) error {
 	f(w)
 	d.changed()
 	return nil
+}
+
+// setLayout takes a layout only when its leaves are exactly the workspace's
+// panes: one built from stale state could hide a live pane or bring back a
+// closed one. The GUI re-reads state when it gets the error.
+func (d *Daemon) setLayout(m proto.SetLayout) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	w := d.workspace(m.WorkspaceID)
+	if w == nil {
+		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	var want []string
+	for _, p := range d.st.Panes {
+		if p.WorkspaceID == w.ID {
+			want = append(want, p.ID)
+		}
+	}
+	got := layout.Panes(m.Layout)
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(got, want) || (m.Layout != nil && !sanitize(m.Layout)) {
+		return fmt.Errorf("layout for workspace %s does not match its panes", w.ID)
+	}
+	w.Layout = m.Layout
+	d.changed()
+	return nil
+}
+
+// minRatio is the smallest share of a split SetLayout keeps; the GUI clamps
+// drags to the same value.
+const minRatio = 0.05
+
+// sanitize reports whether every split under n has two or more children and
+// no leaf has any, and rewrites each split's ratios to sum to 1 with none
+// below minRatio before normalizing. A missing or invalid ratio becomes an
+// equal share.
+func sanitize(n *layout.Node) bool {
+	if n.Pane != "" {
+		return len(n.Children) == 0
+	}
+	if len(n.Children) < 2 {
+		return false
+	}
+	r := make([]float64, len(n.Children))
+	total := 0.0
+	for i, c := range n.Children {
+		if c == nil || !sanitize(c) {
+			return false
+		}
+		r[i] = 1 / float64(len(r))
+		if len(n.Ratios) == len(r) && n.Ratios[i] >= 0 && !math.IsInf(n.Ratios[i], 0) {
+			r[i] = max(n.Ratios[i], minRatio)
+		}
+		total += r[i]
+	}
+	for i := range r {
+		r[i] /= total
+	}
+	n.Ratios = r
+	return true
 }
 
 func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) error {

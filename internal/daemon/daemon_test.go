@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -517,5 +519,52 @@ func TestSideForkKeepsSession(t *testing.T) {
 	defer d.mu.Unlock()
 	if sid := d.st.Panes[0].SessionID; sid != "main" {
 		t.Fatalf("SessionID = %q, want main", sid)
+	}
+}
+
+// A SetLayout built from stale state is rejected; a current one is taken with
+// its ratios made sane.
+func TestSetLayoutValidates(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	ws := d.st.Workspaces[0].ID
+	for range 3 {
+		must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws}))
+	}
+	a, b, c := d.st.Panes[0].ID, d.st.Panes[1].ID, d.st.Panes[2].ID
+	must(t, d.handle(ctx, proto.ClosePane{Pane: c}))
+	before := cloneNode(d.st.Workspaces[0].Layout)
+
+	split := func(r []float64, leaves ...string) *layout.Node {
+		n := &layout.Node{Ratios: r}
+		for _, id := range leaves {
+			n.Children = append(n.Children, &layout.Node{Pane: id})
+		}
+		return n
+	}
+	for name, l := range map[string]*layout.Node{
+		"resurrects closed": split(nil, a, b, c),
+		"hides live":        {Pane: a},
+		"duplicate leaf":    split(nil, a, b, b),
+		"empty":             nil,
+		"one-child split":   {Children: []*layout.Node{split(nil, a, b)}},
+	} {
+		if err := d.handle(ctx, proto.SetLayout{WorkspaceID: ws, Layout: l}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if got := d.st.Workspaces[0].Layout; !reflect.DeepEqual(got, before) {
+		t.Fatalf("rejected layouts changed the layout: %+v", got)
+	}
+
+	must(t, d.handle(ctx, proto.SetLayout{WorkspaceID: ws, Layout: split([]float64{3, -1}, b, a)}))
+	r := d.st.Workspaces[0].Layout.Ratios
+	if len(r) != 2 || math.Abs(r[0]+r[1]-1) > 1e-9 || r[1] <= 0 {
+		t.Fatalf("ratios %v", r)
 	}
 }
