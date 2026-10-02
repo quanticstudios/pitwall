@@ -60,6 +60,13 @@ type OpenPane struct {
 	Cmd         []string // empty means the user's shell
 }
 
+// Scroll moves the pane's view into scrollback. Lines > 0 goes back in
+// history; the daemon clamps the offset and snaps to 0 on new input.
+type Scroll struct {
+	Pane  string
+	Lines int
+}
+
 type ClosePane struct {
 	Pane string
 }
@@ -87,6 +94,9 @@ type Frame struct {
 	Pane  string
 	Grid  vt.Grid
 	Modes vt.Modes
+	// ScrollOffset is how many lines above the live screen the view starts;
+	// ScrollMax is the scrollback length. Both 0 when there is no history.
+	ScrollOffset, ScrollMax int
 }
 
 type PaneExited struct {
@@ -101,6 +111,6 @@ type Error struct {
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
-	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, ClosePane{}, SetLayout{},
+	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 }

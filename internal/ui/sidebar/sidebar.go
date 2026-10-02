@@ -28,7 +28,7 @@ import (
 )
 
 // Event is one of SelectWorkspace, NewWorkspace, AddProject, RenameWorkspace,
-// ArchiveWorkspace, DeleteWorkspace.
+// ArchiveWorkspace, DeleteWorkspace, RestoreWorkspace, OpenSettings.
 type Event any
 
 type SelectWorkspace struct{ WorkspaceID, PaneID string }
@@ -37,6 +37,8 @@ type AddProject struct{}
 type RenameWorkspace struct{ WorkspaceID, Name string }
 type ArchiveWorkspace struct{ WorkspaceID string }
 type DeleteWorkspace struct{ WorkspaceID string }
+type RestoreWorkspace struct{ WorkspaceID string }
+type OpenSettings struct{}
 
 // Width is aide's w-72.
 const Width unit.Dp = 288
