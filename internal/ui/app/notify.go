@@ -224,7 +224,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			viewing := n.focused && n.active == a.WorkspaceID
 			n.mu.Unlock()
 			ws := findWorkspace(&st, a.WorkspaceID)
-			if !viewing && ws != nil && !ws.Archived {
+			if !viewing && ws != nil && !ws.Detached {
 				h.last[a.WorkspaceID] = time.Now()
 				send(ctx, notification{a, notificationTitle(&st, *ws)})
 			}

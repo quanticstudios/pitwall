@@ -72,10 +72,11 @@ func apply(st *model.State, active *string, ev sidebar.Event) {
 		*active = ev.WorkspaceID
 	case sidebar.RenameWorkspace:
 		ws(ev.WorkspaceID).Name = ev.Name
-	case sidebar.ArchiveWorkspace:
-		ws(ev.WorkspaceID).Archived = true
-	case sidebar.RestoreWorkspace:
-		ws(ev.WorkspaceID).Archived = false
+	case sidebar.DetachSession:
+		ws(ev.WorkspaceID).Detached = true
+	case sidebar.AttachSession:
+		ws(ev.WorkspaceID).Detached = false
+		*active = ev.WorkspaceID
 	case sidebar.SetProjectAppearance:
 		for i := range st.Projects {
 			if st.Projects[i].ID == ev.ProjectID {
@@ -153,7 +154,7 @@ func fakeState(now time.Time) model.State {
 	add("ws-ci", "", "CI watch", "", 30*time.Second, model.ProviderTerminal, model.StateTerminalRunning)
 	add("ws-notes", "p-notes", "notes", "", 4*24*time.Hour, "", "")
 	add("ws-old", "p-aide", "Old spike", "spike/electron-41", 9*24*time.Hour, "", "")
-	st.Workspaces[len(st.Workspaces)-1].Archived = true
+	st.Workspaces[len(st.Workspaces)-1].Detached = true
 	for i := range st.Workspaces {
 		if st.Workspaces[i].ProjectID == "p-notes" {
 			st.Workspaces[i].Path = "/home/me/notes"

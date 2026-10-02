@@ -5,6 +5,7 @@ package app
 import (
 	"image"
 	"log"
+	"sync"
 	"time"
 
 	"gioui.org/app"
@@ -12,6 +13,7 @@ import (
 	"gioui.org/io/event"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
+	"gioui.org/io/system"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -58,6 +60,15 @@ func Run(b Backend) error {
 	u := &ui{b: b, th: newTheme(), panes: map[string]*paneUI{}}
 	u.notifications = newNotifier(b, w.Invalidate, desktopSender())
 	defer u.notifications.close()
+	if f, ok := b.(Focuser); ok {
+		go func() {
+			for fs := range f.Focus() {
+				u.queueFocus(fs)
+				w.Invalidate()
+				w.Perform(system.ActionRaise)
+			}
+		}()
+	}
 	var ops op.Ops
 	for {
 		switch e := w.Event().(type) {
@@ -66,7 +77,7 @@ func Run(b Backend) error {
 		case app.ConfigEvent:
 			u.notifications.setView(&e.Config.Focused, "")
 			if !e.Config.Focused {
-				u.nav.altHeld, u.nav.pinned = false, false
+				u.nav.altHeld, u.nav.pinned, u.nav.swallow = false, false, ""
 			}
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
@@ -98,10 +109,18 @@ type ui struct {
 	panes   map[string]*paneUI
 	open    widget.Clickable // empty-state button
 	modal   modal
+	tabs    tabStrip
+	modeTag int // holds key focus in tab mode, so typed text skips the pane
+
+	// focusReq is the latest attach request, kept until its session is in
+	// the state.
+	focusMu  sync.Mutex
+	focusReq *proto.FocusSession
 
 	drags     []*gesture.Drag
 	drag      *layout.Node // layout being dragged, drawn instead of the state's
 	dragWS    string
+	dragTab   string
 	dragUntil uint64 // keep drawing drag until the state passes this version
 
 	shownAt time.Time // switcher fade-in start
@@ -115,11 +134,49 @@ func (u *ui) send(msg any) {
 	}
 }
 
+// flush sends what nav queued outside key handling.
+func (u *ui) flush() {
+	for _, m := range u.nav.out {
+		u.send(m)
+	}
+	u.nav.out = nil
+}
+
+func (u *ui) queueFocus(fs proto.FocusSession) {
+	u.focusMu.Lock()
+	u.focusReq = &fs
+	u.focusMu.Unlock()
+}
+
+// applyFocus shows the requested session once the state has it.
+func (u *ui) applyFocus(st *model.State) {
+	u.focusMu.Lock()
+	fs := u.focusReq
+	if fs != nil && findWorkspace(st, fs.WorkspaceID) != nil {
+		u.focusReq = nil
+	} else {
+		fs = nil
+	}
+	u.focusMu.Unlock()
+	if fs != nil {
+		u.nav.tabMode = false
+		u.nav.attachSession(st, fs.WorkspaceID, fs.TabID)
+		u.flush()
+	}
+}
+
 func (u *ui) layout(gtx gl.Context) {
 	st := u.b.State()
 	u.nav.sync(&st)
+	u.applyFocus(&st)
 
 	wasVisible := u.nav.switcherVisible()
+	wasMode, wasRenaming := u.nav.tabMode, u.tabs.renaming
+	defer func() {
+		if u.nav.tabMode != wasMode || u.tabs.renaming != wasRenaming {
+			gtx.Execute(op.InvalidateCmd{}) // draw the strip's new state now
+		}
+	}()
 	for {
 		ev, ok := gtx.Event(asFilters(u.nav.keyFilters())...)
 		if !ok {
@@ -135,6 +192,26 @@ func (u *ui) layout(gtx gl.Context) {
 	if !wasVisible && u.nav.switcherVisible() {
 		u.shownAt = gtx.Now
 	}
+	if t := u.nav.renameTab; t != "" {
+		u.nav.renameTab = ""
+		if w := findWorkspace(&st, u.nav.workspace); w != nil {
+			for i, x := range w.Tabs {
+				if x.ID == t {
+					u.tabs.startRename(w.ID, t, tabLabel(x, i))
+				}
+			}
+		}
+	}
+	for {
+		if _, ok := gtx.Event(key.FocusFilter{Target: &u.modeTag}); !ok {
+			break
+		}
+	}
+	event.Op(gtx.Ops, &u.modeTag)
+	if u.nav.tabMode && !gtx.Focused(&u.modeTag) {
+		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
+	}
+	u.flush()
 
 	paint.Fill(gtx.Ops, u.th.Bg)
 	sw := gtx.Dp(sidebarWidth)
@@ -143,6 +220,7 @@ func (u *ui) layout(gtx gl.Context) {
 	for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.workspace) {
 		u.sidebarEvent(&st, ev)
 	}
+	u.flush()
 
 	area := image.Rectangle{Min: image.Pt(sw+1, 0), Max: gtx.Constraints.Max}
 	paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: image.Pt(sw, 0), Max: image.Pt(sw+1, area.Max.Y)}.Op())
@@ -193,10 +271,15 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.DeleteGroup{GroupID: e.GroupID})
 	case sidebar.RenameWorkspace:
 		u.send(proto.RenameWorkspace{WorkspaceID: e.WorkspaceID, Name: e.Name})
-	case sidebar.ArchiveWorkspace:
-		u.send(proto.ArchiveWorkspace{WorkspaceID: e.WorkspaceID, Archived: true})
-	case sidebar.RestoreWorkspace:
-		u.send(proto.ArchiveWorkspace{WorkspaceID: e.WorkspaceID, Archived: false})
+	case sidebar.DetachSession:
+		u.send(proto.DetachSession{WorkspaceID: e.WorkspaceID, Detached: true})
+	case sidebar.AttachSession:
+		u.send(proto.DetachSession{WorkspaceID: e.WorkspaceID, Detached: false})
+		u.nav.attachSession(st, e.WorkspaceID, "")
+	case sidebar.KillSession:
+		u.send(proto.KillSession{WorkspaceID: e.WorkspaceID})
+	case sidebar.GroupByFolder:
+		u.send(proto.GroupByFolder{WorkspaceID: e.WorkspaceID})
 	case sidebar.DeleteWorkspace:
 		u.modal.open(modalDelete, e.WorkspaceID)
 	case sidebar.AddProject:
@@ -244,14 +327,33 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	if ws == nil {
 		return
 	}
-	root := ws.Layout
-	if u.drag != nil && u.dragWS == ws.ID && (u.dragUntil == 0 || st.Version <= u.dragUntil) {
+	if u.showTabs(ws) {
+		u.tabUpdate(gtx, st, ws)
+		ws = findWorkspace(st, u.nav.workspace) // a click may have switched tabs
+	}
+	if ws == nil {
+		return
+	}
+	if u.showTabs(ws) {
+		h := u.layoutTabs(gtx, st, ws)
+		defer op.Offset(image.Pt(0, h)).Push(gtx.Ops).Pop()
+		gtx.Constraints = gl.Exact(image.Pt(gtx.Constraints.Max.X, max(0, gtx.Constraints.Max.Y-h)))
+	} else {
+		u.tabs.renaming = ""
+	}
+	tab := shownTab(ws)
+	var root *layout.Node
+	tabID := ""
+	if tab != nil {
+		root, tabID = tab.Layout, tab.ID
+	}
+	if u.drag != nil && u.dragWS == ws.ID && u.dragTab == tabID && (u.dragUntil == 0 || st.Version <= u.dragUntil) {
 		root = u.drag
 	} else {
 		u.drag = nil
 	}
 	if root == nil {
-		u.emptyState(gtx, st, ws.ID)
+		u.emptyState(gtx, st, ws.ID, tabID)
 		return
 	}
 
@@ -261,8 +363,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	gap := gtx.Dp(16)
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() {
-		focused = "" // the dialog or a rename field holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.tabs.renaming != "" || u.nav.tabMode {
+		focused = "" // the dialog, a rename field or tab mode holds key focus
 	}
 	sole := root.Pane != ""
 	for id, r := range rectsOf(root, area, gap) {
@@ -279,7 +381,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			delete(u.panes, id)
 		}
 	}
-	u.layoutDividers(gtx, ws.ID, root, area, gap)
+	u.layoutDividers(gtx, ws.ID, tabID, root, area, gap)
 }
 
 func findPane(st *model.State, id string) *model.Pane {
@@ -332,7 +434,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 			break
 		}
 		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
-			u.nav.focus[u.nav.workspace] = id
+			u.nav.setFocus(id)
 		}
 	}
 
@@ -376,10 +478,10 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	}
 }
 
-func (u *ui) emptyState(gtx gl.Context, st *model.State, ws string) {
+func (u *ui) emptyState(gtx gl.Context, st *model.State, ws, tab string) {
 	if u.open.Clicked(gtx) {
 		u.nav.expectPane(st)
-		u.send(proto.OpenPane{WorkspaceID: ws})
+		u.send(proto.OpenPane{WorkspaceID: ws, TabID: tab})
 	}
 	gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 		return u.open.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
@@ -467,7 +569,7 @@ func dragRatios(n *layout.Node, avail, gap, i, pos int) {
 	n.Ratios[i], n.Ratios[i+1] = left, pair-left
 }
 
-func (u *ui) layoutDividers(gtx gl.Context, ws string, root *layout.Node, area layout.Rect, gap int) {
+func (u *ui) layoutDividers(gtx gl.Context, ws, tab string, root *layout.Node, area layout.Rect, gap int) {
 	slop := gtx.Dp(3)
 	k := 0
 	walkSplits(root, area, gap, nil, func(n *layout.Node, r layout.Rect, path []int) {
@@ -503,8 +605,8 @@ func (u *ui) layoutDividers(gtx gl.Context, ws string, root *layout.Node, area l
 				}
 				switch e.Kind {
 				case pointer.Drag:
-					if u.drag == nil || u.dragWS != ws || u.dragUntil != 0 {
-						u.drag, u.dragWS, u.dragUntil = cloneNode(root), ws, 0
+					if u.drag == nil || u.dragWS != ws || u.dragTab != tab || u.dragUntil != 0 {
+						u.drag, u.dragWS, u.dragTab, u.dragUntil = cloneNode(root), ws, tab, 0
 					}
 					node := u.drag
 					for _, j := range path {
@@ -519,7 +621,7 @@ func (u *ui) layoutDividers(gtx gl.Context, ws string, root *layout.Node, area l
 					if u.drag != nil && u.dragUntil == 0 {
 						st := u.b.State()
 						u.dragUntil = st.Version
-						u.send(proto.SetLayout{WorkspaceID: ws, Layout: cloneNode(u.drag)})
+						u.send(proto.SetLayout{WorkspaceID: ws, TabID: tab, Layout: cloneNode(u.drag)})
 					}
 				}
 			}
