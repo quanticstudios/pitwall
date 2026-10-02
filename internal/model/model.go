@@ -60,7 +60,7 @@ type Pane struct {
 	Title       string // last OSC title
 	Exited      bool
 	ExitCode    int
-	Provider    Provider // "" until an agent hook reports from this pane
+	Provider    Provider // "" until a hook reports or detection sees an agent
 	SessionID   string   // agent session id from hooks, used to resume
 }
 
