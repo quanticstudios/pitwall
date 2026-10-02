@@ -24,10 +24,13 @@ func (f *fakeVT) Write(b []byte) (int, error) {
 	defer f.mu.Unlock()
 	return f.buf.Write(b)
 }
-func (f *fakeVT) Resize(c, r int)   { f.mu.Lock(); f.size = [2]int{c, r}; f.mu.Unlock() }
-func (f *fakeVT) Snapshot() vt.Grid { return vt.Grid{} }
-func (f *fakeVT) Modes() vt.Modes   { return vt.Modes{} }
-func (f *fakeVT) String() string    { f.mu.Lock(); defer f.mu.Unlock(); return f.buf.String() }
+func (f *fakeVT) Resize(c, r int)          { f.mu.Lock(); f.size = [2]int{c, r}; f.mu.Unlock() }
+func (f *fakeVT) Snapshot() vt.Grid        { return vt.Grid{} }
+func (f *fakeVT) SnapshotAt(int) vt.Grid   { return vt.Grid{} }
+func (f *fakeVT) ScrollbackLen() int       { return 0 }
+func (f *fakeVT) ScrollbackPushed() uint64 { return 0 }
+func (f *fakeVT) Modes() vt.Modes          { return vt.Modes{} }
+func (f *fakeVT) String() string           { f.mu.Lock(); defer f.mu.Unlock(); return f.buf.String() }
 
 func start(t *testing.T, id string, cmd ...string) (*Pane, *fakeVT) {
 	t.Helper()
@@ -132,5 +135,24 @@ func TestCloseKillsWhenHUPIgnored(t *testing.T) {
 	waitDone(t, p)
 	if d := time.Since(t0); d < 2*time.Second || d > 4*time.Second {
 		t.Fatalf("Close took %v, want the 2s SIGKILL path", d)
+	}
+}
+
+func TestScrollback(t *testing.T) {
+	p, err := Start(Config{ID: "p1", Cmd: []string{"seq", "30"}, Cols: 20, Rows: 5, NewVT: vt.New})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	waitDone(t, p)
+	// 30 lines and the cursor row on 5 rows: 26 scrolled off.
+	if n := p.ScrollbackLen(); n != 26 {
+		t.Fatalf("ScrollbackLen %d", n)
+	}
+	if g := p.SnapshotAt(26); g.At(0, 0).Content != "1" || g.At(0, 4).Content != "5" {
+		t.Fatalf("oldest rows %q %q", g.At(0, 0).Content, g.At(0, 4).Content)
+	}
+	if p.ScrollbackPushed() != 26 {
+		t.Fatalf("pushed %d", p.ScrollbackPushed())
 	}
 }

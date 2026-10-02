@@ -39,6 +39,8 @@ type Pane interface {
 	Write(b []byte) (int, error)
 	Resize(cols, rows int) error
 	Snapshot() vt.Grid
+	SnapshotAt(off int) vt.Grid
+	ScrollbackLen() int
 	Modes() vt.Modes
 	Dirty() <-chan struct{}
 	Done() <-chan struct{}
@@ -72,6 +74,7 @@ type Daemon struct {
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
+	views       map[string]*view     // scroll positions, see scroll.go
 	clients     map[*client]struct{} // gui clients only
 	closing     bool
 	savePending bool
@@ -263,7 +266,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		c.push(func() {
 			c.state = true
 			for id, p := range d.panes {
-				c.frames[id] = frame(id, p)
+				c.frames[id] = d.frame(id, p)
 			}
 		})
 		d.mu.Unlock()
@@ -283,10 +286,6 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.push(func() { c.msgs = append(c.msgs, proto.Error{Message: err.Error()}) })
 		}
 	}
-}
-
-func frame(id string, p Pane) proto.Frame {
-	return proto.Frame{Pane: id, Grid: p.Snapshot(), Modes: p.Modes()}
 }
 
 func (d *Daemon) handle(ctx context.Context, m any) error {
@@ -312,6 +311,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		if err != nil {
 			return err
 		}
+		d.unscroll(m.Pane, p)
 		if _, err = p.Write(m.Data); err == nil {
 			d.noteInput(m.Pane, m.Data)
 		}
@@ -322,6 +322,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 			return err
 		}
 		return p.Resize(m.Cols, m.Rows)
+	case proto.Scroll:
+		return d.scroll(m)
 	case proto.AgentEvent:
 		return d.agentEvent(ctx, m)
 	}
@@ -498,6 +500,7 @@ func (d *Daemon) closePane(id string) error {
 func (d *Daemon) dropPane(id string) Pane {
 	h := d.panes[id]
 	delete(d.panes, id)
+	delete(d.views, id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
 }
@@ -669,7 +672,7 @@ func (d *Daemon) pushFrame(id string, p Pane) {
 	if d.panes[id] != p || len(d.clients) == 0 {
 		return
 	}
-	f := frame(id, p)
+	f := d.frame(id, p)
 	for c := range d.clients {
 		c.push(func() { c.frames[id] = f })
 	}
