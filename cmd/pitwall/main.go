@@ -82,6 +82,9 @@ func runDaemon() error {
 	if err != nil {
 		return err
 	}
+	// Panes inherit this, so their hooks reach this daemon even when the
+	// shell inside changes XDG_RUNTIME_DIR.
+	os.Setenv("PITWALL_SOCKET", path)
 	d, err := daemon.New()
 	if err != nil {
 		ln.Close()
@@ -106,9 +109,12 @@ func runHook(args []string) {
 	} else {
 		payload, _ = io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
 	}
-	path, err := proto.SocketPath()
-	if err != nil {
-		return
+	path := os.Getenv("PITWALL_SOCKET")
+	if path == "" {
+		var err error
+		if path, err = proto.SocketPath(); err != nil {
+			return
+		}
 	}
 	conn, err := proto.Dial(path)
 	if err != nil {
