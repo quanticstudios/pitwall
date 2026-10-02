@@ -5,6 +5,7 @@ package app
 import (
 	"image"
 	"log"
+	"slices"
 	"sync"
 	"time"
 
@@ -83,6 +84,11 @@ func Run(b Backend) error {
 			gtx := app.NewContext(&ops, e)
 			u.layout(gtx)
 			e.Frame(gtx.Ops)
+			if u.lastSessionGone() {
+				// Like a tmux client when its session ends: the window goes,
+				// detached sessions keep running in the daemon.
+				w.Perform(system.ActionClose)
+			}
 		}
 	}
 }
@@ -102,15 +108,16 @@ type paneUI struct {
 }
 
 type ui struct {
-	b       Backend
-	th      *theme.Theme
-	nav     nav
-	sidebar sidebar.Sidebar
-	panes   map[string]*paneUI
-	open    widget.Clickable // empty-state button
-	modal   modal
-	tabs    tabStrip
-	modeTag int // holds key focus in tab mode, so typed text skips the pane
+	hadSession bool // a session has been shown; closing the last one closes the window
+	b          Backend
+	th         *theme.Theme
+	nav        nav
+	sidebar    sidebar.Sidebar
+	panes      map[string]*paneUI
+	open       widget.Clickable // empty-state button
+	modal      modal
+	tabs       tabStrip
+	modeTag    int // holds key focus in tab mode, so typed text skips the pane
 
 	// focusReq is the latest attach request, kept until its session is in
 	// the state.
@@ -637,4 +644,15 @@ func (u *ui) layoutDividers(gtx gl.Context, ws, tab string, root *layout.Node, a
 			s.Pop()
 		}
 	})
+}
+
+// lastSessionGone reports when the window has shown a session and now has
+// none left to show, because the last one ended or was detached.
+func (u *ui) lastSessionGone() bool {
+	st := u.b.State()
+	visible := slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool { return !w.Detached })
+	if visible {
+		u.hadSession = true
+	}
+	return u.hadSession && !visible
 }

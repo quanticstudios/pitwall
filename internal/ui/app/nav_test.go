@@ -233,3 +233,22 @@ func TestStartup(t *testing.T) {
 		t.Fatalf("at %s/%s", n.workspace, n.focused())
 	}
 }
+
+func TestLastSessionGoneClosesWindow(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b}
+	if u.lastSessionGone() {
+		t.Fatal("closed while sessions are showing")
+	}
+	b.mu.Lock()
+	for i := range b.st.Workspaces {
+		b.st.Workspaces[i].Detached = true
+	}
+	b.mu.Unlock()
+	if !u.lastSessionGone() {
+		t.Fatal("window stays open with nothing left to show")
+	}
+	if (&ui{b: b}).lastSessionGone() {
+		t.Fatal("a window that never showed a session closed")
+	}
+}
