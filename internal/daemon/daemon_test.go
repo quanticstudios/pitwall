@@ -40,6 +40,7 @@ type fakePane struct {
 	hist   int    // ScrollbackLen
 	pushed uint64 // ScrollbackPushed
 	off    int    // the last SnapshotAt offset
+	title  string // the emulator's title
 }
 
 func (p *fakePane) Write(b []byte) (int, error) {
@@ -56,7 +57,9 @@ func (p *fakePane) Resize(c, r int) error {
 }
 func (p *fakePane) Snapshot() vt.Grid {
 	p.snaps.Add(1)
-	return vt.Grid{Cols: 1, Rows: 1, Cells: []vt.Cell{{Content: "x", Width: 1}}}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return vt.Grid{Cols: 1, Rows: 1, Cells: []vt.Cell{{Content: "x", Width: 1}}, Title: p.title}
 }
 func (p *fakePane) SnapshotAt(off int) vt.Grid {
 	p.mu.Lock()
@@ -302,13 +305,13 @@ func TestDaemonFlow(t *testing.T) {
 	gui.send(proto.OpenPane{WorkspaceID: folderWS, Cmd: []string{"claude"}})
 	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 2 })
 	p0 := st.Panes[1].ID
-	if f.pane(1).cfg.Cwd != folder || f.pane(1).cfg.ID != p0 || st.Workspaces[1].Layout.Pane != p0 {
-		t.Fatalf("pane start: cfg %+v layout %+v", f.pane(1).cfg, st.Workspaces[1].Layout)
+	if f.pane(1).cfg.Cwd != folder || f.pane(1).cfg.ID != p0 || lay(st.Workspaces[1]).Pane != p0 {
+		t.Fatalf("pane start: cfg %+v layout %+v", f.pane(1).cfg, lay(st.Workspaces[1]))
 	}
 
 	gui.send(proto.OpenPane{WorkspaceID: folderWS, Target: p0, Dir: layout.Vertical})
 	st = gui.waitState("split", func(s model.State) bool { return len(s.Panes) == 3 })
-	if l := st.Workspaces[1].Layout; len(l.Children) != 2 || l.Dir != layout.Vertical {
+	if l := lay(st.Workspaces[1]); len(l.Children) != 2 || l.Dir != layout.Vertical {
 		t.Fatalf("split layout: %+v", l)
 	}
 
@@ -335,7 +338,7 @@ func TestDaemonFlow(t *testing.T) {
 
 	gui.send(proto.ClosePane{Pane: p0})
 	st = gui.waitState("pane closed", func(s model.State) bool { return len(s.Panes) == 3 })
-	if l := st.Workspaces[1].Layout; l.Pane == "" || l.Pane == p0 {
+	if l := lay(st.Workspaces[1]); l.Pane == "" || l.Pane == p0 {
 		t.Fatalf("layout after close: %+v", l)
 	}
 	waitUntil(t, "closed pane handle", func() bool { f.pane(1).mu.Lock(); defer f.pane(1).mu.Unlock(); return f.pane(1).closed })
@@ -411,7 +414,7 @@ func TestRestoreOnRestart(t *testing.T) {
 
 	f.pane(2).code = 3
 	f.pane(2).Close() // the process exits on its own
-	gui.waitState("exited", func(s model.State) bool { return s.Panes[2].Exited })
+	gui.waitState("exited pane closed", func(s model.State) bool { return len(s.Panes) == 2 })
 	// The writer sends the pending StateMsg before PaneExited.
 	gui.waitFor("PaneExited", func(m any) bool { e, ok := m.(proto.PaneExited); return ok && e.Pane == donePane && e.ExitCode == 3 })
 	stop()
@@ -419,7 +422,7 @@ func TestRestoreOnRestart(t *testing.T) {
 	f.mu.Lock()
 	saved, started := f.saved, len(f.panes)
 	f.mu.Unlock()
-	if len(saved.Panes) != 3 || saved.Panes[1].Exited || !saved.Panes[2].Exited {
+	if len(saved.Panes) != 2 || saved.Panes[1].Exited {
 		t.Fatalf("shutdown must save live panes as not exited: %+v", saved.Panes)
 	}
 
@@ -436,10 +439,13 @@ func TestRestoreOnRestart(t *testing.T) {
 	}
 	st = dial(t, sock, "gui").waitState("restored state", func(model.State) bool { return true })
 	// A restored session means no new one.
-	if len(st.Workspaces) != 2 || len(st.Panes) != 3 || len(st.Activities) != 0 {
+	if len(st.Workspaces) != 2 || len(st.Panes) != 2 || len(st.Activities) != 0 {
 		t.Fatalf("restored state: %+v", st)
 	}
 }
+
+// lay is the layout of w's active tab.
+func lay(w model.Workspace) *layout.Node { return w.Tabs[tabIndex(&w, "")].Layout }
 
 func mkdir(t *testing.T, p string) {
 	t.Helper()
@@ -552,7 +558,7 @@ func TestSetLayoutValidates(t *testing.T) {
 	}
 	a, b, c := d.st.Panes[0].ID, d.st.Panes[1].ID, d.st.Panes[2].ID
 	must(t, d.handle(ctx, proto.ClosePane{Pane: c}))
-	before := cloneNode(d.st.Workspaces[0].Layout)
+	before := cloneNode(lay(d.st.Workspaces[0]))
 
 	split := func(r []float64, leaves ...string) *layout.Node {
 		n := &layout.Node{Ratios: r}
@@ -572,12 +578,12 @@ func TestSetLayoutValidates(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if got := d.st.Workspaces[0].Layout; !reflect.DeepEqual(got, before) {
+	if got := lay(d.st.Workspaces[0]); !reflect.DeepEqual(got, before) {
 		t.Fatalf("rejected layouts changed the layout: %+v", got)
 	}
 
 	must(t, d.handle(ctx, proto.SetLayout{WorkspaceID: ws, Layout: split([]float64{3, -1}, b, a)}))
-	r := d.st.Workspaces[0].Layout.Ratios
+	r := lay(d.st.Workspaces[0]).Ratios
 	if len(r) != 2 || math.Abs(r[0]+r[1]-1) > 1e-9 || r[1] <= 0 {
 		t.Fatalf("ratios %v", r)
 	}

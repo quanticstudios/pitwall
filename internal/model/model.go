@@ -35,8 +35,8 @@ type Tab struct {
 	// the tab shows Title.
 	Name string
 	// Title follows the tab: the cleaned OSC title of its agent pane, else
-	// of its first pane, else the foreground command. The daemon keeps it
-	// current.
+	// of its first pane, else the foreground command, else the session
+	// directory's base name. The daemon keeps it current.
 	Title  string
 	Layout *layout.Node
 }
@@ -60,12 +60,6 @@ type Workspace struct {
 	UpdatedAt time.Time
 	Tabs      []Tab
 	ActiveTab string // tab id a GUI opens on
-
-	// Removed this round: Layout moves into Tabs[0], Archived becomes
-	// Detached. Kept only until the engine track migrates them; new code
-	// must not read or write them.
-	Archived bool
-	Layout   *layout.Node
 }
 
 type Provider string
@@ -81,7 +75,7 @@ type Pane struct {
 	WorkspaceID string
 	Cmd         []string // argv as launched; empty means the user's shell
 	Cwd         string
-	Title       string // last OSC title
+	Title       string // last OSC title, spinner and status glyphs stripped
 	Exited      bool
 	ExitCode    int
 	Provider    Provider // "" until a hook reports or detection sees an agent
