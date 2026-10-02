@@ -50,17 +50,61 @@ func TestEngine(t *testing.T) {
 	hook.send(t, proto.AgentEvent{Pane: shell.ID, Provider: model.ProviderClaude, Payload: []byte(stop)})
 	waitActivity(t, gui, shell.ID, model.StateCompleted)
 
-	// Exit and reap the shell before ClosePane removes its handle.
+	// An exited shell closes its pane.
 	gui.send(t, proto.Input{Pane: shell.ID, Data: []byte("exit\r")})
-	gui.waitFor(t, timeout, func(msg any) bool {
-		e, ok := msg.(proto.PaneExited)
-		return ok && e.Pane == shell.ID && e.ExitCode == 0
-	})
-	gui.send(t, proto.ClosePane{Pane: shell.ID})
 	gui.waitFor(t, timeout, func(msg any) bool {
 		s, ok := msg.(proto.StateMsg)
 		return ok && !slices.ContainsFunc(s.State.Panes, func(p model.Pane) bool { return p.ID == shell.ID })
 	})
+	gui.waitFor(t, timeout, func(msg any) bool {
+		e, ok := msg.(proto.PaneExited)
+		return ok && e.Pane == shell.ID && e.ExitCode == 0
+	})
+}
+
+// A shell's exit closes its pane, an emptied tab and then an emptied session.
+func TestExitClosesTabAndSession(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	gui := connect(t, "gui")
+	s := waitState(t, gui, func(s model.State) bool { return len(s.Workspaces) == 1 && len(s.Panes) == 1 })
+	w, first := s.Workspaces[0], s.Panes[0].ID
+	gui.send(t, proto.NewTab{WorkspaceID: w.ID})
+	s = waitState(t, gui, func(s model.State) bool { return len(s.Panes) == 2 && len(s.Workspaces[0].Tabs) == 2 })
+	second := s.Panes[1].ID
+	if s.Workspaces[0].ActiveTab != s.Workspaces[0].Tabs[1].ID {
+		t.Fatalf("new tab is not active: %+v", s.Workspaces[0])
+	}
+
+	gui.send(t, proto.Input{Pane: second, Data: []byte("exit\r")})
+	s = waitState(t, gui, func(s model.State) bool { return len(s.Panes) == 1 })
+	if tabs := s.Workspaces[0].Tabs; len(tabs) != 1 || s.Workspaces[0].ActiveTab != tabs[0].ID {
+		t.Fatalf("emptied tab left: %+v", s.Workspaces[0])
+	}
+	gui.send(t, proto.Input{Pane: first, Data: []byte("exit\r")})
+	waitState(t, gui, func(s model.State) bool { return len(s.Workspaces) == 0 && len(s.Panes) == 0 })
+}
+
+// A CLI client gets no pushes; Sync acknowledges its request with state.
+func TestCLISync(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	cli := connect(t, "cli")
+	cli.send(t, proto.NewSession{Cwd: t.TempDir()})
+	cli.send(t, proto.Sync{})
+	s := cli.waitFor(t, timeout, func(any) bool { return true })
+	st, ok := s.(proto.StateMsg)
+	if !ok || len(st.State.Workspaces) != 1 || st.State.Workspaces[0].Name == "" || len(st.State.Workspaces[0].Tabs) != 1 {
+		t.Fatalf("Sync reply %#v", s)
+	}
+}
+
+func waitState(t *testing.T, c *client, ok func(model.State) bool) model.State {
+	t.Helper()
+	return c.waitFor(t, timeout, func(msg any) bool {
+		s, is := msg.(proto.StateMsg)
+		return is && ok(s.State)
+	}).(proto.StateMsg).State
 }
 
 func TestPersistenceAndRestore(t *testing.T) {

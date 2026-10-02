@@ -37,7 +37,7 @@ func allMessages() []any {
 	st := model.State{
 		Version:    7,
 		Projects:   []model.Project{{ID: "p", Name: "n", Root: "/r", Kind: model.ProjectGit, Color: "red"}},
-		Workspaces: []model.Workspace{{ID: "w", ProjectID: "p", Name: "x", Branch: "x", Path: "/r/x", UpdatedAt: now, Layout: tree}},
+		Workspaces: []model.Workspace{{ID: "w", ProjectID: "p", Name: "x", Branch: "x", Path: "/r/x", UpdatedAt: now, Tabs: []model.Tab{{ID: "t", Layout: tree}}, ActiveTab: "t"}},
 		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cmd: []string{"claude"}, Cwd: "/r/x", Exited: true, ExitCode: 2, Provider: model.ProviderClaude, SessionID: "s"}},
 		Activities: []model.Activity{{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: now}},
 		Stats:      map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
