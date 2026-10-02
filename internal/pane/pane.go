@@ -150,6 +150,24 @@ func (p *Pane) Snapshot() vt.Grid {
 	return p.vt.Snapshot()
 }
 
+func (p *Pane) SnapshotAt(off int) vt.Grid {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.vt.SnapshotAt(off)
+}
+
+func (p *Pane) ScrollbackLen() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.vt.ScrollbackLen()
+}
+
+func (p *Pane) ScrollbackPushed() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.vt.ScrollbackPushed()
+}
+
 func (p *Pane) Modes() vt.Modes {
 	p.mu.Lock()
 	defer p.mu.Unlock()

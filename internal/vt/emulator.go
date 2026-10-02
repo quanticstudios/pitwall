@@ -1,10 +1,15 @@
 package vt
 
 import (
+	"bytes"
 	"fmt"
 	"image/color"
 	"io"
+	"math"
 	"runtime"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +46,8 @@ type state struct {
 	syncing   bool       // mode 2026 is set
 	syncStart time.Time
 	last      *Grid // the previous Snapshot, shown while syncing
+	hist      history
+	term      byte // the last byte of the chunk x/vt is parsing: BEL or ESC when it ends an OSC
 }
 
 // New returns an Emulator backed by github.com/charmbracelet/x/vt.
@@ -49,9 +56,12 @@ func New(cols, rows int, reply io.Writer) Emulator {
 		reply = io.Discard
 	}
 	e := xvt.NewEmulator(max(cols, 1), max(rows, 1))
-	// Nothing reads scrollback yet, and x/vt's default keeps 10k lines (up to
-	// 134MB per pane at 120 columns). Raise this when a scrollback view lands.
-	e.SetScrollbackSize(1)
+	// x/vt's scrollback only collects lines until Write moves them into
+	// st.hist, so it never drops one.
+	e.SetScrollbackSize(math.MaxInt)
+	e.SetDefaultForegroundColor(rgb(DefaultPalette.Fg))
+	e.SetDefaultBackgroundColor(rgb(DefaultPalette.Bg))
+	e.SetDefaultCursorColor(rgb(DefaultPalette.Cursor))
 	st := &state{modes: map[ansi.Mode]bool{}}
 	e.SetCallbacks(xvt.Callbacks{
 		Title:            func(s string) { st.title = s },
@@ -70,6 +80,13 @@ func New(cols, rows int, reply io.Writer) Emulator {
 		},
 	})
 	registerKitty(e, st)
+	registerColorQueries(e, st)
+	e.RegisterCsiHandler('J', func(p ansi.Params) bool {
+		if n, _, _ := p.Param(0, 0); n == 3 && !e.IsAltScreen() {
+			st.hist.clear()
+		}
+		return false // x/vt clears the screen and its own scrollback
+	})
 	e.RegisterCsiHandler('n', func(p ansi.Params) bool {
 		// x/vt answers DSR 5 with the DEC form CSI ? 0 n; xterm sends CSI 0 n.
 		if n, _, _ := p.Param(0, 0); n != 5 {
@@ -88,10 +105,32 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	return t
 }
 
+// Write cuts p after every BEL and ESC so the OSC handlers know which
+// terminator ended a query, then moves lines that scrolled off into history.
 func (t *emulator) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.e.Write(p)
+	n := len(p)
+	for len(p) > 0 {
+		i := bytes.IndexAny(p, "\x07\x1b") + 1
+		if i == 0 {
+			i = len(p)
+		}
+		t.st.term = p[i-1]
+		if _, err := t.e.Write(p[:i]); err != nil {
+			return n - len(p), err
+		}
+		p = p[i:]
+	}
+	if sb := t.e.Scrollback(); sb.Len() > 0 {
+		lines := sb.Lines()
+		for _, l := range lines {
+			t.st.hist.push(l)
+		}
+		clear(lines) // Clear keeps the backing array, which would pin the lines
+		sb.Clear()
+	}
+	return n, nil
 }
 
 func (t *emulator) Resize(cols, rows int) {
@@ -110,6 +149,58 @@ func (t *emulator) Resize(cols, rows int) {
 func (t *emulator) Snapshot() Grid {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.snapshot()
+}
+
+// SnapshotAt is Snapshot with the view moved off lines up into history:
+// history fills the top rows and the live screen shifts down. off is clamped
+// to the history length and ignored on the alt screen. The cursor moves with
+// the screen and is hidden once it leaves the view.
+func (t *emulator) SnapshotAt(off int) Grid {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	g := t.snapshot()
+	h := &t.st.hist
+	off = min(off, h.len())
+	if off <= 0 || g.AltScreen {
+		return g
+	}
+	out := g
+	out.Cells = make([]Cell, len(g.Cells))
+	for y := range g.Rows {
+		row := out.Cells[y*g.Cols : (y+1)*g.Cols]
+		if src := y - off; src >= 0 {
+			copy(row, g.Cells[src*g.Cols:])
+		} else {
+			h.at(h.len() + src).fill(row)
+		}
+	}
+	out.Cursor.Y += off
+	if out.Cursor.Y >= g.Rows {
+		out.Cursor.Visible = false
+	}
+	return out
+}
+
+// ScrollbackLen is the number of history lines; 0 on the alt screen.
+func (t *emulator) ScrollbackLen() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.e.IsAltScreen() {
+		return 0
+	}
+	return t.st.hist.len()
+}
+
+// ScrollbackPushed counts every line that ever entered history, so a viewer
+// can tell how far the screen moved even once the oldest lines drop out.
+func (t *emulator) ScrollbackPushed() uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.st.hist.pushed
+}
+
+func (t *emulator) snapshot() Grid {
 	st := t.st
 	if st.syncing && st.last != nil && time.Since(st.syncStart) < syncTimeout {
 		return *st.last
@@ -199,6 +290,68 @@ func toAttr(a uint8, underline bool) Attr {
 		out |= Underline
 	}
 	return out
+}
+
+func rgb(c uint32) color.Color {
+	return color.RGBA{R: uint8(c >> 16), G: uint8(c >> 8), B: uint8(c), A: 0xff}
+}
+
+// registerColorQueries answers OSC 10/11/12 and OSC 4 queries in xterm's
+// form (rgb:rrrr/gggg/bbbb), ending each reply with the terminator the query
+// used. x/vt always answers 10-12 with BEL and ignores OSC 4. Anything but a
+// pure query falls through to x/vt, which stores OSC 10-12 colors.
+func registerColorQueries(e *xvt.Emulator, st *state) {
+	reply := func(code string, c color.Color) {
+		r, g, b, _ := c.RGBA()
+		term := "\x07"
+		if st.term == ansi.ESC {
+			term = "\x1b\\"
+		}
+		_, _ = fmt.Fprintf(e.InputPipe(), "\x1b]%s;rgb:%04x/%04x/%04x%s", code, r, g, b, term)
+	}
+	notQuery := func(a string) bool { return a != "?" }
+	for _, cmd := range []int{10, 11, 12} {
+		e.RegisterOscHandler(cmd, func(data []byte) bool {
+			// OSC 10;?;? asks for 10 and then 11, as in xterm.
+			args := strings.Split(string(data), ";")[1:]
+			if len(args) == 0 || slices.ContainsFunc(args, notQuery) {
+				return false
+			}
+			for i := range args {
+				switch cmd + i {
+				case 10:
+					reply("10", e.ForegroundColor())
+				case 11:
+					reply("11", e.BackgroundColor())
+				case 12:
+					reply("12", e.CursorColor())
+				}
+			}
+			return true
+		})
+	}
+	e.RegisterOscHandler(4, func(data []byte) bool {
+		args := strings.Split(string(data), ";")[1:]
+		if len(args) == 0 || len(args)%2 != 0 {
+			return false
+		}
+		idx := make([]int, 0, len(args)/2)
+		for i := 0; i < len(args); i += 2 {
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 0 || n > 255 || args[i+1] != "?" {
+				return false
+			}
+			idx = append(idx, n)
+		}
+		for _, n := range idx {
+			c := color.Color(ansi.IndexedColor(n))
+			if n < len(DefaultPalette.ANSI) {
+				c = rgb(DefaultPalette.ANSI[n])
+			}
+			reply("4;"+strconv.Itoa(n), c)
+		}
+		return true
+	})
 }
 
 func kittyStack(e *xvt.Emulator, st *state) *[]uint8 {
