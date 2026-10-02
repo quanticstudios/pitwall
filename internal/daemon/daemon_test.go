@@ -2,10 +2,14 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
@@ -439,4 +445,202 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 		}
 	}
 	t.Fatalf("timed out: %s", what)
+}
+
+// A paste into a program that never reads stdin blocks the handler in the PTY
+// write; shutdown must still save and close the pane.
+func TestShutdownWithBlockedWrite(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.NewVT = vt.New
+	o.StartPane = func(c pane.Config) (Pane, error) {
+		c.Cmd = []string{"sh", "-c", "stty raw -echo; echo ready; exec sleep 60"} // raw: a full input queue blocks the writer
+		p, err := pane.Start(c)
+		if err != nil {
+			return nil, err
+		}
+		return p, nil
+	}
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	served := make(chan error, 1)
+	go func() { served <- d.Serve(ctx, ln) }()
+
+	gui := dial(t, sock, "gui")
+	folder := t.TempDir()
+	gui.send(proto.AddProject{Path: folder})
+	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 1 })
+	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[0].ID})
+	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	gui.waitFor("raw mode", func(m any) bool {
+		fr, ok := m.(proto.Frame)
+		return ok && len(fr.Grid.Cells) > 0 && fr.Grid.Cells[0].Content == "r"
+	})
+	gui.send(proto.Input{Pane: st.Panes[0].ID, Data: make([]byte, 1<<20)})
+	time.Sleep(200 * time.Millisecond) // the handler is now stuck in the write
+
+	cancel()
+	select {
+	case <-served:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve did not return with a PTY write pending")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.saved.Panes) != 1 || f.saved.Panes[0].Exited || f.saved.Panes[0].Cwd != folder {
+		t.Fatalf("final save: %+v", f.saved.Panes)
+	}
+}
+
+// A Codex /side fork's hooks must not replace the session a restart resumes.
+func TestSideForkKeepsSession(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: d.st.Workspaces[0].ID}))
+	id := d.st.Panes[0].ID
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderCodex,
+		Payload: []byte(`{"session_id":"main","transcript_path":"/t.jsonl","hook_event_name":"Stop"}`)}))
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderCodex,
+		Payload: []byte(`{"session_id":"side","transcript_path":null,"hook_event_name":"Stop"}`)}))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if sid := d.st.Panes[0].SessionID; sid != "main" {
+		t.Fatalf("SessionID = %q, want main", sid)
+	}
+}
+
+// A SetLayout built from stale state is rejected; a current one is taken with
+// its ratios made sane.
+func TestSetLayoutValidates(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	ws := d.st.Workspaces[0].ID
+	for range 3 {
+		must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws}))
+	}
+	a, b, c := d.st.Panes[0].ID, d.st.Panes[1].ID, d.st.Panes[2].ID
+	must(t, d.handle(ctx, proto.ClosePane{Pane: c}))
+	before := cloneNode(d.st.Workspaces[0].Layout)
+
+	split := func(r []float64, leaves ...string) *layout.Node {
+		n := &layout.Node{Ratios: r}
+		for _, id := range leaves {
+			n.Children = append(n.Children, &layout.Node{Pane: id})
+		}
+		return n
+	}
+	for name, l := range map[string]*layout.Node{
+		"resurrects closed": split(nil, a, b, c),
+		"hides live":        {Pane: a},
+		"duplicate leaf":    split(nil, a, b, b),
+		"empty":             nil,
+		"one-child split":   {Children: []*layout.Node{split(nil, a, b)}},
+	} {
+		if err := d.handle(ctx, proto.SetLayout{WorkspaceID: ws, Layout: l}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if got := d.st.Workspaces[0].Layout; !reflect.DeepEqual(got, before) {
+		t.Fatalf("rejected layouts changed the layout: %+v", got)
+	}
+
+	must(t, d.handle(ctx, proto.SetLayout{WorkspaceID: ws, Layout: split([]float64{3, -1}, b, a)}))
+	r := d.st.Workspaces[0].Layout.Ratios
+	if len(r) != 2 || math.Abs(r[0]+r[1]-1) > 1e-9 || r[1] <= 0 {
+		t.Fatalf("ratios %v", r)
+	}
+}
+
+// A branch that git refuses to delete must not keep a workspace whose
+// worktree is already gone.
+func TestDeleteWorkspaceBranchKept(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.RemoveWorktree = func(context.Context, string, string, bool) error {
+		return fmt.Errorf("%w: branch not fully merged", gitstat.ErrBranchKept)
+	}
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), "repo")
+	mkdir(t, repo)
+	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
+	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: d.st.Projects[0].ID, Name: "feat"}))
+	ws := d.st.Workspaces[0].ID
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws}))
+
+	err = d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: ws, RemoveBranch: true})
+	if !errors.Is(err, gitstat.ErrBranchKept) {
+		t.Fatalf("got %v, want the kept branch reported", err)
+	}
+	d.mu.Lock()
+	n, np := len(d.st.Workspaces), len(d.st.Panes)
+	d.mu.Unlock()
+	if n != 0 || np != 0 {
+		t.Fatalf("workspace or pane left: %d %d", n, np)
+	}
+	waitUntil(t, "pane closed", func() bool { p := f.pane(0); p.mu.Lock(); defer p.mu.Unlock(); return p.closed })
+}
+
+// A GUI client that stops reading is disconnected; the others keep getting
+// state.
+func TestSlowClientDisconnected(t *testing.T) {
+	old := writeTimeout
+	writeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { writeTimeout = old })
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Serve(ctx, ln)
+
+	good := dial(t, sock, "gui")
+	good.waitState("initial", func(model.State) bool { return true })
+	slow, err := proto.Dial(sock) // never reads
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slow.Close()
+	slow.Send(proto.Hello{Version: proto.Version, Kind: "gui"})
+	waitUntil(t, "slow client registered", func() bool { d.mu.Lock(); defer d.mu.Unlock(); return len(d.clients) == 2 })
+	go func() {
+		bad := proto.Input{Pane: strings.Repeat("x", 512)} // each earns an Error reply
+		for slow.Send(bad) == nil {
+		}
+	}()
+	waitUntil(t, "slow client dropped", func() bool { d.mu.Lock(); defer d.mu.Unlock(); return len(d.clients) == 1 })
+
+	good.send(proto.AddProject{Path: t.TempDir()})
+	good.waitState("project", func(s model.State) bool { return len(s.Projects) == 1 })
 }

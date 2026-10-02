@@ -7,9 +7,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -32,7 +34,16 @@ const (
 	saveDelay     = time.Second
 	// New panes start at this size; the GUI sends Resize once it lays them out.
 	defaultCols, defaultRows = 80, 24
+	// inputQueue is how many Input messages may wait behind a PTY write.
+	inputQueue = 64
+	// maxQueued is how many Error and PaneExited messages a client may have
+	// unsent before it is disconnected. StateMsg and Frame coalesce instead.
+	maxQueued = 1024
 )
+
+// writeTimeout is how long one message may take to reach a client before it
+// is disconnected; tests shorten it.
+var writeTimeout = 10 * time.Second
 
 // Pane is what the daemon needs from a running pane; *pane.Pane has it.
 type Pane interface {
@@ -74,8 +85,9 @@ type Daemon struct {
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
-	views       map[string]*view     // scroll positions, see scroll.go
-	clients     map[*client]struct{} // gui clients only
+	inputs      map[string]chan []byte // per pane, drained by writeInput
+	views       map[string]*view       // scroll positions, see scroll.go
+	clients     map[*client]struct{}   // gui clients only
 	closing     bool
 	savePending bool
 	live        liveness
@@ -125,7 +137,7 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, clients: map[*client]struct{}{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}}
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
 	for i := range d.st.Panes {
@@ -191,6 +203,7 @@ func (d *Daemon) shutdown() {
 // newer Frame for a pane replaces an unsent older one.
 type client struct {
 	conn   *proto.Conn
+	nc     net.Conn // for write deadlines
 	wake   chan struct{}
 	mu     sync.Mutex
 	state  bool
@@ -206,6 +219,18 @@ func (c *client) push(f func()) {
 	case c.wake <- struct{}{}:
 	default:
 	}
+}
+
+// queue adds m to the unsent messages, or disconnects a client that has let
+// maxQueued pile up.
+func (c *client) queue(m any) {
+	c.push(func() {
+		if len(c.msgs) >= maxQueued {
+			c.conn.Close()
+			return
+		}
+		c.msgs = append(c.msgs, m)
+	})
 }
 
 func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
@@ -229,6 +254,7 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 			out = append(out, f)
 		}
 		for _, m := range append(out, msgs...) {
+			c.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := c.conn.Send(m); err != nil {
 				c.conn.Close()
 				return
@@ -255,7 +281,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		return
 	}
 
-	c := &client{conn: conn, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
+	c := &client{conn: conn, nc: nc, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
 	done := make(chan struct{})
 	defer close(done)
 	go d.writeLoop(c, done)
@@ -283,7 +309,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			return
 		}
 		if err := d.handle(ctx, m); err != nil {
-			c.push(func() { c.msgs = append(c.msgs, proto.Error{Message: err.Error()}) })
+			c.queue(proto.Error{Message: err.Error()})
 		}
 	}
 }
@@ -301,7 +327,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ArchiveWorkspace:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Archived = m.Archived })
 	case proto.SetLayout:
-		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Layout = m.Layout })
+		return d.setLayout(m)
 	case proto.DeleteWorkspace:
 		return d.deleteWorkspace(ctx, m)
 	case proto.OpenPane:
@@ -309,15 +335,20 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
-		p, err := d.pane(m.Pane)
-		if err != nil {
-			return err
+		d.mu.Lock()
+		p, in := d.panes[m.Pane], d.inputs[m.Pane]
+		d.mu.Unlock()
+		if p == nil {
+			return fmt.Errorf("no pane %s", m.Pane)
 		}
 		d.unscroll(m.Pane, p)
-		if _, err = p.Write(m.Data); err == nil {
+		select {
+		case in <- m.Data:
 			d.noteInput(m.Pane, m.Data)
+			return nil
+		default:
+			return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", m.Pane, len(m.Data))
 		}
-		return err
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
 		if err != nil {
@@ -410,6 +441,67 @@ func (d *Daemon) editWorkspace(id string, f func(*model.Workspace)) error {
 	return nil
 }
 
+// setLayout takes a layout only when its leaves are exactly the workspace's
+// panes: one built from stale state could hide a live pane or bring back a
+// closed one. The GUI re-reads state when it gets the error.
+func (d *Daemon) setLayout(m proto.SetLayout) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	w := d.workspace(m.WorkspaceID)
+	if w == nil {
+		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	var want []string
+	for _, p := range d.st.Panes {
+		if p.WorkspaceID == w.ID {
+			want = append(want, p.ID)
+		}
+	}
+	got := layout.Panes(m.Layout)
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(got, want) || (m.Layout != nil && !sanitize(m.Layout)) {
+		return fmt.Errorf("layout for workspace %s does not match its panes", w.ID)
+	}
+	w.Layout = m.Layout
+	d.changed()
+	return nil
+}
+
+// minRatio is the smallest share of a split SetLayout keeps; the GUI clamps
+// drags to the same value.
+const minRatio = 0.05
+
+// sanitize reports whether every split under n has two or more children and
+// no leaf has any, and rewrites each split's ratios to sum to 1 with none
+// below minRatio before normalizing. A missing or invalid ratio becomes an
+// equal share.
+func sanitize(n *layout.Node) bool {
+	if n.Pane != "" {
+		return len(n.Children) == 0
+	}
+	if len(n.Children) < 2 {
+		return false
+	}
+	r := make([]float64, len(n.Children))
+	total := 0.0
+	for i, c := range n.Children {
+		if c == nil || !sanitize(c) {
+			return false
+		}
+		r[i] = 1 / float64(len(r))
+		if len(n.Ratios) == len(r) && n.Ratios[i] >= 0 && !math.IsInf(n.Ratios[i], 0) {
+			r[i] = max(n.Ratios[i], minRatio)
+		}
+		total += r[i]
+	}
+	for i := range r {
+		r[i] /= total
+	}
+	n.Ratios = r
+	return true
+}
+
 func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) error {
 	d.mu.Lock()
 	w := d.workspace(m.WorkspaceID)
@@ -426,8 +518,11 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
 	// The main checkout is never removed: only worktrees pitwall could have added.
+	var err error
 	if proj.Kind == model.ProjectGit && ws.Path != proj.Root {
-		if err := d.o.RemoveWorktree(ctx, proj.Root, ws.Path, m.RemoveBranch); err != nil {
+		// A kept branch is still reported, but the worktree is gone, so the
+		// workspace goes too.
+		if err = d.o.RemoveWorktree(ctx, proj.Root, ws.Path, m.RemoveBranch); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
 			return err
 		}
 	}
@@ -445,7 +540,7 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	d.changed()
 	d.mu.Unlock()
 	closeAll(closing)
-	return nil
+	return err
 }
 
 func (d *Daemon) openPane(m proto.OpenPane) error {
@@ -502,6 +597,7 @@ func (d *Daemon) closePane(id string) error {
 func (d *Daemon) dropPane(id string) Pane {
 	h := d.panes[id]
 	delete(d.panes, id)
+	delete(d.inputs, id)
 	delete(d.views, id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
@@ -641,8 +737,28 @@ func (d *Daemon) start(id string, cmd []string, cwd string) error {
 		return err
 	}
 	d.panes[id] = p
+	in := make(chan []byte, inputQueue)
+	d.inputs[id] = in
 	go d.watch(id, p)
+	go writeInput(p, in)
 	return nil
+}
+
+// writeInput writes one pane's input on a goroutine of its own: a program
+// that stops reading stdin blocks this goroutine, never a client connection
+// or shutdown.
+// ponytail: the PTY fd is in blocking mode, so a write stuck when the pane
+// closes leaks this goroutine and the fd until the daemon exits; a
+// non-blocking fd in package pane would let Close interrupt it.
+func writeInput(p Pane, in <-chan []byte) {
+	for {
+		select {
+		case b := <-in:
+			p.Write(b) // a pane that cannot take input has exited, which watch reports
+		case <-p.Done():
+			return
+		}
+	}
 }
 
 // watch pushes at most 60 frames a second for one pane. Dirty has capacity
@@ -695,7 +811,7 @@ func (d *Daemon) exited(id string, p Pane) {
 	d.dropActivity(id)
 	d.changed()
 	for c := range d.clients {
-		c.push(func() { c.msgs = append(c.msgs, proto.PaneExited{Pane: id, ExitCode: code}) })
+		c.queue(proto.PaneExited{Pane: id, ExitCode: code})
 	}
 }
 
