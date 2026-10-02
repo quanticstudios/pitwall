@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
@@ -492,5 +493,29 @@ func TestShutdownWithBlockedWrite(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.saved.Panes) != 1 || f.saved.Panes[0].Exited || f.saved.Panes[0].Cwd != folder {
 		t.Fatalf("final save: %+v", f.saved.Panes)
+	}
+}
+
+// A Codex /side fork's hooks must not replace the session a restart resumes.
+func TestSideForkKeepsSession(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: d.st.Workspaces[0].ID}))
+	id := d.st.Panes[0].ID
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderCodex,
+		Payload: []byte(`{"session_id":"main","transcript_path":"/t.jsonl","hook_event_name":"Stop"}`)}))
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderCodex,
+		Payload: []byte(`{"session_id":"side","transcript_path":null,"hook_event_name":"Stop"}`)}))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if sid := d.st.Panes[0].SessionID; sid != "main" {
+		t.Fatalf("SessionID = %q, want main", sid)
 	}
 }
