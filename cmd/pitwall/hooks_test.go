@@ -172,7 +172,7 @@ func TestHooksRefuseTemporaryExecutable(t *testing.T) {
 func TestHooksMergeMixedGroups(t *testing.T) {
 	bin := "/opt/pitwall/bin/pitwall"
 	original := []byte(`{"hooks":{"Stop":[{"matcher":"*","extra":true,"hooks":[{"command":"'/opt/pitwall/bin/pitwall' hook claude"},{"command":"'/opt/other/pitwall' hook claude"},{"command":"echo /opt/pitwall/bin/pitwall hook claude"}]}],"Empty":[]}}`)
-	installed, changes, err := mergeHooks(original, agent.ClaudeHooks(bin), bin, true)
+	installed, changes, err := mergeHooks(original, agent.ClaudeHooks(bin), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestHooksMergeMixedGroups(t *testing.T) {
 			t.Fatal("duplicated command inside existing group")
 		}
 	}
-	removed, _, err := mergeHooks(installed, nil, bin, false)
+	removed, _, err := mergeHooks(installed, agent.ClaudeHooks(bin), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,29 +206,6 @@ func TestHooksInvalidConfigWritesNothing(t *testing.T) {
 		}
 		if !reflect.DeepEqual(readHooksTestFile(t, claude), []byte(`{"keep":true}`)) {
 			t.Fatal("changed Claude config before validating Codex config")
-		}
-	}
-}
-
-func TestIsPitwallHook(t *testing.T) {
-	for _, tc := range []struct {
-		command, bin string
-		want         bool
-	}{
-		{`'/opt/pitwall' hook claude`, "/opt/pitwall", true},
-		{`"/opt/pitwall" hook codex`, "/opt/pitwall", true},
-		{`/opt/pitwall hook claude`, "/opt/pitwall", true},
-		{`echo /opt/pitwall hook claude`, "/opt/pitwall", false},
-		{`/opt/pitwall-other hook claude`, "/opt/pitwall", false},
-		{`/opt/pitwall hooks install`, "/opt/pitwall", false},
-		{`'/opt/my pitwall' hook claude`, "/opt/my pitwall", true},
-		{`/opt/my pitwall hook claude`, "/opt/my pitwall", false},
-		{`'/opt/it'\''s pitwall' hook claude`, "/opt/it's pitwall", true},
-		{`"/opt/\$pitwall" hook codex`, "/opt/$pitwall", true},
-		{`"/opt/$pitwall" hook codex`, "/opt/$pitwall", false},
-	} {
-		if got := isPitwallHook(tc.command, tc.bin); got != tc.want {
-			t.Errorf("isPitwallHook(%q, %q) = %v, want %v", tc.command, tc.bin, got, tc.want)
 		}
 	}
 }
@@ -311,5 +288,37 @@ func TestHooksConcurrentInvalidEdit(t *testing.T) {
 	}
 	if backups, _ := filepath.Glob(path + ".pitwall-backup-*"); len(backups) != 0 {
 		t.Fatal("backed up stale config")
+	}
+}
+
+func TestHooksUninstallExactCommands(t *testing.T) {
+	home := hooksHome(t)
+	bin := "/opt/pitwall/bin/pitwall"
+	for _, provider := range []string{"claude", "codex"} {
+		path := filepath.Join(home, ".claude", "settings.json")
+		other := "codex"
+		if provider == "codex" {
+			path = filepath.Join(home, ".codex", "hooks.json")
+			other = "claude"
+		}
+		exact := "'" + bin + "' hook " + provider
+		commands := []string{exact, exact + " && ~/bin/audit-agent", exact + " --custom", "'" + bin + "' hook " + other, bin + " hook " + provider, `"` + bin + `" hook ` + provider}
+		handlers := []hookObject{}
+		for _, command := range commands {
+			raw, _ := json.Marshal(command)
+			handlers = append(handlers, hookObject{"command": raw})
+		}
+		raw, _ := json.Marshal(handlers)
+		writeHooksTestFile(t, path, `{"hooks":{"Stop":[{"hooks":`+string(raw)+`}]}}`)
+		if err := runHooks([]string{"uninstall"}, &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
+		root, _ := hookJSON[hookObject](readHooksTestFile(t, path))
+		events, _ := hookJSON[hookObject](root["hooks"])
+		groups, _ := hookJSON[[]hookObject](events["Stop"])
+		kept, _ := hookJSON[[]hookObject](groups[0]["hooks"])
+		if !reflect.DeepEqual(kept, handlers[1:]) {
+			t.Fatalf("uninstall removed user commands: %s", events["Stop"])
+		}
 	}
 }

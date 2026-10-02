@@ -84,7 +84,7 @@ func runHooks(args []string, out io.Writer) error {
 		if i == 1 {
 			f.generated = agent.CodexHooks(bin)
 		}
-		f.data, f.changes, err = mergeHooks(f.original, f.generated, bin, install)
+		f.data, f.changes, err = mergeHooks(f.original, f.generated, install)
 		if err != nil {
 			return fmt.Errorf("%s: %w", f.path, err)
 		}
@@ -100,7 +100,7 @@ func runHooks(args []string, out io.Writer) error {
 			return fmt.Errorf("re-read %s: %w", f.path, err)
 		}
 		if !bytes.Equal(fresh, f.original) || (fresh == nil) != (f.original == nil) {
-			f.data, f.changes, err = mergeHooks(fresh, f.generated, bin, install)
+			f.data, f.changes, err = mergeHooks(fresh, f.generated, install)
 			if err != nil {
 				return fmt.Errorf("%s changed during hook update; refusing to overwrite: %w", f.path, err)
 			}
@@ -144,7 +144,7 @@ func hookJSON[T any](data []byte) (T, error) {
 	return v, err
 }
 
-func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, []string, error) {
+func mergeHooks(original, generated []byte, install bool) ([]byte, []string, error) {
 	root := hookObject{}
 	if original != nil {
 		var err error
@@ -162,6 +162,19 @@ func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, [
 		}
 	}
 	wanted, _ := hookJSON[hookObject](generated)
+	commands := map[string]bool{}
+	for _, raw := range wanted {
+		groups, _ := hookJSON[[]hookObject](raw)
+		for _, group := range groups {
+			handlers, _ := hookJSON[[]hookObject](group["hooks"])
+			for _, handler := range handlers {
+				command, _ := hookJSON[string](handler["command"])
+				if command != "" {
+					commands[command] = true
+				}
+			}
+		}
+	}
 	names := make([]string, 0, len(events)+len(wanted))
 	for name := range events {
 		names = append(names, name)
@@ -204,7 +217,7 @@ func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, [
 				if command != "" && cmd == command {
 					found = true
 				}
-				if !install && isPitwallHook(cmd, bin) {
+				if !install && commands[cmd] {
 					groupRemoved, removed = true, true
 					changes = append(changes, "removed "+name+": "+cmd)
 					continue
@@ -241,15 +254,6 @@ func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, [
 	}
 	data, err := json.MarshalIndent(root, "", "  ")
 	return append(data, '\n'), changes, err
-}
-
-func isPitwallHook(command, bin string) bool {
-	singleQuoted := "'" + strings.ReplaceAll(bin, "'", `'\''`) + "'"
-	doubleQuoted := `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`").Replace(bin) + `"`
-	if strings.HasPrefix(command, singleQuoted+" hook ") || strings.HasPrefix(command, doubleQuoted+" hook ") {
-		return true
-	}
-	return !strings.ContainsAny(bin, " \t\n\\\"'$`;&|()<>{}*?[]") && strings.HasPrefix(command, bin+" hook ")
 }
 
 func writeHookConfig(path string, data, original []byte, mode os.FileMode) (string, error) {
