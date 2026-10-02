@@ -25,6 +25,7 @@ import (
 )
 
 const usage = `usage:
+  pitwall --version          print the version
   pitwall                    open the window (starts the daemon if needed)
   pitwall daemon             run the daemon in the foreground
   pitwall hook <provider>    forward an agent hook event (claude, codex)
@@ -49,6 +50,9 @@ func main() {
 	}
 	var err error
 	switch cmd {
+	case "--version", "-v", "version":
+		fmt.Println("pitwall", versionString())
+		return
 	case "":
 		err = runGUI()
 	case "daemon":
@@ -114,6 +118,7 @@ func devMinor(dev uint64) uint32 { return uint32((dev>>12)&0xffffff00) | uint32(
 // of two daemons started at once only one restores panes and binds; the
 // other exits cleanly.
 func runDaemon() error {
+	fmt.Fprintln(os.Stderr, "pitwall daemon", versionString(), "starting")
 	path, err := proto.SocketPath()
 	if err != nil {
 		return err

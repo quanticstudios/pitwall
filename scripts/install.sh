@@ -10,7 +10,8 @@ esac
 
 cd "$root"
 mkdir -p "$prefix/bin" "$prefix/share/applications" "$prefix/share/icons/hicolor/scalable/apps"
-GOFLAGS=-tags=novulkan mise exec -- go build -o "$prefix/bin/pitwall" ./cmd/pitwall
+version=$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)
+GOFLAGS=-tags=novulkan mise exec -- go build -ldflags "-X main.version=$version" -o "$prefix/bin/pitwall" ./cmd/pitwall
 
 desktop_bin=$(printf '%s' "$prefix/bin/pitwall" | sed -e 's/[\\"`$]/\\&/g' -e 's/\\/\\\\/g' -e 's/%/%%/g')
 while IFS= read -r line; do

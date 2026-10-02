@@ -1,131 +1,171 @@
 # pitwall
 
-pitwall is a native terminal multiplexer for coding agents on Linux and Hyprland. It opens straight into a shell, like tmux. Each session has tabs of split panes, and the sidebar shows what every session is doing: a running command, or a Claude Code or Codex agent working, waiting for input, asking for approval, done, or failed. Sessions start ungrouped; you group the ones that belong together later. Go and Gio draw the window, so it is not limited to terminal cells.
+pitwall is a terminal multiplexer for running coding agents side by side. It
+opens straight into a shell like tmux, but it is a native window: a sidebar
+lists every session and what it is doing right now, whether that is a command
+running in a terminal or a Claude Code or Codex agent working, waiting for
+your answer, asking for approval, done, or failed. Terminals are drawn with
+real fonts and pixels, not character cells.
 
-A daemon owns the PTYs, so closing the window leaves sessions running. It saves sessions, groups, pane commands, and agent session IDs to disk, and brings them back after a reboot.
+A background daemon owns every terminal. Closing the window leaves sessions
+running, and after a reboot they come back in the same folders with agents
+resumed where they left off.
+
+pitwall runs on Linux. It is developed on Hyprland and works on any Wayland or
+X11 desktop.
 
 ## Install
 
-Install mise, Git, a C compiler, and pkg-config. Gio needs the development libraries for EGL, Wayland, X11, xkbcommon, xkbcommon-x11, Xcursor, and Xfixes. Their pkg-config names are `egl`, `wayland-egl`, `wayland-client`, `wayland-cursor`, `x11`, `x11-xcb`, `xkbcommon`, `xkbcommon-x11`, `xcursor`, and `xfixes`.
-
-From this checkout, install Go 1.27.1 and build pitwall:
+You need Git, a C compiler, pkg-config, and [mise](https://mise.jdx.dev). Gio,
+the UI toolkit, needs the development headers for EGL, Wayland, X11,
+xkbcommon, Xcursor and Xfixes (`egl`, `wayland-egl`, `wayland-client`,
+`wayland-cursor`, `x11`, `x11-xcb`, `xkbcommon`, `xkbcommon-x11`, `xcursor`,
+`xfixes` in pkg-config).
 
 ```sh
+git clone git@github.com:quanticstudios/pitwall.git
+cd pitwall
 mise install go
 ./scripts/install.sh
 ```
 
-The installer writes the binary to `~/.local/bin/pitwall`, the desktop entry to `~/.local/share/applications/pitwall.desktop`, and the icon to `~/.local/share/icons/hicolor/scalable/apps/pitwall.svg`. Add `~/.local/bin` to your shell's `PATH` if needed. The desktop entry uses the installed binary's absolute path.
+The installer builds `~/.local/bin/pitwall` and adds a desktop entry and icon
+under `~/.local/share`, so pitwall shows up in your app launcher. Set `PREFIX`
+to install elsewhere. It never edits Claude Code or Codex configuration.
 
-Set `PREFIX` to an absolute path to change the installation directory:
-
-```sh
-PREFIX="$HOME/apps/pitwall" ./scripts/install.sh
-```
-
-This puts the binary under `$PREFIX/bin` and the desktop entry and icon under `$PREFIX/share`. Add `$PREFIX/bin` to `PATH`. Desktop launchers need `$PREFIX/share` in `XDG_DATA_DIRS` to discover a custom installation.
-
-The installer does not edit agent configuration.
-
-## First run
+Check the install:
 
 ```sh
-pitwall hooks install
-pitwall
+pitwall --version
 ```
 
-`pitwall` opens the window, starts the daemon if needed, and drops you into a shell in the folder you launched it from. Run `claude`, `codex`, or anything else there. `Alt+Shift+T` or the `+` in the sidebar header opens another session in the folder your current shell is in.
-
-## Sessions and groups
-
-Sessions get unique generated names such as `swift-otter`. Ungrouped sessions appear at the top of the sidebar. Each row shows the session's state: the command a terminal is running, or the agent's state and what it is asking. A second line shows `+added -deleted` lines and the branch inside a Git repo, otherwise the folder.
-
-To group sessions, Ctrl+click or Shift+click to pick several, then right-click and choose **New group**, or **Move to group** for an existing one. **Remove from group** and the group's **Ungroup** never close anything. **Open folder as group** in the footer makes a group for a folder; for a Git repo, the group's new-worktree action creates a session in a fresh worktree under `<repo>/.worktrees/`. Deleting such a session removes that worktree; deleting any other session leaves its folder alone.
-
-To group by folder, right-click a session and choose `Group sessions in <folder>`. Ungrouped sessions from that folder join the group. New sessions inside a group's folder join it automatically.
-
-**Detach** hides a session from the sidebar and keeps its processes running. Use `pitwall attach <name>` to show it again.
-
-Agents report their state through hooks (below). Without hooks, pitwall still recognizes `claude` and `codex` as the pane's foreground process and reads their state from the screen, which is less exact. When a session needs you and you are not looking at it, pitwall sends a desktop notification with `notify-send`.
-
-Close the window and run `pitwall` again to reconnect to the same daemon. To run the daemon in the foreground for troubleshooting:
+## Quick start
 
 ```sh
-pitwall daemon
+pitwall hooks install --dry-run   # see what would change
+pitwall hooks install             # let Claude Code and Codex report their state
+pitwall                           # open the window
 ```
 
-## Sessions from the command line
+The window opens on a shell in the folder you launched it from. Run `claude`,
+`codex`, a dev server, anything. The session's row in the sidebar shows what
+is happening: the name of a running command, or the agent's state.
 
-| Command                            | Action                                                                                                                                                    |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pitwall ls [--json]`              | List session name, highest-priority activity or `idle`, tab count, folder, group and a `(detached)` marker. `--json` prints the sessions as a JSON array. |
-| `pitwall new [-n name] [-d] [dir]` | Create a session in `dir` or the current directory and print its name. `-n` sets the name; `-d` detaches it.                                              |
-| `pitwall attach [name]`            | Show the session in the GUI. Start the GUI if no window holds its lock.                                                                                   |
-| `pitwall detach [name]`            | Hide the session and keep its processes running.                                                                                                          |
-| `pitwall kill [-f] <name>`         | Close the session and its processes, keeping its files. On a TTY, ask `kill <name>? [y/N]`; `-f` skips confirmation.                                      |
-| `pitwall rename [old] <new>`       | Rename the session.                                                                                                                                       |
-| `pitwall tab new`                  | Open a tab in the calling pane's session, in the pane's current directory.                                                                                |
-| `pitwall tab rename [name...]`     | Set the calling pane's tab name. No name restores its automatic title.                                                                                    |
-| `pitwall tab close`                | Close the tab containing the calling pane.                                                                                                                |
+Open more sessions with **+** in the sidebar header. Each session can hold
+tabs, and each tab can be split into panes. Typing `exit` closes a pane; an
+empty tab closes, an empty session closes, and the window closes with your
+last session. Sessions you detached keep running in the background.
 
-Session names match exactly first, then by unique prefix. Ambiguous prefixes report the matching names. Inside a pitwall pane, omitted names for `attach`, `detach` and `rename` select the pane's own session through `PITWALL_PANE`. Outside a pane, supply a session name.
+## Concepts
 
-Tab commands require `PITWALL_PANE`. They print nothing on success and exit with status 1 on failure. When no daemon runs, `ls` prints nothing and exits with status 0; other session commands report `pitwall is not running`. Commands use `PITWALL_SOCKET` when set and the default daemon socket otherwise.
+- **Session**: one working context, started in a folder. It gets a memorable
+  generated name such as `swift-otter`, which you can rename.
+- **Tab**: a set of split panes inside a session. A tab's title follows the
+  agent running in it, or you can name it.
+- **Pane**: one terminal.
+- **Group**: sessions you put together after the fact, for example all the
+  sessions working on one repo. Sessions start ungrouped.
+- **Daemon**: the background process that owns the terminals. The window and
+  the `pitwall` commands talk to it.
+
+## Everyday use
+
+### Watching agents
+
+Each sidebar row shows a session's state:
+
+| State    | Meaning                                           |
+| -------- | ------------------------------------------------- |
+| Working  | The agent is in a turn                            |
+| Input    | The agent asked you a question                    |
+| Approval | The agent wants permission to run a tool          |
+| Plan     | The agent finished a plan and waits for approval  |
+| Done     | The agent finished its turn                       |
+| Error    | The turn failed                                   |
+| `go`     | A terminal is running that command                |
+
+A group header shows how many of its sessions need you. When a session needs
+you and you are not looking at it, pitwall sends a desktop notification.
+
+States are exact when the agent's hooks are installed (`pitwall hooks
+install`). Without hooks, pitwall still recognizes `claude` and `codex`
+running in a pane and reads their state from the screen, which is a little
+less precise.
+
+### Sessions, tabs and panes
+
+The keyboard shortcuts are in [Keybindings](#keybindings). With the mouse:
+click a session to switch to it, right-click it for **Rename**, **Detach**,
+grouping, and more. Tabs appear above the panes once a session has more than
+one: click to switch, double-click to rename, middle-click to close. Drag the
+gaps between panes to resize them.
+
+### Grouping
+
+- **By folder:** right-click a session and choose **Group sessions in
+  `<folder>`**. Every ungrouped session in that repo or folder joins one
+  group, and new sessions you start inside that folder join it automatically.
+- **By hand:** Ctrl+click or Shift+click to pick sessions, then right-click
+  and choose **New group** or **Move to group**.
+- **Ungroup** or **Remove from group** never close anything.
+
+For a Git repo group, **New worktree session** in the group menu starts a
+session in a fresh worktree under `<repo>/.worktrees/`, so parallel agents on
+one repo do not step on each other. Deleting that session removes the
+worktree it made. pitwall never deletes a folder it did not create.
+
+### Detaching
+
+**Detach** (right-click a session, or `pitwall detach`) hides a session and
+keeps everything in it running. The **Detached sessions** list in the sidebar
+footer brings it back, as does `pitwall attach <name>`.
+
+### Let agents name their tab
+
+Claude Code and Codex set a terminal title, which pitwall shows on the tab
+with spinners stripped. An agent can also name its tab explicitly:
 
 ```sh
-pitwall new -n auth -d ./service
-pitwall ls
-pitwall attach auth
-pitwall rename auth login
-pitwall detach login
-pitwall kill -f login
+pitwall tab rename "fix login redirects"
 ```
 
-## Let agents name their tab
-
-Claude Code and Codex set terminal titles that pitwall shows on the tab automatically. For an explicit name, an agent can run:
-
-```sh
-pitwall tab rename "Fix login redirects"
-```
-
-Put this instruction in `CLAUDE.md` or `AGENTS.md`:
+To have agents do this on their own, add to your `CLAUDE.md` or `AGENTS.md`:
 
 ```markdown
 At the start of a task inside a pitwall pane, run
 `pitwall tab rename "<short description of the task>"`.
-Run `pitwall tab rename` to restore the automatic terminal title.
 ```
 
-## Hooks
+## Command line
 
-Hooks send Claude Code and Codex activity to the sidebar. `pitwall hook <provider>` forwards an event to the pane's daemon. Hooks do nothing outside pitwall panes.
+Run these from any terminal. Inside a pitwall pane, commands that take an
+optional name act on the pane's own session.
+
+| Command                               | Does                                                          |
+| ------------------------------------- | ------------------------------------------------------------- |
+| `pitwall`                             | Open the window (starts the daemon if needed)                 |
+| `pitwall ls [--json]`                 | List sessions: name, state, tabs, folder, group               |
+| `pitwall new [-n name] [-d] [dir]`    | Create a session; `-d` leaves it detached                     |
+| `pitwall attach [name]`               | Show a session in the window, opening the window if needed    |
+| `pitwall detach [name]`               | Hide a session; its processes keep running                    |
+| `pitwall rename [old] <new>`          | Rename a session                                              |
+| `pitwall kill [-f] <name>`            | Close a session and its processes; files are never touched    |
+| `pitwall tab new`                     | Open a tab in this pane's session                             |
+| `pitwall tab rename [name...]`        | Name this pane's tab; no name goes back to the automatic one  |
+| `pitwall tab close`                   | Close this pane's tab                                         |
+| `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview)            |
+| `pitwall --version`                   | Print the version                                             |
+
+Names match exactly first, then by a unique prefix, so `pitwall attach swi`
+finds `swift-otter`.
 
 ```sh
-pitwall hooks install --dry-run
-pitwall hooks install
+pitwall new -n auth -d ~/src/service   # start a background session
+pitwall ls
+pitwall attach auth
 ```
-
-Installation merges entries into `~/.claude/settings.json` and `~/.codex/hooks.json`. It creates missing files and keeps unrelated settings and hooks. Repeating installation does not duplicate commands. The command prints each added entry. Existing files get a backup named `<file>.pitwall-backup-<unix time>` before replacement. Replacement is atomic and preserves the existing file's permissions.
-
-Inside Codex, run `/hooks` once to trust the hooks. Restart existing agent sessions if they have not loaded the configuration.
-
-Installation records the running executable's absolute path with symlinks resolved. Install a persistent binary first. Hook installation refuses executables under `/tmp`, the temporary directory, or the Go build cache. Use `scripts/install.sh` rather than installing hooks from `go run`.
-
-Remove hooks for the binary running this command:
-
-```sh
-pitwall hooks uninstall --dry-run
-pitwall hooks uninstall
-```
-
-Uninstall removes this binary's hook commands and keeps other commands, including hooks for another pitwall installation. It backs up files before changing them. Both dry-run commands print the resulting JSON and write nothing.
-
-For manual configuration, `pitwall hooks` prints Claude Code and Codex JSON blocks. It also prints the Codex `notify` alternative for `~/.codex/config.toml`. The `notify` alternative reports finished turns only. The installer does not modify `config.toml`.
 
 ## Keybindings
-
-These bindings match the settings dialog and navigation code:
 
 | Keys                              | Action                                |
 | --------------------------------- | ------------------------------------- |
@@ -146,24 +186,60 @@ These bindings match the settings dialog and navigation code:
 | Ctrl+T then 1-9                   | Jump to tab                           |
 | Ctrl+T twice                      | Send Ctrl+T to the terminal           |
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                |
-| Escape                            | Close the switcher or dialog          |
-| Tab in the folder field           | Complete a folder name                |
-| Enter in the folder field         | Open the folder as a group            |
-| Shift+PageUp / Shift+PageDown     | Scroll backward / forward by one page |
+| Shift+PageUp / Shift+PageDown     | Scroll back / forward one page        |
+| Escape                            | Close the switcher or a dialog        |
 
-Alt+J/K cycles within the current group when the switcher is hidden; ungrouped sessions count as one group. With the switcher visible, it moves through every session, and releasing Alt switches to the selected one. Alt+1-9 follows the switcher's order. Alt+Down/Up changes session; Alt+Left/Right changes pane. Ctrl+click and Shift+click in the sidebar pick sessions for grouping.
+The settings button in the sidebar footer shows the bindings in effect.
 
-## State and resume
+## Hooks
 
-The daemon saves state in `~/.local/state/pitwall/state.json`. If `XDG_STATE_HOME` is set, it uses `$XDG_STATE_HOME/pitwall/state.json`. The detached daemon writes its log to `daemon.log` in the same directory.
+Hooks are how Claude Code and Codex tell pitwall exactly what they are doing.
+`pitwall hooks install` merges pitwall's entries into
+`~/.claude/settings.json` and `~/.codex/hooks.json`:
 
-The socket is `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`. Without `XDG_RUNTIME_DIR`, the daemon uses `/tmp/pitwall-<uid>/pitwall.sock`. Panes inherit `PITWALL_PANE` and `PITWALL_SOCKET` so hooks reach the correct pane and daemon.
+- It keeps every existing setting and hook and never adds a duplicate.
+- It backs each file up first as `<file>.pitwall-backup-<unix time>` and
+  writes atomically. A symlinked config stays a symlink.
+- Add `--dry-run` to print the result without writing.
 
-After a reboot, run `pitwall`. The daemon restores saved sessions, groups and panes in their working directories. If hooks recorded a Claude Code session ID, restoration runs `claude --resume <session-id>`. For Codex, it runs `codex resume <session-id>`. A pane started as a shell script that later ran an agent resumes the agent only, never the script. Other panes restart their saved commands. PTY processes and terminal scrollback do not survive a reboot. Keep the agent executables on `PATH` and the project folders available.
+Inside Codex, run `/hooks` once to trust the new hooks, and restart agent
+sessions that were already running. `pitwall hooks uninstall` removes only
+the exact entries pitwall added. `pitwall hooks` prints the blocks if you
+prefer to edit the files yourself.
 
-## Build and checks
+The hooks do nothing outside a pitwall pane, so they are safe to keep
+installed globally.
 
-`mise.toml` sets `GOFLAGS=-tags=novulkan`. The installer also sets that value explicitly. Gio uses OpenGL without requiring Vulkan headers. Use mise for development commands so they receive the same build tag:
+## Where things live
+
+| What                | Where                                                         |
+| ------------------- | ------------------------------------------------------------- |
+| Saved sessions      | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
+| Daemon log          | `~/.local/state/pitwall/daemon.log`                           |
+| Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`                       |
+
+After a reboot, run `pitwall`: sessions, tabs, groups and panes come back in
+their folders. Agent panes resume with `claude --resume <id>` or
+`codex resume <id>`; if a resume fails, the pane falls back to a shell in the
+same folder. Running processes and scrollback do not survive a reboot.
+
+When you upgrade pitwall while an older daemon is running, the next `pitwall`
+detects it, has it save its state and stop, and starts the new one. Programs
+running in panes at that moment stop.
+
+## Troubleshooting
+
+- **The window does not open from the launcher.** Errors are sent as a
+  desktop notification; run `pitwall` in a terminal to see them.
+- **An agent's state is missing or late.** Check `pitwall hooks install` was
+  run with the installed binary, and in Codex run `/hooks` once.
+- **Something else.** Look at `~/.local/state/pitwall/daemon.log`, which
+  starts with the daemon's version.
+
+## Development
+
+`mise.toml` sets `GOFLAGS=-tags=novulkan` so Gio builds with OpenGL and no
+Vulkan headers. Use mise so every command gets it:
 
 ```sh
 mise exec -- go build ./cmd/pitwall
@@ -171,9 +247,24 @@ mise exec -- go vet ./...
 mise exec -- go test -race ./...
 ```
 
+Releases use patch versioning; see [CHANGELOG.md](CHANGELOG.md).
+
 ## Credits
 
-- aide provides the reference for the sidebar appearance and behavior.
-- tuios provides borrowed terminal and session code under the MIT license. Adapted code carries a source-path comment.
-- Geist fonts use the SIL Open Font License. The license is in `internal/ui/theme/fonts/OFL.txt`.
-- lucide icons use the ISC license.
+pitwall stands on other people's open source work. The full list, with every
+license, is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). In short:
+
+- [tuios](https://github.com/Gaurav-Gosain/tuios) (MIT, Gaurav Gosain):
+  pitwall adapted its PTY spawning, agent detection, resume commands and
+  screen patterns, and its test fixtures.
+- [charmbracelet/x/vt](https://github.com/charmbracelet/x) (MIT,
+  Charmbracelet): the terminal emulator, vendored with a one-line patch.
+- [Gio](https://gioui.org) (MIT / Unlicense): the UI toolkit.
+- [creack/pty](https://github.com/creack/pty) (MIT): pseudo-terminals.
+- [go-text/typesetting](https://github.com/go-text/typesetting) (BSD / Unlicense): text shaping.
+- [Lucide](https://lucide.dev) (ISC) and Feather (MIT): the icons.
+- [Geist](https://vercel.com/font) (OFL 1.1): the UI font.
+- aide (Quantic Studios): the sidebar design and agent states pitwall ports.
+- [zj-radar](https://github.com/marktoda/zj-radar), [zellij](https://zellij.dev),
+  [tmux](https://github.com/tmux/tmux) and [Ghostty](https://ghostty.org):
+  ideas for hook handling, tab mode, session naming, detach and keymaps.
