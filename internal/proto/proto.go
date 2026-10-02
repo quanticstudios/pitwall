@@ -9,11 +9,12 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 2
+const Version = 3
 
 // Client to daemon.
 
@@ -28,6 +29,7 @@ type Hello struct {
 // NewSession opens an ungrouped session (or one in GroupID) with a shell
 // pane in Cwd ("" means $HOME). The name defaults to Cwd's base name.
 type NewSession struct {
+	Name    string // "" generates one
 	Cwd     string
 	GroupID string
 	// FromPane, when set, starts the session in that pane's current
@@ -94,6 +96,7 @@ type DeleteWorkspace struct {
 // OpenPane splits Target (or creates the first pane when Target is "").
 type OpenPane struct {
 	WorkspaceID string
+	TabID       string // "" means the session's active tab
 	Target      string
 	Dir         layout.Dir
 	Cmd         []string // empty means the user's shell
@@ -112,6 +115,7 @@ type ClosePane struct {
 
 type SetLayout struct {
 	WorkspaceID string
+	TabID       string
 	Layout      *layout.Node // ratio changes from dragging dividers
 }
 
@@ -147,10 +151,72 @@ type Error struct {
 	Message string
 }
 
+// NewTab opens a tab with a shell, in FromPane's current directory when set,
+// else Cwd, else the session's Path, and makes it the active tab.
+type NewTab struct {
+	WorkspaceID string
+	Cwd         string
+	FromPane    string
+}
+
+type CloseTab struct {
+	WorkspaceID string
+	TabID       string
+}
+
+// RenameTab names a tab. With Pane set (from `pitwall tab rename` inside a
+// pane) the daemon resolves the pane's session and tab itself. An empty
+// Name goes back to the automatic title.
+type RenameTab struct {
+	WorkspaceID string
+	TabID       string
+	Pane        string
+	Name        string
+}
+
+// SelectTab records the tab a GUI shows, so attaching opens on it.
+type SelectTab struct {
+	WorkspaceID string
+	TabID       string
+}
+
+// DetachSession hides a running session from the sidebar, or brings it back.
+// Its processes keep running either way. It replaces ArchiveWorkspace.
+type DetachSession struct {
+	WorkspaceID string
+	Detached    bool
+}
+
+// KillSession closes a session's panes and forgets it. It never touches the
+// disk, unlike DeleteWorkspace, which removes a worktree pitwall made.
+type KillSession struct {
+	WorkspaceID string
+}
+
+// GroupByFolder puts every ungrouped session with the same RepoRoot as
+// WorkspaceID into one group: the group whose Root is that folder, or a new
+// one named after it.
+type GroupByFolder struct {
+	WorkspaceID string
+}
+
+// Sync asks the daemon to reply with a StateMsg once every request before it
+// on this connection is handled. CLI clients use it as an acknowledgement.
+type Sync struct{}
+
+// FocusSession tells GUIs to show a session (un-detaching it), from
+// `pitwall attach`.
+type FocusSession struct {
+	WorkspaceID string
+	TabID       string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
 	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
+	NewTab{}, CloseTab{}, RenameTab{}, SelectTab{}, DetachSession{}, KillSession{},
+	GroupByFolder{}, Sync{}, FocusSession{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 }

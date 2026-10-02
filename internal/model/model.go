@@ -28,7 +28,21 @@ type Project struct {
 	Icon  string // aide lucide icon name ("folder", "code", ...); "" means "folder"
 }
 
-// Workspace is one session: a split tree of panes started in Path.
+// Tab is one split tree of panes inside a session.
+type Tab struct {
+	ID string
+	// Name is set by the user or an agent (pitwall tab rename); "" means
+	// the tab shows Title.
+	Name string
+	// Title follows the tab: the cleaned OSC title of its agent pane, else
+	// of its first pane, else the foreground command. The daemon keeps it
+	// current.
+	Title  string
+	Layout *layout.Node
+}
+
+// Workspace is one session: tabs of split panes, started in Path. Its
+// default Name is generated ("swift-otter") and unique among sessions.
 type Workspace struct {
 	ID        string
 	ProjectID string // "" while the session is ungrouped
@@ -39,9 +53,19 @@ type Workspace struct {
 	// worktree for this session. Only then does deleting the session remove
 	// the directory.
 	WorktreeRoot string
-	Archived     bool
-	UpdatedAt    time.Time
-	Layout       *layout.Node // nil until the first pane opens
+	// RepoRoot is the git toplevel of Path, or Path outside a repo. Group by
+	// folder uses it.
+	RepoRoot  string
+	Detached  bool // running but hidden from the sidebar until attached
+	UpdatedAt time.Time
+	Tabs      []Tab
+	ActiveTab string // tab id a GUI opens on
+
+	// Removed this round: Layout moves into Tabs[0], Archived becomes
+	// Detached. Kept only until the engine track migrates them; new code
+	// must not read or write them.
+	Archived bool
+	Layout   *layout.Node
 }
 
 type Provider string
