@@ -104,7 +104,8 @@ func printHooks() error {
 		return err
 	}
 	fmt.Printf("# ~/.claude/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.ClaudeHooks(bin))
-	fmt.Printf("# ~/.codex/config.toml:\n%s\n", agent.CodexNotify(bin))
+	fmt.Printf("# ~/.codex/hooks.json (then trust them once with /hooks inside codex):\n{\"hooks\": %s}\n\n", agent.CodexHooks(bin))
+	fmt.Printf("# or, for finished turns only, ~/.codex/config.toml:\n%s\n", agent.CodexNotify(bin))
 	return nil
 }
 
