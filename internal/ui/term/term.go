@@ -7,21 +7,33 @@ import (
 	"image"
 	"image/color"
 	"math"
-	"strings"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
-	"gioui.org/font"
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/text"
+	"gioui.org/unit"
+	"github.com/go-text/typesetting/shaping"
 	"golang.org/x/image/math/fixed"
+	"golang.org/x/image/vector"
 
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/vt"
+)
+
+const (
+	// padding is the gap between the pane edge and the grid, aide's p-3
+	// around its xterm.
+	padding = unit.Dp(12)
+	// blink is the cursor blink half-period of xterm.js and Ghostty.
+	blink = 530 * time.Millisecond
 )
 
 // View renders one pane. The zero value is ready to use; keep one View per
@@ -32,40 +44,50 @@ type View struct {
 	cell     image.Point
 	baseline int // y of the baseline inside a cell
 	line     int // decoration thickness in pixels
-	fonts    [4]font.Font
-	glyphs   map[glyphKey]glyphRun
+	pad      int // padding in pixels
+	families []string
+	shaper   shaping.HarfbuzzShaper
+	raster   vector.Rasterizer
+	glyphs   map[glyphKey]*glyphImg
 
-	// Rows are recorded once per distinct content and replayed by hash, so
-	// unchanged (or scrolled) rows cost one map lookup per frame.
-	rows, prev map[uint64]*rowOps
-	free       []*rowOps
+	// Rows are rasterized once per distinct content and replayed by hash,
+	// so unchanged (or scrolled) rows cost one map lookup per frame.
+	rows, prev map[uint64]*rowImg
+	free       []*rowImg
 	seed       maphash.Seed
-
-	styles []style
-	gbuf   []text.Glyph
-	rbuf   [][2]int
+	jobs       []rowJob
+	cur        struct {
+		key glyphKey
+		img paint.ImageOp
+	}
 
 	sel       selection
 	dragging  bool
 	lastPress pointer.Event
 	lastCell  image.Point
 
+	scrollPx          float32 // wheel distance not yet a whole line
+	scrollLines       int
+	scrollOff, scrMax int
+
+	blinkAt    time.Time
+	wasFocused bool
+
 	filters []event.Filter
 }
 
-type glyphKey struct {
-	font uint8
-	s    string
+type rowImg struct {
+	img *image.RGBA
+	op  paint.ImageOp
 }
 
-type glyphRun struct {
-	gs  []text.Glyph
-	adv fixed.Int26_6
-}
-
-type rowOps struct {
-	ops  op.Ops
-	call op.CallOp
+// rowJob is a row to rasterize this frame. Glyphs are looked up on the UI
+// goroutine first, so the rows can be painted in parallel.
+type rowJob struct {
+	r     *rowImg
+	cells []vt.Cell
+	st    []style
+	gl    []*glyphImg
 }
 
 // style is a cell after color, reverse, faint and selection are resolved.
@@ -82,26 +104,33 @@ type style struct {
 func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Modes, focused bool) (dims layout.Dimensions, input []byte, cols, rows int) {
 	v.metrics(gtx, th)
 	size := gtx.Constraints.Max
-	cols, rows = fit(size, v.cell)
+	v.pad = gtx.Dp(padding)
+	cols, rows = fit(size.Sub(image.Pt(2*v.pad, 2*v.pad)), v.cell)
 
-	input = v.events(gtx, g, m, focused)
+	input = v.events(gtx, g, m, focused, rows)
 
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.TermBg, clip.Rect{Max: size}.Op())
 
 	n, h := min(g.Cols, cols), min(g.Rows, rows)
-	for y := range h {
-		cells := g.Cells[y*g.Cols : y*g.Cols+n]
-		s0, s1 := v.sel.cols(y, n)
-		t := op.Offset(image.Pt(0, y*v.cell.Y)).Push(gtx.Ops)
-		v.row(cells, s0, s1).Add(gtx.Ops)
-		t.Pop()
-	}
-	v.endFrame()
+	v.drawRows(gtx.Ops, g, n, h)
 
-	if c := g.Cursor; c.Visible && c.X >= 0 && c.X < n && c.Y >= 0 && c.Y < h {
+	// The cursor blinks only while focused, restarting on input or focus,
+	// and an unfocused pane schedules no frames for it.
+	if len(input) > 0 || focused && !v.wasFocused {
+		v.blinkAt = gtx.Now
+	}
+	v.wasFocused = focused
+	on := true
+	if c := g.Cursor; focused && c.Visible {
+		el := gtx.Now.Sub(v.blinkAt)
+		on = el/blink%2 == 0
+		gtx.Execute(op.InvalidateCmd{At: v.blinkAt.Add((el/blink + 1) * blink)})
+	}
+	if c := g.Cursor; c.Visible && on && c.X >= 0 && c.X < n && c.Y >= 0 && c.Y < h {
 		v.cursor(gtx.Ops, g, c, focused)
 	}
+	v.scrollbar(gtx, size, rows)
 
 	area := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, v)
@@ -119,6 +148,20 @@ func (v *View) CellSize(gtx layout.Context, th *theme.Theme) image.Point {
 	return v.cell
 }
 
+// SetScroll tells the view where the frame it is about to draw sits in the
+// scrollback (proto.Frame's ScrollOffset and ScrollMax). Call it before
+// Layout; the view draws a scrollbar while offset > 0.
+func (v *View) SetScroll(offset, max int) { v.scrollOff, v.scrMax = offset, max }
+
+// ScrollDelta returns and clears the wheel scrolling gathered by Layout while
+// the program has not asked for the mouse, in lines (> 0 is back in history).
+// The caller sends it as a proto.Scroll.
+func (v *View) ScrollDelta() int {
+	n := v.scrollLines
+	v.scrollLines = 0
+	return n
+}
+
 // fit is how many whole cells fit in size, at least one each way so a
 // collapsed pane never asks the PTY for a zero size.
 func fit(size, cell image.Point) (cols, rows int) {
@@ -134,96 +177,123 @@ func (v *View) metrics(gtx layout.Context, th *theme.Theme) {
 		return
 	}
 	v.th, v.ppem = th, ppem
-	base := th.MonoFont
-	if !strings.Contains(string(base.Typeface), "emoji") {
-		// The shaper only falls back to color emoji when asked by name.
-		base.Typeface += ", emoji"
-	}
-	for i := range v.fonts {
-		f := base
-		if i&1 != 0 {
-			f.Weight = font.Bold
-		}
-		if i&2 != 0 {
-			f.Style = font.Italic
-		}
-		v.fonts[i] = f
-	}
-	v.glyphs = map[glyphKey]glyphRun{}
+	v.families = families(string(th.MonoFont.Typeface))
+	v.glyphs = map[glyphKey]*glyphImg{}
+	v.cur.key = glyphKey{}
 	for _, r := range v.rows {
 		v.free = append(v.free, r)
 	}
 	for _, r := range v.prev {
 		v.free = append(v.free, r)
 	}
-	v.rows, v.prev = map[uint64]*rowOps{}, map[uint64]*rowOps{}
+	v.rows, v.prev = map[uint64]*rowImg{}, map[uint64]*rowImg{}
 	v.seed = maphash.MakeSeed()
 
-	m := v.glyph(0, "M")
-	var asc, desc fixed.Int26_6
-	if len(m.gs) > 0 {
-		asc, desc = m.gs[0].Ascent, m.gs[0].Descent
+	w, h, asc := 1, 1, fixed.Int26_6(0)
+	if face := v.face(0, 'M'); face != nil {
+		out := v.shape(face, []rune{'M'})
+		ext, _ := face.FontHExtents()
+		s := float32(ppem) / float32(face.Upem())
+		asc = fixed.Int26_6(ext.Ascender * s)
+		desc := fixed.Int26_6(-ext.Descender * s)
+		w, h = max(1, out.Advance.Round()), max(1, (asc+desc).Round())
+		v.baseline = ((fixed.I(h)-asc-desc)/2 + asc).Round()
 	}
-	w, h := max(1, m.adv.Round()), max(1, (asc+desc).Round())
 	v.cell = image.Pt(w, h)
-	v.baseline = ((fixed.I(h)-asc-desc)/2 + asc).Round()
 	v.line = max(1, (ppem / 14).Round())
 }
 
-// glyph shapes one grapheme in one of the four mono faces and caches it.
-// The shaper falls back to other faces (emoji, CJK) when the mono face
-// lacks a glyph.
-func (v *View) glyph(f uint8, s string) glyphRun {
-	k := glyphKey{f, s}
-	if r, ok := v.glyphs[k]; ok {
-		return r
+// drawRows paints rows [0,h) of g, n cells wide, reusing cached row images
+// and rasterizing the rest in parallel.
+func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
+	type placed struct {
+		y int
+		r *rowImg
 	}
-	sh := v.th.Shaper
-	sh.LayoutString(text.Parameters{Font: v.fonts[f], PxPerEm: v.ppem, MaxWidth: 1 << 20}, s)
-	var r glyphRun
-	for {
-		g, ok := sh.NextGlyph()
+	if n == 0 {
+		return // Gio can't make a zero-width texture
+	}
+	order := make([]placed, 0, h)
+	jobs := v.jobs[:0] // keeps each job's buffers
+	for y := range h {
+		cells := g.Cells[y*g.Cols : y*g.Cols+n]
+		s0, s1 := v.sel.cols(y, n)
+		k := v.hashRow(cells, s0, s1)
+		r, ok := v.rows[k]
 		if !ok {
-			break
+			if r, ok = v.prev[k]; ok {
+				delete(v.prev, k)
+			} else {
+				r = v.take(n*v.cell.X, v.cell.Y)
+				if len(jobs) < cap(jobs) {
+					jobs = jobs[:len(jobs)+1]
+				} else {
+					jobs = append(jobs, rowJob{})
+				}
+				j := &jobs[len(jobs)-1]
+				j.r, j.cells = r, cells
+				v.prepare(j, s0, s1)
+			}
+			v.rows[k] = r
 		}
-		r.gs = append(r.gs, g)
-		r.adv += g.Advance
+		order = append(order, placed{y, r})
 	}
-	v.glyphs[k] = r
-	return r
-}
+	v.jobs = jobs
 
-// row returns the recorded draw ops for one row, recording on a miss.
-func (v *View) row(cells []vt.Cell, s0, s1 int) op.CallOp {
-	h := v.hashRow(cells, s0, s1)
-	if r, ok := v.rows[h]; ok {
-		return r.call
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(len(jobs), runtime.GOMAXPROCS(0)) {
+		wg.Go(func() {
+			for i := int(next.Add(1) - 1); i < len(jobs); i = int(next.Add(1) - 1) {
+				v.paintRow(&jobs[i])
+			}
+		})
 	}
-	r, ok := v.prev[h]
-	if ok {
-		delete(v.prev, h)
-	} else {
-		if n := len(v.free); n > 0 {
-			r, v.free = v.free[n-1], v.free[:n-1]
-			r.ops.Reset()
-		} else {
-			r = new(rowOps)
-		}
-		m := op.Record(&r.ops)
-		v.drawRow(&r.ops, cells, s0, s1)
-		r.call = m.Stop()
+	wg.Wait()
+	for _, j := range jobs {
+		j.r.op = paint.NewImageOp(j.r.img)
+		j.r.op.Filter = paint.FilterNearest
 	}
-	v.rows[h] = r
-	return r.call
-}
 
-// endFrame drops rows that were not drawn this frame.
-func (v *View) endFrame() {
-	for h, r := range v.prev {
+	for _, p := range order {
+		t := op.Offset(image.Pt(v.pad, v.pad+p.y*v.cell.Y)).Push(ops)
+		p.r.op.Add(ops)
+		paint.PaintOp{}.Add(ops)
+		t.Pop()
+	}
+	// Rows not drawn this frame go back to the pool. Gio drops their
+	// textures at the end of this frame, and each reuse gets a new ImageOp.
+	for k, r := range v.prev {
 		v.free = append(v.free, r)
-		delete(v.prev, h)
+		delete(v.prev, k)
 	}
 	v.rows, v.prev = v.prev, v.rows
+}
+
+// take returns a w x h row image from the pool or a new one.
+func (v *View) take(w, h int) *rowImg {
+	for i := len(v.free) - 1; i >= 0; i-- {
+		if r := v.free[i]; r.img.Rect.Dx() == w && r.img.Rect.Dy() == h {
+			v.free[i] = v.free[len(v.free)-1]
+			v.free = v.free[:len(v.free)-1]
+			return r
+		}
+	}
+	v.free = v.free[:0] // a resize left the rest the wrong size
+	return &rowImg{img: image.NewRGBA(image.Rect(0, 0, w, h))}
+}
+
+// prepare resolves the job's styles and glyphs on the UI goroutine.
+func (v *View) prepare(j *rowJob, s0, s1 int) {
+	j.st = v.resolveStyles(j.st[:0], j.cells, s0, s1)
+	j.gl = j.gl[:0]
+	for x, c := range j.cells {
+		var g *glyphImg
+		if _, block := blockRect(c.Content); !j.st[x].blank && !block {
+			g = v.glyph(j.st[x].font, c.Content, max(1, int(c.Width)))
+		}
+		j.gl = append(j.gl, g)
+	}
 }
 
 func (v *View) hashRow(cells []vt.Cell, s0, s1 int) uint64 {
@@ -247,10 +317,10 @@ func (v *View) hashRow(cells []vt.Cell, s0, s1 int) uint64 {
 	return h.Sum64()
 }
 
-// resolveStyles fills v.styles for one row. Cells in [s0,s1) are selected.
-func (v *View) resolveStyles(cells []vt.Cell, s0, s1 int) []style {
+// resolveStyles appends the styles of cells to st. Cells in [s0,s1) are
+// selected.
+func (v *View) resolveStyles(st []style, cells []vt.Cell, s0, s1 int) []style {
 	th := v.th
-	st := v.styles[:0]
 	for x, c := range cells {
 		s := style{fg: resolve(th, c.FG, th.TermFg), bg: resolve(th, c.BG, th.TermBg)}
 		if c.Attrs&vt.Reverse != 0 {
@@ -275,57 +345,43 @@ func (v *View) resolveStyles(cells []vt.Cell, s0, s1 int) []style {
 		}
 		st = append(st, s)
 	}
-	v.styles = st
 	return st
 }
 
-func (v *View) drawRow(ops *op.Ops, cells []vt.Cell, s0, s1 int) {
-	st := v.resolveStyles(cells, s0, s1)
+// paintRow rasterizes one row into its image. It runs on worker goroutines
+// and only reads View fields that metrics sets.
+func (v *View) paintRow(j *rowJob) {
+	img, st, cells := j.r.img, j.st, j.cells
 	cw, ch := v.cell.X, v.cell.Y
 
 	for x := 0; x < len(st); {
-		j := x + 1
-		for j < len(st) && st[j].bg == st[x].bg {
-			j++
+		k := x + 1
+		for k < len(st) && st[k].bg == st[x].bg {
+			k++
 		}
-		if st[x].bg != v.th.TermBg {
-			fill(ops, st[x].bg, image.Rect(x*cw, 0, j*cw, ch))
-		}
-		x = j
+		fillRect(img, image.Rect(x*cw, 0, k*cw, ch), st[x].bg)
+		x = k
 	}
 
+	// Block elements are rects, so neighbors join without seams.
 	for x := 0; x < len(st); {
 		b, ok := blockRect(cells[x].Content)
 		if !ok || st[x].blank {
 			x++
 			continue
 		}
-		j := x + 1
-		for j < len(st) && cells[j].Content == cells[x].Content && st[j].fg == st[x].fg {
-			j++
+		k := x + 1
+		for k < len(st) && cells[k].Content == cells[x].Content && st[k].fg == st[x].fg {
+			k++
 		}
-		fill(ops, st[x].fg, image.Rect(x*cw+cw*b.Min.X/8, ch*b.Min.Y/8, (j-1)*cw+cw*b.Max.X/8, ch*b.Max.Y/8))
-		for ; x < j; x++ {
-			st[x].blank = true
-		}
+		fillRect(img, image.Rect(x*cw+cw*b.Min.X/8, ch*b.Min.Y/8, (k-1)*cw+cw*b.Max.X/8, ch*b.Max.Y/8), st[x].fg)
+		x = k
 	}
 
-	// Runs of the same style anywhere in the row share one path: syntax
-	// highlighting reuses a few colors, and Gio's cost is per path.
-	runs := textRuns(st)
-	for i, r := range runs {
-		if r[0] < 0 {
-			continue
+	for x, g := range j.gl {
+		if g != nil {
+			blit(img, x*cw, 0, g, st[x].fg)
 		}
-		group := append(v.rbuf[:0], r)
-		for j := i + 1; j < len(runs); j++ {
-			if q := runs[j]; q[0] >= 0 && st[q[0]].fg == st[r[0]].fg && st[q[0]].font == st[r[0]].font {
-				group = append(group, q)
-				runs[j][0] = -1
-			}
-		}
-		v.rbuf = group
-		v.paintRuns(ops, cells, st, group, st[r[0]].fg)
 	}
 
 	for _, d := range [...]struct {
@@ -340,75 +396,14 @@ func (v *View) drawRow(ops *op.Ops, cells []vt.Cell, s0, s1 int) {
 				x++
 				continue
 			}
-			j := x + 1
-			for j < len(st) && st[j].deco&d.a != 0 && st[j].fg == st[x].fg {
-				j++
+			k := x + 1
+			for k < len(st) && st[k].deco&d.a != 0 && st[k].fg == st[x].fg {
+				k++
 			}
-			fill(ops, st[x].fg, image.Rect(x*cw, d.y, j*cw, d.y+v.line))
-			x = j
+			fillRect(img, image.Rect(x*cw, d.y, k*cw, d.y+v.line), st[x].fg)
+			x = k
 		}
 	}
-}
-
-// textRuns splits a row into maximal runs of non-blank cells sharing color
-// and face; each run is shaped and painted once. Blank cells never break a
-// run since they draw nothing.
-func textRuns(st []style) [][2]int {
-	var runs [][2]int
-	start, last := -1, -1
-	for x, s := range st {
-		if s.blank {
-			continue
-		}
-		if start >= 0 && (s.fg != st[start].fg || s.font != st[start].font) {
-			runs = append(runs, [2]int{start, last + 1})
-			start = -1
-		}
-		if start < 0 {
-			start = x
-		}
-		last = x
-	}
-	if start >= 0 {
-		runs = append(runs, [2]int{start, last + 1})
-	}
-	return runs
-}
-
-// paintRuns draws the glyphs of the cell ranges in runs in color c. Each glyph is placed
-// at its cell, centered in its one or two cells and snapped to whole pixels,
-// so fallback glyphs of other widths stay on the grid.
-func (v *View) paintRuns(ops *op.Ops, cells []vt.Cell, st []style, runs [][2]int, c color.NRGBA) {
-	cw := v.cell.X
-	gs := v.gbuf[:0]
-	for _, run := range runs {
-		for x := run[0]; x < run[1]; x++ {
-			if st[x].blank {
-				continue
-			}
-			r := v.glyph(st[x].font, cells[x].Content)
-			w := max(1, int(cells[x].Width))
-			base := fixed.I(x*cw + ((fixed.I(w*cw) - r.adv) / 2).Round())
-			for _, g := range r.gs {
-				g.X += base
-				gs = append(gs, g)
-			}
-		}
-	}
-	v.gbuf = gs
-	if len(gs) == 0 {
-		return
-	}
-	sh := v.th.Shaper
-	t := op.Offset(image.Pt(gs[0].X.Round(), v.baseline)).Push(ops)
-	cl := clip.Outline{Path: sh.Shape(gs)}.Op().Push(ops)
-	paint.ColorOp{Color: c}.Add(ops)
-	paint.PaintOp{}.Add(ops)
-	cl.Pop()
-	if call := sh.Bitmaps(gs); call != (op.CallOp{}) {
-		call.Add(ops)
-	}
-	t.Pop()
 }
 
 func (v *View) cursor(ops *op.Ops, g *vt.Grid, c vt.Cursor, focused bool) {
@@ -419,7 +414,7 @@ func (v *View) cursor(ops *op.Ops, g *vt.Grid, c vt.Cursor, focused bool) {
 	}
 	cell := g.At(x, c.Y)
 	w := max(1, int(cell.Width))
-	r := image.Rect(x*cw, c.Y*ch, (x+w)*cw, (c.Y+1)*ch)
+	r := image.Rect(x*cw, c.Y*ch, (x+w)*cw, (c.Y+1)*ch).Add(image.Pt(v.pad, v.pad))
 	cur, t := v.th.TermCur, v.line
 	switch {
 	case !focused:
@@ -432,15 +427,42 @@ func (v *View) cursor(ops *op.Ops, g *vt.Grid, c vt.Cursor, focused bool) {
 	case c.Shape == vt.CursorBar:
 		fill(ops, cur, image.Rect(r.Min.X, r.Min.Y, r.Min.X+2*t, r.Max.Y))
 	default:
-		fill(ops, cur, r)
-		cells := g.Cells[c.Y*g.Cols : c.Y*g.Cols+x+1]
-		st := v.resolveStyles(cells, -1, -1)
-		if !st[x].blank {
-			off := op.Offset(image.Pt(0, c.Y*ch)).Push(ops)
-			v.paintRuns(ops, cells, st, [][2]int{{x, x + 1}}, v.th.TermBg)
-			off.Pop()
+		// The block shows the glyph under it in the background color.
+		st := v.resolveStyles(nil, []vt.Cell{cell}, -1, -1)[0]
+		k := glyphKey{st.font | uint8(w)<<2, cell.Content}
+		if st.blank {
+			k.s = ""
 		}
+		if k != v.cur.key {
+			img := image.NewRGBA(image.Rect(0, 0, w*cw, ch))
+			fillRect(img, img.Rect, cur)
+			if _, block := blockRect(cell.Content); !st.blank && !block {
+				blit(img, 0, 0, v.glyph(st.font, cell.Content, w), v.th.TermBg)
+			}
+			v.cur.key, v.cur.img = k, paint.NewImageOp(img)
+			v.cur.img.Filter = paint.FilterNearest
+		}
+		t := op.Offset(r.Min).Push(ops)
+		v.cur.img.Add(ops)
+		paint.PaintOp{}.Add(ops)
+		t.Pop()
 	}
+}
+
+// scrollbar draws aide's overlay thumb on the right edge while the view is
+// scrolled back: 6dp wide, 2dp from the edge, white at 14%.
+func (v *View) scrollbar(gtx layout.Context, size image.Point, rows int) {
+	if v.scrollOff <= 0 || v.scrMax <= 0 {
+		return
+	}
+	w, in := gtx.Dp(6), gtx.Dp(2)
+	track := size.Y - 2*in
+	total := v.scrMax + rows
+	th := min(track, max(gtx.Dp(24), track*rows/total))
+	top := in + (track-th)*(v.scrMax-min(v.scrollOff, v.scrMax))/v.scrMax
+	r := image.Rect(size.X-in-w, top, size.X-in, top+th)
+	c := theme.Mix(v.th.TermBg, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, 0.14)
+	paint.FillShape(gtx.Ops, c, clip.UniformRRect(r, w/2).Op(gtx.Ops))
 }
 
 // blockRect is the filled part of a block element in eighths of a cell.
@@ -508,8 +530,3 @@ func palette(th *theme.Theme, i uint8) color.NRGBA {
 		return color.NRGBA{R: g, G: g, B: g, A: 0xff}
 	}
 }
-
-// ScrollDelta returns and clears the wheel scrolling gathered by Layout while
-// the program has not asked for the mouse, in lines (> 0 is back in history).
-// The caller sends it as a proto.Scroll.
-func (v *View) ScrollDelta() int { return 0 }
