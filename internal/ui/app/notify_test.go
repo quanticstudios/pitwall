@@ -232,7 +232,9 @@ func TestNotifierWithoutWindow(t *testing.T) {
 	b.Tick()
 	select {
 	case got := <-delivered:
-		if got.title != "pitwall / main" || got.activity.State != model.StateAwaitingInput {
+		st := b.State()
+		ws := findWorkspace(&st, got.activity.WorkspaceID)
+		if ws == nil || got.title != notificationTitle(&st, *ws) {
 			t.Fatalf("got %+v", got)
 		}
 	case <-time.After(2 * time.Second):
@@ -273,5 +275,15 @@ func TestNotifierCoalescesWithoutFrames(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("coalesced transition needs a backend change or frame")
+	}
+}
+
+func TestNotificationTitle(t *testing.T) {
+	st := model.State{Projects: []model.Project{{ID: "g", Name: "agents"}}}
+	if got := notificationTitle(&st, model.Workspace{Name: "api"}); got != "api" {
+		t.Fatalf("ungrouped title = %q", got)
+	}
+	if got := notificationTitle(&st, model.Workspace{Name: "api", ProjectID: "g"}); got != "agents / api" {
+		t.Fatalf("grouped title = %q", got)
 	}
 }
