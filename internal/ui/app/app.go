@@ -49,18 +49,16 @@ const (
 func Run(b Backend) error {
 	w := new(app.Window)
 	w.Option(app.Title("pitwall"), app.Size(1280, 800), app.MinSize(640, 360))
-	go func() {
-		for range b.Changed() {
-			w.Invalidate()
-		}
-	}()
 	u := &ui{b: b, th: newTheme(), panes: map[string]*paneUI{}}
+	u.notifications = newNotifier(b, w.Invalidate, desktopSender())
+	defer u.notifications.close()
 	var ops op.Ops
 	for {
 		switch e := w.Event().(type) {
 		case app.DestroyEvent:
 			return e.Err
 		case app.ConfigEvent:
+			u.notifications.setView(&e.Config.Focused, "")
 			if !e.Config.Focused {
 				u.nav.altHeld, u.nav.pinned = false, false
 			}
@@ -101,6 +99,8 @@ type ui struct {
 	dragUntil uint64 // keep drawing drag until the state passes this version
 
 	shownAt time.Time // switcher fade-in start
+
+	notifications *notifier
 }
 
 func (u *ui) send(msg any) {
@@ -149,6 +149,9 @@ func (u *ui) layout(gtx gl.Context) {
 	u.layoutModal(gtx, &st)
 	if u.nav.switcherVisible() {
 		u.drawSwitcher(gtx, &st)
+	}
+	if u.notifications != nil {
+		u.notifications.setView(nil, u.nav.workspace)
 	}
 }
 
