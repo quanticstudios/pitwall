@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,7 @@ type FakeBackend struct {
 	mu      sync.Mutex
 	st      model.State
 	sizes   map[string][2]int // pane -> cols, rows
+	scroll  map[string]int    // pane -> lines scrolled back
 	sent    []any
 	changed chan struct{}
 	ticks   int
@@ -27,15 +30,21 @@ type FakeBackend struct {
 
 // NewFakeBackend returns a backend with two git projects and a folder.
 func NewFakeBackend() *FakeBackend {
-	f := &FakeBackend{sizes: map[string][2]int{}, changed: make(chan struct{}, 1)}
+	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, changed: make(chan struct{}, 1)}
 	now := time.Now()
 	f.st.Projects = []model.Project{
-		{ID: "p1", Name: "pitwall", Root: "/src/pitwall", Kind: model.ProjectGit, Color: "blue"},
+		{ID: "p1", Name: "pitwall", Root: "/src/pitwall", Kind: model.ProjectGit, Color: "blue", Icon: "terminal"},
 		{ID: "p2", Name: "aide", Root: "/src/aide", Kind: model.ProjectGit, Color: "green"},
 		{ID: "p3", Name: "notes", Root: "/home/notes", Kind: model.ProjectFolder, Color: "neutral"},
 	}
 	ws := func(id, project, name, branch string, root *layout.Node) model.Workspace {
-		return model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, UpdatedAt: now, Layout: root}
+		w := model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, UpdatedAt: now, Layout: root}
+		for _, p := range f.st.Projects {
+			if p.ID == project && branch != "main" {
+				w.Path = p.Root + "/.worktrees/" + branch
+			}
+		}
+		return w
 	}
 	split := func(d layout.Dir, kids ...*layout.Node) *layout.Node {
 		r := make([]float64, len(kids))
@@ -131,6 +140,16 @@ func (f *FakeBackend) State() model.State {
 
 func (f *FakeBackend) Changed() <-chan struct{} { return f.changed }
 
+// fakeScrollback is how many lines of history every fake pane has.
+const fakeScrollback = 200
+
+// Scroll implements Scroller.
+func (f *FakeBackend) Scroll(pane string) (offset, max int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.scroll[pane], fakeScrollback
+}
+
 // Sent returns every message passed to Send, oldest first.
 func (f *FakeBackend) Sent() []any {
 	f.mu.Lock()
@@ -192,6 +211,8 @@ func (f *FakeBackend) Send(msg any) error {
 	switch m := msg.(type) {
 	case proto.Resize:
 		f.sizes[m.Pane] = [2]int{m.Cols, m.Rows}
+	case proto.Scroll:
+		f.scroll[m.Pane] = min(max(f.scroll[m.Pane]+m.Lines, 0), fakeScrollback)
 	case proto.SetLayout:
 		if w := ws(m.WorkspaceID); w != nil {
 			w.Layout = cloneNode(m.Layout)
@@ -231,6 +252,19 @@ func (f *FakeBackend) Send(msg any) error {
 	case proto.RenameWorkspace:
 		if w := ws(m.WorkspaceID); w != nil {
 			w.Name = m.Name
+		}
+	case proto.DeleteWorkspace:
+		f.st.Workspaces = slices.DeleteFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })
+		f.st.Panes = slices.DeleteFunc(f.st.Panes, func(p model.Pane) bool { return p.WorkspaceID == m.WorkspaceID })
+		f.setActivities()
+	case proto.AddProject:
+		f.nextID++
+		f.st.Projects = append(f.st.Projects, model.Project{ID: fmt.Sprintf("np%d", f.nextID), Name: filepath.Base(m.Path), Root: m.Path, Kind: model.ProjectFolder})
+	case proto.SetProjectAppearance:
+		for i := range f.st.Projects {
+			if f.st.Projects[i].ID == m.ProjectID {
+				f.st.Projects[i].Icon, f.st.Projects[i].Color = m.Icon, m.Color
+			}
 		}
 	default:
 		return nil // Input and the rest change nothing here

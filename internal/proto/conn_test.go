@@ -54,6 +54,7 @@ func allMessages() []any {
 		Frame{Pane: "a", Grid: bigGrid(200, 60), Modes: vt.Modes{AppCursorKeys: true, Mouse: vt.MouseAny, MouseSGR: true, KittyKeyboard: 3}},
 		PaneExited{Pane: "a", ExitCode: 1},
 		Error{Message: "boom"},
+		SetProjectAppearance{ProjectID: "p", Icon: "code", Color: "sky"},
 	}
 }
 
