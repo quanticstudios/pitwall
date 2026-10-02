@@ -72,6 +72,12 @@ func Run(b Backend) error {
 	}
 }
 
+// Scroller is optionally implemented by a Backend: the scroll position from
+// the pane's last proto.Frame (ScrollOffset, ScrollMax).
+type Scroller interface {
+	Scroll(pane string) (offset, max int)
+}
+
 type paneUI struct {
 	sentCols   int
 	sentRows   int
@@ -87,6 +93,7 @@ type ui struct {
 	sidebar sidebar.Sidebar
 	panes   map[string]*paneUI
 	open    widget.Clickable // empty-state button
+	modal   modal
 
 	drags     []*gesture.Drag
 	drag      *layout.Node // layout being dragged, drawn instead of the state's
@@ -139,6 +146,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.layoutPanes(pgtx, &st)
 	off.Pop()
 
+	u.layoutModal(gtx, &st)
 	if u.nav.switcherVisible() {
 		u.drawSwitcher(gtx, &st)
 	}
@@ -161,13 +169,17 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.RenameWorkspace:
 		u.send(proto.RenameWorkspace{WorkspaceID: e.WorkspaceID, Name: e.Name})
 	case sidebar.ArchiveWorkspace:
-		w := findWorkspace(st, e.WorkspaceID)
-		u.send(proto.ArchiveWorkspace{WorkspaceID: e.WorkspaceID, Archived: w == nil || !w.Archived})
+		u.send(proto.ArchiveWorkspace{WorkspaceID: e.WorkspaceID, Archived: true})
+	case sidebar.RestoreWorkspace:
+		u.send(proto.ArchiveWorkspace{WorkspaceID: e.WorkspaceID, Archived: false})
 	case sidebar.DeleteWorkspace:
-		u.send(proto.DeleteWorkspace{WorkspaceID: e.WorkspaceID})
+		u.modal.open(modalDelete, e.WorkspaceID)
 	case sidebar.AddProject:
-		// ponytail: needs a folder picker; the event carries no path yet.
-		log.Printf("pitwall: add project needs a path")
+		u.modal.open(modalAddProject, "")
+	case sidebar.OpenSettings:
+		u.modal.open(modalSettings, "")
+	case sidebar.SetProjectAppearance:
+		u.send(proto.SetProjectAppearance{ProjectID: e.ProjectID, Icon: e.Icon, Color: e.Color})
 	}
 }
 
@@ -188,10 +200,15 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}
 
 	area := layout.Rect{W: gtx.Constraints.Max.X, H: gtx.Constraints.Max.Y}
-	gap := 1
-	// The 1px gaps between panes show this fill: the dividers.
-	paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Max: gtx.Constraints.Max}.Op())
+	// aide's split: gap-4 between pane frames, on the canvas's surface fill.
+	// The dividers are the gaps.
+	gap := gtx.Dp(16)
+	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
+	if u.modal.kind != modalNone {
+		focused = "" // the dialog holds key focus
+	}
+	sole := root.Pane != ""
 	live := map[string]bool{}
 	for id, r := range rectsOf(root, area, gap) {
 		live[id] = true
@@ -200,7 +217,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			p = &paneUI{}
 			u.panes[id] = p
 		}
-		u.layoutPane(gtx, p, id, r, id == focused)
+		u.layoutPane(gtx, p, id, r, id == focused, sole)
 	}
 	for id := range u.panes {
 		if !live[id] && findPane(st, id) == nil {
@@ -219,7 +236,37 @@ func findPane(st *model.State, id string) *model.Pane {
 	return nil
 }
 
-func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused bool) {
+// paneChrome draws aide's pane frame (getPaneFrameClassName) and terminal
+// pane box (TerminalPane.tsx) inside frame and returns the rect left for the
+// grid. A split pane gets rounded-lg border p-4 bg-surface, the focused one
+// with border-strong; a sole pane drops that frame. Every terminal sits in
+// rounded-lg border border-border bg-background with p-3.
+func paneChrome(gtx gl.Context, th *theme.Theme, frame image.Rectangle, focused, sole bool) image.Rectangle {
+	white := theme.Hex("#ffffff")
+	r := gtx.Dp(10)
+	inner := frame
+	if !sole {
+		border := theme.Mix(th.Surface, white, 0.07)
+		if focused {
+			border = theme.Mix(th.Surface, white, 0.14)
+		}
+		paint.FillShape(gtx.Ops, border, clip.UniformRRect(frame, r).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(frame.Inset(1), r-1).Op(gtx.Ops))
+		inner = frame.Inset(1 + gtx.Dp(16))
+	}
+	if inner.Dx() <= 2 || inner.Dy() <= 2 {
+		return image.Rectangle{Min: inner.Min, Max: inner.Min}
+	}
+	paint.FillShape(gtx.Ops, theme.Mix(th.TermBg, white, 0.07), clip.UniformRRect(inner, r).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, th.TermBg, clip.UniformRRect(inner.Inset(1), r-1).Op(gtx.Ops))
+	grid := inner.Inset(1 + gtx.Dp(12))
+	if grid.Dx() <= 0 || grid.Dy() <= 0 {
+		return image.Rectangle{Min: inner.Min, Max: inner.Min}
+	}
+	return grid
+}
+
+func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, sole bool) {
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(rect.Size())
@@ -238,8 +285,23 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	if !ok {
 		g = vt.Grid{}
 	}
+	if s, ok := u.b.(Scroller); ok {
+		off, mx := s.Scroll(id)
+		setScroll(&p.view, off, mx)
+	}
 	cl := clip.Rect{Max: rect.Size()}.Push(gtx.Ops)
-	input, cols, rows := drawTerm(gtx, &p.view, u.th, &g, m, focused)
+	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, focused, sole)
+	var input []byte
+	cols, rows := g.Cols, g.Rows
+	if !grid.Empty() {
+		tg := gtx
+		tg.Constraints = gl.Exact(grid.Size())
+		o := op.Offset(grid.Min).Push(gtx.Ops)
+		input, cols, rows = drawTerm(tg, &p.view, u.th, &g, m, focused)
+		o.Pop()
+	}
+	// Clicking anywhere in the frame focuses the pane, as aide's onMouseDown
+	// on the pane article does; PassOp lets the grid see the press too.
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &p.focusClick)
 	pass.Pop()
@@ -248,15 +310,12 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	if len(input) > 0 {
 		u.send(proto.Input{Pane: id, Data: input})
 	}
+	if d := p.view.ScrollDelta(); d != 0 {
+		u.send(proto.Scroll{Pane: id, Lines: d})
+	}
 	if (cols != g.Cols || rows != g.Rows) && (cols != p.sentCols || rows != p.sentRows) {
 		p.sentCols, p.sentRows = cols, rows
 		u.send(proto.Resize{Pane: id, Cols: cols, Rows: rows})
-	}
-	if focused {
-		// A 2px Primary rail on the left edge, quiet enough to sit next to text.
-		c := u.th.Primary
-		c.A = 0xb0
-		paint.FillShape(gtx.Ops, c, clip.Rect{Max: image.Pt(gtx.Dp(2), rect.Dy())}.Op())
 	}
 }
 
