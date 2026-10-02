@@ -2,8 +2,12 @@ package pane
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"os"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -167,6 +171,58 @@ func TestScrollback(t *testing.T) {
 	if p.ScrollbackPushed() != 26 {
 		t.Fatalf("pushed %d", p.ScrollbackPushed())
 	}
+}
+
+// A detached descendant that keeps the slave open must not keep the pane
+// alive, or Close, once the pane's own process is gone.
+func TestDetachedSlaveHolder(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		close bool
+		after string
+	}{
+		{"exits", false, "sleep 0.2"},
+		{"closed", true, "sleep 100"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, f := start(t, "p1", "sh", "-c",
+				`setsid sh -c 'echo holder=$$; exec sleep 1000' </dev/null >/dev/tty 2>&1 & `+tc.after)
+			holder := waitHolder(t, f)
+			t.Cleanup(func() { syscall.Kill(holder, syscall.SIGKILL) }) // runs before start's Close
+			finished := make(chan struct{})
+			go func() {
+				if tc.close {
+					p.Close()
+				}
+				<-p.Done()
+				close(finished)
+			}()
+			select {
+			case <-finished:
+			case <-time.After(3 * time.Second):
+				t.Fatal("pane never finished while a detached process held its PTY")
+			}
+			if syscall.Kill(holder, 0) != nil {
+				t.Fatal("the holder died; the test no longer covers a held slave")
+			}
+		})
+	}
+}
+
+func waitHolder(t *testing.T, f *fakeVT) int {
+	t.Helper()
+	re := regexp.MustCompile(`holder=(\d+)`)
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if m := re.FindStringSubmatch(f.String()); m != nil {
+			pid, _ := strconv.Atoi(m[1])
+			if comm, _ := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid)); strings.TrimSpace(string(comm)) != "sleep" {
+				continue // not exec'd yet
+			}
+			return pid
+		}
+	}
+	t.Fatalf("holder pid not printed; output %q", f.String())
+	return 0
 }
 
 func TestResizeRejectsBadSizes(t *testing.T) {
