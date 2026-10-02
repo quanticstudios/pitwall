@@ -127,6 +127,12 @@ func (t *emulator) SetDirtyFunc(f func()) {
 	t.st.wake = f
 }
 
+// Close stops the reply goroutines; the screen stays readable. Panes find it
+// through an interface check and call it once their process is gone.
+func (t *emulator) Close() error {
+	return t.e.InputPipe().(*io.PipeWriter).Close()
+}
+
 func (st *state) armSync() {
 	switch {
 	case st.wake == nil:

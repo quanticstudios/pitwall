@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -305,5 +306,38 @@ func TestSyncFrameTimeoutSignalsDirty(t *testing.T) {
 		case <-timeout:
 			t.Fatalf("no dirty signal showed the timed-out frame; screen %q", row())
 		}
+	}
+}
+
+// Closed panes must free their emulator and its reply goroutines: deleting
+// sessions all day must not pile up scrollback.
+func TestClosedPanesAreFreed(t *testing.T) {
+	before := runtime.NumGoroutine()
+	var freed atomic.Int32
+	newVT := func(c, r int, w io.Writer) vt.Emulator {
+		e := vt.New(c, r, w)
+		runtime.SetFinalizer(e, func(any) { freed.Add(1) })
+		return e
+	}
+	const n = 50
+	panes := make([]*Pane, n)
+	for i := range panes {
+		p, err := Start(Config{ID: strconv.Itoa(i), Cmd: []string{"sleep", "100"}, Cols: 80, Rows: 24, NewVT: newVT})
+		if err != nil {
+			t.Fatal(err)
+		}
+		panes[i] = p
+	}
+	for _, p := range panes {
+		p.Close()
+	}
+	panes = nil
+	deadline := time.Now().Add(5 * time.Second)
+	for (freed.Load() < n || runtime.NumGoroutine() > before) && time.Now().Before(deadline) {
+		runtime.GC()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if f, g := freed.Load(), runtime.NumGoroutine(); f < n || g > before {
+		t.Fatalf("%d of %d emulators freed, goroutines %d after, %d before", f, n, g, before)
 	}
 }
