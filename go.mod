@@ -2,6 +2,8 @@ module github.com/quanticstudios/pitwall
 
 go 1.27.1
 
+replace github.com/charmbracelet/x/vt => ./third_party/x-vt
+
 require (
 	gioui.org v0.10.3
 	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
