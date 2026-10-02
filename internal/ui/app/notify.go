@@ -226,7 +226,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			ws := findWorkspace(&st, a.WorkspaceID)
 			if !viewing && ws != nil && !ws.Archived {
 				h.last[a.WorkspaceID] = time.Now()
-				send(ctx, notification{a, projectName(&st, ws.ProjectID) + " / " + ws.Name})
+				send(ctx, notification{a, notificationTitle(&st, *ws)})
 			}
 		}
 		timer.Stop()
@@ -241,4 +241,13 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			timer.Reset(time.Until(due))
 		}
 	}
+}
+
+// notificationTitle is "<group> / <session>", or the session name alone for
+// an ungrouped session.
+func notificationTitle(st *model.State, w model.Workspace) string {
+	if w.ProjectID == "" {
+		return w.Name
+	}
+	return groupName(st, w) + " / " + w.Name
 }
