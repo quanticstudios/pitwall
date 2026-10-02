@@ -2,7 +2,11 @@ package theme
 
 import (
 	"image/color"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 func TestProjectColor(t *testing.T) {
@@ -38,5 +42,13 @@ func TestDarkFillsFonts(t *testing.T) {
 	}
 	if th.ANSI[15] != Hex("#ffffff") || th.TermBg != th.Bg {
 		t.Error("terminal colors not filled")
+	}
+	for i, c := range vt.DefaultPalette.ANSI {
+		if th.ANSI[i] != rgb(c) {
+			t.Errorf("ANSI[%d] = %v, want palette %06x", i, th.ANSI[i], c)
+		}
+	}
+	if _, err := os.Stat(emojiFile); err == nil && !strings.HasSuffix(string(th.MonoFont.Typeface), ", "+emojiFamily) {
+		t.Errorf("mono typeface %q lacks the emoji fallback", th.MonoFont.Typeface)
 	}
 }

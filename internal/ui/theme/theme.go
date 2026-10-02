@@ -16,6 +16,8 @@ import (
 	"gioui.org/unit"
 	fontapi "github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
+
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 type Theme struct {
@@ -94,23 +96,24 @@ func Dark() *Theme {
 		Blue:            Hex("#57c1ff"),
 		Purple:          Hex("#bd93ff"),
 
-		// aide TerminalPane.tsx xterm theme.
-		TermFg:  Hex("#f4f4f6"),
-		TermBg:  Hex("#08090c"),
-		TermCur: Hex("#ffffff"),
+		// The emulator answers OSC color queries from the same palette.
+		TermFg:  rgb(vt.DefaultPalette.Fg),
+		TermBg:  rgb(vt.DefaultPalette.Bg),
+		TermCur: rgb(vt.DefaultPalette.Cursor),
 
 		TextSize:  13,
 		SmallSize: 11,
 		MonoSize:  13,
 	}
-	for i, h := range []string{
-		"#0d0d0d", "#ff6161", "#59d499", "#ffc533", "#57c1ff", "#bb9af7", "#7dcfff", "#cdcdcd",
-		"#242728", "#ff6161", "#59d499", "#ffc533", "#57c1ff", "#bb9af7", "#7dcfff", "#ffffff",
-	} {
-		t.ANSI[i] = Hex(h)
+	for i, c := range vt.DefaultPalette.ANSI {
+		t.ANSI[i] = rgb(c)
 	}
 	t.Shaper, t.UIFont, t.MonoFont = loadFonts()
 	return t
+}
+
+func rgb(c uint32) color.NRGBA {
+	return color.NRGBA{R: uint8(c >> 16), G: uint8(c >> 8), B: uint8(c), A: 0xff}
 }
 
 var projectColors = map[string]string{
@@ -148,6 +151,10 @@ const (
 	uiFamily   = "Geist"
 	monoFamily = "JetBrainsMono Nerd Font"
 	monoDir    = "/usr/share/fonts/TTF/"
+	// emojiFamily is the color emoji face, listed after the mono family in
+	// MonoFont.Typeface so the shaper falls back to it per glyph.
+	emojiFamily = "emoji"
+	emojiFile   = "/usr/share/fonts/noto/NotoColorEmoji.ttf"
 )
 
 // varFace pins a variable font to one weight. Each weight needs its own
@@ -211,5 +218,13 @@ func loadFonts() (*text.Shaper, font.Font, font.Font) {
 		}
 	}
 	faces = append(faces, monoFaces...)
+	if b, err := os.ReadFile(emojiFile); err == nil {
+		if f, err := opentype.Parse(b); err == nil {
+			faces = append(faces, font.FontFace{Font: font.Font{Typeface: emojiFamily}, Face: f})
+			mono.Typeface += ", " + emojiFamily
+		} else {
+			log.Printf("theme: emoji: %v", err)
+		}
+	}
 	return text.NewShaper(text.NoSystemFonts(), text.WithCollection(faces)), ui, mono
 }
