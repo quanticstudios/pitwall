@@ -180,3 +180,36 @@ func TestNewSessionFromPaneCwd(t *testing.T) {
 		t.Fatalf("unknown pane: session in %s, want Cwd %s", got, start)
 	}
 }
+
+// A hand-made worktree grouped into its repo must stay the user's across a
+// restart: ownership is recorded, never re-inferred from the path.
+func TestHandmadeWorktreeSurvivesRestart(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	removed := 0
+	o.RemoveWorktree = func(context.Context, string, string, bool) error { removed++; return nil }
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), "repo")
+	handmade := filepath.Join(repo, ".worktrees", "handmade")
+	mkdir(t, handmade)
+	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
+	must(t, d.handle(ctx, proto.NewSession{Cwd: handmade, GroupID: d.st.Projects[0].ID}))
+	id := d.st.Workspaces[0].ID
+	f.saved = d.saveSnapshot()
+	for _, p := range d.panes {
+		p.Close()
+	}
+
+	d, err = NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	must(t, d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: id}))
+	if removed != 0 {
+		t.Fatal("restart made pitwall own a worktree the user created")
+	}
+}
