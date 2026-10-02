@@ -37,6 +37,9 @@ const usage = `usage:
   pitwall detach [name]      hide a session, keeping its processes running
   pitwall kill [-f] <name>   close a session and its processes
   pitwall rename [old] <new> rename a session
+  pitwall tab new            open a tab in the calling pane's session
+  pitwall tab rename [name...]  name the calling pane's tab (empty clears)
+  pitwall tab close          close the calling pane's tab
 `
 
 func main() {
@@ -54,7 +57,7 @@ func main() {
 		runHook(os.Args[2:])
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)
-	case "ls", "new", "attach", "detach", "kill", "rename":
+	case "ls", "new", "attach", "detach", "kill", "rename", "tab":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)
