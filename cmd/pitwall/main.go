@@ -142,7 +142,7 @@ func runGUI() error {
 		return err
 	}
 	b := newBackend(conn)
-	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "gui"}); err != nil {
+	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "gui", Cwd: cwd()}); err != nil {
 		return err
 	}
 	go b.recvLoop()
@@ -194,4 +194,11 @@ func stateDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "state", "pitwall")
+}
+
+// cwd is where the GUI was launched; the daemon opens the first session
+// there.
+func cwd() string {
+	d, _ := os.Getwd()
+	return d
 }

@@ -52,6 +52,8 @@ func allMessages() []any {
 		ArchiveWorkspace{WorkspaceID: "w", Archived: true},
 		DeleteWorkspace{WorkspaceID: "w", RemoveBranch: true},
 		OpenPane{WorkspaceID: "w", Target: "a", Dir: layout.Vertical, Cmd: []string{"codex"}},
+		NewSession{Cwd: "/tmp", GroupID: "g"}, SetSessionGroup{WorkspaceID: "w", GroupID: "g"},
+		NewGroup{Name: "agents", WorkspaceIDs: []string{"w", "x"}}, RenameGroup{GroupID: "g", Name: "n"}, DeleteGroup{GroupID: "g"},
 		Scroll{Pane: "a", Lines: -3},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},
