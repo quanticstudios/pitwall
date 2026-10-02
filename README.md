@@ -1,6 +1,8 @@
 # pitwall
 
-pitwall is a native terminal multiplexer for coding agents on Linux and Hyprland. Go and Gio draw a sidebar with agent activity beside split terminal panes. A daemon owns the PTYs, so closing the window leaves running sessions alive. The daemon saves projects, workspaces, pane commands, and agent session IDs to disk for restoration after a reboot.
+pitwall is a native terminal multiplexer for coding agents on Linux and Hyprland. It opens straight into a shell, like tmux. Each session is a set of split panes, and the sidebar shows what every session is doing: a running command, or a Claude Code or Codex agent working, waiting for input, asking for approval, done, or failed. Sessions start ungrouped; you group the ones that belong together later. Go and Gio draw the window, so it is not limited to terminal cells.
+
+A daemon owns the PTYs, so closing the window leaves sessions running. It saves sessions, groups, pane commands, and agent session IDs to disk, and brings them back after a reboot.
 
 ## Install
 
@@ -32,7 +34,15 @@ pitwall hooks install
 pitwall
 ```
 
-`pitwall` opens the window and starts the daemon if needed. Choose **Add project folder** in the sidebar and enter a folder path. Tab completes folder names. Enter adds the project. For a Git project, use the project's new-workspace button to create a workspace in a Git worktree. A folder project gets a workspace immediately. Select a workspace and press `Alt+N` or click **Open a terminal**. Run `claude` or `codex` inside the pane.
+`pitwall` opens the window, starts the daemon if needed, and drops you into a shell in the folder you launched it from. Run `claude`, `codex`, or anything else there. `Alt+Shift+T` or the `+` in the sidebar header opens another session in the folder your current shell is in.
+
+## Sessions and groups
+
+Sessions start ungrouped, at the top of the sidebar, named after their folder. Each row shows the session's state: the command a terminal is running, or the agent's state and what it is asking. A second line shows `+added -deleted` lines and the branch inside a Git repo, otherwise the folder.
+
+To group sessions, Ctrl+click or Shift+click to pick several, then right-click and choose **New group**, or **Move to group** for an existing one. **Remove from group** and the group's **Ungroup** never close anything. **Open folder as group** in the footer makes a group for a folder; for a Git repo, the group's new-worktree action creates a session in a fresh worktree under `<repo>/.worktrees/`. Deleting such a session removes that worktree; deleting any other session leaves its folder alone.
+
+Agents report their state through hooks (below). Without hooks, pitwall still recognizes `claude` and `codex` as the pane's foreground process and reads their state from the screen, which is less exact. When a session needs you and you are not looking at it, pitwall sends a desktop notification with `notify-send`.
 
 Close the window and run `pitwall` again to reconnect to the same daemon. To run the daemon in the foreground for troubleshooting:
 
@@ -72,23 +82,23 @@ These bindings match the settings dialog and navigation code:
 
 | Keys                          | Action                                |
 | ----------------------------- | ------------------------------------- |
-| Alt+J / Alt+K                 | Next / previous workspace             |
+| Alt+J / Alt+K                 | Next / previous session in the group  |
 | Alt+H / Alt+L                 | Previous / next pane                  |
 | Alt+Arrows                    | Same as J / K / H / L                 |
-| Hold Alt                      | Show the workspace switcher           |
+| Hold Alt                      | Show the session switcher             |
 | Alt+Space                     | Pin the switcher open                 |
-| Alt+1-9                       | Jump to workspace                     |
+| Alt+1-9                       | Jump to session                       |
 | Alt+N                         | Split the pane to the right           |
 | Alt+Shift+N                   | Split the pane below                  |
 | Alt+Shift+W                   | Close the pane                        |
-| Alt+Shift+T                   | New workspace in this project         |
+| Alt+Shift+T                   | New session in this folder            |
 | Ctrl+Shift+C / Ctrl+Shift+V   | Copy selection / paste                |
 | Escape                        | Close the switcher or dialog          |
 | Tab in the folder field       | Complete a folder name                |
-| Enter in the folder field     | Add the project                       |
+| Enter in the folder field     | Open the folder as a group            |
 | Shift+PageUp / Shift+PageDown | Scroll backward / forward by one page |
 
-Alt+J/K cycles within the current project when the switcher is hidden. With the switcher visible, navigation includes all non-archived workspaces. Alt+1-9 follows that workspace order. Alt+Down/Up changes workspace; Alt+Left/Right changes pane.
+Alt+J/K cycles within the current group when the switcher is hidden; ungrouped sessions count as one group. With the switcher visible, it moves through every session, and releasing Alt switches to the selected one. Alt+1-9 follows the switcher's order. Alt+Down/Up changes session; Alt+Left/Right changes pane. Ctrl+click and Shift+click in the sidebar pick sessions for grouping.
 
 ## State and resume
 
@@ -96,7 +106,7 @@ The daemon saves state in `~/.local/state/pitwall/state.json`. If `XDG_STATE_HOM
 
 The socket is `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`. Without `XDG_RUNTIME_DIR`, the daemon uses `/tmp/pitwall-<uid>/pitwall.sock`. Panes inherit `PITWALL_PANE` and `PITWALL_SOCKET` so hooks reach the correct pane and daemon.
 
-After a reboot, run `pitwall`. The daemon restores saved panes in their working directories. If hooks recorded a Claude Code session ID, restoration runs `claude --resume <session-id>`. For Codex, it runs `codex resume <session-id>`. Other panes restart their saved commands. PTY processes and terminal scrollback do not survive a reboot. Keep the agent executables on `PATH` and the project folders available.
+After a reboot, run `pitwall`. The daemon restores saved sessions, groups and panes in their working directories. If hooks recorded a Claude Code session ID, restoration runs `claude --resume <session-id>`. For Codex, it runs `codex resume <session-id>`. A pane started as a shell script that later ran an agent resumes the agent only, never the script. Other panes restart their saved commands. PTY processes and terminal scrollback do not survive a reboot. Keep the agent executables on `PATH` and the project folders available.
 
 ## Build and checks
 

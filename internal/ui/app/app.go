@@ -197,6 +197,9 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.modal.open(modalAddProject, "")
 	case sidebar.OpenSettings:
 		u.modal.open(modalSettings, "")
+	case sidebar.NewWorktreeSession:
+		u.nav.expectSession(st)
+		u.send(proto.NewWorkspace{ProjectID: e.GroupID})
 	case sidebar.SetProjectAppearance:
 		u.send(proto.SetProjectAppearance{ProjectID: e.ProjectID, Icon: e.Icon, Color: e.Color})
 	}
