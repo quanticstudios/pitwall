@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -309,5 +310,17 @@ func TestLockHolderFromProcLocks(t *testing.T) {
 	pid, err := lockHolder(f)
 	if err != nil || pid != os.Getpid() {
 		t.Fatalf("lockHolder = %d, %v; want %d", pid, err, os.Getpid())
+	}
+}
+
+func TestShownOnlyActiveTabs(t *testing.T) {
+	st := model.State{Workspaces: []model.Workspace{
+		{ActiveTab: "a", Tabs: []model.Tab{{ID: "a", Layout: layout.Leaf("p1")}, {ID: "b", Layout: layout.Leaf("p2")}}},
+		{Detached: true, ActiveTab: "c", Tabs: []model.Tab{{ID: "c", Layout: layout.Leaf("p3")}}},
+	}}
+	for pane, want := range map[string]bool{"p1": true, "p2": false, "p3": false, "gone": false} {
+		if got := shown(&st, pane); got != want {
+			t.Errorf("shown(%s) = %v, want %v", pane, got, want)
+		}
 	}
 }
