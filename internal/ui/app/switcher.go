@@ -16,6 +16,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -24,13 +25,15 @@ import (
 // and sliding in over 120ms.
 const fadeIn = 120 * time.Millisecond
 
-func projectName(st *model.State, id string) string {
+// groupName is the name of w's group, "Sessions" for an ungrouped one.
+func groupName(st *model.State, w model.Workspace) string {
+	g := groupOf(st, w)
 	for _, p := range st.Projects {
-		if p.ID == id {
+		if p.ID == g {
 			return p.Name
 		}
 	}
-	return "Unknown project"
+	return "Sessions"
 }
 
 // textCall records one line of text, cut to the constraints' width.
@@ -118,9 +121,9 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	y := 0
 	project := ""
 	if w := findWorkspace(st, u.nav.workspace); w != nil {
-		project = projectName(st, w.ProjectID)
+		project = groupName(st, *w)
 	}
-	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.SmallSize, th.Muted, "WORKSPACE SWITCHER")
+	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.SmallSize, th.Muted, "SESSION SWITCHER")
 	y += gtx.Dp(4)
 	titleY := y
 	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), unit.Sp(14), th.Fg, project)
@@ -135,15 +138,15 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	}
 	y += pad
 
-	lastProject := ""
+	lastGroup := "-"
 	for i, w := range ws {
-		if w.ProjectID != lastProject {
-			lastProject = w.ProjectID
+		if g := groupOf(st, w); g != lastGroup {
+			lastGroup = g
 			if i > 0 {
 				y += gtx.Dp(6)
 			}
 			y += drawText(cgtx, th, image.Pt(gtx.Dp(4), y), semibold(th.UIFont), th.SmallSize, th.Muted,
-				strings.ToUpper(projectName(st, w.ProjectID)))
+				strings.ToUpper(groupName(st, w)))
 			y += gtx.Dp(4)
 		}
 		rowPad := image.Pt(gtx.Dp(12), gtx.Dp(8))
@@ -161,7 +164,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		// beside the name, so show the one that needs attention most.
 		if a := model.Aggregate(activities[w.ID]); a != nil {
 			bg, fg := chipColors(th, a.State)
-			c, s := chip(rgtx, th, bg, color.NRGBA{}, fg, model.PillLabel(*a))
+			c, s := chip(rgtx, th, bg, color.NRGBA{}, fg, sidebar.PillText(*a))
 			chips, sizes = append(chips, c), append(sizes, s)
 		}
 		c, s := chip(rgtx, th, th.SurfaceElevated, th.Border, th.Muted, strconv.Itoa(i+1))
@@ -174,7 +177,11 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		lgtx := cgtx
 		lgtx.Constraints.Max.X = max(0, inner-2*rowPad.X-chipsW)
 		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), unit.Sp(14), nameC, w.Name)
-		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.SmallSize, th.Muted, w.Branch)
+		where := w.Branch
+		if where == "" {
+			where = sidebar.ShortPath(w.Path)
+		}
+		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.SmallSize, th.Muted, where)
 		rowH := nameSz.Y + brSz.Y + 2*rowPad.Y
 		if current {
 			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rect(0, y, inner, y+rowH), gtx.Dp(4)).Op(gtx.Ops))
