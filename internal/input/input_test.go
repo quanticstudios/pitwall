@@ -207,6 +207,7 @@ func TestMouse(t *testing.T) {
 		{"right", pointer.Press, pointer.ButtonSecondary, f32.Point{}, 0, vt.MouseNormal, true, 0, 0, "\x1b[<2;1;1M"},
 		{"modifiers", pointer.Press, pointer.ButtonPrimary, f32.Point{}, key.ModShift | key.ModAlt | key.ModCtrl, vt.MouseNormal, true, 0, 0, "\x1b[<28;1;1M"},
 		{"release", pointer.Release, 0, f32.Point{}, 0, vt.MouseNormal, true, 2, 3, "\x1b[<0;3;4m"},
+		{"right release", pointer.Release, pointer.ButtonSecondary, f32.Point{}, 0, vt.MouseNormal, true, 0, 0, "\x1b[<2;1;1m"},
 		{"normal no motion", pointer.Move, pointer.ButtonPrimary, f32.Point{}, 0, vt.MouseNormal, true, 0, 0, ""},
 		{"button no hover", pointer.Move, 0, f32.Point{}, 0, vt.MouseButton, true, 0, 0, ""},
 		{"button drag", pointer.Drag, pointer.ButtonSecondary, f32.Point{}, key.ModCtrl, vt.MouseButton, true, 0, 0, "\x1b[<50;1;1M"},

@@ -461,3 +461,27 @@ func TestKittyReportAllText(t *testing.T) {
 		t.Errorf("legacy = %q", got)
 	}
 }
+
+// TestMouseButtonChange checks SGR reports name the button that changed:
+// Gio's release event carries the buttons still held, not the released one.
+func TestMouseButtonChange(t *testing.T) {
+	v, frame := routedPane(t)
+	m := vt.Modes{Mouse: vt.MouseNormal, MouseSGR: true}
+	pad := float32(testContext(image.Pt(1, 1)).Dp(padding))
+	at := f32.Pt(pad+float32(2*v.cell.X)+1, pad+float32(v.cell.Y)+1) // cell (2,1)
+	for _, tc := range []struct {
+		e    pointer.Event
+		want string
+	}{
+		{pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonSecondary, Position: at}, "\x1b[<2;3;2M"},
+		{pointer.Event{Kind: pointer.Release, Position: at}, "\x1b[<2;3;2m"},
+		{pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonPrimary, Position: at}, "\x1b[<0;3;2M"},
+		{pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonPrimary | pointer.ButtonTertiary, Position: at}, "\x1b[<1;3;2M"},
+		{pointer.Event{Kind: pointer.Release, Buttons: pointer.ButtonPrimary, Position: at}, "\x1b[<1;3;2m"},
+		{pointer.Event{Kind: pointer.Release, Position: at}, "\x1b[<0;3;2m"},
+	} {
+		if got := frame(m, true, tc.e); got != tc.want {
+			t.Errorf("%v %v: got %q, want %q", tc.e.Kind, tc.e.Buttons, got, tc.want)
+		}
+	}
+}

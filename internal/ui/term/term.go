@@ -65,6 +65,7 @@ type View struct {
 	dragging  bool
 	lastPress pointer.Event
 	lastCell  image.Point
+	buttons   pointer.Buttons // held as of the last pointer event
 
 	keyText string // text of the key press report-all just encoded
 
