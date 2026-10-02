@@ -49,6 +49,9 @@ func New(cols, rows int, reply io.Writer) Emulator {
 		reply = io.Discard
 	}
 	e := xvt.NewEmulator(max(cols, 1), max(rows, 1))
+	// Nothing reads scrollback yet, and x/vt's default keeps 10k lines (up to
+	// 134MB per pane at 120 columns). Raise this when a scrollback view lands.
+	e.SetScrollbackSize(1)
 	st := &state{modes: map[ansi.Mode]bool{}}
 	e.SetCallbacks(xvt.Callbacks{
 		Title:            func(s string) { st.title = s },
