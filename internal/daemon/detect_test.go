@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,14 +16,27 @@ import (
 )
 
 // The fake process table: group 200 is the pane's shell, 100 runs Claude, 300
-// Codex, and any other group runs sleep.
+// Codex, and any other group runs sleep. The shell may exec codex (execd).
 func fakeSession(int) int { return 200 }
 
+var execd atomic.Bool
+
+func fakeComm(pid int) string {
+	switch {
+	case pid == 200 && execd.Load():
+		return "codex"
+	case pid == 200:
+		return shellComm
+	}
+	_, comm := fakeIdentify(pid)
+	return comm
+}
+
 func fakeIdentify(pg int) (model.Provider, string) {
-	switch pg {
-	case 100:
+	switch {
+	case pg == 100:
 		return model.ProviderClaude, "claude"
-	case 300:
+	case pg == 300, pg == 200 && execd.Load():
 		return model.ProviderCodex, "codex"
 	}
 	return "", "sleep"
@@ -87,6 +101,31 @@ func TestHookStopsDetection(t *testing.T) {
 	}
 }
 
+// Hooks own a pane only while the hooked agent's group is in the foreground:
+// an agent without hooks started after it exits is read from its screen.
+func TestHookOwnershipEndsWithItsGroup(t *testing.T) {
+	d, lp, id := openLive(t, 300)
+	must(t, d.handle(context.Background(), proto.AgentEvent{Pane: id, Provider: model.ProviderCodex, Payload: []byte("clear")}))
+	lp.fgGroup.Store(200) // the hooked codex exited to the shell
+	polls()
+	lp.show(formScreen, false)
+	lp.fgGroup.Store(100) // claude, started without hooks
+	waitUntil(t, "approval", func() bool { return d.stateOf(id) == model.StatePendingApproval })
+}
+
+// `exec codex` keeps the shell's pid and group, so the session leader is in
+// the foreground and only its comm tells it is no longer the shell.
+func TestExecStartedAgentIsDetected(t *testing.T) {
+	d, lp, id := openLive(t, 200)
+	lp.show(codexWorking, false)
+	polls()
+	if s := d.stateOf(id); s != "" {
+		t.Fatalf("a shell at its prompt got %q", s)
+	}
+	execd.Store(true)
+	waitUntil(t, "working", func() bool { return d.stateOf(id) == model.StateWorking })
+}
+
 func TestForegroundLeavingDetectedAgentClears(t *testing.T) {
 	d, lp, id := openLive(t, 300)
 	lp.show(codexWorking, false)
@@ -108,6 +147,26 @@ func TestTerminalRunning(t *testing.T) {
 	}
 	lp.fgGroup.Store(200)
 	waitUntil(t, "cleared", func() bool { return d.stateOf(id) == "" })
+}
+
+// A pane opened with a command runs it as the session leader, so the
+// foreground is its own group and still a terminal command. A shell named as
+// the command is still a shell at its prompt.
+func TestPaneCommandIsTerminalRunning(t *testing.T) {
+	t.Run("command", func(t *testing.T) {
+		d, _, id := openLive(t, 200, "sleep", "60")
+		waitUntil(t, "running", func() bool { return d.stateOf(id) == model.StateTerminalRunning })
+		if a := d.activityOf(id); a.Provider != model.ProviderTerminal || a.Detail != "sleep" {
+			t.Fatalf("got %+v, want terminal sleep", a)
+		}
+	})
+	t.Run("shell", func(t *testing.T) {
+		d, _, id := openLive(t, 200, "/bin/"+shellComm, "-l")
+		polls()
+		if s := d.stateOf(id); s != "" {
+			t.Fatalf("a shell command at its prompt got %q", s)
+		}
+	})
 }
 
 func TestAgentIsNotTerminalRunning(t *testing.T) {
