@@ -75,11 +75,15 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	if m.kind == modalNone {
 		return
 	}
+	for {
+		if _, ok := gtx.Event(pointer.Filter{Target: &m.body, Kinds: pointer.Press}); !ok {
+			break
+		}
+	}
 	confirm := false
 	for {
 		ev, ok := gtx.Event(
 			pointer.Filter{Target: &m.backdrop, Kinds: pointer.Press},
-			pointer.Filter{Target: &m.body, Kinds: pointer.Press},
 			key.Filter{Focus: &m.backdrop, Name: key.NameEscape},
 			key.Filter{Focus: &m.backdrop, Name: key.NameReturn},
 			key.Filter{Focus: &m.backdrop, Name: key.NameEnter},
