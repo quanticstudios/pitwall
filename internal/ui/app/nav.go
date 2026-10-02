@@ -1,6 +1,8 @@
 package app
 
 import (
+	"slices"
+
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -12,7 +14,8 @@ import (
 // windows so it can be tested on its own.
 type nav struct {
 	workspace string            // active workspace id
-	focus     map[string]string // workspace id -> focused pane
+	tab       string            // the tab shown for it, "" when it has none
+	focus     map[string]string // focusKey(workspace, tab) -> focused pane
 	altHeld   bool              // Alt is down on its own: the switcher shows
 	pinned    bool              // Alt+Space keeps the switcher open after release
 
@@ -24,7 +27,118 @@ type nav struct {
 	// A NewSession is in flight: the sessions there were, so the one that
 	// shows up next is selected.
 	sessions map[string]bool
+
+	// tabMode is on between the tab prefix and the next key; renameTab asks
+	// the tab strip to start an inline rename; swallow is a key whose
+	// release still belongs to tab mode.
+	tabMode   bool
+	renameTab string
+	swallow   key.Name
+
+	// Local overrides applied to every state until it agrees: the tab the
+	// window shows per session, and sessions attached here but still
+	// detached in the state.
+	pick   map[string]string
+	attach map[string]bool
+	out    []any // messages nav wants sent outside key handling
+
+	// The previous sync's sidebar order and the shown tab's panes, to land
+	// focus next to what disappeared.
+	prevOrder []string
+	prevKey   string
+	prevPanes []string
 }
+
+// tabPrefix with Ctrl enters tab mode; pressed again it sends its control
+// byte to the pane.
+const tabPrefix key.Name = "T"
+
+func focusKey(ws, tab string) string { return ws + "\x00" + tab }
+
+// shownTab is the tab the window draws for w: its ActiveTab, else its first.
+func shownTab(w *model.Workspace) *model.Tab {
+	if w == nil || len(w.Tabs) == 0 {
+		return nil
+	}
+	for i := range w.Tabs {
+		if w.Tabs[i].ID == w.ActiveTab {
+			return &w.Tabs[i]
+		}
+	}
+	return &w.Tabs[0]
+}
+
+// tabOf is the tab of w holding pane, or nil.
+func tabOf(w *model.Workspace, pane string) *model.Tab {
+	for i := range w.Tabs {
+		if slices.Contains(panesOf(w.Tabs[i].Layout), pane) {
+			return &w.Tabs[i]
+		}
+	}
+	return nil
+}
+
+// patch applies the local overrides to st, copying its workspaces first so
+// the backend's slice is never written.
+func (n *nav) patch(st *model.State) {
+	if len(n.pick) == 0 && len(n.attach) == 0 {
+		return
+	}
+	st.Workspaces = slices.Clone(st.Workspaces)
+	seen := map[string]bool{}
+	for i := range st.Workspaces {
+		w := &st.Workspaces[i]
+		seen[w.ID] = true
+		if n.attach[w.ID] {
+			if w.Detached {
+				w.Detached = false
+			} else {
+				delete(n.attach, w.ID)
+			}
+		}
+		if t, ok := n.pick[w.ID]; ok {
+			if w.ActiveTab == t || !slices.ContainsFunc(w.Tabs, func(x model.Tab) bool { return x.ID == t }) {
+				delete(n.pick, w.ID)
+			} else {
+				w.ActiveTab = t
+			}
+		}
+	}
+	for id := range n.pick {
+		if !seen[id] {
+			delete(n.pick, id)
+		}
+	}
+	for id := range n.attach {
+		if !seen[id] {
+			delete(n.attach, id)
+		}
+	}
+}
+
+// selectTab shows tab in the active session and tells the daemon, so an
+// attach opens on it.
+func (n *nav) selectTab(st *model.State, tab string) any {
+	if n.workspace == "" || tab == "" {
+		return nil
+	}
+	n.pick[n.workspace] = tab
+	n.sync(st)
+	return proto.SelectTab{WorkspaceID: n.workspace, TabID: tab}
+}
+
+// attachSession shows ws (and tab) at once, before the state un-detaches it.
+func (n *nav) attachSession(st *model.State, ws, tab string) {
+	n.attach[ws] = true
+	if tab != "" {
+		n.pick[ws] = tab
+		n.out = append(n.out, proto.SelectTab{WorkspaceID: ws, TabID: tab})
+	}
+	n.selectWorkspace(st, ws, "")
+}
+
+// setFocus focuses pane in the shown tab.
+func (n *nav) setFocus(pane string) { n.focus[focusKey(n.workspace, n.tab)] = pane }
 
 // expectSession records the sessions before a NewSession.
 func (n *nav) expectSession(st *model.State) {
@@ -46,12 +160,12 @@ func (n *nav) switcherVisible() bool { return n.altHeld || n.pinned }
 
 // ordered is the sidebar's order: ungrouped sessions (including those
 // whose group is gone), then group order, each group's in session order.
-// Archived sessions are skipped.
+// Detached sessions are skipped.
 func ordered(st *model.State) []model.Workspace {
 	var out []model.Workspace
 	for _, g := range append([]string{""}, projectIDs(st)...) {
 		for _, w := range st.Workspaces {
-			if groupOf(st, w) == g && !w.Archived {
+			if groupOf(st, w) == g && !w.Detached {
 				out = append(out, w)
 			}
 		}
@@ -86,22 +200,26 @@ func findWorkspace(st *model.State, id string) *model.Workspace {
 	return nil
 }
 
+// panes are the panes of the active workspace's shown tab.
 func (n *nav) panes(st *model.State) []string {
-	if w := findWorkspace(st, n.workspace); w != nil {
-		return panesOf(w.Layout)
+	if t := shownTab(findWorkspace(st, n.workspace)); t != nil {
+		return panesOf(t.Layout)
 	}
 	return nil
 }
 
-// focused is the focused pane of the active workspace, or "".
-func (n *nav) focused() string { return n.focus[n.workspace] }
+// focused is the focused pane of the shown tab, or "".
+func (n *nav) focused() string { return n.focus[focusKey(n.workspace, n.tab)] }
 
-// sync repairs the selection after a state change: a deleted workspace falls
-// back to the first one, a closed pane to the first pane left.
+// sync applies the overrides to st and repairs the selection after a state
+// change. A session that went away hands over to the next one in sidebar
+// order; a pane that went away to its neighbour in the tab; a tab that went
+// away to the session's active tab.
 func (n *nav) sync(st *model.State) {
 	if n.focus == nil {
-		n.focus = map[string]string{}
+		n.focus, n.pick, n.attach = map[string]string{}, map[string]string{}, map[string]bool{}
 	}
+	n.patch(st)
 	if n.sessions != nil {
 		for _, w := range ordered(st) {
 			if !n.sessions[w.ID] {
@@ -110,39 +228,80 @@ func (n *nav) sync(st *model.State) {
 			}
 		}
 	}
-	if w := findWorkspace(st, n.workspace); w == nil || w.Archived {
-		n.workspace = ""
-		if ws := ordered(st); len(ws) > 0 {
-			n.workspace = ws[0].ID
-		}
+	order := make([]string, 0, len(st.Workspaces))
+	for _, w := range ordered(st) {
+		order = append(order, w.ID)
 	}
+	if w := findWorkspace(st, n.workspace); w == nil || w.Detached {
+		n.workspace = after(n.prevOrder, order, n.workspace)
+	}
+	n.prevOrder = order
+	n.tab = ""
+	if t := shownTab(findWorkspace(st, n.workspace)); t != nil {
+		n.tab = t.ID
+	}
+	k := focusKey(n.workspace, n.tab)
 	ps := n.panes(st)
+	defer func() { n.prevKey, n.prevPanes = k, ps }()
 	if n.opening != nil && n.openingWS == n.workspace {
 		for _, p := range ps {
 			if !n.opening[p] {
-				n.focus[n.workspace], n.opening = p, nil
+				n.focus[k], n.opening = p, nil
 				return
 			}
 		}
 	}
-	for _, p := range ps {
-		if p == n.focus[n.workspace] {
+	cur := n.focus[k]
+	if slices.Contains(ps, cur) {
+		return
+	}
+	if k == n.prevKey && cur != "" {
+		if p := after(n.prevPanes, ps, cur); p != "" {
+			n.focus[k] = p
 			return
 		}
 	}
 	if len(ps) > 0 {
-		n.focus[n.workspace] = ps[0]
+		n.focus[k] = ps[0]
 	} else {
-		delete(n.focus, n.workspace)
+		delete(n.focus, k)
 	}
+}
+
+// after picks what replaces gone: the first item after it in prev that is
+// still in now, else the nearest one before it, else now's first.
+func after(prev, now []string, gone string) string {
+	if i := slices.Index(prev, gone); i >= 0 {
+		for _, id := range prev[i+1:] {
+			if slices.Contains(now, id) {
+				return id
+			}
+		}
+		for j := i - 1; j >= 0; j-- {
+			if slices.Contains(now, prev[j]) {
+				return prev[j]
+			}
+		}
+	}
+	if len(now) > 0 {
+		return now[0]
+	}
+	return ""
 }
 
 // selectWorkspace activates id and focuses pane when it is one of its panes,
 // else the pane it last had focused.
+// A pane in another tab brings its tab up.
 func (n *nav) selectWorkspace(st *model.State, id, pane string) {
 	n.workspace = id
-	if pane != "" {
-		n.focus[id] = pane
+	if w := findWorkspace(st, id); w != nil && pane != "" {
+		if t := tabOf(w, pane); t != nil {
+			if t != shownTab(w) {
+				n.pick[id] = t.ID
+				n.out = append(n.out, proto.SelectTab{WorkspaceID: id, TabID: t.ID})
+			}
+			n.focus[focusKey(id, t.ID)] = pane
+		}
 	}
 	n.sync(st)
 }
@@ -171,7 +330,7 @@ func (n *nav) cyclePane(st *model.State, d int) {
 	ps := n.panes(st)
 	for i, p := range ps {
 		if p == n.focused() {
-			n.focus[n.workspace] = ps[(i+d+len(ps))%len(ps)]
+			n.setFocus(ps[(i+d+len(ps))%len(ps)])
 			return
 		}
 	}
@@ -200,11 +359,95 @@ func (n *nav) keyFilters() []key.Filter {
 	if n.switcherVisible() {
 		fs = append(fs, key.Filter{Name: key.NameEscape})
 	}
+	// The prefix's press and release both stay out of the pane.
+	fs = append(fs, key.Filter{Name: tabPrefix, Required: key.ModCtrl})
+	if n.tabMode {
+		// Tab mode takes every key; Tab is a system key and needs its name.
+		fs = append(fs, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
+	}
+	if n.swallow != "" {
+		fs = append(fs, key.Filter{Name: n.swallow, Optional: all})
+	}
 	return fs
+}
+
+func modifierKey(k key.Name) bool {
+	switch k {
+	case key.NameCtrl, key.NameShift, key.NameAlt, key.NameSuper, key.NameCommand:
+		return true
+	}
+	return false
+}
+
+// tabKey runs one tab-mode key: n new, x close, r rename, h/l or arrows
+// previous/next, 1-9 go to. Anything else only leaves the mode.
+func (n *nav) tabKey(st *model.State, e key.Event) any {
+	w := findWorkspace(st, n.workspace)
+	if w == nil || e.Modifiers&^key.ModShift != 0 {
+		return nil
+	}
+	i := slices.IndexFunc(w.Tabs, func(t model.Tab) bool { return t.ID == n.tab })
+	step := func(d int) any {
+		if len(w.Tabs) < 2 || i < 0 {
+			return nil
+		}
+		return n.selectTab(st, w.Tabs[(i+d+len(w.Tabs))%len(w.Tabs)].ID)
+	}
+	switch e.Name {
+	case "N":
+		delete(n.pick, w.ID) // the daemon makes the new tab active
+		return proto.NewTab{WorkspaceID: w.ID, FromPane: n.focused()}
+	case "X":
+		if n.tab != "" {
+			return proto.CloseTab{WorkspaceID: w.ID, TabID: n.tab}
+		}
+	case "R":
+		n.renameTab = n.tab
+	case "H", key.NameLeftArrow:
+		return step(-1)
+	case "L", key.NameRightArrow:
+		return step(1)
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		if j := int(e.Name[0] - '1'); j < len(w.Tabs) {
+			return n.selectTab(st, w.Tabs[j].ID)
+		}
+	}
+	return nil
 }
 
 // key applies one key event and returns a proto message to send, if any.
 func (n *nav) key(st *model.State, e key.Event) any {
+	if e.Name == n.swallow && !n.tabMode && e.Modifiers&key.ModAlt == 0 {
+		if e.State == key.Release {
+			n.swallow = ""
+		}
+		return nil // the rest of a key tab mode used
+	}
+	if e.Name == tabPrefix && e.Modifiers == key.ModCtrl {
+		if e.State != key.Press {
+			return nil
+		}
+		if !n.tabMode {
+			n.tabMode = true
+			return nil
+		}
+		n.tabMode = false
+		if p := n.focused(); p != "" {
+			return proto.Input{Pane: p, Data: []byte{byte(tabPrefix[0]) & 0x1f}}
+		}
+		return nil
+	}
+	if n.tabMode && e.Name != key.NameAlt {
+		if e.State != key.Press || modifierKey(e.Name) {
+			return nil
+		}
+		n.tabMode = false
+		if e.Modifiers&key.ModAlt == 0 {
+			n.swallow = e.Name
+			return n.tabKey(st, e)
+		}
+		// An Alt chord leaves the mode and keeps its usual meaning.
+	}
 	if e.Name == key.NameAlt {
 		// Like aide, Alt with Ctrl/Shift/Super held is not a hold.
 		n.altHeld = e.State == key.Press && e.Modifiers&^key.ModAlt == 0
@@ -239,7 +482,7 @@ func (n *nav) key(st *model.State, e key.Event) any {
 			dir = layout.Vertical
 		}
 		n.expectPane(st)
-		return proto.OpenPane{WorkspaceID: ws, Target: n.focused(), Dir: dir}
+		return proto.OpenPane{WorkspaceID: ws, TabID: n.tab, Target: n.focused(), Dir: dir}
 	case "W":
 		if shift && n.focused() != "" {
 			return proto.ClosePane{Pane: n.focused()}
@@ -253,7 +496,7 @@ func (n *nav) key(st *model.State, e key.Event) any {
 			return proto.NewSession{Cwd: w.Path, FromPane: n.focused()}
 		}
 		return proto.NewSession{}
-	default: // 1..9
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		if i := int(e.Name[0] - '1'); i < len(ordered(st)) {
 			n.selectWorkspace(st, ordered(st)[i].ID, "")
 		}

@@ -288,6 +288,11 @@ var keybindings = []struct {
 	{[]string{"Alt", "Shift", "N"}, "Split the pane below"},
 	{[]string{"Alt", "Shift", "W"}, "Close the pane"},
 	{[]string{"Alt", "Shift", "T"}, "New session in this folder"},
+	{[]string{"Ctrl", "T"}, "Tab mode, for the next key only"},
+	{[]string{"Ctrl T", "N / X / R"}, "New / close / rename tab"},
+	{[]string{"Ctrl T", "H / L"}, "Previous / next tab (or arrows)"},
+	{[]string{"Ctrl T", "1-9"}, "Go to tab"},
+	{[]string{"Ctrl T", "Ctrl T"}, "Send Ctrl+T to the pane"},
 	{[]string{"Ctrl / Shift", "Click"}, "Pick sessions to group"},
 	{[]string{"Ctrl", "Shift", "C / V"}, "Copy selection / paste"},
 }

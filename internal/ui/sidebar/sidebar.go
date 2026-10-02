@@ -23,6 +23,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 
@@ -31,8 +32,9 @@ import (
 )
 
 // Event is one of SelectWorkspace, NewSession, AddProject, RenameWorkspace,
-// ArchiveWorkspace, DeleteWorkspace, RestoreWorkspace, OpenSettings,
-// SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup, Ungroup.
+// DetachSession, AttachSession, KillSession, GroupByFolder, DeleteWorkspace,
+// OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
+// Ungroup, NewWorktreeSession.
 type Event any
 
 type SelectWorkspace struct{ WorkspaceID, PaneID string }
@@ -41,9 +43,15 @@ type SelectWorkspace struct{ WorkspaceID, PaneID string }
 type NewSession struct{ GroupID string }
 type AddProject struct{}
 type RenameWorkspace struct{ WorkspaceID, Name string }
-type ArchiveWorkspace struct{ WorkspaceID string }
+type DetachSession struct{ WorkspaceID string }
+type AttachSession struct{ WorkspaceID string }
+
+// KillSession comes from the detached list after its inline confirm.
+type KillSession struct{ WorkspaceID string }
+
+// GroupByFolder groups the ungrouped sessions sharing WorkspaceID's RepoRoot.
+type GroupByFolder struct{ WorkspaceID string }
 type DeleteWorkspace struct{ WorkspaceID string }
-type RestoreWorkspace struct{ WorkspaceID string }
 type OpenSettings struct{}
 
 // SetProjectAppearance carries the project's whole appearance: a lucide
@@ -80,7 +88,7 @@ type Sidebar struct {
 	rows     map[string]*rowState
 	list     layout.List
 
-	addProject, archived, comments, settings, newSession widget.Clickable
+	addProject, detached, comments, settings, newSession widget.Clickable
 
 	// Ctrl+click toggles a session in the selection, Shift+click selects
 	// the range from anchor. Group actions on a selected row apply to all.
@@ -100,9 +108,10 @@ type Sidebar struct {
 	// not in it once the state changes is the new group, renamed inline.
 	pending map[string]bool
 
-	archivedOpen bool
-	archivedDel  map[string]*widget.Clickable
-	archivedRes  map[string]*widget.Clickable
+	detachedOpen bool
+	killBtn      map[string]*widget.Clickable
+	attachBtn    map[string]*widget.Clickable
+	killArmed    string // detached session whose Kill waits for a second click
 
 	appearance string               // project whose icon and color popover is open
 	iconBtn    [35]widget.Clickable // one per projectIcons entry
@@ -126,7 +135,8 @@ const (
 	actMove
 	actNewGroup
 	actUngroup
-	actArchive
+	actGroupFolder
+	actDetach
 	actDelete
 	actCount
 )
@@ -154,8 +164,8 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 		s.expanded = map[string]bool{}
 		s.projects = map[string]*projectState{}
 		s.rows = map[string]*rowState{}
-		s.archivedDel = map[string]*widget.Clickable{}
-		s.archivedRes = map[string]*widget.Clickable{}
+		s.killBtn = map[string]*widget.Clickable{}
+		s.attachBtn = map[string]*widget.Clickable{}
 		s.moveBtn = map[string]*widget.Clickable{}
 		s.selected = map[string]bool{}
 		s.list.Axis = layout.Vertical
@@ -180,7 +190,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 	}
 	for id := range s.selected {
 		if _, ok := v.activity[id]; !ok {
-			delete(s.selected, id) // gone or archived
+			delete(s.selected, id) // gone or detached
 		}
 	}
 	if s.pending != nil {
@@ -268,7 +278,7 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string
 		if ws.ID == active {
 			v.activeProject = g
 		}
-		if ws.Archived {
+		if ws.Detached {
 			continue
 		}
 		v.byProject[g] = append(v.byProject[g], ws)
@@ -467,15 +477,20 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		if rightClick(&r.ctx) {
 			s.toggleMenu(ws.ID)
 		}
-		if del := s.archivedDel[ws.ID]; del != nil {
-			for del.Clicked(gtx) {
-				s.events = append(s.events, DeleteWorkspace{WorkspaceID: ws.ID})
-				s.archivedOpen = false
+		if kill := s.killBtn[ws.ID]; kill != nil {
+			for kill.Clicked(gtx) {
+				if s.killArmed != ws.ID {
+					s.killArmed = ws.ID
+					continue
+				}
+				s.events = append(s.events, KillSession{WorkspaceID: ws.ID})
+				s.killArmed = ""
 			}
 		}
-		if res := s.archivedRes[ws.ID]; res != nil {
-			for res.Clicked(gtx) {
-				s.events = append(s.events, RestoreWorkspace{WorkspaceID: ws.ID})
+		if at := s.attachBtn[ws.ID]; at != nil {
+			for at.Clicked(gtx) {
+				s.events = append(s.events, AttachSession{WorkspaceID: ws.ID})
+				s.closeMenus()
 			}
 		}
 	}
@@ -512,8 +527,12 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		if s.menuItem[actUngroup].Clicked(gtx) {
 			group(MoveToGroup{WorkspaceIDs: s.targets(v, id)})
 		}
-		if s.menuItem[actArchive].Clicked(gtx) {
-			s.events = append(s.events, ArchiveWorkspace{WorkspaceID: id})
+		if s.menuItem[actGroupFolder].Clicked(gtx) {
+			s.events = append(s.events, GroupByFolder{WorkspaceID: id})
+			s.closeMenus()
+		}
+		if s.menuItem[actDetach].Clicked(gtx) {
+			s.events = append(s.events, DetachSession{WorkspaceID: id})
 			s.closeMenus()
 		}
 		if s.menuItem[actDelete].Clicked(gtx) {
@@ -555,10 +574,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for s.addProject.Clicked(gtx) {
 		s.events = append(s.events, AddProject{})
 	}
-	for s.archived.Clicked(gtx) {
-		open := !s.archivedOpen
+	for s.detached.Clicked(gtx) {
+		open := !s.detachedOpen
 		s.closeMenus()
-		s.archivedOpen = open
+		s.detachedOpen = open
 	}
 	for s.settings.Clicked(gtx) {
 		s.events = append(s.events, OpenSettings{})
@@ -582,10 +601,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for i := range s.colorBtn {
 		drain(&s.colorBtn[i])
 	}
-	for _, c := range s.archivedRes {
+	for _, c := range s.attachBtn {
 		drain(c)
 	}
-	for _, c := range s.archivedDel {
+	for _, c := range s.killBtn {
 		drain(c)
 	}
 	for _, c := range s.moveBtn {
@@ -601,7 +620,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for i := range s.groupItem {
 		drain(&s.groupItem[i])
 	}
-	for _, c := range []*widget.Clickable{&s.addProject, &s.archived, &s.comments, &s.settings, &s.newSession} {
+	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newSession} {
 		drain(c)
 	}
 }
@@ -609,11 +628,11 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 // snapshot is the sidebar state input can change, to spot that it did.
 func (s *Sidebar) snapshot() [8]string {
 	return [8]string{s.menuWS, s.groupMenu, s.appearance, s.renaming, s.renamingGroup, s.anchor,
-		fmt.Sprint(s.archivedOpen, s.moveOpen), fmt.Sprint(len(s.selected), s.expanded)}
+		fmt.Sprint(s.detachedOpen, s.moveOpen, s.killArmed), fmt.Sprint(len(s.selected), s.expanded)}
 }
 
 func (s *Sidebar) closeMenus() {
-	s.menuWS, s.groupMenu, s.archivedOpen, s.appearance, s.moveOpen = "", "", false, "", false
+	s.menuWS, s.groupMenu, s.detachedOpen, s.appearance, s.moveOpen, s.killArmed = "", "", false, "", false, ""
 }
 
 func (s *Sidebar) toggleMenu(id string) {
@@ -831,13 +850,13 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		m := op.Record(gtx.Ops)
 		s.catcher(gtx)
 		entries := []menuEntry{
-			{&s.groupItem[0], icPencil, "Rename group", false, false},
-			{&s.groupItem[1], projectIcon("palette"), "Icon and color", false, false},
+			{&s.groupItem[0], icPencil, "Rename group", false, false, ""},
+			{&s.groupItem[1], projectIcon("palette"), "Icon and color", false, false, ""},
 		}
 		if p.Kind == model.ProjectGit {
-			entries = append(entries, menuEntry{&s.groupItem[3], projectIcon("git-branch"), "New worktree session", false, false})
+			entries = append(entries, menuEntry{&s.groupItem[3], projectIcon("git-branch"), "New worktree session", false, false, ""})
 		}
-		entries = append(entries, menuEntry{&s.groupItem[2], projectIcon("layers"), "Ungroup", false, true})
+		entries = append(entries, menuEntry{&s.groupItem[2], projectIcon("layers"), "Ungroup", false, true, ""})
 		s.menuList(gtx, th, btn, entries)
 		op.Defer(gtx.Ops, m.Stop())
 	}
@@ -1087,8 +1106,9 @@ const (
 type menuEntry struct {
 	c          *widget.Clickable
 	icon, text string
-	danger     bool // red, like Delete
-	sep        bool // a divider above it
+	danger     bool   // red, like Delete
+	sep        bool   // a divider above it
+	hint       string // muted text at the right edge
 }
 
 // menu is WorkspaceOverflowMenu plus the grouping actions. Move, new group
@@ -1124,10 +1144,14 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 	if grouped {
 		entries = append(entries, menuEntry{c: &s.menuItem[actUngroup], icon: icFolderMinus, text: "Remove from group"})
 	}
-	entries = append(entries,
-		menuEntry{c: &s.menuItem[actArchive], icon: icArchive, text: "Archive", sep: true},
-		menuEntry{c: &s.menuItem[actDelete], icon: icTrash, text: "Delete…", danger: true},
-	)
+	if n := folderCount(v.st, ws); n > 0 {
+		entries = append(entries, menuEntry{c: &s.menuItem[actGroupFolder], icon: projectIcon("folder"),
+			text: "Group sessions in " + baseName(ws.RepoRoot), hint: fmt.Sprint(n)})
+	}
+	entries = append(entries, menuEntry{c: &s.menuItem[actDetach], icon: icDetach, text: "Detach", sep: true})
+	if ws.WorktreeRoot != "" { // only a worktree pitwall made has a folder to delete
+		entries = append(entries, menuEntry{c: &s.menuItem[actDelete], icon: icTrash, text: "Delete…", danger: true})
+	}
 	// Hovering "Move to group" opens its flyout; hovering another entry
 	// closes it.
 	for i, e := range entries {
@@ -1162,7 +1186,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 			c = &widget.Clickable{}
 			s.moveBtn[g.ID] = c
 		}
-		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(w-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg)
+		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(w-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "")
 	}
 }
 
@@ -1192,7 +1216,7 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, trigger int, ent
 		if e.danger {
 			col, iconCol = th.Red, th.Red
 		}
-		s.menuRow(gtx, th, e.c, image.Pt(p, tops[i]), image.Pt(w-2*p, itemH), e.icon, iconCol, e.text, col)
+		s.menuRow(gtx, th, e.c, image.Pt(p, tops[i]), image.Pt(w-2*p, itemH), e.icon, iconCol, e.text, col, e.hint)
 	}
 	return tops
 }
@@ -1226,7 +1250,7 @@ func shortPath(p, home string) string {
 	return p
 }
 
-func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickable, at, size image.Point, icon string, iconCol color.NRGBA, text string, col color.NRGBA) {
+func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickable, at, size image.Point, icon string, iconCol color.NRGBA, text string, col color.NRGBA, hint string) {
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 	gtx.Constraints = layout.Exact(size)
 	clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
@@ -1235,10 +1259,16 @@ func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickab
 		}
 		gtx.Constraints = layout.Exact(image.Pt(size.X-gtx.Dp(16), size.Y))
 		defer op.Offset(image.Pt(gtx.Dp(8), 0)).Push(gtx.Ops).Pop()
-		hrow(gtx, size.Y, gtx.Dp(8),
-			item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icon, gtx.Dp(14), iconCol, 0) }},
-			item{shrink: true, w: func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 13, col, text) }},
-		)
+		items := []item{
+			{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icon, gtx.Dp(14), iconCol, 0) }},
+			{shrink: true, w: func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 13, col, text) }},
+		}
+		if hint != "" {
+			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, medium(th.UIFont), 12, th.Muted, hint)
+			}})
+		}
+		hrow(gtx, size.Y, gtx.Dp(8), items...)
 		return layout.Dimensions{Size: size}
 	})
 }
@@ -1391,7 +1421,8 @@ func floatingSurface(gtx layout.Context, th *theme.Theme, size image.Point) {
 	hl.Pop()
 }
 
-// footer: Open folder as group, archived, comments (disabled), settings.
+// footer: Open folder as group, detached sessions, comments (disabled),
+// settings.
 func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	th := v.th
 	w := gtx.Constraints.Max.X
@@ -1426,7 +1457,7 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	for i, b := range []struct {
 		c    *widget.Clickable
 		icon string
-	}{{&s.archived, icArchive}, {&s.comments, icMessage}, {&s.settings, icSettings}} {
+	}{{&s.detached, icDetach}, {&s.comments, icMessage}, {&s.settings, icSettings}} {
 		off := op.Offset(image.Pt(x+i*(btn+gap), 1+px)).Push(gtx.Ops)
 		if b.c == &s.comments {
 			// aide's comments button is disabled at 50% opacity.
@@ -1436,9 +1467,9 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 		} else {
 			iconButton(gtx, th, b.c, b.icon, btn, gtx.Dp(14), true)
 		}
-		if b.c == &s.archived && s.archivedOpen {
+		if b.c == &s.detached && s.detachedOpen {
 			m := op.Record(gtx.Ops)
-			s.archivedMenu(gtx, v, btn)
+			s.detachedMenu(gtx, v, btn)
 			op.Defer(gtx.Ops, m.Stop())
 		}
 		off.Pop()
@@ -1446,72 +1477,138 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// archivedMenu is ArchivedWorkspacesMenu, placed above its trigger.
-func (s *Sidebar) archivedMenu(gtx layout.Context, v *view, trigger int) {
-	th := v.th
-	s.catcher(gtx)
-	var archived []model.Workspace
-	for _, ws := range v.st.Workspaces {
-		if ws.Archived {
-			archived = append(archived, ws)
+// folderCount is how many ungrouped sessions, detached ones included, share
+// ws's RepoRoot: the ones "Group sessions in" would move.
+func folderCount(st *model.State, ws model.Workspace) int {
+	if ws.RepoRoot == "" {
+		return 0
+	}
+	groups := map[string]bool{}
+	for _, p := range st.Projects {
+		groups[p.ID] = true
+	}
+	n := 0
+	for _, w := range st.Workspaces {
+		if w.RepoRoot == ws.RepoRoot && !groups[w.ProjectID] {
+			n++
 		}
 	}
-	w, p, rowH := gtx.Dp(240), gtx.Dp(4), gtx.Dp(40)
-	n := max(len(archived), 1)
-	size := image.Pt(w, 2*p+n*rowH)
-	x := trigger/2 - w/2 // placement "top", centered on the trigger
+	return n
+}
+
+func baseName(p string) string {
+	p = strings.TrimRight(p, "/")
+	if i := strings.LastIndexByte(p, '/'); i >= 0 && i < len(p)-1 {
+		return p[i+1:]
+	}
+	return p
+}
+
+// detachedMenu lists the detached sessions above its trigger, each with its
+// agent state, Attach, and Kill behind a second click.
+func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
+	th := v.th
+	s.catcher(gtx)
+	var detached []model.Workspace
+	for _, ws := range v.st.Workspaces {
+		if ws.Detached {
+			detached = append(detached, ws)
+		}
+	}
+	acts := map[string][]model.Activity{}
+	for _, a := range v.st.Activities {
+		acts[a.WorkspaceID] = append(acts[a.WorkspaceID], a)
+	}
+	w, p, rowH, headH := gtx.Dp(300), gtx.Dp(4), gtx.Dp(44), gtx.Dp(30)
+	n := max(len(detached), 1)
+	size := image.Pt(w, 2*p+headH+n*rowH)
+	x := max(trigger/2-w/2, -gtx.Dp(120)) // placement "top", kept inside the sidebar
 	defer op.Offset(image.Pt(x, -size.Y-gtx.Dp(8))).Push(gtx.Ops).Pop()
 	floatingSurface(gtx, th, size)
 	s.blockClicks(gtx, size)
-	if len(archived) == 0 {
-		off := op.Offset(image.Pt(p+gtx.Dp(8), p)).Push(gtx.Ops)
-		gtx.Constraints = layout.Exact(image.Pt(w-2*p-gtx.Dp(16), rowH))
+	inner := image.Pt(w-2*p-gtx.Dp(16), headH)
+	off := op.Offset(image.Pt(p+gtx.Dp(8), p)).Push(gtx.Ops)
+	hg := gtx
+	hg.Constraints = layout.Exact(inner)
+	hrow(hg, headH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, th, semibold(th.UIFont), 12, th.Muted, "Detached sessions")
+	}})
+	off.Pop()
+	top := p + headH
+	if len(detached) == 0 {
+		off := op.Offset(image.Pt(p+gtx.Dp(8), top)).Push(gtx.Ops)
+		gtx.Constraints = layout.Exact(image.Pt(inner.X, rowH))
 		hrow(gtx, rowH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.UIFont, 12, th.Muted, "No archived sessions")
+			return label(gtx, th, th.UIFont, 12, th.Muted, "Detach keeps a session running out of the list")
 		}})
 		off.Pop()
 		return
 	}
-	names := map[string]string{}
-	for _, pr := range v.st.Projects {
-		names[pr.ID] = pr.Name
-	}
-	for i, ws := range archived {
-		del := s.archivedDel[ws.ID]
-		if del == nil {
-			del = &widget.Clickable{}
-			s.archivedDel[ws.ID] = del
+	for i, ws := range detached {
+		kill := s.killBtn[ws.ID]
+		if kill == nil {
+			kill = &widget.Clickable{}
+			s.killBtn[ws.ID] = kill
 		}
-		res := s.archivedRes[ws.ID]
-		if res == nil {
-			res = &widget.Clickable{}
-			s.archivedRes[ws.ID] = res
+		at := s.attachBtn[ws.ID]
+		if at == nil {
+			at = &widget.Clickable{}
+			s.attachBtn[ws.ID] = at
 		}
-		off := op.Offset(image.Pt(p+gtx.Dp(8), p+i*rowH)).Push(gtx.Ops)
+		a := model.Aggregate(acts[ws.ID])
+		state, stateCol := "idle", th.Muted
+		if a != nil {
+			state, stateCol = PillText(*a), stateColor(th, a.State)
+		}
+		off := op.Offset(image.Pt(p+gtx.Dp(8), top+i*rowH)).Push(gtx.Ops)
 		gtx := gtx
 		gtx.Constraints = layout.Exact(image.Pt(w-2*p-gtx.Dp(12), rowH))
-		hrow(gtx, rowH, gtx.Dp(4),
-			item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+		items := []item{
+			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 13, th.Fg, ws.Name) }),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						sub, ok := names[ws.ProjectID]
-						if !ok {
-							sub = ShortPath(ws.Path)
-						}
-						return label(gtx, th, th.UIFont, 11, th.Muted, sub)
+						return label(gtx, th, semibold(th.UIFont), 13, th.Fg, ws.Name)
 					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 11, stateCol, state) }),
 				)
 			}},
-			item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return textButton(gtx, th, res, "Restore", gtx.Dp(28))
+			{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return textButton(gtx, th, at, "Attach", gtx.Dp(28))
 			}},
-			item{w: func(gtx layout.Context) layout.Dimensions {
-				return iconButton(gtx, th, del, icTrash, gtx.Dp(28), gtx.Dp(14), true)
-			}},
-		)
+		}
+		if s.killArmed == ws.ID {
+			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+				return dangerButton(gtx, th, kill, "Kill", gtx.Dp(28))
+			}})
+		} else {
+			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+				return iconButton(gtx, th, kill, icPower, gtx.Dp(28), gtx.Dp(14), true)
+			}})
+		}
+		hrow(gtx, rowH, gtx.Dp(4), items...)
 		off.Pop()
 	}
+}
+
+// dangerButton is the armed state of a two-click action: red text on a
+// red-soft fill.
+func dangerButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, text string, h int) layout.Dimensions {
+	m := op.Record(gtx.Ops)
+	d := label(gtx, th, semibold(th.UIFont), 12, th.Red, text)
+	call := m.Stop()
+	size := image.Pt(d.Size.X+gtx.Dp(20), h)
+	gtx.Constraints = layout.Exact(size)
+	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
+		a := float32(0.14)
+		if c.Hovered() {
+			a = 0.22
+		}
+		paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Red, a), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Op(gtx.Ops))
+		off := op.Offset(size.Sub(d.Size).Div(2)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		off.Pop()
+		return layout.Dimensions{Size: size}
+	})
 }
 
 // --- drawing helpers ---
@@ -1528,7 +1625,9 @@ func material(gtx layout.Context, c color.NRGBA) op.CallOp {
 // label draws one truncated line of text.
 func label(gtx layout.Context, th *theme.Theme, f font.Font, size unit.Sp, c color.NRGBA, txt string) layout.Dimensions {
 	gtx.Constraints.Min = image.Point{}
-	return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, f, size, txt, material(gtx, c))
+	// WrapGraphemes fills the line before the ellipsis; the default policy
+	// cuts a hyphenated name like swift-otter-… at its last hyphen.
+	return widget.Label{MaxLines: 1, WrapPolicy: text.WrapGraphemes}.Layout(gtx, th.Shaper, f, size, txt, material(gtx, c))
 }
 
 // clickable wraps c with a pointer cursor.
