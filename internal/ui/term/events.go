@@ -120,9 +120,21 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			if textKey(e) && !kittyAll {
 				continue
 			}
+			v.keyText = ""
+			if kittyAll && e.State == key.Press && textKey(e) {
+				v.keyText = string(e.Name)
+				if e.Name == key.NameSpace {
+					v.keyText = " "
+				}
+			}
 			out = append(out, input.Key(e, m)...)
 		case key.EditEvent:
-			if !kittyAll {
+			// Report-all already encoded a plain key press; its text event
+			// follows it and is dropped. IME and compose commits have no
+			// such press and go through.
+			dup := kittyAll && v.keyText != "" && strings.EqualFold(e.Text, v.keyText)
+			v.keyText = ""
+			if !dup {
 				out = append(out, input.Text(e.Text)...)
 			}
 		case transfer.DataEvent:
@@ -132,12 +144,25 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			out = append(out, input.Paste(string(b), m)...)
 		case pointer.Event:
 			out = append(out, v.pointer(e, g, m, focused)...)
+		case key.FocusEvent:
+			// Gio sends these for key focus moves and the window's focus.
+			v.keyFocus = e.Focus
 		}
+	}
+	v.focusMode = m.FocusEvents
+	if in := focused && v.keyFocus; in != v.focusIn {
+		v.focusIn = in
+		out = append(out, input.Focus(in, m.FocusEvents)...)
 	}
 	return out
 }
 
 func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []byte {
+	held := v.buttons
+	v.buttons = e.Buttons
+	if e.Kind == pointer.Cancel {
+		v.buttons = 0
+	}
 	if g.Cols == 0 || g.Rows == 0 {
 		return nil
 	}
@@ -148,6 +173,11 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 	// Shift forces local selection even when the program owns the mouse.
 	if m.Mouse != vt.MouseOff && e.Modifiers&key.ModShift == 0 {
 		if focused {
+			// Gio reports the buttons held after the event; the program
+			// wants the one pressed or released.
+			if c := e.Buttons ^ held; (e.Kind == pointer.Press || e.Kind == pointer.Release) && c != 0 {
+				e.Buttons = c
+			}
 			return input.Mouse(e, cell.X, cell.Y, m)
 		}
 		return nil
@@ -268,4 +298,14 @@ func wordAt(g *vt.Grid, x, y int) (int, int) {
 		x1++
 	}
 	return x0, x1
+}
+
+// Blur reports focus loss for a pane that is no longer drawn, such as one on
+// the workspace just left, and returns the bytes for its PTY.
+func (v *View) Blur() []byte {
+	if !v.focusIn {
+		return nil
+	}
+	v.focusIn = false
+	return input.Focus(false, v.focusMode)
 }

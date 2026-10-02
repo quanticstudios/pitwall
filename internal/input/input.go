@@ -265,6 +265,18 @@ func kittyKey(e key.Event, m vt.Modes) []byte {
 // Text encodes committed text from a key.EditEvent.
 func Text(s string) []byte { return []byte(s) }
 
+// Focus encodes a focus-in or focus-out report for mode 1004, or nil when the
+// mode is off.
+func Focus(in, mode bool) []byte {
+	switch {
+	case !mode:
+		return nil
+	case in:
+		return []byte("\x1b[I")
+	}
+	return []byte("\x1b[O")
+}
+
 func Paste(s string, m vt.Modes) []byte {
 	s = strings.ReplaceAll(s, "\x1b", "")
 	if m.BracketedPaste {
@@ -275,6 +287,8 @@ func Paste(s string, m vt.Modes) []byte {
 
 // Mouse encodes a pointer event at zero-based cell (col,row), or nil when the
 // program has not asked for that event. Scroll emits one report per active axis.
+// For Press and Release, e.Buttons names the button that changed. Gio reports
+// the buttons held after the event instead, so callers track the difference.
 func Mouse(e pointer.Event, col, row int, m vt.Modes) []byte {
 	if m.Mouse == vt.MouseOff || e.Source != pointer.Mouse || col < 0 || row < 0 {
 		return nil
@@ -291,8 +305,7 @@ func Mouse(e pointer.Event, col, row int, m vt.Modes) []byte {
 			return nil
 		}
 		release = true
-		// ponytail: Gio supplies held buttons after release, not the changed button.
-		// Assume primary when none remain; exact SGR releases need caller state.
+		// A caller that tracks no state passes no buttons; assume primary.
 		if code == 3 {
 			code = 0
 		}
