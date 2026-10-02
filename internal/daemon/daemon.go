@@ -92,6 +92,7 @@ type Daemon struct {
 	closing     bool
 	savePending bool
 	live        liveness
+	resumed     map[string]time.Time // pane: when NewWith relaunched it with a resume command
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -143,19 +144,41 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, resumed: map[string]time.Time{}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	for i := range d.st.Workspaces {
+		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
+	}
+	cancel()
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
-	for i := range d.st.Panes {
-		p := &d.st.Panes[i]
-		if p.Exited {
-			continue
-		}
-		if err := d.start(p.ID, o.RestoreCmd(*p), p.Cwd); err != nil {
-			log.Printf("pitwall: restore pane %s: %v", p.ID, err)
-			p.Exited, p.ExitCode = true, -1
+	for i := range d.st.Workspaces {
+		w := &d.st.Workspaces[i]
+		w.Tabs = slices.DeleteFunc(w.Tabs, func(t model.Tab) bool { return t.Layout == nil })
+		if tabIndex(w, w.ActiveTab) < 0 && len(w.Tabs) > 0 {
+			w.ActiveTab = w.Tabs[0].ID
 		}
 	}
+	var gone []string
+	for _, p := range d.st.Panes {
+		if p.Exited {
+			gone = append(gone, p.ID) // saved by an older daemon, which kept exited panes
+			continue
+		}
+		cmd := o.RestoreCmd(p)
+		if err := d.start(p.ID, cmd, p.Cwd); err != nil {
+			log.Printf("pitwall: restore pane %s: %v", p.ID, err)
+			gone = append(gone, p.ID)
+			continue
+		}
+		if !slices.Equal(cmd, p.Cmd) {
+			d.resumed[p.ID] = time.Now()
+		}
+	}
+	for _, id := range gone {
+		closeAll(d.removePane(id))
+	}
+	d.retitle()
 	return d, nil
 }
 
@@ -317,6 +340,15 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if err != nil {
 			return
 		}
+		if _, ok := m.(proto.Sync); ok {
+			// Every earlier request on this connection is handled: replies
+			// are synchronous.
+			d.mu.Lock()
+			s := d.snapshot()
+			d.mu.Unlock()
+			c.queue(proto.StateMsg{State: s})
+			continue
+		}
 		if err := d.handle(ctx, m); err != nil {
 			c.queue(proto.Error{Message: err.Error()})
 		}
@@ -330,11 +362,31 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.NewWorkspace:
 		return d.newWorkspace(ctx, m)
 	case proto.RenameWorkspace:
-		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Name = m.Name })
+		return d.renameWorkspace(m)
 	case proto.SetProjectAppearance:
 		return d.setAppearance(m)
-	case proto.ArchiveWorkspace:
-		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) { w.Archived = m.Archived })
+	case proto.DetachSession:
+		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Detached = m.Detached; return nil })
+	case proto.KillSession:
+		return d.killSession(m)
+	case proto.FocusSession:
+		return d.focusSession(m)
+	case proto.NewTab:
+		return d.newTab(m)
+	case proto.CloseTab:
+		return d.closeTab(m)
+	case proto.SelectTab:
+		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error {
+			if slices.IndexFunc(w.Tabs, func(t model.Tab) bool { return t.ID == m.TabID }) < 0 {
+				return fmt.Errorf("no tab %s in session %s", m.TabID, w.ID)
+			}
+			w.ActiveTab = m.TabID
+			return nil
+		})
+	case proto.RenameTab:
+		return d.renameTab(m)
+	case proto.GroupByFolder:
+		return d.groupByFolder(ctx, m)
 	case proto.SetLayout:
 		return d.setLayout(m)
 	case proto.DeleteWorkspace:
@@ -409,7 +461,7 @@ func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
 	d.st.Projects = append(d.st.Projects, p)
 	if kind == model.ProjectFolder {
 		d.st.Workspaces = append(d.st.Workspaces, model.Workspace{
-			ID: newID(), ProjectID: p.ID, Name: p.Name, Path: root, UpdatedAt: time.Now(),
+			ID: newID(), ProjectID: p.ID, Name: p.Name, Path: root, RepoRoot: root, UpdatedAt: time.Now(),
 		})
 	}
 	d.changed()
@@ -438,32 +490,35 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 			return err
 		}
 	}
+	root := d.repoRoot(ctx, path)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.st.Workspaces = append(d.st.Workspaces, model.Workspace{
 		ID: newID(), ProjectID: p.ID, Name: m.Name, Branch: branch, Path: path, UpdatedAt: time.Now(),
-		WorktreeRoot: worktreeRoot(p, path),
+		WorktreeRoot: worktreeRoot(p, path), RepoRoot: root,
 	})
 	d.changed()
 	return nil
 }
 
-func (d *Daemon) editWorkspace(id string, f func(*model.Workspace)) error {
+func (d *Daemon) editWorkspace(id string, f func(*model.Workspace) error) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w := d.workspace(id)
 	if w == nil {
 		return fmt.Errorf("no workspace %s", id)
 	}
-	f(w)
+	if err := f(w); err != nil {
+		return err
+	}
 	d.changed()
 	return nil
 }
 
-// setLayout takes a layout only when its leaves are exactly the workspace's
-// panes: one built from stale state could hide a live pane or bring back a
-// closed one. The GUI re-reads state when it gets the error.
+// setLayout takes a layout only when its leaves are exactly the tab's panes:
+// one built from stale state could hide a live pane or bring back a closed
+// one. The GUI re-reads state when it gets the error.
 func (d *Daemon) setLayout(m proto.SetLayout) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -471,19 +526,18 @@ func (d *Daemon) setLayout(m proto.SetLayout) error {
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
-	var want []string
-	for _, p := range d.st.Panes {
-		if p.WorkspaceID == w.ID {
-			want = append(want, p.ID)
-		}
+	ti := tabIndex(w, m.TabID)
+	if ti < 0 {
+		return fmt.Errorf("no tab %q in session %s", m.TabID, w.ID)
 	}
-	got := layout.Panes(m.Layout)
+	t := &w.Tabs[ti]
+	want, got := layout.Panes(t.Layout), layout.Panes(m.Layout)
 	slices.Sort(want)
 	slices.Sort(got)
-	if !slices.Equal(got, want) || (m.Layout != nil && !sanitize(m.Layout)) {
-		return fmt.Errorf("layout for workspace %s does not match its panes", w.ID)
+	if m.Layout == nil || !slices.Equal(got, want) || !sanitize(m.Layout) {
+		return fmt.Errorf("layout for tab %s does not match its panes", t.ID)
 	}
-	w.Layout = m.Layout
+	t.Layout = m.Layout
 	d.changed()
 	return nil
 }
@@ -545,15 +599,7 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	}
 
 	d.mu.Lock()
-	var closing []Pane
-	for _, p := range d.st.Panes {
-		if p.WorkspaceID == ws.ID {
-			closing = append(closing, d.dropPane(p.ID))
-		}
-	}
-	d.st.Panes = slices.DeleteFunc(d.st.Panes, func(p model.Pane) bool { return p.WorkspaceID == ws.ID })
-	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.ID == ws.ID })
-	delete(d.st.Stats, ws.ID)
+	closing := d.removeWorkspace(ws.ID)
 	d.changed()
 	d.mu.Unlock()
 	closeAll(closing)
@@ -567,10 +613,14 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
-	if m.Target != "" && !slices.ContainsFunc(d.st.Panes, func(p model.Pane) bool {
-		return p.ID == m.Target && p.WorkspaceID == w.ID
-	}) {
-		return fmt.Errorf("no pane %s in workspace %s", m.Target, w.ID)
+	var t *model.Tab
+	if ti := tabIndex(w, m.TabID); ti >= 0 {
+		t = &w.Tabs[ti]
+	} else if m.TabID != "" {
+		return fmt.Errorf("no tab %s in session %s", m.TabID, w.ID)
+	}
+	if m.Target != "" && (t == nil || !slices.Contains(layout.Panes(t.Layout), m.Target)) {
+		return fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
 	}
 	id := newID()
 	if err := d.start(id, m.Cmd, w.Path); err != nil {
@@ -579,33 +629,30 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: w.Path})
 	leaf := &layout.Node{Pane: id}
 	switch {
-	case w.Layout == nil:
-		w.Layout = leaf
+	case t == nil: // a project's workspace gets its first tab with its first pane
+		w.Tabs = append(w.Tabs, model.Tab{ID: newID(), Layout: leaf})
+		w.ActiveTab = w.Tabs[len(w.Tabs)-1].ID
 	case m.Target == "":
 		// No target with panes already open: put the new pane beside the whole tree.
-		w.Layout = &layout.Node{Dir: m.Dir, Ratios: []float64{0.5, 0.5}, Children: []*layout.Node{w.Layout, leaf}}
+		t.Layout = &layout.Node{Dir: m.Dir, Ratios: []float64{0.5, 0.5}, Children: []*layout.Node{t.Layout, leaf}}
 	default:
-		w.Layout = d.o.Split(w.Layout, m.Target, id, m.Dir)
+		t.Layout = d.o.Split(t.Layout, m.Target, id, m.Dir)
 	}
 	d.changed()
 	return nil
 }
 
+// closePane closes a pane, and its tab and session when it was their last.
 func (d *Daemon) closePane(id string) error {
 	d.mu.Lock()
-	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
-	if i < 0 {
+	if !slices.ContainsFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }) {
 		d.mu.Unlock()
 		return fmt.Errorf("no pane %s", id)
 	}
-	if w := d.workspace(d.st.Panes[i].WorkspaceID); w != nil {
-		w.Layout = d.o.Remove(w.Layout, id)
-	}
-	d.st.Panes = slices.Delete(d.st.Panes, i, i+1)
-	h := d.dropPane(id)
+	closing := d.removePane(id)
 	d.changed()
 	d.mu.Unlock()
-	closeAll([]Pane{h})
+	closeAll(closing)
 	return nil
 }
 
@@ -616,6 +663,10 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.panes, id)
 	delete(d.inputs, id)
 	delete(d.views, id)
+	delete(d.resumed, id)
+	delete(d.live.hookAt, id)
+	delete(d.live.fg, id)
+	delete(d.live.det, id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
 }
@@ -712,14 +763,14 @@ func (d *Daemon) statsLoop(ctx context.Context) {
 	}
 }
 
-// refreshStats reads the branch and stats of every non-archived session in a
-// git repo, or of session only when it is not "". Sessions outside a repo
-// have no branch and no stats.
+// refreshStats reads the branch and stats of every session in a git repo,
+// detached ones included, or of session only when it is not "". Sessions
+// outside a repo have no branch and no stats.
 func (d *Daemon) refreshStats(ctx context.Context, only string) {
 	d.mu.Lock()
 	paths := map[string]string{}
 	for _, w := range d.st.Workspaces {
-		if !w.Archived && (only == "" || w.ID == only) {
+		if only == "" || w.ID == only {
 			paths[w.ID] = w.Path
 		}
 	}
@@ -801,10 +852,16 @@ func writeInput(p Pane, in <-chan []byte) {
 	}
 }
 
-// watch pushes at most 60 frames a second for one pane. Dirty has capacity
-// 1, so signals that arrive during the wait fold into the next snapshot.
+// titlePoll is how long a pane's title may lag its output while no GUI is
+// connected; with one, every frame carries the title.
+const titlePoll = 500 * time.Millisecond
+
+// watch pushes at most 60 frames a second for one pane and keeps its title.
+// Dirty has capacity 1, so signals that arrive during the wait fold into the
+// next snapshot.
 func (d *Daemon) watch(id string, p Pane) {
 	var last time.Time
+	var titleDue <-chan time.Time
 	for {
 		select {
 		case <-p.Dirty():
@@ -815,7 +872,14 @@ func (d *Daemon) watch(id string, p Pane) {
 				}
 			}
 			last = time.Now()
-			d.pushFrame(id, p)
+			if title, ok := d.pushFrame(id, p); ok {
+				d.setTitle(id, p, title)
+			} else if titleDue == nil {
+				titleDue = time.After(titlePoll)
+			}
+		case <-titleDue:
+			titleDue = nil
+			d.setTitle(id, p, p.Snapshot().Title)
 		case <-p.Done():
 			d.pushFrame(id, p)
 			d.exited(id, p)
@@ -824,35 +888,61 @@ func (d *Daemon) watch(id string, p Pane) {
 	}
 }
 
-func (d *Daemon) pushFrame(id string, p Pane) {
+// pushFrame sends GUIs a frame of id and returns its title, or reports false
+// when there was no GUI to build one for.
+func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.panes[id] != p || len(d.clients) == 0 {
-		return
+		return "", false
 	}
 	f := d.frame(id, p)
 	for c := range d.clients {
 		c.push(func() { c.frames[id] = f })
 	}
+	return f.Grid.Title, true
 }
 
+// resumeGrace is how soon after a restart a resumed agent may fail and get a
+// shell instead of closing its pane; tests shorten it.
+var resumeGrace = 3 * time.Second
+
+// exited closes a pane whose process ended, and its tab and session when it
+// was their last. An agent resume that fails right after a restart (the
+// session expired, the binary moved) gets a shell in its place, so a restart
+// never silently loses a session.
 func (d *Daemon) exited(id string, p Pane) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.closing || d.panes[id] != p {
+		d.mu.Unlock()
 		return // closed on purpose: by ClosePane, DeleteWorkspace or shutdown
 	}
 	i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id })
 	if i < 0 {
+		d.mu.Unlock()
 		return
 	}
 	code := p.ExitCode()
-	d.st.Panes[i].Exited, d.st.Panes[i].ExitCode = true, code
-	d.dropActivity(id)
+	if at, ok := d.resumed[id]; ok && code != 0 && time.Since(at) < resumeGrace {
+		sp := &d.st.Panes[i]
+		log.Printf("pitwall: pane %s: resumed %s session exited %d; opening a shell in %s", id, sp.Provider, code, sp.Cwd)
+		closeAll([]Pane{d.dropPane(id)})
+		sp.Cmd, sp.Provider, sp.SessionID, sp.Title = nil, "", "", ""
+		err := d.start(id, nil, sp.Cwd)
+		if err == nil {
+			d.changed()
+			d.mu.Unlock()
+			return
+		}
+		log.Printf("pitwall: pane %s: shell after failed resume: %v", id, err)
+	}
+	closing := d.removePane(id)
 	d.changed()
 	for c := range d.clients {
 		c.queue(proto.PaneExited{Pane: id, ExitCode: code})
 	}
+	d.mu.Unlock()
+	closeAll(closing)
 }
 
 func (d *Daemon) pane(id string) (Pane, error) {
@@ -876,6 +966,7 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 // and a save runs saveDelay after the first unsaved change, so a steady
 // stream of agent events cannot postpone it forever.
 func (d *Daemon) changed() {
+	d.retitle()
 	d.st.Version++
 	for c := range d.clients {
 		c.push(func() { c.state = true })
@@ -922,7 +1013,11 @@ func (d *Daemon) snapshot() model.State {
 	s.Projects = slices.Clone(s.Projects)
 	s.Workspaces = slices.Clone(s.Workspaces)
 	for i := range s.Workspaces {
-		s.Workspaces[i].Layout = cloneNode(s.Workspaces[i].Layout)
+		tabs := slices.Clone(s.Workspaces[i].Tabs)
+		for j := range tabs {
+			tabs[j].Layout = cloneNode(tabs[j].Layout)
+		}
+		s.Workspaces[i].Tabs = tabs
 	}
 	s.Panes = slices.Clone(s.Panes)
 	s.Activities = slices.Clone(s.Activities)

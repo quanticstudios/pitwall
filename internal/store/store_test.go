@@ -33,10 +33,11 @@ func TestSaveLoad(t *testing.T) {
 	want := model.State{
 		Version:  42,
 		Projects: []model.Project{{ID: "project", Name: "pitwall", Root: "/repo", Kind: model.ProjectGit, Color: "blue", Icon: "git"}},
-		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", Branch: "track/store", Path: "/repo/store", Archived: true, UpdatedAt: now,
-			Layout: &layout.Node{Dir: layout.Horizontal, Ratios: []float64{0.4, 0.6}, Children: []*layout.Node{
+		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", Branch: "track/store", Path: "/repo/store", RepoRoot: "/repo", Detached: true, UpdatedAt: now,
+			Tabs: []model.Tab{{ID: "t1", Name: "build", Title: "make", Layout: &layout.Node{Dir: layout.Horizontal, Ratios: []float64{0.4, 0.6}, Children: []*layout.Node{
 				{Pane: "p1"}, {Dir: layout.Vertical, Ratios: []float64{0.5, 0.5}, Children: []*layout.Node{{Pane: "p2"}, {Pane: "p3"}}},
-			}},
+			}}}},
+			ActiveTab: "t1",
 		}},
 		Panes: []model.Pane{
 			{ID: "p1", WorkspaceID: "workspace", Cmd: []string{"claude", "--model", "sonnet"}, Cwd: "/repo/store", Title: "Claude", Provider: model.ProviderClaude, SessionID: "session"},
@@ -95,7 +96,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":3,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":4,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -205,7 +206,7 @@ func TestLoadMigratesVersion1Worktrees(t *testing.T) {
 			t.Errorf("%s: WorktreeRoot = %q, want %q", w.ID, w.WorktreeRoot, want[w.ID])
 		}
 	}
-	// Saved as version 2, an unowned worktree stays unowned on the next load.
+	// Saved as the current version, an unowned worktree stays unowned on the next load.
 	s.Workspaces[0].WorktreeRoot = ""
 	if err := Save(path, s); err != nil {
 		t.Fatal(err)
@@ -215,5 +216,29 @@ func TestLoadMigratesVersion1Worktrees(t *testing.T) {
 	}
 	if s.Workspaces[0].WorktreeRoot != "" {
 		t.Fatal("version 2 load re-inferred worktree ownership")
+	}
+}
+
+func TestLoadMigratesVersion2Tabs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v2 := `{"format_version":2,"state":{"Workspaces":[
+		{"ID":"a","Archived":true,"Layout":{"Dir":1,"Ratios":[0.5,0.5],"Children":[{"Pane":"p1"},{"Pane":"p2"}]}},
+		{"ID":"b"}]}}`
+	if err := os.WriteFile(path, []byte(v2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := s.Workspaces[0], s.Workspaces[1]
+	if !a.Detached || b.Detached || len(a.Tabs) != 1 || len(b.Tabs) != 1 {
+		t.Fatalf("migrated %+v %+v", a, b)
+	}
+	if a.ActiveTab != a.Tabs[0].ID || a.Tabs[0].ID == "" || a.Tabs[0].ID == b.Tabs[0].ID || b.ActiveTab != b.Tabs[0].ID {
+		t.Fatalf("tab ids: %+v %+v", a, b)
+	}
+	if got := layout.Panes(a.Tabs[0].Layout); !reflect.DeepEqual(got, []string{"p1", "p2"}) || a.Tabs[0].Layout.Dir != layout.Vertical || b.Tabs[0].Layout != nil {
+		t.Fatalf("layouts: %v %+v", got, b.Tabs[0])
 	}
 }
