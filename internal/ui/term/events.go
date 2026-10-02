@@ -74,7 +74,7 @@ func textKey(e key.Event) bool {
 	return e.Name == key.NameSpace || len(e.Name) == 1 && e.Name[0] > ' ' && e.Name[0] <= '~'
 }
 
-func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool) []byte {
+func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, rows int) []byte {
 	if v.filters == nil {
 		v.filters = append(keyFilters(v),
 			key.FocusFilter{Target: v},
@@ -108,6 +108,15 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool) 
 				}
 				continue
 			}
+			// Shift+PageUp/PageDown page through the scrollback.
+			if e.Modifiers == key.ModShift && (e.Name == key.NamePageUp || e.Name == key.NamePageDown) {
+				if e.State == key.Press && e.Name == key.NamePageUp {
+					v.scrollLines += rows
+				} else if e.State == key.Press {
+					v.scrollLines -= rows
+				}
+				continue
+			}
 			if textKey(e) && !kittyAll {
 				continue
 			}
@@ -133,8 +142,8 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 		return nil
 	}
 	cell := image.Pt(
-		min(max(int(e.Position.X)/v.cell.X, 0), g.Cols-1),
-		min(max(int(e.Position.Y)/v.cell.Y, 0), g.Rows-1),
+		min(max((int(e.Position.X)-v.pad)/v.cell.X, 0), g.Cols-1),
+		min(max((int(e.Position.Y)-v.pad)/v.cell.Y, 0), g.Rows-1),
 	)
 	// Shift forces local selection even when the program owns the mouse.
 	if m.Mouse != vt.MouseOff && e.Modifiers&key.ModShift == 0 {
@@ -144,6 +153,8 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 		return nil
 	}
 	switch e.Kind {
+	case pointer.Scroll:
+		v.scroll(e)
 	case pointer.Press:
 		if e.Buttons != pointer.ButtonPrimary {
 			return nil
@@ -168,6 +179,20 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 		v.dragging = false
 	}
 	return nil
+}
+
+// scroll gathers wheel distance into whole lines of scrollback, keeping the
+// remainder so touchpad pixel deltas add up. Gio turns Shift+wheel into a
+// horizontal scroll, which counts as vertical here.
+func (v *View) scroll(e pointer.Event) {
+	d := e.Scroll.Y
+	if d == 0 && e.Modifiers&key.ModShift != 0 {
+		d = e.Scroll.X
+	}
+	v.scrollPx -= d // wheel up is back in history
+	n := int(v.scrollPx / float32(v.cell.Y))
+	v.scrollPx -= float32(n * v.cell.Y)
+	v.scrollLines += n
 }
 
 // selection runs from anchor a to head b in reading order, both ends
