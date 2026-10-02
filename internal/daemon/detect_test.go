@@ -149,6 +149,26 @@ func TestTerminalRunning(t *testing.T) {
 	waitUntil(t, "cleared", func() bool { return d.stateOf(id) == "" })
 }
 
+// A pane opened with a command runs it as the session leader, so the
+// foreground is its own group and still a terminal command. A shell named as
+// the command is still a shell at its prompt.
+func TestPaneCommandIsTerminalRunning(t *testing.T) {
+	t.Run("command", func(t *testing.T) {
+		d, _, id := openLive(t, 200, "sleep", "60")
+		waitUntil(t, "running", func() bool { return d.stateOf(id) == model.StateTerminalRunning })
+		if a := d.activityOf(id); a.Provider != model.ProviderTerminal || a.Detail != "sleep" {
+			t.Fatalf("got %+v, want terminal sleep", a)
+		}
+	})
+	t.Run("shell", func(t *testing.T) {
+		d, _, id := openLive(t, 200, "/bin/"+shellComm, "-l")
+		polls()
+		if s := d.stateOf(id); s != "" {
+			t.Fatalf("a shell command at its prompt got %q", s)
+		}
+	})
+}
+
 func TestAgentIsNotTerminalRunning(t *testing.T) {
 	for _, hooked := range []bool{false, true} {
 		t.Run(fmt.Sprint("hooked=", hooked), func(t *testing.T) {
