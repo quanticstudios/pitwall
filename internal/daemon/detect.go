@@ -111,8 +111,8 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	}
 	switch {
 	case prov != "" && l.hooked:
-		// Another agent in a pane hooks reported from: never a terminal
-		// command, and not read from the screen.
+		// Another agent took the foreground after this poll's exit check:
+		// never a terminal command, and the next poll reads its screen.
 		d.setActivity(ctx, l.id, "", "", "")
 	case prov != "":
 		s := agent.State(g)
