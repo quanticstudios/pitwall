@@ -241,29 +241,29 @@ func findPane(st *model.State, id string) *model.Pane {
 // grid. A split pane gets rounded-lg border p-4 bg-surface, the focused one
 // with border-strong; a sole pane drops that frame. Every terminal sits in
 // rounded-lg border border-border bg-background with p-3.
+// paneChrome draws one rounded terminal surface per pane, as aide's canvas
+// does, with a blue border on the focused pane when there is more than one.
+// It returns the rect the terminal fills; the term view pads itself.
 func paneChrome(gtx gl.Context, th *theme.Theme, frame image.Rectangle, focused, sole bool) image.Rectangle {
-	white := theme.Hex("#ffffff")
+	if sole {
+		paint.FillShape(gtx.Ops, th.TermBg, clip.Rect(frame).Op())
+		return frame
+	}
 	r := gtx.Dp(10)
-	inner := frame
-	if !sole {
-		border := theme.Mix(th.Surface, white, 0.07)
-		if focused {
-			border = theme.Mix(th.Surface, white, 0.14)
-		}
-		paint.FillShape(gtx.Ops, border, clip.UniformRRect(frame, r).Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(frame.Inset(1), r-1).Op(gtx.Ops))
-		inner = frame.Inset(1 + gtx.Dp(16))
+	border := theme.Mix(th.TermBg, theme.Hex("#ffffff"), 0.08)
+	if focused {
+		border = theme.Mix(th.TermBg, th.Primary, 0.75)
 	}
-	if inner.Dx() <= 2 || inner.Dy() <= 2 {
-		return image.Rectangle{Min: inner.Min, Max: inner.Min}
+	paint.FillShape(gtx.Ops, border, clip.UniformRRect(frame, r).Op(gtx.Ops))
+	return frame.Inset(1)
+}
+
+// roundedFor is the terminal's corner radius inside paneChrome's border.
+func roundedFor(gtx gl.Context, sole bool) int {
+	if sole {
+		return 0
 	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.TermBg, white, 0.07), clip.UniformRRect(inner, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.TermBg, clip.UniformRRect(inner.Inset(1), r-1).Op(gtx.Ops))
-	grid := inner.Inset(1 + gtx.Dp(12))
-	if grid.Dx() <= 0 || grid.Dy() <= 0 {
-		return image.Rectangle{Min: inner.Min, Max: inner.Min}
-	}
-	return grid
+	return gtx.Dp(10) - 1
 }
 
 func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, sole bool) {
@@ -297,7 +297,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		tg := gtx
 		tg.Constraints = gl.Exact(grid.Size())
 		o := op.Offset(grid.Min).Push(gtx.Ops)
+		rc := clip.UniformRRect(image.Rectangle{Max: grid.Size()}, roundedFor(gtx, sole)).Push(gtx.Ops)
 		input, cols, rows = drawTerm(tg, &p.view, u.th, &g, m, focused)
+		rc.Pop()
 		o.Pop()
 	}
 	// Clicking anywhere in the frame focuses the pane, as aide's onMouseDown

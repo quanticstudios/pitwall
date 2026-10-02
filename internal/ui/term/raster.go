@@ -44,14 +44,32 @@ func fontMap() *fontscan.FontMap {
 
 // families is the font query for th.MonoFont's typeface list, then any
 // monospace font, then color emoji.
+//
+// Emoji always goes last: Noto Color Emoji has glyphs for the digits, so
+// listing it before a text font draws numbers as faint color bitmaps.
 func families(typeface string) []string {
 	var fs []string
 	for _, f := range strings.Split(typeface, ",") {
-		if f = strings.TrimSpace(f); f != "" {
-			fs = append(fs, f)
+		if f = strings.TrimSpace(f); f != "" && f != "emoji" {
+			fs = append(fs, f, nerdAlias(f))
 		}
 	}
 	return append(fs, "monospace", "emoji")
+}
+
+// nerdAlias is the short family name fontscan indexes Nerd Fonts v3 under
+// ("JetBrainsMono Nerd Font" is found only as "JetBrainsMono NF"); fontconfig
+// knows both. Returns name unchanged for other fonts.
+func nerdAlias(name string) string {
+	for long, short := range map[string]string{" Nerd Font Mono": " NFM", " Nerd Font Propo": " NFP"} {
+		if strings.HasSuffix(name, long) {
+			return strings.TrimSuffix(name, long) + short
+		}
+	}
+	if strings.HasSuffix(name, " Nerd Font") {
+		return strings.TrimSuffix(name, " Nerd Font") + " NF"
+	}
+	return name
 }
 
 // face resolves the face for rune r in style f (bit 0 bold, bit 1 italic),
