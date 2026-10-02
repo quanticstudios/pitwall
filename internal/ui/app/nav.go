@@ -20,6 +20,18 @@ type nav struct {
 	// pane that shows up next gets focus.
 	openingWS string
 	opening   map[string]bool
+
+	// A NewSession is in flight: the sessions there were, so the one that
+	// shows up next is selected.
+	sessions map[string]bool
+}
+
+// expectSession records the sessions before a NewSession.
+func (n *nav) expectSession(st *model.State) {
+	n.sessions = map[string]bool{}
+	for _, w := range st.Workspaces {
+		n.sessions[w.ID] = true
+	}
 }
 
 // expectPane records the active workspace's panes before an OpenPane.
@@ -32,26 +44,37 @@ func (n *nav) expectPane(st *model.State) {
 
 func (n *nav) switcherVisible() bool { return n.altHeld || n.pinned }
 
-// ordered is aide's navigation order: project order, then each project's
-// workspace order, then workspaces whose project is unknown. Archived
-// workspaces are skipped.
+// ordered is the sidebar's order: ungrouped sessions (including those
+// whose group is gone), then group order, each group's in session order.
+// Archived sessions are skipped.
 func ordered(st *model.State) []model.Workspace {
 	var out []model.Workspace
-	seen := map[string]bool{}
-	for _, p := range st.Projects {
+	for _, g := range append([]string{""}, projectIDs(st)...) {
 		for _, w := range st.Workspaces {
-			if w.ProjectID == p.ID && !w.Archived {
+			if groupOf(st, w) == g && !w.Archived {
 				out = append(out, w)
-				seen[w.ID] = true
 			}
 		}
 	}
-	for _, w := range st.Workspaces {
-		if !seen[w.ID] && !w.Archived {
-			out = append(out, w)
+	return out
+}
+
+func projectIDs(st *model.State) []string {
+	ids := make([]string, len(st.Projects))
+	for i, p := range st.Projects {
+		ids[i] = p.ID
+	}
+	return ids
+}
+
+// groupOf is w's group, or "" when it is ungrouped or its group is gone.
+func groupOf(st *model.State, w model.Workspace) string {
+	for _, p := range st.Projects {
+		if p.ID == w.ProjectID {
+			return p.ID
 		}
 	}
-	return out
+	return ""
 }
 
 func findWorkspace(st *model.State, id string) *model.Workspace {
@@ -78,6 +101,14 @@ func (n *nav) focused() string { return n.focus[n.workspace] }
 func (n *nav) sync(st *model.State) {
 	if n.focus == nil {
 		n.focus = map[string]string{}
+	}
+	if n.sessions != nil {
+		for _, w := range ordered(st) {
+			if !n.sessions[w.ID] {
+				n.workspace, n.sessions = w.ID, nil
+				break
+			}
+		}
 	}
 	if w := findWorkspace(st, n.workspace); w == nil || w.Archived {
 		n.workspace = ""
@@ -122,7 +153,7 @@ func (n *nav) cycleWorkspace(st *model.State, d int) {
 		cur := findWorkspace(st, n.workspace)
 		var local []model.Workspace
 		for _, w := range ws {
-			if cur != nil && w.ProjectID == cur.ProjectID {
+			if cur != nil && groupOf(st, w) == groupOf(st, *cur) {
 				local = append(local, w)
 			}
 		}
@@ -214,9 +245,14 @@ func (n *nav) key(st *model.State, e key.Event) any {
 			return proto.ClosePane{Pane: n.focused()}
 		}
 	case "T":
-		if w := findWorkspace(st, ws); shift && w != nil {
-			return proto.NewWorkspace{ProjectID: w.ProjectID}
+		if !shift {
+			return nil
 		}
+		n.expectSession(st)
+		if w := findWorkspace(st, ws); w != nil {
+			return proto.NewSession{Cwd: w.Path}
+		}
+		return proto.NewSession{}
 	default: // 1..9
 		if i := int(e.Name[0] - '1'); i < len(ordered(st)) {
 			n.selectWorkspace(st, ordered(st)[i].ID, "")

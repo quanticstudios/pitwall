@@ -7,6 +7,7 @@ import (
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -26,7 +27,8 @@ func TestNav(t *testing.T) {
 	}
 	check("start", "w1", "a")
 
-	// Switcher hidden: Alt+J/K stay inside project p1 (w1, w2, w3) and wrap.
+	// Switcher hidden: Alt+J/K stay inside the ungrouped sessions (w1, w2,
+	// w3) and wrap.
 	alt := key.ModAlt
 	for _, want := range []string{"w2", "w3", "w1"} {
 		n.key(&st, press("J", alt))
@@ -41,13 +43,14 @@ func TestNav(t *testing.T) {
 	n.key(&st, press(key.NameDownArrow, alt))
 	check("down mirrors J", "w3", "e")
 
-	// Alt held: the switcher shows and J/K walk every workspace.
+	// Alt held: the switcher shows and J/K walk every session, ungrouped
+	// first, then group g1 (w4, w5) and g2 (w6).
 	n.key(&st, key.Event{Name: key.NameAlt, State: key.Press})
 	if !n.switcherVisible() {
 		t.Fatal("Alt press did not show the switcher")
 	}
 	n.key(&st, press("J", alt))
-	check("all J crosses projects", "w4", "g")
+	check("all J crosses into the groups", "w4", "g")
 	n.key(&st, press("J", alt))
 	n.key(&st, press("J", alt))
 	n.key(&st, press("J", alt))
@@ -75,12 +78,12 @@ func TestNav(t *testing.T) {
 	n.key(&st, press(key.NameLeftArrow, alt))
 	check("left mirrors H", "w1", "c")
 
-	// Each workspace remembers its focused pane.
+	// Each session remembers its focused pane.
 	n.key(&st, press("J", alt))
 	n.key(&st, press("K", alt))
 	check("remembered pane", "w1", "c")
 
-	// Alt+digit jumps by switcher order; the empty workspace has no focus.
+	// Alt+digit jumps by switcher order; the empty session has no focus.
 	n.key(&st, press("5", alt))
 	check("Alt+5", "w5", "")
 	if msg := n.key(&st, press("N", alt)); !reflect.DeepEqual(msg, proto.OpenPane{WorkspaceID: "w5"}) {
@@ -113,7 +116,7 @@ func TestNav(t *testing.T) {
 	}
 }
 
-// TestNavSync covers a closed focused pane and a deleted workspace.
+// TestNavSync covers a closed focused pane and an archived session.
 func TestNavSync(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
@@ -166,5 +169,67 @@ func TestDragRatios(t *testing.T) {
 	rects := rectsOf(&layout.Node{Ratios: []float64{0.3, 0.7}, Children: n.Children}, layout.Rect{W: 101, H: 10}, 1)
 	if rects["a"] != (layout.Rect{W: 30, H: 10}) || rects["b"] != (layout.Rect{X: 31, W: 70, H: 10}) {
 		t.Fatalf("rects %v", rects)
+	}
+}
+
+// TestNavGroups covers cycling inside a group, a group dissolving under the
+// selection, and a new session taking the selection and pane focus.
+func TestNavGroups(t *testing.T) {
+	b := NewFakeBackend()
+	st := b.State()
+	var n nav
+	n.sync(&st)
+	alt := key.ModAlt
+	n.key(&st, press("4", alt))
+	for _, want := range []string{"w5", "w4"} {
+		n.key(&st, press("J", alt))
+		if n.workspace != want {
+			t.Fatalf("group J: %s, want %s", n.workspace, want)
+		}
+	}
+
+	// Ungrouping g1 puts w4 and w5 after the other ungrouped sessions.
+	b.Send(proto.DeleteGroup{GroupID: "g1"})
+	st = b.State()
+	n.sync(&st)
+	var got []string
+	for _, w := range ordered(&st) {
+		got = append(got, w.ID)
+	}
+	if want := []string{"w1", "w2", "w3", "w4", "w5", "w6"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("order %v, want %v", got, want)
+	}
+	n.key(&st, press("J", alt))
+	if n.workspace != "w5" {
+		t.Fatalf("ungrouped J from w4: %s", n.workspace)
+	}
+	n.key(&st, press("J", alt))
+	if n.workspace != "w1" {
+		t.Fatalf("ungrouped J wraps to w1: %s", n.workspace)
+	}
+
+	// Alt+Shift+T opens a session in the open one's folder and selects it.
+	msg := n.key(&st, press("T", alt|key.ModShift))
+	if msg != (proto.NewSession{Cwd: fakeHome + "/Work/pitwall"}) {
+		t.Fatalf("Alt+Shift+T: %#v", msg)
+	}
+	b.Send(msg)
+	st = b.State()
+	n.sync(&st)
+	if w := findWorkspace(&st, n.workspace); w == nil || w.Name != "pitwall" || n.focused() == "" || w.ProjectID != "" {
+		t.Fatalf("new session not selected and focused: %s/%s", n.workspace, n.focused())
+	}
+}
+
+// TestStartup: the daemon's first session shows up after the window opens
+// and gets selected with its pane focused.
+func TestStartup(t *testing.T) {
+	var n nav
+	st := model.State{}
+	n.sync(&st)
+	st.Workspaces = []model.Workspace{{ID: "s1", Path: "/home/me", Layout: layout.Leaf("p1")}}
+	n.sync(&st)
+	if n.workspace != "s1" || n.focused() != "p1" {
+		t.Fatalf("at %s/%s", n.workspace, n.focused())
 	}
 }

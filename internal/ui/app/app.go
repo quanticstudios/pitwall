@@ -164,8 +164,19 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	switch e := ev.(type) {
 	case sidebar.SelectWorkspace:
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
-	case sidebar.NewWorkspace:
-		u.send(proto.NewWorkspace{ProjectID: e.ProjectID})
+	case sidebar.NewSession:
+		u.nav.expectSession(st)
+		u.send(proto.NewSession{Cwd: newSessionCwd(st, u.nav.workspace, e.GroupID), GroupID: e.GroupID})
+	case sidebar.MoveToGroup:
+		for _, id := range e.WorkspaceIDs {
+			u.send(proto.SetSessionGroup{WorkspaceID: id, GroupID: e.GroupID})
+		}
+	case sidebar.NewGroup:
+		u.send(proto.NewGroup{Name: "New group", WorkspaceIDs: e.WorkspaceIDs})
+	case sidebar.RenameGroup:
+		u.send(proto.RenameGroup{GroupID: e.GroupID, Name: e.Name})
+	case sidebar.Ungroup:
+		u.send(proto.DeleteGroup{GroupID: e.GroupID})
 	case sidebar.RenameWorkspace:
 		u.send(proto.RenameWorkspace{WorkspaceID: e.WorkspaceID, Name: e.Name})
 	case sidebar.ArchiveWorkspace:
@@ -181,6 +192,23 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.SetProjectAppearance:
 		u.send(proto.SetProjectAppearance{ProjectID: e.ProjectID, Icon: e.Icon, Color: e.Color})
 	}
+}
+
+// newSessionCwd is where a new session starts: the open session's folder,
+// or for a group's "+" the group's root when it has one. The GUI does not
+// know a pane's current directory, so the session's start folder stands in.
+func newSessionCwd(st *model.State, active, group string) string {
+	if group != "" {
+		for _, p := range st.Projects {
+			if p.ID == group && p.Root != "" {
+				return p.Root
+			}
+		}
+	}
+	if w := findWorkspace(st, active); w != nil && (group == "" || groupOf(st, *w) == group) {
+		return w.Path
+	}
+	return ""
 }
 
 func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
@@ -216,8 +244,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	gap := gtx.Dp(16)
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone {
-		focused = "" // the dialog holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() {
+		focused = "" // the dialog or a rename field holds key focus
 	}
 	sole := root.Pane != ""
 	for id, r := range rectsOf(root, area, gap) {

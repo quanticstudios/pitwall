@@ -280,16 +280,17 @@ var keybindings = []struct {
 	keys []string
 	what string
 }{
-	{[]string{"Alt", "J / K"}, "Next / previous workspace"},
+	{[]string{"Alt", "J / K"}, "Next / previous session in the group"},
 	{[]string{"Alt", "H / L"}, "Previous / next pane"},
 	{[]string{"Alt", "Arrows"}, "Same as J / K / H / L"},
-	{[]string{"Hold Alt"}, "Show the workspace switcher"},
+	{[]string{"Hold Alt"}, "Show every session; J / K walk them all"},
 	{[]string{"Alt", "Space"}, "Pin the switcher open"},
-	{[]string{"Alt", "1-9"}, "Jump to workspace"},
+	{[]string{"Alt", "1-9"}, "Jump to session"},
 	{[]string{"Alt", "N"}, "Split the pane to the right"},
 	{[]string{"Alt", "Shift", "N"}, "Split the pane below"},
 	{[]string{"Alt", "Shift", "W"}, "Close the pane"},
-	{[]string{"Alt", "Shift", "T"}, "New workspace in this project"},
+	{[]string{"Alt", "Shift", "T"}, "New session in this folder"},
+	{[]string{"Ctrl / Shift", "Click"}, "Pick sessions to group"},
 	{[]string{"Ctrl", "Shift", "C / V"}, "Copy selection / paste"},
 }
 
@@ -338,11 +339,11 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	th, m := u.th, &u.modal
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Add project folder")
+			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Open folder as group")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "A git repository gets worktree workspaces; any other folder opens as is.")
+			return para(gtx, th, th.UIFont, 14, th.Muted, "Makes a group for the folder. A git repository also gets worktree sessions.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -394,7 +395,7 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 20}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", "Add project", th.Primary, theme.Hex("#06121f"))
+			return u.buttons(gtx, "Cancel", "Open", th.Primary, theme.Hex("#06121f"))
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
