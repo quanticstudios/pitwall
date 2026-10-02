@@ -3,8 +3,10 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"slices"
 	"time"
 
 	"gioui.org/app"
@@ -80,6 +82,29 @@ func apply(st *model.State, active *string, ev sidebar.Event) {
 				st.Projects[i].Icon, st.Projects[i].Color = ev.Icon, ev.Color
 			}
 		}
+	case sidebar.MoveToGroup:
+		for _, id := range ev.WorkspaceIDs {
+			ws(id).ProjectID = ev.GroupID
+		}
+	case sidebar.NewGroup:
+		id := fmt.Sprintf("g-%d", len(st.Projects)+1)
+		st.Projects = append(st.Projects, model.Project{ID: id, Name: "New group", Kind: model.ProjectGroup})
+		for _, w := range ev.WorkspaceIDs {
+			ws(w).ProjectID = id
+		}
+	case sidebar.RenameGroup:
+		for i := range st.Projects {
+			if st.Projects[i].ID == ev.GroupID {
+				st.Projects[i].Name = ev.Name
+			}
+		}
+	case sidebar.Ungroup:
+		st.Projects = slices.DeleteFunc(st.Projects, func(p model.Project) bool { return p.ID == ev.GroupID })
+		for i := range st.Workspaces {
+			if st.Workspaces[i].ProjectID == ev.GroupID {
+				st.Workspaces[i].ProjectID = ""
+			}
+		}
 	case sidebar.DeleteWorkspace:
 		for i := range st.Workspaces {
 			if st.Workspaces[i].ID == ev.WorkspaceID {
@@ -108,12 +133,16 @@ func fakeState(now time.Time) model.State {
 		},
 	}
 	add := func(id, project, name, branch string, updated time.Duration, provider model.Provider, state model.AgentState) {
-		st.Workspaces = append(st.Workspaces, model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, UpdatedAt: ago(updated)})
+		st.Workspaces = append(st.Workspaces, model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, Path: "/home/me/Work/" + name, UpdatedAt: ago(updated)})
 		if state != "" {
-			st.Activities = append(st.Activities, model.Activity{PaneID: id + "-pane", WorkspaceID: id, Provider: provider, State: state, UpdatedAt: ago(updated)})
+			detail := ""
+			if provider == model.ProviderTerminal {
+				detail = "go"
+			}
+			st.Activities = append(st.Activities, model.Activity{PaneID: id + "-pane", WorkspaceID: id, Provider: provider, State: state, Detail: detail, UpdatedAt: ago(updated)})
 		}
 	}
-	add("ws-main", "p-pitwall", "main", "main", 3*time.Hour, "", "")
+	add("ws-main", "", "home", "", 3*time.Hour, "", "")
 	add("ws-sidebar", "p-pitwall", "Theme and sidebar", "track/sidebar", 40*time.Second, model.ProviderClaude, model.StateWorking)
 	add("ws-term", "p-pitwall", "Terminal renderer", "track/term", 2*time.Minute, model.ProviderCodex, model.StateConnecting)
 	add("ws-daemon", "p-pitwall", "Daemon socket server", "track/daemon", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)
@@ -121,7 +150,7 @@ func fakeState(now time.Time) model.State {
 	add("ws-plan", "p-pitwall", "Split tree ops", "track/layout", 22*time.Minute, model.ProviderClaude, model.StatePlanReady)
 	add("ws-hotkeys", "p-aide", "Alt navigation hotkeys", "fix/alt-nav", 12*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
 	add("ws-release", "p-aide", "Release 1.4", "release/1.4", 26*time.Hour, model.ProviderCodex, model.StateCompleted)
-	add("ws-ci", "p-aide", "CI watch", "main", 30*time.Second, model.ProviderTerminal, model.StateTerminalRunning)
+	add("ws-ci", "", "CI watch", "", 30*time.Second, model.ProviderTerminal, model.StateTerminalRunning)
 	add("ws-notes", "p-notes", "notes", "", 4*24*time.Hour, "", "")
 	add("ws-old", "p-aide", "Old spike", "spike/electron-41", 9*24*time.Hour, "", "")
 	st.Workspaces[len(st.Workspaces)-1].Archived = true

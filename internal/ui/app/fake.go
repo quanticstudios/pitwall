@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,7 +15,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
-// FakeBackend is an in-memory Backend with a few projects, workspaces and
+// FakeBackend is an in-memory Backend with a few sessions, two groups and
 // panes showing static text. Tick moves agent states so the UI has
 // something to redraw.
 type FakeBackend struct {
@@ -28,23 +29,25 @@ type FakeBackend struct {
 	nextID  int
 }
 
-// NewFakeBackend returns a backend with two git projects and a folder.
+// fakeHome is $HOME, so the fake's paths shorten to ~ like real ones.
+var fakeHome = func() string {
+	if h, err := os.UserHomeDir(); err == nil {
+		return h
+	}
+	return "/home/me"
+}()
+
+// NewFakeBackend returns three ungrouped sessions (a terminal running
+// `go test`, an idle shell, a working Claude) and two groups.
 func NewFakeBackend() *FakeBackend {
 	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, changed: make(chan struct{}, 1)}
 	now := time.Now()
 	f.st.Projects = []model.Project{
-		{ID: "p1", Name: "pitwall", Root: "/src/pitwall", Kind: model.ProjectGit, Color: "blue", Icon: "terminal"},
-		{ID: "p2", Name: "aide", Root: "/src/aide", Kind: model.ProjectGit, Color: "green"},
-		{ID: "p3", Name: "notes", Root: "/home/notes", Kind: model.ProjectFolder, Color: "neutral"},
+		{ID: "g1", Name: "agents", Kind: model.ProjectGroup, Color: "violet", Icon: "bot"},
+		{ID: "g2", Name: "aide", Root: fakeHome + "/src/web-app", Kind: model.ProjectGit, Color: "green"},
 	}
-	ws := func(id, project, name, branch string, root *layout.Node) model.Workspace {
-		w := model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, UpdatedAt: now, Layout: root}
-		for _, p := range f.st.Projects {
-			if p.ID == project && branch != "main" {
-				w.Path = p.Root + "/.worktrees/" + branch
-			}
-		}
-		return w
+	ws := func(id, group, name, branch, path string, ago time.Duration, root *layout.Node) model.Workspace {
+		return model.Workspace{ID: id, ProjectID: group, Name: name, Branch: branch, Path: path, UpdatedAt: now.Add(-ago), Layout: root}
 	}
 	split := func(d layout.Dir, kids ...*layout.Node) *layout.Node {
 		r := make([]float64, len(kids))
@@ -55,17 +58,22 @@ func NewFakeBackend() *FakeBackend {
 	}
 	leaf := func(id string) *layout.Node { return &layout.Node{Pane: id} }
 	f.st.Workspaces = []model.Workspace{
-		ws("w1", "p1", "main", "main", split(layout.Horizontal, leaf("a"), split(layout.Vertical, leaf("b"), leaf("c")))),
-		ws("w2", "p1", "app shell", "track/app", leaf("d")),
-		ws("w3", "p1", "sidebar", "track/sidebar", split(layout.Horizontal, leaf("e"), leaf("f"))),
-		ws("w4", "p2", "fix flicker", "fix-flicker", leaf("g")),
-		ws("w5", "p2", "empty", "empty", nil),
-		ws("w6", "p3", "notes", "", leaf("h")),
+		ws("w1", "", "pitwall", "main", fakeHome+"/Work/pitwall", 20*time.Second, split(layout.Horizontal, leaf("a"), split(layout.Vertical, leaf("b"), leaf("c")))),
+		ws("w2", "", "me", "", fakeHome, 3*time.Hour, leaf("d")),
+		ws("w3", "", "scratch", "", "/tmp/scratch", 2*time.Minute, split(layout.Horizontal, leaf("e"), leaf("f"))),
+		ws("w4", "g1", "fix flicker", "fix-flicker", fakeHome+"/src/web-app/.worktrees/fix-flicker", 5*time.Minute, leaf("g")),
+		ws("w5", "g1", "empty", "", fakeHome+"/notes", 26*time.Hour, nil),
+		ws("w6", "g2", "release", "release/1.4", fakeHome+"/src/web-app", 9*time.Minute, leaf("h")),
 	}
-	agents := map[string]model.Provider{"a": model.ProviderClaude, "b": model.ProviderCodex, "e": model.ProviderClaude, "g": model.ProviderClaude}
+	f.st.Stats = map[string]model.BranchStats{
+		"w1": {Additions: 412, Deletions: 38},
+		"w4": {Additions: 18, Deletions: 44, MergeStatus: model.MergeConflicts},
+		"w6": {Additions: 6, Deletions: 6},
+	}
+	agents := map[string]model.Provider{"a": model.ProviderTerminal, "e": model.ProviderClaude, "g": model.ProviderClaude, "h": model.ProviderCodex}
 	for _, w := range f.st.Workspaces {
 		for _, p := range panesOf(w.Layout) {
-			f.st.Panes = append(f.st.Panes, model.Pane{ID: p, WorkspaceID: w.ID, Cwd: "/src", Provider: agents[p]})
+			f.st.Panes = append(f.st.Panes, model.Pane{ID: p, WorkspaceID: w.ID, Cwd: w.Path, Provider: agents[p]})
 		}
 	}
 	f.setActivities()
@@ -78,17 +86,24 @@ var fakeCycle = []model.AgentState{
 	model.StateAwaitingInput, model.StatePlanReady, model.StateCompleted, model.StateError,
 }
 
+// setActivities gives each agent pane its state for this tick. The
+// terminal keeps running `go test` and the Claude in w3 keeps working; the
+// grouped agents walk fakeCycle.
 func (f *FakeBackend) setActivities() {
 	f.st.Activities = nil
 	for i, p := range f.st.Panes {
-		if p.Provider == "" {
+		a := model.Activity{PaneID: p.ID, WorkspaceID: p.WorkspaceID, Provider: p.Provider, SessionID: "s-" + p.ID, UpdatedAt: time.Now()}
+		switch {
+		case p.Provider == "":
 			continue
+		case p.Provider == model.ProviderTerminal:
+			a.State, a.Detail, a.SessionID = model.StateTerminalRunning, "go", ""
+		case p.WorkspaceID == "w3":
+			a.State = model.StateWorking
+		default:
+			a.State = fakeCycle[(f.ticks+i*2)%len(fakeCycle)]
 		}
-		s := fakeCycle[(f.ticks+i*2)%len(fakeCycle)]
-		f.st.Activities = append(f.st.Activities, model.Activity{
-			PaneID: p.ID, WorkspaceID: p.WorkspaceID, Provider: p.Provider,
-			SessionID: "s-" + p.ID, State: s, UpdatedAt: time.Now(),
-		})
+		f.st.Activities = append(f.st.Activities, a)
 	}
 }
 
@@ -237,6 +252,42 @@ func (f *FakeBackend) Send(msg any) error {
 			}
 		}
 		f.setActivities()
+	case proto.NewSession:
+		f.nextID++
+		id := fmt.Sprintf("ns%d", f.nextID)
+		cwd := m.Cwd
+		if cwd == "" {
+			cwd = fakeHome
+		}
+		f.st.Workspaces = append(f.st.Workspaces, model.Workspace{ID: id, ProjectID: m.GroupID, Name: filepath.Base(cwd),
+			Path: cwd, UpdatedAt: time.Now(), Layout: &layout.Node{Pane: id + "p"}})
+		f.st.Panes = append(f.st.Panes, model.Pane{ID: id + "p", WorkspaceID: id, Cwd: cwd})
+	case proto.SetSessionGroup:
+		if w := ws(m.WorkspaceID); w != nil {
+			w.ProjectID = m.GroupID
+		}
+	case proto.NewGroup:
+		f.nextID++
+		id := fmt.Sprintf("ng%d", f.nextID)
+		f.st.Projects = append(f.st.Projects, model.Project{ID: id, Name: m.Name, Kind: model.ProjectGroup, Color: "neutral"})
+		for _, w := range m.WorkspaceIDs {
+			if w := ws(w); w != nil {
+				w.ProjectID = id
+			}
+		}
+	case proto.RenameGroup:
+		for i := range f.st.Projects {
+			if f.st.Projects[i].ID == m.GroupID {
+				f.st.Projects[i].Name = m.Name
+			}
+		}
+	case proto.DeleteGroup:
+		f.st.Projects = slices.DeleteFunc(f.st.Projects, func(p model.Project) bool { return p.ID == m.GroupID })
+		for i := range f.st.Workspaces {
+			if f.st.Workspaces[i].ProjectID == m.GroupID {
+				f.st.Workspaces[i].ProjectID = ""
+			}
+		}
 	case proto.NewWorkspace:
 		f.nextID++
 		id := fmt.Sprintf("nw%d", f.nextID)
