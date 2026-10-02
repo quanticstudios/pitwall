@@ -36,7 +36,14 @@ const (
 	defaultCols, defaultRows = 80, 24
 	// inputQueue is how many Input messages may wait behind a PTY write.
 	inputQueue = 64
+	// maxQueued is how many Error and PaneExited messages a client may have
+	// unsent before it is disconnected. StateMsg and Frame coalesce instead.
+	maxQueued = 1024
 )
+
+// writeTimeout is how long one message may take to reach a client before it
+// is disconnected; tests shorten it.
+var writeTimeout = 10 * time.Second
 
 // Pane is what the daemon needs from a running pane; *pane.Pane has it.
 type Pane interface {
@@ -196,6 +203,7 @@ func (d *Daemon) shutdown() {
 // newer Frame for a pane replaces an unsent older one.
 type client struct {
 	conn   *proto.Conn
+	nc     net.Conn // for write deadlines
 	wake   chan struct{}
 	mu     sync.Mutex
 	state  bool
@@ -211,6 +219,18 @@ func (c *client) push(f func()) {
 	case c.wake <- struct{}{}:
 	default:
 	}
+}
+
+// queue adds m to the unsent messages, or disconnects a client that has let
+// maxQueued pile up.
+func (c *client) queue(m any) {
+	c.push(func() {
+		if len(c.msgs) >= maxQueued {
+			c.conn.Close()
+			return
+		}
+		c.msgs = append(c.msgs, m)
+	})
 }
 
 func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
@@ -234,6 +254,7 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 			out = append(out, f)
 		}
 		for _, m := range append(out, msgs...) {
+			c.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := c.conn.Send(m); err != nil {
 				c.conn.Close()
 				return
@@ -260,7 +281,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		return
 	}
 
-	c := &client{conn: conn, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
+	c := &client{conn: conn, nc: nc, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
 	done := make(chan struct{})
 	defer close(done)
 	go d.writeLoop(c, done)
@@ -288,7 +309,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			return
 		}
 		if err := d.handle(ctx, m); err != nil {
-			c.push(func() { c.msgs = append(c.msgs, proto.Error{Message: err.Error()}) })
+			c.queue(proto.Error{Message: err.Error()})
 		}
 	}
 }
@@ -788,7 +809,7 @@ func (d *Daemon) exited(id string, p Pane) {
 	d.dropActivity(id)
 	d.changed()
 	for c := range d.clients {
-		c.push(func() { c.msgs = append(c.msgs, proto.PaneExited{Pane: id, ExitCode: code}) })
+		c.queue(proto.PaneExited{Pane: id, ExitCode: code})
 	}
 }
 
