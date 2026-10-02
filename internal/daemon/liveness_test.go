@@ -52,13 +52,25 @@ const (
 	formScreen    = " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n Esc to cancel · Tab to amend"
 )
 
-// liveDaemon opens one pane under a working agent whose foreground group is
-// 100 and returns the daemon, the pane and its id.
+// liveDaemon opens one pane under a hooked agent in state whose foreground
+// group is 100 and returns the daemon, the pane and its id.
 func liveDaemon(t *testing.T, state model.AgentState) (*Daemon, *livePane, string) {
 	t.Helper()
-	oldDelay, oldStill, oldPoll := settleDelay, stillFor, livePoll
+	d, lp, id := openLive(t, 100)
+	must(t, d.handle(context.Background(), proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(state)}))
+	return d, lp, id
+}
+
+// openLive opens one shell pane with fg in the foreground, under the process
+// table of fakeProcs, and runs the liveness loop.
+func openLive(t *testing.T, fg int) (*Daemon, *livePane, string) {
+	t.Helper()
+	oldDelay, oldStill, oldPoll, oldSession, oldIdentify := settleDelay, stillFor, livePoll, sessionOf, identify
 	settleDelay, stillFor, livePoll = 60*time.Millisecond, 20*time.Millisecond, 10*time.Millisecond
-	t.Cleanup(func() { settleDelay, stillFor, livePoll = oldDelay, oldStill, oldPoll })
+	sessionOf, identify = fakeSession, fakeIdentify
+	t.Cleanup(func() {
+		settleDelay, stillFor, livePoll, sessionOf, identify = oldDelay, oldStill, oldPoll, oldSession, oldIdentify
+	})
 
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
@@ -67,7 +79,7 @@ func liveDaemon(t *testing.T, state model.AgentState) (*Daemon, *livePane, strin
 	o.StartPane = func(c pane.Config) (Pane, error) {
 		p, _ := start(c)
 		lp = &livePane{fakePane: p.(*fakePane)}
-		lp.fgGroup.Store(100)
+		lp.fgGroup.Store(int64(fg))
 		lp.show(idleScreen, false)
 		return lp, nil
 	}
@@ -76,8 +88,9 @@ func liveDaemon(t *testing.T, state model.AgentState) (*Daemon, *livePane, strin
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go d.livenessLoop(ctx)
+	done := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-done }) // before the process stubs go back
+	go func() { d.livenessLoop(ctx); close(done) }()
 	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
 	d.mu.Lock()
 	ws := d.st.Workspaces[0].ID
@@ -86,7 +99,6 @@ func liveDaemon(t *testing.T, state model.AgentState) (*Daemon, *livePane, strin
 	d.mu.Lock()
 	id := d.st.Panes[0].ID
 	d.mu.Unlock()
-	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(state)}))
 	return d, lp, id
 }
 
@@ -151,13 +163,15 @@ func TestAnswerAtApproval(t *testing.T) {
 		{spinnerScreen, model.StateWorking},      // approved a long tool
 		{idleScreen, ""},                         // denied
 	} {
-		d, lp, id := liveDaemon(t, model.StatePendingApproval)
-		lp.show(tc.screen, false)
-		must(t, d.handle(context.Background(), proto.Input{Pane: id, Data: []byte("1")}))
-		settled()
-		if s := d.stateOf(id); s != tc.want {
-			t.Errorf("%q: got %q, want %q", tc.screen, s, tc.want)
-		}
+		t.Run(tc.screen, func(t *testing.T) { // each daemon's loop stops before the next starts
+			d, lp, id := liveDaemon(t, model.StatePendingApproval)
+			lp.show(tc.screen, false)
+			must(t, d.handle(context.Background(), proto.Input{Pane: id, Data: []byte("1")}))
+			settled()
+			if s := d.stateOf(id); s != tc.want {
+				t.Errorf("got %q, want %q", s, tc.want)
+			}
+		})
 	}
 }
 

@@ -159,9 +159,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	defer cancel()
 	context.AfterFunc(ctx, func() { ln.Close() })
 	go d.statsLoop(ctx)
-	go d.livenessLoop(ctx)
-
 	var wg sync.WaitGroup
+	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
+
 	var acceptErr error
 	for {
 		nc, err := ln.Accept()
