@@ -113,7 +113,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		flags.BoolVar(&detached, "d", false, "")
 	case "kill":
 		flags.BoolVar(&force, "f", false, "")
-	case "detach", "rename":
+	case "attach", "detach", "rename":
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
@@ -122,7 +122,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	args = flags.Args()
 	if (command == "ls" && len(args) != 0) ||
-		((command == "new" || command == "detach") && len(args) > 1) ||
+		((command == "new" || command == "attach" || command == "detach") && len(args) > 1) ||
 		(command == "kill" && len(args) != 1) ||
 		(command == "rename" && (len(args) < 1 || len(args) > 2)) {
 		return errors.New(usage)
@@ -189,6 +189,11 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	var request any
 	switch command {
+	case "attach":
+		if _, err := syncCLI(conn, proto.FocusSession{WorkspaceID: w.ID}); err != nil {
+			return err
+		}
+		return attachGUI(w.ID)
 	case "detach":
 		request = proto.DetachSession{WorkspaceID: w.ID, Detached: true}
 	case "rename":
