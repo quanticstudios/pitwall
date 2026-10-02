@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=pitwall
+Comment=Terminal multiplexer for coding agents
+Exec=pitwall
+Icon=pitwall
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupWMClass=pitwall

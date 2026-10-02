@@ -27,6 +27,8 @@ const usage = `usage:
   pitwall daemon             run the daemon in the foreground
   pitwall hook <provider>    forward an agent hook event (claude, codex)
   pitwall hooks              print the Claude Code and Codex config that calls the hook
+  pitwall hooks install      merge hooks into agent config files (--dry-run)
+  pitwall hooks uninstall    remove this binary's hooks (--dry-run)
 `
 
 func main() {
@@ -43,7 +45,7 @@ func main() {
 	case "hook":
 		runHook(os.Args[2:])
 	case "hooks":
-		err = printHooks()
+		err = runHooks(os.Args[2:], os.Stdout)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
