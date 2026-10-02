@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,11 +127,12 @@ func TestSaveFailureCleansTemp(t *testing.T) {
 
 func TestRestoreCmd(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	tests := []struct {
+	type testCase struct {
 		name string
 		pane model.Pane
 		want []string
-	}{
+	}
+	tests := []testCase{
 		{"claude resume", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"/bin/claude", "--resume", "old", "--model", "sonnet", "-c"}}, []string{"/bin/claude", "--model", "sonnet", "--resume", "new"}},
 		{"claude short resume", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "-r", "old", "--continue", "--verbose"}}, []string{"claude", "--verbose", "--resume", "new"}},
 		{"claude attached", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "--resume=old", "--model=sonnet"}}, []string{"claude", "--model=sonnet", "--resume", "new"}},
@@ -146,6 +148,27 @@ func TestRestoreCmd(t *testing.T) {
 		{"no session", model.Pane{Provider: model.ProviderClaude, Cmd: []string{"claude", "--continue"}}, []string{"claude", "--continue"}},
 		{"unknown provider", model.Pane{SessionID: "new", Cmd: []string{"custom"}}, []string{"custom"}},
 		{"empty", model.Pane{}, nil},
+	}
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+		want := []string{string(provider), "--resume", "new"}
+		if provider == model.ProviderCodex {
+			want = []string{"codex", "resume", "new"}
+		}
+		for _, cmd := range [][]string{
+			{"sh", "-c", string(provider) + "; rm -rf build; make deploy"},
+			{"sh", "-lc", string(provider) + "; rm -rf build; make deploy"},
+			{"/bin/bash", "-lc", string(provider) + " --model old; make deploy"},
+			{"zsh", "-c", string(provider)},
+			{"fish", "-c", string(provider)},
+			{"env", "MODEL=old", string(provider), "--model", "old"},
+			{"/usr/bin/env", string(provider), "--model", "old"},
+			{"node", "/opt/bin/" + string(provider), "--model", "old"},
+			{"custom", "-c", string(provider)},
+			{"claude-wrapper", "--model", "old"},
+			{"codex-wrapper", "--model", "old"},
+		} {
+			tests = append(tests, testCase{string(provider) + " via " + strings.Join(cmd, " "), model.Pane{Provider: provider, SessionID: "new", Cmd: cmd}, want})
+		}
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
