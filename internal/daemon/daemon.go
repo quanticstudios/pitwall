@@ -143,16 +143,6 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	for i, w := range st.Workspaces {
-		if w.WorktreeRoot == "" && w.ProjectID != "" {
-			for _, p := range st.Projects {
-				if p.ID == w.ProjectID {
-					// State saved before WorktreeRoot existed.
-					st.Workspaces[i].WorktreeRoot = worktreeRoot(p, w.Path)
-				}
-			}
-		}
-	}
 	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}}
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()

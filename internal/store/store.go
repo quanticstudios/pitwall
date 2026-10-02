@@ -13,7 +13,9 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
-const formatVersion = 1
+// formatVersion 2 added Workspace.WorktreeRoot; version 1 files are
+// migrated once on load.
+const formatVersion = 2
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -79,11 +81,14 @@ func Load(path string) (model.State, error) {
 	if err := json.Unmarshal(data, &saved); err != nil {
 		return model.State{}, fmt.Errorf("load state: %w", err)
 	}
-	if saved.FormatVersion != formatVersion {
+	if saved.FormatVersion != 1 && saved.FormatVersion != formatVersion {
 		return model.State{}, fmt.Errorf("unsupported state format version %d", saved.FormatVersion)
 	}
 	if saved.State == nil {
 		return model.State{}, errors.New("load state: missing state")
+	}
+	if saved.FormatVersion == 1 {
+		migrateWorktrees(saved.State)
 	}
 	return *saved.State, nil
 }
@@ -155,4 +160,23 @@ func RestoreCmd(p model.Pane) []string {
 		}
 	}
 	return append(cmd, p.SessionID)
+}
+
+// migrateWorktrees marks the worktrees a version 1 daemon created. Every
+// version 1 workspace belonged to the project it was made in, and the only
+// ones under <root>/.worktrees/ came from AddWorktree. From version 2 on the
+// daemon records ownership itself, so this never runs again: a hand-made
+// worktree grouped in later stays unowned across restarts.
+func migrateWorktrees(s *model.State) {
+	roots := map[string]string{}
+	for _, p := range s.Projects {
+		if p.Kind == model.ProjectGit {
+			roots[p.ID] = p.Root
+		}
+	}
+	for i, w := range s.Workspaces {
+		if root, ok := roots[w.ProjectID]; ok && filepath.Dir(w.Path) == filepath.Join(root, ".worktrees") {
+			s.Workspaces[i].WorktreeRoot = root
+		}
+	}
 }

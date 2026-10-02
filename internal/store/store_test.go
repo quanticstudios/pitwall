@@ -95,7 +95,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":2,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":3,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -181,5 +181,39 @@ func TestRestoreCmd(t *testing.T) {
 				t.Fatal("RestoreCmd modified the original command")
 			}
 		})
+	}
+}
+
+func TestLoadMigratesVersion1Worktrees(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v1 := `{"format_version":1,"state":{
+		"Projects":[{"ID":"p","Root":"/r","Kind":"git"},{"ID":"g","Kind":"group"}],
+		"Workspaces":[
+			{"ID":"made","ProjectID":"p","Path":"/r/.worktrees/feat"},
+			{"ID":"main","ProjectID":"p","Path":"/r"},
+			{"ID":"grouped","ProjectID":"g","Path":"/r/.worktrees/x"}]}}`
+	if err := os.WriteFile(path, []byte(v1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"made": "/r", "main": "", "grouped": ""}
+	for _, w := range s.Workspaces {
+		if w.WorktreeRoot != want[w.ID] {
+			t.Errorf("%s: WorktreeRoot = %q, want %q", w.ID, w.WorktreeRoot, want[w.ID])
+		}
+	}
+	// Saved as version 2, an unowned worktree stays unowned on the next load.
+	s.Workspaces[0].WorktreeRoot = ""
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if s.Workspaces[0].WorktreeRoot != "" {
+		t.Fatal("version 2 load re-inferred worktree ownership")
 	}
 }
