@@ -54,9 +54,50 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pitwall:", err)
+		if cmd == "" {
+			// Launched from a desktop launcher, stderr goes nowhere.
+			exec.Command("notify-send", "--app-name=pitwall", "--urgency=critical", "pitwall could not start", err.Error()).Run()
+		}
 		os.Exit(1)
 	}
 }
+
+// lockHolder is the pid holding an flock on f, from /proc/locks, which
+// lists each lock's owner and the device:inode it covers.
+func lockHolder(f *os.File) (int, error) {
+	var st syscall.Stat_t
+	if err := syscall.Fstat(int(f.Fd()), &st); err != nil {
+		return 0, err
+	}
+	data, err := os.ReadFile("/proc/locks")
+	if err != nil {
+		return 0, err
+	}
+	suffix := ":" + strconv.FormatUint(st.Ino, 10)
+	for _, line := range strings.Split(string(data), "\n") {
+		// "1: FLOCK  ADVISORY  WRITE 4056327 00:3a:1234 0 EOF"
+		f := strings.Fields(line)
+		if len(f) >= 6 && f[1] == "FLOCK" && strings.HasSuffix(f[5], suffix) && devMatches(f[5], st.Dev) {
+			return strconv.Atoi(f[4])
+		}
+	}
+	return 0, errors.New("no process holds the daemon lock")
+}
+
+// devMatches compares /proc/locks' "MAJ:MIN:INODE" (hex major and minor) with
+// a stat device number.
+func devMatches(field string, dev uint64) bool {
+	parts := strings.Split(field, ":")
+	if len(parts) != 3 {
+		return false
+	}
+	maj, err1 := strconv.ParseUint(parts[0], 16, 32)
+	min, err2 := strconv.ParseUint(parts[1], 16, 32)
+	return err1 == nil && err2 == nil && maj == uint64(devMajor(dev)) && min == uint64(devMinor(dev))
+}
+
+func devMajor(dev uint64) uint32 { return uint32((dev>>32)&0xfffff000) | uint32((dev>>8)&0x00000fff) }
+func devMinor(dev uint64) uint32 { return uint32((dev>>12)&0xffffff00) | uint32(dev&0x000000ff) }
 
 // runDaemon holds an exclusive lock next to the socket for its lifetime, so
 // of two daemons started at once only one restores panes and binds; the
@@ -231,6 +272,10 @@ func stopIncompatibleDaemon(path string) error {
 		return fmt.Errorf("cannot read old daemon pid: %w; stop the old daemon with kill <pid>, then retry", err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		// Daemons from before the pid was written hold the lock all the same.
+		pid, err = lockHolder(lock)
+	}
 	if err != nil || pid <= 1 || pid == os.Getpid() {
 		return errors.New("old daemon lock has no valid daemon pid; stop the old daemon with kill <pid>, then retry")
 	}
