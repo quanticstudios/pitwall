@@ -28,7 +28,8 @@ import (
 )
 
 // Event is one of SelectWorkspace, NewWorkspace, AddProject, RenameWorkspace,
-// ArchiveWorkspace, DeleteWorkspace, RestoreWorkspace, OpenSettings.
+// ArchiveWorkspace, DeleteWorkspace, RestoreWorkspace, OpenSettings,
+// SetProjectAppearance.
 type Event any
 
 type SelectWorkspace struct{ WorkspaceID, PaneID string }
@@ -39,6 +40,10 @@ type ArchiveWorkspace struct{ WorkspaceID string }
 type DeleteWorkspace struct{ WorkspaceID string }
 type RestoreWorkspace struct{ WorkspaceID string }
 type OpenSettings struct{}
+
+// SetProjectAppearance carries the project's whole appearance: a lucide
+// icon name and an aide color id.
+type SetProjectAppearance struct{ ProjectID, Icon, Color string }
 
 // Width is aide's w-72.
 const Width unit.Dp = 288
@@ -60,6 +65,12 @@ type Sidebar struct {
 
 	archivedOpen bool
 	archivedDel  map[string]*widget.Clickable
+	archivedRes  map[string]*widget.Clickable
+
+	appearance string               // project whose icon and color popover is open
+	iconBtn    [35]widget.Clickable // one per projectIcons entry
+	colorBtn   [len(projectColorIDs)]widget.Clickable
+	popover    int // tag that keeps clicks on a popover's body from closing it
 
 	renaming    string
 	focusEditor bool
@@ -68,7 +79,13 @@ type Sidebar struct {
 	events []Event
 }
 
-type projectState struct{ toggle, add widget.Clickable }
+type projectState struct{ toggle, add, more widget.Clickable }
+
+// projectColorIDs is aide's PROJECT_COLOR_OPTIONS order.
+var projectColorIDs = [...]string{
+	"neutral", "red", "orange", "amber", "yellow", "lime", "green", "emerald", "teal",
+	"cyan", "sky", "blue", "indigo", "violet", "purple", "fuchsia", "pink", "rose",
+}
 
 type rowState struct {
 	click, more widget.Clickable
@@ -83,6 +100,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 		s.projects = map[string]*projectState{}
 		s.rows = map[string]*rowState{}
 		s.archivedDel = map[string]*widget.Clickable{}
+		s.archivedRes = map[string]*widget.Clickable{}
 		s.list.Axis = layout.Vertical
 		s.editor.SingleLine = true
 		s.editor.Submit = true
@@ -170,7 +188,12 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			break
 		}
 		if _, ok := ev.(pointer.Event); ok {
-			s.menuWS, s.archivedOpen = "", false
+			s.menuWS, s.archivedOpen, s.appearance = "", false, ""
+		}
+	}
+	for {
+		if _, ok := gtx.Event(pointer.Filter{Target: &s.popover, Kinds: pointer.Press}); !ok {
+			break
 		}
 	}
 	for _, p := range v.st.Projects {
@@ -180,6 +203,26 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		}
 		for ps.add.Clicked(gtx) {
 			s.events = append(s.events, NewWorkspace{ProjectID: p.ID})
+		}
+		for ps.more.Clicked(gtx) {
+			if s.appearance == p.ID {
+				s.appearance = ""
+			} else {
+				s.appearance, s.menuWS, s.archivedOpen = p.ID, "", false
+			}
+		}
+		if s.appearance == p.ID {
+			icon, col := appearanceOf(p)
+			for i := range s.iconBtn {
+				for s.iconBtn[i].Clicked(gtx) {
+					s.events = append(s.events, SetProjectAppearance{ProjectID: p.ID, Icon: projectIcons[i].name, Color: col})
+				}
+			}
+			for i := range s.colorBtn {
+				for s.colorBtn[i].Clicked(gtx) {
+					s.events = append(s.events, SetProjectAppearance{ProjectID: p.ID, Icon: icon, Color: projectColorIDs[i]})
+				}
+			}
 		}
 	}
 	for _, ws := range v.st.Workspaces {
@@ -207,6 +250,11 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			for del.Clicked(gtx) {
 				s.events = append(s.events, DeleteWorkspace{WorkspaceID: ws.ID})
 				s.archivedOpen = false
+			}
+		}
+		if res := s.archivedRes[ws.ID]; res != nil {
+			for res.Clicked(gtx) {
+				s.events = append(s.events, RestoreWorkspace{WorkspaceID: ws.ID})
 			}
 		}
 	}
@@ -256,7 +304,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	}
 	for s.archived.Clicked(gtx) {
 		s.archivedOpen = !s.archivedOpen
-		s.menuWS = ""
+		s.menuWS, s.appearance = "", ""
+	}
+	for s.settings.Clicked(gtx) {
+		s.events = append(s.events, OpenSettings{})
 	}
 	// Refresh hover state for every clickable drawn below.
 	drain := func(c *widget.Clickable) {
@@ -269,6 +320,19 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for _, ps := range s.projects {
 		drain(&ps.toggle)
 		drain(&ps.add)
+		drain(&ps.more)
+	}
+	for i := range s.iconBtn {
+		drain(&s.iconBtn[i])
+	}
+	for i := range s.colorBtn {
+		drain(&s.colorBtn[i])
+	}
+	for _, c := range s.archivedRes {
+		drain(c)
+	}
+	for _, c := range s.archivedDel {
+		drain(c)
 	}
 	for _, r := range s.rows {
 		drain(&r.click)
@@ -286,7 +350,7 @@ func (s *Sidebar) toggleMenu(id string) {
 	if s.menuWS == id {
 		s.menuWS = ""
 	} else {
-		s.menuWS, s.archivedOpen = id, false
+		s.menuWS, s.archivedOpen, s.appearance = id, false, ""
 	}
 }
 
@@ -380,7 +444,8 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	th := v.th
 	ps := s.project(p.ID)
 	w, h := gtx.Constraints.Max.X, gtx.Dp(40) // --pane-header-h
-	if ps.toggle.Hovered() || ps.add.Hovered() {
+	hovered := ps.toggle.Hovered() || ps.add.Hovered() || ps.more.Hovered()
+	if hovered {
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
 	}
 	attention := 0
@@ -390,7 +455,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		}
 	}
 	bg := th.Sidebar
-	if ps.toggle.Hovered() || ps.add.Hovered() {
+	if hovered {
 		bg = th.SurfaceSecondary
 	}
 	nameCol := theme.Mix(bg, th.Fg, 0.8)
@@ -411,9 +476,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		off := op.Offset(image.Pt(gtx.Dp(6), 0)).Push(gtx.Ops)
 		items := []item{
 			{w: func(gtx layout.Context) layout.Dimensions {
-				// Project.Icon names a Nerd Font glyph with no lucide
-				// mapping yet, so every project gets aide's default folder.
-				return drawIcon(gtx, icFolder, gtx.Dp(14), th.ProjectColor(p.Color), 0)
+				return drawIcon(gtx, projectIcon(p.Icon), gtx.Dp(14), th.ProjectColor(p.Color), 0)
 			}},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, semibold(th.UIFont), 14, nameCol, p.Name)
@@ -437,6 +500,23 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 
 	off = op.Offset(image.Pt(px+triggerW+gap, (h-btn)/2)).Push(gtx.Ops)
 	iconButton(gtx, th, &ps.add, icPlus, btn, gtx.Dp(14), true)
+	off.Pop()
+
+	// The "…" overflow trigger, shown on header hover like aide's.
+	mx := px + triggerW + 2*gap + btn
+	off = op.Offset(image.Pt(mx, (h-btn)/2)).Push(gtx.Ops)
+	if hovered || s.appearance == p.ID {
+		iconButton(gtx, th, &ps.more, icEllipsis, btn, gtx.Dp(16), true)
+	} else {
+		clickable(gtx, &ps.more, func(gtx layout.Context) layout.Dimensions {
+			return layout.Dimensions{Size: image.Pt(btn, btn)}
+		})
+	}
+	if s.appearance == p.ID {
+		m := op.Record(gtx.Ops)
+		s.appearanceMenu(gtx, th, p, mx, btn)
+		op.Defer(gtx.Ops, m.Stop())
+	}
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
@@ -669,6 +749,7 @@ func (s *Sidebar) menu(gtx layout.Context, th *theme.Theme, trigger int) {
 	size := image.Pt(w, 2*p+3*itemH)
 	defer op.Offset(image.Pt(trigger-w, trigger+gtx.Dp(4))).Push(gtx.Ops).Pop()
 	floatingSurface(gtx, th, size)
+	s.blockClicks(gtx, size)
 	for i, it := range menuLabels {
 		col, iconCol := th.Fg, th.Muted
 		if i == 2 {
@@ -701,6 +782,132 @@ func (s *Sidebar) catcher(gtx layout.Context) {
 	const far = 1 << 16
 	defer clip.Rect{Min: image.Pt(-far, -far), Max: image.Pt(far, far)}.Push(gtx.Ops).Pop()
 	event.Op(gtx.Ops, &s.dismiss)
+}
+
+// blockClicks keeps a click on a popover's body, between its buttons, from
+// reaching the catcher underneath and closing it.
+func (s *Sidebar) blockClicks(gtx layout.Context, size image.Point) {
+	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+	event.Op(gtx.Ops, &s.popover)
+}
+
+// appearanceOf is p's icon and color with aide's defaults filled in.
+func appearanceOf(p model.Project) (icon, color string) {
+	icon, color = p.Icon, p.Color
+	if icon == "" {
+		icon = "folder"
+	}
+	if color == "" {
+		color = "neutral"
+	}
+	return icon, color
+}
+
+// appearanceMenu is ProjectOverflowMenu without the icon search and the
+// setup entry: a 7-column icon grid and aide's color row. x is the trigger's
+// offset in the sidebar, so the 320px popover keeps its left edge inside the
+// window.
+func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Project, x, trigger int) {
+	s.catcher(gtx)
+	icon, col := appearanceOf(p)
+	w, pad, gap := gtx.Dp(320), gtx.Dp(10), gtx.Dp(4)
+	inner := w - 2*pad
+	cell, sw := gtx.Dp(32), gtx.Dp(24)
+	const cols = 7
+	rows := (len(projectIcons) + cols - 1) / cols
+	perRow := max(1, (inner+gap)/(sw+gap))
+	colorRows := (len(projectColorIDs) + perRow - 1) / perRow
+	labelH := gtx.Dp(16)
+	gridH := rows*(cell+gap) - gap
+	colorH := colorRows*(sw+gap) - gap
+	size := image.Pt(w, pad+labelH+gtx.Dp(8)+gridH+gtx.Dp(12)+labelH+gtx.Dp(8)+colorH+pad)
+
+	left := max(trigger-w, gtx.Dp(8)-x) // "bottom end", clamped to the window
+	defer op.Offset(image.Pt(left, trigger+gtx.Dp(4))).Push(gtx.Ops).Pop()
+	floatingSurface(gtx, th, size)
+	s.blockClicks(gtx, size)
+
+	section := func(y int, text string) {
+		off := op.Offset(image.Pt(pad+gtx.Dp(4), y)).Push(gtx.Ops)
+		g := gtx
+		g.Constraints = layout.Exact(image.Pt(inner, labelH))
+		hrow(g, labelH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, medium(th.UIFont), 11, th.Muted, text)
+		}})
+		off.Pop()
+	}
+	y := pad
+	section(y, "Icon")
+	y += labelH + gtx.Dp(8)
+	colW := (inner - (cols-1)*gap) / cols
+	for i, ic := range projectIcons {
+		c := &s.iconBtn[i]
+		at := image.Pt(pad+(i%cols)*(colW+gap), y+(i/cols)*(cell+gap))
+		selected := ic.name == icon
+		off := op.Offset(at).Push(gtx.Ops)
+		g := gtx
+		g.Constraints = layout.Exact(image.Pt(cell, cell))
+		clickable(g, c, func(gtx layout.Context) layout.Dimensions {
+			r := image.Rect(0, 0, cell, cell)
+			fg := theme.Mix(th.SurfaceSecondary, th.Fg, 0.85)
+			switch {
+			case selected:
+				bg := theme.Mix(th.SurfaceSecondary, th.Primary, 0.15)
+				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, theme.Mix(bg, th.Primary, 0.5), clip.Stroke{Path: clip.UniformRRect(r, gtx.Dp(8)).Path(gtx.Ops), Width: 1}.Op())
+				fg = th.Primary
+			case c.Hovered():
+				paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
+				fg = th.Fg
+			}
+			return drawCentered(gtx, cell, func(gtx layout.Context) layout.Dimensions {
+				return drawIcon(gtx, ic.d, gtx.Dp(14), fg, 0)
+			})
+		})
+		off.Pop()
+	}
+	y += gridH + gtx.Dp(12)
+	section(y, "Color")
+	y += labelH + gtx.Dp(8)
+	for i, id := range projectColorIDs {
+		c := &s.colorBtn[i]
+		at := image.Pt(pad+(i%perRow)*(sw+gap), y+(i/perRow)*(sw+gap))
+		off := op.Offset(at).Push(gtx.Ops)
+		g := gtx
+		g.Constraints = layout.Exact(image.Pt(sw, sw))
+		clickable(g, c, func(gtx layout.Context) layout.Dimensions {
+			r := image.Rect(0, 0, sw, sw)
+			if c.Hovered() {
+				paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.Ellipse(r).Op(gtx.Ops))
+			}
+			if id == col {
+				paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.7), clip.Stroke{Path: clip.Ellipse(r).Path(gtx.Ops), Width: 1}.Op())
+			}
+			d := gtx.Dp(16)
+			o := (sw - d) / 2
+			paint.FillShape(gtx.Ops, th.ProjectColor(id), clip.Ellipse(image.Rect(o, o, o+d, o+d)).Op(gtx.Ops))
+			return layout.Dimensions{Size: r.Size()}
+		})
+		off.Pop()
+	}
+}
+
+// textButton is a small ghost button with a text label.
+func textButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, text string, h int) layout.Dimensions {
+	m := op.Record(gtx.Ops)
+	d := label(gtx, th, medium(th.UIFont), 12, th.Fg, text)
+	call := m.Stop()
+	size := image.Pt(d.Size.X+gtx.Dp(20), h)
+	gtx.Constraints = layout.Exact(size)
+	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
+		if c.Hovered() {
+			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Op(gtx.Ops))
+		}
+		off := op.Offset(size.Sub(d.Size).Div(2)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		off.Pop()
+		return layout.Dimensions{Size: size}
+	})
 }
 
 // floatingSurface is aide's .floating-surface: popover fill, a 1px
@@ -788,6 +995,7 @@ func (s *Sidebar) archivedMenu(gtx layout.Context, v *view, trigger int) {
 	x := trigger/2 - w/2 // placement "top", centered on the trigger
 	defer op.Offset(image.Pt(x, -size.Y-gtx.Dp(8))).Push(gtx.Ops).Pop()
 	floatingSurface(gtx, th, size)
+	s.blockClicks(gtx, size)
 	if len(archived) == 0 {
 		off := op.Offset(image.Pt(p+gtx.Dp(8), p)).Push(gtx.Ops)
 		gtx.Constraints = layout.Exact(image.Pt(w-2*p-gtx.Dp(16), rowH))
@@ -807,6 +1015,11 @@ func (s *Sidebar) archivedMenu(gtx layout.Context, v *view, trigger int) {
 			del = &widget.Clickable{}
 			s.archivedDel[ws.ID] = del
 		}
+		res := s.archivedRes[ws.ID]
+		if res == nil {
+			res = &widget.Clickable{}
+			s.archivedRes[ws.ID] = res
+		}
 		off := op.Offset(image.Pt(p+gtx.Dp(8), p+i*rowH)).Push(gtx.Ops)
 		gtx := gtx
 		gtx.Constraints = layout.Exact(image.Pt(w-2*p-gtx.Dp(12), rowH))
@@ -820,6 +1033,9 @@ func (s *Sidebar) archivedMenu(gtx layout.Context, v *view, trigger int) {
 				)
 			}},
 			item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return textButton(gtx, th, res, "Restore", gtx.Dp(28))
+			}},
+			item{w: func(gtx layout.Context) layout.Dimensions {
 				return iconButton(gtx, th, del, icTrash, gtx.Dp(28), gtx.Dp(14), true)
 			}},
 		)

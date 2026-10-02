@@ -71,3 +71,18 @@ func TestParsePathArc(t *testing.T) {
 		t.Errorf("V3 ended at %v", end)
 	}
 }
+
+func TestProjectIcons(t *testing.T) {
+	var s Sidebar
+	if len(projectIcons) != len(s.iconBtn) {
+		t.Fatalf("%d icons, %d buttons", len(projectIcons), len(s.iconBtn))
+	}
+	for _, ic := range projectIcons {
+		if len(parsePath(ic.d)) == 0 { // panics on a command the parser lacks
+			t.Errorf("%s: empty path", ic.name)
+		}
+	}
+	if projectIcon("code") == icFolder || projectIcon("no-such-icon") != icFolder || projectIcon("") != icFolder {
+		t.Error("projectIcon lookup or fallback is wrong")
+	}
+}

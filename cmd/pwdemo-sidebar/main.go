@@ -72,6 +72,14 @@ func apply(st *model.State, active *string, ev sidebar.Event) {
 		ws(ev.WorkspaceID).Name = ev.Name
 	case sidebar.ArchiveWorkspace:
 		ws(ev.WorkspaceID).Archived = true
+	case sidebar.RestoreWorkspace:
+		ws(ev.WorkspaceID).Archived = false
+	case sidebar.SetProjectAppearance:
+		for i := range st.Projects {
+			if st.Projects[i].ID == ev.ProjectID {
+				st.Projects[i].Icon, st.Projects[i].Color = ev.Icon, ev.Color
+			}
+		}
 	case sidebar.DeleteWorkspace:
 		for i := range st.Workspaces {
 			if st.Workspaces[i].ID == ev.WorkspaceID {
@@ -86,8 +94,8 @@ func fakeState(now time.Time) model.State {
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
 	st := model.State{
 		Projects: []model.Project{
-			{ID: "p-pitwall", Name: "pitwall", Root: "/home/me/Work/pitwall", Kind: model.ProjectGit, Color: "sky"},
-			{ID: "p-aide", Name: "aide", Root: "/home/me/Work/aide", Kind: model.ProjectGit, Color: "violet"},
+			{ID: "p-pitwall", Name: "pitwall", Root: "/home/me/Work/pitwall", Kind: model.ProjectGit, Color: "sky", Icon: "terminal"},
+			{ID: "p-aide", Name: "aide", Root: "/home/me/Work/aide", Kind: model.ProjectGit, Color: "violet", Icon: "sparkles"},
 			{ID: "p-notes", Name: "notes", Root: "/home/me/notes", Kind: model.ProjectFolder, Color: "amber"},
 		},
 		Stats: map[string]model.BranchStats{

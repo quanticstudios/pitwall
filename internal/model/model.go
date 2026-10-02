@@ -21,7 +21,7 @@ type Project struct {
 	Root  string // repo root or folder path
 	Kind  ProjectKind
 	Color string // aide color id: "neutral", "red", "blue", ...
-	Icon  string // Nerd Font glyph name; "" means the default folder glyph
+	Icon  string // aide lucide icon name ("folder", "code", ...); "" means "folder"
 }
 
 type Workspace struct {
