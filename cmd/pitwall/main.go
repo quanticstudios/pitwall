@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,6 +81,12 @@ func runDaemon() error {
 		c.Close()
 		return errors.New("a daemon is already running on " + path)
 	}
+	if err := lock.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(lock, "%d\n", os.Getpid()); err != nil {
+		return err
+	}
 	os.Remove(path) // stale socket from a crashed daemon: the lock holder owns it
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -139,29 +147,117 @@ func printHooks() error {
 }
 
 func runGUI() error {
-	conn, err := dialOrStart()
+	conn, initial, err := dialOrStart()
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 	b := newBackend(conn)
-	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "gui", Cwd: cwd()}); err != nil {
-		return err
-	}
+	b.state = initial.State
 	go b.recvLoop()
 	return app.Run(b)
 }
 
-// dialOrStart connects to the daemon, launching a detached one first if
-// nothing is listening. A daemon that loses the start race to another exits,
-// and the loop below dials the winner.
-func dialOrStart() (*proto.Conn, error) {
+// dialOrStart completes the GUI handshake before starting the window. An
+// incompatible daemon gets one graceful restart so it can save its state.
+func dialOrStart() (*proto.Conn, proto.StateMsg, error) {
 	path, err := proto.SocketPath()
 	if err != nil {
-		return nil, err
+		return nil, proto.StateMsg{}, err
 	}
-	if c, err := proto.Dial(path); err == nil {
-		return c, nil
+	nc, err := net.Dial("unix", path)
+	if err != nil {
+		nc, err = startDaemon(path)
+		if err != nil {
+			return nil, proto.StateMsg{}, err
+		}
 	}
+	conn, initial, err := guiHandshake(nc)
+	if err == nil {
+		return conn, initial, nil
+	}
+	fmt.Fprintln(os.Stderr, "pitwall: restarting incompatible daemon")
+	if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
+		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %v; %w", err, stopErr)
+	}
+	nc, err = startDaemon(path)
+	if err != nil {
+		return nil, proto.StateMsg{}, err
+	}
+	conn, initial, err = guiHandshake(nc)
+	if err != nil {
+		return nil, proto.StateMsg{}, fmt.Errorf("replacement daemon handshake failed: %w", err)
+	}
+	return conn, initial, nil
+}
+
+func guiHandshake(nc net.Conn) (*proto.Conn, proto.StateMsg, error) {
+	conn := proto.NewConn(nc)
+	fail := func(err error) (*proto.Conn, proto.StateMsg, error) {
+		conn.Close()
+		return nil, proto.StateMsg{}, err
+	}
+	if err := nc.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return fail(err)
+	}
+	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "gui", Cwd: cwd()}); err != nil {
+		return fail(err)
+	}
+	for {
+		msg, err := conn.Recv()
+		if err != nil {
+			return fail(err)
+		}
+		switch m := msg.(type) {
+		case proto.StateMsg:
+			if err := nc.SetDeadline(time.Time{}); err != nil {
+				return fail(err)
+			}
+			return conn, m, nil
+		case proto.Error:
+			return fail(errors.New(m.Message))
+		}
+	}
+}
+
+func stopIncompatibleDaemon(path string) error {
+	lock, err := os.OpenFile(path+".lock", os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("cannot read old daemon pid: %w; stop the old daemon with kill <pid>, then retry", err)
+	}
+	defer lock.Close()
+	data, err := io.ReadAll(io.LimitReader(lock, 64))
+	if err != nil {
+		return fmt.Errorf("cannot read old daemon pid: %w; stop the old daemon with kill <pid>, then retry", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 1 || pid == os.Getpid() {
+		return errors.New("old daemon lock has no valid daemon pid; stop the old daemon with kill <pid>, then retry")
+	}
+	// Another client may have stopped the daemon during our handshake.
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+		return nil
+	} else if !errors.Is(err, syscall.EWOULDBLOCK) {
+		return fmt.Errorf("inspect old daemon lock: %w; stop the old daemon with kill %d, then retry", err, pid)
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("stop old daemon: %w; stop the old daemon with kill %d, then retry", err, pid)
+	}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return fmt.Errorf("wait for old daemon lock: %w; stop the old daemon with kill %d, then retry", err, pid)
+		}
+	}
+	return fmt.Errorf("old daemon %d did not release its lock within 5s; stop the old daemon with kill %d, then retry", pid, pid)
+}
+
+// startDaemon launches a detached daemon. If another daemon wins the lock,
+// the dial loop connects to that daemon.
+func startDaemon(path string) (net.Conn, error) {
 	bin, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -183,7 +279,7 @@ func dialOrStart() (*proto.Conn, error) {
 	}
 	go cmd.Wait() // reap it if it exits while the window is open
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if c, err := proto.Dial(path); err == nil {
+		if c, err := net.Dial("unix", path); err == nil {
 			return c, nil
 		}
 	}

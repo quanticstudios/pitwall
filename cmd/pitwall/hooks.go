@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -22,6 +23,8 @@ var hookExecutable = func() (string, error) {
 	}
 	return filepath.EvalSymlinks(bin)
 }
+
+var hookBeforeWrite = func(path string) {}
 
 func runHooks(args []string, out io.Writer) error {
 	if len(args) == 0 {
@@ -53,32 +56,35 @@ func runHooks(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(filepath.Join(stateDir(), "hooks.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
 	type config struct {
-		path           string
-		data, original []byte
-		mode           os.FileMode
-		changes        []string
+		path                      string
+		data, original, generated []byte
+		mode                      os.FileMode
+		changes                   []string
 	}
 	files := []config{{path: filepath.Join(home, ".claude", "settings.json")}, {path: filepath.Join(home, ".codex", "hooks.json")}}
 	for i := range files {
 		f := &files[i]
-		f.mode = 0o600
 		f.original, err = os.ReadFile(f.path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err == nil {
-			info, err := os.Stat(f.path)
-			if err != nil {
-				return err
-			}
-			f.mode = info.Mode().Perm()
-		}
-		generated := agent.ClaudeHooks(bin)
+		f.generated = agent.ClaudeHooks(bin)
 		if i == 1 {
-			generated = agent.CodexHooks(bin)
+			f.generated = agent.CodexHooks(bin)
 		}
-		f.data, f.changes, err = mergeHooks(f.original, generated, bin, install)
+		f.data, f.changes, err = mergeHooks(f.original, f.generated, install)
 		if err != nil {
 			return fmt.Errorf("%s: %w", f.path, err)
 		}
@@ -87,6 +93,26 @@ func runHooks(args []string, out io.Writer) error {
 		if dry {
 			fmt.Fprintf(out, "# %s\n%s\n", f.path, f.data)
 			continue
+		}
+		hookBeforeWrite(f.path)
+		fresh, err := os.ReadFile(f.path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("re-read %s: %w", f.path, err)
+		}
+		if !bytes.Equal(fresh, f.original) || (fresh == nil) != (f.original == nil) {
+			f.data, f.changes, err = mergeHooks(fresh, f.generated, install)
+			if err != nil {
+				return fmt.Errorf("%s changed during hook update; refusing to overwrite: %w", f.path, err)
+			}
+			f.original = fresh
+		}
+		f.mode = 0o600
+		if fresh != nil {
+			info, err := os.Stat(f.path)
+			if err != nil {
+				return err
+			}
+			f.mode = info.Mode().Perm()
 		}
 		if len(f.changes) == 0 {
 			fmt.Fprintf(out, "%s: unchanged\n", f.path)
@@ -118,7 +144,7 @@ func hookJSON[T any](data []byte) (T, error) {
 	return v, err
 }
 
-func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, []string, error) {
+func mergeHooks(original, generated []byte, install bool) ([]byte, []string, error) {
 	root := hookObject{}
 	if original != nil {
 		var err error
@@ -136,6 +162,19 @@ func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, [
 		}
 	}
 	wanted, _ := hookJSON[hookObject](generated)
+	commands := map[string]bool{}
+	for _, raw := range wanted {
+		groups, _ := hookJSON[[]hookObject](raw)
+		for _, group := range groups {
+			handlers, _ := hookJSON[[]hookObject](group["hooks"])
+			for _, handler := range handlers {
+				command, _ := hookJSON[string](handler["command"])
+				if command != "" {
+					commands[command] = true
+				}
+			}
+		}
+	}
 	names := make([]string, 0, len(events)+len(wanted))
 	for name := range events {
 		names = append(names, name)
@@ -178,7 +217,7 @@ func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, [
 				if command != "" && cmd == command {
 					found = true
 				}
-				if !install && isPitwallHook(cmd, bin) {
+				if !install && commands[cmd] {
 					groupRemoved, removed = true, true
 					changes = append(changes, "removed "+name+": "+cmd)
 					continue
@@ -217,16 +256,17 @@ func mergeHooks(original, generated []byte, bin string, install bool) ([]byte, [
 	return append(data, '\n'), changes, err
 }
 
-func isPitwallHook(command, bin string) bool {
-	singleQuoted := "'" + strings.ReplaceAll(bin, "'", `'\''`) + "'"
-	doubleQuoted := `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`").Replace(bin) + `"`
-	if strings.HasPrefix(command, singleQuoted+" hook ") || strings.HasPrefix(command, doubleQuoted+" hook ") {
-		return true
-	}
-	return !strings.ContainsAny(bin, " \t\n\\\"'$`;&|()<>{}*?[]") && strings.HasPrefix(command, bin+" hook ")
-}
-
 func writeHookConfig(path string, data, original []byte, mode os.FileMode) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		path, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve hook config symlink: %w", err)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
