@@ -604,3 +604,43 @@ func TestDeleteWorkspaceBranchKept(t *testing.T) {
 	}
 	waitUntil(t, "pane closed", func() bool { p := f.pane(0); p.mu.Lock(); defer p.mu.Unlock(); return p.closed })
 }
+
+// A GUI client that stops reading is disconnected; the others keep getting
+// state.
+func TestSlowClientDisconnected(t *testing.T) {
+	old := writeTimeout
+	writeTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { writeTimeout = old })
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go d.Serve(ctx, ln)
+
+	good := dial(t, sock, "gui")
+	good.waitState("initial", func(model.State) bool { return true })
+	slow, err := proto.Dial(sock) // never reads
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slow.Close()
+	slow.Send(proto.Hello{Version: proto.Version, Kind: "gui"})
+	waitUntil(t, "slow client registered", func() bool { d.mu.Lock(); defer d.mu.Unlock(); return len(d.clients) == 2 })
+	go func() {
+		bad := proto.Input{Pane: strings.Repeat("x", 512)} // each earns an Error reply
+		for slow.Send(bad) == nil {
+		}
+	}()
+	waitUntil(t, "slow client dropped", func() bool { d.mu.Lock(); defer d.mu.Unlock(); return len(d.clients) == 1 })
+
+	good.send(proto.AddProject{Path: t.TempDir()})
+	good.waitState("project", func(s model.State) bool { return len(s.Projects) == 1 })
+}
