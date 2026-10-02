@@ -1,0 +1,30 @@
+
+ ▐▛███▛█   Claude Code v2.1.287
+▝▜██████▀  Opus 5.5 with high effort · Claude Max
+ ▝▝   ▝▝   ~/Work/aide
+
+
+❯ Use the Bash tool to run exactly this command: sleep 6
+
+  Waiting six seconds
+  ⎿  $ sleep 6
+
+
+
+
+
+
+
+
+
+
+
+
+✻ Worked for 9s
+  You've used 76% of your weekly limit · resets 9pm (Europe/Podgorica) · /usage-credits to keep u…
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker · restart with CLAUDE_C…
+  Opus 5.5 · high · aide main* · 6% 56k/1.0M
+  ⏸ manual mode on
