@@ -257,6 +257,16 @@ func mergeHooks(original, generated []byte, install bool) ([]byte, []string, err
 }
 
 func writeHookConfig(path string, data, original []byte, mode os.FileMode) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		path, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve hook config symlink: %w", err)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
