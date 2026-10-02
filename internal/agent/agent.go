@@ -108,9 +108,7 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		// Codex notify program: agent-turn-complete is its only type.
 		return model.StateCompleted, "", false, p.Type == "agent-turn-complete"
 	}
-	// Codex's /side fork runs hooks with a null transcript; it is not the
-	// pane's main turn.
-	if string(p.TranscriptPath) == "null" {
+	if sideFork(p) {
 		return "", "", false, false
 	}
 	switch p.Event {
@@ -168,6 +166,10 @@ func decode(b []byte) (payload, error) {
 	return p, err
 }
 
+// sideFork reports a hook from Codex's /side fork, which runs with a null
+// transcript; it is not the pane's main session.
+func sideFork(p payload) bool { return string(p.TranscriptPath) == "null" }
+
 func sessionID(p payload) string {
 	if p.Event == "" {
 		return p.ThreadID
@@ -187,10 +189,11 @@ func firstNonEmpty(s ...string) string {
 // SessionID returns the agent session id carried by the payload, or "".
 // Claude and Codex hooks carry session_id (a subagent's hooks carry the
 // parent's); Codex notify carries thread-id. The provider is not needed to
-// tell them apart.
+// tell them apart. A /side fork's hook returns "": resuming it would lose
+// the main session.
 func SessionID(provider model.Provider, payload []byte) string {
 	p, err := decode(payload)
-	if err != nil {
+	if err != nil || sideFork(p) {
 		return ""
 	}
 	return sessionID(p)
