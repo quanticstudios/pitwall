@@ -423,3 +423,41 @@ func TestCursorBlink(t *testing.T) {
 		}
 	}
 }
+
+// routedPane lays a View out through a real Gio router. Each call queues
+// evs, draws one frame and returns the PTY bytes it produced. Two empty
+// frames first register the handler and take key focus.
+func routedPane(t *testing.T) (*View, func(m vt.Modes, focused bool, evs ...event.Event) string) {
+	t.Helper()
+	var r input.Router
+	v := new(View)
+	th := testTheme()
+	g := denseGrid(20, 5, 0, 7)
+	frame := func(m vt.Modes, focused bool, evs ...event.Event) string {
+		r.Queue(evs...)
+		gtx := testContext(image.Pt(400, 300))
+		gtx.Source = r.Source()
+		_, in, _, _ := v.Layout(gtx, th, g, m, focused)
+		r.Frame(gtx.Ops)
+		return string(in)
+	}
+	frame(vt.Modes{}, true)
+	frame(vt.Modes{}, true)
+	return v, frame
+}
+
+// TestKittyReportAllText checks committed text in kitty report-all mode:
+// a plain key's duplicate text event is dropped, while IME and compose
+// commits with no matching key press reach the program once.
+func TestKittyReportAllText(t *testing.T) {
+	_, frame := routedPane(t)
+	m := vt.Modes{KittyKeyboard: 8}
+	a := key.Event{Name: "A", State: key.Press}
+	got := frame(m, true, a, key.EditEvent{Text: "a"}, key.EditEvent{Text: "日本語"}, key.EditEvent{Text: "é"})
+	if want := "\x1b[97;1u日本語é"; got != want {
+		t.Errorf("report-all = %q, want %q", got, want)
+	}
+	if got := frame(vt.Modes{}, true, a, key.EditEvent{Text: "a"}, key.EditEvent{Text: "日本語"}); got != "a日本語" {
+		t.Errorf("legacy = %q", got)
+	}
+}
