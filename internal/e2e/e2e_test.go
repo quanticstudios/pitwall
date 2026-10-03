@@ -62,26 +62,34 @@ func TestEngine(t *testing.T) {
 	})
 }
 
-// A shell's exit closes its pane, an emptied tab and then an emptied session.
-func TestExitClosesTabAndSession(t *testing.T) {
+// A tab opened from a shell that cd'd starts there and is titled after that
+// directory, as is the shell's own tab; a shell's exit closes its tab.
+func TestNewTabFollowsCwd(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
 	gui := connect(t, "gui")
 	s := waitState(t, gui, func(s model.State) bool { return len(s.Workspaces) == 1 && len(s.Panes) == 1 })
-	w, first := s.Workspaces[0], s.Panes[0].ID
-	gui.send(t, proto.NewTab{WorkspaceID: w.ID})
-	s = waitState(t, gui, func(s model.State) bool { return len(s.Panes) == 2 && len(s.Workspaces[0].Tabs) == 2 })
-	second := s.Panes[1].ID
-	if s.Workspaces[0].ActiveTab != s.Workspaces[0].Tabs[1].ID {
-		t.Fatalf("new tab is not active: %+v", s.Workspaces[0])
+	w, shell := s.Workspaces[0], s.Panes[0].ID
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.Mkdir(other, 0o700); err != nil {
+		t.Fatal(err)
 	}
+	gui.send(t, proto.Input{Pane: shell, Data: []byte("cd " + other + "\r")})
+	waitState(t, gui, func(s model.State) bool { return s.Workspaces[0].Label == "other" })
+
+	gui.send(t, proto.NewTab{WorkspaceID: w.ID, FromPane: shell})
+	s = waitState(t, gui, func(s model.State) bool { return len(s.Workspaces) == 2 && len(s.Panes) == 2 })
+	if nw := s.Workspaces[1]; nw.Label != "other" || filepath.Base(nw.Path) != "other" || nw.ID == w.ID || nw.ProjectID != w.ProjectID {
+		t.Fatalf("new tab %+v", nw)
+	}
+	second := s.Panes[1].ID
 
 	gui.send(t, proto.Input{Pane: second, Data: []byte("exit\r")})
 	s = waitState(t, gui, func(s model.State) bool { return len(s.Panes) == 1 })
-	if tabs := s.Workspaces[0].Tabs; len(tabs) != 1 || s.Workspaces[0].ActiveTab != tabs[0].ID {
-		t.Fatalf("emptied tab left: %+v", s.Workspaces[0])
+	if len(s.Workspaces) != 1 || s.Workspaces[0].ID != w.ID {
+		t.Fatalf("exit left %+v", s.Workspaces)
 	}
-	gui.send(t, proto.Input{Pane: first, Data: []byte("exit\r")})
+	gui.send(t, proto.Input{Pane: shell, Data: []byte("exit\r")})
 	waitState(t, gui, func(s model.State) bool { return len(s.Workspaces) == 0 && len(s.Panes) == 0 })
 }
 
@@ -191,7 +199,7 @@ func TestPromptNamesSession(t *testing.T) {
 	gui := connectIn(t, "gui", cwd)
 	s := waitState(t, gui, func(s model.State) bool { return len(s.Panes) == 1 })
 	shell := s.Panes[0].ID
-	if w := s.Workspaces[0]; w.NameSet || w.Label != "" {
+	if w := s.Workspaces[0]; w.NameSet || w.Label != "cap" {
 		t.Fatalf("fresh session %+v", w)
 	}
 	gui.send(t, proto.Input{Pane: shell, Data: []byte("printf '\\033]0;\\342\\240\\213 cap\\007'\r")})

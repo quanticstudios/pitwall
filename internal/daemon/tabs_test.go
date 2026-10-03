@@ -41,87 +41,71 @@ func (f *fakes) closed(i int) bool {
 	return p.closed
 }
 
+// A tab is a session: NewTab opens one right after its source, in its group,
+// in the source pane's live directory; CloseTab kills one and RenameTab names
+// one.
 func TestTabs(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	d := newDaemon(t, f.options())
 	ctx := context.Background()
 	dir, there := t.TempDir(), t.TempDir()
 	must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
-	w := d.state().Workspaces[0]
-	if len(w.Tabs) != 1 || w.ActiveTab != w.Tabs[0].ID {
-		t.Fatalf("new session tabs: %+v", w)
-	}
-	first, shell := w.Tabs[0].ID, d.state().Panes[0].ID
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
+	st := d.state()
+	src, last, shell := st.Workspaces[0], st.Workspaces[1], st.Panes[0].ID
+	must(t, d.handle(ctx, proto.NewGroup{Name: "g", WorkspaceIDs: []string{src.ID}}))
+	group := d.state().Projects[0].ID
 
 	// The shell cd'd; a tab opened from it starts there.
 	f.pane(0).cfg.Cwd = there
-	must(t, d.handle(ctx, proto.NewTab{WorkspaceID: w.ID, FromPane: shell}))
-	w = d.state().Workspaces[0]
-	second := w.Tabs[1].ID
-	if len(w.Tabs) != 2 || w.ActiveTab != second || f.pane(1).cfg.Cwd != there || len(f.pane(1).cfg.Cmd) != 0 {
-		t.Fatalf("NewTab: %+v cfg %+v", w, f.pane(1).cfg)
+	must(t, d.handle(ctx, proto.NewTab{WorkspaceID: src.ID, FromPane: shell}))
+	st = d.state()
+	nw := st.Workspaces[1]
+	if len(st.Workspaces) != 3 || st.Workspaces[0].ID != src.ID || st.Workspaces[2].ID != last.ID {
+		t.Fatalf("NewTab order: %+v", st.Workspaces)
 	}
-	must(t, d.handle(ctx, proto.NewTab{WorkspaceID: w.ID}))
-	if f.pane(2).cfg.Cwd != dir {
-		t.Fatalf("NewTab without a pane or cwd started in %s, want the session path", f.pane(2).cfg.Cwd)
+	if nw.ProjectID != group || nw.Path != there || nw.NameSet || !model.IsSessionName(nw.Name) || len(nw.Tabs) != 1 ||
+		nw.Label != filepath.Base(there) || f.pane(2).cfg.Cwd != there || len(f.pane(2).cfg.Cmd) != 0 {
+		t.Fatalf("NewTab: %+v cfg %+v", nw, f.pane(2).cfg)
 	}
-	third := d.state().Workspaces[0].Tabs[2].ID
+	// From a pane alone (pitwall tab new), and from an ungrouped session
+	// without a pane, which starts in its path.
+	must(t, d.handle(ctx, proto.NewTab{FromPane: shell}))
+	must(t, d.handle(ctx, proto.NewTab{WorkspaceID: last.ID}))
+	st = d.state()
+	if w := st.Workspaces[1]; len(st.Workspaces) != 5 || w.ID == nw.ID || w.Path != there || w.ProjectID != group {
+		t.Fatalf("NewTab from a pane: %+v", st.Workspaces)
+	}
+	if w := st.Workspaces[4]; w.Path != dir || w.ProjectID != "" || st.Workspaces[3].ID != last.ID {
+		t.Fatalf("NewTab without a pane: %+v", st.Workspaces)
+	}
+	if d.handle(ctx, proto.NewTab{WorkspaceID: "gone"}) == nil {
+		t.Fatal("NewTab of an unknown session accepted")
+	}
+	must(t, d.handle(ctx, proto.SelectTab{WorkspaceID: "anything"}))
 
-	// OpenPane goes to the active tab, or the one named.
-	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: w.ID}))
-	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: w.ID, TabID: first, Target: shell, Dir: layout.Vertical}))
-	st := d.state()
-	w = st.Workspaces[0]
-	p3, p4 := st.Panes[3].ID, st.Panes[4].ID
-	if got := layout.Panes(w.Tabs[2].Layout); !slices.Equal(got, []string{st.Panes[2].ID, p3}) {
-		t.Fatalf("active tab panes %v", got)
+	must(t, d.handle(ctx, proto.RenameTab{Pane: shell, Name: " build "}))
+	if w := d.state().Workspaces[0]; w.Name != "build" || !w.NameSet || w.Label != "build" || w.Tabs[0].Title != "build" {
+		t.Fatalf("RenameTab: %+v", w)
 	}
-	if got := layout.Panes(w.Tabs[0].Layout); !slices.Equal(got, []string{shell, p4}) {
-		t.Fatalf("first tab panes %v", got)
+	if d.handle(ctx, proto.RenameTab{WorkspaceID: nw.ID, Name: "build"}) == nil {
+		t.Fatal("RenameTab to a taken name accepted")
 	}
-	if d.handle(ctx, proto.OpenPane{WorkspaceID: w.ID, TabID: second, Target: shell}) == nil {
-		t.Fatal("split of a pane in another tab accepted")
+	must(t, d.handle(ctx, proto.RenameTab{Pane: shell}))
+	if w := d.state().Workspaces[0]; w.NameSet || !model.IsSessionName(w.Name) || w.Label != filepath.Base(dir) {
+		t.Fatalf("RenameTab clear: %+v", w)
 	}
-
-	// SetLayout checks the tab's own panes.
-	two := func(a, b string) *layout.Node {
-		return &layout.Node{Children: []*layout.Node{{Pane: a}, {Pane: b}}}
-	}
-	if d.handle(ctx, proto.SetLayout{WorkspaceID: w.ID, TabID: first, Layout: two(shell, p3)}) == nil {
-		t.Fatal("layout with another tab's pane accepted")
-	}
-	must(t, d.handle(ctx, proto.SetLayout{WorkspaceID: w.ID, TabID: first, Layout: two(p4, shell)}))
-	if got := layout.Panes(d.state().Workspaces[0].Tabs[0].Layout); !slices.Equal(got, []string{p4, shell}) {
-		t.Fatalf("SetLayout: %v", got)
-	}
-
-	must(t, d.handle(ctx, proto.SelectTab{WorkspaceID: w.ID, TabID: second}))
-	if d.state().Workspaces[0].ActiveTab != second || d.handle(ctx, proto.SelectTab{WorkspaceID: w.ID, TabID: "nope"}) == nil {
-		t.Fatal("SelectTab")
+	if d.handle(ctx, proto.RenameTab{Pane: "gone", Name: "x"}) == nil {
+		t.Fatal("RenameTab of an unknown pane accepted")
 	}
 
-	must(t, d.handle(ctx, proto.RenameTab{Pane: p4, Name: " build "}))
-	must(t, d.handle(ctx, proto.RenameTab{WorkspaceID: w.ID, TabID: second, Name: "logs"}))
-	w = d.state().Workspaces[0]
-	if w.Tabs[0].Name != "build" || w.Tabs[1].Name != "logs" {
-		t.Fatalf("RenameTab: %+v", w.Tabs)
+	must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: nw.ID, TabID: "ignored"}))
+	if slices.ContainsFunc(d.state().Workspaces, func(w model.Workspace) bool { return w.ID == nw.ID }) || len(d.state().Panes) != 4 {
+		t.Fatalf("CloseTab left %+v", d.state())
 	}
-	must(t, d.handle(ctx, proto.RenameTab{Pane: p4}))
-	if d.state().Workspaces[0].Tabs[0].Name != "" || d.handle(ctx, proto.RenameTab{Pane: "gone", Name: "x"}) == nil {
-		t.Fatal("RenameTab clear or unknown pane")
-	}
-
-	// Closing the active tab closes its panes and activates its neighbor.
-	must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: w.ID, TabID: second}))
-	w = d.state().Workspaces[0]
-	if len(w.Tabs) != 2 || w.ActiveTab != third || len(d.state().Panes) != 4 {
-		t.Fatalf("CloseTab: %+v", w)
-	}
-	waitUntil(t, "closed tab's pane", func() bool { return f.closed(1) })
-	must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: w.ID, TabID: first}))
-	must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: w.ID, TabID: third}))
-	if st := d.state(); len(st.Workspaces) != 0 || len(st.Panes) != 0 {
-		t.Fatalf("closing the last tab left %+v", st)
+	waitUntil(t, "closed tab's pane", func() bool { return f.closed(2) })
+	if d.handle(ctx, proto.CloseTab{WorkspaceID: nw.ID}) == nil {
+		t.Fatal("CloseTab of a closed tab accepted")
 	}
 }
 
@@ -146,36 +130,44 @@ func TestCleanTitle(t *testing.T) {
 func TestTabTitle(t *testing.T) {
 	w := &model.Workspace{Path: "/src/repo/.worktrees/api", RepoRoot: "/src/repo"}
 	panes := map[string]*model.Pane{
-		"shell":  {ID: "shell", Title: "user@host: ~"},
+		"shell":  {ID: "shell", Title: "user@host: ~", Cwd: "/src/pitwall"},
+		"home":   {ID: "home", Title: "user@host: ~", Cwd: homeDir()},
 		"claude": {ID: "claude", Title: "Fix login", Provider: model.ProviderClaude, Prompt: "fix the login"},
 		"codex":  {ID: "codex", Title: "api", Provider: model.ProviderCodex, Prompt: "rename foo to bar"},
 		"repo":   {ID: "repo", Title: "REPO", Provider: model.ProviderCodex},
 		"fresh":  {ID: "fresh", Title: "Claude Code", Provider: model.ProviderClaude},
 		"quiet":  {ID: "quiet"},
+		"vim":    {ID: "vim", Title: "main.go - NVIM"},
 		"bare":   {ID: "bare", Provider: model.ProviderCodex},
 	}
-	running := map[string]string{"quiet": "make"}
+	running := map[string]string{"quiet": "make", "vim": "nvim"}
 	for _, c := range []struct {
-		name string
 		ids  []string
 		want string
 	}{
-		{"", []string{"shell", "claude"}, "Fix login"},        // Claude topic beats its prompt and the shell
-		{"", []string{"shell", "codex"}, "rename foo to bar"}, // Codex dir-name title falls to the prompt
-		{"", []string{"codex", "claude"}, "Fix login"},        // any agent's topic beats any prompt
-		{"", []string{"repo", "shell"}, "user@host: ~"},       // repo name is generic
-		{"", []string{"fresh", "quiet"}, "make"},              // "Claude Code" is generic
-		{"", []string{"bare", "quiet"}, "make"},               // no titles: foreground command
-		{"", []string{"bare"}, "api"},                         // nothing: directory name
-		{"deploy", []string{"claude", "shell"}, "deploy"},     // explicit name wins
+		{[]string{"shell", "claude"}, "Fix login"},        // Claude topic beats its prompt and the shell
+		{[]string{"shell", "codex"}, "rename foo to bar"}, // Codex dir-name title falls to the prompt
+		{[]string{"codex", "claude"}, "Fix login"},        // any agent's topic beats any prompt
+		{[]string{"shell", "repo"}, "pitwall"},            // a shell at its prompt shows its live directory
+		{[]string{"home"}, "~"},                           // home is ~
+		{[]string{"fresh", "quiet"}, "make"},              // "Claude Code" is generic: foreground command
+		{[]string{"vim", "shell"}, "main.go - NVIM"},      // a running program's own title
+		{[]string{"bare"}, "api"},                         // nothing: the session's directory name
 	} {
-		tab := &model.Tab{Name: c.name, Layout: &layout.Node{}}
+		tab := &model.Tab{Layout: &layout.Node{}}
 		for _, id := range c.ids {
 			tab.Layout.Children = append(tab.Layout.Children, &layout.Node{Pane: id})
 		}
 		if got := tabTitle(w, tab, panes, running); got != c.want {
-			t.Errorf("tabTitle(%q, %v) = %q, want %q", c.name, c.ids, got, c.want)
+			t.Errorf("tabTitle(%v) = %q, want %q", c.ids, got, c.want)
 		}
+	}
+	named := &model.Workspace{Name: "deploy", NameSet: true}
+	if got := tabTitle(named, &model.Tab{Layout: layout.Leaf("claude")}, panes, running); got != "deploy" {
+		t.Errorf("a chosen name lost to %q", got)
+	}
+	if got := tabTitle(&model.Workspace{Name: "swift-otter"}, &model.Tab{}, panes, running); got != "swift-otter" {
+		t.Errorf("empty tab title %q", got)
 	}
 	if user := loginName(); user != "" && !genericTitle(w, strings.ToUpper(user)) {
 		t.Errorf("login name %q is not generic", user)
@@ -237,30 +229,46 @@ func TestPromptNamesTab(t *testing.T) {
 	}
 }
 
-// Label is the title of the tab with the most urgent agent, else of the
-// active tab, and "" when that is only the directory name.
-func TestLabelFollowsAttention(t *testing.T) {
+// Label is the tab's title and never empty: a bare shell shows its
+// directory, an agent's topic beats it and a chosen name beats both.
+func TestLabel(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	d := newDaemon(t, f.options())
 	ctx := context.Background()
-	must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir()}))
-	ws := d.state().Workspaces[0].ID
-	must(t, d.handle(ctx, proto.NewTab{WorkspaceID: ws}))
-	st := d.state()
-	first, second := st.Panes[0].ID, st.Panes[1].ID
-	if got := st.Workspaces[0].Label; got != "" {
+	dir := filepath.Join(t.TempDir(), "cap")
+	mkdir(t, dir)
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
+	id := d.state().Panes[0].ID
+	label := func() string { return d.state().Workspaces[0].Label }
+	if got := label(); got != "cap" {
 		t.Fatalf("label %q for a bare shell", got)
 	}
-	must(t, d.handle(ctx, proto.RenameTab{Pane: first, Name: "build"}))
-	must(t, d.handle(ctx, proto.RenameTab{Pane: second, Name: "docs"}))
-	if got := d.state().Workspaces[0].Label; got != "docs" {
-		t.Fatalf("label %q, want the active tab's", got)
+	d.mu.Lock()
+	d.st.Panes[0].Title = "Fix login"
+	d.mu.Unlock()
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(model.StateWorking)}))
+	if got := label(); got != "Fix login" {
+		t.Fatalf("label %q, want the agent's topic", got)
 	}
-	must(t, d.handle(ctx, proto.AgentEvent{Pane: first, Provider: model.ProviderClaude, Payload: []byte(model.StatePendingApproval)}))
-	must(t, d.handle(ctx, proto.AgentEvent{Pane: second, Provider: model.ProviderClaude, Payload: []byte(model.StateWorking)}))
-	if got := d.state().Workspaces[0].Label; got != "build" {
-		t.Fatalf("label %q, want the tab waiting for approval", got)
+	must(t, d.handle(ctx, proto.RenameTab{Pane: id, Name: "deploy"}))
+	if got := label(); got != "deploy" {
+		t.Fatalf("label %q, want the chosen name", got)
 	}
+}
+
+// A shell at its prompt titles its tab with the directory it is in now,
+// read on the liveness poll.
+func TestShellTitleFollowsCwd(t *testing.T) {
+	d, lp, _ := openLive(t, 200)
+	label := func() string { d.mu.Lock(); defer d.mu.Unlock(); return d.st.Workspaces[0].Label }
+	there := filepath.Join(t.TempDir(), "aide")
+	lp.setCwd(there)
+	waitUntil(t, "label aide", func() bool { return label() == "aide" })
+	if got := d.state().Panes[0].Cwd; got != there {
+		t.Fatalf("pane cwd %q", got)
+	}
+	lp.setCwd(homeDir())
+	waitUntil(t, "label ~", func() bool { return label() == "~" })
 }
 
 // NameSet tells names a person chose from generated ones.
@@ -310,11 +318,15 @@ func TestTitleFollowsAgentPane(t *testing.T) {
 	}
 	tabTitle := func() string { return d.state().Workspaces[0].Tabs[0].Title }
 
+	dirTitle := tabTitle()
 	setTitle(0, "user@host: ~")
-	waitUntil(t, "shell title", func() bool { return tabTitle() == "user@host: ~" })
+	waitUntil(t, "shell title", func() bool { return d.state().Panes[0].Title == "user@host: ~" })
+	if tabTitle() != dirTitle {
+		t.Fatalf("tab title %q from a shell at its prompt, want %q", tabTitle(), dirTitle)
+	}
 	setTitle(1, "⠋ cap")
 	waitUntil(t, "pane title", func() bool { return d.state().Panes[1].Title == "cap" })
-	if tabTitle() != "user@host: ~" {
+	if tabTitle() != dirTitle {
 		t.Fatalf("tab title %q before the pane is known as an agent", tabTitle())
 	}
 	must(t, d.handle(ctx, proto.AgentEvent{Pane: agent, Provider: model.ProviderCodex, Payload: []byte("working")}))
@@ -330,27 +342,20 @@ func TestTitleFollowsAgentPane(t *testing.T) {
 	}
 }
 
-// A pane whose process exits leaves its tab; an emptied tab leaves the
-// session, and an emptied session goes.
+// A pane whose process exits leaves its tab; the tab's last pane takes the
+// session with it.
 func TestPaneExitClosesPaneTabSession(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	d := newDaemon(t, f.options())
 	ctx := context.Background()
 	must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir()}))
 	ws := d.state().Workspaces[0].ID
-	must(t, d.handle(ctx, proto.NewTab{WorkspaceID: ws}))
-	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws, Target: d.state().Panes[1].ID}))
-	first := d.state().Workspaces[0].Tabs[0].ID
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws, Target: d.state().Panes[0].ID}))
 
-	f.pane(2).Close()
-	waitUntil(t, "exited pane removed", func() bool { return len(d.state().Panes) == 2 })
-	if w := d.state().Workspaces[0]; len(w.Tabs) != 2 || layout.Panes(w.Tabs[1].Layout)[0] != d.state().Panes[1].ID {
-		t.Fatalf("after one exit: %+v", w)
-	}
 	f.pane(1).Close()
-	waitUntil(t, "emptied tab removed", func() bool { return len(d.state().Workspaces[0].Tabs) == 1 })
-	if w := d.state().Workspaces[0]; w.ActiveTab != first {
-		t.Fatalf("active tab %s, want %s", w.ActiveTab, first)
+	waitUntil(t, "exited pane removed", func() bool { return len(d.state().Panes) == 1 })
+	if w := d.state().Workspaces[0]; len(w.Tabs) != 1 || layout.Panes(w.Tabs[0].Layout)[0] != d.state().Panes[0].ID {
+		t.Fatalf("after one exit: %+v", w)
 	}
 	f.pane(0).Close()
 	waitUntil(t, "emptied session removed", func() bool { return len(d.state().Workspaces) == 0 })
@@ -552,7 +557,6 @@ func TestFocusSession(t *testing.T) {
 	gui := dial(t, sock, "gui")
 	st := gui.waitState("first session", func(s model.State) bool { return len(s.Workspaces) == 1 })
 	ws := st.Workspaces[0]
-	gui.send(proto.NewTab{WorkspaceID: ws.ID})
 	gui.send(proto.DetachSession{WorkspaceID: ws.ID, Detached: true})
 	gui.waitState("detached", func(s model.State) bool { return s.Workspaces[0].Detached })
 

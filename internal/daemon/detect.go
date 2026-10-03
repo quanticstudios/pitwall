@@ -73,7 +73,7 @@ type look struct {
 }
 
 // detect polls every live pane. A pane whose foreground is its own shell
-// costs one TIOCGPGRP ioctl and a comm read; any other foreground adds an exe
+// costs one TIOCGPGRP ioctl, a comm read and a cwd readlink; any other foreground adds an exe
 // read, and a detected agent without hooks adds a screen snapshot.
 func (d *Daemon) detect(ctx context.Context) {
 	d.mu.Lock()
@@ -116,6 +116,10 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		if prov != "" && !l.hooked {
 			g = l.p.Snapshot()
 		}
+	}
+	var cwd string
+	if own && l.shell != "" && prov == "" {
+		cwd = l.p.Cwd() // the shell's directory names its tab
 	}
 
 	d.mu.Lock()
@@ -160,6 +164,10 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	default:
 		det.cells = nil
 		d.setActivity(ctx, l.id, "", "", "")
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id }); i >= 0 && cwd != "" && d.st.Panes[i].Cwd != cwd {
+			d.st.Panes[i].Cwd = cwd
+			d.changed()
+		}
 	}
 }
 
