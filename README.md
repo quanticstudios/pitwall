@@ -84,9 +84,8 @@ Each sidebar row shows a tab's state:
 | Error    | The turn failed                                   |
 | `go`     | A terminal is running that command                |
 
-A tab running Claude or Codex always shows it, idle or busy: the agent's mark
-replaces the row icon and its name starts the second line. The mark goes when
-the agent exits back to the shell.
+A tab running Claude or Codex always shows it, idle or busy: the agent's logo
+replaces the row icon. The logo goes when the agent exits back to the shell.
 
 A group header shows how many of its tabs need you. When a tab needs you and
 you are not looking at it, pitwall sends a desktop notification.
@@ -205,21 +204,18 @@ conventional:
 | Ctrl+Shift+O                            | Split the pane to the right                               |
 | Ctrl+Shift+E                            | Split the pane below                                      |
 | Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up   | Next / previous pane                                      |
-| Ctrl+Shift+Space                        | Show or hide the tab switcher; J/K or arrows move, Enter or a click closes |
 | Ctrl+Shift+B                            | Show or hide the sidebar                                  |
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste                                    |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
-| Escape                                  | Close the switcher or a dialog, cancel a drag             |
+| Escape                                  | Close a dialog or settings, cancel a drag                 |
 
 aide:
 
 | Keys                              | Action                                         |
 | --------------------------------- | ---------------------------------------------- |
-| Alt+J / Alt+K                     | Next / previous tab in the group               |
+| Alt+J / Alt+K                     | Next / previous tab, across groups             |
 | Alt+H / Alt+L                     | Previous / next pane                           |
 | Alt+Arrows                        | Same as J / K / H / L                          |
-| Hold Alt                          | Show the tab switcher; Alt+J/K then cross groups |
-| Alt+Space                         | Pin the switcher open                          |
 | Alt+1-9                           | Go to the Nth tab in the sidebar               |
 | Alt+Shift+T                       | New tab below this one, in its folder          |
 | Alt+N                             | Split the pane to the right                    |
@@ -234,7 +230,7 @@ aide:
 | Ctrl+T twice                      | Send Ctrl+T to the terminal                    |
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                         |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
-| Escape                            | Close the switcher or a dialog, cancel a drag  |
+| Escape                            | Close a dialog or settings, cancel a drag      |
 
 Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and
@@ -293,8 +289,7 @@ Chords are modifiers (`Ctrl`, `Alt`, `Shift`, `Super`) and a key joined by
 `+`, in any case. Keys are a printable character, `Space`, `Tab`, `Enter`,
 `Esc`, `Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, `Up`,
 `Down`, `Left`, `Right` or `F1`-`F12`. Two actions on one chord is an error
-naming both. `switcher_modifier` (`"Alt"`, `"Super"`, `"Ctrl"` or `""`) is
-the modifier you hold to see the switcher; with `""` the switcher toggles.
+naming both.
 
 ### Themes
 

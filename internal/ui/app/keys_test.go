@@ -20,12 +20,11 @@ import (
 )
 
 // aide is the preset the nav, tab-mode and window tests were written for.
-var aide = config.Preset("aide")
+// TestMain sets it and conventional once the switcher is shown.
+var aide, conventional *config.Bindings
 
 // tabPrefix is the aide preset's tab prefix key, held with Ctrl.
 const tabPrefix key.Name = "T"
-
-var conventional = config.Preset("conventional")
 
 // TestConventional walks every conventional binding through nav.
 func TestConventional(t *testing.T) {

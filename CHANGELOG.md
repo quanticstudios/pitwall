@@ -8,6 +8,14 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.8
+
+- The tab switcher is hidden for now: no hold key, no switcher shortcuts,
+  and the aide preset's Alt+J/K walk every tab across groups. The code stays
+  (`config.SwitcherHidden`) for a later return. A `switcher_modifier`,
+  `switcher` or `pin_switcher` line in config still loads and does nothing.
+- An agent tab's second line drops the "Claude"/"Codex" name; the logo says it.
+
 ## v0.0.7
 
 - Agent tabs show the real Claude and OpenAI logos (from Simple Icons)
