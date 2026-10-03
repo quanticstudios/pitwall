@@ -3,7 +3,6 @@ package sidebar
 import (
 	"fmt"
 	"image"
-	"reflect"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -211,14 +210,9 @@ func (s *Sidebar) drawTabs(gtx layout.Context, v *view, ws model.Workspace) (int
 // displayName is a session row's title and the quiet secondary name under
 // it: the session's Label (its most relevant tab's title) while the user
 // has not named it, with the generated name second.
-//
-// workaround(until the engine track's Workspace.NameSet and Label merge):
-// read by name through reflection so this builds before they exist.
 func displayName(ws model.Workspace) (title, secondary string) {
-	v := reflect.ValueOf(ws)
-	l, set := v.FieldByName("Label"), v.FieldByName("NameSet")
-	if l.IsValid() && set.IsValid() && !set.Bool() && l.String() != "" {
-		return l.String(), ws.Name
+	if !ws.NameSet && ws.Label != "" {
+		return ws.Label, ws.Name
 	}
 	return ws.Name, ""
 }

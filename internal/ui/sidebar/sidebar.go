@@ -1451,10 +1451,10 @@ func floatingSurface(gtx layout.Context, th *theme.Theme, size image.Point) {
 	rect := image.Rectangle{Max: size}
 	shadow := rect.Add(image.Pt(0, gtx.Dp(4))).Inset(-gtx.Dp(2))
 	paint.FillShape(gtx.Ops, color.NRGBA{A: 90}, clip.UniformRRect(shadow, r+gtx.Dp(2)).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, theme.Hex("#ffffff"), 0.14), clip.UniformRRect(rect.Inset(-1), r+1).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Fg, 0.14), clip.UniformRRect(rect.Inset(-1), r+1).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect, r).Op(gtx.Ops))
 	hl := clip.UniformRRect(rect, r).Push(gtx.Ops)
-	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, theme.Hex("#ffffff"), 0.06), clip.Rect{Min: image.Pt(r, 0), Max: image.Pt(size.X-r, 1)}.Op())
+	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.06), clip.Rect{Min: image.Pt(r, 0), Max: image.Pt(size.X-r, 1)}.Op())
 	hl.Pop()
 }
 

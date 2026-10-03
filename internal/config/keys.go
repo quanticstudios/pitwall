@@ -389,3 +389,23 @@ func mustChords(ss []string) []Chord {
 	}
 	return out
 }
+
+// Action is a bindable action: its config name and description. Tab marks
+// a [keys.tab] action.
+type Action struct {
+	Name, Doc string
+	Tab       bool
+}
+
+// Actions lists every action in config order, [keys] then [keys.tab].
+func Actions() []Action {
+	var out []Action
+	for _, t := range []reflect.Type{reflect.TypeFor[Keys](), reflect.TypeFor[TabKeys]()} {
+		for _, f := range fields(t) {
+			if f.typ == bindingType {
+				out = append(out, Action{f.name, f.doc, t == reflect.TypeFor[TabKeys]()})
+			}
+		}
+	}
+	return out
+}
