@@ -416,3 +416,7 @@ license, is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). In short:
 - [zj-radar](https://github.com/marktoda/zj-radar), [zellij](https://zellij.dev),
   [tmux](https://github.com/tmux/tmux) and [Ghostty](https://ghostty.org):
   ideas for hook handling, tab mode, session naming, detach and keymaps.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
