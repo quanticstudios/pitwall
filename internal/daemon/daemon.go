@@ -92,7 +92,8 @@ type Daemon struct {
 	closing     bool
 	savePending bool
 	live        liveness
-	resumed     map[string]time.Time // pane: when NewWith relaunched it with a resume command
+	resumed     map[string]time.Time  // pane: when NewWith relaunched it with a resume command
+	attn        map[string]*attention // pane: seen time and OSC notification, see attention.go
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -415,6 +416,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.scroll(m)
 	case proto.AgentEvent:
 		return d.agentEvent(ctx, m)
+	case proto.SeePane:
+		return d.seePane(m.Pane)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SetSessionGroup:
@@ -667,6 +670,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.det, id)
+	delete(d.attn, id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
 }
@@ -828,7 +832,7 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 
 // start launches a pane and its watcher. Callers hold d.mu.
 func (d *Daemon) start(id string, cmd []string, cwd string) error {
-	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Cols: defaultCols, Rows: defaultRows, NewVT: d.o.NewVT})
+	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Cols: defaultCols, Rows: defaultRows, NewVT: d.notifyingVT(id)})
 	if err != nil {
 		return err
 	}
@@ -971,6 +975,7 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 // and a save runs saveDelay after the first unsaved change, so a steady
 // stream of agent events cannot postpone it forever.
 func (d *Daemon) changed() {
+	d.pruneNotices()
 	d.retitle()
 	d.st.Order = d.st.TopOrder()
 	d.st.Version++
@@ -1026,7 +1031,7 @@ func (d *Daemon) snapshot() model.State {
 		s.Workspaces[i].Tabs = tabs
 	}
 	s.Panes = slices.Clone(s.Panes)
-	s.Activities = slices.Clone(s.Activities)
+	s.Activities = d.attended()
 	s.Stats = maps.Clone(s.Stats)
 	return s
 }
