@@ -18,11 +18,12 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// formatVersion 6 added State.Order and dropped generated tab names;
 // formatVersion 5 made each tab a workspace of its own; version 4 added Workspace.NameSet and Label and Pane.Prompt; version
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 5
+const formatVersion = 6
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -107,6 +108,14 @@ func Load(path string) (model.State, error) {
 	}
 	if saved.FormatVersion < 5 {
 		splitTabs(saved.State)
+	}
+	if saved.FormatVersion < 6 {
+		saved.State.Order = saved.State.TopOrder() // ungrouped tabs, then groups
+		for i := range saved.State.Workspaces {
+			if w := &saved.State.Workspaces[i]; !w.NameSet {
+				w.Name = ""
+			}
+		}
 	}
 	return *saved.State, nil
 }

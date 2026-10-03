@@ -213,3 +213,39 @@ func BenchmarkScreen(b *testing.B) {
 		agent.State(e.Snapshot())
 	}
 }
+
+func (d *Daemon) providerOf(id string) model.Provider {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, p := range d.st.Panes {
+		if p.ID == id {
+			return p.Provider
+		}
+	}
+	return ""
+}
+
+// A detected agent names its pane while it is the foreground, even idle
+// at its prompt with no activity, and stops when it exits to the shell.
+func TestDetectedProviderFollowsForeground(t *testing.T) {
+	d, lp, id := openLive(t, 200)
+	lp.show("❯ ", false) // idle: no activity
+	lp.fgGroup.Store(100)
+	waitUntil(t, "claude named", func() bool { return d.providerOf(id) == model.ProviderClaude })
+	if s := d.stateOf(id); s != "" {
+		t.Fatalf("idle claude got activity %q", s)
+	}
+	lp.fgGroup.Store(200)
+	waitUntil(t, "cleared at the shell", func() bool { return d.providerOf(id) == "" })
+}
+
+// A hook names the pane's agent; its group leaving the foreground clears it.
+func TestHookedProviderClearsOnExit(t *testing.T) {
+	d, lp, id := openLive(t, 300)
+	must(t, d.handle(context.Background(), proto.AgentEvent{Pane: id, Provider: model.ProviderCodex, Payload: []byte("clear")}))
+	if p := d.providerOf(id); p != model.ProviderCodex {
+		t.Fatalf("hook left provider %q", p)
+	}
+	lp.fgGroup.Store(200) // the hooked codex exited to the shell
+	waitUntil(t, "cleared", func() bool { return d.providerOf(id) == "" })
+}

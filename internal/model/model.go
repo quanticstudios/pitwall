@@ -3,6 +3,7 @@
 package model
 
 import (
+	"slices"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -126,6 +127,11 @@ type State struct {
 	Version    uint64
 	Projects   []Project
 	Workspaces []Workspace
+	// Order is the sidebar order of the top-level items: group IDs
+	// (Project.ID) and the IDs of ungrouped tabs, interleaved. A group's
+	// tabs keep their relative order from Workspaces. Read it through
+	// TopOrder, which repairs a stale or missing Order.
+	Order      []string
 	Panes      []Pane
 	Activities []Activity             // one per pane with an agent or a running command
 	Stats      map[string]BranchStats // keyed by workspace id
@@ -147,4 +153,109 @@ func (s *State) LivePath(w Workspace) string {
 		}
 	}
 	return w.Path
+}
+
+// TopOrder is the top-level items in sidebar order: Order with unknown and
+// repeated IDs dropped, then any item Order misses, ungrouped tabs before
+// groups. A tab whose group is gone counts as ungrouped. Detached tabs keep
+// their place.
+func (s *State) TopOrder() []string {
+	groups := make(map[string]bool, len(s.Projects))
+	for _, p := range s.Projects {
+		groups[p.ID] = true
+	}
+	var implied []string
+	for _, w := range s.Workspaces {
+		if !groups[w.ProjectID] {
+			implied = append(implied, w.ID)
+		}
+	}
+	for _, p := range s.Projects {
+		implied = append(implied, p.ID)
+	}
+	top := make(map[string]bool, len(implied))
+	for _, id := range implied {
+		top[id] = true
+	}
+	out := make([]string, 0, len(implied))
+	for _, id := range s.Order {
+		if top[id] {
+			out = append(out, id)
+			delete(top, id)
+		}
+	}
+	for _, id := range implied {
+		if top[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// Ordered is every tab, detached ones included, in sidebar order: the
+// top-level items in TopOrder, each group's tabs at the group's place.
+func (s *State) Ordered() []Workspace {
+	groups := make(map[string]bool, len(s.Projects))
+	for _, p := range s.Projects {
+		groups[p.ID] = true
+	}
+	inGroup := map[string][]Workspace{}
+	loose := map[string]Workspace{}
+	for _, w := range s.Workspaces {
+		if groups[w.ProjectID] {
+			inGroup[w.ProjectID] = append(inGroup[w.ProjectID], w)
+		} else {
+			loose[w.ID] = w
+		}
+	}
+	out := make([]Workspace, 0, len(s.Workspaces))
+	for _, id := range s.TopOrder() {
+		if w, ok := loose[id]; ok {
+			out = append(out, w)
+		} else {
+			out = append(out, inGroup[id]...)
+		}
+	}
+	return out
+}
+
+// DeleteGroup drops group id and ungroups its tabs into its place, in
+// their order.
+func (s *State) DeleteGroup(id string) {
+	order := s.TopOrder()
+	at := slices.Index(order, id)
+	if at < 0 {
+		return
+	}
+	var tabs []string
+	for i := range s.Workspaces {
+		if w := &s.Workspaces[i]; w.ProjectID == id {
+			w.ProjectID = ""
+			tabs = append(tabs, w.ID)
+		}
+	}
+	s.Order = slices.Replace(order, at, at+1, tabs...)
+	s.Projects = slices.DeleteFunc(s.Projects, func(p Project) bool { return p.ID == id })
+}
+
+// PlaceTop moves the top-level item id before the top-level item before,
+// or last when before is "" or not top-level.
+func (s *State) PlaceTop(id, before string) {
+	o := slices.DeleteFunc(s.TopOrder(), func(x string) bool { return x == id })
+	at := slices.Index(o, before)
+	if before == "" || at < 0 {
+		at = len(o)
+	}
+	s.Order = slices.Insert(o, at, id)
+}
+
+// PlaceTopAfter moves the top-level item id right after the top-level item
+// after, or last when after is not top-level.
+func (s *State) PlaceTopAfter(id, after string) {
+	o := slices.DeleteFunc(s.TopOrder(), func(x string) bool { return x == id })
+	at := slices.Index(o, after) + 1
+	if at == 0 {
+		at = len(o)
+	}
+	s.Order = slices.Insert(o, at, id)
 }

@@ -64,7 +64,7 @@ func TestTabs(t *testing.T) {
 	if len(st.Workspaces) != 3 || st.Workspaces[0].ID != src.ID || st.Workspaces[2].ID != last.ID {
 		t.Fatalf("NewTab order: %+v", st.Workspaces)
 	}
-	if nw.ProjectID != group || nw.Path != there || nw.NameSet || !model.IsSessionName(nw.Name) || len(nw.Tabs) != 1 ||
+	if nw.ProjectID != group || nw.Path != there || nw.NameSet || nw.Name != "" || len(nw.Tabs) != 1 ||
 		nw.Label != filepath.Base(there) || f.pane(2).cfg.Cwd != there || len(f.pane(2).cfg.Cmd) != 0 {
 		t.Fatalf("NewTab: %+v cfg %+v", nw, f.pane(2).cfg)
 	}
@@ -92,7 +92,7 @@ func TestTabs(t *testing.T) {
 		t.Fatal("RenameTab to a taken name accepted")
 	}
 	must(t, d.handle(ctx, proto.RenameTab{Pane: shell}))
-	if w := d.state().Workspaces[0]; w.NameSet || !model.IsSessionName(w.Name) || w.Label != filepath.Base(dir) {
+	if w := d.state().Workspaces[0]; w.NameSet || w.Name != "" || w.Label != filepath.Base(dir) {
 		t.Fatalf("RenameTab clear: %+v", w)
 	}
 	if d.handle(ctx, proto.RenameTab{Pane: "gone", Name: "x"}) == nil {
@@ -290,7 +290,7 @@ func TestNameSet(t *testing.T) {
 		got[w.Name] = w.NameSet
 	}
 	gen := d.state().Workspaces[0]
-	if !model.IsSessionName(gen.Name) || got[gen.Name] || !got["api"] || got["repo"] || got["workspace-1"] || !got["feat"] {
+	if gen.Name != "" || gen.NameSet || !got["api"] || got["repo"] || got["workspace-1"] || !got["feat"] {
 		t.Fatalf("NameSet by name: %v", got)
 	}
 	must(t, d.handle(ctx, proto.RenameWorkspace{WorkspaceID: gen.ID, Name: "web"}))
@@ -417,20 +417,20 @@ func TestDetachAndKill(t *testing.T) {
 	waitUntil(t, "killed pane closed", func() bool { return f.closed(0) })
 }
 
-func TestGeneratedNames(t *testing.T) {
+// Tabs get no generated name; only names a person sets are stored, and
+// only those must be unique.
+func TestTabNames(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	d := newDaemon(t, f.options())
 	ctx := context.Background()
 	dir := t.TempDir()
-	for range 40 {
+	for range 3 {
 		must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
 	}
-	seen := map[string]bool{}
 	for _, w := range d.state().Workspaces {
-		if !model.IsSessionName(w.Name) || seen[w.Name] {
-			t.Fatalf("name %q: not adjective-noun or repeated", w.Name)
+		if w.Name != "" || w.NameSet {
+			t.Fatalf("new tab named %q (set %v)", w.Name, w.NameSet)
 		}
-		seen[w.Name] = true
 	}
 	for _, name := range []string{"api", "swift", "swift-otter-x", "otter-swift", "fix-auth"} {
 		if model.IsSessionName(name) {

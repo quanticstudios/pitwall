@@ -16,12 +16,13 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 
-	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// MoveSession puts a tab in GroupID ("" ungrouped) before the tab Before
-// ("" last); MoveGroup puts a group before the group Before.
+// MoveSession puts a tab in GroupID before the tab Before of that group
+// ("" last); with GroupID "" it goes to the top level, before the group or
+// ungrouped tab Before. MoveGroup puts a group before the group or
+// ungrouped tab Before.
 type (
 	MoveSession struct{ WorkspaceID, GroupID, Before string }
 	MoveGroup   struct{ GroupID, Before string }
@@ -48,7 +49,9 @@ type elem struct {
 func (e elem) key() string { return string(e.kind) + e.id }
 func (e elem) mid() int    { return (e.top + e.bot) / 2 }
 
-// drop is where a drag released now would land.
+// drop is where a drag released now would land: in group before the tab
+// before or, with group "", at the top level before the group or ungrouped
+// tab before ("" last either way).
 type drop struct {
 	group, before string
 	into          bool // onto a group header: last in that group, no gap
@@ -135,8 +138,9 @@ func rowAt(rows []elem, y int) int {
 // dragged ones, closed up) land. Over a tab the gap goes to the side of
 // its middle the pointer is on. Over a collapsed group's header, or one
 // dwelled on, the tabs go last into that group. Over the top half of an
-// expanded header they end the section above, over the bottom half they
-// start that group.
+// expanded header they go to the top level before that group, over the
+// bottom half they start that group; the end of a group is the bottom
+// half of its last tab.
 func tabDrop(flow []elem, y int, expanded func(string) bool, dwell string) drop {
 	i := rowAt(flow, y)
 	if i < 0 {
@@ -148,12 +152,7 @@ func tabDrop(flow []elem, y int, expanded func(string) bool, dwell string) drop 
 			return drop{group: e.id, into: true, at: -1, ok: true}
 		}
 		if y < e.mid() {
-			switch {
-			case i == 0:
-				return drop{at: 0, ok: true}
-			case flow[i-1].kind == 's' || expanded(flow[i-1].id):
-				return drop{group: flow[i-1].group, at: i, ok: true}
-			}
+			return drop{before: e.id, at: i, ok: true}
 		}
 		d := drop{group: e.id, at: i + 1, ok: true}
 		if i+1 < len(flow) && flow[i+1].kind == 's' && flow[i+1].group == e.id {
@@ -165,15 +164,19 @@ func tabDrop(flow []elem, y int, expanded func(string) bool, dwell string) drop 
 		return drop{group: e.group, before: e.id, at: i, ok: true}
 	}
 	d := drop{group: e.group, at: i + 1, ok: true}
-	if i+1 < len(flow) && flow[i+1].kind == 's' && flow[i+1].group == e.group {
-		d.before = flow[i+1].id
+	if i+1 < len(flow) {
+		// The next element in the same group, or at the top level the
+		// next top-level item: a header or an ungrouped tab.
+		if n := flow[i+1]; (n.kind == 's' && n.group == e.group) || (e.group == "" && n.kind == 'g') {
+			d.before = n.id
+		}
 	}
 	return d
 }
 
-// groupDrop is where a group dragged to y in flow lands: before the group
-// whose block (header and tabs) y is in the top half of, else after it.
-// Over the ungrouped tabs it goes first.
+// groupDrop is where a group dragged to y in flow lands: before the
+// top-level block (a group's header and tabs, or one ungrouped tab) y is
+// in the top half of, else after it.
 func groupDrop(flow []elem, y int) drop {
 	type block struct {
 		id       string
@@ -183,7 +186,7 @@ func groupDrop(flow []elem, y int) drop {
 	var bs []block
 	for i, r := range flow {
 		switch {
-		case r.kind == 'g':
+		case r.kind == 'g' || r.group == "":
 			bs = append(bs, block{r.id, i, r.top, r.bot})
 		case len(bs) > 0 && r.group == bs[len(bs)-1].id:
 			bs[len(bs)-1].bot = r.bot
@@ -485,34 +488,27 @@ func (s *Sidebar) dropNow(gtx layout.Context, v *view) {
 // noop reports whether d puts a single dragged tab or a group back where
 // it is.
 func (s *Sidebar) noop(v *view, d drop) bool {
-	if s.drag.kind == 'g' {
-		ids := projectIDs(v.st)
-		i := slices.Index(ids, s.drag.id)
-		next := ""
-		if i+1 < len(ids) {
-			next = ids[i+1]
+	next := func(ids []string, id string) string {
+		if i := slices.Index(ids, id); i >= 0 && i+1 < len(ids) {
+			return ids[i+1]
 		}
-		return d.before == next || d.before == s.drag.id
+		return ""
+	}
+	if s.drag.kind == 'g' {
+		return d.group == "" && (d.before == next(v.top, s.drag.id) || d.before == s.drag.id)
 	}
 	if len(s.drag.ids) != 1 || d.into {
 		return false
 	}
 	g := v.groupOf(s.drag.id)
-	wss := v.byProject[g]
-	i := slices.IndexFunc(wss, func(w model.Workspace) bool { return w.ID == s.drag.id })
-	next := ""
-	if i >= 0 && i+1 < len(wss) {
-		next = wss[i+1].ID
+	if g == "" {
+		return d.group == "" && d.before == next(v.top, s.drag.id)
 	}
-	return d.group == g && d.before == next
-}
-
-func projectIDs(st *model.State) []string {
-	ids := make([]string, len(st.Projects))
-	for i, p := range st.Projects {
-		ids[i] = p.ID
+	var ids []string
+	for _, w := range v.byProject[g] {
+		ids = append(ids, w.ID)
 	}
-	return ids
+	return d.group == g && d.before == next(ids, s.drag.id)
 }
 
 // dragOverlay registers the gesture over the tree viewport and, during a
