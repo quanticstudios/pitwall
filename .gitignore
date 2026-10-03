@@ -1,2 +1,22 @@
+# Local references and parallel checkouts.
+/.ref/
+/.worktrees/
+
+# Local credentials and agent settings.
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+/.codex/
+
+# Build output.
+/pitwall
+/pitwall.exe
+/pwdemo-*
+/dist/
+*.test
+/coverage.out
+.DS_Store
+
 # Promo video project (Remotion), kept out of the repository.
 promo/

@@ -1,0 +1,17 @@
+name: Feature request
+description: Propose a change to pitwall's behavior.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe a concrete task that pitwall makes difficult.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include alternatives or workarounds you have tried.
+    validations:
+      required: true
