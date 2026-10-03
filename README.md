@@ -154,6 +154,8 @@ for it. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 
+<img src="docs/media/attention.webp" alt="A Codex pane finishes in the background and rings green, the billing tab asks for approval, and Ctrl+Shift+U jumps to each in turn" width="800">
+
 Any command can ask for your attention, no hooks needed:
 `npm test && pitwall notify "tests passed"` rings the pane it runs in. Tools
 that send terminal notifications ring it too: OSC 9 (iTerm2's form), OSC 777
@@ -161,12 +163,16 @@ that send terminal notifications ring it too: OSC 9 (iTerm2's form), OSC 777
 then shows as Input with the message until you focus it or the agent's state
 changes. ConEmu's numeric OSC 9 forms, such as `9;4` progress, are ignored.
 
+<img src="docs/media/notify.webp" alt="A test pane runs npm test and pitwall notify, then rings amber and sends a desktop notification saying tests passed" width="800">
+
 States are exact when the agent's hooks are installed (`pitwall hooks
 install`). Without hooks, pitwall still recognizes `claude` and `codex`
 running in a pane and reads their state from the screen, which is a little
 less precise.
 
 ### Tabs and panes
+
+<img src="docs/media/panemode.webp" alt="Pane mode: split down, move focus right, toggle fullscreen and leave with Esc, with the PANE hint showing the keys" width="800">
 
 The keyboard shortcuts are in [Keybindings](#keybindings). With the mouse:
 click a tab to switch to it, double-click it to rename it, middle-click to
@@ -188,6 +194,8 @@ remembers that across restarts.
 
 ### Grouping
 
+<img src="docs/media/drag.webp" alt="Dragging a tab into the web-app group while the other rows slide apart, then dragging the billing group above the loose tabs" width="800">
+
 - **By folder:** right-click a tab and choose **Group tabs in `<folder>`**.
   Every ungrouped tab in that repo or folder joins one group, and new tabs you
   start inside that folder join it automatically.
@@ -200,6 +208,8 @@ fresh worktree under `<repo>/.worktrees/`, so parallel agents on one repo do
 not step on each other. Deleting that tab removes the worktree it made. pitwall never deletes a folder it did not create.
 
 ### Detaching
+
+<img src="docs/media/survive.webp" alt="The window closes, pitwall ls shows every tab still running, the window comes back, and after a reboot the agents resume" width="800">
 
 **Detach** (right-click a tab, or `pitwall detach`) hides a tab and keeps
 everything in it running. The **Detached** list in the sidebar footer brings
@@ -329,6 +339,8 @@ The session-era names `next_session`, `prev_session`, `new_session` and
 `goto_tab_1`-`9`; `pitwall config check` notes each one to rename.
 
 ## Configuration
+
+<img src="docs/media/settings.webp" alt="The settings page: theme cards recolor the window live, the font size steps up, and the shortcut recorder catches a conflict and swaps it, with config.toml updating alongside" width="800">
 
 pitwall reads `~/.config/pitwall/config.toml` (`$XDG_CONFIG_HOME`). Without
 the file everything has its default. An open window rereads the file within

@@ -48,6 +48,12 @@ outro. Another track needs `MUSIC_START` and the scene lengths recomputed
 from its beats. Render with audio:
 `npx remotion render Promo out/pitwall-promo.mp4 --codec=h264 --pixel-format=yuv420p --crf=16 --audio-codec=aac --audio-bitrate=320k`
 
+## README clips
+
+`./clips.sh` cuts the six feature clips in `docs/media/*.webp` from the
+rendered video (animated WebP: 880 px, 15 fps). Run it after a render; if a
+scene's length changes in `src/Promo.tsx`, update its start and length there.
+
 ## Layout
 
 | Path                | What                                                         |
