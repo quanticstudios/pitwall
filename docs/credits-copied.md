@@ -110,6 +110,14 @@ Project Authors. `internal/ui/theme/fonts/Geist.ttf` is converted from the
 latin Geist variable woff2; the full license is in
 `internal/ui/theme/fonts/OFL.txt`.
 
+### Theme palettes
+
+The built-in themes in `internal/config/themes.go` copy color values from
+[Tokyo Night](https://github.com/folke/tokyonight.nvim) (MIT, Folke Lemaitre),
+[Catppuccin](https://github.com/catppuccin/palette) (MIT, Catppuccin) and,
+for aide-light's state and ANSI colors, GitHub's
+[Primer](https://github.com/primer/primitives) light palette (MIT, GitHub Inc.).
+
 ### Ideas and behavior, no code copied
 
 - **aide** (Quantic Studios): the sidebar design, colors, agent states and
