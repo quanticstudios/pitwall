@@ -10,6 +10,27 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.2
+
+- Sessions, like tmux and zellij: many named sessions (`swift-otter`) run at
+  once in the daemon, each with its own tabs, groups and order, and all of
+  them survive restarts and reboots. Rename them any time.
+- The session switcher (Ctrl+Shift+S, aide Alt+S, tab mode `s`) lists every
+  session with its agents and live working and needs-you counts, beside a
+  live view of the highlighted session's sidebar. Type to filter; `n`, `r`
+  and `x` create, rename and kill sessions in place.
+- The sidebar header and the window title show the current session.
+  Ctrl+Shift+] and Ctrl+Shift+[ (aide Alt+] and Alt+[) step through
+  sessions; Ctrl+Shift+N makes one.
+- Several windows can be open, one per session. `pitwall` opens the last
+  session you used, `pitwall -s <name>` a named one.
+- `pitwall session ls / new / attach / rename / kill`. Tab commands act on
+  the calling pane's session, else the last one used, or `-s <name>`.
+- The jump-to-attention key crosses sessions, and notifications name the
+  session.
+- Saved state moves into a session called `main`. Protocol version 9, store
+  format 7.
+
 ## v0.1.0-alpha.1
 
 - Versions say alpha: `v0.1.0-alpha.N`.

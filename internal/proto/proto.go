@@ -9,6 +9,10 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 9 added sessions: model.Session and State.Sessions in place of
+// State.Order, SessionID on tabs and groups, Hello.Session, SessionNew,
+// SessionRename, SessionKill and SessionShow, and NewSession.SessionID,
+// AddProject.SessionID and FocusSession.SessionID.
 // Version 8 added Activity.Unseen and SeePane, and OSC 9/99/777
 // notifications show as an awaiting-input activity.
 // Version 7 added State.Order, one order for groups and ungrouped tabs: at
@@ -23,7 +27,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 8
+const Version = 9
 
 // Client to daemon.
 
@@ -33,15 +37,23 @@ type Hello struct {
 	// Cwd is where the GUI was launched. When no session exists yet, the
 	// daemon opens one there with a shell, so pitwall starts like tmux.
 	Cwd string
+	// Session is the name of the session a GUI opens on, made (with a
+	// shell in Cwd) when missing; "" means the most recently used one.
+	// The daemon also gives that session a shell when all its tabs are
+	// detached.
+	Session string
 }
 
-// NewSession opens an ungrouped session (or one in GroupID) with a shell
-// pane in Cwd ("" means $HOME), last at the top level. An empty Name leaves
-// it unnamed.
+// NewSession opens an ungrouped tab (or one in GroupID) with a shell pane
+// in Cwd ("" means $HOME), last at the top level of session SessionID.
+// SessionID "" means FromPane's session, else the most recently used one;
+// with no session at all the daemon makes one. An empty Name leaves the tab
+// unnamed.
 type NewSession struct {
-	Name    string // "" leaves it unnamed
-	Cwd     string
-	GroupID string
+	Name      string // "" leaves it unnamed
+	Cwd       string
+	GroupID   string
+	SessionID string
 	// FromPane, when set, starts the session in that pane's current
 	// directory (where its shell is now), falling back to Cwd.
 	FromPane string
@@ -81,7 +93,8 @@ type Resize struct {
 }
 
 type AddProject struct {
-	Path string
+	Path      string
+	SessionID string // "" means the most recently used session
 }
 
 type NewWorkspace struct {
@@ -164,7 +177,7 @@ type Error struct {
 
 // NewTab opens a tab, which is a session of its own: right after
 // WorkspaceID (or FromPane's session when WorkspaceID is "") in its group,
-// or in State.Order when it is ungrouped, unnamed, with a shell in FromPane's current
+// or in its session's Order when it is ungrouped, unnamed, with a shell in FromPane's current
 // directory when set, else Cwd, else that session's Path. A GUI shows the
 // newest session.
 type NewTab struct {
@@ -221,14 +234,14 @@ type GroupByFolder struct {
 // MoveSession drags a session into GroupID and places it before the session
 // Before of that group, or last when Before is "". With GroupID "" it goes
 // to the top level, before the group or ungrouped tab Before in
-// State.Order, or last.
+// the session's Order, or last.
 type MoveSession struct {
 	WorkspaceID string
 	GroupID     string
 	Before      string
 }
 
-// MoveGroup places a group in State.Order before the group or ungrouped tab
+// MoveGroup places a group in its session's Order before the group or ungrouped tab
 // Before, or last when "".
 type MoveGroup struct {
 	GroupID string
@@ -239,11 +252,38 @@ type MoveGroup struct {
 // on this connection is handled. CLI clients use it as an acknowledgement.
 type Sync struct{}
 
-// FocusSession tells GUIs to show a session (un-detaching it), from
-// `pitwall attach`.
+// FocusSession tells the GUIs showing a tab's session to show the tab
+// (un-detaching it) and raise their window, from `pitwall attach`. With
+// WorkspaceID "" it raises the windows showing session SessionID.
 type FocusSession struct {
 	WorkspaceID string
 	TabID       string
+	SessionID   string
+}
+
+// SessionNew makes a session with one tab, a shell in FromPane's current
+// directory when set, else Cwd, else $HOME. Name "" gets a generated name.
+type SessionNew struct {
+	Name     string
+	Cwd      string
+	FromPane string
+}
+
+// SessionRename renames a session. Names are unique and not empty.
+type SessionRename struct {
+	SessionID string
+	Name      string
+}
+
+// SessionKill ends a session: its panes close and its tabs and groups go.
+type SessionKill struct {
+	SessionID string
+}
+
+// SessionShow tells the daemon a GUI window shows SessionID now, which
+// counts it in Session.Windows and makes it the most recently used.
+type SessionShow struct {
+	SessionID string
 }
 
 // SeePane tells the daemon a GUI shows Pane focused in a focused window,
@@ -259,5 +299,6 @@ var Messages = []any{
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
 	NewTab{}, CloseTab{}, RenameTab{}, SelectTab{}, DetachSession{}, KillSession{},
 	GroupByFolder{}, Sync{}, FocusSession{}, MoveSession{}, MoveGroup{}, SeePane{},
+	SessionNew{}, SessionRename{}, SessionKill{}, SessionShow{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 }

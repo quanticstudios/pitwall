@@ -17,6 +17,17 @@ import (
 // windows so it can be tested on its own. A tab is a workspace: the user
 // moves between workspaces, each holding one model.Tab of panes.
 type nav struct {
+	session string            // the session the window shows
+	lastWS  map[string]string // session -> the tab it last showed
+	shown   bool              // the last sync had a visible tab in session
+	closed  bool              // nothing left to show: the window closes
+	// newSession is the name of a session a SessionNew is making; the
+	// window switches to it once it shows up.
+	newSession string
+	// sessionUI asks the window to open the session switcher: "pick",
+	// "new" or "rename".
+	sessionUI string
+
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
 	focus     map[string]string // focusKey(workspace, tab) -> focused pane
@@ -139,10 +150,84 @@ func (n *nav) expectPane(st *model.State) {
 
 func (n *nav) switcherVisible() bool { return n.altHeld || n.pinned }
 
-// ordered is the sidebar's order (model.State.Ordered) without detached
-// sessions.
-func ordered(st *model.State) []model.Workspace {
-	return slices.DeleteFunc(st.Ordered(), func(w model.Workspace) bool { return w.Detached })
+// ordered is the tabs of the window's session in sidebar order
+// (model.State.Ordered), without detached ones.
+func (n *nav) ordered(st *model.State) []model.Workspace { return orderedIn(st, n.session) }
+
+// orderedIn is session's tabs in sidebar order without detached ones.
+func orderedIn(st *model.State, session string) []model.Workspace {
+	return slices.DeleteFunc(st.Ordered(session), func(w model.Workspace) bool { return w.Detached })
+}
+
+// pickSession repairs the window's session: one that is gone hands over to
+// the most recently used session with a visible tab, else the most
+// recently used one; losing the last visible tab moves on the same way, or
+// closes the window when no other session has a visible tab.
+func (n *nav) pickSession(st *model.State) {
+	if n.newSession != "" {
+		if s := st.SessionNamed(n.newSession); s != nil {
+			n.newSession = ""
+			n.enter(s.ID)
+		}
+	}
+	lost := n.shown && len(orderedIn(st, n.session)) == 0
+	if st.Session(n.session) != nil && !lost {
+		return
+	}
+	var best, any *model.Session
+	for i := range st.Sessions {
+		s := &st.Sessions[i]
+		if s.ID == n.session {
+			continue
+		}
+		if any == nil || s.UsedAt.After(any.UsedAt) {
+			any = s
+		}
+		if len(orderedIn(st, s.ID)) > 0 && (best == nil || s.UsedAt.After(best.UsedAt)) {
+			best = s
+		}
+	}
+	switch {
+	case best != nil:
+		n.enter(best.ID)
+	case lost || n.session != "" && any == nil:
+		n.closed, n.shown = true, false
+	case any != nil:
+		n.enter(any.ID)
+	}
+}
+
+// enter makes session the window's, on the tab it showed last.
+func (n *nav) enter(session string) {
+	if session == n.session {
+		return
+	}
+	if n.lastWS == nil {
+		n.lastWS = map[string]string{}
+	}
+	if n.session != "" {
+		n.lastWS[n.session] = n.workspace
+	}
+	n.session, n.workspace, n.shown = session, n.lastWS[session], false
+	n.tabMode, n.paneMode, n.zoom = false, false, ""
+}
+
+// switchSession shows session id, on the tab it showed last.
+func (n *nav) switchSession(st *model.State, id string) {
+	if st.Session(id) == nil {
+		return
+	}
+	n.enter(id)
+	n.sync(st)
+}
+
+// cycleSession moves d sessions in the switcher's order, wrapping.
+func (n *nav) cycleSession(st *model.State, d int) {
+	i := slices.IndexFunc(st.Sessions, func(s model.Session) bool { return s.ID == n.session })
+	if i < 0 || len(st.Sessions) < 2 {
+		return
+	}
+	n.switchSession(st, st.Sessions[((i+d)%len(st.Sessions)+len(st.Sessions))%len(st.Sessions)].ID)
 }
 
 // groupOf is w's group, or "" when it is ungrouped or its group is gone.
@@ -184,8 +269,9 @@ func (n *nav) sync(st *model.State) {
 		n.focus, n.attach = map[string]string{}, map[string]bool{}
 	}
 	n.patch(st)
+	n.pickSession(st)
 	if n.sessions != nil {
-		for _, w := range ordered(st) {
+		for _, w := range n.ordered(st) {
 			if !n.sessions[w.ID] {
 				n.workspace, n.sessions = w.ID, nil
 				break
@@ -193,13 +279,14 @@ func (n *nav) sync(st *model.State) {
 		}
 	}
 	order := make([]string, 0, len(st.Workspaces))
-	for _, w := range ordered(st) {
+	for _, w := range n.ordered(st) {
 		order = append(order, w.ID)
 	}
-	if w := findWorkspace(st, n.workspace); w == nil || w.Detached {
+	if w := findWorkspace(st, n.workspace); w == nil || w.Detached || w.SessionID != n.session {
 		n.workspace = after(n.prevOrder, order, n.workspace)
 	}
 	n.prevOrder = order
+	n.shown = len(order) > 0
 	n.tab = ""
 	if t := shownTab(findWorkspace(st, n.workspace)); t != nil {
 		n.tab = t.ID
@@ -258,9 +345,12 @@ func after(prev, now []string, gone string) string {
 	return ""
 }
 
-// selectWorkspace activates id and focuses pane when it is one of its panes,
-// else the pane it last had focused.
+// selectWorkspace activates id, switching to its session, and focuses pane
+// when it is one of its panes, else the pane it last had focused.
 func (n *nav) selectWorkspace(st *model.State, id, pane string) {
+	if w := findWorkspace(st, id); w != nil && w.SessionID != n.session {
+		n.enter(w.SessionID)
+	}
 	n.workspace = id
 	if w := findWorkspace(st, id); w != nil && pane != "" {
 		if t := tabOf(w, pane); t != nil {
@@ -274,7 +364,7 @@ func (n *nav) selectWorkspace(st *model.State, id, pane string) {
 // modifier and the switcher hidden it stays in the tab's group, as aide's
 // Alt+J/K do; otherwise it crosses groups.
 func (n *nav) cycleWorkspace(st *model.State, d int) {
-	ws := ordered(st)
+	ws := n.ordered(st)
 	if n.bind().Hold != 0 && !n.switcherVisible() {
 		cur := findWorkspace(st, n.workspace)
 		var local []model.Workspace
@@ -299,7 +389,7 @@ func (n *nav) cycleGroup(st *model.State, d int) {
 	var firsts []string // each group's first tab, in sidebar order
 	last := "\x00"
 	cur := -1
-	for _, w := range ordered(st) {
+	for _, w := range n.ordered(st) {
 		if g := groupOf(st, w); g != last {
 			last = g
 			firsts = append(firsts, w.ID)
@@ -327,7 +417,7 @@ func (n *nav) newTab(st *model.State, after, group string) any {
 		after = n.workspace
 		if w := findWorkspace(st, after); group != "" && (w == nil || groupOf(st, *w) != group) {
 			after = ""
-			for _, w := range ordered(st) {
+			for _, w := range n.ordered(st) {
 				if groupOf(st, w) == group {
 					after = w.ID
 				}
@@ -342,7 +432,7 @@ func (n *nav) newTab(st *model.State, after, group string) any {
 				cwd = p.Root
 			}
 		}
-		return proto.NewSession{Cwd: cwd, GroupID: group}
+		return proto.NewSession{Cwd: cwd, GroupID: group, SessionID: n.session}
 	}
 	from := ""
 	if t := shownTab(w); t != nil && w.ID == n.workspace {
@@ -361,15 +451,16 @@ func (n *nav) cyclePane(st *model.State, d int) {
 	}
 }
 
-// jumpAttention focuses the pane that most recently started needing the
-// user (model.NeedsYou) and is unseen, a finished turn after everything
-// else; the focused pane counts as seen, so pressing again walks on. With
-// nothing unseen it goes to the needs-you pane of highest priority, then
-// the next one on each press. With none it does nothing.
+// jumpAttention focuses the pane, in any session, that most recently
+// started needing the user (model.NeedsYou) and is unseen, a finished turn
+// after everything else; the focused pane counts as seen, so pressing again
+// walks on. With nothing unseen it goes to the needs-you pane of highest
+// priority, then the next one on each press. With none it does nothing.
+// A pane in another session switches the window to that session.
 func (n *nav) jumpAttention(st *model.State) {
 	shown := map[string]bool{}
-	for _, w := range ordered(st) {
-		shown[w.ID] = true
+	for _, w := range st.Workspaces {
+		shown[w.ID] = !w.Detached
 	}
 	here := func(a model.Activity) bool { return a.WorkspaceID == n.workspace && a.PaneID == n.focused() }
 	var unseen, seen []model.Activity
@@ -566,10 +657,13 @@ func (n *nav) tabOp(st *model.State, op string) any {
 		n.cycleWorkspace(st, 1)
 	case "attention":
 		n.jumpAttention(st)
+	case "sessions":
+		n.sessionUI = "pick"
 	}
 	if d, ok := strings.CutPrefix(op, "goto_"); ok {
-		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(ordered(st)) {
-			n.selectWorkspace(st, ordered(st)[j-1].ID, "")
+		ws := n.ordered(st)
+		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(ws) {
+			n.selectWorkspace(st, ws[j-1].ID, "")
 		}
 	}
 	return nil
@@ -686,6 +780,16 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		n.sidebarHidden = !n.sidebarHidden
 	case "jump_attention":
 		n.jumpAttention(st)
+	case "session_switcher":
+		n.sessionUI = "pick"
+	case "session_new":
+		n.sessionUI = "new"
+	case "session_rename":
+		n.sessionUI = "rename"
+	case "session_next":
+		n.cycleSession(st, 1)
+	case "session_prev":
+		n.cycleSession(st, -1)
 	case "switcher":
 		if n.switcherVisible() {
 			n.altHeld, n.pinned = false, false

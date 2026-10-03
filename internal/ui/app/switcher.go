@@ -96,7 +96,7 @@ func chip(gtx gl.Context, th *theme.Theme, bg, border, fg color.NRGBA, s string)
 
 func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	th := u.th
-	ws := ordered(st)
+	ws := u.nav.ordered(st)
 	if len(ws) == 0 {
 		return
 	}

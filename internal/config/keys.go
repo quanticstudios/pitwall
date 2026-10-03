@@ -157,8 +157,9 @@ var presets = map[string]struct {
 			"copy": {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "open_settings": {"Ctrl+,"},
-			"jump_attention": {"Alt+U"},
-			"pane_prefix":    {"Ctrl+P"},
+			"jump_attention":   {"Alt+U"},
+			"pane_prefix":      {"Ctrl+P"},
+			"session_switcher": {"Alt+S"}, "session_next": {"Alt+]"}, "session_prev": {"Alt+["},
 		},
 	},
 	"conventional": {
@@ -173,7 +174,9 @@ var presets = map[string]struct {
 			"copy":     {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "open_settings": {"Ctrl+,"},
-			"jump_attention": {"Ctrl+Shift+U"},
+			"jump_attention":   {"Ctrl+Shift+U"},
+			"session_switcher": {"Ctrl+Shift+S"}, "session_new": {"Ctrl+Shift+N"},
+			"session_next": {"Ctrl+Shift+]"}, "session_prev": {"Ctrl+Shift+["},
 		},
 	},
 }
@@ -184,7 +187,7 @@ func init() {
 			d := fmt.Sprint(i)
 			p.global["goto_tab_"+d] = []string{"Alt+" + d}
 		}
-		tab := map[string][]string{"new": {"N"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}, "attention": {"U"}}
+		tab := map[string][]string{"new": {"N"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}, "attention": {"U"}, "sessions": {"S"}}
 		for i := 1; i <= 9; i++ {
 			tab[fmt.Sprint("goto_", i)] = []string{fmt.Sprint(i)}
 		}
@@ -233,7 +236,21 @@ type Bindings struct {
 }
 
 // Action is the action e's chord runs outside tab mode, or "".
-func (b *Bindings) Action(e key.Event) string { return b.global[Chord{e.Modifiers, e.Name}] }
+func (b *Bindings) Action(e key.Event) string {
+	if a := b.global[Chord{e.Modifiers, e.Name}]; a != "" || e.Modifiers&key.ModShift == 0 {
+		return a
+	}
+	return b.global[Chord{e.Modifiers, unshift[e.Name]}]
+}
+
+// unshift maps the symbol a shifted key types on a US layout to the key's
+// own name. Gio names a key by what it types, so Ctrl+Shift+] arrives as
+// Ctrl+Shift+}; a chord that names the key still matches.
+// ponytail: US layout only; other layouts can bind the typed symbol.
+var unshift = map[key.Name]key.Name{
+	"{": "[", "}": "]", "_": "-", "+": "=", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/", "|": "\\", "~": "`",
+	"!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
+}
 
 // Is reports whether e is one of action's chords.
 func (b *Bindings) Is(action string, e key.Event) bool { return b.Action(e) == action }
@@ -260,13 +277,29 @@ func (b *Bindings) HoldKey() key.Name {
 // PaneAction reports whether action is one the terminal view handles.
 func PaneAction(action string) bool { return slices.Contains(paneActions, action) }
 
+// Unshift is c with a shifted symbol key named by the key, as a preset
+// writes it: Ctrl+Shift+} becomes Ctrl+Shift+].
+func Unshift(c Chord) Chord {
+	if k, ok := unshift[c.Name]; ok && c.Mods&key.ModShift != 0 {
+		c.Name = k
+	}
+	return c
+}
+
 // WindowChords are the chords the window takes before any pane sees them:
-// every bound action except the ones the terminal view handles.
+// every bound action except the ones the terminal view handles, and for a
+// Shift chord on a symbol key, the symbol it types too (see unshift).
 func (b *Bindings) WindowChords() []Chord {
 	var out []Chord
 	for c, a := range b.global {
-		if !PaneAction(a) {
-			out = append(out, c)
+		if PaneAction(a) {
+			continue
+		}
+		out = append(out, c)
+		for typed, k := range unshift {
+			if c.Mods&key.ModShift != 0 && k == c.Name {
+				out = append(out, Chord{c.Mods, typed})
+			}
 		}
 	}
 	return out

@@ -21,7 +21,7 @@ func TestTopLevelOrder(t *testing.T) {
 		must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir()}))
 	}
 	a, b, c, e := d.st.Workspaces[0].ID, d.st.Workspaces[1].ID, d.st.Workspaces[2].ID, d.st.Workspaces[3].ID
-	order := func() []string { return d.state().Order }
+	order := func() []string { s := d.state(); return s.Sessions[0].Order }
 	want := func(what string, ids ...string) {
 		t.Helper()
 		if got := order(); !slices.Equal(got, ids) {

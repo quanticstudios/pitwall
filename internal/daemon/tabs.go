@@ -90,8 +90,8 @@ func (d *Daemon) removeTab(w *model.Workspace, ti int) []Pane {
 	return out
 }
 
-// removeWorkspace drops a session and its panes; it never touches the disk.
-// Callers hold d.mu.
+// removeWorkspace drops a tab and its panes, and its session when it was
+// the last tab; it never touches the disk. Callers hold d.mu.
 func (d *Daemon) removeWorkspace(id string) []Pane {
 	var out []Pane
 	for _, p := range d.st.Panes {
@@ -100,8 +100,10 @@ func (d *Daemon) removeWorkspace(id string) []Pane {
 		}
 	}
 	d.st.Panes = slices.DeleteFunc(d.st.Panes, func(p model.Pane) bool { return p.WorkspaceID == id })
+	session := d.st.SessionOf(id)
 	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.ID == id })
 	delete(d.st.Stats, id)
+	d.endSession(session)
 	return out
 }
 
@@ -125,7 +127,7 @@ func (d *Daemon) newTab(ctx context.Context, m proto.NewTab) error {
 	if w == nil {
 		return fmt.Errorf("no tab %s", cmp.Or(m.WorkspaceID, m.FromPane))
 	}
-	return d.addSession(ctx, proto.NewSession{Cwd: cwd, FromPane: m.FromPane}, id)
+	return d.addSession(ctx, proto.NewSession{Cwd: cwd, FromPane: m.FromPane}, id, nil)
 }
 
 // renameTab names the session of m.Pane or m.WorkspaceID: a tab and its
@@ -148,7 +150,7 @@ func (d *Daemon) renameTab(m proto.RenameTab) error {
 	switch name := strings.TrimSpace(m.Name); {
 	case name == "":
 		w.Name, w.NameSet = "", false
-	case d.nameTaken(name, w.ID):
+	case d.nameTaken(w.SessionID, name, w.ID):
 		return fmt.Errorf("a tab is already named %s", name)
 	default:
 		w.Name, w.NameSet = name, true
@@ -170,11 +172,19 @@ func (d *Daemon) killSession(m proto.KillSession) error {
 	return nil
 }
 
-// focusSession brings a session back and opens it on TabID, then asks every
-// GUI to show it.
+// focusSession brings a tab back and opens it on TabID, then asks the GUIs
+// showing its session to show it. Without a tab it asks the GUIs showing
+// m.SessionID to raise their windows.
 func (d *Daemon) focusSession(m proto.FocusSession) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if m.WorkspaceID == "" {
+		if d.st.Session(m.SessionID) == nil {
+			return fmt.Errorf("no session %s", m.SessionID)
+		}
+		d.forward(m.SessionID, m)
+		return nil
+	}
 	w := d.workspace(m.WorkspaceID)
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
@@ -187,10 +197,18 @@ func (d *Daemon) focusSession(m proto.FocusSession) error {
 	}
 	w.Detached = false
 	d.changed()
-	for c := range d.clients {
-		c.queue(m)
-	}
+	m.SessionID = w.SessionID
+	d.forward(w.SessionID, m)
 	return nil
+}
+
+// forward queues m to every GUI that shows session. Callers hold d.mu.
+func (d *Daemon) forward(session string, m any) {
+	for c := range d.clients {
+		if c.session == session {
+			c.queue(m)
+		}
+	}
 }
 
 func (d *Daemon) renameWorkspace(m proto.RenameWorkspace) error {
@@ -203,7 +221,7 @@ func (d *Daemon) renameWorkspace(m proto.RenameWorkspace) error {
 	if strings.TrimSpace(m.Name) == "" {
 		return errors.New("tab name is empty")
 	}
-	if d.nameTaken(m.Name, w.ID) {
+	if d.nameTaken(w.SessionID, m.Name, w.ID) {
 		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
 	w.Name, w.NameSet = m.Name, true
@@ -211,10 +229,12 @@ func (d *Daemon) renameWorkspace(m proto.RenameWorkspace) error {
 	return nil
 }
 
-// nameTaken reports whether a session other than except was given name.
-// Callers hold d.mu.
-func (d *Daemon) nameTaken(name, except string) bool {
-	return slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.NameSet && w.Name == name && w.ID != except })
+// nameTaken reports whether a tab of session other than except was given
+// name. Callers hold d.mu.
+func (d *Daemon) nameTaken(session, name, except string) bool {
+	return slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool {
+		return w.SessionID == session && w.NameSet && w.Name == name && w.ID != except
+	})
 }
 
 // groupByFolder puts every ungrouped, attached session with the same
@@ -222,9 +242,9 @@ func (d *Daemon) nameTaken(name, except string) bool {
 func (d *Daemon) groupByFolder(ctx context.Context, m proto.GroupByFolder) error {
 	d.mu.Lock()
 	w := d.workspace(m.WorkspaceID)
-	var root string
+	var root, session string
 	if w != nil {
-		root = cmp.Or(w.RepoRoot, w.Path)
+		root, session = cmp.Or(w.RepoRoot, w.Path), w.SessionID
 	}
 	d.mu.Unlock()
 	if w == nil {
@@ -239,13 +259,13 @@ func (d *Daemon) groupByFolder(ctx context.Context, m proto.GroupByFolder) error
 	defer d.mu.Unlock()
 	var moving []string
 	for _, w := range d.st.Workspaces {
-		if w.ProjectID == "" && !w.Detached && cmp.Or(w.RepoRoot, w.Path) == root {
+		if w.SessionID == session && w.ProjectID == "" && !w.Detached && cmp.Or(w.RepoRoot, w.Path) == root {
 			moving = append(moving, w.ID)
 		}
 	}
-	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.Root == root })
+	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == session && p.Root == root })
 	if pi < 0 {
-		d.st.Projects = append(d.st.Projects, model.Project{ID: newID(), Name: filepath.Base(root), Root: root, Kind: kind, Color: "neutral"})
+		d.st.Projects = append(d.st.Projects, model.Project{ID: newID(), SessionID: session, Name: filepath.Base(root), Root: root, Kind: kind, Color: "neutral"})
 		pi = len(d.st.Projects) - 1
 		d.st.PlaceTop(d.st.Projects[pi].ID, d.firstTop(moving))
 	}
@@ -256,12 +276,12 @@ func (d *Daemon) groupByFolder(ctx context.Context, m proto.GroupByFolder) error
 	return nil
 }
 
-// projectAt is the project whose Root holds path, the deepest one when
-// several do, or "". Callers hold d.mu.
-func (d *Daemon) projectAt(path string) string {
+// projectAt is session's project whose Root holds path, the deepest one
+// when several do, or "". Callers hold d.mu.
+func (d *Daemon) projectAt(session, path string) string {
 	id, best := "", ""
 	for _, p := range d.st.Projects {
-		if p.Root != "" && len(p.Root) > len(best) && (path == p.Root || strings.HasPrefix(path, strings.TrimSuffix(p.Root, "/")+"/")) {
+		if p.SessionID == session && p.Root != "" && len(p.Root) > len(best) && (path == p.Root || strings.HasPrefix(path, strings.TrimSuffix(p.Root, "/")+"/")) {
 			id, best = p.ID, p.Root
 		}
 	}

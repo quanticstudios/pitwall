@@ -210,7 +210,7 @@ func TestDetached(t *testing.T) {
 	n.sync(&st)
 	ids := func() []string {
 		var out []string
-		for _, w := range ordered(&st) {
+		for _, w := range orderedIn(&st, "s1") {
 			out = append(out, w.ID)
 		}
 		return out

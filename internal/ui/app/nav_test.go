@@ -194,7 +194,7 @@ func TestNavGroups(t *testing.T) {
 	st = b.State()
 	n.sync(&st)
 	var got []string
-	for _, w := range ordered(&st) {
+	for _, w := range orderedIn(&st, "s1") {
 		got = append(got, w.ID)
 	}
 	if want := []string{"w1", "w1b", "w1c", "w2", "w3", "w4", "w5", "w6"}; !reflect.DeepEqual(got, want) {
@@ -219,7 +219,7 @@ func TestNavGroups(t *testing.T) {
 	st = b.State()
 	n.sync(&st)
 	w := findWorkspace(&st, n.workspace)
-	if w == nil || ordered(&st)[1].ID != w.ID || w.Path != fakeHome+"/Work/pitwall" || n.focused() == "" || w.ProjectID != "" {
+	if w == nil || orderedIn(&st, "s1")[1].ID != w.ID || w.Path != fakeHome+"/src/acme-api" || n.focused() == "" || w.ProjectID != "" {
 		t.Fatalf("new tab not below w1, selected and focused: %s/%s", n.workspace, n.focused())
 	}
 }
@@ -230,29 +230,54 @@ func TestStartup(t *testing.T) {
 	n := nav{keys: aide}
 	st := model.State{}
 	n.sync(&st)
-	st.Workspaces = []model.Workspace{{ID: "s1", Path: "/home/me", Tabs: []model.Tab{{ID: "t", Layout: layout.Leaf("p1")}}}}
+	st.Sessions = []model.Session{{ID: "x", Name: "swift-otter"}}
+	st.Workspaces = []model.Workspace{{ID: "s1", SessionID: "x", Path: "/home/me", Tabs: []model.Tab{{ID: "t", Layout: layout.Leaf("p1")}}}}
 	n.sync(&st)
-	if n.workspace != "s1" || n.focused() != "p1" {
-		t.Fatalf("at %s/%s", n.workspace, n.focused())
+	if n.session != "x" || n.workspace != "s1" || n.focused() != "p1" {
+		t.Fatalf("at %s %s/%s", n.session, n.workspace, n.focused())
 	}
 }
 
-func TestLastSessionGoneClosesWindow(t *testing.T) {
+// TestWindowFollowsSessions: a window whose session ends or loses its last
+// visible tab moves to the most recently used session with one, and closes
+// when none is left.
+func TestWindowFollowsSessions(t *testing.T) {
 	b := NewFakeBackend()
-	u := &ui{b: b, nav: nav{keys: aide}}
-	if u.lastSessionGone() {
-		t.Fatal("closed while sessions are showing")
+	st := b.State()
+	n := nav{keys: aide}
+	n.sync(&st)
+	if n.session != "s1" || n.closed {
+		t.Fatalf("starts on %q, closed %v", n.session, n.closed)
 	}
 	b.mu.Lock()
 	for i := range b.st.Workspaces {
-		b.st.Workspaces[i].Detached = true
+		if w := &b.st.Workspaces[i]; w.SessionID == "s1" {
+			w.Detached = true
+		}
 	}
 	b.mu.Unlock()
-	if !u.lastSessionGone() {
-		t.Fatal("window stays open with nothing left to show")
+	st = b.State()
+	n.sync(&st)
+	if n.session != "s2" || n.workspace != "w11" || n.closed {
+		t.Fatalf("after detaching every tab: %s/%s, closed %v", n.session, n.workspace, n.closed)
 	}
-	if (&ui{b: b, nav: nav{keys: aide}}).lastSessionGone() {
-		t.Fatal("a window that never showed a session closed")
+	b.Send(proto.SessionKill{SessionID: "s2"})
+	st = b.State()
+	n.sync(&st)
+	if n.session != "s3" || n.closed {
+		t.Fatalf("after its session was killed: %s, closed %v", n.session, n.closed)
+	}
+	b.Send(proto.SessionKill{SessionID: "s3"})
+	st = b.State()
+	n.sync(&st)
+	if !n.closed {
+		t.Fatalf("stays open on %s with only detached tabs left elsewhere", n.session)
+	}
+	// Switching to a session whose tabs are all detached shows it.
+	m := nav{keys: aide}
+	m.sync(&st)
+	if m.session != "s1" || m.closed {
+		t.Fatalf("new window: %s, closed %v", m.session, m.closed)
 	}
 }
 
@@ -264,7 +289,7 @@ func TestNavFollowsTopOrder(t *testing.T) {
 	b.Send(proto.MoveSession{WorkspaceID: "w2", Before: "g1"})
 	st := b.State()
 	var got []string
-	for _, w := range ordered(&st) {
+	for _, w := range orderedIn(&st, "s1") {
 		got = append(got, w.ID)
 	}
 	if want := []string{"w6", "w1", "w1b", "w1c", "w3", "w2", "w4", "w5"}; !reflect.DeepEqual(got, want) {

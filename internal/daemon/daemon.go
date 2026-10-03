@@ -179,8 +179,13 @@ func NewWith(o Options) (*Daemon, error) {
 	for _, id := range gone {
 		closeAll(d.removePane(id))
 	}
+	d.adopt()
+	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool {
+		return !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
+			!slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == s.ID })
+	})
 	d.retitle()
-	d.st.Order = d.st.TopOrder()
+	d.fixOrders()
 	return d, nil
 }
 
@@ -233,13 +238,14 @@ func (d *Daemon) shutdown() {
 // StateMsg is built from the current state when the writer gets to it, and a
 // newer Frame for a pane replaces an unsent older one.
 type client struct {
-	conn   *proto.Conn
-	nc     net.Conn // for write deadlines
-	wake   chan struct{}
-	mu     sync.Mutex
-	state  bool
-	frames map[string]proto.Frame
-	msgs   []any
+	conn    *proto.Conn
+	nc      net.Conn // for write deadlines
+	session string   // the session a GUI shows, from SessionShow; guarded by Daemon.mu
+	wake    chan struct{}
+	mu      sync.Mutex
+	state   bool
+	frames  map[string]proto.Frame
+	msgs    []any
 }
 
 func (c *client) push(f func()) {
@@ -318,7 +324,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	go d.writeLoop(c, done)
 
 	if hello.Kind == "gui" {
-		if err := d.firstSession(ctx, hello.Cwd); err != nil {
+		if err := d.firstSession(ctx, hello.Cwd, hello.Session); err != nil {
 			c.queue(proto.Error{Message: err.Error()})
 		}
 		d.mu.Lock()
@@ -333,6 +339,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		defer func() {
 			d.mu.Lock()
 			delete(d.clients, c)
+			if c.session != "" && !d.closing {
+				d.changed() // Session.Windows drops
+			}
 			d.mu.Unlock()
 		}()
 	}
@@ -349,6 +358,12 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			s := d.snapshot()
 			d.mu.Unlock()
 			c.queue(proto.StateMsg{State: s})
+			continue
+		}
+		if show, ok := m.(proto.SessionShow); ok && hello.Kind == "gui" {
+			if err := d.sessionShow(c, show.SessionID); err != nil {
+				c.queue(proto.Error{Message: err.Error()})
+			}
 			continue
 		}
 		if err := d.handle(ctx, m); err != nil {
@@ -420,6 +435,14 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.seePane(m.Pane)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
+	case proto.SessionNew:
+		return d.sessionNew(ctx, m)
+	case proto.SessionRename:
+		return d.sessionRename(m)
+	case proto.SessionKill:
+		return d.sessionKill(m)
+	case proto.SessionShow:
+		return errors.New("only a GUI shows a session")
 	case proto.SetSessionGroup:
 		return d.setSessionGroup(m)
 	case proto.MoveSession:
@@ -454,16 +477,20 @@ func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	session, err := d.targetSession(m.SessionID, "")
+	if err != nil {
+		return err
+	}
 	for _, p := range d.st.Projects {
-		if p.Root == root {
+		if p.SessionID == session && p.Root == root {
 			return fmt.Errorf("project %s is already open", root)
 		}
 	}
-	p := model.Project{ID: newID(), Name: filepath.Base(root), Root: root, Kind: kind, Color: "neutral"}
+	p := model.Project{ID: newID(), SessionID: session, Name: filepath.Base(root), Root: root, Kind: kind, Color: "neutral"}
 	d.st.Projects = append(d.st.Projects, p)
 	if kind == model.ProjectFolder {
 		d.st.Workspaces = append(d.st.Workspaces, model.Workspace{
-			ID: newID(), ProjectID: p.ID, Name: p.Name, Path: root, RepoRoot: root, UpdatedAt: time.Now(),
+			ID: newID(), SessionID: session, ProjectID: p.ID, Name: p.Name, Path: root, RepoRoot: root, UpdatedAt: time.Now(),
 		})
 	}
 	d.changed()
@@ -498,7 +525,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.st.Workspaces = append(d.st.Workspaces, model.Workspace{
-		ID: newID(), ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
+		ID: newID(), SessionID: p.SessionID, ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
 		WorktreeRoot: worktreeRoot(p, path), RepoRoot: root,
 	})
 	d.changed()
@@ -977,7 +1004,7 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 func (d *Daemon) changed() {
 	d.pruneNotices()
 	d.retitle()
-	d.st.Order = d.st.TopOrder()
+	d.fixOrders()
 	d.st.Version++
 	for c := range d.clients {
 		c.push(func() { c.state = true })
@@ -1021,6 +1048,16 @@ func (d *Daemon) saveSnapshot() model.State {
 // snapshot deep-copies the state so it can be encoded outside d.mu.
 func (d *Daemon) snapshot() model.State {
 	s := d.st
+	s.Sessions = slices.Clone(s.Sessions)
+	for i := range s.Sessions {
+		s.Sessions[i].Order = slices.Clone(s.Sessions[i].Order)
+		s.Sessions[i].Windows = 0
+		for c := range d.clients {
+			if c.session == s.Sessions[i].ID {
+				s.Sessions[i].Windows++
+			}
+		}
+	}
 	s.Projects = slices.Clone(s.Projects)
 	s.Workspaces = slices.Clone(s.Workspaces)
 	for i := range s.Workspaces {

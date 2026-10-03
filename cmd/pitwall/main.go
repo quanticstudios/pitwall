@@ -28,15 +28,18 @@ import (
 
 const usage = `usage:
   pitwall --version          print the version
-  pitwall                    open the window (starts the daemon if needed)
+  pitwall                    open a window on the most recently used session
+                             (starts the daemon if needed)
+  pitwall -s <name>          open a window on session name, made if missing
+  pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
   pitwall daemon             run the daemon in the foreground
   pitwall hook <provider>    forward an agent hook event (claude, codex)
   pitwall hooks              print the Claude Code and Codex config that calls the hook
   pitwall hooks install      merge hooks into agent config files (--dry-run)
   pitwall hooks uninstall    remove this binary's hooks (--dry-run)
-  pitwall ls [--json]        list tabs, numbered in sidebar order
+  pitwall ls [--json]        list the current session's tabs, numbered in sidebar order
   pitwall new [-n name] [-d] [dir]  open a tab (-d detaches it); prints its #
-  pitwall attach [name]      show a tab in the window
+  pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
   pitwall rename [old] <new> rename a tab
@@ -45,7 +48,8 @@ const usage = `usage:
   pitwall tab close          close the calling pane's tab
   A tab is named by its # in pitwall ls, its title, or a unique prefix
   of the title. Outside a pane, name it; inside, it defaults to the
-  pane's own tab.
+  pane's own tab. Tab commands act on the calling pane's session, else
+  the most recently used one; -s <session> picks another.
   pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
 `
@@ -61,7 +65,13 @@ func main() {
 		fmt.Println("pitwall", versionString())
 		return
 	case "":
-		err = runGUI()
+		err = runGUI("")
+	case "-s":
+		if len(os.Args) != 3 || os.Args[2] == "" {
+			fmt.Fprint(os.Stderr, usage)
+			os.Exit(2)
+		}
+		err = runGUI(os.Args[2])
 	case "daemon":
 		err = runDaemon()
 	case "hook":
@@ -72,7 +82,7 @@ func main() {
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
 	case "notify":
 		err = runNotify(os.Args[2:])
-	case "ls", "new", "attach", "detach", "kill", "rename", "tab":
+	case "ls", "new", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -80,7 +90,7 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pitwall:", err)
-		if cmd == "" {
+		if cmd == "" || cmd == "-s" {
 			startFailed(err) // launched from a desktop launcher, stderr goes nowhere
 		}
 		os.Exit(1)
@@ -177,19 +187,21 @@ func printHooks() error {
 	return nil
 }
 
-func runGUI() error {
+// runGUI opens a window on the session named session, or the most recently
+// used one. When a window shows that session already, it raises that
+// window and exits instead.
+func runGUI(session string) error {
 	hideConsole()
-	lock, err := guiLock()
-	if err != nil || lock == nil {
-		return err
-	}
-	defer lock.Close()
-	conn, initial, err := dialOrStart()
+	conn, initial, err := dialOrStart(session)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	b := newBackend(conn)
+	target, raise := guiTarget(initial.State, session)
+	if raise && os.Getenv("PITWALL_ATTACH") == "" {
+		return conn.Send(proto.FocusSession{SessionID: target.ID})
+	}
+	b := newBackend(conn, target.ID)
 	b.state = initial.State
 	go b.recvLoop()
 	return app.Run(b)
@@ -197,7 +209,7 @@ func runGUI() error {
 
 // dialOrStart completes the GUI handshake before starting the window. An
 // incompatible daemon gets one graceful restart so it can save its state.
-func dialOrStart() (*proto.Conn, proto.StateMsg, error) {
+func dialOrStart(session string) (*proto.Conn, proto.StateMsg, error) {
 	path, err := socketPath()
 	if err != nil {
 		return nil, proto.StateMsg{}, err
@@ -209,7 +221,7 @@ func dialOrStart() (*proto.Conn, proto.StateMsg, error) {
 			return nil, proto.StateMsg{}, err
 		}
 	}
-	conn, initial, err := guiHandshake(nc)
+	conn, initial, err := guiHandshake(nc, session)
 	if err == nil {
 		return conn, initial, nil
 	}
@@ -221,14 +233,14 @@ func dialOrStart() (*proto.Conn, proto.StateMsg, error) {
 	if err != nil {
 		return nil, proto.StateMsg{}, err
 	}
-	conn, initial, err = guiHandshake(nc)
+	conn, initial, err = guiHandshake(nc, session)
 	if err != nil {
 		return nil, proto.StateMsg{}, fmt.Errorf("replacement daemon handshake failed: %w", err)
 	}
 	return conn, initial, nil
 }
 
-func guiHandshake(nc net.Conn) (*proto.Conn, proto.StateMsg, error) {
+func guiHandshake(nc net.Conn, session string) (*proto.Conn, proto.StateMsg, error) {
 	conn := proto.NewConn(nc)
 	fail := func(err error) (*proto.Conn, proto.StateMsg, error) {
 		conn.Close()
@@ -237,7 +249,7 @@ func guiHandshake(nc net.Conn) (*proto.Conn, proto.StateMsg, error) {
 	if err := nc.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return fail(err)
 	}
-	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "gui", Cwd: cwd()}); err != nil {
+	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "gui", Cwd: cwd(), Session: session}); err != nil {
 		return fail(err)
 	}
 	for {

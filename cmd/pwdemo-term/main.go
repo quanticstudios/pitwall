@@ -179,22 +179,22 @@ func fixture() *vt.Grid {
 	w := &writer{g: g}
 	prompt := func() {
 		w.style(pal(2), 0, vt.Bold).put("dev@workstation").style(0, 0, 0).put(":")
-		w.style(pal(4), 0, vt.Bold).put("~/Work/pitwall").style(pal(5), 0, 0).put("  track/term")
+		w.style(pal(4), 0, vt.Bold).put("~/src/acme-api").style(pal(5), 0, 0).put("  rate-limit")
 		w.style(pal(3), 0, 0).put(" ✚1").style(pal(2), 0, vt.Bold).put(" ❯ ").style(0, 0, 0)
 	}
 	prompt()
 	w.put("ls -la --color").nl()
 	w.style(pal(4), 0, vt.Bold).put("cmd").style(0, 0, 0).put("  ")
 	w.style(pal(4), 0, vt.Bold).put("internal").style(0, 0, 0).put("  go.mod  go.sum  ")
-	w.style(pal(2), 0, vt.Bold).put("pitwall").style(0, 0, 0).put("  AGENTS.md  ")
+	w.style(pal(2), 0, vt.Bold).put("acme-api").style(0, 0, 0).put("  AGENTS.md  ")
 	w.style(pal(6), 0, 0).put("README -> AGENTS.md").nl().nl()
 
 	for _, row := range []string{
 		"┌──────────────┬──────────┬─────────┬──────────────────┐",
 		"│ agent        │ status   │ tokens  │ branch           │",
 		"├──────────────┼──────────┼─────────┼──────────────────┤",
-		"│ claude       │ busy     │ 12.4k   │ track/term       │",
-		"│ codex        │ idle     │ 3.1k    │ track/vt         │",
+		"│ claude       │ busy     │ 12.4k   │ rate-limit       │",
+		"│ codex        │ idle     │ 3.1k    │ key-rotation     │",
 		"└──────────────┴──────────┴─────────┴──────────────────┘",
 	} {
 		w.style(pal(8+7), 0, 0).put(row).nl()
