@@ -17,7 +17,7 @@ func press(n key.Name, m key.Modifiers) key.Event {
 
 func TestNav(t *testing.T) {
 	st := NewFakeBackend().State()
-	var n nav
+	n := nav{keys: aide}
 	n.sync(&st)
 	check := func(step, ws, pane string) {
 		t.Helper()
@@ -120,7 +120,7 @@ func TestNav(t *testing.T) {
 func TestNavSync(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
-	n := nav{}
+	n := nav{keys: aide}
 	n.sync(&st)
 	n.selectWorkspace(&st, "w3", "f")
 	b.Send(proto.ClosePane{Pane: "f"})
@@ -138,7 +138,7 @@ func TestNavSync(t *testing.T) {
 }
 
 func TestKeyFiltersSwallowAlt(t *testing.T) {
-	var n nav
+	n := nav{keys: aide}
 	has := func(name key.Name) bool {
 		for _, f := range n.keyFilters() {
 			if f.Name == name {
@@ -177,7 +177,7 @@ func TestDragRatios(t *testing.T) {
 func TestNavGroups(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
-	var n nav
+	n := nav{keys: aide}
 	n.sync(&st)
 	alt := key.ModAlt
 	n.key(&st, press("4", alt))
@@ -224,7 +224,7 @@ func TestNavGroups(t *testing.T) {
 // TestStartup: the daemon's first session shows up after the window opens
 // and gets selected with its pane focused.
 func TestStartup(t *testing.T) {
-	var n nav
+	n := nav{keys: aide}
 	st := model.State{}
 	n.sync(&st)
 	st.Workspaces = []model.Workspace{{ID: "s1", Path: "/home/me", Tabs: []model.Tab{{ID: "t", Layout: layout.Leaf("p1")}}}}
@@ -236,7 +236,7 @@ func TestStartup(t *testing.T) {
 
 func TestLastSessionGoneClosesWindow(t *testing.T) {
 	b := NewFakeBackend()
-	u := &ui{b: b}
+	u := &ui{b: b, nav: nav{keys: aide}}
 	if u.lastSessionGone() {
 		t.Fatal("closed while sessions are showing")
 	}
@@ -248,7 +248,7 @@ func TestLastSessionGoneClosesWindow(t *testing.T) {
 	if !u.lastSessionGone() {
 		t.Fatal("window stays open with nothing left to show")
 	}
-	if (&ui{b: b}).lastSessionGone() {
+	if (&ui{b: b, nav: nav{keys: aide}}).lastSessionGone() {
 		t.Fatal("a window that never showed a session closed")
 	}
 }

@@ -2,9 +2,12 @@ package app
 
 import (
 	"slices"
+	"strconv"
+	"strings"
 
 	"gioui.org/io/key"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -16,8 +19,9 @@ type nav struct {
 	workspace string            // active workspace id
 	tab       string            // the tab shown for it, "" when it has none
 	focus     map[string]string // focusKey(workspace, tab) -> focused pane
-	altHeld   bool              // Alt is down on its own: the switcher shows
-	pinned    bool              // Alt+Space keeps the switcher open after release
+	keys      *config.Bindings  // nil: the default preset
+	altHeld   bool              // the hold modifier is down on its own: the switcher shows
+	pinned    bool              // the switcher stays open without the hold
 
 	// An OpenPane is in flight: the workspace and the panes it had, so the
 	// pane that shows up next gets focus.
@@ -48,10 +52,6 @@ type nav struct {
 	prevKey   string
 	prevPanes []string
 }
-
-// tabPrefix with Ctrl enters tab mode; pressed again it sends its control
-// byte to the pane.
-const tabPrefix key.Name = "T"
 
 func focusKey(ws, tab string) string { return ws + "\x00" + tab }
 
@@ -336,31 +336,35 @@ func (n *nav) cyclePane(st *model.State, d int) {
 	}
 }
 
-// altKeys are the key names nav consumes with Alt alone held.
-var altKeys = []key.Name{
-	"J", "K", "H", "L", key.NameDownArrow, key.NameUpArrow, key.NameLeftArrow, key.NameRightArrow,
-	key.NameSpace, "N", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+// bind is the active bindings; a zero nav uses the default preset.
+func (n *nav) bind() *config.Bindings {
+	if n.keys == nil {
+		return config.Preset(config.DefaultPreset)
+	}
+	return n.keys
 }
 
 // keyFilters are the filters the window polls before any pane sees input,
-// so these chords and Alt on its own never reach a PTY.
+// so bound chords and the hold modifier never reach a PTY. Copy, paste and
+// scrolling are the terminal view's own.
 func (n *nav) keyFilters() []key.Filter {
+	b := n.bind()
 	all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
-	altShift := key.ModAlt | key.ModShift
-	fs := []key.Filter{
-		{Name: key.NameAlt, Optional: all},
-		{Name: "N", Required: altShift},
-		{Name: "W", Required: altShift},
-		{Name: "T", Required: altShift},
+	var fs []key.Filter
+	if hk := b.HoldKey(); hk != "" {
+		fs = append(fs, key.Filter{Name: hk, Optional: all})
 	}
-	for _, k := range altKeys {
-		fs = append(fs, key.Filter{Name: k, Required: key.ModAlt})
+	for _, c := range b.WindowChords() {
+		fs = append(fs, key.Filter{Name: c.Name, Required: c.Mods})
 	}
 	if n.switcherVisible() {
 		fs = append(fs, key.Filter{Name: key.NameEscape})
+		if n.modalSwitcher() {
+			for _, k := range switcherKeys {
+				fs = append(fs, key.Filter{Name: k})
+			}
+		}
 	}
-	// The prefix's press and release both stay out of the pane.
-	fs = append(fs, key.Filter{Name: tabPrefix, Required: key.ModCtrl})
 	if n.tabMode {
 		// Tab mode takes every key; Tab is a system key and needs its name.
 		fs = append(fs, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
@@ -371,6 +375,14 @@ func (n *nav) keyFilters() []key.Filter {
 	return fs
 }
 
+// switcherKeys move through an open switcher that has no hold modifier, and
+// Enter closes it.
+var switcherKeys = []key.Name{"J", "K", key.NameDownArrow, key.NameUpArrow, key.NameReturn, key.NameEnter}
+
+// modalSwitcher reports whether the switcher is open without a hold
+// modifier, so it takes plain keys until Enter, Escape or a click.
+func (n *nav) modalSwitcher() bool { return n.pinned && n.bind().Hold == 0 }
+
 func modifierKey(k key.Name) bool {
 	switch k {
 	case key.NameCtrl, key.NameShift, key.NameAlt, key.NameSuper, key.NameCommand:
@@ -379,11 +391,29 @@ func modifierKey(k key.Name) bool {
 	return false
 }
 
-// tabKey runs one tab-mode key: n new, x close, r rename, h/l or arrows
-// previous/next, 1-9 go to. Anything else only leaves the mode.
+// tabKey runs one tab-mode key from [keys.tab]: new, close, rename,
+// previous/next, go to 1-9. Shift does not matter unless a chord names it.
+// Anything else only leaves the mode.
 func (n *nav) tabKey(st *model.State, e key.Event) any {
+	if e.Modifiers&^key.ModShift != 0 {
+		return nil
+	}
+	b := n.bind()
+	a := b.TabAction(e)
+	if a == "" && e.Modifiers != 0 {
+		a = b.TabAction(key.Event{Name: e.Name})
+	}
+	if a == "rename" {
+		n.renameTab = n.tab
+		return nil
+	}
+	return n.tabOp(st, a)
+}
+
+// tabOp runs a tab action: new, close, prev, next, goto_N.
+func (n *nav) tabOp(st *model.State, op string) any {
 	w := findWorkspace(st, n.workspace)
-	if w == nil || e.Modifiers&^key.ModShift != 0 {
+	if w == nil {
 		return nil
 	}
 	i := slices.IndexFunc(w.Tabs, func(t model.Tab) bool { return t.ID == n.tab })
@@ -393,37 +423,45 @@ func (n *nav) tabKey(st *model.State, e key.Event) any {
 		}
 		return n.selectTab(st, w.Tabs[(i+d+len(w.Tabs))%len(w.Tabs)].ID)
 	}
-	switch e.Name {
-	case "N":
+	switch op {
+	case "new":
 		delete(n.pick, w.ID) // the daemon makes the new tab active
 		return proto.NewTab{WorkspaceID: w.ID, FromPane: n.focused()}
-	case "X":
+	case "close":
 		if n.tab != "" {
 			return proto.CloseTab{WorkspaceID: w.ID, TabID: n.tab}
 		}
-	case "R":
-		n.renameTab = n.tab
-	case "H", key.NameLeftArrow:
+	case "prev":
 		return step(-1)
-	case "L", key.NameRightArrow:
+	case "next":
 		return step(1)
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		if j := int(e.Name[0] - '1'); j < len(w.Tabs) {
-			return n.selectTab(st, w.Tabs[j].ID)
+	}
+	if d, ok := strings.CutPrefix(op, "goto_"); ok {
+		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(w.Tabs) {
+			return n.selectTab(st, w.Tabs[j-1].ID)
 		}
 	}
 	return nil
 }
 
+// ctrlByte is the control character a Ctrl+letter chord types, if any.
+func ctrlByte(e key.Event) ([]byte, bool) {
+	if e.Modifiers&^key.ModShift != key.ModCtrl || len(e.Name) != 1 || e.Name[0] < '@' || e.Name[0] > '_' {
+		return nil, false
+	}
+	return []byte{e.Name[0] & 0x1f}, true
+}
+
 // key applies one key event and returns a proto message to send, if any.
 func (n *nav) key(st *model.State, e key.Event) any {
+	b := n.bind()
 	if e.Name == n.swallow && !n.tabMode && e.Modifiers&key.ModAlt == 0 {
 		if e.State == key.Release {
 			n.swallow = ""
 		}
 		return nil // the rest of a key tab mode used
 	}
-	if e.Name == tabPrefix && e.Modifiers == key.ModCtrl {
+	if b.Is("tab_prefix", e) {
 		if e.State != key.Press {
 			return nil
 		}
@@ -432,73 +470,96 @@ func (n *nav) key(st *model.State, e key.Event) any {
 			return nil
 		}
 		n.tabMode = false
-		if p := n.focused(); p != "" {
-			return proto.Input{Pane: p, Data: []byte{byte(tabPrefix[0]) & 0x1f}}
+		if p, ok := ctrlByte(e); ok && n.focused() != "" {
+			return proto.Input{Pane: n.focused(), Data: p}
 		}
 		return nil
 	}
-	if n.tabMode && e.Name != key.NameAlt {
+	hold := b.HoldKey()
+	if n.tabMode && (hold == "" || e.Name != hold) {
 		if e.State != key.Press || modifierKey(e.Name) {
 			return nil
 		}
 		n.tabMode = false
-		if e.Modifiers&key.ModAlt == 0 {
+		if e.Modifiers&key.ModAlt == 0 && b.Action(e) == "" {
 			n.swallow = e.Name
 			return n.tabKey(st, e)
 		}
-		// An Alt chord leaves the mode and keeps its usual meaning.
+		// A bound chord leaves the mode and keeps its usual meaning.
 	}
-	if e.Name == key.NameAlt {
-		// Like aide, Alt with Ctrl/Shift/Super held is not a hold.
-		n.altHeld = e.State == key.Press && e.Modifiers&^key.ModAlt == 0
+	if hold != "" && e.Name == hold {
+		// Like aide, the hold modifier with another one held is not a hold.
+		n.altHeld = e.State == key.Press && e.Modifiers&^b.Hold == 0
 		return nil
 	}
 	if e.State != key.Press {
 		return nil
 	}
-	if e.Name == key.NameEscape {
+	if e.Name == key.NameEscape && n.switcherVisible() {
 		n.altHeld, n.pinned = false, false
 		return nil
 	}
-	shift := e.Modifiers&key.ModShift != 0
+	if n.modalSwitcher() && e.Modifiers == 0 {
+		switch e.Name {
+		case "J", key.NameDownArrow:
+			n.cycleWorkspace(st, 1)
+			return nil
+		case "K", key.NameUpArrow:
+			n.cycleWorkspace(st, -1)
+			return nil
+		case key.NameReturn, key.NameEnter:
+			n.pinned = false
+			return nil
+		}
+	}
 	ws := n.workspace
-	switch e.Name {
-	case "J", key.NameDownArrow:
+	act := b.Action(e)
+	switch act {
+	case "next_session":
 		n.cycleWorkspace(st, 1)
-	case "K", key.NameUpArrow:
+	case "prev_session":
 		n.cycleWorkspace(st, -1)
-	case "H", key.NameLeftArrow:
+	case "prev_pane":
 		n.cyclePane(st, -1)
-	case "L", key.NameRightArrow:
+	case "next_pane":
 		n.cyclePane(st, 1)
-	case key.NameSpace:
+	case "pin_switcher":
 		n.pinned = !n.pinned
-	case "N":
+	case "switcher":
+		if n.switcherVisible() {
+			n.altHeld, n.pinned = false, false
+		} else {
+			n.pinned = true
+		}
+	case "split_right", "split_down":
 		if ws == "" {
 			return nil
 		}
 		dir := layout.Horizontal
-		if shift {
+		if act == "split_down" {
 			dir = layout.Vertical
 		}
 		n.expectPane(st)
 		return proto.OpenPane{WorkspaceID: ws, TabID: n.tab, Target: n.focused(), Dir: dir}
-	case "W":
-		if shift && n.focused() != "" {
+	case "close_pane":
+		if n.focused() != "" {
 			return proto.ClosePane{Pane: n.focused()}
 		}
-	case "T":
-		if !shift {
-			return nil
-		}
+	case "new_session":
 		n.expectSession(st)
 		if w := findWorkspace(st, ws); w != nil {
 			return proto.NewSession{Cwd: w.Path, FromPane: n.focused()}
 		}
 		return proto.NewSession{}
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		if i := int(e.Name[0] - '1'); i < len(ordered(st)) {
-			n.selectWorkspace(st, ordered(st)[i].ID, "")
+	case "new_tab", "close_tab", "next_tab", "prev_tab":
+		return n.tabOp(st, strings.TrimSuffix(act, "_tab"))
+	}
+	if d, ok := strings.CutPrefix(act, "goto_tab_"); ok {
+		return n.tabOp(st, "goto_"+d)
+	}
+	if d, ok := strings.CutPrefix(act, "jump_session_"); ok {
+		if i, _ := strconv.Atoi(d); i >= 1 && i <= len(ordered(st)) {
+			n.selectWorkspace(st, ordered(st)[i-1].ID, "")
 		}
 	}
 	return nil

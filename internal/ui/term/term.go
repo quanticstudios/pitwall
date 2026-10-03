@@ -24,6 +24,7 @@ import (
 	"golang.org/x/image/math/fixed"
 	"golang.org/x/image/vector"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -39,6 +40,11 @@ const (
 // View renders one pane. The zero value is ready to use; keep one View per
 // pane so its row cache and selection survive between frames.
 type View struct {
+	// Keys are the bindings: the view runs copy, paste and the scroll keys
+	// itself and leaves the window's Alt chords alone. Nil is the default
+	// preset.
+	Keys *config.Bindings
+
 	th       *theme.Theme
 	ppem     fixed.Int26_6
 	cell     image.Point
@@ -80,7 +86,8 @@ type View struct {
 	focusIn   bool // the focus state the program was last told
 	focusMode bool // the program had mode 1004 on in the last frame
 
-	filters []event.Filter
+	filters    []event.Filter
+	filtersFor *config.Bindings // the Keys filters was built for
 }
 
 type rowImg struct {
@@ -203,7 +210,11 @@ func (v *View) metrics(gtx layout.Context, th *theme.Theme) {
 		s := float32(ppem) / float32(face.Upem())
 		asc = fixed.Int26_6(ext.Ascender * s)
 		desc := fixed.Int26_6(-ext.Descender * s)
-		w, h = max(1, out.Advance.Round()), max(1, (asc+desc).Round())
+		lh := th.LineHeight
+		if lh == 0 {
+			lh = 1
+		}
+		w, h = max(1, out.Advance.Round()), max(1, int(math.Round(float64(asc+desc)*float64(lh)/64)))
 		v.baseline = ((fixed.I(h)-asc-desc)/2 + asc).Round()
 	}
 	v.cell = image.Pt(w, h)
