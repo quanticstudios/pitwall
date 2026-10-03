@@ -37,9 +37,9 @@ irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps
 The script downloads the latest release for your system, checks it against
 the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
 Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin` and adds that
-folder to your user PATH. To pin a release, set `PITWALL_VERSION=v0.0.9`; to
+folder to your user PATH. To pin a release, set `PITWALL_VERSION=v0.1.0-alpha.1`; to
 install somewhere else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them
-first with `$env:PITWALL_VERSION = 'v0.0.9'`.
+first with `$env:PITWALL_VERSION = 'v0.1.0-alpha.1'`.
 
 | Platform                       | Release builds | Status                     |
 | ------------------------------ | -------------- | -------------------------- |
@@ -84,7 +84,7 @@ xkbcommon, Xcursor and Xfixes (`egl`, `wayland-egl`, `wayland-client`,
 `xfixes` in pkg-config).
 
 ```sh
-git clone git@github.com:quanticstudios/pitwall.git
+git clone https://github.com/quanticstudios/pitwall.git
 cd pitwall
 mise install go
 ./scripts/install.sh
@@ -507,6 +507,13 @@ mise exec -- go test -race ./...
 ```
 
 Releases use patch versioning; see [CHANGELOG.md](CHANGELOG.md).
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and the pull request
+process. Use the [issue templates](https://github.com/quanticstudios/pitwall/issues/new/choose)
+to report bugs or propose features. Report vulnerabilities privately as
+described in [SECURITY.md](SECURITY.md).
 
 ## Credits
 

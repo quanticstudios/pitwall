@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem with pitwall.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use [private reporting](https://github.com/quanticstudios/pitwall/security/advisories/new).
+        Remove credentials, prompts and private project data from logs and screenshots.
+  - type: input
+    id: version
+    attributes:
+      label: pitwall version
+      description: Output of pitwall --version.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: Ubuntu 24.04, x86_64, Wayland, GNOME
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include agent version and hook setup for agent status problems.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Review the contents for private data before posting.
