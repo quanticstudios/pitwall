@@ -55,6 +55,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # why: a hung Windows test can hold a file in the build cache, failing the cache save.
+          cache: ${{ runner.os != 'Windows' }}
       - run: go build ./...
       - run: go vet ./...
       - name: Test the platform-independent packages
