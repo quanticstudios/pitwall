@@ -129,6 +129,14 @@ type Sidebar struct {
 	renameFrom    string // the name the field started with
 	editor        widget.Editor
 
+	// Drag and drop: the gesture, its pointer tag, and the rows drawn last
+	// frame in viewport pixels (items collects them per list item).
+	drag    dragState
+	dragTag int
+	drops   []dropRow
+	items   map[int][]dropRow
+	cur     int // the list item being drawn
+
 	events []Event
 }
 
@@ -401,6 +409,7 @@ func (s *Sidebar) cancelRename() {
 // update drains input from last frame's widgets before anything is drawn,
 // so hover backgrounds and menus reflect this frame's state.
 func (s *Sidebar) update(gtx layout.Context, v *view) {
+	s.dragEvents(gtx, v)
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &s.dismiss, Kinds: pointer.Press})
 		if !ok {
@@ -719,33 +728,59 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool) {
 	animating := false
 	projects := v.st.Projects
 	loose := len(v.byProject[""]) > 0
+	s.items = map[int][]dropRow{}
+	heights := map[int]int{}
 	d := s.list.Layout(gtx, len(projects)+2, func(gtx layout.Context, i int) layout.Dimensions {
-		switch i {
-		case 0:
-			if !loose {
-				return layout.Dimensions{}
-			}
-			d, a := s.rowList(gtx, v, v.byProject[""])
-			animating = animating || a
-			return d
-		case len(projects) + 1:
-			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(6))} // pb-1.5
-		}
-		d, a := s.group(gtx, v, projects[i-1], loose || i > 1)
-		animating = animating || a
+		s.cur = i
+		d := s.treeItem(gtx, v, i, loose, &animating)
+		heights[i] = d.Size.Y
 		return d
 	})
+	s.drops = s.drops[:0]
+	y := -s.list.Position.Offset
+	for i := s.list.Position.First; i < s.list.Position.First+s.list.Position.Count; i++ {
+		for _, r := range s.items[i] {
+			r.top, r.bot = r.top+y, r.bot+y
+			s.drops = append(s.drops, r)
+		}
+		y += heights[i]
+	}
+	if s.dragOverlay(gtx, v, d.Size) {
+		animating = true
+	}
 	return d, animating
 }
 
+// treeItem is list item i: the ungrouped sessions, a group, or the bottom
+// padding.
+func (s *Sidebar) treeItem(gtx layout.Context, v *view, i int, loose bool, animating *bool) layout.Dimensions {
+	projects := v.st.Projects
+	switch i {
+	case 0:
+		if !loose {
+			return layout.Dimensions{}
+		}
+		d, a := s.rowList(gtx, v, v.byProject[""], 0)
+		*animating = *animating || a
+		return d
+	case len(projects) + 1:
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(6))} // pb-1.5
+	}
+	d, a := s.group(gtx, v, projects[i-1], loose || i > 1)
+	*animating = *animating || a
+	return d
+}
+
 // rowList stacks session rows between pt-1 and pb-1, gap-0.5 apart.
-func (s *Sidebar) rowList(gtx layout.Context, v *view, wss []model.Workspace) (layout.Dimensions, bool) {
+// base is the list's y in its list item, for the drop targets.
+func (s *Sidebar) rowList(gtx layout.Context, v *view, wss []model.Workspace, base int) (layout.Dimensions, bool) {
 	y := gtx.Dp(4)
 	animating := false
 	for i, ws := range wss {
 		if i > 0 {
 			y += gtx.Dp(2)
 		}
+		top := y
 		off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		d, a := s.workspaceRow(gtx, v, ws)
 		off.Pop()
@@ -758,6 +793,7 @@ func (s *Sidebar) rowList(gtx layout.Context, v *view, wss []model.Workspace) (l
 			y += th
 			animating = animating || a
 		}
+		s.items[s.cur] = append(s.items[s.cur], dropRow{kind: 's', id: ws.ID, group: v.groupOf(ws.ID), top: base + top, bot: base + y})
 	}
 	y += gtx.Dp(4)
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, y)}, animating
@@ -774,13 +810,15 @@ func (s *Sidebar) group(gtx layout.Context, v *view, p model.Project, sep bool) 
 		y += 1 + gtx.Dp(6)
 	}
 	off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+	hy := y
 	y += s.projectHeader(gtx, v, p).Size.Y
 	off.Pop()
+	s.items[s.cur] = append(s.items[s.cur], dropRow{kind: 'g', id: p.ID, group: p.ID, top: hy, bot: y})
 
 	animating := false
 	if s.isExpanded(p.ID) {
 		off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		d, a := s.rowList(gtx, v, v.byProject[p.ID])
+		d, a := s.rowList(gtx, v, v.byProject[p.ID], y)
 		off.Pop()
 		y += d.Size.Y
 		animating = a
