@@ -241,6 +241,13 @@ gaps between panes to resize them.
 Ctrl+Shift+B (Ctrl+B in the aide preset) hides the sidebar; pitwall
 remembers that across restarts.
 
+Selecting text with the mouse copies it to the clipboard, as zellij and Warp
+do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
+Drag to select, double-click a word, or hold Shift when a program owns the
+mouse. To turn it off, set `copy_on_select = false` under `[terminal]` in
+config.toml or use the switch under Terminal in the settings page; Ctrl+Shift+C
+still copies.
+
 ### Grouping
 
 <img src="docs/media/drag.webp" alt="Dragging a tab into the web-app group while the other rows slide apart, then dragging the billing group above the loose tabs" width="800">

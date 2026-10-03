@@ -27,6 +27,7 @@ type Config struct {
 	Theme  Theme  `toml:"theme" doc:"Colors."`
 	Font   Font   `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
 	Layout Layout `toml:"layout" doc:"Spacing around panes, in dp."`
+	Term   Term   `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
 }
 
 // Keys is [keys]. Every Binding field is an action.
@@ -163,6 +164,11 @@ type Layout struct {
 	PaneMargin *float64 `toml:"pane_margin" min:"0" max:"64" doc:"Space between the panes and the window edges and sidebar"`
 }
 
+// Term is [terminal].
+type Term struct {
+	CopyOnSelect *bool `toml:"copy_on_select" doc:"Copy text to the clipboard as soon as you select it with the mouse, as zellij and Warp do. The copy key works either way"`
+}
+
 // Font defaults.
 const (
 	DefaultUIFamily   = "Geist"
@@ -183,6 +189,8 @@ type Settings struct {
 	Font       Font   // every field but MonoFallback set
 	PaneGap    float64
 	PaneMargin float64
+	// CopyOnSelect copies a mouse selection when it is made.
+	CopyOnSelect bool
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -326,6 +334,7 @@ func LoadFile(path string) (Settings, []Problem) {
 		}
 	}
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
+	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	if s.Font.UIFamily == "" {
 		s.Font.UIFamily = DefaultUIFamily
 	}
@@ -592,6 +601,12 @@ func set(f reflect.Value, val any, path string, issues *[]issue) string {
 			return msg
 		}
 		f.Set(p)
+	case reflect.Bool:
+		b, ok := val.(bool)
+		if !ok {
+			return "want true or false"
+		}
+		f.SetBool(b)
 	case reflect.Float64:
 		switch n := val.(type) {
 		case float64:

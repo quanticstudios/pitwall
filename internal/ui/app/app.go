@@ -198,6 +198,10 @@ type ui struct {
 	settings   settings.Page // shown in place of the panes
 	settingsWS string        // the tab it was opened over; leaving it closes the page
 	probs      []string      // the loaded config's problems, for the settings page
+
+	notice   string          // the copy notice on screen, "" for none
+	noticeAt time.Time       // when it was shown
+	noticeIn image.Rectangle // the pane that copied, in the pane area
 }
 
 func (u *ui) send(msg any) {
@@ -416,6 +420,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.layoutPanes(pgtx, &st)
 	}
 	fo.Pop()
+	u.drawNotice(pgtx)
 	off.Pop()
 	if u.nav.tabMode || u.nav.paneMode {
 		u.drawModePill(gtx, area)
@@ -585,6 +590,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			u.panes[id] = p
 		}
 		p.view.Keys = u.nav.bind()
+		p.view.CopyOnSelect = u.cfg.CopyOnSelect
 		var att *model.Activity
 		if a, ok := unseen[id]; ok {
 			att = &a
@@ -689,6 +695,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	pass.Pop()
 	cl.Pop()
 
+	if s := p.view.Copied(); s != "" {
+		u.showNotice(gtx, copiedText(s), rect)
+	}
 	if len(input) > 0 {
 		u.send(proto.Input{Pane: id, Data: input})
 	}

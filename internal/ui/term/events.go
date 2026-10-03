@@ -100,7 +100,7 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			switch a := v.keys().Action(e); {
 			case a == "copy":
 				if e.State == key.Press && v.sel.on {
-					gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(selectionText(g, v.sel)))})
+					v.copy(gtx, g)
 				}
 				continue
 			case a == "paste":
@@ -150,12 +150,27 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			v.keyFocus = e.Focus
 		}
 	}
+	if v.selDone && v.CopyOnSelect {
+		v.copy(gtx, g)
+	}
+	v.selDone = false
 	v.focusMode = m.FocusEvents
 	if in := focused && v.keyFocus; in != v.focusIn {
 		v.focusIn = in
 		out = append(out, input.Focus(in, m.FocusEvents)...)
 	}
 	return out
+}
+
+// copy puts the selection on the clipboard. Gio's X11 backend sets PRIMARY
+// along with CLIPBOARD; on Wayland it has no primary selection to set.
+func (v *View) copy(gtx layout.Context, g *vt.Grid) {
+	s := selectionText(g, v.sel)
+	if s == "" {
+		return
+	}
+	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(s))})
+	v.copied = s
 }
 
 func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []byte {
@@ -195,7 +210,7 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 		if double {
 			x0, x1 := wordAt(g, cell.X, cell.Y)
 			v.sel = selection{a: image.Pt(x0, cell.Y), b: image.Pt(x1, cell.Y), on: true}
-			v.dragging = false
+			v.dragging, v.selDone = false, true
 			v.lastPress.Time = -time.Hour // a third click starts over
 			return nil
 		}
@@ -207,6 +222,7 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 			v.sel.on = v.sel.on || cell != v.sel.a
 		}
 	case pointer.Release, pointer.Cancel:
+		v.selDone = v.selDone || e.Kind == pointer.Release && v.dragging && v.sel.on
 		v.dragging = false
 	}
 	return nil

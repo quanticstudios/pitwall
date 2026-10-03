@@ -17,6 +17,8 @@ func defaults() Config {
 	c.Font = Font{DefaultUIFamily, DefaultUISize, DefaultMonoFamily, DefaultMonoSize, 1, []string{}}
 	gap, margin := float64(DefaultPaneGap), float64(DefaultPaneMargin)
 	c.Layout = Layout{&gap, &margin}
+	on := true
+	c.Term.CopyOnSelect = &on
 	return c
 }
 
