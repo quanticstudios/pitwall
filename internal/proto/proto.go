@@ -9,6 +9,8 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 6 has one tab per session: NewTab creates a session, CloseTab
+// kills one, RenameTab names one and SelectTab does nothing.
 // Version 5 added MoveSession and MoveGroup for drag-and-drop ordering.
 // Version 4 added Workspace.NameSet and Label and Pane.Prompt.
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
@@ -16,7 +18,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 5
+const Version = 6
 
 // Client to daemon.
 
@@ -153,22 +155,28 @@ type Error struct {
 	Message string
 }
 
-// NewTab opens a tab with a shell, in FromPane's current directory when set,
-// else Cwd, else the session's Path, and makes it the active tab.
+// NewTab opens a tab, which is a session of its own: right after
+// WorkspaceID (or FromPane's session when WorkspaceID is "") in State.Workspaces,
+// in the same group, with a generated name and a shell in FromPane's current
+// directory when set, else Cwd, else that session's Path. A GUI shows the
+// newest session.
 type NewTab struct {
 	WorkspaceID string
 	Cwd         string
 	FromPane    string
 }
 
+// CloseTab kills the session WorkspaceID, as KillSession does. TabID is
+// ignored.
 type CloseTab struct {
 	WorkspaceID string
 	TabID       string
 }
 
-// RenameTab names a tab. With Pane set (from `pitwall tab rename` inside a
-// pane) the daemon resolves the pane's session and tab itself. An empty
-// Name goes back to the automatic title.
+// RenameTab names the session WorkspaceID, or Pane's session when Pane
+// is set (from `pitwall tab rename` inside a pane), as RenameWorkspace does.
+// An empty Name goes back to a generated name and the automatic title. TabID
+// is ignored.
 type RenameTab struct {
 	WorkspaceID string
 	TabID       string
@@ -176,7 +184,8 @@ type RenameTab struct {
 	Name        string
 }
 
-// SelectTab records the tab a GUI shows, so attaching opens on it.
+// SelectTab does nothing: a session has one tab. Kept so older GUIs need no
+// change.
 type SelectTab struct {
 	WorkspaceID string
 	TabID       string

@@ -28,39 +28,39 @@ type Project struct {
 	Icon  string // aide lucide icon name ("folder", "code", ...); "" means "folder"
 }
 
-// Tab is one split tree of panes inside a session.
+// Tab is the split tree of panes a session shows. A session has exactly one
+// tab: the user sees the session as a tab, so the two words name one thing.
 type Tab struct {
 	ID string
-	// Name is set by the user or an agent (pitwall tab rename); "" means
-	// the tab follows its work.
+	// Name is unused: the session's Name is the tab's name. Older state
+	// files carried one per tab, which the store moves onto the session.
 	Name string
-	// Title is what the tab shows; the daemon keeps it current. Highest
-	// first: Name; the cleaned OSC title of an agent pane unless generic; the
-	// first prompt of an agent pane (Pane.Prompt); a non-generic OSC title
-	// of any pane; the foreground command; the session directory's base
-	// name. Generic means empty, "~", "claude", "claude code", "codex", or
-	// (case-insensitively) the base name of the session directory or repo
-	// root, or the user's login name.
+	// Title is what the tab shows; the daemon keeps it current and it is
+	// never empty. Highest first: the session's Name when NameSet; the
+	// cleaned OSC title of an agent pane unless generic; the first prompt of
+	// an agent pane (Pane.Prompt); a non-generic OSC title of a pane running
+	// a command; that command's name; the live directory of the first pane
+	// ("~" for home, else its base name). Generic means empty, "~", "claude",
+	// "claude code", "codex", or (case-insensitively) the base name of the
+	// session directory or repo root, or the user's login name.
 	Title  string
 	Layout *layout.Node
 }
 
-// Workspace is one session: tabs of split panes, started in Path. Its
-// default Name is generated ("swift-otter") and unique among sessions.
+// Workspace is one session, which the user sees as one tab: a split tree of
+// panes started in Path. Its default Name is generated ("swift-otter") and
+// unique among sessions; it is the stable handle the CLI addresses.
 type Workspace struct {
 	ID        string
 	ProjectID string // "" while the session is ungrouped
 	Name      string
 	// NameSet is true when the user or the CLI chose Name (NewSession.Name,
-	// RenameWorkspace, NewWorkspace.Name) and false when pitwall generated
-	// it.
+	// RenameWorkspace, RenameTab, NewWorkspace.Name) and false when pitwall
+	// generated it.
 	NameSet bool
-	// Label follows the work: the Title of the session's most relevant tab
-	// (the one holding the agent activity that model.SortActivities ranks
-	// first, else the active tab), or "" when that title is only the
-	// directory's base name. The daemon keeps it current. A GUI shows Label
-	// in place of a generated Name (NameSet false, Label not "") and keeps
-	// Name as the quiet secondary the CLI addresses.
+	// Label is the title of the session's tab (see Tab.Title), so it follows
+	// the work and is never empty. A GUI shows Label first and keeps a
+	// generated Name as the quiet secondary the CLI addresses.
 	Label  string
 	Branch string // git branch of Path, "" outside a repo
 	Path   string // directory the session started in
@@ -73,8 +73,8 @@ type Workspace struct {
 	RepoRoot  string
 	Detached  bool // running but hidden from the sidebar until attached
 	UpdatedAt time.Time
-	Tabs      []Tab
-	ActiveTab string // tab id a GUI opens on
+	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
+	ActiveTab string // the id of Tabs[0]
 }
 
 type Provider string
@@ -89,12 +89,14 @@ type Pane struct {
 	ID          string
 	WorkspaceID string
 	Cmd         []string // argv as launched; empty means the user's shell
-	Cwd         string
-	Title       string // last OSC title, spinner and status glyphs stripped
-	Exited      bool
-	ExitCode    int
-	Provider    Provider // "" until a hook reports or detection sees an agent
-	SessionID   string   // agent session id from hooks, used to resume
+	// Cwd is where the pane started; the daemon follows a shell at its
+	// prompt into the directory it changes to, about once a second.
+	Cwd       string
+	Title     string // last OSC title, spinner and status glyphs stripped
+	Exited    bool
+	ExitCode  int
+	Provider  Provider // "" until a hook reports or detection sees an agent
+	SessionID string   // agent session id from hooks, used to resume
 	// Prompt is the first prompt of the agent session (SessionID), first
 	// line only, whitespace collapsed and cut to 48 runes. A new session
 	// clears it; the next prompt fills it.
