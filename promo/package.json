@@ -1,0 +1,22 @@
+{
+  "name": "pitwall-promo",
+  "private": true,
+  "description": "Promo video and README hero for pitwall, made with Remotion",
+  "license": "MIT",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render Promo out/pitwall-promo.mp4 --codec=h264 --pixel-format=yuv420p --crf=16",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.532",
+    "@remotion/fonts": "4.0.532",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.532"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}

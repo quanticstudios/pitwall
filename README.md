@@ -1,6 +1,8 @@
 # pitwall
 <img src="packaging/pitwall.svg" alt="pitwall logo: a P whose stem is three status lights and whose bowl is a terminal pane" width="96" height="96">
 
+<img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs with live states, a pane that rings green when its agent finishes, and the jump key switching to the tab whose agent asks for approval" width="800">
+
 pitwall is a terminal multiplexer for running coding agents side by side. It
 opens straight into a shell like tmux, but it is a native window: a sidebar
 lists every tab and what it is doing right now, whether that is a command
