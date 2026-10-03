@@ -285,11 +285,12 @@ type view struct {
 	activity      map[string]*model.Activity   // a key for every live session
 	top           []string                     // groups and live ungrouped sessions, in order
 	groups        map[string]bool
+	agent         map[string]model.Provider // a live session's agent, idle or busy
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active,
-		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}}
+		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, agent: map[string]model.Provider{}}
 	if v.now.IsZero() {
 		v.now = time.Now()
 	}
@@ -315,6 +316,9 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string
 		}
 		v.byProject[g] = append(v.byProject[g], ws)
 		v.activity[ws.ID] = model.Aggregate(acts[ws.ID])
+		if p := AgentOf(st, ws); p != "" {
+			v.agent[ws.ID] = p
+		}
 	}
 	for _, id := range st.TopOrder() {
 		if _, live := v.activity[id]; live || groups[id] {
@@ -964,9 +968,9 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	return layout.Dimensions{Size: image.Pt(w, h)}
 }
 
-// workspaceRow draws tab ws's row: its state icon, title and pill, then
-// the branch with its diff stats (or the folder) and the handle when the
-// title is something else. A ghost row is the lifted copy under the
+// workspaceRow draws tab ws's row: its agent's mark or its state icon,
+// title and pill, then the agent's name and the branch with its diff
+// stats (or the folder). A ghost row is the lifted copy under the
 // pointer: no input, no hover buttons, its fill left to the caller.
 func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, ghost bool) (layout.Dimensions, bool) {
 	th := v.th
@@ -1036,9 +1040,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		if !inRepo {
 			where = ShortPath(v.st.LivePath(ws))
 		}
-		line := []item{{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+		var line []item
+		if ag := v.agent[ws.ID]; ag != "" {
+			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, semibold(th.UIFont), 11, theme.Mix(base, AgentColor(ag), 0.9), AgentName(ag))
+			}})
+		}
+		line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.MonoFont, 11, muted, where)
-		}}}
+		}})
 		if inRepo && hasStats && (stats.Additions > 0 || stats.Deletions > 0) {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
 				return hrowFit(gtx, l2, gtx.Dp(4),
@@ -1139,6 +1149,13 @@ func (v *view) t(s *Sidebar) float64 { return v.now.Sub(s.epoch).Seconds() }
 func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *model.Activity, isActive bool, base color.NRGBA) layout.Dimensions {
 	th := v.th
 	sz := gtx.Dp(12)
+	if ag := v.agent[ws.ID]; ag != "" {
+		// The mark draws at 14dp, centred on the 12dp slot the titles align to.
+		off := op.Offset(image.Pt(-gtx.Dp(1), -gtx.Dp(1))).Push(gtx.Ops)
+		AgentMark(gtx, ag, gtx.Dp(14), base)
+		off.Pop()
+		return layout.Dimensions{Size: image.Pt(sz, sz)}
+	}
 	if a == nil {
 		col := th.Muted
 		if isActive {

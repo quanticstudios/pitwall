@@ -84,6 +84,10 @@ Each sidebar row shows a tab's state:
 | Error    | The turn failed                                   |
 | `go`     | A terminal is running that command                |
 
+A tab running Claude or Codex always shows it, idle or busy: the agent's mark
+replaces the row icon and its name starts the second line. The mark goes when
+the agent exits back to the shell.
+
 A group header shows how many of its tabs need you. When a tab needs you and
 you are not looking at it, pitwall sends a desktop notification.
 

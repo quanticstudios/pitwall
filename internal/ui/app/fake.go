@@ -40,8 +40,8 @@ var fakeHome = func() string {
 }()
 
 // NewFakeBackend returns five ungrouped tabs (a terminal running `go test`
-// split three ways, a Claude, a named log tail, an idle shell, a working
-// Claude), two groups, and two detached tabs.
+// split three ways, an idle Claude, a named log tail, an idle shell, a working
+// Claude), two groups (one with a working Codex), and two detached tabs.
 func NewFakeBackend() *FakeBackend {
 	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, changed: make(chan struct{}, 1),
 		focus: make(chan proto.FocusSession, 8)}
@@ -129,7 +129,9 @@ func (f *FakeBackend) setActivities() {
 			continue
 		case p.Provider == model.ProviderTerminal:
 			a.State, a.Detail, a.SessionID = model.StateTerminalRunning, "go", ""
-		case p.WorkspaceID == "w3":
+		case p.WorkspaceID == "w1b":
+			continue // Claude idle at its prompt: no activity, still an agent tab
+		case p.WorkspaceID == "w3", p.WorkspaceID == "w6":
 			a.State = model.StateWorking
 		default:
 			a.State = fakeCycle[(f.ticks+i*2)%len(fakeCycle)]
