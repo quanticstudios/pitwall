@@ -8,6 +8,22 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.4
+
+- One level less: the sidebar lists **tabs**, optionally in groups. A tab
+  holds its split panes; sessions are gone from the UI, the keys and the CLI.
+  Saved state splits each old session's tabs into separate rows.
+- Next/previous tab moves between rows (aide: Alt+J/K; conventional:
+  Ctrl+Tab, Ctrl+PageDown/PageUp, Ctrl+Shift+PageDown/PageUp for groups).
+  Alt+1-9 jumps to a tab. New tab opens right below the current one.
+- A shell's tab title follows its working directory (`~`, `pitwall`).
+- Drag and drop rebuilt: the row lifts, the others slide apart to open a gap,
+  hovering a group header drops into it, Escape animates back.
+- Config action names say tab (`next_tab`, `new_tab`, `goto_tab_N`); the old
+  session names still load, with a note from `pitwall config check`.
+- `pitwall ls` lists tabs with a label and a handle; commands accept either.
+- Protocol version 6, store format 5.
+
 ## v0.0.3
 
 - `~/.config/pitwall/config.toml` for keybindings, theme, fonts and pane
