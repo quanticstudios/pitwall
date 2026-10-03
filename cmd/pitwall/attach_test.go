@@ -68,8 +68,8 @@ func TestCLIAttachErrors(t *testing.T) {
 	}
 }
 
-// A new window opens on the named session, else the most recently used
-// one, and raises the window that shows it instead of opening a second.
+// A new window opens on the named session, raising its window if it has
+// one; without a name, on the most recent session no window shows.
 func TestGUITarget(t *testing.T) {
 	now := time.Now()
 	st := model.State{Sessions: []model.Session{
@@ -79,7 +79,7 @@ func TestGUITarget(t *testing.T) {
 	for _, tc := range []struct {
 		name, want string
 		raise      bool
-	}{{"", "b", true}, {"swift-otter", "a", false}, {"calm-heron", "b", true}, {"absent", "", false}} {
+	}{{"", "a", false}, {"swift-otter", "a", false}, {"calm-heron", "b", true}, {"absent", "", false}} {
 		if s, raise := guiTarget(st, tc.name); s.ID != tc.want || raise != tc.raise {
 			t.Errorf("%q: %s raise %v, want %s raise %v", tc.name, s.ID, raise, tc.want, tc.raise)
 		}

@@ -10,6 +10,13 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.3
+
+- Run `pitwall` as many times as you like: each run opens its own window.
+  It reopens the most recent session no window shows, else starts a new
+  session in the folder you ran it from. `pitwall -s <name>` still raises
+  the window that shows that session.
+
 ## v0.1.0-alpha.2
 
 - Sessions, like tmux and zellij: many named sessions (`swift-otter`) run at

@@ -228,13 +228,21 @@ func plural(n int, word string) string {
 }
 
 // guiTarget is the session a new window opens on: the one named name, else
-// the most recently used. raise is true when a window shows it already, so
-// the new process raises that window instead of opening a second.
+// the most recently used one no window shows. raise is true when a named
+// session has a window already, so the new process raises that window.
 func guiTarget(state model.State, name string) (session model.Session, raise bool) {
-	s := state.Recent()
-	if name != "" {
-		s = state.SessionNamed(name)
+	if name == "" {
+		// The daemon gave a window without -s the most recent free session.
+		s := state.RecentFree()
+		if s == nil {
+			s = state.Recent()
+		}
+		if s == nil {
+			return model.Session{}, false
+		}
+		return *s, false
 	}
+	s := state.SessionNamed(name)
 	if s == nil {
 		return model.Session{}, false
 	}

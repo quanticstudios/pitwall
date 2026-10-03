@@ -196,6 +196,18 @@ func (s *State) Recent() *Session {
 	return best
 }
 
+// RecentFree is the most recently used session no window shows, or nil.
+// Windows must be filled in, as it is in the daemon's snapshots.
+func (s *State) RecentFree() *Session {
+	var best *Session
+	for i := range s.Sessions {
+		if s.Sessions[i].Windows == 0 && (best == nil || s.Sessions[i].UsedAt.After(best.UsedAt)) {
+			best = &s.Sessions[i]
+		}
+	}
+	return best
+}
+
 // SessionOf is the session of the tab or group id, "" when there is none.
 func (s *State) SessionOf(id string) string {
 	for _, w := range s.Workspaces {

@@ -149,3 +149,37 @@ func TestSessionWindows(t *testing.T) {
 		return len(slices.DeleteFunc(s.Ordered(first.ID), func(w model.Workspace) bool { return w.Detached })) == 1
 	})
 }
+
+// A window without -s takes the most recent session no window shows, and
+// makes a new session in its folder when every session has a window.
+func TestPlainWindowsGetTheirOwnSession(t *testing.T) {
+	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
+	defer stop()
+	a := dial(t, sock, "gui")
+	st := a.waitState("first session", func(s model.State) bool { return len(s.Sessions) == 1 })
+	first := st.Sessions[0]
+	a.send(proto.SessionShow{SessionID: first.ID})
+	a.waitState("a counted", func(s model.State) bool { return s.Session(first.ID).Windows == 1 })
+
+	dir := t.TempDir()
+	b := dialHello(t, sock, proto.Hello{Version: proto.Version, Kind: "gui", Cwd: dir})
+	st = b.waitState("second session", func(s model.State) bool { return len(s.Sessions) == 2 })
+	free := st.RecentFree()
+	if free == nil || free.ID == first.ID {
+		t.Fatalf("second window got %+v, want a new session", free)
+	}
+	if tabs := st.Ordered(free.ID); len(tabs) != 1 || tabs[0].Path != dir {
+		t.Fatalf("new session tabs %+v, want one in %s", tabs, dir)
+	}
+
+	// Once a's window closes, a plain window reopens first instead.
+	b.send(proto.SessionShow{SessionID: free.ID})
+	b.waitState("b counted", func(s model.State) bool { return s.Session(free.ID).Windows == 1 })
+	a.conn.Close()
+	b.waitState("a gone", func(s model.State) bool { return s.Session(first.ID).Windows == 0 })
+	c := dialHello(t, sock, proto.Hello{Version: proto.Version, Kind: "gui", Cwd: t.TempDir()})
+	st = c.waitState("state", func(s model.State) bool { return true })
+	if len(st.Sessions) != 2 || st.RecentFree() == nil || st.RecentFree().ID != first.ID {
+		t.Fatalf("third window: sessions %d, free %+v; want first back", len(st.Sessions), st.RecentFree())
+	}
+}

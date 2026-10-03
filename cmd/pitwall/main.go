@@ -28,7 +28,8 @@ import (
 
 const usage = `usage:
   pitwall --version          print the version
-  pitwall                    open a window on the most recently used session
+  pitwall                    open a window: on the most recent session no
+                             window shows, else on a new session here
                              (starts the daemon if needed)
   pitwall -s <name>          open a window on session name, made if missing
   pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
@@ -187,9 +188,10 @@ func printHooks() error {
 	return nil
 }
 
-// runGUI opens a window on the session named session, or the most recently
-// used one. When a window shows that session already, it raises that
-// window and exits instead.
+// runGUI opens a window on the session named session, else the most
+// recently used session no window shows, else a new session in the current
+// folder. When a named session has a window already, it raises that window
+// and exits instead.
 func runGUI(session string) error {
 	hideConsole()
 	conn, initial, err := dialOrStart(session)
