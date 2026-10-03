@@ -5,9 +5,14 @@ package theme
 import (
 	"bytes"
 	_ "embed"
+	"errors"
+	"fmt"
 	"image/color"
+	"io"
 	"log"
 	"os"
+	"strings"
+	"sync"
 
 	"gioui.org/font"
 	"gioui.org/font/gofont"
@@ -16,15 +21,16 @@ import (
 	"gioui.org/unit"
 	fontapi "github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
+	"github.com/go-text/typesetting/fontscan"
 
-	"github.com/quanticstudios/pitwall/internal/vt"
+	"github.com/quanticstudios/pitwall/internal/config"
 )
 
 type Theme struct {
 	Shaper *text.Shaper
 
 	Bg, Sidebar, Surface, SurfaceSecondary, SurfaceElevated color.NRGBA
-	Border, Fg, Muted, Primary                              color.NRGBA
+	Border, Fg, Muted, Primary, OnPrimary                   color.NRGBA
 	Red, Yellow, Green, Blue, Purple                        color.NRGBA
 
 	// Terminal colors: ANSI 0-15, and the default foreground, background
@@ -35,6 +41,7 @@ type Theme struct {
 	// Shaper is loaded with both faces.
 	UIFont, MonoFont              font.Font
 	TextSize, SmallSize, MonoSize unit.Sp
+	LineHeight                    float32 // terminal cell height multiplier; 0 means 1
 }
 
 // Hex parses "#rrggbb" or "#rrggbbaa". It panics on bad input, because every
@@ -78,38 +85,54 @@ func Mix(bg, fg color.NRGBA, a float32) color.NRGBA {
 
 // Dark is aide's default "dark" palette (styles.css :root[data-palette="dark"]).
 func Dark() *Theme {
+	t, _ := config.Builtin("aide-dark")
+	th, _ := New(t, config.Font{})
+	return th
+}
+
+// New builds a theme from fully resolved colors (config.Settings.Theme) and
+// fonts; zero font fields take the defaults. A font that cannot be found
+// falls back to the default and is reported in the error.
+func New(c config.Theme, f config.Font) (*Theme, error) {
+	col := func(s config.Color) color.NRGBA {
+		if s == "" {
+			return color.NRGBA{A: 0xff}
+		}
+		return Hex(string(s))
+	}
+	k := c.Colors
 	t := &Theme{
-		Bg:               Hex("#08090c"),
-		Sidebar:          Hex("#08090c"),
-		Surface:          Hex("#14161b"),
-		SurfaceSecondary: Hex("#1c1f26"),
+		Bg: col(k.Bg), Sidebar: col(k.Sidebar), Surface: col(k.Surface),
+		SurfaceSecondary: col(k.SurfaceSecondary),
 		// aide has no --surface-elevated; its floating surfaces use the
 		// tertiary step, so that is what "elevated" means here.
-		SurfaceElevated: Hex("#252932"),
-		Border:          Mix(Hex("#08090c"), Hex("#ffffff"), 0.07), // rgba(255,255,255,.07)
-		Fg:              Hex("#f2f3f5"),
-		Muted:           Hex("#8e939c"),
-		Primary:         Hex("#2997ff"),
-		Red:             Hex("#ff6b6b"),
-		Yellow:          Hex("#ffc533"),
-		Green:           Hex("#59d499"),
-		Blue:            Hex("#57c1ff"),
-		Purple:          Hex("#bd93ff"),
+		SurfaceElevated: col(k.SurfaceElevated),
+		Border:          col(k.Border), Fg: col(k.Fg), Muted: col(k.Muted),
+		Primary: col(k.Primary), OnPrimary: col(k.OnPrimary),
+		Red: col(k.Red), Yellow: col(k.Yellow), Green: col(k.Green), Blue: col(k.Blue), Purple: col(k.Purple),
 
-		// The emulator answers OSC color queries from the same palette.
-		TermFg:  rgb(vt.DefaultPalette.Fg),
-		TermBg:  rgb(vt.DefaultPalette.Bg),
-		TermCur: rgb(vt.DefaultPalette.Cursor),
+		TermFg: col(c.Terminal.Foreground), TermBg: col(c.Terminal.Background), TermCur: col(c.Terminal.Cursor),
 
-		TextSize:  13,
-		SmallSize: 11,
-		MonoSize:  13,
+		TextSize:   unit.Sp(or(f.UISize, config.DefaultUISize)),
+		SmallSize:  unit.Sp(or(f.UISize, config.DefaultUISize) - 2),
+		MonoSize:   unit.Sp(or(f.MonoSize, config.DefaultMonoSize)),
+		LineHeight: float32(or(f.LineHeight, 1)),
 	}
-	for i, c := range vt.DefaultPalette.ANSI {
-		t.ANSI[i] = rgb(c)
+	for i, a := range c.Terminal.ANSI {
+		if i < len(t.ANSI) {
+			t.ANSI[i] = col(a)
+		}
 	}
-	t.Shaper, t.UIFont, t.MonoFont = loadFonts()
-	return t
+	var err error
+	t.Shaper, t.UIFont, t.MonoFont, err = fonts(f.UIFamily, f.MonoFamily, f.MonoFallback)
+	return t, err
+}
+
+func or(v, def float64) float64 {
+	if v == 0 {
+		return def
+	}
+	return v
 }
 
 func rgb(c uint32) color.NRGBA {
@@ -170,10 +193,137 @@ func (v varFace) Face() *fontapi.Face {
 	return fc
 }
 
-func loadFonts() (*text.Shaper, font.Font, font.Font) {
+var (
+	fontMu    sync.Mutex
+	fontCache = map[string]fontSet{}
+)
+
+type fontSet struct {
+	faces    []font.FontFace
+	ui, mono font.Font
+	err      error
+}
+
+// fonts returns a new shaper over the faces of the two families, parsed
+// once per pair. Each theme gets its own shaper because a shaper is not
+// safe to share between windows.
+func fonts(uiFam, monoFam string, fallback []string) (*text.Shaper, font.Font, font.Font, error) {
+	if uiFam == "" {
+		uiFam = config.DefaultUIFamily
+	}
+	if monoFam == "" {
+		monoFam = config.DefaultMonoFamily
+	}
+	fontMu.Lock()
+	k := strings.Join(append([]string{uiFam, monoFam}, fallback...), "\x00")
+	fs, ok := fontCache[k]
+	if !ok {
+		fs = loadFonts(uiFam, monoFam, fallback)
+		fontCache[k] = fs
+	}
+	fontMu.Unlock()
+	return text.NewShaper(text.NoSystemFonts(), text.WithCollection(fs.faces)), fs.ui, fs.mono, fs.err
+}
+
+var (
+	sysOnce  sync.Once
+	sysFonts *fontscan.FontMap
+)
+
+// SystemFonts is the system font index, built once and cached on disk by
+// fontscan. The terminal resolves glyphs through it and New finds
+// configured families in it.
+func SystemFonts() *fontscan.FontMap {
+	sysOnce.Do(func() {
+		sysFonts = fontscan.NewFontMap(log.New(io.Discard, "", 0))
+		dir, _ := os.UserCacheDir()
+		if err := sysFonts.UseSystemFonts(dir); err != nil {
+			log.Printf("theme: system fonts: %v", err)
+		}
+	})
+	return sysFonts
+}
+
+// NerdAlias is the short family name fontscan indexes Nerd Fonts v3 under
+// ("JetBrainsMono Nerd Font" is found only as "JetBrainsMono NF"); fontconfig
+// knows both. Returns name unchanged for other fonts.
+func NerdAlias(name string) string {
+	for long, short := range map[string]string{" Nerd Font Mono": " NFM", " Nerd Font Propo": " NFP"} {
+		if strings.HasSuffix(name, long) {
+			return strings.TrimSuffix(name, long) + short
+		}
+	}
+	if strings.HasSuffix(name, " Nerd Font") {
+		return strings.TrimSuffix(name, " Nerd Font") + " NF"
+	}
+	return name
+}
+
+// systemFaces loads family's installed faces, one per weight asked for: the
+// closest weight it has, pinned to the asked one when the font is variable.
+// They are named family so font.Font{Typeface: family} selects them.
+func systemFaces(family string, weights ...font.Weight) []font.FontFace {
+	fm := SystemFonts()
+	locs := fm.FindSystemFonts(family)
+	if len(locs) == 0 {
+		locs = fm.FindSystemFonts(NerdAlias(family))
+	}
+	type cand struct {
+		f      *fontapi.Font
+		weight float32
+	}
+	var cands []cand
+	for _, l := range locs {
+		file, err := os.Open(l.File)
+		if err != nil {
+			continue
+		}
+		faces, err := fontapi.ParseTTC(file)
+		file.Close()
+		if err != nil || int(l.Index) >= len(faces) {
+			continue
+		}
+		f := faces[l.Index].Font
+		d := f.Describe()
+		if d.Aspect.Style != fontapi.StyleNormal {
+			continue
+		}
+		cands = append(cands, cand{f, float32(d.Aspect.Weight)})
+	}
+	var out []font.FontFace
+	for _, w := range weights {
+		want := float32(400 + w)
+		best := -1
+		for i, c := range cands {
+			if best < 0 || abs(c.weight-want) < abs(cands[best].weight-want) {
+				best = i
+			}
+		}
+		if best >= 0 {
+			out = append(out, font.FontFace{Font: font.Font{Typeface: font.Typeface(family), Weight: w}, Face: varFace{f: cands[best].f, wght: want}})
+		}
+	}
+	return out
+}
+
+func abs(x float32) float32 { return max(x, -x) }
+
+func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 	var faces []font.FontFace
+	var errs []error
 	ui := font.Font{Typeface: uiFamily}
+	if !strings.EqualFold(uiFam, uiFamily) {
+		faces = systemFaces(uiFam, font.Normal, font.Medium, font.SemiBold, font.Bold)
+		if len(faces) > 0 {
+			ui = font.Font{Typeface: font.Typeface(uiFam)}
+		} else {
+			errs = append(errs, fmt.Errorf("font.ui_family: %q is not installed; using %s", uiFam, uiFamily))
+		}
+	}
 	for _, w := range []font.Weight{font.Normal, font.Medium, font.SemiBold, font.Bold} {
+		if ui.Typeface != uiFamily {
+			break
+		}
 		ld, err := ot.NewLoader(bytes.NewReader(geistTTF))
 		if err != nil {
 			log.Printf("theme: geist: %v", err)
@@ -196,10 +346,21 @@ func loadFonts() (*text.Shaper, font.Font, font.Font) {
 
 	mono := font.Font{Typeface: monoFamily}
 	var monoFaces []font.FontFace
+	if !strings.EqualFold(monoFam, monoFamily) {
+		monoFaces = systemFaces(monoFam, font.Normal, font.Bold)
+		if len(monoFaces) > 0 {
+			mono = font.Font{Typeface: font.Typeface(monoFam)}
+		} else {
+			errs = append(errs, fmt.Errorf("font.mono_family: %q is not installed; using %s", monoFam, monoFamily))
+		}
+	}
 	for file, w := range map[string]font.Weight{
 		"JetBrainsMonoNerdFont-Regular.ttf": font.Normal,
 		"JetBrainsMonoNerdFont-Bold.ttf":    font.Bold,
 	} {
+		if mono.Typeface != monoFamily {
+			break
+		}
 		b, err := os.ReadFile(monoDir + file)
 		if err != nil {
 			continue
@@ -218,6 +379,15 @@ func loadFonts() (*text.Shaper, font.Font, font.Font) {
 		}
 	}
 	faces = append(faces, monoFaces...)
+	for _, fb := range fallback {
+		fs := systemFaces(fb, font.Normal, font.Bold)
+		if len(fs) == 0 {
+			errs = append(errs, fmt.Errorf("font.mono_fallback: %q is not installed", fb))
+			continue
+		}
+		faces = append(faces, fs...)
+		mono.Typeface += font.Typeface(", " + fb)
+	}
 	if b, err := os.ReadFile(emojiFile); err == nil {
 		if f, err := opentype.Parse(b); err == nil {
 			faces = append(faces, font.FontFace{Font: font.Font{Typeface: emojiFamily}, Face: f})
@@ -226,5 +396,5 @@ func loadFonts() (*text.Shaper, font.Font, font.Font) {
 			log.Printf("theme: emoji: %v", err)
 		}
 	}
-	return text.NewShaper(text.NoSystemFonts(), text.WithCollection(faces)), ui, mono
+	return fontSet{faces, ui, mono, errors.Join(errs...)}
 }
