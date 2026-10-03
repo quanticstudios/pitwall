@@ -19,12 +19,6 @@ asset() {
     printf 'pitwall_%s_%s.tar.gz\n' "$os" "$arch"
 }
 
-# newest_tag reads the GitHub releases API from stdin and prints the first
-# tag_name: the newest release, alpha ones included.
-newest_tag() {
-    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1
-}
-
 sha256() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | cut -d ' ' -f 1
@@ -42,20 +36,16 @@ main() {
     fi
     name=$(asset "$os" "$arch")
     version=${PITWALL_VERSION:-}
-    # why: releases/latest skips pre-releases, and every alpha is one.
-    if [ -z "$version" ]; then
-        version=$(curl -fsSL "https://api.github.com/repos/$repo/releases?per_page=1" | newest_tag)
-        if [ -z "$version" ]; then
-            printf 'pitwall: found no release of %s\n' "$repo" >&2
-            exit 1
-        fi
+    if [ -n "$version" ]; then
+        base="https://github.com/$repo/releases/download/$version"
+    else
+        base="https://github.com/$repo/releases/latest/download"
     fi
-    base="https://github.com/$repo/releases/download/$version"
     dir=${PITWALL_INSTALL_DIR:-"$HOME/.local/bin"}
 
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    printf 'Downloading %s (%s)\n' "$name" "$version"
+    printf 'Downloading %s (%s)\n' "$name" "${version:-latest}"
     curl -fsSL -o "$tmp/$name" "$base/$name"
     curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt"
     want=$(awk -v n="$name" '$2 == n || $2 == "*" n { print $1 }' "$tmp/checksums.txt")
