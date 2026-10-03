@@ -35,8 +35,12 @@ import (
 // Event is one of SelectWorkspace, NewTab, CloseTab, RenameTab, AddProject,
 // DetachSession, AttachSession, KillSession, GroupByFolder, DeleteWorkspace,
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
-// Ungroup, NewWorktreeSession, MoveSession, MoveGroup.
+// Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions.
 type Event any
+
+// OpenSessions is a click on the session name in the header: show the
+// session switcher.
+type OpenSessions struct{}
 
 // SelectWorkspace shows a tab.
 type SelectWorkspace struct{ WorkspaceID, PaneID string }
@@ -89,6 +93,10 @@ type NewWorktreeSession struct{ GroupID string }
 const Width unit.Dp = 288
 
 type Sidebar struct {
+	// ExpandAll starts every group expanded, for a drawing of a session
+	// the window does not show (the session switcher's preview).
+	ExpandAll bool
+
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
 	activeProject string
@@ -97,7 +105,12 @@ type Sidebar struct {
 	rows     map[string]*rowState
 	list     layout.List
 
-	addProject, detached, comments, settings, newTab widget.Clickable
+	addProject, detached, comments, settings, newTab, sessions widget.Clickable
+
+	// session is the session drawn; switchedAt is when it last changed, for
+	// the header's flash.
+	session    string
+	switchedAt time.Time
 
 	// Ctrl+click toggles a tab in the selection, Shift+click selects
 	// the range from anchor. Group actions on a selected row apply to all.
@@ -180,8 +193,9 @@ type rowState struct {
 	ctx              int // tag for right- and middle-click
 }
 
-// Layout draws st and returns events from this frame's input.
-func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, activeWorkspace string) (layout.Dimensions, []Event) {
+// Layout draws session's groups and tabs in st and returns events from this
+// frame's input.
+func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, session, activeWorkspace string) (layout.Dimensions, []Event) {
 	if s.expanded == nil {
 		s.epoch = gtx.Now
 		s.expanded = map[string]bool{}
@@ -197,7 +211,19 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 	}
 	s.events = s.events[:0]
 	s.now = gtx.Now
-	v := newView(gtx, th, st, activeWorkspace)
+	if session != s.session {
+		if s.session != "" {
+			s.switchedAt = gtx.Now
+		}
+		s.session = session
+	}
+	name := ""
+	if ss := st.Session(session); ss != nil {
+		name = ss.Name
+	}
+	view := st.View(session)
+	st = &view
+	v := newView(gtx, th, st, session, activeWorkspace)
 	if s.renaming != "" {
 		if _, ok := v.activity[s.renaming]; !ok {
 			s.cancelRename()
@@ -205,6 +231,13 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 	}
 	if s.renamingGroup != "" && !slices.ContainsFunc(st.Projects, func(p model.Project) bool { return p.ID == s.renamingGroup }) {
 		s.cancelRename()
+	}
+	if s.ExpandAll {
+		for _, p := range st.Projects {
+			if _, set := s.expanded[p.ID]; !set {
+				s.expanded[p.ID] = true
+			}
+		}
 	}
 	if v.activeProject != s.activeProject {
 		s.activeProject = v.activeProject
@@ -245,7 +278,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 	animating, moving := false, false
 	s.editorLaidOut = false
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.header(gtx, th) }),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.header(gtx, th, name) }),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			d, a, m := s.tree(gtx, v)
 			animating, moving = a, m
@@ -289,7 +322,7 @@ type view struct {
 	agent         map[string]model.Provider // a live session's agent, idle or busy
 }
 
-func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string) *view {
+func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active,
 		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{}}
 	if v.now.IsZero() {
@@ -327,7 +360,7 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string
 			v.agent[ws.ID] = p
 		}
 	}
-	for _, id := range st.TopOrder() {
+	for _, id := range st.TopOrder(session) {
 		if _, live := v.activity[id]; live || groups[id] {
 			v.top = append(v.top, id)
 		}
@@ -646,6 +679,9 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for s.newTab.Clicked(gtx) {
 		s.events = append(s.events, NewTab{})
 	}
+	for s.sessions.Clicked(gtx) {
+		s.events = append(s.events, OpenSessions{})
+	}
 	for s.addProject.Clicked(gtx) {
 		s.events = append(s.events, AddProject{})
 	}
@@ -696,7 +732,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for i := range s.groupItem {
 		drain(&s.groupItem[i])
 	}
-	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab} {
+	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions} {
 		drain(c)
 	}
 }
@@ -747,19 +783,33 @@ func (s *Sidebar) row(id string) *rowState {
 	return r
 }
 
-// header is aide's brand bar: h-14, border-b, px-3, a 24px mark and the name.
-func (s *Sidebar) header(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+// switchFlash is how long the header's session name glows after the
+// window switched sessions.
+const switchFlash = 700 * time.Millisecond
+
+// header is aide's brand bar: h-14, border-b, px-3, a 24px mark, then the
+// session's name, which opens the session switcher.
+func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) layout.Dimensions {
 	h := gtx.Dp(56)
 	w := gtx.Constraints.Max.X
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, h-1), Max: image.Pt(w, h)}.Op())
 	gtx.Constraints = layout.Exact(image.Pt(w-gtx.Dp(18*2), h-1))
 	off := op.Offset(image.Pt(gtx.Dp(18), 0)).Push(gtx.Ops)
-	hrow(gtx, h-1, gtx.Dp(8),
+	if session == "" {
+		session = "pitwall"
+	}
+	flash := float32(0)
+	if since := gtx.Now.Sub(s.switchedAt); !s.switchedAt.IsZero() && since < switchFlash {
+		flash = 1 - float32(since)/float32(switchFlash)
+		flash *= flash
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	hrow(gtx, h-1, gtx.Dp(6),
 		item{w: func(gtx layout.Context) layout.Dimensions {
 			return drawLogo(gtx, th, gtx.Dp(22))
 		}},
 		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, semibold(th.UIFont), 14, th.Fg, "pitwall")
+			return s.sessionButton(gtx, th, session, flash)
 		}},
 		item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 			return iconButton(gtx, th, &s.newTab, icPlus, gtx.Dp(28), gtx.Dp(16), true)
@@ -767,6 +817,39 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 	)
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// sessionButton is the header's session name with a chevron: hover fills
+// it, a click opens the switcher, and it glows as flash fades from 1 to 0.
+func (s *Sidebar) sessionButton(gtx layout.Context, th *theme.Theme, name string, flash float32) layout.Dimensions {
+	bh, px := gtx.Dp(28), gtx.Dp(6)
+	m := op.Record(gtx.Ops)
+	g := gtx
+	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Constraints.Max.X-2*px, bh)}
+	d := hrowFit(g, bh, gtx.Dp(6),
+		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, semibold(th.UIFont), 14, th.Fg, name)
+		}},
+		item{w: func(gtx layout.Context) layout.Dimensions {
+			return drawIcon(gtx, icChevronsUpDown, gtx.Dp(14), th.Muted, 0)
+		}},
+	)
+	call := m.Stop()
+	size := image.Pt(d.Size.X+2*px, bh)
+	gtx.Constraints = layout.Exact(size)
+	return clickable(gtx, &s.sessions, func(gtx layout.Context) layout.Dimensions {
+		rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6))
+		switch {
+		case flash > 0:
+			paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.28*flash), rr.Op(gtx.Ops))
+		case s.sessions.Hovered():
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
+		}
+		o := op.Offset(image.Pt(px, 0)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		return layout.Dimensions{Size: size}
+	})
 }
 
 // rowHeight is a tab row's height: py-2, line 1 (13px * 1.5), gap-1,

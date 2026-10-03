@@ -20,12 +20,13 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// formatVersion 7 added sessions, which own the tabs, groups and order;
 // formatVersion 6 added State.Order and dropped generated tab names;
 // formatVersion 5 made each tab a workspace of its own; version 4 added Workspace.NameSet and Label and Pane.Prompt; version
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 6
+const formatVersion = 7
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -109,14 +110,51 @@ func Load(path string) (model.State, error) {
 		splitTabs(saved.State)
 	}
 	if saved.FormatVersion < 6 {
-		saved.State.Order = saved.State.TopOrder() // ungrouped tabs, then groups
+		// No order yet: the session's TopOrder implies the old one,
+		// ungrouped tabs, then groups.
 		for i := range saved.State.Workspaces {
 			if w := &saved.State.Workspaces[i]; !w.NameSet {
 				w.Name = ""
 			}
 		}
 	}
+	if saved.FormatVersion < 7 {
+		if err := migrateSessions(data, saved.FormatVersion, saved.State); err != nil {
+			return model.State{}, err
+		}
+	}
 	return *saved.State, nil
+}
+
+// migrateSessions puts every tab and group of an older file into one
+// session named "main", which takes over the file's top-level order.
+// State.Order left model.State, so it is read from the raw file.
+func migrateSessions(data []byte, version int, s *model.State) error {
+	if len(s.Workspaces) == 0 && len(s.Projects) == 0 {
+		return nil
+	}
+	var old struct {
+		State struct{ Order []string }
+	}
+	if version >= 6 {
+		if err := json.Unmarshal(data, &old); err != nil {
+			return fmt.Errorf("load state: %w", err)
+		}
+	}
+	main := model.Session{ID: newID(), Name: "main", Order: old.State.Order}
+	for _, w := range s.Workspaces {
+		if w.UpdatedAt.After(main.UsedAt) {
+			main.UsedAt = w.UpdatedAt
+		}
+	}
+	for i := range s.Workspaces {
+		s.Workspaces[i].SessionID = main.ID
+	}
+	for i := range s.Projects {
+		s.Projects[i].SessionID = main.ID
+	}
+	s.Sessions = []model.Session{main}
+	return nil
 }
 
 // RestoreCmd is the argv that brings a pane back: a resumed agent session

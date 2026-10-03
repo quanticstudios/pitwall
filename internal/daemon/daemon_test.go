@@ -216,12 +216,18 @@ func dial(t *testing.T, sock, kind string) *testClient {
 // dialIn says Hello as if launched in cwd.
 func dialIn(t *testing.T, sock, kind, cwd string) *testClient {
 	t.Helper()
+	return dialHello(t, sock, proto.Hello{Version: proto.Version, Kind: kind, Cwd: cwd})
+}
+
+// dialHello connects and says hello.
+func dialHello(t *testing.T, sock string, hello proto.Hello) *testClient {
+	t.Helper()
 	c, err := proto.Dial(sock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
-	if err := c.Send(proto.Hello{Version: proto.Version, Kind: kind, Cwd: cwd}); err != nil {
+	if err := c.Send(hello); err != nil {
 		t.Fatal(err)
 	}
 	tc := &testClient{t: t, conn: c, in: make(chan any, 1024)}
@@ -604,9 +610,10 @@ func TestDeleteWorkspaceBranchKept(t *testing.T) {
 	ctx := context.Background()
 	repo := filepath.Join(t.TempDir(), "repo")
 	mkdir(t, repo)
+	must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir()})) // the session the project joins
 	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
 	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: d.st.Projects[0].ID, Name: "feat"}))
-	ws := d.st.Workspaces[0].ID
+	ws := d.st.Workspaces[1].ID
 	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: ws}))
 
 	err = d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: ws, RemoveBranch: true})
@@ -616,10 +623,10 @@ func TestDeleteWorkspaceBranchKept(t *testing.T) {
 	d.mu.Lock()
 	n, np := len(d.st.Workspaces), len(d.st.Panes)
 	d.mu.Unlock()
-	if n != 0 || np != 0 {
+	if n != 1 || np != 1 {
 		t.Fatalf("workspace or pane left: %d %d", n, np)
 	}
-	waitUntil(t, "pane closed", func() bool { p := f.pane(0); p.mu.Lock(); defer p.mu.Unlock(); return p.closed })
+	waitUntil(t, "pane closed", func() bool { p := f.pane(1); p.mu.Lock(); defer p.mu.Unlock(); return p.closed })
 }
 
 // A GUI client that stops reading is disconnected; the others keep getting

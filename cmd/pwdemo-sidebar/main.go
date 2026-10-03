@@ -45,7 +45,7 @@ func run(w *app.Window) error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
 			paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: e.Size}.Op())
-			_, events := sb.Layout(gtx, th, &st, active)
+			_, events := sb.Layout(gtx, th, &st, "", active)
 			for _, ev := range events {
 				log.Printf("event %#v", ev)
 				apply(&st, &active, ev)

@@ -13,8 +13,8 @@ import (
 
 func newTheme() *theme.Theme { return theme.Dark() }
 
-func drawSidebar(gtx gl.Context, s *sidebar.Sidebar, th *theme.Theme, st *model.State, active string) []sidebar.Event {
-	_, evs := s.Layout(gtx, th, st, active)
+func drawSidebar(gtx gl.Context, s *sidebar.Sidebar, th *theme.Theme, st *model.State, session, active string) []sidebar.Event {
+	_, evs := s.Layout(gtx, th, st, session, active)
 	return evs
 }
 

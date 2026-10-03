@@ -42,7 +42,7 @@ func allMessages() []any {
 		Stats:      map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
 	}
 	return []any{
-		Hello{Version: Version, Kind: "gui"},
+		Hello{Version: Version, Kind: "gui", Session: "work"},
 		Input{Pane: "a", Data: []byte("ls\r")},
 		Resize{Pane: "a", Cols: 80, Rows: 24},
 		AddProject{Path: "/r"},
@@ -53,8 +53,10 @@ func allMessages() []any {
 		OpenPane{WorkspaceID: "w", Target: "a", Dir: layout.Vertical, Cmd: []string{"codex"}},
 		NewTab{WorkspaceID: "w", FromPane: "a"}, CloseTab{WorkspaceID: "w", TabID: "t"}, RenameTab{Pane: "a", Name: "fix auth"},
 		SelectTab{WorkspaceID: "w", TabID: "t"}, DetachSession{WorkspaceID: "w", Detached: true}, KillSession{WorkspaceID: "w"},
-		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t"},
+		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t", SessionID: "s"},
 		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"},
+		SessionNew{Name: "work", Cwd: "/tmp", FromPane: "a"}, SessionRename{SessionID: "s", Name: "play"},
+		SessionKill{SessionID: "s"}, SessionShow{SessionID: "s"},
 		NewSession{Cwd: "/tmp", GroupID: "g"}, SetSessionGroup{WorkspaceID: "w", GroupID: "g"},
 		NewGroup{Name: "agents", WorkspaceIDs: []string{"w", "x"}}, RenameGroup{GroupID: "g", Name: "n"}, DeleteGroup{GroupID: "g"},
 		Scroll{Pane: "a", Lines: -3},

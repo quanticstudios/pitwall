@@ -34,37 +34,42 @@ type Keys struct {
 	Preset           string  `toml:"preset" enum:"conventional,aide" doc:"conventional follows Linux terminals (Ghostty, kitty, GNOME Terminal); aide is aide's Alt-key layout."`
 	SwitcherModifier *string `toml:"switcher_modifier" enum:"Alt,Super,Ctrl," doc:"Holding this modifier shows the tab switcher; \"\" for none. aide uses Alt, conventional none."`
 
-	NextTab        Binding `toml:"next_tab" doc:"Next tab in sidebar order. With a switcher_modifier it stays in the tab's group until the switcher shows"`
-	PrevTab        Binding `toml:"prev_tab" doc:"Previous tab in sidebar order. With a switcher_modifier it stays in the tab's group until the switcher shows"`
-	NextGroup      Binding `toml:"next_group" doc:"First tab of the next group"`
-	PrevGroup      Binding `toml:"prev_group" doc:"First tab of the previous group"`
-	GotoTab1       Binding `toml:"goto_tab_1" doc:"Go to tab 1"`
-	GotoTab2       Binding `toml:"goto_tab_2" doc:"Go to tab 2"`
-	GotoTab3       Binding `toml:"goto_tab_3" doc:"Go to tab 3"`
-	GotoTab4       Binding `toml:"goto_tab_4" doc:"Go to tab 4"`
-	GotoTab5       Binding `toml:"goto_tab_5" doc:"Go to tab 5"`
-	GotoTab6       Binding `toml:"goto_tab_6" doc:"Go to tab 6"`
-	GotoTab7       Binding `toml:"goto_tab_7" doc:"Go to tab 7"`
-	GotoTab8       Binding `toml:"goto_tab_8" doc:"Go to tab 8"`
-	GotoTab9       Binding `toml:"goto_tab_9" doc:"Go to tab 9"`
-	JumpAttention  Binding `toml:"jump_attention" doc:"Go to the tab that needs you, newest first"`
-	NewTab         Binding `toml:"new_tab" doc:"New tab below this one, in its folder"`
-	CloseTab       Binding `toml:"close_tab" doc:"Close the tab and all its panes"`
-	NextPane       Binding `toml:"next_pane" doc:"Next pane"`
-	PrevPane       Binding `toml:"prev_pane" doc:"Previous pane"`
-	SplitRight     Binding `toml:"split_right" doc:"Split the pane to the right"`
-	SplitDown      Binding `toml:"split_down" doc:"Split the pane below"`
-	ClosePane      Binding `toml:"close_pane" doc:"Close the pane (the tab with its last pane)"`
-	Switcher       Binding `toml:"switcher" doc:"Show or hide the tab switcher"`
-	PinSwitcher    Binding `toml:"pin_switcher" doc:"Keep the switcher open after the hold modifier is released"`
-	Copy           Binding `toml:"copy" doc:"Copy the selection"`
-	Paste          Binding `toml:"paste" doc:"Paste"`
-	ScrollPageUp   Binding `toml:"scroll_page_up" doc:"Scroll back a page"`
-	ScrollPageDown Binding `toml:"scroll_page_down" doc:"Scroll forward a page"`
-	ToggleSidebar  Binding `toml:"toggle_sidebar" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
-	OpenSettings   Binding `toml:"open_settings" doc:"Show or hide the settings page"`
-	TabPrefix      Binding `toml:"tab_prefix" doc:"Tab mode: the next key runs a [keys.tab] action. Pressed twice it sends its control character to the pane"`
-	PanePrefix     Binding `toml:"pane_prefix" doc:"Pane mode: [keys.pane] keys act on panes until Esc or Enter. Pressed twice it sends its control character to the pane"`
+	NextTab         Binding `toml:"next_tab" doc:"Next tab in sidebar order. With a switcher_modifier it stays in the tab's group until the switcher shows"`
+	PrevTab         Binding `toml:"prev_tab" doc:"Previous tab in sidebar order. With a switcher_modifier it stays in the tab's group until the switcher shows"`
+	NextGroup       Binding `toml:"next_group" doc:"First tab of the next group"`
+	PrevGroup       Binding `toml:"prev_group" doc:"First tab of the previous group"`
+	GotoTab1        Binding `toml:"goto_tab_1" doc:"Go to tab 1"`
+	GotoTab2        Binding `toml:"goto_tab_2" doc:"Go to tab 2"`
+	GotoTab3        Binding `toml:"goto_tab_3" doc:"Go to tab 3"`
+	GotoTab4        Binding `toml:"goto_tab_4" doc:"Go to tab 4"`
+	GotoTab5        Binding `toml:"goto_tab_5" doc:"Go to tab 5"`
+	GotoTab6        Binding `toml:"goto_tab_6" doc:"Go to tab 6"`
+	GotoTab7        Binding `toml:"goto_tab_7" doc:"Go to tab 7"`
+	GotoTab8        Binding `toml:"goto_tab_8" doc:"Go to tab 8"`
+	GotoTab9        Binding `toml:"goto_tab_9" doc:"Go to tab 9"`
+	JumpAttention   Binding `toml:"jump_attention" doc:"Go to the tab that needs you, newest first"`
+	NewTab          Binding `toml:"new_tab" doc:"New tab below this one, in its folder"`
+	CloseTab        Binding `toml:"close_tab" doc:"Close the tab and all its panes"`
+	NextPane        Binding `toml:"next_pane" doc:"Next pane"`
+	PrevPane        Binding `toml:"prev_pane" doc:"Previous pane"`
+	SplitRight      Binding `toml:"split_right" doc:"Split the pane to the right"`
+	SplitDown       Binding `toml:"split_down" doc:"Split the pane below"`
+	ClosePane       Binding `toml:"close_pane" doc:"Close the pane (the tab with its last pane)"`
+	Switcher        Binding `toml:"switcher" doc:"Show or hide the tab switcher"`
+	PinSwitcher     Binding `toml:"pin_switcher" doc:"Keep the switcher open after the hold modifier is released"`
+	SessionSwitcher Binding `toml:"session_switcher" doc:"Show the session switcher: every session, live, to switch to, make, rename or kill one"`
+	SessionNew      Binding `toml:"session_new" doc:"New session, named in the session switcher"`
+	SessionNext     Binding `toml:"session_next" doc:"Next session in the switcher's order"`
+	SessionPrev     Binding `toml:"session_prev" doc:"Previous session in the switcher's order"`
+	SessionRename   Binding `toml:"session_rename" doc:"Rename this session in the session switcher"`
+	Copy            Binding `toml:"copy" doc:"Copy the selection"`
+	Paste           Binding `toml:"paste" doc:"Paste"`
+	ScrollPageUp    Binding `toml:"scroll_page_up" doc:"Scroll back a page"`
+	ScrollPageDown  Binding `toml:"scroll_page_down" doc:"Scroll forward a page"`
+	ToggleSidebar   Binding `toml:"toggle_sidebar" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
+	OpenSettings    Binding `toml:"open_settings" doc:"Show or hide the settings page"`
+	TabPrefix       Binding `toml:"tab_prefix" doc:"Tab mode: the next key runs a [keys.tab] action. Pressed twice it sends its control character to the pane"`
+	PanePrefix      Binding `toml:"pane_prefix" doc:"Pane mode: [keys.pane] keys act on panes until Esc or Enter. Pressed twice it sends its control character to the pane"`
 
 	Tab TabKeys `toml:"tab" doc:"Keys in tab mode, after the tab prefix."`
 
@@ -79,6 +84,7 @@ type TabKeys struct {
 	Prev      Binding `toml:"prev" doc:"Previous tab"`
 	Next      Binding `toml:"next" doc:"Next tab"`
 	Attention Binding `toml:"attention" doc:"Go to the tab that needs you, newest first"`
+	Sessions  Binding `toml:"sessions" doc:"Show the session switcher"`
 	Goto1     Binding `toml:"goto_1" doc:"Go to tab 1"`
 	Goto2     Binding `toml:"goto_2" doc:"Go to tab 2"`
 	Goto3     Binding `toml:"goto_3" doc:"Go to tab 3"`

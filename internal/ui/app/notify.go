@@ -141,6 +141,7 @@ type notifier struct {
 	mu      sync.Mutex
 	focused bool
 	active  string
+	session string // the window's session
 	wake    chan struct{}
 	cancel  context.CancelFunc
 	done    chan struct{}
@@ -150,24 +151,23 @@ func newNotifier(b Backend, invalidate func(), send func(context.Context, notifi
 	ctx, cancel := context.WithCancel(context.Background())
 	n := &notifier{wake: make(chan struct{}, 1), cancel: cancel, done: make(chan struct{})}
 	st := b.State()
-	if ws := ordered(&st); len(ws) > 0 {
-		n.active = ws[0].ID
-	}
 	go n.run(ctx, b, st, invalidate, send)
 	return n
 }
 
 func (n *notifier) close() { n.cancel(); <-n.done }
 
-func (n *notifier) setView(focused *bool, active string) {
+// setView records the window's focus, or else the tab and session it
+// shows.
+func (n *notifier) setView(focused *bool, active, session string) {
 	n.mu.Lock()
 	changed := false
 	if focused != nil {
 		changed = n.focused != *focused
 		n.focused = *focused
 	} else {
-		changed = n.active != active
-		n.active = active
+		changed = n.active != active || n.session != session
+		n.active, n.session = active, session
 	}
 	n.mu.Unlock()
 	if changed {
@@ -216,7 +216,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 		}
 		version = st.Version
 		n.mu.Lock()
-		focused, active := n.focused, n.active
+		focused, active, session := n.focused, n.active, n.session
 		n.mu.Unlock()
 		now := time.Now()
 		var deliveries []model.Activity
@@ -226,7 +226,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			viewing := n.focused && n.active == a.WorkspaceID
 			n.mu.Unlock()
 			ws := findWorkspace(&st, a.WorkspaceID)
-			if !viewing && ws != nil && !ws.Detached {
+			if !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
 				h.last[a.WorkspaceID] = time.Now()
 				send(ctx, notification{a, notificationTitle(&st, *ws)})
 			}
@@ -245,11 +245,28 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 	}
 }
 
-// notificationTitle is "<group> / <tab>", or the tab's title alone for an
-// ungrouped tab.
-func notificationTitle(st *model.State, w model.Workspace) string {
-	if w.ProjectID == "" {
-		return tabTitle(w)
+// notifies reports whether the window showing session mine notifies about
+// session s: its own, and one no window shows when mine sorts first among
+// the sessions windows show, so each notification comes once.
+func notifies(st *model.State, mine, s string) bool {
+	if s == mine {
+		return true
 	}
-	return groupName(st, w) + " / " + tabTitle(w)
+	if ss := st.Session(s); ss != nil && ss.Windows > 0 {
+		return false
+	}
+	return !slices.ContainsFunc(st.Sessions, func(x model.Session) bool { return x.Windows > 0 && x.ID < mine })
+}
+
+// notificationTitle is "<session> · <group> / <tab>", without the group
+// for an ungrouped tab.
+func notificationTitle(st *model.State, w model.Workspace) string {
+	t := tabTitle(w)
+	if w.ProjectID != "" {
+		t = groupName(st, w) + " / " + t
+	}
+	if s := st.Session(w.SessionID); s != nil {
+		t = s.Name + " · " + t
+	}
+	return t
 }

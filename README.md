@@ -108,16 +108,21 @@ pitwall hooks install             # let Claude Code and Codex report their state
 pitwall                           # open the window
 ```
 
-The window opens on a shell in the folder you launched it from. Run `claude`,
-`codex`, a dev server, anything. The tab's row in the sidebar shows what is
-happening: the name of a running command, or the agent's state.
+The window opens on a shell in the folder you launched it from, in a session
+with a generated name such as `swift-otter`. Run `claude`, `codex`, a dev
+server, anything. The tab's row in the sidebar shows what is happening: the
+name of a running command, or the agent's state.
 
 Open more tabs with **+** in the sidebar header. Each tab can be split into
-panes. Typing `exit` closes a pane; an empty tab closes, and the window closes
-with your last tab. Tabs you detached keep running in the background.
+panes. Typing `exit` closes a pane; an empty tab closes, and the session ends
+with its last tab. Closing the window only detaches it: every session keeps
+running, and `pitwall` opens the most recently used one again.
 
 ## Concepts
 
+- **Session**: a named set of tabs and groups, like a tmux or zellij
+  session. Every session keeps running in the daemon; a window shows one of
+  them. Names are generated (`swift-otter`) until you rename one.
 - **Tab**: one working context, a set of split panes started in a folder. Its
   title follows the work: the agent's topic or first prompt, the running
   command, or the folder the shell is in now (`~` for home). Naming a tab
@@ -172,6 +177,45 @@ States are exact when the agent's hooks are installed (`pitwall hooks
 install`). Without hooks, pitwall still recognizes `claude` and `codex`
 running in a pane and reads their state from the screen, which is a little
 less precise.
+
+### Sessions
+
+<img src="docs/media/sessions.webp" alt="The session switcher: three sessions with their agents and live counts on the left, the highlighted session's sidebar on the right" width="800">
+
+A session is a separate set of tabs and groups with a name, the way tmux
+and zellij work: one per project or per piece of work, each with its own
+sidebar. All of them keep running in the daemon. The sidebar header shows
+the session's name, the window title is `<session> · pitwall`, and the panes
+fade in when the window switches, so you know where you are.
+
+Ctrl+Shift+S (Alt+S in the aide preset), or a click on the session name in
+the sidebar header, opens the session switcher. It lists every session with
+its agents, how many are working and how many need you, and when it was last
+active; a session with something you have not seen gets an accent bar. The
+right side draws the highlighted session's sidebar as it is now, so you can
+watch its agents before you switch. In the switcher:
+
+| Key            | Does                                                   |
+| -------------- | ------------------------------------------------------ |
+| j / k, arrows  | Move                                                   |
+| Enter, click   | Switch the window to the session                       |
+| 1-9            | Switch to the Nth session                              |
+| any other key  | Filter by name (`/` starts a filter that may begin with j, k, n, r or x) |
+| n              | New session; type a name or keep the suggested one     |
+| r              | Rename the highlighted session                         |
+| x              | Kill the highlighted session, after a y                |
+| Esc            | Clear the filter, then close                           |
+
+Ctrl+Shift+] and Ctrl+Shift+[ (Alt+] and Alt+[ in aide) step through the
+sessions without the switcher, and Ctrl+Shift+N makes one. Ctrl+Shift+U
+crosses sessions: it switches to the session of the pane that needs you.
+Desktop notifications start with the session's name.
+
+Each window shows one session, and you can open as many windows as you like:
+`pitwall -s <name>` opens one on that session, making it if it does not
+exist. Asking for a session another window already shows raises that window.
+When a session ends, because you killed it or closed its last tab, its
+windows move to the most recently used session, or close when none is left.
 
 ### Tabs and panes
 
@@ -236,14 +280,21 @@ At the start of a task inside a pitwall pane, run
 
 ## Command line
 
-Run these from any terminal. Inside a pitwall pane, commands that take an
-optional name act on the pane's own tab. Older pitwall versions called tabs
-sessions; the commands and flags are the same.
+Run these from any terminal. Tab commands act on the current session: the
+calling pane's session inside a pitwall pane, else the most recently used
+one; `-s <session>` picks another. Inside a pane, commands that take an
+optional name act on the pane's own tab.
 
 | Command                               | Does                                                          |
 | ------------------------------------- | ------------------------------------------------------------- |
-| `pitwall`                             | Open the window (starts the daemon if needed)                 |
-| `pitwall ls [--json]`                 | List tabs in sidebar order: #, name, state, folder, group     |
+| `pitwall`                             | Open a window on the most recently used session (starts the daemon if needed) |
+| `pitwall -s <name>`                   | Open a window on a session, made if missing                   |
+| `pitwall session ls [--json]`         | List sessions: tabs, agents working and needing you, windows, last used; `*` marks the current one |
+| `pitwall session new [name] [-d] [dir]` | Make a session with a shell in dir and open a window on it; `-d` does not |
+| `pitwall session attach <name>`       | Open a window on a session, or raise the one showing it       |
+| `pitwall session rename [old] <new>`  | Rename a session, the current one without old                 |
+| `pitwall session kill [-f] <name>`    | End a session and close its processes                         |
+| `pitwall ls [--json]`                 | List the session's tabs in sidebar order: #, name, state, folder, group |
 | `pitwall new [-n name] [-d] [dir]`    | Open a tab and print its #; `-d` leaves it detached           |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
@@ -257,13 +308,15 @@ sessions; the commands and flags are the same.
 
 A name is a tab's `#` from `pitwall ls` (`3` or `#3`), else its title. A
 title matches exactly first, then by a unique prefix, so
-`pitwall attach fix` finds the tab titled `fix login redirects`. Detached
-tabs are numbered after the ones the sidebar shows.
+`pitwall attach fix` finds the tab titled `fix login redirects`. Numbers
+count within the session, and detached tabs come after the ones the sidebar
+shows. A session is named in full or by a unique prefix.
 
 ```sh
-pitwall new -n auth -d ~/src/service   # start a background tab
-pitwall ls
-pitwall attach auth
+pitwall session new billing -d ~/src/billing   # a background session
+pitwall new -s billing -n api -d               # a tab in it
+pitwall ls -s billing
+pitwall session attach billing                 # open a window on it
 ```
 
 ## Keybindings
@@ -289,7 +342,10 @@ conventional:
 | Ctrl+Shift+E                            | Split the pane below                                      |
 | Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up   | Next / previous pane                                      |
 | Ctrl+Shift+B                            | Show or hide the sidebar                                  |
-| Ctrl+Shift+U                            | Go to the tab that needs you, newest first                |
+| Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
+| Ctrl+Shift+S                            | Session switcher                                          |
+| Ctrl+Shift+] / Ctrl+Shift+[             | Next / previous session                                   |
+| Ctrl+Shift+N                            | New session                                               |
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste                                    |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
@@ -311,13 +367,16 @@ aide:
 | Alt+Shift+N                       | Split the pane below                           |
 | Alt+Shift+W                       | Close the pane                                 |
 | Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
-| Alt+U                             | Go to the tab that needs you, newest first     |
+| Alt+U                             | Go to the tab that needs you, newest first, in any session |
+| Alt+S                             | Session switcher                               |
+| Alt+] / Alt+[                     | Next / previous session                        |
 | Ctrl+T then n                     | New tab                                        |
 | Ctrl+T then x                     | Close the tab                                  |
 | Ctrl+T then r                     | Rename the tab                                 |
 | Ctrl+T then h / l or Left / Right | Previous / next tab in the group               |
 | Ctrl+T then 1-9                   | Go to the Nth tab                              |
 | Ctrl+T then u                     | Go to the tab that needs you, newest first     |
+| Ctrl+T then s                     | Session switcher                               |
 | Ctrl+T twice                      | Send Ctrl+T to the terminal                    |
 | Ctrl+P then n                     | New pane, split along its longer side          |
 | Ctrl+P then d / r                 | Split the pane down / right                    |

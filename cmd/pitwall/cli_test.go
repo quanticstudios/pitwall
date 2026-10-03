@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -85,16 +86,22 @@ func cliOutput(args ...string) (int, string, string) {
 	return code, out.String(), stderr.String()
 }
 
+// cliState has two sessions: main, the most recently used, with three tabs
+// and a group, and api with one tab.
 func cliState() model.State {
 	return model.State{
-		Projects: []model.Project{{ID: "g", Name: "agents"}},
-		Workspaces: []model.Workspace{
-			{ID: "a", Label: "fix login", Path: "/work/a", ProjectID: "g", Tabs: []model.Tab{{ID: "ta"}}},
-			{ID: "b", Name: "alpine", NameSet: true, Label: "alpine", Path: "/work/b", Detached: true, Tabs: []model.Tab{{ID: "tc"}}},
-			{ID: "c", Label: "~", Path: "/work/c"},
+		Sessions: []model.Session{
+			{ID: "m", Name: "main", Order: []string{"g", "c"}, UsedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+			{ID: "s2", Name: "api", UsedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 		},
-		Order: []string{"g", "c"},
-		Panes: []model.Pane{{ID: "pa", WorkspaceID: "a"}, {ID: "pb", WorkspaceID: "b"}},
+		Projects: []model.Project{{ID: "g", SessionID: "m", Name: "agents"}},
+		Workspaces: []model.Workspace{
+			{ID: "a", SessionID: "m", Label: "fix login", Path: "/work/a", ProjectID: "g", Tabs: []model.Tab{{ID: "ta"}}},
+			{ID: "b", SessionID: "m", Name: "alpine", NameSet: true, Label: "alpine", Path: "/work/b", Detached: true, Tabs: []model.Tab{{ID: "tc"}}},
+			{ID: "c", SessionID: "m", Label: "~", Path: "/work/c"},
+			{ID: "z", SessionID: "s2", Label: "server", Path: "/work/z"},
+		},
+		Panes: []model.Pane{{ID: "pa", WorkspaceID: "a"}, {ID: "pb", WorkspaceID: "b"}, {ID: "pz", WorkspaceID: "z"}},
 		Activities: []model.Activity{
 			{WorkspaceID: "a", Provider: model.ProviderClaude, State: model.StateWorking},
 			{WorkspaceID: "a", Provider: model.ProviderCodex, State: model.StateError},
@@ -130,7 +137,7 @@ func TestCLIList(t *testing.T) {
 				if err := json.Unmarshal([]byte(out), &got); err != nil {
 					t.Fatal(err)
 				}
-				if code != 0 || stderr != "" || (format == "json" && !reflect.DeepEqual(got, state.Workspaces)) || got == nil {
+				if code != 0 || stderr != "" || (format == "json" && !reflect.DeepEqual(got, state.Workspaces[:3])) || got == nil {
 					t.Fatalf("%d: %s %s", code, out, stderr)
 				}
 			}
@@ -143,15 +150,15 @@ func TestCLINew(t *testing.T) {
 		t.Run(fmt.Sprint(detached), func(t *testing.T) {
 			before := cliState()
 			after := cliState()
-			after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", Name: "build", NameSet: true})
+			after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", SessionID: "m", Name: "build", NameSet: true})
 			dir := t.TempDir()
 			t.Chdir(dir)
 			wantDir := filepath.Join(dir, "child")
 			args := []string{"new", "-n", "build", "child"}
-			exchanges := []cliExchange{{state: before}, {request: proto.NewSession{Name: "build", Cwd: wantDir}, state: after}}
+			exchanges := []cliExchange{{state: before}, {request: proto.NewSession{Name: "build", Cwd: wantDir, SessionID: "m"}, state: after}}
 			if detached {
 				args = []string{"new", "-n", "build", "-d"}
-				exchanges[1].request = proto.NewSession{Name: "build", Cwd: dir}
+				exchanges[1].request = proto.NewSession{Name: "build", Cwd: dir, SessionID: "m"}
 				exchanges = append(exchanges, cliExchange{request: proto.DetachSession{WorkspaceID: "new", Detached: true}, state: after})
 			}
 			fakeCLI(t, exchanges...)
@@ -172,7 +179,7 @@ func TestCLIResolve(t *testing.T) {
 		{"4", "", "no tab #4 (see pitwall ls)"},
 		{"absent", "", "no tab matches \"absent\" (see pitwall ls)"},
 	} {
-		w, err := resolveTab(state, tc.name)
+		w, err := resolveTab(state, "m", tc.name)
 		if tc.error != "" {
 			if err == nil || err.Error() != tc.error {
 				t.Fatalf("%q: %v", tc.name, err)
@@ -182,18 +189,66 @@ func TestCLIResolve(t *testing.T) {
 		}
 	}
 	// An exact title beats a prefix; two equal titles are ambiguous.
-	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "d", Label: "fix"})
-	state.Order = append(state.Order, "d")
-	if w, err := resolveTab(state, "fix"); err != nil || w.ID != "d" {
+	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "d", SessionID: "m", Label: "fix"})
+	state.Sessions[0].Order = append(state.Sessions[0].Order, "d")
+	if w, err := resolveTab(state, "m", "fix"); err != nil || w.ID != "d" {
 		t.Fatalf("exact title: %+v %v", w, err)
 	}
-	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "e", Label: "fix"})
-	if _, err := resolveTab(state, "fix"); err == nil || err.Error() != "ambiguous tab \"fix\"; matches #3, #4" {
+	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "e", SessionID: "m", Label: "fix"})
+	if _, err := resolveTab(state, "m", "fix"); err == nil || err.Error() != "ambiguous tab \"fix\"; matches #3, #4" {
 		t.Fatalf("equal titles: %v", err)
 	}
 	t.Setenv("PITWALL_PANE", "")
-	if _, err := resolveTab(state, ""); err == nil {
+	if _, err := resolveTab(state, "m", ""); err == nil {
 		t.Fatal("resolved no name outside pane")
+	}
+	// #N counts in the session asked for.
+	if w, err := resolveTab(state, "s2", "1"); err != nil || w.ID != "z" {
+		t.Fatalf("#1 of api: %+v %v", w, err)
+	}
+}
+
+// Tab commands act on the calling pane's session, else the most recently
+// used one; -s picks one by name or unique prefix.
+func TestCLICurrentSession(t *testing.T) {
+	state := cliState()
+	for _, tc := range []struct{ pane, flag, want, error string }{
+		{"", "", "m", ""},
+		{"pz", "", "s2", ""},
+		{"pz", "main", "m", ""},
+		{"", "ap", "s2", ""},
+		{"gone", "", "m", ""},
+		{"", "x", "", "no session matches \"x\" (see pitwall session ls)"},
+	} {
+		t.Setenv("PITWALL_PANE", tc.pane)
+		s, err := currentSession(state, tc.flag)
+		if tc.error != "" {
+			if err == nil || err.Error() != tc.error {
+				t.Errorf("%+v: %v", tc, err)
+			}
+		} else if err != nil || s.ID != tc.want {
+			t.Errorf("%+v: %+v %v", tc, s, err)
+		}
+	}
+	state.Sessions = append(state.Sessions, model.Session{ID: "s3", Name: "apex"})
+	if _, err := resolveSession(state, "ap"); err == nil || err.Error() != "ambiguous session \"ap\"; matches api, apex" {
+		t.Fatalf("ambiguous: %v", err)
+	}
+	if _, err := currentSession(model.State{}, ""); err == nil {
+		t.Fatal("a session out of nothing")
+	}
+}
+
+// "ls -s api" lists api's tabs; "kill -s api 1" kills its first.
+func TestCLISessionFlag(t *testing.T) {
+	fakeCLI(t, cliExchange{state: cliState()})
+	code, out, stderr := cliOutput("ls", "-s", "api")
+	if lines := strings.Split(strings.TrimSpace(out), "\n"); code != 0 || stderr != "" || len(lines) != 2 || !strings.HasPrefix(lines[1], "1  server") {
+		t.Fatalf("%d: %q %s", code, out, stderr)
+	}
+	fakeCLI(t, cliExchange{state: cliState()}, cliExchange{request: proto.KillSession{WorkspaceID: "z"}, state: cliState()})
+	if code, out, stderr := cliOutput("kill", "-f", "-s", "api", "1"); code != 0 || out != "" || stderr != "" {
+		t.Fatalf("%d: %s %s", code, out, stderr)
 	}
 }
 
@@ -343,5 +398,79 @@ func TestCLITabErrors(t *testing.T) {
 				t.Fatalf("%d: %s %s", code, out, stderr)
 			}
 		})
+	}
+}
+
+func TestCLISessions(t *testing.T) {
+	state := cliState()
+	state.Sessions[0].Windows = 1
+	state.Activities = append(state.Activities, model.Activity{WorkspaceID: "z", Provider: model.ProviderTerminal, State: model.StateAwaitingInput, Unseen: true})
+
+	fakeCLI(t, cliExchange{state: state})
+	code, out, stderr := cliOutput("session", "ls")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	field := func(i int) string { return strings.Join(strings.Fields(lines[i]), " ") }
+	if code != 0 || stderr != "" || len(lines) != 3 || field(0) != "NAME TABS WORKING NEEDS YOU WINDOWS LAST USED" ||
+		!strings.HasPrefix(field(1), "main * 2 (+1 detached) 1 1 1 ") || !strings.HasPrefix(field(2), "api 1 0 1 0 ") {
+		t.Fatalf("%d: %q %s", code, out, stderr)
+	}
+
+	fakeCLI(t, cliExchange{state: state})
+	_, out, _ = cliOutput("session", "ls", "--json")
+	var rows []sessionJSON
+	if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 2 || !rows[0].Current || rows[0].Windows != 1 ||
+		rows[0].Tabs != 2 || rows[0].Working != 1 || rows[1].Name != "api" || rows[1].NeedsYou != 1 {
+		t.Fatalf("json %q: %+v %v", out, rows, err)
+	}
+
+	// new prints the name and opens a window unless -d, which may follow
+	// the name.
+	for _, detached := range []bool{false, true} {
+		after := cliState()
+		after.Sessions = append(after.Sessions, model.Session{ID: "s3", Name: "docs"})
+		dir := t.TempDir()
+		t.Chdir(dir)
+		args := []string{"session", "new", "docs"}
+		if detached {
+			args = append(args, "-d")
+		}
+		fakeCLI(t, cliExchange{state: cliState()}, cliExchange{request: proto.SessionNew{Name: "docs", Cwd: dir}, state: after})
+		previous := launchGUI
+		var launched []string
+		launchGUI = func(session, id string) error { launched = append(launched, session+"/"+id); return nil }
+		if code, out, stderr := cliOutput(args...); code != 0 || out != "docs\n" || stderr != "" {
+			t.Fatalf("%v: %d %q %s", args, code, out, stderr)
+		}
+		launchGUI = previous
+		if detached != (len(launched) == 0) || !detached && launched[0] != "docs/" {
+			t.Fatalf("%v launched %v", args, launched)
+		}
+	}
+
+	for _, tc := range []struct {
+		args    []string
+		pane    string
+		request any
+	}{
+		{[]string{"session", "rename", "api", "server"}, "", proto.SessionRename{SessionID: "s2", Name: "server"}},
+		{[]string{"session", "rename", "server"}, "pz", proto.SessionRename{SessionID: "s2", Name: "server"}},
+		{[]string{"session", "rename", "work"}, "", proto.SessionRename{SessionID: "m", Name: "work"}},
+		{[]string{"session", "kill", "-f", "ap"}, "", proto.SessionKill{SessionID: "s2"}},
+		{[]string{"session", "attach", "main"}, "", proto.FocusSession{SessionID: "m"}},
+	} {
+		fakeCLI(t, cliExchange{state: state}, cliExchange{request: tc.request, state: state})
+		t.Setenv("PITWALL_PANE", tc.pane)
+		if code, out, stderr := cliOutput(tc.args...); code != 0 || out != "" || stderr != "" {
+			t.Fatalf("%v: %d %s %s", tc.args, code, out, stderr)
+		}
+	}
+	// attach to a session no window shows opens one.
+	fakeCLI(t, cliExchange{state: state})
+	previous := launchGUI
+	var launched []string
+	launchGUI = func(session, id string) error { launched = append(launched, session); return nil }
+	t.Cleanup(func() { launchGUI = previous })
+	if code, _, stderr := cliOutput("session", "attach", "api"); code != 0 || stderr != "" || !slices.Equal(launched, []string{"api"}) {
+		t.Fatalf("%d %s %v", code, stderr, launched)
 	}
 }

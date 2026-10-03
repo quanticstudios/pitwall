@@ -115,7 +115,7 @@ func (h *dragHarness) frame() []Event {
 	h.ops.Reset()
 	gtx := layout.Context{Ops: &h.ops, Source: h.r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
 		Constraints: layout.Exact(image.Pt(288, 800)), Now: h.now}
-	_, evs := h.s.Layout(gtx, theme.Dark(), &h.st, "u1")
+	_, evs := h.s.Layout(gtx, theme.Dark(), &h.st, "", "u1")
 	h.r.Frame(&h.ops)
 	return evs
 }
@@ -233,7 +233,7 @@ func TestDragOpensGap(t *testing.T) {
 
 // TestDragGroupToTop: the user's case. A group dropped above the first
 // ungrouped tab sends MoveGroup before that tab, and an interleaved
-// State.Order lays out in that order.
+// session Order lays out in that order.
 func TestDragGroupToTop(t *testing.T) {
 	h := newDragHarness(t)
 	p := h.at("g1", 10)
@@ -245,7 +245,7 @@ func TestDragGroupToTop(t *testing.T) {
 		t.Fatalf("drop sent %v", evs)
 	}
 	h.now = h.now.Add(time.Second)
-	h.st.Order = []string{"g1", "u1", "g2", "u2"}
+	h.st.Sessions = []model.Session{{Order: []string{"g1", "u1", "g2", "u2"}}}
 	h.frame()
 	h.frame()
 	var got []string
@@ -255,7 +255,7 @@ func TestDragGroupToTop(t *testing.T) {
 	if want := []string{"gg1", "sa", "su1", "gg2", "su2"}; !slices.Equal(got, want) {
 		t.Fatalf("laid out %v, want %v", got, want)
 	}
-	if got := h.s.order(newView(layout.Context{}, theme.Dark(), &h.st, "")); !slices.Equal(got, []string{"a", "u1", "u2"}) {
+	if got := h.s.order(newView(layout.Context{}, theme.Dark(), &h.st, "", "")); !slices.Equal(got, []string{"a", "u1", "u2"}) {
 		t.Fatalf("order %v", got)
 	}
 }

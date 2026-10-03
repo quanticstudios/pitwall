@@ -94,6 +94,14 @@ func TestPresets(t *testing.T) {
 		{conv, "scroll_page_up", "Shift+PageUp"},
 		{conv, "tab_prefix", ""},
 		{conv, "pane_prefix", ""},
+		{conv, "session_switcher", "Ctrl+Shift+S"},
+		{conv, "session_new", "Ctrl+Shift+N"},
+		{conv, "session_next", "Ctrl+Shift+]"},
+		{conv, "session_prev", "Ctrl+Shift+["},
+		{conv, "session_rename", ""},
+		{aide, "session_switcher", "Alt+S"},
+		{aide, "session_next", "Alt+]"},
+		{aide, "session_prev", "Alt+["},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)
@@ -106,6 +114,17 @@ func TestPresets(t *testing.T) {
 		if _, issues := resolveKeys(Keys{Preset: name}); len(issues) > 0 {
 			t.Errorf("%s: %v", name, issues)
 		}
+	}
+	// Gio names a shifted symbol key by the symbol it types: Ctrl+Shift+]
+	// arrives as Ctrl+Shift+}, and the window must still take it.
+	if a := conv.Action(key.Event{Name: "}", Modifiers: key.ModCtrl | key.ModShift}); a != "session_next" {
+		t.Errorf("Ctrl+Shift+} runs %q", a)
+	}
+	if a := conv.Action(key.Event{Name: "}", Modifiers: key.ModCtrl}); a != "" {
+		t.Errorf("Ctrl+} runs %q", a)
+	}
+	if !slices.Contains(conv.WindowChords(), Chord{key.ModCtrl | key.ModShift, "{"}) {
+		t.Error("the window does not take Ctrl+Shift+{")
 	}
 	// Plain Ctrl+letters and readline's Alt+B/F/D/. stay with the shell.
 	for _, s := range []string{"Ctrl+T", "Ctrl+W", "Ctrl+C", "Ctrl+R", "Alt+B", "Alt+F", "Alt+D", "Alt+."} {

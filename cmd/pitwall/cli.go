@@ -106,10 +106,14 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if command == "tab" {
 		return tabCommand(args[1:])
 	}
+	if command == "session" {
+		return sessionsCommand(args[1:], in, out, errOut)
+	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var asJSON, detached, force bool
-	var name string
+	var name, sessionName string
+	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
 	case "ls":
 		flags.BoolVar(&asJSON, "json", false, "")
@@ -144,16 +148,20 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	session, err := currentSession(state, sessionName)
+	if err != nil && (sessionName != "" || command != "ls" && command != "new") {
+		return err // with no session, ls lists nothing and new makes one
+	}
 	switch command {
 	case "ls":
 		if asJSON {
-			sessions := state.Workspaces
-			if sessions == nil {
-				sessions = []model.Workspace{}
+			tabs := state.View(session.ID).Workspaces
+			if tabs == nil {
+				tabs = []model.Workspace{}
 			}
-			return json.NewEncoder(out).Encode(sessions)
+			return json.NewEncoder(out).Encode(tabs)
 		}
-		return listTabs(out, state)
+		return listTabs(out, state, session.ID)
 	case "new":
 		dir := "."
 		if len(args) == 1 {
@@ -163,7 +171,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir})
+		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID})
 		if err != nil {
 			return err
 		}
@@ -181,7 +189,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 				return err
 			}
 		}
-		n := slices.IndexFunc(numbered(after), func(w model.Workspace) bool { return w.ID == added[0].ID })
+		n := slices.IndexFunc(numbered(after, added[0].SessionID), func(w model.Workspace) bool { return w.ID == added[0].ID })
 		_, err = fmt.Fprintf(out, "#%d\n", n+1)
 		return err
 	}
@@ -189,17 +197,18 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if len(args) != 0 && (command != "rename" || len(args) == 2) {
 		old = args[0]
 	}
-	w, err := resolveTab(state, old)
+	w, err := resolveTab(state, session.ID, old)
 	if err != nil {
 		return err
 	}
 	var request any
 	switch command {
 	case "attach":
-		if _, err := syncCLI(conn, proto.FocusSession{WorkspaceID: w.ID}); err != nil {
+		after, err := syncCLI(conn, proto.FocusSession{WorkspaceID: w.ID})
+		if err != nil {
 			return err
 		}
-		return attachGUI(w.ID)
+		return attachGUI(after, w.SessionID, w.ID)
 	case "detach":
 		request = proto.DetachSession{WorkspaceID: w.ID, Detached: true}
 	case "rename":
@@ -223,10 +232,56 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	return err
 }
 
-// resolveTab finds a tab by its number in pitwall ls ("3" or "#3"), then
-// by exact title, then by a unique title prefix. With no name it is the tab
-// of $PITWALL_PANE.
-func resolveTab(state model.State, name string) (model.Workspace, error) {
+// currentSession is the session tab commands act on: the one named name
+// (exactly, else by unique prefix), else the session of $PITWALL_PANE,
+// else the most recently used one.
+func currentSession(state model.State, name string) (model.Session, error) {
+	if name != "" {
+		return resolveSession(state, name)
+	}
+	if pane := os.Getenv("PITWALL_PANE"); pane != "" {
+		for _, p := range state.Panes {
+			if p.ID == pane {
+				if s := state.Session(state.SessionOf(p.WorkspaceID)); s != nil {
+					return *s, nil
+				}
+			}
+		}
+	}
+	if s := state.Recent(); s != nil {
+		return *s, nil
+	}
+	return model.Session{}, errors.New("no session is open")
+}
+
+// resolveSession finds a session by exact name, then by unique prefix.
+func resolveSession(state model.State, name string) (model.Session, error) {
+	if s := state.SessionNamed(name); s != nil {
+		return *s, nil
+	}
+	var found []model.Session
+	for _, s := range state.Sessions {
+		if strings.HasPrefix(s.Name, name) {
+			found = append(found, s)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return model.Session{}, fmt.Errorf("no session matches %q (see pitwall session ls)", name)
+	case 1:
+		return found[0], nil
+	}
+	var names []string
+	for _, s := range found {
+		names = append(names, s.Name)
+	}
+	return model.Session{}, fmt.Errorf("ambiguous session %q; matches %s", name, strings.Join(names, ", "))
+}
+
+// resolveTab finds a tab of session by its number in pitwall ls ("3" or
+// "#3"), then by exact title, then by a unique title prefix. With no name
+// it is the tab of $PITWALL_PANE, in whichever session.
+func resolveTab(state model.State, session, name string) (model.Workspace, error) {
 	if name == "" {
 		pane := os.Getenv("PITWALL_PANE")
 		for _, p := range state.Panes {
@@ -243,7 +298,7 @@ func resolveTab(state model.State, name string) (model.Workspace, error) {
 		}
 		return model.Workspace{}, errors.New("specify a tab name outside a pitwall pane (see pitwall ls)")
 	}
-	tabs := numbered(state)
+	tabs := numbered(state, session)
 	if n, err := strconv.Atoi(strings.TrimPrefix(name, "#")); err == nil {
 		if n < 1 || n > len(tabs) {
 			return model.Workspace{}, fmt.Errorf("no tab #%d (see pitwall ls)", n)
@@ -276,10 +331,10 @@ func resolveTab(state model.State, name string) (model.Workspace, error) {
 	return model.Workspace{}, fmt.Errorf("ambiguous tab %q; matches %s", name, strings.Join(nums, ", "))
 }
 
-// numbered is the tabs as pitwall ls numbers them: the sidebar's order,
-// then the detached tabs.
-func numbered(state model.State) []model.Workspace {
-	all := state.Ordered()
+// numbered is session's tabs as pitwall ls numbers them: the sidebar's
+// order, then the detached tabs.
+func numbered(state model.State, session string) []model.Workspace {
+	all := state.Ordered(session)
 	shown := slices.DeleteFunc(slices.Clone(all), func(w model.Workspace) bool { return w.Detached })
 	return append(shown, slices.DeleteFunc(all, func(w model.Workspace) bool { return !w.Detached })...)
 }
@@ -293,15 +348,15 @@ func tabTitle(w model.Workspace) string {
 	return cmp.Or(w.Label, w.Name)
 }
 
-// listTabs prints one row per tab: its number, title, state, folder and
-// group.
-func listTabs(out io.Writer, state model.State) error {
+// listTabs prints one row per tab of session: its number, title, state,
+// folder and group.
+func listTabs(out io.Writer, state model.State, session string) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	home, _ := os.UserHomeDir()
 	if _, err := fmt.Fprintln(w, "#\tNAME\tSTATE\tFOLDER\tGROUP"); err != nil {
 		return err
 	}
-	for i, tab := range numbered(state) {
+	for i, tab := range numbered(state, session) {
 		label := "idle"
 		var activities []model.Activity
 		for _, a := range state.Activities {
@@ -357,7 +412,7 @@ func tabCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		w, err := resolveTab(state, "")
+		w, err := resolveTab(state, "", "")
 		if err != nil {
 			return err
 		}
