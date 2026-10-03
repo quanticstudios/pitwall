@@ -858,15 +858,17 @@ func (p *Page) shortcuts() []section {
 			extra: "keys layout conventional aide", control: p.segmented("preset", config.Presets, b.Preset, func(o string) {
 				p.saveValue("keys", "preset", config.Quote(o))
 			})},
-		{label: "Switcher hold key", desc: "Holding it shows every tab; the tab keys then walk them all.", extra: "modifier alt super ctrl switcher",
+	}}
+	if !config.SwitcherHidden {
+		general.rows = append(general.rows, row{label: "Switcher hold key", desc: "Holding it shows every tab; the tab keys then walk them all.", extra: "modifier alt super ctrl switcher",
 			control: p.segmented("hold", []string{"", "Alt", "Super", "Ctrl"}, holdName(b.Hold), func(o string) {
 				if o == holdName(preset.Hold) {
 					p.save("keys", "switcher_modifier", nil)
 				} else {
 					p.saveValue("keys", "switcher_modifier", config.Quote(o))
 				}
-			})},
-	}}
+			})})
+	}
 	var global, tab []row
 	for _, a := range config.Actions() {
 		cs := chordsOf(b, a.Name, a.Tab)

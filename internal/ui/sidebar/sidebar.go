@@ -1041,11 +1041,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			where = ShortPath(v.st.LivePath(ws))
 		}
 		var line []item
-		if ag := v.agent[ws.ID]; ag != "" {
-			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, semibold(th.UIFont), 11, theme.Mix(base, AgentColor(ag, th.Fg), 0.9), AgentName(ag))
-			}})
-		}
 		line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.MonoFont, 11, muted, where)
 		}})

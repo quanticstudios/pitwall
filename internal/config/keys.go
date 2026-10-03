@@ -198,6 +198,12 @@ var Renamed = map[string]string{
 	"jump_session_7": "goto_tab_7", "jump_session_8": "goto_tab_8", "jump_session_9": "goto_tab_9",
 }
 
+// SwitcherHidden turns the tab switcher off for now: no hold modifier, its
+// actions unbound and left out of Actions. The switcher code stays.
+var SwitcherHidden = true
+
+var switcherActions = map[string]bool{"switcher": true, "pin_switcher": true}
+
 // Presets are the preset names, the default first.
 var Presets = []string{"conventional", "aide"}
 
@@ -305,6 +311,17 @@ func resolveKeys(k Keys) (*Bindings, []issue) {
 	issues = append(issues, apply(b.Tab, p.tab, reflect.ValueOf(k.Tab), "keys.tab")...)
 	b.global = index(b.Global, p.global, reflect.ValueOf(k), "keys", &issues)
 	b.tab = index(b.Tab, p.tab, reflect.ValueOf(k.Tab), "keys.tab", &issues)
+	if SwitcherHidden {
+		b.Hold = 0
+		for c, a := range b.global {
+			if switcherActions[a] {
+				delete(b.global, c)
+			}
+		}
+		for a := range switcherActions {
+			delete(b.Global, a)
+		}
+	}
 	return b, issues
 }
 
@@ -407,7 +424,7 @@ func Actions() []Action {
 	var out []Action
 	for _, t := range []reflect.Type{reflect.TypeFor[Keys](), reflect.TypeFor[TabKeys]()} {
 		for _, f := range fields(t) {
-			if f.typ == bindingType {
+			if f.typ == bindingType && !(SwitcherHidden && switcherActions[f.name]) {
 				out = append(out, Action{f.name, f.doc, t == reflect.TypeFor[TabKeys]()})
 			}
 		}

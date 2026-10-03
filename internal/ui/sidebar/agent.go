@@ -41,7 +41,7 @@ func AgentOf(st *model.State, ws model.Workspace) model.Provider {
 	return ""
 }
 
-// AgentName is how a row's second line names the agent.
+// AgentName is the agent's display name.
 func AgentName(p model.Provider) string {
 	switch p {
 	case model.ProviderClaude:
@@ -50,14 +50,6 @@ func AgentName(p model.Provider) string {
 		return "Codex"
 	}
 	return ""
-}
-
-// AgentColor is the agent's accent: Claude's orange, or fg for Codex.
-func AgentColor(p model.Provider, fg color.NRGBA) color.NRGBA {
-	if p == model.ProviderCodex {
-		return fg
-	}
-	return claudeColor
 }
 
 // AgentMark draws the agent's logo in a size box: Claude's starburst, or
