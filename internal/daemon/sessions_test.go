@@ -121,10 +121,14 @@ func TestSessionsAndGroups(t *testing.T) {
 
 	// The stats loop covers ungrouped sessions in a repo, by their own path.
 	d.refreshStats(ctx, "")
+	// why: refreshStats goroutines from NewSession may still be writing statsCalls.
+	f.mu.Lock()
+	calls := f.statsCalls[repo]
+	f.mu.Unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if len(d.st.Stats) != 1 || d.st.Stats[r].Additions != 5 || f.statsCalls[repo] == 0 {
-		t.Fatalf("stats %+v calls %+v", d.st.Stats, f.statsCalls)
+	if len(d.st.Stats) != 1 || d.st.Stats[r].Additions != 5 || calls == 0 {
+		t.Fatalf("stats %+v calls %d", d.st.Stats, calls)
 	}
 }
 
