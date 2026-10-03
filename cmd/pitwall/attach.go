@@ -1,11 +1,9 @@
 package main
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -17,7 +15,7 @@ var launchGUI = func(workspaceID string) error {
 	}
 	cmd := exec.Command(bin)
 	cmd.Env = append(os.Environ(), "PITWALL_ATTACH="+workspaceID)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -35,11 +33,9 @@ func guiLock() (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	ok, err := tryLock(lock)
+	if !ok {
 		lock.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return lock, nil

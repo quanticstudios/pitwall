@@ -3,18 +3,14 @@
 package pane
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
-
-	"github.com/creack/pty"
 
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -29,8 +25,7 @@ type Config struct {
 }
 
 type Pane struct {
-	ptmx *os.File
-	cmd  *exec.Cmd
+	sys // the PTY as tty, and the process
 
 	mu sync.Mutex // guards vt: the reader writes while clients snapshot and resize
 	vt vt.Emulator
@@ -45,10 +40,25 @@ type Pane struct {
 
 // Shell is the program Start runs for a Config without Cmd.
 func Shell() string {
-	if sh := os.Getenv("SHELL"); sh != "" {
+	sh := os.Getenv("SHELL")
+	if runtime.GOOS == "windows" {
+		return windowsShell(sh, exec.LookPath)
+	}
+	if sh != "" {
 		return sh
 	}
 	return "/bin/sh"
+}
+
+// windowsShell is $SHELL when it runs (Git Bash sets a POSIX path that does
+// not), else the first of pwsh and Windows PowerShell on PATH, else cmd.
+func windowsShell(sh string, look func(string) (string, error)) string {
+	for _, s := range []string{sh, "pwsh.exe", "powershell.exe"} {
+		if _, err := look(s); s != "" && err == nil {
+			return s
+		}
+	}
+	return "cmd.exe"
 }
 
 func Start(c Config) (*Pane, error) {
@@ -59,14 +69,13 @@ func Start(c Config) (*Pane, error) {
 	env := append(environ(), c.Env...)
 	env = append(env, "PITWALL_PANE="+c.ID, "TERM=xterm-256color", "COLORTERM=truecolor")
 
-	ptmx, cmd, err := spawn(c, argv, env)
+	s, err := spawn(c, argv, env)
 	if err != nil {
 		return nil, err
 	}
 	p := &Pane{
-		ptmx:     ptmx,
-		cmd:      cmd,
-		vt:       c.NewVT(c.Cols, c.Rows, ptmx),
+		sys:      s,
+		vt:       c.NewVT(c.Cols, c.Rows, s.tty),
 		dirty:    make(chan struct{}, 1),
 		exited:   make(chan struct{}),
 		readDone: make(chan struct{}),
@@ -81,54 +90,6 @@ func Start(c Config) (*Pane, error) {
 	go p.read()
 	go p.wait()
 	return p, nil
-}
-
-// spawnAttempts bounds retries of a start the kernel refused with EPERM.
-const spawnAttempts = 3
-
-// Adapted from tuios (MIT): internal/ptyspawn/spawn.go
-// The controlling-terminal grab (TIOCSCTTY) sometimes fails with EPERM when a
-// just-freed pts index is recycled while its old session is still being torn
-// down. A fresh pty a few milliseconds later succeeds, so retry, bounded, and
-// never on any other error.
-func spawn(c Config, argv, env []string) (*os.File, *exec.Cmd, error) {
-	for attempt := 1; ; attempt++ {
-		cmd := exec.Command(argv[0], argv[1:]...)
-		cmd.Dir = c.Cwd
-		cmd.Env = env
-		// pty.StartWithAttrs puts the slave on fd 0, so Ctty 0 is the one to claim.
-		attrs := &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
-		ptmx, err := pty.StartWithAttrs(cmd, &pty.Winsize{Cols: uint16(c.Cols), Rows: uint16(c.Rows)}, attrs)
-		if err == nil {
-			if ptmx, err = pollable(ptmx); err != nil {
-				cmd.Process.Kill()
-				cmd.Wait()
-				return nil, nil, fmt.Errorf("start %s: %w", argv[0], err)
-			}
-			return ptmx, cmd, nil
-		}
-		if attempt < spawnAttempts && errors.Is(err, syscall.EPERM) {
-			time.Sleep(time.Duration(attempt) * time.Millisecond)
-			continue
-		}
-		return nil, nil, fmt.Errorf("start %s: %w", argv[0], err)
-	}
-}
-
-// pollable swaps the master for a non-blocking duplicate on Go's poller.
-// creack/pty calls File.Fd, which leaves the master blocking, and a blocking
-// read ignores deadlines.
-func pollable(f *os.File) (*os.File, error) {
-	defer f.Close()
-	fd, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_DUPFD_CLOEXEC, 0)
-	if errno != 0 {
-		return nil, errno
-	}
-	if err := syscall.SetNonblock(int(fd), true); err != nil {
-		syscall.Close(int(fd))
-		return nil, err
-	}
-	return os.NewFile(fd, f.Name()), nil
 }
 
 // environ is os.Environ() without the variables that make nested tools think
@@ -154,7 +115,7 @@ func (p *Pane) read() {
 	defer close(p.readDone)
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := p.ptmx.Read(buf)
+		n, err := p.tty.Read(buf)
 		if n > 0 {
 			p.mu.Lock()
 			p.vt.Write(buf[:n])
@@ -170,12 +131,11 @@ func (p *Pane) read() {
 // wait reaps the process without waiting for PTY EOF, which a detached
 // descendant holding the slave can delay forever.
 func (p *Pane) wait() {
-	p.cmd.Wait()
-	p.exit = p.cmd.ProcessState.ExitCode()
+	p.exit = p.reap()
 	close(p.exited)
-	p.ptmx.SetReadDeadline(time.Now().Add(drainTimeout))
+	p.drain()
 	<-p.readDone
-	p.ptmx.Close()
+	p.tty.Close()
 	// Nothing reads replies once the PTY is gone, so the emulator's reply
 	// goroutines stop here instead of whenever the GC frees it.
 	if c, ok := p.vt.(io.Closer); ok {
@@ -194,7 +154,7 @@ func signal(dirty chan struct{}) {
 }
 
 // Write sends input bytes to the process.
-func (p *Pane) Write(b []byte) (int, error) { return p.ptmx.Write(b) }
+func (p *Pane) Write(b []byte) (int, error) { return p.tty.Write(b) }
 
 // Size limits for Resize: a side fits the kernel's uint16 and the cell count
 // bounds the emulator's memory.
@@ -211,8 +171,7 @@ func (p *Pane) Resize(cols, rows int) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	ws := pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}
-	if err := p.ioctl(syscall.TIOCSWINSZ, unsafe.Pointer(&ws)); err != nil {
+	if err := p.setSize(cols, rows); err != nil {
 		return err
 	}
 	p.vt.Resize(cols, rows)
@@ -262,70 +221,4 @@ func (p *Pane) ExitCode() int {
 	default:
 		return -1
 	}
-}
-
-// Cwd is the live working directory of the foreground process.
-func (p *Pane) Cwd() string {
-	if pg := p.foreground(); pg > 0 {
-		if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pg)); err == nil {
-			return cwd
-		}
-	}
-	cwd, _ := os.Readlink(fmt.Sprintf("/proc/%d/cwd", p.cmd.Process.Pid))
-	return cwd
-}
-
-// foreground is the PTY's foreground process group, or 0 if unknown.
-func (p *Pane) foreground() int {
-	var pgid int32
-	if p.ioctl(syscall.TIOCGPGRP, unsafe.Pointer(&pgid)) != nil {
-		return 0
-	}
-	return int(pgid)
-}
-
-// ioctl runs req on the master through SyscallConn. File.Fd, which
-// creack/pty's helpers call, would put the master back in blocking mode, and
-// a blocking read ignores the deadline wait sets.
-func (p *Pane) ioctl(req uintptr, arg unsafe.Pointer) error {
-	rc, err := p.ptmx.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var errno syscall.Errno
-	if err := rc.Control(func(fd uintptr) {
-		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(arg))
-	}); err != nil {
-		return err
-	}
-	if errno != 0 {
-		return errno
-	}
-	return nil
-}
-
-// Close sends SIGHUP and kills the process group after 2s. It returns once the
-// process is reaped and the master closed; a process that left the group and
-// still holds the slave is left running.
-func (p *Pane) Close() error {
-	p.closeOnce.Do(func() {
-		pg := -p.cmd.Process.Pid // Setsid made the child a group leader
-		select {
-		case <-p.exited:
-			return
-		default:
-		}
-		syscall.Kill(pg, syscall.SIGHUP)
-		select {
-		case <-p.exited:
-		case <-time.After(2 * time.Second):
-			// A shell runs its foreground job in a group of its own.
-			if fg := p.foreground(); fg > 0 {
-				syscall.Kill(-fg, syscall.SIGKILL)
-			}
-			syscall.Kill(pg, syscall.SIGKILL)
-		}
-	})
-	<-p.done
-	return nil
 }

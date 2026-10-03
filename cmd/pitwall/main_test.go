@@ -1,3 +1,5 @@
+//go:build unix
+
 package main
 
 import (
@@ -9,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -299,6 +302,9 @@ func TestDialOrStartHealthyDaemon(t *testing.T) {
 }
 
 func TestLockHolderFromProcLocks(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("only Linux has /proc/locks")
+	}
 	f, err := os.Create(filepath.Join(t.TempDir(), "pitwall.sock.lock"))
 	if err != nil {
 		t.Fatal(err)
