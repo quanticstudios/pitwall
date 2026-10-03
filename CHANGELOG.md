@@ -1,22 +1,27 @@
 # Changelog
 
-pitwall uses patch versioning while it is pre-1.0: every release bumps the last
-number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
-`scripts/install.sh` stamps the binary with `git describe`, and
-`pitwall --version` prints it.
+pitwall is in alpha. Releases are `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, ...:
+each release bumps the alpha number, and a tag with a suffix becomes a
+pre-release on GitHub. The installers take the newest release, alphas
+included. The `v0.0.N` tags before that were the same alpha under patch
+numbers. A release is a git tag on `main`; `scripts/install.sh` stamps the
+binary with `git describe`, and `pitwall --version` prints it.
 
-To cut a release: add a section below, commit it, then
-`git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
+To cut a release: add a section below and merge it, then
+`git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
+`git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
-## v0.0.11
+## v0.1.0-alpha.1
 
+- Versions say alpha: `v0.1.0-alpha.N`, published as GitHub pre-releases.
+  The install one-liners pick the newest one.
 - `pitwall notify <text>` rings the pane it runs in, e.g.
   `npm test && pitwall notify "tests passed"`.
 - A terminal notification's desktop notification shows just its message.
 - Windows: the daemon saves its state again. Syncing the state folder after
   the write is not allowed there and failed every save.
-- README opens with a short loop of the app; the promo video's source is in
-  `promo/` (Remotion).
+- The README opens with a short loop of the app and shows each feature with
+  a short clip.
 
 ## v0.0.10
 

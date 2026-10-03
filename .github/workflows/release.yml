@@ -83,4 +83,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/* --title "pitwall $TAG" --notes-file notes.md --verify-tag
+        # why: a tag with a suffix (v0.1.0-alpha.1) is a pre-release on GitHub.
+        run: |
+          pre=""
+          case "$TAG" in *-*) pre=--prerelease ;; esac
+          gh release create "$TAG" dist/* --title "pitwall $TAG" --notes-file notes.md --verify-tag ${pre:+"$pre"}

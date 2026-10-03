@@ -19,12 +19,12 @@ function Install-Pitwall {
     if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
     $name = Get-PitwallAsset $arch
     $version = $env:PITWALL_VERSION
-    if ($version) {
-        $base = "https://github.com/$repo/releases/download/$version"
-    } else {
-        $base = "https://github.com/$repo/releases/latest/download"
-        $version = 'latest'
+    # why: releases/latest skips pre-releases, and every alpha is one.
+    if (-not $version) {
+        $version = @(Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$repo/releases?per_page=1")[0].tag_name
+        if (-not $version) { throw "pitwall: found no release of $repo" }
     }
+    $base = "https://github.com/$repo/releases/download/$version"
     $dir = $env:PITWALL_INSTALL_DIR
     if (-not $dir) { $dir = Join-Path $env:LOCALAPPDATA 'pitwall\bin' }
 
