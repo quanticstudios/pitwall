@@ -1,6 +1,10 @@
 package config
 
-import "slices"
+import (
+	"os"
+	"path/filepath"
+	"slices"
+)
 
 func ansi(cs ...Color) []Color { return cs }
 
@@ -75,4 +79,40 @@ func Builtin(name string) (Theme, bool) {
 	t, ok := builtins[name]
 	t.Terminal.ANSI = slices.Clone(t.Terminal.ANSI)
 	return t, ok
+}
+
+// NamedTheme is a theme the settings page offers, with every color set.
+type NamedTheme struct {
+	Name   string
+	Custom bool // a themes/<name>.toml file
+	Theme  Theme
+}
+
+// AllThemes lists the built-in themes, then the custom ones in dir (the
+// themes folder next to config.toml). A custom file with mistakes still
+// shows, with whatever of it loads.
+func AllThemes(dir string) []NamedTheme {
+	var out []NamedTheme
+	for _, n := range Themes {
+		t, _ := Builtin(n)
+		out = append(out, NamedTheme{Name: n, Theme: t})
+	}
+	for _, n := range customThemes(dir) {
+		if _, ok := builtins[n]; ok {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, n+".toml"))
+		if err != nil {
+			continue
+		}
+		var t Theme
+		parse("", data, &t, nil)
+		base, ok := builtins[t.Name]
+		if !ok {
+			base = builtins["aide-dark"]
+		}
+		th, _ := overlay(base, t, "")
+		out = append(out, NamedTheme{Name: n, Custom: true, Theme: th})
+	}
+	return out
 }

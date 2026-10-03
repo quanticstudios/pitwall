@@ -22,10 +22,8 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
-	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
-	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -34,13 +32,11 @@ type modalKind int
 const (
 	modalNone modalKind = iota
 	modalDelete
-	modalSettings
 	modalAddProject
 )
 
-// modal is the window-level dialog: aide's DeleteWorkspaceModal, a settings
-// sheet listing the keybindings, and the add-project folder prompt. While
-// one shows, panes give up key focus.
+// modal is the window-level dialog: aide's DeleteWorkspaceModal and the
+// add-project folder prompt. While one shows, panes give up key focus.
 type modal struct {
 	kind         modalKind
 	ws           string // the workspace a delete dialog is about
@@ -52,8 +48,7 @@ type modal struct {
 	pathErr           string
 	matches           []string // directories completing the path field
 
-	backdrop, body int         // tags: the click-outside catcher, the dialog's own area
-	list           widget.List // the settings sheet's shortcuts
+	backdrop, body int // tags: the click-outside catcher, the dialog's own area
 }
 
 func (m *modal) open(kind modalKind, ws string) {
@@ -172,15 +167,10 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 
 	th := u.th
 	width := min(gtx.Dp(448), size.X-gtx.Dp(32))
-	if m.kind == modalSettings {
-		width = min(gtx.Dp(560), size.X-gtx.Dp(32))
-	}
 	var content gl.Widget
 	switch m.kind {
 	case modalDelete:
 		content = func(gtx gl.Context) gl.Dimensions { return u.deleteBody(gtx, st, ws) }
-	case modalSettings:
-		content = u.settingsBody
 	case modalAddProject:
 		content = u.addProjectBody
 	}
@@ -216,8 +206,6 @@ func (u *ui) confirmModal() {
 	switch m.kind {
 	case modalDelete:
 		u.send(proto.DeleteWorkspace{WorkspaceID: m.ws, RemoveBranch: m.removeBranch})
-		m.close()
-	case modalSettings:
 		m.close()
 	case modalAddProject:
 		p, err := resolveDir(m.path.Text())
@@ -276,151 +264,6 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 			return u.buttons(gtx, "Cancel", "Delete", th.Red, theme.Hex("#ffffff"))
 		}),
 	)
-	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
-}
-
-type shortcut struct {
-	keys []string // keycaps, one per chord
-	what string
-}
-
-// shortcuts are the settings sheet's rows for b: every bound action, the
-// 1-9 series folded into one row, tab-mode keys after the prefix.
-func shortcuts(b *config.Bindings) []shortcut {
-	var out []shortcut
-	if hk := b.HoldKey(); hk != "" {
-		out = append(out, shortcut{[]string{"Hold " + string(hk)}, "Show every tab; the tab keys walk them all"})
-	}
-	prefix := firstChord(b.Global["tab_prefix"])
-	for _, a := range config.Actions() {
-		cs := b.Global[a.Name]
-		if a.Tab {
-			cs = b.Tab[a.Name]
-			if prefix == "" {
-				continue
-			}
-		}
-		series, n := a.Name, ""
-		if i := strings.LastIndex(a.Name, "_"); i > 0 {
-			series, n = a.Name[:i], a.Name[i+1:]
-		}
-		isSeries := len(n) == 1 && n[0] >= '1' && n[0] <= '9'
-
-		what := a.Doc
-		if isSeries {
-			if n != "1" {
-				continue
-			}
-			last := b.Global[series+"_9"]
-			if a.Tab {
-				last = b.Tab[series+"_9"]
-			}
-			if len(cs) == 0 || len(last) == 0 {
-				continue
-			}
-			what = strings.TrimSuffix(a.Doc, " 1") + " 1-9"
-			cs = []config.Chord{cs[0], last[0]}
-		}
-		if len(cs) == 0 {
-			continue
-		}
-		var keys []string
-		for i, c := range cs[:min(2, len(cs))] {
-			k := c.String()
-			if isSeries && i == 1 {
-				k = "… " + k
-			}
-			keys = append(keys, k)
-		}
-		if a.Tab {
-			keys = append([]string{prefix + ", then"}, keys...)
-			what = "Tab mode: " + strings.ToLower(what[:1]) + what[1:]
-		}
-		if before, _, ok := strings.Cut(what, ". "); ok {
-			what = before
-		}
-		out = append(out, shortcut{keys, what})
-	}
-	return append(out, shortcut{[]string{"Ctrl / Shift", "Click"}, "Pick tabs to group"})
-}
-
-func (u *ui) settingsBody(gtx gl.Context) gl.Dimensions {
-	th, m := u.th, &u.modal
-	b := u.nav.bind()
-	rows := shortcuts(b)
-	path := u.cfg.Path
-	if path == "" {
-		path = config.Path()
-	}
-	themeName := u.cfg.ThemeName
-	if themeName == "" {
-		themeName = "aide-dark"
-	}
-	info := func(k, v string, f font.Font) gl.FlexChild {
-		return gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			h := gtx.Dp(24)
-			call, sz := textCall(gtx, th, th.UIFont, 13, th.Muted, k)
-			o := op.Offset(image.Pt(0, (h-sz.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			vg := gtx
-			vg.Constraints.Max.X -= gtx.Dp(72)
-			call, sz = textCall(vg, th, f, 13, th.Fg, v)
-			o = op.Offset(image.Pt(gtx.Dp(72), (h-sz.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}
-		})
-	}
-	kids := []gl.FlexChild{
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Settings")
-		}),
-		gl.Rigid(gl.Spacer{Height: 12}.Layout),
-		info("Config", sidebar.ShortPath(path), th.MonoFont),
-		info("Keys", b.Preset+" preset", th.UIFont),
-		info("Theme", themeName, th.UIFont),
-		gl.Rigid(gl.Spacer{Height: 16}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, medium(th.UIFont), 11, th.Muted, "Keyboard shortcuts")
-		}),
-		gl.Rigid(gl.Spacer{Height: 6}.Layout),
-		gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
-			m.list.Axis = gl.Vertical
-			return m.list.Layout(gtx, len(rows), func(gtx gl.Context, i int) gl.Dimensions {
-				kb := rows[i]
-				h := gtx.Dp(32)
-				w := gtx.Constraints.Max.X
-				var caps []op.CallOp
-				var sizes []image.Point
-				capsW := 0
-				for _, k := range kb.keys {
-					kc, ks := keycap(gtx, th, k)
-					caps, sizes = append(caps, kc), append(sizes, ks)
-					capsW += ks.X + gtx.Dp(4)
-				}
-				tg := gtx
-				tg.Constraints.Max.X = max(0, w-capsW-gtx.Dp(8))
-				call, sz := textCall(tg, th, th.UIFont, 13, th.Fg, kb.what)
-				o := op.Offset(image.Pt(0, (h-sz.Y)/2)).Push(gtx.Ops)
-				call.Add(gtx.Ops)
-				o.Pop()
-				x := w
-				for i := len(caps) - 1; i >= 0; i-- {
-					x -= sizes[i].X
-					o := op.Offset(image.Pt(x, (h-sizes[i].Y)/2)).Push(gtx.Ops)
-					caps[i].Add(gtx.Ops)
-					o.Pop()
-					x -= gtx.Dp(4)
-				}
-				return gl.Dimensions{Size: image.Pt(w, h)}
-			})
-		}),
-		gl.Rigid(gl.Spacer{Height: 20}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "", "Done", th.Primary, th.OnPrimary)
-		}),
-	}
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
 
