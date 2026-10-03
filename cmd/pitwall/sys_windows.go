@@ -40,7 +40,8 @@ func detach(cmd *exec.Cmd) {
 }
 
 // terminate stops pid. Windows has no SIGTERM for a process without a shared
-// console, so the daemon gets no chance to save; it saves on every change.
+// console, so the daemon gets no final save; it saves shortly after every
+// change anyway.
 func terminate(pid int) error {
 	p, err := os.FindProcess(pid)
 	if err != nil {
