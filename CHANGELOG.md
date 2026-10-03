@@ -8,6 +8,16 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.10
+
+- Pane mode, like zellij's: the pane prefix (Ctrl+P in the aide preset,
+  unbound in conventional) then `n` new pane, `d` split down, `r` split
+  right, `x` close, `h/j/k/l` or arrows to move, `f` fullscreen, `p` or Tab
+  next pane. It stays on until Esc or Enter, so keys chain. Ctrl+P twice
+  sends Ctrl+P to the shell. Keys live in `[keys.pane]` and the settings page.
+- First release with prebuilt Linux, macOS and Windows archives (the v0.0.9
+  tag didn't start the release build).
+
 ## v0.0.9
 
 - Install without cloning: `curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh`
