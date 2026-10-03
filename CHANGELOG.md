@@ -8,6 +8,21 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.9
+
+- Install without cloning: `curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh`
+  on Linux and macOS, `irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps1 | iex`
+  on Windows. Releases carry prebuilt archives and `checksums.txt`.
+- macOS and Windows builds (alpha, untested by us so far). Windows gets agent
+  status from hooks only; see the README for the gaps.
+- A pane that needs you and isn't in view gets a ring in its state color, and
+  its sidebar row a stronger tint, accent bar and dot, until you look at it.
+  Desktop notifications follow the same rule.
+- `jump_attention` goes to the newest tab that needs you (Ctrl+Shift+U, aide
+  Alt+U, `u` in tab mode).
+- Any program can ask for attention with OSC 9, OSC 777 or kitty's OSC 99.
+- MIT license. Protocol version 8.
+
 ## v0.0.8
 
 - The tab switcher is hidden for now: no hold key, no switcher shortcuts,
