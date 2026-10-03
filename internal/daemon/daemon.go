@@ -775,7 +775,7 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 	paths := map[string]string{}
 	for _, w := range d.st.Workspaces {
 		if only == "" || w.ID == only {
-			paths[w.ID] = w.Path
+			paths[w.ID] = d.st.LivePath(w) // branch and stats follow the shell's cd
 		}
 	}
 	d.mu.Unlock()

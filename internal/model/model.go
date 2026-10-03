@@ -130,3 +130,21 @@ type State struct {
 	Activities []Activity             // one per pane with an agent or a running command
 	Stats      map[string]BranchStats // keyed by workspace id
 }
+
+// LivePath is where the tab is now: the live working directory of the first
+// pane in its layout when the daemon knows it, else the folder it started in.
+func (s *State) LivePath(w Workspace) string {
+	for _, t := range w.Tabs {
+		if t.ID != w.ActiveTab {
+			continue
+		}
+		if panes := layout.Panes(t.Layout); len(panes) > 0 {
+			for _, p := range s.Panes {
+				if p.ID == panes[0] && p.Cwd != "" {
+					return p.Cwd
+				}
+			}
+		}
+	}
+	return w.Path
+}
