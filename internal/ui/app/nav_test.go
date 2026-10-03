@@ -188,7 +188,8 @@ func TestNavGroups(t *testing.T) {
 		}
 	}
 
-	// Ungrouping g1 puts w4 and w5 after the other ungrouped tabs.
+	// Ungrouping g1 puts w4 and w5 at its place: after the other
+	// ungrouped tabs, before g2.
 	b.Send(proto.DeleteGroup{GroupID: "g1"})
 	st = b.State()
 	n.sync(&st)
@@ -252,5 +253,32 @@ func TestLastSessionGoneClosesWindow(t *testing.T) {
 	}
 	if (&ui{b: b, nav: nav{keys: aide}}).lastSessionGone() {
 		t.Fatal("a window that never showed a session closed")
+	}
+}
+
+// TestNavFollowsTopOrder: with a group moved above the ungrouped tabs,
+// cycling and Alt+digit follow the sidebar: g2's tab first.
+func TestNavFollowsTopOrder(t *testing.T) {
+	b := NewFakeBackend()
+	b.Send(proto.MoveGroup{GroupID: "g2", Before: "w1"})
+	b.Send(proto.MoveSession{WorkspaceID: "w2", Before: "g1"})
+	st := b.State()
+	var got []string
+	for _, w := range ordered(&st) {
+		got = append(got, w.ID)
+	}
+	if want := []string{"w6", "w1", "w1b", "w1c", "w3", "w2", "w4", "w5"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("order %v, want %v", got, want)
+	}
+	n := nav{keys: aide}
+	n.sync(&st)
+	n.key(&st, press("1", key.ModAlt))
+	if n.workspace != "w6" {
+		t.Fatalf("Alt+1: %s", n.workspace)
+	}
+	n.workspace, n.pinned = "w1", true // with the switcher open it crosses groups
+	n.tabOp(&st, "prev")
+	if n.workspace != "w6" {
+		t.Fatalf("prev from w1: %s", n.workspace)
 	}
 }

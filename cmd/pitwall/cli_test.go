@@ -89,9 +89,11 @@ func cliState() model.State {
 	return model.State{
 		Projects: []model.Project{{ID: "g", Name: "agents"}},
 		Workspaces: []model.Workspace{
-			{ID: "a", Name: "alpha", Label: "fix login", Path: "/work/a", ProjectID: "g", Tabs: []model.Tab{{ID: "ta"}}},
-			{ID: "b", Name: "alpine", Path: "/work/b", Detached: true, Tabs: []model.Tab{{ID: "tc"}}},
+			{ID: "a", Label: "fix login", Path: "/work/a", ProjectID: "g", Tabs: []model.Tab{{ID: "ta"}}},
+			{ID: "b", Name: "alpine", NameSet: true, Label: "alpine", Path: "/work/b", Detached: true, Tabs: []model.Tab{{ID: "tc"}}},
+			{ID: "c", Label: "~", Path: "/work/c"},
 		},
+		Order: []string{"g", "c"},
 		Panes: []model.Pane{{ID: "pa", WorkspaceID: "a"}, {ID: "pb", WorkspaceID: "b"}},
 		Activities: []model.Activity{
 			{WorkspaceID: "a", Provider: model.ProviderClaude, State: model.StateWorking},
@@ -115,9 +117,11 @@ func TestCLIList(t *testing.T) {
 					t.Fatalf("%d: %s", code, stderr)
 				}
 				lines := strings.Split(strings.TrimSpace(out), "\n")
-				if len(lines) != 3 || strings.Join(strings.Fields(lines[0]), " ") != "NAME HANDLE STATE FOLDER GROUP" ||
-					strings.Join(strings.Fields(lines[1]), " ") != "fix login alpha Agent Error ~/src agents" ||
-					strings.Join(strings.Fields(lines[2]), " ") != "alpine alpine idle /work/b - (detached)" {
+				// Numbered in sidebar order (group g above tab c), detached last.
+				if len(lines) != 4 || strings.Join(strings.Fields(lines[0]), " ") != "# NAME STATE FOLDER GROUP" ||
+					strings.Join(strings.Fields(lines[1]), " ") != "1 fix login Agent Error ~/src agents" ||
+					strings.Join(strings.Fields(lines[2]), " ") != "2 ~ idle /work/c -" ||
+					strings.Join(strings.Fields(lines[3]), " ") != "3 alpine idle /work/b - (detached)" {
 					t.Fatal(out)
 				}
 			} else {
@@ -139,7 +143,7 @@ func TestCLINew(t *testing.T) {
 		t.Run(fmt.Sprint(detached), func(t *testing.T) {
 			before := cliState()
 			after := cliState()
-			after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", Name: "build"})
+			after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", Name: "build", NameSet: true})
 			dir := t.TempDir()
 			t.Chdir(dir)
 			wantDir := filepath.Join(dir, "child")
@@ -151,7 +155,8 @@ func TestCLINew(t *testing.T) {
 				exchanges = append(exchanges, cliExchange{request: proto.DetachSession{WorkspaceID: "new", Detached: true}, state: after})
 			}
 			fakeCLI(t, exchanges...)
-			if code, out, stderr := cliOutput(args...); code != 0 || out != "build\n" || stderr != "" {
+			want := "#3\n" // after fix login and ~, before the detached alpine
+			if code, out, stderr := cliOutput(args...); code != 0 || out != want || stderr != "" {
 				t.Fatalf("%d: %s %s", code, out, stderr)
 			}
 		})
@@ -162,9 +167,10 @@ func TestCLIResolve(t *testing.T) {
 	state := cliState()
 	t.Setenv("PITWALL_PANE", "pb")
 	for _, tc := range []struct{ name, want, error string }{
-		{"alpha", "a", ""}, {"alph", "a", ""}, {"", "b", ""}, {"fix login", "a", ""}, {"fix", "a", ""},
-		{"al", "", "ambiguous tab \"al\"; candidates: alpha, alpine"},
-		{"absent", "", "no tab matches \"absent\"; candidates: alpha, alpine"},
+		{"1", "a", ""}, {"#2", "c", ""}, {"3", "b", ""}, {"", "b", ""},
+		{"fix login", "a", ""}, {"fix", "a", ""}, {"alp", "b", ""},
+		{"4", "", "no tab #4 (see pitwall ls)"},
+		{"absent", "", "no tab matches \"absent\" (see pitwall ls)"},
 	} {
 		w, err := resolveTab(state, tc.name)
 		if tc.error != "" {
@@ -175,18 +181,15 @@ func TestCLIResolve(t *testing.T) {
 			t.Fatalf("%q: %+v, %v", tc.name, w, err)
 		}
 	}
-	// An exact label beats a prefix; two equal labels are ambiguous.
-	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "c", Name: "calm-cat", Label: "fix"})
-	if w, err := resolveTab(state, "fix"); err != nil || w.ID != "c" {
-		t.Fatalf("exact label: %+v %v", w, err)
+	// An exact title beats a prefix; two equal titles are ambiguous.
+	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "d", Label: "fix"})
+	state.Order = append(state.Order, "d")
+	if w, err := resolveTab(state, "fix"); err != nil || w.ID != "d" {
+		t.Fatalf("exact title: %+v %v", w, err)
 	}
-	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "d", Name: "dry-dog", Label: "fix"})
-	if _, err := resolveTab(state, "fix"); err == nil || err.Error() != "ambiguous tab \"fix\"; candidates: calm-cat, dry-dog" {
-		t.Fatalf("equal labels: %v", err)
-	}
-	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "exact", Name: "al"})
-	if w, err := resolveTab(state, "al"); err != nil || w.ID != "exact" {
-		t.Fatalf("exact: %+v %v", w, err)
+	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "e", Label: "fix"})
+	if _, err := resolveTab(state, "fix"); err == nil || err.Error() != "ambiguous tab \"fix\"; matches #3, #4" {
+		t.Fatalf("equal titles: %v", err)
 	}
 	t.Setenv("PITWALL_PANE", "")
 	if _, err := resolveTab(state, ""); err == nil {
@@ -200,11 +203,11 @@ func TestCLISessionMutations(t *testing.T) {
 		request any
 		pane    string
 	}{
-		{[]string{"detach", "alph"}, proto.DetachSession{WorkspaceID: "a", Detached: true}, ""},
+		{[]string{"detach", "fix"}, proto.DetachSession{WorkspaceID: "a", Detached: true}, ""},
 		{[]string{"detach"}, proto.DetachSession{WorkspaceID: "b", Detached: true}, "pb"},
-		{[]string{"rename", "alpha", "renamed"}, proto.RenameWorkspace{WorkspaceID: "a", Name: "renamed"}, ""},
+		{[]string{"rename", "1", "renamed"}, proto.RenameWorkspace{WorkspaceID: "a", Name: "renamed"}, ""},
 		{[]string{"rename", "renamed"}, proto.RenameWorkspace{WorkspaceID: "b", Name: "renamed"}, "pb"},
-		{[]string{"kill", "-f", "alpha"}, proto.KillSession{WorkspaceID: "a"}, ""},
+		{[]string{"kill", "-f", "#1"}, proto.KillSession{WorkspaceID: "a"}, ""},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			fakeCLI(t, cliExchange{state: cliState()}, cliExchange{request: tc.request, state: cliState()})
@@ -232,7 +235,7 @@ func TestCLINotRunning(t *testing.T) {
 
 func TestCLIDaemonError(t *testing.T) {
 	fakeCLI(t, cliExchange{state: cliState()}, cliExchange{request: proto.KillSession{WorkspaceID: "a"}, state: cliState(), error: "cannot kill"})
-	if code, out, stderr := cliOutput("kill", "-f", "alpha"); code != 1 || out != "" || !strings.Contains(stderr, "cannot kill") {
+	if code, out, stderr := cliOutput("kill", "-f", "1"); code != 1 || out != "" || !strings.Contains(stderr, "cannot kill") {
 		t.Fatalf("%d: %s %s", code, out, stderr)
 	}
 }
@@ -267,7 +270,7 @@ func TestCLIConfirmKill(t *testing.T) {
 				t.Fatal(err)
 			}
 			var out, stderr bytes.Buffer
-			if code := runCLI([]string{"kill", "alpha"}, slave, &out, &stderr); code != 0 || out.Len() != 0 || stderr.String() != "kill alpha? [y/N] " {
+			if code := runCLI([]string{"kill", "1"}, slave, &out, &stderr); code != 0 || out.Len() != 0 || stderr.String() != "kill fix login? [y/N] " {
 				t.Fatalf("%d: %s %s", code, out.String(), stderr.String())
 			}
 		})

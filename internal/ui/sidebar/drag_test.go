@@ -46,16 +46,16 @@ func TestTabDrop(t *testing.T) {
 		{"above everything", 0, "", drop{before: "u1", at: 0, ok: true}},
 		{"lower half of u1", 40, "", drop{before: "u2", at: 1, ok: true}},
 		{"gap goes to the nearer row", 61, "", drop{before: "u2", at: 1, ok: true}},
-		{"last ungrouped", 100, "", drop{at: 2, ok: true}},
-		{"top half of a header ends the section above", 140, "", drop{at: 2, ok: true}},
+		{"after the last ungrouped, before g1", 100, "", drop{before: "g1", at: 2, ok: true}},
+		{"top half of a header goes before it at the top level", 140, "", drop{before: "g1", at: 2, ok: true}},
 		{"bottom half of a header starts its group", 170, "", drop{group: "g1", before: "a", at: 3, ok: true}},
 		{"a header dwelled on takes it last", 140, "g1", drop{group: "g1", into: true, at: -1, ok: true}},
 		{"between a and b", 220, "", drop{group: "g1", before: "b", at: 4, ok: true}},
 		{"end of g1", 280, "", drop{group: "g1", at: 5, ok: true}},
 		{"a collapsed group takes it at once", 320, "", drop{group: "g2", into: true, at: -1, ok: true}},
-		{"top half below a collapsed group starts this one", 370, "", drop{group: "g3", at: 7, ok: true}},
+		{"between two groups at the top level", 370, "", drop{before: "g3", at: 6, ok: true}},
 		{"empty expanded group", 395, "", drop{group: "g3", at: 7, ok: true}},
-		{"top half of g4 ends empty g3", 430, "", drop{group: "g3", at: 7, ok: true}},
+		{"top half of g4 goes before g4", 430, "", drop{before: "g4", at: 7, ok: true}},
 		{"below everything", 900, "", drop{group: "g4", at: 9, ok: true}},
 	} {
 		if got := tabDrop(dragFlow, tc.y, exp, tc.dwell); got != tc.want {
@@ -72,7 +72,8 @@ func TestGroupDrop(t *testing.T) {
 		y    int
 		want drop
 	}{
-		{20, drop{before: "g1", at: 2, ok: true}},  // over the ungrouped tabs: first
+		{20, drop{before: "u1", at: 0, ok: true}},  // above the first ungrouped tab
+		{100, drop{before: "g1", at: 2, ok: true}}, // below the last one
 		{200, drop{before: "g1", at: 2, ok: true}}, // top half of g1's block
 		{280, drop{before: "g2", at: 5, ok: true}}, // bottom half: after g1
 		{340, drop{before: "g3", at: 6, ok: true}},
@@ -227,5 +228,34 @@ func TestDragOpensGap(t *testing.T) {
 	h.frame()
 	if len(h.s.slides) != 0 || h.s.drag.active {
 		t.Fatalf("still moving after the drag: %v", h.s.slides)
+	}
+}
+
+// TestDragGroupToTop: the user's case. A group dropped above the first
+// ungrouped tab sends MoveGroup before that tab, and an interleaved
+// State.Order lays out in that order.
+func TestDragGroupToTop(t *testing.T) {
+	h := newDragHarness(t)
+	p := h.at("g1", 10)
+	h.pointer(pointer.Press, p)
+	h.pointer(pointer.Drag, p.Add(f32.Pt(0, -10)))
+	h.pointer(pointer.Drag, h.at("u1", 5))
+	evs := h.pointer(pointer.Release, h.at("u1", 5))
+	if !slices.Equal(evs, []Event{MoveGroup{GroupID: "g1", Before: "u1"}}) {
+		t.Fatalf("drop sent %v", evs)
+	}
+	h.now = h.now.Add(time.Second)
+	h.st.Order = []string{"g1", "u1", "g2", "u2"}
+	h.frame()
+	h.frame()
+	var got []string
+	for _, e := range h.s.elems {
+		got = append(got, e.key())
+	}
+	if want := []string{"gg1", "sa", "su1", "gg2", "su2"}; !slices.Equal(got, want) {
+		t.Fatalf("laid out %v, want %v", got, want)
+	}
+	if got := h.s.order(newView(layout.Context{}, theme.Dark(), &h.st, "")); !slices.Equal(got, []string{"a", "u1", "u2"}) {
+		t.Fatalf("order %v", got)
 	}
 }

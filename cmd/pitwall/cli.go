@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -176,11 +177,12 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			return errors.New("cannot identify the new tab from daemon state")
 		}
 		if detached {
-			if _, err := syncCLI(conn, proto.DetachSession{WorkspaceID: added[0].ID, Detached: true}); err != nil {
+			if after, err = syncCLI(conn, proto.DetachSession{WorkspaceID: added[0].ID, Detached: true}); err != nil {
 				return err
 			}
 		}
-		_, err = fmt.Fprintln(out, added[0].Name)
+		n := slices.IndexFunc(numbered(after), func(w model.Workspace) bool { return w.ID == added[0].ID })
+		_, err = fmt.Fprintf(out, "#%d\n", n+1)
 		return err
 	}
 	old := ""
@@ -204,7 +206,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		request = proto.RenameWorkspace{WorkspaceID: w.ID, Name: args[len(args)-1]}
 	case "kill":
 		if !force && in != nil && term.IsTerminal(in.Fd()) {
-			if _, err := fmt.Fprintf(errOut, "kill %s? [y/N] ", w.Name); err != nil {
+			if _, err := fmt.Fprintf(errOut, "kill %s? [y/N] ", tabTitle(w)); err != nil {
 				return err
 			}
 			answer, err := bufio.NewReader(in).ReadString('\n')
@@ -221,9 +223,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	return err
 }
 
-// resolveTab finds a tab by its handle (Name) or label: an exact handle,
-// then an exact label, then a unique prefix of either. With no name it is the
-// tab of $PITWALL_PANE.
+// resolveTab finds a tab by its number in pitwall ls ("3" or "#3"), then
+// by exact title, then by a unique title prefix. With no name it is the tab
+// of $PITWALL_PANE.
 func resolveTab(state model.State, name string) (model.Workspace, error) {
 	if name == "" {
 		pane := os.Getenv("PITWALL_PANE")
@@ -241,49 +243,65 @@ func resolveTab(state model.State, name string) (model.Workspace, error) {
 		}
 		return model.Workspace{}, errors.New("specify a tab name outside a pitwall pane (see pitwall ls)")
 	}
-	var labels, prefixed []model.Workspace
-	var candidates []string
-	for _, w := range state.Workspaces {
-		if w.Name == name {
-			return w, nil
+	tabs := numbered(state)
+	if n, err := strconv.Atoi(strings.TrimPrefix(name, "#")); err == nil {
+		if n < 1 || n > len(tabs) {
+			return model.Workspace{}, fmt.Errorf("no tab #%d (see pitwall ls)", n)
 		}
-		candidates = append(candidates, w.Name)
-		if w.Label == name {
-			labels = append(labels, w)
-		}
-		if strings.HasPrefix(w.Name, name) || strings.HasPrefix(w.Label, name) {
-			prefixed = append(prefixed, w)
+		return tabs[n-1], nil
+	}
+	var exact, prefixed []int
+	for i, w := range tabs {
+		switch t := tabTitle(w); {
+		case t == name:
+			exact = append(exact, i)
+		case strings.HasPrefix(t, name):
+			prefixed = append(prefixed, i)
 		}
 	}
-	matches := labels
+	matches := exact
 	if len(matches) == 0 {
 		matches = prefixed
 	}
-	if len(matches) == 1 {
-		return matches[0], nil
+	switch len(matches) {
+	case 0:
+		return model.Workspace{}, fmt.Errorf("no tab matches %q (see pitwall ls)", name)
+	case 1:
+		return tabs[matches[0]], nil
 	}
-	if len(matches) > 1 {
-		candidates = nil
-		for _, w := range matches {
-			candidates = append(candidates, w.Name)
-		}
+	var nums []string
+	for _, i := range matches {
+		nums = append(nums, "#"+strconv.Itoa(i+1))
 	}
-	slices.Sort(candidates)
-	if len(matches) > 1 {
-		return model.Workspace{}, fmt.Errorf("ambiguous tab %q; candidates: %s", name, strings.Join(candidates, ", "))
-	}
-	return model.Workspace{}, fmt.Errorf("no tab matches %q; candidates: %s", name, strings.Join(candidates, ", "))
+	return model.Workspace{}, fmt.Errorf("ambiguous tab %q; matches %s", name, strings.Join(nums, ", "))
 }
 
-// listTabs prints one row per tab: its label, its handle, state, folder and
+// numbered is the tabs as pitwall ls numbers them: the sidebar's order,
+// then the detached tabs.
+func numbered(state model.State) []model.Workspace {
+	all := state.Ordered()
+	shown := slices.DeleteFunc(slices.Clone(all), func(w model.Workspace) bool { return w.Detached })
+	return append(shown, slices.DeleteFunc(all, func(w model.Workspace) bool { return !w.Detached })...)
+}
+
+// tabTitle is what the sidebar shows for a tab: its chosen name, else its
+// label.
+func tabTitle(w model.Workspace) string {
+	if w.NameSet {
+		return w.Name
+	}
+	return cmp.Or(w.Label, w.Name)
+}
+
+// listTabs prints one row per tab: its number, title, state, folder and
 // group.
 func listTabs(out io.Writer, state model.State) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	home, _ := os.UserHomeDir()
-	if _, err := fmt.Fprintln(w, "NAME\tHANDLE\tSTATE\tFOLDER\tGROUP"); err != nil {
+	if _, err := fmt.Fprintln(w, "#\tNAME\tSTATE\tFOLDER\tGROUP"); err != nil {
 		return err
 	}
-	for _, tab := range state.Workspaces {
+	for i, tab := range numbered(state) {
 		label := "idle"
 		var activities []model.Activity
 		for _, a := range state.Activities {
@@ -308,7 +326,7 @@ func listTabs(out io.Writer, state model.State) error {
 		if tab.Detached {
 			marker = " (detached)"
 		}
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s%s\n", cmp.Or(tab.Label, tab.Name), tab.Name, label, folder, group, marker); err != nil {
+		if _, err := fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s%s\n", i+1, tabTitle(tab), label, folder, group, marker); err != nil {
 			return err
 		}
 	}

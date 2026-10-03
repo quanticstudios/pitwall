@@ -19,7 +19,7 @@ func TestFirstSessionOnHello(t *testing.T) {
 		t.Fatalf("first state should hold one session with one pane: %+v", st)
 	}
 	w, p := st.Workspaces[0], st.Panes[0]
-	if w.Path != cwd || w.Name == "" || w.ProjectID != "" || len(w.Tabs) != 1 || w.ActiveTab != w.Tabs[0].ID || lay(w).Pane != p.ID || p.Cwd != cwd || len(p.Cmd) != 0 || f.pane(0).cfg.Cwd != cwd {
+	if w.Path != cwd || w.Name != "" || w.NameSet || w.ProjectID != "" || len(w.Tabs) != 1 || w.ActiveTab != w.Tabs[0].ID || lay(w).Pane != p.ID || p.Cwd != cwd || len(p.Cmd) != 0 || f.pane(0).cfg.Cwd != cwd {
 		t.Fatalf("session %+v pane %+v", w, p)
 	}
 

@@ -39,9 +39,6 @@ var fakeHome = func() string {
 	return "/home/me"
 }()
 
-// fakeNames are the handles the fake gives new tabs, like the daemon's.
-var fakeNames = []string{"quick-lynx", "keen-wren", "soft-moth", "wise-crab", "pale-newt", "deep-carp"}
-
 // NewFakeBackend returns five ungrouped tabs (a terminal running `go test`
 // split three ways, a Claude, a named log tail, an idle shell, a working
 // Claude), two groups, and two detached tabs.
@@ -90,6 +87,11 @@ func NewFakeBackend() *FakeBackend {
 		ws("w5", "g1", "tidy-yak", "notes", "", fakeHome+"/notes", 26*time.Hour, "", "", nil),
 		ws("w6", "g2", "lazy-cod", "Cut release 1.4", "release/1.4", fakeHome+"/src/web-app", 9*time.Minute, "t9", "codex", leaf("h")),
 		otter, heron,
+	}
+	for i := range f.st.Workspaces {
+		if w := &f.st.Workspaces[i]; !w.NameSet {
+			w.Name = "" // like the daemon, tabs carry only names a person set
+		}
 	}
 	f.st.Stats = map[string]model.BranchStats{
 		"w1": {Additions: 412, Deletions: 38}, "w1b": {Additions: 412, Deletions: 38}, "w1c": {Additions: 412, Deletions: 38},
@@ -173,6 +175,7 @@ func (f *FakeBackend) State() model.State {
 	defer f.mu.Unlock()
 	s := f.st
 	s.Projects = append([]model.Project(nil), s.Projects...)
+	s.Order = slices.Clone(s.Order)
 	s.Panes = append([]model.Pane(nil), s.Panes...)
 	s.Activities = append([]model.Activity(nil), s.Activities...)
 	s.Workspaces = append([]model.Workspace(nil), s.Workspaces...)
@@ -255,7 +258,7 @@ func (f *FakeBackend) newWorkspace(group, cwd string) model.Workspace {
 		label = "~"
 	}
 	f.st.Panes = append(f.st.Panes, model.Pane{ID: id + "p", WorkspaceID: id, Cwd: cwd})
-	return model.Workspace{ID: id, ProjectID: group, Name: fakeNames[(f.nextID-1)%len(fakeNames)], Label: label,
+	return model.Workspace{ID: id, ProjectID: group, Label: label,
 		Path: cwd, RepoRoot: cwd, UpdatedAt: time.Now(), ActiveTab: id + "t",
 		Tabs: []model.Tab{{ID: id + "t", Title: "zsh", Layout: &layout.Node{Pane: id + "p"}}}}
 }
@@ -374,21 +377,26 @@ func (f *FakeBackend) Send(msg any) error {
 		w := f.newWorkspace(src.ProjectID, cwd)
 		w.Branch = src.Branch
 		f.st.Workspaces = slices.Insert(f.st.Workspaces, i+1, w)
+		if src.ProjectID == "" {
+			f.st.PlaceTopAfter(w.ID, src.ID)
+		}
 	case proto.CloseTab:
 		f.st.Workspaces = slices.DeleteFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })
 		f.st.Panes = slices.DeleteFunc(f.st.Panes, func(p model.Pane) bool { return p.WorkspaceID == m.WorkspaceID })
 		f.setActivities()
 	case proto.RenameTab:
 		if w := ws(m.WorkspaceID); w != nil {
-			if m.Name != "" {
-				w.Name = m.Name
-			}
-			w.NameSet = m.Name != ""
+			w.Name, w.NameSet = m.Name, m.Name != ""
 		}
 	case proto.MoveSession:
 		i := slices.IndexFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })
 		if i < 0 || m.Before == m.WorkspaceID {
 			return nil
+		}
+		if m.GroupID == "" {
+			f.st.Workspaces[i].ProjectID = ""
+			f.st.PlaceTop(m.WorkspaceID, m.Before)
+			break
 		}
 		w := f.st.Workspaces[i]
 		w.ProjectID = m.GroupID
@@ -399,17 +407,9 @@ func (f *FakeBackend) Send(msg any) error {
 		}
 		f.st.Workspaces = slices.Insert(f.st.Workspaces, j, w)
 	case proto.MoveGroup:
-		i := slices.IndexFunc(f.st.Projects, func(p model.Project) bool { return p.ID == m.GroupID })
-		if i < 0 || m.Before == m.GroupID {
-			return nil
+		if m.Before != m.GroupID {
+			f.st.PlaceTop(m.GroupID, m.Before)
 		}
-		p := f.st.Projects[i]
-		f.st.Projects = slices.Delete(f.st.Projects, i, i+1)
-		j := slices.IndexFunc(f.st.Projects, func(p model.Project) bool { return p.ID == m.Before })
-		if j < 0 {
-			j = len(f.st.Projects)
-		}
-		f.st.Projects = slices.Insert(f.st.Projects, j, p)
 	case proto.SelectTab:
 		if w := ws(m.WorkspaceID); w != nil {
 			w.ActiveTab = m.TabID
@@ -461,12 +461,19 @@ func (f *FakeBackend) Send(msg any) error {
 		f.st.Workspaces = append(f.st.Workspaces, w)
 	case proto.SetSessionGroup:
 		if w := ws(m.WorkspaceID); w != nil {
+			old := w.ProjectID
 			w.ProjectID = m.GroupID
+			if m.GroupID == "" && old != "" {
+				f.st.PlaceTopAfter(w.ID, old)
+			}
 		}
 	case proto.NewGroup:
 		f.nextID++
 		id := fmt.Sprintf("ng%d", f.nextID)
 		f.st.Projects = append(f.st.Projects, model.Project{ID: id, Name: m.Name, Kind: model.ProjectGroup, Color: "neutral"})
+		if len(m.WorkspaceIDs) > 0 {
+			f.st.PlaceTop(id, m.WorkspaceIDs[0])
+		}
 		for _, w := range m.WorkspaceIDs {
 			if w := ws(w); w != nil {
 				w.ProjectID = id
@@ -479,12 +486,7 @@ func (f *FakeBackend) Send(msg any) error {
 			}
 		}
 	case proto.DeleteGroup:
-		f.st.Projects = slices.DeleteFunc(f.st.Projects, func(p model.Project) bool { return p.ID == m.GroupID })
-		for i := range f.st.Workspaces {
-			if f.st.Workspaces[i].ProjectID == m.GroupID {
-				f.st.Workspaces[i].ProjectID = ""
-			}
-		}
+		f.st.DeleteGroup(m.GroupID)
 	case proto.NewWorkspace:
 		f.nextID++
 		id := fmt.Sprintf("nw%d", f.nextID)

@@ -192,9 +192,6 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		if where == "" {
 			where = sidebar.ShortPath(w.Path)
 		}
-		if w.Name != title {
-			where += " · " + w.Name
-		}
 		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.SmallSize, th.Muted, where)
 		rowH := nameSz.Y + brSz.Y + 2*rowPad.Y
 		if current {
