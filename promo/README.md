@@ -39,7 +39,14 @@ ffmpeg -i out/hero.mp4 -c:v libwebp_anim -q:v 82 -compression_level 6 -loop 0 ..
 npx remotion still Hero ../docs/media/pitwall-hero.png --frame=130
 ```
 
-The video has no audio track, so there is no music to license.
+The music track is not in the repository. Put it at
+`public/music/track.mp3` (git-ignored) before rendering, and only publish
+the video with a track you have the rights to. `src/Promo.tsx` lines the
+scene cuts up with that track's bars: the first drop (61.72 s) lands on the
+Agents scene at 10 s, the second drop on Settings, the breakdown on the
+outro. Another track needs `MUSIC_START` and the scene lengths recomputed
+from its beats. Render with audio:
+`npx remotion render Promo out/pitwall-promo.mp4 --codec=h264 --pixel-format=yuv420p --crf=16 --audio-codec=aac --audio-bitrate=320k`
 
 ## Layout
 

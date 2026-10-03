@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "studio": "remotion studio",
-    "render": "remotion render Promo out/pitwall-promo.mp4 --codec=h264 --pixel-format=yuv420p --crf=16",
+    "render": "remotion render Promo out/pitwall-promo.mp4 --codec=h264 --pixel-format=yuv420p --crf=16 --audio-codec=aac --audio-bitrate=320k",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
