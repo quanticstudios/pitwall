@@ -14,10 +14,11 @@ import (
 )
 
 // nav is the window's selection and the Alt-hold switcher, kept free of Gio
-// windows so it can be tested on its own.
+// windows so it can be tested on its own. A tab is a workspace: the user
+// moves between workspaces, each holding one model.Tab of panes.
 type nav struct {
-	workspace string            // active workspace id
-	tab       string            // the tab shown for it, "" when it has none
+	workspace string            // active tab (workspace) id
+	tab       string            // its model.Tab, "" when it has none
 	focus     map[string]string // focusKey(workspace, tab) -> focused pane
 	keys      *config.Bindings  // nil: the default preset
 	altHeld   bool              // the hold modifier is down on its own: the switcher shows
@@ -30,23 +31,20 @@ type nav struct {
 	openingWS string
 	opening   map[string]bool
 
-	// A NewSession is in flight: the sessions there were, so the one that
-	// shows up next is selected.
+	// A NewTab or NewSession is in flight: the workspaces there were, so
+	// the one that shows up next is selected.
 	sessions map[string]bool
 
 	// tabMode is on between the tab prefix and the next key; renameTab asks
-	// the tab strip to start an inline rename; swallow is a key whose
-	// release still belongs to tab mode.
+	// the sidebar to start an inline rename of that workspace; swallow is a
+	// key whose release still belongs to tab mode.
 	tabMode   bool
 	renameTab string
 	swallow   key.Name
 
-	// Local overrides applied to every state until it agrees: the tab the
-	// window shows per session, and sessions attached here but still
-	// detached in the state.
-	pick   map[string]string
+	// Tabs attached here but still detached in the state, shown until the
+	// state agrees.
 	attach map[string]bool
-	out    []any // messages nav wants sent outside key handling
 
 	// The previous sync's sidebar order and the shown tab's panes, to land
 	// focus next to what disappeared.
@@ -83,7 +81,7 @@ func tabOf(w *model.Workspace, pane string) *model.Tab {
 // patch applies the local overrides to st, copying its workspaces first so
 // the backend's slice is never written.
 func (n *nav) patch(st *model.State) {
-	if len(n.pick) == 0 && len(n.attach) == 0 {
+	if len(n.attach) == 0 {
 		return
 	}
 	st.Workspaces = slices.Clone(st.Workspaces)
@@ -98,18 +96,6 @@ func (n *nav) patch(st *model.State) {
 				delete(n.attach, w.ID)
 			}
 		}
-		if t, ok := n.pick[w.ID]; ok {
-			if w.ActiveTab == t || !slices.ContainsFunc(w.Tabs, func(x model.Tab) bool { return x.ID == t }) {
-				delete(n.pick, w.ID)
-			} else {
-				w.ActiveTab = t
-			}
-		}
-	}
-	for id := range n.pick {
-		if !seen[id] {
-			delete(n.pick, id)
-		}
 	}
 	for id := range n.attach {
 		if !seen[id] {
@@ -118,31 +104,17 @@ func (n *nav) patch(st *model.State) {
 	}
 }
 
-// selectTab shows tab in the active session and tells the daemon, so an
-// attach opens on it.
-func (n *nav) selectTab(st *model.State, tab string) any {
-	if n.workspace == "" || tab == "" {
-		return nil
-	}
-	n.pick[n.workspace] = tab
-	n.sync(st)
-	return proto.SelectTab{WorkspaceID: n.workspace, TabID: tab}
-}
-
-// attachSession shows ws (and tab) at once, before the state un-detaches it.
-func (n *nav) attachSession(st *model.State, ws, tab string) {
+// attachSession shows the detached tab ws at once, before the state
+// un-detaches it.
+func (n *nav) attachSession(st *model.State, ws string) {
 	n.attach[ws] = true
-	if tab != "" {
-		n.pick[ws] = tab
-		n.out = append(n.out, proto.SelectTab{WorkspaceID: ws, TabID: tab})
-	}
 	n.selectWorkspace(st, ws, "")
 }
 
 // setFocus focuses pane in the shown tab.
 func (n *nav) setFocus(pane string) { n.focus[focusKey(n.workspace, n.tab)] = pane }
 
-// expectSession records the sessions before a NewSession.
+// expectSession records the workspaces before a NewTab or NewSession.
 func (n *nav) expectSession(st *model.State) {
 	n.sessions = map[string]bool{}
 	for _, w := range st.Workspaces {
@@ -219,7 +191,7 @@ func (n *nav) focused() string { return n.focus[focusKey(n.workspace, n.tab)] }
 // away to the session's active tab.
 func (n *nav) sync(st *model.State) {
 	if n.focus == nil {
-		n.focus, n.pick, n.attach = map[string]string{}, map[string]string{}, map[string]bool{}
+		n.focus, n.attach = map[string]string{}, map[string]bool{}
 	}
 	n.patch(st)
 	if n.sessions != nil {
@@ -293,24 +265,22 @@ func after(prev, now []string, gone string) string {
 
 // selectWorkspace activates id and focuses pane when it is one of its panes,
 // else the pane it last had focused.
-// A pane in another tab brings its tab up.
 func (n *nav) selectWorkspace(st *model.State, id, pane string) {
 	n.workspace = id
 	if w := findWorkspace(st, id); w != nil && pane != "" {
 		if t := tabOf(w, pane); t != nil {
-			if t != shownTab(w) {
-				n.pick[id] = t.ID
-				n.out = append(n.out, proto.SelectTab{WorkspaceID: id, TabID: t.ID})
-			}
 			n.focus[focusKey(id, t.ID)] = pane
 		}
 	}
 	n.sync(st)
 }
 
+// cycleWorkspace moves d tabs in sidebar order, wrapping. With a hold
+// modifier and the switcher hidden it stays in the tab's group, as aide's
+// Alt+J/K do; otherwise it crosses groups.
 func (n *nav) cycleWorkspace(st *model.State, d int) {
 	ws := ordered(st)
-	if !n.switcherVisible() {
+	if n.bind().Hold != 0 && !n.switcherVisible() {
 		cur := findWorkspace(st, n.workspace)
 		var local []model.Workspace
 		for _, w := range ws {
@@ -326,6 +296,64 @@ func (n *nav) cycleWorkspace(st *model.State, d int) {
 			return
 		}
 	}
+}
+
+// cycleGroup moves to the first tab of the group d groups away, wrapping.
+// The ungrouped tabs count as a group at the top.
+func (n *nav) cycleGroup(st *model.State, d int) {
+	var firsts []string // each group's first tab, in sidebar order
+	last := "\x00"
+	cur := -1
+	for _, w := range ordered(st) {
+		if g := groupOf(st, w); g != last {
+			last = g
+			firsts = append(firsts, w.ID)
+		}
+		if w.ID == n.workspace {
+			cur = len(firsts) - 1
+		}
+	}
+	if len(firsts) == 0 {
+		return
+	}
+	if cur < 0 {
+		cur = 0
+	}
+	n.selectWorkspace(st, firsts[((cur+d)%len(firsts)+len(firsts))%len(firsts)], "")
+}
+
+// newTab opens a tab right after after, in its group, with a shell where
+// after's focused pane is. With after "" it follows the active tab; with
+// group set and the active tab elsewhere, it goes last in group. A group
+// with no tabs, or a window with none, gets a fresh session there.
+func (n *nav) newTab(st *model.State, after, group string) any {
+	n.expectSession(st)
+	if after == "" {
+		after = n.workspace
+		if w := findWorkspace(st, after); group != "" && (w == nil || groupOf(st, *w) != group) {
+			after = ""
+			for _, w := range ordered(st) {
+				if groupOf(st, w) == group {
+					after = w.ID
+				}
+			}
+		}
+	}
+	w := findWorkspace(st, after)
+	if w == nil {
+		cwd := ""
+		for _, p := range st.Projects {
+			if p.ID == group {
+				cwd = p.Root
+			}
+		}
+		return proto.NewSession{Cwd: cwd, GroupID: group}
+	}
+	from := ""
+	if t := shownTab(w); t != nil && w.ID == n.workspace {
+		from = n.focus[focusKey(w.ID, t.ID)]
+	}
+	return proto.NewTab{WorkspaceID: w.ID, FromPane: from}
 }
 
 func (n *nav) cyclePane(st *model.State, d int) {
@@ -406,41 +434,30 @@ func (n *nav) tabKey(st *model.State, e key.Event) any {
 		a = b.TabAction(key.Event{Name: e.Name})
 	}
 	if a == "rename" {
-		n.renameTab = n.tab
+		n.renameTab = n.workspace
 		return nil
 	}
 	return n.tabOp(st, a)
 }
 
-// tabOp runs a tab action: new, close, prev, next, goto_N.
+// tabOp runs a tab action: new, close, prev, next, goto_N. Tabs are the
+// sidebar's rows; goto_N counts them in sidebar order.
 func (n *nav) tabOp(st *model.State, op string) any {
-	w := findWorkspace(st, n.workspace)
-	if w == nil {
-		return nil
-	}
-	i := slices.IndexFunc(w.Tabs, func(t model.Tab) bool { return t.ID == n.tab })
-	step := func(d int) any {
-		if len(w.Tabs) < 2 || i < 0 {
-			return nil
-		}
-		return n.selectTab(st, w.Tabs[(i+d+len(w.Tabs))%len(w.Tabs)].ID)
-	}
 	switch op {
 	case "new":
-		delete(n.pick, w.ID) // the daemon makes the new tab active
-		return proto.NewTab{WorkspaceID: w.ID, FromPane: n.focused()}
+		return n.newTab(st, "", "")
 	case "close":
-		if n.tab != "" {
-			return proto.CloseTab{WorkspaceID: w.ID, TabID: n.tab}
+		if findWorkspace(st, n.workspace) != nil {
+			return proto.CloseTab{WorkspaceID: n.workspace}
 		}
 	case "prev":
-		return step(-1)
+		n.cycleWorkspace(st, -1)
 	case "next":
-		return step(1)
+		n.cycleWorkspace(st, 1)
 	}
 	if d, ok := strings.CutPrefix(op, "goto_"); ok {
-		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(w.Tabs) {
-			return n.selectTab(st, w.Tabs[j-1].ID)
+		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(ordered(st)) {
+			n.selectWorkspace(st, ordered(st)[j-1].ID, "")
 		}
 	}
 	return nil
@@ -517,10 +534,10 @@ func (n *nav) key(st *model.State, e key.Event) any {
 	ws := n.workspace
 	act := b.Action(e)
 	switch act {
-	case "next_session":
-		n.cycleWorkspace(st, 1)
-	case "prev_session":
-		n.cycleWorkspace(st, -1)
+	case "next_group":
+		n.cycleGroup(st, 1)
+	case "prev_group":
+		n.cycleGroup(st, -1)
 	case "prev_pane":
 		n.cyclePane(st, -1)
 	case "next_pane":
@@ -549,22 +566,11 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		if n.focused() != "" {
 			return proto.ClosePane{Pane: n.focused()}
 		}
-	case "new_session":
-		n.expectSession(st)
-		if w := findWorkspace(st, ws); w != nil {
-			return proto.NewSession{Cwd: w.Path, FromPane: n.focused()}
-		}
-		return proto.NewSession{}
 	case "new_tab", "close_tab", "next_tab", "prev_tab":
 		return n.tabOp(st, strings.TrimSuffix(act, "_tab"))
 	}
 	if d, ok := strings.CutPrefix(act, "goto_tab_"); ok {
 		return n.tabOp(st, "goto_"+d)
-	}
-	if d, ok := strings.CutPrefix(act, "jump_session_"); ok {
-		if i, _ := strconv.Atoi(d); i >= 1 && i <= len(ordered(st)) {
-			n.selectWorkspace(st, ordered(st)[i-1].ID, "")
-		}
 	}
 	return nil
 }

@@ -26,7 +26,7 @@ import (
 // and sliding in over 120ms.
 const fadeIn = 120 * time.Millisecond
 
-// groupName is the name of w's group, "Sessions" for an ungrouped one.
+// groupName is the name of w's group, "Tabs" for an ungrouped one.
 func groupName(st *model.State, w model.Workspace) string {
 	g := groupOf(st, w)
 	for _, p := range st.Projects {
@@ -34,7 +34,7 @@ func groupName(st *model.State, w model.Workspace) string {
 			return p.Name
 		}
 	}
-	return "Sessions"
+	return "Tabs"
 }
 
 // textCall records one line of text, cut to the constraints' width.
@@ -124,7 +124,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	if w := findWorkspace(st, u.nav.workspace); w != nil {
 		project = groupName(st, *w)
 	}
-	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.SmallSize, th.Muted, "SESSION SWITCHER")
+	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.SmallSize, th.Muted, "TAB SWITCHER")
 	y += gtx.Dp(4)
 	titleY := y
 	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), unit.Sp(14), th.Fg, project)
@@ -186,10 +186,14 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 
 		lgtx := cgtx
 		lgtx.Constraints.Max.X = max(0, inner-2*rowPad.X-chipsW)
-		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), unit.Sp(14), nameC, w.Name)
+		title := tabTitle(w)
+		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), unit.Sp(14), nameC, title)
 		where := w.Branch
 		if where == "" {
 			where = sidebar.ShortPath(w.Path)
+		}
+		if w.Name != title {
+			where += " · " + w.Name
 		}
 		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.SmallSize, th.Muted, where)
 		rowH := nameSz.Y + brSz.Y + 2*rowPad.Y

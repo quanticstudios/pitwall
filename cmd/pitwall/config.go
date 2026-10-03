@@ -36,9 +36,12 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 			stdout.Write(config.Schema())
 		}
 	case "check":
-		_, probs := config.Load()
+		s, probs := config.Load()
 		for _, p := range probs {
 			fmt.Fprintln(stdout, p)
+		}
+		for _, n := range s.Notes {
+			fmt.Fprintln(stdout, n)
 		}
 		if len(probs) > 0 {
 			return 1

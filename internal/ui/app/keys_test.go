@@ -58,18 +58,24 @@ func TestConventional(t *testing.T) {
 		e             key.Event
 		ws, tab, pane string
 	}{
-		{press(key.NameTab, key.ModCtrl), "w1", "t2", "i"},
+		{press(key.NameTab, key.ModCtrl), "w1b", "t2", "i"},
 		{press(key.NameTab, cs), "w1", "t1", "a"},
-		{press(key.NamePageDown, key.ModCtrl), "w1", "t2", "i"},
+		{press(key.NamePageDown, key.ModCtrl), "w1b", "t2", "i"},
 		{press(key.NamePageUp, key.ModCtrl), "w1", "t1", "a"},
-		{press("3", key.ModAlt), "w1", "t3", "j"},
+		{press("3", key.ModAlt), "w1c", "t3", "j"},
+		{press("5", key.ModAlt), "w3", "t6", "e"},
+		{press(key.NameTab, key.ModCtrl), "w4", "t4", "g"}, // across groups
+		{press(key.NameTab, cs), "w3", "t6", "e"},
 		{press("1", key.ModAlt), "w1", "t1", "a"},
 		{press(key.NameRightArrow, key.ModCtrl|key.ModAlt), "w1", "t1", "b"},
 		{press(key.NameDownArrow, key.ModCtrl|key.ModAlt), "w1", "t1", "c"},
 		{press(key.NameLeftArrow, key.ModCtrl|key.ModAlt), "w1", "t1", "b"},
 		{press(key.NameUpArrow, key.ModCtrl|key.ModAlt), "w1", "t1", "a"},
-		{press(key.NamePageDown, cs), "w2", "t5", "d"},
-		{press(key.NamePageUp, cs), "w1", "t1", "a"},
+		{press(key.NamePageDown, cs), "w4", "t4", "g"}, // the next group's first tab
+		{press(key.NamePageDown, cs), "w6", "t9", "h"},
+		{press(key.NamePageDown, cs), "w1", "t1", "a"}, // wraps to the ungrouped tabs
+		{press(key.NamePageUp, cs), "w6", "t9", "h"},
+		{press("1", key.ModAlt), "w1", "t1", "a"},
 	} {
 		do(tc.e)
 		at(fmt.Sprint(tc.e.Modifiers, "+", tc.e.Name), tc.ws, tc.tab, tc.pane)
@@ -83,11 +89,8 @@ func TestConventional(t *testing.T) {
 	if msg := n.key(&st, press("W", cs)); msg != (proto.ClosePane{Pane: "a"}) {
 		t.Fatalf("Ctrl+Shift+W: %#v", msg)
 	}
-	if msg := n.key(&st, press("N", cs)); msg != (proto.NewSession{Cwd: fakeHome + "/Work/pitwall", FromPane: "a"}) {
-		t.Fatalf("Ctrl+Shift+N: %#v", msg)
-	}
-	if msg := do(press("T", cs)); msg != (proto.NewTab{WorkspaceID: "w1", FromPane: "a"}) || n.tab != st.Workspaces[0].Tabs[3].ID {
-		t.Fatalf("Ctrl+Shift+T: %#v, at tab %s", msg, n.tab)
+	if msg := do(press("T", cs)); msg != (proto.NewTab{WorkspaceID: "w1", FromPane: "a"}) || n.workspace != st.Workspaces[1].ID {
+		t.Fatalf("Ctrl+Shift+T: %#v, at %s", msg, n.workspace)
 	}
 
 	// No hold modifier: Alt alone shows nothing, Ctrl+Shift+Space toggles
@@ -103,12 +106,12 @@ func TestConventional(t *testing.T) {
 	n.key(&st, press("J", 0))
 	n.key(&st, press(key.NameDownArrow, 0))
 	n.key(&st, press(key.NameDownArrow, 0))
-	if n.workspace != "w4" {
-		t.Fatalf("J/Down in the switcher walk every session: at %s, want w4", n.workspace)
+	if n.workspace != "w2" {
+		t.Fatalf("J/Down in the switcher walk every tab: at %s, want w2", n.workspace)
 	}
 	n.key(&st, press("K", 0))
 	n.key(&st, press(key.NameReturn, 0))
-	if n.switcherVisible() || n.workspace != "w3" {
+	if n.switcherVisible() || n.workspace != "w1c" {
 		t.Fatalf("Enter: visible %v at %s", n.switcherVisible(), n.workspace)
 	}
 	n.key(&st, press(key.NameSpace, cs))
@@ -173,7 +176,7 @@ func TestConventionalNoLeak(t *testing.T) {
 	for _, e := range []key.Event{
 		press("T", cs), press("W", cs), press(key.NameTab, key.ModCtrl), press(key.NameTab, cs),
 		press(key.NamePageDown, key.ModCtrl), press(key.NamePageUp, key.ModCtrl), press("2", key.ModAlt),
-		press("N", cs), press("O", cs), press("E", cs), press(key.NameLeftArrow, key.ModCtrl|key.ModAlt),
+		press("O", cs), press("E", cs), press(key.NameLeftArrow, key.ModCtrl|key.ModAlt),
 		press(key.NamePageDown, cs), press(key.NamePageUp, cs), press(key.NameSpace, cs), press(key.NameSpace, cs),
 		press("C", cs), press("V", cs), press(key.NamePageUp, key.ModShift), press("B", cs), press("B", cs),
 	} {
@@ -206,15 +209,17 @@ func TestShortcuts(t *testing.T) {
 	for _, s := range shortcuts(aide) {
 		rows[s.what] = strings.Join(s.keys, " ")
 	}
-	if rows["Jump to session 1-9"] != "Alt+1 … Alt+9" || rows["Split the pane below"] != "Alt+Shift+N" ||
-		rows["Tab mode: new tab"] != "Ctrl+T, then N" || rows["Show every session; the session keys walk them all"] != "Hold Alt" {
+	if rows["Go to tab 1-9"] != "Alt+1 … Alt+9" || rows["Split the pane below"] != "Alt+Shift+N" ||
+		rows["Tab mode: new tab"] != "Ctrl+T, then N" || rows["Show every tab; the tab keys walk them all"] != "Hold Alt" ||
+		rows["New tab below this one, in its folder"] != "Alt+Shift+T" {
 		t.Fatalf("aide rows: %v", rows)
 	}
 	rows = map[string]string{}
 	for _, s := range shortcuts(conventional) {
 		rows[s.what] = strings.Join(s.keys, " ")
 	}
-	if rows["Go to tab 1-9"] != "Alt+1 … Alt+9" || rows["Next tab"] != "Ctrl+Tab Ctrl+PageDown" || rows["Tab mode: new tab"] != "" {
+	if rows["Go to tab 1-9"] != "Alt+1 … Alt+9" || rows["Next tab in sidebar order"] != "Ctrl+Tab Ctrl+PageDown" ||
+		rows["First tab of the next group"] != "Ctrl+Shift+PageDown" || rows["Tab mode: new tab"] != "" {
 		t.Fatalf("conventional rows: %v", rows)
 	}
 }

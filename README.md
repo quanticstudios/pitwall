@@ -96,11 +96,17 @@ less precise.
 ### Tabs and panes
 
 The keyboard shortcuts are in [Keybindings](#keybindings). With the mouse:
-click a tab to switch to it, right-click it for **Rename**, **Detach**,
-grouping, and more. Drag a tab or a group header to reorder it; drop a tab on
-a group header to move it into that group. A new tab opens right below the
-one you were in, in the same group and folder. Drag the gaps between panes to
-resize them.
+click a tab to switch to it, double-click it to rename it, middle-click to
+close it, right-click it for **Rename tab**, **Detach tab**, **Close tab**,
+grouping, and more. The "+" in the sidebar header, on a group header, or on a
+hovered tab opens a new one; it opens right below the one you were in, in the
+same group and folder.
+
+Drag a tab or a group header to reorder it: the other rows slide apart to
+show where it will land, and Escape puts it back. Rest on a group header for
+a moment, or drop on a collapsed one, to move the tab to the end of that
+group. Ctrl+click or Shift+click several tabs to drag them together. Drag the
+gaps between panes to resize them.
 Ctrl+Shift+B (Ctrl+B in the aide preset) hides the sidebar; pitwall
 remembers that across restarts.
 
@@ -181,50 +187,52 @@ shows the bindings in effect.
 
 conventional:
 
-| Keys                                 | Action                                     |
-| ------------------------------------ | ------------------------------------------ |
-| Ctrl+Shift+T                         | New tab                                    |
-| Ctrl+Shift+W                         | Close the pane (the tab with its last one) |
-| Ctrl+Tab / Ctrl+Shift+Tab            | Next / previous tab                        |
-| Ctrl+PageDown / Ctrl+PageUp          | Next / previous tab                        |
-| Alt+1-9                              | Go to tab                                  |
-| Ctrl+Shift+N                         | New session in this folder                 |
-| Ctrl+Shift+O                         | Split the pane to the right                |
-| Ctrl+Shift+E                         | Split the pane below                       |
-| Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up | Next / previous pane                      |
-| Ctrl+Shift+PageDown / Ctrl+Shift+PageUp | Next / previous session                 |
-| Ctrl+Shift+Space                     | Show or hide the session switcher; J/K or arrows move, Enter or a click closes |
-| Ctrl+Shift+B                         | Show or hide the sidebar                   |
-| Ctrl+Shift+C / Ctrl+Shift+V          | Copy selection / paste                     |
-| Shift+PageUp / Shift+PageDown        | Scroll back / forward one page             |
-| Escape                               | Close the switcher or a dialog             |
+| Keys                                    | Action                                                    |
+| --------------------------------------- | --------------------------------------------------------- |
+| Ctrl+Shift+T                            | New tab below this one, in its folder                     |
+| Ctrl+Shift+W                            | Close the pane (the tab with its last one)                |
+| Ctrl+Tab / Ctrl+Shift+Tab               | Next / previous tab, across groups                        |
+| Ctrl+PageDown / Ctrl+PageUp             | Next / previous tab, across groups                        |
+| Ctrl+Shift+PageDown / Ctrl+Shift+PageUp | First tab of the next / previous group                    |
+| Alt+1-9                                 | Go to the Nth tab in the sidebar                          |
+| Ctrl+Shift+O                            | Split the pane to the right                               |
+| Ctrl+Shift+E                            | Split the pane below                                      |
+| Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up   | Next / previous pane                                      |
+| Ctrl+Shift+Space                        | Show or hide the tab switcher; J/K or arrows move, Enter or a click closes |
+| Ctrl+Shift+B                            | Show or hide the sidebar                                  |
+| Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste                                    |
+| Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
+| Escape                                  | Close the switcher or a dialog, cancel a drag             |
 
 aide:
 
-| Keys                              | Action                                |
-| --------------------------------- | ------------------------------------- |
-| Alt+J / Alt+K                     | Next / previous session in the group  |
-| Alt+H / Alt+L                     | Previous / next pane                  |
-| Alt+Arrows                        | Same as J / K / H / L                 |
-| Hold Alt                          | Show the session switcher             |
-| Alt+Space                         | Pin the switcher open                 |
-| Alt+1-9                           | Jump to session                       |
-| Alt+N                             | Split the pane to the right           |
-| Alt+Shift+N                       | Split the pane below                  |
-| Alt+Shift+W                       | Close the pane                        |
-| Alt+Shift+T                       | New session in this folder            |
+| Keys                              | Action                                         |
+| --------------------------------- | ---------------------------------------------- |
+| Alt+J / Alt+K                     | Next / previous tab in the group               |
+| Alt+H / Alt+L                     | Previous / next pane                           |
+| Alt+Arrows                        | Same as J / K / H / L                          |
+| Hold Alt                          | Show the tab switcher; Alt+J/K then cross groups |
+| Alt+Space                         | Pin the switcher open                          |
+| Alt+1-9                           | Go to the Nth tab in the sidebar               |
+| Alt+Shift+T                       | New tab below this one, in its folder          |
+| Alt+N                             | Split the pane to the right                    |
+| Alt+Shift+N                       | Split the pane below                           |
+| Alt+Shift+W                       | Close the pane                                 |
 | Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
-| Ctrl+T then n                     | New tab                               |
-| Ctrl+T then x                     | Close the tab                         |
-| Ctrl+T then r                     | Rename the tab                        |
-| Ctrl+T then h / l or Left / Right | Previous / next tab                   |
-| Ctrl+T then 1-9                   | Jump to tab                           |
-| Ctrl+T twice                      | Send Ctrl+T to the terminal           |
-| Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                |
-| Shift+PageUp / Shift+PageDown     | Scroll back / forward one page        |
-| Escape                            | Close the switcher or a dialog        |
+| Ctrl+T then n                     | New tab                                        |
+| Ctrl+T then x                     | Close the tab                                  |
+| Ctrl+T then r                     | Rename the tab                                 |
+| Ctrl+T then h / l or Left / Right | Previous / next tab in the group               |
+| Ctrl+T then 1-9                   | Go to the Nth tab                              |
+| Ctrl+T twice                      | Send Ctrl+T to the terminal                    |
+| Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                         |
+| Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
+| Escape                            | Close the switcher or a dialog, cancel a drag  |
 
 Every action, with its config name, is listed by `pitwall config default`.
+The session-era names `next_session`, `prev_session`, `new_session` and
+`jump_session_1`-`9` still work as `next_tab`, `prev_tab`, `new_tab` and
+`goto_tab_1`-`9`; `pitwall config check` notes each one to rename.
 
 ## Configuration
 

@@ -3,7 +3,9 @@ package sidebar
 import (
 	"fmt"
 	"image"
+	"image/color"
 	"slices"
+	"time"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -12,57 +14,116 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// MoveSession puts a session in GroupID ("" ungrouped) before the session
-// Before ("" last); MoveGroup puts a group before the group Before.
+// MoveSession puts a tab in GroupID ("" ungrouped) before the tab Before
+// ("" last); MoveGroup puts a group before the group Before.
 type (
 	MoveSession struct{ WorkspaceID, GroupID, Before string }
 	MoveGroup   struct{ GroupID, Before string }
 )
 
-// dropRow is a session (with its tab rows) or a group header as drawn this
-// frame, in tree viewport pixels.
-type dropRow struct {
-	kind     byte // 's' session, 'g' group header
+const (
+	slideDur = 140 * time.Millisecond // rows sliding apart, back, or into place
+	liftDur  = 120 * time.Millisecond // the dragged row rising
+	dwellDur = 300 * time.Millisecond // over a group header before it takes the drop
+	landWait = 400 * time.Millisecond // how long a drop waits for the state to show it
+)
+
+// elem is a tab row or a group header as laid out this frame, in content
+// pixels (0 is the top of the scrolled list). A header's top includes the
+// separator above it.
+type elem struct {
+	kind     byte // 's' tab, 'g' group header
 	id       string
-	group    string // a session's group, a header's own id
+	group    string // a tab's group, a header's own id
 	top, bot int
+	head     int // a header's own top, below its separator
 }
 
-// drop is where a drag released at the current position lands.
+func (e elem) key() string { return string(e.kind) + e.id }
+func (e elem) mid() int    { return (e.top + e.bot) / 2 }
+
+// drop is where a drag released now would land.
 type drop struct {
 	group, before string
-	into          bool // onto a group header: last in that group
-	line          int  // y of the indicator line when !into
+	into          bool // onto a group header: last in that group, no gap
+	at            int  // index in the flow the gap opens before
 	ok            bool
 }
 
-// dragState is a press on a session row or group header, a drag once it
-// has moved 4dp.
+// dragState is a press on a tab row or group header, a drag once it has
+// moved 4dp, and after release the landing that waits for the state.
 type dragState struct {
 	kind       byte // 0 none, 's', 'g'
 	id         string
-	start, pos f32.Point
+	ids        []string  // the tabs it carries: the selection when id is in it
+	start, pos f32.Point // viewport px
+	grab       int       // press y minus the element's top
 	active     bool
+	since      time.Time // when it became a drag
+	hover      string    // the group header under the pointer
+	hoverAt    time.Time
+	target     drop // as of the last frame
+	released   bool // dropped, gliding into the gap until the state moves
+	relAt      time.Time
+	fromY, toY float32 // the glide, content px
 }
 
-// Dragging reports whether a session or group is being dragged.
-func (s *Sidebar) Dragging() bool { return s.drag.active }
+// slide eases an element's offset from its drawn position to a target.
+type slide struct {
+	from, to float32
+	at       time.Time
+}
 
-// CancelDrag drops the drag without moving anything (Escape).
-func (s *Sidebar) CancelDrag() { s.drag = dragState{} }
+func (sl slide) value(now time.Time) float32 {
+	t := min(1, float32(now.Sub(sl.at))/float32(slideDur))
+	e := 1 - (1-t)*(1-t)*(1-t) // ease-out cubic
+	return sl.from + (sl.to-sl.from)*e
+}
 
-func rowAt(rows []dropRow, y int) int {
+func (sl slide) done(now time.Time) bool { return now.Sub(sl.at) >= slideDur }
+
+// Dragging reports whether a tab or group is being dragged.
+func (s *Sidebar) Dragging() bool { return s.drag.active && !s.drag.released }
+
+// CancelDrag drops the drag without moving anything (Escape): the rows
+// slide back and the dragged one returns to its place.
+func (s *Sidebar) CancelDrag() {
+	if s.Dragging() {
+		s.land(s.ghostY(time.Time{}))
+	}
+	s.drag = dragState{}
+}
+
+// land starts the dragged elements' slide from y into wherever they are
+// laid out next frame.
+func (s *Sidebar) land(y float32) {
+	if s.landing == nil {
+		s.landing = map[string]float32{}
+	}
+	if s.drag.kind == 'g' {
+		s.landing["g"+s.drag.id] = y
+		return
+	}
+	for _, id := range s.drag.ids {
+		s.landing["s"+id] = y
+	}
+}
+
+// rowAt is the element y is over, the nearer one in a gap, or -1.
+func rowAt(rows []elem, y int) int {
 	if len(rows) == 0 {
 		return -1
 	}
 	for i, r := range rows {
 		if y < r.bot {
 			if i > 0 && y < r.top && y-rows[i-1].bot < r.top-y {
-				return i - 1 // in a gap, nearer the row above
+				return i - 1
 			}
 			return i
 		}
@@ -70,67 +131,259 @@ func rowAt(rows []dropRow, y int) int {
 	return len(rows) - 1
 }
 
-// sessionDrop is where a session dragged to y lands: onto a group header
-// it goes last into that group, else into the gap nearest y, in the group
-// of the row beside it.
-func sessionDrop(rows []dropRow, y int) drop {
-	i := rowAt(rows, y)
+// tabDrop is where tabs dragged to y in flow (the elements without the
+// dragged ones, closed up) land. Over a tab the gap goes to the side of
+// its middle the pointer is on. Over a collapsed group's header, or one
+// dwelled on, the tabs go last into that group. Over the top half of an
+// expanded header they end the section above, over the bottom half they
+// start that group.
+func tabDrop(flow []elem, y int, expanded func(string) bool, dwell string) drop {
+	i := rowAt(flow, y)
 	if i < 0 {
-		return drop{}
+		return drop{ok: true}
 	}
-	r := rows[i]
-	if r.kind == 'g' {
-		return drop{group: r.id, into: true, ok: true}
+	e := flow[i]
+	if e.kind == 'g' {
+		if !expanded(e.id) || dwell == e.id {
+			return drop{group: e.id, into: true, at: -1, ok: true}
+		}
+		if y < e.mid() {
+			switch {
+			case i == 0:
+				return drop{at: 0, ok: true}
+			case flow[i-1].kind == 's' || expanded(flow[i-1].id):
+				return drop{group: flow[i-1].group, at: i, ok: true}
+			}
+		}
+		d := drop{group: e.id, at: i + 1, ok: true}
+		if i+1 < len(flow) && flow[i+1].kind == 's' && flow[i+1].group == e.id {
+			d.before = flow[i+1].id
+		}
+		return d
 	}
-	if y < (r.top+r.bot)/2 {
-		return drop{group: r.group, before: r.id, line: r.top, ok: true}
+	if y < e.mid() {
+		return drop{group: e.group, before: e.id, at: i, ok: true}
 	}
-	d := drop{group: r.group, line: r.bot, ok: true}
-	if i+1 < len(rows) && rows[i+1].kind == 's' && rows[i+1].group == r.group {
-		d.before = rows[i+1].id
+	d := drop{group: e.group, at: i + 1, ok: true}
+	if i+1 < len(flow) && flow[i+1].kind == 's' && flow[i+1].group == e.group {
+		d.before = flow[i+1].id
 	}
 	return d
 }
 
-// groupDrop is where a group dragged to y lands: before the group whose
-// block (header and sessions) y is in the top half of, else after it.
-// Above every group it goes first.
-func groupDrop(rows []dropRow, y int) drop {
+// groupDrop is where a group dragged to y in flow lands: before the group
+// whose block (header and tabs) y is in the top half of, else after it.
+// Over the ungrouped tabs it goes first.
+func groupDrop(flow []elem, y int) drop {
 	type block struct {
 		id       string
+		at       int
 		top, bot int
 	}
 	var bs []block
-	for _, r := range rows {
+	for i, r := range flow {
 		switch {
 		case r.kind == 'g':
-			bs = append(bs, block{r.id, r.top, r.bot})
+			bs = append(bs, block{r.id, i, r.top, r.bot})
 		case len(bs) > 0 && r.group == bs[len(bs)-1].id:
 			bs[len(bs)-1].bot = r.bot
 		}
 	}
-	if len(bs) == 0 {
-		return drop{}
-	}
 	for i, b := range bs {
 		if y < (b.top+b.bot)/2 {
-			return drop{before: b.id, line: b.top, ok: true}
+			return drop{before: b.id, at: b.at, ok: true}
 		}
-		if y < b.bot || i == len(bs)-1 {
-			d := drop{line: b.bot, ok: true}
-			if i+1 < len(bs) {
-				d.before = bs[i+1].id
-			}
-			return d
+		if y < b.bot && i+1 < len(bs) {
+			return drop{before: bs[i+1].id, at: bs[i+1].at, ok: true}
 		}
 	}
-	return drop{}
+	return drop{at: len(flow), ok: true}
 }
 
-// dragEvents runs the drag gesture from the pointer events over the tree
+// carried reports whether e moves with the drag.
+func (s *Sidebar) carried(e elem) bool {
+	switch s.drag.kind {
+	case 's':
+		return e.kind == 's' && slices.Contains(s.drag.ids, e.id)
+	case 'g':
+		return e.group == s.drag.id
+	}
+	return false
+}
+
+// flow closes up the carried elements: the rest with their tops moved up
+// by what was carried above them, and the height carried in all. Each
+// element takes the space down to the next one with it.
+func (s *Sidebar) flow(elems []elem, total int) (flow []elem, idx []int, carried int) {
+	idx = make([]int, len(elems))
+	for i, e := range elems {
+		next := total
+		if i+1 < len(elems) {
+			next = elems[i+1].top
+		}
+		if s.carried(e) {
+			carried += next - e.top
+			idx[i] = -1
+			continue
+		}
+		idx[i] = len(flow)
+		e.top, e.bot, e.head = e.top-carried, e.bot-carried, e.head-carried
+		flow = append(flow, e)
+	}
+	return flow, idx, carried
+}
+
+// gapSize is the height the gap opens to: one tab row and its spacing, or
+// the dragged group's whole block.
+func (s *Sidebar) gapSize(gtx layout.Context, carried int) int {
+	if s.drag.kind == 'g' {
+		return carried
+	}
+	return rowHeight(gtx) + gtx.Dp(2)
+}
+
+// dragFrame updates the drop target from the pointer and returns the
+// offsets the elements head for, and when the dwell timer next needs a
+// frame.
+func (s *Sidebar) dragFrame(gtx layout.Context, elems []elem, total int) (offsets []float32, wake time.Time) {
+	offsets = make([]float32, len(elems))
+	if !s.drag.active {
+		return offsets, wake
+	}
+	flow, idx, carried := s.flow(elems, total)
+	if !s.drag.released {
+		y := int(s.drag.pos.Y) + s.scroll
+		hover := ""
+		if s.drag.kind == 's' {
+			if i := rowAt(flow, y); i >= 0 && flow[i].kind == 'g' && y >= flow[i].top && y < flow[i].bot {
+				hover = flow[i].id
+			}
+		}
+		if hover != s.drag.hover {
+			s.drag.hover, s.drag.hoverAt = hover, gtx.Now
+		}
+		dwell := ""
+		if hover != "" {
+			if at := s.drag.hoverAt.Add(dwellDur); gtx.Now.Before(at) {
+				wake = at
+			} else {
+				dwell = hover
+			}
+		}
+		if s.drag.kind == 'g' {
+			s.drag.target = groupDrop(flow, y)
+		} else {
+			s.drag.target = tabDrop(flow, y, s.isExpanded, dwell)
+		}
+	}
+	d := s.drag.target
+	gap := s.gapSize(gtx, carried)
+	for i, e := range elems {
+		if idx[i] < 0 {
+			continue
+		}
+		off := flow[idx[i]].top - e.top
+		if d.ok && !d.into && idx[i] >= d.at {
+			off += gap
+		}
+		offsets[i] = float32(off)
+	}
+	// Where the gap is, for the glide after release.
+	switch {
+	case !d.ok:
+	case d.into:
+		for _, e := range flow {
+			if e.kind == 'g' && e.id == d.group {
+				s.drag.toY = float32(e.head)
+			}
+		}
+	case d.at < len(flow):
+		s.drag.toY = float32(flow[d.at].top)
+	default:
+		end := 0
+		if len(flow) > 0 {
+			end = flow[len(flow)-1].bot + gtx.Dp(2)
+		}
+		s.drag.toY = float32(end)
+	}
+	return offsets, wake
+}
+
+// ghostY is the dragged element's top in content px: under the pointer
+// while dragging, gliding to the gap after release.
+func (s *Sidebar) ghostY(now time.Time) float32 {
+	if s.drag.released {
+		return slide{from: s.drag.fromY, to: s.drag.toY, at: s.drag.relAt}.value(now)
+	}
+	return s.drag.pos.Y + float32(s.scroll-s.drag.grab)
+}
+
+// animate moves each element's slide toward its offset and returns the
+// drawn offsets and whether any still moves. An element whose laid-out
+// top changed since last frame starts from where it was drawn, so a
+// reorder from the state slides instead of jumping. Ending a landing hands
+// the dragged elements over from the ghost.
+func (s *Sidebar) animate(gtx layout.Context, elems []elem, total int) ([]float32, bool) {
+	now := gtx.Now
+	if s.slides == nil {
+		s.slides, s.prevTop = map[string]*slide{}, map[string]int{}
+	}
+	changed := len(elems) != len(s.prevTop)
+	for _, e := range elems {
+		if t, ok := s.prevTop[e.key()]; !ok || t != e.top {
+			changed = true
+		}
+	}
+	if s.drag.released && (changed || now.Sub(s.drag.relAt) >= landWait) {
+		s.land(s.ghostY(now))
+		s.drag = dragState{}
+	}
+	targets, wake := s.dragFrame(gtx, elems, total)
+	if !wake.IsZero() {
+		gtx.Execute(op.InvalidateCmd{At: wake})
+	}
+	out := make([]float32, len(elems))
+	moving := false
+	prev := s.prevTop
+	s.prevTop = make(map[string]int, len(elems))
+	for i, e := range elems {
+		k := e.key()
+		s.prevTop[k] = e.top
+		sl := s.slides[k]
+		cur := float32(0)
+		if sl != nil {
+			cur = sl.value(now)
+		}
+		to := targets[i]
+		if y, ok := s.landing[k]; ok {
+			sl = &slide{from: y - float32(e.top), to: to, at: now}
+			delete(s.landing, k)
+		} else if t, ok := prev[k]; ok && t != e.top {
+			sl = &slide{from: cur + float32(t-e.top), to: to, at: now}
+		} else if (sl == nil && to != 0) || (sl != nil && sl.to != to) {
+			sl = &slide{from: cur, to: to, at: now}
+		}
+		if sl == nil {
+			continue
+		}
+		if sl.done(now) && sl.to == 0 {
+			delete(s.slides, k)
+			continue
+		}
+		s.slides[k] = sl
+		out[i] = sl.value(now)
+		moving = moving || !sl.done(now)
+	}
+	clear(s.landing)
+	return out, moving
+}
+
+// dragEvents runs the gesture from the pointer events over the tree
 // viewport. A press only arms it; 4dp of movement starts it, so a click
-// still clicks.
-func (s *Sidebar) dragEvents(gtx layout.Context, v *view) {
+// still clicks. It reports whether a drag ended, whose release must not
+// also click the row under it.
+func (s *Sidebar) dragEvents(gtx layout.Context, v *view) bool {
+	ended := false
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &s.dragTag, Kinds: pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel})
 		if !ok {
@@ -142,153 +395,249 @@ func (s *Sidebar) dragEvents(gtx layout.Context, v *view) {
 		}
 		switch e.Kind {
 		case pointer.Press:
+			if s.drag.released {
+				continue // still landing
+			}
 			s.drag = dragState{}
-			if e.Buttons != pointer.ButtonPrimary || s.Editing() {
+			if e.Buttons != pointer.ButtonPrimary || s.Editing() || s.menuOpen() {
 				continue
 			}
-			if i := rowAt(s.drops, int(e.Position.Y)); i >= 0 {
-				r := s.drops[i]
-				if int(e.Position.Y) >= r.top && int(e.Position.Y) < r.top+gtx.Dp(56) {
-					s.drag = dragState{kind: r.kind, id: r.id, start: e.Position, pos: e.Position}
+			y := int(e.Position.Y) + s.scroll
+			for _, el := range s.elems {
+				top := el.top
+				if el.kind == 'g' {
+					top = el.head
+				}
+				if y >= top && y < el.bot {
+					s.drag = dragState{kind: el.kind, id: el.id, start: e.Position, pos: e.Position, grab: y - el.top}
 				}
 			}
 		case pointer.Drag:
-			if s.drag.kind == 0 {
+			if s.drag.kind == 0 || s.drag.released {
 				continue
 			}
 			s.drag.pos = e.Position
 			if d := e.Position.Sub(s.drag.start); !s.drag.active && d.X*d.X+d.Y*d.Y >= float32(gtx.Dp(4)*gtx.Dp(4)) {
-				s.drag.active = true
-				s.closeMenus()
+				s.startDrag(gtx, v)
 			}
 		case pointer.Release:
-			if s.drag.active {
-				s.dropAt(v, int(e.Position.Y))
+			if s.drag.active && !s.drag.released {
+				s.drag.pos = e.Position
+				s.dropNow(gtx, v)
+				ended = true
+			} else if !s.drag.released {
+				s.drag = dragState{}
 			}
-			s.drag = dragState{}
 		case pointer.Cancel:
-			s.drag = dragState{}
+			if s.Dragging() {
+				ended = true
+			}
+			s.CancelDrag()
+		}
+	}
+	return ended
+}
+
+// menuOpen reports whether a menu or popover covers part of the tree.
+func (s *Sidebar) menuOpen() bool {
+	return s.menuWS != "" || s.groupMenu != "" || s.appearance != "" || s.detachedOpen
+}
+
+func (s *Sidebar) startDrag(gtx layout.Context, v *view) {
+	s.drag.active, s.drag.since = true, gtx.Now
+	s.closeMenus()
+	if s.drag.kind != 's' {
+		return
+	}
+	s.drag.ids = []string{s.drag.id}
+	if s.selected[s.drag.id] && len(s.selected) > 1 {
+		s.drag.ids = nil
+		for _, id := range s.order(v) {
+			if s.selected[id] {
+				s.drag.ids = append(s.drag.ids, id)
+			}
 		}
 	}
 }
 
-// dropAt sends the moves for a drag released at y.
-func (s *Sidebar) dropAt(v *view, y int) {
+// dropNow sends the moves for the target shown last frame and starts the
+// glide into the gap. A drop where the drag started just returns.
+func (s *Sidebar) dropNow(gtx layout.Context, v *view) {
+	d := s.drag.target
+	from := s.ghostY(gtx.Now)
+	if !d.ok || s.noop(v, d) {
+		s.CancelDrag()
+		return
+	}
 	if s.drag.kind == 'g' {
-		if d := groupDrop(s.drops, y); d.ok && d.before != s.drag.id {
-			s.events = append(s.events, MoveGroup{GroupID: s.drag.id, Before: d.before})
+		s.events = append(s.events, MoveGroup{GroupID: s.drag.id, Before: d.before})
+	} else {
+		for _, id := range s.drag.ids {
+			s.events = append(s.events, MoveSession{WorkspaceID: id, GroupID: d.group, Before: d.before})
 		}
-		return
-	}
-	d := sessionDrop(s.drops, y)
-	if !d.ok {
-		return
-	}
-	ids := []string{s.drag.id}
-	if s.selected[s.drag.id] && len(s.selected) > 1 {
-		ids = nil
-		for _, id := range s.order(v) {
-			if s.selected[id] {
-				ids = append(ids, id)
-			}
+		if d.into {
+			s.expanded[d.group] = true
 		}
 	}
-	// Moving before one of the moved sessions means before the first
-	// session after them that stays.
-	if slices.Contains(ids, d.before) {
-		i := slices.IndexFunc(s.drops, func(r dropRow) bool { return r.kind == 's' && r.id == d.before })
-		d.before = ""
-		for _, r := range s.drops[i+1:] {
-			if r.kind != 's' || r.group != d.group {
-				break
-			}
-			if !slices.Contains(ids, r.id) {
-				d.before = r.id
-				break
-			}
+	s.drag.released, s.drag.relAt, s.drag.fromY = true, gtx.Now, from
+}
+
+// noop reports whether d puts a single dragged tab or a group back where
+// it is.
+func (s *Sidebar) noop(v *view, d drop) bool {
+	if s.drag.kind == 'g' {
+		ids := projectIDs(v.st)
+		i := slices.Index(ids, s.drag.id)
+		next := ""
+		if i+1 < len(ids) {
+			next = ids[i+1]
 		}
+		return d.before == next || d.before == s.drag.id
 	}
-	for _, id := range ids {
-		s.events = append(s.events, MoveSession{WorkspaceID: id, GroupID: d.group, Before: d.before})
+	if len(s.drag.ids) != 1 || d.into {
+		return false
 	}
-	if d.into {
-		s.expanded[d.group] = true
+	g := v.groupOf(s.drag.id)
+	wss := v.byProject[g]
+	i := slices.IndexFunc(wss, func(w model.Workspace) bool { return w.ID == s.drag.id })
+	next := ""
+	if i >= 0 && i+1 < len(wss) {
+		next = wss[i+1].ID
 	}
+	return d.group == g && d.before == next
+}
+
+func projectIDs(st *model.State) []string {
+	ids := make([]string, len(st.Projects))
+	for i, p := range st.Projects {
+		ids[i] = p.ID
+	}
+	return ids
 }
 
 // dragOverlay registers the gesture over the tree viewport and, during a
-// drag, draws the drop indicator, scrolls near the edges, and returns
-// whether it needs another frame.
+// drag, highlights a group taking the drop, draws the lifted row under the
+// pointer, scrolls near the edges, and reports whether it needs another
+// frame.
 func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) bool {
 	area := clip.Rect{Max: size}.Push(gtx.Ops)
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &s.dragTag)
+	if s.Dragging() {
+		pointer.CursorGrabbing.Add(gtx.Ops)
+	}
 	pass.Pop()
 	area.Pop()
 	if !s.drag.active {
 		return false
 	}
 	th := v.th
-	y := int(s.drag.pos.Y)
-	if s.drag.kind == 'g' {
-		if d := groupDrop(s.drops, y); d.ok {
-			s.line(gtx, th, d.line, size.X)
-		}
-	} else if d := sessionDrop(s.drops, y); d.ok {
-		if d.into {
-			for _, r := range s.drops {
-				if r.kind == 'g' && r.id == d.group {
-					rect := image.Rect(gtx.Dp(2), r.top, size.X-gtx.Dp(2), r.bot)
-					paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.6), clip.Stroke{Path: clip.UniformRRect(rect, gtx.Dp(8)).Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
-				}
+	now := gtx.Now
+	d := s.drag.target
+	if d.ok && d.into {
+		for _, e := range s.elems {
+			if e.kind == 'g' && e.id == d.group {
+				y := e.head - s.scroll + int(s.drawnOff(e))
+				rect := image.Rect(gtx.Dp(4), y, size.X-gtx.Dp(4), y+gtx.Dp(40))
+				paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.14), clip.UniformRRect(rect, gtx.Dp(8)).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.7), clip.Stroke{Path: clip.UniformRRect(rect, gtx.Dp(8)).Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
 			}
-		} else {
-			s.line(gtx, th, d.line, size.X)
 		}
 	}
-	// The dragged entry's name follows the pointer.
-	name := s.drag.id
-	for _, p := range v.st.Projects {
-		if p.ID == name {
-			name = p.Name
-		}
+
+	// The lifted row: scaled up a little over a soft shadow, rising over
+	// liftDur and settling back while it glides into the gap.
+	lift := min(1, float32(now.Sub(s.drag.since))/float32(liftDur))
+	lift = 1 - (1-lift)*(1-lift)
+	if s.drag.released {
+		lift = 1 - min(1, float32(now.Sub(s.drag.relAt))/float32(slideDur))
 	}
-	for _, w := range v.st.Workspaces {
-		if w.ID == name {
-			name, _ = displayName(w)
-		}
-	}
-	if n := len(s.selected); s.drag.kind == 's' && s.selected[s.drag.id] && n > 1 {
-		name = fmt.Sprintf("%d sessions", n)
-	}
+	y := int(s.ghostY(now)) - s.scroll
+	var h int
 	m := op.Record(gtx.Ops)
-	lg := gtx
-	lg.Constraints = layout.Constraints{Max: image.Pt(size.X-gtx.Dp(40), gtx.Dp(24))}
-	d := label(lg, th, semibold(th.UIFont), 12, th.Fg, name)
+	gg := gtx
+	gg.Constraints = layout.Exact(image.Pt(size.X, gtx.Dp(40)))
+	if s.drag.kind == 'g' {
+		for _, p := range v.st.Projects {
+			if p.ID == s.drag.id {
+				h = s.projectHeaderGhost(gg, v, p)
+			}
+		}
+	} else {
+		for _, ws := range v.st.Workspaces {
+			if ws.ID == s.drag.id {
+				gg.Constraints = layout.Exact(image.Pt(size.X, rowHeight(gtx)))
+				d, _ := s.workspaceRow(gg, v, ws, true)
+				h = d.Size.Y
+			}
+		}
+	}
+	row := m.Stop()
+	if h > 0 {
+		rect := image.Rect(0, 0, size.X, h)
+		r := gtx.Dp(8)
+		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+		center := f32.Pt(float32(size.X)/2, float32(h)/2)
+		sc := op.Affine(f32.Affine2D{}.Scale(center, f32.Pt(1+0.025*lift, 1+0.025*lift))).Push(gtx.Ops)
+		for i, a := range []uint8{40, 26, 14} {
+			g := gtx.Dp(unit.Dp(2 * (i + 1)))
+			sh := rect.Inset(-g).Add(image.Pt(0, g/2+gtx.Dp(2)))
+			paint.FillShape(gtx.Ops, color.NRGBA{A: uint8(float32(a) * lift)}, clip.UniformRRect(sh, r+g).Op(gtx.Ops))
+		}
+		paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.12), clip.UniformRRect(rect, r).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
+		row.Add(gtx.Ops)
+		if n := s.badgeCount(v); n > 1 {
+			s.badge(gtx, th, n, size.X)
+		}
+		sc.Pop()
+		o.Pop()
+	}
+
+	if s.drag.released {
+		return true
+	}
+	edge := gtx.Dp(36)
+	py := int(s.drag.pos.Y)
+	switch {
+	case py < edge:
+		s.list.Position.Offset -= max(1, gtx.Dp(12)*(edge-py)/edge)
+		return true
+	case py > size.Y-edge:
+		s.list.Position.Offset += max(1, gtx.Dp(12)*(py-size.Y+edge)/edge)
+		return true
+	}
+	return now.Sub(s.drag.since) < liftDur
+}
+
+// badgeCount is the number on the lifted row: the tabs carried, or a
+// group's tabs.
+func (s *Sidebar) badgeCount(v *view) int {
+	if s.drag.kind == 'g' {
+		return len(v.byProject[s.drag.id])
+	}
+	return len(s.drag.ids)
+}
+
+// badge is a primary count pill at the lifted row's top right corner.
+func (s *Sidebar) badge(gtx layout.Context, th *theme.Theme, n, w int) {
+	m := op.Record(gtx.Ops)
+	d := label(gtx, th, semibold(th.UIFont), 11, th.OnPrimary, fmt.Sprint(n))
 	call := m.Stop()
-	pad := gtx.Dp(8)
-	box := image.Rect(0, 0, d.Size.X+2*pad, d.Size.Y+gtx.Dp(8))
-	at := image.Pt(int(s.drag.pos.X)+gtx.Dp(12), y-box.Dy()/2)
-	at.X = min(at.X, size.X-box.Dx()-gtx.Dp(4))
-	o := op.Offset(at).Push(gtx.Ops)
-	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceElevated, th.Primary, 0.5), clip.UniformRRect(box, box.Dy()/2).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(box.Inset(1), box.Dy()/2-1).Op(gtx.Ops))
-	co := op.Offset(image.Pt(pad, gtx.Dp(4))).Push(gtx.Ops)
+	h := gtx.Dp(18)
+	bw := max(h, d.Size.X+gtx.Dp(10))
+	o := op.Offset(image.Pt(w-bw-gtx.Dp(2), -h/3)).Push(gtx.Ops)
+	paint.FillShape(gtx.Ops, th.Primary, clip.UniformRRect(image.Rect(0, 0, bw, h), h/2).Op(gtx.Ops))
+	co := op.Offset(image.Pt((bw-d.Size.X)/2, (h-d.Size.Y)/2)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	co.Pop()
 	o.Pop()
-
-	edge := gtx.Dp(32)
-	switch {
-	case y < edge:
-		s.list.Position.Offset -= gtx.Dp(6)
-	case y > size.Y-edge:
-		s.list.Position.Offset += gtx.Dp(6)
-	}
-	return true
 }
 
-func (s *Sidebar) line(gtx layout.Context, th *theme.Theme, y, w int) {
-	t := gtx.Dp(2)
-	paint.FillShape(gtx.Ops, th.Primary, clip.UniformRRect(image.Rect(gtx.Dp(4), y-t/2, w-gtx.Dp(4), y-t/2+t), t/2).Op(gtx.Ops))
+// drawnOff is e's offset as drawn this frame.
+func (s *Sidebar) drawnOff(e elem) float32 {
+	if sl := s.slides[e.key()]; sl != nil {
+		return sl.value(s.now)
+	}
+	return 0
 }

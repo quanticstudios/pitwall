@@ -15,10 +15,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
-// FakeBackend is an in-memory Backend with a few sessions, two groups and
+// FakeBackend is an in-memory Backend with a few tabs, two groups and
 // panes showing static text. Tick moves agent states so the UI has
-// something to redraw. Like the daemon, it drops exited panes, empty tabs
-// and empty sessions.
+// something to redraw. Like the daemon, every workspace is one tab (one
+// model.Tab of panes), and it drops exited panes and the tabs they empty.
 type FakeBackend struct {
 	mu      sync.Mutex
 	st      model.State
@@ -39,9 +39,12 @@ var fakeHome = func() string {
 	return "/home/me"
 }()
 
-// NewFakeBackend returns three ungrouped sessions (a terminal running
-// `go test` with two more tabs, an idle shell, a working Claude), two
-// groups, and two detached sessions.
+// fakeNames are the handles the fake gives new tabs, like the daemon's.
+var fakeNames = []string{"quick-lynx", "keen-wren", "soft-moth", "wise-crab", "pale-newt", "deep-carp"}
+
+// NewFakeBackend returns five ungrouped tabs (a terminal running `go test`
+// split three ways, a Claude, a named log tail, an idle shell, a working
+// Claude), two groups, and two detached tabs.
 func NewFakeBackend() *FakeBackend {
 	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, changed: make(chan struct{}, 1),
 		focus: make(chan proto.FocusSession, 8)}
@@ -50,16 +53,13 @@ func NewFakeBackend() *FakeBackend {
 		{ID: "g1", Name: "agents", Kind: model.ProjectGroup, Color: "violet", Icon: "bot"},
 		{ID: "g2", Name: "aide", Root: fakeHome + "/src/web-app", Kind: model.ProjectGit, Color: "green"},
 	}
-	ws := func(id, group, name, branch, path string, ago time.Duration, tabs ...model.Tab) model.Workspace {
-		w := model.Workspace{ID: id, ProjectID: group, Name: name, Branch: branch, Path: path, RepoRoot: path,
-			UpdatedAt: now.Add(-ago), Tabs: tabs}
-		if len(tabs) > 0 {
-			w.ActiveTab = tabs[0].ID
+	ws := func(id, group, name, label, branch, path string, ago time.Duration, tab, title string, root *layout.Node) model.Workspace {
+		w := model.Workspace{ID: id, ProjectID: group, Name: name, Label: label, Branch: branch, Path: path, RepoRoot: path,
+			UpdatedAt: now.Add(-ago)}
+		if tab != "" {
+			w.Tabs, w.ActiveTab = []model.Tab{{ID: tab, Title: title, Layout: root}}, tab
 		}
 		return w
-	}
-	tab := func(id, title string, root *layout.Node) model.Tab {
-		return model.Tab{ID: id, Title: title, Layout: root}
 	}
 	split := func(d layout.Dir, kids ...*layout.Node) *layout.Node {
 		r := make([]float64, len(kids))
@@ -69,27 +69,30 @@ func NewFakeBackend() *FakeBackend {
 		return &layout.Node{Dir: d, Ratios: r, Children: kids}
 	}
 	leaf := func(id string) *layout.Node { return &layout.Node{Pane: id} }
-	pitwall := ws("w1", "", "pitwall", "main", fakeHome+"/Work/pitwall", 20*time.Second,
-		tab("t1", "go test", split(layout.Horizontal, leaf("a"), split(layout.Vertical, leaf("b"), leaf("c")))),
-		tab("t2", "claude", leaf("i")),
-		model.Tab{ID: "t3", Name: "logs", Title: "tail", Layout: leaf("j")})
-	otter := ws("w7", "", "swift-otter-tangerine-harbor", "main", fakeHome+"/Work/pitwall", time.Hour, tab("t7", "claude", leaf("k")))
+	pw := fakeHome + "/Work/pitwall"
+	logs := ws("w1c", "", "logs", "tail -f daemon.log", "main", pw, 4*time.Minute, "t3", "tail", leaf("j"))
+	logs.NameSet = true
+	scratch := ws("w3", "", "scratch", "Sketch the switcher", "", "/tmp/scratch", 2*time.Minute, "t6", "claude", split(layout.Horizontal, leaf("e"), leaf("f")))
+	scratch.NameSet = true
+	otter := ws("w7", "", "swift-otter", "Resume the store", "main", pw, time.Hour, "t7", "claude", leaf("k"))
 	otter.Detached = true
-	heron := ws("w8", "", "calm-heron", "", "/tmp", 5*time.Hour, tab("t8", "zsh", leaf("l")))
+	heron := ws("w8", "", "calm-heron", "tmp", "", "/tmp", 5*time.Hour, "t8", "zsh", leaf("l"))
 	heron.Detached = true
-	worktree := ws("w4", "g1", "fix flicker", "fix-flicker", fakeHome+"/src/web-app/.worktrees/fix-flicker", 5*time.Minute, tab("t4", "claude", leaf("g")))
+	worktree := ws("w4", "g1", "brave-ant", "Fix the resize flicker", "fix-flicker", fakeHome+"/src/web-app/.worktrees/fix-flicker", 5*time.Minute, "t4", "claude", leaf("g"))
 	worktree.WorktreeRoot = fakeHome + "/src/web-app"
 	f.st.Workspaces = []model.Workspace{
-		pitwall,
-		ws("w2", "", "me", "", fakeHome, 3*time.Hour, tab("t5", "zsh", leaf("d"))),
-		ws("w3", "", "scratch", "", "/tmp/scratch", 2*time.Minute, tab("t6", "claude", split(layout.Horizontal, leaf("e"), leaf("f")))),
+		ws("w1", "", "fast-bee", "go test", "main", pw, 20*time.Second, "t1", "go test", split(layout.Horizontal, leaf("a"), split(layout.Vertical, leaf("b"), leaf("c")))),
+		ws("w1b", "", "bold-fox", "Port the sidebar drag", "main", pw, 40*time.Second, "t2", "claude", leaf("i")),
+		logs,
+		ws("w2", "", "warm-elk", "~", "", fakeHome, 3*time.Hour, "t5", "zsh", leaf("d")),
+		scratch,
 		worktree,
-		ws("w5", "g1", "empty", "", fakeHome+"/notes", 26*time.Hour),
-		ws("w6", "g2", "release", "release/1.4", fakeHome+"/src/web-app", 9*time.Minute, tab("t9", "codex", leaf("h"))),
+		ws("w5", "g1", "tidy-yak", "notes", "", fakeHome+"/notes", 26*time.Hour, "", "", nil),
+		ws("w6", "g2", "lazy-cod", "Cut release 1.4", "release/1.4", fakeHome+"/src/web-app", 9*time.Minute, "t9", "codex", leaf("h")),
 		otter, heron,
 	}
 	f.st.Stats = map[string]model.BranchStats{
-		"w1": {Additions: 412, Deletions: 38},
+		"w1": {Additions: 412, Deletions: 38}, "w1b": {Additions: 412, Deletions: 38}, "w1c": {Additions: 412, Deletions: 38},
 		"w4": {Additions: 18, Deletions: 44, MergeStatus: model.MergeConflicts},
 		"w6": {Additions: 6, Deletions: 6},
 	}
@@ -242,6 +245,21 @@ func (f *FakeBackend) prune(id string) {
 	f.setActivities()
 }
 
+// newWorkspace makes a one-tab workspace with a shell in cwd and adds its
+// pane. Called with mu held.
+func (f *FakeBackend) newWorkspace(group, cwd string) model.Workspace {
+	f.nextID++
+	id := fmt.Sprintf("ns%d", f.nextID)
+	label := filepath.Base(cwd)
+	if cwd == fakeHome {
+		label = "~"
+	}
+	f.st.Panes = append(f.st.Panes, model.Pane{ID: id + "p", WorkspaceID: id, Cwd: cwd})
+	return model.Workspace{ID: id, ProjectID: group, Name: fakeNames[(f.nextID-1)%len(fakeNames)], Label: label,
+		Path: cwd, RepoRoot: cwd, UpdatedAt: time.Now(), ActiveTab: id + "t",
+		Tabs: []model.Tab{{ID: id + "t", Title: "zsh", Layout: &layout.Node{Pane: id + "p"}}}}
+}
+
 // fakeScrollback is how many lines of history every fake pane has.
 const fakeScrollback = 200
 
@@ -340,32 +358,58 @@ func (f *FakeBackend) Send(msg any) error {
 			}
 		}
 	case proto.NewTab:
-		w := ws(m.WorkspaceID)
-		if w == nil {
+		// A new workspace right after WorkspaceID in its group, with a
+		// shell where FromPane's shell is.
+		i := slices.IndexFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })
+		if i < 0 {
 			return fmt.Errorf("no workspace %q", m.WorkspaceID)
 		}
-		f.nextID++
-		id := fmt.Sprintf("nt%d", f.nextID)
-		w.Tabs = append(w.Tabs, model.Tab{ID: id, Title: "zsh", Layout: layout.Leaf(id + "p")})
-		w.ActiveTab = id
-		f.st.Panes = append(f.st.Panes, model.Pane{ID: id + "p", WorkspaceID: w.ID, Cwd: w.Path})
-	case proto.CloseTab:
-		if w := ws(m.WorkspaceID); w != nil {
-			for i := range w.Tabs {
-				if w.Tabs[i].ID == m.TabID {
-					w.Tabs[i].Layout = nil
-				}
+		src := f.st.Workspaces[i]
+		cwd := src.Path
+		for _, p := range f.st.Panes {
+			if p.ID == m.FromPane && p.Cwd != "" {
+				cwd = p.Cwd
 			}
-			f.prune(w.ID)
 		}
+		w := f.newWorkspace(src.ProjectID, cwd)
+		w.Branch = src.Branch
+		f.st.Workspaces = slices.Insert(f.st.Workspaces, i+1, w)
+	case proto.CloseTab:
+		f.st.Workspaces = slices.DeleteFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })
+		f.st.Panes = slices.DeleteFunc(f.st.Panes, func(p model.Pane) bool { return p.WorkspaceID == m.WorkspaceID })
+		f.setActivities()
 	case proto.RenameTab:
 		if w := ws(m.WorkspaceID); w != nil {
-			for i := range w.Tabs {
-				if w.Tabs[i].ID == m.TabID {
-					w.Tabs[i].Name = m.Name
-				}
+			if m.Name != "" {
+				w.Name = m.Name
 			}
+			w.NameSet = m.Name != ""
 		}
+	case proto.MoveSession:
+		i := slices.IndexFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })
+		if i < 0 || m.Before == m.WorkspaceID {
+			return nil
+		}
+		w := f.st.Workspaces[i]
+		w.ProjectID = m.GroupID
+		f.st.Workspaces = slices.Delete(f.st.Workspaces, i, i+1)
+		j := slices.IndexFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.Before })
+		if j < 0 {
+			j = len(f.st.Workspaces)
+		}
+		f.st.Workspaces = slices.Insert(f.st.Workspaces, j, w)
+	case proto.MoveGroup:
+		i := slices.IndexFunc(f.st.Projects, func(p model.Project) bool { return p.ID == m.GroupID })
+		if i < 0 || m.Before == m.GroupID {
+			return nil
+		}
+		p := f.st.Projects[i]
+		f.st.Projects = slices.Delete(f.st.Projects, i, i+1)
+		j := slices.IndexFunc(f.st.Projects, func(p model.Project) bool { return p.ID == m.Before })
+		if j < 0 {
+			j = len(f.st.Projects)
+		}
+		f.st.Projects = slices.Insert(f.st.Projects, j, p)
 	case proto.SelectTab:
 		if w := ws(m.WorkspaceID); w != nil {
 			w.ActiveTab = m.TabID
@@ -401,16 +445,20 @@ func (f *FakeBackend) Send(msg any) error {
 			}
 		}
 	case proto.NewSession:
-		f.nextID++
-		id := fmt.Sprintf("ns%d", f.nextID)
 		cwd := m.Cwd
 		if cwd == "" {
 			cwd = fakeHome
 		}
-		f.st.Workspaces = append(f.st.Workspaces, model.Workspace{ID: id, ProjectID: m.GroupID, Name: filepath.Base(cwd),
-			Path: cwd, RepoRoot: cwd, UpdatedAt: time.Now(), ActiveTab: id + "t",
-			Tabs: []model.Tab{{ID: id + "t", Title: "zsh", Layout: &layout.Node{Pane: id + "p"}}}})
-		f.st.Panes = append(f.st.Panes, model.Pane{ID: id + "p", WorkspaceID: id, Cwd: cwd})
+		for _, p := range f.st.Panes {
+			if p.ID == m.FromPane && p.Cwd != "" {
+				cwd = p.Cwd
+			}
+		}
+		w := f.newWorkspace(m.GroupID, cwd)
+		if m.Name != "" {
+			w.Name, w.NameSet = m.Name, true
+		}
+		f.st.Workspaces = append(f.st.Workspaces, w)
 	case proto.SetSessionGroup:
 		if w := ws(m.WorkspaceID); w != nil {
 			w.ProjectID = m.GroupID
@@ -444,10 +492,10 @@ func (f *FakeBackend) Send(msg any) error {
 		if name == "" {
 			name = "workspace " + id
 		}
-		f.st.Workspaces = append(f.st.Workspaces, model.Workspace{ID: id, ProjectID: m.ProjectID, Name: name, Branch: name, UpdatedAt: time.Now()})
+		f.st.Workspaces = append(f.st.Workspaces, model.Workspace{ID: id, ProjectID: m.ProjectID, Name: name, Label: name, Branch: name, UpdatedAt: time.Now()})
 	case proto.RenameWorkspace:
 		if w := ws(m.WorkspaceID); w != nil {
-			w.Name = m.Name
+			w.Name, w.NameSet = m.Name, true
 		}
 	case proto.DeleteWorkspace:
 		f.st.Workspaces = slices.DeleteFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })

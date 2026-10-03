@@ -27,10 +27,10 @@ func TestNav(t *testing.T) {
 	}
 	check("start", "w1", "a")
 
-	// Switcher hidden: Alt+J/K stay inside the ungrouped sessions (w1, w2,
-	// w3) and wrap.
+	// Switcher hidden: Alt+J/K stay inside the ungrouped tabs (w1, w1b,
+	// w1c, w2, w3) and wrap.
 	alt := key.ModAlt
-	for _, want := range []string{"w2", "w3", "w1"} {
+	for _, want := range []string{"w1b", "w1c", "w2", "w3", "w1"} {
 		n.key(&st, press("J", alt))
 		if n.workspace != want {
 			t.Fatalf("local J: %s, want %s", n.workspace, want)
@@ -43,7 +43,7 @@ func TestNav(t *testing.T) {
 	n.key(&st, press(key.NameDownArrow, alt))
 	check("down mirrors J", "w3", "e")
 
-	// Alt held: the switcher shows and J/K walk every session, ungrouped
+	// Alt held: the switcher shows and J/K walk every tab, ungrouped
 	// first, then group g1 (w4, w5) and g2 (w6).
 	n.key(&st, key.Event{Name: key.NameAlt, State: key.Press})
 	if !n.switcherVisible() {
@@ -78,14 +78,14 @@ func TestNav(t *testing.T) {
 	n.key(&st, press(key.NameLeftArrow, alt))
 	check("left mirrors H", "w1", "c")
 
-	// Each session remembers its focused pane.
+	// Each tab remembers its focused pane.
 	n.key(&st, press("J", alt))
 	n.key(&st, press("K", alt))
 	check("remembered pane", "w1", "c")
 
-	// Alt+digit jumps by switcher order; the empty session has no focus.
-	n.key(&st, press("5", alt))
-	check("Alt+5", "w5", "")
+	// Alt+digit jumps by switcher order; the empty tab has no focus.
+	n.key(&st, press("7", alt))
+	check("Alt+7", "w5", "")
 	if msg := n.key(&st, press("N", alt)); !reflect.DeepEqual(msg, proto.OpenPane{WorkspaceID: "w5"}) {
 		t.Fatalf("Alt+N on empty: %#v", msg)
 	}
@@ -133,7 +133,7 @@ func TestNavSync(t *testing.T) {
 	st = b.State()
 	n.sync(&st)
 	if n.workspace != "w4" {
-		t.Fatalf("after detach: %s, want the next session in sidebar order", n.workspace)
+		t.Fatalf("after detach: %s, want the next tab in sidebar order", n.workspace)
 	}
 }
 
@@ -173,14 +173,14 @@ func TestDragRatios(t *testing.T) {
 }
 
 // TestNavGroups covers cycling inside a group, a group dissolving under the
-// selection, and a new session taking the selection and pane focus.
+// selection, and a new tab opening below the open one with focus.
 func TestNavGroups(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
 	n := nav{keys: aide}
 	n.sync(&st)
 	alt := key.ModAlt
-	n.key(&st, press("4", alt))
+	n.key(&st, press("6", alt))
 	for _, want := range []string{"w5", "w4"} {
 		n.key(&st, press("J", alt))
 		if n.workspace != want {
@@ -188,7 +188,7 @@ func TestNavGroups(t *testing.T) {
 		}
 	}
 
-	// Ungrouping g1 puts w4 and w5 after the other ungrouped sessions.
+	// Ungrouping g1 puts w4 and w5 after the other ungrouped tabs.
 	b.Send(proto.DeleteGroup{GroupID: "g1"})
 	st = b.State()
 	n.sync(&st)
@@ -196,7 +196,7 @@ func TestNavGroups(t *testing.T) {
 	for _, w := range ordered(&st) {
 		got = append(got, w.ID)
 	}
-	if want := []string{"w1", "w2", "w3", "w4", "w5", "w6"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"w1", "w1b", "w1c", "w2", "w3", "w4", "w5", "w6"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("order %v, want %v", got, want)
 	}
 	n.key(&st, press("J", alt))
@@ -208,16 +208,18 @@ func TestNavGroups(t *testing.T) {
 		t.Fatalf("ungrouped J wraps to w1: %s", n.workspace)
 	}
 
-	// Alt+Shift+T opens a session in the open one's folder and selects it.
+	// Alt+Shift+T opens a tab right below the open one, where its focused
+	// pane's shell is, and selects it.
 	msg := n.key(&st, press("T", alt|key.ModShift))
-	if msg != (proto.NewSession{Cwd: fakeHome + "/Work/pitwall", FromPane: "a"}) {
+	if msg != (proto.NewTab{WorkspaceID: "w1", FromPane: "a"}) {
 		t.Fatalf("Alt+Shift+T: %#v", msg)
 	}
 	b.Send(msg)
 	st = b.State()
 	n.sync(&st)
-	if w := findWorkspace(&st, n.workspace); w == nil || w.Name != "pitwall" || n.focused() == "" || w.ProjectID != "" {
-		t.Fatalf("new session not selected and focused: %s/%s", n.workspace, n.focused())
+	w := findWorkspace(&st, n.workspace)
+	if w == nil || ordered(&st)[1].ID != w.ID || w.Path != fakeHome+"/Work/pitwall" || n.focused() == "" || w.ProjectID != "" {
+		t.Fatalf("new tab not below w1, selected and focused: %s/%s", n.workspace, n.focused())
 	}
 }
 

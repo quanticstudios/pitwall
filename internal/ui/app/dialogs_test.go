@@ -68,7 +68,7 @@ func TestSidebarEvents(t *testing.T) {
 	u.sidebarEvent(&st, sidebar.DetachSession{WorkspaceID: "w2"}) // twice still detaches
 	u.sidebarEvent(&st, sidebar.AttachSession{WorkspaceID: "w2"})
 	if u.nav.workspace != "w2" {
-		t.Fatalf("attach did not select the session: %s", u.nav.workspace)
+		t.Fatalf("attach did not select the tab: %s", u.nav.workspace)
 	}
 	u.sidebarEvent(&st, sidebar.KillSession{WorkspaceID: "w8"})
 	u.sidebarEvent(&st, sidebar.GroupByFolder{WorkspaceID: "w1"})
@@ -78,9 +78,12 @@ func TestSidebarEvents(t *testing.T) {
 	u.sidebarEvent(&st, sidebar.NewGroup{WorkspaceIDs: []string{"w2", "w3"}})
 	u.sidebarEvent(&st, sidebar.RenameGroup{GroupID: "g1", Name: "bots"})
 	u.sidebarEvent(&st, sidebar.Ungroup{GroupID: "g1"})
-	u.sidebarEvent(&st, sidebar.NewSession{})
-	u.sidebarEvent(&st, sidebar.NewSession{GroupID: "g2"})
-	u.sidebarEvent(&st, sidebar.NewSession{GroupID: "g1"})
+	u.sidebarEvent(&st, sidebar.NewTab{})
+	u.sidebarEvent(&st, sidebar.NewTab{GroupID: "g2"})
+	u.sidebarEvent(&st, sidebar.NewTab{After: "w3"})
+	u.sidebarEvent(&st, sidebar.NewTab{GroupID: "g9"})
+	u.sidebarEvent(&st, sidebar.CloseTab{WorkspaceID: "w1b"})
+	u.sidebarEvent(&st, sidebar.RenameTab{WorkspaceID: "w1c", Name: ""})
 	u.sidebarEvent(&st, sidebar.NewWorktreeSession{GroupID: "g2"})
 	u.sidebarEvent(&st, sidebar.DeleteWorkspace{WorkspaceID: "w3"})
 	if u.modal.kind != modalDelete || u.modal.ws != "w3" {
@@ -101,9 +104,12 @@ func TestSidebarEvents(t *testing.T) {
 		proto.NewGroup{Name: "New group", WorkspaceIDs: []string{"w2", "w3"}},
 		proto.RenameGroup{GroupID: "g1", Name: "bots"},
 		proto.DeleteGroup{GroupID: "g1"},
-		proto.NewSession{Cwd: fakeHome, FromPane: "d"},                // the attached session, where its shell is now
-		proto.NewSession{Cwd: fakeHome + "/src/web-app", GroupID: "g2"}, // the group's root
-		proto.NewSession{GroupID: "g1"},                               // no root, open session elsewhere
+		proto.NewTab{WorkspaceID: "w2", FromPane: "d"}, // below the open tab, where its shell is
+		proto.NewTab{WorkspaceID: "w6"},                // last in the group, the open tab is elsewhere
+		proto.NewTab{WorkspaceID: "w3"},                // a row's "+"
+		proto.NewSession{GroupID: "g9"},                // a group with no tabs
+		proto.CloseTab{WorkspaceID: "w1b"},
+		proto.RenameTab{WorkspaceID: "w1c"},
 		proto.NewWorkspace{ProjectID: "g2"},
 		proto.DeleteWorkspace{WorkspaceID: "w3", RemoveBranch: true},
 	}

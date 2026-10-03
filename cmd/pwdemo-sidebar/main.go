@@ -70,8 +70,8 @@ func apply(st *model.State, active *string, ev sidebar.Event) {
 	switch ev := ev.(type) {
 	case sidebar.SelectWorkspace:
 		*active = ev.WorkspaceID
-	case sidebar.RenameWorkspace:
-		ws(ev.WorkspaceID).Name = ev.Name
+	case sidebar.RenameTab:
+		ws(ev.WorkspaceID).Name, ws(ev.WorkspaceID).NameSet = ev.Name, ev.Name != ""
 	case sidebar.DetachSession:
 		ws(ev.WorkspaceID).Detached = true
 	case sidebar.AttachSession:
