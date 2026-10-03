@@ -136,6 +136,30 @@ func TestSessionID(t *testing.T) {
 	}
 }
 
+func TestPrompt(t *testing.T) {
+	for name, want := range map[string]string{
+		"claude_user_prompt_submit": "fix the failing auth test",
+		"codex_user_prompt_submit":  "rename foo to bar",
+		"claude_stop":               "",
+		"codex_notify":              "",
+	} {
+		p := model.ProviderClaude
+		if name[:5] == "codex" {
+			p = model.ProviderCodex
+		}
+		if got := Prompt(p, fixture(t, name)); got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
+	}
+	side := `{"session_id":"s","transcript_path":null,"hook_event_name":"UserPromptSubmit","prompt":"aside"}`
+	if got := Prompt(model.ProviderCodex, []byte(side)); got != "" {
+		t.Errorf("side fork: %q", got)
+	}
+	if got := Prompt(model.ProviderClaude, []byte("nope")); got != "" {
+		t.Errorf("garbage: %q", got)
+	}
+}
+
 func TestClaudeHooks(t *testing.T) {
 	var got map[string][]struct {
 		Matcher string `json:"matcher"`

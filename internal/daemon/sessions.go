@@ -78,7 +78,7 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 	if m.GroupID == "" {
 		m.GroupID = d.projectAt(path)
 	}
-	w := model.Workspace{ID: newID(), ProjectID: m.GroupID, Name: name, Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
+	w := model.Workspace{ID: newID(), ProjectID: m.GroupID, Name: name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	if err := d.addTab(&w, path); err != nil {
 		return err
 	}

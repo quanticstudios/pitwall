@@ -32,11 +32,15 @@ type Project struct {
 type Tab struct {
 	ID string
 	// Name is set by the user or an agent (pitwall tab rename); "" means
-	// the tab shows Title.
+	// the tab follows its work.
 	Name string
-	// Title follows the tab: the cleaned OSC title of its agent pane, else
-	// of its first pane, else the foreground command, else the session
-	// directory's base name. The daemon keeps it current.
+	// Title is what the tab shows; the daemon keeps it current. Highest
+	// first: Name; the cleaned OSC title of an agent pane unless generic; the
+	// first prompt of an agent pane (Pane.Prompt); a non-generic OSC title
+	// of any pane; the foreground command; the session directory's base
+	// name. Generic means empty, "~", "claude", "claude code", "codex", or
+	// (case-insensitively) the base name of the session directory or repo
+	// root, or the user's login name.
 	Title  string
 	Layout *layout.Node
 }
@@ -47,8 +51,19 @@ type Workspace struct {
 	ID        string
 	ProjectID string // "" while the session is ungrouped
 	Name      string
-	Branch    string // git branch of Path, "" outside a repo
-	Path      string // directory the session started in
+	// NameSet is true when the user or the CLI chose Name (NewSession.Name,
+	// RenameWorkspace, NewWorkspace.Name) and false when pitwall generated
+	// it.
+	NameSet bool
+	// Label follows the work: the Title of the session's most relevant tab
+	// (the one holding the agent activity that model.SortActivities ranks
+	// first, else the active tab), or "" when that title is only the
+	// directory's base name. The daemon keeps it current. A GUI shows Label
+	// in place of a generated Name (NameSet false, Label not "") and keeps
+	// Name as the quiet secondary the CLI addresses.
+	Label  string
+	Branch string // git branch of Path, "" outside a repo
+	Path   string // directory the session started in
 	// WorktreeRoot is the repo root when pitwall created Path as a git
 	// worktree for this session. Only then does deleting the session remove
 	// the directory.
@@ -80,6 +95,10 @@ type Pane struct {
 	ExitCode    int
 	Provider    Provider // "" until a hook reports or detection sees an agent
 	SessionID   string   // agent session id from hooks, used to resume
+	// Prompt is the first prompt of the agent session (SessionID), first
+	// line only, whitespace collapsed and cut to 48 runes. A new session
+	// clears it; the next prompt fills it.
+	Prompt string
 }
 
 type MergeStatus string
