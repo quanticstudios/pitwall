@@ -13,39 +13,35 @@ import (
 	"gioui.org/io/transfer"
 	"gioui.org/layout"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 const otherMods = key.ModCtrl | key.ModShift | key.ModSuper | key.ModCommand
 
-// NavKey reports whether e is a window navigation key the pane never
-// consumes: Alt (with any other modifiers) plus H, J, K, L or an arrow. The
-// pane's key filters exclude these, so a window-level key.Filter for them
-// receives the events whether it runs before or after View.Layout.
-func NavKey(e key.Event) bool {
-	if e.Modifiers&key.ModAlt == 0 {
-		return false
+func (v *View) keys() *config.Bindings {
+	if v.Keys == nil {
+		return config.Preset(config.DefaultPreset)
 	}
-	switch e.Name {
-	case "H", "J", "K", "L", key.NameLeftArrow, key.NameRightArrow, key.NameUpArrow, key.NameDownArrow:
-		return true
-	}
-	return false
+	return v.Keys
 }
 
-// keyFilters matches every key except NavKey ones. Gio filters can't
-// subtract, so Alt combinations are listed one name at a time.
-func keyFilters(tag event.Tag) []event.Filter {
+// keyFilters matches every key except Alt chords the window binds with Alt
+// alone, so a window filter gets those whether it runs before or after
+// View.Layout. Gio filters can't subtract, so Alt combinations are listed
+// one name at a time.
+func keyFilters(v *View) []event.Filter {
+	b := v.keys()
 	fs := []event.Filter{
-		key.Filter{Focus: tag, Optional: otherMods},
+		key.Filter{Focus: v, Optional: otherMods},
 		// Tab is a focus-move system key in Gio and only reaches a filter
 		// that names it.
-		key.Filter{Focus: tag, Name: key.NameTab, Optional: otherMods},
+		key.Filter{Focus: v, Name: key.NameTab, Optional: otherMods},
 	}
 	alt := func(n key.Name) {
-		if !NavKey(key.Event{Name: n, Modifiers: key.ModAlt}) {
-			fs = append(fs, key.Filter{Focus: tag, Name: n, Required: key.ModAlt, Optional: otherMods})
+		if a := b.Action(key.Event{Name: n, Modifiers: key.ModAlt}); a == "" || config.PaneAction(a) {
+			fs = append(fs, key.Filter{Focus: v, Name: n, Required: key.ModAlt, Optional: otherMods})
 		}
 	}
 	for c := byte('!'); c <= '~'; c++ {
@@ -58,7 +54,7 @@ func keyFilters(tag event.Tag) []event.Filter {
 		key.NameDeleteBackward, key.NameDeleteForward, key.NamePageUp, key.NamePageDown,
 		key.NameTab, key.NameSpace, key.NameF1, key.NameF2, key.NameF3, key.NameF4,
 		key.NameF5, key.NameF6, key.NameF7, key.NameF8, key.NameF9, key.NameF10,
-		key.NameF11, key.NameF12,
+		key.NameF11, key.NameF12, key.NameLeftArrow, key.NameRightArrow, key.NameUpArrow, key.NameDownArrow,
 	} {
 		alt(n)
 	}
@@ -75,7 +71,8 @@ func textKey(e key.Event) bool {
 }
 
 func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, rows int) []byte {
-	if v.filters == nil {
+	if v.filters == nil || v.filtersFor != v.keys() {
+		v.filtersFor = v.keys()
 		v.filters = append(keyFilters(v),
 			key.FocusFilter{Target: v},
 			transfer.TargetFilter{Target: v, Type: "application/text"},
@@ -99,23 +96,27 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 		}
 		switch e := ev.(type) {
 		case key.Event:
-			if e.Modifiers == key.ModCtrl|key.ModShift && (e.Name == "C" || e.Name == "V") {
-				if e.State == key.Press && e.Name == "C" && v.sel.on {
+			// Both press and release of a bound key stay out of the program.
+			switch a := v.keys().Action(e); {
+			case a == "copy":
+				if e.State == key.Press && v.sel.on {
 					gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(selectionText(g, v.sel)))})
 				}
-				if e.State == key.Press && e.Name == "V" {
+				continue
+			case a == "paste":
+				if e.State == key.Press {
 					gtx.Execute(clipboard.ReadCmd{Tag: v})
 				}
 				continue
-			}
-			// Shift+PageUp/PageDown page through the scrollback.
-			if e.Modifiers == key.ModShift && (e.Name == key.NamePageUp || e.Name == key.NamePageDown) {
-				if e.State == key.Press && e.Name == key.NamePageUp {
+			case a == "scroll_page_up" || a == "scroll_page_down":
+				if e.State == key.Press && a == "scroll_page_up" {
 					v.scrollLines += rows
 				} else if e.State == key.Press {
 					v.scrollLines -= rows
 				}
 				continue
+			case a != "":
+				continue // the window's; it reached the pane before the window polled
 			}
 			if textKey(e) && !kittyAll {
 				continue

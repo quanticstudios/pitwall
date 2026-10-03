@@ -5,7 +5,9 @@ package app
 import (
 	"image"
 	"log"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -58,7 +61,29 @@ const (
 func Run(b Backend) error {
 	w := new(app.Window)
 	w.Option(app.Title("pitwall"), app.Size(1280, 800), app.MinSize(640, 360))
-	u := &ui{b: b, th: newTheme(), panes: map[string]*paneUI{}}
+	u := &ui{b: b, panes: map[string]*paneUI{}}
+	l := loadConfig()
+	u.apply(l)
+	var reported string
+	reportProblems(l.probs, &reported)
+	refreshSchemas()
+	u.nav.sidebarHidden = loadGUIState().SidebarHidden
+	u.sidebarShown = u.nav.sidebarHidden
+	stop := make(chan struct{})
+	defer close(stop)
+	go watchConfig(stop, func() []string {
+		u.cfgMu.Lock()
+		defer u.cfgMu.Unlock()
+		return []string{config.Path(), filepath.Join(config.Dir(), "themes", u.watchTheme+".toml")}
+	}, func() {
+		l := loadConfig()
+		u.cfgMu.Lock()
+		u.next = &l
+		u.cfgMu.Unlock()
+		w.Invalidate()
+	})
+	u.watchTheme = l.s.ThemeName
+	u.report = func(probs []string) { reportProblems(probs, &reported) }
 	u.notifications = newNotifier(b, w.Invalidate, desktopSender())
 	defer u.notifications.close()
 	if f, ok := b.(Focuser); ok {
@@ -111,13 +136,26 @@ type ui struct {
 	hadSession bool // a session has been shown; closing the last one closes the window
 	b          Backend
 	th         *theme.Theme
+	cfg        config.Settings
 	nav        nav
 	sidebar    sidebar.Sidebar
 	panes      map[string]*paneUI
 	open       widget.Clickable // empty-state button
 	modal      modal
-	tabs       tabStrip
 	modeTag    int // holds key focus in tab mode, so typed text skips the pane
+	closeTag   int // a press anywhere closes a pinned switcher
+
+	// A reloaded config waits in next for the UI goroutine; watchTheme is
+	// the theme name whose file the watcher polls.
+	cfgMu      sync.Mutex
+	next       *loaded
+	watchTheme string
+	report     func([]string)
+
+	// The sidebar slides over 200ms; sidebarShown is the visibility the
+	// slide is heading to, slideAt when it started.
+	sidebarShown bool // true when hidden, matching nav.sidebarHidden
+	slideAt      time.Time
 
 	// focusReq is the latest attach request, kept until its session is in
 	// the state.
@@ -173,15 +211,30 @@ func (u *ui) applyFocus(st *model.State) {
 }
 
 func (u *ui) layout(gtx gl.Context) {
+	u.cfgMu.Lock()
+	if l := u.next; l != nil {
+		u.next = nil
+		u.watchTheme = l.s.ThemeName
+		u.cfgMu.Unlock()
+		u.apply(*l)
+		if u.report != nil {
+			u.report(l.probs)
+		}
+	} else {
+		u.cfgMu.Unlock()
+	}
+	if u.th == nil {
+		u.th = newTheme()
+	}
 	st := u.b.State()
 	u.nav.sync(&st)
 	u.applyFocus(&st)
 
 	wasVisible := u.nav.switcherVisible()
-	wasMode, wasRenaming := u.nav.tabMode, u.tabs.renaming
+	wasMode := u.nav.tabMode
 	defer func() {
-		if u.nav.tabMode != wasMode || u.tabs.renaming != wasRenaming {
-			gtx.Execute(op.InvalidateCmd{}) // draw the strip's new state now
+		if u.nav.tabMode != wasMode {
+			gtx.Execute(op.InvalidateCmd{}) // draw the mode pill's new state now
 		}
 	}()
 	for {
@@ -204,9 +257,23 @@ func (u *ui) layout(gtx gl.Context) {
 		if w := findWorkspace(&st, u.nav.workspace); w != nil {
 			for i, x := range w.Tabs {
 				if x.ID == t {
-					u.tabs.startRename(w.ID, t, tabLabel(x, i))
+					u.nav.sidebarHidden = false // the rename field is in the sidebar
+					u.sidebar.StartTabRename(w.ID, t, tabLabel(x, i))
 				}
 			}
+		}
+	}
+	if u.nav.sidebarHidden != u.sidebarShown {
+		u.sidebarShown = u.nav.sidebarHidden
+		u.slideAt = gtx.Now
+		if u.report != nil { // a real window, not a test
+			saveGUIState(guiState{SidebarHidden: u.sidebarShown}) // in order, so the last toggle wins
+		}
+	}
+	if u.sidebar.Dragging() {
+		// Before the panes, which would take Escape as input.
+		if _, ok := gtx.Event(key.Filter{Name: key.NameEscape}); ok {
+			u.sidebar.CancelDrag()
 		}
 	}
 	for {
@@ -222,24 +289,66 @@ func (u *ui) layout(gtx gl.Context) {
 
 	paint.Fill(gtx.Ops, u.th.Bg)
 	sw := gtx.Dp(sidebarWidth)
-	sgtx := gtx
-	sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
-	for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.workspace) {
-		u.sidebarEvent(&st, ev)
+	// The panes take their new width at once, so the PTYs resize once; the
+	// sidebar slides over them (aide's 200ms ease-out).
+	slide := min(1, float32(gtx.Now.Sub(u.slideAt))/float32(200*time.Millisecond))
+	if u.slideAt.IsZero() {
+		slide = 1
 	}
-	u.flush()
-
-	area := image.Rectangle{Min: image.Pt(sw+1, 0), Max: gtx.Constraints.Max}
-	paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: image.Pt(sw, 0), Max: image.Pt(sw+1, area.Max.Y)}.Op())
+	if slide < 1 {
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	ease := 1 - (1-slide)*(1-slide)*(1-slide)
+	shown := ease // how much of the sidebar shows
+	if u.nav.sidebarHidden {
+		shown = 1 - ease
+	}
+	left := 0
+	if !u.nav.sidebarHidden {
+		left = sw + 1
+	}
+	area := image.Rectangle{Min: image.Pt(left, 0), Max: gtx.Constraints.Max}
 	off := op.Offset(area.Min).Push(gtx.Ops)
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
 	u.layoutPanes(pgtx, &st)
 	off.Pop()
+	if u.nav.tabMode {
+		u.drawModePill(gtx, area)
+	}
+
+	if x := int(float32(sw+1)*shown + 0.5); x > 0 {
+		so := op.Offset(image.Pt(x-sw-1, 0)).Push(gtx.Ops)
+		sgtx := gtx
+		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
+		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.workspace) {
+			u.sidebarEvent(&st, ev)
+		}
+		paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: image.Pt(sw, 0), Max: image.Pt(sw+1, area.Max.Y)}.Op())
+		so.Pop()
+		u.flush()
+	}
 
 	u.layoutModal(gtx, &st)
 	if u.nav.switcherVisible() {
 		u.drawSwitcher(gtx, &st)
+		if u.nav.pinned {
+			for {
+				ev, ok := gtx.Event(pointer.Filter{Target: &u.closeTag, Kinds: pointer.Press})
+				if !ok {
+					break
+				}
+				if _, ok := ev.(pointer.Event); ok {
+					u.nav.altHeld, u.nav.pinned = false, false
+				}
+			}
+			// The press still reaches what is under it.
+			cl := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+			pass := pointer.PassOp{}.Push(gtx.Ops)
+			event.Op(gtx.Ops, &u.closeTag)
+			pass.Pop()
+			cl.Pop()
+		}
 	}
 	if u.notifications != nil {
 		u.notifications.setView(nil, u.nav.workspace)
@@ -298,6 +407,30 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.NewWorkspace{ProjectID: e.GroupID})
 	case sidebar.SetProjectAppearance:
 		u.send(proto.SetProjectAppearance{ProjectID: e.ProjectID, Icon: e.Icon, Color: e.Color})
+	case sidebar.SelectTab:
+		if e.WorkspaceID != u.nav.workspace {
+			u.nav.selectWorkspace(st, e.WorkspaceID, "")
+		}
+		if msg := u.nav.selectTab(st, e.TabID); msg != nil {
+			u.send(msg)
+		}
+	case sidebar.NewTab:
+		from := ""
+		if w := findWorkspace(st, e.WorkspaceID); w != nil {
+			if t := shownTab(w); t != nil {
+				from = u.nav.focus[focusKey(w.ID, t.ID)]
+			}
+		}
+		delete(u.nav.pick, e.WorkspaceID) // the daemon makes the new tab active
+		u.send(proto.NewTab{WorkspaceID: e.WorkspaceID, FromPane: from})
+	case sidebar.MoveSession:
+		u.send(proto.MoveSession{WorkspaceID: e.WorkspaceID, GroupID: e.GroupID, Before: e.Before})
+	case sidebar.MoveGroup:
+		u.send(proto.MoveGroup{GroupID: e.GroupID, Before: e.Before})
+	case sidebar.CloseTab:
+		u.send(proto.CloseTab{WorkspaceID: e.WorkspaceID, TabID: e.TabID})
+	case sidebar.RenameTab:
+		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, TabID: e.TabID, Name: e.Name})
 	}
 }
 
@@ -334,20 +467,6 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	if ws == nil {
 		return
 	}
-	if u.showTabs(ws) {
-		u.tabUpdate(gtx, st, ws)
-		ws = findWorkspace(st, u.nav.workspace) // a click may have switched tabs
-	}
-	if ws == nil {
-		return
-	}
-	if u.showTabs(ws) {
-		h := u.layoutTabs(gtx, st, ws)
-		defer op.Offset(image.Pt(0, h)).Push(gtx.Ops).Pop()
-		gtx.Constraints = gl.Exact(image.Pt(gtx.Constraints.Max.X, max(0, gtx.Constraints.Max.Y-h)))
-	} else {
-		u.tabs.renaming = ""
-	}
 	tab := shownTab(ws)
 	var root *layout.Node
 	tabID := ""
@@ -364,16 +483,17 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		return
 	}
 
-	area := layout.Rect{W: gtx.Constraints.Max.X, H: gtx.Constraints.Max.Y}
-	// aide's split: gap-4 between pane frames, on the canvas's surface fill.
-	// The dividers are the gaps.
-	gap := gtx.Dp(16)
+	// Pane frames sit pane_margin in from the edges and pane_gap apart on
+	// the canvas's surface fill; the dividers are the gaps.
+	m, gap := gtx.Dp(unit.Dp(u.cfg.PaneMargin)), gtx.Dp(unit.Dp(u.cfg.PaneGap))
+	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.tabs.renaming != "" || u.nav.tabMode {
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode {
 		focused = "" // the dialog, a rename field or tab mode holds key focus
 	}
-	sole := root.Pane != ""
+	// A lone pane flush with the edges needs no frame.
+	sole := root.Pane != "" && m == 0
 	for id, r := range rectsOf(root, area, gap) {
 		live[id] = true
 		p := u.panes[id]
@@ -381,6 +501,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			p = &paneUI{}
 			u.panes[id] = p
 		}
+		p.view.Keys = u.nav.bind()
 		u.layoutPane(gtx, p, id, r, id == focused, sole)
 	}
 	for id := range u.panes {
@@ -414,7 +535,7 @@ func paneChrome(gtx gl.Context, th *theme.Theme, frame image.Rectangle, focused,
 		return frame
 	}
 	r := gtx.Dp(10)
-	border := theme.Mix(th.TermBg, theme.Hex("#ffffff"), 0.08)
+	border := theme.Mix(th.TermBg, th.TermFg, 0.08)
 	if focused {
 		border = theme.Mix(th.TermBg, th.Primary, 0.75)
 	}
@@ -492,7 +613,7 @@ func (u *ui) emptyState(gtx gl.Context, st *model.State, ws, tab string) {
 	}
 	gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 		return u.open.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.TextSize, u.th.Fg, "Open a terminal   Alt+N")
+			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.TextSize, u.th.Fg, strings.TrimSpace("Open a terminal   "+firstChord(u.nav.bind().Global["split_right"])))
 			pad := image.Pt(gtx.Dp(16), gtx.Dp(10))
 			box := sz.Add(pad.Mul(2))
 			bg := u.th.SurfaceSecondary
@@ -577,7 +698,7 @@ func dragRatios(n *layout.Node, avail, gap, i, pos int) {
 }
 
 func (u *ui) layoutDividers(gtx gl.Context, ws, tab string, root *layout.Node, area layout.Rect, gap int) {
-	slop := gtx.Dp(3)
+	slop := gtx.Dp(4) // the hit area reaches past a narrow gap
 	k := 0
 	walkSplits(root, area, gap, nil, func(n *layout.Node, r layout.Rect, path []int) {
 		if n.Pane != "" {

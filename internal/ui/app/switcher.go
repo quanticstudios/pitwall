@@ -3,6 +3,7 @@ package app
 import (
 	"image"
 	"image/color"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -128,7 +129,16 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	titleY := y
 	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), unit.Sp(14), th.Fg, project)
 	kx := inner
-	for _, k := range []string{"Space", "Alt"} {
+	b := u.nav.bind()
+	keys := b.Global["pin_switcher"]
+	if b.Hold == 0 {
+		keys = b.Global["switcher"]
+	}
+	var caps []string
+	if len(keys) > 0 {
+		caps = strings.Split(keys[0].String(), "+")
+	}
+	for _, k := range slices.Backward(caps) {
 		call, sz := chip(cgtx, th, th.SurfaceElevated, th.Border, th.TermFg, k)
 		kx -= sz.X
 		o := op.Offset(image.Pt(kx, titleY-gtx.Dp(8))).Push(gtx.Ops)
@@ -216,7 +226,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		g := gtx.Dp(unit.Dp(2 * (i + 1)))
 		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(card.Inset(-g).Add(image.Pt(0, g)), r+g).Op(gtx.Ops))
 	}
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x29}, clip.UniformRRect(card, r).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.16), clip.UniformRRect(card, r).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(card.Inset(1), r-1).Op(gtx.Ops))
 	defer clip.UniformRRect(card.Inset(1), r-1).Push(gtx.Ops).Pop()
 	defer op.Offset(image.Pt(pad, pad)).Push(gtx.Ops).Pop()
