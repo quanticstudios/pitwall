@@ -122,9 +122,14 @@ func (p *Page) Hide() {
 	p.shown, p.rec, p.conflict, p.dd = false, slot{}, nil, ""
 }
 
-func (p *Page) take() Result {
+// take returns the frame's result. After a save it asks for another
+// frame, which draws the reloaded config.
+func (p *Page) take(gtx gl.Context) Result {
 	r := p.result
 	p.result = None
+	if r != None {
+		gtx.Execute(op.InvalidateCmd{})
+	}
 	return r
 }
 
@@ -155,15 +160,9 @@ func (p *Page) Keys(gtx gl.Context) Result {
 	if !p.shown {
 		return None
 	}
-	all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 	if p.rec.action != "" {
 		for {
-			ev, ok := gtx.Event(
-				key.FocusFilter{Target: &p.recTag},
-				key.Filter{Focus: &p.recTag, Optional: all},
-				key.Filter{Focus: &p.recTag, Name: key.NameTab, Optional: all},
-				key.Filter{Focus: &p.recTag, Name: key.NameEscape, Optional: all},
-			)
+			ev, ok := gtx.Event(p.recFilters()...)
 			if !ok {
 				break
 			}
@@ -180,7 +179,7 @@ func (p *Page) Keys(gtx gl.Context) Result {
 				}
 			}
 		}
-		return p.take()
+		return p.take(gtx)
 	}
 	for {
 		ev, ok := gtx.Event(key.Filter{Name: key.NameEscape})
@@ -200,7 +199,20 @@ func (p *Page) Keys(gtx gl.Context) Result {
 			}
 		}
 	}
-	return p.take()
+	return p.take(gtx)
+}
+
+// recFilters are every key, for the recorder. Gio routes a key only to
+// filters polled in the frame before it, so they are polled from the
+// frame recording starts in.
+func (p *Page) recFilters() []event.Filter {
+	all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
+	return []event.Filter{
+		key.FocusFilter{Target: &p.recTag},
+		key.Filter{Focus: &p.recTag, Optional: all},
+		key.Filter{Focus: &p.recTag, Name: key.NameTab, Optional: all},
+		key.Filter{Focus: &p.recTag, Name: key.NameEscape, Optional: all},
+	}
 }
 
 // recorded handles one key pressed while recording.
@@ -303,6 +315,12 @@ func (p *Page) Layout(gtx gl.Context, th *theme.Theme, s config.Settings, probs 
 		gtx.Execute(key.FocusCmd{Tag: &p.search})
 	}
 	if p.recFocus {
+		// A click starts recording after Keys polled this frame.
+		for {
+			if _, ok := gtx.Event(p.recFilters()...); !ok {
+				break
+			}
+		}
 		p.recFocus = false
 		gtx.Execute(key.FocusCmd{Tag: &p.recTag})
 	}
@@ -313,7 +331,7 @@ func (p *Page) Layout(gtx gl.Context, th *theme.Theme, s config.Settings, probs 
 			p.copied = ""
 		}
 	}
-	return p.take()
+	return p.take(gtx)
 }
 
 // nav is the left column: title, search field, categories.
@@ -990,7 +1008,8 @@ func (p *Page) terminal() []section {
 	}}}
 }
 
-// palette shows the terminal's background, foreground and 16 ANSI colors.
+// palette shows the terminal's background and the normal ANSI colors over
+// its foreground and the bright ones.
 func (p *Page) palette(gtx gl.Context) gl.Dimensions {
 	th := p.th
 	s := gtx.Dp(14)
@@ -999,10 +1018,8 @@ func (p *Page) palette(gtx gl.Context) gl.Dimensions {
 		x, y := i%9, i/9
 		return image.Rect(x*(s+g), y*(s+g), x*(s+g)+s, y*(s+g)+s)
 	}
-	cols := []color.NRGBA{th.TermBg, th.TermFg}
-	cols = append(cols, th.ANSI[:8]...)
-	cols = append(cols, th.TermCur)
-	cols = append(cols, th.ANSI[8:]...)
+	cols := append([]color.NRGBA{th.TermBg}, th.ANSI[:8]...)
+	cols = append(append(cols, th.TermFg), th.ANSI[8:]...)
 	for i, c := range cols {
 		r := cell(i)
 		rrect(gtx, th.Border, r, gtx.Dp(3))

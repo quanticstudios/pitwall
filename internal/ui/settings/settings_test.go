@@ -131,11 +131,16 @@ func TestPageRecord(t *testing.T) {
 	var r input.Router
 	var ops op.Ops
 	stolen := false
+	var click *slot
 	frame := func() Result {
 		ops.Reset()
 		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
 			Constraints: gl.Exact(image.Pt(1000, 700)), Now: time.Now()}
 		res := p.Keys(gtx)
+		if click != nil { // as a click on a keycap does: after Keys, before the layout
+			p.startRecord(*click)
+			click = nil
+		}
 		for {
 			ev, ok := gtx.Event(key.Filter{Name: "T", Required: key.ModAlt | key.ModShift})
 			if !ok {
@@ -179,8 +184,7 @@ func TestPageRecord(t *testing.T) {
 		t.Fatalf("new_tab = %v", got)
 	}
 
-	p.startRecord(slot{"close_pane", false, -1})
-	frame()
+	click = &slot{"close_pane", false, -1}
 	frame()
 	if press("Q", key.ModCtrl) != Saved {
 		t.Fatal("recording a free chord did not save")
