@@ -8,6 +8,23 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.6
+
+- Groups and ungrouped tabs share one order: drag a group above loose tabs,
+  or a tab between two groups.
+- Tabs no longer get generated names. A tab shows its title (the agent's
+  topic, the command, or the folder) until you name it. `pitwall ls` numbers
+  tabs in sidebar order, and `attach`, `detach`, `kill` and `rename` take that
+  number, a title, or a unique title prefix.
+- A tab running Claude Code or Codex always shows the agent's mark and name,
+  idle or working, in the sidebar and the switcher.
+- Settings is a page instead of a dialog. Open it with the gear or `Ctrl+,`;
+  it takes the pane area and the sidebar stays. Pick themes from previews,
+  choose fonts and sizes, record shortcuts with conflict checks and swap,
+  check whether the agent hooks are installed. Every change writes the one
+  key to `config.toml` and keeps your comments.
+- Protocol version 7, store format 6.
+
 ## v0.0.5
 
 - A tab's branch, `+/-` stats and folder follow its shell's working
