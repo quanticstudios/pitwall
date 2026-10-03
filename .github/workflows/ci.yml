@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # why: the build the maintainer runs and tests; Gio draws through OpenGL.
+  GOFLAGS: -tags=novulkan
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install Gio's build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            printf 'gofmt needed:\n%s\n' "$unformatted"
+            exit 1
+          fi
+      - run: go vet ./...
+      - name: go vet for Windows
+        run: GOOS=windows go vet ./...
+      - run: go test -race ./...
+      - name: Install scripts
+        run: |
+          sh -n scripts/install.sh
+          sh -n scripts/get.sh
+          sh scripts/get_test.sh
+
+  other:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - name: Test the platform-independent packages
+        run: go test ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
+      # why: these suites have never run on this OS; drop continue-on-error after the first green run.
+      - name: Test everything
+        continue-on-error: true
+        run: go test ./...
+      - name: get.sh
+        if: runner.os == 'macOS'
+        run: sh scripts/get_test.sh
+      - name: get.ps1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $env:PITWALL_GET_TEST = '1'
+          . ./scripts/get.ps1
+          if ((Get-PitwallAsset AMD64) -ne 'pitwall_windows_amd64.zip' -or (Get-PitwallAsset ARM64) -ne 'pitwall_windows_arm64.zip') { exit 1 }

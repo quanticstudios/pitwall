@@ -1,0 +1,86 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  GOFLAGS: -tags=novulkan
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # why: Ubuntu 22.04's glibc 2.35 also runs on Debian 12; a 24.04 build needs glibc 2.39.
+          - { goos: linux, goarch: amd64, runner: ubuntu-22.04 }
+          - { goos: linux, goarch: arm64, runner: ubuntu-22.04-arm }
+          - { goos: darwin, goarch: arm64, runner: macos-latest }
+          - { goos: darwin, goarch: amd64, runner: macos-latest }
+          # why: Gio needs no cgo on Windows, so Linux cross-compiles it.
+          - { goos: windows, goarch: amd64, runner: ubuntu-latest }
+          - { goos: windows, goarch: arm64, runner: ubuntu-latest }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install Gio's build dependencies
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev
+      - name: Build and pack
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.goos == 'windows' && '0' || '1' }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          exe=pitwall
+          if [ "$GOOS" = windows ]; then exe=pitwall.exe; fi
+          mkdir -p stage dist
+          go build -trimpath -ldflags "-X main.version=$TAG" -o "stage/$exe" ./cmd/pitwall
+          cp LICENSE THIRD_PARTY_NOTICES.md stage/
+          name="pitwall_${GOOS}_${GOARCH}"
+          if [ "$GOOS" = windows ]; then
+            (cd stage && zip -q "../dist/$name.zip" "$exe" LICENSE THIRD_PARTY_NOTICES.md)
+          else
+            tar -czf "dist/$name.tar.gz" -C stage "$exe" LICENSE THIRD_PARTY_NOTICES.md
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pitwall_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          (cd dist && sha256sum pitwall_* > checksums.txt && cat checksums.txt)
+          awk -v tag="$TAG" '$0 == "## " tag {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no section '## $TAG'" >&2
+            exit 1
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/* --title "pitwall $TAG" --notes-file notes.md --verify-tag
