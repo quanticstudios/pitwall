@@ -60,6 +60,7 @@ type Keys struct {
 	ScrollPageUp   Binding `toml:"scroll_page_up" doc:"Scroll back a page"`
 	ScrollPageDown Binding `toml:"scroll_page_down" doc:"Scroll forward a page"`
 	ToggleSidebar  Binding `toml:"toggle_sidebar" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
+	OpenSettings   Binding `toml:"open_settings" doc:"Show or hide the settings page"`
 	TabPrefix      Binding `toml:"tab_prefix" doc:"Tab mode: the next key runs a [keys.tab] action. Pressed twice it sends its control character to the pane"`
 
 	Tab TabKeys `toml:"tab" doc:"Keys in tab mode, after the tab prefix."`
