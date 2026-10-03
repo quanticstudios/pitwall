@@ -387,6 +387,8 @@ func (f *FakeBackend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 		fmt.Sprintf("pane %s (%s) in %s", p.ID, who, p.WorkspaceID),
 		fmt.Sprintf("%dx%d", sz[0], sz[1]),
 		"$ " + strings.Repeat("~", 3),
+		"docs: https://example.com/guide (or www.example.org)",
+		"see the release notes for this build",
 	}
 	for i := range g.Cells {
 		g.Cells[i] = vt.Cell{Content: " ", Width: 1}
@@ -397,6 +399,10 @@ func (f *FakeBackend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 				g.Cells[y*g.Cols+x].Content = string(r)
 			}
 		}
+	}
+	// "release notes" carries an OSC 8 hyperlink, as a program would set.
+	for x := 8; x < 21 && x < g.Cols && len(lines) <= g.Rows; x++ {
+		g.Cells[(len(lines)-1)*g.Cols+x].Link = "https://example.com/releases"
 	}
 	return g, vt.Modes{}, true
 }

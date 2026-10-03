@@ -591,6 +591,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		}
 		p.view.Keys = u.nav.bind()
 		p.view.CopyOnSelect = u.cfg.CopyOnSelect
+		p.view.Links = u.cfg.Links
 		var att *model.Activity
 		if a, ok := unseen[id]; ok {
 			att = &a
@@ -697,6 +698,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 
 	if s := p.view.Copied(); s != "" {
 		u.showNotice(gtx, copiedText(s), rect)
+	}
+	if l := p.view.OpenLink(); l != "" {
+		openLink(l)
 	}
 	if len(input) > 0 {
 		u.send(proto.Input{Pane: id, Data: input})

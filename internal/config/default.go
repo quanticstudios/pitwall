@@ -18,7 +18,7 @@ func defaults() Config {
 	gap, margin := float64(DefaultPaneGap), float64(DefaultPaneMargin)
 	c.Layout = Layout{&gap, &margin}
 	on := true
-	c.Term.CopyOnSelect = &on
+	c.Term.CopyOnSelect, c.Term.Links = &on, &on
 	return c
 }
 

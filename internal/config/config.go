@@ -167,6 +167,7 @@ type Layout struct {
 // Term is [terminal].
 type Term struct {
 	CopyOnSelect *bool `toml:"copy_on_select" doc:"Copy text to the clipboard as soon as you select it with the mouse, as zellij and Warp do. The copy key works either way"`
+	Links        *bool `toml:"links" doc:"Underline web and file links in panes, plain URLs and OSC 8 hyperlinks alike, and open them with Ctrl+click"`
 }
 
 // Font defaults.
@@ -191,6 +192,8 @@ type Settings struct {
 	PaneMargin float64
 	// CopyOnSelect copies a mouse selection when it is made.
 	CopyOnSelect bool
+	// Links underlines links in panes and opens them on Ctrl+click.
+	Links bool
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -335,6 +338,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	}
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
+	s.Links = c.Term.Links == nil || *c.Term.Links
 	if s.Font.UIFamily == "" {
 		s.Font.UIFamily = DefaultUIFamily
 	}

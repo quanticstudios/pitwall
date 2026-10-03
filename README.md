@@ -248,6 +248,10 @@ mouse. To turn it off, set `copy_on_select = false` under `[terminal]` in
 config.toml or use the switch under Terminal in the settings page; Ctrl+Shift+C
 still copies.
 
+Links in panes are underlined, both URLs in the text and OSC 8 hyperlinks.
+Ctrl+click one to open it in your browser, even inside Claude Code or Codex.
+Set `links = false` under `[terminal]` to turn this off.
+
 ### Grouping
 
 <img src="docs/media/drag.webp" alt="Dragging a tab into the web-app group while the other rows slide apart, then dragging the billing group above the loose tabs" width="800">
