@@ -289,7 +289,7 @@ type shortcut struct {
 func shortcuts(b *config.Bindings) []shortcut {
 	var out []shortcut
 	if hk := b.HoldKey(); hk != "" {
-		out = append(out, shortcut{[]string{"Hold " + string(hk)}, "Show every session; the session keys walk them all"})
+		out = append(out, shortcut{[]string{"Hold " + string(hk)}, "Show every tab; the tab keys walk them all"})
 	}
 	prefix := firstChord(b.Global["tab_prefix"])
 	for _, a := range config.Actions() {
@@ -341,7 +341,7 @@ func shortcuts(b *config.Bindings) []shortcut {
 		}
 		out = append(out, shortcut{keys, what})
 	}
-	return append(out, shortcut{[]string{"Ctrl / Shift", "Click"}, "Pick sessions to group"})
+	return append(out, shortcut{[]string{"Ctrl / Shift", "Click"}, "Pick tabs to group"})
 }
 
 func (u *ui) settingsBody(gtx gl.Context) gl.Dimensions {
@@ -432,7 +432,7 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Makes a group for the folder. A git repository also gets worktree sessions.")
+			return para(gtx, th, th.UIFont, 14, th.Muted, "Makes a group for the folder. A git repository also gets worktree tabs.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {

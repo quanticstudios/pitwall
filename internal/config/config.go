@@ -31,20 +31,12 @@ type Config struct {
 // Keys is [keys]. Every Binding field is an action.
 type Keys struct {
 	Preset           string  `toml:"preset" enum:"conventional,aide" doc:"conventional follows Linux terminals (Ghostty, kitty, GNOME Terminal); aide is aide's Alt-key layout."`
-	SwitcherModifier *string `toml:"switcher_modifier" enum:"Alt,Super,Ctrl," doc:"Holding this modifier shows the session switcher; \"\" for none. aide uses Alt, conventional none."`
+	SwitcherModifier *string `toml:"switcher_modifier" enum:"Alt,Super,Ctrl," doc:"Holding this modifier shows the tab switcher; \"\" for none. aide uses Alt, conventional none."`
 
-	NextSession    Binding `toml:"next_session" doc:"Next session in the group, or in all sessions while the switcher shows"`
-	PrevSession    Binding `toml:"prev_session" doc:"Previous session in the group, or in all sessions while the switcher shows"`
-	NextPane       Binding `toml:"next_pane" doc:"Next pane"`
-	PrevPane       Binding `toml:"prev_pane" doc:"Previous pane"`
-	SplitRight     Binding `toml:"split_right" doc:"Split the pane to the right"`
-	SplitDown      Binding `toml:"split_down" doc:"Split the pane below"`
-	ClosePane      Binding `toml:"close_pane" doc:"Close the pane (the tab with its last pane)"`
-	NewSession     Binding `toml:"new_session" doc:"New session in this folder"`
-	NewTab         Binding `toml:"new_tab" doc:"New tab"`
-	CloseTab       Binding `toml:"close_tab" doc:"Close the tab"`
-	NextTab        Binding `toml:"next_tab" doc:"Next tab"`
-	PrevTab        Binding `toml:"prev_tab" doc:"Previous tab"`
+	NextTab        Binding `toml:"next_tab" doc:"Next tab in sidebar order. With a switcher_modifier it stays in the tab's group until the switcher shows"`
+	PrevTab        Binding `toml:"prev_tab" doc:"Previous tab in sidebar order. With a switcher_modifier it stays in the tab's group until the switcher shows"`
+	NextGroup      Binding `toml:"next_group" doc:"First tab of the next group"`
+	PrevGroup      Binding `toml:"prev_group" doc:"First tab of the previous group"`
 	GotoTab1       Binding `toml:"goto_tab_1" doc:"Go to tab 1"`
 	GotoTab2       Binding `toml:"goto_tab_2" doc:"Go to tab 2"`
 	GotoTab3       Binding `toml:"goto_tab_3" doc:"Go to tab 3"`
@@ -54,16 +46,14 @@ type Keys struct {
 	GotoTab7       Binding `toml:"goto_tab_7" doc:"Go to tab 7"`
 	GotoTab8       Binding `toml:"goto_tab_8" doc:"Go to tab 8"`
 	GotoTab9       Binding `toml:"goto_tab_9" doc:"Go to tab 9"`
-	JumpSession1   Binding `toml:"jump_session_1" doc:"Jump to session 1"`
-	JumpSession2   Binding `toml:"jump_session_2" doc:"Jump to session 2"`
-	JumpSession3   Binding `toml:"jump_session_3" doc:"Jump to session 3"`
-	JumpSession4   Binding `toml:"jump_session_4" doc:"Jump to session 4"`
-	JumpSession5   Binding `toml:"jump_session_5" doc:"Jump to session 5"`
-	JumpSession6   Binding `toml:"jump_session_6" doc:"Jump to session 6"`
-	JumpSession7   Binding `toml:"jump_session_7" doc:"Jump to session 7"`
-	JumpSession8   Binding `toml:"jump_session_8" doc:"Jump to session 8"`
-	JumpSession9   Binding `toml:"jump_session_9" doc:"Jump to session 9"`
-	Switcher       Binding `toml:"switcher" doc:"Show or hide the session switcher"`
+	NewTab         Binding `toml:"new_tab" doc:"New tab below this one, in its folder"`
+	CloseTab       Binding `toml:"close_tab" doc:"Close the tab and all its panes"`
+	NextPane       Binding `toml:"next_pane" doc:"Next pane"`
+	PrevPane       Binding `toml:"prev_pane" doc:"Previous pane"`
+	SplitRight     Binding `toml:"split_right" doc:"Split the pane to the right"`
+	SplitDown      Binding `toml:"split_down" doc:"Split the pane below"`
+	ClosePane      Binding `toml:"close_pane" doc:"Close the pane (the tab with its last pane)"`
+	Switcher       Binding `toml:"switcher" doc:"Show or hide the tab switcher"`
 	PinSwitcher    Binding `toml:"pin_switcher" doc:"Keep the switcher open after the hold modifier is released"`
 	Copy           Binding `toml:"copy" doc:"Copy the selection"`
 	Paste          Binding `toml:"paste" doc:"Paste"`
@@ -166,6 +156,9 @@ type Settings struct {
 	Font       Font   // every field but MonoFallback set
 	PaneGap    float64
 	PaneMargin float64
+	// Notes are things that work but should change, like an action under
+	// its old name. They are not problems: the GUI stays quiet about them.
+	Notes []Problem
 }
 
 // Problem is one thing wrong with a config or theme file. The entry it is
@@ -215,9 +208,11 @@ func LoadFile(path string) (Settings, []Problem) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		probs = append(probs, Problem{File: filepath.Base(path), Msg: err.Error()})
 	}
-	probs = append(probs, parse("config.toml", data, &c)...)
-
 	s := Settings{Path: path}
+	var renamed []issue
+	probs = append(probs, parse("config.toml", data, &c, &renamed)...)
+	s.Notes = locate("config.toml", data, renamed)
+	sort.SliceStable(s.Notes, func(i, j int) bool { return s.Notes[i].Line < s.Notes[j].Line })
 	var issues []issue
 	s.Keys, issues = resolveKeys(c.Keys)
 	probs = append(probs, locate("config.toml", data, issues)...)
@@ -243,7 +238,7 @@ func LoadFile(path string) (Settings, []Problem) {
 			s.ThemeFile = f
 			name := "themes/" + s.ThemeName + ".toml"
 			var t Theme
-			probs = append(probs, parse(name, td, &t)...)
+			probs = append(probs, parse(name, td, &t, nil)...)
 			if t.Name != "" {
 				if b, ok := builtins[t.Name]; ok {
 					base = b
@@ -404,8 +399,10 @@ func overlay(base, o Theme, path string) (Theme, []issue) {
 }
 
 // parse decodes TOML data into the struct v points to. Syntax errors keep
-// all defaults; unknown keys and wrong types drop only their entry.
-func parse(file string, data []byte, v any) []Problem {
+// all defaults; unknown keys and wrong types drop only their entry. With
+// renamed set, [keys] entries under an old action name count as the new
+// name, and renamed gets a note for each.
+func parse(file string, data []byte, v any, renamed *[]issue) []Problem {
 	if len(data) == 0 {
 		return nil
 	}
@@ -416,6 +413,21 @@ func parse(file string, data []byte, v any) []Problem {
 			return []Problem{{File: file, Line: pe.Position.Line, Msg: pe.Message}}
 		}
 		return []Problem{{File: file, Msg: err.Error()}}
+	}
+	if keys, ok := m["keys"].(map[string]any); ok && renamed != nil {
+		for _, old := range slices.Sorted(mapKeys(keys)) {
+			now, ok := Renamed[old]
+			if !ok {
+				continue
+			}
+			if _, set := keys[now]; set {
+				*renamed = append(*renamed, issue{"keys." + old, fmt.Sprintf("renamed to %s, which is also set; this line is ignored", now)})
+			} else {
+				keys[now] = keys[old]
+				*renamed = append(*renamed, issue{"keys." + old, fmt.Sprintf("renamed to %s; the old name still works for now", now)})
+			}
+			delete(keys, old)
+		}
 	}
 	var issues []issue
 	decode(m, reflect.ValueOf(v).Elem(), "", &issues)

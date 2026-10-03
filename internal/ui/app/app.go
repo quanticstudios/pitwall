@@ -179,14 +179,6 @@ func (u *ui) send(msg any) {
 	}
 }
 
-// flush sends what nav queued outside key handling.
-func (u *ui) flush() {
-	for _, m := range u.nav.out {
-		u.send(m)
-	}
-	u.nav.out = nil
-}
-
 func (u *ui) queueFocus(fs proto.FocusSession) {
 	u.focusMu.Lock()
 	u.focusReq = &fs
@@ -205,8 +197,7 @@ func (u *ui) applyFocus(st *model.State) {
 	u.focusMu.Unlock()
 	if fs != nil {
 		u.nav.tabMode = false
-		u.nav.attachSession(st, fs.WorkspaceID, fs.TabID)
-		u.flush()
+		u.nav.attachSession(st, fs.WorkspaceID)
 	}
 }
 
@@ -252,15 +243,11 @@ func (u *ui) layout(gtx gl.Context) {
 	if !wasVisible && u.nav.switcherVisible() {
 		u.shownAt = gtx.Now
 	}
-	if t := u.nav.renameTab; t != "" {
+	if id := u.nav.renameTab; id != "" {
 		u.nav.renameTab = ""
-		if w := findWorkspace(&st, u.nav.workspace); w != nil {
-			for i, x := range w.Tabs {
-				if x.ID == t {
-					u.nav.sidebarHidden = false // the rename field is in the sidebar
-					u.sidebar.StartTabRename(w.ID, t, tabLabel(x, i))
-				}
-			}
+		if w := findWorkspace(&st, id); w != nil {
+			u.nav.sidebarHidden = false // the rename field is in the sidebar
+			u.sidebar.StartRename(w.ID, tabTitle(*w))
 		}
 	}
 	if u.nav.sidebarHidden != u.sidebarShown {
@@ -285,8 +272,6 @@ func (u *ui) layout(gtx gl.Context) {
 	if u.nav.tabMode && !gtx.Focused(&u.modeTag) {
 		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
 	}
-	u.flush()
-
 	paint.Fill(gtx.Ops, u.th.Bg)
 	sw := gtx.Dp(sidebarWidth)
 	// The panes take their new width at once, so the PTYs resize once; the
@@ -326,7 +311,6 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 		paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: image.Pt(sw, 0), Max: image.Pt(sw+1, area.Max.Y)}.Op())
 		so.Pop()
-		u.flush()
 	}
 
 	u.layoutModal(gtx, &st)
@@ -367,14 +351,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	switch e := ev.(type) {
 	case sidebar.SelectWorkspace:
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
-	case sidebar.NewSession:
-		u.nav.expectSession(st)
-		cwd := newSessionCwd(st, u.nav.workspace, e.GroupID)
-		from := ""
-		if w := findWorkspace(st, u.nav.workspace); w != nil && cwd == w.Path {
-			from = u.nav.focused() // where the open session's shell is now
-		}
-		u.send(proto.NewSession{Cwd: cwd, GroupID: e.GroupID, FromPane: from})
+	case sidebar.NewTab:
+		u.send(u.nav.newTab(st, e.After, e.GroupID))
 	case sidebar.MoveToGroup:
 		for _, id := range e.WorkspaceIDs {
 			u.send(proto.SetSessionGroup{WorkspaceID: id, GroupID: e.GroupID})
@@ -385,13 +363,11 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.RenameGroup{GroupID: e.GroupID, Name: e.Name})
 	case sidebar.Ungroup:
 		u.send(proto.DeleteGroup{GroupID: e.GroupID})
-	case sidebar.RenameWorkspace:
-		u.send(proto.RenameWorkspace{WorkspaceID: e.WorkspaceID, Name: e.Name})
 	case sidebar.DetachSession:
 		u.send(proto.DetachSession{WorkspaceID: e.WorkspaceID, Detached: true})
 	case sidebar.AttachSession:
 		u.send(proto.DetachSession{WorkspaceID: e.WorkspaceID, Detached: false})
-		u.nav.attachSession(st, e.WorkspaceID, "")
+		u.nav.attachSession(st, e.WorkspaceID)
 	case sidebar.KillSession:
 		u.send(proto.KillSession{WorkspaceID: e.WorkspaceID})
 	case sidebar.GroupByFolder:
@@ -407,48 +383,15 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.NewWorkspace{ProjectID: e.GroupID})
 	case sidebar.SetProjectAppearance:
 		u.send(proto.SetProjectAppearance{ProjectID: e.ProjectID, Icon: e.Icon, Color: e.Color})
-	case sidebar.SelectTab:
-		if e.WorkspaceID != u.nav.workspace {
-			u.nav.selectWorkspace(st, e.WorkspaceID, "")
-		}
-		if msg := u.nav.selectTab(st, e.TabID); msg != nil {
-			u.send(msg)
-		}
-	case sidebar.NewTab:
-		from := ""
-		if w := findWorkspace(st, e.WorkspaceID); w != nil {
-			if t := shownTab(w); t != nil {
-				from = u.nav.focus[focusKey(w.ID, t.ID)]
-			}
-		}
-		delete(u.nav.pick, e.WorkspaceID) // the daemon makes the new tab active
-		u.send(proto.NewTab{WorkspaceID: e.WorkspaceID, FromPane: from})
 	case sidebar.MoveSession:
 		u.send(proto.MoveSession{WorkspaceID: e.WorkspaceID, GroupID: e.GroupID, Before: e.Before})
 	case sidebar.MoveGroup:
 		u.send(proto.MoveGroup{GroupID: e.GroupID, Before: e.Before})
 	case sidebar.CloseTab:
-		u.send(proto.CloseTab{WorkspaceID: e.WorkspaceID, TabID: e.TabID})
+		u.send(proto.CloseTab{WorkspaceID: e.WorkspaceID})
 	case sidebar.RenameTab:
-		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, TabID: e.TabID, Name: e.Name})
+		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, Name: e.Name})
 	}
-}
-
-// newSessionCwd is where a new session starts: the open session's folder,
-// or for a group's "+" the group's root when it has one. The GUI does not
-// know a pane's current directory, so the session's start folder stands in.
-func newSessionCwd(st *model.State, active, group string) string {
-	if group != "" {
-		for _, p := range st.Projects {
-			if p.ID == group && p.Root != "" {
-				return p.Root
-			}
-		}
-	}
-	if w := findWorkspace(st, active); w != nil && (group == "" || groupOf(st, *w) == group) {
-		return w.Path
-	}
-	return ""
 }
 
 func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {

@@ -51,39 +51,43 @@ func TestTabMode(t *testing.T) {
 			t.Fatalf("%s: at %s/%s, want %s/%s", step, n.tab, n.focused(), tab, pane)
 		}
 	}
+	// h/l walk the tabs of the group (the ungrouped ones here), as Alt+K/J
+	// do; 1-9 count every tab in sidebar order.
 	at("start", "t1", "a")
-	if msg := do(press("L", 0)); msg != (proto.SelectTab{WorkspaceID: "w1", TabID: "t2"}) {
+	if msg := do(press("L", 0)); msg != nil {
 		t.Fatalf("l: %#v", msg)
 	}
 	at("l", "t2", "i")
 	do(press(key.NameRightArrow, 0))
 	at("right", "t3", "j")
 	do(press("L", 0))
-	at("l wraps", "t1", "a")
+	at("l", "t5", "d")
 	do(press("H", 0))
-	at("h wraps", "t3", "j")
+	at("h", "t3", "j")
 	do(press(key.NameLeftArrow, 0))
 	at("left", "t2", "i")
+	do(press("H", 0))
+	do(press("H", 0))
+	at("h wraps", "t6", "e")
 	do(press("1", 0))
 	at("1", "t1", "a")
-	if msg := do(press("9", 0)); msg != nil {
-		t.Fatalf("9 with three tabs: %#v", msg)
-	}
+	do(press("9", 0))
+	at("9 with eight tabs stays", "t1", "a")
 	do(press("R", 0))
-	if n.renameTab != "t1" {
+	if n.renameTab != "w1" {
 		t.Fatalf("r asked to rename %q", n.renameTab)
 	}
 	if msg := do(press("N", 0)); msg != (proto.NewTab{WorkspaceID: "w1", FromPane: "a"}) {
 		t.Fatalf("n: %#v", msg)
 	}
-	if len(st.Workspaces[0].Tabs) != 4 || n.tab != st.Workspaces[0].Tabs[3].ID || n.focused() == "" {
-		t.Fatalf("new tab not shown and focused: %s/%s", n.tab, n.focused())
+	if n.workspace != st.Workspaces[1].ID || n.focused() == "" {
+		t.Fatalf("new tab not below w1, shown and focused: %s/%s", n.workspace, n.focused())
 	}
-	added := n.tab
-	if msg := do(press("X", 0)); msg != (proto.CloseTab{WorkspaceID: "w1", TabID: added}) {
+	added := n.workspace
+	if msg := do(press("X", 0)); msg != (proto.CloseTab{WorkspaceID: added}) {
 		t.Fatalf("x: %#v", msg)
 	}
-	at("x lands on the neighbour tab", "t3", "j")
+	at("x lands on the next tab", "t2", "i")
 	for _, e := range []key.Event{press(key.NameEscape, 0), press("Q", 0), press("C", key.ModCtrl)} {
 		if msg := do(e); msg != nil {
 			t.Fatalf("%v: %#v", e, msg)
@@ -92,14 +96,14 @@ func TestTabMode(t *testing.T) {
 
 	// Ctrl+T twice sends one literal Ctrl+T to the focused pane.
 	n.key(&st, ctrlT)
-	if msg := n.key(&st, ctrlT); !reflect.DeepEqual(msg, proto.Input{Pane: "j", Data: []byte{0x14}}) || n.tabMode {
+	if msg := n.key(&st, ctrlT); !reflect.DeepEqual(msg, proto.Input{Pane: "i", Data: []byte{0x14}}) || n.tabMode {
 		t.Fatalf("Ctrl+T Ctrl+T: %#v", msg)
 	}
 
 	// An Alt chord leaves tab mode and does what it always does.
 	n.key(&st, ctrlT)
 	n.key(&st, press("J", key.ModAlt))
-	if n.tabMode || n.workspace != "w2" {
+	if n.tabMode || n.workspace != "w1c" {
 		t.Fatalf("Alt+J in tab mode: mode %v at %s", n.tabMode, n.workspace)
 	}
 }
@@ -151,8 +155,8 @@ func TestTabModeNoLeak(t *testing.T) {
 	if got := typed(); got != "a" {
 		t.Fatalf("tab mode leaked %q to the pane", got[1:])
 	}
-	if !slices.Contains(b.Sent(), any(proto.SelectTab{WorkspaceID: "w1", TabID: "t2"})) {
-		t.Fatal("Ctrl+T l did not select the next tab")
+	if u.nav.workspace != "w1b" {
+		t.Fatalf("Ctrl+T l did not select the next tab: at %s", u.nav.workspace)
 	}
 	frame()
 	keys(press(tabPrefix, key.ModCtrl), press(tabPrefix, key.ModCtrl), up(tabPrefix, key.ModCtrl))
@@ -166,9 +170,8 @@ func TestTabModeNoLeak(t *testing.T) {
 	}
 }
 
-// TestFocusAfterExit: a pane that exits hands focus to its neighbour, an
-// emptied tab to the session's active tab, an emptied session to the next
-// session in sidebar order.
+// TestFocusAfterExit: a pane that exits hands focus to its neighbour, a
+// tab it empties, or one closed, to the next tab in sidebar order.
 func TestFocusAfterExit(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
@@ -189,15 +192,16 @@ func TestFocusAfterExit(t *testing.T) {
 	step(proto.ClosePane{Pane: "b"}, "w1", "t1", "c") // the next pane in reading order
 	step(proto.ClosePane{Pane: "c"}, "w1", "t1", "a") // none after it: the one before
 	n.key(&st, press(tabPrefix, key.ModCtrl))
-	step(n.key(&st, press("2", 0)), "w1", "t2", "i")
-	step(proto.ClosePane{Pane: "i"}, "w1", "t3", "j") // the tab goes; the daemon's next active tab
-	step(proto.CloseTab{WorkspaceID: "w1", TabID: "t3"}, "w1", "t1", "a")
-	step(proto.ClosePane{Pane: "a"}, "w2", "t5", "d") // the session goes; the next one
+	step(n.key(&st, press("2", 0)), "w1b", "t2", "i")
+	step(proto.ClosePane{Pane: "i"}, "w1c", "t3", "j") // the tab goes; the next one
+	step(proto.CloseTab{WorkspaceID: "w1c"}, "w2", "t5", "d")
+	n.selectWorkspace(&st, "w1", "")
+	step(proto.ClosePane{Pane: "a"}, "w2", "t5", "d")
 	n.selectWorkspace(&st, "w6", "")
-	step(proto.ClosePane{Pane: "h"}, "w5", "", "") // the last session: the one before it (the fake's empty one)
+	step(proto.ClosePane{Pane: "h"}, "w5", "", "") // the last tab: the one before it (the fake's empty one)
 }
 
-// TestDetached: detached sessions leave the sidebar order, Alt+J and Alt+1-9,
+// TestDetached: detached tabs leave the sidebar order, Alt+J and Alt+1-9,
 // and attaching from the list shows one before the state un-detaches it.
 func TestDetached(t *testing.T) {
 	b := NewFakeBackend()
@@ -212,16 +216,16 @@ func TestDetached(t *testing.T) {
 		return out
 	}
 	if got := ids(); slices.Contains(got, "w7") || slices.Contains(got, "w8") {
-		t.Fatalf("detached sessions listed: %v", got)
+		t.Fatalf("detached tabs listed: %v", got)
 	}
 	n.key(&st, key.Event{Name: key.NameAlt, State: key.Press})
 	for range 10 {
 		n.key(&st, press("J", key.ModAlt))
 		if n.workspace == "w7" || n.workspace == "w8" {
-			t.Fatal("Alt+J reached a detached session")
+			t.Fatal("Alt+J reached a detached tab")
 		}
 	}
-	n.attachSession(&st, "w7", "")
+	n.attachSession(&st, "w7")
 	if n.workspace != "w7" || n.focused() != "k" || !slices.Contains(ids(), "w7") {
 		t.Fatalf("attach: at %s/%s, listed %v", n.workspace, n.focused(), ids())
 	}
@@ -238,8 +242,8 @@ func TestDetached(t *testing.T) {
 	}
 }
 
-// TestFocuser: an attach request selects its session and tab at once,
-// waits for a session the state does not have yet, and sends SelectTab.
+// TestFocuser: an attach request selects its tab at once and waits for a
+// tab the state does not have yet.
 func TestFocuser(t *testing.T) {
 	b := NewFakeBackend()
 	var _ Focuser = b
@@ -256,16 +260,16 @@ func TestFocuser(t *testing.T) {
 		t.Fatalf("at %s/%s/%s", u.nav.workspace, u.nav.tab, u.nav.focused())
 	}
 	if findWorkspace(&st, "w7").Detached {
-		t.Fatal("the session is still hidden")
+		t.Fatal("the tab is still hidden")
 	}
-	if got := b.Sent(); !reflect.DeepEqual(got, []any{proto.SelectTab{WorkspaceID: "w7", TabID: "t7"}}) {
+	if got := b.Sent(); len(got) != 0 {
 		t.Fatalf("sent %#v", got)
 	}
 
 	u.queueFocus(proto.FocusSession{WorkspaceID: "ns9"})
 	u.applyFocus(&st)
 	if u.nav.workspace != "w7" || u.focusReq == nil {
-		t.Fatal("a request for an unknown session should wait")
+		t.Fatal("a request for an unknown tab should wait")
 	}
 	b.Send(proto.NewSession{Cwd: "/tmp"}) // shows up as ns1
 	u.focusReq.WorkspaceID = "ns1"
@@ -277,17 +281,17 @@ func TestFocuser(t *testing.T) {
 	}
 }
 
-func TestTabLabel(t *testing.T) {
+func TestTabTitle(t *testing.T) {
 	for _, tc := range []struct {
-		tab  model.Tab
+		w    model.Workspace
 		want string
 	}{
-		{model.Tab{Name: "logs", Title: "tail"}, "logs"},
-		{model.Tab{Title: "claude"}, "claude"},
-		{model.Tab{}, "tab 3"},
+		{model.Workspace{Name: "logs", NameSet: true, Label: "tail"}, "logs"},
+		{model.Workspace{Name: "fast-bee", Label: "Fix the flicker"}, "Fix the flicker"},
+		{model.Workspace{Name: "fast-bee"}, "fast-bee"},
 	} {
-		if got := tabLabel(tc.tab, 2); got != tc.want {
-			t.Errorf("tabLabel(%+v) = %q, want %q", tc.tab, got, tc.want)
+		if got := tabTitle(tc.w); got != tc.want {
+			t.Errorf("tabTitle(%+v) = %q, want %q", tc.w, got, tc.want)
 		}
 	}
 }
@@ -321,7 +325,7 @@ func TestTabRenameInline(t *testing.T) {
 	r.Queue(key.Event{Name: key.NameReturn, State: key.Press})
 	frame()
 	frame()
-	if !slices.Contains(b.Sent(), any(proto.RenameTab{WorkspaceID: "w1", TabID: "t1", Name: "server"})) {
+	if !slices.Contains(b.Sent(), any(proto.RenameTab{WorkspaceID: "w1", Name: "server"})) {
 		t.Fatalf("sent %#v", b.Sent())
 	}
 }

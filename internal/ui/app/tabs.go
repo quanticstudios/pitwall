@@ -15,11 +15,11 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// Tabs are listed under their session in the sidebar; the window draws
-// only the tab-mode indicator.
+// Tabs are the sidebar's rows; the window draws only the tab-mode
+// indicator.
 
-// tabLabel is what a tab shows: its name, else its title, else "tab N".
-func tabLabel(t model.Tab, i int) string { return sidebar.TabLabel(t, i) }
+// tabTitle is what a tab's row shows as its name.
+func tabTitle(w model.Workspace) string { return sidebar.Title(w) }
 
 // firstChord is action's first chord as text, "" when it is unbound.
 func firstChord(cs []config.Chord) string {
