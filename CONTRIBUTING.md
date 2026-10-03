@@ -23,11 +23,16 @@ start a branch from current `main`:
 git remote add upstream https://github.com/quanticstudios/pitwall.git
 git fetch upstream
 git switch -c fix/describe-the-change upstream/main
-mise install go
 ```
 
-[README.md](README.md#build-from-source) lists the native build dependencies.
-`mise.toml` pins Go 1.27.1 and selects Gio's OpenGL build. On Linux, run:
+Use the Go version pinned in `go.mod`, currently Go 1.27.1. If you use mise,
+run `mise install go`; `mise.toml` also selects Gio's OpenGL build. Contributors
+can build and test on Linux, macOS or Windows. GitHub runs the platform checks.
+
+### Linux
+
+Install the native dependencies listed in
+[README.md](README.md#build-from-source), then run:
 
 ```sh
 gofmt -w cmd internal third_party/x-vt
@@ -39,8 +44,37 @@ mise exec -- go -C third_party/x-vt test -race -timeout 5m ./...
 sh scripts/get_test.sh
 ```
 
+### macOS
+
+Install Git, Go 1.27.1 and the Xcode Command Line Tools. In your shell, run:
+
+```sh
+export GOFLAGS=-tags=novulkan
+gofmt -w cmd internal third_party/x-vt
+go build ./cmd/pitwall
+go vet ./...
+go test -timeout 3m ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
+go -C third_party/x-vt test -timeout 3m ./...
+sh scripts/get_test.sh
+```
+
+### Windows
+
+Install Git and Go 1.27.1. In PowerShell, run:
+
+```powershell
+$env:GOFLAGS = '-tags=novulkan'
+gofmt -w cmd internal third_party/x-vt
+go build ./cmd/pitwall
+go vet ./...
+go test -timeout 3m ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
+go -C third_party/x-vt test -timeout 3m ./...
+```
+
 `third_party/x-vt` is a separate Go module. Root tests do not run its tests.
-The promo has its own setup and checks in [promo/README.md](promo/README.md).
+On macOS and Windows, you can also run `go test -timeout 3m ./...` and report
+any platform failures. The full suites on those platforms remain advisory in
+CI. Run additional tests relevant to your change and report any skipped tests.
 
 Keep a change focused on one problem. Add a regression test for a behavior
 change. Use the standard library first; explain any new dependency. Keep
@@ -53,7 +87,9 @@ when licenses or bundled dependencies change.
    `quanticstudios/pitwall:main`.
 2. Use a title that states the result, such as "Keep detached tabs after a
    daemon restart". Fill in the pull request template with the problem,
-   behavior, test commands and results. Link a related issue if one exists.
+   behavior, tested OS versions and architectures, Go versions, and build/test
+   commands and results. List untested platforms explicitly. Link a related
+   issue if one exists.
 3. Open a draft while the change is incomplete. Mark it ready when you have
    checked the change. Include screenshots for a visible UI change.
 4. Reply to review comments and resolve discussions after addressing them.

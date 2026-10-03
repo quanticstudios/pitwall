@@ -37,7 +37,7 @@ analyzes GitHub Actions, Go and JavaScript/TypeScript. Review alerts under
 [Security](https://github.com/quanticstudios/pitwall/security).
 
 [dependabot.yml](../.github/dependabot.yml) requests weekly updates for
-Actions, both Go modules and the promo. Review dependency changes and license
+Actions and both Go modules. Review dependency changes and license
 notices before merging. Pin workflow actions to full commit SHAs.
 
 Keep the default `GITHUB_TOKEN` permissions read-only and leave workflow
@@ -71,4 +71,4 @@ the release; build and verification jobs use read access.
 - Keep the alpha status and platform limitations in [README.md](../README.md)
   accurate. Check the install commands against the release you announce.
 - Check that media, fonts, copied code and dependency notices have the licenses
-  needed for redistribution. The promo's music is not included in Git.
+  needed for redistribution. Promo media must have redistribution rights.
