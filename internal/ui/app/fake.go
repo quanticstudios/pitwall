@@ -58,9 +58,9 @@ func NewFakeBackend() *FakeBackend {
 		{ID: "s3", Name: "brave-lynx", UsedAt: now.Add(-3 * time.Hour)},
 	}
 	f.st.Projects = []model.Project{
-		{ID: "g1", SessionID: "s1", Name: "agents", Kind: model.ProjectGroup, Color: "violet", Icon: "bot"},
-		{ID: "g2", SessionID: "s1", Name: "aide", Root: fakeHome + "/Work/aide", Kind: model.ProjectGit, Color: "green"},
-		{ID: "g3", SessionID: "s2", Name: "ledger", Root: fakeHome + "/Work/ledger", Kind: model.ProjectGit, Color: "amber", Icon: "briefcase"},
+		{ID: "g1", SessionID: "s1", Name: "billing", Kind: model.ProjectGroup, Color: "violet", Icon: "bot"},
+		{ID: "g2", SessionID: "s1", Name: "web-app", Root: fakeHome + "/src/web-app", Kind: model.ProjectGit, Color: "green"},
+		{ID: "g3", SessionID: "s2", Name: "ledger", Root: fakeHome + "/src/ledger", Kind: model.ProjectGit, Color: "amber", Icon: "briefcase"},
 	}
 	ws := func(id, group, name, label, branch, path string, ago time.Duration, tab, title string, root *layout.Node) model.Workspace {
 		w := model.Workspace{ID: id, SessionID: "s1", ProjectID: group, Name: name, Label: label, Branch: branch, Path: path, RepoRoot: path,
@@ -78,29 +78,29 @@ func NewFakeBackend() *FakeBackend {
 		return &layout.Node{Dir: d, Ratios: r, Children: kids}
 	}
 	leaf := func(id string) *layout.Node { return &layout.Node{Pane: id} }
-	pw := fakeHome + "/Work/pitwall"
-	logs := ws("w1c", "", "logs", "tail -f daemon.log", "main", pw, 4*time.Minute, "t3", "tail", leaf("j"))
+	pw := fakeHome + "/src/acme-api"
+	logs := ws("w1c", "", "logs", "tail -f server.log", "main", pw, 4*time.Minute, "t3", "tail", leaf("j"))
 	logs.NameSet = true
-	scratch := ws("w3", "", "scratch", "Sketch the switcher", "", "/tmp/scratch", 2*time.Minute, "t6", "claude", split(layout.Horizontal, leaf("e"), leaf("f")))
-	scratch.NameSet = true
-	otter := ws("w7", "", "swift-otter", "Resume the store", "main", pw, time.Hour, "t7", "claude", leaf("k"))
+	spike := ws("w3", "", "spike", "Try a cache for search results", "", "/tmp/spike", 2*time.Minute, "t6", "claude", split(layout.Horizontal, leaf("e"), leaf("f")))
+	spike.NameSet = true
+	otter := ws("w7", "", "swift-otter", "Upgrade the ORM", "main", pw, time.Hour, "t7", "claude", leaf("k"))
 	otter.Detached = true
 	heron := ws("w8", "", "calm-heron", "tmp", "", "/tmp", 5*time.Hour, "t8", "zsh", leaf("l"))
 	heron.Detached = true
-	worktree := ws("w4", "g1", "brave-ant", "Fix the resize flicker", "fix-flicker", fakeHome+"/Work/aide/.worktrees/fix-flicker", 5*time.Minute, "t4", "claude", leaf("g"))
-	worktree.WorktreeRoot = fakeHome + "/Work/aide"
+	worktree := ws("w4", "g1", "brave-ant", "Fix the checkout race", "fix-checkout-race", fakeHome+"/src/web-app/.worktrees/fix-checkout-race", 5*time.Minute, "t4", "claude", leaf("g"))
+	worktree.WorktreeRoot = fakeHome + "/src/web-app"
 	f.st.Workspaces = []model.Workspace{
 		ws("w1", "", "fast-bee", "go test", "main", pw, 20*time.Second, "t1", "go test", split(layout.Horizontal, leaf("a"), split(layout.Vertical, leaf("b"), leaf("c")))),
-		ws("w1b", "", "bold-fox", "Port the sidebar drag", "main", pw, 40*time.Second, "t2", "claude", leaf("i")),
+		ws("w1b", "", "bold-fox", "Add rate limiting to the public API", "main", pw, 40*time.Second, "t2", "claude", leaf("i")),
 		logs,
 		ws("w2", "", "warm-elk", "~", "", fakeHome, 3*time.Hour, "t5", "zsh", leaf("d")),
-		scratch,
+		spike,
 		worktree,
 		ws("w5", "g1", "tidy-yak", "notes", "", fakeHome+"/notes", 26*time.Hour, "", "", nil),
-		ws("w6", "g2", "lazy-cod", "Cut release 1.4", "release/1.4", fakeHome+"/Work/aide", 9*time.Minute, "t9", "codex", leaf("h")),
+		ws("w6", "g2", "lazy-cod", "Cut release 1.4", "release/1.4", fakeHome+"/src/web-app", 9*time.Minute, "t9", "codex", leaf("h")),
 		otter, heron,
 	}
-	ledger := fakeHome + "/Work/ledger"
+	ledger := fakeHome + "/src/ledger"
 	for _, w := range []model.Workspace{
 		ws("w9", "g3", "", "Migrate the billing schema", "billing-migration", ledger+"/.worktrees/billing-migration", time.Minute, "t10", "claude", leaf("m")),
 		ws("w10", "g3", "", "Fix invoice rounding", "fix-rounding", ledger+"/.worktrees/fix-rounding", 3*time.Minute, "t11", "codex", leaf("n")),
@@ -110,7 +110,7 @@ func NewFakeBackend() *FakeBackend {
 		f.st.Workspaces = append(f.st.Workspaces, w)
 	}
 	for _, w := range []model.Workspace{
-		ws("w12", "", "", "Draft the onboarding guide", "main", fakeHome+"/Work/handbook", 2*time.Hour, "t13", "claude", leaf("p")),
+		ws("w12", "", "", "Draft the onboarding guide", "main", fakeHome+"/src/handbook", 2*time.Hour, "t13", "claude", leaf("p")),
 		ws("w13", "", "", "~", "", fakeHome, 3*time.Hour, "t14", "zsh", leaf("q")),
 	} {
 		w.SessionID = "s3"
@@ -149,7 +149,7 @@ var fakeCycle = []model.AgentState{
 
 // fakeNotices are the OSC notifications the fake starts with, by pane;
 // each goes once SeePane names its pane, as in the daemon.
-var fakeNotices = map[string]string{"c": "Gemini CLI: waiting for your reply", "j": "daemon restarted"}
+var fakeNotices = map[string]string{"c": "Gemini CLI: waiting for your reply", "j": "server restarted"}
 
 // setActivities gives each agent pane its state for this tick. The
 // terminal keeps running `go test` and the Claude in w3 keeps working; the

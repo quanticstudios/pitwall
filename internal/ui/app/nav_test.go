@@ -219,7 +219,7 @@ func TestNavGroups(t *testing.T) {
 	st = b.State()
 	n.sync(&st)
 	w := findWorkspace(&st, n.workspace)
-	if w == nil || orderedIn(&st, "s1")[1].ID != w.ID || w.Path != fakeHome+"/Work/pitwall" || n.focused() == "" || w.ProjectID != "" {
+	if w == nil || orderedIn(&st, "s1")[1].ID != w.ID || w.Path != fakeHome+"/src/acme-api" || n.focused() == "" || w.ProjectID != "" {
 		t.Fatalf("new tab not below w1, selected and focused: %s/%s", n.workspace, n.focused())
 	}
 }
