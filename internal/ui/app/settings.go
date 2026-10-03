@@ -29,7 +29,7 @@ func (u *ui) settingsKeys(gtx gl.Context) {
 
 // settingsShortcut handles open_settings, which opens and closes the page.
 func (u *ui) settingsShortcut(e key.Event) bool {
-	if u.nav.tabMode || u.nav.bind().Action(e) != "open_settings" {
+	if u.nav.tabMode || u.nav.paneMode || u.nav.bind().Action(e) != "open_settings" {
 		return false
 	}
 	if e.State == key.Press {

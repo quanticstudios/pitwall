@@ -39,6 +39,7 @@ func presetKeys(name string) Keys {
 	}
 	fill(reflect.ValueOf(&k).Elem(), b.Global)
 	fill(reflect.ValueOf(&k.Tab).Elem(), b.Tab)
+	fill(reflect.ValueOf(&k.Pane).Elem(), b.Pane)
 	return k
 }
 

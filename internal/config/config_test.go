@@ -77,6 +77,7 @@ func TestPresets(t *testing.T) {
 		{aide, "split_down", "Alt+Shift+N"},
 		{aide, "goto_tab_3", "Alt+3"},
 		{aide, "tab_prefix", "Ctrl+T"},
+		{aide, "pane_prefix", "Ctrl+P"},
 		{aide, "next_group", ""},
 		{conv, "new_tab", "Ctrl+Shift+T"},
 		{conv, "close_pane", "Ctrl+Shift+W"},
@@ -92,6 +93,7 @@ func TestPresets(t *testing.T) {
 		{conv, "copy", "Ctrl+Shift+C"},
 		{conv, "scroll_page_up", "Shift+PageUp"},
 		{conv, "tab_prefix", ""},
+		{conv, "pane_prefix", ""},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)
@@ -387,6 +389,8 @@ func TestSchema(t *testing.T) {
 	check("short ansi", "[theme.terminal]\nansi = [\"#000000\"]\n", false)
 	check("custom theme name", "[theme]\nname = \"mine\"\n", true)
 	check("unbind", "[keys]\ntab_prefix = []\nswitcher_modifier = \"\"\n", true)
+	check("pane keys", "[keys]\npane_prefix = \"Ctrl+Shift+P\"\n[keys.pane]\nsplit_down = \"S\"\nfullscreen = [\"Z\", \"F\"]\n", true)
+	check("typo'd pane key", "[keys.pane]\nsplit_dwn = \"S\"\n", false)
 
 	var ts map[string]any
 	if err := json.Unmarshal(ThemeSchema(), &ts); err != nil {
@@ -405,5 +409,25 @@ func TestDistance(t *testing.T) {
 	}
 	if s := suggest("zzzz", []string{"next_session"}); s != "" {
 		t.Fatalf("far suggestion %q", s)
+	}
+}
+
+// TestPaneKeys: [keys.pane] overrides the preset's pane-mode keys, and a
+// clash inside the table sends the key the file set back to its preset.
+func TestPaneKeys(t *testing.T) {
+	p := write(t, t.TempDir(), "config.toml", "[keys]\npreset = \"aide\"\n\n[keys.pane]\nsplit_down = \"S\"\nclose = \"N\"\n")
+	s, probs := LoadFile(p)
+	if got := msgs(probs); !strings.Contains(got, "keys.pane.close: N is also bound to keys.pane.new") {
+		t.Errorf("problems: %s", got)
+	}
+	b := s.Keys
+	if b.PaneModeAction(key.Event{Name: "S"}) != "split_down" || b.PaneModeAction(key.Event{Name: "D"}) != "" {
+		t.Error("split_down did not move to S")
+	}
+	if b.PaneModeAction(key.Event{Name: "X"}) != "close" || b.PaneModeAction(key.Event{Name: key.NameTab}) != "next" {
+		t.Error("close is not back on X, or Tab is not next")
+	}
+	if b.Action(key.Event{Name: "P", Modifiers: key.ModCtrl}) != "pane_prefix" {
+		t.Error("aide's Ctrl+P is not pane_prefix")
 	}
 }
