@@ -33,7 +33,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
 	golang.org/x/exp/shiny v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )
