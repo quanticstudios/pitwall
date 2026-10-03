@@ -64,8 +64,11 @@ type Keys struct {
 	ToggleSidebar  Binding `toml:"toggle_sidebar" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	OpenSettings   Binding `toml:"open_settings" doc:"Show or hide the settings page"`
 	TabPrefix      Binding `toml:"tab_prefix" doc:"Tab mode: the next key runs a [keys.tab] action. Pressed twice it sends its control character to the pane"`
+	PanePrefix     Binding `toml:"pane_prefix" doc:"Pane mode: [keys.pane] keys act on panes until Esc or Enter. Pressed twice it sends its control character to the pane"`
 
 	Tab TabKeys `toml:"tab" doc:"Keys in tab mode, after the tab prefix."`
+
+	Pane PaneKeys `toml:"pane" doc:"Keys in pane mode, after the pane prefix. The mode stays on after each one."`
 }
 
 // TabKeys is [keys.tab].
@@ -85,6 +88,20 @@ type TabKeys struct {
 	Goto7     Binding `toml:"goto_7" doc:"Go to tab 7"`
 	Goto8     Binding `toml:"goto_8" doc:"Go to tab 8"`
 	Goto9     Binding `toml:"goto_9" doc:"Go to tab 9"`
+}
+
+// PaneKeys is [keys.pane].
+type PaneKeys struct {
+	New        Binding `toml:"new" doc:"New pane, split along the focused pane's longer side"`
+	SplitDown  Binding `toml:"split_down" doc:"Split the pane below"`
+	SplitRight Binding `toml:"split_right" doc:"Split the pane to the right"`
+	Close      Binding `toml:"close" doc:"Close the pane"`
+	FocusLeft  Binding `toml:"focus_left" doc:"Focus the pane to the left"`
+	FocusDown  Binding `toml:"focus_down" doc:"Focus the pane below"`
+	FocusUp    Binding `toml:"focus_up" doc:"Focus the pane above"`
+	FocusRight Binding `toml:"focus_right" doc:"Focus the pane to the right"`
+	Fullscreen Binding `toml:"fullscreen" doc:"Let the pane fill the tab, or give the others back"`
+	Next       Binding `toml:"next" doc:"Next pane"`
 }
 
 // Color is "#rrggbb" or "#rrggbbaa".

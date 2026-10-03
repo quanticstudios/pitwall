@@ -279,6 +279,10 @@ conventional:
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
+conventional leaves tab mode and pane mode unbound so Ctrl+T and Ctrl+P
+reach the shell. Give `tab_prefix` or `pane_prefix` a chord in config.toml
+or the settings page to use them; their keys are the ones in the aide table.
+
 aide:
 
 | Keys                              | Action                                         |
@@ -300,9 +304,22 @@ aide:
 | Ctrl+T then 1-9                   | Go to the Nth tab                              |
 | Ctrl+T then u                     | Go to the tab that needs you, newest first     |
 | Ctrl+T twice                      | Send Ctrl+T to the terminal                    |
+| Ctrl+P then n                     | New pane, split along its longer side          |
+| Ctrl+P then d / r                 | Split the pane down / right                    |
+| Ctrl+P then x                     | Close the pane                                 |
+| Ctrl+P then h / j / k / l or Arrows | Focus the pane left / below / above / right  |
+| Ctrl+P then f                     | Fullscreen the pane, or end it                 |
+| Ctrl+P then p or Tab              | Next pane                                      |
+| Ctrl+P then Esc or Enter          | Leave pane mode                                |
+| Ctrl+P twice                      | Send Ctrl+P to the terminal                    |
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                         |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
 | Escape                            | Close a dialog or settings, cancel a drag      |
+
+Tab mode runs one key and ends. Pane mode stays on, zellij style, so
+Ctrl+P d j x splits, moves down and closes in one go; it ends on Esc, Enter,
+Ctrl+P or any key it does not know. A pill at the bottom left shows the
+mode and its keys. A fullscreen pane ends when focus leaves it or it closes.
 
 Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and
@@ -339,6 +356,9 @@ tab_prefix = []                         # [] unbinds
 
 [keys.tab]                              # tab mode, after tab_prefix
 rename = "F2"
+
+[keys.pane]                             # pane mode, after pane_prefix
+fullscreen = ["F", "Z"]
 
 [theme]
 name = "tokyo-night"

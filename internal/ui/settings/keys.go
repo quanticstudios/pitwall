@@ -13,34 +13,44 @@ import (
 // a chord.
 type slot struct {
 	action string
-	tab    bool // a [keys.tab] action
+	table  string // "keys", "keys.tab" or "keys.pane"
 	index  int
 }
 
-func table(tab bool) string {
-	if tab {
+// tableOf is the config table a's key goes in.
+func tableOf(a config.Action) string {
+	switch {
+	case a.Tab:
 		return "keys.tab"
+	case a.Pane:
+		return "keys.pane"
 	}
 	return "keys"
 }
 
-func chordsOf(b *config.Bindings, action string, tab bool) []config.Chord {
-	if tab {
+func chordsOf(b *config.Bindings, action, table string) []config.Chord {
+	switch table {
+	case "keys.tab":
 		return b.Tab[action]
+	case "keys.pane":
+		return b.Pane[action]
 	}
 	return b.Global[action]
 }
 
-func presetChords(preset, action string, tab bool) []config.Chord {
-	return chordsOf(config.Preset(preset), action, tab)
+func presetChords(preset, action, table string) []config.Chord {
+	return chordsOf(config.Preset(preset), action, table)
 }
 
 // owner is the other action c already runs in s's section, or "".
 func owner(b *config.Bindings, s slot, c config.Chord) string {
 	e := key.Event{Name: c.Name, Modifiers: c.Mods}
 	a := b.Action(e)
-	if s.tab {
+	switch s.table {
+	case "keys.tab":
 		a = b.TabAction(e)
+	case "keys.pane":
+		a = b.PaneModeAction(e)
 	}
 	if a == s.action {
 		return ""
@@ -75,31 +85,31 @@ func replaceChord(cs []config.Chord, i int, c *config.Chord) []config.Chord {
 // edit is one config write: an action's new chords.
 type edit struct {
 	action string
-	tab    bool
+	table  string
 	chords []config.Chord
 }
 
 // record is the writes for c recorded into s. With swap, the action that
 // had c takes the chord s replaced (or just loses c when s adds one).
 func record(b *config.Bindings, s slot, c config.Chord, swap bool) []edit {
-	cur := chordsOf(b, s.action, s.tab)
-	out := []edit{{s.action, s.tab, replaceChord(cur, s.index, &c)}}
+	cur := chordsOf(b, s.action, s.table)
+	out := []edit{{s.action, s.table, replaceChord(cur, s.index, &c)}}
 	other := owner(b, s, c)
 	if !swap || other == "" {
 		return out
 	}
-	theirs := chordsOf(b, other, s.tab)
+	theirs := chordsOf(b, other, s.table)
 	i := slices.Index(theirs, c)
 	var give *config.Chord
 	if s.index >= 0 && s.index < len(cur) {
 		give = &cur[s.index]
 	}
-	return append(out, edit{other, s.tab, replaceChord(theirs, i, give)})
+	return append(out, edit{other, s.table, replaceChord(theirs, i, give)})
 }
 
 // value is the TOML for e, nil when it matches the preset so the key can go.
 func (e edit) value(preset string) *string {
-	if slices.Equal(e.chords, presetChords(preset, e.action, e.tab)) {
+	if slices.Equal(e.chords, presetChords(preset, e.action, e.table)) {
 		return nil
 	}
 	v := config.BindingValue(e.chords)
