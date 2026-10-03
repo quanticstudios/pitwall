@@ -1,6 +1,6 @@
 
   >_ OpenAI Codex (v0.160.0)
-     /tmp/claude-1000/-home-pho7on-Work-aide/89e2e336-dcf8-42c2-9c0c-53c080aa3cac/scratchpad/work
+     /tmp/agent-12345/-home-dev-src-web-apps/00000000-0000-4000-8000-0000000000ac/scratchpad/work
   permissions: YOLO mode
 
   A new prompt awakens.
@@ -26,5 +26,5 @@
 
 › Ask Codex to do anything
 
-  GPT-6-Luna low · /tmp/claude-1000/-home-pho7on-Work-aide/89e2e336-dcf8-42c2-9c0c-53c080aa3cac/scr…
+  GPT-6-Luna low · /tmp/agent-12345/-home-dev-src-web-apps/00000000-0000-4000-8000-0000000000ac/scr…
   ? for shortcuts                                                         ⚠ 2 warnings · f2 to view

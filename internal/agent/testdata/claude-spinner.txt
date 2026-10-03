@@ -1,7 +1,7 @@
 
  ▐▛███▛█   Claude Code v2.1.287
 ▝▜██████▀  Opus 5.5 with high effort · Claude Max
- ▝▝   ▝▝   ~/Work/aide
+ ▝▝   ▝▝   ~/src/myapp
 
 
 ❯ Use the Bash tool to run exactly this command: sleep 6
