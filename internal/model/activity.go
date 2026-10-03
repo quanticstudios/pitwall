@@ -27,6 +27,19 @@ type Activity struct {
 	State       AgentState
 	Detail      string // question text, approval detail, or error message
 	UpdatedAt   time.Time
+	// Unseen is set while a needs-you activity (NeedsYou) has not been in
+	// the focused pane of a focused window since UpdatedAt.
+	Unseen bool
+}
+
+// NeedsYou reports a state that waits on the user: a question, an
+// approval, a plan, an error, or a finished turn.
+func NeedsYou(s AgentState) bool {
+	switch s {
+	case StateAwaitingInput, StatePendingApproval, StatePlanReady, StateError, StateCompleted:
+		return true
+	}
+	return false
 }
 
 // Ported from aide src/shared/workspace-activity.ts.
