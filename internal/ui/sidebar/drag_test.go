@@ -23,8 +23,8 @@ func TestSessionDrop(t *testing.T) {
 		{0, drop{group: "", before: "u1", line: 4, ok: true}},
 		{40, drop{group: "", before: "u2", line: 60, ok: true}},
 		{61, drop{group: "", before: "u2", line: 62, ok: true}}, // the 2px gap goes to the nearer row
-		{140, drop{group: "", line: 150, ok: true}},              // last of the ungrouped
-		{170, drop{group: "g1", into: true, ok: true}},           // onto a header
+		{140, drop{group: "", line: 150, ok: true}},             // last of the ungrouped
+		{170, drop{group: "g1", into: true, ok: true}},          // onto a header
 		{210, drop{group: "g1", before: "a", line: 207, ok: true}},
 		{300, drop{group: "g1", line: 321, ok: true}},
 		{350, drop{group: "g2", into: true, ok: true}}, // a collapsed group

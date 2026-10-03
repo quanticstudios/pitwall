@@ -267,7 +267,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebarShown = u.nav.sidebarHidden
 		u.slideAt = gtx.Now
 		if u.report != nil { // a real window, not a test
-			go saveGUIState(guiState{SidebarHidden: u.sidebarShown})
+			saveGUIState(guiState{SidebarHidden: u.sidebarShown}) // in order, so the last toggle wins
 		}
 	}
 	if u.sidebar.Dragging() {
