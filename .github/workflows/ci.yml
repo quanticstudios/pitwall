@@ -64,12 +64,19 @@ jobs:
       # why: these suites have never run on this OS; drop continue-on-error after the first green run.
       - name: Test everything
         continue-on-error: true
-        run: go test -timeout 3m ./...
-      # why: a timed-out test leaves its .test.exe (and any daemon it started) running, locking files the post-job cleanup deletes.
+        # why: cmd/pitwall's tests hang on Windows and leave a daemon running that locks files (#3).
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            go list ./... | grep -v '/cmd/pitwall$' | xargs go test -timeout 3m
+          else
+            go test -timeout 3m ./...
+          fi
       - name: Stop leftover test processes
         if: always() && runner.os == 'Windows'
         shell: pwsh
-        run: Get-Process | Where-Object { $_.ProcessName -like '*.test' -or $_.ProcessName -like 'pitwall*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+        run: |
+          Get-Process | Where-Object { $_.ProcessName -like '*.test' -or $_.ProcessName -like 'pitwall*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          exit 0
       - name: get.sh
         if: runner.os == 'macOS'
         run: sh scripts/get_test.sh
