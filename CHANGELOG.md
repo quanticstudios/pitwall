@@ -8,6 +8,14 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.11
+
+- `pitwall notify <text>` rings the pane it runs in, e.g.
+  `npm test && pitwall notify "tests passed"`.
+- A terminal notification's desktop notification shows just its message.
+- README opens with a short loop of the app; the promo video's source is in
+  `promo/` (Remotion).
+
 ## v0.0.10
 
 - Pane mode, like zellij's: the pane prefix (Ctrl+P in the aide preset,
