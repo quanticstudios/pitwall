@@ -13,7 +13,7 @@ import (
 )
 
 func notifyActivity(state model.AgentState, at time.Time) model.Activity {
-	return model.Activity{PaneID: "pane", WorkspaceID: "ws", Provider: model.ProviderCodex, State: state, UpdatedAt: at}
+	return model.Activity{PaneID: "pane", WorkspaceID: "ws", Provider: model.ProviderCodex, State: state, UpdatedAt: at, Unseen: model.NeedsYou(state)}
 }
 
 func TestDecideNotificationsStates(t *testing.T) {
@@ -57,6 +57,8 @@ func TestDecideNotificationsHistory(t *testing.T) {
 	approval := notifyActivity(model.StatePendingApproval, now.Add(2*time.Second))
 	errorActivity := notifyActivity(model.StateError, now.Add(3*time.Second))
 	done := notifyActivity(model.StateCompleted, now.Add(2*time.Second))
+	seenInput, seenApproval := input, approval
+	seenInput.Unseen, seenApproval.Unseen = false, false
 	type step struct {
 		next    []model.Activity
 		at      time.Duration
@@ -119,6 +121,18 @@ func TestDecideNotificationsHistory(t *testing.T) {
 			{next: []model.Activity{approval}, at: 2 * time.Second},
 			{at: 4 * time.Second},
 		}},
+		{"seen never notifies", []step{
+			{next: []model.Activity{working}},
+			{next: []model.Activity{seenInput}, at: time.Second},
+			{next: []model.Activity{seenInput}, at: 5 * time.Second},
+		}},
+		{"pending expires once seen", []step{
+			{next: []model.Activity{working}},
+			{next: []model.Activity{input}, at: time.Second, want: []model.AgentState{model.StateAwaitingInput}},
+			{next: []model.Activity{approval}, at: 2 * time.Second},
+			{next: []model.Activity{seenApproval}, at: 3 * time.Second},
+			{next: []model.Activity{seenApproval}, at: 5 * time.Second},
+		}},
 		{"pending consumed on focus", []step{
 			{next: []model.Activity{working}},
 			{next: []model.Activity{input}, at: time.Second, want: []model.AgentState{model.StateAwaitingInput}},
@@ -165,6 +179,7 @@ func TestDecideNotificationsWorkspaces(t *testing.T) {
 	a.State, a.UpdatedAt = model.StateError, now.Add(time.Second)
 	b.State, b.UpdatedAt = model.StateAwaitingInput, now.Add(2*time.Second)
 	c.State, c.UpdatedAt = model.StatePlanReady, now.Add(time.Second)
+	a.Unseen, b.Unseen, c.Unseen = true, true, true
 	for _, next := range [][]model.Activity{{a, b, c}, {c, b, a}} {
 		_, got := decideNotifications(h, next, false, "", now.Add(2*time.Second))
 		if len(got) != 2 || got[0].PaneID != "third" || got[1].PaneID != "second" {

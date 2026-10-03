@@ -87,8 +87,22 @@ Each sidebar row shows a tab's state:
 A tab running Claude or Codex always shows it, idle or busy: the agent's logo
 replaces the row icon. The logo goes when the agent exits back to the shell.
 
-A group header shows how many of its tabs need you. When a tab needs you and
-you are not looking at it, pitwall sends a desktop notification.
+When an agent needs you (a question, an approval, a plan, an error, a
+finished turn) in a pane you are not looking at, that pane gets a ring in the
+state's color and its sidebar row gets an accent bar and a dot. Not looking
+means another tab, another pane of the same tab, or the window in the
+background. The mark stays until you focus that pane, and a group header
+counts its tabs that carry one. pitwall also sends a desktop notification
+for it. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
+recently started waiting; press it again for the next one. Once you have
+seen them all, it walks the waiting panes by priority.
+
+Any program can ask for your attention with an OSC notification, no hooks
+needed: OSC 9 (`printf '\e]9;tests passed\a'`, iTerm2's form), OSC 777
+(`\e]777;notify;title;body\a`, the form urxvt, foot and Ghostty read) and
+kitty's OSC 99 in its single-chunk form. The pane then shows as Input with
+the message until you focus it or the agent's state changes. ConEmu's
+numeric OSC 9 forms, such as `9;4` progress, are ignored.
 
 States are exact when the agent's hooks are installed (`pitwall hooks
 install`). Without hooks, pitwall still recognizes `claude` and `codex`
@@ -205,6 +219,7 @@ conventional:
 | Ctrl+Shift+E                            | Split the pane below                                      |
 | Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up   | Next / previous pane                                      |
 | Ctrl+Shift+B                            | Show or hide the sidebar                                  |
+| Ctrl+Shift+U                            | Go to the tab that needs you, newest first                |
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste                                    |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
@@ -222,11 +237,13 @@ aide:
 | Alt+Shift+N                       | Split the pane below                           |
 | Alt+Shift+W                       | Close the pane                                 |
 | Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
+| Alt+U                             | Go to the tab that needs you, newest first     |
 | Ctrl+T then n                     | New tab                                        |
 | Ctrl+T then x                     | Close the tab                                  |
 | Ctrl+T then r                     | Rename the tab                                 |
 | Ctrl+T then h / l or Left / Right | Previous / next tab in the group               |
 | Ctrl+T then 1-9                   | Go to the Nth tab                              |
+| Ctrl+T then u                     | Go to the tab that needs you, newest first     |
 | Ctrl+T twice                      | Send Ctrl+T to the terminal                    |
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                         |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |

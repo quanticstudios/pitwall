@@ -349,6 +349,49 @@ func (n *nav) cyclePane(st *model.State, d int) {
 	}
 }
 
+// jumpAttention focuses the pane that most recently started needing the
+// user (model.NeedsYou) and is unseen, a finished turn after everything
+// else; the focused pane counts as seen, so pressing again walks on. With
+// nothing unseen it goes to the needs-you pane of highest priority, then
+// the next one on each press. With none it does nothing.
+func (n *nav) jumpAttention(st *model.State) {
+	shown := map[string]bool{}
+	for _, w := range ordered(st) {
+		shown[w.ID] = true
+	}
+	here := func(a model.Activity) bool { return a.WorkspaceID == n.workspace && a.PaneID == n.focused() }
+	var unseen, seen []model.Activity
+	for _, a := range st.Activities {
+		switch {
+		case !model.NeedsYou(a.State) || !shown[a.WorkspaceID]:
+		case a.Unseen && !here(a):
+			unseen = append(unseen, a)
+		default:
+			seen = append(seen, a)
+		}
+	}
+	var to model.Activity
+	switch {
+	case len(unseen) > 0:
+		slices.SortStableFunc(unseen, func(a, b model.Activity) int {
+			if ca, cb := a.State == model.StateCompleted, b.State == model.StateCompleted; ca != cb {
+				if ca {
+					return 1
+				}
+				return -1
+			}
+			return b.UpdatedAt.Compare(a.UpdatedAt)
+		})
+		to = unseen[0]
+	case len(seen) > 0:
+		model.SortActivities(seen)
+		to = seen[(slices.IndexFunc(seen, here)+1)%len(seen)]
+	default:
+		return
+	}
+	n.selectWorkspace(st, to.WorkspaceID, to.PaneID)
+}
+
 // bind is the active bindings; a zero nav uses the default preset.
 func (n *nav) bind() *config.Bindings {
 	if n.keys == nil {
@@ -437,6 +480,8 @@ func (n *nav) tabOp(st *model.State, op string) any {
 		n.cycleWorkspace(st, -1)
 	case "next":
 		n.cycleWorkspace(st, 1)
+	case "attention":
+		n.jumpAttention(st)
 	}
 	if d, ok := strings.CutPrefix(op, "goto_"); ok {
 		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(ordered(st)) {
@@ -529,6 +574,8 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		n.pinned = !n.pinned
 	case "toggle_sidebar":
 		n.sidebarHidden = !n.sidebarHidden
+	case "jump_attention":
+		n.jumpAttention(st)
 	case "switcher":
 		if n.switcherVisible() {
 			n.altHeld, n.pinned = false, false

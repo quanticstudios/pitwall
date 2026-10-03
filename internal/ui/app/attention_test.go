@@ -1,0 +1,129 @@
+package app
+
+import (
+	"slices"
+	"testing"
+	"time"
+
+	"gioui.org/io/key"
+
+	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
+)
+
+func TestJumpAttention(t *testing.T) {
+	t0 := time.Unix(1000, 0)
+	tab := func(ws string, panes ...string) model.Workspace {
+		root := &layout.Node{Pane: panes[0]}
+		if len(panes) > 1 {
+			root = &layout.Node{Dir: layout.Horizontal, Children: []*layout.Node{{Pane: panes[0]}, {Pane: panes[1]}}}
+		}
+		return model.Workspace{ID: ws, Tabs: []model.Tab{{ID: ws + "t", Layout: root}}, ActiveTab: ws + "t"}
+	}
+	act := func(ws, pane string, s model.AgentState, at int, unseen bool) model.Activity {
+		return model.Activity{PaneID: pane, WorkspaceID: ws, State: s, UpdatedAt: t0.Add(time.Duration(at) * time.Second), Unseen: unseen}
+	}
+	st := model.State{Workspaces: []model.Workspace{tab("w1", "a", "b"), tab("w2", "c"), tab("w3", "d"), tab("w4", "e"), tab("w5", "f"), tab("w6", "g")}}
+	st.Workspaces[2].Detached = true
+	st.Activities = []model.Activity{
+		act("w1", "a", model.StateCompleted, 5, true), // newest, but a finished turn ranks last
+		act("w1", "b", model.StatePendingApproval, 3, true),
+		act("w2", "c", model.StateAwaitingInput, 4, true),
+		act("w3", "d", model.StateError, 6, true), // detached: never
+		act("w4", "e", model.StateError, 1, false),
+		act("w5", "f", model.StatePlanReady, 2, false),
+		act("w6", "g", model.StateWorking, 7, false), // not needs-you
+	}
+	for _, tc := range []struct {
+		name  string
+		keys  *nav
+		press key.Event
+	}{
+		{"conventional", &nav{}, press("U", key.ModCtrl|key.ModShift)},
+		{"aide", &nav{keys: aide}, press("U", key.ModAlt)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := st
+			s.Activities = slices.Clone(st.Activities)
+			n := tc.keys
+			n.sync(&s)
+			n.selectWorkspace(&s, "w4", "e")
+			for i, want := range []string{"w2/c", "w1/b", "w1/a", "w4/e", "w1/b", "w2/c", "w5/f"} {
+				n.key(&s, tc.press)
+				if got := n.workspace + "/" + n.focused(); got != want {
+					t.Fatalf("press %d: at %s, want %s", i+1, got, want)
+				}
+				for j := range s.Activities { // what the window does for the focused pane
+					if s.Activities[j].PaneID == n.focused() {
+						s.Activities[j].Unseen = false
+					}
+				}
+			}
+		})
+	}
+
+	// Tab mode u does the same; with nothing that needs the user it stays.
+	s := st
+	n := nav{keys: aide}
+	n.sync(&s)
+	n.key(&s, press("T", key.ModCtrl))
+	n.key(&s, press("U", 0))
+	if n.workspace != "w2" || n.focused() != "c" {
+		t.Fatalf("tab mode u: at %s/%s", n.workspace, n.focused())
+	}
+	s.Activities = s.Activities[len(s.Activities)-1:]
+	n.key(&s, press("U", key.ModAlt))
+	if n.workspace != "w2" {
+		t.Fatalf("nothing needs you, yet moved to %s", n.workspace)
+	}
+}
+
+func TestMarkSeen(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b, panes: map[string]*paneUI{}}
+	st := b.State()
+	u.nav.sync(&st)
+	u.nav.selectWorkspace(&st, "w1", "c") // c holds an unseen OSC notification
+	unseen := func(st model.State) bool {
+		i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == "c" })
+		return i >= 0 && st.Activities[i].Unseen
+	}
+	sees := func() int {
+		n := 0
+		for _, m := range b.Sent() {
+			if m == (proto.SeePane{Pane: "c"}) {
+				n++
+			}
+		}
+		return n
+	}
+
+	u.markSeen(&st)
+	if !unseen(st) || sees() != 0 {
+		t.Fatal("an unfocused window marked the pane seen")
+	}
+	u.winFocused = true
+	before := b.State()
+	u.markSeen(&st)
+	if unseen(st) || sees() != 1 {
+		t.Fatalf("focused: unseen %v, %d SeePane", unseen(st), sees())
+	}
+	if !unseen(before) {
+		t.Fatal("markSeen wrote the backend's slice")
+	}
+	st = b.State()
+	if slices.ContainsFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == "c" }) {
+		t.Fatal("the seen notification did not clear")
+	}
+	u.markSeen(&st)
+	if sees() != 1 {
+		t.Fatal("SeePane sent twice")
+	}
+
+	for since, want := range map[time.Duration]float32{0: 2, ringPulse / 2: 4, ringPulse: 2, 2 * ringPulse: 2, time.Hour: 2} {
+		if got := ringWidth(since); got < want-0.01 || got > want+0.01 {
+			t.Errorf("ringWidth(%v) = %v, want %v", since, got, want)
+		}
+	}
+}

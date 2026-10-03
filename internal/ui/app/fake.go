@@ -29,6 +29,7 @@ type FakeBackend struct {
 	focus   chan proto.FocusSession
 	ticks   int
 	nextID  int
+	seen    map[string]time.Time // pane -> when SeePane last named it
 }
 
 // fakeHome is $HOME, so the fake's paths shorten to ~ like real ones.
@@ -42,8 +43,10 @@ var fakeHome = func() string {
 // NewFakeBackend returns five ungrouped tabs (a terminal running `go test`
 // split three ways, an idle Claude, a named log tail, an idle shell, a working
 // Claude), two groups (one with a working Codex), and two detached tabs.
+// Pane c of the first tab and the log tail carry OSC notifications nobody
+// has seen yet.
 func NewFakeBackend() *FakeBackend {
-	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, changed: make(chan struct{}, 1),
+	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, seen: map[string]time.Time{}, changed: make(chan struct{}, 1),
 		focus: make(chan proto.FocusSession, 8)}
 	now := time.Now()
 	f.st.Projects = []model.Project{
@@ -117,14 +120,26 @@ var fakeCycle = []model.AgentState{
 	model.StateAwaitingInput, model.StatePlanReady, model.StateCompleted, model.StateError,
 }
 
+// fakeNotices are the OSC notifications the fake starts with, by pane;
+// each goes once SeePane names its pane, as in the daemon.
+var fakeNotices = map[string]string{"c": "Gemini CLI: waiting for your reply", "j": "daemon restarted"}
+
 // setActivities gives each agent pane its state for this tick. The
 // terminal keeps running `go test` and the Claude in w3 keeps working; the
-// grouped agents walk fakeCycle.
+// grouped agents walk fakeCycle. An activity keeps its UpdatedAt while its
+// state holds, and is Unseen like the daemon's.
 func (f *FakeBackend) setActivities() {
+	prev := map[string]model.Activity{}
+	for _, a := range f.st.Activities {
+		prev[a.PaneID] = a
+	}
 	f.st.Activities = nil
 	for i, p := range f.st.Panes {
 		a := model.Activity{PaneID: p.ID, WorkspaceID: p.WorkspaceID, Provider: p.Provider, SessionID: "s-" + p.ID, UpdatedAt: time.Now()}
 		switch {
+		case fakeNotices[p.ID] != "" && f.seen[p.ID].IsZero():
+			a.Provider, a.SessionID = model.ProviderTerminal, ""
+			a.State, a.Detail = model.StateAwaitingInput, fakeNotices[p.ID]
 		case p.Provider == "":
 			continue
 		case p.Provider == model.ProviderTerminal:
@@ -136,6 +151,10 @@ func (f *FakeBackend) setActivities() {
 		default:
 			a.State = fakeCycle[(f.ticks+i*2)%len(fakeCycle)]
 		}
+		if old, ok := prev[p.ID]; ok && old.State == a.State && old.Detail == a.Detail {
+			a.UpdatedAt = old.UpdatedAt
+		}
+		a.Unseen = model.NeedsYou(a.State) && a.UpdatedAt.After(f.seen[p.ID])
 		f.st.Activities = append(f.st.Activities, a)
 	}
 }
@@ -334,6 +353,9 @@ func (f *FakeBackend) Send(msg any) error {
 		return nil
 	}
 	switch m := msg.(type) {
+	case proto.SeePane:
+		f.seen[m.Pane] = time.Now()
+		f.setActivities()
 	case proto.Resize:
 		f.sizes[m.Pane] = [2]int{m.Cols, m.Rows}
 	case proto.Scroll:

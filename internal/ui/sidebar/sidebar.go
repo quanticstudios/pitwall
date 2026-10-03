@@ -283,6 +283,7 @@ type view struct {
 	activeProject string
 	byProject     map[string][]model.Workspace // "" holds the ungrouped sessions
 	activity      map[string]*model.Activity   // a key for every live session
+	unseen        map[string]*model.Activity   // a live session's first unseen activity by priority
 	top           []string                     // groups and live ungrouped sessions, in order
 	groups        map[string]bool
 	agent         map[string]model.Provider // a live session's agent, idle or busy
@@ -290,13 +291,16 @@ type view struct {
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active,
-		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, agent: map[string]model.Provider{}}
+		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{}}
 	if v.now.IsZero() {
 		v.now = time.Now()
 	}
-	acts := map[string][]model.Activity{}
+	acts, unseen := map[string][]model.Activity{}, map[string][]model.Activity{}
 	for _, a := range st.Activities {
 		acts[a.WorkspaceID] = append(acts[a.WorkspaceID], a)
+		if a.Unseen {
+			unseen[a.WorkspaceID] = append(unseen[a.WorkspaceID], a)
+		}
 	}
 	groups := map[string]bool{}
 	for _, p := range st.Projects {
@@ -316,6 +320,9 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string
 		}
 		v.byProject[g] = append(v.byProject[g], ws)
 		v.activity[ws.ID] = model.Aggregate(acts[ws.ID])
+		if u := model.Aggregate(unseen[ws.ID]); u != nil {
+			v.unseen[ws.ID] = u
+		}
 		if p := AgentOf(st, ws); p != "" {
 			v.agent[ws.ID] = p
 		}
@@ -873,9 +880,9 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	if hovered {
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
 	}
-	attention := 0
+	attention := 0 // tabs with something the user has not seen
 	for _, ws := range v.byProject[p.ID] {
-		if model.Tier(v.activity[ws.ID]) == model.TierAttention {
+		if v.unseen[ws.ID] != nil {
 			attention++
 		}
 	}
@@ -993,6 +1000,13 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if selected && !isActive {
 		base = theme.Mix(base, th.Primary, 0.07)
 	}
+	unseen := v.unseen[ws.ID]
+	if ghost {
+		unseen = nil
+	}
+	if unseen != nil {
+		base = theme.Mix(base, StateColor(th, unseen.State), 0.1)
+	}
 	if ghost {
 		base = th.SurfaceSecondary
 	} else if base != th.Sidebar {
@@ -1004,6 +1018,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if selected {
 		paint.FillShape(gtx.Ops, theme.Mix(base, th.Primary, 0.55), clip.Stroke{Path: clip.UniformRRect(rect.Inset(1), rr-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	}
+	if unseen != nil {
+		// Something here wants the user: an accent bar down the left edge.
+		bar := image.Rect(gtx.Dp(2), gtx.Dp(10), gtx.Dp(5), h-gtx.Dp(10))
+		paint.FillShape(gtx.Ops, StateColor(th, unseen.State), clip.UniformRRect(bar, bar.Dx()/2).Op(gtx.Ops))
+	}
 
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-10
@@ -1012,7 +1031,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		gtx.Constraints = layout.Exact(image.Pt(inner, l1))
 		off := op.Offset(image.Pt(left, pad)).Push(gtx.Ops)
 		nameCol := theme.Mix(base, th.Fg, 0.95)
-		if isActive || ghost || model.Tier(a) == model.TierAttention {
+		if isActive || ghost || unseen != nil || model.Tier(a) == model.TierAttention {
 			nameCol = th.Fg
 		}
 		items := []item{
@@ -1024,8 +1043,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return label(gtx, th, semibold(th.UIFont), 13, nameCol, title)
 			}},
 		}
+		if unseen != nil {
+			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				d := gtx.Dp(6)
+				paint.FillShape(gtx.Ops, StateColor(th, unseen.State), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
+				return layout.Dimensions{Size: image.Pt(d, d)}
+			}})
+		}
 		if a != nil {
-			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
+			items = append(items, item{right: unseen == nil, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
 		}
 		hrow(gtx, l1, gtx.Dp(8), items...)
 		off.Pop()
@@ -1184,14 +1210,14 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 	case model.StateTerminalRunning:
 		return drawIcon(gtx, icTerminal, sz, th.Green, 0)
 	}
-	return drawIcon(gtx, icGitBranch, sz, stateColor(th, a.State), 0)
+	return drawIcon(gtx, icGitBranch, sz, StateColor(th, a.State), 0)
 }
 
 // pill is ActivityPill: rounded-full, px-1.5 py-px, 10px semibold, a pulsing
 // dot while the agent works.
 func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.NRGBA) layout.Dimensions {
 	th := v.th
-	col := stateColor(th, a.State)
+	col := StateColor(th, a.State)
 	soft := float32(0.14)
 	if a.State == model.StatePlanReady {
 		soft = 0.15
@@ -1716,7 +1742,7 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 		a := model.Aggregate(acts[ws.ID])
 		state, stateCol := "idle", th.Muted
 		if a != nil {
-			state, stateCol = PillText(*a), stateColor(th, a.State)
+			state, stateCol = PillText(*a), StateColor(th, a.State)
 		}
 		off := op.Offset(image.Pt(p+gtx.Dp(8), top+i*rowH)).Push(gtx.Ops)
 		gtx := gtx
@@ -1929,8 +1955,9 @@ func pulse(t float64) float32 {
 	return float32(0.75 + 0.25*math.Cos(t*math.Pi))
 }
 
-// stateColor is the accent aide uses for a state's pill, dot and icon.
-func stateColor(th *theme.Theme, s model.AgentState) color.NRGBA {
+// StateColor is the accent aide uses for a state's pill, dot and icon, and
+// the color of the attention ring on a pane.
+func StateColor(th *theme.Theme, s model.AgentState) color.NRGBA {
 	switch s {
 	case model.StateError:
 		return th.Red

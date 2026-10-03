@@ -46,6 +46,7 @@ type Keys struct {
 	GotoTab7       Binding `toml:"goto_tab_7" doc:"Go to tab 7"`
 	GotoTab8       Binding `toml:"goto_tab_8" doc:"Go to tab 8"`
 	GotoTab9       Binding `toml:"goto_tab_9" doc:"Go to tab 9"`
+	JumpAttention  Binding `toml:"jump_attention" doc:"Go to the tab that needs you, newest first"`
 	NewTab         Binding `toml:"new_tab" doc:"New tab below this one, in its folder"`
 	CloseTab       Binding `toml:"close_tab" doc:"Close the tab and all its panes"`
 	NextPane       Binding `toml:"next_pane" doc:"Next pane"`
@@ -68,20 +69,21 @@ type Keys struct {
 
 // TabKeys is [keys.tab].
 type TabKeys struct {
-	New    Binding `toml:"new" doc:"New tab"`
-	Close  Binding `toml:"close" doc:"Close the tab"`
-	Rename Binding `toml:"rename" doc:"Rename the tab"`
-	Prev   Binding `toml:"prev" doc:"Previous tab"`
-	Next   Binding `toml:"next" doc:"Next tab"`
-	Goto1  Binding `toml:"goto_1" doc:"Go to tab 1"`
-	Goto2  Binding `toml:"goto_2" doc:"Go to tab 2"`
-	Goto3  Binding `toml:"goto_3" doc:"Go to tab 3"`
-	Goto4  Binding `toml:"goto_4" doc:"Go to tab 4"`
-	Goto5  Binding `toml:"goto_5" doc:"Go to tab 5"`
-	Goto6  Binding `toml:"goto_6" doc:"Go to tab 6"`
-	Goto7  Binding `toml:"goto_7" doc:"Go to tab 7"`
-	Goto8  Binding `toml:"goto_8" doc:"Go to tab 8"`
-	Goto9  Binding `toml:"goto_9" doc:"Go to tab 9"`
+	New       Binding `toml:"new" doc:"New tab"`
+	Close     Binding `toml:"close" doc:"Close the tab"`
+	Rename    Binding `toml:"rename" doc:"Rename the tab"`
+	Prev      Binding `toml:"prev" doc:"Previous tab"`
+	Next      Binding `toml:"next" doc:"Next tab"`
+	Attention Binding `toml:"attention" doc:"Go to the tab that needs you, newest first"`
+	Goto1     Binding `toml:"goto_1" doc:"Go to tab 1"`
+	Goto2     Binding `toml:"goto_2" doc:"Go to tab 2"`
+	Goto3     Binding `toml:"goto_3" doc:"Go to tab 3"`
+	Goto4     Binding `toml:"goto_4" doc:"Go to tab 4"`
+	Goto5     Binding `toml:"goto_5" doc:"Go to tab 5"`
+	Goto6     Binding `toml:"goto_6" doc:"Go to tab 6"`
+	Goto7     Binding `toml:"goto_7" doc:"Go to tab 7"`
+	Goto8     Binding `toml:"goto_8" doc:"Go to tab 8"`
+	Goto9     Binding `toml:"goto_9" doc:"Go to tab 9"`
 }
 
 // Color is "#rrggbb" or "#rrggbbaa".

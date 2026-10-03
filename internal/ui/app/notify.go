@@ -36,7 +36,9 @@ type notificationHistory struct {
 
 // decideNotifications is pure: it copies history before updating it. Returned
 // activities are deliveries; pending activities wait until the workspace's
-// three-second interval expires. Looking at a workspace consumes its activity.
+// three-second interval expires. Only unseen activities (Activity.Unseen)
+// notify, so a notification and the attention ring agree; looking at a
+// workspace consumes its activity too.
 func decideNotifications(previous notificationHistory, next []model.Activity, focused bool, activeWorkspace string, now time.Time) (notificationHistory, []model.Activity) {
 	h := notificationHistory{
 		activities: make(map[string]model.Activity, len(next)),
@@ -55,7 +57,7 @@ func decideNotifications(previous notificationHistory, next []model.Activity, fo
 	// Expire removed panes and requests that the agent no longer needs.
 	for ws, a := range h.pending {
 		current, ok := h.activities[a.PaneID]
-		if !ok || current.State != a.State || current.WorkspaceID != ws || focused && ws == activeWorkspace {
+		if !ok || current.State != a.State || !current.Unseen || current.WorkspaceID != ws || focused && ws == activeWorkspace {
 			delete(h.pending, ws)
 		}
 	}
@@ -66,7 +68,7 @@ func decideNotifications(previous notificationHistory, next []model.Activity, fo
 		seen := h.seen[key]
 		h.seen[key] = true
 		old := previous.activities[a.PaneID]
-		if previous.activities == nil || seen || old.State == a.State || focused && a.WorkspaceID == activeWorkspace {
+		if previous.activities == nil || seen || !a.Unseen || old.State == a.State || focused && a.WorkspaceID == activeWorkspace {
 			continue
 		}
 		switch a.State {
