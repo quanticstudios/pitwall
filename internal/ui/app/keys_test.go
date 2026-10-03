@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -204,22 +203,21 @@ func TestToggleSidebarAide(t *testing.T) {
 	}
 }
 
-func TestShortcuts(t *testing.T) {
-	rows := map[string]string{}
-	for _, s := range shortcuts(aide) {
-		rows[s.what] = strings.Join(s.keys, " ")
-	}
-	if rows["Go to tab 1-9"] != "Alt+1 … Alt+9" || rows["Split the pane below"] != "Alt+Shift+N" ||
-		rows["Tab mode: new tab"] != "Ctrl+T, then N" || rows["Show every tab; the tab keys walk them all"] != "Hold Alt" ||
-		rows["New tab below this one, in its folder"] != "Alt+Shift+T" {
-		t.Fatalf("aide rows: %v", rows)
-	}
-	rows = map[string]string{}
-	for _, s := range shortcuts(conventional) {
-		rows[s.what] = strings.Join(s.keys, " ")
-	}
-	if rows["Go to tab 1-9"] != "Alt+1 … Alt+9" || rows["Next tab in sidebar order"] != "Ctrl+Tab Ctrl+PageDown" ||
-		rows["First tab of the next group"] != "Ctrl+Shift+PageDown" || rows["Tab mode: new tab"] != "" {
-		t.Fatalf("conventional rows: %v", rows)
+// TestSettingsKeys: Ctrl+, opens and closes the settings page in both
+// presets, Escape closes it, and neither reaches the pane.
+func TestSettingsKeys(t *testing.T) {
+	for _, b := range []*config.Bindings{aide, conventional} {
+		u, keys := keyWindow(t, b)
+		u.cfg.Path = t.TempDir() + "/config.toml"
+		if got := keys(press(",", key.ModCtrl)); got != "" || !u.settings.Shown() {
+			t.Fatalf("%s: Ctrl+, shown %v, pane got %q", b.Preset, u.settings.Shown(), got)
+		}
+		if keys(press(",", key.ModCtrl)); u.settings.Shown() {
+			t.Fatalf("%s: second Ctrl+, left settings open", b.Preset)
+		}
+		keys(press(",", key.ModCtrl))
+		if got := keys(press(key.NameEscape, 0)); got != "" || u.settings.Shown() {
+			t.Fatalf("%s: Escape: shown %v, pane got %q", b.Preset, u.settings.Shown(), got)
+		}
 	}
 }
