@@ -12,6 +12,9 @@ import (
 	"syscall"
 )
 
+// ttyPath is the calling process's terminal, for pitwall notify.
+const ttyPath = "/dev/tty"
+
 // tryLock takes an exclusive flock on f without waiting; false means another
 // process holds it.
 func tryLock(f *os.File) (bool, error) {

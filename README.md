@@ -154,12 +154,12 @@ for it. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 
-Any program can ask for your attention with an OSC notification, no hooks
-needed: OSC 9 (`printf '\e]9;tests passed\a'`, iTerm2's form), OSC 777
-(`\e]777;notify;title;body\a`, the form urxvt, foot and Ghostty read) and
-kitty's OSC 99 in its single-chunk form. The pane then shows as Input with
-the message until you focus it or the agent's state changes. ConEmu's
-numeric OSC 9 forms, such as `9;4` progress, are ignored.
+Any command can ask for your attention, no hooks needed:
+`npm test && pitwall notify "tests passed"` rings the pane it runs in. Tools
+that send terminal notifications ring it too: OSC 9 (iTerm2's form), OSC 777
+(urxvt, foot, Ghostty) and kitty's OSC 99 in its single-chunk form. The pane
+then shows as Input with the message until you focus it or the agent's state
+changes. ConEmu's numeric OSC 9 forms, such as `9;4` progress, are ignored.
 
 States are exact when the agent's hooks are installed (`pitwall hooks
 install`). Without hooks, pitwall still recognizes `claude` and `codex`

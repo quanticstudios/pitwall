@@ -107,6 +107,10 @@ func notificationCommand(ctx context.Context, n notification) *exec.Cmd {
 	body := model.PillLabel(n.activity)
 	if detail := []rune(n.activity.Detail); len(detail) > 0 {
 		body += ": " + string(detail[:min(120, len(detail))])
+		// A terminal notification is its own message; "Input:" adds nothing.
+		if n.activity.Provider == model.ProviderTerminal {
+			body = string(detail[:min(120, len(detail))])
+		}
 	}
 	return desktopCommand(ctx, urgent, n.activity.WorkspaceID, n.title, body)
 }
