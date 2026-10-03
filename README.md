@@ -211,7 +211,9 @@ sessions without the switcher, and Ctrl+Shift+N makes one. Ctrl+Shift+U
 crosses sessions: it switches to the session of the pane that needs you.
 Desktop notifications start with the session's name.
 
-Each window shows one session, and you can open as many windows as you like:
+Each window shows one session, and you can open as many windows as you like.
+Running `pitwall` again opens another window: on the most recent session no
+window shows, else on a new session in the folder you ran it from.
 `pitwall -s <name>` opens one on that session, making it if it does not
 exist. Asking for a session another window already shows raises that window.
 When a session ends, because you killed it or closed its last tab, its

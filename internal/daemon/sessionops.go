@@ -182,6 +182,19 @@ func (d *Daemon) fixOrders() {
 // used one, made when there is none. A session whose tabs are all detached
 // gets a shell, so a window always lands in one. helloMu keeps two GUIs
 // that connect at once from making two.
+// windowsOn counts the GUI windows showing session id. Callers hold d.mu.
+// ponytail: a window counts once it sends SessionShow, so two pitwalls
+// started in the same instant can both take the same free session.
+func (d *Daemon) windowsOn(id string) int {
+	n := 0
+	for c := range d.clients {
+		if c.session == id {
+			n++
+		}
+	}
+	return n
+}
+
 func (d *Daemon) firstSession(ctx context.Context, cwd, name string) error {
 	d.helloMu.Lock()
 	defer d.helloMu.Unlock()
@@ -189,9 +202,18 @@ func (d *Daemon) firstSession(ctx context.Context, cwd, name string) error {
 		cwd = ""
 	}
 	d.mu.Lock()
-	s := d.st.Recent()
+	// A window without -s takes the most recent session no window shows, so
+	// a second pitwall opens a new session in its folder instead of a copy.
+	var s *model.Session
 	if name != "" {
 		s = d.st.SessionNamed(name)
+	} else {
+		for i := range d.st.Sessions {
+			c := &d.st.Sessions[i]
+			if d.windowsOn(c.ID) == 0 && (s == nil || c.UsedAt.After(s.UsedAt)) {
+				s = c
+			}
+		}
 	}
 	if s == nil {
 		d.mu.Unlock()
