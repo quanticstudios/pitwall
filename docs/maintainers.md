@@ -54,7 +54,7 @@ before approving a run. Use GitHub-hosted runners for public contributions.
    suites remain advisory; a green build does not prove those suites passed.
 3. Tag that commit on `main` with `v0.1.0-alpha.N` and push the tag on its
    own. The release workflow verifies that the tagged commit belongs to `main`
-   before building, and publishes a tag with a suffix as a pre-release.
+   before building and publishes the release as the latest one.
 4. Review the six platform archives, `checksums.txt`, notices and release notes
    on the GitHub release before announcing it.
 
