@@ -68,7 +68,8 @@ jobs:
         run: sh scripts/get_test.sh
       - name: get.ps1
         if: runner.os == 'Windows'
-        shell: powershell
+        # why: the runner's Windows PowerShell 5.1 crashed loading its own assembly.
+        shell: pwsh
         run: |
           $env:PITWALL_GET_TEST = '1'
           . ./scripts/get.ps1
