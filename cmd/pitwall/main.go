@@ -18,10 +18,12 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/daemon"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 const usage = `usage:
@@ -41,6 +43,7 @@ const usage = `usage:
   pitwall tab new            open a tab in the calling pane's session
   pitwall tab rename [name...]  name the calling pane's tab (empty clears)
   pitwall tab close          close the calling pane's tab
+  pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
 `
 
 func main() {
@@ -61,6 +64,8 @@ func main() {
 		runHook(os.Args[2:])
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)
+	case "config":
+		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
 	case "ls", "new", "attach", "detach", "kill", "rename", "tab":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
@@ -152,6 +157,7 @@ func runDaemon() error {
 	// Panes inherit this, so their hooks reach this daemon even when the
 	// shell inside changes XDG_RUNTIME_DIR.
 	os.Setenv("PITWALL_SOCKET", path)
+	vt.DefaultPalette = config.Palette() // color queries answer with the theme the GUI draws
 	d, err := daemon.New()
 	if err != nil {
 		ln.Close()

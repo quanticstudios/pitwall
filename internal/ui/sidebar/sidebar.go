@@ -700,7 +700,7 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 	off := op.Offset(image.Pt(gtx.Dp(18), 0)).Push(gtx.Ops)
 	hrow(gtx, h-1, gtx.Dp(8),
 		item{w: func(gtx layout.Context) layout.Dimensions {
-			return drawIcon(gtx, icSquareTerm, gtx.Dp(22), th.Primary, 0)
+			return drawLogo(gtx, th, gtx.Dp(22))
 		}},
 		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, semibold(th.UIFont), 14, th.Fg, "pitwall")
