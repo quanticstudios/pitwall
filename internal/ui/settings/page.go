@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -268,6 +269,12 @@ func (p *Page) copy(gtx gl.Context, id, s string) {
 
 func open(target string) {
 	cmd := exec.Command("xdg-open", target)
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", target)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
+	}
 	if cmd.Start() == nil {
 		go cmd.Wait()
 	}

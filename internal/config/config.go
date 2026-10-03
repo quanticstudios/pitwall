@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -179,14 +180,31 @@ func (p Problem) String() string {
 
 type issue struct{ path, msg string }
 
-// Dir is $XDG_CONFIG_HOME/pitwall, ~/.config/pitwall without it.
+// Dir is $XDG_CONFIG_HOME/pitwall, ~/.config/pitwall without it, and
+// %APPDATA%\pitwall on Windows.
 func Dir() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".config")
+	return filepath.Join(baseDir("XDG_CONFIG_HOME", ".config", os.UserConfigDir), "pitwall")
+}
+
+// StateDir is $XDG_STATE_HOME/pitwall, ~/.local/state/pitwall without it,
+// and %LOCALAPPDATA%\pitwall on Windows.
+func StateDir() string {
+	return filepath.Join(baseDir("XDG_STATE_HOME", filepath.Join(".local", "state"), os.UserCacheDir), "pitwall")
+}
+
+// baseDir is $name, else the Windows folder win names, else ~/rel. macOS
+// keeps the XDG layout, like the agent CLIs pitwall runs.
+func baseDir(name, rel string, win func() (string, error)) string {
+	if d := os.Getenv(name); d != "" {
+		return d
 	}
-	return filepath.Join(base, "pitwall")
+	if runtime.GOOS == "windows" {
+		if d, err := win(); err == nil {
+			return d
+		}
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, rel)
 }
 
 // Path is config.toml in Dir.

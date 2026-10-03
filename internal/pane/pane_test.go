@@ -1,3 +1,5 @@
+//go:build linux
+
 package pane
 
 import (
@@ -14,9 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 
-	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -244,11 +245,12 @@ func TestResizeRejectsBadSizes(t *testing.T) {
 func TestConcurrentResizesAgree(t *testing.T) {
 	p, f := start(t, "p1", "sleep", "100")
 	kernel := func() [2]int {
-		var ws pty.Winsize
-		if err := p.ioctl(syscall.TIOCGWINSZ, unsafe.Pointer(&ws)); err != nil {
+		var ws *unix.Winsize
+		if err := p.control(func(fd int) (err error) { ws, err = unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); return }); err != nil {
 			t.Error(err)
+			return [2]int{}
 		}
-		return [2]int{int(ws.Cols), int(ws.Rows)}
+		return [2]int{int(ws.Col), int(ws.Row)}
 	}
 	// Another resize must not reach the kernel while this one is still
 	// resizing the emulator.

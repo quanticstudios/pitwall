@@ -5,6 +5,7 @@ import (
 	"context"
 	"log"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +175,9 @@ func TestDecideNotificationsWorkspaces(t *testing.T) {
 }
 
 func TestNotificationCommand(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("checks the notify-send arguments")
+	}
 	for _, tc := range []struct {
 		state          model.AgentState
 		label, urgency string
@@ -217,7 +221,7 @@ func TestDesktopSenderMissing(t *testing.T) {
 	for range 2 {
 		send(context.Background(), notification{})
 	}
-	if strings.Count(output.String(), "notify-send unavailable") != 1 {
+	if strings.Count(output.String(), " unavailable") != 1 {
 		t.Fatalf("missing command logs: %q", output.String())
 	}
 }
