@@ -12,9 +12,3 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-  - package-ecosystem: npm
-    directory: /promo
-    schedule:
-      interval: weekly
-    versioning-strategy: increase
-    open-pull-requests-limit: 5
