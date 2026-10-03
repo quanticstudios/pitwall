@@ -31,7 +31,7 @@ instead of changing it.
 
 ## References
 
-- aide (look and behavior to match): `../aide`, especially
+- aide (look and behavior to match): `../aide` (a sibling checkout), especially
   `src/renderer/src/components/SidebarTree.tsx`, `src/shared/workspace-activity.ts`,
   `src/main/git-service.ts`, the CSS tokens under `src/renderer/src`.
 - tuios (MIT, Go, read-only, git-excluded): `.ref/tuios`.
