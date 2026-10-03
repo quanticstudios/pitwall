@@ -174,7 +174,7 @@ func mergeHooks(original, generated []byte, install bool) ([]byte, []string, err
 			}
 		}
 	}
-	names := make([]string, 0, len(events)+len(wanted))
+	var names []string
 	for name := range events {
 		names = append(names, name)
 	}

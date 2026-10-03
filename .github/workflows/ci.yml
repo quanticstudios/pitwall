@@ -2,7 +2,12 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -14,9 +19,12 @@ env:
 jobs:
   linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - name: Install Gio's build dependencies
@@ -33,7 +41,11 @@ jobs:
       - run: go vet ./...
       - name: go vet for Windows
         run: GOOS=windows go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -timeout 5m ./...
+      - name: Check the vendored terminal module
+        run: |
+          go -C third_party/x-vt vet ./...
+          go -C third_party/x-vt test -race -timeout 5m ./...
       - name: Install scripts
         run: |
           sh -n scripts/install.sh
@@ -51,8 +63,10 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           # why: a hung Windows test can hold a file in the build cache, failing the cache save.

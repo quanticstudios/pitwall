@@ -40,6 +40,8 @@ instead of changing it.
 
 ## Rules
 
+- Read `CONTRIBUTING.md` before preparing a contribution. Send every change to
+  `main` through a pull request; GitHub blocks direct pushes for everyone.
 - Go 1.27.1 via `mise.toml`. `gofmt`, `go vet ./...` and `go test ./...` pass
   before every commit.
 - Stdlib first. A new dependency needs a reason in the commit message.
