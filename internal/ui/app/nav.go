@@ -23,6 +23,8 @@ type nav struct {
 	altHeld   bool              // the hold modifier is down on its own: the switcher shows
 	pinned    bool              // the switcher stays open without the hold
 
+	sidebarHidden bool // toggle_sidebar flips it; the window slides the sidebar
+
 	// An OpenPane is in flight: the workspace and the panes it had, so the
 	// pane that shows up next gets focus.
 	openingWS string
@@ -525,6 +527,8 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		n.cyclePane(st, 1)
 	case "pin_switcher":
 		n.pinned = !n.pinned
+	case "toggle_sidebar":
+		n.sidebarHidden = !n.sidebarHidden
 	case "switcher":
 		if n.switcherVisible() {
 			n.altHeld, n.pinned = false, false

@@ -120,6 +120,9 @@ type Sidebar struct {
 
 	renaming      string // workspace whose name is being edited
 	renamingGroup string // or the group's
+	renamingTab   string // or a tab's, in session renamingTabWS
+	renamingTabWS string
+	tabState      map[string]*tabRowState
 	focusEditor   bool
 	editorLaidOut bool
 	selectAll     bool   // select the name once the field has focus
@@ -153,8 +156,8 @@ var projectColorIDs = [...]string{
 }
 
 type rowState struct {
-	click, more widget.Clickable
-	ctx         int // tag for right-click
+	click, more, add widget.Clickable
+	ctx              int // tag for right-click
 }
 
 // Layout draws st and returns events from this frame's input.
@@ -180,6 +183,11 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 		}
 	}
 	if s.renamingGroup != "" && !slices.ContainsFunc(st.Projects, func(p model.Project) bool { return p.ID == s.renamingGroup }) {
+		s.cancelRename()
+	}
+	if s.renamingTab != "" && !slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool {
+		return w.ID == s.renamingTabWS && slices.ContainsFunc(w.Tabs, func(t model.Tab) bool { return t.ID == s.renamingTab })
+	}) {
 		s.cancelRename()
 	}
 	if v.activeProject != s.activeProject {
@@ -372,10 +380,13 @@ func (s *Sidebar) targets(v *view, id string) []string {
 
 // Editing reports whether an inline rename holds key focus, so the window
 // keeps its panes from taking it back.
-func (s *Sidebar) Editing() bool { return s.renaming != "" || s.renamingGroup != "" }
+func (s *Sidebar) Editing() bool {
+	return s.renaming != "" || s.renamingGroup != "" || s.renamingTab != ""
+}
 
 func (s *Sidebar) startRename(ws, group, name string) {
 	s.renaming, s.renamingGroup, s.focusEditor = ws, group, true
+	s.renamingTab, s.renamingTabWS = "", ""
 	s.menuWS, s.groupMenu = "", ""
 	s.editor.SetText(name)
 	s.editor.SetCaret(utf8.RuneCountInString(name), 0)
@@ -383,7 +394,7 @@ func (s *Sidebar) startRename(ws, group, name string) {
 }
 
 func (s *Sidebar) cancelRename() {
-	s.renaming, s.renamingGroup = "", ""
+	s.renaming, s.renamingGroup, s.renamingTab, s.renamingTabWS = "", "", "", ""
 	s.focusEditor, s.selectAll = false, false
 }
 
@@ -464,6 +475,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	}
 	for _, ws := range v.st.Workspaces {
 		r := s.row(ws.ID)
+		s.updateTabs(gtx, ws)
 		for {
 			c, ok := r.click.Update(gtx)
 			if !ok {
@@ -547,7 +559,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 				break
 			}
 			if _, ok := ev.(widget.SubmitEvent); ok {
-				if name := strings.TrimSpace(s.editor.Text()); name != "" {
+				if s.renamingTab != "" {
+					// An empty name goes back to the automatic title.
+					s.events = append(s.events, RenameTab{WorkspaceID: s.renamingTabWS, TabID: s.renamingTab, Name: strings.TrimSpace(s.editor.Text())})
+				} else if name := strings.TrimSpace(s.editor.Text()); name != "" {
 					if s.renamingGroup != "" {
 						s.events = append(s.events, RenameGroup{GroupID: s.renamingGroup, Name: name})
 					} else {
@@ -613,6 +628,11 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for _, r := range s.rows {
 		drain(&r.click)
 		drain(&r.more)
+		drain(&r.add)
+	}
+	for _, r := range s.tabState {
+		drain(&r.click)
+		drain(&r.close)
 	}
 	for i := range s.menuItem {
 		drain(&s.menuItem[i])
@@ -627,7 +647,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 
 // snapshot is the sidebar state input can change, to spot that it did.
 func (s *Sidebar) snapshot() [8]string {
-	return [8]string{s.menuWS, s.groupMenu, s.appearance, s.renaming, s.renamingGroup, s.anchor,
+	return [8]string{s.menuWS, s.groupMenu, s.appearance, s.renaming + "\x00" + s.renamingTab, s.renamingGroup, s.anchor,
 		fmt.Sprint(s.detachedOpen, s.moveOpen, s.killArmed), fmt.Sprint(len(s.selected), s.expanded)}
 }
 
@@ -731,6 +751,13 @@ func (s *Sidebar) rowList(gtx layout.Context, v *view, wss []model.Workspace) (l
 		off.Pop()
 		y += d.Size.Y
 		animating = animating || a
+		if s.showsTabs(ws) {
+			off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+			th, a := s.drawTabs(gtx, v, ws)
+			off.Pop()
+			y += th
+			animating = animating || a
+		}
 	}
 	y += gtx.Dp(4)
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, y)}, animating
@@ -870,6 +897,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 	a := v.activity[ws.ID]
 	isActive := ws.ID == v.active
 	stats, hasStats := v.st.Stats[ws.ID]
+	title, secondary := displayName(ws)
 
 	// py-2, line 1 (13px * 1.5), gap-1, line 2 (11px * 1.5), py-2
 	w := gtx.Constraints.Max.X
@@ -879,7 +907,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 	rr := gtx.Dp(8)
 
 	animating := model.Pulses(a)
-	hovered := r.click.Hovered() || r.more.Hovered()
+	hovered := r.click.Hovered() || r.more.Hovered() || r.add.Hovered()
 	base := rowBase(th, a, isActive, hovered)
 	selected := s.selected[ws.ID]
 	if selected && !isActive {
@@ -915,7 +943,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 				if s.renaming == ws.ID {
 					return s.renameField(gtx, th)
 				}
-				return label(gtx, th, semibold(th.UIFont), 13, nameCol, ws.Name)
+				return label(gtx, th, semibold(th.UIFont), 13, nameCol, title)
 			}},
 		}
 		if a != nil {
@@ -946,6 +974,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 		if !inRepo {
 			where = ShortPath(ws.Path)
 		}
+		if secondary != "" {
+			where = secondary + " · " + where
+		}
 		line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.MonoFont, 11, muted, where)
 		}})
@@ -969,9 +1000,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 	})
 	area.Pop()
 
-	// The "…" trigger: absolute right-1 top-1.5, visible on row hover.
+	// The "…" trigger: absolute right-1 top-1.5, visible on row hover, and
+	// the new-tab "+" left of it.
 	btn := gtx.Dp(24)
 	pos := image.Pt(w-gtx.Dp(4)-btn, gtx.Dp(6))
+	ao := op.Offset(pos.Sub(image.Pt(btn+gtx.Dp(2), 0))).Push(gtx.Ops)
+	if hovered && s.menuWS != ws.ID {
+		iconButton(gtx, th, &r.add, icPlus, btn, gtx.Dp(14), false)
+	}
+	ao.Pop()
 	off := op.Offset(pos).Push(gtx.Ops)
 	if hovered || s.menuWS == ws.ID {
 		iconButton(gtx, th, &r.more, icEllipsis, btn, gtx.Dp(16), false)
