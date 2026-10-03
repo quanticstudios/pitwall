@@ -39,7 +39,7 @@ func allMessages() []any {
 		Projects:   []model.Project{{ID: "p", Name: "n", Root: "/r", Kind: model.ProjectGit, Color: "red"}},
 		Workspaces: []model.Workspace{{ID: "w", ProjectID: "p", Name: "x", Branch: "x", Path: "/r/x", UpdatedAt: now, Tabs: []model.Tab{{ID: "t", Layout: tree}}, ActiveTab: "t"}},
 		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cmd: []string{"claude"}, Cwd: "/r/x", Exited: true, ExitCode: 2, Provider: model.ProviderClaude, SessionID: "s"}},
-		Activities: []model.Activity{{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: now}},
+		Activities: []model.Activity{{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StateAwaitingInput, UpdatedAt: now, Unseen: true}},
 		Stats:      map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
 	}
 	return []any{
@@ -55,7 +55,7 @@ func allMessages() []any {
 		NewTab{WorkspaceID: "w", FromPane: "a"}, CloseTab{WorkspaceID: "w", TabID: "t"}, RenameTab{Pane: "a", Name: "fix auth"},
 		SelectTab{WorkspaceID: "w", TabID: "t"}, DetachSession{WorkspaceID: "w", Detached: true}, KillSession{WorkspaceID: "w"},
 		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t"},
-		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"},
+		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"},
 		NewSession{Cwd: "/tmp", GroupID: "g"}, SetSessionGroup{WorkspaceID: "w", GroupID: "g"},
 		NewGroup{Name: "agents", WorkspaceIDs: []string{"w", "x"}}, RenameGroup{GroupID: "g", Name: "n"}, DeleteGroup{GroupID: "g"},
 		Scroll{Pane: "a", Lines: -3},

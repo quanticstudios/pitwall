@@ -156,6 +156,7 @@ var presets = map[string]struct {
 			"copy": {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "open_settings": {"Ctrl+,"},
+			"jump_attention": {"Alt+U"},
 		},
 	},
 	"conventional": {
@@ -170,6 +171,7 @@ var presets = map[string]struct {
 			"copy":     {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "open_settings": {"Ctrl+,"},
+			"jump_attention": {"Ctrl+Shift+U"},
 		},
 	},
 }
@@ -180,7 +182,7 @@ func init() {
 			d := fmt.Sprint(i)
 			p.global["goto_tab_"+d] = []string{"Alt+" + d}
 		}
-		tab := map[string][]string{"new": {"N"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}}
+		tab := map[string][]string{"new": {"N"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}, "attention": {"U"}}
 		for i := 1; i <= 9; i++ {
 			tab[fmt.Sprint("goto_", i)] = []string{fmt.Sprint(i)}
 		}

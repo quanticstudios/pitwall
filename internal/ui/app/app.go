@@ -102,6 +102,7 @@ func Run(b Backend) error {
 		case app.DestroyEvent:
 			return e.Err
 		case app.ConfigEvent:
+			u.winFocused = e.Config.Focused
 			u.notifications.setView(&e.Config.Focused, "")
 			if !e.Config.Focused {
 				u.nav.altHeld, u.nav.pinned, u.nav.swallow = false, false, ""
@@ -172,6 +173,9 @@ type ui struct {
 	shownAt time.Time // switcher fade-in start
 
 	notifications *notifier
+	winFocused    bool                 // the window has keyboard focus
+	seeSent       map[string]time.Time // pane: the UpdatedAt its last SeePane was for
+	rings         map[string]ring      // pane: its attention ring, see attentionRing
 
 	settings   settings.Page // shown in place of the panes
 	settingsWS string        // the tab it was opened over; leaving it closes the page
@@ -249,6 +253,7 @@ func (u *ui) layout(gtx gl.Context) {
 			u.nav.sync(&st)
 		}
 	}
+	u.markSeen(&st)
 	if !wasVisible && u.nav.switcherVisible() {
 		u.shownAt = gtx.Now
 	}
@@ -440,6 +445,12 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		return
 	}
 
+	unseen := map[string]model.Activity{}
+	for _, a := range st.Activities {
+		if a.Unseen && a.WorkspaceID == ws.ID {
+			unseen[a.PaneID] = a
+		}
+	}
 	// Pane frames sit pane_margin in from the edges and pane_gap apart on
 	// the canvas's surface fill; the dividers are the gaps.
 	m, gap := gtx.Dp(unit.Dp(u.cfg.PaneMargin)), gtx.Dp(unit.Dp(u.cfg.PaneGap))
@@ -459,7 +470,11 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			u.panes[id] = p
 		}
 		p.view.Keys = u.nav.bind()
-		u.layoutPane(gtx, p, id, r, id == focused, sole)
+		var att *model.Activity
+		if a, ok := unseen[id]; ok {
+			att = &a
+		}
+		u.layoutPane(gtx, p, id, r, id == focused, sole, att)
 	}
 	for id := range u.panes {
 		if !live[id] && findPane(st, id) == nil {
@@ -508,7 +523,7 @@ func roundedFor(gtx gl.Context, sole bool) int {
 	return gtx.Dp(10) - 1
 }
 
-func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, sole bool) {
+func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, sole bool, att *model.Activity) {
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(rect.Size())
@@ -543,6 +558,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		input, cols, rows = drawTerm(tg, &p.view, u.th, &g, m, focused)
 		rc.Pop()
 		o.Pop()
+	}
+	if att != nil {
+		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole)
 	}
 	// Clicking anywhere in the frame focuses the pane, as aide's onMouseDown
 	// on the pane article does; PassOp lets the grid see the press too.

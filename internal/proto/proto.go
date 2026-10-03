@@ -9,6 +9,8 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 8 added Activity.Unseen and SeePane, and OSC 9/99/777
+// notifications show as an awaiting-input activity.
 // Version 7 added State.Order, one order for groups and ungrouped tabs: at
 // the top level MoveSession.Before and MoveGroup.Before may name a group or
 // a tab. Tabs get no generated name.
@@ -21,7 +23,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 7
+const Version = 8
 
 // Client to daemon.
 
@@ -244,12 +246,18 @@ type FocusSession struct {
 	TabID       string
 }
 
+// SeePane tells the daemon a GUI shows Pane focused in a focused window,
+// which marks its activity seen and clears an OSC notification.
+type SeePane struct {
+	Pane string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
 	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
 	NewTab{}, CloseTab{}, RenameTab{}, SelectTab{}, DetachSession{}, KillSession{},
-	GroupByFolder{}, Sync{}, FocusSession{}, MoveSession{}, MoveGroup{},
+	GroupByFolder{}, Sync{}, FocusSession{}, MoveSession{}, MoveGroup{}, SeePane{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 }
