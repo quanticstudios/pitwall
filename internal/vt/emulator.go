@@ -38,6 +38,8 @@ type emulator struct {
 	e   *xvt.Emulator
 	st  *state
 	osc oscFilter
+	// notify gets OSC notifications, called inside Write; see SetNotifyFunc.
+	notify func(Notification)
 }
 
 // state is what the x/vt callbacks and extra handlers record. It is kept
@@ -128,6 +130,16 @@ func (t *emulator) SetDirtyFunc(f func()) {
 	t.st.wake = f
 }
 
+// SetNotifyFunc sets f to be called for each OSC 9, 99 or 777 notification
+// in the output. f runs inside Write, under the caller's locks, so it must
+// not block. Call it before the first Write; callers find it through an
+// interface check, so NewFunc stays as it is.
+func (t *emulator) SetNotifyFunc(f func(Notification)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.notify = f
+}
+
 // Close stops the reply goroutines; the screen stays readable. Panes find it
 // through an interface check and call it once their process is gone.
 func (t *emulator) Close() error {
@@ -150,7 +162,7 @@ func (t *emulator) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := len(p)
-	p = t.osc.feed(p, func(s string) { t.st.title = s })
+	p = t.osc.feed(p, func(s string) { t.st.title = s }, t.notify)
 	for len(p) > 0 {
 		i := bytes.IndexAny(p, "\x07\x1b") + 1
 		if i == 0 {

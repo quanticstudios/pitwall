@@ -103,8 +103,8 @@ func TestStateColors(t *testing.T) {
 		model.StateWorking: th.Blue, model.StateConnecting: th.Blue, model.StatePlanReady: th.Purple,
 		model.StateCompleted: th.Green, model.StateTerminalRunning: th.Green,
 	} {
-		if got := stateColor(th, s); got != want {
-			t.Errorf("stateColor(%s) = %v, want %v", s, got, want)
+		if got := StateColor(th, s); got != want {
+			t.Errorf("StateColor(%s) = %v, want %v", s, got, want)
 		}
 	}
 	working := &model.Activity{State: model.StateWorking}
