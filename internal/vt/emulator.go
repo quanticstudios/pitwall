@@ -34,9 +34,10 @@ const replyCap = 1 << 20
 var modeSync = ansi.DECMode(2026)
 
 type emulator struct {
-	mu sync.Mutex
-	e  *xvt.Emulator
-	st *state
+	mu  sync.Mutex
+	e   *xvt.Emulator
+	st  *state
+	osc oscFilter
 }
 
 // state is what the x/vt callbacks and extra handlers record. It is kept
@@ -149,6 +150,7 @@ func (t *emulator) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := len(p)
+	p = t.osc.feed(p, func(s string) { t.st.title = s })
 	for len(p) > 0 {
 		i := bytes.IndexAny(p, "\x07\x1b") + 1
 		if i == 0 {
