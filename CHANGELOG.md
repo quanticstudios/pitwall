@@ -13,6 +13,8 @@ To cut a release: add a section below, commit it, then
 - `pitwall notify <text>` rings the pane it runs in, e.g.
   `npm test && pitwall notify "tests passed"`.
 - A terminal notification's desktop notification shows just its message.
+- Windows: the daemon saves its state again. Syncing the state folder after
+  the write is not allowed there and failed every save.
 - README opens with a short loop of the app; the promo video's source is in
   `promo/` (Remotion).
 

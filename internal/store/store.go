@@ -11,6 +11,7 @@ import (
 	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -61,6 +62,10 @@ func Save(path string, s model.State) error {
 	}
 	if err := os.Rename(f.Name(), path); err != nil {
 		return err
+	}
+	// Windows can't fsync a directory (Access is denied); NTFS journals the rename.
+	if runtime.GOOS == "windows" {
+		return nil
 	}
 	d, err := os.Open(dir)
 	if err != nil {
