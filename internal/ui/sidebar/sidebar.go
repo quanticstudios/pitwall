@@ -120,11 +120,22 @@ type Sidebar struct {
 
 	renaming      string // workspace whose name is being edited
 	renamingGroup string // or the group's
+	renamingTab   string // or a tab's, in session renamingTabWS
+	renamingTabWS string
+	tabState      map[string]*tabRowState
 	focusEditor   bool
 	editorLaidOut bool
 	selectAll     bool   // select the name once the field has focus
 	renameFrom    string // the name the field started with
 	editor        widget.Editor
+
+	// Drag and drop: the gesture, its pointer tag, and the rows drawn last
+	// frame in viewport pixels (items collects them per list item).
+	drag    dragState
+	dragTag int
+	drops   []dropRow
+	items   map[int][]dropRow
+	cur     int // the list item being drawn
 
 	events []Event
 }
@@ -153,8 +164,8 @@ var projectColorIDs = [...]string{
 }
 
 type rowState struct {
-	click, more widget.Clickable
-	ctx         int // tag for right-click
+	click, more, add widget.Clickable
+	ctx              int // tag for right-click
 }
 
 // Layout draws st and returns events from this frame's input.
@@ -180,6 +191,11 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, a
 		}
 	}
 	if s.renamingGroup != "" && !slices.ContainsFunc(st.Projects, func(p model.Project) bool { return p.ID == s.renamingGroup }) {
+		s.cancelRename()
+	}
+	if s.renamingTab != "" && !slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool {
+		return w.ID == s.renamingTabWS && slices.ContainsFunc(w.Tabs, func(t model.Tab) bool { return t.ID == s.renamingTab })
+	}) {
 		s.cancelRename()
 	}
 	if v.activeProject != s.activeProject {
@@ -372,10 +388,13 @@ func (s *Sidebar) targets(v *view, id string) []string {
 
 // Editing reports whether an inline rename holds key focus, so the window
 // keeps its panes from taking it back.
-func (s *Sidebar) Editing() bool { return s.renaming != "" || s.renamingGroup != "" }
+func (s *Sidebar) Editing() bool {
+	return s.renaming != "" || s.renamingGroup != "" || s.renamingTab != ""
+}
 
 func (s *Sidebar) startRename(ws, group, name string) {
 	s.renaming, s.renamingGroup, s.focusEditor = ws, group, true
+	s.renamingTab, s.renamingTabWS = "", ""
 	s.menuWS, s.groupMenu = "", ""
 	s.editor.SetText(name)
 	s.editor.SetCaret(utf8.RuneCountInString(name), 0)
@@ -383,13 +402,14 @@ func (s *Sidebar) startRename(ws, group, name string) {
 }
 
 func (s *Sidebar) cancelRename() {
-	s.renaming, s.renamingGroup = "", ""
+	s.renaming, s.renamingGroup, s.renamingTab, s.renamingTabWS = "", "", "", ""
 	s.focusEditor, s.selectAll = false, false
 }
 
 // update drains input from last frame's widgets before anything is drawn,
 // so hover backgrounds and menus reflect this frame's state.
 func (s *Sidebar) update(gtx layout.Context, v *view) {
+	s.dragEvents(gtx, v)
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &s.dismiss, Kinds: pointer.Press})
 		if !ok {
@@ -464,6 +484,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	}
 	for _, ws := range v.st.Workspaces {
 		r := s.row(ws.ID)
+		s.updateTabs(gtx, ws)
 		for {
 			c, ok := r.click.Update(gtx)
 			if !ok {
@@ -547,7 +568,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 				break
 			}
 			if _, ok := ev.(widget.SubmitEvent); ok {
-				if name := strings.TrimSpace(s.editor.Text()); name != "" {
+				if s.renamingTab != "" {
+					// An empty name goes back to the automatic title.
+					s.events = append(s.events, RenameTab{WorkspaceID: s.renamingTabWS, TabID: s.renamingTab, Name: strings.TrimSpace(s.editor.Text())})
+				} else if name := strings.TrimSpace(s.editor.Text()); name != "" {
 					if s.renamingGroup != "" {
 						s.events = append(s.events, RenameGroup{GroupID: s.renamingGroup, Name: name})
 					} else {
@@ -613,6 +637,11 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for _, r := range s.rows {
 		drain(&r.click)
 		drain(&r.more)
+		drain(&r.add)
+	}
+	for _, r := range s.tabState {
+		drain(&r.click)
+		drain(&r.close)
 	}
 	for i := range s.menuItem {
 		drain(&s.menuItem[i])
@@ -627,7 +656,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 
 // snapshot is the sidebar state input can change, to spot that it did.
 func (s *Sidebar) snapshot() [8]string {
-	return [8]string{s.menuWS, s.groupMenu, s.appearance, s.renaming, s.renamingGroup, s.anchor,
+	return [8]string{s.menuWS, s.groupMenu, s.appearance, s.renaming + "\x00" + s.renamingTab, s.renamingGroup, s.anchor,
 		fmt.Sprint(s.detachedOpen, s.moveOpen, s.killArmed), fmt.Sprint(len(s.selected), s.expanded)}
 }
 
@@ -680,7 +709,7 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme) layout.Dimensions 
 	off := op.Offset(image.Pt(gtx.Dp(18), 0)).Push(gtx.Ops)
 	hrow(gtx, h-1, gtx.Dp(8),
 		item{w: func(gtx layout.Context) layout.Dimensions {
-			return drawIcon(gtx, icSquareTerm, gtx.Dp(22), th.Primary, 0)
+			return drawLogo(gtx, th, gtx.Dp(22))
 		}},
 		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, semibold(th.UIFont), 14, th.Fg, "pitwall")
@@ -699,38 +728,72 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool) {
 	animating := false
 	projects := v.st.Projects
 	loose := len(v.byProject[""]) > 0
+	s.items = map[int][]dropRow{}
+	heights := map[int]int{}
 	d := s.list.Layout(gtx, len(projects)+2, func(gtx layout.Context, i int) layout.Dimensions {
-		switch i {
-		case 0:
-			if !loose {
-				return layout.Dimensions{}
-			}
-			d, a := s.rowList(gtx, v, v.byProject[""])
-			animating = animating || a
-			return d
-		case len(projects) + 1:
-			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(6))} // pb-1.5
-		}
-		d, a := s.group(gtx, v, projects[i-1], loose || i > 1)
-		animating = animating || a
+		s.cur = i
+		d := s.treeItem(gtx, v, i, loose, &animating)
+		heights[i] = d.Size.Y
 		return d
 	})
+	s.drops = s.drops[:0]
+	y := -s.list.Position.Offset
+	for i := s.list.Position.First; i < s.list.Position.First+s.list.Position.Count; i++ {
+		for _, r := range s.items[i] {
+			r.top, r.bot = r.top+y, r.bot+y
+			s.drops = append(s.drops, r)
+		}
+		y += heights[i]
+	}
+	if s.dragOverlay(gtx, v, d.Size) {
+		animating = true
+	}
 	return d, animating
 }
 
+// treeItem is list item i: the ungrouped sessions, a group, or the bottom
+// padding.
+func (s *Sidebar) treeItem(gtx layout.Context, v *view, i int, loose bool, animating *bool) layout.Dimensions {
+	projects := v.st.Projects
+	switch i {
+	case 0:
+		if !loose {
+			return layout.Dimensions{}
+		}
+		d, a := s.rowList(gtx, v, v.byProject[""], 0)
+		*animating = *animating || a
+		return d
+	case len(projects) + 1:
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(6))} // pb-1.5
+	}
+	d, a := s.group(gtx, v, projects[i-1], loose || i > 1)
+	*animating = *animating || a
+	return d
+}
+
 // rowList stacks session rows between pt-1 and pb-1, gap-0.5 apart.
-func (s *Sidebar) rowList(gtx layout.Context, v *view, wss []model.Workspace) (layout.Dimensions, bool) {
+// base is the list's y in its list item, for the drop targets.
+func (s *Sidebar) rowList(gtx layout.Context, v *view, wss []model.Workspace, base int) (layout.Dimensions, bool) {
 	y := gtx.Dp(4)
 	animating := false
 	for i, ws := range wss {
 		if i > 0 {
 			y += gtx.Dp(2)
 		}
+		top := y
 		off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 		d, a := s.workspaceRow(gtx, v, ws)
 		off.Pop()
 		y += d.Size.Y
 		animating = animating || a
+		if s.showsTabs(ws) {
+			off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+			th, a := s.drawTabs(gtx, v, ws)
+			off.Pop()
+			y += th
+			animating = animating || a
+		}
+		s.items[s.cur] = append(s.items[s.cur], dropRow{kind: 's', id: ws.ID, group: v.groupOf(ws.ID), top: base + top, bot: base + y})
 	}
 	y += gtx.Dp(4)
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, y)}, animating
@@ -747,13 +810,15 @@ func (s *Sidebar) group(gtx layout.Context, v *view, p model.Project, sep bool) 
 		y += 1 + gtx.Dp(6)
 	}
 	off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+	hy := y
 	y += s.projectHeader(gtx, v, p).Size.Y
 	off.Pop()
+	s.items[s.cur] = append(s.items[s.cur], dropRow{kind: 'g', id: p.ID, group: p.ID, top: hy, bot: y})
 
 	animating := false
 	if s.isExpanded(p.ID) {
 		off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		d, a := s.rowList(gtx, v, v.byProject[p.ID])
+		d, a := s.rowList(gtx, v, v.byProject[p.ID], y)
 		off.Pop()
 		y += d.Size.Y
 		animating = a
@@ -870,6 +935,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 	a := v.activity[ws.ID]
 	isActive := ws.ID == v.active
 	stats, hasStats := v.st.Stats[ws.ID]
+	title, secondary := displayName(ws)
 
 	// py-2, line 1 (13px * 1.5), gap-1, line 2 (11px * 1.5), py-2
 	w := gtx.Constraints.Max.X
@@ -879,7 +945,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 	rr := gtx.Dp(8)
 
 	animating := model.Pulses(a)
-	hovered := r.click.Hovered() || r.more.Hovered()
+	hovered := r.click.Hovered() || r.more.Hovered() || r.add.Hovered()
 	base := rowBase(th, a, isActive, hovered)
 	selected := s.selected[ws.ID]
 	if selected && !isActive {
@@ -915,7 +981,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 				if s.renaming == ws.ID {
 					return s.renameField(gtx, th)
 				}
-				return label(gtx, th, semibold(th.UIFont), 13, nameCol, ws.Name)
+				return label(gtx, th, semibold(th.UIFont), 13, nameCol, title)
 			}},
 		}
 		if a != nil {
@@ -946,6 +1012,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 		if !inRepo {
 			where = ShortPath(ws.Path)
 		}
+		if secondary != "" {
+			where = secondary + " · " + where
+		}
 		line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.MonoFont, 11, muted, where)
 		}})
@@ -969,9 +1038,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace) 
 	})
 	area.Pop()
 
-	// The "…" trigger: absolute right-1 top-1.5, visible on row hover.
+	// The "…" trigger: absolute right-1 top-1.5, visible on row hover, and
+	// the new-tab "+" left of it.
 	btn := gtx.Dp(24)
 	pos := image.Pt(w-gtx.Dp(4)-btn, gtx.Dp(6))
+	ao := op.Offset(pos.Sub(image.Pt(btn+gtx.Dp(2), 0))).Push(gtx.Ops)
+	if hovered && s.menuWS != ws.ID {
+		iconButton(gtx, th, &r.add, icPlus, btn, gtx.Dp(14), false)
+	}
+	ao.Pop()
 	off := op.Offset(pos).Push(gtx.Ops)
 	if hovered || s.menuWS == ws.ID {
 		iconButton(gtx, th, &r.more, icEllipsis, btn, gtx.Dp(16), false)
@@ -1414,10 +1489,10 @@ func floatingSurface(gtx layout.Context, th *theme.Theme, size image.Point) {
 	rect := image.Rectangle{Max: size}
 	shadow := rect.Add(image.Pt(0, gtx.Dp(4))).Inset(-gtx.Dp(2))
 	paint.FillShape(gtx.Ops, color.NRGBA{A: 90}, clip.UniformRRect(shadow, r+gtx.Dp(2)).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, theme.Hex("#ffffff"), 0.14), clip.UniformRRect(rect.Inset(-1), r+1).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Fg, 0.14), clip.UniformRRect(rect.Inset(-1), r+1).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect, r).Op(gtx.Ops))
 	hl := clip.UniformRRect(rect, r).Push(gtx.Ops)
-	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, theme.Hex("#ffffff"), 0.06), clip.Rect{Min: image.Pt(r, 0), Max: image.Pt(size.X-r, 1)}.Op())
+	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.06), clip.Rect{Min: image.Pt(r, 0), Max: image.Pt(size.X-r, 1)}.Op())
 	hl.Pop()
 }
 

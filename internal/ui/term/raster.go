@@ -7,10 +7,7 @@ import (
 	"image/draw"
 	_ "image/jpeg" // bitmap glyph formats
 	_ "image/png"
-	"io"
-	"log"
 	"math"
-	"os"
 	"strings"
 
 	"github.com/go-text/typesetting/di"
@@ -21,6 +18,8 @@ import (
 	"github.com/go-text/typesetting/shaping"
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/math/fixed"
+
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // Text is rasterized on the CPU into one image per row. Gio's vector text
@@ -33,11 +32,7 @@ var fonts *fontscan.FontMap
 
 func fontMap() *fontscan.FontMap {
 	if fonts == nil {
-		fonts = fontscan.NewFontMap(log.New(io.Discard, "", 0))
-		dir, _ := os.UserCacheDir()
-		if err := fonts.UseSystemFonts(dir); err != nil {
-			log.Printf("term: system fonts: %v", err)
-		}
+		fonts = theme.SystemFonts()
 	}
 	return fonts
 }
@@ -57,20 +52,7 @@ func families(typeface string) []string {
 	return append(fs, "monospace", "emoji")
 }
 
-// nerdAlias is the short family name fontscan indexes Nerd Fonts v3 under
-// ("JetBrainsMono Nerd Font" is found only as "JetBrainsMono NF"); fontconfig
-// knows both. Returns name unchanged for other fonts.
-func nerdAlias(name string) string {
-	for long, short := range map[string]string{" Nerd Font Mono": " NFM", " Nerd Font Propo": " NFP"} {
-		if strings.HasSuffix(name, long) {
-			return strings.TrimSuffix(name, long) + short
-		}
-	}
-	if strings.HasSuffix(name, " Nerd Font") {
-		return strings.TrimSuffix(name, " Nerd Font") + " NF"
-	}
-	return name
-}
+func nerdAlias(name string) string { return theme.NerdAlias(name) }
 
 // face resolves the face for rune r in style f (bit 0 bold, bit 1 italic),
 // falling back to other fonts when the mono font lacks r.

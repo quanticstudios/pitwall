@@ -97,9 +97,13 @@ less precise.
 
 The keyboard shortcuts are in [Keybindings](#keybindings). With the mouse:
 click a session to switch to it, right-click it for **Rename**, **Detach**,
-grouping, and more. Tabs appear above the panes once a session has more than
-one: click to switch, double-click to rename, middle-click to close. Drag the
-gaps between panes to resize them.
+grouping, and more. Drag a session or a group header to reorder it; drop a
+session on a group header to move it into that group. A session with more
+than one tab lists its tabs under it in the sidebar: click to switch,
+double-click to rename, middle-click or the hover × to close, and the hover
+**+** on a session opens a tab. Drag the gaps between panes to resize them.
+Ctrl+Shift+B (Ctrl+B in the aide preset) hides the sidebar; pitwall
+remembers that across restarts.
 
 ### Grouping
 
@@ -168,6 +172,35 @@ pitwall attach auth
 
 ## Keybindings
 
+Two presets ship. **conventional** is the default and follows Linux terminal
+defaults (Ghostty, kitty, GNOME Terminal); it leaves plain Ctrl+letters and
+readline's Alt+B/F/D/. to the shell. **aide** is the Alt-key layout pitwall
+started with. Pick one with `preset` in [config.toml](#configuration) and
+override single actions there. The settings button in the sidebar footer
+shows the bindings in effect.
+
+conventional:
+
+| Keys                                 | Action                                     |
+| ------------------------------------ | ------------------------------------------ |
+| Ctrl+Shift+T                         | New tab                                    |
+| Ctrl+Shift+W                         | Close the pane (the tab with its last one) |
+| Ctrl+Tab / Ctrl+Shift+Tab            | Next / previous tab                        |
+| Ctrl+PageDown / Ctrl+PageUp          | Next / previous tab                        |
+| Alt+1-9                              | Go to tab                                  |
+| Ctrl+Shift+N                         | New session in this folder                 |
+| Ctrl+Shift+O                         | Split the pane to the right                |
+| Ctrl+Shift+E                         | Split the pane below                       |
+| Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up | Next / previous pane                      |
+| Ctrl+Shift+PageDown / Ctrl+Shift+PageUp | Next / previous session                 |
+| Ctrl+Shift+Space                     | Show or hide the session switcher; J/K or arrows move, Enter or a click closes |
+| Ctrl+Shift+B                         | Show or hide the sidebar                   |
+| Ctrl+Shift+C / Ctrl+Shift+V          | Copy selection / paste                     |
+| Shift+PageUp / Shift+PageDown        | Scroll back / forward one page             |
+| Escape                               | Close the switcher or a dialog             |
+
+aide:
+
 | Keys                              | Action                                |
 | --------------------------------- | ------------------------------------- |
 | Alt+J / Alt+K                     | Next / previous session in the group  |
@@ -180,6 +213,7 @@ pitwall attach auth
 | Alt+Shift+N                       | Split the pane below                  |
 | Alt+Shift+W                       | Close the pane                        |
 | Alt+Shift+T                       | New session in this folder            |
+| Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
 | Ctrl+T then n                     | New tab                               |
 | Ctrl+T then x                     | Close the tab                         |
 | Ctrl+T then r                     | Rename the tab                        |
@@ -190,7 +224,104 @@ pitwall attach auth
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page        |
 | Escape                            | Close the switcher or a dialog        |
 
-The settings button in the sidebar footer shows the bindings in effect.
+Every action, with its config name, is listed by `pitwall config default`.
+
+## Configuration
+
+pitwall reads `~/.config/pitwall/config.toml` (`$XDG_CONFIG_HOME`). Without
+the file everything has its default. An open window rereads the file within
+a second of a change and applies keys, theme, fonts and spacing at once.
+Mistakes show as a desktop notification; the window keeps running, and only
+the broken entries fall back to their defaults.
+
+| Command                  | Does                                                          |
+| ------------------------ | ------------------------------------------------------------- |
+| `pitwall config init`    | Write a commented config listing every option, and its schema |
+| `pitwall config check`   | Print problems as `config.toml:LINE: message`; exit 1 if any  |
+| `pitwall config default` | Print the commented config                                    |
+| `pitwall config path`    | Print the config file's path                                  |
+| `pitwall config schema`  | Print the JSON Schema (`schema theme` for theme files)        |
+
+The file `init` writes starts with `#:schema ~/.config/pitwall/schema.json`,
+so editors with taplo or Even Better TOML complete action names and flag a
+bad chord, color or key as you type. The window refreshes the schema files
+when a new pitwall knows more keys.
+
+```toml
+[keys]
+preset = "conventional"
+new_tab = ["Ctrl+Shift+T", "Super+T"]  # a chord or a list of chords
+toggle_sidebar = "Ctrl+B"
+tab_prefix = []                         # [] unbinds
+
+[keys.tab]                              # tab mode, after tab_prefix
+rename = "F2"
+
+[theme]
+name = "tokyo-night"
+
+[theme.colors]
+primary = "#ff9e64"
+
+[font]
+mono_family = "Iosevka"
+mono_size = 14
+line_height = 1.1
+mono_fallback = ["Noto Sans Mono CJK SC"]
+
+[layout]
+pane_gap = 4
+pane_margin = 4
+```
+
+Chords are modifiers (`Ctrl`, `Alt`, `Shift`, `Super`) and a key joined by
+`+`, in any case. Keys are a printable character, `Space`, `Tab`, `Enter`,
+`Esc`, `Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, `Up`,
+`Down`, `Left`, `Right` or `F1`-`F12`. Two actions on one chord is an error
+naming both. `switcher_modifier` (`"Alt"`, `"Super"`, `"Ctrl"` or `""`) is
+the modifier you hold to see the switcher; with `""` the switcher toggles.
+
+### Themes
+
+Built in: `aide-dark` (the default), `aide-light`, `tokyo-night`,
+`catppuccin-mocha`. A custom theme is `~/.config/pitwall/themes/<name>.toml`
+with the same keys as `[theme]`; its `name` picks the built-in it starts
+from, so it only lists what differs. Add `#:schema
+~/.config/pitwall/theme.schema.json` as its first line for completion.
+
+| `[theme.colors]`    | Used for                                    |
+| ------------------- | ------------------------------------------- |
+| `bg`                | Window background                           |
+| `sidebar`           | Sidebar background                          |
+| `surface`           | Pane canvas, dialogs, cards                 |
+| `surface_secondary` | Selected rows, active tab, fields           |
+| `surface_elevated`  | Hovered and floating surfaces, badges       |
+| `border`            | Hairlines                                   |
+| `fg`                | Text                                        |
+| `muted`             | Secondary text                              |
+| `primary`           | Accent: buttons, focus, the tab-mode chip   |
+| `on_primary`        | Text on primary buttons                     |
+| `red`               | Errors                                      |
+| `yellow`            | Waiting for you                             |
+| `green`             | Done, idle                                  |
+| `blue`              | Working                                     |
+| `purple`            | Plan ready                                  |
+
+`[theme.terminal]` has `foreground`, `background`, `cursor` and `ansi`, an
+array of the 16 ANSI colors (black, red, green, yellow, blue, magenta, cyan,
+white, then the bright ones). Colors are `#rrggbb` or `#rrggbbaa`. The
+daemon answers programs' color queries (OSC 10, 11 and 4) from the terminal
+colors; a running daemon picks a change up the next time it starts.
+
+### Fonts and spacing
+
+`[font]` takes `ui_family` (default the bundled Geist), `ui_size` (13),
+`mono_family` (`JetBrainsMono Nerd Font`), `mono_size` (13), `line_height`
+(a multiple of the font's, 1.0) and `mono_fallback`, families tried for
+characters the terminal font lacks before any monospace font and color
+emoji. Families are any installed font (`fc-list : family`); a missing one is
+reported and the default is used. `[layout]` sets `pane_gap` and
+`pane_margin` in dp (both 4).
 
 ## Hooks
 
@@ -218,6 +349,8 @@ installed globally.
 | Saved sessions      | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
 | Daemon log          | `~/.local/state/pitwall/daemon.log`                           |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`                       |
+| Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
+| Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
 
 After a reboot, run `pitwall`: sessions, tabs, groups and panes come back in
 their folders. Agent panes resume with `claude --resume <id>` or
@@ -265,6 +398,9 @@ license, is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). In short:
 - [go-text/typesetting](https://github.com/go-text/typesetting) (BSD / Unlicense): text shaping.
 - [Lucide](https://lucide.dev) (ISC) and Feather (MIT): the icons.
 - [Geist](https://vercel.com/font) (OFL 1.1): the UI font.
+- [BurntSushi/toml](https://github.com/BurntSushi/toml) (MIT): the config parser.
+- [Tokyo Night](https://github.com/folke/tokyonight.nvim), [Catppuccin](https://github.com/catppuccin/palette)
+  and GitHub's [Primer](https://github.com/primer/primitives) (all MIT): theme colors.
 - aide (Quantic Studios): the sidebar design and agent states pitwall ports.
 - [zj-radar](https://github.com/marktoda/zj-radar), [zellij](https://zellij.dev),
   [tmux](https://github.com/tmux/tmux) and [Ghostty](https://ghostty.org):

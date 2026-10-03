@@ -23,7 +23,7 @@ import (
 func TestTabMode(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
-	var n nav
+	n := nav{keys: aide}
 	n.sync(&st)
 	ctrlT := press(tabPrefix, key.ModCtrl)
 	do := func(e key.Event) any {
@@ -108,7 +108,7 @@ func TestTabMode(t *testing.T) {
 // typed in tab mode reaches the pane, and Ctrl+T reaches it only doubled.
 func TestTabModeNoLeak(t *testing.T) {
 	b := NewFakeBackend()
-	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
 	var r input.Router
 	var ops op.Ops
 	frame := func() {
@@ -172,7 +172,7 @@ func TestTabModeNoLeak(t *testing.T) {
 func TestFocusAfterExit(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
-	var n nav
+	n := nav{keys: aide}
 	n.sync(&st)
 	step := func(msg any, ws, tab, pane string) {
 		t.Helper()
@@ -202,7 +202,7 @@ func TestFocusAfterExit(t *testing.T) {
 func TestDetached(t *testing.T) {
 	b := NewFakeBackend()
 	st := b.State()
-	var n nav
+	n := nav{keys: aide}
 	n.sync(&st)
 	ids := func() []string {
 		var out []string
@@ -243,7 +243,7 @@ func TestDetached(t *testing.T) {
 func TestFocuser(t *testing.T) {
 	b := NewFakeBackend()
 	var _ Focuser = b
-	u := &ui{b: b}
+	u := &ui{b: b, nav: nav{keys: aide}}
 	st := b.State()
 	u.nav.sync(&st)
 	b.RequestFocus(proto.FocusSession{WorkspaceID: "later"})
@@ -292,11 +292,11 @@ func TestTabLabel(t *testing.T) {
 	}
 }
 
-// TestTabRenameInline: Ctrl+T r opens the editor on the tab's label; typing
-// replaces it and Return sends RenameTab.
+// TestTabRenameInline: Ctrl+T r opens the editor on the tab's sidebar row;
+// typing replaces the label and Return sends RenameTab.
 func TestTabRenameInline(t *testing.T) {
 	b := NewFakeBackend()
-	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
 	var r input.Router
 	var ops op.Ops
 	frame := func() {
@@ -313,8 +313,8 @@ func TestTabRenameInline(t *testing.T) {
 		frame()
 	}
 	frame()
-	if u.tabs.renaming != "t1" || !r.Source().Focused(&u.tabs.editor) {
-		t.Fatalf("rename not open and focused: %q", u.tabs.renaming)
+	if !u.sidebar.Editing() {
+		t.Fatal("rename not open")
 	}
 	r.Queue(key.EditEvent{Range: key.Range{Start: 0, End: 7}, Text: "server"})
 	frame()
@@ -322,6 +322,6 @@ func TestTabRenameInline(t *testing.T) {
 	frame()
 	frame()
 	if !slices.Contains(b.Sent(), any(proto.RenameTab{WorkspaceID: "w1", TabID: "t1", Name: "server"})) {
-		t.Fatalf("sent %#v, editor %q", b.Sent(), u.tabs.editor.Text())
+		t.Fatalf("sent %#v", b.Sent())
 	}
 }

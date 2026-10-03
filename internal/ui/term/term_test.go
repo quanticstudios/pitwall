@@ -20,6 +20,7 @@ import (
 	"gioui.org/unit"
 	"github.com/go-text/typesetting/fontscan"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -135,11 +136,32 @@ func TestLayoutFits(t *testing.T) {
 	}
 }
 
+// TestFontSizeRefits: a theme with another mono size or line height
+// re-measures cells, so Layout reports a new grid size.
+func TestFontSizeRefits(t *testing.T) {
+	v := new(View)
+	gtx := testContext(image.Pt(800, 600))
+	th := testTheme()
+	_, _, cols, rows := v.Layout(gtx, th, denseGrid(20, 5, 0, 7), vt.Modes{}, true)
+	big := *th
+	big.MonoSize = 26
+	_, _, c2, r2 := v.Layout(testContext(image.Pt(800, 600)), &big, denseGrid(20, 5, 0, 7), vt.Modes{}, true)
+	if c2 >= cols || r2 >= rows {
+		t.Fatalf("mono size 13 -> 26: %dx%d -> %dx%d", cols, rows, c2, r2)
+	}
+	tall := *th
+	tall.LineHeight = 2
+	_, _, c3, r3 := v.Layout(testContext(image.Pt(800, 600)), &tall, denseGrid(20, 5, 0, 7), vt.Modes{}, true)
+	if c3 != cols || r3 >= rows*6/10 {
+		t.Fatalf("line height 2: %dx%d -> %dx%d", cols, rows, c3, r3)
+	}
+}
+
 // TestNavKeysPassThrough routes keys through a real Gio router: the focused
 // pane must not take Alt+H/J/K/L/arrows, so a window filter gets them.
 func TestNavKeysPassThrough(t *testing.T) {
 	var r input.Router
-	v := new(View)
+	v := &View{Keys: config.Preset("aide")}
 	pane := keyFilters(v)
 	pane = append(pane, key.FocusFilter{Target: v})
 	app := []event.Filter{key.Filter{Name: "H", Required: key.ModAlt}, key.Filter{Name: key.NameLeftArrow, Required: key.ModAlt}}
