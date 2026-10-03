@@ -2,6 +2,7 @@ package vt
 
 import (
 	"io"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -45,5 +46,46 @@ func TestOtherSequencesPassThrough(t *testing.T) {
 	g := e.Snapshot()
 	if titleRow(g, 0) != "bold link" || g.At(0, 0).Attrs&Bold == 0 {
 		t.Fatalf("row %q attrs %v", titleRow(g, 0), g.At(0, 0).Attrs)
+	}
+}
+
+func TestNotifications(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want []Notification
+	}{
+		{"\x1b]9;done\x07", []Notification{{Body: "done"}}},
+		{"\x1b]9;✳ build passed\x1b\\", []Notification{{Body: "✳ build passed"}}}, // ✳ holds 0x9C
+		{"\x1b]9;4;1;50\x07\x1b]9;1;100\x07", nil},                                // ConEmu progress, sleep
+		{"\x1b]9;\x07", nil},
+		{"\x1b]777;notify;Gemini;Needs input; now\x1b\\", []Notification{{Title: "Gemini", Body: "Needs input; now"}}},
+		{"\x1b]777;notify;Only title\x07", []Notification{{Title: "Only title"}}},
+		{"\x1b]777;preexec\x07", nil},
+		{"\x1b]99;;Hello ✳\x1b\\", []Notification{{Title: "Hello ✳"}}},
+		{"\x1b]99;i=1:d=1:p=body;Body text\x1b\\", []Notification{{Body: "Body text"}}},
+		{"\x1b]99;i=1:e=1;" + "w7NzcmVl" + "\x1b\\", []Notification{{Title: "ósree"}}},
+		{"\x1b]99;i=1:d=0;Chunk\x1b\\", nil},
+		{"\x1b]99;i=1:p=icon;abc\x1b\\", nil},
+	} {
+		var got []Notification
+		var f oscFilter
+		b := []byte("a" + tc.in + "b")
+		var out []byte
+		for i := range b { // one byte per Write: state carries over
+			out = append(out, f.feed(b[i:i+1], func(string) {}, func(n Notification) { got = append(got, n) })...)
+		}
+		if string(out) != "ab" || !slices.Equal(got, tc.want) {
+			t.Errorf("%q: out %q, got %+v, want %+v", tc.in, out, got, tc.want)
+		}
+	}
+}
+
+func TestEmulatorNotify(t *testing.T) {
+	e := New(40, 3, io.Discard)
+	var got []Notification
+	e.(interface{ SetNotifyFunc(func(Notification)) }).SetNotifyFunc(func(n Notification) { got = append(got, n) })
+	e.Write([]byte("x\x1b]9;Agent ✳ waits\x07y"))
+	if g := e.Snapshot(); titleRow(g, 0) != "xy" || len(got) != 1 || got[0].Body != "Agent ✳ waits" {
+		t.Fatalf("row %q, got %+v", titleRow(g, 0), got)
 	}
 }
