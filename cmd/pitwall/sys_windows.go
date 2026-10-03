@@ -10,6 +10,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// ttyPath is the calling process's terminal, for pitwall notify.
+const ttyPath = "CONOUT$"
+
 // lockRange is the byte LockFileEx locks: far past the pid the daemon writes
 // at the start of its lock file, because a Windows lock also blocks reads.
 var lockRange = windows.Overlapped{OffsetHigh: 1}

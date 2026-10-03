@@ -223,6 +223,11 @@ func TestNotificationCommand(t *testing.T) {
 			}
 		})
 	}
+	a := notifyActivity(model.StateAwaitingInput, time.Time{})
+	a.Provider, a.Detail = model.ProviderTerminal, "tests passed"
+	if cmd := notificationCommand(context.Background(), notification{a, "p / w"}); cmd.Args[len(cmd.Args)-1] != "tests passed" {
+		t.Fatalf("terminal notification body %q", cmd.Args[len(cmd.Args)-1])
+	}
 }
 
 func TestDesktopSenderMissing(t *testing.T) {

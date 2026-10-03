@@ -16,7 +16,7 @@ export const settledItems = (f: number) =>
     docs: {add: 96 + Math.floor(f / 40), del: 4},
   });
 
-/** Osc shows a plain shell command asking for attention with OSC 9. */
+/** Osc shows a plain shell command asking for attention with pitwall notify. */
 export const Osc: React.FC<{dur: number}> = ({dur}) => {
   const f = useCurrentFrame();
   const th = dark;
@@ -33,8 +33,8 @@ export const Osc: React.FC<{dur: number}> = ({dur}) => {
         }}
       />
     }>
-      <Toast title="web-app / npm run dev" body="Input: tests passed" t={(f - 136) / 60} />
-      <Caption t={f / 60} dur={dur / 60} text="Any program can ask for your attention, no hooks needed." sub={<><Mono>printf '\e]9;tests passed\a'</Mono>{'  '}OSC 9, 777 and kitty's 99 all work.</>} />
+      <Toast title="web-app / npm run dev" body="tests passed" t={(f - 136) / 60} />
+      <Caption t={f / 60} dur={dur / 60} text="Get pinged when any command finishes." sub={<>Add <Mono>pitwall notify</Mono> to a script, or use a tool that sends terminal notifications.</>} />
     </Stage>
   );
 };

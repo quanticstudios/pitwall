@@ -131,7 +131,7 @@ export const stripeAfter: Line[] = [
 ];
 
 export const testRun = (path: string, branch: string): Line[] => [
-  cmd(path, branch, "npm test && printf '\\e]9;tests passed\\a'"),
+  cmd(path, branch, 'npm test && pitwall notify "tests passed"'),
   '',
   [{t: '> web-app@0.9.0 test', c: 'dim'}],
   [{t: '> vitest run', c: 'dim'}],

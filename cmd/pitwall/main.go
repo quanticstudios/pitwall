@@ -46,6 +46,7 @@ const usage = `usage:
   A tab is named by its # in pitwall ls, its title, or a unique prefix
   of the title. Outside a pane, name it; inside, it defaults to the
   pane's own tab.
+  pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
 `
 
@@ -69,6 +70,8 @@ func main() {
 		err = runHooks(os.Args[2:], os.Stdout)
 	case "config":
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
+	case "notify":
+		err = runNotify(os.Args[2:])
 	case "ls", "new", "attach", "detach", "kill", "rename", "tab":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
