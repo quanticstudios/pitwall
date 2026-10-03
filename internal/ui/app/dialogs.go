@@ -22,8 +22,10 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -50,7 +52,8 @@ type modal struct {
 	pathErr           string
 	matches           []string // directories completing the path field
 
-	backdrop, body int // tags: the click-outside catcher, the dialog's own area
+	backdrop, body int         // tags: the click-outside catcher, the dialog's own area
+	list           widget.List // the settings sheet's shortcuts
 }
 
 func (m *modal) open(kind modalKind, ws string) {
@@ -169,6 +172,9 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 
 	th := u.th
 	width := min(gtx.Dp(448), size.X-gtx.Dp(32))
+	if m.kind == modalSettings {
+		width = min(gtx.Dp(560), size.X-gtx.Dp(32))
+	}
 	var content gl.Widget
 	switch m.kind {
 	case modalDelete:
@@ -195,7 +201,7 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		g := gtx.Dp(unit.Dp(8 * (i + 1)))
 		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(rect.Add(image.Pt(0, gtx.Dp(12))).Inset(-g), r+g).Op(gtx.Ops))
 	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, theme.Hex("#ffffff"), 0.07), clip.UniformRRect(rect, r).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.07), clip.UniformRRect(rect, r).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
 	body := clip.Rect(rect).Push(gtx.Ops)
 	event.Op(gtx.Ops, &m.body)
@@ -273,68 +279,148 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
 
-// keybindings is what the settings sheet lists, mirroring nav.key.
-var keybindings = []struct {
-	keys []string
+type shortcut struct {
+	keys []string // keycaps, one per chord
 	what string
-}{
-	{[]string{"Alt", "J / K"}, "Next / previous session in the group"},
-	{[]string{"Alt", "H / L"}, "Previous / next pane"},
-	{[]string{"Alt", "Arrows"}, "Same as J / K / H / L"},
-	{[]string{"Hold Alt"}, "Show every session; J / K walk them all"},
-	{[]string{"Alt", "Space"}, "Pin the switcher open"},
-	{[]string{"Alt", "1-9"}, "Jump to session"},
-	{[]string{"Alt", "N"}, "Split the pane to the right"},
-	{[]string{"Alt", "Shift", "N"}, "Split the pane below"},
-	{[]string{"Alt", "Shift", "W"}, "Close the pane"},
-	{[]string{"Alt", "Shift", "T"}, "New session in this folder"},
-	{[]string{"Ctrl", "T"}, "Tab mode, for the next key only"},
-	{[]string{"Ctrl T", "N / X / R"}, "New / close / rename tab"},
-	{[]string{"Ctrl T", "H / L"}, "Previous / next tab (or arrows)"},
-	{[]string{"Ctrl T", "1-9"}, "Go to tab"},
-	{[]string{"Ctrl T", "Ctrl T"}, "Send Ctrl+T to the pane"},
-	{[]string{"Ctrl / Shift", "Click"}, "Pick sessions to group"},
-	{[]string{"Ctrl", "Shift", "C / V"}, "Copy selection / paste"},
+}
+
+// shortcuts are the settings sheet's rows for b: every bound action, the
+// 1-9 series folded into one row, tab-mode keys after the prefix.
+func shortcuts(b *config.Bindings) []shortcut {
+	var out []shortcut
+	if hk := b.HoldKey(); hk != "" {
+		out = append(out, shortcut{[]string{"Hold " + string(hk)}, "Show every session; the session keys walk them all"})
+	}
+	prefix := firstChord(b.Global["tab_prefix"])
+	for _, a := range config.Actions() {
+		cs := b.Global[a.Name]
+		if a.Tab {
+			cs = b.Tab[a.Name]
+			if prefix == "" {
+				continue
+			}
+		}
+		series, n := a.Name, ""
+		if i := strings.LastIndex(a.Name, "_"); i > 0 {
+			series, n = a.Name[:i], a.Name[i+1:]
+		}
+		isSeries := len(n) == 1 && n[0] >= '1' && n[0] <= '9'
+
+		what := a.Doc
+		if isSeries {
+			if n != "1" {
+				continue
+			}
+			last := b.Global[series+"_9"]
+			if a.Tab {
+				last = b.Tab[series+"_9"]
+			}
+			if len(cs) == 0 || len(last) == 0 {
+				continue
+			}
+			what = strings.TrimSuffix(a.Doc, " 1") + " 1-9"
+			cs = []config.Chord{cs[0], last[0]}
+		}
+		if len(cs) == 0 {
+			continue
+		}
+		var keys []string
+		for i, c := range cs[:min(2, len(cs))] {
+			k := c.String()
+			if isSeries && i == 1 {
+				k = "… " + k
+			}
+			keys = append(keys, k)
+		}
+		if a.Tab {
+			keys = append([]string{prefix + ", then"}, keys...)
+			what = "Tab mode: " + strings.ToLower(what[:1]) + what[1:]
+		}
+		if before, _, ok := strings.Cut(what, ". "); ok {
+			what = before
+		}
+		out = append(out, shortcut{keys, what})
+	}
+	return append(out, shortcut{[]string{"Ctrl / Shift", "Click"}, "Pick sessions to group"})
 }
 
 func (u *ui) settingsBody(gtx gl.Context) gl.Dimensions {
-	th := u.th
+	th, m := u.th, &u.modal
+	b := u.nav.bind()
+	rows := shortcuts(b)
+	path := u.cfg.Path
+	if path == "" {
+		path = config.Path()
+	}
+	themeName := u.cfg.ThemeName
+	if themeName == "" {
+		themeName = "aide-dark"
+	}
+	info := func(k, v string, f font.Font) gl.FlexChild {
+		return gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			h := gtx.Dp(24)
+			call, sz := textCall(gtx, th, th.UIFont, 13, th.Muted, k)
+			o := op.Offset(image.Pt(0, (h-sz.Y)/2)).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			o.Pop()
+			vg := gtx
+			vg.Constraints.Max.X -= gtx.Dp(72)
+			call, sz = textCall(vg, th, f, 13, th.Fg, v)
+			o = op.Offset(image.Pt(gtx.Dp(72), (h-sz.Y)/2)).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			o.Pop()
+			return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}
+		})
+	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Settings")
 		}),
+		gl.Rigid(gl.Spacer{Height: 12}.Layout),
+		info("Config", sidebar.ShortPath(path), th.MonoFont),
+		info("Keys", b.Preset+" preset", th.UIFont),
+		info("Theme", themeName, th.UIFont),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return para(gtx, th, medium(th.UIFont), 11, th.Muted, "Keyboard shortcuts")
 		}),
 		gl.Rigid(gl.Spacer{Height: 6}.Layout),
-	}
-	for _, kb := range keybindings {
-		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			h := gtx.Dp(32)
-			w := gtx.Constraints.Max.X
-			call, sz := textCall(gtx, th, th.UIFont, 13, th.Fg, kb.what)
-			o := op.Offset(image.Pt(0, (h-sz.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			x := w
-			for i := len(kb.keys) - 1; i >= 0; i-- {
-				kc, ks := keycap(gtx, th, kb.keys[i])
-				x -= ks.X
-				o := op.Offset(image.Pt(x, (h-ks.Y)/2)).Push(gtx.Ops)
-				kc.Add(gtx.Ops)
+		gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
+			m.list.Axis = gl.Vertical
+			return m.list.Layout(gtx, len(rows), func(gtx gl.Context, i int) gl.Dimensions {
+				kb := rows[i]
+				h := gtx.Dp(32)
+				w := gtx.Constraints.Max.X
+				var caps []op.CallOp
+				var sizes []image.Point
+				capsW := 0
+				for _, k := range kb.keys {
+					kc, ks := keycap(gtx, th, k)
+					caps, sizes = append(caps, kc), append(sizes, ks)
+					capsW += ks.X + gtx.Dp(4)
+				}
+				tg := gtx
+				tg.Constraints.Max.X = max(0, w-capsW-gtx.Dp(8))
+				call, sz := textCall(tg, th, th.UIFont, 13, th.Fg, kb.what)
+				o := op.Offset(image.Pt(0, (h-sz.Y)/2)).Push(gtx.Ops)
+				call.Add(gtx.Ops)
 				o.Pop()
-				x -= gtx.Dp(4)
-			}
-			return gl.Dimensions{Size: image.Pt(w, h)}
-		}))
-	}
-	kids = append(kids,
+				x := w
+				for i := len(caps) - 1; i >= 0; i-- {
+					x -= sizes[i].X
+					o := op.Offset(image.Pt(x, (h-sizes[i].Y)/2)).Push(gtx.Ops)
+					caps[i].Add(gtx.Ops)
+					o.Pop()
+					x -= gtx.Dp(4)
+				}
+				return gl.Dimensions{Size: image.Pt(w, h)}
+			})
+		}),
 		gl.Rigid(gl.Spacer{Height: 20}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "", "Done", th.Primary, theme.Hex("#06121f"))
+			return u.buttons(gtx, "", "Done", th.Primary, th.OnPrimary)
 		}),
-	)
+	}
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
 
@@ -354,7 +440,7 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 			w, h := gtx.Constraints.Max.X, gtx.Dp(36)
 			rect := image.Rect(0, 0, w, h)
 			r := gtx.Dp(8)
-			border := theme.Mix(th.SurfaceSecondary, theme.Hex("#ffffff"), 0.07)
+			border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
 			if gtx.Focused(&m.path) {
 				border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
 			}
@@ -398,7 +484,7 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 20}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", "Open", th.Primary, theme.Hex("#06121f"))
+			return u.buttons(gtx, "Cancel", "Open", th.Primary, th.OnPrimary)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -421,7 +507,7 @@ func (u *ui) buttons(gtx gl.Context, cancel, ok string, okBg, okFg color.NRGBA) 
 		c.Layout(g, func(gtx gl.Context) gl.Dimensions {
 			b := bg
 			if c.Hovered() {
-				b = theme.Mix(bg, theme.Hex("#ffffff"), 0.08)
+				b = theme.Mix(bg, th.Fg, 0.08)
 			}
 			rr := clip.UniformRRect(image.Rect(0, 0, bw, h), h/2)
 			paint.FillShape(gtx.Ops, b, rr.Op(gtx.Ops))
@@ -457,9 +543,9 @@ func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note s
 			p.MoveTo(o.Add(f32.Pt(4*s, 8.5*s)))
 			p.LineTo(o.Add(f32.Pt(7*s, 11.5*s)))
 			p.LineTo(o.Add(f32.Pt(12*s, 5*s)))
-			paint.FillShape(gtx.Ops, theme.Hex("#06121f"), clip.Stroke{Path: p.End(), Width: 2 * s}.Op())
+			paint.FillShape(gtx.Ops, th.OnPrimary, clip.Stroke{Path: p.End(), Width: 2 * s}.Op())
 		} else {
-			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, theme.Hex("#ffffff"), 0.25), clip.UniformRRect(rect, r).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.25), clip.UniformRRect(rect, r).Op(gtx.Ops))
 			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
 		}
 		x := box + gtx.Dp(8)
@@ -482,7 +568,7 @@ func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note s
 // border-token ring, 12px body text.
 func keycap(gtx gl.Context, th *theme.Theme, s string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
-	call, ts := textCall(gtx, th, th.UIFont, 12, theme.Hex("#c4c8ce"), s)
+	call, ts := textCall(gtx, th, th.UIFont, 12, theme.Mix(th.Muted, th.Fg, 0.54), s)
 	h := gtx.Dp(20)
 	sz := image.Pt(max(ts.X+2*gtx.Dp(6), h), h)
 	r := gtx.Dp(4)

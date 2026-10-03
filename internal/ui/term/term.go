@@ -479,7 +479,7 @@ func (v *View) scrollbar(gtx layout.Context, size image.Point, rows int) {
 	th := min(track, max(gtx.Dp(24), track*rows/total))
 	top := in + (track-th)*(v.scrMax-min(v.scrollOff, v.scrMax))/v.scrMax
 	r := image.Rect(size.X-in-w, top, size.X-in, top+th)
-	c := theme.Mix(v.th.TermBg, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, 0.14)
+	c := theme.Mix(v.th.TermBg, v.th.TermFg, 0.14)
 	paint.FillShape(gtx.Ops, c, clip.UniformRRect(r, w/2).Op(gtx.Ops))
 }
 

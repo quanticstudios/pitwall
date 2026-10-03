@@ -54,15 +54,15 @@ type Keys struct {
 	GotoTab7       Binding `toml:"goto_tab_7" doc:"Go to tab 7"`
 	GotoTab8       Binding `toml:"goto_tab_8" doc:"Go to tab 8"`
 	GotoTab9       Binding `toml:"goto_tab_9" doc:"Go to tab 9"`
-	JumpSession1   Binding `toml:"jump_session_1" doc:"Jump to session 1 in switcher order"`
-	JumpSession2   Binding `toml:"jump_session_2" doc:"Jump to session 2 in switcher order"`
-	JumpSession3   Binding `toml:"jump_session_3" doc:"Jump to session 3 in switcher order"`
-	JumpSession4   Binding `toml:"jump_session_4" doc:"Jump to session 4 in switcher order"`
-	JumpSession5   Binding `toml:"jump_session_5" doc:"Jump to session 5 in switcher order"`
-	JumpSession6   Binding `toml:"jump_session_6" doc:"Jump to session 6 in switcher order"`
-	JumpSession7   Binding `toml:"jump_session_7" doc:"Jump to session 7 in switcher order"`
-	JumpSession8   Binding `toml:"jump_session_8" doc:"Jump to session 8 in switcher order"`
-	JumpSession9   Binding `toml:"jump_session_9" doc:"Jump to session 9 in switcher order"`
+	JumpSession1   Binding `toml:"jump_session_1" doc:"Jump to session 1"`
+	JumpSession2   Binding `toml:"jump_session_2" doc:"Jump to session 2"`
+	JumpSession3   Binding `toml:"jump_session_3" doc:"Jump to session 3"`
+	JumpSession4   Binding `toml:"jump_session_4" doc:"Jump to session 4"`
+	JumpSession5   Binding `toml:"jump_session_5" doc:"Jump to session 5"`
+	JumpSession6   Binding `toml:"jump_session_6" doc:"Jump to session 6"`
+	JumpSession7   Binding `toml:"jump_session_7" doc:"Jump to session 7"`
+	JumpSession8   Binding `toml:"jump_session_8" doc:"Jump to session 8"`
+	JumpSession9   Binding `toml:"jump_session_9" doc:"Jump to session 9"`
 	Switcher       Binding `toml:"switcher" doc:"Show or hide the session switcher"`
 	PinSwitcher    Binding `toml:"pin_switcher" doc:"Keep the switcher open after the hold modifier is released"`
 	Copy           Binding `toml:"copy" doc:"Copy the selection"`
