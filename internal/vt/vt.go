@@ -31,6 +31,7 @@ type Cell struct {
 	Width   uint8  // 1 or 2; 0 for the trailing half
 	FG, BG  Color
 	Attrs   Attr
+	Link    string // OSC 8 hyperlink target; "" for none
 }
 
 type CursorShape uint8

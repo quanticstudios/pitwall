@@ -158,7 +158,7 @@ func TestLoadDefaults(t *testing.T) {
 	if len(probs) > 0 {
 		t.Fatal(msgs(probs))
 	}
-	if s.Keys.Preset != "conventional" || s.ThemeName != "aide-dark" || s.Font.MonoSize != 13 || !s.CopyOnSelect {
+	if s.Keys.Preset != "conventional" || s.ThemeName != "aide-dark" || s.Font.MonoSize != 13 || !s.CopyOnSelect || !s.Links {
 		t.Fatalf("defaults: %+v", s)
 	}
 	if s.Theme.Palette() != vt.DefaultPalette {
@@ -173,7 +173,8 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 // TestCopyOnSelect checks [terminal] copy_on_select: false turns it off, and
-// a value that is not a bool is reported and keeps the default, on.
+// a value that is not a bool is reported and keeps the default, on. links
+// = false turns links off and leaves copy on select alone.
 func TestCopyOnSelect(t *testing.T) {
 	dir := t.TempDir()
 	s, probs := LoadFile(write(t, dir, "config.toml", "[terminal]\ncopy_on_select = false\n"))
@@ -183,6 +184,10 @@ func TestCopyOnSelect(t *testing.T) {
 	s, probs = LoadFile(write(t, dir, "config.toml", "[terminal]\ncopy_on_select = \"no\"\n"))
 	if got := msgs(probs); got != "config.toml:2: terminal.copy_on_select: want true or false" || !s.CopyOnSelect {
 		t.Fatalf("bad value: %v %q", s.CopyOnSelect, got)
+	}
+	s, probs = LoadFile(write(t, dir, "config.toml", "[terminal]\nlinks = false\n"))
+	if len(probs) > 0 || s.Links || !s.CopyOnSelect {
+		t.Fatalf("links off: %v %v", s.Links, msgs(probs))
 	}
 }
 
@@ -430,6 +435,8 @@ func TestSchema(t *testing.T) {
 	check("typo'd pane key", "[keys.pane]\nsplit_dwn = \"S\"\n", false)
 	check("copy on select off", "[terminal]\ncopy_on_select = false\n", true)
 	check("copy on select string", "[terminal]\ncopy_on_select = \"no\"\n", false)
+	check("links off", "[terminal]\nlinks = false\n", true)
+	check("links string", "[terminal]\nlinks = \"no\"\n", false)
 
 	var ts map[string]any
 	if err := json.Unmarshal(ThemeSchema(), &ts); err != nil {

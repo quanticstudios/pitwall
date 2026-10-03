@@ -47,6 +47,9 @@ type View struct {
 	// CopyOnSelect copies a mouse selection to the clipboard once it is
 	// made: when a drag is released, or a word is double-clicked.
 	CopyOnSelect bool
+	// Links underlines links and opens the one under a Ctrl+click, even
+	// while the program owns the mouse.
+	Links bool
 
 	th       *theme.Theme
 	ppem     fixed.Int26_6
@@ -79,6 +82,17 @@ type View struct {
 	copied    string          // what this frame put on the clipboard
 
 	keyText string // text of the key press report-all just encoded
+
+	inside    bool        // the pointer is over the pane
+	ptr       image.Point // the cell under the pointer
+	hover     link        // the link drawn hovered, while hoverOn
+	hoverY    int
+	hoverOn   bool
+	linkPress bool   // a Ctrl+click opened a link; its drag and release go nowhere
+	open      string // the link this frame's Ctrl+click asks to open
+	links     []link // scratch for rowLinks
+	hovLinks  []link // the hovered links on the row being drawn
+	linkBuf   []byte
 
 	scrollPx          float32 // wheel distance not yet a whole line
 	scrollLines       int
@@ -114,6 +128,7 @@ type style struct {
 	fg, bg color.NRGBA
 	font   uint8   // bit 0 bold, bit 1 italic
 	deco   vt.Attr // Underline|Strike
+	link   bool    // part of a link at rest: a faint underline
 	blank  bool    // no glyph to draw
 }
 
@@ -127,6 +142,12 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 	cols, rows = fit(size.Sub(image.Pt(2*v.pad, 2*v.pad)), v.cell)
 
 	input = v.events(gtx, g, m, focused, rows)
+	v.hoverOn = false
+	if v.Links && ctrlDown && v.inside {
+		if l, ok := v.linkAt(g, v.ptr); ok {
+			v.hover, v.hoverY, v.hoverOn = l, v.ptr.Y, true
+		}
+	}
 
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.TermBg, clip.Rect{Max: size}.Op())
@@ -153,7 +174,9 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 
 	area := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, v)
-	if m.Mouse == vt.MouseOff {
+	if v.hoverOn {
+		pointer.CursorPointer.Add(gtx.Ops)
+	} else if m.Mouse == vt.MouseOff {
 		pointer.CursorText.Add(gtx.Ops)
 	}
 	area.Pop()
@@ -179,6 +202,14 @@ func (v *View) ScrollDelta() int {
 	n := v.scrollLines
 	v.scrollLines = 0
 	return n
+}
+
+// OpenLink returns and clears the link the last Layout's Ctrl+click asked
+// to open, or "". Only http, https, file and mailto links get here.
+func (v *View) OpenLink() string {
+	s := v.open
+	v.open = ""
+	return s
 }
 
 // Copied returns and clears the text the last Layout put on the clipboard,
@@ -249,7 +280,16 @@ func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
 	for y := range h {
 		cells := g.Cells[y*g.Cols : y*g.Cols+n]
 		s0, s1 := v.sel.cols(y, n)
-		k := v.hashRow(cells, s0, s1)
+		v.hovLinks = v.hovLinks[:0]
+		if v.Links && v.hoverOn {
+			v.links, v.linkBuf = rowLinks(v.links[:0], v.linkBuf, cells)
+			for _, l := range v.links {
+				if v.hovered(l, y) {
+					v.hovLinks = append(v.hovLinks, l)
+				}
+			}
+		}
+		k := v.hashRow(cells, s0, s1, v.hovLinks)
 		r, ok := v.rows[k]
 		if !ok {
 			if r, ok = v.prev[k]; ok {
@@ -263,7 +303,7 @@ func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
 				}
 				j := &jobs[len(jobs)-1]
 				j.r, j.cells = r, cells
-				v.prepare(j, s0, s1)
+				v.prepare(j, s0, s1, y)
 			}
 			v.rows[k] = r
 		}
@@ -314,9 +354,23 @@ func (v *View) take(w, h int) *rowImg {
 	return &rowImg{img: image.NewRGBA(image.Rect(0, 0, w, h))}
 }
 
-// prepare resolves the job's styles and glyphs on the UI goroutine.
-func (v *View) prepare(j *rowJob, s0, s1 int) {
+// prepare resolves the job's styles and glyphs on the UI goroutine. y is
+// the row, for the hovered link.
+func (v *View) prepare(j *rowJob, s0, s1, y int) {
 	j.st = v.resolveStyles(j.st[:0], j.cells, s0, s1)
+	if v.Links {
+		v.links, v.linkBuf = rowLinks(v.links[:0], v.linkBuf, j.cells)
+		for _, l := range v.links {
+			hot := v.hovered(l, y)
+			for x := l.x0; x < l.x1; x++ {
+				if hot {
+					j.st[x].fg, j.st[x].deco = v.th.Blue, j.st[x].deco|vt.Underline
+				} else {
+					j.st[x].link = true
+				}
+			}
+		}
+	}
 	j.gl = j.gl[:0]
 	for x, c := range j.cells {
 		var g *glyphImg
@@ -327,7 +381,9 @@ func (v *View) prepare(j *rowJob, s0, s1 int) {
 	}
 }
 
-func (v *View) hashRow(cells []vt.Cell, s0, s1 int) uint64 {
+// hashRow keys a row image: its cells, selection, whether links show, and
+// the hovered links on it.
+func (v *View) hashRow(cells []vt.Cell, s0, s1 int, hov []link) uint64 {
 	var h maphash.Hash
 	h.SetSeed(v.seed)
 	var b [16]byte
@@ -338,12 +394,24 @@ func (v *View) hashRow(cells []vt.Cell, s0, s1 int) uint64 {
 	put(4, uint32(s0))
 	put(8, uint32(s1))
 	h.Write(b[:12])
+	if v.Links {
+		h.WriteByte(1)
+	}
+	for _, l := range hov {
+		put(0, uint32(l.x0))
+		put(4, uint32(l.x1))
+		h.Write(b[:8])
+	}
 	for _, c := range cells {
 		put(0, uint32(c.FG))
 		put(4, uint32(c.BG))
 		put(8, uint32(c.Attrs)|uint32(c.Width)<<16|uint32(len(c.Content))<<24)
 		h.Write(b[:12])
 		h.WriteString(c.Content)
+		if c.Link != "" {
+			h.WriteString(c.Link)
+			h.WriteByte(0)
+		}
 	}
 	return h.Sum64()
 }
@@ -415,11 +483,29 @@ func (v *View) paintRow(j *rowJob) {
 		}
 	}
 
+	// A link at rest gets a faint line where an underline goes, in its own
+	// color, so it reads as a link over any program's colors.
+	uy := min(ch-v.line, v.baseline+v.line)
+	for x := 0; x < len(st); {
+		if !st[x].link || st[x].deco&vt.Underline != 0 {
+			x++
+			continue
+		}
+		k := x + 1
+		for k < len(st) && st[k].link && st[k].deco&vt.Underline == 0 && st[k].fg == st[x].fg {
+			k++
+		}
+		c := st[x].fg
+		c.A /= 2
+		fillRect(img, image.Rect(x*cw, uy, k*cw, uy+v.line), c)
+		x = k
+	}
+
 	for _, d := range [...]struct {
 		a vt.Attr
 		y int
 	}{
-		{vt.Underline, min(ch-v.line, v.baseline+v.line)},
+		{vt.Underline, uy},
 		{vt.Strike, v.baseline - (v.ppem * 3 / 10).Round()},
 	} {
 		for x := 0; x < len(st); {

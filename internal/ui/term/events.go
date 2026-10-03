@@ -20,6 +20,15 @@ import (
 
 const otherMods = key.ModCtrl | key.ModShift | key.ModSuper | key.ModCommand
 
+// linkMods open links on click: Ctrl, or Cmd on macOS.
+const linkMods = key.ModCtrl | key.ModCommand
+
+// ctrlDown is whether a link modifier is held, as of the last key event in
+// the focused pane or pointer event in any pane. It is shared so the pane under the
+// pointer, which may not have key focus, sees Ctrl go down and up without the
+// pointer moving. Views only run on the UI goroutine.
+var ctrlDown bool
+
 func (v *View) keys() *config.Bindings {
 	if v.Keys == nil {
 		return config.Preset(config.DefaultPreset)
@@ -78,7 +87,7 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			transfer.TargetFilter{Target: v, Type: "application/text"},
 			pointer.Filter{
 				Target:  v,
-				Kinds:   pointer.Press | pointer.Release | pointer.Drag | pointer.Move | pointer.Scroll | pointer.Cancel,
+				Kinds:   pointer.Press | pointer.Release | pointer.Drag | pointer.Move | pointer.Scroll | pointer.Cancel | pointer.Leave,
 				ScrollX: pointer.ScrollRange{Min: -1e6, Max: 1e6},
 				ScrollY: pointer.ScrollRange{Min: -1e6, Max: 1e6},
 			},
@@ -96,6 +105,9 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 		}
 		switch e := ev.(type) {
 		case key.Event:
+			if e.Name == key.NameCtrl || e.Name == key.NameCommand {
+				ctrlDown = e.State == key.Press
+			}
 			// Both press and release of a bound key stay out of the program.
 			switch a := v.keys().Action(e); {
 			case a == "copy":
@@ -148,6 +160,7 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 		case key.FocusEvent:
 			// Gio sends these for key focus moves and the window's focus.
 			v.keyFocus = e.Focus
+			ctrlDown = ctrlDown && e.Focus
 		}
 	}
 	if v.selDone && v.CopyOnSelect {
@@ -179,13 +192,31 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 	if e.Kind == pointer.Cancel {
 		v.buttons = 0
 	}
-	if g.Cols == 0 || g.Rows == 0 {
+	if e.Kind == pointer.Leave || e.Kind == pointer.Cancel {
+		v.inside = false
+	}
+	if e.Kind == pointer.Leave || g.Cols == 0 || g.Rows == 0 {
 		return nil
 	}
 	cell := image.Pt(
 		min(max((int(e.Position.X)-v.pad)/v.cell.X, 0), g.Cols-1),
 		min(max((int(e.Position.Y)-v.pad)/v.cell.Y, 0), g.Rows-1),
 	)
+	if e.Kind != pointer.Cancel {
+		ctrlDown, v.inside, v.ptr = e.Modifiers&linkMods != 0, true, cell
+	}
+	// Ctrl+click (Cmd+click on macOS) on a link opens it, even when the program owns the mouse,
+	// and neither the program nor the selection sees that click.
+	if v.Links && e.Kind == pointer.Press && e.Buttons == pointer.ButtonPrimary && ctrlDown {
+		if l, ok := v.linkAt(g, cell); ok {
+			v.open, v.linkPress = l.url, true
+			return nil
+		}
+	}
+	if v.linkPress {
+		v.linkPress = e.Kind != pointer.Release && e.Kind != pointer.Cancel
+		return nil
+	}
 	// Shift forces local selection even when the program owns the mouse.
 	if m.Mouse != vt.MouseOff && e.Modifiers&key.ModShift == 0 {
 		if focused {

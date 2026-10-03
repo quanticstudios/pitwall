@@ -1055,6 +1055,8 @@ func (p *Page) terminal() []section {
 	return []section{{rows: []row{
 		{label: "Copy on select", desc: "Selecting text with the mouse copies it to the clipboard. The copy shortcut works either way.", extra: "clipboard selection mouse copy_on_select",
 			control: p.toggle("terminal", "copy_on_select", p.s.CopyOnSelect)},
+		{label: "Links", desc: "Underline web and file links in panes. Ctrl+click opens one in your browser, even inside Claude Code or Codex.", extra: "url hyperlink browser open ctrl click links",
+			control: p.toggle("terminal", "links", p.s.Links)},
 		{label: "Scrollback", desc: "Lines of history each pane keeps. Fixed in this version.", extra: "history lines buffer",
 			control: func(gtx gl.Context) gl.Dimensions {
 				return p.text(gtx, p.th.UIFont, p.sp(13), p.th.Fg, "10,000 lines")

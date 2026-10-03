@@ -303,6 +303,7 @@ func snapshot(e *xvt.Emulator, st *state) Grid {
 				FG:      toColor(c.Style.Fg),
 				BG:      toColor(c.Style.Bg),
 				Attrs:   toAttr(c.Style.Attrs, c.Style.Underline != ansi.UnderlineNone),
+				Link:    c.Link.URL,
 			}
 		}
 	}

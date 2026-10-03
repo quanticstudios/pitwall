@@ -21,6 +21,11 @@ To cut a release: add a section below and merge it, then
   characters" notice at the bottom of the panes. The copy shortcut shows the
   notice too. Turn it off with `copy_on_select = false` under the new
   `[terminal]` table, or the switch in Settings, Terminal.
+- Links in panes are underlined: web, `file://` and `www.` URLs in the text,
+  and OSC 8 hyperlinks that programs print. Hold Ctrl (Cmd on macOS) over
+  one to see it in the theme's link color, and click to open it in your
+  browser, also inside Claude Code and Codex. Turn it off with `links = false` under
+  `[terminal]`, or the switch in Settings, Terminal.
 
 ## v0.1.0-alpha.2
 
