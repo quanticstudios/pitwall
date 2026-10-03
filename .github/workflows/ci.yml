@@ -65,6 +65,11 @@ jobs:
       - name: Test everything
         continue-on-error: true
         run: go test -timeout 3m ./...
+      # why: a timed-out test leaves its .test.exe (and any daemon it started) running, locking files the post-job cleanup deletes.
+      - name: Stop leftover test processes
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: Get-Process | Where-Object { $_.ProcessName -like '*.test' -or $_.ProcessName -like 'pitwall*' } | Stop-Process -Force -ErrorAction SilentlyContinue
       - name: get.sh
         if: runner.os == 'macOS'
         run: sh scripts/get_test.sh
