@@ -199,13 +199,11 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		}
 		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.SmallSize, th.Muted, where)
 		rowH := nameSz.Y + brSz.Y + 2*rowPad.Y
-		rowBg := th.Surface
 		if current {
-			rowBg = th.SurfaceElevated
 			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rect(0, y, inner, y+rowH), gtx.Dp(4)).Op(gtx.Ops))
 		}
 		mo := op.Offset(image.Pt(rowPad.X, y+rowPad.Y+(nameSz.Y-mark)/2)).Push(gtx.Ops)
-		sidebar.TabMark(gtx, st, w, mark, th.Muted, rowBg)
+		sidebar.TabMark(gtx, st, w, mark, th.Muted, th.Fg)
 		mo.Pop()
 		o := op.Offset(image.Pt(rowPad.X+markW, y+rowPad.Y)).Push(gtx.Ops)
 		nameCall.Add(gtx.Ops)

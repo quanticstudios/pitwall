@@ -54,6 +54,13 @@ Inc. pitwall's terminal emulator is x/vt. A copy lives in `third_party/x-vt`
 with one line changed to turn off alternate-screen scrollback; its license is
 in `third_party/x-vt/LICENSE` and the change in `third_party/x-vt/PATCH.md`.
 
+### Simple Icons
+
+<https://simpleicons.org>, CC0 1.0 Universal. `internal/ui/sidebar/agent.go`
+embeds the Claude and OpenAI path data from simple-icons 16.33.0. The logos
+are trademarks of Anthropic and OpenAI; pitwall uses them only to show which
+agent runs in a tab.
+
 ### Lucide icons
 
 <https://lucide.dev>, ISC License, Copyright (c) 2026 Lucide Icons and

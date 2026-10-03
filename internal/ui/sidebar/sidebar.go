@@ -1043,7 +1043,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		var line []item
 		if ag := v.agent[ws.ID]; ag != "" {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, semibold(th.UIFont), 11, theme.Mix(base, AgentColor(ag), 0.9), AgentName(ag))
+				return label(gtx, th, semibold(th.UIFont), 11, theme.Mix(base, AgentColor(ag, th.Fg), 0.9), AgentName(ag))
 			}})
 		}
 		line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -1152,7 +1152,7 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 	if ag := v.agent[ws.ID]; ag != "" {
 		// The mark draws at 14dp, centred on the 12dp slot the titles align to.
 		off := op.Offset(image.Pt(-gtx.Dp(1), -gtx.Dp(1))).Push(gtx.Ops)
-		AgentMark(gtx, ag, gtx.Dp(14), base)
+		AgentMark(gtx, ag, gtx.Dp(14), th.Fg)
 		off.Pop()
 		return layout.Dimensions{Size: image.Pt(sz, sz)}
 	}

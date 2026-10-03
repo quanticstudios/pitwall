@@ -8,6 +8,12 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.7
+
+- Agent tabs show the real Claude and OpenAI logos (from Simple Icons)
+  instead of drawn stand-ins. The OpenAI mark and the "Codex" label use the
+  theme's text color.
+
 ## v0.0.6
 
 - Groups and ungrouped tabs share one order: drag a group above loose tabs,
