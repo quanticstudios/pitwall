@@ -1,5 +1,5 @@
 import React from 'react';
-import {Audio, interpolate, Series, staticFile} from 'remotion';
+import {Audio, Easing, interpolate, Series, staticFile} from 'remotion';
 import {Intro} from './scenes/Intro';
 import {Shell} from './scenes/Shell';
 import {Agents, Attention} from './scenes/Agents';
@@ -29,6 +29,9 @@ const scenes: [React.FC<{dur: number}>, number][] = [
 const FPS = 60;
 // MUSIC_START is where the video's frame 0 sits in the track, in seconds.
 const MUSIC_START = 51.719;
+// GAIN is the music level, -3 dB; it swells in over FADE_IN frames.
+const GAIN = 10 ** (-3 / 20);
+const FADE_IN = 4 * FPS;
 
 export const PROMO_FRAMES = scenes.reduce((n, [, d]) => n + d, 0);
 
@@ -38,7 +41,11 @@ export const Promo: React.FC = () => (
     <Audio
       src={staticFile('music/track.mp3')}
       trimBefore={Math.round(MUSIC_START * FPS)}
-      volume={(f) => interpolate(f, [0, 12, PROMO_FRAMES - 120, PROMO_FRAMES], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}
+      volume={(f) =>
+        f < FADE_IN
+          ? interpolate(f, [0, FADE_IN], [0, GAIN], {easing: Easing.in(Easing.quad)})
+          : interpolate(f, [PROMO_FRAMES - 120, PROMO_FRAMES], [GAIN, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})
+      }
     />
     <Series>
       {scenes.map(([Scene, d], i) => (
