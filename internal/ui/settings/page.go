@@ -55,7 +55,7 @@ const (
 var categories = []struct{ name, desc string }{
 	{"Appearance", "Theme, fonts and spacing. Changes apply as you make them."},
 	{"Keyboard shortcuts", "Click a shortcut to record a new one."},
-	{"Terminal", "What every pane keeps."},
+	{"Terminal", "How every pane behaves."},
 	{"Agents", "The sidebar learns what Claude Code and Codex are doing from hooks in their configs."},
 	{"About", "Version, config file and documentation."},
 }
@@ -803,6 +803,40 @@ func (p *Page) resetSlot(id string, shown bool) gl.Widget {
 	}
 }
 
+// toggle is a switch for a bool key, primary when on. A click writes the
+// other value.
+func (p *Page) toggle(table, k string, on bool) gl.Widget {
+	return func(gtx gl.Context) gl.Dimensions {
+		th := p.th
+		c := p.btn(table + "." + k)
+		for c.Clicked(gtx) {
+			p.saveValue(table, k, fmt.Sprint(!on))
+		}
+		return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+			sz := image.Pt(gtx.Dp(32), gtx.Dp(18))
+			knob, in := gtx.Dp(14), gtx.Dp(2)
+			track := theme.Mix(th.SurfaceElevated, th.Fg, 0.12)
+			ring, x := track, in
+			if on {
+				track, ring, x = th.Primary, th.Primary, sz.X-in-knob
+			}
+			if c.Hovered() {
+				track = theme.Mix(track, th.Fg, 0.08)
+			}
+			rrect(gtx, ring, image.Rectangle{Max: sz}, sz.Y/2)
+			rrect(gtx, track, image.Rect(1, 1, sz.X-1, sz.Y-1), sz.Y/2-1)
+			fg := th.Muted
+			if on {
+				fg = th.OnPrimary
+			}
+			rrect(gtx, fg, image.Rect(x, in, x+knob, in+knob), knob/2)
+			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
+			pointer.CursorPointer.Add(gtx.Ops)
+			return gl.Dimensions{Size: sz}
+		})
+	}
+}
+
 // segmented is a row of options with the current one raised.
 func (p *Page) segmented(id string, opts []string, cur string, pick func(string)) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
@@ -1019,6 +1053,8 @@ func (p *Page) below(a config.Action) gl.Widget {
 
 func (p *Page) terminal() []section {
 	return []section{{rows: []row{
+		{label: "Copy on select", desc: "Selecting text with the mouse copies it to the clipboard. The copy shortcut works either way.", extra: "clipboard selection mouse copy_on_select",
+			control: p.toggle("terminal", "copy_on_select", p.s.CopyOnSelect)},
 		{label: "Scrollback", desc: "Lines of history each pane keeps. Fixed in this version.", extra: "history lines buffer",
 			control: func(gtx gl.Context) gl.Dimensions {
 				return p.text(gtx, p.th.UIFont, p.sp(13), p.th.Fg, "10,000 lines")

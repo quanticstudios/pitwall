@@ -541,3 +541,63 @@ func TestFocusReports(t *testing.T) {
 		t.Errorf("second Blur = %q", got)
 	}
 }
+
+// TestCopyOnSelect checks a finished mouse selection reaches the clipboard:
+// on drag release and on a double-clicked word, not mid-drag, not on a plain
+// click, and not at all with CopyOnSelect off.
+func TestCopyOnSelect(t *testing.T) {
+	var r input.Router
+	v := &View{CopyOnSelect: true}
+	th, g := testTheme(), denseGrid(20, 5, 0, 7)
+	frame := func(evs ...event.Event) string {
+		r.Queue(evs...)
+		gtx := testContext(image.Pt(400, 300))
+		gtx.Source = r.Source()
+		v.Layout(gtx, th, g, vt.Modes{}, true)
+		r.Frame(gtx.Ops)
+		got := v.Copied()
+		if mime, b, ok := r.WriteClipboard(); ok != (got != "") || ok && (mime != "application/text" || string(b) != got) {
+			t.Fatalf("clipboard %v %q %q, Copied %q", ok, mime, b, got)
+		}
+		return got
+	}
+	frame()
+	frame()
+	pad := float32(testContext(image.Pt(1, 1)).Dp(padding))
+	at := func(x, y int) f32.Point {
+		return f32.Pt(pad+float32(x*v.cell.X)+1, pad+float32(y*v.cell.Y)+1)
+	}
+	var clock time.Duration
+	press := func(x, y int) pointer.Event {
+		clock += time.Second
+		return pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonPrimary, Position: at(x, y), Time: clock}
+	}
+	release := func(x, y int) pointer.Event {
+		return pointer.Event{Kind: pointer.Release, Position: at(x, y), Time: clock}
+	}
+	// The router turns a move with a button held into a Drag.
+	drag := pointer.Event{Kind: pointer.Move, Buttons: pointer.ButtonPrimary, Position: at(6, 1)}
+
+	if got := frame(press(2, 1), release(2, 1)); got != "" {
+		t.Errorf("plain click copied %q", got)
+	}
+	if got := frame(press(2, 1), drag); got != "" {
+		t.Errorf("mid-drag copied %q", got)
+	}
+	if got := frame(release(6, 1)); got != "789:;" {
+		t.Errorf("drag release copied %q", got)
+	}
+	p := press(2, 1)
+	q := p
+	q.Time += 100 * time.Millisecond
+	if got := frame(p, release(2, 1), q, release(2, 1)); got != "56789:" {
+		t.Errorf("double-click copied %q", got)
+	}
+	v.CopyOnSelect = false
+	if got := frame(press(2, 1), drag, release(6, 1)); got != "" {
+		t.Errorf("off: copied %q", got)
+	}
+	if got := frame(key.Event{Name: "C", Modifiers: key.ModCtrl | key.ModShift, State: key.Press}); got != "789:;" {
+		t.Errorf("off: copy key copied %q", got)
+	}
+}

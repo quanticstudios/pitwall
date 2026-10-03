@@ -158,7 +158,7 @@ func TestLoadDefaults(t *testing.T) {
 	if len(probs) > 0 {
 		t.Fatal(msgs(probs))
 	}
-	if s.Keys.Preset != "conventional" || s.ThemeName != "aide-dark" || s.Font.MonoSize != 13 {
+	if s.Keys.Preset != "conventional" || s.ThemeName != "aide-dark" || s.Font.MonoSize != 13 || !s.CopyOnSelect {
 		t.Fatalf("defaults: %+v", s)
 	}
 	if s.Theme.Palette() != vt.DefaultPalette {
@@ -169,6 +169,20 @@ func TestLoadDefaults(t *testing.T) {
 	s2, probs := LoadFile(p)
 	if len(probs) > 0 || !reflect.DeepEqual(s2.Keys.Global, s.Keys.Global) || s2.Theme.Colors != s.Theme.Colors {
 		t.Fatalf("default file: %v", msgs(probs))
+	}
+}
+
+// TestCopyOnSelect checks [terminal] copy_on_select: false turns it off, and
+// a value that is not a bool is reported and keeps the default, on.
+func TestCopyOnSelect(t *testing.T) {
+	dir := t.TempDir()
+	s, probs := LoadFile(write(t, dir, "config.toml", "[terminal]\ncopy_on_select = false\n"))
+	if len(probs) > 0 || s.CopyOnSelect {
+		t.Fatalf("off: %v %v", s.CopyOnSelect, msgs(probs))
+	}
+	s, probs = LoadFile(write(t, dir, "config.toml", "[terminal]\ncopy_on_select = \"no\"\n"))
+	if got := msgs(probs); got != "config.toml:2: terminal.copy_on_select: want true or false" || !s.CopyOnSelect {
+		t.Fatalf("bad value: %v %q", s.CopyOnSelect, got)
 	}
 }
 
@@ -344,6 +358,10 @@ func validate(root, s map[string]any, v any, path string) []string {
 		} else if p, ok := s["pattern"].(string); ok && !regexp.MustCompile(p).MatchString(str) {
 			fail("%q does not match %s", str, p)
 		}
+	case "boolean":
+		if _, ok := v.(bool); !ok {
+			fail("not a boolean")
+		}
 	case "number":
 		n, ok := v.(float64)
 		if i, isInt := v.(int64); isInt {
@@ -410,6 +428,8 @@ func TestSchema(t *testing.T) {
 	check("unbind", "[keys]\ntab_prefix = []\nswitcher_modifier = \"\"\n", true)
 	check("pane keys", "[keys]\npane_prefix = \"Ctrl+Shift+P\"\n[keys.pane]\nsplit_down = \"S\"\nfullscreen = [\"Z\", \"F\"]\n", true)
 	check("typo'd pane key", "[keys.pane]\nsplit_dwn = \"S\"\n", false)
+	check("copy on select off", "[terminal]\ncopy_on_select = false\n", true)
+	check("copy on select string", "[terminal]\ncopy_on_select = \"no\"\n", false)
 
 	var ts map[string]any
 	if err := json.Unmarshal(ThemeSchema(), &ts); err != nil {

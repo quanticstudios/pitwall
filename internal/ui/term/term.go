@@ -44,6 +44,9 @@ type View struct {
 	// itself and leaves the window's Alt chords alone. Nil is the default
 	// preset.
 	Keys *config.Bindings
+	// CopyOnSelect copies a mouse selection to the clipboard once it is
+	// made: when a drag is released, or a word is double-clicked.
+	CopyOnSelect bool
 
 	th       *theme.Theme
 	ppem     fixed.Int26_6
@@ -72,6 +75,8 @@ type View struct {
 	lastPress pointer.Event
 	lastCell  image.Point
 	buttons   pointer.Buttons // held as of the last pointer event
+	selDone   bool            // a selection was finished this frame
+	copied    string          // what this frame put on the clipboard
 
 	keyText string // text of the key press report-all just encoded
 
@@ -174,6 +179,14 @@ func (v *View) ScrollDelta() int {
 	n := v.scrollLines
 	v.scrollLines = 0
 	return n
+}
+
+// Copied returns and clears the text the last Layout put on the clipboard,
+// by the copy key or CopyOnSelect, or "" when it copied nothing.
+func (v *View) Copied() string {
+	s := v.copied
+	v.copied = ""
+	return s
 }
 
 // fit is how many whole cells fit in size, at least one each way so a

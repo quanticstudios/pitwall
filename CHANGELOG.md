@@ -16,6 +16,11 @@ To cut a release: add a section below and merge it, then
   It reopens the most recent session no window shows, else starts a new
   session in the folder you ran it from. `pitwall -s <name>` still raises
   the window that shows that session.
+- Copy on select: a mouse selection goes to the clipboard as soon as you make
+  it (drag release or double-clicked word), with a quiet "Copied 42
+  characters" notice at the bottom of the panes. The copy shortcut shows the
+  notice too. Turn it off with `copy_on_select = false` under the new
+  `[terminal]` table, or the switch in Settings, Terminal.
 
 ## v0.1.0-alpha.2
 

@@ -95,6 +95,8 @@ func typeSchema(t reflect.Type) map[string]any {
 		return map[string]any{"type": "array", "items": typeSchema(t.Elem())}
 	case reflect.Float64:
 		return map[string]any{"type": "number"}
+	case reflect.Bool:
+		return map[string]any{"type": "boolean"}
 	}
 	return map[string]any{"type": "string"}
 }
