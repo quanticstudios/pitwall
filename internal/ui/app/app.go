@@ -28,6 +28,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/term"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -171,6 +172,10 @@ type ui struct {
 	shownAt time.Time // switcher fade-in start
 
 	notifications *notifier
+
+	settings   settings.Page // shown in place of the panes
+	settingsWS string        // the tab it was opened over; leaving it closes the page
+	probs      []string      // the loaded config's problems, for the settings page
 }
 
 func (u *ui) send(msg any) {
@@ -228,10 +233,14 @@ func (u *ui) layout(gtx gl.Context) {
 			gtx.Execute(op.InvalidateCmd{}) // draw the mode pill's new state now
 		}
 	}()
+	u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 	for {
 		ev, ok := gtx.Event(asFilters(u.nav.keyFilters())...)
 		if !ok {
 			break
+		}
+		if u.settingsShortcut(ev.(key.Event)) {
+			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
 			u.send(msg)
@@ -296,7 +305,11 @@ func (u *ui) layout(gtx gl.Context) {
 	off := op.Offset(area.Min).Push(gtx.Ops)
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
-	u.layoutPanes(pgtx, &st)
+	if u.settings.Shown() {
+		u.layoutSettings(pgtx, &st)
+	} else {
+		u.layoutPanes(pgtx, &st)
+	}
 	off.Pop()
 	if u.nav.tabMode {
 		u.drawModePill(gtx, area)
@@ -350,6 +363,7 @@ func asFilters(fs []key.Filter) []event.Filter {
 func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	switch e := ev.(type) {
 	case sidebar.SelectWorkspace:
+		u.settings.Hide()
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.NewTab:
 		u.send(u.nav.newTab(st, e.After, e.GroupID))
@@ -377,7 +391,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.AddProject:
 		u.modal.open(modalAddProject, "")
 	case sidebar.OpenSettings:
-		u.modal.open(modalSettings, "")
+		u.openSettings()
 	case sidebar.NewWorktreeSession:
 		u.nav.expectSession(st)
 		u.send(proto.NewWorkspace{ProjectID: e.GroupID})

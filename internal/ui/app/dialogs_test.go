@@ -23,7 +23,7 @@ import (
 )
 
 func TestModalPressTargets(t *testing.T) {
-	for _, kind := range []modalKind{modalDelete, modalSettings, modalAddProject} {
+	for _, kind := range []modalKind{modalDelete, modalAddProject} {
 		for _, tc := range []struct {
 			name string
 			at   f32.Point
@@ -121,8 +121,12 @@ func TestSidebarEvents(t *testing.T) {
 	}
 
 	u.sidebarEvent(&st, sidebar.OpenSettings{})
-	if u.modal.kind != modalSettings {
+	if !u.settings.Shown() {
 		t.Error("settings did not open")
+	}
+	u.sidebarEvent(&st, sidebar.SelectWorkspace{WorkspaceID: u.nav.workspace})
+	if u.settings.Shown() {
+		t.Error("selecting a tab left settings open")
 	}
 }
 
