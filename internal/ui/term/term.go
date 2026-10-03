@@ -521,9 +521,14 @@ func blockRect(s string) (image.Rectangle, bool) {
 	return image.Rectangle{}, false // shades and quadrants stay glyphs
 }
 
-// selected lightens bg by 16% white, aide's xterm selectionBackground.
+// selected is bg with 16% white over it, aide's xterm selectionBackground,
+// or 16% black when bg is light, where white would barely show.
 func selected(bg color.NRGBA) color.NRGBA {
-	mix := func(c uint8) uint8 { return uint8((int(c)*84 + 255*16) / 100) }
+	over := 255
+	if 299*int(bg.R)+587*int(bg.G)+114*int(bg.B) > 140*1000 {
+		over = 0
+	}
+	mix := func(c uint8) uint8 { return uint8((int(c)*84 + over*16) / 100) }
 	return color.NRGBA{R: mix(bg.R), G: mix(bg.G), B: mix(bg.B), A: 0xff}
 }
 

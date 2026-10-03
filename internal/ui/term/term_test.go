@@ -601,3 +601,19 @@ func TestCopyOnSelect(t *testing.T) {
 		t.Errorf("off: copy key copied %q", got)
 	}
 }
+
+// TestSelectedContrast checks the selection shows on every built-in theme's
+// terminal background: lighter on dark ones, darker on light ones, and by
+// a visible step either way.
+func TestSelectedContrast(t *testing.T) {
+	luma := func(c color.NRGBA) int { return (299*int(c.R) + 587*int(c.G) + 114*int(c.B)) / 1000 }
+	for _, name := range config.Themes {
+		th, _ := config.Builtin(name)
+		bg := color.NRGBA{A: 0xff}
+		fmt.Sscanf(string(th.Terminal.Background), "#%02x%02x%02x", &bg.R, &bg.G, &bg.B)
+		d := luma(selected(bg)) - luma(bg)
+		if light := luma(bg) > 140; light && d > -20 || !light && d < 20 {
+			t.Errorf("%s: background %v, selection %v (luma step %d)", name, bg, selected(bg), d)
+		}
+	}
+}
