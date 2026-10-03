@@ -167,6 +167,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id }); i >= 0 && cwd != "" && d.st.Panes[i].Cwd != cwd {
 			d.st.Panes[i].Cwd = cwd
 			d.changed()
+			go d.refreshStats(ctx, d.st.Panes[i].WorkspaceID) // a cd can change the repo
 		}
 	}
 }

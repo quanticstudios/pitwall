@@ -570,3 +570,23 @@ func TestFocusSession(t *testing.T) {
 		return ok && f.WorkspaceID == ws.ID && f.TabID == ws.Tabs[0].ID
 	})
 }
+
+// Branch and stats follow the shell into another repo, not the folder the
+// tab started in.
+func TestStatsFollowCwd(t *testing.T) {
+	d, lp, _ := openLive(t, 200)
+	repo := filepath.Join(t.TempDir(), "repo-aide")
+	mkdir(t, repo)
+	lp.setCwd(repo)
+	waitUntil(t, "branch of the new cwd", func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		w := d.st.Workspaces[0]
+		_, ok := d.st.Stats[w.ID]
+		return w.Branch == "repo-aide" && ok
+	})
+	st := d.state()
+	if got := st.LivePath(st.Workspaces[0]); got != repo {
+		t.Fatalf("LivePath %q, want %q", got, repo)
+	}
+}

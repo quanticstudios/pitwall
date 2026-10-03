@@ -1014,7 +1014,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		inRepo := ws.Branch != ""
 		where := ws.Branch
 		if !inRepo {
-			where = ShortPath(ws.Path)
+			where = ShortPath(v.st.LivePath(ws))
 		}
 		line := []item{{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.MonoFont, 11, muted, where)
