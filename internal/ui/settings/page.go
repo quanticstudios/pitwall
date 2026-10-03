@@ -223,7 +223,7 @@ func (p *Page) recorded(c config.Chord) {
 	switch {
 	case c.Mods == 0 && c.Name == key.NameEscape:
 	case c.Mods == 0 && c.Name == key.NameDeleteBackward:
-		p.write(edit{s.action, s.tab, replaceChord(chordsOf(p.s.Keys, s.action, s.tab), s.index, nil)})
+		p.write(edit{s.action, s.table, replaceChord(chordsOf(p.s.Keys, s.action, s.table), s.index, nil)})
 	case owner(p.s.Keys, s, c) != "":
 		p.conflict = &pending{s, c, owner(p.s.Keys, s, c)}
 	default:
@@ -237,7 +237,7 @@ func (p *Page) startRecord(s slot) {
 
 func (p *Page) write(es ...edit) {
 	for _, e := range es {
-		p.save(table(e.tab), e.action, e.value(p.s.Keys.Preset))
+		p.save(e.table, e.action, e.value(p.s.Keys.Preset))
 	}
 }
 
@@ -876,9 +876,9 @@ func (p *Page) shortcuts() []section {
 				}
 			})})
 	}
-	var global, tab []row
+	var global, tab, pane []row
 	for _, a := range config.Actions() {
-		cs := chordsOf(b, a.Name, a.Tab)
+		cs := chordsOf(b, a.Name, tableOf(a))
 		var names []string
 		for _, c := range cs {
 			names = append(names, c.String())
@@ -888,6 +888,9 @@ func (p *Page) shortcuts() []section {
 		if a.Tab {
 			r.label = "Tab mode: " + strings.ToLower(r.label[:1]) + r.label[1:]
 			tab = append(tab, r)
+		} else if a.Pane {
+			r.label = "Pane mode: " + strings.ToLower(r.label[:1]) + r.label[1:]
+			pane = append(pane, r)
 		} else {
 			global = append(global, r)
 		}
@@ -896,7 +899,11 @@ func (p *Page) shortcuts() []section {
 	if cs := b.Global["tab_prefix"]; len(cs) > 0 {
 		tabDesc = "After " + cs[0].String() + ", one key runs one of these."
 	}
-	return []section{general, {title: "Shortcuts", rows: global}, {title: "Tab mode", desc: tabDesc, rows: tab}}
+	paneDesc := "Off: give pane_prefix a shortcut above to use these."
+	if cs := b.Global["pane_prefix"]; len(cs) > 0 {
+		paneDesc = "After " + cs[0].String() + ", these keys act on panes until Esc or Enter."
+	}
+	return []section{general, {title: "Shortcuts", rows: global}, {title: "Tab mode", desc: tabDesc, rows: tab}, {title: "Pane mode", desc: paneDesc, rows: pane}}
 }
 
 // chords is an action's control: a keycap per chord (click to record), +
@@ -905,14 +912,14 @@ func (p *Page) chords(a config.Action) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
 		th := p.th
 		b := p.s.Keys
-		cs := chordsOf(b, a.Name, a.Tab)
-		id := fmt.Sprint("k:", a.Tab, ":", a.Name)
-		recording := p.rec.action == a.Name && p.rec.tab == a.Tab
+		cs := chordsOf(b, a.Name, tableOf(a))
+		id := fmt.Sprint("k:", tableOf(a), ":", a.Name)
+		recording := p.rec.action == a.Name && p.rec.table == tableOf(a)
 		var ws []gl.Widget
 		cap := func(i int, label string) {
 			c := p.btn(fmt.Sprint(id, ":", i))
 			for c.Clicked(gtx) {
-				p.startRecord(slot{a.Name, a.Tab, i})
+				p.startRecord(slot{a.Name, tableOf(a), i})
 			}
 			hot := recording && p.rec.index == i
 			if hot {
@@ -940,21 +947,21 @@ func (p *Page) chords(a config.Action) gl.Widget {
 		}
 		add := p.btn(id + ":add")
 		for add.Clicked(gtx) {
-			p.startRecord(slot{a.Name, a.Tab, -1})
+			p.startRecord(slot{a.Name, tableOf(a), -1})
 		}
 		ws = append(ws, func(gtx gl.Context) gl.Dimensions { return p.iconButton(gtx, add, plusGlyph) })
-		def := presetChords(b.Preset, a.Name, a.Tab)
+		def := presetChords(b.Preset, a.Name, tableOf(a))
 		for p.btn(id + ":reset").Clicked(gtx) {
-			p.write(edit{a.Name, a.Tab, def})
+			p.write(edit{a.Name, tableOf(a), def})
 		}
 		ws = append(ws, p.resetSlot(id+":reset", !slices.Equal(cs, def)))
 		return hstack(gtx, 6, ws...)
 	}
 }
 
-func (p *Page) actionLabel(name string, tab bool) string {
+func (p *Page) actionLabel(name, table string) string {
 	for _, a := range config.Actions() {
-		if a.Name == name && a.Tab == tab {
+		if a.Name == name && tableOf(a) == table {
 			return firstSentence(a.Doc)
 		}
 	}
@@ -964,13 +971,13 @@ func (p *Page) actionLabel(name string, tab bool) string {
 // below is the recording hint or the conflict prompt under an action.
 func (p *Page) below(a config.Action) gl.Widget {
 	th := p.th
-	if p.rec.action == a.Name && p.rec.tab == a.Tab {
+	if p.rec.action == a.Name && p.rec.table == tableOf(a) {
 		return func(gtx gl.Context) gl.Dimensions {
 			return p.para(gtx, th.UIFont, p.sp(12), th.Primary, "Press the new shortcut. Esc cancels, Backspace removes this one.")
 		}
 	}
 	c := p.conflict
-	if c == nil || c.action != a.Name || c.tab != a.Tab {
+	if c == nil || c.action != a.Name || c.table != tableOf(a) {
 		return nil
 	}
 	return func(gtx gl.Context) gl.Dimensions {
@@ -981,9 +988,9 @@ func (p *Page) below(a config.Action) gl.Widget {
 		for p.btn("nope").Clicked(gtx) {
 			p.conflict = nil
 		}
-		other := p.actionLabel(c.other, c.tab)
+		other := p.actionLabel(c.other, c.table)
 		msg := c.chord.String() + " already runs “" + other + "”. "
-		if cur := chordsOf(p.s.Keys, c.action, c.tab); c.index >= 0 && c.index < len(cur) {
+		if cur := chordsOf(p.s.Keys, c.action, c.table); c.index >= 0 && c.index < len(cur) {
 			msg += "Swap gives it " + cur[c.index].String() + "."
 		} else {
 			msg += "Swap takes it from there."

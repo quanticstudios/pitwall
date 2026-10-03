@@ -40,13 +40,13 @@ func strs(cs []config.Chord) []string {
 func TestRecord(t *testing.T) {
 	b := config.Preset("aide")
 	// A free chord replaces the first of next_tab's two.
-	es := record(b, slot{"next_tab", false, 0}, chord("Ctrl+J"), false)
+	es := record(b, slot{"next_tab", "keys", 0}, chord("Ctrl+J"), false)
 	if len(es) != 1 || !reflect.DeepEqual(strs(es[0].chords), []string{"Ctrl+J", "Alt+Down"}) {
 		t.Fatalf("replace: %+v", es)
 	}
 	// new_tab's chord recorded on split_right: a conflict; swapping gives
 	// new_tab split_right's old chord.
-	s := slot{"split_right", false, 0}
+	s := slot{"split_right", "keys", 0}
 	if o := owner(b, s, chord("Alt+Shift+T")); o != "new_tab" {
 		t.Fatalf("owner = %q", o)
 	}
@@ -56,7 +56,7 @@ func TestRecord(t *testing.T) {
 		t.Fatalf("swap: %+v", es)
 	}
 	// Adding the chord takes it from the other action.
-	es = record(b, slot{"split_right", false, -1}, chord("Alt+Shift+T"), true)
+	es = record(b, slot{"split_right", "keys", -1}, chord("Alt+Shift+T"), true)
 	if !reflect.DeepEqual(strs(es[0].chords), []string{"Alt+N", "Alt+Shift+T"}) || len(es[1].chords) != 0 {
 		t.Fatalf("add+swap: %+v", es)
 	}
@@ -64,14 +64,14 @@ func TestRecord(t *testing.T) {
 		t.Errorf("emptied action should write [] , got %v", v)
 	}
 	// Tab-mode keys only clash with tab-mode keys.
-	if o := owner(b, slot{"new", true, 0}, chord("X")); o != "close" {
+	if o := owner(b, slot{"new", "keys.tab", 0}, chord("X")); o != "close" {
 		t.Errorf("tab owner = %q", o)
 	}
-	if o := owner(b, slot{"next_tab", false, 0}, chord("X")); o != "" {
+	if o := owner(b, slot{"next_tab", "keys", 0}, chord("X")); o != "" {
 		t.Errorf("X is not a global chord: %q", o)
 	}
 	// Back to the preset's chords removes the key.
-	if v := (edit{"next_tab", false, b.Global["next_tab"]}).value("aide"); v != nil {
+	if v := (edit{"next_tab", "keys", b.Global["next_tab"]}).value("aide"); v != nil {
 		t.Errorf("preset value written: %s", *v)
 	}
 	// Backspace on the only chord unbinds.
@@ -165,7 +165,7 @@ func TestPageRecord(t *testing.T) {
 		return res
 	}
 	frame()
-	p.startRecord(slot{"split_right", false, 0})
+	p.startRecord(slot{"split_right", "keys", 0})
 	frame()
 	frame()
 	if press(key.NameShift, key.ModShift); p.rec.action == "" {
@@ -184,7 +184,7 @@ func TestPageRecord(t *testing.T) {
 		t.Fatalf("new_tab = %v", got)
 	}
 
-	click = &slot{"close_pane", false, -1}
+	click = &slot{"close_pane", "keys", -1}
 	frame()
 	if press("Q", key.ModCtrl) != Saved {
 		t.Fatal("recording a free chord did not save")
@@ -197,5 +197,35 @@ func TestPageRecord(t *testing.T) {
 	}
 	if press(key.NameEscape, 0) != Closed {
 		t.Error("Escape did not close the page")
+	}
+}
+
+// TestPaneModeSection: pane-mode keys get their own section after tab
+// mode, clash only among themselves, and say how to turn the mode on.
+func TestPaneModeSection(t *testing.T) {
+	for _, tc := range []struct{ preset, desc string }{
+		{"conventional", "Off: give pane_prefix a shortcut above to use these."},
+		{"aide", "After Ctrl+P, these keys act on panes until Esc or Enter."},
+	} {
+		var p Page
+		p.s.Keys = config.Preset(tc.preset)
+		ss := p.shortcuts()
+		last := ss[len(ss)-1]
+		if last.title != "Pane mode" || last.desc != tc.desc || len(last.rows) != 10 {
+			t.Fatalf("%s: last section %q %q with %d rows", tc.preset, last.title, last.desc, len(last.rows))
+		}
+		if r := last.rows[0]; r.label != "Pane mode: new pane, split along the focused pane's longer side" || r.desc != "new" {
+			t.Errorf("%s: first row %q / %q", tc.preset, r.label, r.desc)
+		}
+	}
+	b := config.Preset("aide")
+	if o := owner(b, slot{"new", "keys.pane", 0}, chord("X")); o != "close" {
+		t.Errorf("pane owner = %q", o)
+	}
+	if o := owner(b, slot{"new", "keys.pane", 0}, chord("R")); o != "split_right" {
+		t.Errorf("R in pane mode is split_right, not tab rename: %q", o)
+	}
+	if v := (edit{"next", "keys.pane", b.Pane["next"]}).value("aide"); v != nil {
+		t.Errorf("preset pane value written: %s", *v)
 	}
 }

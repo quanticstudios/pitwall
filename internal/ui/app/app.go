@@ -205,7 +205,7 @@ func (u *ui) applyFocus(st *model.State) {
 	}
 	u.focusMu.Unlock()
 	if fs != nil {
-		u.nav.tabMode = false
+		u.nav.tabMode, u.nav.paneMode = false, false
 		u.nav.attachSession(st, fs.WorkspaceID)
 	}
 }
@@ -231,9 +231,9 @@ func (u *ui) layout(gtx gl.Context) {
 	u.applyFocus(&st)
 
 	wasVisible := u.nav.switcherVisible()
-	wasMode := u.nav.tabMode
+	wasMode, wasPane := u.nav.tabMode, u.nav.paneMode
 	defer func() {
-		if u.nav.tabMode != wasMode {
+		if u.nav.tabMode != wasMode || u.nav.paneMode != wasPane {
 			gtx.Execute(op.InvalidateCmd{}) // draw the mode pill's new state now
 		}
 	}()
@@ -283,7 +283,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	event.Op(gtx.Ops, &u.modeTag)
-	if u.nav.tabMode && !gtx.Focused(&u.modeTag) {
+	if (u.nav.tabMode || u.nav.paneMode) && !gtx.Focused(&u.modeTag) {
 		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
 	}
 	paint.Fill(gtx.Ops, u.th.Bg)
@@ -316,7 +316,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.layoutPanes(pgtx, &st)
 	}
 	off.Pop()
-	if u.nav.tabMode {
+	if u.nav.tabMode || u.nav.paneMode {
 		u.drawModePill(gtx, area)
 	}
 
@@ -457,8 +457,13 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode {
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode || u.nav.paneMode {
 		focused = "" // the dialog, a rename field or tab mode holds key focus
+	}
+	u.nav.area = area
+	zoom := u.nav.zoomed()
+	if zoom != "" {
+		root = layout.Leaf(zoom)
 	}
 	// A lone pane flush with the edges needs no frame.
 	sole := root.Pane != "" && m == 0
@@ -475,6 +480,9 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			att = &a
 		}
 		u.layoutPane(gtx, p, id, r, id == focused, sole, att)
+		if id == zoom {
+			u.drawZoomHint(gtx, r)
+		}
 	}
 	for id := range u.panes {
 		if !live[id] && findPane(st, id) == nil {
@@ -547,7 +555,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		setScroll(&p.view, off, mx)
 	}
 	cl := clip.Rect{Max: rect.Size()}.Push(gtx.Ops)
-	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, focused, sole)
+	// Pane mode moves focus without giving the pane keys; the frame shows it.
+	lit := focused || u.nav.paneMode && id == u.nav.focused()
+	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, lit, sole)
 	var input []byte
 	cols, rows := g.Cols, g.Rows
 	if !grid.Empty() {
