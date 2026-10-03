@@ -145,6 +145,7 @@ var paneActions = []string{"copy", "paste", "scroll_page_up", "scroll_page_down"
 var presets = map[string]struct {
 	hold        string
 	global, tab map[string][]string
+	pane        map[string][]string
 }{
 	"aide": {
 		hold: "Alt",
@@ -157,6 +158,7 @@ var presets = map[string]struct {
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "open_settings": {"Ctrl+,"},
 			"jump_attention": {"Alt+U"},
+			"pane_prefix":    {"Ctrl+P"},
 		},
 	},
 	"conventional": {
@@ -187,6 +189,11 @@ func init() {
 			tab[fmt.Sprint("goto_", i)] = []string{fmt.Sprint(i)}
 		}
 		p.tab = tab
+		p.pane = map[string][]string{
+			"new": {"N"}, "split_down": {"D"}, "split_right": {"R"}, "close": {"X"},
+			"focus_left": {"H", "Left"}, "focus_down": {"J", "Down"}, "focus_up": {"K", "Up"}, "focus_right": {"L", "Right"},
+			"fullscreen": {"F"}, "next": {"P", "Tab"},
+		}
 		presets[name] = p
 	}
 }
@@ -219,8 +226,10 @@ type Bindings struct {
 	Hold   key.Modifiers
 	Global map[string][]Chord // by action name
 	Tab    map[string][]Chord // tab-mode keys, by [keys.tab] name
+	Pane   map[string][]Chord // pane-mode keys, by [keys.pane] name
 
 	global, tab map[Chord]string
+	pane        map[Chord]string
 }
 
 // Action is the action e's chord runs outside tab mode, or "".
@@ -231,6 +240,9 @@ func (b *Bindings) Is(action string, e key.Event) bool { return b.Action(e) == a
 
 // TabAction is the [keys.tab] action e runs in tab mode, or "".
 func (b *Bindings) TabAction(e key.Event) string { return b.tab[Chord{e.Modifiers, e.Name}] }
+
+// PaneModeAction is the [keys.pane] action e runs in pane mode, or "".
+func (b *Bindings) PaneModeAction(e key.Event) string { return b.pane[Chord{e.Modifiers, e.Name}] }
 
 // HoldKey is the key name of the switcher's hold modifier, "" for none.
 func (b *Bindings) HoldKey() key.Name {
@@ -300,7 +312,7 @@ func resolveKeys(k Keys) (*Bindings, []issue) {
 		name = DefaultPreset
 		p = presets[name]
 	}
-	b := &Bindings{Preset: name, Global: map[string][]Chord{}, Tab: map[string][]Chord{}}
+	b := &Bindings{Preset: name, Global: map[string][]Chord{}, Tab: map[string][]Chord{}, Pane: map[string][]Chord{}}
 	b.Hold, _ = parseHold(p.hold)
 	if k.SwitcherModifier != nil {
 		if m, ok := parseHold(*k.SwitcherModifier); ok {
@@ -313,6 +325,8 @@ func resolveKeys(k Keys) (*Bindings, []issue) {
 	issues = append(issues, apply(b.Tab, p.tab, reflect.ValueOf(k.Tab), "keys.tab")...)
 	b.global = index(b.Global, p.global, reflect.ValueOf(k), "keys", &issues)
 	b.tab = index(b.Tab, p.tab, reflect.ValueOf(k.Tab), "keys.tab", &issues)
+	issues = append(issues, apply(b.Pane, p.pane, reflect.ValueOf(k.Pane), "keys.pane")...)
+	b.pane = index(b.Pane, p.pane, reflect.ValueOf(k.Pane), "keys.pane", &issues)
 	if SwitcherHidden {
 		b.Hold = 0
 		for c, a := range b.global {
@@ -415,19 +429,21 @@ func mustChords(ss []string) []Chord {
 }
 
 // Action is a bindable action: its config name and description. Tab marks
-// a [keys.tab] action.
+// a [keys.tab] action, Pane a [keys.pane] one.
 type Action struct {
 	Name, Doc string
 	Tab       bool
+	Pane      bool
 }
 
-// Actions lists every action in config order, [keys] then [keys.tab].
+// Actions lists every action in config order, [keys], [keys.tab], then
+// [keys.pane].
 func Actions() []Action {
 	var out []Action
-	for _, t := range []reflect.Type{reflect.TypeFor[Keys](), reflect.TypeFor[TabKeys]()} {
+	for _, t := range []reflect.Type{reflect.TypeFor[Keys](), reflect.TypeFor[TabKeys](), reflect.TypeFor[PaneKeys]()} {
 		for _, f := range fields(t) {
 			if f.typ == bindingType && !(SwitcherHidden && switcherActions[f.name]) {
-				out = append(out, Action{f.name, f.doc, t == reflect.TypeFor[TabKeys]()})
+				out = append(out, Action{f.name, f.doc, t == reflect.TypeFor[TabKeys](), t == reflect.TypeFor[PaneKeys]()})
 			}
 		}
 	}

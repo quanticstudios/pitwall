@@ -42,6 +42,13 @@ type nav struct {
 	renameTab string
 	swallow   key.Name
 
+	// paneMode is on from the pane prefix until Escape, Enter, the prefix
+	// or a key it does not know. zoom is the pane drawn alone over its tab,
+	// while it keeps focus; area is the pane area the window last drew.
+	paneMode bool
+	zoom     string
+	area     layout.Rect
+
 	// Tabs attached here but still detached in the state, shown until the
 	// state agrees.
 	attach map[string]bool
@@ -199,7 +206,12 @@ func (n *nav) sync(st *model.State) {
 	}
 	k := focusKey(n.workspace, n.tab)
 	ps := n.panes(st)
-	defer func() { n.prevKey, n.prevPanes = k, ps }()
+	defer func() {
+		n.prevKey, n.prevPanes = k, ps
+		if n.zoom != n.focused() {
+			n.zoom = ""
+		}
+	}()
 	if n.opening != nil && n.openingWS == n.workspace {
 		for _, p := range ps {
 			if !n.opening[p] {
@@ -421,7 +433,7 @@ func (n *nav) keyFilters() []key.Filter {
 			}
 		}
 	}
-	if n.tabMode {
+	if n.tabMode || n.paneMode {
 		// Tab mode takes every key; Tab is a system key and needs its name.
 		fs = append(fs, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
 	}
@@ -466,6 +478,78 @@ func (n *nav) tabKey(st *model.State, e key.Event) any {
 	return n.tabOp(st, a)
 }
 
+// paneKey runs one pane-mode key from [keys.pane] and reports whether it
+// was one; anything else ends the mode. Shift does not matter unless a
+// chord names it.
+func (n *nav) paneKey(st *model.State, e key.Event) (any, bool) {
+	if e.Modifiers&^key.ModShift != 0 {
+		return nil, false
+	}
+	b := n.bind()
+	a := b.PaneModeAction(e)
+	if a == "" && e.Modifiers != 0 {
+		a = b.PaneModeAction(key.Event{Name: e.Name})
+	}
+	if a == "" {
+		return nil, false
+	}
+	root := n.root(st)
+	area := n.area
+	if area.W <= 0 || area.H <= 0 {
+		area = layout.Rect{W: 1600, H: 900}
+	}
+	switch a {
+	case "new", "split_down", "split_right":
+		if n.workspace == "" {
+			return nil, true
+		}
+		dir := layout.Horizontal
+		if r, ok := rectsOf(root, area, 0)[n.focused()]; a == "split_down" || a == "new" && ok && r.H > r.W {
+			dir = layout.Vertical
+		}
+		n.expectPane(st)
+		return proto.OpenPane{WorkspaceID: n.workspace, TabID: n.tab, Target: n.focused(), Dir: dir}, true
+	case "close":
+		if n.focused() != "" {
+			return proto.ClosePane{Pane: n.focused()}, true
+		}
+	case "focus_left", "focus_right", "focus_up", "focus_down":
+		d := map[string]layout.Direction{"focus_left": layout.Left, "focus_right": layout.Right, "focus_up": layout.Up, "focus_down": layout.Down}[a]
+		if root != nil {
+			if p, ok := layout.Neighbor(root, area, n.focused(), d); ok {
+				n.setFocus(p)
+				n.zoom = ""
+			}
+		}
+	case "fullscreen":
+		if n.zoom == "" && len(panesOf(root)) > 1 {
+			n.zoom = n.focused()
+		} else {
+			n.zoom = ""
+		}
+	case "next":
+		n.cyclePane(st, 1)
+		n.zoom = ""
+	}
+	return nil, true
+}
+
+// root is the shown tab's split tree, or nil.
+func (n *nav) root(st *model.State) *layout.Node {
+	if t := shownTab(findWorkspace(st, n.workspace)); t != nil {
+		return t.Layout
+	}
+	return nil
+}
+
+// zoomed is the pane drawn alone over its tab, or "".
+func (n *nav) zoomed() string {
+	if n.zoom != "" && n.zoom == n.focused() {
+		return n.zoom
+	}
+	return ""
+}
+
 // tabOp runs a tab action: new, close, prev, next, goto_N. Tabs are the
 // sidebar's rows; goto_N counts them in sidebar order.
 func (n *nav) tabOp(st *model.State, op string) any {
@@ -502,7 +586,7 @@ func ctrlByte(e key.Event) ([]byte, bool) {
 // key applies one key event and returns a proto message to send, if any.
 func (n *nav) key(st *model.State, e key.Event) any {
 	b := n.bind()
-	if e.Name == n.swallow && !n.tabMode && e.Modifiers&key.ModAlt == 0 {
+	if e.Name == n.swallow && !n.tabMode && !n.paneMode && e.Modifiers&key.ModAlt == 0 {
 		if e.State == key.Release {
 			n.swallow = ""
 		}
@@ -513,7 +597,7 @@ func (n *nav) key(st *model.State, e key.Event) any {
 			return nil
 		}
 		if !n.tabMode {
-			n.tabMode = true
+			n.tabMode, n.paneMode = true, false
 			return nil
 		}
 		n.tabMode = false
@@ -522,7 +606,33 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		}
 		return nil
 	}
+	if b.Is("pane_prefix", e) {
+		if e.State != key.Press {
+			return nil
+		}
+		if !n.paneMode {
+			n.paneMode, n.tabMode = true, false
+			return nil
+		}
+		n.paneMode = false
+		if p, ok := ctrlByte(e); ok && n.focused() != "" {
+			return proto.Input{Pane: n.focused(), Data: p}
+		}
+		return nil
+	}
 	hold := b.HoldKey()
+	if n.paneMode && (hold == "" || e.Name != hold) {
+		if e.State != key.Press || modifierKey(e.Name) {
+			return nil
+		}
+		if e.Modifiers&key.ModAlt == 0 && b.Action(e) == "" {
+			n.swallow = e.Name
+			msg, ok := n.paneKey(st, e)
+			n.paneMode = ok
+			return msg
+		}
+		n.paneMode = false // as in tab mode, a bound chord keeps its meaning
+	}
 	if n.tabMode && (hold == "" || e.Name != hold) {
 		if e.State != key.Press || modifierKey(e.Name) {
 			return nil
