@@ -179,6 +179,33 @@ func TestSessions(t *testing.T) {
 	}
 }
 
+// Codex titles its pane after the folder, which says nothing; its first
+// prompt names the tab and the session instead.
+func TestPromptNamesSession(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	cwd := filepath.Join(t.TempDir(), "cap")
+	if err := os.Mkdir(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gui := connectIn(t, "gui", cwd)
+	s := waitState(t, gui, func(s model.State) bool { return len(s.Panes) == 1 })
+	shell := s.Panes[0].ID
+	if w := s.Workspaces[0]; w.NameSet || w.Label != "" {
+		t.Fatalf("fresh session %+v", w)
+	}
+	gui.send(t, proto.Input{Pane: shell, Data: []byte("printf '\\033]0;\\342\\240\\213 cap\\007'\r")})
+	waitState(t, gui, func(s model.State) bool { return s.Panes[0].Title == "cap" && s.Workspaces[0].Tabs[0].Title == "cap" })
+
+	hook := connect(t, "hook")
+	payload := `{"session_id":"s1","transcript_path":"/t.jsonl","hook_event_name":"UserPromptSubmit","prompt":"rename foo to bar\nthen run the tests"}`
+	hook.send(t, proto.AgentEvent{Pane: shell, Provider: model.ProviderCodex, Payload: []byte(payload)})
+	waitState(t, gui, func(s model.State) bool {
+		w := s.Workspaces[0]
+		return w.Tabs[0].Title == "rename foo to bar" && w.Label == "rename foo to bar" && !w.NameSet
+	})
+}
+
 func TestBinaryHook(t *testing.T) {
 	isolate(t)
 	bin := filepath.Join(t.TempDir(), "pitwall")

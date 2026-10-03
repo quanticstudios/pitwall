@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -217,7 +220,7 @@ func (d *Daemon) renameWorkspace(m proto.RenameWorkspace) error {
 	if d.nameTaken(m.Name, w.ID) {
 		return fmt.Errorf("a session is already named %s", m.Name)
 	}
-	w.Name = m.Name
+	w.Name, w.NameSet = m.Name, true
 	d.changed()
 	return nil
 }
@@ -299,36 +302,67 @@ func (d *Daemon) setTitle(id string, p Pane, raw string) {
 	d.changed()
 }
 
-// retitle sets every tab's Title. Callers hold d.mu.
+// retitle sets every tab's Title and every session's Label. Callers hold
+// d.mu.
 func (d *Daemon) retitle() {
 	panes := make(map[string]*model.Pane, len(d.st.Panes))
 	for i := range d.st.Panes {
 		panes[d.st.Panes[i].ID] = &d.st.Panes[i]
 	}
 	running := map[string]string{}
+	var agents []model.Activity
 	for _, a := range d.st.Activities {
 		if a.State == model.StateTerminalRunning {
 			running[a.PaneID] = a.Detail
+		} else {
+			agents = append(agents, a)
 		}
 	}
+	model.SortActivities(agents)
 	for i := range d.st.Workspaces {
 		w := &d.st.Workspaces[i]
 		for j := range w.Tabs {
-			w.Tabs[j].Title = tabTitle(w.Path, layout.Panes(w.Tabs[j].Layout), panes, running)
+			w.Tabs[j].Title = tabTitle(w, &w.Tabs[j], panes, running)
+		}
+		ti := -1
+		for _, a := range agents {
+			if a.WorkspaceID == w.ID {
+				if ti = paneTab(w, a.PaneID); ti >= 0 {
+					break
+				}
+			}
+		}
+		if ti < 0 {
+			ti = tabIndex(w, "")
+		}
+		w.Label = ""
+		if ti >= 0 && w.Tabs[ti].Title != filepath.Base(w.Path) {
+			w.Label = w.Tabs[ti].Title
 		}
 	}
 }
 
-// tabTitle is the title of the tab's agent pane, else of its first pane with
-// one, else the first foreground command, else the session directory's name.
-func tabTitle(path string, ids []string, panes map[string]*model.Pane, running map[string]string) string {
+// tabTitle is the tab's title by the priority model.Tab.Title documents.
+func tabTitle(w *model.Workspace, t *model.Tab, panes map[string]*model.Pane, running map[string]string) string {
+	if t.Name != "" {
+		return t.Name
+	}
+	ids := layout.Panes(t.Layout)
+	agent := func(p *model.Pane) bool {
+		return p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex
+	}
 	for _, id := range ids {
-		if p := panes[id]; p != nil && p.Title != "" && (p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex) {
+		if p := panes[id]; p != nil && agent(p) && !genericTitle(w, p.Title) {
 			return p.Title
 		}
 	}
 	for _, id := range ids {
-		if p := panes[id]; p != nil && p.Title != "" {
+		if p := panes[id]; p != nil && p.Prompt != "" {
+			return p.Prompt
+		}
+	}
+	for _, id := range ids {
+		if p := panes[id]; p != nil && !genericTitle(w, p.Title) {
 			return p.Title
 		}
 	}
@@ -337,8 +371,54 @@ func tabTitle(path string, ids []string, panes map[string]*model.Pane, running m
 			return c
 		}
 	}
-	return filepath.Base(path)
+	return filepath.Base(w.Path)
 }
+
+// genericTitle reports a title that says nothing about the work: empty, an
+// agent's own name, or the name of the session's directory, repo or user.
+func genericTitle(w *model.Workspace, title string) bool {
+	switch strings.ToLower(title) {
+	case "", "~", "claude", "claude code", "codex":
+		return true
+	}
+	for _, s := range []string{filepath.Base(w.Path), filepath.Base(w.RepoRoot), loginName()} {
+		if s != "" && s != "." && s != "/" && strings.EqualFold(title, s) {
+			return true
+		}
+	}
+	return false
+}
+
+var loginName = sync.OnceValue(func() string {
+	if u, err := user.Current(); err == nil {
+		return u.Username
+	}
+	return os.Getenv("USER")
+})
+
+// promptTitle is a prompt's first non-blank line with whitespace collapsed,
+// cut at a word boundary to at most promptRunes runes ending in "…".
+func promptTitle(prompt string) string {
+	line := ""
+	for l := range strings.Lines(prompt) {
+		if line = strings.Join(strings.Fields(l), " "); line != "" {
+			break
+		}
+	}
+	r := []rune(line)
+	if len(r) <= promptRunes {
+		return line
+	}
+	cut := string(r[:promptRunes-1])
+	if r[promptRunes-1] != ' ' {
+		if i := strings.LastIndexByte(cut, ' '); i > 0 {
+			cut = cut[:i]
+		}
+	}
+	return strings.TrimRight(cut, " ") + "…"
+}
+
+const promptRunes = 48
 
 // cleanTitle strips the spinner and status glyphs agents put before their
 // title (Codex a braille spinner, Claude Code ✳ and its kin) and spaces.

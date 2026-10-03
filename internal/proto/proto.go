@@ -9,12 +9,13 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 4 added Workspace.NameSet and Label and Pane.Prompt.
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 3
+const Version = 4
 
 // Client to daemon.
 

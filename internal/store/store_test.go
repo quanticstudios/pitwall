@@ -33,14 +33,14 @@ func TestSaveLoad(t *testing.T) {
 	want := model.State{
 		Version:  42,
 		Projects: []model.Project{{ID: "project", Name: "pitwall", Root: "/repo", Kind: model.ProjectGit, Color: "blue", Icon: "git"}},
-		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", Branch: "track/store", Path: "/repo/store", RepoRoot: "/repo", Detached: true, UpdatedAt: now,
+		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", NameSet: true, Label: "make", Branch: "track/store", Path: "/repo/store", RepoRoot: "/repo", Detached: true, UpdatedAt: now,
 			Tabs: []model.Tab{{ID: "t1", Name: "build", Title: "make", Layout: &layout.Node{Dir: layout.Horizontal, Ratios: []float64{0.4, 0.6}, Children: []*layout.Node{
 				{Pane: "p1"}, {Dir: layout.Vertical, Ratios: []float64{0.5, 0.5}, Children: []*layout.Node{{Pane: "p2"}, {Pane: "p3"}}},
 			}}}},
 			ActiveTab: "t1",
 		}},
 		Panes: []model.Pane{
-			{ID: "p1", WorkspaceID: "workspace", Cmd: []string{"claude", "--model", "sonnet"}, Cwd: "/repo/store", Title: "Claude", Provider: model.ProviderClaude, SessionID: "session"},
+			{ID: "p1", WorkspaceID: "workspace", Cmd: []string{"claude", "--model", "sonnet"}, Cwd: "/repo/store", Title: "Claude", Provider: model.ProviderClaude, SessionID: "session", Prompt: "fix the store"},
 			{ID: "p2", WorkspaceID: "workspace", Cmd: []string{"false"}, Exited: true, ExitCode: 1, Provider: model.ProviderTerminal},
 			{ID: "p3", WorkspaceID: "workspace"},
 		},
@@ -96,7 +96,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":4,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":5,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -240,5 +240,31 @@ func TestLoadMigratesVersion2Tabs(t *testing.T) {
 	}
 	if got := layout.Panes(a.Tabs[0].Layout); !reflect.DeepEqual(got, []string{"p1", "p2"}) || a.Tabs[0].Layout.Dir != layout.Vertical || b.Tabs[0].Layout != nil {
 		t.Fatalf("layouts: %v %+v", got, b.Tabs[0])
+	}
+}
+
+func TestLoadMigratesVersion3NameSet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v3 := `{"format_version":3,"state":{"Workspaces":[
+		{"ID":"a","Name":"rustic-swan"},{"ID":"b","Name":"swift-otter-104"},{"ID":"c","Name":"workspace-2"},
+		{"ID":"d","Name":"repo","Path":"/src/repo"},{"ID":"e","Name":"fix-auth"},{"ID":"f","Name":"swan-rustic"}],
+		"Panes":[{"ID":"p","Title":"cap"}]}}`
+	if err := os.WriteFile(path, []byte(v3), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, w := range s.Workspaces {
+		got[w.Name] = w.NameSet
+		if w.Label != "" {
+			t.Fatalf("label %q from a version 3 file", w.Label)
+		}
+	}
+	want := map[string]bool{"rustic-swan": false, "swift-otter-104": false, "workspace-2": false, "repo": false, "fix-auth": true, "swan-rustic": true}
+	if !reflect.DeepEqual(got, want) || s.Panes[0].Prompt != "" {
+		t.Fatalf("NameSet = %v, want %v; panes %+v", got, want, s.Panes)
 	}
 }
