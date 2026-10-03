@@ -31,10 +31,10 @@ instead of changing it.
 
 ## References
 
-- aide (look and behavior to match): `/home/pho7on/Work/aide`, especially
+- aide (look and behavior to match): `../aide` (a sibling checkout), especially
   `src/renderer/src/components/SidebarTree.tsx`, `src/shared/workspace-activity.ts`,
   `src/main/git-service.ts`, the CSS tokens under `src/renderer/src`.
-- tuios (MIT, Go, read-only, git-excluded): `/home/pho7on/Work/pitwall/.ref/tuios`.
+- tuios (MIT, Go, read-only, git-excluded): `.ref/tuios`.
   Copy whatever code we need from it. Put `// Adapted from tuios (MIT): <path>`
   above copied code. Take the part, not the framework around it.
 
