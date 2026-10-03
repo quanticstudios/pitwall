@@ -270,6 +270,12 @@ func (u *ui) layout(gtx gl.Context) {
 			go saveGUIState(guiState{SidebarHidden: u.sidebarShown})
 		}
 	}
+	if u.sidebar.Dragging() {
+		// Before the panes, which would take Escape as input.
+		if _, ok := gtx.Event(key.Filter{Name: key.NameEscape}); ok {
+			u.sidebar.CancelDrag()
+		}
+	}
 	for {
 		if _, ok := gtx.Event(key.FocusFilter{Target: &u.modeTag}); !ok {
 			break
@@ -417,6 +423,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		}
 		delete(u.nav.pick, e.WorkspaceID) // the daemon makes the new tab active
 		u.send(proto.NewTab{WorkspaceID: e.WorkspaceID, FromPane: from})
+	case sidebar.MoveSession:
+		u.send(proto.MoveSession{WorkspaceID: e.WorkspaceID, GroupID: e.GroupID, Before: e.Before})
+	case sidebar.MoveGroup:
+		u.send(proto.MoveGroup{GroupID: e.GroupID, Before: e.Before})
 	case sidebar.CloseTab:
 		u.send(proto.CloseTab{WorkspaceID: e.WorkspaceID, TabID: e.TabID})
 	case sidebar.RenameTab:
