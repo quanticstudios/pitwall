@@ -372,17 +372,11 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.FocusSession:
 		return d.focusSession(m)
 	case proto.NewTab:
-		return d.newTab(m)
+		return d.newTab(ctx, m)
 	case proto.CloseTab:
-		return d.closeTab(m)
+		return d.killSession(proto.KillSession{WorkspaceID: m.WorkspaceID})
 	case proto.SelectTab:
-		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error {
-			if slices.IndexFunc(w.Tabs, func(t model.Tab) bool { return t.ID == m.TabID }) < 0 {
-				return fmt.Errorf("no tab %s in session %s", m.TabID, w.ID)
-			}
-			w.ActiveTab = m.TabID
-			return nil
-		})
+		return nil // a session has one tab
 	case proto.RenameTab:
 		return d.renameTab(m)
 	case proto.GroupByFolder:

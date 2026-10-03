@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,11 +18,11 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
-// formatVersion 4 added Workspace.NameSet and Label and Pane.Prompt; version
+// formatVersion 5 made each tab a workspace of its own; version 4 added Workspace.NameSet and Label and Pane.Prompt; version
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 4
+const formatVersion = 5
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -103,6 +104,9 @@ func Load(path string) (model.State, error) {
 	}
 	if saved.FormatVersion < 4 {
 		migrateNameSet(saved.State)
+	}
+	if saved.FormatVersion < 5 {
+		splitTabs(saved.State)
 	}
 	return *saved.State, nil
 }
@@ -232,6 +236,58 @@ func migrateNameSet(s *model.State) {
 		}
 		w.NameSet = !model.IsSessionName(w.Name) && !numbered && w.Name != filepath.Base(w.Path)
 	}
+}
+
+// splitTabs makes each tab of an older workspace a workspace of its own, in
+// the workspace's place and group, because the user now sees one workspace
+// as one tab. The first keeps the workspace's ID and name, the others get new
+// IDs and generated names; a tab's Name becomes its workspace's chosen name.
+// Tabs without panes go, and so do workspaces left without tabs and panes in
+// no tab.
+func splitTabs(s *model.State) {
+	taken := map[string]bool{}
+	for _, w := range s.Workspaces {
+		taken[w.Name] = true
+	}
+	owner := map[string]string{} // pane: workspace
+	var out []model.Workspace
+	for _, w := range s.Workspaces {
+		first := true
+		for _, t := range w.Tabs {
+			if t.Layout == nil {
+				continue
+			}
+			nw := w
+			if !first {
+				nw.ID, nw.NameSet, nw.WorktreeRoot = newID(), false, ""
+				for try := 0; nw.Name == w.Name || taken[nw.Name]; try++ {
+					nw.Name = model.SessionName(mrand.IntN, try)
+				}
+			}
+			if t.Name != "" && t.Name != nw.Name {
+				nw.Name, nw.NameSet = t.Name, true
+				for n := 2; taken[nw.Name]; n++ {
+					nw.Name = t.Name + "-" + strconv.Itoa(n)
+				}
+			}
+			taken[nw.Name], first = true, false
+			t.Name = ""
+			nw.Tabs, nw.ActiveTab = []model.Tab{t}, t.ID
+			for _, p := range layout.Panes(t.Layout) {
+				owner[p] = nw.ID
+			}
+			out = append(out, nw)
+		}
+	}
+	s.Workspaces = out
+	var panes []model.Pane
+	for _, p := range s.Panes {
+		if id, ok := owner[p.ID]; ok {
+			p.WorkspaceID = id
+			panes = append(panes, p)
+		}
+	}
+	s.Panes = panes
 }
 
 func newID() string {

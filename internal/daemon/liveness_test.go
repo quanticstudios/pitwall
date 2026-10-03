@@ -23,7 +23,17 @@ type livePane struct {
 	moving  bool // every Snapshot differs, like a streaming reply
 	n       int
 	fgGroup atomic.Int64
+	cwd     atomic.Pointer[string]
 }
+
+func (p *livePane) Cwd() string {
+	if c := p.cwd.Load(); c != nil {
+		return *c
+	}
+	return p.fakePane.Cwd()
+}
+
+func (p *livePane) setCwd(dir string) { p.cwd.Store(&dir) }
 
 func (p *livePane) Snapshot() vt.Grid {
 	p.gmu.Lock()

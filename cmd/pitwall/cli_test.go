@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -90,7 +89,7 @@ func cliState() model.State {
 	return model.State{
 		Projects: []model.Project{{ID: "g", Name: "agents"}},
 		Workspaces: []model.Workspace{
-			{ID: "a", Name: "alpha", Path: "/work/a", ProjectID: "g", Tabs: []model.Tab{{ID: "ta"}, {ID: "tb"}}},
+			{ID: "a", Name: "alpha", Label: "fix login", Path: "/work/a", ProjectID: "g", Tabs: []model.Tab{{ID: "ta"}}},
 			{ID: "b", Name: "alpine", Path: "/work/b", Detached: true, Tabs: []model.Tab{{ID: "tc"}}},
 		},
 		Panes: []model.Pane{{ID: "pa", WorkspaceID: "a"}, {ID: "pb", WorkspaceID: "b"}},
@@ -116,8 +115,9 @@ func TestCLIList(t *testing.T) {
 					t.Fatalf("%d: %s", code, stderr)
 				}
 				lines := strings.Split(strings.TrimSpace(out), "\n")
-				if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "alpha Agent Error 2 ~/src agents" ||
-					strings.Join(strings.Fields(lines[1]), " ") != "alpine idle 1 /work/b - (detached)" {
+				if len(lines) != 3 || strings.Join(strings.Fields(lines[0]), " ") != "NAME HANDLE STATE FOLDER GROUP" ||
+					strings.Join(strings.Fields(lines[1]), " ") != "fix login alpha Agent Error ~/src agents" ||
+					strings.Join(strings.Fields(lines[2]), " ") != "alpine alpine idle /work/b - (detached)" {
 					t.Fatal(out)
 				}
 			} else {
@@ -162,11 +162,11 @@ func TestCLIResolve(t *testing.T) {
 	state := cliState()
 	t.Setenv("PITWALL_PANE", "pb")
 	for _, tc := range []struct{ name, want, error string }{
-		{"alpha", "a", ""}, {"alph", "a", ""}, {"", "b", ""},
-		{"al", "", "ambiguous session \"al\"; candidates: alpha, alpine"},
-		{"absent", "", "no session matches \"absent\"; candidates: alpha, alpine"},
+		{"alpha", "a", ""}, {"alph", "a", ""}, {"", "b", ""}, {"fix login", "a", ""}, {"fix", "a", ""},
+		{"al", "", "ambiguous tab \"al\"; candidates: alpha, alpine"},
+		{"absent", "", "no tab matches \"absent\"; candidates: alpha, alpine"},
 	} {
-		w, err := resolveSession(state, tc.name)
+		w, err := resolveTab(state, tc.name)
 		if tc.error != "" {
 			if err == nil || err.Error() != tc.error {
 				t.Fatalf("%q: %v", tc.name, err)
@@ -175,12 +175,21 @@ func TestCLIResolve(t *testing.T) {
 			t.Fatalf("%q: %+v, %v", tc.name, w, err)
 		}
 	}
+	// An exact label beats a prefix; two equal labels are ambiguous.
+	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "c", Name: "calm-cat", Label: "fix"})
+	if w, err := resolveTab(state, "fix"); err != nil || w.ID != "c" {
+		t.Fatalf("exact label: %+v %v", w, err)
+	}
+	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "d", Name: "dry-dog", Label: "fix"})
+	if _, err := resolveTab(state, "fix"); err == nil || err.Error() != "ambiguous tab \"fix\"; candidates: calm-cat, dry-dog" {
+		t.Fatalf("equal labels: %v", err)
+	}
 	state.Workspaces = append(state.Workspaces, model.Workspace{ID: "exact", Name: "al"})
-	if w, err := resolveSession(state, "al"); err != nil || w.ID != "exact" {
+	if w, err := resolveTab(state, "al"); err != nil || w.ID != "exact" {
 		t.Fatalf("exact: %+v %v", w, err)
 	}
 	t.Setenv("PITWALL_PANE", "")
-	if _, err := resolveSession(state, ""); err == nil {
+	if _, err := resolveTab(state, ""); err == nil {
 		t.Fatal("resolved no name outside pane")
 	}
 }
@@ -275,12 +284,10 @@ func TestCLITabCommands(t *testing.T) {
 		{[]string{"tab", "rename", "fix", "login"}, proto.RenameTab{Pane: "pa", Name: "fix login"}, false},
 		{[]string{"tab", "rename"}, proto.RenameTab{Pane: "pa"}, false},
 		{[]string{"tab", "rename", "--literal"}, proto.RenameTab{Pane: "pa", Name: "--literal"}, false},
-		{[]string{"tab", "close"}, proto.CloseTab{WorkspaceID: "a", TabID: "ta"}, true},
+		{[]string{"tab", "close"}, proto.CloseTab{WorkspaceID: "a"}, true},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			state := cliState()
-			state.Workspaces[0].ActiveTab = "tb"
-			state.Workspaces[0].Tabs[0].Layout = &layout.Node{Children: []*layout.Node{layout.Leaf("other"), layout.Leaf("pa")}}
 			exchanges := []cliExchange{}
 			if tc.initial {
 				exchanges = append(exchanges, cliExchange{state: state})
@@ -311,7 +318,7 @@ func TestCLITabOutsidePane(t *testing.T) {
 }
 
 func TestCLITabErrors(t *testing.T) {
-	for _, cause := range []string{"daemon", "missing pane", "missing tab"} {
+	for _, cause := range []string{"daemon", "missing pane"} {
 		t.Run(cause, func(t *testing.T) {
 			state := cliState()
 			exchange := cliExchange{state: state}
@@ -320,7 +327,6 @@ func TestCLITabErrors(t *testing.T) {
 			if cause == "missing pane" {
 				state.Panes = nil
 				exchange.state = state
-				want = "has no session"
 			}
 			if cause == "daemon" {
 				args = []string{"tab", "rename", "work"}
