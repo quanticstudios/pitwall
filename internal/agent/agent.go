@@ -20,6 +20,7 @@ type payload struct {
 	Event          string          `json:"hook_event_name"`
 	SessionID      string          `json:"session_id"`
 	TranscriptPath json.RawMessage `json:"transcript_path"`
+	Prompt         string          `json:"prompt"`
 	ToolName       string          `json:"tool_name"`
 	ToolInput      struct {
 		Description string `json:"description"`
@@ -197,6 +198,17 @@ func SessionID(provider model.Provider, payload []byte) string {
 		return ""
 	}
 	return sessionID(p)
+}
+
+// Prompt returns the prompt text of a UserPromptSubmit hook, or "". Claude
+// and Codex both carry it in "prompt". A /side fork's prompt returns "": it
+// is not the pane's main session.
+func Prompt(provider model.Provider, payload []byte) string {
+	p, err := decode(payload)
+	if err != nil || p.Event != "UserPromptSubmit" || sideFork(p) {
+		return ""
+	}
+	return p.Prompt
 }
 
 // claudeEvents are the Claude Code events Derive acts on. Notification is

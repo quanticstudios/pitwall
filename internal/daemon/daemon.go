@@ -479,7 +479,8 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	if pi < 0 {
 		return fmt.Errorf("no project %s", m.ProjectID)
 	}
-	if m.Name == "" {
+	named := m.Name != ""
+	if !named {
 		m.Name = d.nextWorkspaceName(p.ID)
 	}
 
@@ -495,7 +496,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.st.Workspaces = append(d.st.Workspaces, model.Workspace{
-		ID: newID(), ProjectID: p.ID, Name: m.Name, Branch: branch, Path: path, UpdatedAt: time.Now(),
+		ID: newID(), ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
 		WorktreeRoot: worktreeRoot(p, path), RepoRoot: root,
 	})
 	d.changed()
@@ -724,7 +725,12 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		p.Provider, changed = m.Provider, true
 	}
 	if sid := d.o.SessionID(m.Provider, m.Payload); sid != "" && sid != p.SessionID {
-		p.SessionID, changed = sid, true
+		p.SessionID, p.Prompt, changed = sid, "", true
+	}
+	if p.Prompt == "" {
+		if s := promptTitle(agent.Prompt(m.Provider, m.Payload)); s != "" {
+			p.Prompt, changed = s, true
+		}
 	}
 	if changed {
 		if w := d.workspace(p.WorkspaceID); w != nil {
@@ -927,7 +933,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		sp := &d.st.Panes[i]
 		log.Printf("pitwall: pane %s: resumed %s session exited %d; opening a shell in %s", id, sp.Provider, code, sp.Cwd)
 		closeAll([]Pane{d.dropPane(id)})
-		sp.Cmd, sp.Provider, sp.SessionID, sp.Title = nil, "", "", ""
+		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt = nil, "", "", "", ""
 		err := d.start(id, nil, sp.Cwd)
 		if err == nil {
 			d.changed()

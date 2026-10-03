@@ -10,16 +10,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
-// formatVersion 3 moved Workspace.Layout into Tabs and renamed Archived to
-// Detached; version 2 added Workspace.WorktreeRoot. Older files are migrated
-// once on load.
-const formatVersion = 3
+// formatVersion 4 added Workspace.NameSet and Label and Pane.Prompt; version
+// 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
+// version 2 added Workspace.WorktreeRoot. Older files are migrated once on
+// load.
+const formatVersion = 4
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -98,6 +100,9 @@ func Load(path string) (model.State, error) {
 		if err := migrateTabs(data, saved.State); err != nil {
 			return model.State{}, err
 		}
+	}
+	if saved.FormatVersion < 4 {
+		migrateNameSet(saved.State)
 	}
 	return *saved.State, nil
 }
@@ -212,6 +217,21 @@ func migrateTabs(data []byte, s *model.State) error {
 		w.ActiveTab, w.Detached = w.Tabs[0].ID, o.Archived
 	}
 	return nil
+}
+
+// migrateNameSet marks every name pitwall did not generate as chosen. Older
+// files did not record it; generated names are adjective-noun pairs,
+// "workspace-N" from NewWorkspace, or a project's folder name.
+func migrateNameSet(s *model.State) {
+	for i := range s.Workspaces {
+		w := &s.Workspaces[i]
+		n, numbered := strings.CutPrefix(w.Name, "workspace-")
+		if numbered {
+			_, err := strconv.Atoi(n)
+			numbered = err == nil
+		}
+		w.NameSet = !model.IsSessionName(w.Name) && !numbered && w.Name != filepath.Base(w.Path)
+	}
 }
 
 func newID() string {

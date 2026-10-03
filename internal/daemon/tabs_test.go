@@ -2,12 +2,15 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"github.com/quanticstudios/pitwall/internal/agent"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -140,26 +143,151 @@ func TestCleanTitle(t *testing.T) {
 	}
 }
 
-func TestTabTitleFallbacks(t *testing.T) {
+func TestTabTitle(t *testing.T) {
+	w := &model.Workspace{Path: "/src/repo/.worktrees/api", RepoRoot: "/src/repo"}
 	panes := map[string]*model.Pane{
-		"shell": {ID: "shell", Title: "user@host: ~"},
-		"agent": {ID: "agent", Title: "Fix login", Provider: model.ProviderClaude},
-		"quiet": {ID: "quiet"},
-		"bare":  {ID: "bare", Provider: model.ProviderCodex},
+		"shell":  {ID: "shell", Title: "user@host: ~"},
+		"claude": {ID: "claude", Title: "Fix login", Provider: model.ProviderClaude, Prompt: "fix the login"},
+		"codex":  {ID: "codex", Title: "api", Provider: model.ProviderCodex, Prompt: "rename foo to bar"},
+		"repo":   {ID: "repo", Title: "REPO", Provider: model.ProviderCodex},
+		"fresh":  {ID: "fresh", Title: "Claude Code", Provider: model.ProviderClaude},
+		"quiet":  {ID: "quiet"},
+		"bare":   {ID: "bare", Provider: model.ProviderCodex},
 	}
 	running := map[string]string{"quiet": "make"}
 	for _, c := range []struct {
+		name string
 		ids  []string
 		want string
 	}{
-		{[]string{"shell", "agent"}, "Fix login"},
-		{[]string{"bare", "shell"}, "user@host: ~"},
-		{[]string{"bare", "quiet"}, "make"},
-		{[]string{"bare"}, "api"},
+		{"", []string{"shell", "claude"}, "Fix login"},        // Claude topic beats its prompt and the shell
+		{"", []string{"shell", "codex"}, "rename foo to bar"}, // Codex dir-name title falls to the prompt
+		{"", []string{"codex", "claude"}, "Fix login"},        // any agent's topic beats any prompt
+		{"", []string{"repo", "shell"}, "user@host: ~"},       // repo name is generic
+		{"", []string{"fresh", "quiet"}, "make"},              // "Claude Code" is generic
+		{"", []string{"bare", "quiet"}, "make"},               // no titles: foreground command
+		{"", []string{"bare"}, "api"},                         // nothing: directory name
+		{"deploy", []string{"claude", "shell"}, "deploy"},     // explicit name wins
 	} {
-		if got := tabTitle("/src/api", c.ids, panes, running); got != c.want {
-			t.Errorf("tabTitle(%v) = %q, want %q", c.ids, got, c.want)
+		tab := &model.Tab{Name: c.name, Layout: &layout.Node{}}
+		for _, id := range c.ids {
+			tab.Layout.Children = append(tab.Layout.Children, &layout.Node{Pane: id})
 		}
+		if got := tabTitle(w, tab, panes, running); got != c.want {
+			t.Errorf("tabTitle(%q, %v) = %q, want %q", c.name, c.ids, got, c.want)
+		}
+	}
+	if user := loginName(); user != "" && !genericTitle(w, strings.ToUpper(user)) {
+		t.Errorf("login name %q is not generic", user)
+	}
+}
+
+func TestPromptTitle(t *testing.T) {
+	for in, want := range map[string]string{
+		"fix the failing auth test":                                                      "fix the failing auth test",
+		"\n\n  fix   the\tbug  \nthen run the tests":                                     "fix the bug",
+		"refactor the session store so that every pane keeps its prompt across restarts": "refactor the session store so that every pane…",
+		strings.Repeat("x", 60):                                                          strings.Repeat("x", 47) + "…",
+		strings.Repeat("ab ", 16) + "tail":                                               strings.Repeat("ab ", 15) + "ab…",
+		"   ":                                                                            "",
+	} {
+		got := promptTitle(in)
+		if got != want || utf8.RuneCountInString(got) > 48 {
+			t.Errorf("promptTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The first prompt of an agent session names the tab; later prompts do not,
+// and a new session starts over.
+func TestPromptNamesTab(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d := newDaemon(t, o)
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "cap")
+	mkdir(t, dir)
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
+	id := d.state().Panes[0].ID
+	prompt := func(sid, text string) {
+		t.Helper()
+		b, _ := json.Marshal(map[string]string{"hook_event_name": "UserPromptSubmit", "session_id": sid, "transcript_path": "/t", "prompt": text})
+		must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderCodex, Payload: b}))
+	}
+	title := func() string { return d.state().Workspaces[0].Tabs[0].Title }
+
+	d.mu.Lock()
+	d.st.Panes[0].Title = "cap" // Codex titles itself after the folder
+	d.mu.Unlock()
+	prompt("s1", "rename foo to bar\nand update callers")
+	if got := title(); got != "rename foo to bar" {
+		t.Fatalf("title %q after the first prompt", got)
+	}
+	if got := d.state().Workspaces[0].Label; got != "rename foo to bar" {
+		t.Fatalf("label %q", got)
+	}
+	prompt("s1", "now run the tests")
+	if got := title(); got != "rename foo to bar" {
+		t.Fatalf("second prompt replaced the first: %q", got)
+	}
+	prompt("s2", "start over")
+	if got := title(); got != "start over" {
+		t.Fatalf("new session kept %q", got)
+	}
+}
+
+// Label is the title of the tab with the most urgent agent, else of the
+// active tab, and "" when that is only the directory name.
+func TestLabelFollowsAttention(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir()}))
+	ws := d.state().Workspaces[0].ID
+	must(t, d.handle(ctx, proto.NewTab{WorkspaceID: ws}))
+	st := d.state()
+	first, second := st.Panes[0].ID, st.Panes[1].ID
+	if got := st.Workspaces[0].Label; got != "" {
+		t.Fatalf("label %q for a bare shell", got)
+	}
+	must(t, d.handle(ctx, proto.RenameTab{Pane: first, Name: "build"}))
+	must(t, d.handle(ctx, proto.RenameTab{Pane: second, Name: "docs"}))
+	if got := d.state().Workspaces[0].Label; got != "docs" {
+		t.Fatalf("label %q, want the active tab's", got)
+	}
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: first, Provider: model.ProviderClaude, Payload: []byte(model.StatePendingApproval)}))
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: second, Provider: model.ProviderClaude, Payload: []byte(model.StateWorking)}))
+	if got := d.state().Workspaces[0].Label; got != "build" {
+		t.Fatalf("label %q, want the tab waiting for approval", got)
+	}
+}
+
+// NameSet tells names a person chose from generated ones.
+func TestNameSet(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	dir := t.TempDir()
+	repo := filepath.Join(t.TempDir(), "repo")
+	mkdir(t, repo)
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir, Name: "api"}))
+	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
+	pid := d.state().Projects[0].ID
+	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: pid}))
+	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: pid, Name: "feat"}))
+	got := map[string]bool{}
+	for _, w := range d.state().Workspaces {
+		got[w.Name] = w.NameSet
+	}
+	gen := d.state().Workspaces[0]
+	if !model.IsSessionName(gen.Name) || got[gen.Name] || !got["api"] || got["repo"] || got["workspace-1"] || !got["feat"] {
+		t.Fatalf("NameSet by name: %v", got)
+	}
+	must(t, d.handle(ctx, proto.RenameWorkspace{WorkspaceID: gen.ID, Name: "web"}))
+	if w := d.state().Workspaces[0]; !w.NameSet {
+		t.Fatalf("rename left NameSet false: %+v", w)
 	}
 }
 
@@ -292,18 +420,20 @@ func TestGeneratedNames(t *testing.T) {
 	for range 40 {
 		must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
 	}
-	shape := regexp.MustCompile(`^[a-z]+-[a-z]+$`)
 	seen := map[string]bool{}
 	for _, w := range d.state().Workspaces {
-		if !shape.MatchString(w.Name) || seen[w.Name] {
+		if !model.IsSessionName(w.Name) || seen[w.Name] {
 			t.Fatalf("name %q: not adjective-noun or repeated", w.Name)
 		}
 		seen[w.Name] = true
 	}
-	for _, list := range [][]string{adjectives, nouns} {
-		if len(list) < 90 || slices.ContainsFunc(list, func(s string) bool { return len(s) > 9 || strings.ToLower(s) != s }) {
-			t.Fatalf("word list: %d words", len(list))
+	for _, name := range []string{"api", "swift", "swift-otter-x", "otter-swift", "fix-auth"} {
+		if model.IsSessionName(name) {
+			t.Fatalf("IsSessionName(%q)", name)
 		}
+	}
+	if !model.IsSessionName("swift-otter-104") {
+		t.Fatal("a numbered name is generated too")
 	}
 
 	must(t, d.handle(ctx, proto.NewSession{Cwd: dir, Name: "api"}))
