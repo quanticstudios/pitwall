@@ -214,3 +214,27 @@ func TestSelection(t *testing.T) {
 		t.Fatalf("plain click: %v %v", s.selected, s.events)
 	}
 }
+
+// TestAgentOf: an idle agent still names its tab; with two agents the one
+// with the highest-priority activity wins; a plain shell has none.
+func TestAgentOf(t *testing.T) {
+	st := &model.State{
+		Workspaces: []model.Workspace{{ID: "idle"}, {ID: "two"}, {ID: "shell"}},
+		Panes: []model.Pane{
+			{ID: "p1", WorkspaceID: "idle", Provider: model.ProviderClaude},
+			{ID: "p2", WorkspaceID: "two", Provider: model.ProviderClaude},
+			{ID: "p3", WorkspaceID: "two", Provider: model.ProviderCodex},
+			{ID: "p4", WorkspaceID: "shell"},
+		},
+		Activities: []model.Activity{
+			{PaneID: "p2", WorkspaceID: "two", Provider: model.ProviderClaude, State: model.StateCompleted},
+			{PaneID: "p3", WorkspaceID: "two", Provider: model.ProviderCodex, State: model.StatePendingApproval},
+			{PaneID: "p4", WorkspaceID: "shell", Provider: model.ProviderTerminal, State: model.StateTerminalRunning},
+		},
+	}
+	for ws, want := range map[string]model.Provider{"idle": model.ProviderClaude, "two": model.ProviderCodex, "shell": ""} {
+		if got := AgentOf(st, model.Workspace{ID: ws}); got != want {
+			t.Errorf("%s: %q, want %q", ws, got, want)
+		}
+	}
+}
