@@ -149,10 +149,10 @@ var presets = map[string]struct {
 	"aide": {
 		hold: "Alt",
 		global: map[string][]string{
-			"next_session": {"Alt+J", "Alt+Down"}, "prev_session": {"Alt+K", "Alt+Up"},
+			"next_tab": {"Alt+J", "Alt+Down"}, "prev_tab": {"Alt+K", "Alt+Up"},
 			"next_pane": {"Alt+L", "Alt+Right"}, "prev_pane": {"Alt+H", "Alt+Left"},
 			"split_right": {"Alt+N"}, "split_down": {"Alt+Shift+N"}, "close_pane": {"Alt+Shift+W"},
-			"new_session": {"Alt+Shift+T"}, "pin_switcher": {"Alt+Space"},
+			"new_tab": {"Alt+Shift+T"}, "pin_switcher": {"Alt+Space"},
 			"copy": {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"},
@@ -161,11 +161,11 @@ var presets = map[string]struct {
 	"conventional": {
 		hold: "",
 		global: map[string][]string{
-			"next_session": {"Ctrl+Shift+PageDown"}, "prev_session": {"Ctrl+Shift+PageUp"},
+			"next_tab": {"Ctrl+Tab", "Ctrl+PageDown"}, "prev_tab": {"Ctrl+Shift+Tab", "Ctrl+PageUp"},
+			"next_group": {"Ctrl+Shift+PageDown"}, "prev_group": {"Ctrl+Shift+PageUp"},
 			"next_pane": {"Ctrl+Alt+Right", "Ctrl+Alt+Down"}, "prev_pane": {"Ctrl+Alt+Left", "Ctrl+Alt+Up"},
 			"split_right": {"Ctrl+Shift+O"}, "split_down": {"Ctrl+Shift+E"}, "close_pane": {"Ctrl+Shift+W"},
-			"new_session": {"Ctrl+Shift+N"}, "new_tab": {"Ctrl+Shift+T"},
-			"next_tab": {"Ctrl+Tab", "Ctrl+PageDown"}, "prev_tab": {"Ctrl+Shift+Tab", "Ctrl+PageUp"},
+			"new_tab":  {"Ctrl+Shift+T"},
 			"switcher": {"Ctrl+Shift+Space"},
 			"copy":     {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
@@ -178,11 +178,7 @@ func init() {
 	for name, p := range presets {
 		for i := 1; i <= 9; i++ {
 			d := fmt.Sprint(i)
-			if name == "aide" {
-				p.global["jump_session_"+d] = []string{"Alt+" + d}
-			} else {
-				p.global["goto_tab_"+d] = []string{"Alt+" + d}
-			}
+			p.global["goto_tab_"+d] = []string{"Alt+" + d}
 		}
 		tab := map[string][]string{"new": {"N"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}}
 		for i := 1; i <= 9; i++ {
@@ -191,6 +187,15 @@ func init() {
 		p.tab = tab
 		presets[name] = p
 	}
+}
+
+// Renamed maps action names from before tabs replaced sessions to their
+// new names. A config may still use them; `pitwall config check` notes it.
+var Renamed = map[string]string{
+	"next_session": "next_tab", "prev_session": "prev_tab", "new_session": "new_tab",
+	"jump_session_1": "goto_tab_1", "jump_session_2": "goto_tab_2", "jump_session_3": "goto_tab_3",
+	"jump_session_4": "goto_tab_4", "jump_session_5": "goto_tab_5", "jump_session_6": "goto_tab_6",
+	"jump_session_7": "goto_tab_7", "jump_session_8": "goto_tab_8", "jump_session_9": "goto_tab_9",
 }
 
 // Presets are the preset names, the default first.

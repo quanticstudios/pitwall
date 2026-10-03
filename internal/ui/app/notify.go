@@ -243,11 +243,11 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 	}
 }
 
-// notificationTitle is "<group> / <session>", or the session name alone for
-// an ungrouped session.
+// notificationTitle is "<group> / <tab>", or the tab's title alone for an
+// ungrouped tab.
 func notificationTitle(st *model.State, w model.Workspace) string {
 	if w.ProjectID == "" {
-		return w.Name
+		return tabTitle(w)
 	}
-	return groupName(st, w) + " / " + w.Name
+	return groupName(st, w) + " / " + tabTitle(w)
 }
