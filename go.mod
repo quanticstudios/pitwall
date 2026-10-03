@@ -6,20 +6,22 @@ replace github.com/charmbracelet/x/vt => ./third_party/x-vt
 
 require (
 	gioui.org v0.10.3
+	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/charmbracelet/x/conpty v0.2.0
+	github.com/charmbracelet/x/term v0.2.2
 	github.com/charmbracelet/x/vt v0.0.0-20261001101533-953920dd3285
 	github.com/creack/pty v1.1.24
 	github.com/go-text/typesetting v0.3.5
 	golang.org/x/image v0.26.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
 	gioui.org/shader v1.0.9 // indirect
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/x/exp/ordered v0.1.0 // indirect
-	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
@@ -33,6 +35,5 @@ require (
 	golang.org/x/exp/shiny v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 )

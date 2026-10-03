@@ -103,16 +103,12 @@ type notification struct {
 }
 
 func notificationCommand(ctx context.Context, n notification) *exec.Cmd {
-	urgency := "normal"
-	if n.activity.State == model.StatePendingApproval || n.activity.State == model.StateError {
-		urgency = "critical"
-	}
+	urgent := n.activity.State == model.StatePendingApproval || n.activity.State == model.StateError
 	body := model.PillLabel(n.activity)
 	if detail := []rune(n.activity.Detail); len(detail) > 0 {
 		body += ": " + string(detail[:min(120, len(detail))])
 	}
-	return exec.CommandContext(ctx, "notify-send", "--app-name=pitwall", "--urgency="+urgency,
-		"--hint=string:x-canonical-private-synchronous:pitwall-"+n.activity.WorkspaceID, "--", n.title, body)
+	return desktopCommand(ctx, urgent, n.activity.WorkspaceID, n.title, body)
 }
 
 // desktopSender runs only on the notifier goroutine. A missing executable
@@ -123,16 +119,16 @@ func desktopSender() func(context.Context, notification) {
 		if disabled {
 			return
 		}
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, notifyTimeout)
 		defer cancel()
 		cmd := notificationCommand(ctx, n)
 		if cmd.Err != nil {
 			disabled = true
-			log.Printf("pitwall: notify-send unavailable: %v", cmd.Err)
+			log.Printf("pitwall: %s unavailable: %v", cmd.Args[0], cmd.Err)
 			return
 		}
 		if err := cmd.Run(); err != nil && ctx.Err() != context.Canceled {
-			log.Printf("pitwall: notify-send: %v", err)
+			log.Printf("pitwall: %s: %v", cmd.Args[0], err)
 		}
 	}
 }

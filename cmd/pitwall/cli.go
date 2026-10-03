@@ -44,8 +44,8 @@ func dialCLI() (*cliConn, error) {
 	}
 	nc, err := net.DialTimeout("unix", path, 5*time.Second)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
-			return nil, errNotRunning
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.Errno(10061)) {
+			return nil, errNotRunning // 10061 is Windows' WSAECONNREFUSED
 		}
 		return nil, err
 	}

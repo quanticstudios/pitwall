@@ -78,49 +78,11 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pitwall:", err)
 		if cmd == "" {
-			// Launched from a desktop launcher, stderr goes nowhere.
-			exec.Command("notify-send", "--app-name=pitwall", "--urgency=critical", "pitwall could not start", err.Error()).Run()
+			startFailed(err) // launched from a desktop launcher, stderr goes nowhere
 		}
 		os.Exit(1)
 	}
 }
-
-// lockHolder is the pid holding an flock on f, from /proc/locks, which
-// lists each lock's owner and the device:inode it covers.
-func lockHolder(f *os.File) (int, error) {
-	var st syscall.Stat_t
-	if err := syscall.Fstat(int(f.Fd()), &st); err != nil {
-		return 0, err
-	}
-	data, err := os.ReadFile("/proc/locks")
-	if err != nil {
-		return 0, err
-	}
-	suffix := ":" + strconv.FormatUint(st.Ino, 10)
-	for _, line := range strings.Split(string(data), "\n") {
-		// "1: FLOCK  ADVISORY  WRITE 4056327 00:3a:1234 0 EOF"
-		f := strings.Fields(line)
-		if len(f) >= 6 && f[1] == "FLOCK" && strings.HasSuffix(f[5], suffix) && devMatches(f[5], st.Dev) {
-			return strconv.Atoi(f[4])
-		}
-	}
-	return 0, errors.New("no process holds the daemon lock")
-}
-
-// devMatches compares /proc/locks' "MAJ:MIN:INODE" (hex major and minor) with
-// a stat device number.
-func devMatches(field string, dev uint64) bool {
-	parts := strings.Split(field, ":")
-	if len(parts) != 3 {
-		return false
-	}
-	maj, err1 := strconv.ParseUint(parts[0], 16, 32)
-	min, err2 := strconv.ParseUint(parts[1], 16, 32)
-	return err1 == nil && err2 == nil && maj == uint64(devMajor(dev)) && min == uint64(devMinor(dev))
-}
-
-func devMajor(dev uint64) uint32 { return uint32((dev>>32)&0xfffff000) | uint32((dev>>8)&0x00000fff) }
-func devMinor(dev uint64) uint32 { return uint32((dev>>12)&0xffffff00) | uint32(dev&0x000000ff) }
 
 // runDaemon holds an exclusive lock next to the socket for its lifetime, so
 // of two daemons started at once only one restores panes and binds; the
@@ -136,11 +98,11 @@ func runDaemon() error {
 		return err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); errors.Is(err, syscall.EWOULDBLOCK) {
+	if ok, err := tryLock(lock); err != nil {
+		return err
+	} else if !ok {
 		fmt.Fprintln(os.Stderr, "pitwall: a daemon is already running on", path)
 		return nil
-	} else if err != nil {
-		return err
 	}
 	if c, err := net.Dial("unix", path); err == nil {
 		c.Close()
@@ -213,6 +175,7 @@ func printHooks() error {
 }
 
 func runGUI() error {
+	hideConsole()
 	lock, err := guiLock()
 	if err != nil || lock == nil {
 		return err
@@ -310,21 +273,21 @@ func stopIncompatibleDaemon(path string) error {
 		return errors.New("old daemon lock has no valid daemon pid; stop the old daemon with kill <pid>, then retry")
 	}
 	// Another client may have stopped the daemon during our handshake.
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
-		return nil
-	} else if !errors.Is(err, syscall.EWOULDBLOCK) {
+	if ok, err := tryLock(lock); err != nil {
 		return fmt.Errorf("inspect old daemon lock: %w; stop the old daemon with kill %d, then retry", err, pid)
+	} else if ok {
+		return nil
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := terminate(pid); err != nil {
 		return fmt.Errorf("stop old daemon: %w; stop the old daemon with kill %d, then retry", err, pid)
 	}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
+		ok, err := tryLock(lock)
+		if err != nil {
 			return fmt.Errorf("wait for old daemon lock: %w; stop the old daemon with kill %d, then retry", err, pid)
+		}
+		if ok {
+			return nil
 		}
 	}
 	return fmt.Errorf("old daemon %d did not release its lock within 5s; stop the old daemon with kill %d, then retry", pid, pid)
@@ -348,7 +311,7 @@ func startDaemon(path string) (net.Conn, error) {
 	defer log.Close()
 	cmd := exec.Command(bin, "daemon")
 	cmd.Stdout, cmd.Stderr = log, log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // outlive the window
+	detach(cmd) // outlive the window
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -361,13 +324,7 @@ func startDaemon(path string) (net.Conn, error) {
 	return nil, fmt.Errorf("daemon did not come up; see %s", logPath)
 }
 
-func stateDir() string {
-	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
-		return filepath.Join(d, "pitwall")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "state", "pitwall")
-}
+func stateDir() string { return config.StateDir() }
 
 // cwd is where the GUI was launched; the daemon opens the first session
 // there.

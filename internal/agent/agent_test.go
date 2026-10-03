@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -181,7 +182,7 @@ func TestClaudeHooks(t *testing.T) {
 			t.Fatalf("%s: %+v", e.name, g)
 		}
 		h := g[0].Hooks[0]
-		if h.Type != "command" || h.Command != `'/opt/my bin/pitwall' hook claude` || h.Timeout == 0 {
+		if h.Type != "command" || h.Command != commandPath(runtime.GOOS, "/opt/my bin/pitwall")+" hook claude" || h.Timeout == 0 {
 			t.Errorf("%s: %+v", e.name, h)
 		}
 	}
@@ -202,5 +203,18 @@ func TestClaudeHooks(t *testing.T) {
 func TestCodexNotify(t *testing.T) {
 	if got, want := CodexNotify("/usr/local/bin/pitwall"), `notify = ["/usr/local/bin/pitwall", "hook", "codex"]`; got != want {
 		t.Errorf("got %s, want %s", got, want)
+	}
+}
+
+func TestCommandPath(t *testing.T) {
+	for _, tc := range []struct{ goos, bin, want string }{
+		{"linux", "/opt/my bin/pitwall", `'/opt/my bin/pitwall'`},
+		{"darwin", "/Users/o'neil/bin/pitwall", `'/Users/o'\''neil/bin/pitwall'`},
+		{"windows", `C:\Users\me\AppData\Local\pitwall\bin\pitwall.exe`, `C:/Users/me/AppData/Local/pitwall/bin/pitwall.exe`},
+		{"windows", `C:\Users\Jane Doe\AppData\Local\pitwall\bin\pitwall.exe`, `"C:/Users/Jane Doe/AppData/Local/pitwall/bin/pitwall.exe"`},
+	} {
+		if got := commandPath(tc.goos, tc.bin); got != tc.want {
+			t.Errorf("commandPath(%s, %q) = %s, want %s", tc.goos, tc.bin, got, tc.want)
+		}
 	}
 }

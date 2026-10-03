@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -64,7 +63,7 @@ func runHooks(args []string, out io.Writer) error {
 		return err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err := waitLock(lock); err != nil {
 		return err
 	}
 	type config struct {
