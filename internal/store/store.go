@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -30,15 +31,8 @@ type snapshot struct {
 	State         *model.State `json:"state"`
 }
 
-// Path is $XDG_STATE_HOME/pitwall/state.json.
-func Path() string {
-	dir := os.Getenv("XDG_STATE_HOME")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(dir, "pitwall", "state.json")
-}
+// Path is state.json in config.StateDir.
+func Path() string { return filepath.Join(config.StateDir(), "state.json") }
 
 // Save writes atomically (temp file + rename).
 func Save(path string, s model.State) error {

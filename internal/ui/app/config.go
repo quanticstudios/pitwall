@@ -2,12 +2,12 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -59,9 +59,7 @@ func reportProblems(probs []string, last *string) {
 	if len(body) > 8 {
 		body = append(body[:8:8], fmt.Sprintf("… and %d more (pitwall config check)", len(probs)-8))
 	}
-	go exec.Command("notify-send", "--app-name=pitwall", "--urgency=normal",
-		"--hint=string:x-canonical-private-synchronous:pitwall-config", "--",
-		"pitwall config has problems", strings.Join(body, "\n")).Run()
+	go desktopCommand(context.Background(), false, "config", "pitwall config has problems", strings.Join(body, "\n")).Run()
 }
 
 // refreshSchemas rewrites the schema files when they differ from this
@@ -137,14 +135,7 @@ type guiState struct {
 	SidebarHidden bool `json:"sidebar_hidden"`
 }
 
-func guiStatePath() string {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(base, "pitwall", "gui.json")
-}
+func guiStatePath() string { return filepath.Join(config.StateDir(), "gui.json") }
 
 func loadGUIState() guiState {
 	var g guiState

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -232,7 +231,7 @@ func TestHooksConcurrentEdit(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer lock.Close()
-				if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EWOULDBLOCK {
+				if ok, err := tryLock(lock); ok || err != nil {
 					t.Fatalf("hook update does not hold the lock: %v", err)
 				}
 				root, err := hookJSON[hookObject](readHooksTestFile(t, path))

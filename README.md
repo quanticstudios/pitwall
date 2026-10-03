@@ -12,10 +12,65 @@ A background daemon owns every terminal. Closing the window leaves tabs
 running, and after a reboot they come back in the same folders with agents
 resumed where they left off.
 
-pitwall runs on Linux. It is developed on Hyprland and works on any Wayland or
-X11 desktop.
+pitwall is developed on Linux (Hyprland) and works on any Wayland or X11
+desktop. macOS and Windows builds are new; see the notes below.
 
 ## Install
+
+On Linux or macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps1 | iex
+```
+
+The script downloads the latest release for your system, checks it against
+the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
+Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin` and adds that
+folder to your user PATH. To pin a release, set `PITWALL_VERSION=v0.0.9`; to
+install somewhere else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them
+first with `$env:PITWALL_VERSION = 'v0.0.9'`.
+
+| Platform                       | Release builds | Status                     |
+| ------------------------------ | -------------- | -------------------------- |
+| Linux (glibc 2.35 or newer)    | x86_64, arm64  | alpha, used every day      |
+| macOS                          | arm64, x86_64  | alpha, new and not yet run |
+| Windows 10 1809 or newer, 11   | x86_64, arm64  | alpha, new and not yet run |
+
+The macOS and Windows builds compile and pass the platform-independent tests
+in CI, but nobody has used them yet. Expect rough edges, and please report
+what breaks.
+
+Known gaps on macOS:
+
+- Release binaries are not signed. `get.sh` clears the quarantine flag; for an
+  archive you downloaded yourself, run `xattr -d com.apple.quarantine pitwall`.
+- There is no app bundle or Dock icon yet. Start pitwall from a terminal.
+- Notifications come through `osascript`, so macOS shows them under Script
+  Editor.
+
+Known gaps on Windows:
+
+- Agent status comes from hooks only. Windows has no foreground process group
+  to read, so an agent started without hooks, or a command running in a
+  shell, shows nothing in the sidebar.
+- A tab's folder does not follow `cd`. It stays the folder the tab opened in.
+- There is no Start menu entry. Run `pitwall` from a terminal; started from
+  Explorer, a console window flashes before the window opens.
+- Claude Code runs hook commands through Git Bash. Other shells get a path
+  with forward slashes, quoted only when it contains spaces.
+- When an upgrade replaces a running daemon, the old daemon is stopped without
+  a final save. It saves within moments of every change, so little is lost.
+
+The Linux release archive holds only the binary. For a desktop entry and
+icon, build from source as below.
+
+### Build from source
 
 You need Git, a C compiler, pkg-config, and [mise](https://mise.jdx.dev). Gio,
 the UI toolkit, needs the development headers for EGL, Wayland, X11,
@@ -375,9 +430,13 @@ installed globally.
 | ------------------- | ------------------------------------------------------------- |
 | Saved tabs          | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
 | Daemon log          | `~/.local/state/pitwall/daemon.log`                           |
-| Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`                       |
+| Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
+
+macOS uses the same paths. On Windows, config and themes live in
+`%APPDATA%\pitwall`, and saved tabs, the daemon log, window state and the
+socket in `%LOCALAPPDATA%\pitwall`. The `XDG_*` variables win when set.
 
 After a reboot, run `pitwall`: tabs, groups and panes come back in their
 folders. State saved by an older version opens with each of its nested tabs
@@ -392,7 +451,8 @@ running in panes at that moment stop.
 ## Troubleshooting
 
 - **The window does not open from the launcher.** Errors are sent as a
-  desktop notification; run `pitwall` in a terminal to see them.
+  desktop notification (an alert on macOS, a message box on Windows); run
+  `pitwall` in a terminal to see them.
 - **An agent's state is missing or late.** Check `pitwall hooks install` was
   run with the installed binary, and in Codex run `/hooks` once.
 - **Something else.** Look at `~/.local/state/pitwall/daemon.log`, which

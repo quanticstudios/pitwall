@@ -8,6 +8,7 @@ package agent
 
 import (
 	"encoding/json"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -275,7 +276,7 @@ func hooksJSON(bin, provider string, events []hookEvent) []byte {
 	}
 	// Hooks run synchronously so events reach pitwall in order; the short
 	// timeout keeps a stuck daemon from stalling the agent.
-	cmd := shellQuote(bin) + " hook " + provider
+	cmd := commandPath(runtime.GOOS, bin) + " hook " + provider
 	out := map[string][]group{}
 	for _, e := range events {
 		out[e.name] = []group{{Matcher: e.matcher, Hooks: []handler{{Type: "command", Command: cmd, Timeout: 5}}}}
@@ -284,6 +285,18 @@ func hooksJSON(bin, provider string, events []hookEvent) []byte {
 	return b
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+// commandPath quotes bin for the shell an agent runs its hooks in: sh on
+// Unix. On Windows that is Git Bash for Claude Code and may be cmd or
+// PowerShell elsewhere, so the path gets forward slashes, which all three
+// take, and double quotes only when it needs them, which PowerShell would
+// read as a string instead of a command.
+func commandPath(goos, bin string) string {
+	if goos != "windows" {
+		return "'" + strings.ReplaceAll(bin, "'", `'\''`) + "'"
+	}
+	bin = strings.ReplaceAll(bin, `\`, "/")
+	if strings.ContainsAny(bin, " &()[]{}^=;!'+,`~$%@#") {
+		return `"` + bin + `"`
+	}
+	return bin
 }
