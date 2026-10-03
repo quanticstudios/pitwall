@@ -174,6 +174,15 @@ func arcCenter(p0, p1 f32.Point, r float32, large, sweep bool) (f32.Point, float
 // drawIcon strokes icon d in a size x size px box at the current offset.
 // rot spins it around its center (radians), for the connecting loader.
 func drawIcon(gtx layout.Context, d string, size int, col color.NRGBA, rot float32) layout.Dimensions {
+	return paintIcon(gtx, d, size, col, rot, false)
+}
+
+// fillIcon fills path d (24x24 box, nonzero winding) in a size x size px box.
+func fillIcon(gtx layout.Context, d string, size int, col color.NRGBA) layout.Dimensions {
+	return paintIcon(gtx, d, size, col, 0, true)
+}
+
+func paintIcon(gtx layout.Context, d string, size int, col color.NRGBA, rot float32, fill bool) layout.Dimensions {
 	segs, ok := iconCache[d]
 	if !ok {
 		segs = parsePath(d)
@@ -201,7 +210,11 @@ func drawIcon(gtx layout.Context, d string, size int, col color.NRGBA, rot float
 			p.Close()
 		}
 	}
-	paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p.End(), Width: 2 * s}.Op())
+	if fill {
+		paint.FillShape(gtx.Ops, col, clip.Outline{Path: p.End()}.Op())
+	} else {
+		paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p.End(), Width: 2 * s}.Op())
+	}
 	return layout.Dimensions{Size: image.Pt(size, size)}
 }
 
