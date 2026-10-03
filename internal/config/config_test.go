@@ -71,26 +71,27 @@ func TestPresets(t *testing.T) {
 		b            *Bindings
 		action, want string
 	}{
-		{aide, "next_session", "Alt+J Alt+Down"},
+		{aide, "next_tab", "Alt+J Alt+Down"},
+		{aide, "prev_tab", "Alt+K Alt+Up"},
+		{aide, "new_tab", "Alt+Shift+T"},
 		{aide, "split_down", "Alt+Shift+N"},
-		{aide, "jump_session_3", "Alt+3"},
+		{aide, "goto_tab_3", "Alt+3"},
 		{aide, "tab_prefix", "Ctrl+T"},
-		{aide, "goto_tab_1", ""},
+		{aide, "next_group", ""},
 		{conv, "new_tab", "Ctrl+Shift+T"},
 		{conv, "close_pane", "Ctrl+Shift+W"},
 		{conv, "next_tab", "Ctrl+Tab Ctrl+PageDown"},
 		{conv, "prev_tab", "Ctrl+Shift+Tab Ctrl+PageUp"},
 		{conv, "goto_tab_9", "Alt+9"},
-		{conv, "new_session", "Ctrl+Shift+N"},
+		{conv, "next_group", "Ctrl+Shift+PageDown"},
 		{conv, "split_right", "Ctrl+Shift+O"},
 		{conv, "split_down", "Ctrl+Shift+E"},
 		{conv, "next_pane", "Ctrl+Alt+Right Ctrl+Alt+Down"},
-		{conv, "prev_session", "Ctrl+Shift+PageUp"},
+		{conv, "prev_group", "Ctrl+Shift+PageUp"},
 		{conv, "switcher", "Ctrl+Shift+Space"},
 		{conv, "copy", "Ctrl+Shift+C"},
 		{conv, "scroll_page_up", "Shift+PageUp"},
 		{conv, "tab_prefix", ""},
-		{conv, "jump_session_1", ""},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)
@@ -158,8 +159,8 @@ switcher_modifier = ""
 next_tab = "Ctrl+Tab"
 new_tab = ["ctrl+shift+t", "Ctrl+Shift+T"]
 split_right = []
-next_sesion = "Alt+X"
-close_tab = "Alt+J"
+next_tabb = "Alt+X"
+close_tab = "Alt+K"
 prev_tab = "Hyper+Q"
 
 [keys.tab]
@@ -180,8 +181,8 @@ mono_size = 99
 `)
 	s, probs := LoadFile(p)
 	want := []string{
-		`config.toml:7: keys.next_sesion: unknown key "next_sesion" in [keys] (did you mean "next_session"?)`,
-		`config.toml:8: keys.close_tab: Alt+J is also bound to keys.next_session`,
+		`config.toml:7: keys.next_tabb: unknown key "next_tabb" in [keys] (did you mean "next_tab"?)`,
+		`config.toml:8: keys.close_tab: Alt+K is also bound to keys.prev_tab`,
 		`config.toml:9: keys.prev_tab: "Hyper+Q": unknown modifier "Hyper" (use Ctrl, Alt, Shift, Super)`,
 		`config.toml:19: theme.colors.fg: "white" is not a #rrggbb color`,
 		`config.toml:22: theme.terminal.ansi: has 1 colors, want 16`,
@@ -192,7 +193,7 @@ mono_size = 99
 	}
 	b := s.Keys
 	if b.Hold != 0 || chords(b, "next_tab") != "Ctrl+Tab" || chords(b, "new_tab") != "Ctrl+Shift+T" ||
-		chords(b, "split_right") != "" || chords(b, "close_tab") != "" || chords(b, "next_session") != "Alt+J Alt+Down" {
+		chords(b, "split_right") != "" || chords(b, "close_tab") != "" || chords(b, "prev_tab") != "Alt+K Alt+Up" {
 		t.Fatalf("bindings: %v", b.Global)
 	}
 	if b.TabAction(key.Event{Name: "A"}) != "new" || b.TabAction(key.Event{Name: "N"}) != "" {
@@ -201,6 +202,33 @@ mono_size = 99
 	tn, _ := Builtin("tokyo-night")
 	if s.Theme.Colors.Bg != "#123456" || s.Theme.Colors.Fg != tn.Colors.Fg || len(s.Theme.Terminal.ANSI) != 16 || s.Font.MonoSize != 13 {
 		t.Fatalf("theme fallback: %+v %+v", s.Theme.Colors, s.Font)
+	}
+}
+
+// TestRenamedActions: the session-era names still bind their tab action,
+// with a note each and no problem; the new name wins when both are set.
+func TestRenamedActions(t *testing.T) {
+	p := write(t, t.TempDir(), "config.toml", `[keys]
+preset = "aide"
+next_session = "Alt+Y"
+jump_session_2 = "Super+2"
+new_session = "Alt+Shift+Y"
+new_tab = "Alt+Shift+U"
+`)
+	s, probs := LoadFile(p)
+	if len(probs) > 0 {
+		t.Fatal(msgs(probs))
+	}
+	want := []string{
+		`config.toml:3: keys.next_session: renamed to next_tab; the old name still works for now`,
+		`config.toml:4: keys.jump_session_2: renamed to goto_tab_2; the old name still works for now`,
+		`config.toml:5: keys.new_session: renamed to new_tab, which is also set; this line is ignored`,
+	}
+	if got := msgs(s.Notes); got != strings.Join(want, "\n") {
+		t.Fatalf("notes:\n%s", got)
+	}
+	if chords(s.Keys, "next_tab") != "Alt+Y" || chords(s.Keys, "goto_tab_2") != "Super+2" || chords(s.Keys, "new_tab") != "Alt+Shift+U" {
+		t.Fatalf("bindings: %v", s.Keys.Global)
 	}
 }
 
@@ -320,7 +348,7 @@ func TestSchema(t *testing.T) {
 		t.Fatal("not draft 2020-12")
 	}
 	keys := root["properties"].(map[string]any)["keys"].(map[string]any)["properties"].(map[string]any)
-	for _, a := range []string{"next_session", "goto_tab_9", "jump_session_1", "tab_prefix", "pin_switcher", "scroll_page_down"} {
+	for _, a := range []string{"next_tab", "next_group", "goto_tab_9", "tab_prefix", "pin_switcher", "scroll_page_down"} {
 		if _, ok := keys[a]; !ok {
 			t.Errorf("schema lacks action %s", a)
 		}
@@ -351,8 +379,9 @@ func TestSchema(t *testing.T) {
 		t.Errorf("default with all set: %s", msgs(probs))
 	}
 	check("typo'd action", "[keys]\nnext_sesion = \"Alt+J\"\n", false)
-	check("bad chord", "[keys]\nnext_session = \"Alt+Foo\"\n", false)
-	check("bad chord in array", "[keys]\nnext_session = [\"Alt+J\", \"Hyper+J\"]\n", false)
+	check("bad chord", "[keys]\nnext_tab = \"Alt+Foo\"\n", false)
+	check("bad chord in array", "[keys]\nnext_tab = [\"Alt+J\", \"Hyper+J\"]\n", false)
+	check("old action name", "[keys]\nnext_session = \"Alt+J\"\n", true)
 	check("bad color", "[theme.colors]\nbg = \"#12345\"\n", false)
 	check("bad preset", "[keys]\npreset = \"emacs\"\n", false)
 	check("short ansi", "[theme.terminal]\nansi = [\"#000000\"]\n", false)

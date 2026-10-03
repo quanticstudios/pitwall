@@ -44,7 +44,11 @@ func TestRunConfig(t *testing.T) {
 	if code, out := run("check"); code != 1 || !strings.HasPrefix(out, "config.toml:2: keys.next_sesion: unknown key") {
 		t.Fatalf("check: %d %q", code, out)
 	}
-	if code, out := run("schema"); code != 0 || !strings.Contains(out, `"next_session"`) {
+	os.WriteFile(path, []byte("[keys]\nnext_session = \"Alt+J\"\n"), 0o644)
+	if code, out := run("check"); code != 0 || !strings.HasPrefix(out, "config.toml:2: keys.next_session: renamed to next_tab") {
+		t.Fatalf("check with an old action name: %d %q", code, out)
+	}
+	if code, out := run("schema"); code != 0 || !strings.Contains(out, `"next_tab"`) {
 		t.Fatalf("schema: %d", code)
 	}
 	if code, _ := run("nope"); code != 2 {

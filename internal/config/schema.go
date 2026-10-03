@@ -49,6 +49,13 @@ func schemaFor(t reflect.Type, title string) []byte {
 	root := typeSchema(t)
 	root["$schema"] = "https://json-schema.org/draft/2020-12/schema"
 	root["title"] = title
+	if t == reflect.TypeFor[Config]() {
+		// Old action names still load; editors flag them as deprecated.
+		props := root["properties"].(map[string]any)["keys"].(map[string]any)["properties"].(map[string]any)
+		for old, now := range Renamed {
+			props[old] = map[string]any{"$ref": "#/$defs/binding", "deprecated": true, "description": "Renamed to " + now}
+		}
+	}
 	root["$defs"] = map[string]any{
 		"chord": map[string]any{
 			"type": "string", "pattern": ChordPattern(),
