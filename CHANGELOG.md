@@ -8,6 +8,11 @@ number (`v0.0.1`, `v0.0.2`, ...). A release is a git tag on `main`;
 To cut a release: add a section below, commit it, then
 `git tag -a v0.0.N -m "pitwall v0.0.N"` and `git push origin main v0.0.N`.
 
+## v0.0.5
+
+- A tab's branch, `+/-` stats and folder follow its shell's working
+  directory, like its title, instead of the folder it started in.
+
 ## v0.0.4
 
 - One level less: the sidebar lists **tabs**, optionally in groups. A tab
