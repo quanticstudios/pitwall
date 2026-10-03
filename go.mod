@@ -14,7 +14,7 @@ require (
 	github.com/charmbracelet/x/vt v0.0.0-20261001101533-953920dd3285
 	github.com/creack/pty v1.1.24
 	github.com/go-text/typesetting v0.3.5
-	golang.org/x/image v0.26.0
+	golang.org/x/image v0.41.0
 	golang.org/x/sys v0.47.0
 )
 
@@ -35,5 +35,5 @@ require (
 	golang.org/x/exp/shiny v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )
