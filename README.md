@@ -1,4 +1,5 @@
 # pitwall
+<img src="packaging/pitwall.svg" alt="pitwall logo: a P whose stem is three status lights and whose bowl is a terminal pane" width="96" height="96">
 
 pitwall is a terminal multiplexer for running coding agents side by side. It
 opens straight into a shell like tmux, but it is a native window: a sidebar

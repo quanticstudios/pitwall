@@ -1,7 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="16" fill="#07080a"/>
-  <g fill="none" stroke="#0066cc" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="24" y="24" width="80" height="80" rx="8"/>
-    <path d="m40 48 16 16-16 16M68 80h16"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>pitwall</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#181c24"/><stop offset="1" stop-color="#07080a"/></linearGradient>
+    <linearGradient id="bowl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#b9c6da"/></linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#fff" stroke-opacity=".1"/>
+  <path d="M91 70h50a34 34 0 0 1 0 68h-50" fill="none" stroke="url(#bowl)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <g stroke="#0d1016" stroke-width="5">
+    <rect x="76" y="56" width="30" height="44" rx="15" fill="#57c1ff"/>
+    <rect x="76" y="106" width="30" height="44" rx="15" fill="#ffc533"/>
+    <rect x="76" y="156" width="30" height="44" rx="15" fill="#59d499"/>
   </g>
 </svg>
