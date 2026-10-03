@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"os/exec"
@@ -129,13 +130,15 @@ func TestPersistenceAndRestore(t *testing.T) {
 	}
 
 	startDaemon(t)
+	before = utc(before)
 	restored := connect(t, "gui")
 	s := restored.waitFor(t, timeout, func(msg any) bool {
 		_, ok := msg.(proto.StateMsg)
 		return ok
 	}).(proto.StateMsg).State
+	s = utc(s)
 	if !reflect.DeepEqual(s.Projects, before.Projects) || !reflect.DeepEqual(s.Workspaces, before.Workspaces) {
-		t.Fatalf("restored workspace: %+v", s.Workspaces)
+		t.Fatalf("restored %s\nwant %s", dump(s), dump(before))
 	}
 	if !reflect.DeepEqual(s.Panes, before.Panes) {
 		t.Fatalf("restored pane: %+v, want %+v", s.Panes, p)
@@ -178,9 +181,9 @@ func TestSessions(t *testing.T) {
 	shutdown()
 
 	startDaemon(t)
-	after := snapshot(t)
+	after, before := utc(snapshot(t)), utc(before)
 	if !reflect.DeepEqual(after.Projects, before.Projects) || !reflect.DeepEqual(after.Workspaces, before.Workspaces) || len(after.Panes) != 2 {
-		t.Fatalf("restored %+v, want %+v", after, before)
+		t.Fatalf("restored %s\nwant %s", dump(after), dump(before))
 	}
 	if g := after.Projects[0]; g.Name != "agents" || g.Kind != model.ProjectGroup {
 		t.Fatalf("group: %+v", g)
@@ -456,6 +459,27 @@ func gridText(g vt.Grid) string {
 		text.WriteByte('\n')
 	}
 	return text.String()
+}
+
+// utc puts s's workspace times in UTC: gob decodes a time whose offset
+// matches the local zone as Local, so on a UTC machine a saved time and a
+// live one differ only in their *Location.
+func utc(s model.State) model.State {
+	s.Workspaces = slices.Clone(s.Workspaces)
+	for i := range s.Workspaces {
+		s.Workspaces[i].UpdatedAt = s.Workspaces[i].UpdatedAt.UTC()
+	}
+	return s
+}
+
+// dump renders s's groups, tabs with their layouts, and panes for a failure.
+func dump(s model.State) string {
+	b, _ := json.Marshal(struct {
+		Projects   []model.Project
+		Workspaces []model.Workspace
+		Panes      []model.Pane
+	}{s.Projects, s.Workspaces, s.Panes})
+	return string(b)
 }
 
 func snapshot(t *testing.T) model.State {
