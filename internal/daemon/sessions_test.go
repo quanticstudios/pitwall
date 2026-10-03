@@ -146,18 +146,19 @@ func TestDeleteGroupedSessionKeepsDirectory(t *testing.T) {
 	ctx := context.Background()
 	repo := filepath.Join(t.TempDir(), "repo")
 	mkdir(t, repo)
+	must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir()})) // keeps the session and its group alive
 	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
 	must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir(), GroupID: d.st.Projects[0].ID}))
-	must(t, d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: d.st.Workspaces[0].ID}))
+	must(t, d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: d.st.Workspaces[1].ID}))
 	// A worktree the user made by hand where pitwall puts its own, grouped in
 	// later, is not pitwall's to remove.
 	handmade := filepath.Join(repo, ".worktrees", "handmade")
 	mkdir(t, handmade)
 	must(t, d.handle(ctx, proto.NewSession{Cwd: handmade}))
-	must(t, d.handle(ctx, proto.SetSessionGroup{WorkspaceID: d.st.Workspaces[0].ID, GroupID: d.st.Projects[0].ID}))
-	must(t, d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: d.st.Workspaces[0].ID}))
+	must(t, d.handle(ctx, proto.SetSessionGroup{WorkspaceID: d.st.Workspaces[1].ID, GroupID: d.st.Projects[0].ID}))
+	must(t, d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: d.st.Workspaces[1].ID}))
 	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: d.st.Projects[0].ID, Name: "feat"}))
-	must(t, d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: d.st.Workspaces[0].ID}))
+	must(t, d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: d.st.Workspaces[1].ID}))
 	if removed != 1 {
 		t.Fatalf("RemoveWorktree ran %d times, want only for the pitwall worktree", removed)
 	}

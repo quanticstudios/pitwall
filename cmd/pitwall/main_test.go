@@ -195,7 +195,7 @@ func TestDialOrStartRestartsOldDaemon(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("old daemon did not start")
 			}
-			conn, initial, err := dialOrStart()
+			conn, initial, err := dialOrStart("")
 			// "empty" is a daemon from before the pid was written: it is
 			// found through /proc/locks and replaced like the others.
 			if mode == "stuck" {
@@ -268,7 +268,7 @@ func TestDialOrStartHealthyDaemon(t *testing.T) {
 			return
 		}
 		hello, ok := msg.(proto.Hello)
-		if !ok || hello.Version != proto.Version || hello.Kind != "gui" || hello.Cwd != cwd() {
+		if !ok || hello.Version != proto.Version || hello.Kind != "gui" || hello.Cwd != cwd() || hello.Session != "work" {
 			served <- fmt.Errorf("unexpected Hello: %#v", msg)
 			return
 		}
@@ -280,7 +280,7 @@ func TestDialOrStartHealthyDaemon(t *testing.T) {
 		time.Sleep(2100 * time.Millisecond)
 		served <- conn.Send(proto.Frame{Pane: "healthy"})
 	}()
-	conn, initial, err := dialOrStart()
+	conn, initial, err := dialOrStart("work")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,11 +321,12 @@ func TestLockHolderFromProcLocks(t *testing.T) {
 
 func TestShownOnlyActiveTabs(t *testing.T) {
 	st := model.State{Workspaces: []model.Workspace{
-		{ActiveTab: "a", Tabs: []model.Tab{{ID: "a", Layout: layout.Leaf("p1")}, {ID: "b", Layout: layout.Leaf("p2")}}},
-		{Detached: true, ActiveTab: "c", Tabs: []model.Tab{{ID: "c", Layout: layout.Leaf("p3")}}},
+		{SessionID: "s", ActiveTab: "a", Tabs: []model.Tab{{ID: "a", Layout: layout.Leaf("p1")}, {ID: "b", Layout: layout.Leaf("p2")}}},
+		{SessionID: "s", Detached: true, ActiveTab: "c", Tabs: []model.Tab{{ID: "c", Layout: layout.Leaf("p3")}}},
+		{SessionID: "other", ActiveTab: "d", Tabs: []model.Tab{{ID: "d", Layout: layout.Leaf("p4")}}},
 	}}
-	for pane, want := range map[string]bool{"p1": true, "p2": false, "p3": false, "gone": false} {
-		if got := shown(&st, pane); got != want {
+	for pane, want := range map[string]bool{"p1": true, "p2": false, "p3": false, "p4": false, "gone": false} {
+		if got := shown(&st, "s", pane); got != want {
 			t.Errorf("shown(%s) = %v, want %v", pane, got, want)
 		}
 	}

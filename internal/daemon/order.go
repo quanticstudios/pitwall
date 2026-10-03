@@ -24,8 +24,12 @@ func (d *Daemon) moveSession(m proto.MoveSession) error {
 	if m.Before == m.WorkspaceID {
 		return nil
 	}
+	session := d.st.Workspaces[i].SessionID
+	if m.GroupID != "" && d.project(m.GroupID).SessionID != session {
+		return fmt.Errorf("group %s is in another session", m.GroupID)
+	}
 	if m.GroupID == "" {
-		if m.Before != "" && !d.topLevel(m.Before) {
+		if m.Before != "" && !d.topLevel(session, m.Before) {
 			return fmt.Errorf("no top-level group or tab %s", m.Before)
 		}
 		d.st.Workspaces[i].ProjectID = ""
@@ -58,7 +62,7 @@ func (d *Daemon) moveGroup(m proto.MoveGroup) error {
 	if m.Before == m.GroupID {
 		return nil
 	}
-	if m.Before != "" && !d.topLevel(m.Before) {
+	if m.Before != "" && !d.topLevel(d.project(m.GroupID).SessionID, m.Before) {
 		return fmt.Errorf("no top-level group or tab %s", m.Before)
 	}
 	d.st.PlaceTop(m.GroupID, m.Before)
@@ -66,16 +70,19 @@ func (d *Daemon) moveGroup(m proto.MoveGroup) error {
 	return nil
 }
 
-// topLevel reports whether id is a group or an ungrouped tab. Callers hold
-// d.mu.
-func (d *Daemon) topLevel(id string) bool {
-	return slices.Contains(d.st.TopOrder(), id)
+// topLevel reports whether id is a group or an ungrouped tab of session.
+// Callers hold d.mu.
+func (d *Daemon) topLevel(session, id string) bool {
+	return slices.Contains(d.st.TopOrder(session), id)
 }
 
 // firstTop is the first top-level item, in order, that is one of ids, or
-// "". Callers hold d.mu.
+// "". ids are of one session. Callers hold d.mu.
 func (d *Daemon) firstTop(ids []string) string {
-	for _, id := range d.st.TopOrder() {
+	if len(ids) == 0 {
+		return ""
+	}
+	for _, id := range d.st.TopOrder(d.st.SessionOf(ids[0])) {
 		if slices.Contains(ids, id) {
 			return id
 		}

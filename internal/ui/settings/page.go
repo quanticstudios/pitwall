@@ -176,7 +176,7 @@ func (p *Page) Keys(gtx gl.Context) Result {
 				}
 			case key.Event:
 				if e.State == key.Press && !modifier(e.Name) && p.rec.action != "" {
-					p.recorded(config.Chord{Mods: e.Modifiers, Name: e.Name})
+					p.recorded(config.Unshift(config.Chord{Mods: e.Modifiers, Name: e.Name}))
 				}
 			}
 		}
@@ -876,7 +876,7 @@ func (p *Page) shortcuts() []section {
 				}
 			})})
 	}
-	var global, tab, pane []row
+	var global, sessions, tab, pane []row
 	for _, a := range config.Actions() {
 		cs := chordsOf(b, a.Name, tableOf(a))
 		var names []string
@@ -891,6 +891,8 @@ func (p *Page) shortcuts() []section {
 		} else if a.Pane {
 			r.label = "Pane mode: " + strings.ToLower(r.label[:1]) + r.label[1:]
 			pane = append(pane, r)
+		} else if strings.HasPrefix(a.Name, "session_") {
+			sessions = append(sessions, r)
 		} else {
 			global = append(global, r)
 		}
@@ -903,7 +905,9 @@ func (p *Page) shortcuts() []section {
 	if cs := b.Global["pane_prefix"]; len(cs) > 0 {
 		paneDesc = "After " + cs[0].String() + ", these keys act on panes until Esc or Enter."
 	}
-	return []section{general, {title: "Shortcuts", rows: global}, {title: "Tab mode", desc: tabDesc, rows: tab}, {title: "Pane mode", desc: paneDesc, rows: pane}}
+	return []section{general, {title: "Shortcuts", rows: global},
+		{title: "Sessions", desc: "A session is a set of tabs and groups with a name, like a tmux session. The switcher shows them all, live.", rows: sessions},
+		{title: "Tab mode", desc: tabDesc, rows: tab}, {title: "Pane mode", desc: paneDesc, rows: pane}}
 }
 
 // chords is an action's control: a keycap per chord (click to record), +

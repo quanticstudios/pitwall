@@ -18,15 +18,18 @@ type backend struct {
 	changed chan struct{}
 	focus   chan proto.FocusSession
 
-	mu     sync.Mutex
-	state  model.State
-	frames map[string]proto.Frame
+	mu      sync.Mutex
+	session string // the session the window shows, from SessionShow
+	state   model.State
+	frames  map[string]proto.Frame
 }
 
-func newBackend(c *proto.Conn) *backend {
+// newBackend queues a FocusSession for the window's first session, and the
+// tab $PITWALL_ATTACH names.
+func newBackend(c *proto.Conn, session string) *backend {
 	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), frames: map[string]proto.Frame{}}
-	if id := os.Getenv("PITWALL_ATTACH"); id != "" {
-		b.focus <- proto.FocusSession{WorkspaceID: id}
+	if f := (proto.FocusSession{WorkspaceID: os.Getenv("PITWALL_ATTACH"), SessionID: session}); f != (proto.FocusSession{}) {
+		b.focus <- f
 	}
 	return b
 }
@@ -46,7 +49,17 @@ func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 	return f.Grid, f.Modes, ok
 }
 
-func (b *backend) Send(msg any) error               { return b.conn.Send(msg) }
+// Send sends msg; a SessionShow also tells the backend which session's
+// frames redraw the window.
+func (b *backend) Send(msg any) error {
+	if s, ok := msg.(proto.SessionShow); ok {
+		b.mu.Lock()
+		b.session = s.SessionID
+		b.mu.Unlock()
+	}
+	return b.conn.Send(msg)
+}
+
 func (b *backend) Changed() <-chan struct{}         { return b.changed }
 func (b *backend) Focus() <-chan proto.FocusSession { return b.focus }
 
@@ -80,7 +93,7 @@ func (b *backend) recvLoop() {
 			}
 		case proto.Frame:
 			b.frames[m.Pane] = m
-			if !shown(&b.state, m.Pane) {
+			if !shown(&b.state, b.session, m.Pane) {
 				// Kept for when its tab is shown; no redraw for it now.
 				b.mu.Unlock()
 				continue
@@ -102,11 +115,12 @@ func (b *backend) Scroll(pane string) (offset, max int) {
 	return f.ScrollOffset, f.ScrollMax
 }
 
-// shown reports whether pane is in the active tab of a session the window
-// can show, so output in a background tab does not redraw the window.
-func shown(st *model.State, pane string) bool {
+// shown reports whether pane is in the active tab of a tab of session the
+// window can show, so output in a background tab or another session does
+// not redraw the window.
+func shown(st *model.State, session, pane string) bool {
 	for _, w := range st.Workspaces {
-		if w.Detached {
+		if w.Detached || w.SessionID != session {
 			continue
 		}
 		for _, t := range w.Tabs {

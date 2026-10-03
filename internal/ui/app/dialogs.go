@@ -213,7 +213,7 @@ func (u *ui) confirmModal() {
 			m.pathErr = err.Error()
 			return
 		}
-		u.send(proto.AddProject{Path: p})
+		u.send(proto.AddProject{Path: p, SessionID: u.nav.session})
 		m.close()
 	}
 }

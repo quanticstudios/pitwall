@@ -34,7 +34,7 @@ func TestRenameEndsWhenHiddenOrBlurred(t *testing.T) {
 				gtx := layout.Context{Ops: &ops, Source: r.Source(),
 					Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
 					Constraints: layout.Exact(image.Pt(288, 600)), Now: time.Now()}
-				_, events := s.Layout(gtx, th, &st, "w")
+				_, events := s.Layout(gtx, th, &st, "", "w")
 				r.Frame(&ops)
 				return events
 			}
@@ -179,7 +179,7 @@ func TestSelection(t *testing.T) {
 		},
 	}
 	s := Sidebar{expanded: map[string]bool{"g": true}, selected: map[string]bool{}}
-	v := newView(layout.Context{}, theme.Dark(), st, "w1")
+	v := newView(layout.Context{}, theme.Dark(), st, "", "w1")
 	if got := s.order(v); !slices.Equal(got, []string{"w1", "w2", "w3", "w4"}) {
 		t.Fatalf("order %v", got)
 	}

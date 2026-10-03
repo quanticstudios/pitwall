@@ -12,34 +12,32 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
+// pitwall attach opens a window on the tab's session only when no window
+// shows it; one that does got the FocusSession and raises itself.
 func TestCLIAttach(t *testing.T) {
-	for _, held := range []bool{false, true} {
-		t.Run(fmt.Sprint(held), func(t *testing.T) {
-			fakeCLI(t, cliExchange{state: cliState()}, cliExchange{request: proto.FocusSession{WorkspaceID: "b"}, state: cliState()})
+	for _, shown := range []bool{false, true} {
+		t.Run(fmt.Sprint(shown), func(t *testing.T) {
+			after := cliState()
+			if shown {
+				after.Sessions[0].Windows = 1
+			}
+			fakeCLI(t, cliExchange{state: cliState()}, cliExchange{request: proto.FocusSession{WorkspaceID: "b"}, state: after})
 			t.Setenv("PITWALL_PANE", "pb")
-			lock, err := guiLock()
-			if err != nil || lock == nil {
-				t.Fatalf("lock: %v", err)
-			}
-			defer lock.Close()
-			if !held {
-				lock.Close()
-			}
 			previous := launchGUI
 			var launched []string
-			launchGUI = func(id string) error { launched = append(launched, id); return nil }
+			launchGUI = func(session, id string) error { launched = append(launched, session+"/"+id); return nil }
 			t.Cleanup(func() { launchGUI = previous })
 			args := []string{"attach"}
-			if held {
+			if shown {
 				args = append(args, "alpi")
 			}
 			if code, out, stderr := cliOutput(args...); code != 0 || out != "" || stderr != "" {
 				t.Fatalf("%d: %s %s", code, out, stderr)
 			}
-			if held && len(launched) != 0 {
-				t.Fatal("launched despite a held GUI lock")
+			if shown && len(launched) != 0 {
+				t.Fatal("launched a second window on a shown session")
 			}
-			if !held && (len(launched) != 1 || launched[0] != "b") {
+			if !shown && (len(launched) != 1 || launched[0] != "main/b") {
 				t.Fatalf("launched: %v", launched)
 			}
 		})
@@ -56,7 +54,7 @@ func TestCLIAttachErrors(t *testing.T) {
 			fakeCLI(t, cliExchange{state: cliState()}, exchange)
 			previous := launchGUI
 			launched := false
-			launchGUI = func(string) error { launched = true; return errors.New("cannot launch") }
+			launchGUI = func(string, string) error { launched = true; return errors.New("cannot launch") }
 			t.Cleanup(func() { launchGUI = previous })
 			code, out, stderr := cliOutput("attach", "1")
 			want := "pitwall: cannot launch\n"
@@ -70,28 +68,22 @@ func TestCLIAttachErrors(t *testing.T) {
 	}
 }
 
-func TestGUILock(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	first, err := guiLock()
-	if err != nil || first == nil {
-		t.Fatalf("first: %v", err)
+// A new window opens on the named session, else the most recently used
+// one, and raises the window that shows it instead of opening a second.
+func TestGUITarget(t *testing.T) {
+	now := time.Now()
+	st := model.State{Sessions: []model.Session{
+		{ID: "a", Name: "swift-otter", UsedAt: now.Add(-time.Hour)},
+		{ID: "b", Name: "calm-heron", UsedAt: now, Windows: 1},
+	}}
+	for _, tc := range []struct {
+		name, want string
+		raise      bool
+	}{{"", "b", true}, {"swift-otter", "a", false}, {"calm-heron", "b", true}, {"absent", "", false}} {
+		if s, raise := guiTarget(st, tc.name); s.ID != tc.want || raise != tc.raise {
+			t.Errorf("%q: %s raise %v, want %s raise %v", tc.name, s.ID, raise, tc.want, tc.raise)
+		}
 	}
-	defer first.Close()
-	second, err := guiLock()
-	if err != nil || second != nil {
-		t.Fatalf("second: %v, %v", second, err)
-	}
-	// A duplicate GUI exits before dialing or creating a window.
-	t.Setenv("PITWALL_SOCKET", filepath.Join(t.TempDir(), "missing.sock"))
-	if err := runGUI(); err != nil {
-		t.Fatal(err)
-	}
-	first.Close()
-	third, err := guiLock()
-	if err != nil || third == nil {
-		t.Fatalf("released: %v", err)
-	}
-	third.Close()
 }
 
 func TestBackendFocus(t *testing.T) {
@@ -126,8 +118,8 @@ func TestBackendFocus(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	b := newBackend(c)
-	if got := <-b.Focus(); got != (proto.FocusSession{WorkspaceID: "startup"}) {
+	b := newBackend(c, "first-session")
+	if got := <-b.Focus(); got != (proto.FocusSession{WorkspaceID: "startup", SessionID: "first-session"}) {
 		t.Fatalf("startup: %+v", got)
 	}
 	select {
@@ -160,7 +152,7 @@ func TestBackendFocus(t *testing.T) {
 	}
 	t.Setenv("PITWALL_ATTACH", "")
 	select {
-	case got := <-newBackend(nil).Focus():
+	case got := <-newBackend(nil, "").Focus():
 		t.Fatalf("unexpected startup: %+v", got)
 	default:
 	}

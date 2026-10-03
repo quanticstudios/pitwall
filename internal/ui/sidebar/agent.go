@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"image/color"
+	"time"
 
 	"gioui.org/layout"
 
@@ -69,3 +70,17 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 	}
 	return drawIcon(gtx, icTerminal, size, col, 0)
 }
+
+// Icon draws the lucide icon name ("plus", "pencil", "trash", "terminal",
+// "layers") in a size box, for lists outside the sidebar.
+func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
+	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal}[name]
+	if d == "" {
+		d = projectIcon(name)
+	}
+	return drawIcon(gtx, d, size, col, 0)
+}
+
+// RelTime is how long ago t was, as the sidebar's rows say it ("just
+// now", "5m ago").
+func RelTime(now, t time.Time) string { return relTime(now, t) }

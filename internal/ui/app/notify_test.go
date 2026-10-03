@@ -252,7 +252,7 @@ func TestNotifierWithoutWindow(t *testing.T) {
 	n := newNotifier(b, func() {}, func(_ context.Context, n notification) { delivered <- n })
 	defer n.close()
 	focused := false
-	n.setView(&focused, "")
+	n.setView(&focused, "", "")
 	b.Tick()
 	select {
 	case got := <-delivered:
@@ -309,5 +309,30 @@ func TestNotificationTitle(t *testing.T) {
 	}
 	if got := notificationTitle(&st, model.Workspace{Name: "api", ProjectID: "g"}); got != "agents / api" {
 		t.Fatalf("grouped title = %q", got)
+	}
+	st.Sessions = []model.Session{{ID: "s", Name: "swift-otter"}}
+	if got := notificationTitle(&st, model.Workspace{Name: "Migrate billing", SessionID: "s", ProjectID: "g"}); got != "swift-otter · agents / Migrate billing" {
+		t.Fatalf("title with a session = %q", got)
+	}
+}
+
+// Each session's notifications come from one window: the one showing it,
+// or for a session no window shows, the window whose session sorts first.
+func TestNotifiesOnce(t *testing.T) {
+	st := model.State{Sessions: []model.Session{{ID: "a", Windows: 1}, {ID: "b", Windows: 1}, {ID: "c"}}}
+	for _, tc := range []struct {
+		mine, of string
+		want     bool
+	}{
+		{"a", "a", true}, {"a", "b", false}, {"a", "c", true},
+		{"b", "b", true}, {"b", "a", false}, {"b", "c", false},
+	} {
+		if got := notifies(&st, tc.mine, tc.of); got != tc.want {
+			t.Errorf("window on %s notifies about %s: %v", tc.mine, tc.of, got)
+		}
+	}
+	// With no window counted (the fake backend), a window notifies all.
+	if !notifies(&model.State{Sessions: []model.Session{{ID: "a"}, {ID: "c"}}}, "c", "a") {
+		t.Error("lone window stays quiet")
 	}
 }

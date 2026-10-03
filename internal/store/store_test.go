@@ -96,7 +96,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":7,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":8,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -358,10 +358,52 @@ func TestLoadMigratesVersion5Order(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(s.Order, []string{"u1", "u2", "g1", "g2"}) {
-		t.Fatalf("order %v", s.Order)
+	if got := s.TopOrder(s.Sessions[0].ID); !reflect.DeepEqual(got, []string{"u1", "u2", "g1", "g2"}) {
+		t.Fatalf("order %v", got)
 	}
 	if s.Workspaces[0].Name != "" || s.Workspaces[1].Name != "" || s.Workspaces[2].Name != "api" || !s.Workspaces[2].NameSet {
 		t.Fatalf("names %+v", s.Workspaces)
+	}
+}
+
+// A version 6 file puts every tab and group into one session named "main",
+// which keeps the file's order and was last used when its newest tab was.
+func TestLoadMigratesVersion6Sessions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v6 := `{"format_version":6,"state":{"Order":["g1","u1"],"Projects":[{"ID":"g1"}],"Workspaces":[
+		{"ID":"a","ProjectID":"g1","UpdatedAt":"2026-01-02T00:00:00Z"},
+		{"ID":"u1","UpdatedAt":"2026-01-03T00:00:00Z"}]}}`
+	if err := os.WriteFile(path, []byte(v6), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Sessions) != 1 || s.Sessions[0].Name != "main" || s.Sessions[0].ID == "" {
+		t.Fatalf("sessions %+v", s.Sessions)
+	}
+	main := s.Sessions[0]
+	if !reflect.DeepEqual(main.Order, []string{"g1", "u1"}) || main.UsedAt.Day() != 3 {
+		t.Fatalf("main %+v", main)
+	}
+	if s.Projects[0].SessionID != main.ID || s.Workspaces[0].SessionID != main.ID || s.Workspaces[1].SessionID != main.ID {
+		t.Fatalf("not adopted: %+v %+v", s.Projects, s.Workspaces)
+	}
+	// Saved and loaded again, nothing changes.
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Load(path)
+	if err != nil || !reflect.DeepEqual(again.Sessions, s.Sessions) {
+		t.Fatalf("round trip %+v, %v", again.Sessions, err)
+	}
+
+	// An empty older file gets no session; the first window makes one.
+	if err := os.WriteFile(path, []byte(`{"format_version":6,"state":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := Load(path); err != nil || len(s.Sessions) != 0 {
+		t.Fatalf("empty: %+v %v", s.Sessions, err)
 	}
 }

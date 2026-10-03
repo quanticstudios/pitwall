@@ -14,23 +14,24 @@ type ProjectKind string
 const (
 	ProjectGit    ProjectKind = "git"
 	ProjectFolder ProjectKind = "folder"
-	ProjectGroup  ProjectKind = "group" // made by grouping sessions; no Root
+	ProjectGroup  ProjectKind = "group" // made by grouping tabs; no Root
 )
 
-// Project is a group of sessions. Sessions start ungrouped; a group is made
-// after the fact from sessions the user picks. Git and folder projects also
-// carry a Root, which new-worktree actions use.
+// Project is a group of tabs within one Session. Tabs start ungrouped; a
+// group is made after the fact from tabs the user picks. Git and folder
+// projects also carry a Root, which new-worktree actions use.
 type Project struct {
-	ID    string
-	Name  string
-	Root  string // repo root or folder path; "" for a group
-	Kind  ProjectKind
-	Color string // aide color id: "neutral", "red", "blue", ...
-	Icon  string // aide lucide icon name ("folder", "code", ...); "" means "folder"
+	ID        string
+	SessionID string // the Session it belongs to
+	Name      string
+	Root      string // repo root or folder path; "" for a group
+	Kind      ProjectKind
+	Color     string // aide color id: "neutral", "red", "blue", ...
+	Icon      string // aide lucide icon name ("folder", "code", ...); "" means "folder"
 }
 
-// Tab is the split tree of panes a session shows. A session has exactly one
-// tab: the user sees the session as a tab, so the two words name one thing.
+// Tab is the split tree of panes a Workspace shows. A workspace has exactly
+// one: the user sees the workspace as a tab.
 type Tab struct {
 	ID string
 	// Name is unused: the session's Name is the tab's name. Older state
@@ -48,11 +49,11 @@ type Tab struct {
 	Layout *layout.Node
 }
 
-// Workspace is one session, which the user sees as one tab: a split tree of
-// panes started in Path. Its default Name is generated ("swift-otter") and
-// unique among sessions; it is the stable handle the CLI addresses.
+// Workspace is one tab of a Session: a split tree of panes started in Path.
+// Name is set only when a person chose one, and is unique in its session.
 type Workspace struct {
 	ID        string
+	SessionID string // the Session that owns this tab
 	ProjectID string // "" while the session is ungrouped
 	Name      string
 	// NameSet is true when the user or the CLI chose Name (NewSession.Name,
@@ -121,17 +122,30 @@ type BranchStats struct {
 	Behind      int
 }
 
+// Session is a named set of tabs and groups, like a tmux session. A window
+// shows one session; every session keeps running in the daemon. A session
+// ends when its last tab does.
+type Session struct {
+	ID   string
+	Name string // unique; generated ("swift-otter") until renamed
+	// Order is the sidebar order of the session's top-level items: group
+	// IDs (Project.ID) and the IDs of ungrouped tabs, interleaved. A
+	// group's tabs keep their relative order from State.Workspaces. Read it
+	// through State.TopOrder, which repairs a stale or missing Order.
+	Order  []string
+	UsedAt time.Time // when a window last showed it, or when it was made
+	// Windows is how many GUI windows show the session now. The daemon
+	// fills it in; it is not saved.
+	Windows int `json:"-"`
+}
+
 // State is everything a client needs to draw the sidebar and the layout.
 // The daemon sends a fresh copy on every change.
 type State struct {
 	Version    uint64
+	Sessions   []Session // in the order the switcher lists them
 	Projects   []Project
 	Workspaces []Workspace
-	// Order is the sidebar order of the top-level items: group IDs
-	// (Project.ID) and the IDs of ungrouped tabs, interleaved. A group's
-	// tabs keep their relative order from Workspaces. Read it through
-	// TopOrder, which repairs a stale or missing Order.
-	Order      []string
 	Panes      []Pane
 	Activities []Activity             // one per pane with an agent or a running command
 	Stats      map[string]BranchStats // keyed by workspace id
@@ -155,30 +169,101 @@ func (s *State) LivePath(w Workspace) string {
 	return w.Path
 }
 
-// TopOrder is the top-level items in sidebar order: Order with unknown and
-// repeated IDs dropped, then any item Order misses, ungrouped tabs before
-// groups. A tab whose group is gone counts as ungrouped. Detached tabs keep
-// their place.
-func (s *State) TopOrder() []string {
+// Session returns the session id, or nil.
+func (s *State) Session(id string) *Session {
+	if i := slices.IndexFunc(s.Sessions, func(x Session) bool { return x.ID == id }); i >= 0 {
+		return &s.Sessions[i]
+	}
+	return nil
+}
+
+// SessionNamed returns the session called name, or nil.
+func (s *State) SessionNamed(name string) *Session {
+	if i := slices.IndexFunc(s.Sessions, func(x Session) bool { return x.Name == name }); i >= 0 {
+		return &s.Sessions[i]
+	}
+	return nil
+}
+
+// Recent is the most recently used session, or nil when there is none.
+func (s *State) Recent() *Session {
+	var best *Session
+	for i := range s.Sessions {
+		if best == nil || s.Sessions[i].UsedAt.After(best.UsedAt) {
+			best = &s.Sessions[i]
+		}
+	}
+	return best
+}
+
+// SessionOf is the session of the tab or group id, "" when there is none.
+func (s *State) SessionOf(id string) string {
+	for _, w := range s.Workspaces {
+		if w.ID == id {
+			return w.SessionID
+		}
+	}
+	for _, p := range s.Projects {
+		if p.ID == id {
+			return p.SessionID
+		}
+	}
+	return ""
+}
+
+// View is the state with only session's groups, tabs, panes, activities
+// and stats; Sessions stays whole.
+func (s *State) View(session string) State {
+	v := *s
+	v.Projects = slices.DeleteFunc(slices.Clone(s.Projects), func(p Project) bool { return p.SessionID != session })
+	v.Workspaces = slices.DeleteFunc(slices.Clone(s.Workspaces), func(w Workspace) bool { return w.SessionID != session })
+	in := make(map[string]bool, len(v.Workspaces))
+	for _, w := range v.Workspaces {
+		in[w.ID] = true
+	}
+	v.Panes = slices.DeleteFunc(slices.Clone(s.Panes), func(p Pane) bool { return !in[p.WorkspaceID] })
+	v.Activities = slices.DeleteFunc(slices.Clone(s.Activities), func(a Activity) bool { return !in[a.WorkspaceID] })
+	v.Stats = make(map[string]BranchStats, len(v.Workspaces))
+	for id, st := range s.Stats {
+		if in[id] {
+			v.Stats[id] = st
+		}
+	}
+	return v
+}
+
+// TopOrder is session's top-level items in sidebar order: its Order with
+// unknown and repeated IDs dropped, then any item Order misses, ungrouped
+// tabs before groups. A tab whose group is gone counts as ungrouped.
+// Detached tabs keep their place.
+func (s *State) TopOrder(session string) []string {
 	groups := make(map[string]bool, len(s.Projects))
 	for _, p := range s.Projects {
-		groups[p.ID] = true
+		if p.SessionID == session {
+			groups[p.ID] = true
+		}
 	}
 	var implied []string
 	for _, w := range s.Workspaces {
-		if !groups[w.ProjectID] {
+		if w.SessionID == session && !groups[w.ProjectID] {
 			implied = append(implied, w.ID)
 		}
 	}
 	for _, p := range s.Projects {
-		implied = append(implied, p.ID)
+		if p.SessionID == session {
+			implied = append(implied, p.ID)
+		}
 	}
 	top := make(map[string]bool, len(implied))
 	for _, id := range implied {
 		top[id] = true
 	}
+	var order []string
+	if ss := s.Session(session); ss != nil {
+		order = ss.Order
+	}
 	out := make([]string, 0, len(implied))
-	for _, id := range s.Order {
+	for _, id := range order {
 		if top[id] {
 			out = append(out, id)
 			delete(top, id)
@@ -192,24 +277,29 @@ func (s *State) TopOrder() []string {
 	return out
 }
 
-// Ordered is every tab, detached ones included, in sidebar order: the
-// top-level items in TopOrder, each group's tabs at the group's place.
-func (s *State) Ordered() []Workspace {
+// Ordered is every tab of session, detached ones included, in sidebar
+// order: the top-level items in TopOrder, each group's tabs at the group's
+// place.
+func (s *State) Ordered(session string) []Workspace {
 	groups := make(map[string]bool, len(s.Projects))
 	for _, p := range s.Projects {
-		groups[p.ID] = true
+		if p.SessionID == session {
+			groups[p.ID] = true
+		}
 	}
 	inGroup := map[string][]Workspace{}
 	loose := map[string]Workspace{}
 	for _, w := range s.Workspaces {
-		if groups[w.ProjectID] {
+		switch {
+		case w.SessionID != session:
+		case groups[w.ProjectID]:
 			inGroup[w.ProjectID] = append(inGroup[w.ProjectID], w)
-		} else {
+		default:
 			loose[w.ID] = w
 		}
 	}
-	out := make([]Workspace, 0, len(s.Workspaces))
-	for _, id := range s.TopOrder() {
+	var out []Workspace
+	for _, id := range s.TopOrder(session) {
 		if w, ok := loose[id]; ok {
 			out = append(out, w)
 		} else {
@@ -219,10 +309,18 @@ func (s *State) Ordered() []Workspace {
 	return out
 }
 
+// setOrder stores order as the Order of id's session.
+func (s *State) setOrder(id string, order []string) {
+	if ss := s.Session(s.SessionOf(id)); ss != nil {
+		ss.Order = order
+	}
+}
+
 // DeleteGroup drops group id and ungroups its tabs into its place, in
 // their order.
 func (s *State) DeleteGroup(id string) {
-	order := s.TopOrder()
+	session := s.SessionOf(id)
+	order := s.TopOrder(session)
 	at := slices.Index(order, id)
 	if at < 0 {
 		return
@@ -234,28 +332,89 @@ func (s *State) DeleteGroup(id string) {
 			tabs = append(tabs, w.ID)
 		}
 	}
-	s.Order = slices.Replace(order, at, at+1, tabs...)
+	s.setOrder(id, slices.Replace(order, at, at+1, tabs...))
 	s.Projects = slices.DeleteFunc(s.Projects, func(p Project) bool { return p.ID == id })
 }
 
-// PlaceTop moves the top-level item id before the top-level item before,
-// or last when before is "" or not top-level.
+// PlaceTop moves the top-level item id before the top-level item before
+// of the same session, or last when before is "" or not top-level.
 func (s *State) PlaceTop(id, before string) {
-	o := slices.DeleteFunc(s.TopOrder(), func(x string) bool { return x == id })
+	o := slices.DeleteFunc(s.TopOrder(s.SessionOf(id)), func(x string) bool { return x == id })
 	at := slices.Index(o, before)
 	if before == "" || at < 0 {
 		at = len(o)
 	}
-	s.Order = slices.Insert(o, at, id)
+	s.setOrder(id, slices.Insert(o, at, id))
 }
 
 // PlaceTopAfter moves the top-level item id right after the top-level item
-// after, or last when after is not top-level.
+// after of the same session, or last when after is not top-level.
 func (s *State) PlaceTopAfter(id, after string) {
-	o := slices.DeleteFunc(s.TopOrder(), func(x string) bool { return x == id })
+	o := slices.DeleteFunc(s.TopOrder(s.SessionOf(id)), func(x string) bool { return x == id })
 	at := slices.Index(o, after) + 1
 	if at == 0 {
 		at = len(o)
 	}
-	s.Order = slices.Insert(o, at, id)
+	s.setOrder(id, slices.Insert(o, at, id))
+}
+
+// SessionSummary is what lists of sessions show about one.
+type SessionSummary struct {
+	Tabs, Detached int
+	// Working counts agent panes at work. NeedsYou counts panes with a
+	// question, an approval or an error, and finished turns and plans the
+	// user has not seen; Unseen counts the panes with Activity.Unseen.
+	Working, NeedsYou, Unseen int
+	Agents                    []Provider // the agents running in it, Claude before Codex
+	Active                    time.Time  // the newest tab's UpdatedAt
+}
+
+// Summary sums up session.
+func (s *State) Summary(session string) SessionSummary {
+	var out SessionSummary
+	in := map[string]bool{}
+	for _, w := range s.Workspaces {
+		if w.SessionID != session {
+			continue
+		}
+		in[w.ID] = true
+		if w.Detached {
+			out.Detached++
+		} else {
+			out.Tabs++
+		}
+		if w.UpdatedAt.After(out.Active) {
+			out.Active = w.UpdatedAt
+		}
+	}
+	agents := map[Provider]bool{}
+	for _, p := range s.Panes {
+		if in[p.WorkspaceID] && (p.Provider == ProviderClaude || p.Provider == ProviderCodex) {
+			agents[p.Provider] = true
+		}
+	}
+	for _, a := range s.Activities {
+		if !in[a.WorkspaceID] {
+			continue
+		}
+		agent := a.Provider == ProviderClaude || a.Provider == ProviderCodex
+		if agent {
+			agents[a.Provider] = true
+		}
+		switch {
+		case agent && Pulses(&a):
+			out.Working++
+		case Tier(&a) == TierAttention || NeedsYou(a.State) && a.Unseen:
+			out.NeedsYou++
+		}
+		if a.Unseen {
+			out.Unseen++
+		}
+	}
+	for _, p := range []Provider{ProviderClaude, ProviderCodex} {
+		if agents[p] {
+			out.Agents = append(out.Agents, p)
+		}
+	}
+	return out
 }

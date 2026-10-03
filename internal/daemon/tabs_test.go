@@ -525,7 +525,7 @@ func TestProjectAt(t *testing.T) {
 	for path, want := range map[string]string{
 		"/src/repo": "r", "/src/repo/a": "r", "/src/repo/nested/x": "n", "/src/repo2": "", "/src": "",
 	} {
-		if got := d.projectAt(path); got != want {
+		if got := d.projectAt("", path); got != want {
 			t.Errorf("projectAt(%s) = %q, want %q", path, got, want)
 		}
 	}
@@ -557,6 +557,7 @@ func TestFocusSession(t *testing.T) {
 	gui := dial(t, sock, "gui")
 	st := gui.waitState("first session", func(s model.State) bool { return len(s.Workspaces) == 1 })
 	ws := st.Workspaces[0]
+	gui.send(proto.SessionShow{SessionID: ws.SessionID})
 	gui.send(proto.DetachSession{WorkspaceID: ws.ID, Detached: true})
 	gui.waitState("detached", func(s model.State) bool { return s.Workspaces[0].Detached })
 

@@ -45,7 +45,7 @@ func run(w *app.Window) error {
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
 			paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: e.Size}.Op())
-			_, events := sb.Layout(gtx, th, &st, active)
+			_, events := sb.Layout(gtx, th, &st, "", active)
 			for _, ev := range events {
 				log.Printf("event %#v", ev)
 				apply(&st, &active, ev)
@@ -120,8 +120,8 @@ func fakeState(now time.Time) model.State {
 	ago := func(d time.Duration) time.Time { return now.Add(-d) }
 	st := model.State{
 		Projects: []model.Project{
-			{ID: "p-pitwall", Name: "pitwall", Root: "/home/me/Work/pitwall", Kind: model.ProjectGit, Color: "sky", Icon: "terminal"},
-			{ID: "p-aide", Name: "aide", Root: "/home/me/Work/aide", Kind: model.ProjectGit, Color: "violet", Icon: "sparkles"},
+			{ID: "p-api", Name: "acme-api", Root: "/home/me/src/acme-api", Kind: model.ProjectGit, Color: "sky", Icon: "server"},
+			{ID: "p-web", Name: "web-app", Root: "/home/me/src/web-app", Kind: model.ProjectGit, Color: "violet", Icon: "globe"},
 			{ID: "p-notes", Name: "notes", Root: "/home/me/notes", Kind: model.ProjectFolder, Color: "amber"},
 		},
 		Stats: map[string]model.BranchStats{
@@ -134,7 +134,7 @@ func fakeState(now time.Time) model.State {
 		},
 	}
 	add := func(id, project, name, branch string, updated time.Duration, provider model.Provider, state model.AgentState) {
-		st.Workspaces = append(st.Workspaces, model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, Path: "/home/me/Work/" + name, UpdatedAt: ago(updated)})
+		st.Workspaces = append(st.Workspaces, model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, Path: "/home/me/src/" + name, UpdatedAt: ago(updated)})
 		if state != "" {
 			detail := ""
 			if provider == model.ProviderTerminal {
@@ -144,16 +144,16 @@ func fakeState(now time.Time) model.State {
 		}
 	}
 	add("ws-main", "", "home", "", 3*time.Hour, "", "")
-	add("ws-sidebar", "p-pitwall", "Theme and sidebar", "track/sidebar", 40*time.Second, model.ProviderClaude, model.StateWorking)
-	add("ws-term", "p-pitwall", "Terminal renderer", "track/term", 2*time.Minute, model.ProviderCodex, model.StateConnecting)
-	add("ws-daemon", "p-pitwall", "Daemon socket server", "track/daemon", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)
-	add("ws-conflict", "p-pitwall", "Store resume commands", "track/store", 9*time.Minute, model.ProviderClaude, model.StateError)
-	add("ws-plan", "p-pitwall", "Split tree ops", "track/layout", 22*time.Minute, model.ProviderClaude, model.StatePlanReady)
-	add("ws-hotkeys", "p-aide", "Alt navigation hotkeys", "fix/alt-nav", 12*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
-	add("ws-release", "p-aide", "Release 1.4", "release/1.4", 26*time.Hour, model.ProviderCodex, model.StateCompleted)
+	add("ws-sidebar", "p-api", "Add rate limiting to the public API", "rate-limit", 40*time.Second, model.ProviderClaude, model.StateWorking)
+	add("ws-term", "p-api", "Paginate the orders endpoint", "orders-pagination", 2*time.Minute, model.ProviderCodex, model.StateConnecting)
+	add("ws-daemon", "p-api", "Rotate the signing keys", "key-rotation", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)
+	add("ws-conflict", "p-api", "Retry failed webhooks", "webhook-retry", 9*time.Minute, model.ProviderClaude, model.StateError)
+	add("ws-plan", "p-api", "Split the billing service", "billing-split", 22*time.Minute, model.ProviderClaude, model.StatePlanReady)
+	add("ws-hotkeys", "p-web", "Fix the checkout race", "fix/checkout-race", 12*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
+	add("ws-release", "p-web", "Release 2.3", "release/2.3", 26*time.Hour, model.ProviderCodex, model.StateCompleted)
 	add("ws-ci", "", "CI watch", "", 30*time.Second, model.ProviderTerminal, model.StateTerminalRunning)
 	add("ws-notes", "p-notes", "notes", "", 4*24*time.Hour, "", "")
-	add("ws-old", "p-aide", "Old spike", "spike/electron-41", 9*24*time.Hour, "", "")
+	add("ws-old", "p-web", "Old spike", "spike/new-router", 9*24*time.Hour, "", "")
 	st.Workspaces[len(st.Workspaces)-1].Detached = true
 	for i := range st.Workspaces {
 		if st.Workspaces[i].ProjectID == "p-notes" {

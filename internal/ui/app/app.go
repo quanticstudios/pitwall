@@ -6,7 +6,6 @@ import (
 	"image"
 	"log"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +52,9 @@ type Focuser interface {
 const (
 	sidebarWidth = unit.Dp(288)
 	minRatio     = 0.05
+	// sessionFade is how long the panes take to fade in after the window
+	// switched sessions.
+	sessionFade = 260 * time.Millisecond
 )
 
 // Run opens the window and blocks until it closes.
@@ -88,6 +90,11 @@ func Run(b Backend) error {
 	u.notifications = newNotifier(b, w.Invalidate, desktopSender())
 	defer u.notifications.close()
 	if f, ok := b.(Focuser); ok {
+		select {
+		case fs := <-f.Focus(): // the first session, before the first frame
+			u.queueFocus(fs)
+		default:
+		}
 		go func() {
 			for fs := range f.Focus() {
 				u.queueFocus(fs)
@@ -102,8 +109,11 @@ func Run(b Backend) error {
 		case app.DestroyEvent:
 			return e.Err
 		case app.ConfigEvent:
+			if e.Config.Focused && !u.winFocused {
+				u.showSent = "" // a focused window's session is the most recently used
+			}
 			u.winFocused = e.Config.Focused
-			u.notifications.setView(&e.Config.Focused, "")
+			u.notifications.setView(&e.Config.Focused, "", "")
 			if !e.Config.Focused {
 				u.nav.altHeld, u.nav.pinned, u.nav.swallow = false, false, ""
 			}
@@ -111,9 +121,13 @@ func Run(b Backend) error {
 			gtx := app.NewContext(&ops, e)
 			u.layout(gtx)
 			e.Frame(gtx.Ops)
-			if u.lastSessionGone() {
-				// Like a tmux client when its session ends: the window goes,
-				// detached sessions keep running in the daemon.
+			if t := u.windowTitle(); t != u.title {
+				u.title = t
+				w.Option(app.Title(t))
+			}
+			if u.nav.closed {
+				// Like a tmux client when its last session ends: the window
+				// goes, detached tabs keep running in the daemon.
 				w.Perform(system.ActionClose)
 			}
 		}
@@ -135,17 +149,16 @@ type paneUI struct {
 }
 
 type ui struct {
-	hadSession bool // a session has been shown; closing the last one closes the window
-	b          Backend
-	th         *theme.Theme
-	cfg        config.Settings
-	nav        nav
-	sidebar    sidebar.Sidebar
-	panes      map[string]*paneUI
-	open       widget.Clickable // empty-state button
-	modal      modal
-	modeTag    int // holds key focus in tab mode, so typed text skips the pane
-	closeTag   int // a press anywhere closes a pinned switcher
+	b        Backend
+	th       *theme.Theme
+	cfg      config.Settings
+	nav      nav
+	sidebar  sidebar.Sidebar
+	panes    map[string]*paneUI
+	open     widget.Clickable // empty-state button
+	modal    modal
+	modeTag  int // holds key focus in tab mode, so typed text skips the pane
+	closeTag int // a press anywhere closes a pinned switcher
 
 	// A reloaded config waits in next for the UI goroutine; watchTheme is
 	// the theme name whose file the watcher polls.
@@ -171,6 +184,11 @@ type ui struct {
 	dragUntil uint64 // keep drawing drag until the state passes this version
 
 	shownAt time.Time // switcher fade-in start
+
+	sw       sessionSwitcher
+	showSent string    // the session the last SessionShow named
+	switchAt time.Time // when the window last switched sessions
+	title    string    // the window title last set
 
 	notifications *notifier
 	winFocused    bool                 // the window has keyboard focus
@@ -198,16 +216,70 @@ func (u *ui) queueFocus(fs proto.FocusSession) {
 func (u *ui) applyFocus(st *model.State) {
 	u.focusMu.Lock()
 	fs := u.focusReq
-	if fs != nil && findWorkspace(st, fs.WorkspaceID) != nil {
+	ws := fs != nil && findWorkspace(st, fs.WorkspaceID) != nil
+	if fs != nil && (ws || fs.WorkspaceID == "" && st.Session(fs.SessionID) != nil) {
 		u.focusReq = nil
+	} else if fs != nil && st.Session(fs.SessionID) != nil {
+		u.nav.switchSession(st, fs.SessionID) // its tab is still on the way
+		fs = nil
 	} else {
 		fs = nil
 	}
 	u.focusMu.Unlock()
 	if fs != nil {
 		u.nav.tabMode, u.nav.paneMode = false, false
-		u.nav.attachSession(st, fs.WorkspaceID)
+		if ws {
+			u.nav.attachSession(st, fs.WorkspaceID)
+		} else {
+			u.nav.switchSession(st, fs.SessionID)
+		}
 	}
+}
+
+// windowTitle is "<session> · pitwall".
+func (u *ui) windowTitle() string {
+	st := u.b.State()
+	if s := st.Session(u.nav.session); s != nil {
+		return s.Name + " · pitwall"
+	}
+	return "pitwall"
+}
+
+// switcherKey runs one key in the open session switcher; the switcher's
+// own shortcut closes it.
+func (u *ui) switcherKey(st *model.State, e key.Event) {
+	if u.nav.bind().Action(e) == "session_switcher" {
+		if e.State == key.Press {
+			u.sw.close()
+		}
+		return
+	}
+	r := u.sw.key(st, u.nav.focused(), e, time.Now())
+	if r.send != nil {
+		u.send(r.send)
+	}
+	if r.newSession != "" {
+		u.nav.newSession = r.newSession
+	}
+	if r.show != "" {
+		u.nav.switchSession(st, r.show)
+	}
+	if !u.sw.open {
+		u.nav.swallow = e.Name // its release must not reach the pane
+	}
+}
+
+// sessionChanged tells the daemon which session the window shows, and
+// starts the switch's fade when it is another one.
+func (u *ui) sessionChanged(gtx gl.Context) {
+	if u.nav.session == u.showSent || u.nav.session == "" {
+		return
+	}
+	if u.showSent != "" && u.title != "" {
+		u.switchAt = gtx.Now
+	}
+	u.showSent = u.nav.session
+	u.send(proto.SessionShow{SessionID: u.nav.session})
 }
 
 func (u *ui) layout(gtx gl.Context) {
@@ -229,6 +301,10 @@ func (u *ui) layout(gtx gl.Context) {
 	st := u.b.State()
 	u.nav.sync(&st)
 	u.applyFocus(&st)
+	if m := u.nav.sessionUI; m != "" {
+		u.nav.sessionUI = ""
+		u.sw.openAt(&st, u.nav.session, m, gtx.Now)
+	}
 
 	wasVisible := u.nav.switcherVisible()
 	wasMode, wasPane := u.nav.tabMode, u.nav.paneMode
@@ -237,11 +313,24 @@ func (u *ui) layout(gtx gl.Context) {
 			gtx.Execute(op.InvalidateCmd{}) // draw the mode pill's new state now
 		}
 	}()
-	u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
+	if !u.sw.open {
+		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
+	}
 	for {
-		ev, ok := gtx.Event(asFilters(u.nav.keyFilters())...)
+		filters := u.nav.keyFilters()
+		if u.sw.open {
+			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
+			filters = append(filters, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
+		}
+		ev, ok := gtx.Event(asFilters(filters)...)
 		if !ok {
 			break
+		}
+		if u.sw.open {
+			u.switcherKey(&st, ev.(key.Event))
+			st = u.b.State()
+			u.nav.sync(&st)
+			continue
 		}
 		if u.settingsShortcut(ev.(key.Event)) {
 			continue
@@ -252,7 +341,12 @@ func (u *ui) layout(gtx gl.Context) {
 			st = u.b.State()
 			u.nav.sync(&st)
 		}
+		if m := u.nav.sessionUI; m != "" {
+			u.nav.sessionUI = ""
+			u.sw.openAt(&st, u.nav.session, m, gtx.Now) // the keys after this one are the switcher's
+		}
 	}
+	u.sessionChanged(gtx)
 	u.markSeen(&st)
 	if !wasVisible && u.nav.switcherVisible() {
 		u.shownAt = gtx.Now
@@ -283,7 +377,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	event.Op(gtx.Ops, &u.modeTag)
-	if (u.nav.tabMode || u.nav.paneMode) && !gtx.Focused(&u.modeTag) {
+	if (u.nav.tabMode || u.nav.paneMode || u.sw.open) && !gtx.Focused(&u.modeTag) {
 		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
 	}
 	paint.Fill(gtx.Ops, u.th.Bg)
@@ -310,11 +404,18 @@ func (u *ui) layout(gtx gl.Context) {
 	off := op.Offset(area.Min).Push(gtx.Ops)
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
+	// Another session fades in, so the change of context shows.
+	fade := easeOut(float32(gtx.Now.Sub(u.switchAt)) / float32(sessionFade))
+	if fade < 1 {
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
 	if u.settings.Shown() {
 		u.layoutSettings(pgtx, &st)
 	} else {
 		u.layoutPanes(pgtx, &st)
 	}
+	fo.Pop()
 	off.Pop()
 	if u.nav.tabMode || u.nav.paneMode {
 		u.drawModePill(gtx, area)
@@ -324,7 +425,7 @@ func (u *ui) layout(gtx gl.Context) {
 		so := op.Offset(image.Pt(x-sw-1, 0)).Push(gtx.Ops)
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
-		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.workspace) {
+		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.session, u.nav.workspace) {
 			u.sidebarEvent(&st, ev)
 		}
 		paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: image.Pt(sw, 0), Max: image.Pt(sw+1, area.Max.Y)}.Op())
@@ -332,6 +433,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 
 	u.layoutModal(gtx, &st)
+	u.drawSessions(gtx, &st)
 	if u.nav.switcherVisible() {
 		u.drawSwitcher(gtx, &st)
 		if u.nav.pinned {
@@ -353,7 +455,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	if u.notifications != nil {
-		u.notifications.setView(nil, u.nav.workspace)
+		u.notifications.setView(nil, u.nav.workspace, u.nav.session)
 	}
 }
 
@@ -397,6 +499,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.modal.open(modalAddProject, "")
 	case sidebar.OpenSettings:
 		u.openSettings()
+	case sidebar.OpenSessions:
+		u.sw.openAt(st, u.nav.session, "pick", time.Now())
 	case sidebar.NewWorktreeSession:
 		u.nav.expectSession(st)
 		u.send(proto.NewWorkspace{ProjectID: e.GroupID})
@@ -427,6 +531,9 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}()
 	ws := findWorkspace(st, u.nav.workspace)
 	if ws == nil {
+		if st.Session(u.nav.session) != nil { // every tab detached
+			u.emptyState(gtx, "Open a tab   "+firstChord(u.nav.bind().Global["new_tab"]), func() { u.send(u.nav.newTab(st, "", "")) })
+		}
 		return
 	}
 	tab := shownTab(ws)
@@ -441,7 +548,10 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		u.drag = nil
 	}
 	if root == nil {
-		u.emptyState(gtx, st, ws.ID, tabID)
+		u.emptyState(gtx, "Open a terminal   "+firstChord(u.nav.bind().Global["split_right"]), func() {
+			u.nav.expectPane(st)
+			u.send(proto.OpenPane{WorkspaceID: ws.ID, TabID: tabID})
+		})
 		return
 	}
 
@@ -591,14 +701,14 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	}
 }
 
-func (u *ui) emptyState(gtx gl.Context, st *model.State, ws, tab string) {
+// emptyState is a centred button labelled label that runs click.
+func (u *ui) emptyState(gtx gl.Context, label string, click func()) {
 	if u.open.Clicked(gtx) {
-		u.nav.expectPane(st)
-		u.send(proto.OpenPane{WorkspaceID: ws, TabID: tab})
+		click()
 	}
 	gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 		return u.open.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.TextSize, u.th.Fg, strings.TrimSpace("Open a terminal   "+firstChord(u.nav.bind().Global["split_right"])))
+			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.TextSize, u.th.Fg, strings.TrimSpace(label))
 			pad := image.Pt(gtx.Dp(16), gtx.Dp(10))
 			box := sz.Add(pad.Mul(2))
 			bg := u.th.SurfaceSecondary
@@ -750,15 +860,4 @@ func (u *ui) layoutDividers(gtx gl.Context, ws, tab string, root *layout.Node, a
 			s.Pop()
 		}
 	})
-}
-
-// lastSessionGone reports when the window has shown a session and now has
-// none left to show, because the last one ended or was detached.
-func (u *ui) lastSessionGone() bool {
-	st := u.b.State()
-	visible := slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool { return !w.Detached })
-	if visible {
-		u.hadSession = true
-	}
-	return u.hadSession && !visible
 }
