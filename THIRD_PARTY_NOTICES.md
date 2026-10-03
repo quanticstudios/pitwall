@@ -110,6 +110,14 @@ Project Authors. `internal/ui/theme/fonts/Geist.ttf` is converted from the
 latin Geist variable woff2; the full license is in
 `internal/ui/theme/fonts/OFL.txt`.
 
+### Theme palettes
+
+The built-in themes in `internal/config/themes.go` copy color values from
+[Tokyo Night](https://github.com/folke/tokyonight.nvim) (MIT, Folke Lemaitre),
+[Catppuccin](https://github.com/catppuccin/palette) (MIT, Catppuccin) and,
+for aide-light's state and ANSI colors, GitHub's
+[Primer](https://github.com/primer/primitives) light palette (MIT, GitHub Inc.).
+
 ### Ideas and behavior, no code copied
 
 - **aide** (Quantic Studios): the sidebar design, colors, agent states and
@@ -265,6 +273,32 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 For more information, please refer to <https://unlicense.org/>
 ---
+```
+
+### github.com/BurntSushi/toml v1.6.0
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2013 TOML authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### github.com/charmbracelet/colorprofile v0.4.3
