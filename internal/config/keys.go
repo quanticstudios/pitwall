@@ -155,7 +155,7 @@ var presets = map[string]struct {
 			"new_tab": {"Alt+Shift+T"}, "pin_switcher": {"Alt+Space"},
 			"copy": {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
-			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"},
+			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "open_settings": {"Ctrl+,"},
 		},
 	},
 	"conventional": {
@@ -169,7 +169,7 @@ var presets = map[string]struct {
 			"switcher": {"Ctrl+Shift+Space"},
 			"copy":     {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
-			"toggle_sidebar": {"Ctrl+Shift+B"},
+			"toggle_sidebar": {"Ctrl+Shift+B"}, "open_settings": {"Ctrl+,"},
 		},
 	},
 }
