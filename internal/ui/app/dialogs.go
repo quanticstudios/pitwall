@@ -238,7 +238,7 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 	worktree := ws.WorktreeRoot != "" // the daemon removes only worktrees it made
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Delete \""+ws.Name+"\"?")
+			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Delete \""+tabTitle(*ws)+"\"?")
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {

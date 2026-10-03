@@ -129,7 +129,7 @@ func (d *Daemon) newTab(ctx context.Context, m proto.NewTab) error {
 }
 
 // renameTab names the session of m.Pane or m.WorkspaceID: a tab and its
-// session are one thing. An empty name goes back to a generated one.
+// session are one thing. An empty name clears it.
 func (d *Daemon) renameTab(m proto.RenameTab) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -147,9 +147,7 @@ func (d *Daemon) renameTab(m proto.RenameTab) error {
 	}
 	switch name := strings.TrimSpace(m.Name); {
 	case name == "":
-		if w.NameSet {
-			w.Name, w.NameSet = d.freshName(), false
-		}
+		w.Name, w.NameSet = "", false
 	case d.nameTaken(name, w.ID):
 		return fmt.Errorf("a tab is already named %s", name)
 	default:
@@ -213,10 +211,10 @@ func (d *Daemon) renameWorkspace(m proto.RenameWorkspace) error {
 	return nil
 }
 
-// nameTaken reports whether a session other than except has name. Callers
-// hold d.mu.
+// nameTaken reports whether a session other than except was given name.
+// Callers hold d.mu.
 func (d *Daemon) nameTaken(name, except string) bool {
-	return slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Name == name && w.ID != except })
+	return slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.NameSet && w.Name == name && w.ID != except })
 }
 
 // groupByFolder puts every ungrouped, attached session with the same
@@ -239,15 +237,20 @@ func (d *Daemon) groupByFolder(ctx context.Context, m proto.GroupByFolder) error
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	var moving []string
+	for _, w := range d.st.Workspaces {
+		if w.ProjectID == "" && !w.Detached && cmp.Or(w.RepoRoot, w.Path) == root {
+			moving = append(moving, w.ID)
+		}
+	}
 	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.Root == root })
 	if pi < 0 {
 		d.st.Projects = append(d.st.Projects, model.Project{ID: newID(), Name: filepath.Base(root), Root: root, Kind: kind, Color: "neutral"})
 		pi = len(d.st.Projects) - 1
+		d.st.PlaceTop(d.st.Projects[pi].ID, d.firstTop(moving))
 	}
-	for i := range d.st.Workspaces {
-		if w := &d.st.Workspaces[i]; w.ProjectID == "" && !w.Detached && cmp.Or(w.RepoRoot, w.Path) == root {
-			w.ProjectID = d.st.Projects[pi].ID
-		}
+	for _, id := range moving {
+		d.workspace(id).ProjectID = d.st.Projects[pi].ID
 	}
 	d.changed()
 	return nil

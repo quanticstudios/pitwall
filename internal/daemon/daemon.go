@@ -179,6 +179,7 @@ func NewWith(o Options) (*Daemon, error) {
 		closeAll(d.removePane(id))
 	}
 	d.retitle()
+	d.st.Order = d.st.TopOrder()
 	return d, nil
 }
 
@@ -971,6 +972,7 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 // stream of agent events cannot postpone it forever.
 func (d *Daemon) changed() {
 	d.retitle()
+	d.st.Order = d.st.TopOrder()
 	d.st.Version++
 	for c := range d.clients {
 		c.push(func() { c.state = true })

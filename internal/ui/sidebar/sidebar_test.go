@@ -179,9 +179,7 @@ func TestSelection(t *testing.T) {
 		},
 	}
 	s := Sidebar{expanded: map[string]bool{"g": true}, selected: map[string]bool{}}
-	v := &view{st: st, active: "w1", byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}}
-	v.byProject[""] = st.Workspaces[1:]
-	v.byProject["g"] = st.Workspaces[:1]
+	v := newView(layout.Context{}, theme.Dark(), st, "w1")
 	if got := s.order(v); !slices.Equal(got, []string{"w1", "w2", "w3", "w4"}) {
 		t.Fatalf("order %v", got)
 	}
@@ -214,5 +212,29 @@ func TestSelection(t *testing.T) {
 	s.click(v, "w2", 0)
 	if len(s.selected) != 0 || len(s.events) != 1 || s.events[0] != (SelectWorkspace{WorkspaceID: "w2"}) {
 		t.Fatalf("plain click: %v %v", s.selected, s.events)
+	}
+}
+
+// TestAgentOf: an idle agent still names its tab; with two agents the one
+// with the highest-priority activity wins; a plain shell has none.
+func TestAgentOf(t *testing.T) {
+	st := &model.State{
+		Workspaces: []model.Workspace{{ID: "idle"}, {ID: "two"}, {ID: "shell"}},
+		Panes: []model.Pane{
+			{ID: "p1", WorkspaceID: "idle", Provider: model.ProviderClaude},
+			{ID: "p2", WorkspaceID: "two", Provider: model.ProviderClaude},
+			{ID: "p3", WorkspaceID: "two", Provider: model.ProviderCodex},
+			{ID: "p4", WorkspaceID: "shell"},
+		},
+		Activities: []model.Activity{
+			{PaneID: "p2", WorkspaceID: "two", Provider: model.ProviderClaude, State: model.StateCompleted},
+			{PaneID: "p3", WorkspaceID: "two", Provider: model.ProviderCodex, State: model.StatePendingApproval},
+			{PaneID: "p4", WorkspaceID: "shell", Provider: model.ProviderTerminal, State: model.StateTerminalRunning},
+		},
+	}
+	for ws, want := range map[string]model.Provider{"idle": model.ProviderClaude, "two": model.ProviderCodex, "shell": ""} {
+		if got := AgentOf(st, model.Workspace{ID: ws}); got != want {
+			t.Errorf("%s: %q, want %q", ws, got, want)
+		}
 	}
 }

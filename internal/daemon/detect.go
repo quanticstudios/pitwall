@@ -144,6 +144,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		}
 		prev = a.State
 	}
+	d.setProvider(l.id, prov) // the foreground's agent, idle or busy; "" for a shell or a command
 	switch {
 	case prov != "" && l.hooked:
 		// Another agent took the foreground after this poll's exit check:
@@ -169,6 +170,15 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 			d.changed()
 			go d.refreshStats(ctx, d.st.Panes[i].WorkspaceID) // a cd can change the repo
 		}
+	}
+}
+
+// setProvider records which agent runs in a pane's foreground now, ""
+// for none, pushing state only on a change. Callers hold d.mu.
+func (d *Daemon) setProvider(id string, prov model.Provider) {
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 && d.st.Panes[i].Provider != prov {
+		d.st.Panes[i].Provider = prov
+		d.changed()
 	}
 }
 

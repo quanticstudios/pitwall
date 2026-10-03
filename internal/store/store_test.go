@@ -96,7 +96,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":6,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":7,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -263,12 +263,12 @@ func TestLoadMigratesVersion3NameSet(t *testing.T) {
 	}
 	got := map[string]bool{}
 	for _, w := range s.Workspaces {
-		got[w.Name] = w.NameSet
+		got[w.ID] = w.NameSet
 		if w.Label != "" {
 			t.Fatalf("label %q from a version 3 file", w.Label)
 		}
 	}
-	want := map[string]bool{"rustic-swan": false, "swift-otter-104": false, "workspace-2": false, "repo": false, "fix-auth": true, "swan-rustic": true}
+	want := map[string]bool{"a": false, "b": false, "c": false, "d": false, "e": true, "f": true}
 	if !reflect.DeepEqual(got, want) || s.Panes[0].Prompt != "" {
 		t.Fatalf("NameSet = %v, want %v; panes %+v", got, want, s.Panes)
 	}
@@ -303,7 +303,8 @@ func TestLoadSplitsVersion4Tabs(t *testing.T) {
 			t.Fatalf("tabs of %+v", w)
 		}
 	}
-	if len(s.Workspaces) != 5 || names[0] != "brave-otter" || names[1] != "swift-otter" || names[2] != "build" ||
+	// Generated names are cleared by the version 6 migration.
+	if len(s.Workspaces) != 5 || names[0] != "" || names[1] != "" || names[2] != "build" ||
 		names[3] != "brave-otter-2" || names[4] != "logs" {
 		t.Fatalf("names %v", names)
 	}
@@ -339,5 +340,28 @@ func TestSplitTabsGeneratesNames(t *testing.T) {
 	}
 	if w := s.Workspaces[1]; w.NameSet || w.Name == "swift-otter" || !model.IsSessionName(w.Name) {
 		t.Fatalf("second %+v", w)
+	}
+}
+
+// A version 5 file gets State.Order from the old implied order (ungrouped
+// tabs, then groups) and loses its generated names; chosen ones stay.
+func TestLoadMigratesVersion5Order(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v5 := `{"format_version":5,"state":{"Projects":[{"ID":"g1"},{"ID":"g2"}],"Workspaces":[
+		{"ID":"a","ProjectID":"g2","Name":"swift-otter"},
+		{"ID":"u1","Name":"brave-otter"},
+		{"ID":"u2","Name":"api","NameSet":true}]}}`
+	if err := os.WriteFile(path, []byte(v5), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(s.Order, []string{"u1", "u2", "g1", "g2"}) {
+		t.Fatalf("order %v", s.Order)
+	}
+	if s.Workspaces[0].Name != "" || s.Workspaces[1].Name != "" || s.Workspaces[2].Name != "api" || !s.Workspaces[2].NameSet {
+		t.Fatalf("names %+v", s.Workspaces)
 	}
 }

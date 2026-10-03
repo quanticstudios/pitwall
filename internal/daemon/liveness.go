@@ -153,6 +153,7 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.fg, id)
 			delete(d.live.hookAt, id)
 			d.dropActivity(id)
+			d.setProvider(id, "") // detect names the next agent, if one took over
 		}
 	}
 }

@@ -102,7 +102,7 @@ func TestCLISync(t *testing.T) {
 	cli.send(t, proto.Sync{})
 	s := cli.waitFor(t, timeout, func(any) bool { return true })
 	st, ok := s.(proto.StateMsg)
-	if !ok || len(st.State.Workspaces) != 1 || st.State.Workspaces[0].Name == "" || len(st.State.Workspaces[0].Tabs) != 1 {
+	if !ok || len(st.State.Workspaces) != 1 || st.State.Workspaces[0].Label == "" || len(st.State.Workspaces[0].Tabs) != 1 {
 		t.Fatalf("Sync reply %#v", s)
 	}
 }

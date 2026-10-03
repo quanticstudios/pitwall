@@ -132,27 +132,10 @@ func (n *nav) expectPane(st *model.State) {
 
 func (n *nav) switcherVisible() bool { return n.altHeld || n.pinned }
 
-// ordered is the sidebar's order: ungrouped sessions (including those
-// whose group is gone), then group order, each group's in session order.
-// Detached sessions are skipped.
+// ordered is the sidebar's order (model.State.Ordered) without detached
+// sessions.
 func ordered(st *model.State) []model.Workspace {
-	var out []model.Workspace
-	for _, g := range append([]string{""}, projectIDs(st)...) {
-		for _, w := range st.Workspaces {
-			if groupOf(st, w) == g && !w.Detached {
-				out = append(out, w)
-			}
-		}
-	}
-	return out
-}
-
-func projectIDs(st *model.State) []string {
-	ids := make([]string, len(st.Projects))
-	for i, p := range st.Projects {
-		ids[i] = p.ID
-	}
-	return ids
+	return slices.DeleteFunc(st.Ordered(), func(w model.Workspace) bool { return w.Detached })
 }
 
 // groupOf is w's group, or "" when it is ungrouped or its group is gone.
@@ -298,8 +281,8 @@ func (n *nav) cycleWorkspace(st *model.State, d int) {
 	}
 }
 
-// cycleGroup moves to the first tab of the group d groups away, wrapping.
-// The ungrouped tabs count as a group at the top.
+// cycleGroup moves to the first tab of the section d sections away,
+// wrapping. A section is a group, or a run of ungrouped tabs between groups.
 func (n *nav) cycleGroup(st *model.State, d int) {
 	var firsts []string // each group's first tab, in sidebar order
 	last := "\x00"

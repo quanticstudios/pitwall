@@ -9,6 +9,9 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 7 added State.Order, one order for groups and ungrouped tabs: at
+// the top level MoveSession.Before and MoveGroup.Before may name a group or
+// a tab. Tabs get no generated name.
 // Version 6 has one tab per session: NewTab creates a session, CloseTab
 // kills one, RenameTab names one and SelectTab does nothing.
 // Version 5 added MoveSession and MoveGroup for drag-and-drop ordering.
@@ -18,7 +21,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 6
+const Version = 7
 
 // Client to daemon.
 
@@ -31,9 +34,10 @@ type Hello struct {
 }
 
 // NewSession opens an ungrouped session (or one in GroupID) with a shell
-// pane in Cwd ("" means $HOME). An empty Name gets a generated one.
+// pane in Cwd ("" means $HOME), last at the top level. An empty Name leaves
+// it unnamed.
 type NewSession struct {
-	Name    string // "" generates one
+	Name    string // "" leaves it unnamed
 	Cwd     string
 	GroupID string
 	// FromPane, when set, starts the session in that pane's current
@@ -41,7 +45,8 @@ type NewSession struct {
 	FromPane string
 }
 
-// SetSessionGroup moves a session into a group; "" ungroups it.
+// SetSessionGroup moves a session into a group; "" ungroups it right after
+// the group it was in.
 type SetSessionGroup struct {
 	WorkspaceID string
 	GroupID     string
@@ -156,8 +161,8 @@ type Error struct {
 }
 
 // NewTab opens a tab, which is a session of its own: right after
-// WorkspaceID (or FromPane's session when WorkspaceID is "") in State.Workspaces,
-// in the same group, with a generated name and a shell in FromPane's current
+// WorkspaceID (or FromPane's session when WorkspaceID is "") in its group,
+// or in State.Order when it is ungrouped, unnamed, with a shell in FromPane's current
 // directory when set, else Cwd, else that session's Path. A GUI shows the
 // newest session.
 type NewTab struct {
@@ -175,7 +180,7 @@ type CloseTab struct {
 
 // RenameTab names the session WorkspaceID, or Pane's session when Pane
 // is set (from `pitwall tab rename` inside a pane), as RenameWorkspace does.
-// An empty Name goes back to a generated name and the automatic title. TabID
+// An empty Name clears the name, back to the automatic title. TabID
 // is ignored.
 type RenameTab struct {
 	WorkspaceID string
@@ -211,16 +216,18 @@ type GroupByFolder struct {
 	WorkspaceID string
 }
 
-// MoveSession drags a session into GroupID ("" for ungrouped) and places it
-// before the session Before, or last when Before is "". The sidebar shows
-// sessions in this stored order.
+// MoveSession drags a session into GroupID and places it before the session
+// Before of that group, or last when Before is "". With GroupID "" it goes
+// to the top level, before the group or ungrouped tab Before in
+// State.Order, or last.
 type MoveSession struct {
 	WorkspaceID string
 	GroupID     string
 	Before      string
 }
 
-// MoveGroup places a group before the group Before, or last when "".
+// MoveGroup places a group in State.Order before the group or ungrouped tab
+// Before, or last when "".
 type MoveGroup struct {
 	GroupID string
 	Before  string
