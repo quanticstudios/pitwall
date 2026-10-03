@@ -9,13 +9,14 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 5 added MoveSession and MoveGroup for drag-and-drop ordering.
 // Version 4 added Workspace.NameSet and Label and Pane.Prompt.
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 4
+const Version = 5
 
 // Client to daemon.
 
@@ -201,6 +202,21 @@ type GroupByFolder struct {
 	WorkspaceID string
 }
 
+// MoveSession drags a session into GroupID ("" for ungrouped) and places it
+// before the session Before, or last when Before is "". The sidebar shows
+// sessions in this stored order.
+type MoveSession struct {
+	WorkspaceID string
+	GroupID     string
+	Before      string
+}
+
+// MoveGroup places a group before the group Before, or last when "".
+type MoveGroup struct {
+	GroupID string
+	Before  string
+}
+
 // Sync asks the daemon to reply with a StateMsg once every request before it
 // on this connection is handled. CLI clients use it as an acknowledgement.
 type Sync struct{}
@@ -218,6 +234,6 @@ var Messages = []any{
 	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
 	NewTab{}, CloseTab{}, RenameTab{}, SelectTab{}, DetachSession{}, KillSession{},
-	GroupByFolder{}, Sync{}, FocusSession{},
+	GroupByFolder{}, Sync{}, FocusSession{}, MoveSession{}, MoveGroup{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 }

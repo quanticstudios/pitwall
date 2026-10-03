@@ -424,6 +424,10 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.newSession(ctx, m)
 	case proto.SetSessionGroup:
 		return d.setSessionGroup(m)
+	case proto.MoveSession:
+		return d.moveSession(m)
+	case proto.MoveGroup:
+		return d.moveGroup(m)
 	case proto.NewGroup:
 		return d.newGroup(m)
 	case proto.RenameGroup:
