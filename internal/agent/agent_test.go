@@ -158,6 +158,10 @@ func TestPrompt(t *testing.T) {
 	if got := Prompt(model.ProviderClaude, []byte("nope")); got != "" {
 		t.Errorf("garbage: %q", got)
 	}
+	slash := `{"session_id":"s","hook_event_name":"UserPromptSubmit","prompt":" /model opus"}`
+	if got := Prompt(model.ProviderClaude, []byte(slash)); got != "" {
+		t.Errorf("slash command: %q", got)
+	}
 }
 
 func TestClaudeHooks(t *testing.T) {

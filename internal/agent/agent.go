@@ -208,6 +208,11 @@ func Prompt(provider model.Provider, payload []byte) string {
 	if err != nil || p.Event != "UserPromptSubmit" || sideFork(p) {
 		return ""
 	}
+	// why: a slash command (/clear, /model) says nothing about the work, so
+	// the first real prompt names the tab instead.
+	if strings.HasPrefix(strings.TrimSpace(p.Prompt), "/") {
+		return ""
+	}
 	return p.Prompt
 }
 
