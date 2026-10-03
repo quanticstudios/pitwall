@@ -58,7 +58,7 @@ func TestCLIAttachErrors(t *testing.T) {
 			launched := false
 			launchGUI = func(string) error { launched = true; return errors.New("cannot launch") }
 			t.Cleanup(func() { launchGUI = previous })
-			code, out, stderr := cliOutput("attach", "alpha")
+			code, out, stderr := cliOutput("attach", "1")
 			want := "pitwall: cannot launch\n"
 			if daemonError {
 				want = "pitwall: cannot focus\n"

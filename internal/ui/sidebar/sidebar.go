@@ -283,6 +283,8 @@ type view struct {
 	activeProject string
 	byProject     map[string][]model.Workspace // "" holds the ungrouped sessions
 	activity      map[string]*model.Activity   // a key for every live session
+	top           []string                     // groups and live ungrouped sessions, in order
+	groups        map[string]bool
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string) *view {
@@ -299,6 +301,7 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string
 	for _, p := range st.Projects {
 		groups[p.ID] = true
 	}
+	v.groups = groups
 	for _, ws := range st.Workspaces {
 		g := ws.ProjectID
 		if !groups[g] {
@@ -312,6 +315,11 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, active string
 		}
 		v.byProject[g] = append(v.byProject[g], ws)
 		v.activity[ws.ID] = model.Aggregate(acts[ws.ID])
+	}
+	for _, id := range st.TopOrder() {
+		if _, live := v.activity[id]; live || groups[id] {
+			v.top = append(v.top, id)
+		}
 	}
 	return v
 }
@@ -328,19 +336,18 @@ func (v *view) groupOf(id string) string {
 	return ""
 }
 
-// order is the sessions top to bottom as drawn: ungrouped, then each
-// expanded group's.
+// order is the sessions top to bottom as drawn: the top-level items in
+// order, an expanded group's sessions at its place.
 func (s *Sidebar) order(v *view) []string {
 	var out []string
-	add := func(g string) {
-		for _, ws := range v.byProject[g] {
-			out = append(out, ws.ID)
-		}
-	}
-	add("")
-	for _, p := range v.st.Projects {
-		if s.isExpanded(p.ID) {
-			add(p.ID)
+	for _, id := range v.top {
+		switch {
+		case !v.groups[id]:
+			out = append(out, id)
+		case s.isExpanded(id):
+			for _, ws := range v.byProject[id] {
+				out = append(out, ws.ID)
+			}
 		}
 	}
 	return out
@@ -757,40 +764,53 @@ func rowHeight(gtx layout.Context) int {
 	return gtx.Dp(8) + gtx.Dp(19.5) + gtx.Dp(4) + gtx.Dp(16.5) + gtx.Dp(8)
 }
 
-// place lays the tree out in content pixels: the ungrouped tabs between
-// pt-1 and pb-1, gap-0.5 apart, then each group's separator and header
-// and, when expanded, its tabs; it returns the elements and the height.
+// place lays the tree out in content pixels, top-level items in order: a
+// run of ungrouped tabs between pt-1 and pb-1, gap-0.5 apart; a group as
+// its separator (unless first) and header and, when expanded, its tabs
+// laid out the same way. It returns the elements and the height.
 func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	var out []elem
 	rowH := rowHeight(gtx)
 	y := 0
-	rows := func(g string) {
-		y += gtx.Dp(4)
-		for i, ws := range v.byProject[g] {
-			if i > 0 {
-				y += gtx.Dp(2)
-			}
-			out = append(out, elem{kind: 's', id: ws.ID, group: g, top: y, bot: y + rowH})
-			y += rowH
+	run := false // inside a run of tab rows
+	row := func(id, g string) {
+		if run {
+			y += gtx.Dp(2)
+		} else {
+			y += gtx.Dp(4)
 		}
-		y += gtx.Dp(4)
+		out = append(out, elem{kind: 's', id: id, group: g, top: y, bot: y + rowH})
+		y, run = y+rowH, true
 	}
-	loose := len(v.byProject[""]) > 0
-	if loose {
-		rows("")
+	endRun := func() {
+		if run {
+			y, run = y+gtx.Dp(4), false
+		}
 	}
-	for i, p := range v.st.Projects {
+	for i, id := range v.top {
+		if !v.groups[id] {
+			row(id, "")
+			continue
+		}
+		endRun()
 		top := y
-		if loose || i > 0 {
+		if i > 0 {
 			y += gtx.Dp(6) + 1 + gtx.Dp(6) // mt-1.5 border-t pt-1.5
 		}
 		head := y
 		y += gtx.Dp(40)
-		out = append(out, elem{kind: 'g', id: p.ID, group: p.ID, top: top, bot: y, head: head})
-		if s.isExpanded(p.ID) {
-			rows(p.ID)
+		out = append(out, elem{kind: 'g', id: id, group: id, top: top, bot: y, head: head})
+		if s.isExpanded(id) {
+			for _, ws := range v.byProject[id] {
+				row(ws.ID, id)
+			}
+			if len(v.byProject[id]) == 0 {
+				y += gtx.Dp(8) // an empty group keeps its pt-1 pb-1
+			}
+			endRun()
 		}
 	}
+	endRun()
 	return out, y + gtx.Dp(6) // pb-1.5
 }
 
@@ -1006,7 +1026,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		hrow(gtx, l1, gtx.Dp(8), items...)
 		off.Pop()
 
-		// pl-5 under the name, text-[11px] muted/70; the handle quieter.
+		// pl-5 under the name, text-[11px] muted/70; the time quieter.
 		muted := theme.Mix(base, th.Muted, 0.7)
 		quiet := theme.Mix(base, th.Muted, 0.45)
 		gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
@@ -1035,10 +1055,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		case inRepo && hasStats && stats.MergeStatus == model.MergeConflicts:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, 11, th.Red, "Merge conflicts")
-			}})
-		case ws.Name != title:
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.MonoFont, 11, quiet, ws.Name)
 			}})
 		default:
 			if rt := relTime(v.now, ws.UpdatedAt); rt != "" {
@@ -1090,7 +1106,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 }
 
 // Title is what a tab's row shows: the name the user gave it, else its
-// Label (what it is doing), else its handle.
+// Label (what it is doing).
 func Title(ws model.Workspace) string {
 	if ws.NameSet || ws.Label == "" {
 		return ws.Name

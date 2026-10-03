@@ -179,9 +179,7 @@ func TestSelection(t *testing.T) {
 		},
 	}
 	s := Sidebar{expanded: map[string]bool{"g": true}, selected: map[string]bool{}}
-	v := &view{st: st, active: "w1", byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}}
-	v.byProject[""] = st.Workspaces[1:]
-	v.byProject["g"] = st.Workspaces[:1]
+	v := newView(layout.Context{}, theme.Dark(), st, "w1")
 	if got := s.order(v); !slices.Equal(got, []string{"w1", "w2", "w3", "w4"}) {
 		t.Fatalf("order %v", got)
 	}

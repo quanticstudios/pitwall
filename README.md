@@ -60,9 +60,8 @@ with your last tab. Tabs you detached keep running in the background.
 
 - **Tab**: one working context, a set of split panes started in a folder. Its
   title follows the work: the agent's topic or first prompt, the running
-  command, or the folder the shell is in now (`~` for home). It also has a
-  handle, a generated name such as `swift-otter`, which the command line
-  accepts too. Naming a tab replaces both.
+  command, or the folder the shell is in now (`~` for home). Naming a tab
+  replaces the title. The command line also takes its number in `pitwall ls`.
 - **Pane**: one terminal.
 - **Group**: tabs you put together after the fact, for example all the tabs
   working on one repo. Tabs start ungrouped.
@@ -103,7 +102,10 @@ hovered tab opens a new one; it opens right below the one you were in, in the
 same group and folder.
 
 Drag a tab or a group header to reorder it: the other rows slide apart to
-show where it will land, and Escape puts it back. Rest on a group header for
+show where it will land, and Escape puts it back. Groups and ungrouped tabs
+share one order, so a group can sit above loose tabs and a loose tab between
+two groups: drop on the top half of a group header to land above the group,
+on the bottom half to land first inside it. Rest on a group header for
 a moment, or drop on a collapsed one, to move the tab to the end of that
 group. Ctrl+click or Shift+click several tabs to drag them together. Drag the
 gaps between panes to resize them.
@@ -154,8 +156,8 @@ sessions; the commands and flags are the same.
 | Command                               | Does                                                          |
 | ------------------------------------- | ------------------------------------------------------------- |
 | `pitwall`                             | Open the window (starts the daemon if needed)                 |
-| `pitwall ls [--json]`                 | List tabs: name, handle, state, folder, group                 |
-| `pitwall new [-n name] [-d] [dir]`    | Open a tab; `-d` leaves it detached                           |
+| `pitwall ls [--json]`                 | List tabs in sidebar order: #, name, state, folder, group     |
+| `pitwall new [-n name] [-d] [dir]`    | Open a tab and print its #; `-d` leaves it detached           |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
 | `pitwall rename [old] <new>`          | Rename a tab                                                  |
@@ -166,9 +168,10 @@ sessions; the commands and flags are the same.
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview)            |
 | `pitwall --version`                   | Print the version                                             |
 
-A name is a tab's title or its handle. It matches exactly first, then by a
-unique prefix, so `pitwall attach swi` finds `swift-otter` and
-`pitwall attach fix` finds the tab titled `fix login redirects`.
+A name is a tab's `#` from `pitwall ls` (`3` or `#3`), else its title. A
+title matches exactly first, then by a unique prefix, so
+`pitwall attach fix` finds the tab titled `fix login redirects`. Detached
+tabs are numbered after the ones the sidebar shows.
 
 ```sh
 pitwall new -n auth -d ~/src/service   # start a background tab

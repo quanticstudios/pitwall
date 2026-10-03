@@ -34,14 +34,14 @@ func (d *Daemon) firstSession(ctx context.Context, cwd string) error {
 }
 
 // newSession opens a session with one tab holding a shell in m.Cwd ("" means
-// $HOME), named m.Name or a generated name. Without a group, it joins the
-// project whose folder holds its directory.
+// $HOME), named m.Name or unnamed. Without a group, it joins the project
+// whose folder holds its directory; ungrouped, it goes last.
 func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 	return d.addSession(ctx, m, "")
 }
 
 // addSession is newSession, placing the session right after the session
-// after, in its group, when after is not "".
+// after, in its group or, when after is ungrouped, at the top level.
 func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string) error {
 	home := homeDir()
 	path := m.Cwd
@@ -85,17 +85,17 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	if m.GroupID != "" && d.project(m.GroupID) == nil {
 		return fmt.Errorf("no group %s", m.GroupID)
 	}
-	name := m.Name
-	if name == "" {
-		name = d.freshName()
-	} else if d.nameTaken(name, "") {
-		return fmt.Errorf("a tab is already named %s", name)
+	if m.Name != "" && d.nameTaken(m.Name, "") {
+		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
-	w := model.Workspace{ID: newID(), ProjectID: m.GroupID, Name: name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
+	w := model.Workspace{ID: newID(), ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	if err := d.addTab(&w, path); err != nil {
 		return err
 	}
 	d.st.Workspaces = slices.Insert(d.st.Workspaces, at, w)
+	if after != "" && m.GroupID == "" {
+		d.st.PlaceTopAfter(w.ID, after)
+	}
 	d.changed()
 	if branch != "" {
 		go d.refreshStats(ctx, w.ID)
@@ -121,6 +121,7 @@ func (d *Daemon) newGroup(m proto.NewGroup) error {
 	// groups start "neutral"; the user picks a color with SetProjectAppearance.
 	g := model.Project{ID: newID(), Name: name, Kind: model.ProjectGroup, Color: "neutral"}
 	d.st.Projects = append(d.st.Projects, g)
+	d.st.PlaceTop(g.ID, d.firstTop(d.topSlots(m.WorkspaceIDs)))
 	for _, id := range m.WorkspaceIDs {
 		d.workspace(id).ProjectID = g.ID
 	}
@@ -128,6 +129,8 @@ func (d *Daemon) newGroup(m proto.NewGroup) error {
 	return nil
 }
 
+// setSessionGroup moves a session into a group, last, or ungroups it right
+// after the group it was in.
 func (d *Daemon) setSessionGroup(m proto.SetSessionGroup) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -138,9 +141,27 @@ func (d *Daemon) setSessionGroup(m proto.SetSessionGroup) error {
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
+	old := w.ProjectID
 	w.ProjectID = m.GroupID
+	if m.GroupID == "" && old != "" {
+		d.st.PlaceTopAfter(w.ID, old)
+	}
 	d.changed()
 	return nil
+}
+
+// topSlots maps each session to the top-level item it shows under: itself
+// when ungrouped, else its group. Callers hold d.mu.
+func (d *Daemon) topSlots(ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		if w := d.workspace(id); w != nil && w.ProjectID != "" && d.project(w.ProjectID) != nil {
+			out = append(out, w.ProjectID)
+		} else {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (d *Daemon) renameGroup(m proto.RenameGroup) error {
@@ -158,20 +179,15 @@ func (d *Daemon) renameGroup(m proto.RenameGroup) error {
 	return nil
 }
 
-// deleteGroup ungroups the group's sessions and drops the group; their panes
-// and directories stay.
+// deleteGroup ungroups the group's sessions into the group's place, in
+// their order, and drops the group; their panes and directories stay.
 func (d *Daemon) deleteGroup(m proto.DeleteGroup) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.project(m.GroupID) == nil {
 		return fmt.Errorf("no group %s", m.GroupID)
 	}
-	for i := range d.st.Workspaces {
-		if d.st.Workspaces[i].ProjectID == m.GroupID {
-			d.st.Workspaces[i].ProjectID = ""
-		}
-	}
-	d.st.Projects = slices.DeleteFunc(d.st.Projects, func(p model.Project) bool { return p.ID == m.GroupID })
+	d.st.DeleteGroup(m.GroupID)
 	d.changed()
 	return nil
 }
