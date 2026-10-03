@@ -96,7 +96,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":5,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":6,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -190,9 +190,9 @@ func TestLoadMigratesVersion1Worktrees(t *testing.T) {
 	v1 := `{"format_version":1,"state":{
 		"Projects":[{"ID":"p","Root":"/r","Kind":"git"},{"ID":"g","Kind":"group"}],
 		"Workspaces":[
-			{"ID":"made","ProjectID":"p","Path":"/r/.worktrees/feat"},
-			{"ID":"main","ProjectID":"p","Path":"/r"},
-			{"ID":"grouped","ProjectID":"g","Path":"/r/.worktrees/x"}]}}`
+			{"ID":"made","ProjectID":"p","Path":"/r/.worktrees/feat","Layout":{"Pane":"p1"}},
+			{"ID":"main","ProjectID":"p","Path":"/r","Layout":{"Pane":"p2"}},
+			{"ID":"grouped","ProjectID":"g","Path":"/r/.worktrees/x","Layout":{"Pane":"p3"}}]}}`
 	if err := os.WriteFile(path, []byte(v1), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -231,23 +231,28 @@ func TestLoadMigratesVersion2Tabs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, b := s.Workspaces[0], s.Workspaces[1]
-	if !a.Detached || b.Detached || len(a.Tabs) != 1 || len(b.Tabs) != 1 {
-		t.Fatalf("migrated %+v %+v", a, b)
+	// b had no panes, so the version 5 split drops it.
+	if len(s.Workspaces) != 1 {
+		t.Fatalf("migrated %+v", s.Workspaces)
 	}
-	if a.ActiveTab != a.Tabs[0].ID || a.Tabs[0].ID == "" || a.Tabs[0].ID == b.Tabs[0].ID || b.ActiveTab != b.Tabs[0].ID {
-		t.Fatalf("tab ids: %+v %+v", a, b)
+	a := s.Workspaces[0]
+	if !a.Detached || len(a.Tabs) != 1 || a.ActiveTab != a.Tabs[0].ID || a.Tabs[0].ID == "" {
+		t.Fatalf("migrated %+v", a)
 	}
-	if got := layout.Panes(a.Tabs[0].Layout); !reflect.DeepEqual(got, []string{"p1", "p2"}) || a.Tabs[0].Layout.Dir != layout.Vertical || b.Tabs[0].Layout != nil {
-		t.Fatalf("layouts: %v %+v", got, b.Tabs[0])
+	if got := layout.Panes(a.Tabs[0].Layout); !reflect.DeepEqual(got, []string{"p1", "p2"}) || a.Tabs[0].Layout.Dir != layout.Vertical {
+		t.Fatalf("layout: %v", got)
 	}
 }
 
 func TestLoadMigratesVersion3NameSet(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	v3 := `{"format_version":3,"state":{"Workspaces":[
-		{"ID":"a","Name":"rustic-swan"},{"ID":"b","Name":"swift-otter-104"},{"ID":"c","Name":"workspace-2"},
-		{"ID":"d","Name":"repo","Path":"/src/repo"},{"ID":"e","Name":"fix-auth"},{"ID":"f","Name":"swan-rustic"}],
+		{"ID":"a","Name":"rustic-swan","Tabs":[{"ID":"t","Layout":{"Pane":"p"}}]},
+		{"ID":"b","Name":"swift-otter-104","Tabs":[{"ID":"t","Layout":{"Pane":"x"}}]},
+		{"ID":"c","Name":"workspace-2","Tabs":[{"ID":"t","Layout":{"Pane":"x"}}]},
+		{"ID":"d","Name":"repo","Path":"/src/repo","Tabs":[{"ID":"t","Layout":{"Pane":"x"}}]},
+		{"ID":"e","Name":"fix-auth","Tabs":[{"ID":"t","Layout":{"Pane":"x"}}]},
+		{"ID":"f","Name":"swan-rustic","Tabs":[{"ID":"t","Layout":{"Pane":"x"}}]}],
 		"Panes":[{"ID":"p","Title":"cap"}]}}`
 	if err := os.WriteFile(path, []byte(v3), 0o600); err != nil {
 		t.Fatal(err)
@@ -266,5 +271,73 @@ func TestLoadMigratesVersion3NameSet(t *testing.T) {
 	want := map[string]bool{"rustic-swan": false, "swift-otter-104": false, "workspace-2": false, "repo": false, "fix-auth": true, "swan-rustic": true}
 	if !reflect.DeepEqual(got, want) || s.Panes[0].Prompt != "" {
 		t.Fatalf("NameSet = %v, want %v; panes %+v", got, want, s.Panes)
+	}
+}
+
+// A version 4 workspace with three tabs becomes three workspaces in its
+// place, in its group; tab names become chosen names and a workspace without
+// tabs goes.
+func TestLoadSplitsVersion4Tabs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v4 := `{"format_version":4,"state":{"Workspaces":[
+		{"ID":"before","Name":"brave-otter","Tabs":[{"ID":"t0","Layout":{"Pane":"p0"}}],"ActiveTab":"t0"},
+		{"ID":"w","ProjectID":"g","Name":"swift-otter","Path":"/src","WorktreeRoot":"/r","Detached":true,"ActiveTab":"t3","Tabs":[
+			{"ID":"t1","Layout":{"Children":[{"Pane":"p1"},{"Pane":"p2"}]}},
+			{"ID":"t2","Name":"build","Layout":{"Pane":"p3"}},
+			{"ID":"t3","Name":"brave-otter","Layout":{"Pane":"p4"}}]},
+		{"ID":"empty","Name":"calm-cat"},
+		{"ID":"after","Name":"fix-auth","NameSet":true,"Tabs":[{"ID":"t5","Name":"logs","Layout":{"Pane":"p5"}}],"ActiveTab":"t5"}],
+		"Panes":[{"ID":"p0","WorkspaceID":"before"},{"ID":"p1","WorkspaceID":"w"},{"ID":"p2","WorkspaceID":"w"},
+			{"ID":"p3","WorkspaceID":"w"},{"ID":"p4","WorkspaceID":"w"},{"ID":"p5","WorkspaceID":"after"},{"ID":"orphan","WorkspaceID":"empty"}]}}`
+	if err := os.WriteFile(path, []byte(v4), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, w := range s.Workspaces {
+		names = append(names, w.Name)
+		if len(w.Tabs) != 1 || w.ActiveTab != w.Tabs[0].ID || w.Tabs[0].Name != "" {
+			t.Fatalf("tabs of %+v", w)
+		}
+	}
+	if len(s.Workspaces) != 5 || names[0] != "brave-otter" || names[1] != "swift-otter" || names[2] != "build" ||
+		names[3] != "brave-otter-2" || names[4] != "logs" {
+		t.Fatalf("names %v", names)
+	}
+	first, build, third := s.Workspaces[1], s.Workspaces[2], s.Workspaces[3]
+	if first.ID != "w" || first.NameSet || first.WorktreeRoot != "/r" || first.Tabs[0].ID != "t1" {
+		t.Fatalf("first %+v", first)
+	}
+	for _, w := range []model.Workspace{build, third} {
+		if w.ID == "w" || w.ID == "" || !w.NameSet || w.ProjectID != "g" || w.Path != "/src" || !w.Detached || w.WorktreeRoot != "" {
+			t.Fatalf("split %+v", w)
+		}
+	}
+	if build.ID == third.ID || build.Tabs[0].ID != "t2" || third.Tabs[0].ID != "t3" || !s.Workspaces[4].NameSet {
+		t.Fatalf("split ids %+v %+v", build, third)
+	}
+	owner := map[string]string{}
+	for _, p := range s.Panes {
+		owner[p.ID] = p.WorkspaceID
+	}
+	want := map[string]string{"p0": "before", "p1": "w", "p2": "w", "p3": build.ID, "p4": third.ID, "p5": "after"}
+	if !reflect.DeepEqual(owner, want) {
+		t.Fatalf("pane owners %v, want %v", owner, want)
+	}
+}
+
+// A workspace past its first tab with no tab name gets a fresh generated name.
+func TestSplitTabsGeneratesNames(t *testing.T) {
+	s := &model.State{Workspaces: []model.Workspace{{ID: "w", Name: "swift-otter", Tabs: []model.Tab{
+		{ID: "a", Layout: layout.Leaf("p1")}, {ID: "b", Layout: layout.Leaf("p2")}}}}}
+	splitTabs(s)
+	if len(s.Workspaces) != 2 || s.Workspaces[0].Name != "swift-otter" {
+		t.Fatalf("%+v", s.Workspaces)
+	}
+	if w := s.Workspaces[1]; w.NameSet || w.Name == "swift-otter" || !model.IsSessionName(w.Name) {
+		t.Fatalf("second %+v", w)
 	}
 }

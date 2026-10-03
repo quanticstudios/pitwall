@@ -105,68 +105,56 @@ func (d *Daemon) removeWorkspace(id string) []Pane {
 	return out
 }
 
-func (d *Daemon) newTab(m proto.NewTab) error {
+// newTab opens a tab, which is a session of its own: placed right after
+// m.WorkspaceID (or FromPane's session) in the same group, with a shell in
+// FromPane's live directory, else Cwd, else that session's Path.
+func (d *Daemon) newTab(ctx context.Context, m proto.NewTab) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	w := d.workspace(m.WorkspaceID)
-	if w == nil {
-		return fmt.Errorf("no workspace %s", m.WorkspaceID)
-	}
-	cwd := m.Cwd
-	if p := d.panes[m.FromPane]; p != nil {
-		if c := p.Cwd(); c != "" {
-			cwd = c
+	id := m.WorkspaceID
+	if id == "" {
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.FromPane }); i >= 0 {
+			id = d.st.Panes[i].WorkspaceID
 		}
 	}
-	if cwd == "" {
-		cwd = w.Path
-	}
-	if err := d.addTab(w, cwd); err != nil {
-		return err
-	}
-	d.changed()
-	return nil
-}
-
-func (d *Daemon) closeTab(m proto.CloseTab) error {
-	d.mu.Lock()
-	w := d.workspace(m.WorkspaceID)
-	ti := -1
+	w := d.workspace(id)
+	var cwd string
 	if w != nil {
-		ti = tabIndex(w, m.TabID)
+		cwd = cmp.Or(m.Cwd, w.Path)
 	}
-	if ti < 0 {
-		d.mu.Unlock()
-		return fmt.Errorf("no tab %q in session %s", m.TabID, m.WorkspaceID)
-	}
-	closing := d.removeTab(w, ti)
-	d.changed()
 	d.mu.Unlock()
-	closeAll(closing)
-	return nil
+	if w == nil {
+		return fmt.Errorf("no tab %s", cmp.Or(m.WorkspaceID, m.FromPane))
+	}
+	return d.addSession(ctx, proto.NewSession{Cwd: cwd, FromPane: m.FromPane}, id)
 }
 
+// renameTab names the session of m.Pane or m.WorkspaceID: a tab and its
+// session are one thing. An empty name goes back to a generated one.
 func (d *Daemon) renameTab(m proto.RenameTab) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	var w *model.Workspace
-	ti := -1
+	id := m.WorkspaceID
 	if m.Pane != "" {
-		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane }); i >= 0 {
-			if w = d.workspace(d.st.Panes[i].WorkspaceID); w != nil {
-				ti = paneTab(w, m.Pane)
-			}
-		}
-		if ti < 0 {
+		i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
+		if i < 0 {
 			return fmt.Errorf("no pane %s", m.Pane)
 		}
-	} else if w = d.workspace(m.WorkspaceID); w != nil {
-		ti = tabIndex(w, m.TabID)
+		id = d.st.Panes[i].WorkspaceID
 	}
-	if ti < 0 {
-		return fmt.Errorf("no tab %q in session %s", m.TabID, m.WorkspaceID)
+	w := d.workspace(id)
+	if w == nil {
+		return fmt.Errorf("no tab %s", id)
 	}
-	w.Tabs[ti].Name = strings.TrimSpace(m.Name)
+	switch name := strings.TrimSpace(m.Name); {
+	case name == "":
+		if w.NameSet {
+			w.Name, w.NameSet = d.freshName(), false
+		}
+	case d.nameTaken(name, w.ID):
+		return fmt.Errorf("a tab is already named %s", name)
+	default:
+		w.Name, w.NameSet = name, true
+	}
 	d.changed()
 	return nil
 }
@@ -215,10 +203,10 @@ func (d *Daemon) renameWorkspace(m proto.RenameWorkspace) error {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
 	if strings.TrimSpace(m.Name) == "" {
-		return errors.New("session name is empty")
+		return errors.New("tab name is empty")
 	}
 	if d.nameTaken(m.Name, w.ID) {
-		return fmt.Errorf("a session is already named %s", m.Name)
+		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
 	w.Name, w.NameSet = m.Name, true
 	d.changed()
@@ -310,42 +298,29 @@ func (d *Daemon) retitle() {
 		panes[d.st.Panes[i].ID] = &d.st.Panes[i]
 	}
 	running := map[string]string{}
-	var agents []model.Activity
 	for _, a := range d.st.Activities {
 		if a.State == model.StateTerminalRunning {
 			running[a.PaneID] = a.Detail
-		} else {
-			agents = append(agents, a)
 		}
 	}
-	model.SortActivities(agents)
 	for i := range d.st.Workspaces {
 		w := &d.st.Workspaces[i]
 		for j := range w.Tabs {
 			w.Tabs[j].Title = tabTitle(w, &w.Tabs[j], panes, running)
 		}
-		ti := -1
-		for _, a := range agents {
-			if a.WorkspaceID == w.ID {
-				if ti = paneTab(w, a.PaneID); ti >= 0 {
-					break
-				}
-			}
-		}
-		if ti < 0 {
-			ti = tabIndex(w, "")
-		}
-		w.Label = ""
-		if ti >= 0 && w.Tabs[ti].Title != filepath.Base(w.Path) {
+		if ti := tabIndex(w, ""); ti >= 0 {
 			w.Label = w.Tabs[ti].Title
+		} else {
+			w.Label = tabTitle(w, &model.Tab{}, panes, running)
 		}
 	}
 }
 
 // tabTitle is the tab's title by the priority model.Tab.Title documents.
+// It is never empty.
 func tabTitle(w *model.Workspace, t *model.Tab, panes map[string]*model.Pane, running map[string]string) string {
-	if t.Name != "" {
-		return t.Name
+	if w.NameSet {
+		return w.Name
 	}
 	ids := layout.Panes(t.Layout)
 	agent := func(p *model.Pane) bool {
@@ -361,8 +336,10 @@ func tabTitle(w *model.Workspace, t *model.Tab, panes map[string]*model.Pane, ru
 			return p.Prompt
 		}
 	}
+	// A shell at its prompt titles itself user@host:dir, which the
+	// directory says better; a running program's own title counts.
 	for _, id := range ids {
-		if p := panes[id]; p != nil && !genericTitle(w, p.Title) {
+		if p := panes[id]; p != nil && running[id] != "" && !genericTitle(w, p.Title) {
 			return p.Title
 		}
 	}
@@ -371,7 +348,21 @@ func tabTitle(w *model.Workspace, t *model.Tab, panes map[string]*model.Pane, ru
 			return c
 		}
 	}
-	return filepath.Base(w.Path)
+	if len(ids) > 0 && panes[ids[0]] != nil && panes[ids[0]].Cwd != "" {
+		return dirName(panes[ids[0]].Cwd)
+	}
+	return cmp.Or(dirName(w.Path), w.Name)
+}
+
+// dirName is how a title shows a directory: "~" for home, else its base name.
+func dirName(dir string) string {
+	switch dir {
+	case "":
+		return ""
+	case homeDir():
+		return "~"
+	}
+	return filepath.Base(dir)
 }
 
 // genericTitle reports a title that says nothing about the work: empty, an

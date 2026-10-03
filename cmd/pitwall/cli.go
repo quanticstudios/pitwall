@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,7 +18,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/term"
-	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -152,7 +152,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			}
 			return json.NewEncoder(out).Encode(sessions)
 		}
-		return listSessions(out, state)
+		return listTabs(out, state)
 	case "new":
 		dir := "."
 		if len(args) == 1 {
@@ -173,7 +173,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			}
 		}
 		if len(added) != 1 {
-			return errors.New("cannot identify the new session from daemon state")
+			return errors.New("cannot identify the new tab from daemon state")
 		}
 		if detached {
 			if _, err := syncCLI(conn, proto.DetachSession{WorkspaceID: added[0].ID, Detached: true}); err != nil {
@@ -187,7 +187,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if len(args) != 0 && (command != "rename" || len(args) == 2) {
 		old = args[0]
 	}
-	w, err := resolveSession(state, old)
+	w, err := resolveTab(state, old)
 	if err != nil {
 		return err
 	}
@@ -221,7 +221,10 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	return err
 }
 
-func resolveSession(state model.State, name string) (model.Workspace, error) {
+// resolveTab finds a tab by its handle (Name) or label: an exact handle,
+// then an exact label, then a unique prefix of either. With no name it is the
+// tab of $PITWALL_PANE.
+func resolveTab(state model.State, name string) (model.Workspace, error) {
 	if name == "" {
 		pane := os.Getenv("PITWALL_PANE")
 		for _, p := range state.Panes {
@@ -234,20 +237,27 @@ func resolveSession(state model.State, name string) (model.Workspace, error) {
 			}
 		}
 		if pane != "" {
-			return model.Workspace{}, fmt.Errorf("pane %q has no session in daemon state", pane)
+			return model.Workspace{}, fmt.Errorf("pane %q has no tab in daemon state", pane)
 		}
-		return model.Workspace{}, errors.New("specify a session name outside a pitwall pane (see pitwall ls)")
+		return model.Workspace{}, errors.New("specify a tab name outside a pitwall pane (see pitwall ls)")
 	}
-	var matches []model.Workspace
+	var labels, prefixed []model.Workspace
 	var candidates []string
 	for _, w := range state.Workspaces {
 		if w.Name == name {
 			return w, nil
 		}
 		candidates = append(candidates, w.Name)
-		if strings.HasPrefix(w.Name, name) {
-			matches = append(matches, w)
+		if w.Label == name {
+			labels = append(labels, w)
 		}
+		if strings.HasPrefix(w.Name, name) || strings.HasPrefix(w.Label, name) {
+			prefixed = append(prefixed, w)
+		}
+	}
+	matches := labels
+	if len(matches) == 0 {
+		matches = prefixed
 	}
 	if len(matches) == 1 {
 		return matches[0], nil
@@ -260,19 +270,24 @@ func resolveSession(state model.State, name string) (model.Workspace, error) {
 	}
 	slices.Sort(candidates)
 	if len(matches) > 1 {
-		return model.Workspace{}, fmt.Errorf("ambiguous session %q; candidates: %s", name, strings.Join(candidates, ", "))
+		return model.Workspace{}, fmt.Errorf("ambiguous tab %q; candidates: %s", name, strings.Join(candidates, ", "))
 	}
-	return model.Workspace{}, fmt.Errorf("no session matches %q; candidates: %s", name, strings.Join(candidates, ", "))
+	return model.Workspace{}, fmt.Errorf("no tab matches %q; candidates: %s", name, strings.Join(candidates, ", "))
 }
 
-func listSessions(out io.Writer, state model.State) error {
+// listTabs prints one row per tab: its label, its handle, state, folder and
+// group.
+func listTabs(out io.Writer, state model.State) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	home, _ := os.UserHomeDir()
-	for _, session := range state.Workspaces {
+	if _, err := fmt.Fprintln(w, "NAME\tHANDLE\tSTATE\tFOLDER\tGROUP"); err != nil {
+		return err
+	}
+	for _, tab := range state.Workspaces {
 		label := "idle"
 		var activities []model.Activity
 		for _, a := range state.Activities {
-			if a.WorkspaceID == session.ID {
+			if a.WorkspaceID == tab.ID {
 				activities = append(activities, a)
 			}
 		}
@@ -281,19 +296,19 @@ func listSessions(out io.Writer, state model.State) error {
 		}
 		group := "-"
 		for _, p := range state.Projects {
-			if p.ID == session.ProjectID {
+			if p.ID == tab.ProjectID {
 				group = p.Name
 			}
 		}
-		folder := session.Path
+		folder := tab.Path
 		if home != "" && (folder == home || strings.HasPrefix(folder, home+string(os.PathSeparator))) {
 			folder = "~" + strings.TrimPrefix(folder, home)
 		}
 		marker := ""
-		if session.Detached {
+		if tab.Detached {
 			marker = " (detached)"
 		}
-		if _, err := fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s%s\n", session.Name, label, len(session.Tabs), folder, group, marker); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s%s\n", cmp.Or(tab.Label, tab.Name), tab.Name, label, folder, group, marker); err != nil {
 			return err
 		}
 	}
@@ -324,19 +339,11 @@ func tabCommand(args []string) error {
 		if err != nil {
 			return err
 		}
-		w, err := resolveSession(state, "")
+		w, err := resolveTab(state, "")
 		if err != nil {
 			return err
 		}
-		for _, tab := range w.Tabs {
-			if slices.Contains(layout.Panes(tab.Layout), pane) {
-				request = proto.CloseTab{WorkspaceID: w.ID, TabID: tab.ID}
-				break
-			}
-		}
-		if request == nil {
-			return fmt.Errorf("pane %q has no tab in daemon state", pane)
-		}
+		request = proto.CloseTab{WorkspaceID: w.ID}
 	}
 	_, err = syncCLI(conn, request)
 	return err

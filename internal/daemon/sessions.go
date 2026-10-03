@@ -37,6 +37,12 @@ func (d *Daemon) firstSession(ctx context.Context, cwd string) error {
 // $HOME), named m.Name or a generated name. Without a group, it joins the
 // project whose folder holds its directory.
 func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
+	return d.addSession(ctx, m, "")
+}
+
+// addSession is newSession, placing the session right after the session
+// after, in its group, when after is not "".
+func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string) error {
 	home := homeDir()
 	path := m.Cwd
 	if m.FromPane != "" {
@@ -66,6 +72,16 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	at := len(d.st.Workspaces)
+	if after != "" {
+		i := slices.IndexFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.ID == after })
+		if i < 0 {
+			return fmt.Errorf("no workspace %s", after)
+		}
+		at, m.GroupID = i+1, d.st.Workspaces[i].ProjectID
+	} else if m.GroupID == "" {
+		m.GroupID = d.projectAt(path)
+	}
 	if m.GroupID != "" && d.project(m.GroupID) == nil {
 		return fmt.Errorf("no group %s", m.GroupID)
 	}
@@ -73,16 +89,13 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 	if name == "" {
 		name = d.freshName()
 	} else if d.nameTaken(name, "") {
-		return fmt.Errorf("a session is already named %s", name)
-	}
-	if m.GroupID == "" {
-		m.GroupID = d.projectAt(path)
+		return fmt.Errorf("a tab is already named %s", name)
 	}
 	w := model.Workspace{ID: newID(), ProjectID: m.GroupID, Name: name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	if err := d.addTab(&w, path); err != nil {
 		return err
 	}
-	d.st.Workspaces = append(d.st.Workspaces, w)
+	d.st.Workspaces = slices.Insert(d.st.Workspaces, at, w)
 	d.changed()
 	if branch != "" {
 		go d.refreshStats(ctx, w.ID)
