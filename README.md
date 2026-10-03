@@ -3,12 +3,12 @@
 
 pitwall is a terminal multiplexer for running coding agents side by side. It
 opens straight into a shell like tmux, but it is a native window: a sidebar
-lists every session and what it is doing right now, whether that is a command
+lists every tab and what it is doing right now, whether that is a command
 running in a terminal or a Claude Code or Codex agent working, waiting for
 your answer, asking for approval, done, or failed. Terminals are drawn with
 real fonts and pixels, not character cells.
 
-A background daemon owns every terminal. Closing the window leaves sessions
+A background daemon owns every terminal. Closing the window leaves tabs
 running, and after a reboot they come back in the same folders with agents
 resumed where they left off.
 
@@ -49,23 +49,23 @@ pitwall                           # open the window
 ```
 
 The window opens on a shell in the folder you launched it from. Run `claude`,
-`codex`, a dev server, anything. The session's row in the sidebar shows what
-is happening: the name of a running command, or the agent's state.
+`codex`, a dev server, anything. The tab's row in the sidebar shows what is
+happening: the name of a running command, or the agent's state.
 
-Open more sessions with **+** in the sidebar header. Each session can hold
-tabs, and each tab can be split into panes. Typing `exit` closes a pane; an
-empty tab closes, an empty session closes, and the window closes with your
-last session. Sessions you detached keep running in the background.
+Open more tabs with **+** in the sidebar header. Each tab can be split into
+panes. Typing `exit` closes a pane; an empty tab closes, and the window closes
+with your last tab. Tabs you detached keep running in the background.
 
 ## Concepts
 
-- **Session**: one working context, started in a folder. It gets a memorable
-  generated name such as `swift-otter`, which you can rename.
-- **Tab**: a set of split panes inside a session. A tab's title follows the
-  agent running in it, or you can name it.
+- **Tab**: one working context, a set of split panes started in a folder. Its
+  title follows the work: the agent's topic or first prompt, the running
+  command, or the folder the shell is in now (`~` for home). It also has a
+  handle, a generated name such as `swift-otter`, which the command line
+  accepts too. Naming a tab replaces both.
 - **Pane**: one terminal.
-- **Group**: sessions you put together after the fact, for example all the
-  sessions working on one repo. Sessions start ungrouped.
+- **Group**: tabs you put together after the fact, for example all the tabs
+  working on one repo. Tabs start ungrouped.
 - **Daemon**: the background process that owns the terminals. The window and
   the `pitwall` commands talk to it.
 
@@ -73,7 +73,7 @@ last session. Sessions you detached keep running in the background.
 
 ### Watching agents
 
-Each sidebar row shows a session's state:
+Each sidebar row shows a tab's state:
 
 | State    | Meaning                                           |
 | -------- | ------------------------------------------------- |
@@ -85,50 +85,48 @@ Each sidebar row shows a session's state:
 | Error    | The turn failed                                   |
 | `go`     | A terminal is running that command                |
 
-A group header shows how many of its sessions need you. When a session needs
-you and you are not looking at it, pitwall sends a desktop notification.
+A group header shows how many of its tabs need you. When a tab needs you and
+you are not looking at it, pitwall sends a desktop notification.
 
 States are exact when the agent's hooks are installed (`pitwall hooks
 install`). Without hooks, pitwall still recognizes `claude` and `codex`
 running in a pane and reads their state from the screen, which is a little
 less precise.
 
-### Sessions, tabs and panes
+### Tabs and panes
 
 The keyboard shortcuts are in [Keybindings](#keybindings). With the mouse:
-click a session to switch to it, right-click it for **Rename**, **Detach**,
-grouping, and more. Drag a session or a group header to reorder it; drop a
-session on a group header to move it into that group. A session with more
-than one tab lists its tabs under it in the sidebar: click to switch,
-double-click to rename, middle-click or the hover × to close, and the hover
-**+** on a session opens a tab. Drag the gaps between panes to resize them.
+click a tab to switch to it, right-click it for **Rename**, **Detach**,
+grouping, and more. Drag a tab or a group header to reorder it; drop a tab on
+a group header to move it into that group. A new tab opens right below the
+one you were in, in the same group and folder. Drag the gaps between panes to
+resize them.
 Ctrl+Shift+B (Ctrl+B in the aide preset) hides the sidebar; pitwall
 remembers that across restarts.
 
 ### Grouping
 
-- **By folder:** right-click a session and choose **Group sessions in
-  `<folder>`**. Every ungrouped session in that repo or folder joins one
-  group, and new sessions you start inside that folder join it automatically.
-- **By hand:** Ctrl+click or Shift+click to pick sessions, then right-click
+- **By folder:** right-click a tab and choose **Group tabs in `<folder>`**.
+  Every ungrouped tab in that repo or folder joins one group, and new tabs you
+  start inside that folder join it automatically.
+- **By hand:** Ctrl+click or Shift+click to pick tabs, then right-click
   and choose **New group** or **Move to group**.
 - **Ungroup** or **Remove from group** never close anything.
 
-For a Git repo group, **New worktree session** in the group menu starts a
-session in a fresh worktree under `<repo>/.worktrees/`, so parallel agents on
-one repo do not step on each other. Deleting that session removes the
-worktree it made. pitwall never deletes a folder it did not create.
+For a Git repo group, **New worktree tab** in the group menu starts a tab in a
+fresh worktree under `<repo>/.worktrees/`, so parallel agents on one repo do
+not step on each other. Deleting that tab removes the worktree it made. pitwall never deletes a folder it did not create.
 
 ### Detaching
 
-**Detach** (right-click a session, or `pitwall detach`) hides a session and
-keeps everything in it running. The **Detached sessions** list in the sidebar
-footer brings it back, as does `pitwall attach <name>`.
+**Detach** (right-click a tab, or `pitwall detach`) hides a tab and keeps
+everything in it running. The **Detached** list in the sidebar footer brings
+it back, as does `pitwall attach <name>`.
 
 ### Let agents name their tab
 
-Claude Code and Codex set a terminal title, which pitwall shows on the tab
-with spinners stripped. An agent can also name its tab explicitly:
+Claude Code and Codex set a terminal title, which pitwall shows as the tab's
+title with spinners stripped. An agent can also name its tab explicitly:
 
 ```sh
 pitwall tab rename "fix login redirects"
@@ -144,28 +142,30 @@ At the start of a task inside a pitwall pane, run
 ## Command line
 
 Run these from any terminal. Inside a pitwall pane, commands that take an
-optional name act on the pane's own session.
+optional name act on the pane's own tab. Older pitwall versions called tabs
+sessions; the commands and flags are the same.
 
 | Command                               | Does                                                          |
 | ------------------------------------- | ------------------------------------------------------------- |
 | `pitwall`                             | Open the window (starts the daemon if needed)                 |
-| `pitwall ls [--json]`                 | List sessions: name, state, tabs, folder, group               |
-| `pitwall new [-n name] [-d] [dir]`    | Create a session; `-d` leaves it detached                     |
-| `pitwall attach [name]`               | Show a session in the window, opening the window if needed    |
-| `pitwall detach [name]`               | Hide a session; its processes keep running                    |
-| `pitwall rename [old] <new>`          | Rename a session                                              |
-| `pitwall kill [-f] <name>`            | Close a session and its processes; files are never touched    |
-| `pitwall tab new`                     | Open a tab in this pane's session                             |
+| `pitwall ls [--json]`                 | List tabs: name, handle, state, folder, group                 |
+| `pitwall new [-n name] [-d] [dir]`    | Open a tab; `-d` leaves it detached                           |
+| `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
+| `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
+| `pitwall rename [old] <new>`          | Rename a tab                                                  |
+| `pitwall kill [-f] <name>`            | Close a tab and its processes; files are never touched        |
+| `pitwall tab new`                     | Open a tab next to this pane's tab, in its folder             |
 | `pitwall tab rename [name...]`        | Name this pane's tab; no name goes back to the automatic one  |
 | `pitwall tab close`                   | Close this pane's tab                                         |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview)            |
 | `pitwall --version`                   | Print the version                                             |
 
-Names match exactly first, then by a unique prefix, so `pitwall attach swi`
-finds `swift-otter`.
+A name is a tab's title or its handle. It matches exactly first, then by a
+unique prefix, so `pitwall attach swi` finds `swift-otter` and
+`pitwall attach fix` finds the tab titled `fix login redirects`.
 
 ```sh
-pitwall new -n auth -d ~/src/service   # start a background session
+pitwall new -n auth -d ~/src/service   # start a background tab
 pitwall ls
 pitwall attach auth
 ```
@@ -346,14 +346,15 @@ installed globally.
 
 | What                | Where                                                         |
 | ------------------- | ------------------------------------------------------------- |
-| Saved sessions      | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
+| Saved tabs          | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
 | Daemon log          | `~/.local/state/pitwall/daemon.log`                           |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`                       |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
 
-After a reboot, run `pitwall`: sessions, tabs, groups and panes come back in
-their folders. Agent panes resume with `claude --resume <id>` or
+After a reboot, run `pitwall`: tabs, groups and panes come back in their
+folders. State saved by an older version opens with each of its nested tabs
+as a tab of its own, in the same place and group. Agent panes resume with `claude --resume <id>` or
 `codex resume <id>`; if a resume fails, the pane falls back to a shell in the
 same folder. Running processes and scrollback do not survive a reboot.
 
