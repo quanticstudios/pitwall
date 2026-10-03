@@ -249,7 +249,8 @@ config.toml or use the switch under Terminal in the settings page; Ctrl+Shift+C
 still copies.
 
 Links in panes are underlined, both URLs in the text and OSC 8 hyperlinks.
-Ctrl+click one to open it in your browser, even inside Claude Code or Codex.
+Ctrl+click one (Cmd+click on macOS) to open it in your browser, even inside
+Claude Code or Codex.
 Set `links = false` under `[terminal]` to turn this off.
 
 ### Grouping

@@ -20,8 +20,11 @@ import (
 
 const otherMods = key.ModCtrl | key.ModShift | key.ModSuper | key.ModCommand
 
-// ctrlDown is whether Ctrl is held, as of the last key event in the focused
-// pane or pointer event in any pane. It is shared so the pane under the
+// linkMods open links on click: Ctrl, or Cmd on macOS.
+const linkMods = key.ModCtrl | key.ModCommand
+
+// ctrlDown is whether a link modifier is held, as of the last key event in
+// the focused pane or pointer event in any pane. It is shared so the pane under the
 // pointer, which may not have key focus, sees Ctrl go down and up without the
 // pointer moving. Views only run on the UI goroutine.
 var ctrlDown bool
@@ -102,7 +105,7 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 		}
 		switch e := ev.(type) {
 		case key.Event:
-			if e.Name == key.NameCtrl {
+			if e.Name == key.NameCtrl || e.Name == key.NameCommand {
 				ctrlDown = e.State == key.Press
 			}
 			// Both press and release of a bound key stay out of the program.
@@ -200,9 +203,9 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 		min(max((int(e.Position.Y)-v.pad)/v.cell.Y, 0), g.Rows-1),
 	)
 	if e.Kind != pointer.Cancel {
-		ctrlDown, v.inside, v.ptr = e.Modifiers&key.ModCtrl != 0, true, cell
+		ctrlDown, v.inside, v.ptr = e.Modifiers&linkMods != 0, true, cell
 	}
-	// Ctrl+click on a link opens it, even when the program owns the mouse,
+	// Ctrl+click (Cmd+click on macOS) on a link opens it, even when the program owns the mouse,
 	// and neither the program nor the selection sees that click.
 	if v.Links && e.Kind == pointer.Press && e.Buttons == pointer.ButtonPrimary && ctrlDown {
 		if l, ok := v.linkAt(g, cell); ok {

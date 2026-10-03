@@ -23,7 +23,7 @@ To cut a release: add a section below and merge it, then
   `[terminal]` table, or the switch in Settings, Terminal.
 - Links in panes are underlined: web, `file://` and `www.` URLs in the text,
   and OSC 8 hyperlinks that programs print. Hold Ctrl over one to see it in
-  the theme's link color, and Ctrl+click to open it in your browser, also
+  the theme's link color, and Ctrl+click (Cmd+click on macOS) to open it in your browser, also
   inside Claude Code and Codex. Turn it off with `links = false` under
   `[terminal]`, or the switch in Settings, Terminal.
 

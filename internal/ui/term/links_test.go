@@ -119,6 +119,9 @@ func TestCtrlClickLink(t *testing.T) {
 	if in := frame(mouse, click(10, 0, key.ModCtrl)...); in != "" || v.OpenLink() != "https://example.com/docs" {
 		t.Errorf("Ctrl+click with mouse reporting: input %q", in)
 	}
+	if in := frame(mouse, click(10, 0, key.ModCommand)...); in != "" || v.OpenLink() != "https://example.com/docs" {
+		t.Errorf("Cmd+click: input %q", in)
+	}
 	if in := frame(mouse, click(10, 0, 0)...); in != "\x1b[<0;11;1M\x1b[<0;11;1m" || v.OpenLink() != "" {
 		t.Errorf("plain click with mouse reporting: input %q", in)
 	}
