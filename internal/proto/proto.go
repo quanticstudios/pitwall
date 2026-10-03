@@ -9,6 +9,7 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 10 added vt.Cell.Link, the OSC 8 hyperlink on each cell of a frame.
 // Version 9 added sessions: model.Session and State.Sessions in place of
 // State.Order, SessionID on tabs and groups, Hello.Session, SessionNew,
 // SessionRename, SessionKill and SessionShow, and NewSession.SessionID,
@@ -27,7 +28,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 9
+const Version = 10
 
 // Client to daemon.
 

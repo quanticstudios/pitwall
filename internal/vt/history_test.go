@@ -210,3 +210,21 @@ func TestHistoryMemory(t *testing.T) {
 	}
 	runtime.KeepAlive(e)
 }
+
+// TestOSC8Links checks an OSC 8 hyperlink lands on its cells, both on the
+// live screen and once the line scrolls into history, and stops at the
+// closing sequence.
+func TestOSC8Links(t *testing.T) {
+	e := New(12, 2, nil)
+	feed(e, "a \x1b]8;id=1;https://example.com/x\x1b\\docs\x1b]8;;\x1b\\ b")
+	check := func(what string, g Grid) {
+		for x, want := range []string{"", "", "https://example.com/x", "https://example.com/x", "https://example.com/x", "https://example.com/x", "", ""} {
+			if got := g.At(x, 0).Link; got != want {
+				t.Errorf("%s: cell %d link %q, want %q", what, x, got, want)
+			}
+		}
+	}
+	check("screen", e.Snapshot())
+	feed(e, "\r\n\r\n")
+	check("history", e.SnapshotAt(1))
+}

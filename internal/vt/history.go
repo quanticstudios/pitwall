@@ -16,14 +16,17 @@ const historyMax = 10000
 type line struct {
 	text  string   // cell contents, concatenated
 	cells []uint16 // per cell len(Content)<<2 | Width; nil when every cell is one ASCII byte of width 1
-	runs  []run    // style changes in column order; the first starts at column 0
+	runs  []run    // style and link changes in column order; the first starts at column 0
 }
 
 type run struct {
 	col    uint16
 	attrs  Attr
 	fg, bg Color
+	link   string
 }
+
+func (r run) withCol(c uint16) run { r.col = c; return r }
 
 // history is a ring of lines; once full, head is the oldest.
 type history struct {
@@ -61,8 +64,8 @@ func (h *history) push(cells uv.Line) {
 			l.cells[i] = uint16(len(s))<<2 | uint16(c.Width&3)
 		}
 		r := run{col: uint16(i), fg: toColor(c.Style.Fg), bg: toColor(c.Style.Bg),
-			attrs: toAttr(c.Style.Attrs, c.Style.Underline != 0)}
-		if n := len(h.runs); n == 0 || h.runs[n-1].fg != r.fg || h.runs[n-1].bg != r.bg || h.runs[n-1].attrs != r.attrs {
+			attrs: toAttr(c.Style.Attrs, c.Style.Underline != 0), link: c.Link.URL}
+		if n := len(h.runs); n == 0 || h.runs[n-1] != r.withCol(h.runs[n-1].col) {
 			h.runs = append(h.runs, r)
 		}
 	}
@@ -99,7 +102,7 @@ func (l *line) fill(dst []Cell) {
 			ri++
 		}
 		r := l.runs[ri]
-		dst[x] = Cell{Content: l.text[off : off+size], Width: w, FG: r.fg, BG: r.bg, Attrs: r.attrs}
+		dst[x] = Cell{Content: l.text[off : off+size], Width: w, FG: r.fg, BG: r.bg, Attrs: r.attrs, Link: r.link}
 		off += size
 		if w == 2 && x == len(dst)-1 { // its right half is cut off
 			dst[x].Content, dst[x].Width = " ", 1
