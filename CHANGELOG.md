@@ -1,10 +1,9 @@
 # Changelog
 
 pitwall is in alpha. Releases are `v0.1.0-alpha.1`, `v0.1.0-alpha.2`, ...:
-each release bumps the alpha number, and a tag with a suffix becomes a
-pre-release on GitHub. The installers take the newest release, alphas
-included. The `v0.0.N` tags before that were the same alpha under patch
-numbers. A release is a git tag on `main`; `scripts/install.sh` stamps the
+each release bumps the alpha number and becomes the latest release on
+GitHub, which is what the installers take. The `v0.0.N` tags before that
+were the same alpha under patch numbers. A release is a git tag on `main`; `scripts/install.sh` stamps the
 binary with `git describe`, and `pitwall --version` prints it.
 
 To cut a release: add a section below and merge it, then
@@ -13,8 +12,7 @@ To cut a release: add a section below and merge it, then
 
 ## v0.1.0-alpha.1
 
-- Versions say alpha: `v0.1.0-alpha.N`, published as GitHub pre-releases.
-  The install one-liners pick the newest one.
+- Versions say alpha: `v0.1.0-alpha.N`.
 - `pitwall notify <text>` rings the pane it runs in, e.g.
   `npm test && pitwall notify "tests passed"`.
 - A terminal notification's desktop notification shows just its message.
