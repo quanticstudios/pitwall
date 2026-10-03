@@ -20,4 +20,9 @@ check Darwin arm64 pitwall_darwin_arm64.tar.gz
 check Darwin x86_64 pitwall_darwin_amd64.tar.gz
 check Linux armv7l error
 check MINGW64_NT-10.0 x86_64 error
+got=$(printf '[\n  {\n    "url": "x",\n    "tag_name": "v0.1.0-alpha.2",\n    "name": "pitwall"\n  },\n  {\n    "tag_name": "v0.1.0-alpha.1"\n  }\n]\n' | newest_tag)
+if [ "$got" != v0.1.0-alpha.2 ]; then
+    printf 'newest_tag = %s, want v0.1.0-alpha.2\n' "$got" >&2
+    fail=1
+fi
 exit "$fail"
