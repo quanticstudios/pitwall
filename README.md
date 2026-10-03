@@ -14,8 +14,11 @@ A background daemon owns every terminal. Closing the window leaves tabs
 running, and after a reboot they come back in the same folders with agents
 resumed where they left off.
 
-pitwall is developed on Linux (Hyprland) and works on any Wayland or X11
-desktop. macOS and Windows builds are new; see the notes below.
+**pitwall is in alpha.** It is used every day on Linux, but expect rough
+edges, and config or saved state may change between releases. It is
+developed on Linux (Hyprland) and works on any Wayland or X11 desktop.
+macOS and Windows builds are new; see the notes below. Releases are tagged
+`v0.1.0-alpha.N`.
 
 ## Install
 
