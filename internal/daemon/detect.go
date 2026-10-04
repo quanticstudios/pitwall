@@ -67,6 +67,9 @@ type look struct {
 	hooked bool   // a hook has reported from the pane: hooks own its agent
 	hookFg int    // the foreground group of the last hook
 	sid    int
+	// screens lists the agent CLIs without hooks whose screen a decision
+	// model reads; nil while that feature is off.
+	screens []string
 }
 
 // detect polls every live pane. A pane whose foreground is its own shell
@@ -75,12 +78,16 @@ type look struct {
 func (d *Daemon) detect(ctx context.Context) {
 	d.mu.Lock()
 	var looks []look
+	var screens []string
+	if x := d.dec.cur; x.on() && x.Settings.Agents {
+		screens = x.Settings.Programs
+	}
 	for _, sp := range d.st.Panes {
 		p := d.panes[sp.ID]
 		if _, ok := p.(foregrounder); !ok || sp.Exited {
 			continue
 		}
-		l := look{id: sp.ID, p: p, shell: paneShell(sp.Cmd), hooked: !d.live.hookAt[sp.ID].IsZero(), hookFg: d.live.fg[sp.ID]}
+		l := look{id: sp.ID, p: p, shell: paneShell(sp.Cmd), hooked: !d.live.hookAt[sp.ID].IsZero(), hookFg: d.live.fg[sp.ID], screens: screens}
 		if det := d.live.det[sp.ID]; det != nil {
 			l.sid = det.sid
 		}
@@ -110,9 +117,15 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		return // the hooked agent: hooks own it
 	default:
 		prov, comm = identify(fg)
-		if prov != "" && !l.hooked {
+		if prov != "" && !l.hooked || prov == "" && slices.Contains(l.screens, comm) {
 			g = l.p.Snapshot()
 		}
+	}
+	// An agent CLI without hooks, read by the decision model. Only these
+	// programs: an ordinary shell's output is never sent.
+	reader := ""
+	if prov == "" && (!own || l.shell == "") && slices.Contains(l.screens, comm) {
+		reader = comm
 	}
 	var cwd string
 	if own && l.shell != "" && prov == "" {
@@ -141,8 +154,16 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		}
 		prev = a.State
 	}
-	d.setProvider(l.id, prov) // the foreground's agent, idle or busy; "" for a shell or a command
+	if reader != "" {
+		d.setProvider(l.id, model.Provider(reader))
+	} else {
+		d.setProvider(l.id, prov) // the foreground's agent, idle or busy; "" for a shell or a command
+		delete(d.dec.screens, l.id)
+	}
 	switch {
+	case reader != "":
+		det.cells = nil
+		d.readScreen(ctx, l.id, reader, g)
 	case prov != "" && l.hooked:
 		// Another agent took the foreground after this poll's exit check:
 		// never a terminal command, and the next poll reads its screen.

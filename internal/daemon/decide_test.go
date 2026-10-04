@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // fakeModel answers every question it has an answer for, by question id.
@@ -332,5 +334,96 @@ func TestHookReplyOverSocket(t *testing.T) {
 	r := c.waitFor("hook reply", func(m any) bool { _, ok := m.(proto.HookReply); return ok }).(proto.HookReply)
 	if !strings.Contains(string(r.Output), `"behavior":"allow"`) {
 		t.Errorf("reply = %s", r.Output)
+	}
+}
+
+func TestScreenReadDue(t *testing.T) {
+	defer func(d time.Duration) { screenEvery = d }(screenEvery)
+	screenEvery = 2 * time.Second
+	a := []vt.Cell{{Content: "a"}}
+	b := []vt.Cell{{Content: "b"}}
+	t0 := time.Unix(1000, 0)
+	r := &screenRead{}
+	if !r.due(a, t0) {
+		t.Fatal("first screen not due")
+	}
+	r.last, r.cells = t0, a
+	if r.due(b, t0.Add(time.Second)) {
+		t.Error("due again within 2 s")
+	}
+	if r.due(a, t0.Add(3*time.Second)) {
+		t.Error("an unchanged screen is due")
+	}
+	if !r.due(b, t0.Add(2*time.Second)) {
+		t.Error("a changed screen after 2 s is not due")
+	}
+	r.busy = true
+	if r.due(b, t0.Add(5*time.Second)) {
+		t.Error("due while a read is on its way")
+	}
+}
+
+// TestScreenReading runs the agents feature on the liveness poll: only a
+// listed program is read, at most once per screenEvery while its screen
+// changes, and a sure answer sets the activity.
+func TestScreenReading(t *testing.T) {
+	defer func(d time.Duration) { screenEvery = d }(screenEvery)
+	screenEvery = 100 * time.Millisecond
+	d, lp, id := openLive(t, 500) // "sleep", not listed
+	m := &fakeModel{answers: map[string]decide.Answer{"status": {Type: decide.Choice, Choice: decide.ScreenWaiting, Confidence: 0.9,
+		Probabilities: map[string]float64{decide.ScreenWaiting: 0.9, decide.ScreenWorking: 0.1}}}}
+	d.mu.Lock()
+	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
+		Programs: config.HooklessAgents, Timeout: time.Second}}
+	d.mu.Unlock()
+	lp.show("some build output", false)
+	polls()
+	if q := m.questions(); len(q) > 0 {
+		t.Fatalf("read the screen of an unlisted program: %v", q)
+	}
+	if s := d.stateOf(id); s != model.StateTerminalRunning {
+		t.Fatalf("unlisted program: %q", s)
+	}
+
+	lp.fgGroup.Store(700) // gemini
+	waitUntil(t, "awaiting input", func() bool { return d.stateOf(id) == model.StateAwaitingInput })
+	if a := d.activityOf(id); a.Provider != "gemini" {
+		t.Errorf("activity %+v", a)
+	}
+	// A screen that keeps changing is read at most once per screenEvery.
+	n0 := len(m.questions())
+	stop := time.Now().Add(500 * time.Millisecond)
+	for i := 0; time.Now().Before(stop); i++ {
+		lp.show(fmt.Sprintf("Gemini thinking %d", i), false)
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n := len(m.questions()) - n0; n < 2 || n > 7 {
+		t.Errorf("%d reads in 500 ms of changes, want 2 to 7", n)
+	}
+	// A still screen is not read again.
+	polls()
+	n1 := len(m.questions())
+	polls()
+	polls()
+	if n := len(m.questions()); n != n1 {
+		t.Errorf("a still screen was read %d more times", n-n1)
+	}
+	// An unsure answer changes nothing.
+	m.mu.Lock()
+	m.answers["status"] = decide.Answer{Type: decide.Choice, Choice: decide.ScreenWorking, Confidence: 0.5, Probabilities: map[string]float64{decide.ScreenWorking: 0.6}}
+	m.mu.Unlock()
+	lp.show("Gemini maybe working", false)
+	time.Sleep(3 * screenEvery)
+	if s := d.stateOf(id); s != model.StateAwaitingInput {
+		t.Errorf("an unsure answer changed the state to %q", s)
+	}
+	// Back at the shell, the activity and the record go.
+	lp.fgGroup.Store(200)
+	waitUntil(t, "cleared", func() bool { return d.stateOf(id) == "" })
+	d.mu.Lock()
+	_, kept := d.dec.screens[id]
+	d.mu.Unlock()
+	if kept {
+		t.Error("screen record kept after the program left")
 	}
 }

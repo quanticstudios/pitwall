@@ -15,6 +15,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // Decisions is what the daemon needs to ask a decision model: the
@@ -44,6 +45,7 @@ type decisions struct {
 	limit   decide.Limiter
 	audit   []model.AutoDecision // oldest first, at most auditCap
 	prompts map[string]string    // pane: the latest user prompt
+	screens map[string]*screenRead
 }
 
 // auditCap is how many automatic decisions the daemon remembers.
@@ -118,6 +120,7 @@ func (d *Daemon) client() *decide.Client {
 // forgetDecisions drops a closed pane's records. Callers hold d.mu.
 func (d *Daemon) forgetDecisions(id string) {
 	delete(d.dec.prompts, id)
+	delete(d.dec.screens, id)
 	d.dec.limit.Forget(id)
 }
 
@@ -324,4 +327,78 @@ func (d *Daemon) turnCheck(ctx context.Context, j *decideJob) {
 	d.onActivity(j.pane, j.at, func(a *model.Activity) {
 		a.Review = err == nil && decide.Review(ans) >= j.s.TurnThreshold
 	})
+}
+
+// screenEvery is the least time between two screen reads of one pane;
+// tests shorten it.
+var screenEvery = 2 * time.Second
+
+// screenRead is the screen reading of one pane running an agent CLI
+// without hooks. Guarded by d.mu.
+type screenRead struct {
+	agent   string
+	cells   []vt.Cell // the screen last sent
+	last    time.Time // when it was sent
+	busy    bool      // a read is on its way
+	applied bool      // an answer set the pane's activity
+}
+
+// due reports whether the screen should be read now: it changed since the
+// last read, which was screenEvery ago or more and has been answered.
+func (r *screenRead) due(cells []vt.Cell, now time.Time) bool {
+	return !r.busy && now.Sub(r.last) >= screenEvery && !slices.Equal(cells, r.cells)
+}
+
+// screenStates maps the screen question's options to activity states;
+// idle is no activity.
+var screenStates = map[string]model.AgentState{
+	decide.ScreenWorking:  model.StateWorking,
+	decide.ScreenWaiting:  model.StateAwaitingInput,
+	decide.ScreenApproval: model.StatePendingApproval,
+	decide.ScreenDone:     model.StateCompleted,
+	decide.ScreenIdle:     "",
+}
+
+// readScreen asks what the agent CLI name in pane id shows on g, when a
+// read is due, and sets the pane's activity from a sure enough answer.
+// Until the first answer the pane shows the program as a running command.
+// Callers hold d.mu.
+func (d *Daemon) readScreen(ctx context.Context, id, name string, g vt.Grid) {
+	if d.dec.screens == nil {
+		d.dec.screens = map[string]*screenRead{}
+	}
+	r := d.dec.screens[id]
+	if r == nil || r.agent != name {
+		r = &screenRead{agent: name}
+		d.dec.screens[id] = r
+	}
+	if !r.applied {
+		d.setActivity(ctx, id, model.ProviderTerminal, model.StateTerminalRunning, name)
+	}
+	now := time.Now()
+	if !r.due(g.Cells, now) {
+		return
+	}
+	r.busy, r.last, r.cells = true, now, g.Cells
+	c, threshold := d.client(), d.dec.cur.Settings.AgentThreshold
+	text := agent.ScreenText(g, 40)
+	go func() {
+		ans, err := c.Ask(ctx, decide.FeatureAgents, id, decide.ScreenState(name, text), decide.ScreenQuestions())
+		if err != nil {
+			log.Printf("pitwall: agent screen: %v", err)
+		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		r.busy = false
+		if d.closing || d.dec.screens[id] != r {
+			return // the program left the foreground meanwhile
+		}
+		if err == nil {
+			if s, conf := decide.Screen(ans); conf >= threshold {
+				r.applied = true
+				d.setActivity(ctx, id, model.Provider(name), screenStates[s], "")
+			}
+		}
+		d.changed()
+	}()
 }
