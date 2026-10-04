@@ -106,7 +106,7 @@ func TestSidebarEvents(t *testing.T) {
 		proto.DeleteGroup{GroupID: "g1"},
 		proto.NewTab{WorkspaceID: "w2", FromPane: "d"},   // below the open tab, where its shell is
 		proto.NewTab{WorkspaceID: "w6"},                  // last in the group, the open tab is elsewhere
-		proto.NewTab{WorkspaceID: "w3"},                  // a row's "+"
+		proto.NewTab{WorkspaceID: "w3"},                  // a row's "New tab below"
 		proto.NewSession{GroupID: "g9", SessionID: "s1"}, // a group with no tabs
 		proto.CloseTab{WorkspaceID: "w1b"},
 		proto.RenameTab{WorkspaceID: "w1c"},

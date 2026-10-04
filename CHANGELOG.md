@@ -14,6 +14,13 @@ To cut a release: add a section below and merge it, then
 
 - Ctrl+Backspace deletes the word before the cursor. It sends Ctrl+W, the
   delete-word key in bash, zsh, fish, Claude Code and Codex.
+- Hovering a tab for half a second opens a card beside the sidebar with its
+  full title, group and folder, branch and diff stats, the agent's state and
+  question, and the pane count. It follows the pointer to other tabs at once
+  and hides on click, scroll, drag or a key press.
+- Tabs inside a group are indented under the group header.
+- The "+" on a hovered tab row is gone; it covered the state pill. Right-click
+  a tab for **New tab below**, or use the "+" on the group or sidebar header.
 
 ## v0.1.0-alpha.3
 

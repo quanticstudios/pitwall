@@ -42,6 +42,7 @@ type elem struct {
 	kind     byte // 's' tab, 'g' group header
 	id       string
 	group    string // a tab's group, a header's own id
+	x        int    // a grouped tab's indent
 	top, bot int
 	head     int // a header's own top, below its separator
 }
@@ -398,6 +399,7 @@ func (s *Sidebar) dragEvents(gtx layout.Context, v *view) bool {
 		}
 		switch e.Kind {
 		case pointer.Press:
+			s.hover.dismiss() // a click, a menu or a drag starts
 			if s.drag.released {
 				continue // still landing
 			}
@@ -411,7 +413,7 @@ func (s *Sidebar) dragEvents(gtx layout.Context, v *view) bool {
 				if el.kind == 'g' {
 					top = el.head
 				}
-				if y >= top && y < el.bot {
+				if y >= top && y < el.bot && int(e.Position.X) >= el.x {
 					s.drag = dragState{kind: el.kind, id: el.id, start: e.Position, pos: e.Position, grab: y - el.top}
 				}
 			}
@@ -549,6 +551,11 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 		lift = 1 - min(1, float32(now.Sub(s.drag.relAt))/float32(slideDur))
 	}
 	y := int(s.ghostY(now)) - s.scroll
+	// A tab headed into a group takes the group's indent.
+	gx := 0
+	if s.drag.kind == 's' && d.ok && d.group != "" {
+		gx = gtx.Dp(groupIndent)
+	}
 	var h int
 	m := op.Record(gtx.Ops)
 	gg := gtx
@@ -562,7 +569,7 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 	} else {
 		for _, ws := range v.st.Workspaces {
 			if ws.ID == s.drag.id {
-				gg.Constraints = layout.Exact(image.Pt(size.X, rowHeight(gtx)))
+				gg.Constraints = layout.Exact(image.Pt(size.X-gx, rowHeight(gtx)))
 				d, _ := s.workspaceRow(gg, v, ws, true)
 				h = d.Size.Y
 			}
@@ -570,10 +577,10 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 	}
 	row := m.Stop()
 	if h > 0 {
-		rect := image.Rect(0, 0, size.X, h)
+		rect := image.Rect(0, 0, size.X-gx, h)
 		r := gtx.Dp(8)
-		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		center := f32.Pt(float32(size.X)/2, float32(h)/2)
+		o := op.Offset(image.Pt(gx, y)).Push(gtx.Ops)
+		center := f32.Pt(float32(rect.Dx())/2, float32(h)/2)
 		sc := op.Affine(f32.Affine2D{}.Scale(center, f32.Pt(1+0.025*lift, 1+0.025*lift))).Push(gtx.Ops)
 		for i, a := range []uint8{40, 26, 14} {
 			g := gtx.Dp(unit.Dp(2 * (i + 1)))
@@ -584,7 +591,7 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
 		row.Add(gtx.Ops)
 		if n := s.badgeCount(v); n > 1 {
-			s.badge(gtx, th, n, size.X)
+			s.badge(gtx, th, n, rect.Dx())
 		}
 		sc.Pop()
 		o.Pop()

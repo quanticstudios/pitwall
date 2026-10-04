@@ -161,6 +161,12 @@ type Sidebar struct {
 	landing map[string]float32
 	now     time.Time
 
+	// The hover card: its state, and where the row it is for was drawn
+	// this frame (cardAt's top in window px).
+	hover  hoverState
+	cardY  int
+	cardAt string
+
 	events []Event
 }
 
@@ -174,6 +180,7 @@ const (
 	actGroupFolder
 	actDetach
 	actDelete
+	actNewBelow
 	actCount
 )
 
@@ -189,8 +196,8 @@ var projectColorIDs = [...]string{
 }
 
 type rowState struct {
-	click, more, add widget.Clickable
-	ctx              int // tag for right- and middle-click
+	click, more widget.Clickable
+	ctx         int // tag for right- and middle-click
 }
 
 // Layout draws session's groups and tabs in st and returns events from this
@@ -262,6 +269,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	}
 	before := s.snapshot()
 	s.update(gtx, v)
+	s.hoverFrame(gtx)
 	if s.snapshot() != before || len(s.events) > 0 {
 		// The input landed this frame; draw its result now, and give the
 		// window a frame to act on the events.
@@ -290,6 +298,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 		s.cancelRename()
 	}
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(w-1, 0), Max: size}.Op())
+	s.drawHover(gtx, v, w, h)
 
 	switch {
 	case moving:
@@ -564,9 +573,6 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 				s.click(v, ws.ID, c.Modifiers)
 			}
 		}
-		for r.add.Clicked(gtx) {
-			s.events = append(s.events, NewTab{After: ws.ID})
-		}
 		for r.more.Clicked(gtx) {
 			s.toggleMenu(ws.ID)
 		}
@@ -607,6 +613,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 					s.startRename(id, "", Title(ws))
 				}
 			}
+		}
+		if s.menuItem[actNewBelow].Clicked(gtx) {
+			s.events = append(s.events, NewTab{After: id})
+			s.closeMenus()
 		}
 		if s.menuItem[actClose].Clicked(gtx) {
 			s.events = append(s.events, CloseTab{WorkspaceID: id})
@@ -724,7 +734,6 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for _, r := range s.rows {
 		drain(&r.click)
 		drain(&r.more)
-		drain(&r.add)
 	}
 	for i := range s.menuItem {
 		drain(&s.menuItem[i])
@@ -873,7 +882,11 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		} else {
 			y += gtx.Dp(4)
 		}
-		out = append(out, elem{kind: 's', id: id, group: g, top: y, bot: y + rowH})
+		x := 0
+		if g != "" {
+			x = gtx.Dp(groupIndent)
+		}
+		out = append(out, elem{kind: 's', id: id, group: g, x: x, top: y, bot: y + rowH})
 		y, run = y+rowH, true
 	}
 	endRun := func() {
@@ -914,6 +927,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bool) {
 	elems, total := s.place(gtx, v)
 	s.elems = elems
+	s.cardAt = ""
 	offs, moving := s.animate(gtx, elems, total)
 	animating := false
 	byID := map[string]model.Workspace{}
@@ -941,13 +955,22 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 				o.Pop()
 				continue
 			}
-			o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-			_, a := s.workspaceRow(gtx, v, byID[e.id], false)
+			o := op.Offset(image.Pt(e.x, y)).Push(gtx.Ops)
+			rg := gtx
+			rg.Constraints.Max.X = w - e.x
+			_, a := s.workspaceRow(rg, v, byID[e.id], false)
 			o.Pop()
+			if e.id == s.hover.shown {
+				s.cardAt, s.cardY = e.id, y
+			}
 			animating = animating || a
 		}
 		return layout.Dimensions{Size: image.Pt(w, total)}
 	})
+	if s.list.Position.Offset != s.scroll {
+		s.hover.dismiss() // the rows moved under the pointer
+	}
+	s.cardY += gtx.Dp(56) - s.list.Position.Offset // under the header
 	s.scroll = s.list.Position.Offset
 	if s.dragOverlay(gtx, v, d.Size) {
 		moving = true
@@ -1077,7 +1100,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	rr := gtx.Dp(8)
 
 	animating := model.Pulses(a) && !ghost
-	hovered := !ghost && (r.click.Hovered() || r.more.Hovered() || r.add.Hovered())
+	hovered := !ghost && (r.click.Hovered() || r.more.Hovered())
 	base := rowBase(th, a, isActive, hovered)
 	selected := s.selected[ws.ID] && !ghost
 	if selected && !isActive {
@@ -1192,15 +1215,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	clickable(cg, &r.click, content)
 	area.Pop()
 
-	// The "…" trigger: absolute right-1 top-1.5, visible on row hover, and
-	// the new-tab "+" left of it.
+	// The "…" trigger: absolute right-1 top-1.5, visible on row hover.
 	btn := gtx.Dp(24)
 	pos := image.Pt(w-gtx.Dp(4)-btn, gtx.Dp(6))
-	ao := op.Offset(pos.Sub(image.Pt(btn+gtx.Dp(2), 0))).Push(gtx.Ops)
-	if hovered && s.menuWS != ws.ID && !s.drag.active {
-		iconButton(gtx, th, &r.add, icPlus, btn, gtx.Dp(14), false)
-	}
-	ao.Pop()
 	off := op.Offset(pos).Push(gtx.Ops)
 	if (hovered && !s.drag.active) || s.menuWS == ws.ID {
 		iconButton(gtx, th, &r.more, icEllipsis, btn, gtx.Dp(16), false)
@@ -1399,7 +1416,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 	if len(targets) > 1 {
 		newText = fmt.Sprintf("New group from %d tabs", len(targets))
 	}
-	entries := []menuEntry{{c: &s.menuItem[actRename], icon: icPencil, text: "Rename tab"}}
+	entries := []menuEntry{{c: &s.menuItem[actNewBelow], icon: icPlus, text: "New tab below"}, {c: &s.menuItem[actRename], icon: icPencil, text: "Rename tab"}}
 	move := -1
 	if len(groups) > 0 {
 		move = len(entries)
