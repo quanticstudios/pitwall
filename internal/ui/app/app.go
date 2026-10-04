@@ -116,6 +116,7 @@ func Run(b Backend) error {
 			u.notifications.setView(&e.Config.Focused, "", "")
 			if !e.Config.Focused {
 				u.nav.altHeld, u.nav.pinned, u.nav.swallow = false, false, ""
+				u.sidebar.HideHover()
 			}
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, e)
@@ -330,6 +331,7 @@ func (u *ui) layout(gtx gl.Context) {
 		if !ok {
 			break
 		}
+		u.sidebar.HideHover() // keyboard navigation
 		if u.sw.open {
 			u.switcherKey(&st, ev.(key.Event))
 			st = u.b.State()

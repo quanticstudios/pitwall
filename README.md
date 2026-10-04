@@ -225,10 +225,15 @@ windows move to the most recently used session, or close when none is left.
 
 The keyboard shortcuts are in [Keybindings](#keybindings). With the mouse:
 click a tab to switch to it, double-click it to rename it, middle-click to
-close it, right-click it for **Rename tab**, **Detach tab**, **Close tab**,
-grouping, and more. The "+" in the sidebar header, on a group header, or on a
-hovered tab opens a new one; it opens right below the one you were in, in the
-same group and folder.
+close it, right-click it for **New tab below**, **Rename tab**, **Detach
+tab**, **Close tab**, grouping, and more. The "+" in the sidebar header or on
+a group header opens a new tab right below the one you were in, in the same
+group and folder.
+
+Rest the pointer on a tab for half a second and a card opens beside the
+sidebar with what the row cuts off: the full title, the group and folder, the
+branch with its diff stats, the agent's state and question, and the pane
+count. Move to another tab and the card follows at once.
 
 Drag a tab or a group header to reorder it: the other rows slide apart to
 show where it will land, and Escape puts it back. Groups and ungrouped tabs
@@ -263,6 +268,8 @@ Set `links = false` under `[terminal]` to turn this off.
 - **By hand:** Ctrl+click or Shift+click to pick tabs, then right-click
   and choose **New group** or **Move to group**.
 - **Ungroup** or **Remove from group** never close anything.
+
+Tabs inside a group sit indented under its header; loose tabs stay flush.
 
 For a Git repo group, **New worktree tab** in the group menu starts a tab in a
 fresh worktree under `<repo>/.worktrees/`, so parallel agents on one repo do
