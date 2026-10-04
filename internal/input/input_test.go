@@ -19,7 +19,7 @@ func TestLegacyKey(t *testing.T) {
 		want string
 	}{
 		{"return", key.NameReturn, 0, false, "\r"}, {"enter", key.NameEnter, 0, false, "\r"},
-		{"backspace", key.NameDeleteBackward, 0, false, "\x7f"}, {"tab", key.NameTab, 0, false, "\t"},
+		{"backspace", key.NameDeleteBackward, 0, false, "\x7f"}, {"ctrl backspace", key.NameDeleteBackward, key.ModCtrl, false, "\x17"}, {"tab", key.NameTab, 0, false, "\t"},
 		{"shift tab", key.NameTab, key.ModShift, false, "\x1b[Z"}, {"alt tab", key.NameTab, key.ModAlt, false, "\x1b\t"},
 		{"escape", key.NameEscape, 0, false, "\x1b"}, {"alt escape", key.NameEscape, key.ModAlt, false, "\x1b\x1b"},
 		{"plain text uses EditEvent", "A", 0, false, ""}, {"shift text uses EditEvent", "A", key.ModShift, false, ""},

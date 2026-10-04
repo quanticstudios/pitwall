@@ -361,6 +361,7 @@ conventional:
 | Ctrl+Shift+] / Ctrl+Shift+[             | Next / previous session                                   |
 | Ctrl+Shift+N                            | New session                                               |
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste                                    |
+| Ctrl+Backspace                          | Delete the word before the cursor (sends Ctrl+W)          |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
@@ -401,6 +402,7 @@ aide:
 | Ctrl+P then Esc or Enter          | Leave pane mode                                |
 | Ctrl+P twice                      | Send Ctrl+P to the terminal                    |
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy selection / paste                         |
+| Ctrl+Backspace                    | Delete the word before the cursor (sends Ctrl+W) |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 

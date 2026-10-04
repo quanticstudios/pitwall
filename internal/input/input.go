@@ -146,6 +146,10 @@ func legacyKey(e key.Event, m vt.Modes) []byte {
 		result = "\r"
 	case key.NameDeleteBackward:
 		result = "\x7f"
+		// why: Ctrl+W is the delete-word key in shells (bash, zsh, fish) and in Claude Code and Codex.
+		if e.Modifiers&key.ModCtrl != 0 {
+			result = "\x17"
+		}
 	case key.NameTab:
 		result = "\t"
 		if e.Modifiers&key.ModShift != 0 {
