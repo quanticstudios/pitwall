@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -22,10 +23,11 @@ type Decisions struct {
 
 // Approvals is [decisions.approvals].
 type Approvals struct {
-	Mode       string   `toml:"mode" enum:"off,suggest,auto" doc:"off; suggest shows the model's recommendation on the approval pill and decides nothing; auto fails closed: it approves only calls pitwall can fully check (plain shell words, file writes that resolve inside the repo) that break no hard rule, when the model chose allow at allow_above or more, denies when it chose deny at deny_above or more, and otherwise leaves the agent's prompt."`
-	AllowAbove *float64 `toml:"allow_above" min:"0.8" max:"1" doc:"In auto mode, approve when the probability of allow is at least this."`
-	DenyAbove  *float64 `toml:"deny_above" min:"0.8" max:"1" doc:"In auto mode, deny when the probability of deny is at least this."`
-	NeverAllow []string `toml:"never_allow" doc:"More hard rules: a tool call whose input contains any of these strings is never approved automatically. Shown as never_allow #N, never the text."`
+	Mode          string   `toml:"mode" enum:"off,suggest,auto" doc:"off; suggest shows the model's recommendation on the approval pill and decides nothing; auto approves only calls on pitwall's allowlist (file tools inside the repo, plain read, build and test commands, see the README), when the model chose allow at allow_above or more, denies when it chose deny at deny_above or more, and leaves everything else to you."`
+	AllowAbove    *float64 `toml:"allow_above" min:"0.8" max:"1" doc:"In auto mode, approve when the probability of allow is at least this."`
+	DenyAbove     *float64 `toml:"deny_above" min:"0.8" max:"1" doc:"In auto mode, deny when the probability of deny is at least this."`
+	AllowPrograms []string `toml:"allow_programs" doc:"More programs auto mode may approve, as bare names (no slashes). Their arguments must still pass the path rules, but their flags are not checked: adding one is at your own risk."`
+	NeverAllow    []string `toml:"never_allow" doc:"More hard rules: a tool call whose input contains any of these strings is never approved automatically. Shown as never_allow #N, never the text."`
 }
 
 // Feature is a table with a switch and a threshold.
@@ -75,6 +77,7 @@ type DecideSettings struct {
 	AllowAbove     float64
 	DenyAbove      float64
 	NeverAllow     []string
+	AllowPrograms  []string // bare program names the user added to the allowlist
 	Triage         bool
 	Agents         bool
 	AgentThreshold float64
@@ -91,7 +94,7 @@ func defaultDecisions() Decisions {
 	on, off := true, false
 	return Decisions{
 		Command: []string{}, Model: "jev-latest", Timeout: &t,
-		Approvals: Approvals{Mode: ModeSuggest, AllowAbove: &a, DenyAbove: &dn, NeverAllow: []string{}},
+		Approvals: Approvals{Mode: ModeSuggest, AllowAbove: &a, DenyAbove: &dn, AllowPrograms: []string{}, NeverAllow: []string{}},
 		Triage:    Toggle{Enabled: &on},
 		Agents:    Agents{Enabled: &off, Threshold: &at, Programs: []string{}},
 		TurnCheck: Feature{Enabled: &off, Threshold: &tt},
@@ -140,6 +143,13 @@ func resolveDecisions(c Decisions) (DecideSettings, []issue) {
 	d.DenyAbove = num(c.Approvals.DenyAbove, "decisions.approvals.deny_above", DefaultDenyAbove, 0.8, 1)
 	d.AgentThreshold = num(c.Agents.Threshold, "decisions.agents.threshold", DefaultAgentThreshold, 0.5, 1)
 	d.TurnThreshold = num(c.TurnCheck.Threshold, "decisions.turn_check.threshold", DefaultTurnThreshold, 0.5, 1)
+	for _, name := range c.Approvals.AllowPrograms {
+		if name == "" || strings.ContainsAny(name, `/\= `) {
+			issues = append(issues, issue{"decisions.approvals.allow_programs", fmt.Sprintf("%q is not a bare program name; it is ignored", name)})
+			continue
+		}
+		d.AllowPrograms = append(d.AllowPrograms, name)
+	}
 	d.Triage = c.Triage.Enabled == nil || *c.Triage.Enabled
 	d.Agents = c.Agents.Enabled != nil && *c.Agents.Enabled
 	d.TurnCheck = c.TurnCheck.Enabled != nil && *c.TurnCheck.Enabled

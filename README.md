@@ -607,42 +607,64 @@ leave a feature off for work you would not send. Each pane may make at most
 
 ### Automatic approvals
 
-Auto mode fails closed. pitwall returns an allow only when all of these
-hold, and otherwise leaves the agent's normal prompt:
+Auto mode approves only calls on a fixed allowlist; everything else gets
+the agent's normal prompt. pitwall returns an allow only when all of these
+hold:
 
-- The model chose allow, with a complete, consistent set of probabilities,
-  and p(allow) is at least `allow_above` (default 0.95, from 0.8 to 1).
-- pitwall could check the whole call itself:
-  - A shell command is a plain list of words. Anything else is not checked:
-    `$` and other expansions, backticks, `( ) { } < > | ; &`, globs
-    (`* ? [`), `~`, `!`, `#`, backslashes, newlines, unclosed quotes and
-    leading `VAR=` assignments. Quotes are removed before checking, so
-    `'sudo'` and `"--force"` count as `sudo` and `--force`. Commands that
-    run other code (shells, `env`, `xargs`, `python`, `node`, `perl`,
-    `awk`, `sed`, `make`, `ssh` and the like), `find -exec`/`-delete`,
-    `git -c`, and any path argument that resolves outside the repo or
-    working directory are not checked either.
-  - A file write (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, Codex's
-    `apply_patch`) names its files, and each resolves, symlinks included
-    (a dangling link is followed to where it points), to a place inside the
-    repo or working directory.
-  - `Read` names a file that resolves. Every other tool (web fetches, MCP
-    tools, and so on) is not checked.
-  - The call was sent whole: an input cut to fit the request is not checked.
-- The call breaks none of these rules: `sudo`, `doas`, `pkexec`; `rm` with
-  both recursive and force flags, anywhere; force pushes (`-f`, `--force*`,
-  `+branch`) and `git reset --hard`; a path in `~/.ssh`, `~/.aws`,
-  `~/.gnupg`, `.env*`, `.netrc`, `.git-credentials`, kube or docker config,
-  or a keychain; a write into `.git`, `.claude`, `.codex` or `.mcp.json`;
-  input containing a string you list in `never_allow` (shown only as
+- The call is on the allowlist:
+  - **File tools**: `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit` and
+    Codex's `apply_patch`, when every path they touch passes the path rules
+    below.
+  - **Shell commands** that are plain words: no `$` or other expansion,
+    backticks, `( ) { } < > | ; &`, globs (`* ? [`), `~`, `!`, `#`,
+    backslashes, newlines or unclosed quotes. Quotes are removed first. The
+    program must be a bare name (never `./helper` or `/usr/bin/x`) from
+    this list, with only the subcommands and flags pitwall knows for it;
+    any other flag means no decision:
+    - `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `fd`, `find`
+      (without `-exec`, `-delete` and the like), `tree`, `stat`, `file`,
+      `du`, `diff`, `pwd`, `echo`, `which`
+    - `go build|test|vet|fmt|list|version|env|doc|run` and
+      `go mod tidy|download|verify` (no `-exec`, `-toolexec` or `-w`)
+    - `cargo build|test|check|clippy|fmt|doc|tree`
+    - `npm`, `pnpm`, `yarn`, `bun`: `test`, `run <script>`, `ls`, and
+      `install`/`ci` with no package names and no `-g`
+    - `make <target>` (no `-f`, `-C`, `--eval` or `VAR=value`), `pytest`,
+      `python -m pytest`, `mise ls|which|current`
+    - `git status|diff|log|show|blame|rev-parse|ls-files|grep|describe`,
+      `git branch` to list only, and `git remote -v`. Nothing may come
+      before the subcommand (`-c`, `-C`, `--git-dir` and so on), so
+      aliases, config, push, reset, checkout and clean are never approved.
+      git still reads its own config, so an external diff driver set up in
+      the repo runs as it would by hand.
+  - Programs you add with `allow_programs` under `[decisions.approvals]`, as
+    bare names. Their paths must pass the path rules, but their flags are
+    not checked: adding a program is at your own risk.
+- **Path rules**, for every file a file tool touches and every argument of
+  an allowed command that contains a `/` or names something that exists:
+  the path as given (never cleaned) lies in the repo or working directory,
+  holds no `..`, no symlink in any component below that folder (a link
+  anywhere, dangling or not, means no decision), and no protected
+  component: `.git`, `.claude`, `.codex`, `.mcp.json`, `.ssh`, `.aws`,
+  `.gnupg`, `.env*`, `.netrc`, `.git-credentials`, `.kube`, `.docker`.
+- The call was sent whole: an input cut to fit the request means no
+  decision.
+- The model chose allow, with a complete distribution (scaled to sum to 1)
+  in which allow is highest, and p(allow) is at least `allow_above`
+  (default 0.95, from 0.8 to 1).
+- No `never_allow` entry matches the input (shown only as
   "never_allow #N", never its text).
-- Right before answering, the approval is still waiting, the tab has not
-  turned auto off, and the provider, key and settings have not changed.
+- Right before answering, pitwall reads the config and key again: the
+  approval is still waiting, the tab has not turned auto off, and the
+  provider, key and settings are unchanged.
 
 A deny needs only the model's choice of deny with p(deny) at least
-`deny_above` (default 0.95, from 0.8 to 1): it is the safe direction. When
-auto mode leaves the prompt, the pill says why, such as "Jev: ask · rm -rf"
-or "Jev: ask · unchecked: shell syntax '|'".
+`deny_above` (default 0.95, from 0.8 to 1): it is the safe direction.
+pitwall still recognises sudo, `rm` with recursive and force flags (by
+any prefix of the long options), force pushes, `git reset --hard` and
+secret paths, and shows them in the advice. When auto mode leaves the
+prompt, the pill says why, such as "Jev: ask · rm -rf" or
+"Jev: ask · not on the allowlist: curl".
 
 pitwall never answers `AskUserQuestion` or a plan approval for you. Every
 automatic decision is kept for the daemon's run (the latest 200): Settings,

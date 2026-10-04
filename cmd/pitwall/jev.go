@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -68,7 +69,11 @@ func runJev(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err := decide.SaveKey(cred, key); err != nil {
 			return fail(err)
 		}
-		fmt.Fprintln(stdout, "Saved the key in", cred, "(readable only by you).")
+		if runtime.GOOS == "windows" {
+			fmt.Fprintln(stdout, "Saved the key in", cred, "(it has your profile folder's permissions; pitwall sets no ACL).")
+		} else {
+			fmt.Fprintln(stdout, "Saved the key in", cred, "(mode 0600, readable only by you).")
+		}
 		if s := config.LoadDecisions(config.Path()); s.Provider != "jev" {
 			if err := config.SetKey(config.Path(), "decisions", "provider", config.Quote("jev")); err != nil {
 				return fail(err)

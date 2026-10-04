@@ -16,6 +16,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -486,6 +487,17 @@ func TestAutoRevalidatesBeforeAnswering(t *testing.T) {
 			d.refreshDecisions()
 		},
 		"approval answered": func(t *testing.T, d *Daemon) { hook(t, d, "claude_post_tool_use") },
+		// The files changed but no poll has run yet: approve reads them again.
+		"mode changed, not polled": func(t *testing.T, d *Daemon) {
+			x := d.o.Decisions()
+			x.Settings.Approvals = config.ModeSuggest
+			d.o.Decisions = func() Decisions { return x }
+		},
+		"disconnected, not polled": func(t *testing.T, d *Daemon) {
+			x := d.o.Decisions()
+			x.Provider, x.Secrets = nil, nil
+			d.o.Decisions = func() Decisions { return x }
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			g := &gateModel{fakeModel: fakeModel{answers: map[string]decide.Answer{"verdict": verdict(0.99, 0.01, 0)}},
@@ -518,9 +530,9 @@ func TestAutoFailsClosed(t *testing.T) {
 		label   string
 	}{
 		"pipe": {`{"session_id":"s1","transcript_path":"/t","cwd":"/home/u/repo","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"go test ./... | tee out"}}`,
-			verdict(0.99, 0.01, 0), "unchecked: shell syntax '|'"},
+			verdict(0.99, 0.01, 0), "shell syntax '|'"},
 		"unknown tool": {`{"session_id":"s1","transcript_path":"/t","cwd":"/home/u/repo","hook_event_name":"PermissionRequest","tool_name":"WebFetch","tool_input":{"url":"https://example.com"}}`,
-			verdict(0.99, 0.01, 0), "unchecked: tool pitwall cannot check"},
+			verdict(0.99, 0.01, 0), "not on the allowlist: WebFetch"},
 		"too long": {`{"session_id":"s1","transcript_path":"/t","cwd":"/home/u/repo","hook_event_name":"PermissionRequest","tool_name":"Write","tool_input":{"file_path":"/home/u/repo/a.txt","content":"` + strings.Repeat("data ", 20000) + `"}}`,
 			verdict(0.99, 0.01, 0), "input too long to check"},
 		"inconsistent": {gitPushRequest,
@@ -577,5 +589,47 @@ func TestScreenPaceAcrossPrograms(t *testing.T) {
 	}
 	if n := len(m.questions()); n > 4 {
 		t.Errorf("%d reads in 600 ms at one per 200 ms", n)
+	}
+}
+
+// A turn check whose agent left the foreground between the hook and the
+// capture sends nothing: the screen would be the shell's.
+func TestTurnCheckAfterAgentExits(t *testing.T) {
+	m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.9}, "urgency": urgency(1)}}
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Path: "/home/u/repo", RepoRoot: "/home/u/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
+		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cwd: "/home/u/repo"}},
+	}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	var lp *livePane
+	start := o.StartPane
+	o.StartPane = func(c pane.Config) (Pane, error) {
+		p, _ := start(c)
+		lp = &livePane{fakePane: p.(*fakePane)}
+		lp.fgGroup.Store(100) // the agent
+		return lp, nil
+	}
+	o.Decisions = func() Decisions {
+		return Decisions{Settings: config.DecideSettings{Provider: "jev", TurnCheck: true, TurnThreshold: 0.8, Timeout: time.Second}, Provider: m}
+	}
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	defer func(f func()) { turnCapture = f }(turnCapture)
+	turnCapture = func() {
+		lp.fgGroup.Store(200) // the agent exited to the shell
+		close(done)
+	}
+	hook(t, d, "claude_stop")
+	<-done
+	time.Sleep(50 * time.Millisecond)
+	for _, q := range m.questions() {
+		if q == "review" {
+			t.Error("sent a turn check after the agent left")
+		}
 	}
 }

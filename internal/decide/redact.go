@@ -23,9 +23,9 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+(?P<v>[A-Za-z0-9._~+/=-]{8,})`),
 	// KEY=value and "key": "value" with a secret-looking name. A quoted
 	// value may span lines and may be cut off.
-	regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])["']?` + secretName + `["']?\s*(?:=|:=|:)\s*(?P<v>"[^"]*(?:"|\z)|'[^']*(?:'|\z)|[^\s"',;}]+)`),
+	regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])["']?` + secretName + `["']?\s*(?:=|:=|:)\s*(?P<v>"(?:[^"\\]|\\.)*(?:"|\z)|'[^']*(?:'|\z)|[^\s"',;}]+)`),
 	// Command-line flags such as --password=x or --token x.
-	regexp.MustCompile(`(?i)--?(?:password|passwd|token|secret|api-key|apikey|access-key|auth)(?:=|\s+)(?P<v>[^\s"']+|"[^"]*"|'[^']*')`),
+	regexp.MustCompile(`(?i)--?(?:password|passwd|token|secret|api-key|apikey|access-key|auth)(?:=|\s+)(?P<v>"(?:[^"\\]|\\.)*(?:"|\z)|'[^']*(?:'|\z)|[^\s"']+)`),
 	// Credentials in URLs.
 	regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]*:(?P<v>[^\s/@]+)@`),
 	// Well-known token shapes.
@@ -127,4 +127,19 @@ func RedactValue(v any, extra ...string) any {
 		return Redacted
 	}
 	return RedactValue(x, extra...)
+}
+
+// wholeText is b as text. When b was cut off (cut), its last token, which
+// may be the first half of a secret, is dropped, so redaction never sees
+// half a key.
+func wholeText(b []byte, cut bool) string {
+	s := string(b)
+	if cut {
+		if i := strings.LastIndexAny(s, " \t\r\n"); i >= 0 {
+			s = s[:i]
+		} else {
+			s = ""
+		}
+	}
+	return s
 }

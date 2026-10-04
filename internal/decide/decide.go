@@ -202,10 +202,16 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 	}
 	ctx, cancel := context.WithTimeout(ctx, t)
 	defer cancel()
-	prepared, _ := c.Prepare(state)
-	ans, err := c.P.Ask(ctx, Request{State: prepared, Questions: qs})
+	var ans map[string]Answer
+	prepared, _, err := c.Prepare(state)
+	if err == nil {
+		ans, err = c.P.Ask(ctx, Request{State: prepared, Questions: qs})
+	}
 	if err == nil {
 		err = check(qs, ans)
+	}
+	if err == nil {
+		normalize(ans)
 	}
 	if err == nil && ctx.Err() != nil {
 		err = errors.New("no answer within the timeout") // an answer after the deadline is not used
@@ -220,8 +226,29 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 	return ans, err
 }
 
-// probTolerance is how far a distribution's sum may be from 1.
+// probTolerance is how far a distribution's sum may be from 1 before the
+// answer is refused. Within it, normalize divides by the sum, so a
+// threshold always applies to a distribution that sums to 1.
 const probTolerance = 0.02
+
+// normalize scales each answer's probabilities to sum to exactly 1.
+func normalize(ans map[string]Answer) {
+	for id, a := range ans {
+		sum := 0.0
+		for _, p := range a.Probabilities {
+			sum += p
+		}
+		if sum <= 0 {
+			continue
+		}
+		ps := make(map[string]float64, len(a.Probabilities))
+		for k, p := range a.Probabilities {
+			ps[k] = p / sum
+		}
+		a.Probabilities = ps
+		ans[id] = a
+	}
+}
 
 // check reports the first question without a well-formed answer. A
 // choice or score answer needs a probability for every option or level

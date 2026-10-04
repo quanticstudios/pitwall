@@ -61,6 +61,10 @@ allow_above = 0.5
 		t.Errorf("bad values should keep defaults: %+v", d)
 	}
 
+	s, probs = LoadFile(write(t, dir, "config.toml", "[decisions.approvals]\nallow_programs = [\"just\", \"./run\", \"/usr/bin/x\"]\n"))
+	if !slices.Equal(s.Decisions.AllowPrograms, []string{"just"}) || !strings.Contains(msgs(probs), `"./run" is not a bare program name`) {
+		t.Errorf("allow_programs: %v %v", s.Decisions.AllowPrograms, msgs(probs))
+	}
 	s, probs = LoadFile(write(t, dir, "config.toml", "[decisions]\nprovider = \"command\"\n"))
 	if s.Decisions.On() || !strings.Contains(msgs(probs), "needs a command") {
 		t.Errorf("command without argv: %+v %v", s.Decisions, msgs(probs))

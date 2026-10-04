@@ -106,6 +106,12 @@ func (d *Daemon) refreshDecisions() {
 	x := d.o.Decisions()
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.applyDecisions(x)
+}
+
+// applyDecisions makes x current, bumping gen when anything changed.
+// Callers hold d.mu.
+func (d *Daemon) applyDecisions(x Decisions) {
 	old := d.dec.cur
 	d.dec.cur = x
 	if old.name() != x.name() || !reflect.DeepEqual(old.Settings, x.Settings) || !slices.Equal(old.Secrets, x.Secrets) {
@@ -264,9 +270,12 @@ func (d *Daemon) onActivity(pane string, at time.Time, f func(a *model.Activity)
 // that the approval still waits, the tab still allows auto, and the
 // provider and settings have not changed. Any failure decides nothing.
 func (d *Daemon) approve(ctx context.Context, j *decideJob) []byte {
-	chk := decide.CheckCall(*j.call, j.s.NeverAllow)
-	state, truncated := j.c.Prepare(decide.ApprovalState(j.agent, *j.call, j.prompt))
-	ans, err := j.c.Ask(ctx, decide.FeatureApprovals, j.pane, state, decide.ApprovalQuestions())
+	chk := decide.CheckCall(*j.call, j.s.NeverAllow, j.s.AllowPrograms)
+	state, truncated, err := j.c.Prepare(decide.ApprovalState(j.agent, *j.call, j.prompt))
+	var ans map[string]decide.Answer
+	if err == nil {
+		ans, err = j.c.Ask(ctx, decide.FeatureApprovals, j.pane, state, decide.ApprovalQuestions())
+	}
 	if err != nil {
 		log.Printf("pitwall: approvals: %v", err)
 		d.onActivity(j.pane, j.at, func(*model.Activity) {})
@@ -277,16 +286,25 @@ func (d *Daemon) approve(ctx context.Context, j *decideJob) []byte {
 	if len(chk.Rules) > 0 {
 		label = chk.Rules[0]
 	}
+	// Read the settings and the key again now, not from the last poll:
+	// a disconnect or a mode change a moment ago must win.
+	var fresh Decisions
+	if d.o.Decisions != nil {
+		fresh = d.o.Decisions()
+	}
 	now := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.closing {
 		return nil
 	}
+	if d.o.Decisions != nil {
+		d.applyDecisions(fresh)
+	}
 	i := d.activityIndex(j.pane)
-	fresh := i >= 0 && d.st.Activities[i].UpdatedAt.Equal(j.at) && d.st.Activities[i].State == model.StatePendingApproval
+	waiting := i >= 0 && d.st.Activities[i].UpdatedAt.Equal(j.at) && d.st.Activities[i].State == model.StatePendingApproval
 	auto := ""
-	if x := d.dec.cur; j.auto && fresh && ctx.Err() == nil && d.dec.gen == j.gen && x.on() && x.Settings.Approvals == config.ModeAuto {
+	if x := d.dec.cur; j.auto && waiting && ctx.Err() == nil && d.dec.gen == j.gen && x.on() && x.Settings.Approvals == config.ModeAuto {
 		if w := d.workspace(j.wsID); w != nil && !w.AutoOff {
 			auto = decide.AutoVerdict(verdict, probs, chk.CanAllow() && !truncated, x.Settings.AllowAbove, x.Settings.DenyAbove)
 		}
@@ -294,12 +312,12 @@ func (d *Daemon) approve(ctx context.Context, j *decideJob) []byte {
 	if j.auto && label == "" {
 		switch {
 		case chk.Unverified != "":
-			label = "unchecked: " + chk.Unverified
+			label = chk.Unverified
 		case truncated:
 			label = "input too long to check"
 		}
 	}
-	if fresh {
+	if waiting {
 		a := &d.st.Activities[i]
 		if auto != "" {
 			// The agent goes on without showing its prompt.
@@ -341,10 +359,38 @@ func (d *Daemon) triageJob(ctx context.Context, j *decideJob) {
 }
 
 // turnCheck asks whether a finished turn needs the user's review.
+// turnCapture runs between the turn check's two checks of the pane;
+// tests use it to change the pane in between.
+var turnCapture = func() {}
+
+// turnCheck asks whether a finished turn needs the user's review. The
+// pane is checked before and after its screen is captured: the finished
+// turn must still be its activity and the agent whose hook reported it
+// must still hold the foreground, so a shell's screen is never sent as
+// the agent's.
 func (d *Daemon) turnCheck(ctx context.Context, j *decideJob) {
-	screen := ""
-	if j.screen != nil {
-		screen = agent.ScreenText(j.screen.Snapshot(), 40)
+	valid := func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		i := d.activityIndex(j.pane)
+		if d.closing || j.screen == nil || d.panes[j.pane] != j.screen || i < 0 ||
+			!d.st.Activities[i].UpdatedAt.Equal(j.at) || d.st.Activities[i].State != model.StateCompleted {
+			return false
+		}
+		if fg, ok := d.live.fg[j.pane]; ok {
+			if f, ok := j.screen.(foregrounder); ok && f.Foreground() != fg {
+				return false
+			}
+		}
+		return true
+	}
+	if !valid() {
+		return
+	}
+	turnCapture()
+	screen := agent.ScreenText(j.screen.Snapshot(), 40)
+	if !valid() {
+		return
 	}
 	ans, err := j.c.Ask(ctx, decide.FeatureTurnCheck, j.pane, decide.TurnState(j.agent, j.lastMsg, screen), decide.TurnQuestions())
 	if err != nil {

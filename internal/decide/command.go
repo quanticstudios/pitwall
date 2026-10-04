@@ -31,17 +31,20 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 	cmd.WaitDelay = 500 * time.Millisecond // a child holding stdout open must not outlive the timeout
 	cmd.Stdin = bytes.NewReader(in)
 	var out, errb limited
-	out.max, errb.max = 1<<20, 512
+	out.max, errb.max = 1<<20, 64<<10
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
 			return nil, errors.New("command: no answer within the timeout")
 		}
-		msg := clip(strings.Join(strings.Fields(Redact(errb.String())), " "), 300)
+		msg := clip(strings.Join(strings.Fields(Redact(wholeText(errb.Bytes(), errb.cut))), " "), 300)
 		if msg != "" {
 			return nil, fmt.Errorf("command: %v: %s", err, msg)
 		}
 		return nil, fmt.Errorf("command: %v", err)
+	}
+	if out.cut {
+		return nil, errors.New("command: reply too large")
 	}
 	ans, err := decodeAnswers(out.Bytes())
 	if err != nil {
@@ -50,14 +53,20 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 	return ans, nil
 }
 
-// limited keeps the first max bytes written to it and drops the rest.
+// limited keeps the first max bytes written to it and drops the rest,
+// noting in cut that it did.
 type limited struct {
 	bytes.Buffer
 	max int
+	cut bool
 }
 
 func (l *limited) Write(p []byte) (int, error) {
-	if room := l.max - l.Len(); room > 0 {
+	room := l.max - l.Len()
+	if len(p) > room {
+		l.cut = true
+	}
+	if room > 0 {
 		l.Buffer.Write(p[:min(len(p), room)])
 	}
 	return len(p), nil

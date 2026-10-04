@@ -85,12 +85,18 @@ func (j *Jev) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
 		return nil, fmt.Errorf("jev: %w", stripURL(err))
 	}
 	defer res.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	const maxReply = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(res.Body, maxReply+1))
 	if err != nil {
 		return nil, fmt.Errorf("jev: read reply: %w", err)
 	}
+	cut := len(data) > maxReply
+	data = data[:min(len(data), maxReply)]
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jev: %s", statusText(res.StatusCode, data, string(j.Key)))
+		return nil, fmt.Errorf("jev: %s", statusText(res.StatusCode, wholeText(data, cut), string(j.Key)))
+	}
+	if cut {
+		return nil, errors.New("jev: reply too large")
 	}
 	return decodeAnswers(data)
 }
@@ -107,7 +113,7 @@ func stripURL(err error) error {
 
 // statusText explains an HTTP error in a line, with the reply's message
 // scrubbed of the key and anything else that looks secret.
-func statusText(code int, body []byte, key string) string {
+func statusText(code int, body string, key string) string {
 	var hint string
 	switch code {
 	case http.StatusUnauthorized, http.StatusForbidden:
@@ -121,7 +127,7 @@ func statusText(code int, body []byte, key string) string {
 	default:
 		hint = http.StatusText(code)
 	}
-	msg := clip(strings.Join(strings.Fields(Redact(string(body), key)), " "), 200) // redact first: a cut can split a key
+	msg := clip(strings.Join(strings.Fields(Redact(body, key)), " "), 200) // redact first: a cut can split a key
 	out := fmt.Sprintf("HTTP %d, %s", code, hint)
 	if msg != "" {
 		out += ": " + msg

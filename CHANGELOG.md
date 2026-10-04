@@ -28,12 +28,16 @@ To cut a release: add a section below and merge it, then
   With none set:
   - Approvals suggest: a Claude Code or Codex permission request shows the
     model's recommendation ("Jev: allow 96%") on the tab and the pane.
-    Auto mode fails closed: it approves only calls pitwall can fully check
-    (plain shell words, file writes that resolve inside the repo), sent
-    whole, that break no hard rule, when the model chose allow at or above
-    `allow_above`; it denies when the model chose deny at or above
-    `deny_above`. Both thresholds default to 0.95 and go from 0.8 to 1.
-    Everything else gets the normal prompt. Automatic decisions keep an
+    Auto mode approves only calls on an allowlist: file tools whose paths
+    stay inside the repo with no symlink, `..` or protected folder
+    (`.git`, `.claude`, `.env*`, `.ssh`, ...), and plain shell commands
+    from a short list of read, build and test programs (`go test`,
+    `cargo test`, `npm test`, `git status`/`diff`/`log`, `ls`, `grep`, ...)
+    with known flags, plus any you add with `allow_programs` at your own
+    risk. It needs the model to choose allow at or above `allow_above`,
+    and denies when the model chooses deny at or above `deny_above`; both
+    default to 0.95 and go from 0.8 to 1. Everything else gets the normal
+    prompt. Automatic decisions keep an
     audit trail, and a tab can opt out from its menu.
   - Attention triage (on by default) sorts what needs you as fyi, later,
     soon or now for the jump-to-attention key and notifications; fyi sends

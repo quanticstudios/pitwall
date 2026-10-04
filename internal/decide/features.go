@@ -2,6 +2,7 @@ package decide
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 )
@@ -160,21 +161,36 @@ const (
 // endKeys are state fields whose latest text is at the end.
 var endKeys = map[string]bool{"screen": true, "last_message": true}
 
-// Prepare redacts state and only then cuts it to the budget: each string
-// to stringMax runes, then all of them shorter until the whole fits.
-// truncated reports any cut; an approval with a cut input is never
-// approved automatically, as the model did not see all of it.
-func (c *Client) Prepare(state any) (out any, truncated bool) {
+// ErrTooLarge is a state that does not fit the budget even with every
+// string cut short.
+var ErrTooLarge = errors.New("state too large to send")
+
+// Prepare redacts state, turns it into plain JSON values (so every map
+// and slice type is counted and cut alike), and only then cuts it to the
+// budget: each string to stringMax runes, then all of them shorter until
+// the whole fits. truncated reports any cut; a state that still does not
+// fit is ErrTooLarge and must not be sent. An approval with a cut or
+// refused state is never approved automatically.
+func (c *Client) Prepare(state any) (out any, truncated bool, err error) {
 	red := RedactValue(state, c.secrets()...)
-	limit := stringMax
-	for {
-		cut := false
-		out = clipAll(red, "", limit, &cut)
-		if size(out) <= stateBudget || limit < 64 {
-			return out, truncated || cut
-		}
-		truncated, limit = true, limit/2
+	b, err := json.Marshal(red)
+	if err != nil {
+		return nil, true, err
 	}
+	var norm any
+	if err := json.Unmarshal(b, &norm); err != nil {
+		return nil, true, err
+	}
+	for limit := stringMax; limit >= 16; limit /= 2 {
+		cut := false
+		out = clipAll(norm, "", limit, &cut)
+		truncated = truncated || cut
+		if size(out) <= stateBudget {
+			return out, truncated, nil
+		}
+		truncated = true
+	}
+	return nil, true, ErrTooLarge
 }
 
 func (c *Client) secrets() []string {

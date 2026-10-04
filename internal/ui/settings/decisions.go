@@ -267,8 +267,8 @@ func (p *Page) decisions() []section {
 		featDesc = "Each feature asks only when it has something to ask. A failed or slow answer changes nothing: pitwall goes on as it would without one."
 	}
 	rows := []row{
-		{label: "Approvals", desc: "When Claude Code or Codex asks permission. Suggest shows a recommendation on the approval. Auto fails closed: it approves only calls pitwall can fully check " +
-			"(plain shell words, file writes inside the repo) that break no hard rule, denies only sure denies, and leaves everything else to you. " +
+		{label: "Approvals", desc: "When Claude Code or Codex asks permission. Suggest shows a recommendation on the approval. Auto approves only calls on pitwall's allowlist " +
+			"(file tools inside the repo, plain read, build and test commands such as go test, git status or ls), denies only sure denies, and leaves everything else to you. " +
 			p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
 			extra: "approval permission auto suggest allow deny mode",
 			control: p.segmented("dmode", []string{config.ModeOff, config.ModeSuggest, config.ModeAuto}, d.Approvals, func(o string) {
