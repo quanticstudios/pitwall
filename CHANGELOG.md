@@ -10,6 +10,11 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.4
+
+- Ctrl+Backspace deletes the word before the cursor. It sends Ctrl+W, the
+  delete-word key in bash, zsh, fish, Claude Code and Codex.
+
 ## v0.1.0-alpha.3
 
 - Run `pitwall` as many times as you like: each run opens its own window.

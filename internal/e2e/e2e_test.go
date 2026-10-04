@@ -257,6 +257,9 @@ func isolate(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("SHELL", "/bin/sh") // the first session's shell, without the user's rc files
+	// why: run inside a pitwall pane, these point hooks and the CLI at the user's own daemon.
+	t.Setenv("PITWALL_SOCKET", "")
+	t.Setenv("PITWALL_PANE", "")
 }
 
 func startDaemon(t *testing.T) func() {
