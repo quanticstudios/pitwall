@@ -107,7 +107,8 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 
 // card is what a tab's hover card shows. Lines lists which lines, in
 // order: 't' title, 'f' folder, 'b' branch, 's' agent state, 'd' its
-// detail, 'p' pane count.
+// detail, 'j' the decision model's advice or last automatic decision, 'p'
+// pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -117,6 +118,7 @@ type card struct {
 	add, del     int
 	state        model.AgentState
 	detail       string
+	decision     string
 	panes        int
 }
 
@@ -133,6 +135,9 @@ func (c card) lines() string {
 		if c.detail != "" {
 			out += "d"
 		}
+	}
+	if c.decision != "" {
+		out += "j"
 	}
 	if c.panes > 1 {
 		out += "p"
@@ -156,6 +161,22 @@ func cardFor(v *view, ws model.Workspace) card {
 	}
 	if a := v.activity[ws.ID]; a != nil {
 		c.state, c.detail = a.State, clampDetail(a.Detail)
+		c.decision = AdviceText(*a, v.st.Decide.Provider)
+	}
+	if c.decision == "" {
+		for i := len(v.st.Decide.Audit) - 1; i >= 0; i-- {
+			if e := v.st.Decide.Audit[i]; e.WorkspaceID == ws.ID {
+				verb := "Auto-approved "
+				if e.Verdict != "allow" {
+					verb = "Auto-denied "
+				}
+				c.decision = verb + clampDetail(e.Input)
+				if t := relTime(v.now, e.At); t != "" {
+					c.decision += " · " + t
+				}
+				break
+			}
+		}
 	}
 	for _, p := range v.st.Panes {
 		if p.WorkspaceID == ws.ID {
@@ -326,6 +347,10 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 			y -= gap / 2 // the detail belongs to the state above it
 			line(nil, func(gtx layout.Context) layout.Dimensions {
 				return detailLabel(gtx, th, theme.Mix(bg, th.Fg, 0.8), c.detail)
+			})
+		case 'j':
+			line(iconOf(icCircleCheck, muted), func(gtx layout.Context) layout.Dimensions {
+				return wrapLabel(gtx, th, th.UIFont, 12, muted, c.decision, 2)
 			})
 		case 'p':
 			line(iconOf(projectIcon("layers"), muted), func(gtx layout.Context) layout.Dimensions {
