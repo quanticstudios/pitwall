@@ -1,10 +1,12 @@
 package settings
 
 import (
+	"context"
 	"image"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -18,6 +20,8 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -227,5 +231,79 @@ func TestPaneModeSection(t *testing.T) {
 	}
 	if v := (edit{"next", "keys.pane", b.Pane["next"]}).value("aide"); v != nil {
 		t.Errorf("preset pane value written: %s", *v)
+	}
+}
+
+// TestDecisionsConnect: the Decisions page saves a pasted key to a 0600
+// credentials file, never to config.toml, turns Jev on, tests it, and
+// disconnecting removes both.
+func TestDecisionsConnect(t *testing.T) {
+	const key = "ts_live_abcdefghijklmnopqrstuvwxyz012345"
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	defer func(f func(context.Context, decide.Provider, time.Duration, ...string) (time.Duration, error)) {
+		ping = f
+	}(ping)
+	pinged := make(chan string, 1)
+	ping = func(_ context.Context, p decide.Provider, _ time.Duration, secrets ...string) (time.Duration, error) {
+		pinged <- string(p.(*decide.Jev).Key)
+		return 120 * time.Millisecond, nil
+	}
+	var p Page
+	p.Show(path)
+	p.s, _ = config.LoadFile(path)
+	p.th = theme.Dark()
+	if p.dp.keySrc != "" {
+		t.Fatal("a key before connecting")
+	}
+	p.dp.key.SetText("  " + key + "\n")
+	p.connect()
+	if got := <-pinged; got != key {
+		t.Errorf("tested %q", got)
+	}
+	cred := filepath.Join(dir, "credentials")
+	if fi, err := os.Stat(cred); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
+		t.Fatalf("credentials %v %v", fi, err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), key) {
+		t.Fatal("the key went into config.toml")
+	}
+	p.s, _ = config.LoadFile(path)
+	if p.s.Decisions.Provider != "jev" || p.dp.keySrc != decide.FromFile || p.dp.key.Text() != "" {
+		t.Fatalf("after connect: provider %q, source %q, field %q", p.s.Decisions.Provider, p.dp.keySrc, p.dp.key.Text())
+	}
+	for start := time.Now(); ; time.Sleep(time.Millisecond) {
+		p.dp.mu.Lock()
+		res, testing := p.dp.result, p.dp.testing
+		p.dp.mu.Unlock()
+		if !testing && res != "" {
+			if res != "Connection ok · 120 ms" {
+				t.Errorf("result %q", res)
+			}
+			break
+		}
+		if time.Since(start) > time.Second {
+			t.Fatal("test never finished")
+		}
+	}
+	p.disconnect()
+	p.s, _ = config.LoadFile(path)
+	if _, err := os.Stat(cred); !os.IsNotExist(err) || p.s.Decisions.Provider != "" || p.dp.keySrc != "" {
+		t.Errorf("after disconnect: %v, provider %q, source %q", err, p.s.Decisions.Provider, p.dp.keySrc)
+	}
+	p.dp.key.SetText("short")
+	p.connect()
+	if p.dp.keyErr == "" {
+		t.Error("a bad key connected")
+	}
+	// Every state of the page draws.
+	var ops op.Ops
+	for _, info := range []model.DecideInfo{{}, {Provider: "jev", Auto: true, Audit: []model.AutoDecision{{Tab: "fix", Tool: "Bash", Input: "go test", Verdict: "allow", Allow: 0.97}}}} {
+		p.SetDecisions(info)
+		p.cat = catDecisions
+		gtx := gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1000, 700)), Now: time.Now()}
+		p.Layout(gtx, theme.Dark(), p.s, nil)
 	}
 }

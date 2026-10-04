@@ -131,7 +131,7 @@ type notification struct {
 }
 
 func notificationCommand(ctx context.Context, n notification) *exec.Cmd {
-	urgent := n.activity.State == model.StatePendingApproval || n.activity.State == model.StateError
+	urgent := n.activity.State == model.StatePendingApproval || n.activity.State == model.StateError || n.activity.Urgency == "now"
 	body := model.PillLabel(n.activity)
 	if detail := []rune(n.activity.Detail); len(detail) > 0 {
 		body += ": " + string(detail[:min(120, len(detail))])

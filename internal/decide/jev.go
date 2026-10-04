@@ -145,6 +145,12 @@ func decodeAnswers(data []byte) (map[string]Answer, error) {
 	return reply.Answers, nil
 }
 
+// Ping makes one small real call to p, within timeout, and reports how
+// long it took. secrets are scrubbed from the error.
+func Ping(ctx context.Context, p Provider, timeout time.Duration, secrets ...string) (time.Duration, error) {
+	return Test(ctx, &Client{P: p, Timeout: timeout, Secrets: secrets})
+}
+
 // Test makes one small real call and reports how long it took.
 func Test(ctx context.Context, c *Client) (time.Duration, error) {
 	start := time.Now()

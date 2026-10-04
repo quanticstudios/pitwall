@@ -53,6 +53,7 @@ const usage = `usage:
   the most recently used one; -s <session> picks another.
   pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
+  pitwall jev <cmd>          login, status, logout: connect TypeSafe's Jev (see pitwall jev)
 `
 
 func main() {
@@ -83,6 +84,8 @@ func main() {
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
 	case "notify":
 		err = runNotify(os.Args[2:])
+	case "jev":
+		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "ls", "new", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:

@@ -49,6 +49,7 @@ const (
 	catKeys
 	catTerminal
 	catAgents
+	catDecisions
 	catAbout
 )
 
@@ -57,6 +58,7 @@ var categories = []struct{ name, desc string }{
 	{"Keyboard shortcuts", "Click a shortcut to record a new one."},
 	{"Terminal", "How every pane behaves."},
 	{"Agents", "The sidebar learns what Claude Code and Codex are doing from hooks in their configs."},
+	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
 	{"About", "Version, config file and documentation."},
 }
 
@@ -75,7 +77,7 @@ type Page struct {
 	search      widget.Editor
 	focusSearch bool
 	list        widget.List
-	cats        [5]widget.Clickable
+	cats        [catAbout + 1]widget.Clickable
 	clicks      map[string]*widget.Clickable
 
 	rec      slot // the chord being recorded, when rec.action is set
@@ -96,6 +98,8 @@ type Page struct {
 	ver      string
 	copied   string
 	copiedAt time.Time
+
+	dp decisionsPage
 }
 
 // pending is a recorded chord another action already has.
@@ -115,6 +119,8 @@ func (p *Page) Show(configPath string) {
 	home, _ := os.UserHomeDir()
 	p.hooks = hookStatus(home)
 	p.ver = version()
+	p.s.Path = configPath
+	p.readKey()
 	families(nil) // start the font scan
 }
 
@@ -709,6 +715,8 @@ func (p *Page) sections(cat int) []section {
 		return p.terminal()
 	case catAgents:
 		return p.agents()
+	case catDecisions:
+		return p.decisions()
 	case catAbout:
 		return p.about()
 	}

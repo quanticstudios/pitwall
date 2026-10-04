@@ -21,6 +21,29 @@ To cut a release: add a section below and merge it, then
 - Tabs inside a group are indented under the group header.
 - The "+" on a hovered tab row is gone; it covered the state pill. Right-click
   a tab for **New tab below**, or use the "+" on the group or sidebar header.
+- Decision models, starting with TypeSafe's Jev. Connect it in Settings,
+  Decisions, or with `pitwall jev login`; the key stays in a 0600
+  `credentials` file or `TYPESAFE_API_KEY`, never in `config.toml`.
+  Nothing is sent until you connect. Then:
+  - Approvals suggest by default: a Claude Code or Codex permission request
+    shows the model's recommendation ("Jev: allow 96%") on the tab and the
+    pane. Auto mode approves or denies only above 0.95, never approves hard
+    rules (sudo, rm -rf, force pushes, git reset --hard, curl | sh,
+    secrets, writes outside the repo), and keeps an audit trail; a tab can
+    opt out from its menu.
+  - Attention triage (on by default) sorts what needs you as fyi, later,
+    soon or now for the jump-to-attention key and notifications; fyi sends
+    no notification.
+  - Optional: status for agent CLIs without hooks (Gemini CLI, OpenCode,
+    Aider, Amp, Cursor agent, Goose, Crush) read from their screen, and a
+    turn check that turns Done into Check when a turn needs review.
+  - `provider = "command"` runs your own classifier instead. Every call
+    has secrets removed, a 1.5 s timeout and a per-pane limit; any failure
+    leaves pitwall as it was. See the README's Decisions section.
+- A finished turn's notification shows the start of the agent's last
+  message.
+- The daemon protocol is now version 11 and the state file format 8. An
+  older pitwall cannot read state saved by this one.
 
 ## v0.1.0-alpha.3
 

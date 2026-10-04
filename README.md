@@ -325,6 +325,7 @@ optional name act on the pane's own tab.
 | `pitwall tab rename [name...]`        | Name this pane's tab; no name goes back to the automatic one  |
 | `pitwall tab close`                   | Close this pane's tab                                         |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview)            |
+| `pitwall jev login` / `status` / `logout` | Connect TypeSafe's Jev, test the connection, disconnect (see [Decisions](#decisions-jev)) |
 | `pitwall --version`                   | Print the version                                             |
 
 A name is a tab's `#` from `pitwall ls` (`3` or `#3`), else its title. A
@@ -543,6 +544,124 @@ prefer to edit the files yourself.
 The hooks do nothing outside a pitwall pane, so they are safe to keep
 installed globally.
 
+## Decisions (Jev)
+
+pitwall can ask a decision model quick questions about what your agents are
+doing. [TypeSafe's Jev](https://docs.typesafe.ai) is built for this: it
+answers yes/no, multiple-choice and rating questions with calibrated
+probabilities in roughly 70 to 500 ms and writes no text. pitwall uses it to
+recommend or make approval decisions, to sort what needs you by urgency, to
+see what agents without hooks are doing, and to flag finished turns that
+need a look.
+
+Nothing is sent anywhere until you connect a provider. Each call times out
+after 1.5 s, and a failed or slow answer changes nothing: pitwall does what
+it would have done without decisions.
+
+### Connect
+
+Get a key at [console.typesafe.ai/keys](https://console.typesafe.ai/keys),
+then either open Settings, Decisions, paste it and press Connect, or run:
+
+```sh
+pitwall jev login     # asks for the key without echo; or: pass show typesafe | pitwall jev login
+pitwall jev status    # one small real call: prints ok and the latency
+pitwall jev logout    # removes the key and turns decisions off
+```
+
+The key goes into `credentials` next to `config.toml`
+(`~/.config/pitwall/credentials`), readable only by you (mode 0600; on
+Windows it is in your profile, which other users cannot read). It never goes
+into `config.toml`, which people share with their dotfiles, and pitwall
+never logs or prints it. `TYPESAFE_API_KEY` in pitwall's environment wins
+over the file, as it does for TypeSafe's own SDKs. Connecting sets
+`provider = "jev"` under `[decisions]`.
+
+### Features
+
+After you connect, triage is on and approvals suggest. Screen reading and
+turn checks stay off until you turn them on.
+
+| Feature | What it does | What it sends, and when |
+| ------- | ------------ | ----------------------- |
+| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (default) shows the answer on the tab's pill, in the switcher and in the pane's corner ("Jev: allow 96%") and decides nothing. `auto` approves when p(allow) reaches `allow_above` (0.95) and denies when p(deny) reaches `deny_above` (0.95); anything less, any error and any timeout leave the agent's normal prompt. `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
+| Attention triage (`[decisions.triage]`) | Rates a pane that needs you as fyi, later, soon or now. The jump-to-attention key goes to the most urgent first, desktop notifications go out most urgent first (now is marked urgent), and fyi sends no notification. The pill reads "Agent Input · now" for now. | When an agent pane starts needing you: its state and its question, approval detail, error or turn summary. |
+| Agents without hooks (`[decisions.agents]`) | For Gemini CLI, OpenCode, Aider, Amp, Cursor agent, Goose and Crush (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (0.8). | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
+| Turn check (`[decisions.turn_check]`) | When an agent finishes a turn, asks whether it needs your review: failed tests, errors left, unfinished work. The Done pill reads Check when the answer reaches `threshold` (0.8). | When a turn ends: the agent's last message and its screen. |
+
+Before anything leaves your machine, pitwall removes what looks secret:
+private keys, `Authorization` and cookie headers, bearer tokens,
+`KEY=value` pairs and `--password`-style flags with secret-looking names,
+passwords in URLs, and common API token shapes (OpenAI, Anthropic, GitHub,
+GitLab, Slack, AWS, Google, npm, JWTs). That is pattern matching, not a
+guarantee, so leave a feature off for work you would not send. Each pane may
+make at most 30 calls a minute.
+
+### Automatic approvals and hard rules
+
+In auto mode these are never approved automatically, whatever the model
+says. The agent shows its normal prompt for them (a sure deny still
+denies):
+
+- `sudo`, `doas`, `pkexec`
+- any `rm` with both recursive and force flags (`rm -rf`, `rm -r -f`,
+  `--recursive --force`), inside the repo too: a shell line can reach
+  outside through a variable, a glob, a symlink or an earlier `cd`
+- force pushes (`-f`, `--force`, `--force-with-lease`, `+branch`) and
+  `git reset --hard`
+- a download piped into a shell or interpreter (`curl ... | sh`,
+  `wget ... | sudo bash`, `bash <(curl ...)`)
+- anything that touches `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env*`,
+  `.netrc`, `.git-credentials`, kube and docker configs, or a keychain
+- file writes outside the session's repo or working directory (symlinks
+  resolved), and writes into `.git`, `.claude` or `.codex`
+- any tool call whose input contains a string you list in `never_allow`
+
+pitwall never answers `AskUserQuestion` or a plan approval for you. Every
+automatic decision is kept for the daemon's run (the latest 200): Settings,
+Decisions lists the tab, tool, input, probabilities and rules, and a tab
+shows "2 auto-approved" under its name. Its "…" menu has "Stop
+auto-approving here" for that tab alone.
+
+Claude Code and Codex take the decision from their `PermissionRequest` hook,
+which `pitwall hooks install` already registers; the hook waits up to 4.5 s
+for the answer. Shell commands that write outside the repo are not parsed;
+the model judges those.
+
+### Costs
+
+Jev bills per input token, about $0.04 per million; output is free. A
+question is a few hundred to a few thousand tokens, so a busy day of agents
+costs cents. Settings, Decisions shows each feature's calls and failures
+today.
+
+### A local model instead
+
+Set `provider = "command"` and `command = ["/path/to/classifier", "--flag"]`
+under `[decisions]`. pitwall runs the command for every question, writes the
+request on its stdin and reads the reply from its stdout, in Jev's shapes:
+
+```json
+{"state": {"tool": "Bash", "input": {"command": "go test ./..."}},
+ "questions": {"verdict": {"type": "choice", "instructions": "...",
+   "criteria": {"allow": "...", "ask": "...", "deny": "..."}}}}
+```
+
+```json
+{"answers": {"verdict": {"type": "choice", "choice": "allow",
+   "probabilities": {"allow": 0.96, "ask": 0.03, "deny": 0.01}, "confidence": 0.9}}}
+```
+
+A `score` answer carries `score`, `probabilities` keyed `"0"`, `"1"`, ...
+and `confidence`; a `noul` answer carries `noul`, the probability of yes.
+The same timeout and redaction apply.
+
+### Turn it off
+
+Set an approvals mode of `off` or switch a feature off in Settings,
+Decisions. Disconnect there, or run `pitwall jev logout`, to stop everything:
+with `provider = ""` nothing is sent.
+
 ## Where things live
 
 | What                | Where                                                         |
@@ -551,6 +670,7 @@ installed globally.
 | Daemon log          | `~/.local/state/pitwall/daemon.log`                           |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
+| Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
 | Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
 
 macOS uses the same paths. On Windows, config and themes live in
