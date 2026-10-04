@@ -21,12 +21,18 @@ func fakeSession(int) int { return 200 }
 
 var execd atomic.Bool
 
+// commGone makes the leader of group 700 report another comm, as when
+// the program exited and its pid went to something else.
+var commGone atomic.Bool
+
 func fakeComm(pid int) string {
 	switch {
 	case pid == 200 && execd.Load():
 		return "codex"
 	case pid == 200:
 		return shellComm
+	case pid == 700 && commGone.Load():
+		return "zsh"
 	}
 	_, comm := fakeIdentify(pid)
 	return comm
@@ -40,6 +46,8 @@ func fakeIdentify(pg int) (model.Provider, string) {
 		return model.ProviderCodex, "codex"
 	case pg == 700:
 		return "", "gemini"
+	case pg == 701:
+		return "", "opencode"
 	}
 	return "", "sleep"
 }

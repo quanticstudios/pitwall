@@ -121,15 +121,12 @@ func statusText(code int, body []byte, key string) string {
 	default:
 		hint = http.StatusText(code)
 	}
-	msg := strings.Join(strings.Fields(string(body)), " ")
-	if len(msg) > 200 {
-		msg = msg[:200] + "…"
-	}
+	msg := clip(strings.Join(strings.Fields(Redact(string(body), key)), " "), 200) // redact first: a cut can split a key
 	out := fmt.Sprintf("HTTP %d, %s", code, hint)
 	if msg != "" {
 		out += ": " + msg
 	}
-	return Redact(out, key)
+	return out
 }
 
 func decodeAnswers(data []byte) (map[string]Answer, error) {

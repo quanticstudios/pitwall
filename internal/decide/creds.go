@@ -46,6 +46,9 @@ func LoadKey(path string) (key, source string, err error) {
 	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
 		return "", "", fmt.Errorf("%s can be read by other users; run chmod 600 on it", path)
 	}
+	if di, err := os.Stat(filepath.Dir(path)); err == nil && runtime.GOOS != "windows" && di.Mode().Perm()&0o022 != 0 {
+		return "", "", fmt.Errorf("%s can be changed by other users, who could swap the credentials file; run chmod 700 on it", filepath.Dir(path))
+	}
 	var c credentials
 	if _, err := toml.DecodeFile(path, &c); err != nil {
 		return "", "", fmt.Errorf("%s: not a valid credentials file", path)
@@ -69,9 +72,11 @@ func CheckKey(key string) error {
 	return nil
 }
 
-// SaveKey writes key to the credentials file at path with mode 0600, in a
-// directory only the user can enter. On Windows the file inherits the
-// user profile's ACL, which keeps other users out.
+// SaveKey writes key to the credentials file at path with mode 0600. On
+// Unix the directory is made private (0700) when others can read or
+// change it. On Windows pitwall sets no ACL: the file inherits the ACL of
+// its folder under the user profile, which by default keeps other users
+// out but is not checked.
 func SaveKey(path, key string) error {
 	if err := CheckKey(key); err != nil {
 		return err
@@ -79,6 +84,17 @@ func SaveKey(path, key string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
+	}
+	if runtime.GOOS != "windows" {
+		di, err := os.Stat(dir)
+		if err != nil {
+			return err
+		}
+		if di.Mode().Perm()&0o077 != 0 {
+			if err := os.Chmod(dir, di.Mode().Perm()&^0o077); err != nil {
+				return fmt.Errorf("make %s private: %w", dir, err)
+			}
+		}
 	}
 	f, err := os.CreateTemp(dir, ".credentials-*") // created 0600
 	if err != nil {

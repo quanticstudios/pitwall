@@ -168,13 +168,20 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 // keeps as its Detail.
 const summaryLen = 300
 
-// summary is the start of msg with whitespace collapsed.
+// summary is the start of msg with whitespace collapsed, cut between
+// words so no token (a key, say) is ever split in half.
 func summary(msg string) string {
 	r := []rune(strings.Join(strings.Fields(msg), " "))
-	if len(r) > summaryLen {
-		return string(r[:summaryLen-1]) + "…"
+	if len(r) <= summaryLen {
+		return string(r)
 	}
-	return string(r)
+	s := string(r[:summaryLen-1])
+	if i := strings.LastIndexByte(s, ' '); i > 0 {
+		s = s[:i]
+	} else {
+		s = "" // one long token: none of it
+	}
+	return s + "…"
 }
 
 func decode(b []byte) (payload, error) {

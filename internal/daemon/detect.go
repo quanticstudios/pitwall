@@ -122,10 +122,15 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		}
 	}
 	// An agent CLI without hooks, read by the decision model. Only these
-	// programs: an ordinary shell's output is never sent.
+	// programs: an ordinary shell's output is never sent. The foreground
+	// is read again after the capture, so a program that exited in
+	// between cannot get the shell's screen sent under its name.
 	reader := ""
 	if prov == "" && (!own || l.shell == "") && slices.Contains(l.screens, comm) {
 		reader = comm
+		if fg2 := l.p.(foregrounder).Foreground(); fg2 != fg || commOf(fg) != comm {
+			return
+		}
 	}
 	var cwd string
 	if own && l.shell != "" && prov == "" {

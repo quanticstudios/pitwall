@@ -66,6 +66,23 @@ func verdict(allow, ask, deny float64) decide.Answer {
 	return decide.Answer{Type: decide.Choice, Choice: c, Confidence: 0.9, Probabilities: map[string]float64{decide.Allow: allow, decide.Ask: ask, decide.Deny: deny}}
 }
 
+// urgency is a triage answer of level n with a full distribution.
+func urgency(n int) decide.Answer {
+	p := map[string]float64{"0": 0, "1": 0, "2": 0, "3": 0}
+	p[fmt.Sprint(n)] = 1
+	return decide.Answer{Type: decide.Score, Score: float64(n), Confidence: 0.9, Probabilities: p}
+}
+
+// status is a screen answer with confidence conf on choice.
+func status(choice string, conf float64) decide.Answer {
+	p := map[string]float64{}
+	for _, o := range []string{decide.ScreenWorking, decide.ScreenWaiting, decide.ScreenApproval, decide.ScreenDone, decide.ScreenIdle} {
+		p[o] = 0
+	}
+	p[choice] = 1
+	return decide.Answer{Type: decide.Choice, Choice: choice, Confidence: conf, Probabilities: p}
+}
+
 func hookFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", "agent", "testdata", name+".json"))
@@ -131,7 +148,7 @@ func hookJSON(t *testing.T, d *Daemon, payload string) []byte {
 func TestSuggestShowsAdvice(t *testing.T) {
 	m := &fakeModel{answers: map[string]decide.Answer{
 		"verdict": verdict(0.96, 0.03, 0.01),
-		"urgency": {Type: decide.Score, Score: 2, Confidence: 0.8},
+		"urgency": urgency(2),
 	}}
 	d := decisionDaemon(t, m, config.ModeSuggest)
 	if out := hookJSON(t, d, gitPushRequest); out != nil {
@@ -158,7 +175,7 @@ func TestSuggestShowsAdvice(t *testing.T) {
 }
 
 func TestAutoApproves(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"verdict": verdict(0.97, 0.02, 0.01), "urgency": {Type: decide.Score, Score: 1}}}
+	m := &fakeModel{answers: map[string]decide.Answer{"verdict": verdict(0.97, 0.02, 0.01), "urgency": urgency(1)}}
 	d := decisionDaemon(t, m, config.ModeAuto)
 	out := hookJSON(t, d, gitPushRequest)
 	if string(out) != string(agent.PermissionDecision("allow", "")) {
@@ -263,7 +280,7 @@ func TestQuestionsAreNeverAnswered(t *testing.T) {
 }
 
 func TestTurnCheck(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.9}, "urgency": {Type: decide.Score, Score: 3}}}
+	m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.9}, "urgency": urgency(3)}}
 	d := decisionDaemon(t, m, config.ModeSuggest)
 	hook(t, d, "claude_user_prompt_submit")
 	hook(t, d, "claude_stop")
@@ -343,22 +360,27 @@ func TestScreenReadDue(t *testing.T) {
 	a := []vt.Cell{{Content: "a"}}
 	b := []vt.Cell{{Content: "b"}}
 	t0 := time.Unix(1000, 0)
-	r := &screenRead{}
-	if !r.due(a, t0) {
+	r, p := &screenRead{}, &screenPace{}
+	if !r.due(p, a, t0) {
 		t.Fatal("first screen not due")
 	}
-	r.last, r.cells = t0, a
-	if r.due(b, t0.Add(time.Second)) {
+	p.last, r.cells = t0, a
+	if r.due(p, b, t0.Add(time.Second)) {
 		t.Error("due again within 2 s")
 	}
-	if r.due(a, t0.Add(3*time.Second)) {
+	if r.due(p, a, t0.Add(3*time.Second)) {
 		t.Error("an unchanged screen is due")
 	}
-	if !r.due(b, t0.Add(2*time.Second)) {
+	if !r.due(p, b, t0.Add(2*time.Second)) {
 		t.Error("a changed screen after 2 s is not due")
 	}
-	r.busy = true
-	if r.due(b, t0.Add(5*time.Second)) {
+	// Another program in the same pane starts a new record but keeps the
+	// pane's pace: still not due within 2 s of the last send.
+	if (&screenRead{agent: "other"}).due(p, b, t0.Add(time.Second)) {
+		t.Error("a program change reset the pane's pace")
+	}
+	p.busy = true
+	if r.due(p, b, t0.Add(5*time.Second)) {
 		t.Error("due while a read is on its way")
 	}
 }
@@ -367,11 +389,11 @@ func TestScreenReadDue(t *testing.T) {
 // listed program is read, at most once per screenEvery while its screen
 // changes, and a sure answer sets the activity.
 func TestScreenReading(t *testing.T) {
-	defer func(d time.Duration) { screenEvery = d }(screenEvery)
+	old := screenEvery
+	t.Cleanup(func() { screenEvery = old }) // after openLive's cleanup stops the poll
 	screenEvery = 100 * time.Millisecond
 	d, lp, id := openLive(t, 500) // "sleep", not listed
-	m := &fakeModel{answers: map[string]decide.Answer{"status": {Type: decide.Choice, Choice: decide.ScreenWaiting, Confidence: 0.9,
-		Probabilities: map[string]float64{decide.ScreenWaiting: 0.9, decide.ScreenWorking: 0.1}}}}
+	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWaiting, 0.9)}}
 	d.mu.Lock()
 	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
 		Programs: config.HooklessAgents, Timeout: time.Second}}
@@ -410,7 +432,7 @@ func TestScreenReading(t *testing.T) {
 	}
 	// An unsure answer changes nothing.
 	m.mu.Lock()
-	m.answers["status"] = decide.Answer{Type: decide.Choice, Choice: decide.ScreenWorking, Confidence: 0.5, Probabilities: map[string]float64{decide.ScreenWorking: 0.6}}
+	m.answers["status"] = status(decide.ScreenWorking, 0.5)
 	m.mu.Unlock()
 	lp.show("Gemini maybe working", false)
 	time.Sleep(3 * screenEvery)
@@ -425,5 +447,135 @@ func TestScreenReading(t *testing.T) {
 	d.mu.Unlock()
 	if kept {
 		t.Error("screen record kept after the program left")
+	}
+}
+
+// gateModel holds every answer until release is closed.
+type gateModel struct {
+	fakeModel
+	asked   chan struct{}
+	release chan struct{}
+}
+
+func (g *gateModel) Ask(ctx context.Context, r decide.Request) (map[string]decide.Answer, error) {
+	select {
+	case g.asked <- struct{}{}:
+	default:
+	}
+	<-g.release
+	return g.fakeModel.Ask(ctx, r)
+}
+
+// An answer that comes back after the tab turned auto off, the settings
+// changed, or the approval went away decides nothing.
+func TestAutoRevalidatesBeforeAnswering(t *testing.T) {
+	for name, change := range map[string]func(t *testing.T, d *Daemon){
+		"tab auto off": func(t *testing.T, d *Daemon) {
+			must(t, d.handle(context.Background(), proto.SetAutoApprove{WorkspaceID: "w", Off: true}))
+		},
+		"mode changed": func(t *testing.T, d *Daemon) {
+			x := d.o.Decisions()
+			x.Settings.Approvals = config.ModeSuggest
+			d.o.Decisions = func() Decisions { return x }
+			d.refreshDecisions()
+		},
+		"key changed": func(t *testing.T, d *Daemon) {
+			x := d.o.Decisions()
+			x.Secrets = []string{"another-key-123"}
+			d.o.Decisions = func() Decisions { return x }
+			d.refreshDecisions()
+		},
+		"approval answered": func(t *testing.T, d *Daemon) { hook(t, d, "claude_post_tool_use") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := &gateModel{fakeModel: fakeModel{answers: map[string]decide.Answer{"verdict": verdict(0.99, 0.01, 0)}},
+				asked: make(chan struct{}, 1), release: make(chan struct{})}
+			d := decisionDaemon(t, &g.fakeModel, config.ModeAuto)
+			x := d.o.Decisions()
+			x.Provider = g
+			d.o.Decisions = func() Decisions { return x }
+			d.mu.Lock()
+			d.dec.cur = x
+			d.mu.Unlock()
+			out := make(chan []byte, 1)
+			go func() { out <- hookJSON(t, d, gitPushRequest) }()
+			<-g.asked
+			change(t, d)
+			close(g.release)
+			if o := <-out; o != nil {
+				t.Errorf("decided after the change: %s", o)
+			}
+		})
+	}
+}
+
+// Auto mode fails closed: a call pitwall cannot fully check, one too long
+// to send whole, and an inconsistent answer all get the normal prompt.
+func TestAutoFailsClosed(t *testing.T) {
+	for name, tc := range map[string]struct {
+		payload string
+		answer  decide.Answer
+		label   string
+	}{
+		"pipe": {`{"session_id":"s1","transcript_path":"/t","cwd":"/home/u/repo","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"go test ./... | tee out"}}`,
+			verdict(0.99, 0.01, 0), "unchecked: shell syntax '|'"},
+		"unknown tool": {`{"session_id":"s1","transcript_path":"/t","cwd":"/home/u/repo","hook_event_name":"PermissionRequest","tool_name":"WebFetch","tool_input":{"url":"https://example.com"}}`,
+			verdict(0.99, 0.01, 0), "unchecked: tool pitwall cannot check"},
+		"too long": {`{"session_id":"s1","transcript_path":"/t","cwd":"/home/u/repo","hook_event_name":"PermissionRequest","tool_name":"Write","tool_input":{"file_path":"/home/u/repo/a.txt","content":"` + strings.Repeat("data ", 20000) + `"}}`,
+			verdict(0.99, 0.01, 0), "input too long to check"},
+		"inconsistent": {gitPushRequest,
+			decide.Answer{Type: decide.Choice, Choice: decide.Deny, Confidence: 1, Probabilities: map[string]float64{decide.Allow: 1, decide.Ask: 0, decide.Deny: 0}}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := &fakeModel{answers: map[string]decide.Answer{"verdict": tc.answer}}
+			d := decisionDaemon(t, m, config.ModeAuto)
+			if out := hookJSON(t, d, tc.payload); out != nil {
+				t.Fatalf("decided: %s", out)
+			}
+			if a := d.activityOf("a"); a.AdviceRule != tc.label {
+				t.Errorf("advice rule %q, want %q", a.AdviceRule, tc.label)
+			}
+		})
+	}
+}
+
+// A screen captured while its program exits is not sent under its name.
+func TestScreenRecheckedAfterCapture(t *testing.T) {
+	old := screenEvery
+	t.Cleanup(func() { screenEvery = old; commGone.Store(false) })
+	screenEvery = 50 * time.Millisecond
+	commGone.Store(true)
+	d, lp, _ := openLive(t, 700)
+	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWaiting, 0.9)}}
+	d.mu.Lock()
+	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
+		Programs: config.HooklessAgents, Timeout: time.Second}}
+	d.mu.Unlock()
+	lp.show("$ cat secrets.txt", false)
+	polls()
+	if q := m.questions(); len(q) > 0 {
+		t.Errorf("sent a screen after the program left: %v", q)
+	}
+}
+
+// Switching between agent CLIs in a pane does not send more often.
+func TestScreenPaceAcrossPrograms(t *testing.T) {
+	old := screenEvery
+	t.Cleanup(func() { screenEvery = old })
+	screenEvery = 200 * time.Millisecond
+	d, lp, _ := openLive(t, 700)
+	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWorking, 0.9)}}
+	d.mu.Lock()
+	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
+		Programs: config.HooklessAgents, Timeout: time.Second}}
+	d.mu.Unlock()
+	start := time.Now()
+	for i := 0; time.Since(start) < 600*time.Millisecond; i++ {
+		lp.fgGroup.Store(int64(700 + i%2))
+		lp.show(fmt.Sprint("screen ", i), false)
+		time.Sleep(15 * time.Millisecond)
+	}
+	if n := len(m.questions()); n > 4 {
+		t.Errorf("%d reads in 600 ms at one per 200 ms", n)
 	}
 }

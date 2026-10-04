@@ -7,8 +7,8 @@ import (
 )
 
 // The questions pitwall asks and the states it sends, one pair per
-// feature. Text is cut so state plus question stays far below Jev's 32k
-// token budget.
+// feature. States hold the full text; Client.Prepare redacts and only
+// then cuts it to fit Jev's budget.
 
 // Approval verdicts.
 const (
@@ -33,10 +33,10 @@ func ApprovalQuestions() map[string]Question {
 
 // ApprovalState is what an approval question is asked about.
 func ApprovalState(agentName string, c Call, prompt string) map[string]any {
-	var input any = clip(string(c.Input), 6000)
+	var input any = string(c.Input)
 	var v any
 	if json.Unmarshal(c.Input, &v) == nil {
-		input = clipValue(v, 6000)
+		input = v
 	}
 	return map[string]any{
 		"agent":       agentName,
@@ -44,7 +44,7 @@ func ApprovalState(agentName string, c Call, prompt string) map[string]any {
 		"input":       input,
 		"cwd":         c.Cwd,
 		"repo_root":   c.Root,
-		"user_prompt": clip(prompt, 2000),
+		"user_prompt": prompt,
 	}
 }
 
@@ -55,14 +55,16 @@ func Approval(ans map[string]Answer) (string, map[string]float64) {
 	return a.Choice, a.Probabilities
 }
 
-// AutoVerdict is what auto mode does with an answer: Deny when p(deny)
-// reaches denyAbove, Allow when p(allow) reaches allowAbove and no hard
-// rule was broken, else "" (no decision: the agent asks as usual).
-func AutoVerdict(probs map[string]float64, rules []string, allowAbove, denyAbove float64) string {
+// AutoVerdict is what auto mode does with an answer: Deny when the model
+// chose deny with p(deny) at denyAbove or more; Allow when the model chose
+// allow with p(allow) at allowAbove or more and canAllow (the call was
+// fully checked, broke no rule and was sent whole); else "" (no decision:
+// the agent asks as usual). Deny needs no check: it is the safe direction.
+func AutoVerdict(choice string, probs map[string]float64, canAllow bool, allowAbove, denyAbove float64) string {
 	switch {
-	case probs[Deny] >= denyAbove:
+	case choice == Deny && probs[Deny] >= denyAbove:
 		return Deny
-	case len(rules) == 0 && probs[Allow] >= allowAbove:
+	case canAllow && choice == Allow && probs[Allow] >= allowAbove:
 		return Allow
 	}
 	return ""
@@ -87,7 +89,7 @@ func TriageQuestions() map[string]Question {
 
 // TriageState is what triage is asked about.
 func TriageState(agentName, state, text string) map[string]any {
-	return map[string]any{"agent": agentName, "state": state, "text": clip(text, 4000)}
+	return map[string]any{"agent": agentName, "state": state, "text": text}
 }
 
 // Urgency reads the level triage picked.
@@ -122,7 +124,7 @@ func ScreenQuestions() map[string]Question {
 
 // ScreenState is what the screen question is asked about.
 func ScreenState(agentName, screen string) map[string]any {
-	return map[string]any{"agent": agentName, "screen": clipEnd(screen, 6000)}
+	return map[string]any{"agent": agentName, "screen": screen}
 }
 
 // Screen reads the status and its confidence.
@@ -142,45 +144,113 @@ func TurnQuestions() map[string]Question {
 
 // TurnState is what the turn check is asked about.
 func TurnState(agentName, lastMessage, screen string) map[string]any {
-	return map[string]any{"agent": agentName, "last_message": clipEnd(lastMessage, 4000), "screen": clipEnd(screen, 4000)}
+	return map[string]any{"agent": agentName, "last_message": lastMessage, "screen": screen}
 }
 
 // Review reads the probability the turn needs review.
 func Review(ans map[string]Answer) float64 { return ans["review"].Noul }
 
-// clip cuts s to its first n runes.
-func clip(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
+// Budget for one state, in runes, after redaction: about 12k tokens,
+// well under Jev's 32k for the state and the longest question.
+const (
+	stateBudget = 48000
+	stringMax   = 8000
+)
+
+// endKeys are state fields whose latest text is at the end.
+var endKeys = map[string]bool{"screen": true, "last_message": true}
+
+// Prepare redacts state and only then cuts it to the budget: each string
+// to stringMax runes, then all of them shorter until the whole fits.
+// truncated reports any cut; an approval with a cut input is never
+// approved automatically, as the model did not see all of it.
+func (c *Client) Prepare(state any) (out any, truncated bool) {
+	red := RedactValue(state, c.secrets()...)
+	limit := stringMax
+	for {
+		cut := false
+		out = clipAll(red, "", limit, &cut)
+		if size(out) <= stateBudget || limit < 64 {
+			return out, truncated || cut
+		}
+		truncated, limit = true, limit/2
 	}
-	return string(r[:n]) + "…"
 }
 
-// clipEnd cuts s to its last n runes, where a screen's latest output is.
-func clipEnd(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
+func (c *Client) secrets() []string {
+	if c == nil {
+		return nil
 	}
-	return "…" + string(r[len(r)-n:])
+	return c.Secrets
 }
 
-// clipValue clips every string in v.
-func clipValue(v any, n int) any {
+// clipAll copies v with every string cut to limit runes at a word
+// boundary, so no token is split, keeping the end for endKeys.
+func clipAll(v any, key string, limit int, cut *bool) any {
 	switch t := v.(type) {
 	case string:
-		return clip(t, n)
+		r := []rune(t)
+		if len(r) <= limit {
+			return t
+		}
+		*cut = true
+		if endKeys[key] {
+			s := string(r[len(r)-limit:])
+			if i := strings.IndexAny(s, " \n\t"); i >= 0 {
+				s = s[i+1:]
+			} else {
+				s = ""
+			}
+			return "…" + s
+		}
+		s := string(r[:limit])
+		if i := strings.LastIndexAny(s, " \n\t"); i > 0 {
+			s = s[:i]
+		} else {
+			s = "" // one long token: none of it, so no half key
+		}
+		return s + "…"
 	case map[string]any:
+		out := make(map[string]any, len(t))
 		for k, x := range t {
-			t[k] = clipValue(x, n)
+			out[k] = clipAll(x, k, limit, cut)
 		}
+		return out
 	case []any:
+		out := make([]any, len(t))
 		for i, x := range t {
-			t[i] = clipValue(x, n)
+			out[i] = clipAll(x, key, limit, cut)
 		}
+		return out
 	}
 	return v
+}
+
+// size is the runes of every string and key in v.
+func size(v any) int {
+	switch t := v.(type) {
+	case string:
+		return len([]rune(t))
+	case map[string]any:
+		n := 0
+		for k, x := range t {
+			n += len(k) + size(x)
+		}
+		return n
+	case []any:
+		n := 0
+		for _, x := range t {
+			n += size(x)
+		}
+		return n
+	}
+	return 8
+}
+
+// clip cuts s to its first n runes, at a word boundary when there is one.
+func clip(s string, n int) string {
+	cut := false
+	return clipAll(s, "", n, &cut).(string)
 }
 
 // Summary is a short line about a call for the audit trail: the command,

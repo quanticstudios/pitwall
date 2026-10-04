@@ -21,8 +21,9 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:proxy-)?(?:authorization|cookie|set-cookie|x-api-key|api-key)\s*:\s*(?P<v>[^\r\n]+)`),
 	// Bearer and Basic tokens anywhere.
 	regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+(?P<v>[A-Za-z0-9._~+/=-]{8,})`),
-	// KEY=value and "key": "value" with a secret-looking name.
-	regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])["']?` + secretName + `["']?\s*(?:=|:=|:)\s*(?P<v>"[^"\r\n]*"|'[^'\r\n]*'|[^\s"',;}]+)`),
+	// KEY=value and "key": "value" with a secret-looking name. A quoted
+	// value may span lines and may be cut off.
+	regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])["']?` + secretName + `["']?\s*(?:=|:=|:)\s*(?P<v>"[^"]*(?:"|\z)|'[^']*(?:'|\z)|[^\s"',;}]+)`),
 	// Command-line flags such as --password=x or --token x.
 	regexp.MustCompile(`(?i)--?(?:password|passwd|token|secret|api-key|apikey|access-key|auth)(?:=|\s+)(?P<v>[^\s"']+|"[^"]*"|'[^']*')`),
 	// Credentials in URLs.
@@ -69,8 +70,13 @@ func Redact(s string, extra ...string) string {
 	return s
 }
 
+// secretKey is a map key whose value is secret whatever it looks like.
+var secretKey = regexp.MustCompile(`(?i)^` + secretName + `$`)
+
 // RedactValue redacts every string in v, a string or JSON built from
-// maps, slices and strings, and returns the copy. Map keys are kept.
+// maps, slices and strings, and returns the copy. Map keys are kept; the
+// whole value under a secret-looking key ("password", "API_KEY") is
+// replaced, at any depth.
 func RedactValue(v any, extra ...string) any {
 	switch t := v.(type) {
 	case string:
@@ -78,12 +84,20 @@ func RedactValue(v any, extra ...string) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, x := range t {
+			if secretKey.MatchString(k) {
+				out[k] = Redacted
+				continue
+			}
 			out[k] = RedactValue(x, extra...)
 		}
 		return out
 	case map[string]string:
 		out := make(map[string]string, len(t))
 		for k, x := range t {
+			if secretKey.MatchString(k) {
+				out[k] = Redacted
+				continue
+			}
 			out[k] = Redact(x, extra...)
 		}
 		return out

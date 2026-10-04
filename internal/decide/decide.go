@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -201,9 +202,13 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 	}
 	ctx, cancel := context.WithTimeout(ctx, t)
 	defer cancel()
-	ans, err := c.P.Ask(ctx, Request{State: RedactValue(state, c.Secrets...), Questions: qs})
+	prepared, _ := c.Prepare(state)
+	ans, err := c.P.Ask(ctx, Request{State: prepared, Questions: qs})
 	if err == nil {
 		err = check(qs, ans)
+	}
+	if err == nil && ctx.Err() != nil {
+		err = errors.New("no answer within the timeout") // an answer after the deadline is not used
 	}
 	if err != nil {
 		err = errors.New(Redact(err.Error(), c.Secrets...))
@@ -215,7 +220,14 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 	return ans, err
 }
 
-// check reports the first question without a well-formed answer.
+// probTolerance is how far a distribution's sum may be from 1.
+const probTolerance = 0.02
+
+// check reports the first question without a well-formed answer. A
+// choice or score answer needs a probability for every option or level
+// and no other, each in [0, 1], summing to 1, with the chosen option at
+// the top; anything else is no answer, so an inconsistent reply can never
+// turn into an approval.
 func check(qs map[string]Question, ans map[string]Answer) error {
 	for _, id := range slices.Sorted(maps.Keys(qs)) {
 		q := qs[id]
@@ -225,23 +237,48 @@ func check(qs map[string]Question, ans map[string]Answer) error {
 			return fmt.Errorf("no answer to %q", id)
 		case a.Type != q.Type:
 			return fmt.Errorf("answer to %q is a %s, want %s", id, a.Type, q.Type)
-		case a.Type == Noul && (a.Noul < 0 || a.Noul > 1):
-			return fmt.Errorf("answer to %q is out of range", id)
-		case a.Type == Choice:
+		}
+		var keys []string
+		switch a.Type {
+		case Noul:
+			if a.Noul < 0 || a.Noul > 1 {
+				return fmt.Errorf("answer to %q is out of range", id)
+			}
+			continue
+		case Choice:
 			opts, _ := q.Criteria.(map[string]string)
 			if _, ok := opts[a.Choice]; !ok {
 				return fmt.Errorf("answer to %q is not one of its options", id)
 			}
-		case a.Type == Score:
+			keys = slices.Collect(maps.Keys(opts))
+		case Score:
 			levels, _ := q.Criteria.([]string)
 			if a.Score < 0 || a.Score > float64(len(levels)-1) {
 				return fmt.Errorf("answer to %q is out of range", id)
 			}
-		}
-		for _, p := range a.Probabilities {
-			if p < 0 || p > 1 {
-				return fmt.Errorf("answer to %q has a probability out of range", id)
+			for i := range levels {
+				keys = append(keys, fmt.Sprint(i))
 			}
+		}
+		if len(a.Probabilities) != len(keys) {
+			return fmt.Errorf("answer to %q lacks probabilities", id)
+		}
+		sum, top := 0.0, 0.0
+		for _, k := range keys {
+			p, ok := a.Probabilities[k]
+			if !ok || p < 0 || p > 1 || math.IsNaN(p) {
+				return fmt.Errorf("answer to %q has a bad probability", id)
+			}
+			sum, top = sum+p, max(top, p)
+		}
+		if math.Abs(sum-1) > probTolerance {
+			return fmt.Errorf("answer to %q has probabilities that do not sum to 1", id)
+		}
+		if a.Type == Choice && a.Probabilities[a.Choice] < top {
+			return fmt.Errorf("answer to %q picks an option it rates lower than another", id)
+		}
+		if a.Confidence < 0 || a.Confidence > 1 || math.IsNaN(a.Confidence) {
+			return fmt.Errorf("answer to %q has a bad confidence", id)
 		}
 	}
 	return nil

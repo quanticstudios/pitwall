@@ -41,11 +41,13 @@ func (x Decisions) name() string {
 // and limit, which lock themselves.
 type decisions struct {
 	cur     Decisions
+	gen     int // bumps on every change to cur; answers to an older one are not acted on
 	counts  decide.Counters
 	limit   decide.Limiter
 	audit   []model.AutoDecision // oldest first, at most auditCap
 	prompts map[string]string    // pane: the latest user prompt
 	screens map[string]*screenRead
+	paces   map[string]*screenPace // pane: kept while the pane lives, across programs
 }
 
 // auditCap is how many automatic decisions the daemon remembers.
@@ -106,7 +108,8 @@ func (d *Daemon) refreshDecisions() {
 	defer d.mu.Unlock()
 	old := d.dec.cur
 	d.dec.cur = x
-	if old.name() != x.name() || !reflect.DeepEqual(old.Settings, x.Settings) {
+	if old.name() != x.name() || !reflect.DeepEqual(old.Settings, x.Settings) || !slices.Equal(old.Secrets, x.Secrets) {
+		d.dec.gen++
 		d.changed()
 	}
 }
@@ -121,6 +124,7 @@ func (d *Daemon) client() *decide.Client {
 func (d *Daemon) forgetDecisions(id string) {
 	delete(d.dec.prompts, id)
 	delete(d.dec.screens, id)
+	delete(d.dec.paces, id)
 	d.dec.limit.Forget(id)
 }
 
@@ -150,6 +154,7 @@ func clearDecisions(a *model.Activity) {
 type decideJob struct {
 	pane  string
 	at    time.Time // UpdatedAt of the activity the answers are for
+	gen   int       // decisions.gen when asked
 	agent string
 	c     *decide.Client
 	s     config.DecideSettings
@@ -184,7 +189,7 @@ func (d *Daemon) planDecisions(p model.Pane, m proto.AgentEvent, now time.Time) 
 		return nil // no provider, or the event changed nothing
 	}
 	a := &d.st.Activities[i]
-	j := &decideJob{pane: p.ID, at: now, agent: string(m.Provider), c: d.client(), s: x.Settings, wsID: p.WorkspaceID}
+	j := &decideJob{pane: p.ID, at: now, gen: d.dec.gen, agent: string(m.Provider), c: d.client(), s: x.Settings, wsID: p.WorkspaceID}
 	w := d.workspace(p.WorkspaceID)
 	if ev, tool, input, cwd, ok := agent.Request(m.Payload); ok && ev == "PermissionRequest" && a.State == model.StatePendingApproval &&
 		!agent.NeedsInteraction(tool) && x.Settings.Approvals != config.ModeOff {
@@ -251,49 +256,70 @@ func (d *Daemon) onActivity(pane string, at time.Time, f func(a *model.Activity)
 	d.changed()
 }
 
-// approve asks whether a permission request is safe, shows the answer on
-// the approval, and in auto mode returns the hook's allow or deny when
-// the answer clears its threshold. A hard rule blocks allow whatever the
-// answer. Any failure decides nothing.
+// approve asks whether a permission request is safe and shows the answer
+// on the approval. In auto mode it returns the hook's allow or deny, and
+// it fails closed: allow needs a call pitwall fully checked (CheckCall),
+// sent whole, with a consistent answer over the threshold; deny needs a
+// sure deny. Right before answering it checks, in one critical section,
+// that the approval still waits, the tab still allows auto, and the
+// provider and settings have not changed. Any failure decides nothing.
 func (d *Daemon) approve(ctx context.Context, j *decideJob) []byte {
-	rules := decide.HardRules(*j.call, j.s.NeverAllow)
-	ans, err := j.c.Ask(ctx, decide.FeatureApprovals, j.pane, decide.ApprovalState(j.agent, *j.call, j.prompt), decide.ApprovalQuestions())
+	chk := decide.CheckCall(*j.call, j.s.NeverAllow)
+	state, truncated := j.c.Prepare(decide.ApprovalState(j.agent, *j.call, j.prompt))
+	ans, err := j.c.Ask(ctx, decide.FeatureApprovals, j.pane, state, decide.ApprovalQuestions())
 	if err != nil {
 		log.Printf("pitwall: approvals: %v", err)
 		d.onActivity(j.pane, j.at, func(*model.Activity) {})
 		return nil
 	}
 	verdict, probs := decide.Approval(ans)
-	auto := ""
-	if j.auto {
-		auto = decide.AutoVerdict(probs, rules, j.s.AllowAbove, j.s.DenyAbove)
+	label := ""
+	if len(chk.Rules) > 0 {
+		label = chk.Rules[0]
 	}
 	now := time.Now()
-	d.onActivity(j.pane, j.at, func(a *model.Activity) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closing {
+		return nil
+	}
+	i := d.activityIndex(j.pane)
+	fresh := i >= 0 && d.st.Activities[i].UpdatedAt.Equal(j.at) && d.st.Activities[i].State == model.StatePendingApproval
+	auto := ""
+	if x := d.dec.cur; j.auto && fresh && ctx.Err() == nil && d.dec.gen == j.gen && x.on() && x.Settings.Approvals == config.ModeAuto {
+		if w := d.workspace(j.wsID); w != nil && !w.AutoOff {
+			auto = decide.AutoVerdict(verdict, probs, chk.CanAllow() && !truncated, x.Settings.AllowAbove, x.Settings.DenyAbove)
+		}
+	}
+	if j.auto && label == "" {
+		switch {
+		case chk.Unverified != "":
+			label = "unchecked: " + chk.Unverified
+		case truncated:
+			label = "input too long to check"
+		}
+	}
+	if fresh {
+		a := &d.st.Activities[i]
 		if auto != "" {
 			// The agent goes on without showing its prompt.
 			a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", now
 			clearDecisions(a)
-			return
+		} else {
+			a.Advice, a.AdviceP, a.AdviceRule = verdict, probs[verdict], label
 		}
-		a.Advice, a.AdviceP = verdict, probs[verdict]
-		if len(rules) > 0 {
-			a.AdviceRule = rules[0]
-		}
-	})
+	}
+	defer d.changed()
 	if auto == "" {
 		return nil
 	}
-	d.mu.Lock()
 	d.dec.audit = append(d.dec.audit, model.AutoDecision{
 		At: now, PaneID: j.pane, WorkspaceID: j.wsID, Tab: j.tab, Agent: model.Provider(j.agent), Tool: j.call.Tool,
-		Input: decide.Summary(*j.call, j.c.Secrets...), Verdict: auto, Allow: probs[decide.Allow], Ask: probs[decide.Ask], Deny: probs[decide.Deny], Rules: rules,
+		Input: decide.Summary(*j.call, j.c.Secrets...), Verdict: auto, Allow: probs[decide.Allow], Ask: probs[decide.Ask], Deny: probs[decide.Deny], Rules: chk.Rules,
 	})
 	if n := len(d.dec.audit); n > auditCap {
 		d.dec.audit = slices.Delete(d.dec.audit, 0, n-auditCap)
 	}
-	d.changed()
-	d.mu.Unlock()
 	return agent.PermissionDecision(auto, fmt.Sprintf("pitwall denied this automatically: the decision model judged it unsafe (deny %.0f%%). Ask the user if it is really needed.", probs[decide.Deny]*100))
 }
 
@@ -333,20 +359,26 @@ func (d *Daemon) turnCheck(ctx context.Context, j *decideJob) {
 // tests shorten it.
 var screenEvery = 2 * time.Second
 
-// screenRead is the screen reading of one pane running an agent CLI
-// without hooks. Guarded by d.mu.
+// screenRead is the screen reading of one program in a pane, an agent
+// CLI without hooks. Guarded by d.mu.
 type screenRead struct {
 	agent   string
 	cells   []vt.Cell // the screen last sent
-	last    time.Time // when it was sent
-	busy    bool      // a read is on its way
 	applied bool      // an answer set the pane's activity
 }
 
+// screenPace is a pane's last screen send, kept across program changes so
+// switching or restarting the program cannot send more often.
+type screenPace struct {
+	last time.Time // when a screen was last sent
+	busy bool      // a read is on its way
+}
+
 // due reports whether the screen should be read now: it changed since the
-// last read, which was screenEvery ago or more and has been answered.
-func (r *screenRead) due(cells []vt.Cell, now time.Time) bool {
-	return !r.busy && now.Sub(r.last) >= screenEvery && !slices.Equal(cells, r.cells)
+// last read of this program, and the pane's last send was screenEvery ago
+// or more and has been answered.
+func (r *screenRead) due(p *screenPace, cells []vt.Cell, now time.Time) bool {
+	return !p.busy && now.Sub(p.last) >= screenEvery && !slices.Equal(cells, r.cells)
 }
 
 // screenStates maps the screen question's options to activity states;
@@ -375,11 +407,19 @@ func (d *Daemon) readScreen(ctx context.Context, id, name string, g vt.Grid) {
 	if !r.applied {
 		d.setActivity(ctx, id, model.ProviderTerminal, model.StateTerminalRunning, name)
 	}
+	if d.dec.paces == nil {
+		d.dec.paces = map[string]*screenPace{}
+	}
+	pace := d.dec.paces[id]
+	if pace == nil {
+		pace = &screenPace{}
+		d.dec.paces[id] = pace
+	}
 	now := time.Now()
-	if !r.due(g.Cells, now) {
+	if !r.due(pace, g.Cells, now) {
 		return
 	}
-	r.busy, r.last, r.cells = true, now, g.Cells
+	pace.busy, pace.last, r.cells = true, now, g.Cells
 	c, threshold := d.client(), d.dec.cur.Settings.AgentThreshold
 	text := agent.ScreenText(g, 40)
 	go func() {
@@ -389,7 +429,7 @@ func (d *Daemon) readScreen(ctx context.Context, id, name string, g vt.Grid) {
 		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		r.busy = false
+		pace.busy = false
 		if d.closing || d.dec.screens[id] != r {
 			return // the program left the foreground meanwhile
 		}

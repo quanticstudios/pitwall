@@ -37,9 +37,9 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 		if ctx.Err() != nil {
 			return nil, errors.New("command: no answer within the timeout")
 		}
-		msg := strings.Join(strings.Fields(errb.String()), " ")
+		msg := clip(strings.Join(strings.Fields(Redact(errb.String())), " "), 300)
 		if msg != "" {
-			return nil, fmt.Errorf("command: %v: %s", err, Redact(msg))
+			return nil, fmt.Errorf("command: %v: %s", err, msg)
 		}
 		return nil, fmt.Errorf("command: %v", err)
 	}
