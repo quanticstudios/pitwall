@@ -23,11 +23,12 @@ import (
 
 // Config is config.toml.
 type Config struct {
-	Keys   Keys   `toml:"keys" doc:"Keybindings: a preset, then single actions overriding it. A value is a chord (\"Ctrl+Shift+T\"), an array of chords, or [] to unbind."`
-	Theme  Theme  `toml:"theme" doc:"Colors."`
-	Font   Font   `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
-	Layout Layout `toml:"layout" doc:"Spacing around panes, in dp."`
-	Term   Term   `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
+	Keys      Keys      `toml:"keys" doc:"Keybindings: a preset, then single actions overriding it. A value is a chord (\"Ctrl+Shift+T\"), an array of chords, or [] to unbind."`
+	Theme     Theme     `toml:"theme" doc:"Colors."`
+	Font      Font      `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
+	Layout    Layout    `toml:"layout" doc:"Spacing around panes, in dp."`
+	Term      Term      `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
+	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
 }
 
 // Keys is [keys]. Every Binding field is an action.
@@ -194,6 +195,8 @@ type Settings struct {
 	CopyOnSelect bool
 	// Links underlines links in panes and opens them on Ctrl+click.
 	Links bool
+	// Decisions is [decisions] resolved.
+	Decisions DecideSettings
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -339,6 +342,9 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
+	var di []issue
+	s.Decisions, di = resolveDecisions(c.Decisions)
+	fi = append(fi, di...)
 	if s.Font.UIFamily == "" {
 		s.Font.UIFamily = DefaultUIFamily
 	}
