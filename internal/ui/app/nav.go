@@ -452,8 +452,9 @@ func (n *nav) cyclePane(st *model.State, d int) {
 }
 
 // jumpAttention focuses the pane, in any session, that most recently
-// started needing the user (model.NeedsYou) and is unseen, a finished turn
-// after everything else; the focused pane counts as seen, so pressing again
+// started needing the user (model.NeedsYou) and is unseen, the most urgent
+// by triage first (model.UrgencyRank), a finished turn after everything
+// else of its urgency; the focused pane counts as seen, so pressing again
 // walks on. With nothing unseen it goes to the needs-you pane of highest
 // priority, then the next one on each press. With none it does nothing.
 // A pane in another session switches the window to that session.
@@ -477,6 +478,9 @@ func (n *nav) jumpAttention(st *model.State) {
 	switch {
 	case len(unseen) > 0:
 		slices.SortStableFunc(unseen, func(a, b model.Activity) int {
+			if ra, rb := model.UrgencyRank(a), model.UrgencyRank(b); ra != rb {
+				return rb - ra
+			}
 			if ca, cb := a.State == model.StateCompleted, b.State == model.StateCompleted; ca != cb {
 				if ca {
 					return 1

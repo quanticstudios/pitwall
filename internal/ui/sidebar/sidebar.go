@@ -85,6 +85,12 @@ type RenameGroup struct{ GroupID, Name string }
 // Ungroup deletes the group; its tabs become ungrouped.
 type Ungroup struct{ GroupID string }
 
+// SetAutoApprove turns automatic approval off (Off) or back on for a tab.
+type SetAutoApprove struct {
+	WorkspaceID string
+	Off         bool
+}
+
 // NewWorktreeSession asks for a tab in a fresh git worktree of the group's
 // repository.
 type NewWorktreeSession struct{ GroupID string }
@@ -181,6 +187,7 @@ const (
 	actDetach
 	actDelete
 	actNewBelow
+	actAuto
 	actCount
 )
 
@@ -651,6 +658,14 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		}
 		if s.menuItem[actDelete].Clicked(gtx) {
 			s.events = append(s.events, DeleteWorkspace{WorkspaceID: id})
+			s.closeMenus()
+		}
+		if s.menuItem[actAuto].Clicked(gtx) {
+			for _, ws := range v.st.Workspaces {
+				if ws.ID == id {
+					s.events = append(s.events, SetAutoApprove{WorkspaceID: id, Off: !ws.AutoOff})
+				}
+			}
 			s.closeMenus()
 		}
 	}
@@ -1188,6 +1203,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				)
 			}})
 		}
+		if n := v.st.Decide.AutoCount(ws.ID); n > 0 {
+			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, 11, quiet, fmt.Sprintf("%d auto-approved", n))
+			}})
+		}
 		switch {
 		case inRepo && hasStats && stats.MergeStatus == model.MergeConflicts:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -1337,7 +1357,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		}})
 	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), 10, col, PillText(a))
+		return label(gtx, th, semibold(th.UIFont), 10, col, PillText(a, v.st.Decide.Provider))
 	}})
 	d := hrowFit(gtx, h, gtx.Dp(4), items...)
 	off.Pop()
@@ -1430,6 +1450,13 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 		entries = append(entries, menuEntry{c: &s.menuItem[actGroupFolder], icon: projectIcon("folder"),
 			text: "Group tabs in " + baseName(ws.RepoRoot), hint: fmt.Sprint(n)})
 	}
+	if v.st.Decide.Auto {
+		text := "Stop auto-approving here"
+		if ws.AutoOff {
+			text = "Auto-approve here again"
+		}
+		entries = append(entries, menuEntry{c: &s.menuItem[actAuto], icon: icCircleCheck, text: text})
+	}
 	entries = append(entries,
 		menuEntry{c: &s.menuItem[actDetach], icon: icDetach, text: "Detach tab", sep: true},
 		menuEntry{c: &s.menuItem[actClose], icon: icX, text: "Close tab"})
@@ -1505,13 +1532,43 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, trigger int, ent
 	return tops
 }
 
-// PillText is a tab pill's label: the command a busy terminal runs,
-// else aide's label for the state.
-func PillText(a model.Activity) string {
+// PillText is a tab pill's label: the command a busy terminal runs, a
+// decision model's recommendation on an approval ("Jev: allow 96%"),
+// else aide's label for the state, with " · now" when triage says the
+// user is needed now. by is State.Decide.Provider.
+func PillText(a model.Activity, by string) string {
 	if a.State == model.StateTerminalRunning && a.Detail != "" {
 		return a.Detail
 	}
+	if s := AdviceText(a, by); s != "" {
+		return s
+	}
+	if a.Urgency == "now" && model.NeedsYou(a.State) {
+		return model.PillLabel(a) + " · now"
+	}
 	return model.PillLabel(a)
+}
+
+// AdviceText is the recommendation on a pending approval: "Jev: allow
+// 96%", or "Jev: ask · sudo" when a hard rule keeps pitwall from allowing
+// it; "" without one.
+func AdviceText(a model.Activity, by string) string {
+	if a.State != model.StatePendingApproval || a.Advice == "" {
+		return ""
+	}
+	name := DecideName(by)
+	if a.AdviceRule != "" && a.Advice != "deny" {
+		return name + ": ask · " + a.AdviceRule
+	}
+	return fmt.Sprintf("%s: %s %.0f%%", name, a.Advice, a.AdviceP*100)
+}
+
+// DecideName is how the UI names a decision provider.
+func DecideName(provider string) string {
+	if provider == "jev" {
+		return "Jev"
+	}
+	return "Model"
 }
 
 var homeDir = sync.OnceValue(func() string {
@@ -1842,7 +1899,7 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 		a := model.Aggregate(acts[ws.ID])
 		state, stateCol := "idle", th.Muted
 		if a != nil {
-			state, stateCol = PillText(*a), StateColor(th, a.State)
+			state, stateCol = PillText(*a, v.st.Decide.Provider), StateColor(th, a.State)
 		}
 		off := op.Offset(image.Pt(p+gtx.Dp(8), top+i*rowH)).Push(gtx.Ops)
 		gtx := gtx
