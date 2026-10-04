@@ -168,13 +168,42 @@ func runHook(args []string) {
 			return
 		}
 	}
-	conn, err := proto.Dial(path)
+	os.Stdout.Write(sendHook(path, pane, provider, payload, hookWait))
+}
+
+// hookWait is how long a permission request's hook waits for the
+// daemon's decision. The hooks are installed with a 5 s timeout.
+const hookWait = 4500 * time.Millisecond
+
+// sendHook forwards one hook event. For a permission request it waits up
+// to wait for the daemon's reply and returns what the hook should print:
+// an allow or deny decision, or nothing, which leaves the agent's prompt.
+func sendHook(path, pane string, provider model.Provider, payload []byte, wait time.Duration) []byte {
+	nc, err := net.Dial("unix", path)
 	if err != nil {
-		return
+		return nil
 	}
+	conn := proto.NewConn(nc)
 	defer conn.Close()
+	reply := agent.Event(payload) == "PermissionRequest"
 	conn.Send(proto.Hello{Version: proto.Version, Kind: "hook"})
-	conn.Send(proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload})
+	conn.Send(proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload, Reply: reply})
+	if !reply {
+		return nil
+	}
+	nc.SetDeadline(time.Now().Add(wait))
+	for {
+		m, err := conn.Recv()
+		if err != nil {
+			return nil
+		}
+		switch m := m.(type) {
+		case proto.HookReply:
+			return m.Output
+		case proto.Error:
+			return nil
+		}
+	}
 }
 
 func printHooks() error {

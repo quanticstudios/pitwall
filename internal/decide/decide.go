@@ -133,7 +133,15 @@ type Client struct {
 	// as the API key itself.
 	Secrets []string
 	Now     func() time.Time // nil means time.Now
+	// Limit holds the per-pane call times; nil uses one of the Client's
+	// own. Share one across Clients rebuilt per call.
+	Limit *Limiter
 
+	own Limiter
+}
+
+// Limiter caps calls per pane. The zero value is ready.
+type Limiter struct {
 	mu    sync.Mutex
 	calls map[string][]time.Time // pane: recent call times
 }
@@ -147,22 +155,29 @@ func (c *Client) now() time.Time {
 
 // allow records a call for pane, or reports false when the pane has made
 // perPane calls in the last window. An empty pane is never limited.
-func (c *Client) allow(pane string, now time.Time) bool {
+func (l *Limiter) allow(pane string, now time.Time) bool {
 	if pane == "" {
 		return true
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.calls == nil {
-		c.calls = map[string][]time.Time{}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.calls == nil {
+		l.calls = map[string][]time.Time{}
 	}
-	recent := slices.DeleteFunc(c.calls[pane], func(t time.Time) bool { return now.Sub(t) >= window })
+	recent := slices.DeleteFunc(l.calls[pane], func(t time.Time) bool { return now.Sub(t) >= window })
 	if len(recent) >= perPane {
-		c.calls[pane] = recent
+		l.calls[pane] = recent
 		return false
 	}
-	c.calls[pane] = append(recent, now)
+	l.calls[pane] = append(recent, now)
 	return true
+}
+
+// Forget drops a closed pane's call times.
+func (l *Limiter) Forget(pane string) {
+	l.mu.Lock()
+	delete(l.calls, pane)
+	l.mu.Unlock()
 }
 
 // Ask redacts state, asks the provider within the timeout, and checks
@@ -173,7 +188,11 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 		return nil, errors.New("no decision provider")
 	}
 	now := c.now()
-	if !c.allow(pane, now) {
+	l := c.Limit
+	if l == nil {
+		l = &c.own
+	}
+	if !l.allow(pane, now) {
 		return nil, ErrRateLimited
 	}
 	t := c.Timeout

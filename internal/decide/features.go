@@ -3,6 +3,7 @@ package decide
 import (
 	"encoding/json"
 	"math"
+	"strings"
 )
 
 // The questions pitwall asks and the states it sends, one pair per
@@ -180,4 +181,19 @@ func clipValue(v any, n int) any {
 		}
 	}
 	return v
+}
+
+// Summary is a short line about a call for the audit trail: the command,
+// the file, or the start of the input, with secrets removed.
+func Summary(c Call, secrets ...string) string {
+	var in map[string]any
+	_ = json.Unmarshal(c.Input, &in)
+	s := string(c.Input)
+	for _, k := range []string{"command", "file_path", "notebook_path", "path", "url"} {
+		if v, ok := in[k].(string); ok && v != "" {
+			s = v
+			break
+		}
+	}
+	return clip(strings.Join(strings.Fields(Redact(s, secrets...)), " "), 160)
 }

@@ -92,3 +92,13 @@ func bottomLines(g vt.Grid, n int) []string {
 	}
 	return out
 }
+
+// ScreenText is the last n non-empty rows of g, top to bottom, for a
+// decision model to read.
+func ScreenText(g vt.Grid, n int) string {
+	lines := bottomLines(g, n)
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return strings.Join(lines, "\n")
+}

@@ -30,6 +30,39 @@ type Activity struct {
 	// Unseen is set while a needs-you activity (NeedsYou) has not been in
 	// the focused pane of a focused window since UpdatedAt.
 	Unseen bool
+	// Advice is a decision model's recommendation for a pending approval:
+	// "allow", "ask" or "deny", AdviceP its probability, and AdviceRule a
+	// hard rule the call breaks, which keeps pitwall from approving it
+	// whatever the advice. Advice is "" without a recommendation.
+	Advice     string
+	AdviceP    float64
+	AdviceRule string
+	// Urgency is triage's level for a needs-you activity: "fyi", "later",
+	// "soon" or "now"; UrgencyPending while the answer is on its way; ""
+	// when untriaged.
+	Urgency string
+	// Review marks a finished turn the turn check says needs a look; its
+	// pill reads Check instead of Done.
+	Review bool
+}
+
+// UrgencyPending is Activity.Urgency while triage is asking.
+const UrgencyPending = "pending"
+
+// UrgencyRank orders activities for the user's attention: now, soon, an
+// untriaged one, later, fyi.
+func UrgencyRank(a Activity) int {
+	switch a.Urgency {
+	case "now":
+		return 4
+	case "soon":
+		return 3
+	case "later":
+		return 1
+	case "fyi":
+		return 0
+	}
+	return 2
 }
 
 // NeedsYou reports a state that waits on the user: a question, an
@@ -112,8 +145,12 @@ func Pulses(a *Activity) bool {
 }
 
 func PillLabel(a Activity) string {
-	if a.Provider == ProviderTerminal {
-		return shortLabels[a.State]
+	l := shortLabels[a.State]
+	if a.State == StateCompleted && a.Review {
+		l = "Check"
 	}
-	return "Agent " + shortLabels[a.State]
+	if a.Provider == ProviderTerminal {
+		return l
+	}
+	return "Agent " + l
 }

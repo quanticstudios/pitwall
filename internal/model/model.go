@@ -72,7 +72,10 @@ type Workspace struct {
 	WorktreeRoot string
 	// RepoRoot is the git toplevel of Path, or Path outside a repo. Group by
 	// folder uses it.
-	RepoRoot  string
+	RepoRoot string
+	// AutoOff turns automatic approval off for this tab alone: its agents
+	// always ask.
+	AutoOff   bool
 	Detached  bool // running but hidden from the sidebar until attached
 	UpdatedAt time.Time
 	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
@@ -149,6 +152,50 @@ type State struct {
 	Panes      []Pane
 	Activities []Activity             // one per pane with an agent or a running command
 	Stats      map[string]BranchStats // keyed by workspace id
+	// Decide is the decision features' status. The daemon fills it in; it
+	// is not saved.
+	Decide DecideInfo `json:"-"`
+}
+
+// DecideInfo is what clients show about decision models.
+type DecideInfo struct {
+	Provider string // "jev" or "command" when one is set up and usable, else ""
+	Auto     bool   // approvals run in auto mode
+	Counts   []DecideCount
+	Audit    []AutoDecision // this daemon run's automatic decisions, oldest first, capped
+}
+
+// DecideCount is one feature's calls and failed calls today.
+type DecideCount struct {
+	Feature       string
+	Calls, Errors int
+}
+
+// AutoDecision is one approval pitwall answered for the user.
+type AutoDecision struct {
+	At          time.Time
+	PaneID      string
+	WorkspaceID string
+	Tab         string // the tab's title then
+	Agent       Provider
+	Tool        string
+	Input       string // a short summary of the tool input, secrets removed
+	Verdict     string // "allow" or "deny"
+	Allow       float64
+	Ask         float64
+	Deny        float64
+	Rules       []string // hard rules the call broke
+}
+
+// AutoCount is how many calls pitwall approved automatically in tab id.
+func (d DecideInfo) AutoCount(id string) int {
+	n := 0
+	for _, a := range d.Audit {
+		if a.WorkspaceID == id && a.Verdict == "allow" {
+			n++
+		}
+	}
+	return n
 }
 
 // LivePath is where the tab is now: the live working directory of the first

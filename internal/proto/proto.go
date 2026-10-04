@@ -9,6 +9,9 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 11 added decision models: Activity.Advice, AdviceP, AdviceRule,
+// Urgency and Review, Workspace.AutoOff, State.Decide, AgentEvent.Reply,
+// HookReply and SetAutoApprove.
 // Version 10 added vt.Cell.Link, the OSC 8 hyperlink on each cell of a frame.
 // Version 9 added sessions: model.Session and State.Sessions in place of
 // State.Order, SessionID on tabs and groups, Hello.Session, SessionNew,
@@ -28,7 +31,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 10
+const Version = 11
 
 // Client to daemon.
 
@@ -150,6 +153,23 @@ type AgentEvent struct {
 	Pane     string
 	Provider model.Provider
 	Payload  []byte // the hook's JSON, untouched
+	// Reply asks for a HookReply: the hook waits to print the daemon's
+	// decision on a permission request.
+	Reply bool
+}
+
+// HookReply answers an AgentEvent with Reply set. Output is what the hook
+// prints on stdout, in the agent's own format; empty means no decision,
+// so the agent asks the user as usual.
+type HookReply struct {
+	Output []byte
+}
+
+// SetAutoApprove turns automatic approval off (Off) or back on for one
+// tab.
+type SetAutoApprove struct {
+	WorkspaceID string
+	Off         bool
 }
 
 // Daemon to client.
@@ -300,6 +320,6 @@ var Messages = []any{
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
 	NewTab{}, CloseTab{}, RenameTab{}, SelectTab{}, DetachSession{}, KillSession{},
 	GroupByFolder{}, Sync{}, FocusSession{}, MoveSession{}, MoveGroup{}, SeePane{},
-	SessionNew{}, SessionRename{}, SessionKill{}, SessionShow{},
-	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
+	SessionNew{}, SessionRename{}, SessionKill{}, SessionShow{}, SetAutoApprove{},
+	AgentEvent{}, HookReply{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 }

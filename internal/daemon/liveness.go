@@ -101,6 +101,7 @@ func (d *Daemon) settle(id string, at time.Time) {
 	}
 	if a := &d.st.Activities[i]; a.State != model.StateWorking {
 		a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", time.Now()
+		clearDecisions(a)
 		d.changed()
 	}
 }
@@ -128,6 +129,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		case <-t.C:
 		}
 		d.checkForeground()
+		d.refreshDecisions()
 		d.detect(ctx)
 	}
 }

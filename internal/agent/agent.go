@@ -40,8 +40,9 @@ type payload struct {
 	} `json:"background_tasks"`
 
 	// Codex legacy notify fields.
-	Type     string `json:"type"`
-	ThreadID string `json:"thread-id"`
+	Type            string `json:"type"`
+	ThreadID        string `json:"thread-id"`
+	LastMessageDash string `json:"last-assistant-message"`
 }
 
 // Derive maps one hook payload to the pane's next activity. ok is false when
@@ -62,7 +63,8 @@ type payload struct {
 //	Notification elicitation_dialog,
 //	  elicitation_url_dialog                awaiting-input, Detail = message
 //	Notification idle_prompt, others        no change (an idle reminder must not undo completed)
-//	Stop                                    completed, even when the turn ends on a question;
+//	Stop                                    completed, Detail = the start of the last message,
+//	                                        even when the turn ends on a question;
 //	                                        working while a background subagent or workflow runs
 //	StopFailure (Claude)                    error, Detail = the API error text
 //	SubagentStop                            no change (the main turn is still going)
@@ -70,7 +72,7 @@ type payload struct {
 //	                                        the agent is idle at its prompt, which is no activity
 //	                                        (source "compact" fires mid-turn, where working must stay)
 //	SessionEnd, Interrupt (Codex)           remove
-//	Codex notify agent-turn-complete        completed
+//	Codex notify agent-turn-complete        completed, Detail = the start of the last message
 //
 // Tool failures stay working: an agent recovers from a failed command inside
 // the same turn, so error is reserved for turns the API ended. A Claude turn
@@ -108,7 +110,7 @@ func Derive(prev *model.Activity, provider model.Provider, payload []byte, now t
 func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail string, remove, ok bool) {
 	if p.Event == "" {
 		// Codex notify program: agent-turn-complete is its only type.
-		return model.StateCompleted, "", false, p.Type == "agent-turn-complete"
+		return model.StateCompleted, summary(p.LastMessageDash), false, p.Type == "agent-turn-complete"
 	}
 	if sideFork(p) {
 		return "", "", false, false
@@ -152,7 +154,7 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 				return model.StateWorking, "", false, true
 			}
 		}
-		return model.StateCompleted, "", false, true
+		return model.StateCompleted, summary(p.LastMessage), false, true
 	case "StopFailure":
 		d := firstNonEmpty(p.LastMessage, p.ErrorDetails, p.Error)
 		return model.StateError, d, false, true
@@ -160,6 +162,19 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		return "", "", true, true
 	}
 	return "", "", false, false
+}
+
+// summaryLen is how much of a turn's last message a completed activity
+// keeps as its Detail.
+const summaryLen = 300
+
+// summary is the start of msg with whitespace collapsed.
+func summary(msg string) string {
+	r := []rune(strings.Join(strings.Fields(msg), " "))
+	if len(r) > summaryLen {
+		return string(r[:summaryLen-1]) + "…"
+	}
+	return string(r)
 }
 
 func decode(b []byte) (payload, error) {
@@ -299,4 +314,86 @@ func commandPath(goos, bin string) string {
 		return `"` + bin + `"`
 	}
 	return bin
+}
+
+// Request is the tool call a PreToolUse or PermissionRequest hook is
+// about: the event, the tool's name and raw input, and the agent's cwd.
+// ok is false for other payloads and for a /side fork.
+func Request(payload []byte) (event, tool string, input json.RawMessage, cwd string, ok bool) {
+	var p struct {
+		Event          string          `json:"hook_event_name"`
+		TranscriptPath json.RawMessage `json:"transcript_path"`
+		ToolName       string          `json:"tool_name"`
+		ToolInput      json.RawMessage `json:"tool_input"`
+		Cwd            string          `json:"cwd"`
+	}
+	if json.Unmarshal(payload, &p) != nil || string(p.TranscriptPath) == "null" || p.ToolName == "" {
+		return "", "", nil, "", false
+	}
+	if p.Event != "PreToolUse" && p.Event != "PermissionRequest" {
+		return "", "", nil, "", false
+	}
+	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
+}
+
+// Event is the payload's hook_event_name, or "" (Codex notify, garbage).
+func Event(payload []byte) string {
+	var p struct {
+		Event string `json:"hook_event_name"`
+	}
+	json.Unmarshal(payload, &p)
+	return p.Event
+}
+
+// UserPrompt is the prompt of any UserPromptSubmit hook from the main
+// session, or "".
+func UserPrompt(payload []byte) string {
+	p, err := decode(payload)
+	if err != nil || p.Event != "UserPromptSubmit" || sideFork(p) {
+		return ""
+	}
+	return p.Prompt
+}
+
+// LastMessage is the agent's final message of a finished turn: Stop's
+// last_assistant_message or Codex notify's last-assistant-message.
+func LastMessage(payload []byte) string {
+	p, err := decode(payload)
+	if err != nil {
+		return ""
+	}
+	return firstNonEmpty(p.LastMessage, p.LastMessageDash)
+}
+
+// NeedsInteraction reports tools whose permission request is really a
+// question for the user (AskUserQuestion) or a plan to approve
+// (ExitPlanMode); no model may answer those for the user.
+func NeedsInteraction(tool string) bool {
+	return tool == "AskUserQuestion" || tool == "ExitPlanMode"
+}
+
+// PermissionDecision is what a PermissionRequest hook prints to allow or
+// deny a request, in the shape Claude Code and Codex both document:
+// {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":
+// {"behavior":"allow"|"deny","message":...}}}. Any other verdict prints
+// nothing, which leaves the agent's own prompt in place. The message,
+// sent only with deny, tells the agent why.
+func PermissionDecision(verdict, message string) []byte {
+	type decision struct {
+		Behavior string `json:"behavior"`
+		Message  string `json:"message,omitempty"`
+	}
+	d := decision{Behavior: verdict}
+	switch verdict {
+	case "allow":
+	case "deny":
+		d.Message = message
+	default:
+		return nil
+	}
+	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName": "PermissionRequest",
+		"decision":      d,
+	}})
+	return b
 }

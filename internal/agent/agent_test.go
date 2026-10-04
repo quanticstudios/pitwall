@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,8 +61,8 @@ func TestDerive(t *testing.T) {
 		{"claude_notification_elicitation", claude, model.StateWorking, true, model.StateAwaitingInput, "github needs your input"},
 		{"claude_notification_idle", claude, model.StateCompleted, false, none, ""},
 		{"claude_notification_idle", claude, none, false, none, ""},
-		{"claude_stop", claude, model.StateWorking, true, model.StateCompleted, ""},
-		{"claude_stop_question", claude, model.StateWorking, true, model.StateCompleted, ""},
+		{"claude_stop", claude, model.StateWorking, true, model.StateCompleted, "Fixed the token check. All tests pass."},
+		{"claude_stop_question", claude, model.StateWorking, true, model.StateCompleted, "Refactored the auth module. Should I also update the tests?"},
 		{"claude_stop_background", claude, model.StateWorking, false, none, ""}, // stays working
 		{"claude_stop_background", claude, model.StatePendingApproval, true, model.StateWorking, ""},
 		{"claude_stop_failure", claude, model.StateWorking, true, model.StateError, "API Error: Rate limit reached"},
@@ -69,11 +70,11 @@ func TestDerive(t *testing.T) {
 		{"claude_subagent_stop", claude, model.StateCompleted, false, none, ""},
 		{"claude_session_end", claude, model.StateCompleted, true, none, ""},
 		{"claude_session_end", claude, none, false, none, ""},
-		{"codex_notify", codex, model.StateWorking, true, model.StateCompleted, ""},
+		{"codex_notify", codex, model.StateWorking, true, model.StateCompleted, "Rename complete and verified cargo build succeeds."},
 		{"codex_user_prompt_submit", codex, none, true, model.StateWorking, ""},
 		{"codex_pre_tool_use", codex, model.StatePendingApproval, true, model.StateWorking, ""},
 		{"codex_permission_request", codex, model.StateWorking, true, model.StatePendingApproval, "Allow network access to push?"},
-		{"codex_stop", codex, model.StateWorking, true, model.StateCompleted, ""},
+		{"codex_stop", codex, model.StateWorking, true, model.StateCompleted, "Done. Want me to open a PR?"},
 		{"codex_interrupt", codex, model.StateWorking, true, none, ""},
 		{"codex_side_fork", codex, model.StateWorking, false, none, ""},
 		{"codex_session_end", codex, model.StateCompleted, true, none, ""},
@@ -216,5 +217,61 @@ func TestCommandPath(t *testing.T) {
 		if got := commandPath(tc.goos, tc.bin); got != tc.want {
 			t.Errorf("commandPath(%s, %q) = %s, want %s", tc.goos, tc.bin, got, tc.want)
 		}
+	}
+}
+
+// TestPermissionDecision checks the JSON a PermissionRequest hook prints,
+// in the shape both Claude Code's and Codex's hook docs give.
+func TestPermissionDecision(t *testing.T) {
+	cases := map[string]string{
+		"allow": `{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}`,
+		"deny":  `{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"no"},"hookEventName":"PermissionRequest"}}`,
+		"ask":   ``,
+		"":      ``,
+	}
+	for verdict, want := range cases {
+		if got := string(PermissionDecision(verdict, "no")); got != want {
+			t.Errorf("%q: got %s, want %s", verdict, got, want)
+		}
+	}
+	// Claude's docs: an allow carries no message; Codex rejects
+	// updatedInput, updatedPermissions and interrupt, which never appear.
+	for _, v := range []string{"allow", "deny"} {
+		var out struct {
+			H struct {
+				Event    string         `json:"hookEventName"`
+				Decision map[string]any `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(PermissionDecision(v, "why"), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.H.Event != "PermissionRequest" || out.H.Decision["behavior"] != v {
+			t.Errorf("%s: %+v", v, out)
+		}
+		for _, k := range []string{"updatedInput", "updatedPermissions", "interrupt"} {
+			if _, ok := out.H.Decision[k]; ok {
+				t.Errorf("%s output has %s", v, k)
+			}
+		}
+	}
+}
+
+func TestRequest(t *testing.T) {
+	ev, tool, input, cwd, ok := Request(fixture(t, "claude_permission_request"))
+	if !ok || ev != "PermissionRequest" || tool != "Bash" || cwd != "/home/u/repo" || !strings.Contains(string(input), "rm -rf node_modules") {
+		t.Errorf("claude: %q %q %s %q %v", ev, tool, input, cwd, ok)
+	}
+	if _, tool, _, _, ok := Request(fixture(t, "codex_permission_request")); !ok || tool != "Bash" {
+		t.Errorf("codex: %q %v", tool, ok)
+	}
+	if _, _, _, _, ok := Request(fixture(t, "claude_stop")); ok {
+		t.Error("stop is no request")
+	}
+	if m := LastMessage(fixture(t, "codex_notify")); m != "Rename complete and verified cargo build succeeds." {
+		t.Errorf("codex notify last message = %q", m)
+	}
+	if p := UserPrompt(fixture(t, "claude_user_prompt_submit")); p == "" {
+		t.Error("no prompt")
 	}
 }
