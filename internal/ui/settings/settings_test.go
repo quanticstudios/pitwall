@@ -298,12 +298,78 @@ func TestDecisionsConnect(t *testing.T) {
 	if p.dp.keyErr == "" {
 		t.Error("a bad key connected")
 	}
-	// Every state of the page draws.
+}
+
+// TestDecisionsStates: the Connect card picks the right row for each
+// setup, and every state lays out.
+func TestDecisionsStates(t *testing.T) {
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	var p Page
+	p.Show(path)
+	p.th = theme.Dark()
 	var ops op.Ops
-	for _, info := range []model.DecideInfo{{}, {Provider: "jev", Auto: true, Audit: []model.AutoDecision{{Tab: "fix", Tool: "Bash", Input: "go test", Verdict: "allow", Allow: 0.97}}}} {
-		p.SetDecisions(info)
+	draw := func() {
+		t.Helper()
+		ops.Reset()
 		p.cat = catDecisions
 		gtx := gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1000, 700)), Now: time.Now()}
 		p.Layout(gtx, theme.Dark(), p.s, nil)
+	}
+	conn := func() string { return p.decisions()[0].rows[0].label }
+	setup := func(cfg string) {
+		os.WriteFile(path, []byte(cfg), 0o644)
+		p.s, _ = config.LoadFile(path)
+		p.readKey()
+	}
+	cred := decide.CredentialsPath(dir)
+	setup("")
+	if got := conn(); got != "Connect Jev" || p.decisions()[0].rows[0].wide != true {
+		t.Errorf("disconnected: %q", got)
+	}
+	draw()
+	decide.SaveKey(cred, "ts_live_abcdefghijklmnopqrstuvwxyz012345")
+	setup("")
+	if got := p.decisions()[0].rows[0]; got.label != "Connect Jev" || !strings.Contains(got.desc, "decisions are off") {
+		t.Errorf("key saved, provider off: %+v", got.label)
+	}
+	draw()
+	setup("[decisions]\nprovider = \"jev\"\n")
+	if got := conn(); got != "Jev is connected" {
+		t.Errorf("connected: %q", got)
+	}
+	draw()
+	t.Setenv(decide.KeyEnv, "env_key_1234567890")
+	setup("[decisions]\nprovider = \"jev\"\n")
+	if got := p.decisions()[0].rows[0]; !strings.Contains(got.desc, "TYPESAFE_API_KEY") {
+		t.Errorf("env key: %q", got.desc)
+	}
+	draw()
+	t.Setenv(decide.KeyEnv, "")
+	setup("[decisions]\nprovider = \"command\"\ncommand = [\"my-classifier\"]\n")
+	if got := conn(); got != "Your command" {
+		t.Errorf("command provider: %q", got)
+	}
+	draw()
+	setup("[decisions]\nprovider = \"jev\"\n[decisions.approvals]\nmode = \"auto\"\n")
+	p.SetDecisions(model.DecideInfo{Provider: "jev", Auto: true, Counts: []model.DecideCount{{Feature: decide.FeatureApprovals, Calls: 3, Errors: 1}},
+		Audit: []model.AutoDecision{{Tab: "fix", Tool: "Bash", Input: "go test", Verdict: "allow", Allow: 0.97}, {Tab: "fix", Tool: "Bash", Input: "x", Verdict: "deny", Deny: 0.97, Rules: []string{"sudo"}}}})
+	secs := p.decisions()
+	if len(secs) != 3 || len(secs[1].rows) != 6 || !strings.Contains(secs[1].rows[0].desc, "3 calls, 1 failed") {
+		t.Errorf("auto mode: %d sections, %d feature rows", len(secs), len(secs[1].rows))
+	}
+	draw()
+	for _, st := range []struct {
+		testing bool
+		result  string
+		ok      bool
+		keyErr  string
+	}{{true, "", false, ""}, {false, "Connection ok · 90 ms", true, ""}, {false, "jev: HTTP 401, the API key was refused", false, ""}, {false, "", false, "the key has spaces or quotes in it"}} {
+		p.dp.mu.Lock()
+		p.dp.testing, p.dp.result, p.dp.ok = st.testing, st.result, st.ok
+		p.dp.mu.Unlock()
+		p.dp.keyErr = st.keyErr
+		draw()
 	}
 }

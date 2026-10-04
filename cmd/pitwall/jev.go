@@ -74,7 +74,7 @@ func runJev(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				return fail(err)
 			}
 		}
-		fmt.Fprintln(stdout, "Decisions use Jev now: approvals suggest and triage is on. Change them in Settings > Decisions.")
+		fmt.Fprintln(stdout, "Decisions use Jev now. Feature settings in config.toml are kept; the features line below shows what is on.")
 		if os.Getenv(decide.KeyEnv) != "" {
 			fmt.Fprintln(stdout, "Note: "+decide.KeyEnv+" is set and wins over the saved key.")
 		}
@@ -85,12 +85,17 @@ func runJev(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err := decide.DeleteKey(cred); err != nil {
 			return fail(err)
 		}
-		if s := config.LoadDecisions(config.Path()); s.Provider == "jev" {
+		switch s := config.LoadDecisions(config.Path()); s.Provider {
+		case "jev":
 			if err := config.SetKey(config.Path(), "decisions", "provider", config.Quote("")); err != nil {
 				return fail(err)
 			}
+			fmt.Fprintln(stdout, "Removed the saved key and set provider = \"\". Decisions are off; nothing is sent.")
+		case "command":
+			fmt.Fprintln(stdout, "Removed the saved Jev key. Decisions still run through your command ("+s.Command[0]+"); set provider = \"\" under [decisions] to turn them off.")
+		default:
+			fmt.Fprintln(stdout, "Removed the saved key. Decisions were already off.")
 		}
-		fmt.Fprintln(stdout, "Removed the saved key. Decisions are off.")
 		if os.Getenv(decide.KeyEnv) != "" {
 			fmt.Fprintln(stdout, decide.KeyEnv+" is still set in this environment; unset it as well.")
 		}
@@ -136,6 +141,9 @@ func jevStatus(stdout, stderr io.Writer) int {
 	if s.On() {
 		onOff := map[bool]string{true: "on", false: "off"}
 		fmt.Fprintf(stdout, "features:   approvals %s, triage %s, agents %s, turn check %s\n", s.Approvals, onOff[s.Triage], onOff[s.Agents], onOff[s.TurnCheck])
+		if s.Approvals == config.ModeAuto {
+			fmt.Fprintf(stdout, "auto:       approve at p(allow) >= %g, deny at p(deny) >= %g\n", s.AllowAbove, s.DenyAbove)
+		}
 	}
 	return 0
 }

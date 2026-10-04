@@ -51,9 +51,15 @@ func TestRunJev(t *testing.T) {
 	if code, out := run("not a key\n", "login"); code != 1 || !strings.Contains(out, "spaces") {
 		t.Fatalf("bad key: %d %q", code, out)
 	}
+	// Connecting keeps the user's feature settings and says what is on.
+	os.MkdirAll(filepath.Join(dir, "pitwall"), 0o700)
+	os.WriteFile(filepath.Join(dir, "pitwall", "config.toml"), []byte("[decisions.triage]\nenabled = false\n"), 0o644)
 	code, out := run(key+"\n", "login")
-	if code != 0 || !strings.Contains(out, "connection: ok, 143 ms") || pinged != key {
+	if code != 0 || !strings.Contains(out, "connection: ok, 143 ms") || pinged != key || !strings.Contains(out, "approvals suggest, triage off") {
 		t.Fatalf("login: %d %q", code, out)
+	}
+	if strings.Contains(out, "triage is on") {
+		t.Errorf("login claims triage is on: %q", out)
 	}
 	if runtime.GOOS != "windows" {
 		if fi, err := os.Stat(cred); err != nil || fi.Mode().Perm() != 0o600 {
@@ -70,7 +76,7 @@ func TestRunJev(t *testing.T) {
 		t.Fatalf("failing status: %d %q", code, out)
 	}
 	pingErr = nil
-	if code, out := run("", "status"); code != 0 || !strings.Contains(out, "approvals suggest, triage on") {
+	if code, out := run("", "status"); code != 0 || !strings.Contains(out, "approvals suggest, triage off") {
 		t.Fatalf("status: %d %q", code, out)
 	}
 
@@ -82,6 +88,15 @@ func TestRunJev(t *testing.T) {
 	}
 	if p := config.LoadDecisions(config.Path()).Provider; p != "" {
 		t.Errorf("provider after logout = %q", p)
+	}
+	// With a command provider, logout says decisions keep running.
+	config.SetKey(config.Path(), "decisions", "provider", config.Quote("command"))
+	config.SetKey(config.Path(), "decisions", "command", `["my-classifier"]`)
+	if code, out := run("", "logout"); code != 0 || !strings.Contains(out, "still run through your command (my-classifier)") || strings.Contains(out, "Decisions are off") {
+		t.Fatalf("logout with a command provider: %d %q", code, out)
+	}
+	if p := config.LoadDecisions(config.Path()).Provider; p != "command" {
+		t.Errorf("logout changed the command provider to %q", p)
 	}
 	if code, _ := run("", "nope"); code != 2 {
 		t.Error("unknown subcommand accepted")

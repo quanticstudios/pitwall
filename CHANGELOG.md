@@ -24,13 +24,17 @@ To cut a release: add a section below and merge it, then
 - Decision models, starting with TypeSafe's Jev. Connect it in Settings,
   Decisions, or with `pitwall jev login`; the key stays in a 0600
   `credentials` file or `TYPESAFE_API_KEY`, never in `config.toml`.
-  Nothing is sent until you connect. Then:
-  - Approvals suggest by default: a Claude Code or Codex permission request
-    shows the model's recommendation ("Jev: allow 96%") on the tab and the
-    pane. Auto mode approves or denies only above 0.95, never approves hard
-    rules (sudo, rm -rf, force pushes, git reset --hard, curl | sh,
-    secrets, writes outside the repo), and keeps an audit trail; a tab can
-    opt out from its menu.
+  Nothing is sent until you connect, and connecting keeps your settings.
+  With none set:
+  - Approvals suggest: a Claude Code or Codex permission request shows the
+    model's recommendation ("Jev: allow 96%") on the tab and the pane.
+    Auto mode fails closed: it approves only calls pitwall can fully check
+    (plain shell words, file writes that resolve inside the repo), sent
+    whole, that break no hard rule, when the model chose allow at or above
+    `allow_above`; it denies when the model chose deny at or above
+    `deny_above`. Both thresholds default to 0.95 and go from 0.8 to 1.
+    Everything else gets the normal prompt. Automatic decisions keep an
+    audit trail, and a tab can opt out from its menu.
   - Attention triage (on by default) sorts what needs you as fyi, later,
     soon or now for the jump-to-attention key and notifications; fyi sends
     no notification.
@@ -38,8 +42,9 @@ To cut a release: add a section below and merge it, then
     Aider, Amp, Cursor agent, Goose, Crush) read from their screen, and a
     turn check that turns Done into Check when a turn needs review.
   - `provider = "command"` runs your own classifier instead. Every call
-    has secrets removed, a 1.5 s timeout and a per-pane limit; any failure
-    leaves pitwall as it was. See the README's Decisions section.
+    has secrets removed before anything is cut to size, a timeout (1.5 s
+    by default, 0.2 to 10 s) and a per-pane limit; any failure leaves
+    pitwall as it was. See the README's Decisions section.
 - A finished turn's notification shows the start of the agent's last
   message.
 - The daemon protocol is now version 11 and the state file format 8. An

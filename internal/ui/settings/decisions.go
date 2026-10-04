@@ -215,7 +215,7 @@ func (p *Page) decisions() []section {
 		conn = row{label: "Your command", desc: "provider = \"command\" in config.toml runs " + argv + " for every question.",
 			extra: "decisions provider command local model", control: btn("dtest", "Test", secondary, p.test), below: status}
 	case p.dp.keySrc != "" && d.Provider == "jev":
-		where := "the credentials file, " + shortPath(p.credPath()) + ", readable only by you"
+		where := "the credentials file, " + shortPath(p.credPath()) + " (mode 0600)"
 		if p.dp.keySrc == decide.FromEnv {
 			where = "TYPESAFE_API_KEY in pitwall's environment"
 		}
@@ -236,7 +236,7 @@ func (p *Page) decisions() []section {
 	default:
 		conn = row{label: "Connect Jev",
 			desc: "TypeSafe's Jev answers yes/no and multiple-choice questions in about a tenth of a second, with calibrated probabilities. " +
-				"Paste your API key; pitwall keeps it in " + shortPath(p.credPath()) + ", readable only by you and never in config.toml. " +
+				"Paste your API key; pitwall keeps it in " + shortPath(p.credPath()) + " with mode 0600 (on Windows, your profile folder's permissions), never in config.toml. " +
 				"Nothing is sent until you connect.",
 			extra: "jev typesafe key api connect token", wide: true,
 			control: func(gtx gl.Context) gl.Dimensions {
@@ -267,8 +267,8 @@ func (p *Page) decisions() []section {
 		featDesc = "Each feature asks only when it has something to ask. A failed or slow answer changes nothing: pitwall goes on as it would without one."
 	}
 	rows := []row{
-		{label: "Approvals", desc: "When Claude Code or Codex asks permission. Suggest shows a recommendation on the approval; auto approves or denies only above the thresholds, " +
-			"and never approves sudo, rm -rf, force pushes, git reset --hard, curl | sh, secrets or writes outside the repo. " +
+		{label: "Approvals", desc: "When Claude Code or Codex asks permission. Suggest shows a recommendation on the approval. Auto fails closed: it approves only calls pitwall can fully check " +
+			"(plain shell words, file writes inside the repo) that break no hard rule, denies only sure denies, and leaves everything else to you. " +
 			p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
 			extra: "approval permission auto suggest allow deny mode",
 			control: p.segmented("dmode", []string{config.ModeOff, config.ModeSuggest, config.ModeAuto}, d.Approvals, func(o string) {

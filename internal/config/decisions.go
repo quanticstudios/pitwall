@@ -13,7 +13,7 @@ type Decisions struct {
 	Provider  string    `toml:"provider" enum:"jev,command," doc:"Which decision model answers: jev (TypeSafe's Jev; connect with pitwall jev login or in Settings), command (your own program), or \"\" for none. Nothing is sent anywhere while this is \"\"."`
 	Command   []string  `toml:"command" doc:"With the command provider: the program and its arguments. It gets the request JSON on stdin and prints the reply JSON, in Jev's shape, on stdout."`
 	Model     string    `toml:"model" doc:"The Jev model or alias, such as jev-latest or a pinned jev-1.13.0."`
-	Timeout   *float64  `toml:"timeout" min:"0.2" max:"10" doc:"Seconds a question may take. pitwall goes on without the answer after that."`
+	Timeout   *float64  `toml:"timeout" min:"0.2" max:"10" doc:"Seconds a question may take, 0.2 to 10. pitwall goes on without the answer after that."`
 	Approvals Approvals `toml:"approvals" doc:"Permission requests from Claude Code and Codex. Sends the tool, its input, the working directory, the repo root and your latest prompt, with secrets removed."`
 	Triage    Toggle    `toml:"triage" doc:"Rates how soon a pane that needs you wants you (fyi, later, soon, now), to order the jump-to-attention key and desktop notifications; fyi sends no notification. Sends the state and the agent's question, approval detail, error or summary."`
 	Agents    Agents    `toml:"agents" doc:"Agent status for CLIs without pitwall hooks, read from their screen. Sends the visible screen of those programs only, at most once per pane every 2 seconds while it changes."`
@@ -22,10 +22,10 @@ type Decisions struct {
 
 // Approvals is [decisions.approvals].
 type Approvals struct {
-	Mode       string   `toml:"mode" enum:"off,suggest,auto" doc:"off; suggest shows the model's recommendation on the approval pill and decides nothing; auto approves or denies only above the thresholds below, and never approves a hard rule (sudo, rm -rf, force push, git reset --hard, curl | sh, secrets, writes outside the repo)."`
+	Mode       string   `toml:"mode" enum:"off,suggest,auto" doc:"off; suggest shows the model's recommendation on the approval pill and decides nothing; auto fails closed: it approves only calls pitwall can fully check (plain shell words, file writes that resolve inside the repo) that break no hard rule, when the model chose allow at allow_above or more, denies when it chose deny at deny_above or more, and otherwise leaves the agent's prompt."`
 	AllowAbove *float64 `toml:"allow_above" min:"0.8" max:"1" doc:"In auto mode, approve when the probability of allow is at least this."`
 	DenyAbove  *float64 `toml:"deny_above" min:"0.8" max:"1" doc:"In auto mode, deny when the probability of deny is at least this."`
-	NeverAllow []string `toml:"never_allow" doc:"More hard rules: a tool call whose input contains any of these strings is never approved automatically."`
+	NeverAllow []string `toml:"never_allow" doc:"More hard rules: a tool call whose input contains any of these strings is never approved automatically. Shown as never_allow #N, never the text."`
 }
 
 // Feature is a table with a switch and a threshold.

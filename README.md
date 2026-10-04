@@ -554,9 +554,10 @@ recommend or make approval decisions, to sort what needs you by urgency, to
 see what agents without hooks are doing, and to flag finished turns that
 need a look.
 
-Nothing is sent anywhere until you connect a provider. Each call times out
-after 1.5 s, and a failed or slow answer changes nothing: pitwall does what
-it would have done without decisions.
+Nothing is sent anywhere until you connect a provider. Each call times out,
+after 1.5 s by default (`timeout` under `[decisions]`, 0.2 to 10 s), and a
+failed or slow answer changes nothing: pitwall does what it would have done
+without decisions.
 
 ### Connect
 
@@ -565,57 +566,83 @@ then either open Settings, Decisions, paste it and press Connect, or run:
 
 ```sh
 pitwall jev login     # asks for the key without echo; or: pass show typesafe | pitwall jev login
-pitwall jev status    # one small real call: prints ok and the latency
-pitwall jev logout    # removes the key and turns decisions off
+pitwall jev status    # one small real call: prints ok, the latency and what is on
+pitwall jev logout    # removes the saved key; turns decisions off if the provider was jev
 ```
 
 The key goes into `credentials` next to `config.toml`
-(`~/.config/pitwall/credentials`), readable only by you (mode 0600; on
-Windows it is in your profile, which other users cannot read). It never goes
-into `config.toml`, which people share with their dotfiles, and pitwall
-never logs or prints it. `TYPESAFE_API_KEY` in pitwall's environment wins
-over the file, as it does for TypeSafe's own SDKs. Connecting sets
-`provider = "jev"` under `[decisions]`.
+(`~/.config/pitwall/credentials`) with mode 0600, and on Linux and macOS
+pitwall makes that folder private (0700) when other users could read or
+change it; it refuses a credentials file others can read. On Windows the
+file sits in your profile's AppData folder and inherits that folder's
+permissions: pitwall sets no ACL of its own, so check the folder if your
+profile is shared. The key never goes into `config.toml`, which people
+share with their dotfiles, and pitwall never logs or prints it.
+`TYPESAFE_API_KEY` in pitwall's environment wins over the file, as it does
+for TypeSafe's own SDKs.
+
+Connecting sets `provider = "jev"` under `[decisions]` and keeps every
+other setting you have there. With none set, triage is on and approvals
+suggest; screen reading and turn checks stay off until you turn them on.
+`pitwall jev status` prints what is on.
 
 ### Features
 
-After you connect, triage is on and approvals suggest. Screen reading and
-turn checks stay off until you turn them on.
-
 | Feature | What it does | What it sends, and when |
 | ------- | ------------ | ----------------------- |
-| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (default) shows the answer on the tab's pill, in the switcher and in the pane's corner ("Jev: allow 96%") and decides nothing. `auto` approves when p(allow) reaches `allow_above` (0.95) and denies when p(deny) reaches `deny_above` (0.95); anything less, any error and any timeout leave the agent's normal prompt. `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
+| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (the default) shows the answer on the tab's pill, in the switcher and in the pane's corner ("Jev: allow 96%") and decides nothing. `auto` may answer for you, under the rules in [Automatic approvals](#automatic-approvals). `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
 | Attention triage (`[decisions.triage]`) | Rates a pane that needs you as fyi, later, soon or now. The jump-to-attention key goes to the most urgent first, desktop notifications go out most urgent first (now is marked urgent), and fyi sends no notification. The pill reads "Agent Input · now" for now. | When an agent pane starts needing you: its state and its question, approval detail, error or turn summary. |
-| Agents without hooks (`[decisions.agents]`) | For Gemini CLI, OpenCode, Aider, Amp, Cursor agent, Goose and Crush (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (0.8). | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
-| Turn check (`[decisions.turn_check]`) | When an agent finishes a turn, asks whether it needs your review: failed tests, errors left, unfinished work. The Done pill reads Check when the answer reaches `threshold` (0.8). | When a turn ends: the agent's last message and its screen. |
+| Agents without hooks (`[decisions.agents]`) | For Gemini CLI, OpenCode, Aider, Amp, Cursor agent, Goose and Crush (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (default 0.8). Programs are matched by process name, so a CLI that shows up as `node` is not seen. | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
+| Turn check (`[decisions.turn_check]`) | When an agent finishes a turn, asks whether it needs your review: failed tests, errors left, unfinished work. The Done pill reads Check when the answer reaches `threshold` (default 0.8). | When a turn ends: the agent's last message and its screen. |
 
 Before anything leaves your machine, pitwall removes what looks secret:
-private keys, `Authorization` and cookie headers, bearer tokens,
-`KEY=value` pairs and `--password`-style flags with secret-looking names,
-passwords in URLs, and common API token shapes (OpenAI, Anthropic, GitHub,
-GitLab, Slack, AWS, Google, npm, JWTs). That is pattern matching, not a
-guarantee, so leave a feature off for work you would not send. Each pane may
-make at most 30 calls a minute.
+private keys, `Authorization` and cookie headers, bearer tokens, values
+under secret-looking names (`KEY=value` lines, quoted values across lines,
+`"password": ...` fields at any depth, `--password`-style flags), passwords
+in URLs, and common API token shapes (OpenAI, Anthropic, GitHub, GitLab,
+Slack, AWS, Google, npm, JWTs). Only then does it cut long text to fit, and
+never in the middle of a word. That is pattern matching, not a guarantee, so
+leave a feature off for work you would not send. Each pane may make at most
+30 calls a minute.
 
-### Automatic approvals and hard rules
+### Automatic approvals
 
-In auto mode these are never approved automatically, whatever the model
-says. The agent shows its normal prompt for them (a sure deny still
-denies):
+Auto mode fails closed. pitwall returns an allow only when all of these
+hold, and otherwise leaves the agent's normal prompt:
 
-- `sudo`, `doas`, `pkexec`
-- any `rm` with both recursive and force flags (`rm -rf`, `rm -r -f`,
-  `--recursive --force`), inside the repo too: a shell line can reach
-  outside through a variable, a glob, a symlink or an earlier `cd`
-- force pushes (`-f`, `--force`, `--force-with-lease`, `+branch`) and
-  `git reset --hard`
-- a download piped into a shell or interpreter (`curl ... | sh`,
-  `wget ... | sudo bash`, `bash <(curl ...)`)
-- anything that touches `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env*`,
-  `.netrc`, `.git-credentials`, kube and docker configs, or a keychain
-- file writes outside the session's repo or working directory (symlinks
-  resolved), and writes into `.git`, `.claude` or `.codex`
-- any tool call whose input contains a string you list in `never_allow`
+- The model chose allow, with a complete, consistent set of probabilities,
+  and p(allow) is at least `allow_above` (default 0.95, from 0.8 to 1).
+- pitwall could check the whole call itself:
+  - A shell command is a plain list of words. Anything else is not checked:
+    `$` and other expansions, backticks, `( ) { } < > | ; &`, globs
+    (`* ? [`), `~`, `!`, `#`, backslashes, newlines, unclosed quotes and
+    leading `VAR=` assignments. Quotes are removed before checking, so
+    `'sudo'` and `"--force"` count as `sudo` and `--force`. Commands that
+    run other code (shells, `env`, `xargs`, `python`, `node`, `perl`,
+    `awk`, `sed`, `make`, `ssh` and the like), `find -exec`/`-delete`,
+    `git -c`, and any path argument that resolves outside the repo or
+    working directory are not checked either.
+  - A file write (`Write`, `Edit`, `MultiEdit`, `NotebookEdit`, Codex's
+    `apply_patch`) names its files, and each resolves, symlinks included
+    (a dangling link is followed to where it points), to a place inside the
+    repo or working directory.
+  - `Read` names a file that resolves. Every other tool (web fetches, MCP
+    tools, and so on) is not checked.
+  - The call was sent whole: an input cut to fit the request is not checked.
+- The call breaks none of these rules: `sudo`, `doas`, `pkexec`; `rm` with
+  both recursive and force flags, anywhere; force pushes (`-f`, `--force*`,
+  `+branch`) and `git reset --hard`; a path in `~/.ssh`, `~/.aws`,
+  `~/.gnupg`, `.env*`, `.netrc`, `.git-credentials`, kube or docker config,
+  or a keychain; a write into `.git`, `.claude`, `.codex` or `.mcp.json`;
+  input containing a string you list in `never_allow` (shown only as
+  "never_allow #N", never its text).
+- Right before answering, the approval is still waiting, the tab has not
+  turned auto off, and the provider, key and settings have not changed.
+
+A deny needs only the model's choice of deny with p(deny) at least
+`deny_above` (default 0.95, from 0.8 to 1): it is the safe direction. When
+auto mode leaves the prompt, the pill says why, such as "Jev: ask · rm -rf"
+or "Jev: ask · unchecked: shell syntax '|'".
 
 pitwall never answers `AskUserQuestion` or a plan approval for you. Every
 automatic decision is kept for the daemon's run (the latest 200): Settings,
@@ -625,8 +652,7 @@ auto-approving here" for that tab alone.
 
 Claude Code and Codex take the decision from their `PermissionRequest` hook,
 which `pitwall hooks install` already registers; the hook waits up to 4.5 s
-for the answer. Shell commands that write outside the repo are not parsed;
-the model judges those.
+for the answer.
 
 ### Costs
 
@@ -652,15 +678,18 @@ request on its stdin and reads the reply from its stdout, in Jev's shapes:
    "probabilities": {"allow": 0.96, "ask": 0.03, "deny": 0.01}, "confidence": 0.9}}}
 ```
 
-A `score` answer carries `score`, `probabilities` keyed `"0"`, `"1"`, ...
-and `confidence`; a `noul` answer carries `noul`, the probability of yes.
+A choice answer needs a probability for every option, summing to 1, with
+the chosen option highest; a `score` answer carries `score`, `probabilities`
+for every level keyed `"0"`, `"1"`, ... and `confidence`; a `noul` answer
+carries `noul`, the probability of yes. pitwall ignores any other reply.
 The same timeout and redaction apply.
 
 ### Turn it off
 
 Set an approvals mode of `off` or switch a feature off in Settings,
-Decisions. Disconnect there, or run `pitwall jev logout`, to stop everything:
-with `provider = ""` nothing is sent.
+Decisions. To stop everything, set `provider = ""` (Disconnect in Settings
+or `pitwall jev logout` do that when the provider is Jev): then nothing is
+sent.
 
 ## Where things live
 
