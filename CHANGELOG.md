@@ -10,6 +10,32 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.7
+
+- An agent side panel on the right, Ctrl+L (`toggle_panel`, rebindable).
+  It follows the focused pane and reads the agent's own session file:
+  Claude Code's transcript and its subagents, Codex's rollout, or pi's
+  session. Its tabs:
+  - Flow: the current turn as a graph from prompt to outcome, with a
+    pending approval and Jev's suggestion, then tool calls, errors, turn
+    time, changes and earlier turns.
+  - Subagents: Active and Done. Opening one shows what it was asked, its
+    latest message or result, and its tool calls.
+  - Plan: Claude's todo list or Task tools, or Codex's `update_plan`.
+  - Changes: files changed from the default branch, with +/-.
+  - Timeline: prompts, tool calls, subagents and suggestions with their times.
+
+  Claude gets every tab, and Codex gets Plan and Subagents when it uses them.
+  pi has neither. The panel reads the files only while it is open, keeps
+  their text in memory, and never logs or saves it. Ctrl+L no longer reaches
+  the terminal; set `toggle_panel = []` to give it back.
+- Run `pitwall hooks install` once: the pi extension now reports its session
+  file.
+- Branch +/- in the sidebar comes from one diff from the merge base to the
+  work tree. A line changed both in a commit and in uncommitted work now
+  counts once, so the numbers can drop slightly.
+- Protocol 15: the new `pitwall` restarts an older daemon.
+
 ## v0.1.0-alpha.6
 
 - pitwall logs. Windows write events to `gui.log` and the daemon to
