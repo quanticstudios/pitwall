@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -88,6 +90,13 @@ func TestCLIWait(t *testing.T) {
 		{"until blocked", []string{"--until", "blocked"}, []any{driveState(claude, model.StateAwaitingInput, false, 0)}, 0, "blocked\n"},
 		{"agent exited", []string{"--until", "done"}, []any{driveState(claude, model.StateWorking, false, 0), driveState(claude, "", true, 7)}, 3, "exit 7\n"},
 		{"agent gone", []string{"--until", "exit"}, []any{driveState(claude, model.StateWorking, false, 0), gone, proto.PaneExited{Pane: "p", ExitCode: 5}}, 5, "exit 5\n"},
+		// The pane's agent is gone with it, but it was an agent: exited, not a pass.
+		{"agent gone done", []string{"--until", "done"}, []any{driveState(claude, model.StateWorking, false, 0), gone, proto.PaneExited{Pane: "p", ExitCode: 0}}, 3, "exit 0\n"},
+		{"timeout before state", []string{"--until", "done", "--timeout", "50ms"}, nil, 124, ""},
+		// A shell is no agent sitting idle.
+		{"shell never idle", []string{"--until", "idle", "--timeout", "50ms"}, []any{driveState("", "", false, 0)}, 124, ""},
+		{"stale done", []string{"--until", "done"}, []any{sentAfterDone(false), sentAfterDone(true)}, 0, "done\n"},
+		{"stale done only", []string{"--until", "done", "--timeout", "50ms"}, []any{sentAfterDone(false)}, 124, ""},
 		{"shell exit", []string{"--until", "exit"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 7)}, 7, "exit 7\n"},
 		{"shell done is exit", []string{"--until", "done"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 0)}, 0, "exit 0\n"},
 		{"timeout", []string{"--until", "done", "--timeout", "50ms"}, []any{driveState(claude, model.StateWorking, false, 0)}, 124, ""},
@@ -106,11 +115,24 @@ func TestCLIWait(t *testing.T) {
 	}
 }
 
+// sentAfterDone is tab build's claude done with a turn older than its last
+// send, or, with fresh, done again after it.
+func sentAfterDone(fresh bool) proto.StateMsg {
+	m := driveState(model.ProviderClaude, model.StateCompleted, false, 0)
+	at := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.State.Activities[0].UpdatedAt = at
+	m.State.Panes[0].SentAt = at.Add(time.Second)
+	if fresh {
+		m.State.Activities[0].UpdatedAt = at.Add(time.Minute)
+	}
+	return m
+}
+
 func TestCLIListJSON(t *testing.T) {
 	st := driveState(model.ProviderCodex, model.StatePendingApproval, false, 0).State
 	fakeCLI(t, cliExchange{state: st})
 	code, out, stderr := cliOutput("ls", "--json")
-	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":0,"panes":1,"detached":false}]` + "\n"
+	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"panes":1,"detached":false}]` + "\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
 	}
@@ -123,7 +145,7 @@ func TestPaneState(t *testing.T) {
 		agent string
 		want  string
 	}{
-		{model.Pane{ID: "p"}, "", "", "idle"},
+		{model.Pane{ID: "p"}, "", "", "running"},
 		{model.Pane{ID: "p"}, model.StateTerminalRunning, "", "working"},
 		{model.Pane{ID: "p", Cmd: []string{"/usr/bin/claude", "fix it"}}, "", "claude", ""},
 		{model.Pane{ID: "p", Cmd: []string{"claude"}, Provider: model.ProviderClaude}, "", "claude", "idle"},
@@ -158,4 +180,94 @@ func TestCLINewCommand(t *testing.T) {
 	if code, _, stderr := cliOutput("new", "--"); code != 1 || !strings.Contains(stderr, "usage") {
 		t.Fatalf("new with an empty command: %d %s", code, stderr)
 	}
+}
+
+// A relative command path is the caller's, not one in the tab's folder.
+func TestCLINewRelativeCommand(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "tool"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	t.Chdir(dir)
+	before, after := cliState(), cliState()
+	after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", SessionID: "m"})
+	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: other, SessionID: "m", Cmd: []string{filepath.Join(dir, "tool"), "-v"}}, state: after})
+	if code, out, stderr := cliOutput("new", other, "--", "./tool", "-v"); code != 0 || out != "#3\n" {
+		t.Fatalf("%d: %s %s", code, out, stderr)
+	}
+}
+
+// fakeSendDaemon serves send's two connections: a watch that gets state,
+// then, after the Send on the cli connection, nothing (or a hang-up with
+// hangUp).
+func fakeSendDaemon(t *testing.T, state model.State, hangUp bool) {
+	t.Helper()
+	t.Setenv("PITWALL_PANE", "")
+	path := filepath.Join(t.TempDir(), "send.sock")
+	t.Setenv("PITWALL_SOCKET", path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- func() error {
+			wc, err := ln.Accept()
+			if err != nil {
+				return err
+			}
+			defer wc.Close()
+			watch := proto.NewConn(wc)
+			if _, err := watch.Recv(); err != nil {
+				return err
+			}
+			if err := watch.Send(proto.StateMsg{State: state}); err != nil {
+				return err
+			}
+			cc, err := ln.Accept()
+			if err != nil {
+				return err
+			}
+			defer cc.Close()
+			cli := proto.NewConn(cc)
+			for range 3 { // Hello, Send, Sync
+				if _, err := cli.Recv(); err != nil {
+					return err
+				}
+			}
+			if err := cli.Send(proto.StateMsg{State: state}); err != nil {
+				return err
+			}
+			if hangUp {
+				wc.Close()
+			}
+			watch.Recv() // until send hangs up
+			return nil
+		}()
+	}()
+	t.Cleanup(func() {
+		ln.Close()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func TestCLISendUnconfirmed(t *testing.T) {
+	sendSettle = 50 * time.Millisecond
+	t.Cleanup(func() { sendSettle = 10 * time.Second })
+	st := driveState(model.ProviderClaude, model.StateCompleted, false, 0).State
+	t.Run("timeout warns", func(t *testing.T) {
+		fakeSendDaemon(t, st, false)
+		if code, _, stderr := cliOutput("send", "build", "go on"); code != 0 || !strings.Contains(stderr, "didn't change") {
+			t.Fatalf("%d %q", code, stderr)
+		}
+	})
+	t.Run("watch error fails", func(t *testing.T) {
+		fakeSendDaemon(t, st, true)
+		if code, _, stderr := cliOutput("send", "build", "go on"); code != 1 {
+			t.Fatalf("%d %q", code, stderr)
+		}
+	})
 }

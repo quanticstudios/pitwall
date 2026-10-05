@@ -31,7 +31,7 @@ type tabJSON struct {
 	Agent    string `json:"agent"`
 	State    string `json:"state"`
 	Question string `json:"question"`
-	ExitCode int    `json:"exit_code"`
+	ExitCode *int   `json:"exit_code"` // null until the process exits
 	Panes    int    `json:"panes"`
 	Detached bool   `json:"detached"`
 }
@@ -50,7 +50,7 @@ func tabsJSON(state model.State, session string) []tabJSON {
 		if p := mainPane(panes); p != nil {
 			t.Agent, t.State, t.Question = paneState(state, *p)
 			if p.Exited {
-				t.ExitCode = p.ExitCode
+				t.ExitCode = &p.ExitCode
 			}
 		}
 		out = append(out, t)
@@ -102,11 +102,12 @@ func agentOf(p model.Pane) string {
 // paneState is a pane's agent and its state as ls --json, send and wait name
 // it:
 //
-//	working  a turn runs, or, with no agent, a command runs
+//	working  a turn runs, or, with no agent, a command runs in the shell
 //	blocked  the agent waits on a permission prompt, a question or a plan
 //	done     the agent finished its turn (or ended it with an error)
-//	idle     the agent sits at its prompt with nothing to report; with no
-//	         agent, the shell sits at its prompt
+//	idle     the agent sits at its prompt with nothing to report
+//	running  no agent is known, and the pane's process runs: a shell at its
+//	         prompt, or a command pitwall knows nothing more about
 //	exited   the pane's process ended
 //	""       an agent the pane was started with has not been seen running yet
 //
@@ -120,6 +121,8 @@ func paneState(state model.State, p model.Pane) (agent, st, question string) {
 	switch {
 	case agent != "" && p.Provider == "":
 		return agent, "", ""
+	case i < 0 && agent == "":
+		return agent, "running", ""
 	case i < 0:
 		return agent, "idle", ""
 	}
@@ -151,8 +154,8 @@ func parseFlags(flags *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
-// watcher is a watch connection: the daemon pushes every state change and
-// pane exit to it.
+// watcher is a watch connection: the daemon pushes state and pane exits to
+// it. Changes that come close together arrive as one state.
 type watcher struct {
 	*cliConn
 	exits map[string]int // pane: exit code, from PaneExited
@@ -219,7 +222,7 @@ var exitGrace = 2 * time.Second
 // a wait --until done right after it waits for this turn.
 var sendSettle = 10 * time.Second
 
-func sendCommand(args []string, out io.Writer) error {
+func sendCommand(args []string, errOut io.Writer) error {
 	flags := flag.NewFlagSet("send", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	sessionName := flags.String("s", "", "")
@@ -232,7 +235,7 @@ func sendCommand(args []string, out io.Writer) error {
 	if len(args) < 1 {
 		return errors.New("usage: pitwall send [-f] [--no-enter] [-s session] <tab> <text...>")
 	}
-	// why: subscribe before sending, so a short turn cannot start and end unseen.
+	// why: subscribe before sending, to see the agent take up the prompt.
 	watch, err := dialWatch()
 	if err != nil {
 		return err
@@ -273,12 +276,18 @@ func sendCommand(args []string, out io.Writer) error {
 		return s.Activities[i], true
 	}
 	before, had := activity(state)
-	timer := time.AfterFunc(sendSettle, func() { watch.Close() })
+	var timedOut atomic.Bool
+	timer := time.AfterFunc(sendSettle, func() { timedOut.Store(true); watch.Close() })
 	defer timer.Stop()
 	for {
 		s, err := watch.next()
+		if timedOut.Load() {
+			// A slash command starts no turn, and an agent without hooks shows one late.
+			_, err := fmt.Fprintf(errOut, "pitwall: sent; the agent's state didn't change within %s\n", sendSettle)
+			return err
+		}
 		if err != nil {
-			return nil // the agent did not show a turn in time: a slash command, or no hooks
+			return err
 		}
 		a, has := activity(s)
 		gone := !slices.ContainsFunc(s.Panes, func(sp model.Pane) bool { return sp.ID == p.ID && !sp.Exited })
@@ -334,6 +343,9 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	}
 	state, err := watch.next()
 	if err != nil {
+		if timedOut.Load() {
+			return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
+		}
 		return waitError, err
 	}
 	session, err := currentSession(state, *sessionName)
@@ -348,13 +360,18 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	if p == nil {
 		return waitError, fmt.Errorf("tab %s has no pane", tabTitle(w))
 	}
-	pane, saw := p.ID, false // saw: a turn ran during this wait
+	// saw: a turn ran during this wait; hadAgent: the pane ran an agent.
+	pane, saw, hadAgent := p.ID, false, false
 	for {
 		i := slices.IndexFunc(state.Panes, func(sp model.Pane) bool { return sp.ID == pane })
 		var agent, st, question string
 		if i >= 0 {
 			agent, st, question = paneState(state, state.Panes[i])
+			if st == "done" && staleDone(state, state.Panes[i]) {
+				st = "" // the turn before the last send: not this one's end
+			}
 		}
+		hadAgent = hadAgent || agent != ""
 		if i < 0 || st == "exited" {
 			code, ok := watch.exitOf(state, pane)
 			if timedOut.Load() {
@@ -364,7 +381,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 				return waitError, fmt.Errorf("tab %s closed", tabTitle(w))
 			}
 			fmt.Fprintf(out, "exit %d\n", code)
-			if *until == "exit" || (*until == "done" && agent == "") {
+			if *until == "exit" || (*until == "done" && !hadAgent) {
 				if code < 0 {
 					return waitError, nil // killed by a signal
 				}
@@ -375,7 +392,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		saw = saw || st == "working" || st == "blocked"
 		switch {
 		case st == *until, *until == "idle" && st == "done",
-			*until == "done" && agent != "" && st == "idle" && saw: // an interrupted turn ends idle
+			*until == "done" && st == "idle" && saw: // an interrupted turn ends idle
 			fmt.Fprintln(out, st)
 			return waitReached, nil
 		case st == "blocked":
@@ -389,4 +406,11 @@ func waitTab(args []string, out io.Writer) (int, error) {
 			return waitError, err
 		}
 	}
+}
+
+// staleDone reports a done activity of pane p older than the last pitwall
+// send into it: the agent has not taken up that prompt yet.
+func staleDone(state model.State, p model.Pane) bool {
+	i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
+	return i >= 0 && state.Activities[i].UpdatedAt.Before(p.SentAt)
 }

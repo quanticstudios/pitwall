@@ -117,7 +117,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return sessionsCommand(args[1:], in, out, errOut)
 	}
 	if command == "send" {
-		return sendCommand(args[1:], out)
+		return sendCommand(args[1:], errOut)
 	}
 	args = args[1:]
 	var cmd []string
@@ -126,11 +126,18 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if len(cmd) == 0 {
 			return errors.New(usage)
 		}
+		// why: the daemon runs cmd in dir with its own PATH; resolve both here.
+		if strings.ContainsRune(cmd[0], '/') || strings.ContainsRune(cmd[0], filepath.Separator) {
+			abs, err := filepath.Abs(cmd[0])
+			if err != nil {
+				return err
+			}
+			cmd[0] = abs
+		}
 		path, err := exec.LookPath(cmd[0])
 		if err != nil {
 			return err
 		}
-		// why: the daemon's PATH can lack what the caller's has.
 		cmd[0] = path
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)

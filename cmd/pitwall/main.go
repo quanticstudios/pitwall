@@ -43,18 +43,21 @@ const usage = `usage:
   pitwall new [-n name] [-d] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. A cmd's pane stays after it
-                             exits, showing its output, until closed
+                             exits, showing its output, until closed or the
+                             daemon restarts
   pitwall send [-f] [--no-enter] <tab> <text...>
                              paste text into the tab's agent (else its first
                              pane), then press Enter. Refuses while the agent
-                             works (-f overrides) and always while it waits
-                             on a permission prompt or question
+                             works (-f overrides), and always while pitwall
+                             sees a permission prompt or question, by hook
+                             or on screen; checks again before the paste
+                             and before Enter
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there. done: it
-                             finished its turn; idle: done, or at its prompt;
-                             blocked: it waits on a permission prompt or a
-                             question; exit: its process ended. Without an
-                             agent, done means exit. Exit codes: 0 reached,
+                             finished a turn newer than the last send; idle:
+                             done, or at its prompt; blocked: it waits on a
+                             permission prompt or a question; exit: its
+                             process ended. Without an agent, done means exit. Exit codes: 0 reached,
                              2 blocked instead, 3 the process exited, 124
                              timed out, 1 error; for exit, the process's code
   pitwall attach [name]      show a tab in a window
@@ -64,7 +67,7 @@ const usage = `usage:
   pitwall tab new            open a tab next to the calling pane's tab
   pitwall tab rename [name...]  name the calling pane's tab (empty clears)
   pitwall tab close          close the calling pane's tab
-  A tab is named by its # in pitwall ls, its title, or a unique prefix
+  A tab is named by its # in pitwall ls, its id, its title, or a unique prefix
   of the title. Outside a pane, name it; inside, it defaults to the
   pane's own tab. Tab commands act on the calling pane's session, else
   the most recently used one; -s <session> picks another.
