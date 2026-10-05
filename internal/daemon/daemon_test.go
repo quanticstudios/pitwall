@@ -594,6 +594,56 @@ func TestPiStaleShutdownIgnored(t *testing.T) {
 	}
 }
 
+// /reload loads pi's extension again in the same session. A shutdown from
+// the old runtime that reaches the daemon after the new runtime reported
+// must not end the new runtime's activity; one that arrives first still
+// ends the old activity.
+func TestPiReloadOrdering(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: d.st.Workspaces[0].ID}))
+	id := d.st.Panes[0].ID
+	send := func(event, runtime string) {
+		t.Helper()
+		b := fmt.Sprintf(`{"event":%q,"runtime":%q,"session_id":"s1","stop_reason":"stop","message":"done"}`, event, runtime)
+		must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: []byte(b)}))
+	}
+	// In order: the old runtime's shutdown ends its finished turn.
+	send("session_start", "old")
+	send("agent_settled", "old")
+	send("session_shutdown", "old")
+	if a := d.activityOf(id); a.State != "" {
+		t.Fatalf("in-order shutdown kept the activity: %+v", a)
+	}
+	// Late: the new runtime started a turn before the old shutdown arrived.
+	send("session_start", "old")
+	send("agent_settled", "old")
+	send("session_start", "new")
+	send("agent_start", "new")
+	send("session_shutdown", "old")
+	if a := d.activityOf(id); a.State != model.StateWorking {
+		t.Fatalf("the old runtime's late shutdown ended the new one's turn: %+v", a)
+	}
+	// Even when the new runtime has only started, it owns the pane.
+	send("agent_settled", "new")
+	send("session_start", "newer")
+	send("session_shutdown", "new")
+	if a := d.activityOf(id); a.State != model.StateCompleted {
+		t.Fatalf("a replaced runtime's shutdown removed the activity: %+v", a)
+	}
+	send("session_shutdown", "newer")
+	if a := d.activityOf(id); a.State != "" {
+		t.Fatalf("the current runtime's shutdown kept the activity: %+v", a)
+	}
+}
+
 // A SetLayout built from stale state is rejected; a current one is taken with
 // its ratios made sane.
 func TestSetLayoutValidates(t *testing.T) {

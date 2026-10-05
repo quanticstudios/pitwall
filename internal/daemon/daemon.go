@@ -707,6 +707,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.det, id)
+	delete(d.live.piRuntime, id)
 	delete(d.attn, id)
 	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
@@ -743,7 +744,18 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	now := time.Now()
 	changed := false
 
-	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok {
+	// A remove from a pi extension runtime that /reload replaced changes nothing.
+	staleRemove := false
+	if rt, remove := agent.PiReport(m.Payload); rt != "" && remove {
+		staleRemove = d.live.piRuntime[p.ID] != "" && d.live.piRuntime[p.ID] != rt
+	} else if rt != "" {
+		if d.live.piRuntime == nil {
+			d.live.piRuntime = map[string]string{}
+		}
+		d.live.piRuntime[p.ID] = rt
+	}
+
+	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok && !staleRemove {
 		changed = true
 		clearDecisions(&next) // a new state needs new answers
 		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {

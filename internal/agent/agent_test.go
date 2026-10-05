@@ -323,11 +323,27 @@ func TestDerivePi(t *testing.T) {
 	if got := LastMessage([]byte(`{"event":"agent_settled","stop_reason":"stop","message":"done"}`)); got != "done" {
 		t.Errorf("LastMessage = %q", got)
 	}
-	// A completed Detail goes through the same redaction as Claude's and Codex's.
+	// Completed and error Details go through the same redaction as Claude's and Codex's.
 	token := "ghp_" + strings.Repeat("Q", 36)
-	b, _ := json.Marshal(map[string]any{"event": "agent_settled", "stop_reason": "stop", "message": "Pushed with " + token})
-	if next, ok := Derive(&model.Activity{State: model.StateWorking}, model.ProviderPi, b, now); !ok || strings.Contains(next.Detail, "QQQQ") || !strings.Contains(next.Detail, "Pushed with") {
-		t.Errorf("pi Detail %q", next.Detail)
+	for _, fields := range []map[string]any{
+		{"stop_reason": "stop", "message": "Pushed with " + token},
+		{"stop_reason": "error", "error": "401 for Pushed with " + token},
+		{"stop_reason": "error", "message": "Pushed with " + token},
+	} {
+		fields["event"] = "agent_settled"
+		b, _ := json.Marshal(fields)
+		if next, ok := Derive(&model.Activity{State: model.StateWorking}, model.ProviderPi, b, now); !ok || strings.Contains(next.Detail, "QQQQ") || !strings.Contains(next.Detail, "Pushed with") {
+			t.Errorf("pi Detail %q for %v", next.Detail, fields["stop_reason"])
+		}
+	}
+	if rt, remove := PiReport([]byte(`{"event":"session_shutdown","runtime":"r1"}`)); rt != "r1" || !remove {
+		t.Errorf("PiReport(shutdown) = %q, %v", rt, remove)
+	}
+	if rt, remove := PiReport([]byte(`{"event":"agent_start","runtime":"r1"}`)); rt != "r1" || remove {
+		t.Errorf("PiReport(agent_start) = %q, %v", rt, remove)
+	}
+	if rt, _ := PiReport(fixture(t, "claude_stop")); rt != "" {
+		t.Errorf("PiReport(claude) = %q", rt)
 	}
 }
 
@@ -351,10 +367,13 @@ func TestPiExtension(t *testing.T) {
 		}
 	}
 	src := string(PiExtension("pitwall"))
-	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, "if (!process.env.PITWALL_PANE) return;\n\tpi.on(", `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
+	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", "runtime = randomUUID()", "{ event, runtime,", "Array.from(", "kill(current);\n\t});", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
 		if !strings.Contains(src, s) {
 			t.Errorf("extension lacks %s", s)
 		}
+	}
+	if i, j := strings.Index(src, "if (!process.env.PITWALL_PANE) return;"), strings.Index(src, "pi.on("); i < 0 || j < i {
+		t.Error("extension registers handlers outside a pitwall pane")
 	}
 	if strings.Contains(src, "shell: true") || strings.Contains(src, "event.input") {
 		t.Error("extension uses a shell or sends tool arguments")

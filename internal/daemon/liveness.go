@@ -26,6 +26,9 @@ type liveness struct {
 	hookAt map[string]time.Time // pane: when its agent last sent a hook
 	fg     map[string]int       // pane: its foreground process group at that hook
 	det    map[string]*detected // pane: what detect saw at its last poll
+	// piRuntime is, per pane, the extension nonce of pi's latest report
+	// that did not remove its activity (see agent.PiReport).
+	piRuntime map[string]string
 }
 
 // foregrounder is the optional Pane method behind the exit check;
@@ -146,6 +149,11 @@ func (d *Daemon) checkForeground() {
 	for id := range d.live.det {
 		if d.panes[id] == nil {
 			delete(d.live.det, id)
+		}
+	}
+	for id := range d.live.piRuntime {
+		if d.panes[id] == nil {
+			delete(d.live.piRuntime, id)
 		}
 	}
 	// Hooks own a pane only while their agent's group is in the foreground.

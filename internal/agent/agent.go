@@ -52,6 +52,7 @@ type payload struct {
 	PiEvent    string `json:"event"`
 	StopReason string `json:"stop_reason"`
 	Ephemeral  bool   `json:"ephemeral"` // a --no-session session, which cannot be resumed
+	Runtime    string `json:"runtime"`   // random per loaded extension; /reload makes a new one
 }
 
 // Derive maps one hook payload to the pane's next activity. ok is false when
@@ -88,7 +89,8 @@ type payload struct {
 //	before_agent_start, agent_start         working
 //	tool_call                               working, Detail = tool name
 //	agent_settled                           completed, Detail = start of the last reply;
-//	                                        error when the run failed, Detail = the error;
+//	                                        error when the run failed, Detail = the error,
+//	                                        both redacted like Stop's;
 //	                                        remove when the user aborted it
 //	session_start                           no change (pi is idle at its prompt)
 //	session_shutdown                        remove, unless prev belongs to another pi
@@ -227,7 +229,7 @@ func mapPi(p payload) (state model.AgentState, detail string, remove, ok bool) {
 	case "agent_settled":
 		switch p.StopReason {
 		case "error":
-			return model.StateError, firstNonEmpty(p.Error, p.Message), false, true
+			return model.StateError, summary(firstNonEmpty(p.Error, p.Message)), false, true
 		case "aborted":
 			return "", "", true, true
 		}
@@ -428,6 +430,19 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 		return "", "", nil, "", false
 	}
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
+}
+
+// PiReport returns the runtime nonce of a pi extension report and whether
+// the report removes the pane's activity; runtime is "" for other payloads.
+// A pi extension loaded again by /reload keeps the session id but not the
+// nonce, so a late remove from the old one can be told from the new one's.
+func PiReport(payload []byte) (runtime string, remove bool) {
+	p, err := decode(payload)
+	if err != nil || p.PiEvent == "" {
+		return "", false
+	}
+	_, _, remove, _ = mapPi(p)
+	return p.Runtime, remove
 }
 
 // UserPrompt is the prompt of any UserPromptSubmit hook from the main
