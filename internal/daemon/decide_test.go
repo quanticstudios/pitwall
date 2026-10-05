@@ -388,7 +388,7 @@ func TestScreenPaceAcrossPrograms(t *testing.T) {
 }
 
 // A turn check whose agent left the foreground between the hook and the
-// capture sends nothing: the screen would be the shell's.
+// capture does not send the screen: it would be the shell's.
 func TestTurnCheckAfterAgentExits(t *testing.T) {
 	m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.9}, "urgency": urgency(1)}}
 	f := &fakes{statsCalls: map[string]int{}}
@@ -419,12 +419,15 @@ func TestTurnCheckAfterAgentExits(t *testing.T) {
 		lp.fgGroup.Store(200) // the agent exited to the shell
 		close(done)
 	}
+	lp.show("SHELLSCREEN", false)
 	hook(t, d, "claude_stop")
 	<-done
 	time.Sleep(50 * time.Millisecond)
-	for _, q := range m.questions() {
-		if q == "review" {
-			t.Error("sent a turn check after the agent left")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.asked {
+		if st, _ := r.State.(map[string]any); st["screen"] != "" {
+			t.Errorf("sent the screen after the agent left: %q", st["screen"])
 		}
 	}
 }
@@ -527,5 +530,61 @@ func TestDetailScrubsKnownKey(t *testing.T) {
 	must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: b}))
 	if a := d.activityOf("a"); a.State != model.StateCompleted || strings.Contains(a.Detail, key) || !strings.Contains(a.Detail, "Set the key") {
 		t.Errorf("Detail %q", a.Detail)
+	}
+}
+
+// The turn check sends the screen only when the agent's hold on the
+// foreground is verified: not for a pane that cannot report its
+// foreground, not without a recorded group. The check itself still goes,
+// from the last message alone.
+func TestTurnCheckScreenNeedsOwnership(t *testing.T) {
+	for name, fg := range map[string]int64{"unsupported": -1, "missing record": 0, "verified": 100} {
+		t.Run(name, func(t *testing.T) {
+			m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.1}}}
+			f := &fakes{statsCalls: map[string]int{}}
+			f.saved = model.State{
+				Workspaces: []model.Workspace{{ID: "w", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
+				Panes:      []model.Pane{{ID: "a", WorkspaceID: "w"}},
+			}
+			o := f.options()
+			o.Derive = agent.Derive
+			if fg >= 0 { // a pane that reports its foreground group
+				start := o.StartPane
+				o.StartPane = func(c pane.Config) (Pane, error) {
+					p, _ := start(c)
+					lp := &livePane{fakePane: p.(*fakePane)}
+					lp.fgGroup.Store(fg)
+					lp.show("SCREENTEXT", false)
+					return lp, nil
+				}
+			}
+			o.Decisions = func() Decisions {
+				return Decisions{Settings: config.DecideSettings{Provider: "jev", Approvals: config.ModeOff, TurnCheck: true, TurnThreshold: 0.8, Timeout: time.Second}, Provider: m}
+			}
+			d, err := NewWith(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hook(t, d, "claude_stop")
+			var screen string
+			for start := time.Now(); ; time.Sleep(5 * time.Millisecond) {
+				m.mu.Lock()
+				n := len(m.asked)
+				if n > 0 {
+					st, _ := m.asked[0].State.(map[string]any)
+					screen, _ = st["screen"].(string)
+				}
+				m.mu.Unlock()
+				if n > 0 {
+					break
+				}
+				if time.Since(start) > 2*time.Second {
+					t.Fatal("no turn check was asked")
+				}
+			}
+			if verified := fg > 0; verified != (screen != "") {
+				t.Errorf("screen sent %q with foreground %d", screen, fg)
+			}
+		})
 	}
 }

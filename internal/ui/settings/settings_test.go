@@ -406,3 +406,25 @@ func TestDecisionsTestScrubsKeys(t *testing.T) {
 		t.Errorf("command test scrubs %d of 2 keys", len(secrets))
 	}
 }
+
+// The command provider's arguments are shown redacted: the saved key
+// first, then the generic patterns.
+func TestDecisionsCommandShownRedacted(t *testing.T) {
+	const saved = "plainsavedkeyvalue42"
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := decide.SaveKey(decide.CredentialsPath(dir), saved); err != nil {
+		t.Fatal(err)
+	}
+	token := "sk-ant-api03-" + strings.Repeat("Z", 30)
+	os.WriteFile(path, []byte("[decisions]\nprovider = \"command\"\ncommand = [\"my-classifier\", \"--api-key\", \""+token+"\", \"--key2\", \""+saved+"\"]\n"), 0o644)
+	var p Page
+	p.Show(path)
+	p.s, _ = config.LoadFile(path)
+	p.th = theme.Dark()
+	desc := p.decisions()[0].rows[0].desc
+	if strings.Contains(desc, "ZZZZ") || strings.Contains(desc, saved) || !strings.Contains(desc, "my-classifier") {
+		t.Errorf("command shown as %q", desc)
+	}
+}

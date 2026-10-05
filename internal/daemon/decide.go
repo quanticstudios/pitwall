@@ -282,37 +282,44 @@ func (d *Daemon) triageJob(ctx context.Context, j *decideJob) {
 	})
 }
 
-// turnCheck asks whether a finished turn needs the user's review.
 // turnCapture runs between the turn check's two checks of the pane;
 // tests use it to change the pane in between.
 var turnCapture = func() {}
 
-// turnCheck asks whether a finished turn needs the user's review. The
-// pane is checked before and after its screen is captured: the finished
-// turn must still be its activity and the agent whose hook reported it
-// must still hold the foreground, so a shell's screen is never sent as
-// the agent's.
+// turnCheck asks whether a finished turn needs the user's review. It is
+// asked only while the finished turn is still the pane's activity. The
+// screen goes with it only when pitwall can tell, before and after the
+// capture, that the agent whose hook reported the turn still holds the
+// foreground: a recorded foreground group that the pane confirms. When
+// it cannot (no record, or a pane that cannot report its foreground),
+// the check is asked from the last message alone, so a shell's screen
+// is never sent as the agent's.
 func (d *Daemon) turnCheck(ctx context.Context, j *decideJob) {
 	valid := func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		i := d.activityIndex(j.pane)
-		if d.closing || j.screen == nil || d.panes[j.pane] != j.screen || i < 0 ||
-			!d.st.Activities[i].UpdatedAt.Equal(j.at) || d.st.Activities[i].State != model.StateCompleted {
-			return false
-		}
-		if fg, ok := d.live.fg[j.pane]; ok {
-			if f, ok := j.screen.(foregrounder); ok && f.Foreground() != fg {
-				return false
-			}
-		}
-		return true
+		return !d.closing && j.screen != nil && d.panes[j.pane] == j.screen && i >= 0 &&
+			d.st.Activities[i].UpdatedAt.Equal(j.at) && d.st.Activities[i].State == model.StateCompleted
+	}
+	owned := func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		fg, ok := d.live.fg[j.pane]
+		f, can := j.screen.(foregrounder)
+		return ok && can && fg > 0 && f.Foreground() == fg
 	}
 	if !valid() {
 		return
 	}
-	turnCapture()
-	screen := agent.ScreenText(j.screen.Snapshot(), 40)
+	screen := ""
+	if owned() {
+		turnCapture()
+		screen = agent.ScreenText(j.screen.Snapshot(), 40)
+		if !owned() {
+			screen = ""
+		}
+	}
 	if !valid() {
 		return
 	}

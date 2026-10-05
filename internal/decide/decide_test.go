@@ -868,3 +868,21 @@ func TestOverlappingKnownKeys(t *testing.T) {
 		}
 	}
 }
+
+// No fmt verb and no JSON encoding shows a provider's keys.
+func TestProvidersPrintNoKeys(t *testing.T) {
+	const other = "ts_live_otherkey_abcdefghijklmnopqrstu"
+	j := NewJev(fakeKey, "")
+	j.Secrets = Secrets{other}
+	c := Command{Argv: []string{"my-classifier"}, Secrets: Secrets{other}}
+	for _, v := range []any{j, *j, c, &c} {
+		for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+			if out := fmt.Sprintf(verb, v); strings.Contains(out, "ts_") {
+				t.Errorf("%s of %T shows a key: %s", verb, v, out)
+			}
+		}
+		if b, _ := json.Marshal(v); strings.Contains(string(b), "ts_") {
+			t.Errorf("JSON of %T shows a key: %s", v, b)
+		}
+	}
+}

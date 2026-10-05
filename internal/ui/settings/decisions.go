@@ -207,10 +207,8 @@ func (p *Page) decisions() []section {
 	var conn row
 	switch {
 	case d.Provider == "command":
-		argv := ""
-		if len(d.Command) > 0 {
-			argv = strings.Join(d.Command, " ")
-		}
+		// Known keys first, then the patterns: an argument may hold a key.
+		argv := decide.Redact(strings.Join(d.Command, " "), decide.KnownKeys(p.credPath())...)
 		conn = row{label: "Your command", desc: "provider = \"command\" in config.toml runs " + argv + " for every question.",
 			extra: "decisions provider command local model", control: btn("dtest", "Test", secondary, p.test), below: status}
 	case p.dp.keySrc != "" && d.Provider == "jev":

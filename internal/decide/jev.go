@@ -22,18 +22,28 @@ const JevModel = "jev-latest"
 const KeysURL = "https://console.typesafe.ai/keys"
 
 // Secret is a string that prints as [redacted], so a key in a struct never
-// reaches a log line or a panic through fmt.
+// reaches a log line or a panic through fmt, in any verb, or JSON.
 type Secret string
 
-func (Secret) String() string   { return "[redacted]" }
-func (Secret) GoString() string { return "[redacted]" }
+func (Secret) String() string               { return Redacted }
+func (Secret) GoString() string             { return Redacted }
+func (Secret) Format(f fmt.State, _ rune)   { io.WriteString(f, Redacted) }
+func (Secret) MarshalJSON() ([]byte, error) { return json.Marshal(Redacted) }
+
+// Secrets are known keys that print as [redacted] like Secret.
+type Secrets []string
+
+func (Secrets) String() string               { return Redacted }
+func (Secrets) GoString() string             { return Redacted }
+func (Secrets) Format(f fmt.State, _ rune)   { io.WriteString(f, Redacted) }
+func (Secrets) MarshalJSON() ([]byte, error) { return json.Marshal(Redacted) }
 
 // Jev asks TypeSafe's Jev over HTTPS.
 type Jev struct {
 	Key Secret
 	// Secrets are other known keys, scrubbed from error text along with
 	// Key before anything else touches it.
-	Secrets []string
+	Secrets Secrets
 	Model   string // "" means JevModel
 	url     string // tests point it at a fake server
 	http    *http.Client
@@ -96,7 +106,7 @@ func (j *Jev) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
 	cut := len(data) > maxReply
 	data = data[:min(len(data), maxReply)]
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jev: %s", statusText(res.StatusCode, wholeText(data, cut), append([]string{string(j.Key)}, j.Secrets...)...))
+		return nil, fmt.Errorf("jev: %s", statusText(res.StatusCode, wholeText(data, cut), append([]string{string(j.Key)}, []string(j.Secrets)...)...))
 	}
 	if cut {
 		return nil, errors.New("jev: reply too large")
