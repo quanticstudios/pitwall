@@ -1,0 +1,10 @@
+{"type":"session","version":3,"id":"s1","timestamp":"2026-10-05T10:00:00.000Z","cwd":"/repo"}
+{"type":"model_change","timestamp":"2026-10-05T10:00:00.000Z"}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"List the files"}],"timestamp":0}}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"Listing."},{"type":"toolCall","id":"p1","name":"bash","arguments":{"command":"ls -la"}}],"stopReason":"toolUse"}}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:00:03.000Z","message":{"role":"toolResult","toolCallId":"p1","toolName":"bash","content":[{"type":"text","text":"a"}],"isError":false}}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:00:04.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"p2","name":"read","arguments":{"path":"/repo/README.md"}}],"stopReason":"toolUse"}}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:00:05.000Z","message":{"role":"toolResult","toolCallId":"p2","toolName":"read","content":[],"isError":true}}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:00:06.000Z","message":{"role":"assistant","content":[{"type":"text","text":"There is one file."}],"stopReason":"stop"}}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:01:00.000Z","message":{"role":"user","content":"Edit it","timestamp":0}}
+{"type":"message","id":"x","parentId":null,"timestamp":"2026-10-05T10:01:01.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"p3","name":"edit","arguments":{"path":"/repo/a.go","oldText":"a","newText":"b"}}],"stopReason":"toolUse"}}

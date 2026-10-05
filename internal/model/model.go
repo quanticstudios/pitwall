@@ -113,6 +113,10 @@ type Pane struct {
 	// AgentMode is the permission mode the agent's latest hook reported
 	// (agent.PermissionMode), so a resume keeps it.
 	AgentMode string
+	// Transcript is the agent session's own file, from its latest hook:
+	// Claude's transcript, Codex's rollout or pi's session. "" until a hook
+	// names one. Not saved; the next hook after a restart names it again.
+	Transcript string `json:"-"`
 }
 
 type MergeStatus string

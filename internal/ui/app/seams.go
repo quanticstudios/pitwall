@@ -3,6 +3,8 @@ package app
 import (
 	gl "gioui.org/layout"
 
+	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -50,3 +52,10 @@ func splitTree(root *layout.Node, target, pane string, dir layout.Dir) *layout.N
 }
 
 func removeTree(root *layout.Node, pane string) *layout.Node { return layout.Remove(root, pane) }
+
+// watchFeed and listFiles are what the side panel reads through; tests
+// replace them.
+var (
+	watchFeed = flow.Watch
+	listFiles = gitstat.Files
+)

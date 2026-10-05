@@ -926,7 +926,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		p.Provider, changed = m.Provider, true
 	}
 	if sid := d.o.SessionID(m.Provider, m.Payload); sid != "" && sid != p.SessionID {
-		p.SessionID, p.Prompt, p.AgentMode, changed = sid, "", "", true // a new session reports its own mode
+		p.SessionID, p.Prompt, p.AgentMode, p.Transcript, changed = sid, "", "", "", true // a new session reports its own mode and file
+	}
+	if t := agent.Transcript(m.Payload); t != "" && t != p.Transcript {
+		p.Transcript, changed = t, true
 	}
 	if mode := agent.PermissionMode(m.Payload); mode != "" && mode != p.AgentMode {
 		p.AgentMode, changed = mode, true
@@ -1157,7 +1160,7 @@ func (d *Daemon) exited(id string, p Pane) {
 	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || !sp.Held && code != 0 && time.Since(at) < resumeGrace) {
 		log.Printf("pane %s: exited %d; resumed %q session, opening a shell", id, code, sp.Provider)
 		closeAll([]Pane{d.dropPane(id)})
-		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode = nil, "", "", "", "", ""
+		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
 		err := d.start(id, nil, sp.Cwd)
 		if err == nil {
 			d.changed()

@@ -12,6 +12,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -53,10 +54,11 @@ type payload struct {
 
 	// pi extension fields; it also sends session_id, prompt, tool_name,
 	// message and error.
-	PiEvent    string `json:"event"`
-	StopReason string `json:"stop_reason"`
-	Ephemeral  bool   `json:"ephemeral"` // a --no-session session, which cannot be resumed
-	Runtime    string `json:"runtime"`   // random per loaded extension; /reload makes a new one
+	PiEvent     string `json:"event"`
+	StopReason  string `json:"stop_reason"`
+	Ephemeral   bool   `json:"ephemeral"` // a --no-session session, which cannot be resumed
+	Runtime     string `json:"runtime"`   // random per loaded extension; /reload makes a new one
+	SessionFile string `json:"session_file"`
 }
 
 // Derive maps one hook payload to the pane's next activity. ok is false when
@@ -287,6 +289,24 @@ func SessionID(provider model.Provider, payload []byte) string {
 	return sessionID(p)
 }
 
+// Transcript returns the agent session's own file a hook names: Claude's
+// and Codex's transcript_path, or the session_file of pi's reports. It is ""
+// unless the path is absolute and ends in .jsonl, and for a /side fork.
+func Transcript(payload []byte) string {
+	p, err := decode(payload)
+	if err != nil || sideFork(p) {
+		return ""
+	}
+	path := p.SessionFile
+	if p.PiEvent == "" {
+		_ = json.Unmarshal(p.TranscriptPath, &path)
+	}
+	if !filepath.IsAbs(path) || !strings.HasSuffix(path, ".jsonl") {
+		return ""
+	}
+	return path
+}
+
 // PermissionMode returns the permission mode a Claude Code or Codex hook
 // reports, both under these names, or "" for any other value. A /side
 // fork's mode returns "": it is not the pane's main session.
@@ -387,6 +407,7 @@ func PiExtension(bin string) []byte {
 // shipped it, so an install replaces those files as unedited.
 var piReleased = []string{
 	"6075137b80ebb0c738c88c2abca9f192e9fc3858eab4e215f4702bceb3bcca02", // v0.1.0-alpha.5
+	"11f4736b693b600e21a7eb1d5336e842804cee7a5f6a5b1c0a0a2360a492a42b", // v0.1.0-alpha.6
 }
 
 // IsPiExtension reports whether b is exactly what PiExtension returns for

@@ -3,12 +3,16 @@
 package gitstat
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,6 +31,9 @@ func RepoRoot(ctx context.Context, path string) (string, bool) {
 	return strings.TrimSuffix(out, "\n"), err == nil
 }
 
+// Stats counts the lines changed from the merge base with the default
+// branch to the work tree, committed, staged and unstaged, untracked files
+// left out, and how far the branch is ahead and behind.
 func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 	var stats model.BranchStats
 	if _, err := git(ctx, worktree, "rev-parse", "--git-dir"); err != nil {
@@ -36,29 +43,17 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 	if err != nil || base == "" {
 		return stats, err
 	}
-	// Count committed changes from the merge base and staged/unstaged changes from HEAD.
-	for _, revision := range []string{base + "...HEAD", "HEAD"} {
-		out, err := git(ctx, worktree, "diff", "--numstat", revision, "--")
-		if err != nil {
-			return stats, err
-		}
-		for _, line := range strings.Split(out, "\n") {
-			fields := strings.Split(line, "\t")
-			// Binary files have no line counts.
-			if len(fields) < 3 || fields[0] == "-" {
-				continue
-			}
-			added, err := strconv.Atoi(fields[0])
-			if err != nil {
-				return stats, err
-			}
-			deleted, err := strconv.Atoi(fields[1])
-			if err != nil {
-				return stats, err
-			}
-			stats.Additions += added
-			stats.Deletions += deleted
-		}
+	mb, err := mergeBase(ctx, worktree, base)
+	if err != nil {
+		return stats, err
+	}
+	files, err := numstat(ctx, worktree, mb)
+	if err != nil {
+		return stats, err
+	}
+	for _, f := range files {
+		stats.Additions += f.Add
+		stats.Deletions += f.Del
 	}
 	out, err := git(ctx, worktree, "rev-list", "--left-right", "--count", base+"...HEAD", "--")
 	if err != nil {
@@ -223,4 +218,140 @@ func exitCode(err error) int {
 		return exit.ExitCode()
 	}
 	return -1
+}
+
+// FileStat is one file's change from the default branch's merge base,
+// counting commits and uncommitted work, like Stats.
+type FileStat struct {
+	Path     string // relative to the repo root
+	Add, Del int    // both 0 for a binary file
+	Status   byte   // 'A' added, 'M' modified, 'D' deleted, 'R' renamed, '?' untracked
+}
+
+// Files returns the per-file changes behind Stats' totals, and the base
+// ref they are against ("main"). Untracked files come last, Status '?',
+// with Add their line count when the file is regular (not followed through
+// a symlink), not binary and at most 1 MiB, else 0; Stats leaves them out,
+// so the other files' totals are Stats'.
+func Files(ctx context.Context, worktree string) (base string, files []FileStat, err error) {
+	ref, err := defaultRef(ctx, worktree)
+	if err != nil || ref == "" {
+		return "", nil, err
+	}
+	base = strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/origin/"), "refs/heads/")
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return "", nil, fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	mb, err := mergeBase(ctx, root, ref)
+	if err != nil {
+		return "", nil, err
+	}
+	if files, err = numstat(ctx, root, mb); err != nil {
+		return "", nil, err
+	}
+	out, err := git(ctx, root, "diff", "--name-status", "-z", mb, "--")
+	if err != nil {
+		return "", nil, err
+	}
+	status := map[string]byte{}
+	fields := strings.Split(out, "\x00")
+	for i := 0; i+1 < len(fields); i += 2 {
+		st := fields[i]
+		if st == "" {
+			break
+		}
+		if st[0] == 'R' || st[0] == 'C' { // old path, then new path
+			i++
+		}
+		if i+1 < len(fields) {
+			status[fields[i+1]] = st[0]
+		}
+	}
+	for i := range files {
+		switch st := status[files[i].Path]; st {
+		case 'A', 'D', 'R':
+			files[i].Status = st
+		default:
+			files[i].Status = 'M'
+		}
+	}
+	out, err = git(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return "", nil, err
+	}
+	for _, path := range strings.Split(out, "\x00") {
+		if path == "" {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return "", nil, err
+		}
+		files = append(files, FileStat{Path: path, Add: countLines(filepath.Join(root, path)), Status: '?'})
+	}
+	return base, files, nil
+}
+
+func mergeBase(ctx context.Context, dir, ref string) (string, error) {
+	out, err := git(ctx, dir, "merge-base", ref, "HEAD")
+	return strings.TrimSpace(out), err
+}
+
+// numstat is the line counts per file from rev to the work tree, by final
+// path, in path order. A binary file counts 0.
+func numstat(ctx context.Context, dir, rev string) ([]FileStat, error) {
+	out, err := git(ctx, dir, "diff", "--numstat", "-z", rev, "--")
+	if err != nil {
+		return nil, err
+	}
+	var files []FileStat
+	fields := strings.Split(out, "\x00")
+	for i := 0; i < len(fields); i++ {
+		counts := strings.SplitN(fields[i], "\t", 3)
+		if len(counts) < 3 {
+			continue
+		}
+		f := FileStat{Path: counts[2]}
+		if f.Path == "" && i+2 < len(fields) { // a rename: old and new path follow
+			f.Path = fields[i+2]
+			i += 2
+		}
+		if counts[0] != "-" {
+			if f.Add, err = strconv.Atoi(counts[0]); err != nil {
+				return nil, err
+			}
+			if f.Del, err = strconv.Atoi(counts[1]); err != nil {
+				return nil, err
+			}
+		}
+		files = append(files, f)
+	}
+	slices.SortFunc(files, func(a, b FileStat) int { return strings.Compare(a.Path, b.Path) })
+	return files, nil
+}
+
+// maxCount is the largest untracked file whose lines Files counts.
+const maxCount = 1 << 20
+
+// countLines is the line count of a regular text file of at most maxCount
+// bytes, not followed through a symlink; 0 for anything else.
+func countLines(path string) int {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxCount {
+		return 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxCount+1))
+	if err != nil || len(b) == 0 || len(b) > maxCount || bytes.IndexByte(b, 0) >= 0 {
+		return 0
+	}
+	n := bytes.Count(b, []byte("\n"))
+	if b[len(b)-1] != '\n' {
+		n++
+	}
+	return n
 }

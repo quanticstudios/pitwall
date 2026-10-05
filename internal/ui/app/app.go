@@ -29,6 +29,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/term"
@@ -68,7 +69,8 @@ const (
 func Run(b Backend) error {
 	w := new(app.Window)
 	w.Option(app.Title("pitwall"), app.Size(1280, 800), app.MinSize(640, 360))
-	u := &ui{b: b, panes: map[string]*paneUI{}}
+	u := &ui{b: b, panes: map[string]*paneUI{}, invalidate: w.Invalidate}
+	defer u.panel.stop()
 	l := loadConfig()
 	u.apply(l)
 	var reported string
@@ -236,6 +238,9 @@ type ui struct {
 	settings   settings.Page // shown in place of the panes
 	settingsWS string        // the tab it was opened over; leaving it closes the page
 	probs      []string      // the loaded config's problems, for the settings page
+
+	panel      sidePanel // the agent panel on the right while nav.panelOpen
+	invalidate func()    // the window's Invalidate; nil in tests
 
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
@@ -461,6 +466,13 @@ func (u *ui) layout(gtx gl.Context) {
 		left = sw + 1
 	}
 	area := image.Rectangle{Min: image.Pt(left, 0), Max: gtx.Constraints.Max}
+	var side image.Rectangle // the agent panel, right of the panes
+	if u.nav.panelOpen && !u.settings.Shown() {
+		if pw := panelWidth(area.Dx(), gtx.Dp(panel.Width)+1, gtx.Dp(panel.MinWidth)+1, gtx.Dp(minPaneArea)); pw > 0 {
+			side = image.Rectangle{Min: image.Pt(area.Max.X-pw, 0), Max: area.Max}
+			area.Max.X = side.Min.X
+		}
+	}
 	off := op.Offset(area.Min).Push(gtx.Ops)
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
@@ -478,6 +490,7 @@ func (u *ui) layout(gtx gl.Context) {
 	fo.Pop()
 	u.drawNotice(pgtx)
 	off.Pop()
+	u.layoutPanel(gtx, &st, side)
 	if u.nav.tabMode || u.nav.paneMode {
 		u.drawModePill(gtx, area)
 	}

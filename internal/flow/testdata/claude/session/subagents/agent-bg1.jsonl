@@ -1,0 +1,5 @@
+{"type":"user","timestamp":"2026-10-05T10:00:16.000Z","isSidechain":true,"message":{"role":"user","content":"Run the e2e suite."}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:20.000Z","isSidechain":true,"message":{"role":"assistant","content":[{"type":"tool_use","id":"s2","name":"Bash","input":{"command":"make e2e"}}],"stop_reason":"tool_use"}}
+{"type":"user","timestamp":"2026-10-05T10:01:50.000Z","isSidechain":true,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"s2","content":"PASS","is_error":false}]}}
+{"type":"assistant","timestamp":"2026-10-05T10:01:55.000Z","isSidechain":true,"message":{"role":"assistant","content":[{"type":"tool_use","id":"s3","name":"SubagentHandback","input":{"message":"All e2e tests pass."}}],"stop_reason":"tool_use"}}
+{"type":"user","timestamp":"2026-10-05T10:01:56.000Z","isSidechain":true,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"s3","content":"ok"}]}}

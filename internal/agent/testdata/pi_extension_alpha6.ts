@@ -33,7 +33,7 @@ export default function (pi: any) {
 	const limit = 32;
 	let pending: Job[] = [];
 	let busy = false;
-	let session: { session_id?: string; ephemeral?: boolean; session_file?: string } = {};
+	let session: { session_id?: string; ephemeral?: boolean } = {};
 	let started = false;
 	let last: { stop_reason?: string; message?: string; error?: string } = {};
 	// result is the last agent_settled's fields, until the next run starts.
@@ -115,8 +115,7 @@ export default function (pi: any) {
 	function begin(ctx: any): void {
 		try {
 			// why: an ephemeral session (--no-session) has no file and cannot be resumed.
-			const file = ctx.sessionManager.getSessionFile();
-			session = { session_id: String(ctx.sessionManager.getSessionId() ?? ""), ephemeral: !file, session_file: file ? String(file) : "" };
+			session = { session_id: String(ctx.sessionManager.getSessionId() ?? ""), ephemeral: !ctx.sessionManager.getSessionFile() };
 		} catch {
 			session = {};
 		}

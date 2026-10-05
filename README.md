@@ -248,6 +248,16 @@ gaps between panes to resize them.
 Ctrl+Shift+B (Ctrl+B in the aide preset) hides the sidebar; pitwall
 remembers that across restarts.
 
+Ctrl+L opens the agent panel on the right. It follows the focused pane and
+reads the agent's own session file: Flow shows the current turn from prompt
+to outcome, with a pending approval and the decision model's suggestion;
+Subagents lists what each spawned agent was asked and is doing; Plan is the
+agent's todo list; Changes lists the files changed from the default branch;
+Timeline lists prompts, tool calls and subagents with their times. The panel
+is 432dp wide (scaled with the display), narrows to 320dp in a small window,
+then hides. Each window keeps its own open state until it closes. The shell no longer gets Ctrl+L
+(clear screen); set `toggle_panel = []` to give it back.
+
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
 Drag to select, double-click a word, or hold Shift when a program owns the
@@ -393,6 +403,7 @@ conventional:
 | Ctrl+Shift+E                            | Split the pane below                                      |
 | Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up   | Next / previous pane                                      |
 | Ctrl+Shift+B                            | Show or hide the sidebar                                  |
+| Ctrl+L                                  | Show or hide the agent panel                              |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Shift+S                            | Session switcher                                          |
 | Ctrl+Shift+] / Ctrl+Shift+[             | Next / previous session                                   |
@@ -419,6 +430,7 @@ aide:
 | Alt+Shift+N                       | Split the pane below                           |
 | Alt+Shift+W                       | Close the pane                                 |
 | Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
+| Ctrl+L                            | Show or hide the agent panel (the shell no longer gets Ctrl+L) |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Alt+S                             | Session switcher                               |
 | Alt+] / Alt+[                     | Next / previous session                        |
