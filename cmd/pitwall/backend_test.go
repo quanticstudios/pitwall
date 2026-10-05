@@ -57,3 +57,53 @@ func TestSendDoesNotBlock(t *testing.T) {
 		}
 	}
 }
+
+// TestBackendEndsWithConnection checks an idle writer exits when the daemon
+// closes the connection, and that Send then returns the error.
+func TestBackendEndsWithConnection(t *testing.T) {
+	gui, daemon := net.Pipe()
+	defer gui.Close()
+	b := newBackend(proto.NewConn(gui), "")
+	exited := make(chan struct{})
+	go func() { b.sendLoop(); close(exited) }()
+	go b.recvLoop()
+	daemon.Close()
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the writer did not exit after the daemon closed")
+	}
+	if err := b.Send(proto.Input{Pane: "p1", Data: []byte("x")}); err == nil {
+		t.Fatal("Send on a closed connection returned nil")
+	}
+}
+
+// TestBackendWriteFailure checks a failed write closes the connection, so
+// recvLoop ends and Changed closes, and later Sends return the error.
+func TestBackendWriteFailure(t *testing.T) {
+	gui, daemon := net.Pipe()
+	defer daemon.Close()
+	b := newBackend(proto.NewConn(gui), "")
+	exited := make(chan struct{})
+	go func() { b.sendLoop(); close(exited) }()
+	go b.recvLoop()
+	gui.SetWriteDeadline(time.Now()) // the next write fails at once
+	b.Send(proto.Input{Pane: "p1", Data: []byte("x")})
+	b.Send(proto.Scroll{Pane: "p1", Lines: 1})
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the writer did not exit after a write failed")
+	}
+	select {
+	case _, ok := <-b.Changed():
+		for ok {
+			_, ok = <-b.Changed()
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Changed did not close after a write failed")
+	}
+	if err := b.Send(proto.Input{Pane: "p1", Data: []byte("y")}); err == nil {
+		t.Fatal("Send after a write failure returned nil")
+	}
+}

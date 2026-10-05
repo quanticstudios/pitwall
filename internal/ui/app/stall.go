@@ -22,13 +22,18 @@ const (
 )
 
 // watchdog records when the window started handling an event, so a check
-// from another goroutine can see an event that has run too long.
+// from another goroutine can see an event that has run too long. Times are
+// monotonic offsets from origin, so a wall clock change neither fakes a
+// stall nor hides one.
 type watchdog struct {
-	start  atomic.Int64 // UnixNano when the current event began, 0 between events
+	origin time.Time
+	start  atomic.Int64 // nanoseconds since origin plus one when the current event began, 0 between events
 	dumped int64        // the start of the stall already dumped; check's goroutine only
 }
 
-func (wd *watchdog) begin() { wd.start.Store(time.Now().UnixNano()) }
+func newWatchdog() *watchdog { return &watchdog{origin: time.Now()} }
+
+func (wd *watchdog) begin() { wd.start.Store(int64(time.Since(wd.origin)) + 1) }
 func (wd *watchdog) end()   { wd.start.Store(0) }
 
 // watch checks once a second until stop closes.
@@ -39,50 +44,82 @@ func (wd *watchdog) watch(stop <-chan struct{}) {
 		select {
 		case <-stop:
 			return
-		case now := <-t.C:
-			wd.check(now)
+		case <-t.C:
+			wd.check(time.Since(wd.origin))
 		}
 	}
 }
 
-// check writes every goroutine's stack to stall-<unix>.txt in the state
-// directory, once per stall, and keeps the newest stallKeep files. It
-// returns the file's path, or "" when nothing was written.
-func (wd *watchdog) check(now time.Time) string {
+// check, given the time since origin, writes every goroutine's stack to a
+// new stall-*.txt in the state directory, once per stall, and keeps the
+// newest stallKeep files. It returns the file's path, or "" when nothing
+// was written.
+func (wd *watchdog) check(now time.Duration) string {
 	s := wd.start.Load()
-	if s == 0 || s == wd.dumped || now.Sub(time.Unix(0, s)) < stallAfter {
+	if s == 0 || s == wd.dumped {
+		return ""
+	}
+	ran := now - time.Duration(s-1)
+	if ran < stallAfter {
 		return ""
 	}
 	wd.dumped = s
 	dir := config.StateDir()
-	path := filepath.Join(dir, fmt.Sprintf("stall-%d.txt", now.Unix()))
-	err := os.MkdirAll(dir, 0o700)
-	if err == nil {
-		err = writeStacks(path, now.Sub(time.Unix(0, s)))
-	}
+	path, err := writeStacks(dir, ran)
 	if err != nil {
-		log.Printf("pitwall: window event stalled for %v; writing stacks: %v", now.Sub(time.Unix(0, s)).Round(time.Second), err)
+		log.Printf("pitwall: window event stalled for %v; writing stacks: %v", ran.Round(time.Second), err)
 		return ""
 	}
-	log.Printf("pitwall: window event stalled for %v; stacks in %s", now.Sub(time.Unix(0, s)).Round(time.Second), path)
-	if old, _ := filepath.Glob(filepath.Join(dir, "stall-*.txt")); len(old) > stallKeep {
-		slices.Sort(old) // same-width unix seconds sort by time
-		for _, p := range old[:len(old)-stallKeep] {
-			os.Remove(p)
-		}
-	}
+	log.Printf("pitwall: window event stalled for %v; stacks in %s", ran.Round(time.Second), path)
+	pruneStalls(dir, path)
 	return path
 }
 
-func writeStacks(path string, d time.Duration) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+// writeStacks writes the stacks to a new file in dir; windows sharing the
+// state directory never overwrite each other's.
+func writeStacks(dir string, d time.Duration) (string, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp(dir, fmt.Sprintf("stall-%d-*.txt", time.Now().Unix()))
 	if err != nil {
-		return err
+		return "", err
 	}
 	fmt.Fprintf(f, "pitwall %s: one window event has run for %v\n\n", time.Now().Format(time.RFC3339), d.Round(time.Millisecond))
 	err = pprof.Lookup("goroutine").WriteTo(f, 2)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
-	return err
+	return f.Name(), err
+}
+
+// pruneStalls keeps the newest stallKeep stall files by modification time,
+// always keeping the one just written.
+func pruneStalls(dir, keep string) {
+	paths, _ := filepath.Glob(filepath.Join(dir, "stall-*.txt"))
+	if len(paths) <= stallKeep {
+		return
+	}
+	type file struct {
+		path string
+		mod  time.Time
+	}
+	var files []file
+	for _, p := range paths {
+		if fi, err := os.Stat(p); err == nil {
+			files = append(files, file{p, fi.ModTime()})
+		}
+	}
+	slices.SortFunc(files, func(a, b file) int {
+		switch {
+		case a.path == keep:
+			return -1
+		case b.path == keep:
+			return 1
+		}
+		return b.mod.Compare(a.mod) // newest first
+	})
+	for _, f := range files[min(stallKeep, len(files)):] {
+		os.Remove(f.path)
+	}
 }

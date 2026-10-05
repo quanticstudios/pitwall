@@ -14,8 +14,9 @@ To cut a release: add a section below and merge it, then
 
 - The window no longer freezes while the daemon is busy with a slow request,
   such as a new tab in a repository where `git` is slow. Messages to the
-  daemon queue in order instead of blocking the window, and none are dropped;
-  a newer resize of a pane replaces its queued one.
+  daemon queue in order instead of blocking the window, and none are dropped
+  while the connection is up; a newer resize of a pane replaces its queued
+  one.
 - When one window event runs for over 2 seconds, pitwall writes every
   goroutine's stack to `stall-<time>.txt` in its state directory and keeps the
   newest 5. Attach the newest one to a report of a frozen window.
