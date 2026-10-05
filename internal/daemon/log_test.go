@@ -24,8 +24,8 @@ func (l *lockedBuf) Write(p []byte) (int, error) {
 }
 func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
 
-// TestLogNeverHolds: typed input, hook payloads and command arguments never
-// reach the log, on the paths that succeed and the ones that fail, while the
+// TestLogNeverHolds: typed input, hook payloads, command arguments and a
+// client's own Kind text never reach the log, on the paths that succeed and the ones that fail, while the
 // events around them do.
 func TestLogNeverHolds(t *testing.T) {
 	var buf lockedBuf
@@ -43,6 +43,9 @@ func TestLogNeverHolds(t *testing.T) {
 	gui.send(proto.Input{Pane: p, Data: []byte(secret)})
 	gui.send(proto.Input{Pane: "gone", Data: []byte(secret)})
 	gui.send(proto.Resize{Pane: p, Cols: 90, Rows: 30})
+	odd := dialHello(t, sock, proto.Hello{Version: proto.Version, Kind: "gui\n2026/01/01 forged " + secret})
+	odd.send(proto.Sync{})
+	odd.waitFor("sync", func(m any) bool { _, ok := m.(proto.StateMsg); return ok })
 	hook := dial(t, sock, "hook")
 	hook.send(proto.AgentEvent{Pane: p, Provider: model.ProviderClaude, Payload: []byte(secret)})
 	hook.send(proto.AgentEvent{Pane: "gone", Provider: model.ProviderClaude, Payload: []byte(secret)})
@@ -54,14 +57,17 @@ func TestLogNeverHolds(t *testing.T) {
 	}()
 	waitUntil(t, "log lines", func() bool {
 		s := buf.String()
-		return strings.Contains(s, "proto.AgentEvent: no pane gone") && strings.Contains(s, "resized 80x24 to 90x30")
+		return strings.Contains(s, `proto.AgentEvent: "no pane gone"`) && strings.Contains(s, "resized 80x24 to 90x30")
 	})
 	stop()
 	s := buf.String()
 	if strings.Contains(s, secret) || strings.Contains(s, "--token") || strings.Contains(s, "/opt/bin") {
 		t.Fatalf("the log holds input, a payload or arguments:\n%s", s)
 	}
-	for _, want := range []string{"started agent,", "gui connected", "proto.Input: no pane gone"} {
+	if strings.Contains(s, "forged") {
+		t.Fatalf("a client's Kind reached the log:\n%s", s)
+	}
+	for _, want := range []string{`started "agent",`, "other connected", "gui connected", `proto.Input: "no pane gone"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("no %q in the log:\n%s", want, s)
 		}

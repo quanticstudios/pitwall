@@ -126,14 +126,11 @@ func main() {
 // other exits cleanly.
 func runDaemon() (err error) {
 	// Started by a window, stderr is crash.log, which is for crash traces.
-	if w, err := logs.Start(filepath.Join(stateDir(), "daemon.log"), "daemon", versionString(), term.IsTerminal(os.Stderr.Fd())); err == nil {
-		defer w.Close(time.Second)
-	} else {
-		fmt.Fprintln(os.Stderr, "pitwall: log:", err)
-	}
+	w, _ := logs.Start(filepath.Join(stateDir(), "daemon.log"), "daemon", versionString(), term.IsTerminal(os.Stderr.Fd()))
+	defer w.Close(time.Second)
 	log.Printf("daemon starting")
 	defer func() {
-		log.Printf("daemon stopped: %v", err)
+		log.Printf("daemon stopped: %s", outcome(err))
 	}()
 	path, err := proto.SocketPath()
 	if err != nil {
@@ -147,7 +144,7 @@ func runDaemon() (err error) {
 	if ok, err := tryLock(lock); err != nil {
 		return err
 	} else if !ok {
-		log.Printf("a daemon is already running on %s", path)
+		log.Printf("a daemon is already running on %q", path)
 		return nil
 	}
 	if c, err := net.Dial("unix", path); err == nil {
@@ -234,16 +231,15 @@ func printHooks() error {
 // and exits instead.
 func runGUI(session string) error {
 	hideConsole()
-	if w, err := logs.Start(filepath.Join(stateDir(), "gui.log"), "gui", versionString(), true); err == nil {
-		defer w.Close(time.Second)
-	}
+	w, _ := logs.Start(filepath.Join(stateDir(), "gui.log"), "gui", versionString(), true)
+	defer w.Close(time.Second)
 	log.Printf("gui starting")
 	if err := crashOutput(); err != nil {
-		log.Printf("crash output: %v", err)
+		log.Printf("crash output: %q", err)
 	}
 	conn, initial, err := dialOrStart(session)
 	if err != nil {
-		log.Printf("gui: %v", err)
+		log.Printf("gui: %q", err)
 		return err
 	}
 	defer conn.Close()
@@ -257,7 +253,7 @@ func runGUI(session string) error {
 	go b.recvLoop()
 	go b.sendLoop()
 	err = app.Run(b)
-	log.Printf("window closed: %v", err)
+	log.Printf("window closed: %s", outcome(err))
 	return err
 }
 
@@ -279,7 +275,7 @@ func dialOrStart(session string) (*proto.Conn, proto.StateMsg, error) {
 	if err == nil {
 		return conn, initial, nil
 	}
-	log.Printf("restarting incompatible daemon: %v", err)
+	log.Printf("restarting incompatible daemon: %q", err)
 	if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
 		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %v; %w", err, stopErr)
 	}
@@ -394,6 +390,14 @@ func startDaemon(path string) (net.Conn, error) {
 }
 
 func stateDir() string { return config.StateDir() }
+
+// outcome is err quoted for a log line, or "ok".
+func outcome(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	return strconv.Quote(err.Error())
+}
 
 // crashOutput sends the runtime's crash traces to crash.log as well as
 // stderr, which a window started from a launcher has nowhere to show.

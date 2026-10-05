@@ -182,13 +182,13 @@ func NewWith(o Options) (*Daemon, error) {
 		}
 		cmd := o.RestoreCmd(p)
 		if err := d.start(p.ID, cmd, p.Cwd); err != nil {
-			log.Printf("restore pane %s: %v", p.ID, err)
+			log.Printf("restore pane %s: %q", p.ID, err)
 			gone = append(gone, p.ID)
 			continue
 		}
 		if !slices.Equal(cmd, p.Cmd) {
 			d.resumed[p.ID] = time.Now()
-			log.Printf("pane %s: resuming %s, mode %q", p.ID, p.Provider, p.AgentMode)
+			log.Printf("pane %s: resuming %q, mode %q", p.ID, p.Provider, p.AgentMode)
 		}
 	}
 	for _, id := range gone {
@@ -238,7 +238,7 @@ func (d *Daemon) shutdown() {
 	panes := slices.Collect(maps.Values(d.panes))
 	d.mu.Unlock()
 	if err := d.o.Save(s); err != nil {
-		log.Printf("save state: %v", err)
+		log.Printf("save state: %q", err)
 	}
 	d.saveMu.Unlock()
 
@@ -341,8 +341,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	// logging a line per message.
 	errs := logs.Limiter{Every: 10 * time.Second}
 	if hello.Kind != "hook" { // one connection per agent event
-		log.Printf("client %s: %s connected", cid, hello.Kind)
-		defer func() { log.Printf("client %s: %s disconnected: %v", cid, hello.Kind, err) }()
+		kind := clientKind(hello.Kind)
+		log.Printf("client %s: %s connected", cid, kind)
+		defer func() { log.Printf("client %s: %s disconnected: %q", cid, kind, err) }()
 	}
 	done := make(chan struct{})
 	defer close(done)
@@ -410,11 +411,21 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if herr != nil {
 			if ok, held := errs.Allow(fmt.Sprintf("%T", m), start); ok {
-				log.Printf("client %s: %T: %v%s", cid, m, herr, heldNote(held))
+				log.Printf("client %s: %T: %q%s", cid, m, herr, heldNote(held))
 			}
 			c.queue(proto.Error{Message: herr.Error()})
 		}
 	}
+}
+
+// clientKind is a Hello's Kind for the log: a kind pitwall sends, else
+// "other", since a client can send any text.
+func clientKind(k string) string {
+	switch k {
+	case "gui", "cli", "watch", "hook":
+		return k
+	}
+	return "other"
 }
 
 // slowHandler is how long one request may take before the log notes it.
@@ -986,7 +997,7 @@ func (d *Daemon) start(id string, cmd []string, cwd string) error {
 	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id }); i >= 0 {
 		provider = d.st.Panes[i].Provider
 	}
-	log.Printf("pane %s: started %s, provider %q, %dx%d", id, program, provider, defaultCols, defaultRows)
+	log.Printf("pane %s: started %q, provider %q, %dx%d", id, program, provider, defaultCols, defaultRows)
 	in := make(chan []byte, inputQueue)
 	d.inputs[id] = in
 	go d.watch(id, p)
@@ -1086,7 +1097,7 @@ func (d *Daemon) exited(id string, p Pane) {
 	code := p.ExitCode()
 	sp := &d.st.Panes[i]
 	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || code != 0 && time.Since(at) < resumeGrace) {
-		log.Printf("pane %s: exited %d; resumed %s session, opening a shell", id, code, sp.Provider)
+		log.Printf("pane %s: exited %d; resumed %q session, opening a shell", id, code, sp.Provider)
 		closeAll([]Pane{d.dropPane(id)})
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode = nil, "", "", "", "", ""
 		err := d.start(id, nil, sp.Cwd)
@@ -1095,7 +1106,7 @@ func (d *Daemon) exited(id string, p Pane) {
 			d.mu.Unlock()
 			return
 		}
-		log.Printf("pane %s: shell after failed resume: %v", id, err)
+		log.Printf("pane %s: shell after failed resume: %q", id, err)
 	}
 	var closing []Pane
 	if d.held[id] {
@@ -1170,7 +1181,7 @@ func (d *Daemon) save() {
 	s := d.saveSnapshot()
 	d.mu.Unlock()
 	if err := d.o.Save(s); err != nil {
-		log.Printf("save state: %v", err)
+		log.Printf("save state: %q", err)
 	}
 }
 

@@ -69,7 +69,7 @@ func loadDecisions(cfgPath, credPath string) func() Decisions {
 		last = Decisions{Settings: s}
 		key, _, err := decide.LoadKey(credPath)
 		if err != nil && s.Provider == "jev" {
-			log.Printf("decisions: %v", err) // never holds the key
+			log.Printf("decisions: %q", err) // never holds the key
 		}
 		last.Secrets = decide.KnownKeys(credPath)
 		switch s.Provider {
@@ -250,7 +250,7 @@ func (d *Daemon) approve(ctx context.Context, j *decideJob) {
 	flags := decide.Flags(*j.call, j.s.NeverAllow)
 	ans, err := j.c.Ask(ctx, decide.FeatureApprovals, j.pane, decide.ApprovalState(j.agent, *j.call, j.prompt), decide.ApprovalQuestions())
 	if err != nil {
-		log.Printf("approvals: %v", err)
+		log.Printf("approvals: %q", err)
 	}
 	d.onActivity(j.pane, j.at, func(a *model.Activity) {
 		if err != nil || a.State != model.StatePendingApproval {
@@ -268,7 +268,7 @@ func (d *Daemon) approve(ctx context.Context, j *decideJob) {
 func (d *Daemon) triageJob(ctx context.Context, j *decideJob) {
 	ans, err := j.c.Ask(ctx, decide.FeatureTriage, j.pane, decide.TriageState(j.agent, j.state, j.text), decide.TriageQuestions())
 	if err != nil {
-		log.Printf("triage: %v", err)
+		log.Printf("triage: %q", err)
 	}
 	d.onActivity(j.pane, j.at, func(a *model.Activity) {
 		if a.Urgency != model.UrgencyPending {
@@ -288,7 +288,7 @@ func (d *Daemon) triageJob(ctx context.Context, j *decideJob) {
 func (d *Daemon) turnCheck(ctx context.Context, j *decideJob) {
 	ans, err := j.c.Ask(ctx, decide.FeatureTurnCheck, j.pane, decide.TurnState(j.agent, j.lastMsg), decide.TurnQuestions())
 	if err != nil {
-		log.Printf("turn check: %v", err)
+		log.Printf("turn check: %q", err)
 	}
 	d.onActivity(j.pane, j.at, func(a *model.Activity) {
 		a.Review = err == nil && decide.Review(ans) >= j.s.TurnThreshold
@@ -365,7 +365,7 @@ func (d *Daemon) readScreen(ctx context.Context, id, name string, g vt.Grid) {
 	go func() {
 		ans, err := c.Ask(ctx, decide.FeatureAgents, id, decide.ScreenState(name, text), decide.ScreenQuestions())
 		if err != nil {
-			log.Printf("agent screen: %v", err)
+			log.Printf("agent screen: %q", err)
 		}
 		d.mu.Lock()
 		defer d.mu.Unlock()

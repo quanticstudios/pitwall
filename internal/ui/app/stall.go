@@ -67,10 +67,10 @@ func (wd *watchdog) check(now time.Duration) string {
 	dir := config.StateDir()
 	path, err := writeStacks(dir, ran)
 	if err != nil {
-		log.Printf("window event stalled for %v; writing stacks: %v", ran.Round(time.Second), err)
+		log.Printf("window event stalled for %v; writing stacks: %q", ran.Round(time.Second), err)
 		return ""
 	}
-	log.Printf("window event stalled for %v; stacks in %s", ran.Round(time.Second), path)
+	log.Printf("window event stalled for %v; stacks in %q", ran.Round(time.Second), path)
 	pruneStalls(dir, path)
 	return path
 }

@@ -137,7 +137,7 @@ func (b *backend) fail(err error, unsent int) {
 		b.out = nil
 		b.outMu.Unlock()
 		b.conn.Close()
-		log.Printf("daemon connection lost: %v; %d queued messages not sent", err, unsent)
+		log.Printf("daemon connection lost: %q; %d queued messages not sent", err, unsent)
 		close(b.done)
 	})
 }

@@ -753,9 +753,15 @@ running in panes at that moment stop.
 ### Logs
 
 `pitwall logs` prints the paths of the three log files, and `pitwall logs -f`
-follows them as they grow. They live in the state directory, readable only
-by you. A file that is over 5 MB when a window or the daemon starts moves to
-`<name>.1`, replacing the older one; the size is checked at startup only.
+follows them as they grow. They live in the state directory. On Linux and
+macOS the files are mode 0600 in a 0700 directory, so only you can read them;
+on Windows they inherit the permissions of your profile folder. A file that
+is over 5 MB when a window or the daemon starts moves to `<name>.1`,
+replacing the older one; the size is checked at startup only. Two known
+limits come with that: two processes starting at the same moment can lose
+some lines in the move, and a window started before another one moved
+`gui.log` keeps writing to `gui.log.1` until it restarts, which
+`pitwall logs -f` does not show.
 
 Every window writes events to `gui.log` and the daemon to `daemon.log`, one
 line each, starting with the time, `gui` or `daemon`, the version and the
@@ -766,11 +772,12 @@ and frames. They never record what a pane shows, what you type, prompts,
 hook payloads, environment variables or a command's arguments. They do hold
 folder paths and pane ids.
 
-`crash.log` is different. It holds raw Go crash traces from windows and the
-daemon, and anything the daemon prints before its log opens. A crash trace
-includes the panic value and every goroutine's stack verbatim and does not
-follow the line format, so it can contain any text pitwall was handling,
-pane output included. Read it before you share it.
+`crash.log` is different. It holds Go's standard crash trace from windows
+and the daemon, and anything the daemon prints before its log opens. A
+crash trace is the panic value and the crashing goroutine's stack (more
+goroutines if `GOTRACEBACK` asks for them), verbatim, and does not follow the
+line format, so the panic value can hold any text pitwall was handling.
+Read it before you share it.
 
 For a bug report, attach `gui.log` and `daemon.log` from around the time it
 happened, any stall file, and, after checking it, `crash.log`.

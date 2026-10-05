@@ -3,12 +3,22 @@
 // contents, typed input, prompts, hook payloads, environment variables,
 // command arguments or secrets.
 //
-// crash.log, next to them, is different: it holds raw Go crash traces, with
-// the panic value and every goroutine's stack verbatim, and does not follow
-// the line format or that list.
+// crash.log, next to them, is different: it holds Go's standard crash
+// trace, the panic value and the crashing goroutine's stack (more as
+// GOTRACEBACK asks) verbatim, and does not follow the line format or that
+// list.
+//
+// Files are 0600 in a 0700 directory on Unix only; on Windows they inherit
+// the permissions of the profile folder they are in.
+//
+// Two known limits, kept for simplicity. Two processes starting at the same
+// moment can lose some lines in the startup move to .1. A window started
+// before another one moved gui.log keeps writing to gui.log.1 until it
+// restarts, and `pitwall logs -f` does not show those lines.
 package logs
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -29,8 +39,9 @@ const MaxSize = 5 << 20
 // dropped.
 const queue = 256
 
-// OpenFile opens path for appending, 0600 in a 0700 directory; on Unix an
-// existing directory and file are set to those modes. A file over max is
+// OpenFile opens path for appending, 0600 in a 0700 directory on Unix, where
+// an existing directory and file are set to those modes too; on Windows they
+// keep the permissions they inherit. A file over max is
 // first moved to path+".1", replacing the old one. When that fails, as it
 // does on Windows while another window has the file open, the process
 // appends to the file as it is.
@@ -63,22 +74,27 @@ func OpenFile(path string, max int64) (*os.File, error) {
 
 // Start sends the standard logger to the file at path, and to stderr when
 // stderr is set. Each line starts with the time, role ("gui" or "daemon"),
-// version and pid: windows share gui.log. Close the Writer on a clean exit
-// to flush it.
+// version and pid: windows share gui.log. When the file cannot be opened,
+// the logger writes to stderr alone and Start logs why there and returns the
+// error. Either way a log call never blocks; close the Writer on a clean
+// exit to flush it.
 func Start(path, role, version string, stderr bool) (*Writer, error) {
+	prefix := fmt.Sprintf("%s %s %d ", role, version, os.Getpid())
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lmsgprefix)
+	log.SetPrefix(prefix)
 	f, err := OpenFile(path, MaxSize)
 	if err != nil {
-		return nil, err
+		w := NewWriter(prefix, nil, os.Stderr)
+		log.SetOutput(w)
+		log.Printf("log file: %q", err)
+		return w, err
 	}
 	outs := []io.Writer{f}
 	if stderr {
 		outs = append(outs, os.Stderr)
 	}
-	prefix := fmt.Sprintf("%s %s %d ", role, version, os.Getpid())
 	w := NewWriter(prefix, f, outs...)
 	log.SetOutput(w)
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lmsgprefix)
-	log.SetPrefix(prefix)
 	return w, nil
 }
 
@@ -106,7 +122,9 @@ func NewWriter(prefix string, closer io.Closer, outs ...io.Writer) *Writer {
 	return w
 }
 
-// Write queues a copy of p and never blocks.
+// Write queues a copy of p and never blocks. Control characters other than
+// the line's final newline and tabs are written as \xNN, so whatever text a
+// line carries, it stays one line.
 func (w *Writer) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -115,11 +133,24 @@ func (w *Writer) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	select {
-	case w.lines <- append([]byte(nil), p...):
+	case w.lines <- oneLine(p):
 	default:
 		w.dropped.Add(1)
 	}
 	return len(p), nil
+}
+
+func oneLine(p []byte) []byte {
+	line, _ := bytes.CutSuffix(p, []byte("\n"))
+	out := make([]byte, 0, len(p)+1)
+	for _, c := range line {
+		if c < 0x20 && c != '\t' || c == 0x7f {
+			out = fmt.Appendf(out, "\\x%02x", c)
+		} else {
+			out = append(out, c)
+		}
+	}
+	return append(out, '\n')
 }
 
 func (w *Writer) run() {

@@ -2,6 +2,7 @@ package logs
 
 import (
 	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -103,6 +104,28 @@ func TestWriterNeverBlocks(t *testing.T) {
 	if time.Since(start) > time.Second {
 		t.Fatal("Close waited on a stalled output past its timeout")
 	}
+}
+
+// TestOneLine: text with newlines and other control characters stays one
+// line, and Start falls back to a non-blocking stderr writer when it cannot
+// open the file.
+func TestOneLine(t *testing.T) {
+	var got bytes.Buffer
+	w := NewWriter("", nil, &got)
+	w.Write([]byte("err: \"x\nforged line\r\x1b[31m\ttab\"\n"))
+	w.Close(5 * time.Second)
+	if want := "err: \"x\\x0aforged line\\x0d\\x1b[31m\ttab\"\n"; got.String() != want {
+		t.Fatalf("got %q, want %q", got.String(), want)
+	}
+
+	notDir := filepath.Join(t.TempDir(), "file")
+	os.WriteFile(notDir, nil, 0o600)
+	t.Cleanup(func() { log.SetOutput(os.Stderr); log.SetPrefix(""); log.SetFlags(log.LstdFlags) })
+	fw, err := Start(filepath.Join(notDir, "gui.log"), "gui", "v1", false)
+	if err == nil || fw == nil {
+		t.Fatalf("Start under a file: %v, %v", fw, err)
+	}
+	fw.Close(time.Second)
 }
 
 type writerFunc func([]byte) (int, error)

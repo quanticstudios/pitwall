@@ -248,7 +248,7 @@ func (u *ui) send(msg any) bool {
 	err := u.b.Send(msg)
 	if err != nil {
 		if ok, held := sendErrs.Allow("", time.Now()); ok {
-			log.Printf("send %T: %v; %d more since the last line", msg, err, held)
+			log.Printf("send %T: %q; %d more since the last line", msg, err, held)
 		}
 	}
 	return err == nil
