@@ -4,9 +4,11 @@
 // (hook_event_name, session_id, cwd, tool_name, tool_input, ...), so one
 // decoder serves both. Codex's older notify program sends a different object
 // as its one argv argument; Derive tells the two apart by hook_event_name.
+// pitwall's pi extension sends a small object of its own keyed by "event".
 package agent
 
 import (
+	_ "embed"
 	"encoding/json"
 	"runtime"
 	"strconv"
@@ -44,6 +46,11 @@ type payload struct {
 	Type            string `json:"type"`
 	ThreadID        string `json:"thread-id"`
 	LastMessageDash string `json:"last-assistant-message"`
+
+	// pi extension fields; it also sends session_id, prompt, tool_name,
+	// message and error.
+	PiEvent    string `json:"event"`
+	StopReason string `json:"stop_reason"`
 }
 
 // Derive maps one hook payload to the pane's next activity. ok is false when
@@ -74,6 +81,19 @@ type payload struct {
 //	                                        (source "compact" fires mid-turn, where working must stay)
 //	SessionEnd, Interrupt (Codex)           remove
 //	Codex notify agent-turn-complete        completed, Detail = the start of the last message
+//
+// pi, from the extension PiExtension writes:
+//
+//	before_agent_start, agent_start         working
+//	tool_call                               working, Detail = tool name
+//	agent_settled                           completed, Detail = start of the last reply;
+//	                                        error when the run failed, Detail = the error;
+//	                                        remove when the user aborted it
+//	session_start                           no change (pi is idle at its prompt)
+//	session_shutdown                        remove
+//
+// pi has no permission prompts of its own, so it never reports
+// pending-approval, awaiting-input or plan-ready.
 //
 // Tool failures stay working: an agent recovers from a failed command inside
 // the same turn, so error is reserved for turns the API ended. A Claude turn
@@ -109,6 +129,9 @@ func Derive(prev *model.Activity, provider model.Provider, payload []byte, now t
 }
 
 func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail string, remove, ok bool) {
+	if p.PiEvent != "" {
+		return mapPi(p)
+	}
 	if p.Event == "" {
 		// Codex notify program: agent-turn-complete is its only type.
 		return model.StateCompleted, summary(p.LastMessageDash), false, p.Type == "agent-turn-complete"
@@ -191,6 +214,26 @@ func Summary(msg string, known ...string) string {
 	return s + "…"
 }
 
+func mapPi(p payload) (state model.AgentState, detail string, remove, ok bool) {
+	switch p.PiEvent {
+	case "before_agent_start", "agent_start":
+		return model.StateWorking, "", false, true
+	case "tool_call":
+		return model.StateWorking, p.ToolName, false, true
+	case "agent_settled":
+		switch p.StopReason {
+		case "error":
+			return model.StateError, firstNonEmpty(p.Error, p.Message), false, true
+		case "aborted":
+			return "", "", true, true
+		}
+		return model.StateCompleted, summary(p.Message), false, true
+	case "session_shutdown":
+		return "", "", true, true
+	}
+	return "", "", false, false
+}
+
 func decode(b []byte) (payload, error) {
 	var p payload
 	err := json.Unmarshal(b, &p)
@@ -202,7 +245,7 @@ func decode(b []byte) (payload, error) {
 func sideFork(p payload) bool { return string(p.TranscriptPath) == "null" }
 
 func sessionID(p payload) string {
-	if p.Event == "" {
+	if p.Event == "" && p.PiEvent == "" {
 		return p.ThreadID
 	}
 	return p.SessionID
@@ -218,8 +261,8 @@ func firstNonEmpty(s ...string) string {
 }
 
 // SessionID returns the agent session id carried by the payload, or "".
-// Claude and Codex hooks carry session_id (a subagent's hooks carry the
-// parent's); Codex notify carries thread-id. The provider is not needed to
+// Claude and Codex hooks and pi's session_start carry session_id (a
+// subagent's hooks carry the parent's); Codex notify carries thread-id. The provider is not needed to
 // tell them apart. A /side fork's hook returns "": resuming it would lose
 // the main session.
 func SessionID(provider model.Provider, payload []byte) string {
@@ -230,12 +273,12 @@ func SessionID(provider model.Provider, payload []byte) string {
 	return sessionID(p)
 }
 
-// Prompt returns the prompt text of a UserPromptSubmit hook, or "". Claude
-// and Codex both carry it in "prompt". A /side fork's prompt returns "": it
-// is not the pane's main session.
+// Prompt returns the prompt text of a UserPromptSubmit hook or a pi
+// before_agent_start event, or "". All three carry it in "prompt". A /side
+// fork's prompt returns "": it is not the pane's main session.
 func Prompt(provider model.Provider, payload []byte) string {
 	p, err := decode(payload)
-	if err != nil || p.Event != "UserPromptSubmit" || sideFork(p) {
+	if err != nil || (p.Event != "UserPromptSubmit" && p.PiEvent != "before_agent_start") || sideFork(p) {
 		return ""
 	}
 	// why: a slash command (/clear, /model) says nothing about the work, so
@@ -291,6 +334,36 @@ func CodexHooks(bin string) []byte { return hooksJSON(bin, "codex", codexEvents)
 // command no-ops outside a pitwall pane.
 func CodexNotify(bin string) string {
 	return "notify = [" + strconv.Quote(bin) + `, "hook", "codex"]`
+}
+
+//go:embed pi_extension.ts
+var piTemplate string
+
+const piBinToken = "__PITWALL_BIN__"
+
+// PiExtension returns the TypeScript extension pi loads from
+// <agent dir>/extensions/pitwall.ts. On each event it runs `<bin> hook pi`
+// with a JSON payload on stdin, without a shell and without waiting, and
+// only inside a pitwall pane. bin is quoted as a JSON string, which is a
+// valid TypeScript string literal for any path.
+func PiExtension(bin string) []byte {
+	q, _ := json.Marshal(bin)
+	return []byte(strings.Replace(piTemplate, piBinToken, string(q), 1))
+}
+
+// IsPiExtension reports whether b is exactly what PiExtension returns for
+// some binary path: a file pitwall wrote and nobody edited since.
+func IsPiExtension(b []byte) bool {
+	pre, post, _ := strings.Cut(piTemplate, piBinToken)
+	s := string(b)
+	if len(s) < len(pre)+len(post) || !strings.HasPrefix(s, pre) || !strings.HasSuffix(s, post) {
+		return false
+	}
+	var bin string
+	if json.Unmarshal([]byte(s[len(pre):len(s)-len(post)]), &bin) != nil {
+		return false
+	}
+	return string(PiExtension(bin)) == s
 }
 
 func hooksJSON(bin, provider string, events []hookEvent) []byte {
@@ -351,21 +424,25 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 }
 
 // UserPrompt is the prompt of any UserPromptSubmit hook from the main
-// session, or "".
+// session, or of pi's before_agent_start, or "".
 func UserPrompt(payload []byte) string {
 	p, err := decode(payload)
-	if err != nil || p.Event != "UserPromptSubmit" || sideFork(p) {
+	if err != nil || (p.Event != "UserPromptSubmit" && p.PiEvent != "before_agent_start") || sideFork(p) {
 		return ""
 	}
 	return p.Prompt
 }
 
 // LastMessage is the agent's final message of a finished turn: Stop's
-// last_assistant_message or Codex notify's last-assistant-message.
+// last_assistant_message, Codex notify's last-assistant-message, or the
+// message of pi's agent_settled (the extension sends its first 200 runes).
 func LastMessage(payload []byte) string {
 	p, err := decode(payload)
 	if err != nil {
 		return ""
+	}
+	if p.PiEvent == "agent_settled" {
+		return p.Message
 	}
 	return firstNonEmpty(p.LastMessage, p.LastMessageDash)
 }

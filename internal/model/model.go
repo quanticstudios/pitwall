@@ -43,8 +43,8 @@ type Tab struct {
 	// an agent pane (Pane.Prompt); a non-generic OSC title of a pane running
 	// a command; that command's name; the live directory of the first pane
 	// ("~" for home, else its base name). Generic means empty, "~", "claude",
-	// "claude code", "codex", or (case-insensitively) the base name of the
-	// session directory or repo root, or the user's login name.
+	// "claude code", "codex", "pi", "π", or (case-insensitively) the base
+	// name of the session directory or repo root, or the user's login name.
 	Title  string
 	Layout *layout.Node
 }
@@ -84,6 +84,7 @@ type Provider string
 const (
 	ProviderClaude   Provider = "claude"
 	ProviderCodex    Provider = "codex"
+	ProviderPi       Provider = "pi"
 	ProviderTerminal Provider = "terminal"
 )
 
@@ -416,7 +417,7 @@ func (s *State) Summary(session string) SessionSummary {
 	}
 	agents := map[Provider]bool{}
 	for _, p := range s.Panes {
-		if in[p.WorkspaceID] && (p.Provider == ProviderClaude || p.Provider == ProviderCodex) {
+		if in[p.WorkspaceID] && (p.Provider == ProviderClaude || p.Provider == ProviderCodex || p.Provider == ProviderPi) {
 			agents[p.Provider] = true
 		}
 	}
@@ -424,7 +425,7 @@ func (s *State) Summary(session string) SessionSummary {
 		if !in[a.WorkspaceID] {
 			continue
 		}
-		agent := a.Provider == ProviderClaude || a.Provider == ProviderCodex
+		agent := a.Provider == ProviderClaude || a.Provider == ProviderCodex || a.Provider == ProviderPi
 		if agent {
 			agents[a.Provider] = true
 		}
@@ -438,7 +439,7 @@ func (s *State) Summary(session string) SessionSummary {
 			out.Unseen++
 		}
 	}
-	for _, p := range []Provider{ProviderClaude, ProviderCodex} {
+	for _, p := range []Provider{ProviderClaude, ProviderCodex, ProviderPi} {
 		if agents[p] {
 			out.Agents = append(out.Agents, p)
 		}

@@ -19,6 +19,8 @@ func Identify(comm, exe string) model.Provider {
 			return model.ProviderClaude
 		case "codex":
 			return model.ProviderCodex
+		case "pi":
+			return model.ProviderPi
 		}
 	}
 	return ""

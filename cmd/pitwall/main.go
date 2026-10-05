@@ -34,9 +34,9 @@ const usage = `usage:
   pitwall -s <name>          open a window on session name, made if missing
   pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
   pitwall daemon             run the daemon in the foreground
-  pitwall hook <provider>    forward an agent hook event (claude, codex)
-  pitwall hooks              print the Claude Code and Codex config that calls the hook
-  pitwall hooks install      merge hooks into agent config files (--dry-run)
+  pitwall hook <provider>    forward an agent hook event (claude, codex, pi)
+  pitwall hooks              print the Claude Code, Codex and pi hook config
+  pitwall hooks install      add hooks and pi's extension (--dry-run)
   pitwall hooks uninstall    remove this binary's hooks (--dry-run)
   pitwall ls [--json]        list the current session's tabs, numbered in sidebar order
   pitwall new [-n name] [-d] [dir]  open a tab (-d detaches it); prints its #
@@ -194,7 +194,8 @@ func printHooks() error {
 	}
 	fmt.Printf("# ~/.claude/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.ClaudeHooks(bin))
 	fmt.Printf("# ~/.codex/hooks.json (then trust them once with /hooks inside codex):\n{\"hooks\": %s}\n\n", agent.CodexHooks(bin))
-	fmt.Printf("# or, for finished turns only, ~/.codex/config.toml:\n%s\n", agent.CodexNotify(bin))
+	fmt.Printf("# or, for finished turns only, ~/.codex/config.toml:\n%s\n\n", agent.CodexNotify(bin))
+	fmt.Printf("# ~/.pi/agent/extensions/pitwall.ts ($PI_CODING_AGENT_DIR/extensions/pitwall.ts when set):\n%s", agent.PiExtension(bin))
 	return nil
 }
 

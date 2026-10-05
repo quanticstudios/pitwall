@@ -48,6 +48,11 @@ To cut a release: add a section below and merge it, then
   message.
 - The daemon protocol is now version 11; the next `pitwall` restarts an
   older daemon. The state file format is unchanged.
+- pitwall supports the [pi](https://pi.dev) coding agent. A tab running `pi`
+  shows pi's logo and its state, and resumes with `pi --session <id>` after
+  a reboot. `pitwall hooks install` writes a pi extension,
+  `~/.pi/agent/extensions/pitwall.ts`, that reports working, done, error and
+  the tool in use; without it pitwall reads pi's state from the screen.
 
 ## v0.1.0-alpha.3
 

@@ -6,7 +6,7 @@
 pitwall is a terminal multiplexer for running coding agents side by side. It
 opens straight into a shell like tmux, but it is a native window: a sidebar
 lists every tab and what it is doing right now, whether that is a command
-running in a terminal or a Claude Code or Codex agent working, waiting for
+running in a terminal or a Claude Code, Codex or pi agent working, waiting for
 your answer, asking for approval, done, or failed. Terminals are drawn with
 real fonts and pixels, not character cells.
 
@@ -104,12 +104,12 @@ pitwall --version
 
 ```sh
 pitwall hooks install --dry-run   # see what would change
-pitwall hooks install             # let Claude Code and Codex report their state
+pitwall hooks install             # let Claude Code, Codex and pi report their state
 pitwall                           # open the window
 ```
 
 The window opens on a shell in the folder you launched it from, in a session
-with a generated name such as `swift-otter`. Run `claude`, `codex`, a dev
+with a generated name such as `swift-otter`. Run `claude`, `codex`, `pi`, a dev
 server, anything. The tab's row in the sidebar shows what is happening: the
 name of a running command, or the agent's state.
 
@@ -149,7 +149,7 @@ Each sidebar row shows a tab's state:
 | Error    | The turn failed                                   |
 | `go`     | A terminal is running that command                |
 
-A tab running Claude or Codex always shows it, idle or busy: the agent's logo
+A tab running Claude, Codex or pi always shows it, idle or busy: the agent's logo
 replaces the row icon. The logo goes when the agent exits back to the shell.
 
 When an agent needs you (a question, an approval, a plan, an error, a
@@ -174,9 +174,11 @@ changes. ConEmu's numeric OSC 9 forms, such as `9;4` progress, are ignored.
 <img src="docs/media/notify.webp" alt="A test pane runs npm test and pitwall notify, then rings amber and sends a desktop notification saying tests passed" width="800">
 
 States are exact when the agent's hooks are installed (`pitwall hooks
-install`). Without hooks, pitwall still recognizes `claude` and `codex`
-running in a pane and reads their state from the screen, which is a little
-less precise.
+install`). Without hooks, pitwall still recognizes `claude`, `codex` and
+`pi` running in a pane and reads their state from the screen, which is a
+little less precise. pi has no permission prompts of its own, so a pi tab
+shows Working, Done, Error or nothing, never Input, Approval or Plan; a
+dialog an extension opens with `ctx.ui.confirm` is not reported.
 
 ### Sessions
 
@@ -286,7 +288,9 @@ it back, as does `pitwall attach <name>`.
 ### Let agents name their tab
 
 Claude Code and Codex set a terminal title, which pitwall shows as the tab's
-title with spinners stripped. An agent can also name its tab explicitly:
+title with spinners stripped. pi's title is `π - <folder>`, which says
+nothing about the work, so a pi tab shows its first prompt instead, or the
+session name once you set one with `/name`. An agent can also name its tab explicitly:
 
 ```sh
 pitwall tab rename "fix login redirects"
@@ -527,8 +531,8 @@ reported and the default is used. `[layout]` sets `pane_gap` and
 
 ## Hooks
 
-Hooks are how Claude Code and Codex tell pitwall exactly what they are doing.
-`pitwall hooks install` merges pitwall's entries into
+Hooks are how Claude Code, Codex and pi tell pitwall exactly what they are
+doing. `pitwall hooks install` merges pitwall's entries into
 `~/.claude/settings.json` and `~/.codex/hooks.json`:
 
 - It keeps every existing setting and hook and never adds a duplicate.
@@ -536,10 +540,20 @@ Hooks are how Claude Code and Codex tell pitwall exactly what they are doing.
   writes atomically. A symlinked config stays a symlink.
 - Add `--dry-run` to print the result without writing.
 
+pi has no shell hooks, so for pi the same command writes a small extension,
+`~/.pi/agent/extensions/pitwall.ts` (under `$PI_CODING_AGENT_DIR` when set).
+It runs `pitwall hook pi` in the background on each prompt, tool call,
+finished run and exit, and sends the tool's name but never its arguments.
+A missing binary or a stopped daemon never fails pi, and pi waits for it at
+most a second, at exit. pitwall skips pi when `pi` is not on your
+`PATH` and its agent directory does not exist. It overwrites the extension
+only when nobody edited it, and refuses otherwise.
+
 Inside Codex, run `/hooks` once to trust the new hooks, and restart agent
-sessions that were already running. `pitwall hooks uninstall` removes only
-the exact entries pitwall added. `pitwall hooks` prints the blocks if you
-prefer to edit the files yourself.
+sessions that were already running (`/reload` in pi). `pitwall hooks
+uninstall` removes only the exact entries pitwall added, and pi's extension
+only when it is unedited. `pitwall hooks` prints the blocks and the
+extension if you prefer to edit the files yourself.
 
 The hooks do nothing outside a pitwall pane, so they are safe to keep
 installed globally.
@@ -682,8 +696,8 @@ socket in `%LOCALAPPDATA%\pitwall`. The `XDG_*` variables win when set.
 
 After a reboot, run `pitwall`: tabs, groups and panes come back in their
 folders. State saved by an older version opens with each of its nested tabs
-as a tab of its own, in the same place and group. Agent panes resume with `claude --resume <id>` or
-`codex resume <id>`; if a resume fails, the pane falls back to a shell in the
+as a tab of its own, in the same place and group. Agent panes resume with `claude --resume <id>`,
+`codex resume <id>` or `pi --session <id>`; if a resume fails, the pane falls back to a shell in the
 same folder. Running processes and scrollback do not survive a reboot.
 
 When you upgrade pitwall while an older daemon is running, the next `pitwall`

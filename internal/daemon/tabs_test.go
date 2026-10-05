@@ -120,6 +120,8 @@ func TestCleanTitle(t *testing.T) {
 		"user@host: ~/src": "user@host: ~/src",
 		"⠙":                "",
 		"":                 "",
+		"π - web-app":      "web-app",
+		"⠋ π - auth - api": "auth - api",
 	} {
 		if got := cleanTitle(in); got != want {
 			t.Errorf("cleanTitle(%q) = %q, want %q", in, got, want)
