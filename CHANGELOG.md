@@ -54,13 +54,25 @@ To cut a release: add a section below and merge it, then
     pitwall as it was. See the README's Decisions section.
 - A finished turn's notification shows the start of the agent's last
   message.
-- The daemon protocol is now version 11; the next `pitwall` restarts an
+- The daemon protocol is now version 12; the next `pitwall` restarts an
   older daemon. The state file format is unchanged.
 - pitwall supports the [pi](https://pi.dev) coding agent. A tab running `pi`
   shows pi's logo and its state, and resumes with `pi --session <id>` after
   a reboot. `pitwall hooks install` writes a pi extension,
   `~/.pi/agent/extensions/pitwall.ts`, that reports working, done, error and
   the tool in use; without it pitwall reads pi's state from the screen.
+- Agents and scripts can drive tabs (issue #2). `pitwall new ... -- <cmd>`
+  opens a tab running a command instead of a shell; its pane stays after the
+  command exits, showing its output, until you close it. `pitwall send <tab>
+  <text>` pastes text into the tab's agent and presses Enter, refusing while
+  the agent works (`-f` overrides) and always while it waits on a permission
+  prompt or a question. `pitwall wait <tab> --until done|idle|blocked|exit`
+  blocks until the agent gets there, with exit codes a script can branch on.
+  [docs/agent-skill.md](docs/agent-skill.md) documents them for agents.
+- **Breaking:** `pitwall ls --json` prints one documented object per tab
+  (`n`, `id`, `title`, `group`, `cwd`, `branch`, `agent`, `state`,
+  `question`, `exit_code`, `panes`, `detached`) instead of pitwall's internal
+  structs, and `[]` when no daemon runs. Tabs can also be named by that `id`.
 
 ## v0.1.0-alpha.3
 
