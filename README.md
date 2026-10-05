@@ -361,9 +361,13 @@ pitwall wait "$tab" --until done --timeout 20m   # 0 done, 2 blocked, 3 exited, 
 pitwall send "$tab" "list only the HOLD findings, one per line"
 ```
 
-`send` refuses while the agent is working unless you pass `-f`, and always
-refuses while it waits on a permission prompt or a question: pitwall never
-answers one for you. Any process running as you can reach the daemon's
+`send` refuses while the agent is working unless you pass `-f`. It always
+refuses while pitwall sees the tab waiting on a permission prompt or a
+question, by hook or on screen, and checks again right before the paste and
+before the Enter. A prompt the agent draws in the same instant as one of
+those writes can still receive it; no multiplexer can rule that out, since
+the agent draws before it tells anyone. A command tab's pane, and its exit
+code, last until you close it or the daemon restarts. Any process running as you can reach the daemon's
 socket, so these commands give nothing a local process did not already have.
 
 ## Keybindings
