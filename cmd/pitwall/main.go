@@ -39,7 +39,24 @@ const usage = `usage:
   pitwall hooks install      add hooks and pi's extension (--dry-run)
   pitwall hooks uninstall    remove this binary's hooks (--dry-run)
   pitwall ls [--json]        list the current session's tabs, numbered in sidebar order
-  pitwall new [-n name] [-d] [dir]  open a tab (-d detaches it); prints its #
+                             (--json: one object per tab, see docs/agent-skill.md)
+  pitwall new [-n name] [-d] [dir] [-- cmd args...]
+                             open a tab (-d detaches it) running cmd, else a
+                             shell; prints its #. A cmd's pane stays after it
+                             exits, showing its output, until closed
+  pitwall send [-f] [--no-enter] <tab> <text...>
+                             paste text into the tab's agent (else its first
+                             pane), then press Enter. Refuses while the agent
+                             works (-f overrides) and always while it waits
+                             on a permission prompt or question
+  pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
+                             block until the tab's agent is there. done: it
+                             finished its turn; idle: done, or at its prompt;
+                             blocked: it waits on a permission prompt or a
+                             question; exit: its process ended. Without an
+                             agent, done means exit. Exit codes: 0 reached,
+                             2 blocked instead, 3 the process exited, 124
+                             timed out, 1 error; for exit, the process's code
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
@@ -86,7 +103,7 @@ func main() {
 		err = runNotify(os.Args[2:])
 	case "jev":
 		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "attach", "detach", "kill", "rename", "tab", "session":
+	case "ls", "new", "send", "wait", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)
