@@ -10,10 +10,11 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
-## v0.1.0-alpha.8
+## v0.1.0-alpha.9
 
-The `v0.1.0-alpha.7` tag has no release: its build stopped before this
-section existed, and tags cannot be moved. alpha.8 is the same code.
+The `v0.1.0-alpha.7` and `v0.1.0-alpha.8` tags have no release: the first
+build stopped before this section existed, the second never started, and
+tags cannot be moved. alpha.9 is the same code.
 
 - An agent side panel on the right, Ctrl+L (`toggle_panel`, rebindable).
   It follows the focused pane and reads the agent's own session file:
