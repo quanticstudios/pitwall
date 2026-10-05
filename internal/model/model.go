@@ -104,6 +104,9 @@ type Pane struct {
 	// line only, whitespace collapsed and cut to 48 runes. A new session
 	// clears it; the next prompt fills it.
 	Prompt string
+	// AgentMode is the permission mode the agent's latest hook reported
+	// (agent.PermissionMode), so a resume keeps it.
+	AgentMode string
 }
 
 type MergeStatus string

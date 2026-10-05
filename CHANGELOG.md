@@ -23,7 +23,18 @@ To cut a release: add a section below and merge it, then
   (`n`, `id`, `title`, `group`, `cwd`, `branch`, `agent`, `state`,
   `question`, `exit_code`, `panes`, `detached`) instead of pitwall's internal
   structs, and `[]` when no daemon runs. Tabs can also be named by that `id`.
-- The daemon protocol is now version 12; the next `pitwall` restarts an
+- A resumed agent keeps the permission mode its hooks last reported. Claude
+  comes back with `--dangerously-skip-permissions` for bypassPermissions and
+  `--permission-mode <mode>` for acceptEdits, plan and dontAsk; Codex comes
+  back with `--dangerously-bypass-approvals-and-sandbox` for
+  bypassPermissions. A pane whose command already sets permissions keeps its
+  own flag. Other flags of an agent started in a shell, such as `--model`,
+  are not restored.
+- A restored agent in a pane that was a shell drops to a shell in the same
+  folder when it exits, instead of closing the tab. A pane opened with a
+  command closes as before, except a failed resume within 3 seconds of the
+  restart, which also gets a shell.
+- The daemon protocol is now version 13; the next `pitwall` restarts an
   older daemon. The state file format is unchanged.
 
 ## v0.1.0-alpha.4

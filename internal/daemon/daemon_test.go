@@ -768,3 +768,52 @@ func TestSlowClientDisconnected(t *testing.T) {
 	good.send(proto.AddProject{Path: t.TempDir()})
 	good.waitState("project", func(s model.State) bool { return len(s.Projects) == 1 })
 }
+
+// A restored agent in a pane that was a shell drops to a shell when it
+// exits, at any time and with any code. A pane opened with a command closes
+// as before; only a failed resume within resumeGrace would get a shell.
+func TestRestoredAgentExitKeepsShell(t *testing.T) {
+	old := resumeGrace
+	resumeGrace = 0
+	t.Cleanup(func() { resumeGrace = old })
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	gui := dial(t, sock, "gui")
+	gui.send(proto.AddProject{Path: t.TempDir()})
+	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 2 })
+	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[1].ID, Cmd: []string{"claude"}})
+	st = gui.waitState("panes", func(s model.State) bool { return len(s.Panes) == 2 })
+	shellPane, cmdPane := st.Panes[0].ID, st.Panes[1].ID
+	if st.Panes[0].Cmd != nil {
+		t.Fatalf("first pane is no shell: %+v", st.Panes[0])
+	}
+	hook := dial(t, sock, "hook")
+	hook.send(proto.AgentEvent{Pane: shellPane, Provider: model.ProviderClaude, Payload: []byte(`{"permission_mode":"bypassPermissions"}`)})
+	hook.send(proto.AgentEvent{Pane: cmdPane, Provider: model.ProviderClaude, Payload: []byte("working")})
+	gui.waitState("sessions", func(s model.State) bool {
+		return s.Panes[0].SessionID != "" && s.Panes[1].SessionID != "" && s.Panes[0].AgentMode == "bypassPermissions"
+	})
+	stop()
+
+	f.mu.Lock()
+	started := len(f.panes)
+	f.mu.Unlock()
+	sock, stop = run(t, f)
+	defer stop()
+	gui = dial(t, sock, "gui")
+	gui.waitState("restored", func(s model.State) bool { return len(s.Panes) == 2 })
+	for _, p := range f.panes[started : started+2] {
+		p.Close() // exit 0, after the grace period
+	}
+	st = gui.waitState("agents exited", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].Provider == "" })
+	// The command pane's tab closed with it; the shell pane's stays.
+	if p := st.Panes[0]; p.ID != shellPane || p.Cmd != nil || p.SessionID != "" || p.AgentMode != "" || len(st.Workspaces) != 1 || st.Workspaces[0].ID != p.WorkspaceID {
+		t.Fatalf("after exit: panes %+v, workspaces %+v", st.Panes, st.Workspaces)
+	}
+	f.mu.Lock()
+	last := f.panes[len(f.panes)-1].cfg
+	f.mu.Unlock()
+	if last.ID != shellPane || last.Cmd != nil {
+		t.Fatalf("shell start: %+v", last)
+	}
+}

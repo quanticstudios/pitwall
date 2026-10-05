@@ -9,6 +9,7 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 13 added Pane.AgentMode.
 // Version 12 added NewSession.Cmd and Hello.Kind "watch", and a pane
 // opened with NewSession.Cmd stays, Exited, after its process ends, until
 // the daemon restarts.
@@ -33,7 +34,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 12
+const Version = 13
 
 // Client to daemon.
 
