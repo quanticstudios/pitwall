@@ -531,6 +531,12 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.Scroll:
 		return d.scroll(m)
 	case proto.AgentEvent:
+		if settled, ok := agent.PiSettled(m.Payload); ok && m.Provider == model.ProviderPi {
+			// why: a shutdown that carries the run's result is that agent_settled, then the shutdown.
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: m.Pane, Provider: m.Provider, Payload: settled}); err != nil {
+				return err
+			}
+		}
 		return d.agentEvent(ctx, m)
 	case proto.SeePane:
 		return d.seePane(m.Pane)

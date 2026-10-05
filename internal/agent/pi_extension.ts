@@ -29,14 +29,15 @@ export default function (pi: any) {
 	if (!process.env.PITWALL_PANE) return;
 	// why: /reload starts a new runtime in the same session; pitwall tells their reports apart by this.
 	const runtime = randomUUID();
-	// why: one `pitwall hook pi` at a time keeps events in order; pi waits only at shutdown, up to 1s.
+	// why: one `pitwall hook pi` at a time keeps events in order; pi waits only at shutdown, up to 1s, for the final report.
 	const limit = 32;
 	let pending: Job[] = [];
 	let busy = false;
-	let current: ChildProcess | undefined;
 	let session: { session_id?: string; ephemeral?: boolean } = {};
 	let started = false;
 	let last: { stop_reason?: string; message?: string; error?: string } = {};
+	// result is the last agent_settled's fields, until the next run starts.
+	let result: typeof last | undefined;
 
 	function run(payload: Record<string, unknown>): Promise<void> {
 		return new Promise<void>((resolve) => {
@@ -46,12 +47,10 @@ export default function (pi: any) {
 				if (settled) return;
 				settled = true;
 				clearTimeout(timer);
-				current = undefined;
 				resolve();
 			};
 			try {
 				const child = spawn(bin, ["hook", "pi"], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
-				current = child;
 				// warn: a child may ignore SIGTERM, so the deadline kills it and moves on regardless.
 				timer = setTimeout(() => {
 					kill(child);
@@ -80,6 +79,24 @@ export default function (pi: any) {
 			busy = false;
 			job.done();
 			pump();
+		});
+	}
+
+	// final runs `pitwall hook pi` detached, so it outlives pi and pi's process
+	// group, and resolves once payload is in its pipe. The hook gives up on its
+	// own after 5s.
+	function final(payload: Record<string, unknown>): Promise<void> {
+		return new Promise<void>((resolve) => {
+			try {
+				const child = spawn(bin, ["hook", "pi"], { detached: true, stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+				child.on("error", () => resolve());
+				child.unref();
+				child.stdin?.on("error", () => resolve());
+				child.stdin?.end(JSON.stringify(payload), () => resolve());
+				(child.stdin as any)?.unref?.();
+			} catch {
+				resolve();
+			}
 		});
 	}
 
@@ -116,6 +133,7 @@ export default function (pi: any) {
 	});
 	pi.on("agent_start", (_event: any, ctx: any) => {
 		last = {};
+		result = undefined;
 		report(ctx, "agent_start");
 	});
 	pi.on("tool_call", (event: any, ctx: any) => {
@@ -131,22 +149,18 @@ export default function (pi: any) {
 		}
 	});
 	pi.on("agent_settled", (_event: any, ctx: any) => {
+		result = last;
 		report(ctx, "agent_settled", last);
 	});
 	pi.on("session_shutdown", async () => {
 		if (!started) return;
-		// why: a fast `pi -p` ends with its reports still queued. Its result (the
-		// last agent_settled) and the session_start that names this runtime go
-		// out before the shutdown; the reports in between are dropped.
-		const start = pending.find((job) => job.payload.event === "session_start");
-		const settled = [...pending].reverse().find((job) => job.payload.event === "agent_settled");
-		for (const job of pending.splice(0)) {
-			if (job === start || job === settled) pending.push(job);
-			else job.done();
-		}
-		await Promise.race([send("session_shutdown"), new Promise((r) => setTimeout(r, 1000))]);
-		// why: no hook of this runtime keeps running; one that already wrote its report may still arrive late, and pitwall drops it: the shutdown retired this runtime's nonce.
+		// why: reports still queued die with pi, a fast `pi -p` run's result
+		// included, so they are dropped and one final report outlives pi: the
+		// shutdown, carrying the run's result if it settled. pitwall takes it as
+		// that agent_settled, then the shutdown, which retires this runtime's
+		// nonce, so a report still in flight that arrives later is dropped.
 		for (const job of pending.splice(0)) job.done();
-		kill(current);
+		// why: an unref'd deadline; a pending timer would hold pi open its full second.
+		await Promise.race([final({ event: "session_shutdown", runtime, ...session, ...result }), new Promise((r) => setTimeout(r, 1000).unref?.())]);
 	});
 }

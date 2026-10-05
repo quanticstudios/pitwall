@@ -406,7 +406,7 @@ func TestPiExtension(t *testing.T) {
 		}
 	}
 	src := string(PiExtension("pitwall"))
-	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", "kill(current);\n\t});", "job === start || job === settled", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
+	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "for (const job of pending.splice(0)) job.done();", "detached: true", "...session, ...result }", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
 		if !strings.Contains(src, s) {
 			t.Errorf("extension lacks %s", s)
 		}
@@ -427,5 +427,18 @@ func TestPiExtension(t *testing.T) {
 	}
 	if IsPiExtension(nil) || IsPiExtension([]byte("export default function () {}\n")) {
 		t.Error("IsPiExtension true for a foreign file")
+	}
+}
+
+func TestPiSettled(t *testing.T) {
+	got, ok := PiSettled([]byte(`{"event":"session_shutdown","runtime":"r","session_id":"s","stop_reason":"error","error":"boom"}`))
+	var m map[string]string
+	if !ok || json.Unmarshal(got, &m) != nil || m["event"] != "agent_settled" || m["runtime"] != "r" || m["session_id"] != "s" || m["error"] != "boom" {
+		t.Fatalf("PiSettled = %s, %v", got, ok)
+	}
+	for _, b := range []string{`{"event":"session_shutdown","runtime":"r"}`, `{"event":"agent_settled","stop_reason":"stop"}`, `{"hook_event_name":"Stop","stop_reason":"stop"}`, `{`} {
+		if _, ok := PiSettled([]byte(b)); ok {
+			t.Errorf("PiSettled(%s) found a result", b)
+		}
 	}
 }

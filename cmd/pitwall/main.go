@@ -97,6 +97,8 @@ func main() {
 	case "daemon":
 		err = runDaemon()
 	case "hook":
+		// why: pi's final report runs detached, with no one left to kill a hook stuck on a busy daemon.
+		time.AfterFunc(5*time.Second, func() { os.Exit(0) })
 		runHook(os.Args[2:])
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)

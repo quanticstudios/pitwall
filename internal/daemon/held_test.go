@@ -202,3 +202,39 @@ func TestHeldPiPrintDone(t *testing.T) {
 		t.Fatalf("after the exit: %+v", st.Activities)
 	}
 }
+
+// pi's final report is one shutdown carrying the run's result. On a held pane
+// it leaves Done, and later reports from that runtime are dropped; on any
+// other pane the shutdown clears the status as before.
+func TestPiShutdownWithResult(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) { o.Derive, o.SessionID = agent.Derive, agent.SessionID })
+	defer stop()
+	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
+	for _, cmd := range [][]string{{"pi", "-p", "fix it"}, nil} {
+		if e := cli.request(proto.NewSession{Cwd: t.TempDir(), Cmd: cmd}); e != "" {
+			t.Fatal(e)
+		}
+	}
+	st := watch.waitState("two tabs", func(s model.State) bool { return len(s.Panes) == 2 })
+	held, shell := st.Panes[0].ID, st.Panes[1].ID
+	send := func(pane, event string) {
+		t.Helper()
+		b := fmt.Sprintf(`{"event":%q,"runtime":"r","session_id":"s","stop_reason":"stop","message":"all fixed"}`, event)
+		if e := cli.request(proto.AgentEvent{Pane: pane, Provider: model.ProviderPi, Payload: []byte(b)}); e != "" {
+			t.Fatal(e)
+		}
+	}
+	send(held, "session_shutdown")
+	send(shell, "agent_start")
+	send(shell, "session_shutdown")
+	send(held, "agent_start") // late, from the retired runtime
+	cli.send(proto.Sync{})
+	st = cli.waitState("the state after the shutdowns", func(model.State) bool { return true })
+	if len(st.Activities) != 1 {
+		t.Fatalf("activities after the shutdowns: %+v", st.Activities)
+	}
+	if a := st.Activities[0]; a.PaneID != held || a.State != model.StateCompleted || a.Detail != "all fixed" {
+		t.Fatalf("activities after the shutdowns: %+v", st.Activities)
+	}
+}

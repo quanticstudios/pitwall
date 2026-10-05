@@ -35,10 +35,14 @@ To cut a release: add a section below and merge it, then
   resume is not run again after the upgrade.
 - A `pi -p` tab opened with `pitwall new -- pi -p ...` ends showing Done or
   Error. pi's extension used to drop its queued reports at shutdown, the
-  result included; it now sends the last result, then the shutdown. In a
-  command tab, that shutdown and the exit after it keep the Done or Error;
-  elsewhere a pi shutdown clears the tab's status as before. Once a pi
-  runtime has shut down, pitwall ignores any report it sends later. Run
+  result included. Now it drops them and sends one final shutdown report
+  that carries the run's result, from a process that outlives pi, so even a
+  slow hook delivers it after pi exits. pitwall takes that report as the
+  result, then the shutdown. In a command tab, the shutdown and the exit
+  after it keep the Done or Error; elsewhere a pi shutdown clears the tab's
+  status as before. Once a pi runtime has shut down, pitwall ignores any
+  report it sends later. pi also exits up to a second sooner: the extension
+  no longer holds it open for its whole shutdown deadline. Run
   `pitwall hooks install` to update the extension. It replaces the alpha.5
   file, which is not counted as edited.
 - A resumed Claude pane no longer sends its first prompt again. A pane
