@@ -100,5 +100,5 @@ func (s Subagent) Running() bool { return s.End.IsZero() }
 // regular files: a missing, unreadable or non-regular file yields an empty
 // Feed, once, and is retried.
 func Watch(ctx context.Context, provider model.Provider, path string, changed func(Feed)) {
-	go watch(ctx, provider, path, changed)
+	go watch(ctx, provider, path, changed, pollEvery, lookFor)
 }

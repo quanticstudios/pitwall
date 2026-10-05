@@ -26,11 +26,12 @@ var pollEvery = 500 * time.Millisecond
 // lookFor is how long after a subagent ended its file is still looked for.
 var lookFor = 30 * time.Second
 
-func watch(ctx context.Context, provider model.Provider, path string, changed func(Feed)) {
+func watch(ctx context.Context, provider model.Provider, path string, changed func(Feed), every, look time.Duration) {
 	s := newSession(provider, path, false)
+	s.look = look
 	var last Feed
 	first := true
-	tick := time.NewTicker(pollEvery)
+	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for {
 		if s.poll() || first {
@@ -52,6 +53,7 @@ type session struct {
 	provider model.Provider
 	path     string
 	child    bool
+	look     time.Duration // lookFor, read once by Watch
 	t        tail
 	b        *builder
 	p        parser
@@ -99,7 +101,7 @@ func (s *session) poll() bool {
 	// A subagent's file may appear after the line that spawned it, or even
 	// after its end, so it is looked for until lookFor after the end.
 	now := time.Now()
-	if slices.ContainsFunc(s.b.subs, func(c *sub) bool { return c.file == "" && !c.late(now) }) {
+	if slices.ContainsFunc(s.b.subs, func(c *sub) bool { return c.file == "" && !c.late(now, s.look) }) {
 		s.p.resolve(s.b)
 	}
 	for _, c := range s.b.subs {
@@ -114,14 +116,14 @@ func (s *session) poll() bool {
 		}
 		// An ended subagent's file is read once more, or not at all once
 		// the look ends.
-		c.done = !c.view().Running() && (c.kid.t.info != nil || c.late(now))
+		c.done = !c.view().Running() && (c.kid.t.info != nil || c.late(now, s.look))
 	}
 	return changed
 }
 
-// late reports whether the subagent ended more than lookFor ago, counted
-// from the poll that first saw it ended.
-func (c *sub) late(now time.Time) bool {
+// late reports whether the subagent ended more than look ago, counted from
+// the poll that first saw it ended.
+func (c *sub) late(now time.Time, look time.Duration) bool {
 	if c.view().Running() {
 		c.ended = time.Time{}
 		return false
@@ -129,7 +131,7 @@ func (c *sub) late(now time.Time) bool {
 	if c.ended.IsZero() {
 		c.ended = now
 	}
-	return now.Sub(c.ended) > lookFor
+	return now.Sub(c.ended) > look
 }
 
 func (s *session) parse(line []byte) {
