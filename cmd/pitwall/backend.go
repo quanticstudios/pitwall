@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"slices"
 	"sync"
@@ -22,12 +23,21 @@ type backend struct {
 	session string // the session the window shows, from SessionShow
 	state   model.State
 	frames  map[string]proto.Frame
+
+	// Send queues for sendLoop, so a daemon busy in a slow request never
+	// blocks the window: a few hundred small frames fill a unix socket.
+	outMu   sync.Mutex
+	out     []any
+	outErr  error // the error that ended the connection
+	outWake chan struct{}
+	done    chan struct{} // closed by fail
+	failed  sync.Once
 }
 
 // newBackend queues a FocusSession for the window's first session, and the
 // tab $PITWALL_ATTACH names.
 func newBackend(c *proto.Conn, session string) *backend {
-	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), frames: map[string]proto.Frame{}}
+	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), frames: map[string]proto.Frame{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
 	if f := (proto.FocusSession{WorkspaceID: os.Getenv("PITWALL_ATTACH"), SessionID: session}); f != (proto.FocusSession{}) {
 		b.focus <- f
 	}
@@ -49,15 +59,85 @@ func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 	return f.Grid, f.Modes, ok
 }
 
-// Send sends msg; a SessionShow also tells the backend which session's
-// frames redraw the window.
+// Send queues msg for sendLoop and returns at once; the error is the one
+// that broke the connection. A SessionShow also tells the backend which
+// session's frames redraw the window.
 func (b *backend) Send(msg any) error {
 	if s, ok := msg.(proto.SessionShow); ok {
 		b.mu.Lock()
 		b.session = s.SessionID
 		b.mu.Unlock()
 	}
-	return b.conn.Send(msg)
+	b.outMu.Lock()
+	if err := b.outErr; err != nil {
+		b.outMu.Unlock()
+		return err
+	}
+	b.out = enqueue(b.out, msg)
+	b.outMu.Unlock()
+	select {
+	case b.outWake <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// sendLoop writes queued messages in order until the connection ends.
+func (b *backend) sendLoop() {
+	for {
+		select {
+		case <-b.done:
+			return
+		case <-b.outWake:
+		}
+		for {
+			b.outMu.Lock()
+			if len(b.out) == 0 {
+				b.outMu.Unlock()
+				break
+			}
+			msg := b.out[0]
+			b.out[0] = nil
+			b.out = b.out[1:]
+			b.outMu.Unlock()
+			if err := b.conn.Send(msg); err != nil {
+				b.fail(err, 1)
+				return
+			}
+		}
+	}
+}
+
+// fail ends the connection on its first error: it closes it, so recvLoop
+// ends and Changed closes, logs how many accepted messages were not sent,
+// counting unsent ones the caller holds, and makes later Sends return err.
+func (b *backend) fail(err error, unsent int) {
+	b.failed.Do(func() {
+		b.outMu.Lock()
+		b.outErr = err
+		unsent += len(b.out)
+		b.out = nil
+		b.outMu.Unlock()
+		b.conn.Close()
+		log.Printf("pitwall: daemon connection lost: %v; %d queued messages not sent", err, unsent)
+		close(b.done)
+	})
+}
+
+// enqueue appends msg to q, except that a Resize for a pane with one
+// queued replaces it in place: only the latest size matters. Nothing is
+// dropped while the connection is up, and everything else keeps the order
+// it was sent in.
+func enqueue(q []any, msg any) []any {
+	if r, ok := msg.(proto.Resize); ok {
+		for i, m := range q {
+			if o, ok := m.(proto.Resize); ok && o.Pane == r.Pane {
+				q[i] = r
+				return q
+			}
+		}
+	}
+	return append(q, msg)
 }
 
 func (b *backend) Changed() <-chan struct{}         { return b.changed }
@@ -68,6 +148,7 @@ func (b *backend) recvLoop() {
 	for {
 		msg, err := b.conn.Recv()
 		if err != nil {
+			b.fail(err, 0)
 			return
 		}
 		if focus, ok := msg.(proto.FocusSession); ok {
