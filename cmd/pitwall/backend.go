@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"slices"
 	"sync"
@@ -29,12 +28,8 @@ type backend struct {
 	outMu   sync.Mutex
 	out     []any
 	outErr  error // the write error that ended sendLoop
-	dropped bool  // a drop since the queue last emptied was logged
 	outWake chan struct{}
 }
-
-// sendQueueMax is the queue length past which Send drops messages.
-const sendQueueMax = 256
 
 // newBackend queues a FocusSession for the window's first session, and the
 // tab $PITWALL_ATTACH names.
@@ -75,12 +70,7 @@ func (b *backend) Send(msg any) error {
 		b.outMu.Unlock()
 		return err
 	}
-	var dropped bool
-	b.out, dropped = enqueue(b.out, msg, sendQueueMax)
-	if dropped && !b.dropped {
-		b.dropped = true
-		log.Printf("pitwall: the daemon is not reading; dropping old queued messages, keeping input")
-	}
+	b.out = enqueue(b.out, msg)
 	b.outMu.Unlock()
 	select {
 	case b.outWake <- struct{}{}:
@@ -95,7 +85,6 @@ func (b *backend) sendLoop() {
 		for {
 			b.outMu.Lock()
 			if len(b.out) == 0 {
-				b.dropped = false
 				b.outMu.Unlock()
 				break
 			}
@@ -113,38 +102,19 @@ func (b *backend) sendLoop() {
 	}
 }
 
-// enqueue appends msg to q. A Resize replaces the pane's queued one. With
-// max or more queued, an Input joins the pane's last queued Input, and any
-// other message first drops the oldest one that is neither; input is never
-// dropped, and each pane's input stays in order. dropped reports a drop.
-func enqueue(q []any, msg any, max int) (_ []any, dropped bool) {
-	switch m := msg.(type) {
-	case proto.Resize:
-		q = slices.DeleteFunc(q, func(o any) bool { r, ok := o.(proto.Resize); return ok && r.Pane == m.Pane })
-	case proto.Input:
-		for i := len(q) - 1; i >= 0 && len(q) >= max; i-- {
-			if in, ok := q[i].(proto.Input); ok && in.Pane == m.Pane {
-				in.Data = append(slices.Clip(in.Data), m.Data...) // the caller may reuse m.Data's array
-				q[i] = in
-				return q, false
-			}
-		}
-	default:
-		if len(q) >= max {
-			if i := slices.IndexFunc(q, droppable); i >= 0 {
-				q, dropped = slices.Delete(q, i, i+1), true
+// enqueue appends msg to q, except that a Resize for a pane with one
+// queued replaces it in place: only the latest size matters. Nothing is
+// dropped, and everything else keeps the order it was sent in.
+func enqueue(q []any, msg any) []any {
+	if r, ok := msg.(proto.Resize); ok {
+		for i, m := range q {
+			if o, ok := m.(proto.Resize); ok && o.Pane == r.Pane {
+				q[i] = r
+				return q
 			}
 		}
 	}
-	return append(q, msg), dropped
-}
-
-func droppable(m any) bool {
-	switch m.(type) {
-	case proto.Input, proto.Resize:
-		return false
-	}
-	return true
+	return append(q, msg)
 }
 
 func (b *backend) Changed() <-chan struct{}         { return b.changed }
