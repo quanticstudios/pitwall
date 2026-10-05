@@ -347,6 +347,33 @@ func TestScreenReading(t *testing.T) {
 	}
 }
 
+// pi is a hooked agent, not one read by the decision model: its screen is
+// never sent, even when "pi" is listed, and once its extension reports,
+// the hook's state stands.
+func TestPiIsNotReadAsHookless(t *testing.T) {
+	old := screenEvery
+	t.Cleanup(func() { screenEvery = old })
+	screenEvery = 100 * time.Millisecond
+	d, lp, id := openLive(t, 800)
+	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWaiting, 0.9)}}
+	d.mu.Lock()
+	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
+		Programs: append(slices.Clone(config.HooklessAgents), "pi"), Timeout: time.Second}}
+	d.mu.Unlock()
+	lp.show("Working... (esc to interrupt)", false)
+	waitUntil(t, "pi working", func() bool { return d.stateOf(id) == model.StateWorking })
+	must(t, d.handle(context.Background(), proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: []byte("completed")}))
+	lp.show("Working... (esc to interrupt)", false)
+	polls()
+	polls()
+	if a := d.activityOf(id); a.Provider != model.ProviderPi || a.State != model.StateCompleted {
+		t.Errorf("detection overrode pi's hook: %+v", a)
+	}
+	if q := m.questions(); slices.Contains(q, "status") {
+		t.Fatalf("pi's screen went to the model: %v", q)
+	}
+}
+
 // A screen captured while its program exits is not sent under its name.
 func TestScreenRecheckedAfterCapture(t *testing.T) {
 	old := screenEvery

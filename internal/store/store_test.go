@@ -146,14 +146,24 @@ func TestRestoreCmd(t *testing.T) {
 		{"codex prompt delimiter", model.Pane{Provider: model.ProviderCodex, SessionID: "new", Cmd: []string{"codex", "-m", "gpt-5", "--", "--model=prompt"}}, []string{"codex", "resume", "-m", "gpt-5", "new"}},
 		{"codex images", model.Pane{Provider: model.ProviderCodex, SessionID: "new", Cmd: []string{"codex", "--image", "one.png", "two.png", "--model", "gpt-5"}}, []string{"codex", "resume", "--model", "gpt-5", "new"}},
 		{"terminal", model.Pane{Provider: model.ProviderTerminal, SessionID: "new", Cmd: []string{"sh", "-l"}}, []string{"sh", "-l"}},
+		{"pi flags", model.Pane{Provider: model.ProviderPi, SessionID: "new", Cmd: []string{"/bin/pi", "--model", "sonnet:high", "-e", "./x.ts", "--no-skills", "--thinking=low", "-c", "--session", "old", "--name", "n", "-p", "fix it", "--plugin-flag", "--", "-x"}},
+			[]string{"/bin/pi", "--model", "sonnet:high", "-e", "./x.ts", "--no-skills", "--thinking=low", "--session", "new"}},
+		{"pi dangling value", model.Pane{Provider: model.ProviderPi, SessionID: "new", Cmd: []string{"pi", "--offline", "--model"}}, []string{"pi", "--offline", "--session", "new"}},
+		{"pi dangling before prompt end", model.Pane{Provider: model.ProviderPi, SessionID: "new", Cmd: []string{"pi", "--thinking", "high", "--model", "--", "x"}}, []string{"pi", "--thinking", "high", "--session", "new"}},
+		{"codex dangling value", model.Pane{Provider: model.ProviderCodex, SessionID: "new", Cmd: []string{"codex", "--search", "-m"}}, []string{"codex", "resume", "--search", "new"}},
+		{"pi wrapper", model.Pane{Provider: model.ProviderPi, SessionID: "new", Cmd: []string{"mise", "x", "--", "pi"}}, []string{"pi", "--session", "new"}},
+		{"pi no session", model.Pane{Provider: model.ProviderPi, Cmd: []string{"pi", "--no-session"}}, []string{"pi", "--no-session"}},
 		{"no session", model.Pane{Provider: model.ProviderClaude, Cmd: []string{"claude", "--continue"}}, []string{"claude", "--continue"}},
 		{"unknown provider", model.Pane{SessionID: "new", Cmd: []string{"custom"}}, []string{"custom"}},
 		{"empty", model.Pane{}, nil},
 	}
-	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex, model.ProviderPi} {
 		want := []string{string(provider), "--resume", "new"}
-		if provider == model.ProviderCodex {
+		switch provider {
+		case model.ProviderCodex:
 			want = []string{"codex", "resume", "new"}
+		case model.ProviderPi:
+			want = []string{"pi", "--session", "new"}
 		}
 		for _, cmd := range [][]string{
 			{"sh", "-c", string(provider) + "; rm -rf build; make deploy"},

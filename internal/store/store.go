@@ -161,7 +161,7 @@ func migrateSessions(data []byte, version int, s *model.State) error {
 // when one is known, otherwise the original command.
 // Adapted from tuios (MIT): internal/session/agent_resume.go
 func RestoreCmd(p model.Pane) []string {
-	if p.SessionID == "" || (p.Provider != model.ProviderClaude && p.Provider != model.ProviderCodex) {
+	if p.SessionID == "" || (p.Provider != model.ProviderClaude && p.Provider != model.ProviderCodex && p.Provider != model.ProviderPi) {
 		return p.Cmd
 	}
 	binary := string(p.Provider)
@@ -187,6 +187,9 @@ func RestoreCmd(p model.Pane) []string {
 		}
 		return append(cmd, "--resume", p.SessionID)
 	}
+	if p.Provider == model.ProviderPi {
+		return append(piFlags(cmd, args), "--session", p.SessionID)
+	}
 	cmd = append(cmd, "resume")
 	// codex resume accepts these options from codex --help. Positional
 	// prompts and old resume selectors must not select a different session.
@@ -200,8 +203,11 @@ func RestoreCmd(p model.Pane) []string {
 			"-s", "--sandbox", "-a", "--ask-for-approval", "-C", "--cd",
 			"--add-dir", "--enable", "--disable", "--local-provider",
 			"--remote", "--remote-auth-token-env":
+			if !attached && (i+1 >= len(args) || args[i+1] == "--") {
+				break // the value flag would take the session id
+			}
 			cmd = append(cmd, args[i])
-			if !attached && i+1 < len(args) {
+			if !attached {
 				i++
 				cmd = append(cmd, args[i])
 			}
@@ -224,6 +230,44 @@ func RestoreCmd(p model.Pane) []string {
 		}
 	}
 	return append(cmd, p.SessionID)
+}
+
+// piFlags appends to cmd the options of pi's args that a resumed session
+// keeps, from pi's CLI docs. Session selectors, prompts, print and output
+// modes, and options pi does not document (an extension's flags, whose
+// values cannot be told from prompts) are dropped.
+func piFlags(cmd, args []string) []string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			break
+		}
+		flag, _, attached := strings.Cut(args[i], "=")
+		switch flag {
+		case "--provider", "--model", "--api-key", "--thinking", "--models",
+			"--session-dir", "-t", "--tools", "-xt", "--exclude-tools",
+			"-e", "--extension", "--skill", "--prompt-template", "--theme",
+			"--use-theme", "--system-prompt", "--append-system-prompt", "--tui-mode":
+			// why: a value flag missing its value would take the --session that follows.
+			if !attached && (i+1 >= len(args) || args[i+1] == "--") {
+				break
+			}
+			cmd = append(cmd, args[i])
+			if !attached {
+				i++
+				cmd = append(cmd, args[i])
+			}
+		case "-nbt", "--no-builtin-tools", "-nt", "--no-tools", "-ne", "--no-extensions",
+			"-ns", "--no-skills", "-np", "--no-prompt-templates", "--no-themes",
+			"-nc", "--no-context-files", "--verbose", "-a", "--approve",
+			"-na", "--no-approve", "--offline":
+			cmd = append(cmd, args[i])
+		case "--session", "--session-id", "--fork", "-n", "--name", "--mode":
+			if !attached && i+1 < len(args) {
+				i++
+			}
+		}
+	}
+	return cmd
 }
 
 // migrateWorktrees marks the worktrees a version 1 daemon created. Every

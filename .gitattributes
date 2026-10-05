@@ -1,0 +1,2 @@
+# why: go:embed copies the checkout byte for byte, so the pi extension pitwall writes must not turn CRLF on Windows.
+*.ts text eol=lf

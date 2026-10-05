@@ -120,6 +120,9 @@ func TestCleanTitle(t *testing.T) {
 		"user@host: ~/src": "user@host: ~/src",
 		"⠙":                "",
 		"":                 "",
+		"π - web-app":      "",
+		"π - internal":     "", // pi started in a subdirectory: still only its folder
+		"⠋ π - auth - api": "auth",
 	} {
 		if got := cleanTitle(in); got != want {
 			t.Errorf("cleanTitle(%q) = %q, want %q", in, got, want)
@@ -130,15 +133,17 @@ func TestCleanTitle(t *testing.T) {
 func TestTabTitle(t *testing.T) {
 	w := &model.Workspace{Path: "/src/repo/.worktrees/api", RepoRoot: "/src/repo"}
 	panes := map[string]*model.Pane{
-		"shell":  {ID: "shell", Title: "user@host: ~", Cwd: "/src/pitwall"},
-		"home":   {ID: "home", Title: "user@host: ~", Cwd: homeDir()},
-		"claude": {ID: "claude", Title: "Fix login", Provider: model.ProviderClaude, Prompt: "fix the login"},
-		"codex":  {ID: "codex", Title: "api", Provider: model.ProviderCodex, Prompt: "rename foo to bar"},
-		"repo":   {ID: "repo", Title: "REPO", Provider: model.ProviderCodex},
-		"fresh":  {ID: "fresh", Title: "Claude Code", Provider: model.ProviderClaude},
-		"quiet":  {ID: "quiet"},
-		"vim":    {ID: "vim", Title: "main.go - NVIM"},
-		"bare":   {ID: "bare", Provider: model.ProviderCodex},
+		"shell":   {ID: "shell", Title: "user@host: ~", Cwd: "/src/pitwall"},
+		"home":    {ID: "home", Title: "user@host: ~", Cwd: homeDir()},
+		"claude":  {ID: "claude", Title: "Fix login", Provider: model.ProviderClaude, Prompt: "fix the login"},
+		"codex":   {ID: "codex", Title: "api", Provider: model.ProviderCodex, Prompt: "rename foo to bar"},
+		"repo":    {ID: "repo", Title: "REPO", Provider: model.ProviderCodex},
+		"fresh":   {ID: "fresh", Title: "Claude Code", Provider: model.ProviderClaude},
+		"quiet":   {ID: "quiet"},
+		"vim":     {ID: "vim", Title: "main.go - NVIM"},
+		"bare":    {ID: "bare", Provider: model.ProviderCodex},
+		"pi":      {ID: "pi", Title: cleanTitle("π - daemon"), Provider: model.ProviderPi, Cwd: "/src/repo/.worktrees/api/internal/daemon", Prompt: "add the cache"},
+		"pinamed": {ID: "pinamed", Title: cleanTitle("π - cache work - daemon"), Provider: model.ProviderPi, Prompt: "add the cache"},
 	}
 	running := map[string]string{"quiet": "make", "vim": "nvim"}
 	for _, c := range []struct {
@@ -153,6 +158,8 @@ func TestTabTitle(t *testing.T) {
 		{[]string{"fresh", "quiet"}, "make"},              // "Claude Code" is generic: foreground command
 		{[]string{"vim", "shell"}, "main.go - NVIM"},      // a running program's own title
 		{[]string{"bare"}, "api"},                         // nothing: the session's directory name
+		{[]string{"shell", "pi"}, "add the cache"},        // pi in a subdirectory: its folder title falls to the prompt
+		{[]string{"pinamed"}, "cache work"},               // a named pi session titles the tab
 	} {
 		tab := &model.Tab{Layout: &layout.Node{}}
 		for _, id := range c.ids {

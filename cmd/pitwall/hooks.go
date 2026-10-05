@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -67,30 +68,52 @@ func runHooks(args []string, out io.Writer) error {
 		return err
 	}
 	type config struct {
-		path                      string
-		data, original, generated []byte
-		mode                      os.FileMode
-		changes                   []string
+		path           string
+		data, original []byte // data nil: remove the file
+		merge          func(original []byte) ([]byte, []string, error)
+		mode           os.FileMode
+		changes        []string
+		skip           string // why the file is left alone, as a warning
 	}
-	files := []config{{path: filepath.Join(home, ".claude", "settings.json")}, {path: filepath.Join(home, ".codex", "hooks.json")}}
+	merge := func(f *config, original []byte) error {
+		var err error
+		f.data, f.changes, err = f.merge(original)
+		if s := (skipError{}); errors.As(err, &s) {
+			f.data, f.changes, f.skip, err = original, nil, s.why, nil
+		}
+		return err
+	}
+	jsonHooks := func(generated []byte) func([]byte) ([]byte, []string, error) {
+		return func(original []byte) ([]byte, []string, error) { return mergeHooks(original, generated, install) }
+	}
+	files := []config{
+		{path: filepath.Join(home, ".claude", "settings.json"), merge: jsonHooks(agent.ClaudeHooks(bin))},
+		{path: filepath.Join(home, ".codex", "hooks.json"), merge: jsonHooks(agent.CodexHooks(bin))},
+	}
+	if dir := piAgentDir(home); dir != "" {
+		files = append(files, config{path: filepath.Join(dir, "extensions", "pitwall.ts"), merge: func(original []byte) ([]byte, []string, error) {
+			return mergePiExtension(original, agent.PiExtension(bin), install)
+		}})
+	}
 	for i := range files {
 		f := &files[i]
 		f.original, err = os.ReadFile(f.path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		f.generated = agent.ClaudeHooks(bin)
-		if i == 1 {
-			f.generated = agent.CodexHooks(bin)
-		}
-		f.data, f.changes, err = mergeHooks(f.original, f.generated, install)
-		if err != nil {
+		if err := merge(f, f.original); err != nil {
 			return fmt.Errorf("%s: %w", f.path, err)
 		}
 	}
 	for _, f := range files {
 		if dry {
-			fmt.Fprintf(out, "# %s\n%s\n", f.path, f.data)
+			if f.skip != "" {
+				fmt.Fprintf(out, "# %s\nskipped: %s\n", f.path, f.skip)
+			} else if f.data == nil {
+				fmt.Fprintf(out, "# %s\n(no file)\n", f.path)
+			} else {
+				fmt.Fprintf(out, "# %s\n%s\n", f.path, f.data)
+			}
 			continue
 		}
 		hookBeforeWrite(f.path)
@@ -99,8 +122,7 @@ func runHooks(args []string, out io.Writer) error {
 			return fmt.Errorf("re-read %s: %w", f.path, err)
 		}
 		if !bytes.Equal(fresh, f.original) || (fresh == nil) != (f.original == nil) {
-			f.data, f.changes, err = mergeHooks(fresh, f.generated, install)
-			if err != nil {
+			if err := merge(&f, fresh); err != nil {
 				return fmt.Errorf("%s changed during hook update; refusing to overwrite: %w", f.path, err)
 			}
 			f.original = fresh
@@ -113,8 +135,21 @@ func runHooks(args []string, out io.Writer) error {
 			}
 			f.mode = info.Mode().Perm()
 		}
+		if f.skip != "" {
+			fmt.Fprintf(out, "%s: skipped: %s\n", f.path, f.skip)
+			continue
+		}
 		if len(f.changes) == 0 {
 			fmt.Fprintf(out, "%s: unchanged\n", f.path)
+			continue
+		}
+		if f.data == nil {
+			if err := os.Remove(f.path); err != nil {
+				return err
+			}
+			for _, change := range f.changes {
+				fmt.Fprintf(out, "%s: %s\n", f.path, change)
+			}
 			continue
 		}
 		backup, err := writeHookConfig(f.path, f.data, f.original, f.mode)
@@ -133,6 +168,50 @@ func runHooks(args []string, out io.Writer) error {
 	}
 	return nil
 }
+
+// piAgentDir is pi's agent directory, $PI_CODING_AGENT_DIR or ~/.pi/agent,
+// or "" when pi is neither on PATH nor configured, so hooks skip it.
+func piAgentDir(home string) string {
+	dir := os.Getenv("PI_CODING_AGENT_DIR")
+	switch {
+	case dir == "~":
+		dir = home
+	case strings.HasPrefix(dir, "~/"):
+		dir = filepath.Join(home, dir[2:])
+	case dir == "":
+		dir = filepath.Join(home, ".pi", "agent")
+	}
+	if _, err := exec.LookPath("pi"); err != nil {
+		if _, err := os.Stat(dir); err != nil {
+			return ""
+		}
+	}
+	return dir
+}
+
+// mergePiExtension returns the extension file's next contents, nil to
+// remove it. Install replaces only a file some pitwall binary wrote and
+// nobody edited since; uninstall removes only this binary's file.
+func mergePiExtension(original, generated []byte, install bool) ([]byte, []string, error) {
+	switch {
+	case original != nil && bytes.Equal(original, generated):
+		if install {
+			return original, nil, nil
+		}
+		return nil, []string{"removed pi extension"}, nil
+	case !install:
+		return original, nil, nil
+	case original != nil && !agent.IsPiExtension(original):
+		return nil, nil, skipError{"edited since pitwall wrote it; move it away to reinstall"}
+	}
+	return generated, []string{"wrote pi extension"}, nil
+}
+
+// skipError is a merge result that leaves the file alone and warns, instead
+// of stopping the whole install.
+type skipError struct{ why string }
+
+func (e skipError) Error() string { return e.why }
 
 // Raw messages keep unrelated values, including large JSON numbers, intact.
 type hookObject map[string]json.RawMessage

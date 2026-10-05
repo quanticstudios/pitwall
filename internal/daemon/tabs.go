@@ -347,7 +347,7 @@ func tabTitle(w *model.Workspace, t *model.Tab, panes map[string]*model.Pane, ru
 	}
 	ids := layout.Panes(t.Layout)
 	agent := func(p *model.Pane) bool {
-		return p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex
+		return p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex || p.Provider == model.ProviderPi
 	}
 	for _, id := range ids {
 		if p := panes[id]; p != nil && agent(p) && !genericTitle(w, p.Title) {
@@ -392,7 +392,7 @@ func dirName(dir string) string {
 // agent's own name, or the name of the session's directory, repo or user.
 func genericTitle(w *model.Workspace, title string) bool {
 	switch strings.ToLower(title) {
-	case "", "~", "claude", "claude code", "codex":
+	case "", "~", "claude", "claude code", "codex", "pi", "π":
 		return true
 	}
 	for _, s := range []string{filepath.Base(w.Path), filepath.Base(w.RepoRoot), loginName()} {
@@ -436,8 +436,19 @@ const promptRunes = 48
 
 // cleanTitle strips the spinner and status glyphs agents put before their
 // title (Codex a braille spinner, Claude Code ✳ and its kin) and spaces.
+// pi titles itself "π - <folder>" or "π - <session name> - <folder>", where
+// the folder is its own directory's base name; only the session name says
+// anything about the work.
 func cleanTitle(s string) string {
-	return strings.TrimSpace(strings.TrimLeftFunc(s, func(r rune) bool {
+	s = strings.TrimSpace(strings.TrimLeftFunc(s, func(r rune) bool {
 		return unicode.IsSpace(r) || (r >= 0x2800 && r <= 0x28ff) || strings.ContainsRune("✳✶✻✽✢✺·•*●○◐◓◑◒⏺", r)
 	}))
+	if rest, ok := strings.CutPrefix(s, "π - "); ok {
+		i := strings.LastIndex(rest, " - ")
+		if i < 0 {
+			return ""
+		}
+		return strings.TrimSpace(rest[:i])
+	}
+	return s
 }

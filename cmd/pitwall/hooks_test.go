@@ -17,6 +17,9 @@ func hooksHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", "")
+	// why: pi is skipped unless on PATH or configured; tests opt in through its dir.
+	t.Setenv("PATH", "")
+	t.Setenv("PI_CODING_AGENT_DIR", "")
 	previous := hookExecutable
 	hookExecutable = func() (string, error) { return "/opt/pitwall/bin/pitwall", nil }
 	t.Cleanup(func() { hookExecutable = previous })
@@ -377,5 +380,92 @@ func TestHooksPreserveSymlinks(t *testing.T) {
 				t.Fatal("backup is beside symlink")
 			}
 		}
+	}
+}
+
+func TestHooksPiExtension(t *testing.T) {
+	home := hooksHome(t)
+	var out bytes.Buffer
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".pi")); !os.IsNotExist(err) || strings.Contains(out.String(), "pitwall.ts") {
+		t.Fatalf("pi set up without pi: %s", out.String())
+	}
+
+	dir := filepath.Join(t.TempDir(), "pi agent")
+	t.Setenv("PI_CODING_AGENT_DIR", dir)
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "extensions", "pitwall.ts")
+	want := agent.PiExtension("/opt/pitwall/bin/pitwall")
+	out.Reset()
+	if err := runHooks([]string{"install", "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), string(want)) {
+		t.Fatalf("dry-run omitted the extension: %s", out.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("dry-run wrote the extension")
+	}
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(readHooksTestFile(t, path), want) {
+		t.Fatal("install wrote something else")
+	}
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil || !strings.Contains(out.String(), path+": unchanged") {
+		t.Fatalf("second install: %v %s", err, out.String())
+	}
+
+	// An older binary's file is replaced; an edited one is never touched.
+	writeHooksTestFile(t, path, string(agent.PiExtension("/old/pitwall")))
+	if err := runHooks([]string{"install"}, &out); err != nil || !bytes.Equal(readHooksTestFile(t, path), want) {
+		t.Fatalf("install over an old binary's file: %v", err)
+	}
+	edited := string(want) + "// mine\n"
+	writeHooksTestFile(t, path, edited)
+	claude := filepath.Join(home, ".claude", "settings.json")
+	if err := os.Remove(claude); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatalf("an edited extension stopped the install: %v", err)
+	}
+	if string(readHooksTestFile(t, path)) != edited || !strings.Contains(out.String(), path+": skipped: edited") {
+		t.Fatalf("install touched an edited extension or did not warn: %s", out.String())
+	}
+	if !strings.Contains(string(readHooksTestFile(t, claude)), "hook claude") {
+		t.Fatal("an edited extension kept Claude's hooks from installing")
+	}
+	out.Reset()
+	if err := runHooks([]string{"install", "--dry-run"}, &out); err != nil || !strings.Contains(out.String(), "skipped: edited") {
+		t.Fatalf("dry-run did not warn: %v %s", err, out.String())
+	}
+	if err := runHooks([]string{"uninstall"}, &out); err != nil || string(readHooksTestFile(t, path)) != edited {
+		t.Fatalf("uninstall touched an edited extension: %v", err)
+	}
+	writeHooksTestFile(t, path, string(agent.PiExtension("/old/pitwall")))
+	if err := runHooks([]string{"uninstall"}, &out); err != nil || !agent.IsPiExtension(readHooksTestFile(t, path)) {
+		t.Fatalf("uninstall removed another binary's extension: %v", err)
+	}
+
+	writeHooksTestFile(t, path, string(want))
+	if err := runHooks([]string{"uninstall", "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("uninstall dry-run removed the extension")
+	}
+	out.Reset()
+	if err := runHooks([]string{"uninstall"}, &out); err != nil || !strings.Contains(out.String(), "removed pi extension") {
+		t.Fatalf("uninstall: %v %s", err, out.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("uninstall left the extension")
 	}
 }

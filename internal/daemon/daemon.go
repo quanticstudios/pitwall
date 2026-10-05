@@ -707,6 +707,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.det, id)
+	delete(d.live.piRuntime, id)
 	delete(d.attn, id)
 	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
@@ -733,6 +734,20 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
+	// The pane's pi runtime is the one of its latest session_start; a report
+	// from any other, such as one /reload replaced, changes nothing.
+	if rt, start := agent.PiRuntime(m.Payload); rt != "" {
+		if cur := d.live.piRuntime[p.ID]; !start && cur != "" && cur != rt {
+			d.mu.Unlock()
+			return nil
+		}
+		if start {
+			if d.live.piRuntime == nil {
+				d.live.piRuntime = map[string]string{}
+			}
+			d.live.piRuntime[p.ID] = rt
+		}
+	}
 	d.sawHook(p.ID)
 	ai := slices.IndexFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
 	var prev *model.Activity

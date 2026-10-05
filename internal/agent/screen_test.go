@@ -67,6 +67,7 @@ func TestIdentify(t *testing.T) {
 		{"claude", "/home/u/.local/share/claude/versions/2.1.287", model.ProviderClaude},
 		{"codex", "/home/u/.local/share/mise/installs/codex/0.160.0/bin/codex", model.ProviderCodex},
 		{"MainThread", "/usr/lib/codex/codex", model.ProviderCodex},
+		{"pi", "/home/u/.local/share/mise/installs/pi/latest/pi/pi", model.ProviderPi},
 		{"node", "/usr/bin/node", ""},
 		{"zsh", "/usr/bin/zsh", ""},
 		{"", "", ""},

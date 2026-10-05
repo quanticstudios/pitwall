@@ -257,3 +257,142 @@ func TestSummaryRedacts(t *testing.T) {
 		t.Errorf("known key in summary: %q", got)
 	}
 }
+
+func TestDerivePi(t *testing.T) {
+	const none = model.AgentState("")
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		payload string
+		prev    model.AgentState
+		ok      bool
+		want    model.AgentState
+		detail  string
+	}{
+		{`{"event":"session_shutdown","session_id":"old"}`, model.StateWorking, false, none, ""}, // a late report from the previous session
+		{`{"event":"session_shutdown","session_id":"s1"}`, model.StateWorking, true, none, ""},
+		{`{"event":"session_start","session_id":"s1"}`, none, false, none, ""},
+		{`{"event":"before_agent_start","prompt":"fix it"}`, none, true, model.StateWorking, ""},
+		{`{"event":"agent_start"}`, model.StateCompleted, true, model.StateWorking, ""},
+		{`{"event":"agent_start"}`, model.StateWorking, false, none, ""},
+		{`{"event":"tool_call","tool_name":"bash"}`, model.StateWorking, true, model.StateWorking, "bash"},
+		{`{"event":"agent_settled","stop_reason":"stop","message":"Done: tests pass."}`, model.StateWorking, true, model.StateCompleted, "Done: tests pass."},
+		{`{"event":"agent_settled"}`, model.StateWorking, true, model.StateCompleted, ""},
+		{`{"event":"agent_settled","stop_reason":"error","error":"429 rate limited","message":""}`, model.StateWorking, true, model.StateError, "429 rate limited"},
+		{`{"event":"agent_settled","stop_reason":"aborted"}`, model.StateWorking, true, none, ""},
+		{`{"event":"session_shutdown"}`, model.StateCompleted, true, none, ""},
+		{`{"event":"session_shutdown"}`, none, false, none, ""},
+		{`{"event":"turn_start"}`, model.StateWorking, false, none, ""},
+	}
+	for _, tt := range tests {
+		var prev *model.Activity
+		if tt.prev != none {
+			prev = &model.Activity{PaneID: "p1", Provider: model.ProviderPi, SessionID: "s1", State: tt.prev}
+		}
+		next, ok := Derive(prev, model.ProviderPi, []byte(tt.payload), now)
+		if ok != tt.ok || next.State != tt.want || next.Detail != tt.detail {
+			t.Errorf("%s from %q: got (%q, %q, %v), want (%q, %q, %v)", tt.payload, tt.prev, next.State, next.Detail, ok, tt.want, tt.detail, tt.ok)
+		}
+		if ok && next.State != none && next.Provider != model.ProviderPi {
+			t.Errorf("%s: provider %q", tt.payload, next.Provider)
+		}
+	}
+	if got := SessionID(model.ProviderPi, []byte(`{"event":"session_start","session_id":"s1"}`)); got != "s1" {
+		t.Errorf("SessionID = %q", got)
+	}
+	for _, b := range []string{
+		`{"event":"session_start","session_id":""}`,
+		`{"event":"session_start","session_id":"s1","ephemeral":true}`,
+		`{"event":"session_shutdown","session_id":"s1"}`,
+	} {
+		if got := SessionID(model.ProviderPi, []byte(b)); got != "" {
+			t.Errorf("SessionID(%s) = %q, want none", b, got)
+		}
+	}
+	if got := SessionID(model.ProviderPi, []byte(`{"event":"tool_call","session_id":"s1","tool_name":"bash"}`)); got != "s1" {
+		t.Errorf("tool_call SessionID = %q", got)
+	}
+	if got := Prompt(model.ProviderPi, []byte(`{"event":"before_agent_start","prompt":"fix the login"}`)); got != "fix the login" {
+		t.Errorf("Prompt = %q", got)
+	}
+	if got := Prompt(model.ProviderPi, []byte(`{"event":"agent_start","prompt":"x"}`)); got != "" {
+		t.Errorf("Prompt of agent_start = %q", got)
+	}
+	if got := UserPrompt([]byte(`{"event":"before_agent_start","prompt":"fix it"}`)); got != "fix it" {
+		t.Errorf("UserPrompt = %q", got)
+	}
+	if got := LastMessage([]byte(`{"event":"agent_settled","stop_reason":"stop","message":"done"}`)); got != "done" {
+		t.Errorf("LastMessage = %q", got)
+	}
+	// Completed and error Details go through the same redaction as Claude's and Codex's.
+	token := "ghp_" + strings.Repeat("Q", 36)
+	for _, fields := range []map[string]any{
+		{"stop_reason": "stop", "message": "Pushed with " + token},
+		{"stop_reason": "error", "error": "401 for Pushed with " + token},
+		{"stop_reason": "error", "message": "Pushed with " + token},
+	} {
+		fields["event"] = "agent_settled"
+		b, _ := json.Marshal(fields)
+		if next, ok := Derive(&model.Activity{State: model.StateWorking}, model.ProviderPi, b, now); !ok || strings.Contains(next.Detail, "QQQQ") || !strings.Contains(next.Detail, "Pushed with") {
+			t.Errorf("pi Detail %q for %v", next.Detail, fields["stop_reason"])
+		}
+	}
+	if rt, start := PiRuntime([]byte(`{"event":"session_start","runtime":"r1"}`)); rt != "r1" || !start {
+		t.Errorf("PiRuntime(session_start) = %q, %v", rt, start)
+	}
+	if rt, start := PiRuntime([]byte(`{"event":"session_shutdown","runtime":"r1"}`)); rt != "r1" || start {
+		t.Errorf("PiRuntime(shutdown) = %q, %v", rt, start)
+	}
+	if rt, _ := PiRuntime(fixture(t, "claude_stop")); rt != "" {
+		t.Errorf("PiRuntime(claude) = %q", rt)
+	}
+	// The extension sends the reply whole, so summary redacts before it cuts:
+	// a token across rune 200, or near the extension's 16000-rune cap, never
+	// reaches Detail in part.
+	for _, at := range []int{195, 15990} {
+		msg := strings.Repeat("x", at-1) + " " + token + " tail"
+		b, _ := json.Marshal(map[string]any{"event": "agent_settled", "stop_reason": "stop", "message": msg})
+		next, ok := Derive(&model.Activity{State: model.StateWorking}, model.ProviderPi, b, now)
+		if !ok || strings.Contains(next.Detail, "QQ") || strings.Contains(next.Detail, "ghp_") {
+			t.Errorf("token at %d: Detail %q", at, next.Detail)
+		}
+		if lm := LastMessage(b); lm != msg {
+			t.Errorf("token at %d: LastMessage cut the reply", at)
+		}
+	}
+}
+
+func TestPiExtension(t *testing.T) {
+	for _, bin := range []string{"/usr/local/bin/pitwall", `/opt/my "odd" bin/it's \pitwall`, `C:\Users\Jane Doe\pitwall.exe`, "/tmp/a\u2028b/pitwall"} {
+		src := PiExtension(bin)
+		q, _ := json.Marshal(bin)
+		if !strings.Contains(string(src), "const bin = "+string(q)+";\n") || strings.Contains(string(src), piBinToken) {
+			t.Errorf("%s: bin not substituted as a quoted literal", bin)
+		}
+		var back string
+		line := strings.SplitN(strings.SplitN(string(src), "const bin = ", 2)[1], ";\n", 2)[0]
+		if err := json.Unmarshal([]byte(line), &back); err != nil || back != bin {
+			t.Errorf("%s: literal reads back as %q (%v)", bin, back, err)
+		}
+		if !IsPiExtension(src) {
+			t.Errorf("%s: IsPiExtension false for generated file", bin)
+		}
+		if IsPiExtension(append(src, '\n')) || IsPiExtension([]byte(strings.Replace(string(src), "5000", "50", 1))) {
+			t.Errorf("%s: IsPiExtension true for an edited file", bin)
+		}
+	}
+	src := string(PiExtension("pitwall"))
+	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", "kill(current);\n\t});", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
+		if !strings.Contains(src, s) {
+			t.Errorf("extension lacks %s", s)
+		}
+	}
+	if i, j := strings.Index(src, "if (!process.env.PITWALL_PANE) return;"), strings.Index(src, "pi.on("); i < 0 || j < i {
+		t.Error("extension registers handlers outside a pitwall pane")
+	}
+	if strings.Contains(src, "shell: true") || strings.Contains(src, "event.input") {
+		t.Error("extension uses a shell or sends tool arguments")
+	}
+	if IsPiExtension(nil) || IsPiExtension([]byte("export default function () {}\n")) {
+		t.Error("IsPiExtension true for a foreign file")
+	}
+}

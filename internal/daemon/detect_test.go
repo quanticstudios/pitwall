@@ -16,7 +16,7 @@ import (
 )
 
 // The fake process table: group 200 is the pane's shell, 100 runs Claude, 300
-// Codex, 700 Gemini CLI, and any other group runs sleep. The shell may exec codex (execd).
+// Codex, 700 Gemini CLI, 800 pi, and any other group runs sleep. The shell may exec codex (execd).
 func fakeSession(int) int { return 200 }
 
 var execd atomic.Bool
@@ -46,6 +46,8 @@ func fakeIdentify(pg int) (model.Provider, string) {
 		return model.ProviderCodex, "codex"
 	case pg == 700:
 		return "", "gemini"
+	case pg == 800:
+		return model.ProviderPi, "pi"
 	case pg == 701:
 		return "", "opencode"
 	}
