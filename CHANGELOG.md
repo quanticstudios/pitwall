@@ -62,6 +62,12 @@ To cut a release: add a section below and merge it, then
   place of the time, and the pill stays where it is.
 - pi's mark is drawn smaller, so it carries the same weight as the Claude and
   Codex marks next to it.
+- A window no longer stops taking state from the daemon when `pitwall
+  attach` requests pile up faster than it raises itself: the newest request
+  replaces an unread one. Killing a session logs the kill and the panes it
+  closes in `daemon.log`, and each window's reaction in `gui.log`: the
+  session it moved to, or that it closed because nothing was left to show.
+  A pane that takes over 3s to close is logged too.
 
 ## v0.1.0-alpha.5
 

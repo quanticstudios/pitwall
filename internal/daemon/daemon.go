@@ -819,10 +819,20 @@ func (d *Daemon) dropPane(id string) Pane {
 func closeAll(ps []Pane) {
 	for _, p := range ps {
 		if p != nil {
-			go p.Close()
+			go func() {
+				start := time.Now()
+				p.Close()
+				if took := time.Since(start); took > slowClose {
+					log.Printf("pane close took %v", took.Round(time.Millisecond))
+				}
+			}()
 		}
 	}
 }
+
+// slowClose is how long closing a pane may take before the log notes it:
+// longer than the SIGKILL that follows an ignored SIGHUP.
+const slowClose = 3 * time.Second
 
 // agentEvent applies one hook event and starts, in the background, the
 // decisions it calls for.

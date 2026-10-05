@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -105,5 +106,34 @@ func TestBackendWriteFailure(t *testing.T) {
 	}
 	if err := b.Send(proto.Input{Pane: "p1", Data: []byte("y")}); err == nil {
 		t.Fatal("Send after a write failure returned nil")
+	}
+}
+
+// TestFocusNeverBlocksState: FocusSession requests nobody has taken yet,
+// as when the window is busy raising itself, must not stop the state after
+// them from reaching the window; the newest request wins.
+func TestFocusNeverBlocksState(t *testing.T) {
+	gui, daemon := net.Pipe()
+	defer gui.Close()
+	defer daemon.Close()
+	b := newBackend(proto.NewConn(gui), "first")
+	go b.recvLoop()
+	c := proto.NewConn(daemon)
+	daemon.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	for _, id := range []string{"a", "b", "c"} {
+		if err := c.Send(proto.FocusSession{SessionID: id}); err != nil {
+			t.Fatalf("send focus %s: %v", id, err)
+		}
+	}
+	if err := c.Send(proto.StateMsg{State: model.State{Version: 7}}); err != nil {
+		t.Fatalf("send state: %v", err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); b.State().Version != 7; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the state behind unread focus requests never arrived")
+		}
+	}
+	if f := <-b.Focus(); f.SessionID != "c" {
+		t.Fatalf("focus %+v, want the newest, c", f)
 	}
 }
