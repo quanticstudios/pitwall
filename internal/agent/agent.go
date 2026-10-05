@@ -51,6 +51,7 @@ type payload struct {
 	// message and error.
 	PiEvent    string `json:"event"`
 	StopReason string `json:"stop_reason"`
+	Ephemeral  bool   `json:"ephemeral"` // a --no-session session, which cannot be resumed
 }
 
 // Derive maps one hook payload to the pane's next activity. ok is false when
@@ -90,7 +91,9 @@ type payload struct {
 //	                                        error when the run failed, Detail = the error;
 //	                                        remove when the user aborted it
 //	session_start                           no change (pi is idle at its prompt)
-//	session_shutdown                        remove
+//	session_shutdown                        remove, unless prev belongs to another pi
+//	                                        session: a late report from one pi ended
+//	                                        by /new, /resume or /reload
 //
 // pi has no permission prompts of its own, so it never reports
 // pending-approval, awaiting-input or plan-ready.
@@ -109,7 +112,8 @@ func Derive(prev *model.Activity, provider model.Provider, payload []byte, now t
 		return model.Activity{}, false
 	}
 	if remove {
-		return model.Activity{}, prev != nil
+		stale := p.PiEvent != "" && prev != nil && p.SessionID != "" && prev.SessionID != "" && p.SessionID != prev.SessionID
+		return model.Activity{}, prev != nil && !stale
 	}
 	sid := sessionID(p)
 	if prev != nil {
@@ -261,13 +265,15 @@ func firstNonEmpty(s ...string) string {
 }
 
 // SessionID returns the agent session id carried by the payload, or "".
-// Claude and Codex hooks and pi's session_start carry session_id (a
-// subagent's hooks carry the parent's); Codex notify carries thread-id. The provider is not needed to
-// tell them apart. A /side fork's hook returns "": resuming it would lose
+// Claude and Codex hooks and pi's events carry session_id (a subagent's
+// hooks carry the parent's); Codex notify carries thread-id. The provider is
+// not needed to tell them apart. A pi session that cannot be resumed, and
+// pi's shutdown report, which may arrive after the next session started,
+// return "". A /side fork's hook returns "": resuming it would lose
 // the main session.
 func SessionID(provider model.Provider, payload []byte) string {
 	p, err := decode(payload)
-	if err != nil || sideFork(p) {
+	if err != nil || sideFork(p) || p.Ephemeral || p.PiEvent == "session_shutdown" {
 		return ""
 	}
 	return sessionID(p)
@@ -342,9 +348,10 @@ var piTemplate string
 const piBinToken = "__PITWALL_BIN__"
 
 // PiExtension returns the TypeScript extension pi loads from
-// <agent dir>/extensions/pitwall.ts. On each event it runs `<bin> hook pi`
-// with a JSON payload on stdin, without a shell and without waiting, and
-// only inside a pitwall pane. bin is quoted as a JSON string, which is a
+// <agent dir>/extensions/pitwall.ts. Inside a pitwall pane, on each event it
+// runs `<bin> hook pi` with a JSON payload on stdin, without a shell, one at
+// a time in the background; pi waits for it only at shutdown, at most 1s.
+// Outside a pane it registers nothing. bin is quoted as a JSON string, which is a
 // valid TypeScript string literal for any path.
 func PiExtension(bin string) []byte {
 	q, _ := json.Marshal(bin)

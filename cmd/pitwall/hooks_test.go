@@ -428,8 +428,23 @@ func TestHooksPiExtension(t *testing.T) {
 	}
 	edited := string(want) + "// mine\n"
 	writeHooksTestFile(t, path, edited)
-	if err := runHooks([]string{"install"}, &out); err == nil {
-		t.Fatal("install overwrote an edited extension")
+	claude := filepath.Join(home, ".claude", "settings.json")
+	if err := os.Remove(claude); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatalf("an edited extension stopped the install: %v", err)
+	}
+	if string(readHooksTestFile(t, path)) != edited || !strings.Contains(out.String(), path+": skipped: edited") {
+		t.Fatalf("install touched an edited extension or did not warn: %s", out.String())
+	}
+	if !strings.Contains(string(readHooksTestFile(t, claude)), "hook claude") {
+		t.Fatal("an edited extension kept Claude's hooks from installing")
+	}
+	out.Reset()
+	if err := runHooks([]string{"install", "--dry-run"}, &out); err != nil || !strings.Contains(out.String(), "skipped: edited") {
+		t.Fatalf("dry-run did not warn: %v %s", err, out.String())
 	}
 	if err := runHooks([]string{"uninstall"}, &out); err != nil || string(readHooksTestFile(t, path)) != edited {
 		t.Fatalf("uninstall touched an edited extension: %v", err)

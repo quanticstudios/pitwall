@@ -435,11 +435,20 @@ func promptTitle(prompt string) string {
 const promptRunes = 48
 
 // cleanTitle strips the spinner and status glyphs agents put before their
-// title (Codex a braille spinner, Claude Code ✳ and its kin), pi's "π - "
-// prefix, and spaces.
+// title (Codex a braille spinner, Claude Code ✳ and its kin) and spaces.
+// pi titles itself "π - <folder>" or "π - <session name> - <folder>", where
+// the folder is its own directory's base name; only the session name says
+// anything about the work.
 func cleanTitle(s string) string {
 	s = strings.TrimSpace(strings.TrimLeftFunc(s, func(r rune) bool {
 		return unicode.IsSpace(r) || (r >= 0x2800 && r <= 0x28ff) || strings.ContainsRune("✳✶✻✽✢✺·•*●○◐◓◑◒⏺", r)
 	}))
-	return strings.TrimSpace(strings.TrimPrefix(s, "π - "))
+	if rest, ok := strings.CutPrefix(s, "π - "); ok {
+		i := strings.LastIndex(rest, " - ")
+		if i < 0 {
+			return ""
+		}
+		return strings.TrimSpace(rest[:i])
+	}
+	return s
 }

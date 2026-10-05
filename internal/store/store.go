@@ -203,8 +203,11 @@ func RestoreCmd(p model.Pane) []string {
 			"-s", "--sandbox", "-a", "--ask-for-approval", "-C", "--cd",
 			"--add-dir", "--enable", "--disable", "--local-provider",
 			"--remote", "--remote-auth-token-env":
+			if !attached && (i+1 >= len(args) || args[i+1] == "--") {
+				break // the value flag would take the session id
+			}
 			cmd = append(cmd, args[i])
-			if !attached && i+1 < len(args) {
+			if !attached {
 				i++
 				cmd = append(cmd, args[i])
 			}
@@ -244,8 +247,12 @@ func piFlags(cmd, args []string) []string {
 			"--session-dir", "-t", "--tools", "-xt", "--exclude-tools",
 			"-e", "--extension", "--skill", "--prompt-template", "--theme",
 			"--use-theme", "--system-prompt", "--append-system-prompt", "--tui-mode":
+			// why: a value flag missing its value would take the --session that follows.
+			if !attached && (i+1 >= len(args) || args[i+1] == "--") {
+				break
+			}
 			cmd = append(cmd, args[i])
-			if !attached && i+1 < len(args) {
+			if !attached {
 				i++
 				cmd = append(cmd, args[i])
 			}

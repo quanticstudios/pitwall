@@ -556,6 +556,44 @@ func TestSideForkKeepsSession(t *testing.T) {
 	}
 }
 
+// A pi shutdown report that arrives after the next pi session started, as
+// after /new or /reload, must not end the new session's activity or change
+// the session a restart resumes.
+func TestPiStaleShutdownIgnored(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: d.st.Workspaces[0].ID}))
+	id := d.st.Panes[0].ID
+	send := func(payload string) {
+		t.Helper()
+		must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: []byte(payload)}))
+	}
+	send(`{"event":"session_start","session_id":"old"}`)
+	send(`{"event":"session_start","session_id":"new"}`)
+	send(`{"event":"agent_start","session_id":"new"}`)
+	send(`{"event":"session_shutdown","session_id":"old"}`)
+	if a := d.activityOf(id); a.State != model.StateWorking || a.SessionID != "new" {
+		t.Fatalf("stale shutdown changed the activity: %+v", a)
+	}
+	d.mu.Lock()
+	sid := d.st.Panes[0].SessionID
+	d.mu.Unlock()
+	if sid != "new" {
+		t.Fatalf("SessionID = %q, want new", sid)
+	}
+	send(`{"event":"session_shutdown","session_id":"new"}`)
+	if a := d.activityOf(id); a.State != "" {
+		t.Fatalf("current shutdown kept the activity: %+v", a)
+	}
+}
+
 // A SetLayout built from stale state is rejected; a current one is taken with
 // its ratios made sane.
 func TestSetLayoutValidates(t *testing.T) {

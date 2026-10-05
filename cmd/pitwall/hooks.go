@@ -73,6 +73,15 @@ func runHooks(args []string, out io.Writer) error {
 		merge          func(original []byte) ([]byte, []string, error)
 		mode           os.FileMode
 		changes        []string
+		skip           string // why the file is left alone, as a warning
+	}
+	merge := func(f *config, original []byte) error {
+		var err error
+		f.data, f.changes, err = f.merge(original)
+		if s := (skipError{}); errors.As(err, &s) {
+			f.data, f.changes, f.skip, err = original, nil, s.why, nil
+		}
+		return err
 	}
 	jsonHooks := func(generated []byte) func([]byte) ([]byte, []string, error) {
 		return func(original []byte) ([]byte, []string, error) { return mergeHooks(original, generated, install) }
@@ -92,14 +101,15 @@ func runHooks(args []string, out io.Writer) error {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		f.data, f.changes, err = f.merge(f.original)
-		if err != nil {
+		if err := merge(f, f.original); err != nil {
 			return fmt.Errorf("%s: %w", f.path, err)
 		}
 	}
 	for _, f := range files {
 		if dry {
-			if f.data == nil {
+			if f.skip != "" {
+				fmt.Fprintf(out, "# %s\nskipped: %s\n", f.path, f.skip)
+			} else if f.data == nil {
 				fmt.Fprintf(out, "# %s\n(no file)\n", f.path)
 			} else {
 				fmt.Fprintf(out, "# %s\n%s\n", f.path, f.data)
@@ -112,8 +122,7 @@ func runHooks(args []string, out io.Writer) error {
 			return fmt.Errorf("re-read %s: %w", f.path, err)
 		}
 		if !bytes.Equal(fresh, f.original) || (fresh == nil) != (f.original == nil) {
-			f.data, f.changes, err = f.merge(fresh)
-			if err != nil {
+			if err := merge(&f, fresh); err != nil {
 				return fmt.Errorf("%s changed during hook update; refusing to overwrite: %w", f.path, err)
 			}
 			f.original = fresh
@@ -125,6 +134,10 @@ func runHooks(args []string, out io.Writer) error {
 				return err
 			}
 			f.mode = info.Mode().Perm()
+		}
+		if f.skip != "" {
+			fmt.Fprintf(out, "%s: skipped: %s\n", f.path, f.skip)
+			continue
 		}
 		if len(f.changes) == 0 {
 			fmt.Fprintf(out, "%s: unchanged\n", f.path)
@@ -189,10 +202,16 @@ func mergePiExtension(original, generated []byte, install bool) ([]byte, []strin
 	case !install:
 		return original, nil, nil
 	case original != nil && !agent.IsPiExtension(original):
-		return nil, nil, errors.New("edited since pitwall wrote it; refusing to overwrite (move it away to reinstall)")
+		return nil, nil, skipError{"edited since pitwall wrote it; move it away to reinstall"}
 	}
 	return generated, []string{"wrote pi extension"}, nil
 }
+
+// skipError is a merge result that leaves the file alone and warns, instead
+// of stopping the whole install.
+type skipError struct{ why string }
+
+func (e skipError) Error() string { return e.why }
 
 // Raw messages keep unrelated values, including large JSON numbers, intact.
 type hookObject map[string]json.RawMessage

@@ -268,6 +268,8 @@ func TestDerivePi(t *testing.T) {
 		want    model.AgentState
 		detail  string
 	}{
+		{`{"event":"session_shutdown","session_id":"old"}`, model.StateWorking, false, none, ""}, // a late report from the previous session
+		{`{"event":"session_shutdown","session_id":"s1"}`, model.StateWorking, true, none, ""},
 		{`{"event":"session_start","session_id":"s1"}`, none, false, none, ""},
 		{`{"event":"before_agent_start","prompt":"fix it"}`, none, true, model.StateWorking, ""},
 		{`{"event":"agent_start"}`, model.StateCompleted, true, model.StateWorking, ""},
@@ -284,7 +286,7 @@ func TestDerivePi(t *testing.T) {
 	for _, tt := range tests {
 		var prev *model.Activity
 		if tt.prev != none {
-			prev = &model.Activity{PaneID: "p1", Provider: model.ProviderPi, State: tt.prev}
+			prev = &model.Activity{PaneID: "p1", Provider: model.ProviderPi, SessionID: "s1", State: tt.prev}
 		}
 		next, ok := Derive(prev, model.ProviderPi, []byte(tt.payload), now)
 		if ok != tt.ok || next.State != tt.want || next.Detail != tt.detail {
@@ -297,8 +299,17 @@ func TestDerivePi(t *testing.T) {
 	if got := SessionID(model.ProviderPi, []byte(`{"event":"session_start","session_id":"s1"}`)); got != "s1" {
 		t.Errorf("SessionID = %q", got)
 	}
-	if got := SessionID(model.ProviderPi, []byte(`{"event":"session_start","session_id":""}`)); got != "" {
-		t.Errorf("ephemeral SessionID = %q", got)
+	for _, b := range []string{
+		`{"event":"session_start","session_id":""}`,
+		`{"event":"session_start","session_id":"s1","ephemeral":true}`,
+		`{"event":"session_shutdown","session_id":"s1"}`,
+	} {
+		if got := SessionID(model.ProviderPi, []byte(b)); got != "" {
+			t.Errorf("SessionID(%s) = %q, want none", b, got)
+		}
+	}
+	if got := SessionID(model.ProviderPi, []byte(`{"event":"tool_call","session_id":"s1","tool_name":"bash"}`)); got != "s1" {
+		t.Errorf("tool_call SessionID = %q", got)
 	}
 	if got := Prompt(model.ProviderPi, []byte(`{"event":"before_agent_start","prompt":"fix the login"}`)); got != "fix the login" {
 		t.Errorf("Prompt = %q", got)
@@ -328,7 +339,7 @@ func TestPiExtension(t *testing.T) {
 		}
 	}
 	src := string(PiExtension("pitwall"))
-	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, "process.env.PITWALL_PANE", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
+	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, "if (!process.env.PITWALL_PANE) return;\n\tpi.on(", `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
 		if !strings.Contains(src, s) {
 			t.Errorf("extension lacks %s", s)
 		}
