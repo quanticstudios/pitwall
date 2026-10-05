@@ -224,3 +224,18 @@ func exitCode(err error) int {
 	}
 	return -1
 }
+
+// FileStat is one file's change from the default branch's merge base,
+// counting commits and uncommitted work, like Stats.
+type FileStat struct {
+	Path     string // relative to the repo root
+	Add, Del int    // both 0 for a binary file
+	Status   byte   // 'A' added, 'M' modified, 'D' deleted, 'R' renamed, '?' untracked
+}
+
+// Files returns the per-file changes behind Stats' totals, and the base
+// ref they are against ("main"). Untracked files come last, Status '?',
+// with Add their line count; the other files' totals match Stats'.
+func Files(ctx context.Context, worktree string) (base string, files []FileStat, err error) {
+	panic("gitstat.Files: not implemented")
+}
