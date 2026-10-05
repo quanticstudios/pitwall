@@ -42,7 +42,8 @@ type sub struct {
 	file   string // the child's own session file, "" until known
 	final  bool   // the parent recorded its result: End, Failed and Latest stay
 	kid    *session
-	done   bool // kid was read after the subagent ended; it is not read again
+	done   bool      // kid was read after the subagent ended, or the look ended
+	ended  time.Time // when a poll first saw the subagent ended, for lookFor
 }
 
 func newBuilder(provider model.Provider) *builder {
@@ -204,10 +205,10 @@ func (b *builder) feed() Feed {
 	return f
 }
 
-// view is the subagent with what its own file adds: the calls of its turns
-// since it was spawned (a forked Codex child repeats its parent's history
-// first), its latest text and when it ended, unless the parent already
-// recorded its result.
+// view is the subagent with what its own file adds: its calls since it was
+// spawned (a forked Codex child repeats its parent's history first), its
+// latest text and when it ended, unless the parent already recorded its
+// result.
 func (s *sub) view() Subagent {
 	v := s.Subagent
 	v.Calls = slices.Clone(v.Calls)
@@ -217,10 +218,11 @@ func (s *sub) view() Subagent {
 	kb := s.kid.b
 	v.Calls = nil
 	for _, t := range kb.turns {
-		if !t.End.IsZero() && t.End.Before(v.Start) {
-			continue
+		for _, c := range t.Calls {
+			if !c.Time.Before(v.Start) {
+				v.Calls = append(v.Calls, c)
+			}
 		}
-		v.Calls = append(v.Calls, t.Calls...)
 	}
 	if !s.final {
 		if kb.last != "" {

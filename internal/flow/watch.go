@@ -23,6 +23,9 @@ const maxLine = 4 << 20
 // pollEvery is how often Watch looks at the files; tests shorten it.
 var pollEvery = 500 * time.Millisecond
 
+// lookFor is how long after a subagent ended its file is still looked for.
+var lookFor = 30 * time.Second
+
 func watch(ctx context.Context, provider model.Provider, path string, changed func(Feed)) {
 	s := newSession(provider, path, false)
 	var last Feed
@@ -93,8 +96,10 @@ func (s *session) poll() bool {
 	if s.child {
 		return changed
 	}
-	// A subagent's file may appear after the line that spawned it.
-	if slices.ContainsFunc(s.b.subs, func(c *sub) bool { return c.file == "" && (changed || c.Running()) }) {
+	// A subagent's file may appear after the line that spawned it, or even
+	// after its end, so it is looked for until lookFor after the end.
+	now := time.Now()
+	if slices.ContainsFunc(s.b.subs, func(c *sub) bool { return c.file == "" && !c.late(now) }) {
 		s.p.resolve(s.b)
 	}
 	for _, c := range s.b.subs {
@@ -107,9 +112,24 @@ func (s *session) poll() bool {
 		if c.kid.poll() {
 			changed = true
 		}
-		c.done = !c.view().Running()
+		// An ended subagent's file is read once more, or not at all once
+		// the look ends.
+		c.done = !c.view().Running() && (c.kid.t.info != nil || c.late(now))
 	}
 	return changed
+}
+
+// late reports whether the subagent ended more than lookFor ago, counted
+// from the poll that first saw it ended.
+func (c *sub) late(now time.Time) bool {
+	if c.view().Running() {
+		c.ended = time.Time{}
+		return false
+	}
+	if c.ended.IsZero() {
+		c.ended = now
+	}
+	return now.Sub(c.ended) > lookFor
 }
 
 func (s *session) parse(line []byte) {

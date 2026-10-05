@@ -398,3 +398,47 @@ func TestLateResults(t *testing.T) {
 		}
 	}
 }
+
+// A subagent's file that shows up after the parent recorded its end is
+// read once, if it comes within lookFor.
+func TestLateChildFile(t *testing.T) {
+	pollEvery, lookFor = 5*time.Millisecond, 300*time.Millisecond
+	defer func() { pollEvery, lookFor = 500*time.Millisecond, 30*time.Second }()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "s.jsonl")
+	spawn := func(id, agent string) string {
+		return `{"type":"assistant","timestamp":"2026-10-05T10:00:01Z","message":{"content":[{"type":"tool_use","id":"` + id + `","name":"Agent","input":{"description":"d"}}]}}
+{"type":"user","timestamp":"2026-10-05T10:00:05Z","message":{"content":[{"type":"tool_result","tool_use_id":"` + id + `","content":"done"}]},"toolUseResult":{"agentId":"` + agent + `","status":"completed"}}
+`
+	}
+	write(t, path, `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"go"}}`+"\n"+spawn("a", "soon")+spawn("b", "never"))
+	subs := filepath.Join(dir, "s", "subagents")
+	if err := os.MkdirAll(subs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	child := `{"type":"assistant","timestamp":"2026-10-05T10:00:02Z","isSidechain":true,"message":{"content":[{"type":"tool_use","id":"k","name":"Bash","input":{"command":"ls"}}]}}` + "\n"
+	feeds := make(chan Feed, 100)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	Watch(ctx, model.ProviderClaude, path, func(f Feed) { feeds <- f })
+	<-feeds
+	write(t, filepath.Join(subs, "agent-soon.jsonl"), child)
+	deadline := time.After(5 * time.Second)
+	for got := false; !got; {
+		select {
+		case f := <-feeds:
+			got = len(f.Subagents) == 2 && len(f.Subagents[0].Calls) == 1
+		case <-deadline:
+			t.Fatal("the late file was not read")
+		}
+	}
+	time.Sleep(2 * lookFor)
+	write(t, filepath.Join(subs, "agent-never.jsonl"), child)
+	appendFile(t, filepath.Join(subs, "agent-soon.jsonl"), child)
+	time.Sleep(lookFor / 2)
+	select {
+	case f := <-feeds:
+		t.Fatalf("a file read after the look ended: %+v", f.Subagents)
+	default:
+	}
+}
