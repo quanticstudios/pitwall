@@ -780,7 +780,8 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		p.SessionID, p.Prompt, changed = sid, "", true
 	}
 	if p.Prompt == "" {
-		if s := promptTitle(agent.Prompt(m.Provider, m.Payload)); s != "" {
+		// Secrets go before the cut, so no part of a key names the tab.
+		if s := promptTitle(decide.Redact(agent.Prompt(m.Provider, m.Payload), d.dec.cur.Secrets...)); s != "" {
 			p.Prompt, changed = s, true
 		}
 	}

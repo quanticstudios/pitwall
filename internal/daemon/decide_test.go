@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -535,5 +536,64 @@ func TestTurnCheckSendsNoScreen(t *testing.T) {
 				t.Errorf("the turn check lacks the last message: %s", b)
 			}
 		})
+	}
+}
+
+// knownKeyDaemon is a daemon with one pane "a" whose decisions know key,
+// and the vt package's emulator so OSC notifications reach it.
+func knownKeyDaemon(t *testing.T, key string) *Daemon {
+	t.Helper()
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
+		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w"}},
+	}
+	o := f.options()
+	o.Derive, o.SessionID, o.NewVT = agent.Derive, agent.SessionID, vt.New
+	o.Decisions = func() Decisions {
+		return Decisions{Settings: config.DecideSettings{Provider: "jev", Approvals: config.ModeOff}, Provider: &fakeModel{}, Secrets: []string{key}}
+	}
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// A known key in the first prompt never names the tab, even where the
+// title is cut.
+func TestPromptTitleScrubsKnownKey(t *testing.T) {
+	const key = "plainlookingkeyvalue42xyz"
+	d := knownKeyDaemon(t, key)
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "use " + key + " for the deploy"})
+	must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: b}))
+	d.mu.Lock()
+	st := d.snapshot()
+	d.mu.Unlock()
+	if p := st.Panes[0].Prompt; p == "" || strings.Contains(p, "plainlooking") || strings.Contains(st.Workspaces[0].Label, "plainlooking") {
+		t.Errorf("prompt %q, tab %q", p, st.Workspaces[0].Label)
+	}
+}
+
+// A known key in an OSC notification never reaches the activity that the
+// sidebar and desktop notifications show.
+func TestNoticeScrubsKnownKey(t *testing.T) {
+	const key = "plainlookingkeyvalue42xyz"
+	d := knownKeyDaemon(t, key)
+	e := d.notifyingVT("a")(40, 2, io.Discard)
+	e.Write([]byte("\x1b]9;deployed with " + key + "\x07"))
+	for start := time.Now(); ; time.Sleep(5 * time.Millisecond) {
+		d.mu.Lock()
+		acts := d.snapshot().Activities
+		d.mu.Unlock()
+		if len(acts) > 0 {
+			if strings.Contains(acts[0].Detail, "plainlooking") || !strings.Contains(acts[0].Detail, "deployed with") {
+				t.Errorf("notice detail %q", acts[0].Detail)
+			}
+			return
+		}
+		if time.Since(start) > 2*time.Second {
+			t.Fatal("no notice")
+		}
 	}
 }
