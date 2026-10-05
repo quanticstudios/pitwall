@@ -93,6 +93,7 @@ type Daemon struct {
 	panes       map[string]Pane
 	inputs      map[string]chan write // per pane, drained by writeInput
 	gates       sync.Map              // pane: *sync.Mutex, see gate in send.go
+	sends       sync.Map              // pane: *sync.Mutex, see sendLock in send.go
 	views       map[string]*view      // scroll positions, see scroll.go
 	clients     map[*client]struct{}  // gui clients only
 	watchers    map[*client]struct{}  // watch clients: StateMsg and PaneExited, no frames
@@ -736,6 +737,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.resumed, id)
 	delete(d.held, id)
 	d.gates.Delete(id)
+	d.sends.Delete(id)
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.det, id)

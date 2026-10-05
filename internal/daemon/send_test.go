@@ -205,3 +205,56 @@ func TestSendPausesAfterThePasteIsWritten(t *testing.T) {
 	}
 	watch.waitState("SentAt", func(s model.State) bool { return len(s.Panes) == 1 && !s.Panes[0].SentAt.IsZero() })
 }
+
+// Two sends into one pane never merge: each paste gets its own Enter.
+func TestSendsDoNotInterleave(t *testing.T) {
+	sendPause = 50 * time.Millisecond
+	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
+	id, fp := sendPane(t, f, cli, watch)
+	errs := make(chan string, 2)
+	for _, text := range []string{"one", "two"} {
+		c := dial(t, sock, "cli")
+		go func() { errs <- c.request(proto.Send{Pane: id, Text: text, Enter: true}) }()
+	}
+	for range 2 {
+		if e := <-errs; e != "" {
+			t.Fatal(e)
+		}
+	}
+	if got := fp.got(); got != "one\rtwo\r" && got != "two\rone\r" {
+		t.Fatalf("pane got %q", got)
+	}
+}
+
+// With -f into a running turn, a done that lands between the paste and the
+// Enter is that older turn's: SentAt is stamped at the Enter.
+func TestSendStampsTheEnter(t *testing.T) {
+	sendPause = 200 * time.Millisecond
+	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	cli, hook, watch := dial(t, sock, "cli"), dial(t, sock, "hook"), dial(t, sock, "watch")
+	id, fp := sendPane(t, f, cli, watch)
+	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("working")})
+	watch.waitState("working", func(s model.State) bool { return len(s.Activities) == 1 })
+	sent := make(chan string, 1)
+	go func() { sent <- cli.request(proto.Send{Pane: id, Text: "next", Enter: true, Force: true}) }()
+	for fp.got() != "next" {
+		time.Sleep(time.Millisecond) // the paste is written; the pause runs
+	}
+	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("completed")})
+	if e := <-sent; e != "" {
+		t.Fatal(e)
+	}
+	st := watch.waitState("stamped", func(s model.State) bool {
+		return len(s.Panes) == 1 && !s.Panes[0].SentAt.IsZero() && len(s.Activities) == 1 && s.Activities[0].State == model.StateCompleted
+	})
+	if !st.Activities[0].UpdatedAt.Before(st.Panes[0].SentAt) {
+		t.Fatalf("done at %v, sent at %v: the old turn's done would end a wait", st.Activities[0].UpdatedAt, st.Panes[0].SentAt)
+	}
+}

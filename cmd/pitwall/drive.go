@@ -71,18 +71,27 @@ func tabPanes(state model.State, w model.Workspace) []model.Pane {
 	return out
 }
 
-// mainPane is the pane send types into and wait watches: the first one
-// running an agent, else the first one.
+// mainPane is the pane send types into and wait watches: the first live
+// one running an agent, else the first live one, else the first exited one
+// that ran an agent, else the first one.
 func mainPane(panes []model.Pane) *model.Pane {
+	rank := func(p model.Pane) int {
+		r := 0
+		if p.Exited {
+			r += 2
+		}
+		if agentOf(p) == "" {
+			r++
+		}
+		return r
+	}
+	var best *model.Pane
 	for i := range panes {
-		if agentOf(panes[i]) != "" {
-			return &panes[i]
+		if best == nil || rank(panes[i]) < rank(*best) {
+			best = &panes[i]
 		}
 	}
-	if len(panes) == 0 {
-		return nil
-	}
-	return &panes[0]
+	return best
 }
 
 // agentOf names the agent a pane runs: the one hooks or detection saw, else
@@ -408,8 +417,9 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	}
 }
 
-// staleDone reports a done activity of pane p older than the last pitwall
-// send into it: the agent has not taken up that prompt yet.
+// staleDone reports a done activity of pane p older than the last prompt
+// pitwall send submitted to it: a turn that ended before that prompt, even
+// one -f sent into while it ran.
 func staleDone(state model.State, p model.Pane) bool {
 	i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
 	return i >= 0 && state.Activities[i].UpdatedAt.Before(p.SentAt)

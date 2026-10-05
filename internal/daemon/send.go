@@ -77,9 +77,20 @@ func (d *Daemon) writeNow(id string, p Pane, data []byte, check func() error) er
 	}
 }
 
+// sendLock is pane id's lock for a whole Send, paste to Enter, so two
+// sends never merge into one prompt. It is not the gate: hooks go on during
+// the pause.
+func (d *Daemon) sendLock(id string) *sync.Mutex {
+	l, _ := d.sends.LoadOrStore(id, new(sync.Mutex))
+	return l.(*sync.Mutex)
+}
+
 // send is proto.Send. The writer checks again right before the paste and
 // again before the Enter, so a prompt pitwall sees by then gets neither.
 func (d *Daemon) send(m proto.Send) error {
+	l := d.sendLock(m.Pane)
+	l.Lock()
+	defer l.Unlock()
 	d.mu.Lock()
 	p, err := d.sendable(m.Pane, m.Force)
 	d.mu.Unlock()
@@ -92,17 +103,20 @@ func (d *Daemon) send(m proto.Send) error {
 	if err := d.writeNow(m.Pane, p, input.Paste(m.Text, p.Modes()), check(m.Force)); err != nil {
 		return err
 	}
+	if m.Enter {
+		time.Sleep(sendPause)
+		if err := d.writeNow(m.Pane, p, []byte("\r"), check(true)); err != nil {
+			return err
+		}
+	}
+	// why: the prompt is submitted now; a turn that ends before this is an older one.
 	d.mu.Lock()
 	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == m.Pane }); i >= 0 {
 		d.st.Panes[i].SentAt = time.Now()
 		d.changed()
 	}
 	d.mu.Unlock()
-	if !m.Enter {
-		return nil
-	}
-	time.Sleep(sendPause)
-	return d.writeNow(m.Pane, p, []byte("\r"), check(true))
+	return nil
 }
 
 // sendable returns pane id when Send may type into it: it runs, it waits

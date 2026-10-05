@@ -31,7 +31,10 @@ with `-`. The paste is bracketed when the program asked for it, so newlines
 stay part of one prompt. Enter follows 300 ms after the paste is written.
 For an agent, send returns once the agent's state changes (at most 10 s;
 past that it warns on stderr and still exits 0). `wait --until done` skips a
-`done` older than the last send, so it waits for the turn this send started.
+`done` older than the moment the last send submitted (its Enter, or its paste
+with `--no-enter`), so after `send -f` it waits for the turn the send
+started, not the one that was running. Two sends into one tab run one after
+the other, each paste followed by its own Enter.
 `--no-enter` pastes without pressing Enter. send refuses:
 
 - while the agent is working, unless `-f`. Text sent into a busy agent queues

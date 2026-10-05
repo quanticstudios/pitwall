@@ -104,8 +104,9 @@ type Pane struct {
 	// line only, whitespace collapsed and cut to 48 runes. A new session
 	// clears it; the next prompt fills it.
 	Prompt string
-	// SentAt is when pitwall send last pasted into the pane, so a wait
-	// skips a done older than it. Not saved.
+	// SentAt is when pitwall send last submitted to the pane: its Enter was
+	// written, or, without Enter, its paste. A wait skips a done older than
+	// it. Not saved.
 	SentAt time.Time `json:"-"`
 }
 

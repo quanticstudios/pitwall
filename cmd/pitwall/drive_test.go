@@ -271,3 +271,27 @@ func TestCLISendUnconfirmed(t *testing.T) {
 		}
 	})
 }
+
+// A live pane beats an exited one, and an agent beats a shell among each.
+func TestMainPane(t *testing.T) {
+	deadClaude := model.Pane{ID: "dead", Provider: model.ProviderClaude, Exited: true}
+	shell := model.Pane{ID: "shell"}
+	codex := model.Pane{ID: "codex", Provider: model.ProviderCodex}
+	deadShell := model.Pane{ID: "deadshell", Exited: true}
+	for _, tc := range []struct {
+		panes []model.Pane
+		want  string
+	}{
+		{[]model.Pane{deadClaude, shell, codex}, "codex"},
+		{[]model.Pane{deadClaude, shell}, "shell"},
+		{[]model.Pane{deadShell, deadClaude}, "dead"},
+		{[]model.Pane{deadShell}, "deadshell"},
+	} {
+		if got := mainPane(tc.panes); got == nil || got.ID != tc.want {
+			t.Errorf("%v: %v, want %s", tc.panes, got, tc.want)
+		}
+	}
+	if mainPane(nil) != nil {
+		t.Error("no panes, a pane")
+	}
+}
