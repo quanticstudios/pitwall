@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"path/filepath"
 	"sync"
 
@@ -26,6 +27,11 @@ func (d *Daemon) stoppedPane(p *model.Pane) Pane {
 	prog := "the command"
 	if len(p.Cmd) > 0 {
 		prog = filepath.Base(p.Cmd[0]) // why: arguments can carry prompts or secrets
+	}
+	if p.Exited && !p.ExitUnknown {
+		log.Printf("pane %s: restored exited %d; held", p.ID, p.ExitCode)
+	} else {
+		log.Printf("pane %s: restored %q, exit unknown; held, not run again", p.ID, prog)
 	}
 	notice := fmt.Sprintf("[pitwall] %s exited with code %d before pitwall restarted. Its output was not saved.", prog, p.ExitCode)
 	if !p.Exited || p.ExitUnknown {

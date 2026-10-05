@@ -190,6 +190,7 @@ func NewWith(o Options) (*Daemon, error) {
 		resumes := store.Resumes(*p)
 		if p.Held && (p.Exited || !resumes) {
 			d.panes[p.ID] = d.stoppedPane(p)
+			d.sizes[p.ID] = [2]int{defaultCols, defaultRows}
 			continue
 		}
 		cmd := o.RestoreCmd(*p)
@@ -843,6 +844,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if rt, start := agent.PiRuntime(m.Payload); rt != "" {
 		if d.live.piRetired[p.ID][rt] {
 			d.mu.Unlock()
+			log.Printf("pane %s: dropped a report from a pi runtime that shut down", p.ID)
 			return nil
 		}
 		if piEvent == "session_shutdown" {
@@ -876,6 +878,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	changed := false
 	// why: a held `pi -p` pane shuts down right after its result; the tab keeps showing it.
 	keep := p.Held && piEvent == "session_shutdown" && prev != nil && ended(prev.State)
+	if keep {
+		log.Printf("pane %s: pi shut down; held, keeping %q", p.ID, prev.State)
+	}
 
 	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok && !keep {
 		changed = true
