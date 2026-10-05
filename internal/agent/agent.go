@@ -343,15 +343,6 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
 }
 
-// Event is the payload's hook_event_name, or "" (Codex notify, garbage).
-func Event(payload []byte) string {
-	var p struct {
-		Event string `json:"hook_event_name"`
-	}
-	json.Unmarshal(payload, &p)
-	return p.Event
-}
-
 // UserPrompt is the prompt of any UserPromptSubmit hook from the main
 // session, or "".
 func UserPrompt(payload []byte) string {
@@ -377,30 +368,4 @@ func LastMessage(payload []byte) string {
 // (ExitPlanMode); no model may answer those for the user.
 func NeedsInteraction(tool string) bool {
 	return tool == "AskUserQuestion" || tool == "ExitPlanMode"
-}
-
-// PermissionDecision is what a PermissionRequest hook prints to allow or
-// deny a request, in the shape Claude Code and Codex both document:
-// {"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":
-// {"behavior":"allow"|"deny","message":...}}}. Any other verdict prints
-// nothing, which leaves the agent's own prompt in place. The message,
-// sent only with deny, tells the agent why.
-func PermissionDecision(verdict, message string) []byte {
-	type decision struct {
-		Behavior string `json:"behavior"`
-		Message  string `json:"message,omitempty"`
-	}
-	d := decision{Behavior: verdict}
-	switch verdict {
-	case "allow":
-	case "deny":
-		d.Message = message
-	default:
-		return nil
-	}
-	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
-		"hookEventName": "PermissionRequest",
-		"decision":      d,
-	}})
-	return b
 }

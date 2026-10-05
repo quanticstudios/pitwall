@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -23,12 +22,14 @@ type Decisions struct {
 
 // Approvals is [decisions.approvals].
 type Approvals struct {
-	Mode          string   `toml:"mode" enum:"off,suggest,auto" doc:"off; suggest shows the model's recommendation on the approval pill and decides nothing; auto approves only calls on pitwall's allowlist (file tools inside the repo, plain read, build and test commands, see the README), when the model chose allow at allow_above or more, denies when it chose deny at deny_above or more, and leaves everything else to you."`
-	AllowAbove    *float64 `toml:"allow_above" min:"0.8" max:"1" doc:"In auto mode, approve when the probability of allow is at least this."`
-	DenyAbove     *float64 `toml:"deny_above" min:"0.8" max:"1" doc:"In auto mode, deny when the probability of deny is at least this."`
-	AllowPrograms []string `toml:"allow_programs" doc:"More programs auto mode may approve, as bare names (no slashes). Their arguments must still pass the path rules, but their flags are not checked: adding one is at your own risk."`
-	NeverAllow    []string `toml:"never_allow" doc:"More hard rules: a tool call whose input contains any of these strings is never approved automatically. Shown as never_allow #N, never the text."`
+	Mode       string   `toml:"mode" enum:"off,suggest" doc:"off, or suggest: show the model's recommendation on the approval pill, with any risk pitwall sees in the call. It never approves or denies anything for you."`
+	NeverAllow []string `toml:"never_allow" doc:"More risks to flag: a tool call whose input contains any of these strings gets never_allow #N next to the recommendation (the number, never the text)."`
 }
+
+// RemovedApprovals are [decisions.approvals] keys of automatic approval,
+// which left before release. A config that sets them still loads; each
+// gets a note.
+var RemovedApprovals = []string{"allow_above", "deny_above", "allow_programs"}
 
 // Feature is a table with a switch and a threshold.
 type Feature struct {
@@ -55,14 +56,11 @@ var HooklessAgents = []string{"gemini", "opencode", "aider", "amp", "cursor-agen
 const (
 	ModeOff     = "off"
 	ModeSuggest = "suggest"
-	ModeAuto    = "auto"
 )
 
 // Decision defaults.
 const (
 	DefaultDecideTimeout  = 1.5
-	DefaultAllowAbove     = 0.95
-	DefaultDenyAbove      = 0.95
 	DefaultAgentThreshold = 0.8
 	DefaultTurnThreshold  = 0.8
 )
@@ -73,11 +71,8 @@ type DecideSettings struct {
 	Command        []string
 	Model          string
 	Timeout        time.Duration
-	Approvals      string // ModeOff, ModeSuggest or ModeAuto
-	AllowAbove     float64
-	DenyAbove      float64
+	Approvals      string // ModeOff or ModeSuggest
 	NeverAllow     []string
-	AllowPrograms  []string // bare program names the user added to the allowlist
 	Triage         bool
 	Agents         bool
 	AgentThreshold float64
@@ -90,11 +85,11 @@ type DecideSettings struct {
 func (d DecideSettings) On() bool { return d.Provider != "" }
 
 func defaultDecisions() Decisions {
-	t, a, dn, at, tt := DefaultDecideTimeout, DefaultAllowAbove, DefaultDenyAbove, DefaultAgentThreshold, DefaultTurnThreshold
+	t, at, tt := DefaultDecideTimeout, DefaultAgentThreshold, DefaultTurnThreshold
 	on, off := true, false
 	return Decisions{
 		Command: []string{}, Model: "jev-latest", Timeout: &t,
-		Approvals: Approvals{Mode: ModeSuggest, AllowAbove: &a, DenyAbove: &dn, AllowPrograms: []string{}, NeverAllow: []string{}},
+		Approvals: Approvals{Mode: ModeSuggest, NeverAllow: []string{}},
 		Triage:    Toggle{Enabled: &on},
 		Agents:    Agents{Enabled: &off, Threshold: &at, Programs: []string{}},
 		TurnCheck: Feature{Enabled: &off, Threshold: &tt},
@@ -102,9 +97,9 @@ func defaultDecisions() Decisions {
 }
 
 // resolveDecisions fills in defaults and reports bad values, which keep
-// their defaults.
-func resolveDecisions(c Decisions) (DecideSettings, []issue) {
-	var issues []issue
+// their defaults. notes are for settings that work but should go: mode
+// "auto", which now means suggest.
+func resolveDecisions(c Decisions) (_ DecideSettings, issues, notes []issue) {
 	d := DecideSettings{Provider: c.Provider, Command: c.Command, Model: c.Model, Approvals: c.Approvals.Mode, NeverAllow: c.Approvals.NeverAllow}
 	switch d.Provider {
 	case "", "jev":
@@ -123,9 +118,12 @@ func resolveDecisions(c Decisions) (DecideSettings, []issue) {
 	switch d.Approvals {
 	case "":
 		d.Approvals = ModeSuggest
-	case ModeOff, ModeSuggest, ModeAuto:
+	case ModeOff, ModeSuggest:
+	case "auto":
+		notes = append(notes, issue{"decisions.approvals.mode", `"auto" is no longer supported: pitwall only suggests; using suggest`})
+		d.Approvals = ModeSuggest
 	default:
-		issues = append(issues, issue{"decisions.approvals.mode", fmt.Sprintf("%q is not off, suggest or auto; using suggest", d.Approvals)})
+		issues = append(issues, issue{"decisions.approvals.mode", fmt.Sprintf("%q is not off or suggest; using suggest", d.Approvals)})
 		d.Approvals = ModeSuggest
 	}
 	num := func(p *float64, path string, def, lo, hi float64) float64 {
@@ -139,17 +137,8 @@ func resolveDecisions(c Decisions) (DecideSettings, []issue) {
 		return *p
 	}
 	d.Timeout = time.Duration(num(c.Timeout, "decisions.timeout", DefaultDecideTimeout, 0.2, 10) * float64(time.Second))
-	d.AllowAbove = num(c.Approvals.AllowAbove, "decisions.approvals.allow_above", DefaultAllowAbove, 0.8, 1)
-	d.DenyAbove = num(c.Approvals.DenyAbove, "decisions.approvals.deny_above", DefaultDenyAbove, 0.8, 1)
 	d.AgentThreshold = num(c.Agents.Threshold, "decisions.agents.threshold", DefaultAgentThreshold, 0.5, 1)
 	d.TurnThreshold = num(c.TurnCheck.Threshold, "decisions.turn_check.threshold", DefaultTurnThreshold, 0.5, 1)
-	for _, name := range c.Approvals.AllowPrograms {
-		if name == "" || strings.ContainsAny(name, `/\= `) {
-			issues = append(issues, issue{"decisions.approvals.allow_programs", fmt.Sprintf("%q is not a bare program name; it is ignored", name)})
-			continue
-		}
-		d.AllowPrograms = append(d.AllowPrograms, name)
-	}
 	d.Triage = c.Triage.Enabled == nil || *c.Triage.Enabled
 	d.Agents = c.Agents.Enabled != nil && *c.Agents.Enabled
 	d.TurnCheck = c.TurnCheck.Enabled != nil && *c.TurnCheck.Enabled
@@ -159,7 +148,7 @@ func resolveDecisions(c Decisions) (DecideSettings, []issue) {
 			d.Programs = append(d.Programs, p)
 		}
 	}
-	return d, issues
+	return d, issues, notes
 }
 
 // LoadDecisions reads only [decisions] from the config at path, for the

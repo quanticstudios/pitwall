@@ -550,9 +550,10 @@ pitwall can ask a decision model quick questions about what your agents are
 doing. [TypeSafe's Jev](https://docs.typesafe.ai) is built for this: it
 answers yes/no, multiple-choice and rating questions with calibrated
 probabilities in roughly 70 to 500 ms and writes no text. pitwall uses it to
-recommend or make approval decisions, to sort what needs you by urgency, to
-see what agents without hooks are doing, and to flag finished turns that
-need a look.
+recommend an answer to approval prompts, to sort what needs you by urgency,
+to see what agents without hooks are doing, and to flag finished turns that
+need a look. It only ever suggests: every permission prompt is still yours
+to answer.
 
 Nothing is sent anywhere until you connect a provider. Each call times out,
 after 1.5 s by default (`timeout` under `[decisions]`, 0.2 to 10 s), and a
@@ -590,7 +591,7 @@ suggest; screen reading and turn checks stay off until you turn them on.
 
 | Feature | What it does | What it sends, and when |
 | ------- | ------------ | ----------------------- |
-| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (the default) shows the answer on the tab's pill, in the switcher and in the pane's corner ("Jev: allow 96%") and decides nothing. `auto` may answer for you, under the rules in [Automatic approvals](#automatic-approvals). `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
+| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (the default) shows the answer on the tab's pill, in the switcher, in the hover card and in the pane's corner ("Jev: allow 96%"), with any risk pitwall sees in the call ("Jev: allow 96% · sudo"). It is only a suggestion: the agent's prompt shows at once, as without pitwall, and you answer it. `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
 | Attention triage (`[decisions.triage]`) | Rates a pane that needs you as fyi, later, soon or now. The jump-to-attention key goes to the most urgent first, desktop notifications go out most urgent first (now is marked urgent), and fyi sends no notification. The pill reads "Agent Input · now" for now. | When an agent pane starts needing you: its state and its question, approval detail, error or turn summary. |
 | Agents without hooks (`[decisions.agents]`) | For Gemini CLI, OpenCode, Aider, Amp, Cursor agent, Goose and Crush (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (default 0.8). Programs are matched by process name, so a CLI that shows up as `node` is not seen. | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
 | Turn check (`[decisions.turn_check]`) | When an agent finishes a turn, asks whether it needs your review: failed tests, errors left, unfinished work. The Done pill reads Check when the answer reaches `threshold` (default 0.8). | When a turn ends: the agent's last message and its screen. |
@@ -599,82 +600,31 @@ Before anything leaves your machine, pitwall removes what looks secret:
 private keys, `Authorization` and cookie headers, bearer tokens, values
 under secret-looking names (`KEY=value` lines, quoted values across lines,
 `"password": ...` fields at any depth, `--password`-style flags), passwords
-in URLs, and common API token shapes (OpenAI, Anthropic, GitHub, GitLab,
-Slack, AWS, Google, npm, JWTs). Only then does it cut long text to fit, and
-never in the middle of a word. That is pattern matching, not a guarantee, so
+in URLs, common API token shapes (OpenAI, Anthropic, GitHub, GitLab, Slack,
+AWS, Google, npm, JWTs), and your saved TypeSafe key wherever it appears,
+map keys included, whichever provider answers. Only then does it cut long
+text to fit the size it sends, and never in the middle of a word. That is pattern matching, not a guarantee, so
 leave a feature off for work you would not send. Each pane may make at most
 30 calls a minute.
 
-### Automatic approvals
+### Recommendations, not decisions
 
-Auto mode approves only calls on a fixed allowlist; everything else gets
-the agent's normal prompt. pitwall returns an allow only when all of these
-hold:
+pitwall never answers a permission prompt for you. Automatic approval was
+left out because a command's text can't show what it will run (a test
+runner runs project code, git runs commands from its config, a program name
+can resolve to anything on `PATH`), so it needs sandboxed execution.
 
-- The call is on the allowlist:
-  - **File tools**: `Read`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit` and
-    Codex's `apply_patch`, when every path they touch passes the path rules
-    below.
-  - **Shell commands** that are plain words: no `$` or other expansion,
-    backticks, `( ) { } < > | ; &`, globs (`* ? [`), `~`, `!`, `#`,
-    backslashes, newlines or unclosed quotes. Quotes are removed first. The
-    program must be a bare name (never `./helper` or `/usr/bin/x`) from
-    this list, with only the subcommands and flags pitwall knows for it;
-    any other flag means no decision:
-    - `ls`, `cat`, `head`, `tail`, `wc`, `grep`, `rg`, `fd`, `find`
-      (without `-exec`, `-delete` and the like), `tree`, `stat`, `file`,
-      `du`, `diff`, `pwd`, `echo`, `which`
-    - `go build|test|vet|fmt|list|version|env|doc|run` and
-      `go mod tidy|download|verify` (no `-exec`, `-toolexec` or `-w`)
-    - `cargo build|test|check|clippy|fmt|doc|tree`
-    - `npm`, `pnpm`, `yarn`, `bun`: `test`, `run <script>`, `ls`, and
-      `install`/`ci` with no package names and no `-g`
-    - `make <target>` (no `-f`, `-C`, `--eval` or `VAR=value`), `pytest`,
-      `python -m pytest`, `mise ls|which|current`
-    - `git status|diff|log|show|blame|rev-parse|ls-files|grep|describe`,
-      `git branch` to list only, and `git remote -v`. Nothing may come
-      before the subcommand (`-c`, `-C`, `--git-dir` and so on), so
-      aliases, config, push, reset, checkout and clean are never approved.
-      git still reads its own config, so an external diff driver set up in
-      the repo runs as it would by hand.
-  - Programs you add with `allow_programs` under `[decisions.approvals]`, as
-    bare names. Their paths must pass the path rules, but their flags are
-    not checked: adding a program is at your own risk.
-- **Path rules**, for every file a file tool touches and every argument of
-  an allowed command that contains a `/` or names something that exists:
-  the path as given (never cleaned) lies in the repo or working directory,
-  holds no `..`, no symlink in any component below that folder (a link
-  anywhere, dangling or not, means no decision), and no protected
-  component: `.git`, `.claude`, `.codex`, `.mcp.json`, `.ssh`, `.aws`,
-  `.gnupg`, `.env*`, `.netrc`, `.git-credentials`, `.kube`, `.docker`.
-- The call was sent whole: an input cut to fit the request means no
-  decision.
-- The model chose allow, with a complete distribution (scaled to sum to 1)
-  in which allow is highest, and p(allow) is at least `allow_above`
-  (default 0.95, from 0.8 to 1).
-- No `never_allow` entry matches the input (shown only as
-  "never_allow #N", never its text).
-- Right before answering, pitwall reads the config and key again: the
-  approval is still waiting, the tab has not turned auto off, and the
-  provider, key and settings are unchanged.
-
-A deny needs only the model's choice of deny with p(deny) at least
-`deny_above` (default 0.95, from 0.8 to 1): it is the safe direction.
-pitwall still recognises sudo, `rm` with recursive and force flags (by
-any prefix of the long options), force pushes, `git reset --hard` and
-secret paths, and shows them in the advice. When auto mode leaves the
-prompt, the pill says why, such as "Jev: ask · rm -rf" or
-"Jev: ask · not on the allowlist: curl".
-
-pitwall never answers `AskUserQuestion` or a plan approval for you. Every
-automatic decision is kept for the daemon's run (the latest 200): Settings,
-Decisions lists the tab, tool, input, probabilities and rules, and a tab
-shows "2 auto-approved" under its name. Its "…" menu has "Stop
-auto-approving here" for that tab alone.
-
-Claude Code and Codex take the decision from their `PermissionRequest` hook,
-which `pitwall hooks install` already registers; the hook waits up to 4.5 s
-for the answer.
+The `PermissionRequest` hook that `pitwall hooks install` registers reports
+the request and exits at once, so the agent's prompt is never delayed. The
+recommendation arrives a moment later. Next to it pitwall shows the first
+risk it reads in the call's text, whatever the model said: `sudo`,
+`rm -rf` (long options by any prefix, such as `--rec --fo`), a force push,
+`git reset --hard`, a download piped into a shell, a secrets path
+(`~/.ssh`, `~/.aws`, `.env*`, ...), a write into `.git`, `.claude`,
+`.codex` or `.mcp.json`, a write outside the repo, or a `never_allow`
+entry you listed (shown as "never_allow #N", never its text). These flags
+are hints, not a guarantee. pitwall never recommends for `AskUserQuestion`
+or a plan approval.
 
 ### Costs
 
@@ -708,8 +658,7 @@ The same timeout and redaction apply.
 
 ### Turn it off
 
-Set an approvals mode of `off` or switch a feature off in Settings,
-Decisions. To stop everything, set `provider = ""` (Disconnect in Settings
+Set approvals to `off` or switch a feature off in Settings, Decisions. To stop everything, set `provider = ""` (Disconnect in Settings
 or `pitwall jev logout` do that when the provider is Jev): then nothing is
 sent.
 

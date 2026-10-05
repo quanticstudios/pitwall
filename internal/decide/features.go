@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"unicode/utf8"
 )
 
 // The questions pitwall asks and the states it sends, one pair per
@@ -54,21 +55,6 @@ func ApprovalState(agentName string, c Call, prompt string) map[string]any {
 func Approval(ans map[string]Answer) (string, map[string]float64) {
 	a := ans["verdict"]
 	return a.Choice, a.Probabilities
-}
-
-// AutoVerdict is what auto mode does with an answer: Deny when the model
-// chose deny with p(deny) at denyAbove or more; Allow when the model chose
-// allow with p(allow) at allowAbove or more and canAllow (the call was
-// fully checked, broke no rule and was sent whole); else "" (no decision:
-// the agent asks as usual). Deny needs no check: it is the safe direction.
-func AutoVerdict(choice string, probs map[string]float64, canAllow bool, allowAbove, denyAbove float64) string {
-	switch {
-	case choice == Deny && probs[Deny] >= denyAbove:
-		return Deny
-	case canAllow && choice == Allow && probs[Allow] >= allowAbove:
-		return Allow
-	}
-	return ""
 }
 
 // Urgency levels, lowest first, as triage returns them.
@@ -166,11 +152,10 @@ var endKeys = map[string]bool{"screen": true, "last_message": true}
 var ErrTooLarge = errors.New("state too large to send")
 
 // Prepare redacts state, turns it into plain JSON values (so every map
-// and slice type is counted and cut alike), and only then cuts it to the
-// budget: each string to stringMax runes, then all of them shorter until
-// the whole fits. truncated reports any cut; a state that still does not
-// fit is ErrTooLarge and must not be sent. An approval with a cut or
-// refused state is never approved automatically.
+// and slice type is cut alike), and only then cuts it to the budget,
+// measured as the JSON that is sent: each string to stringMax runes, then
+// all of them shorter until the whole fits. truncated reports any cut; a
+// state that still does not fit is ErrTooLarge and is not sent.
 func (c *Client) Prepare(state any) (out any, truncated bool, err error) {
 	red := RedactValue(state, c.secrets()...)
 	b, err := json.Marshal(red)
@@ -242,44 +227,17 @@ func clipAll(v any, key string, limit int, cut *bool) any {
 	return v
 }
 
-// size is the runes of every string and key in v.
+// size is the length in runes of v as the JSON that is sent.
 func size(v any) int {
-	switch t := v.(type) {
-	case string:
-		return len([]rune(t))
-	case map[string]any:
-		n := 0
-		for k, x := range t {
-			n += len(k) + size(x)
-		}
-		return n
-	case []any:
-		n := 0
-		for _, x := range t {
-			n += size(x)
-		}
-		return n
+	b, err := json.Marshal(v)
+	if err != nil {
+		return stateBudget + 1
 	}
-	return 8
+	return utf8.RuneCount(b)
 }
 
 // clip cuts s to its first n runes, at a word boundary when there is one.
 func clip(s string, n int) string {
 	cut := false
 	return clipAll(s, "", n, &cut).(string)
-}
-
-// Summary is a short line about a call for the audit trail: the command,
-// the file, or the start of the input, with secrets removed.
-func Summary(c Call, secrets ...string) string {
-	var in map[string]any
-	_ = json.Unmarshal(c.Input, &in)
-	s := string(c.Input)
-	for _, k := range []string{"command", "file_path", "notebook_path", "path", "url"} {
-		if v, ok := in[k].(string); ok && v != "" {
-			s = v
-			break
-		}
-	}
-	return clip(strings.Join(strings.Fields(Redact(s, secrets...)), " "), 160)
 }

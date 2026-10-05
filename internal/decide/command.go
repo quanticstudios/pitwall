@@ -18,7 +18,10 @@ type Command struct {
 	Argv []string
 }
 
-// Ask runs the command, killing it when ctx ends.
+// Ask runs the command. When ctx ends, the command is killed with every
+// process in its group on Unix; on Windows only the command itself is
+// killed, and output pipes a grandchild holds open are let go after
+// WaitDelay.
 func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
 	if len(c.Argv) == 0 || c.Argv[0] == "" {
 		return nil, errors.New("decisions.command is empty")
@@ -28,7 +31,8 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
-	cmd.WaitDelay = 500 * time.Millisecond // a child holding stdout open must not outlive the timeout
+	ownGroup(cmd)
+	cmd.WaitDelay = 500 * time.Millisecond // stop waiting on pipes a stray child still holds
 	cmd.Stdin = bytes.NewReader(in)
 	var out, errb limited
 	out.max, errb.max = 1<<20, 64<<10

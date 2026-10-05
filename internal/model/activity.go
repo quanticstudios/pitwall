@@ -32,8 +32,9 @@ type Activity struct {
 	Unseen bool
 	// Advice is a decision model's recommendation for a pending approval:
 	// "allow", "ask" or "deny", AdviceP its probability, and AdviceRule a
-	// hard rule the call breaks, which keeps pitwall from approving it
-	// whatever the advice. Advice is "" without a recommendation.
+	// risk pitwall sees in the call ("sudo"), shown next to it. Advice is
+	// "" without a recommendation. Nothing is approved or denied for the
+	// user.
 	Advice     string
 	AdviceP    float64
 	AdviceRule string

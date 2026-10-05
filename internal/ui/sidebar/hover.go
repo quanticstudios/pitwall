@@ -107,8 +107,7 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 
 // card is what a tab's hover card shows. Lines lists which lines, in
 // order: 't' title, 'f' folder, 'b' branch, 's' agent state, 'd' its
-// detail, 'j' the decision model's advice or last automatic decision, 'p'
-// pane count.
+// detail, 'j' the decision model's advice, 'p' pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -162,21 +161,6 @@ func cardFor(v *view, ws model.Workspace) card {
 	if a := v.activity[ws.ID]; a != nil {
 		c.state, c.detail = a.State, clampDetail(a.Detail)
 		c.decision = AdviceText(*a, v.st.Decide.Provider)
-	}
-	if c.decision == "" {
-		for i := len(v.st.Decide.Audit) - 1; i >= 0; i-- {
-			if e := v.st.Decide.Audit[i]; e.WorkspaceID == ws.ID {
-				verb := "Auto-approved "
-				if e.Verdict != "allow" {
-					verb = "Auto-denied "
-				}
-				c.decision = verb + clampDetail(e.Input)
-				if t := relTime(v.now, e.At); t != "" {
-					c.decision += " · " + t
-				}
-				break
-			}
-		}
 	}
 	for _, p := range v.st.Panes {
 		if p.WorkspaceID == ws.ID {

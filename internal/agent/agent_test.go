@@ -220,43 +220,6 @@ func TestCommandPath(t *testing.T) {
 	}
 }
 
-// TestPermissionDecision checks the JSON a PermissionRequest hook prints,
-// in the shape both Claude Code's and Codex's hook docs give.
-func TestPermissionDecision(t *testing.T) {
-	cases := map[string]string{
-		"allow": `{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}`,
-		"deny":  `{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"no"},"hookEventName":"PermissionRequest"}}`,
-		"ask":   ``,
-		"":      ``,
-	}
-	for verdict, want := range cases {
-		if got := string(PermissionDecision(verdict, "no")); got != want {
-			t.Errorf("%q: got %s, want %s", verdict, got, want)
-		}
-	}
-	// Claude's docs: an allow carries no message; Codex rejects
-	// updatedInput, updatedPermissions and interrupt, which never appear.
-	for _, v := range []string{"allow", "deny"} {
-		var out struct {
-			H struct {
-				Event    string         `json:"hookEventName"`
-				Decision map[string]any `json:"decision"`
-			} `json:"hookSpecificOutput"`
-		}
-		if err := json.Unmarshal(PermissionDecision(v, "why"), &out); err != nil {
-			t.Fatal(err)
-		}
-		if out.H.Event != "PermissionRequest" || out.H.Decision["behavior"] != v {
-			t.Errorf("%s: %+v", v, out)
-		}
-		for _, k := range []string{"updatedInput", "updatedPermissions", "interrupt"} {
-			if _, ok := out.H.Decision[k]; ok {
-				t.Errorf("%s output has %s", v, k)
-			}
-		}
-	}
-}
-
 func TestRequest(t *testing.T) {
 	ev, tool, input, cwd, ok := Request(fixture(t, "claude_permission_request"))
 	if !ok || ev != "PermissionRequest" || tool != "Bash" || cwd != "/home/u/repo" || !strings.Contains(string(input), "rm -rf node_modules") {

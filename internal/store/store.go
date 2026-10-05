@@ -20,14 +20,13 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
-// formatVersion 8 added Workspace.AutoOff;
 // formatVersion 7 added sessions, which own the tabs, groups and order;
 // formatVersion 6 added State.Order and dropped generated tab names;
 // formatVersion 5 made each tab a workspace of its own; version 4 added Workspace.NameSet and Label and Pane.Prompt; version
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 8
+const formatVersion = 7
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`

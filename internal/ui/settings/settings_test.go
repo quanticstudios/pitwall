@@ -352,12 +352,13 @@ func TestDecisionsStates(t *testing.T) {
 		t.Errorf("command provider: %q", got)
 	}
 	draw()
-	setup("[decisions]\nprovider = \"jev\"\n[decisions.approvals]\nmode = \"auto\"\n")
-	p.SetDecisions(model.DecideInfo{Provider: "jev", Auto: true, Counts: []model.DecideCount{{Feature: decide.FeatureApprovals, Calls: 3, Errors: 1}},
-		Audit: []model.AutoDecision{{Tab: "fix", Tool: "Bash", Input: "go test", Verdict: "allow", Allow: 0.97}, {Tab: "fix", Tool: "Bash", Input: "x", Verdict: "deny", Deny: 0.97, Rules: []string{"sudo"}}}})
+	// An old auto config shows suggest; the page offers only off and suggest.
+	setup("[decisions]\nprovider = \"jev\"\n[decisions.approvals]\nmode = \"auto\"\nallow_above = 0.99\n")
+	p.SetDecisions(model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: decide.FeatureApprovals, Calls: 3, Errors: 1}}})
 	secs := p.decisions()
-	if len(secs) != 3 || len(secs[1].rows) != 6 || !strings.Contains(secs[1].rows[0].desc, "3 calls, 1 failed") {
-		t.Errorf("auto mode: %d sections, %d feature rows", len(secs), len(secs[1].rows))
+	if p.s.Decisions.Approvals != config.ModeSuggest || len(secs) != 2 || len(secs[1].rows) != 4 || !strings.Contains(secs[1].rows[0].desc, "3 calls, 1 failed") ||
+		!strings.Contains(secs[1].rows[0].desc, "sandboxed execution") {
+		t.Errorf("approvals: mode %q, %d sections, %d feature rows", p.s.Decisions.Approvals, len(secs), len(secs[1].rows))
 	}
 	draw()
 	for _, st := range []struct {

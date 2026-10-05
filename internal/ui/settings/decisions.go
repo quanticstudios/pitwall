@@ -3,9 +3,7 @@ package settings
 import (
 	"context"
 	"fmt"
-	"image"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
-	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // decisionsPage is the Decisions category's state.
@@ -267,20 +264,13 @@ func (p *Page) decisions() []section {
 		featDesc = "Each feature asks only when it has something to ask. A failed or slow answer changes nothing: pitwall goes on as it would without one."
 	}
 	rows := []row{
-		{label: "Approvals", desc: "When Claude Code or Codex asks permission. Suggest shows a recommendation on the approval. Auto approves only calls on pitwall's allowlist " +
-			"(file tools inside the repo, plain read, build and test commands such as go test, git status or ls), denies only sure denies, and leaves everything else to you. " +
+		{label: "Approvals", desc: "When Claude Code or Codex asks permission, shows the model's recommendation on the approval, with any risk pitwall sees in the call: \"Jev: allow 96% · sudo\". " +
+			"It is only a suggestion; you still answer every prompt. Automatic approval is left out because a command's text cannot show what it will run; that needs sandboxed execution. " +
 			p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
-			extra: "approval permission auto suggest allow deny mode",
-			control: p.segmented("dmode", []string{config.ModeOff, config.ModeSuggest, config.ModeAuto}, d.Approvals, func(o string) {
+			extra: "approval permission suggest allow deny mode recommendation",
+			control: p.segmented("dmode", []string{config.ModeOff, config.ModeSuggest}, d.Approvals, func(o string) {
 				p.saveValue("decisions.approvals", "mode", config.Quote(o))
 			})},
-	}
-	if d.Approvals == config.ModeAuto {
-		rows = append(rows,
-			row{label: "Approve above", desc: "Auto mode approves when the probability of allow is at least this.", extra: "threshold allow_above",
-				control: p.stepper("decisions.approvals", "allow_above", d.AllowAbove, 0.8, 1, 0.01, config.DefaultAllowAbove)},
-			row{label: "Deny above", desc: "Auto mode denies when the probability of deny is at least this.", extra: "threshold deny_above",
-				control: p.stepper("decisions.approvals", "deny_above", d.DenyAbove, 0.8, 1, 0.01, config.DefaultDenyAbove)})
 	}
 	rows = append(rows,
 		row{label: "Attention triage", desc: "Rates how soon a pane that needs you wants you: fyi, later, soon or now. The jump-to-attention key goes to the most urgent first; fyi sends no desktop notification. " +
@@ -294,42 +284,5 @@ func (p *Page) decisions() []section {
 			extra: "review done check finished turn", control: p.toggle("decisions.turn_check", "enabled", d.TurnCheck)},
 	)
 
-	secs := []section{{rows: []row{conn}}, {title: "Features", desc: featDesc, rows: rows}}
-	if a := p.dp.info.Audit; len(a) > 0 || d.Approvals == config.ModeAuto {
-		secs = append(secs, section{title: "Automatic decisions", desc: "What pitwall approved or denied for you since the daemon started, newest first. A tab's menu can stop automatic approvals for that tab.",
-			rows: p.auditRows()})
-	}
-	return secs
-}
-
-func (p *Page) auditRows() []row {
-	th := p.th
-	a := slices.Clone(p.dp.info.Audit)
-	slices.Reverse(a)
-	if len(a) == 0 {
-		return []row{{label: "None yet", desc: "Approvals pitwall answers show here.", extra: "audit"}}
-	}
-	var rows []row
-	for i, e := range a {
-		if i == 20 {
-			rows = append(rows, row{label: fmt.Sprintf("and %d earlier", len(a)-20), extra: "audit"})
-			break
-		}
-		verb := "Allowed"
-		col := th.Green
-		if e.Verdict == decide.Deny {
-			verb, col = "Denied", th.Red
-		}
-		desc := fmt.Sprintf("%s · %s · %s · allow %.0f%%, ask %.0f%%, deny %.0f%%", e.At.Format("15:04:05"), e.Tab, e.Tool, e.Allow*100, e.Ask*100, e.Deny*100)
-		if len(e.Rules) > 0 {
-			desc += " · rules: " + strings.Join(e.Rules, ", ")
-		}
-		rows = append(rows, row{label: e.Input, desc: desc, extra: "audit " + e.Tool + " " + e.Tab,
-			control: func(gtx gl.Context) gl.Dimensions {
-				return boxed(gtx, theme.Mix(th.SurfaceSecondary, col, 0.12), theme.Mix(th.SurfaceSecondary, col, 0.12), gtx.Dp(4), image.Pt(gtx.Dp(6), gtx.Dp(2)), func(gtx gl.Context) gl.Dimensions {
-					return p.text(gtx, th.UIFont, p.sp(12), col, verb)
-				})
-			}})
-	}
-	return rows
+	return []section{{rows: []row{conn}}, {title: "Features", desc: featDesc, rows: rows}}
 }

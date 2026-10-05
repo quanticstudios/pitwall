@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,9 +11,9 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// fakeDaemon accepts hook connections and answers a Reply event with
-// reply, or with nothing when reply is nil.
-func fakeDaemon(t *testing.T, reply []byte) (string, chan proto.AgentEvent) {
+// silentDaemon accepts hook connections, records each event and never
+// answers.
+func silentDaemon(t *testing.T) (string, chan proto.AgentEvent) {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "d.sock")
 	ln, err := net.Listen("unix", sock)
@@ -36,9 +38,6 @@ func fakeDaemon(t *testing.T, reply []byte) (string, chan proto.AgentEvent) {
 					}
 					if ev, ok := m.(proto.AgentEvent); ok {
 						got <- ev
-						if ev.Reply && reply != nil {
-							c.Send(proto.HookReply{Output: reply})
-						}
 					}
 				}
 			}()
@@ -47,38 +46,51 @@ func fakeDaemon(t *testing.T, reply []byte) (string, chan proto.AgentEvent) {
 	return sock, got
 }
 
-func TestSendHook(t *testing.T) {
-	const allow = `{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}`
-	sock, got := fakeDaemon(t, []byte(allow))
-	req := []byte(`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"go test"}}`)
-	if out := sendHook(sock, "p1", "claude", req, time.Second); string(out) != allow {
-		t.Errorf("permission request printed %q", out)
+// TestHookReportsAndExits: a permission request's hook forwards the event
+// and exits at once with nothing on stdout, so it never delays or decides
+// the agent's prompt, even when the daemon never answers.
+func TestHookReportsAndExits(t *testing.T) {
+	sock, got := silentDaemon(t)
+	t.Setenv("PITWALL_PANE", "p1")
+	t.Setenv("PITWALL_SOCKET", sock)
+	req := `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"go test"}}`
+	in := filepath.Join(t.TempDir(), "in.json")
+	os.WriteFile(in, []byte(req), 0o600)
+	stdin, err := os.Open(in)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if ev := <-got; !ev.Reply || ev.Pane != "p1" {
-		t.Errorf("event %+v", ev)
+	defer stdin.Close()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
+	oldIn, oldOut := os.Stdin, os.Stdout
+	os.Stdin, os.Stdout = stdin, w
 	start := time.Now()
-	if out := sendHook(sock, "p1", "claude", []byte(`{"hook_event_name":"PreToolUse"}`), time.Second); out != nil {
-		t.Errorf("PreToolUse printed %q", out)
+	runHook([]string{"claude"})
+	took := time.Since(start)
+	os.Stdin, os.Stdout = oldIn, oldOut
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if len(out) != 0 {
+		t.Errorf("the hook printed %q", out)
 	}
-	if ev := <-got; ev.Reply {
-		t.Error("PreToolUse asked for a reply")
+	if took > 300*time.Millisecond {
+		t.Errorf("the hook took %v", took)
 	}
-	if time.Since(start) > 500*time.Millisecond {
-		t.Error("a hook that needs no reply waited")
+	select {
+	case ev := <-got:
+		if ev.Pane != "p1" || string(ev.Payload) != req {
+			t.Errorf("event %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the daemon got no event")
 	}
-
-	// A daemon that never answers costs at most the wait, and decides nothing.
-	quiet, _ := fakeDaemon(t, nil)
+	// No daemon at all costs nothing either.
 	start = time.Now()
-	if out := sendHook(quiet, "p1", "claude", req, 100*time.Millisecond); out != nil {
-		t.Errorf("silent daemon: printed %q", out)
-	}
-	if d := time.Since(start); d > time.Second {
-		t.Errorf("waited %v", d)
-	}
-	// No daemon at all.
-	if out := sendHook(filepath.Join(t.TempDir(), "none.sock"), "p1", "claude", req, time.Second); out != nil {
-		t.Errorf("no daemon: printed %q", out)
+	sendHook(filepath.Join(t.TempDir(), "none.sock"), "p1", "claude", []byte(req))
+	if d := time.Since(start); d > 300*time.Millisecond {
+		t.Errorf("no daemon: took %v", d)
 	}
 }

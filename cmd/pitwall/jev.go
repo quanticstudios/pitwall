@@ -146,9 +146,6 @@ func jevStatus(stdout, stderr io.Writer) int {
 	if s.On() {
 		onOff := map[bool]string{true: "on", false: "off"}
 		fmt.Fprintf(stdout, "features:   approvals %s, triage %s, agents %s, turn check %s\n", s.Approvals, onOff[s.Triage], onOff[s.Agents], onOff[s.TurnCheck])
-		if s.Approvals == config.ModeAuto {
-			fmt.Fprintf(stdout, "auto:       approve at p(allow) >= %g, deny at p(deny) >= %g\n", s.AllowAbove, s.DenyAbove)
-		}
 	}
 	return 0
 }

@@ -26,19 +26,13 @@ To cut a release: add a section below and merge it, then
   `credentials` file or `TYPESAFE_API_KEY`, never in `config.toml`.
   Nothing is sent until you connect, and connecting keeps your settings.
   With none set:
-  - Approvals suggest: a Claude Code or Codex permission request shows the
-    model's recommendation ("Jev: allow 96%") on the tab and the pane.
-    Auto mode approves only calls on an allowlist: file tools whose paths
-    stay inside the repo with no symlink, `..` or protected folder
-    (`.git`, `.claude`, `.env*`, `.ssh`, ...), and plain shell commands
-    from a short list of read, build and test programs (`go test`,
-    `cargo test`, `npm test`, `git status`/`diff`/`log`, `ls`, `grep`, ...)
-    with known flags, plus any you add with `allow_programs` at your own
-    risk. It needs the model to choose allow at or above `allow_above`,
-    and denies when the model chooses deny at or above `deny_above`; both
-    default to 0.95 and go from 0.8 to 1. Everything else gets the normal
-    prompt. Automatic decisions keep an
-    audit trail, and a tab can opt out from its menu.
+  - Approvals suggest only: a Claude Code or Codex permission request
+    shows the model's recommendation on the tab's pill, in the switcher,
+    in the hover card and on the pane, with any risk pitwall reads in the
+    call ("Jev: allow 96% · sudo"). The agent's prompt is never delayed
+    and pitwall never answers it. Automatic approval was left out because
+    a command's text can't show what it will run, so it needs sandboxed
+    execution.
   - Attention triage (on by default) sorts what needs you as fyi, later,
     soon or now for the jump-to-attention key and notifications; fyi sends
     no notification.
@@ -51,8 +45,8 @@ To cut a release: add a section below and merge it, then
     pitwall as it was. See the README's Decisions section.
 - A finished turn's notification shows the start of the agent's last
   message.
-- The daemon protocol is now version 11 and the state file format 8. An
-  older pitwall cannot read state saved by this one.
+- The daemon protocol is now version 11; the next `pitwall` restarts an
+  older daemon. The state file format is unchanged.
 
 ## v0.1.0-alpha.3
 

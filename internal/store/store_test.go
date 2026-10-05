@@ -33,7 +33,7 @@ func TestSaveLoad(t *testing.T) {
 	want := model.State{
 		Version:  42,
 		Projects: []model.Project{{ID: "project", Name: "pitwall", Root: "/repo", Kind: model.ProjectGit, Color: "blue", Icon: "git"}},
-		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", NameSet: true, Label: "make", Branch: "track/store", Path: "/repo/store", RepoRoot: "/repo", Detached: true, AutoOff: true, UpdatedAt: now,
+		Workspaces: []model.Workspace{{ID: "workspace", ProjectID: "project", Name: "store", NameSet: true, Label: "make", Branch: "track/store", Path: "/repo/store", RepoRoot: "/repo", Detached: true, UpdatedAt: now,
 			Tabs: []model.Tab{{ID: "t1", Name: "build", Title: "make", Layout: &layout.Node{Dir: layout.Horizontal, Ratios: []float64{0.4, 0.6}, Children: []*layout.Node{
 				{Pane: "p1"}, {Dir: layout.Vertical, Ratios: []float64{0.5, 0.5}, Children: []*layout.Node{{Pane: "p2"}, {Pane: "p3"}}},
 			}}}},
@@ -96,7 +96,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":9,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":8,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)

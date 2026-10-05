@@ -521,8 +521,6 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.CloseTab{WorkspaceID: e.WorkspaceID})
 	case sidebar.RenameTab:
 		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, Name: e.Name})
-	case sidebar.SetAutoApprove:
-		u.send(proto.SetAutoApprove{WorkspaceID: e.WorkspaceID, Off: e.Off})
 	}
 }
 

@@ -40,10 +40,8 @@ func allMessages() []any {
 		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cmd: []string{"claude"}, Cwd: "/r/x", Exited: true, ExitCode: 2, Provider: model.ProviderClaude, SessionID: "s"}},
 		Activities: []model.Activity{{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StatePendingApproval, UpdatedAt: now, Unseen: true,
 			Advice: "allow", AdviceP: 0.96, AdviceRule: "sudo", Urgency: "now"}},
-		Stats: map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
-		Decide: model.DecideInfo{Provider: "jev", Auto: true, Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}},
-			Audit: []model.AutoDecision{{At: now, PaneID: "a", WorkspaceID: "w", Tab: "fix", Agent: model.ProviderClaude, Tool: "Bash", Input: "go test",
-				Verdict: "allow", Allow: 0.97, Ask: 0.02, Deny: 0.01, Rules: []string{"x"}}}},
+		Stats:  map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
+		Decide: model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}}},
 	}
 	return []any{
 		Hello{Version: Version, Kind: "gui", Session: "work"},
@@ -66,8 +64,7 @@ func allMessages() []any {
 		Scroll{Pane: "a", Lines: -3},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},
-		AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(`{"x":1}`), Reply: true},
-		HookReply{Output: []byte(`{"hookSpecificOutput":{}}`)}, SetAutoApprove{WorkspaceID: "w", Off: true},
+		AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(`{"x":1}`)},
 		StateMsg{State: st},
 		Frame{Pane: "a", Grid: bigGrid(200, 60), Modes: vt.Modes{AppCursorKeys: true, Mouse: vt.MouseAny, MouseSGR: true, KittyKeyboard: 3}},
 		PaneExited{Pane: "a", ExitCode: 1},

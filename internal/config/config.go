@@ -343,8 +343,11 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
 	var di []issue
-	s.Decisions, di = resolveDecisions(c.Decisions)
+	var dn []issue
+	s.Decisions, di, dn = resolveDecisions(c.Decisions)
 	fi = append(fi, di...)
+	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
+	sort.SliceStable(s.Notes, func(i, j int) bool { return s.Notes[i].Line < s.Notes[j].Line })
 	if s.Font.UIFamily == "" {
 		s.Font.UIFamily = DefaultUIFamily
 	}
@@ -476,6 +479,16 @@ func parse(file string, data []byte, v any, renamed *[]issue) []Problem {
 			return []Problem{{File: file, Line: pe.Position.Line, Msg: pe.Message}}
 		}
 		return []Problem{{File: file, Msg: err.Error()}}
+	}
+	if d, ok := m["decisions"].(map[string]any); ok && renamed != nil {
+		if a, ok := d["approvals"].(map[string]any); ok {
+			for _, k := range RemovedApprovals {
+				if _, set := a[k]; set {
+					delete(a, k)
+					*renamed = append(*renamed, issue{"decisions.approvals." + k, "no longer supported: automatic approval was removed; this line is ignored"})
+				}
+			}
+		}
 	}
 	if keys, ok := m["keys"].(map[string]any); ok && renamed != nil {
 		for _, old := range slices.Sorted(mapKeys(keys)) {

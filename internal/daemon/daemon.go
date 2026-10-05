@@ -361,16 +361,6 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if err != nil {
 			return
 		}
-		if ev, ok := m.(proto.AgentEvent); ok {
-			out, err := d.hookEvent(ctx, ev)
-			if err != nil {
-				c.queue(proto.Error{Message: err.Error()})
-			}
-			if ev.Reply {
-				c.queue(proto.HookReply{Output: out})
-			}
-			continue
-		}
 		if _, ok := m.(proto.Sync); ok {
 			// Every earlier request on this connection is handled: replies
 			// are synchronous.
@@ -453,8 +443,6 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.agentEvent(ctx, m)
 	case proto.SeePane:
 		return d.seePane(m.Pane)
-	case proto.SetAutoApprove:
-		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.AutoOff = m.Off; return nil })
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:
@@ -735,20 +723,14 @@ func closeAll(ps []Pane) {
 	}
 }
 
+// agentEvent applies one hook event and starts, in the background, the
+// decisions it calls for.
 func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
-	_, err := d.hookEvent(ctx, m)
-	return err
-}
-
-// hookEvent applies one hook event and starts the decisions it calls for.
-// It returns what the hook prints: an automatic approval decision, or
-// nothing.
-func (d *Daemon) hookEvent(ctx context.Context, m proto.AgentEvent) ([]byte, error) {
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
 	if pi < 0 {
 		d.mu.Unlock()
-		return nil, fmt.Errorf("no pane %s", m.Pane)
+		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
 	d.sawHook(p.ID)
@@ -802,7 +784,8 @@ func (d *Daemon) hookEvent(ctx context.Context, m proto.AgentEvent) ([]byte, err
 		d.changed()
 	}
 	d.mu.Unlock()
-	return d.runDecisions(ctx, job), nil
+	d.runDecisions(ctx, job)
+	return nil
 }
 
 // nextWorkspaceName is "workspace-N", the first N not taken in the project,

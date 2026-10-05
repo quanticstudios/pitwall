@@ -41,25 +41,17 @@ func (x Decisions) name() string {
 // and limit, which lock themselves.
 type decisions struct {
 	cur     Decisions
-	gen     int // bumps on every change to cur; answers to an older one are not acted on
 	counts  decide.Counters
 	limit   decide.Limiter
-	audit   []model.AutoDecision // oldest first, at most auditCap
-	prompts map[string]string    // pane: the latest user prompt
+	prompts map[string]string // pane: the latest user prompt
 	screens map[string]*screenRead
 	paces   map[string]*screenPace // pane: kept while the pane lives, across programs
 }
 
-// auditCap is how many automatic decisions the daemon remembers.
-const auditCap = 200
-
-// syncDecideTimeout bounds an approval the hook waits on: the hooks are
-// installed with a 5 s timeout, and the hook gives up after 4.5 s.
-const syncDecideTimeout = 3500 * time.Millisecond
-
 // loadDecisions reads [decisions] from the config at cfgPath and the key
 // from credPath (or $TYPESAFE_API_KEY), again only when either file
-// changed.
+// changed. The key is scrubbed from every state whichever provider
+// answers: a screen or an error may show it.
 func loadDecisions(cfgPath, credPath string) func() Decisions {
 	var mu sync.Mutex
 	var stamp string
@@ -74,14 +66,17 @@ func loadDecisions(cfgPath, credPath string) func() Decisions {
 		stamp = st
 		s := config.LoadDecisions(cfgPath)
 		last = Decisions{Settings: s}
+		key, _, err := decide.LoadKey(credPath)
+		if err != nil && s.Provider == "jev" {
+			log.Printf("pitwall: decisions: %v", err) // never holds the key
+		}
+		if key != "" {
+			last.Secrets = []string{key}
+		}
 		switch s.Provider {
 		case "jev":
-			key, _, err := decide.LoadKey(credPath)
-			if err != nil {
-				log.Printf("pitwall: decisions: %v", err) // never holds the key
-			}
 			if key != "" {
-				last.Provider, last.Secrets = decide.NewJev(key, s.Model), []string{key}
+				last.Provider = decide.NewJev(key, s.Model)
 			}
 		case "command":
 			last.Provider = decide.Command{Argv: s.Command}
@@ -109,13 +104,12 @@ func (d *Daemon) refreshDecisions() {
 	d.applyDecisions(x)
 }
 
-// applyDecisions makes x current, bumping gen when anything changed.
+// applyDecisions makes x current, pushing state when anything changed.
 // Callers hold d.mu.
 func (d *Daemon) applyDecisions(x Decisions) {
 	old := d.dec.cur
 	d.dec.cur = x
 	if old.name() != x.name() || !reflect.DeepEqual(old.Settings, x.Settings) || !slices.Equal(old.Secrets, x.Secrets) {
-		d.dec.gen++
 		d.changed()
 	}
 }
@@ -137,7 +131,7 @@ func (d *Daemon) forgetDecisions(id string) {
 // decideInfo is the status clients show. Callers hold d.mu.
 func (d *Daemon) decideInfo() model.DecideInfo {
 	x := d.dec.cur
-	info := model.DecideInfo{Provider: x.name(), Auto: x.on() && x.Settings.Approvals == config.ModeAuto, Audit: slices.Clone(d.dec.audit)}
+	info := model.DecideInfo{Provider: x.name()}
 	for f, n := range d.dec.counts.Today(time.Now()) {
 		info.Counts = append(info.Counts, model.DecideCount{Feature: f, Calls: n.Calls, Errors: n.Errors})
 	}
@@ -160,16 +154,12 @@ func clearDecisions(a *model.Activity) {
 type decideJob struct {
 	pane  string
 	at    time.Time // UpdatedAt of the activity the answers are for
-	gen   int       // decisions.gen when asked
 	agent string
 	c     *decide.Client
 	s     config.DecideSettings
 
 	call   *decide.Call // approvals
-	auto   bool
 	prompt string
-	tab    string
-	wsID   string
 
 	triage      bool
 	state, text string
@@ -195,7 +185,7 @@ func (d *Daemon) planDecisions(p model.Pane, m proto.AgentEvent, now time.Time) 
 		return nil // no provider, or the event changed nothing
 	}
 	a := &d.st.Activities[i]
-	j := &decideJob{pane: p.ID, at: now, gen: d.dec.gen, agent: string(m.Provider), c: d.client(), s: x.Settings, wsID: p.WorkspaceID}
+	j := &decideJob{pane: p.ID, at: now, agent: string(m.Provider), c: d.client(), s: x.Settings}
 	w := d.workspace(p.WorkspaceID)
 	if ev, tool, input, cwd, ok := agent.Request(m.Payload); ok && ev == "PermissionRequest" && a.State == model.StatePendingApproval &&
 		!agent.NeedsInteraction(tool) && x.Settings.Approvals != config.ModeOff {
@@ -204,10 +194,9 @@ func (d *Daemon) planDecisions(p model.Pane, m proto.AgentEvent, now time.Time) 
 		}
 		root := ""
 		if w != nil {
-			root, j.tab = w.RepoRoot, w.Label
+			root = w.RepoRoot
 		}
 		j.call = &decide.Call{Tool: tool, Input: input, Cwd: cwd, Root: root}
-		j.auto = x.Settings.Approvals == config.ModeAuto && (w == nil || !w.AutoOff)
 		j.prompt = d.dec.prompts[p.ID]
 	}
 	if x.Settings.Triage && model.NeedsYou(a.State) && a.Detail != "" {
@@ -223,29 +212,20 @@ func (d *Daemon) planDecisions(p model.Pane, m proto.AgentEvent, now time.Time) 
 	return j
 }
 
-// runDecisions asks job's questions. An automatic approval is asked
-// before returning, as the hook waits for it; the rest run in the
-// background. It returns the hook's output.
-func (d *Daemon) runDecisions(ctx context.Context, j *decideJob) []byte {
+// runDecisions asks job's questions in the background.
+func (d *Daemon) runDecisions(ctx context.Context, j *decideJob) {
 	if j == nil {
-		return nil
+		return
 	}
-	var out []byte
-	switch {
-	case j.call != nil && j.auto:
-		sctx, cancel := context.WithTimeout(ctx, syncDecideTimeout)
-		out = d.approve(sctx, j)
-		cancel()
-	case j.call != nil:
+	if j.call != nil {
 		go d.approve(ctx, j)
 	}
-	if j.triage && out == nil {
+	if j.triage {
 		go d.triageJob(ctx, j)
 	}
 	if j.turn {
 		go d.turnCheck(ctx, j)
 	}
-	return out
 }
 
 // onActivity runs f on the pane's activity if it is still the one asked
@@ -263,82 +243,25 @@ func (d *Daemon) onActivity(pane string, at time.Time, f func(a *model.Activity)
 }
 
 // approve asks whether a permission request is safe and shows the answer
-// on the approval. In auto mode it returns the hook's allow or deny, and
-// it fails closed: allow needs a call pitwall fully checked (CheckCall),
-// sent whole, with a consistent answer over the threshold; deny needs a
-// sure deny. Right before answering it checks, in one critical section,
-// that the approval still waits, the tab still allows auto, and the
-// provider and settings have not changed. Any failure decides nothing.
-func (d *Daemon) approve(ctx context.Context, j *decideJob) []byte {
-	chk := decide.CheckCall(*j.call, j.s.NeverAllow, j.s.AllowPrograms)
-	state, truncated, err := j.c.Prepare(decide.ApprovalState(j.agent, *j.call, j.prompt))
-	var ans map[string]decide.Answer
-	if err == nil {
-		ans, err = j.c.Ask(ctx, decide.FeatureApprovals, j.pane, state, decide.ApprovalQuestions())
-	}
+// on the approval, with the first risk pitwall sees in the call
+// ("Jev: allow 96% · sudo"). It decides nothing: the agent's own prompt
+// is the only way a call runs.
+func (d *Daemon) approve(ctx context.Context, j *decideJob) {
+	flags := decide.Flags(*j.call, j.s.NeverAllow)
+	ans, err := j.c.Ask(ctx, decide.FeatureApprovals, j.pane, decide.ApprovalState(j.agent, *j.call, j.prompt), decide.ApprovalQuestions())
 	if err != nil {
 		log.Printf("pitwall: approvals: %v", err)
-		d.onActivity(j.pane, j.at, func(*model.Activity) {})
-		return nil
 	}
-	verdict, probs := decide.Approval(ans)
-	label := ""
-	if len(chk.Rules) > 0 {
-		label = chk.Rules[0]
-	}
-	// Read the settings and the key again now, not from the last poll:
-	// a disconnect or a mode change a moment ago must win.
-	var fresh Decisions
-	if d.o.Decisions != nil {
-		fresh = d.o.Decisions()
-	}
-	now := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.closing {
-		return nil
-	}
-	if d.o.Decisions != nil {
-		d.applyDecisions(fresh)
-	}
-	i := d.activityIndex(j.pane)
-	waiting := i >= 0 && d.st.Activities[i].UpdatedAt.Equal(j.at) && d.st.Activities[i].State == model.StatePendingApproval
-	auto := ""
-	if x := d.dec.cur; j.auto && waiting && ctx.Err() == nil && d.dec.gen == j.gen && x.on() && x.Settings.Approvals == config.ModeAuto {
-		if w := d.workspace(j.wsID); w != nil && !w.AutoOff {
-			auto = decide.AutoVerdict(verdict, probs, chk.CanAllow() && !truncated, x.Settings.AllowAbove, x.Settings.DenyAbove)
+	d.onActivity(j.pane, j.at, func(a *model.Activity) {
+		if err != nil || a.State != model.StatePendingApproval {
+			return
 		}
-	}
-	if j.auto && label == "" {
-		switch {
-		case chk.Unverified != "":
-			label = chk.Unverified
-		case truncated:
-			label = "input too long to check"
+		verdict, probs := decide.Approval(ans)
+		a.Advice, a.AdviceP = verdict, probs[verdict]
+		if len(flags) > 0 {
+			a.AdviceRule = flags[0]
 		}
-	}
-	if waiting {
-		a := &d.st.Activities[i]
-		if auto != "" {
-			// The agent goes on without showing its prompt.
-			a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", now
-			clearDecisions(a)
-		} else {
-			a.Advice, a.AdviceP, a.AdviceRule = verdict, probs[verdict], label
-		}
-	}
-	defer d.changed()
-	if auto == "" {
-		return nil
-	}
-	d.dec.audit = append(d.dec.audit, model.AutoDecision{
-		At: now, PaneID: j.pane, WorkspaceID: j.wsID, Tab: j.tab, Agent: model.Provider(j.agent), Tool: j.call.Tool,
-		Input: decide.Summary(*j.call, j.c.Secrets...), Verdict: auto, Allow: probs[decide.Allow], Ask: probs[decide.Ask], Deny: probs[decide.Deny], Rules: chk.Rules,
 	})
-	if n := len(d.dec.audit); n > auditCap {
-		d.dec.audit = slices.Delete(d.dec.audit, 0, n-auditCap)
-	}
-	return agent.PermissionDecision(auto, fmt.Sprintf("pitwall denied this automatically: the decision model judged it unsafe (deny %.0f%%). Ask the user if it is really needed.", probs[decide.Deny]*100))
 }
 
 // triageJob rates how soon the user should look at the pane.

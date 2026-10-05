@@ -2,6 +2,7 @@ package decide
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -23,9 +24,9 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+(?P<v>[A-Za-z0-9._~+/=-]{8,})`),
 	// KEY=value and "key": "value" with a secret-looking name. A quoted
 	// value may span lines and may be cut off.
-	regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])["']?` + secretName + `["']?\s*(?:=|:=|:)\s*(?P<v>"(?:[^"\\]|\\.)*(?:"|\z)|'[^']*(?:'|\z)|[^\s"',;}]+)`),
+	regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9_])["']?` + secretName + `["']?\s*(?:=|:=|:)\s*(?P<v>"(?:[^"\\]|\\[\s\S])*(?:"|\z)|'[^']*(?:'|\z)|[^\s"',;}]+)`),
 	// Command-line flags such as --password=x or --token x.
-	regexp.MustCompile(`(?i)--?(?:password|passwd|token|secret|api-key|apikey|access-key|auth)(?:=|\s+)(?P<v>"(?:[^"\\]|\\.)*(?:"|\z)|'[^']*(?:'|\z)|[^\s"']+)`),
+	regexp.MustCompile(`(?i)--?(?:password|passwd|token|secret|api-key|apikey|access-key|auth)(?:=|\s+)(?P<v>"(?:[^"\\]|\\[\s\S])*(?:"|\z)|'[^']*(?:'|\z)|[^\s"']+)`),
 	// Credentials in URLs.
 	regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]*:(?P<v>[^\s/@]+)@`),
 	// Well-known token shapes.
@@ -74,9 +75,9 @@ func Redact(s string, extra ...string) string {
 var secretKey = regexp.MustCompile(`(?i)^` + secretName + `$`)
 
 // RedactValue redacts every string in v, a string or JSON built from
-// maps, slices and strings, and returns the copy. Map keys are kept; the
-// whole value under a secret-looking key ("password", "API_KEY") is
-// replaced, at any depth.
+// maps, slices and strings, and returns the copy. The whole value under a
+// secret-looking key ("password", "API_KEY") is replaced, at any depth,
+// and a key that itself holds a secret is redacted like any string.
 func RedactValue(v any, extra ...string) any {
 	switch t := v.(type) {
 	case string:
@@ -84,21 +85,25 @@ func RedactValue(v any, extra ...string) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, x := range t {
+			nk := redactKey(k, out, extra)
 			if secretKey.MatchString(k) {
-				out[k] = Redacted
+				out[nk] = Redacted
 				continue
 			}
-			out[k] = RedactValue(x, extra...)
+			out[nk] = RedactValue(x, extra...)
 		}
 		return out
 	case map[string]string:
 		out := make(map[string]string, len(t))
+		taken := map[string]any{}
 		for k, x := range t {
+			nk := redactKey(k, taken, extra)
+			taken[nk] = nil
 			if secretKey.MatchString(k) {
-				out[k] = Redacted
+				out[nk] = Redacted
 				continue
 			}
-			out[k] = Redact(x, extra...)
+			out[nk] = Redact(x, extra...)
 		}
 		return out
 	case []any:
@@ -142,4 +147,19 @@ func wholeText(b []byte, cut bool) string {
 		}
 	}
 	return s
+}
+
+// redactKey is map key k redacted, made unique among the keys already in
+// out so two redacted keys do not overwrite each other.
+func redactKey(k string, out map[string]any, extra []string) string {
+	nk := Redact(k, extra...)
+	if nk == k {
+		return k
+	}
+	for i := 2; ; i++ {
+		if _, taken := out[nk]; !taken {
+			return nk
+		}
+		nk = fmt.Sprintf("%s #%d", Redact(k, extra...), i)
+	}
 }
