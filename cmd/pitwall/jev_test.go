@@ -98,6 +98,13 @@ func TestRunJev(t *testing.T) {
 	if p := config.LoadDecisions(config.Path()).Provider; p != "command" {
 		t.Errorf("logout changed the command provider to %q", p)
 	}
+	// With decisions off, status makes no call and says so.
+	config.SetKey(config.Path(), "decisions", "provider", config.Quote(""))
+	decide.SaveKey(cred, key)
+	pinged = ""
+	if code, out := run("", "status"); code != 0 || pinged != "" || !strings.Contains(out, "decisions are off") || !strings.Contains(out, "not tested") {
+		t.Fatalf("status with decisions off: %d %q, pinged %v", code, out, pinged != "")
+	}
 	if code, _ := run("", "nope"); code != 2 {
 		t.Error("unknown subcommand accepted")
 	}

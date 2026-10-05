@@ -503,3 +503,29 @@ func TestLoadDecisionsScrubsBothKeys(t *testing.T) {
 		})
 	}
 }
+
+// The daemon scrubs its known keys from a finished turn's whole message
+// before the summary becomes Detail.
+func TestDetailScrubsKnownKey(t *testing.T) {
+	const key = "plainlookingkeyvalue42"
+	m := &fakeModel{}
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
+		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w"}},
+	}
+	o := f.options()
+	o.Derive = agent.Derive
+	o.Decisions = func() Decisions {
+		return Decisions{Settings: config.DecideSettings{Provider: "jev", Approvals: config.ModeOff}, Provider: m, Secrets: []string{key}}
+	}
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "Stop", "session_id": "s", "last_assistant_message": "Set the key to " + key + " for you."})
+	must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: b}))
+	if a := d.activityOf("a"); a.State != model.StateCompleted || strings.Contains(a.Detail, key) || !strings.Contains(a.Detail, "Set the key") {
+		t.Errorf("Detail %q", a.Detail)
+	}
+}

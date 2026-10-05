@@ -26,7 +26,10 @@ Get a key at ` + decide.KeysURL + `
 
 // jevPing makes one real call; tests replace it.
 var jevPing = func(ctx context.Context, key, model string) (time.Duration, error) {
-	return decide.Ping(ctx, decide.NewJev(key, model), 10*time.Second, key)
+	known := decide.KnownKeys(decide.CredentialsPath(config.Dir()))
+	jev := decide.NewJev(key, model)
+	jev.Secrets = known
+	return decide.Ping(ctx, jev, 10*time.Second, append(known, key)...)
 }
 
 // readSecret reads a key from the terminal without echo, or the first
@@ -125,7 +128,7 @@ func jevStatus(stdout, stderr io.Writer) int {
 	case "command":
 		fmt.Fprintln(stdout, "provider:   command ("+s.Command[0]+")")
 	default:
-		fmt.Fprintln(stdout, "provider:   none; nothing is sent")
+		fmt.Fprintln(stdout, "provider:   none; decisions are off")
 	}
 	if key == "" {
 		fmt.Fprintln(stdout, "key:        none (pitwall jev login)")
@@ -135,14 +138,18 @@ func jevStatus(stdout, stderr io.Writer) int {
 		return 0
 	}
 	fmt.Fprintln(stdout, "key:        from the "+src)
+	if s.Provider != "jev" {
+		fmt.Fprintln(stdout, "connection: not tested (the provider is not jev)")
+		return 0
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	d, err := jevPing(ctx, key, s.Model)
 	if err != nil {
-		fmt.Fprintln(stdout, "connection: failed:", decide.Redact(err.Error(), key))
+		fmt.Fprintln(stdout, "connection: failed:", decide.Redact(err.Error(), decide.KnownKeys(decide.CredentialsPath(config.Dir()))...))
 		return 1
 	}
-	fmt.Fprintf(stdout, "connection: ok, %d ms\n", d.Milliseconds())
+	fmt.Fprintf(stdout, "connection: ok, %d ms (one test call to api.typesafe.ai with the key)\n", d.Milliseconds())
 	if s.On() {
 		onOff := map[bool]string{true: "on", false: "off"}
 		fmt.Fprintf(stdout, "features:   approvals %s, triage %s, agents %s, turn check %s\n", s.Approvals, onOff[s.Triage], onOff[s.Agents], onOff[s.TurnCheck])

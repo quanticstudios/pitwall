@@ -18,6 +18,9 @@ import (
 // local classifier or another service stand in for Jev.
 type Command struct {
 	Argv []string
+	// Secrets are the known keys, scrubbed from the command's error text
+	// before anything else touches it.
+	Secrets []string
 }
 
 // Ask runs the command, without the TypeSafe key in its environment.
@@ -45,7 +48,7 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 		if ctx.Err() != nil {
 			return nil, errors.New("command: no answer within the timeout")
 		}
-		msg := clip(strings.Join(strings.Fields(Redact(wholeText(errb.Bytes(), errb.cut))), " "), 300)
+		msg := clip(strings.Join(strings.Fields(Redact(wholeText(errb.Bytes(), errb.cut), c.Secrets...)), " "), 300)
 		if msg != "" {
 			return nil, fmt.Errorf("command: %v: %s", err, msg)
 		}

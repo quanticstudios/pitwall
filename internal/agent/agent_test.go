@@ -238,3 +238,22 @@ func TestRequest(t *testing.T) {
 		t.Error("no prompt")
 	}
 }
+
+// A token in a turn's last message never reaches Detail, which the sidebar
+// and desktop notifications show, even where the summary is cut.
+func TestSummaryRedacts(t *testing.T) {
+	token := "ghp_" + strings.Repeat("Q", 36)
+	for _, msg := range []string{
+		"Pushed with " + token + " as asked.",
+		strings.Repeat("word ", summaryLen/5-6) + "export GITHUB_TOKEN=" + token + " and more after it",
+	} {
+		b, _ := json.Marshal(map[string]any{"hook_event_name": "Stop", "session_id": "s", "last_assistant_message": msg})
+		next, ok := Derive(&model.Activity{State: model.StateWorking}, model.ProviderClaude, b, time.Now())
+		if !ok || next.State != model.StateCompleted || strings.Contains(next.Detail, "QQQQ") || strings.Contains(next.Detail, "ghp_") {
+			t.Errorf("Detail %q", next.Detail)
+		}
+	}
+	if got := Summary("deployed with key exact-known-1234", "exact-known-1234"); strings.Contains(got, "exact-known") {
+		t.Errorf("known key in summary: %q", got)
+	}
+}

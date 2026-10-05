@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -310,6 +311,10 @@ func TestHelperCommand(t *testing.T) {
 		os.Exit(0)
 	case "fail":
 		fmt.Fprint(os.Stderr, "model offline")
+		os.Exit(1)
+	case "echo":
+		// Fails, echoing a test key the way a provider might in an error.
+		fmt.Fprint(os.Stderr, "auth failed: Bearer "+os.Getenv("DECIDE_ECHO")+" rejected")
 		os.Exit(1)
 	case "env":
 		// Reports, without printing any value, whether the key and the
@@ -803,8 +808,63 @@ func TestRedactedKeysDeterministic(t *testing.T) {
 	if strings.Contains(string(first), "ghp_") {
 		t.Errorf("a secret key was sent: %s", first)
 	}
+	var keys []string
+	for k := range out {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	if want := "[redacted 2],[redacted 3],[redacted 4],[redacted 5],[redacted],plain"; strings.Join(keys, ",") != want {
+		t.Errorf("keys %q, want %q", strings.Join(keys, ","), want)
+	}
 	ss := map[string]string{"[redacted]": "literal", "ghp_" + strings.Repeat("d", 30): "x"}
-	if got := RedactValue(ss).(map[string]string); len(got) != 2 || got["[redacted]"] != "literal" {
+	if got := RedactValue(ss).(map[string]string); len(got) != 2 || got["[redacted]"] != "literal" || got["[redacted 2]"] != "x" {
 		t.Errorf("map[string]string: %v", got)
+	}
+}
+
+// A known key whose start also matches a generic pattern is removed whole:
+// known keys go first, before any pattern and any cut, in every provider.
+const prefixKey = "abcdEFGH12345678!tail9999zz"
+
+func TestKnownKeyBeforePatterns(t *testing.T) {
+	if got := Redact("token Bearer "+prefixKey+" more", prefixKey); strings.Contains(got, "tail9999") {
+		t.Errorf("Redact left the suffix: %q", got)
+	}
+	if os.Getenv("DECIDE_HELPER") != "" {
+		return
+	}
+	t.Setenv("DECIDE_HELPER", "echo")
+	t.Setenv("DECIDE_ECHO", prefixKey)
+	_, err := Command{Argv: []string{os.Args[0], "-test.run=TestHelperCommand"}, Secrets: []string{prefixKey}}.Ask(context.Background(), Request{State: "s"})
+	if err == nil || strings.Contains(err.Error(), "tail9999") || strings.Contains(err.Error(), "EFGH") {
+		t.Errorf("command error kept part of the key: %v", err)
+	}
+	f := &fakeJev{handle: func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, "bad: Bearer "+prefixKey+" rejected")
+	}}
+	_, j := f.start(t)
+	j.Secrets = []string{prefixKey}
+	_, err = j.Ask(context.Background(), Request{State: "s", Questions: map[string]Question{"q": {Type: Noul, Instructions: "?"}}})
+	if err == nil || strings.Contains(err.Error(), "tail9999") {
+		t.Errorf("jev error kept part of the key: %v", err)
+	}
+}
+
+// Overlapping known keys are removed whole in either order: one contains
+// the other's start, or one starts inside the other.
+func TestOverlappingKnownKeys(t *testing.T) {
+	for _, tc := range []struct {
+		text string
+		keys []string
+	}{
+		{"x sk-1234567890abcdef y", []string{"sk-1234567890", "sk-1234567890abcdef"}},
+		{"x sk-1234567890abcdef y", []string{"sk-1234567890abcdef", "sk-1234567890"}},
+		{"x abcd1234wxyzQQ y", []string{"abcd1234wx", "1234wxyzQQ"}},
+		{"x abcd1234wxyzQQ y", []string{"1234wxyzQQ", "abcd1234wx"}},
+	} {
+		if got := Redact(tc.text, tc.keys...); got != "x [redacted] y" {
+			t.Errorf("Redact(%q, %q) = %q", tc.text, tc.keys, got)
+		}
 	}
 }

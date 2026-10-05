@@ -75,10 +75,12 @@ func loadDecisions(cfgPath, credPath string) func() Decisions {
 		switch s.Provider {
 		case "jev":
 			if key != "" {
-				last.Provider = decide.NewJev(key, s.Model)
+				jev := decide.NewJev(key, s.Model)
+				jev.Secrets = last.Secrets
+				last.Provider = jev
 			}
 		case "command":
-			last.Provider = decide.Command{Argv: s.Command}
+			last.Provider = decide.Command{Argv: s.Command, Secrets: last.Secrets}
 		}
 		return last
 	}

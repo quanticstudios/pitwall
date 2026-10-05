@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
@@ -168,10 +169,16 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 // keeps as its Detail.
 const summaryLen = 300
 
-// summary is the start of msg with whitespace collapsed, cut between
-// words so no token (a key, say) is ever split in half.
-func summary(msg string) string {
-	r := []rune(strings.Join(strings.Fields(msg), " "))
+// summary is the start of msg, its secrets redacted first, with
+// whitespace collapsed, cut between words so no token is split in half.
+// It is shown in the sidebar and in desktop notifications.
+func summary(msg string) string { return Summary(msg) }
+
+// Summary is msg as a completed activity's Detail: secrets found by
+// decide's patterns, and each of known, are redacted in the whole text
+// before it is cut to summaryLen runes.
+func Summary(msg string, known ...string) string {
+	r := []rune(strings.Join(strings.Fields(decide.Redact(msg, known...)), " "))
 	if len(r) <= summaryLen {
 		return string(r)
 	}

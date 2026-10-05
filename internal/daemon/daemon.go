@@ -746,6 +746,14 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok {
 		changed = true
 		clearDecisions(&next) // a new state needs new answers
+		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
+			// The known keys, from the whole message before it is cut.
+			if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {
+				next.Detail = agent.Summary(msg, secrets...)
+			} else {
+				next.Detail = decide.Redact(next.Detail, secrets...)
+			}
+		}
 		switch {
 		case next.State == "" && ai >= 0:
 			d.st.Activities = slices.Delete(d.st.Activities, ai, ai+1)

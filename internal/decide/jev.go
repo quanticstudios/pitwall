@@ -30,10 +30,13 @@ func (Secret) GoString() string { return "[redacted]" }
 
 // Jev asks TypeSafe's Jev over HTTPS.
 type Jev struct {
-	Key   Secret
-	Model string // "" means JevModel
-	url   string // tests point it at a fake server
-	http  *http.Client
+	Key Secret
+	// Secrets are other known keys, scrubbed from error text along with
+	// Key before anything else touches it.
+	Secrets []string
+	Model   string // "" means JevModel
+	url     string // tests point it at a fake server
+	http    *http.Client
 }
 
 // NewJev returns a provider for key and model ("" for JevModel).
@@ -93,7 +96,7 @@ func (j *Jev) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
 	cut := len(data) > maxReply
 	data = data[:min(len(data), maxReply)]
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jev: %s", statusText(res.StatusCode, wholeText(data, cut), string(j.Key)))
+		return nil, fmt.Errorf("jev: %s", statusText(res.StatusCode, wholeText(data, cut), append([]string{string(j.Key)}, j.Secrets...)...))
 	}
 	if cut {
 		return nil, errors.New("jev: reply too large")
@@ -113,7 +116,7 @@ func stripURL(err error) error {
 
 // statusText explains an HTTP error in a line, with the reply's message
 // scrubbed of the key and anything else that looks secret.
-func statusText(code int, body string, key string) string {
+func statusText(code int, body string, keys ...string) string {
 	var hint string
 	switch code {
 	case http.StatusUnauthorized, http.StatusForbidden:
@@ -127,7 +130,7 @@ func statusText(code int, body string, key string) string {
 	default:
 		hint = http.StatusText(code)
 	}
-	msg := clip(strings.Join(strings.Fields(Redact(body, key)), " "), 200) // redact first: a cut can split a key
+	msg := clip(strings.Join(strings.Fields(Redact(body, keys...)), " "), 200) // redact first: a cut can split a key
 	out := fmt.Sprintf("HTTP %d, %s", code, hint)
 	if msg != "" {
 		out += ": " + msg

@@ -51,11 +51,7 @@ var patterns = []*regexp.Regexp{
 // innocent name passes. An entropy check would catch more and redact more
 // that is not secret.
 func Redact(s string, extra ...string) string {
-	for _, e := range extra {
-		if len(e) >= 4 {
-			s = strings.ReplaceAll(s, e, Redacted)
-		}
-	}
+	s = redactExact(s, extra)
 	for _, re := range patterns {
 		v := re.SubexpIndex("v")
 		if v < 0 {
@@ -170,9 +166,52 @@ func redactKeys(keys []string, extra []string) map[string]string {
 		base := Redact(k, extra...)
 		nk := base
 		for i := 2; used[nk]; i++ {
-			nk = fmt.Sprintf("%s %d", base, i)
+			if b, ok := strings.CutSuffix(base, "]"); ok {
+				nk = fmt.Sprintf("%s %d]", b, i) // "[redacted 2]"
+			} else {
+				nk = fmt.Sprintf("%s %d", base, i)
+			}
 		}
 		names[k], used[nk] = nk, true
 	}
 	return names
+}
+
+// redactExact replaces every occurrence of each of keys (four bytes or
+// longer) in s. All occurrences are found in the original text first and
+// overlapping ones are merged, so a shorter key that overlaps a longer
+// one, in either order, never leaves part of either behind.
+func redactExact(s string, keys []string) string {
+	type span struct{ from, to int }
+	var spans []span
+	for _, k := range keys {
+		if len(k) < 4 {
+			continue
+		}
+		for at := 0; ; {
+			i := strings.Index(s[at:], k)
+			if i < 0 {
+				break
+			}
+			spans = append(spans, span{at + i, at + i + len(k)})
+			at += i + 1
+		}
+	}
+	if len(spans) == 0 {
+		return s
+	}
+	slices.SortFunc(spans, func(a, b span) int { return a.from - b.from })
+	var b strings.Builder
+	last := 0
+	for i := 0; i < len(spans); {
+		from, to := spans[i].from, spans[i].to
+		for i++; i < len(spans) && spans[i].from <= to; i++ {
+			to = max(to, spans[i].to)
+		}
+		b.WriteString(s[last:from])
+		b.WriteString(Redacted)
+		last = to
+	}
+	b.WriteString(s[last:])
+	return b.String()
 }
