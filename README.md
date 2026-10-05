@@ -254,8 +254,8 @@ to outcome, with a pending approval and the decision model's suggestion;
 Subagents lists what each spawned agent was asked and is doing; Plan is the
 agent's todo list; Changes lists the files changed from the default branch;
 Timeline lists prompts, tool calls and subagents with their times. The panel
-is 432 pixels wide, narrows to 320 in a small window, then hides. Each window
-keeps its own open state until it closes. The shell no longer gets Ctrl+L
+is 432dp wide (scaled with the display), narrows to 320dp in a small window,
+then hides. Each window keeps its own open state until it closes. The shell no longer gets Ctrl+L
 (clear screen); set `toggle_panel = []` to give it back.
 
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
