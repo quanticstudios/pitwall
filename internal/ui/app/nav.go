@@ -36,6 +36,7 @@ type nav struct {
 	pinned    bool              // the switcher stays open without the hold
 
 	sidebarHidden bool // toggle_sidebar flips it; the window slides the sidebar
+	panelOpen     bool // toggle_panel flips it; kept for the window's life only
 
 	// An OpenPane is in flight: the workspace and the panes it had, so the
 	// pane that shows up next gets focus.
@@ -782,6 +783,8 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		n.pinned = !n.pinned
 	case "toggle_sidebar":
 		n.sidebarHidden = !n.sidebarHidden
+	case "toggle_panel":
+		n.panelOpen = !n.panelOpen
 	case "jump_attention":
 		n.jumpAttention(st)
 	case "session_switcher":
