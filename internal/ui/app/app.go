@@ -103,9 +103,15 @@ func Run(b Backend) error {
 			}
 		}()
 	}
+	// A stall dumps stacks: an event that runs for seconds leaves the
+	// compositor's pings unanswered and the window "not responding".
+	var wd watchdog
+	go wd.watch(stop)
 	var ops op.Ops
 	for {
-		switch e := w.Event().(type) {
+		ev := w.Event()
+		wd.begin()
+		switch e := ev.(type) {
 		case app.DestroyEvent:
 			return e.Err
 		case app.ConfigEvent:
@@ -132,6 +138,7 @@ func Run(b Backend) error {
 				w.Perform(system.ActionClose)
 			}
 		}
+		wd.end()
 	}
 }
 

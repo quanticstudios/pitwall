@@ -714,6 +714,10 @@ running in panes at that moment stop.
   `pitwall` in a terminal to see them.
 - **An agent's state is missing or late.** Check `pitwall hooks install` was
   run with the installed binary, and in Codex run `/hooks` once.
+- **The window freezes or is reported as not responding.** When one window
+  event runs for over 2 seconds, pitwall writes every goroutine's stack to
+  `~/.local/state/pitwall/stall-<time>.txt` and keeps the newest 5. Attach
+  the newest stall file to the bug report.
 - **Something else.** Look at `~/.local/state/pitwall/daemon.log`, which
   starts with the daemon's version.
 
