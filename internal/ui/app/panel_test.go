@@ -140,3 +140,35 @@ func TestPanelFollow(t *testing.T) {
 		t.Fatal("the file listing never ran")
 	}
 }
+
+// A hook can name the session file before the daemon sees the agent; the
+// watch starts once the provider is known, not with an empty one.
+func TestPanelWatchWaitsForProvider(t *testing.T) {
+	var mu sync.Mutex
+	var got []model.Provider
+	oldW, oldF := watchFeed, listFiles
+	t.Cleanup(func() { watchFeed, listFiles = oldW, oldF })
+	watchFeed = func(_ context.Context, p model.Provider, _ string, _ func(flow.Feed)) {
+		mu.Lock()
+		got = append(got, p)
+		mu.Unlock()
+	}
+	listFiles = func(context.Context, string) (string, []gitstat.FileStat, error) { return "", nil, nil }
+	var s sidePanel
+	defer s.stop()
+	s.follow(&model.Pane{ID: "p1", Transcript: "/t/1.jsonl"}, "", func() {})
+	s.follow(&model.Pane{ID: "p1", Provider: model.ProviderClaude, Transcript: "/t/1.jsonl"}, "", func() {})
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(time.Millisecond) {
+		mu.Lock()
+		n := len(got)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 || got[0] != model.ProviderClaude {
+		t.Fatalf("watches started with providers %q, want one with claude", got)
+	}
+}

@@ -46,7 +46,7 @@ type sidePanel struct {
 	view panel.Panel
 
 	mu        sync.Mutex
-	watching  string // pane id and transcript Watch follows, "" for none
+	watching  string // pane id, provider and transcript Watch follows, "" for none
 	stopWatch context.CancelFunc
 	watchGen  int
 	feed      *flow.Feed
@@ -59,14 +59,14 @@ type sidePanel struct {
 	git       bool
 }
 
-// follow points the panel at pane, whose live directory is dir: a pane or
-// transcript change cancels the old Watch and starts a new one, a
+// follow points the panel at pane, whose live directory is dir: a pane,
+// provider or transcript change cancels the old Watch and starts a new one, a
 // directory change restarts the file listing. A nil pane and "" stop
 // both. invalidate is called after new data lands.
 func (s *sidePanel) follow(p *model.Pane, dir string, invalidate func()) {
 	key := ""
-	if p != nil && p.Transcript != "" {
-		key = p.ID + "\x00" + p.Transcript
+	if p != nil && p.Transcript != "" && p.Provider != "" {
+		key = p.ID + "\x00" + string(p.Provider) + "\x00" + p.Transcript
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
