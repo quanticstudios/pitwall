@@ -97,6 +97,10 @@ func TestCLIWait(t *testing.T) {
 		{"shell never idle", []string{"--until", "idle", "--timeout", "50ms"}, []any{driveState("", "", false, 0)}, 124, ""},
 		{"stale done", []string{"--until", "done"}, []any{sentAfterDone(false), sentAfterDone(true)}, 0, "done\n"},
 		{"stale done only", []string{"--until", "done", "--timeout", "50ms"}, []any{sentAfterDone(false)}, 124, ""},
+		// Ready for input after a --no-enter send: freshness is for done only.
+		{"idle after send", []string{"--until", "idle", "--timeout", "1s"}, []any{sentAfterDone(false)}, 0, "done\n"},
+		// An OSC question before pitwall has seen the agent still blocks.
+		{"notice before agent", []string{"--until", "done"}, []any{noticeBeforeAgent()}, 2, "blocked: approve?\n"},
 		{"shell exit", []string{"--until", "exit"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 7)}, 7, "exit 7\n"},
 		{"shell done is exit", []string{"--until", "done"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 0)}, 0, "exit 0\n"},
 		{"timeout", []string{"--until", "done", "--timeout", "50ms"}, []any{driveState(claude, model.StateWorking, false, 0)}, 124, ""},
@@ -113,6 +117,15 @@ func TestCLIWait(t *testing.T) {
 			}
 		})
 	}
+}
+
+// noticeBeforeAgent is tab build started with claude, not yet seen running,
+// with an OSC notification asking for input.
+func noticeBeforeAgent() proto.StateMsg {
+	m := driveState("", "", false, 0)
+	m.State.Panes[0].Cmd = []string{"claude"}
+	m.State.Activities = []model.Activity{{PaneID: "p", WorkspaceID: "w", Provider: model.ProviderTerminal, State: model.StateAwaitingInput, Detail: "approve?"}}
+	return m
 }
 
 // sentAfterDone is tab build's claude done with a turn older than its last

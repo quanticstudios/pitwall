@@ -45,13 +45,14 @@ const usage = `usage:
                              shell; prints its #. A cmd's pane stays after it
                              exits, showing its output, until closed or the
                              daemon restarts
-  pitwall send [-f] [--no-enter] <tab> <text...>
-                             paste text into the tab's agent (else its first
-                             pane), then press Enter. Refuses while the agent
-                             works (-f overrides), and always while pitwall
-                             sees a permission prompt or question, by hook
-                             or on screen; checks again before the paste
-                             and before Enter
+  pitwall send [--no-enter] <tab> <text...>
+                             paste text into the tab's main pane (the first
+                             live agent pane, else live pane, else exited
+                             agent pane, else first pane), then press Enter.
+                             Refuses while the agent works, and while pitwall
+                             sees a permission prompt or question, by hook,
+                             OSC notification or on screen; checks again
+                             before the paste and before Enter
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there. done: it
                              finished a turn newer than the last send; idle:

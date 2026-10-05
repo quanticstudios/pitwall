@@ -138,10 +138,10 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	}
 
 	gate := d.gate(l.id)
-	if !gate.TryLock() {
+	if !gate.tryLock() {
 		return // a checked send is writing; the next poll looks again
 	}
-	defer gate.Unlock()
+	defer gate.unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if hooked := !d.live.hookAt[l.id].IsZero(); d.closing || d.panes[l.id] != l.p || hooked != l.hooked {

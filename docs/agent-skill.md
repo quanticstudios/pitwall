@@ -24,24 +24,26 @@ daemon restarts. A restarted daemon forgets that the pane stays: it closes
 when the command ends, and its exit code is gone. A relative command path
 (`./tool`) is the caller's, made absolute before the tab opens.
 
-`pitwall send [-f] [--no-enter] <tab> <text...>` pastes the text into the
-tab's agent pane (a tab without an agent: its first pane), then presses
-Enter. Words after the tab join with spaces; put `--` before text that starts
+`pitwall send [--no-enter] <tab> <text...>` pastes the text into the tab's
+main pane, then presses Enter. The main pane is the first live pane running
+an agent, else the first live pane, else the first exited pane that ran an
+agent, else the first pane. Words after the tab join with spaces; put `--` before text that starts
 with `-`. The paste is bracketed when the program asked for it, so newlines
 stay part of one prompt. Enter follows 300 ms after the paste is written.
 For an agent, send returns once the agent's state changes (at most 10 s;
-past that it warns on stderr and still exits 0). `wait --until done` skips a
-`done` older than the moment the last send submitted (its Enter, or its paste
-with `--no-enter`), so after `send -f` it waits for the turn the send
-started, not the one that was running. Two sends into one tab run one after
+past that it warns on stderr and still exits 0). send submits only while no
+turn runs, so any completion after the moment it submitted (its Enter, or
+its paste with `--no-enter`) belongs to the turn it submitted.
+`wait --until done` skips a `done` older than that moment. Two sends into one tab run one after
 the other, each paste followed by its own Enter.
 `--no-enter` pastes without pressing Enter. send refuses:
 
-- while the agent is working, unless `-f`. Text sent into a busy agent queues
-  or interrupts its input;
-- always, `-f` or not, while pitwall sees the pane waiting on a permission
-  prompt, a question or a plan, by hook state or on screen. Tell the user the
-  tab needs them, and let them answer in the tab;
+- while the agent is working. Text sent into a busy agent queues or
+  interrupts its input, and its turn would end after the send; run
+  `pitwall wait <tab> --until done` first;
+- while pitwall sees the pane waiting on a permission prompt, a question or
+  a plan, by hook state, OSC notification or on screen. Tell the user the tab
+  needs them, and let them answer in the tab;
 - when the tab's process has exited.
 
 pitwall checks again on the pane's writer right before the paste and right
@@ -97,7 +99,7 @@ order, detached tabs last. Every key is always present; unknown strings are
 ```
 
 `agent` is `claude`, `codex` or `""`. `state` is one from the table above, for
-the tab's agent pane, else its first pane. `question` is set while blocked.
+the tab's main pane (see send). `question` is set while blocked.
 `exit_code` is `null` until the process exits, then its exit code.
 
 ## Recipes

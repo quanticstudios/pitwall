@@ -556,7 +556,7 @@ func TestDriveTabs(t *testing.T) {
 	hook := connect(t, "hook")
 	hook.send(t, proto.AgentEvent{Pane: agent, Provider: model.ProviderClaude, Payload: []byte(permission)})
 	waitActivity(t, gui, agent, model.StatePendingApproval)
-	if code, _, stderr := pitwall("send", "-f", "agent", "yes"); code != 1 || !strings.Contains(stderr, "answer it in the tab") {
+	if code, _, stderr := pitwall("send", "agent", "yes"); code != 1 || !strings.Contains(stderr, "answer it in the tab") {
 		t.Fatalf("send to a blocked agent: %d %s", code, stderr)
 	}
 	if code, out, _ := pitwall("wait", "agent", "--until", "done"); code != 2 || !strings.HasPrefix(out, "blocked") {

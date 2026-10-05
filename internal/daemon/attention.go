@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"io"
 	"slices"
 	"time"
@@ -61,8 +62,8 @@ func (d *Daemon) notifyingVT(id string) vt.NewFunc {
 // in either order; a per-pane queue if that ever matters.
 func (d *Daemon) notice(id string, n vt.Notification) {
 	g := d.gate(id)
-	g.Lock()
-	defer g.Unlock()
+	g.lock(context.Background())
+	defer g.unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.closing || d.panes[id] == nil {
@@ -81,8 +82,8 @@ func (d *Daemon) notice(id string, n vt.Notification) {
 
 func (d *Daemon) flushNotice(id string) {
 	g := d.gate(id)
-	g.Lock()
-	defer g.Unlock()
+	g.lock(context.Background())
+	defer g.unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	a := d.attn[id]

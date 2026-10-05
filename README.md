@@ -321,7 +321,7 @@ optional name act on the pane's own tab.
 | `pitwall session kill [-f] <name>`    | End a session and close its processes                         |
 | `pitwall ls [--json]`                 | List the session's tabs in sidebar order: #, name, state, folder, group |
 | `pitwall new [-n name] [-d] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell |
-| `pitwall send [-f] [--no-enter] <tab> <text...>` | Paste text into the tab's agent and press Enter |
+| `pitwall send [--no-enter] <tab> <text...>` | Paste text into the tab's agent and press Enter |
 | `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up) |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
@@ -361,9 +361,9 @@ pitwall wait "$tab" --until done --timeout 20m   # 0 done, 2 blocked, 3 exited, 
 pitwall send "$tab" "list only the HOLD findings, one per line"
 ```
 
-`send` refuses while the agent is working unless you pass `-f`. It always
-refuses while pitwall sees the tab waiting on a permission prompt or a
-question, by hook or on screen, and checks again right before the paste and
+`send` refuses while the agent is working; `wait --until done` first. It
+also refuses while pitwall sees the tab waiting on a permission prompt or a
+question, by hook, OSC notification or on screen, and checks again right before the paste and
 before the Enter. A prompt the agent draws in the same instant as one of
 those writes can still receive it; no multiplexer can rule that out, since
 the agent draws before it tells anyone. A command tab's pane, and its exit

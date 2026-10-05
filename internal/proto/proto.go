@@ -103,15 +103,14 @@ type Input struct {
 // Send types Text into Pane as a paste: bracketed when the pane's program
 // turned bracketed paste on, then, with Enter, a separate carriage return a
 // short pause after the paste is written. The daemon refuses while it sees
-// the pane blocked on a permission prompt or a question, by hook state or
-// on screen, and while its agent works unless Force; it checks again right
-// before the paste and before the Enter. A prompt drawn in the same instant
-// as a write can still get it.
+// the pane blocked on a permission prompt or a question, by hook state, OSC
+// notification or on screen, and while its agent works; it checks again
+// right before the paste and before the Enter. A prompt drawn in the same
+// instant as a write can still get it.
 type Send struct {
 	Pane  string
 	Text  string
 	Enter bool
-	Force bool
 }
 
 type Resize struct {

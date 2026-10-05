@@ -127,6 +127,12 @@ func paneState(state model.State, p model.Pane) (agent, st, question string) {
 		return agent, "exited", ""
 	}
 	i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
+	if i >= 0 {
+		switch a := state.Activities[i]; a.State {
+		case model.StatePendingApproval, model.StateAwaitingInput, model.StatePlanReady:
+			return agent, "blocked", a.Detail // an OSC notice blocks before pitwall knows the agent
+		}
+	}
 	switch {
 	case agent != "" && p.Provider == "":
 		return agent, "", ""
@@ -135,9 +141,7 @@ func paneState(state model.State, p model.Pane) (agent, st, question string) {
 	case i < 0:
 		return agent, "idle", ""
 	}
-	switch a := state.Activities[i]; a.State {
-	case model.StatePendingApproval, model.StateAwaitingInput, model.StatePlanReady:
-		return agent, "blocked", a.Detail
+	switch state.Activities[i].State {
 	case model.StateCompleted, model.StateError:
 		return agent, "done", ""
 	}
@@ -235,14 +239,13 @@ func sendCommand(args []string, errOut io.Writer) error {
 	flags := flag.NewFlagSet("send", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	sessionName := flags.String("s", "", "")
-	force := flags.Bool("f", false, "")
 	noEnter := flags.Bool("no-enter", false, "")
 	args, err := parseFlags(flags, args)
 	if err != nil {
 		return err
 	}
 	if len(args) < 1 {
-		return errors.New("usage: pitwall send [-f] [--no-enter] [-s session] <tab> <text...>")
+		return errors.New("usage: pitwall send [--no-enter] [-s session] <tab> <text...>")
 	}
 	// why: subscribe before sending, to see the agent take up the prompt.
 	watch, err := dialWatch()
@@ -271,7 +274,7 @@ func sendCommand(args []string, errOut io.Writer) error {
 		return err
 	}
 	defer conn.Close()
-	if _, err := syncCLI(conn, proto.Send{Pane: p.ID, Text: strings.Join(args[1:], " "), Enter: !*noEnter, Force: *force}); err != nil {
+	if _, err := syncCLI(conn, proto.Send{Pane: p.ID, Text: strings.Join(args[1:], " "), Enter: !*noEnter}); err != nil {
 		return fmt.Errorf("tab %s: %w", tabTitle(w), err)
 	}
 	if *noEnter || agentOf(*p) == "" {
@@ -376,7 +379,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		var agent, st, question string
 		if i >= 0 {
 			agent, st, question = paneState(state, state.Panes[i])
-			if st == "done" && staleDone(state, state.Panes[i]) {
+			if *until == "done" && st == "done" && staleDone(state, state.Panes[i]) {
 				st = "" // the turn before the last send: not this one's end
 			}
 		}
@@ -418,8 +421,8 @@ func waitTab(args []string, out io.Writer) (int, error) {
 }
 
 // staleDone reports a done activity of pane p older than the last prompt
-// pitwall send submitted to it: a turn that ended before that prompt, even
-// one -f sent into while it ran.
+// pitwall send submitted to it. send submits only while no turn runs, so a
+// completion after that moment belongs to the submitted turn.
 func staleDone(state model.State, p model.Pane) bool {
 	i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
 	return i >= 0 && state.Activities[i].UpdatedAt.Before(p.SentAt)

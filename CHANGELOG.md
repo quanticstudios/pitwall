@@ -65,9 +65,9 @@ To cut a release: add a section below and merge it, then
   opens a tab running a command instead of a shell; its pane stays after the
   command exits, showing its output, until you close it or the daemon
   restarts. `pitwall send <tab> <text>` pastes text into the tab's agent and
-  presses Enter. It refuses while the agent works (`-f` overrides), and
-  always while pitwall sees a permission prompt or question, by hook or on
-  screen, checking again right before the paste and before the Enter.
+  presses Enter. It refuses while the agent works, and while pitwall sees a
+  permission prompt or question, by hook, OSC notification or on screen,
+  checking again right before the paste and before the Enter.
   `pitwall wait <tab> --until done|idle|blocked|exit`
   blocks until the agent gets there, with exit codes a script can branch on.
   [docs/agent-skill.md](docs/agent-skill.md) documents them for agents.

@@ -53,7 +53,10 @@ func (p *fakePane) Write(b []byte) (int, error) {
 	block := p.block
 	p.mu.Unlock()
 	if block != nil {
-		<-block
+		select {
+		case <-block:
+		case <-p.done: // closed: a real PTY write fails then too
+		}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()

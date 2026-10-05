@@ -92,8 +92,8 @@ type Daemon struct {
 	st          model.State
 	panes       map[string]Pane
 	inputs      map[string]chan write // per pane, drained by writeInput
-	gates       sync.Map              // pane: *sync.Mutex, see gate in send.go
-	sends       sync.Map              // pane: *sync.Mutex, see sendLock in send.go
+	gates       sync.Map              // pane: paneLock, see gate in send.go
+	sends       sync.Map              // pane: paneLock, see sendLock in send.go
 	views       map[string]*view      // scroll positions, see scroll.go
 	clients     map[*client]struct{}  // gui clients only
 	watchers    map[*client]struct{}  // watch clients: StateMsg and PaneExited, no frames
@@ -372,11 +372,28 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}()
 	}
 
-	for {
-		m, err := conn.Recv()
-		if err != nil {
-			return
+	// why: a read loop of its own ends connCtx when the client hangs up, so
+	// a send stuck on a pane can give up. Other requests still run after a
+	// hang-up: a hook says its event and leaves.
+	connCtx, hangUp := context.WithCancel(ctx)
+	defer hangUp()
+	msgs := make(chan any)
+	go func() {
+		defer hangUp()
+		defer close(msgs)
+		for {
+			m, err := conn.Recv()
+			if err != nil {
+				return
+			}
+			select {
+			case msgs <- m:
+			case <-ctx.Done():
+				return
+			}
 		}
+	}()
+	for m := range msgs {
 		if _, ok := m.(proto.Sync); ok {
 			// Every earlier request on this connection is handled: replies
 			// are synchronous.
@@ -388,6 +405,12 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if show, ok := m.(proto.SessionShow); ok && hello.Kind == "gui" {
 			if err := d.sessionShow(c, show.SessionID); err != nil {
+				c.queue(proto.Error{Message: err.Error()})
+			}
+			continue
+		}
+		if send, ok := m.(proto.Send); ok {
+			if err := d.send(connCtx, send); err != nil {
 				c.queue(proto.Error{Message: err.Error()})
 			}
 			continue
@@ -435,7 +458,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.Input:
 		return d.input(m.Pane, m.Data)
 	case proto.Send:
-		return d.send(m)
+		return d.send(ctx, m)
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
 		if err != nil {
@@ -762,8 +785,10 @@ func closeAll(ps []Pane) {
 // decisions it calls for.
 func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	g := d.gate(m.Pane)
-	g.Lock()
-	defer g.Unlock()
+	if err := g.lock(ctx); err != nil {
+		return err // the daemon stops while a send is stuck writing to the pane
+	}
+	defer g.unlock()
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
 	if pi < 0 {
