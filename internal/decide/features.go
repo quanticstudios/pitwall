@@ -124,14 +124,15 @@ func Screen(ans map[string]Answer) (string, float64) {
 func TurnQuestions() map[string]Question {
 	return map[string]Question{"review": {
 		Type: Noul,
-		Instructions: "A coding agent just finished a turn; `last_message` is its final message and `screen` its terminal. " +
+		Instructions: "A coding agent just finished a turn; `last_message` is its final message. " +
 			"Does this turn need the developer's review: failed tests, errors left, unfinished work, or a question?",
 	}}
 }
 
-// TurnState is what the turn check is asked about.
-func TurnState(agentName, lastMessage, screen string) map[string]any {
-	return map[string]any{"agent": agentName, "last_message": lastMessage, "screen": screen}
+// TurnState is what the turn check is asked about: the turn's last
+// message, never the screen.
+func TurnState(agentName, lastMessage string) map[string]any {
+	return map[string]any{"agent": agentName, "last_message": lastMessage}
 }
 
 // Review reads the probability the turn needs review.

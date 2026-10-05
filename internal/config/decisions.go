@@ -17,7 +17,7 @@ type Decisions struct {
 	Approvals Approvals `toml:"approvals" doc:"Permission requests from Claude Code and Codex. Sends the tool, its input, the working directory, the repo root and your latest prompt, with secrets removed."`
 	Triage    Toggle    `toml:"triage" doc:"Rates how soon a pane that needs you wants you (fyi, later, soon, now), to order the jump-to-attention key and desktop notifications; fyi sends no notification. Sends the state and the agent's question, approval detail, error or summary."`
 	Agents    Agents    `toml:"agents" doc:"Agent status for CLIs without pitwall hooks, read from their screen. Sends the visible screen of those programs only, at most once per pane every 2 seconds while it changes."`
-	TurnCheck Feature   `toml:"turn_check" doc:"When an agent finishes a turn, asks whether it needs your review (failed tests, errors, unfinished work); the Done pill then reads Check. Sends the agent's last message and its screen."`
+	TurnCheck Feature   `toml:"turn_check" doc:"When an agent finishes a turn, asks whether it needs your review (failed tests, errors, unfinished work); the Done pill then reads Check. Sends the agent's last message only, never the screen."`
 }
 
 // Approvals is [decisions.approvals].

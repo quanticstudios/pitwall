@@ -280,7 +280,7 @@ func (p *Page) decisions() []section {
 			p.sends("the visible screen of those programs") + p.counted(decide.FeatureAgents),
 			extra: "gemini opencode aider amp cursor goose crush hookless screen", control: p.toggle("decisions.agents", "enabled", d.Agents)},
 		row{label: "Turn check", desc: "When an agent finishes, asks whether the turn needs your review: failed tests, errors left, unfinished work. The Done pill then reads Check. " +
-			p.sends("the agent's last message and its screen") + p.counted(decide.FeatureTurnCheck),
+			p.sends("the agent's last message only, never the screen") + p.counted(decide.FeatureTurnCheck),
 			extra: "review done check finished turn", control: p.toggle("decisions.turn_check", "enabled", d.TurnCheck)},
 	)
 

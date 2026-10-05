@@ -167,7 +167,6 @@ type decideJob struct {
 
 	turn    bool
 	lastMsg string
-	screen  Pane
 }
 
 // planDecisions picks the questions a hook event calls for. It marks the
@@ -205,7 +204,7 @@ func (d *Daemon) planDecisions(p model.Pane, m proto.AgentEvent, now time.Time) 
 		a.Urgency = model.UrgencyPending
 	}
 	if x.Settings.TurnCheck && a.State == model.StateCompleted {
-		j.turn, j.lastMsg, j.screen = true, agent.LastMessage(m.Payload), d.panes[p.ID]
+		j.turn, j.lastMsg = true, agent.LastMessage(m.Payload)
 	}
 	if j.call == nil && !j.triage && !j.turn {
 		return nil
@@ -282,48 +281,12 @@ func (d *Daemon) triageJob(ctx context.Context, j *decideJob) {
 	})
 }
 
-// turnCapture runs between the turn check's two checks of the pane;
-// tests use it to change the pane in between.
-var turnCapture = func() {}
-
-// turnCheck asks whether a finished turn needs the user's review. It is
-// asked only while the finished turn is still the pane's activity. The
-// screen goes with it only when pitwall can tell, before and after the
-// capture, that the agent whose hook reported the turn still holds the
-// foreground: a recorded foreground group that the pane confirms. When
-// it cannot (no record, or a pane that cannot report its foreground),
-// the check is asked from the last message alone, so a shell's screen
-// is never sent as the agent's.
+// turnCheck asks whether a finished turn needs the user's review, from
+// the turn's last message alone. It never sends the screen: by the time a
+// Stop hook is handled the agent may have exited, and a shell's screen
+// must not go out as the agent's.
 func (d *Daemon) turnCheck(ctx context.Context, j *decideJob) {
-	valid := func() bool {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		i := d.activityIndex(j.pane)
-		return !d.closing && j.screen != nil && d.panes[j.pane] == j.screen && i >= 0 &&
-			d.st.Activities[i].UpdatedAt.Equal(j.at) && d.st.Activities[i].State == model.StateCompleted
-	}
-	owned := func() bool {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		fg, ok := d.live.fg[j.pane]
-		f, can := j.screen.(foregrounder)
-		return ok && can && fg > 0 && f.Foreground() == fg
-	}
-	if !valid() {
-		return
-	}
-	screen := ""
-	if owned() {
-		turnCapture()
-		screen = agent.ScreenText(j.screen.Snapshot(), 40)
-		if !owned() {
-			screen = ""
-		}
-	}
-	if !valid() {
-		return
-	}
-	ans, err := j.c.Ask(ctx, decide.FeatureTurnCheck, j.pane, decide.TurnState(j.agent, j.lastMsg, screen), decide.TurnQuestions())
+	ans, err := j.c.Ask(ctx, decide.FeatureTurnCheck, j.pane, decide.TurnState(j.agent, j.lastMsg), decide.TurnQuestions())
 	if err != nil {
 		log.Printf("pitwall: turn check: %v", err)
 	}

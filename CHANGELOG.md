@@ -38,7 +38,8 @@ To cut a release: add a section below and merge it, then
     no notification.
   - Optional: status for agent CLIs without hooks (Gemini CLI, OpenCode,
     Aider, Amp, Cursor agent, Goose, Crush) read from their screen, and a
-    turn check that turns Done into Check when a turn needs review.
+    turn check that turns Done into Check when a turn needs review; it
+    reads the agent's last message only, never the screen.
   - `provider = "command"` runs your own classifier instead. Every call
     has secrets removed before anything is cut to size, a timeout (1.5 s
     by default, 0.2 to 10 s) and a per-pane limit; any failure leaves

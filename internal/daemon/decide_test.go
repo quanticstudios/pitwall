@@ -387,51 +387,6 @@ func TestScreenPaceAcrossPrograms(t *testing.T) {
 	}
 }
 
-// A turn check whose agent left the foreground between the hook and the
-// capture does not send the screen: it would be the shell's.
-func TestTurnCheckAfterAgentExits(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.9}, "urgency": urgency(1)}}
-	f := &fakes{statsCalls: map[string]int{}}
-	f.saved = model.State{
-		Workspaces: []model.Workspace{{ID: "w", Path: "/home/u/repo", RepoRoot: "/home/u/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
-		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cwd: "/home/u/repo"}},
-	}
-	o := f.options()
-	o.Derive, o.SessionID = agent.Derive, agent.SessionID
-	var lp *livePane
-	start := o.StartPane
-	o.StartPane = func(c pane.Config) (Pane, error) {
-		p, _ := start(c)
-		lp = &livePane{fakePane: p.(*fakePane)}
-		lp.fgGroup.Store(100) // the agent
-		return lp, nil
-	}
-	o.Decisions = func() Decisions {
-		return Decisions{Settings: config.DecideSettings{Provider: "jev", TurnCheck: true, TurnThreshold: 0.8, Timeout: time.Second}, Provider: m}
-	}
-	d, err := NewWith(o)
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	defer func(f func()) { turnCapture = f }(turnCapture)
-	turnCapture = func() {
-		lp.fgGroup.Store(200) // the agent exited to the shell
-		close(done)
-	}
-	lp.show("SHELLSCREEN", false)
-	hook(t, d, "claude_stop")
-	<-done
-	time.Sleep(50 * time.Millisecond)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, r := range m.asked {
-		if st, _ := r.State.(map[string]any); st["screen"] != "" {
-			t.Errorf("sent the screen after the agent left: %q", st["screen"])
-		}
-	}
-}
-
 // A risky call keeps its flag next to the recommendation, even when the
 // model says allow, and nothing is decided.
 func TestAdviceFlagsRisk(t *testing.T) {
@@ -533,12 +488,11 @@ func TestDetailScrubsKnownKey(t *testing.T) {
 	}
 }
 
-// The turn check sends the screen only when the agent's hold on the
-// foreground is verified: not for a pane that cannot report its
-// foreground, not without a recorded group. The check itself still goes,
-// from the last message alone.
-func TestTurnCheckScreenNeedsOwnership(t *testing.T) {
-	for name, fg := range map[string]int64{"unsupported": -1, "missing record": 0, "verified": 100} {
+// The turn check never sends screen text: not while the agent holds the
+// foreground, and not when the Stop hook is handled after the agent has
+// exited to the shell (whose group the hook then records).
+func TestTurnCheckSendsNoScreen(t *testing.T) {
+	for name, fg := range map[string]int64{"agent in the foreground": 100, "agent exited": 200, "no foreground": -1} {
 		t.Run(name, func(t *testing.T) {
 			m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.1}}}
 			f := &fakes{statsCalls: map[string]int{}}
@@ -548,13 +502,13 @@ func TestTurnCheckScreenNeedsOwnership(t *testing.T) {
 			}
 			o := f.options()
 			o.Derive = agent.Derive
-			if fg >= 0 { // a pane that reports its foreground group
+			if fg >= 0 {
 				start := o.StartPane
 				o.StartPane = func(c pane.Config) (Pane, error) {
 					p, _ := start(c)
 					lp := &livePane{fakePane: p.(*fakePane)}
 					lp.fgGroup.Store(fg)
-					lp.show("SCREENTEXT", false)
+					lp.show("SCREENTEXT shell prompt", false)
 					return lp, nil
 				}
 			}
@@ -566,24 +520,19 @@ func TestTurnCheckScreenNeedsOwnership(t *testing.T) {
 				t.Fatal(err)
 			}
 			hook(t, d, "claude_stop")
-			var screen string
-			for start := time.Now(); ; time.Sleep(5 * time.Millisecond) {
-				m.mu.Lock()
-				n := len(m.asked)
-				if n > 0 {
-					st, _ := m.asked[0].State.(map[string]any)
-					screen, _ = st["screen"].(string)
-				}
-				m.mu.Unlock()
-				if n > 0 {
-					break
-				}
+			for start := time.Now(); len(m.questions()) == 0; time.Sleep(5 * time.Millisecond) {
 				if time.Since(start) > 2*time.Second {
 					t.Fatal("no turn check was asked")
 				}
 			}
-			if verified := fg > 0; verified != (screen != "") {
-				t.Errorf("screen sent %q with foreground %d", screen, fg)
+			m.mu.Lock()
+			b, _ := json.Marshal(m.asked)
+			m.mu.Unlock()
+			if strings.Contains(string(b), "SCREENTEXT") || strings.Contains(string(b), `"screen"`) {
+				t.Errorf("the turn check sent screen text: %s", b)
+			}
+			if !strings.Contains(string(b), "Fixed the token check") {
+				t.Errorf("the turn check lacks the last message: %s", b)
 			}
 		})
 	}
