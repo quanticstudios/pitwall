@@ -54,6 +54,14 @@ To cut a release: add a section below and merge it, then
 - The daemon protocol is now version 14; the next `pitwall` restarts an
   older daemon. The state file format is now version 8, so an older pitwall
   can't read state this one saved.
+- Tab pills say "Working", "Approval" or "Done" without the "Agent " prefix,
+  so long titles keep more of their text. `pitwall ls` and desktop
+  notifications use the same short labels.
+- A tab row's content ends 12dp from the right edge, the same as on the left.
+  The "…" menu button shows on hover at the right end of the second line, in
+  place of the time, and the pill stays where it is.
+- pi's mark is drawn smaller, so it carries the same weight as the Claude and
+  Codex marks next to it.
 
 ## v0.1.0-alpha.5
 

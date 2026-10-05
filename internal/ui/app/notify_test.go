@@ -197,11 +197,11 @@ func TestNotificationCommand(t *testing.T) {
 		state          model.AgentState
 		label, urgency string
 	}{
-		{model.StateAwaitingInput, "Agent Input", "normal"},
-		{model.StatePendingApproval, "Agent Approval", "critical"},
-		{model.StatePlanReady, "Agent Plan Ready", "normal"},
-		{model.StateError, "Agent Error", "critical"},
-		{model.StateCompleted, "Agent Done", "normal"},
+		{model.StateAwaitingInput, "Input", "normal"},
+		{model.StatePendingApproval, "Approval", "critical"},
+		{model.StatePlanReady, "Plan Ready", "normal"},
+		{model.StateError, "Error", "critical"},
+		{model.StateCompleted, "Done", "normal"},
 	} {
 		t.Run(string(tc.state), func(t *testing.T) {
 			a := notifyActivity(tc.state, time.Time{})

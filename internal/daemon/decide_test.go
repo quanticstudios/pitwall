@@ -206,7 +206,7 @@ func TestTurnCheck(t *testing.T) {
 	hook(t, d, "claude_user_prompt_submit")
 	hook(t, d, "claude_stop")
 	a := waitActivity(t, d, "review", func(a model.Activity) bool { return a.Review && a.Urgency == "now" })
-	if a.State != model.StateCompleted || model.PillLabel(a) != "Agent Check" {
+	if a.State != model.StateCompleted || model.PillLabel(a) != "Check" {
 		t.Errorf("activity %+v, pill %q", a, model.PillLabel(a))
 	}
 	// The approval question carries the latest prompt.
