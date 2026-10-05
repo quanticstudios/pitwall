@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
@@ -28,11 +29,12 @@ func main() {
 	view := flag.String("view", "flow", "flow, subagents, plan, changes or timeline")
 	detail := flag.Int("detail", -1, "in subagents, the subagent to open")
 	static := flag.Bool("static", false, "no simulated updates")
+	file := flag.String("file", "", "read this session file of -agent through flow.Watch instead of the fake feed")
 	flag.Parse()
 	go func() {
 		w := new(app.Window)
 		w.Option(app.Title("pwdemo-panel"), app.Size(unit.Dp(panel.Width), unit.Dp(962)))
-		if err := run(w, *agent, panel.View(*view), *detail, *static); err != nil {
+		if err := run(w, *agent, panel.View(*view), *detail, *static, *file); err != nil {
 			log.Fatal(err)
 		}
 		os.Exit(0)
@@ -40,12 +42,26 @@ func main() {
 	app.Main()
 }
 
-func run(w *app.Window, agent string, view panel.View, detail int, static bool) error {
+func run(w *app.Window, agent string, view panel.View, detail int, static bool, file string) error {
 	th := theme.Dark()
 	start := time.Now()
 	var mu sync.Mutex
 	inputs := map[string]*panel.Input{"claude": claude(start), "codex": codex(start), "pi": pi(start)}
-	if !static {
+	if file != "" {
+		prov := model.Provider(agent)
+		in := &panel.Input{
+			Pane:     &model.Pane{ID: "p1", Provider: prov, Transcript: file},
+			Activity: &model.Activity{PaneID: "p1", Provider: prov, State: model.StateWorking, UpdatedAt: start},
+			Feed:     &flow.Feed{Provider: prov},
+		}
+		inputs[agent] = in
+		flow.Watch(context.Background(), prov, file, func(f flow.Feed) {
+			mu.Lock()
+			in.Feed = &f
+			mu.Unlock()
+			w.Invalidate()
+		})
+	} else if !static {
 		go simulate(&mu, inputs["claude"], w.Invalidate)
 	}
 	var p panel.Panel
