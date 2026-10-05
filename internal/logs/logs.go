@@ -1,7 +1,11 @@
-// Package logs sends the standard logger to a size-capped file in the state
-// directory. Lines are events, one per line: never pane contents, typed
-// input, prompts, hook payloads, environment variables, command arguments or
-// secrets.
+// Package logs writes pitwall's event logs, gui.log and daemon.log in the
+// state directory. Their lines are events, one per line: never pane
+// contents, typed input, prompts, hook payloads, environment variables,
+// command arguments or secrets.
+//
+// crash.log, next to them, is different: it holds raw Go crash traces, with
+// the panic value and every goroutine's stack verbatim, and does not follow
+// the line format or that list.
 package logs
 
 import (
@@ -10,126 +14,151 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime/debug"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// MaxSize is how large a log file grows before it moves to <name>.1.
+// MaxSize is the size over which a log file is moved to <name>.1 when a
+// process opens it. The cap is checked at startup only: after that a
+// process appends for as long as it runs.
 const MaxSize = 5 << 20
 
-// Start sends the standard logger, and the runtime's crash output, to the
-// file at path, and log lines to stderr too. Each line starts with the time,
-// role ("gui" or "daemon"), version and pid: windows share gui.log.
-func Start(path, role, version string) (*File, error) {
-	f, err := Open(path, MaxSize)
+// queue is how many lines may wait for the writer before new ones are
+// dropped.
+const queue = 256
+
+// OpenFile opens path for appending, 0600 in a 0700 directory; on Unix an
+// existing directory and file are set to those modes. A file over max is
+// first moved to path+".1", replacing the old one. When that fails, as it
+// does on Windows while another window has the file open, the process
+// appends to the file as it is.
+func OpenFile(path string, max int64) (*os.File, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	unix := runtime.GOOS != "windows"
+	if unix {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	if fi, err := os.Stat(path); err == nil && fi.Size() > max {
+		os.Rename(path, path+".1")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	f.mu.Lock()
-	f.crash = true
-	debug.SetCrashOutput(f.f, debug.CrashOptions{})
-	f.mu.Unlock()
-	log.SetOutput(both{f, os.Stderr})
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lmsgprefix)
-	log.SetPrefix(fmt.Sprintf("%s %s %d ", role, version, os.Getpid()))
+	if unix {
+		if err := f.Chmod(0o600); err != nil {
+			f.Close()
+			return nil, err
+		}
+	}
 	return f, nil
 }
 
-// both writes to each writer, so a GUI without a console still logs to
-// its file.
-type both [2]io.Writer
+// Start sends the standard logger to the file at path, and to stderr when
+// stderr is set. Each line starts with the time, role ("gui" or "daemon"),
+// version and pid: windows share gui.log. Close the Writer on a clean exit
+// to flush it.
+func Start(path, role, version string, stderr bool) (*Writer, error) {
+	f, err := OpenFile(path, MaxSize)
+	if err != nil {
+		return nil, err
+	}
+	outs := []io.Writer{f}
+	if stderr {
+		outs = append(outs, os.Stderr)
+	}
+	prefix := fmt.Sprintf("%s %s %d ", role, version, os.Getpid())
+	w := NewWriter(prefix, f, outs...)
+	log.SetOutput(w)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lmsgprefix)
+	log.SetPrefix(prefix)
+	return w, nil
+}
 
-func (w both) Write(p []byte) (int, error) {
-	w[0].Write(p)
-	w[1].Write(p)
+// Writer hands each line to one goroutine that writes it to every output,
+// so a log call never waits on a disk or a stalled stderr. When queue lines
+// are waiting, new ones are dropped and counted, and a line saying how many
+// is written once there is room.
+type Writer struct {
+	prefix  string // for the dropped-lines line, as the logger's own lines start
+	outs    []io.Writer
+	closer  io.Closer
+	lines   chan []byte
+	dropped atomic.Int64
+	done    chan struct{}
+
+	mu     sync.Mutex
+	closed bool
+}
+
+// NewWriter starts the writing goroutine. closer, when not nil, is closed
+// after the last line is written.
+func NewWriter(prefix string, closer io.Closer, outs ...io.Writer) *Writer {
+	w := &Writer{prefix: prefix, outs: outs, closer: closer, lines: make(chan []byte, queue), done: make(chan struct{})}
+	go w.run()
+	return w
+}
+
+// Write queues a copy of p and never blocks.
+func (w *Writer) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		w.dropped.Add(1)
+		return len(p), nil
+	}
+	select {
+	case w.lines <- append([]byte(nil), p...):
+	default:
+		w.dropped.Add(1)
+	}
 	return len(p), nil
 }
 
-// File appends to path, 0600 in a 0700 directory. A write that would take
-// the file past max first moves it to path+".1", replacing the old one.
-// Processes may share the file: one that finds the file moved reopens it.
-type File struct {
-	mu    sync.Mutex
-	path  string
-	max   int64
-	f     *os.File
-	crash bool // the runtime's crash output follows the file
+func (w *Writer) run() {
+	defer close(w.done)
+	for p := range w.lines {
+		w.noteDropped()
+		w.write(p)
+	}
+	w.noteDropped()
+	if w.closer != nil {
+		w.closer.Close()
+	}
 }
 
-func Open(path string, max int64) (*File, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
+func (w *Writer) noteDropped() {
+	if n := w.dropped.Swap(0); n > 0 {
+		w.write(fmt.Appendf(nil, "%s %s%d log lines dropped\n", time.Now().Format("2006/01/02 15:04:05.000000"), w.prefix, n))
 	}
-	l := &File{path: path, max: max}
-	if err := l.open(); err != nil {
-		return nil, err
-	}
-	return l, nil
 }
 
-func (l *File) open() error {
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
+func (w *Writer) write(p []byte) {
+	for _, o := range w.outs {
+		o.Write(p)
 	}
-	l.f = f
-	if l.crash {
-		debug.SetCrashOutput(f, debug.CrashOptions{})
-	}
-	return nil
 }
 
-func (l *File) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.f == nil {
-		if err := l.open(); err != nil {
-			return 0, err
-		}
+// Close writes the queued lines, waiting at most timeout for an output
+// that has stalled.
+func (w *Writer) Close(timeout time.Duration) {
+	w.mu.Lock()
+	if !w.closed {
+		w.closed = true
+		close(w.lines)
 	}
-	ours, err := l.f.Stat()
-	disk, derr := os.Stat(l.path)
-	switch {
-	case err == nil && (derr != nil || !os.SameFile(ours, disk)):
-		l.reopen(false) // another process moved it
-	case derr == nil && disk.Size()+int64(len(p)) > l.max:
-		l.reopen(true)
+	w.mu.Unlock()
+	select {
+	case <-w.done:
+	case <-time.After(timeout):
 	}
-	if l.f == nil {
-		return 0, os.ErrClosed
-	}
-	return l.f.Write(p)
-}
-
-// reopen closes the file, moves it to .1 when rotate is set, and opens path
-// again. Windows cannot rename a file another handle holds, the crash output's
-// included: that one is let go first, and while another window holds the
-// file it keeps growing and each write tries again.
-func (l *File) reopen(rotate bool) {
-	if l.crash {
-		debug.SetCrashOutput(nil, debug.CrashOptions{})
-	}
-	l.f.Close()
-	l.f = nil
-	if rotate {
-		os.Rename(l.path, l.path+".1")
-	}
-	l.open()
-}
-
-func (l *File) Close() error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.f == nil {
-		return nil
-	}
-	if l.crash {
-		debug.SetCrashOutput(nil, debug.CrashOptions{})
-	}
-	err := l.f.Close()
-	l.f = nil
-	return err
 }
 
 // Limiter lets one line per key through every Every and counts the lines

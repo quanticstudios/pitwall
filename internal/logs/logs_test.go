@@ -1,65 +1,113 @@
 package logs
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-// TestRotate: a write that would pass the cap moves the file to .1,
-// replacing the old one, and a second writer on the same path follows the
-// move instead of writing into .1.
-func TestRotate(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state", "gui.log")
-	a, err := Open(path, 20)
+// TestOpenFile: a file over the cap moves to .1 at open, one under it is
+// appended to, and on Unix an existing directory and file get 0700 and 0600.
+func TestOpenFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	path := filepath.Join(dir, "gui.log")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("old 56789\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := OpenFile(path, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close()
-	b, err := Open(path, 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.Close()
-	read := func(p string) string {
-		t.Helper()
-		data, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(data)
-	}
-	a.Write([]byte("one 456789\n"))
-	b.Write([]byte("two 456789\n")) // 22 bytes would pass 20
-	if got, old := read(path), read(path+".1"); got != "two 456789\n" || old != "one 456789\n" {
-		t.Fatalf("after first rotation: %q, .1 %q", got, old)
-	}
-	a.Write([]byte("three\n")) // a's file was moved: a reopens path
-	if got := read(path); got != "two 456789\nthree\n" {
-		t.Fatalf("a did not follow the rotation: %q", got)
-	}
-	b.Write([]byte("four 6789\n"))
-	if got, old := read(path), read(path+".1"); got != "four 6789\n" || old != "two 456789\nthree\n" {
-		t.Fatalf("after second rotation: %q, .1 %q", got, old)
-	}
+	f.WriteString("kept\n")
+	f.Close()
 	if runtime.GOOS != "windows" {
-		for _, p := range []string{path, path + ".1", filepath.Dir(path)} {
-			fi, err := os.Stat(p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want := map[bool]os.FileMode{true: 0o700, false: 0o600}[fi.IsDir()]; fi.Mode().Perm() != want {
-				t.Fatalf("%s: mode %v, want %v", p, fi.Mode().Perm(), want)
+		for p, want := range map[string]os.FileMode{dir: 0o700, path: 0o600} {
+			if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != want {
+				t.Fatalf("%s: %v %v, want %v", p, fi.Mode().Perm(), err, want)
 			}
 		}
 	}
-	if strings.Contains(read(path), "one") {
-		t.Fatal("rotated lines came back")
+	if f, err = OpenFile(path, 10); err != nil { // 15 bytes now: moved
+		t.Fatal(err)
+	}
+	f.WriteString("new\n")
+	f.Close()
+	got, _ := os.ReadFile(path)
+	old, _ := os.ReadFile(path + ".1")
+	if string(got) != "new\n" || string(old) != "old 56789\nkept\n" {
+		t.Fatalf("after the startup move: %q, .1 %q", got, old)
 	}
 }
+
+// stuck blocks every write until release closes.
+type stuck struct{ release chan struct{} }
+
+func (s stuck) Write(p []byte) (int, error) { <-s.release; return len(p), nil }
+
+// TestWriterNeverBlocks: an output that blocks forever does not block the
+// caller; lines past the queue are dropped and counted once there is room.
+func TestWriterNeverBlocks(t *testing.T) {
+	var mu sync.Mutex
+	var got bytes.Buffer
+	out := writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return got.Write(p) })
+	s := stuck{make(chan struct{})}
+	w := NewWriter("gui v1 7 ", nil, s, out)
+	done := make(chan struct{})
+	go func() {
+		for range 10 * queue {
+			w.Write([]byte("line\n"))
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Write blocked behind a stalled output")
+	}
+	close(s.release)
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) { // the queue drains
+		mu.Lock()
+		n := strings.Count(got.String(), "line\n")
+		mu.Unlock()
+		if n >= queue {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d lines written after the output came back", n)
+		}
+	}
+	w.Write([]byte("after\n"))
+	w.Close(5 * time.Second)
+	mu.Lock()
+	text := got.String()
+	mu.Unlock()
+	if !strings.Contains(text, "gui v1 7 ") || !strings.Contains(text, " log lines dropped\n") || !strings.HasSuffix(text, "after\n") {
+		t.Fatalf("no dropped-lines count before the next line:\n%s", text)
+	}
+	if n := strings.Count(text, "line\n"); n < 1 || n > queue+1 {
+		t.Fatalf("%d lines written of a %d-line queue", n, queue)
+	}
+
+	blocked := NewWriter("", nil, stuck{make(chan struct{})})
+	blocked.Write([]byte("x\n"))
+	start := time.Now()
+	blocked.Close(10 * time.Millisecond)
+	if time.Since(start) > time.Second {
+		t.Fatal("Close waited on a stalled output past its timeout")
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
 // TestLimiter: one line per key per interval, with the count held back.
 func TestLimiter(t *testing.T) {

@@ -9,9 +9,13 @@ import (
 	"time"
 )
 
-// runLogs prints where the GUI and the daemon log, or with -f follows both.
+// runLogs prints where the GUI and the daemon log, and crash.log, or with -f
+// follows all three.
 func runLogs(args []string, out io.Writer) error {
-	paths := []string{filepath.Join(stateDir(), "gui.log"), filepath.Join(stateDir(), "daemon.log")}
+	var paths []string
+	for _, name := range []string{"gui.log", "daemon.log", "crash.log"} {
+		paths = append(paths, filepath.Join(stateDir(), name))
+	}
 	switch {
 	case len(args) == 0:
 		for _, p := range paths {
@@ -25,27 +29,22 @@ func runLogs(args []string, out io.Writer) error {
 }
 
 // follow copies what is appended to each of paths to out, polling every
-// interval until stop closes. It starts at each file's end; a file that
-// shrank was rotated and is read from its start.
+// interval until stop closes, and returns the first read or write error. It
+// starts at each file's end; a path that names another file than before was
+// rotated or replaced, and the new file is read from its start.
 func follow(paths []string, out io.Writer, stop <-chan struct{}, interval time.Duration) error {
 	offs := make([]int64, len(paths))
+	seen := make([]os.FileInfo, len(paths))
 	for i, p := range paths {
 		if fi, err := os.Stat(p); err == nil {
-			offs[i] = fi.Size()
+			offs[i], seen[i] = fi.Size(), fi
 		}
 	}
 	for {
 		for i, p := range paths {
-			f, err := os.Open(p)
-			if err != nil {
-				continue // not written yet
+			if err := followOne(p, &offs[i], &seen[i], out); err != nil {
+				return err
 			}
-			if fi, err := f.Stat(); err == nil && fi.Size() < offs[i] {
-				offs[i] = 0
-			}
-			n, _ := io.Copy(out, io.NewSectionReader(f, offs[i], 1<<62))
-			offs[i] += n
-			f.Close()
 		}
 		select {
 		case <-stop:
@@ -53,4 +52,25 @@ func follow(paths []string, out io.Writer, stop <-chan struct{}, interval time.D
 		case <-time.After(interval):
 		}
 	}
+}
+
+func followOne(path string, off *int64, seen *os.FileInfo, out io.Writer) error {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil // not written yet, or between a rotation's rename and create
+	} else if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if *seen == nil || !os.SameFile(*seen, fi) {
+		*off = 0
+	}
+	*seen = fi
+	n, err := io.Copy(out, io.NewSectionReader(f, *off, 1<<62))
+	*off += n
+	return err
 }

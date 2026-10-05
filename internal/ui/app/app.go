@@ -145,12 +145,11 @@ func Run(b Backend) error {
 			gtx := app.NewContext(&ops, e)
 			u.layout(gtx)
 			laid := time.Now()
-			// e.Frame renders and swaps buffers: a slow one after a fast
-			// layout waits on the GPU or the compositor.
+			// Layout and e.Frame are timed apart.
 			e.Frame(gtx.Ops)
 			if took := time.Since(start); took > slowFrame {
 				if ok, held := slow.Allow("", start); ok {
-					log.Printf("slow frame: %v, layout %v, e.Frame %v; %d more since the last line",
+					log.Printf("slow frame: %v; layout took %v, e.Frame took %v; %d more since the last line",
 						took.Round(time.Millisecond), laid.Sub(start).Round(time.Millisecond), time.Since(laid).Round(time.Millisecond), held)
 				}
 			}

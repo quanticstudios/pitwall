@@ -12,13 +12,14 @@ To cut a release: add a section below and merge it, then
 
 ## v0.1.0-alpha.6
 
-- pitwall logs. The window writes `gui.log` and the daemon `daemon.log` in
-  the state directory: starts, connections, panes starting and exiting, sizes,
-  errors, slow requests, slow frames, stalls and crashes, one line each, never
-  pane contents, typed input, prompts, hook payloads or command arguments.
-  Each file moves to `.1` at 5 MB. `pitwall logs` prints both paths and
-  `pitwall logs -f` follows them; README's Troubleshooting says what to attach
-  to a bug.
+- pitwall logs. Windows write events to `gui.log` and the daemon to
+  `daemon.log` in the state directory: starts, connections, panes starting
+  and exiting, sizes, errors, slow requests, slow frames and stalls, one line
+  each, never pane contents, typed input, prompts, hook payloads or command
+  arguments. Raw Go crash traces go to `crash.log` instead, with the panic
+  value and stacks verbatim. A file over 5 MB at startup moves to `.1`.
+  `pitwall logs` prints the three paths and `pitwall logs -f` follows them;
+  README's Troubleshooting says what to attach to a bug.
 - A pane whose program printed nothing after a resize kept showing its old
   size, 80x24 for a new pane whose size arrived late, as it can behind a burst
   of typing. A resize now redraws the pane. A size the window failed to send

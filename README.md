@@ -710,7 +710,7 @@ sent.
 | What                | Where                                                         |
 | ------------------- | ------------------------------------------------------------- |
 | Saved tabs          | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
-| Logs                | `~/.local/state/pitwall/gui.log` and `daemon.log` (`pitwall logs`) |
+| Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
@@ -748,24 +748,32 @@ running in panes at that moment stop.
   `~/.local/state/pitwall/stall-<time>.txt` and keeps the newest 5. Attach
   the newest stall file to the bug report. `gui.log` names it too, and notes
   frames slower than 250 ms, split into layout and rendering time.
-- **Something else.** Look at the logs.
+- **Something else.** Look at the logs (below).
 
 ### Logs
 
-`pitwall logs` prints the paths of the two logs, and `pitwall logs -f`
-follows both as they grow. Every window writes to `gui.log` and the daemon to
-`daemon.log`, both in the state directory, readable only by you. Each line
-starts with the time, `gui` or `daemon`, the version and the process id, so
-the lines of two windows can be told apart. A log that passes 5 MB moves to
-`gui.log.1` or `daemon.log.1`, replacing the older one. A crash's stack lands
-in the log too.
+`pitwall logs` prints the paths of the three log files, and `pitwall logs -f`
+follows them as they grow. They live in the state directory, readable only
+by you. A file that is over 5 MB when a window or the daemon starts moves to
+`<name>.1`, replacing the older one; the size is checked at startup only.
 
-The logs record events: starts and stops, connections, panes starting and
-exiting (with the program's name and exit code), sizes sent and applied,
-errors, slow requests and frames. They never record what a pane shows, what
-you type, prompts, hook payloads, environment variables or a command's
-arguments. They do hold folder paths and pane ids. For a bug report, attach
-both logs from around the time it happened, and any stall file.
+Every window writes events to `gui.log` and the daemon to `daemon.log`, one
+line each, starting with the time, `gui` or `daemon`, the version and the
+process id, so the lines of two windows can be told apart. They record
+starts and stops, connections, panes starting and exiting (with the
+program's name and exit code), sizes sent and applied, errors, slow requests
+and frames. They never record what a pane shows, what you type, prompts,
+hook payloads, environment variables or a command's arguments. They do hold
+folder paths and pane ids.
+
+`crash.log` is different. It holds raw Go crash traces from windows and the
+daemon, and anything the daemon prints before its log opens. A crash trace
+includes the panic value and every goroutine's stack verbatim and does not
+follow the line format, so it can contain any text pitwall was handling,
+pane output included. Read it before you share it.
+
+For a bug report, attach `gui.log` and `daemon.log` from around the time it
+happened, any stall file, and, after checking it, `crash.log`.
 
 ## Development
 

@@ -13,11 +13,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/daemon"
@@ -123,8 +125,9 @@ func main() {
 // of two daemons started at once only one restores panes and binds; the
 // other exits cleanly.
 func runDaemon() (err error) {
-	if f, err := logs.Start(filepath.Join(stateDir(), "daemon.log"), "daemon", versionString()); err == nil {
-		defer f.Close()
+	// Started by a window, stderr is crash.log, which is for crash traces.
+	if w, err := logs.Start(filepath.Join(stateDir(), "daemon.log"), "daemon", versionString(), term.IsTerminal(os.Stderr.Fd())); err == nil {
+		defer w.Close(time.Second)
 	} else {
 		fmt.Fprintln(os.Stderr, "pitwall: log:", err)
 	}
@@ -231,10 +234,13 @@ func printHooks() error {
 // and exits instead.
 func runGUI(session string) error {
 	hideConsole()
-	if f, err := logs.Start(filepath.Join(stateDir(), "gui.log"), "gui", versionString()); err == nil {
-		defer f.Close()
+	if w, err := logs.Start(filepath.Join(stateDir(), "gui.log"), "gui", versionString(), true); err == nil {
+		defer w.Close(time.Second)
 	}
 	log.Printf("gui starting")
+	if err := crashOutput(); err != nil {
+		log.Printf("crash output: %v", err)
+	}
 	conn, initial, err := dialOrStart(session)
 	if err != nil {
 		log.Printf("gui: %v", err)
@@ -363,10 +369,18 @@ func startDaemon(path string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	logPath := filepath.Join(stateDir(), "daemon.log")
+	crashPath := filepath.Join(stateDir(), "crash.log")
+	crash, err := logs.OpenFile(crashPath, logs.MaxSize)
+	if err != nil {
+		return nil, err
+	}
+	defer crash.Close()
 	log.Printf("starting a daemon")
-	cmd := exec.Command(bin, "daemon") // it logs to logPath itself, crashes included
-	detach(cmd)                        // outlive the window
+	cmd := exec.Command(bin, "daemon")
+	// The daemon logs events to daemon.log itself; what it prints, a start
+	// failure or a crash trace, goes to crash.log.
+	cmd.Stdout, cmd.Stderr = crash, crash
+	detach(cmd) // outlive the window
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -376,10 +390,21 @@ func startDaemon(path string) (net.Conn, error) {
 			return c, nil
 		}
 	}
-	return nil, fmt.Errorf("daemon did not come up; see %s", logPath)
+	return nil, fmt.Errorf("daemon did not come up; see %s and daemon.log next to it", crashPath)
 }
 
 func stateDir() string { return config.StateDir() }
+
+// crashOutput sends the runtime's crash traces to crash.log as well as
+// stderr, which a window started from a launcher has nowhere to show.
+func crashOutput() error {
+	f, err := logs.OpenFile(filepath.Join(stateDir(), "crash.log"), logs.MaxSize)
+	if err != nil {
+		return err
+	}
+	defer f.Close() // SetCrashOutput keeps a duplicate
+	return debug.SetCrashOutput(f, debug.CrashOptions{})
+}
 
 // cwd is where the GUI was launched; the daemon opens the first session
 // there.
