@@ -58,6 +58,26 @@ func TestHeldCommand(t *testing.T) {
 		t.Fatalf("after exit: %+v", st)
 	}
 	watch.waitFor("PaneExited", func(m any) bool { return m == proto.PaneExited{Pane: id, ExitCode: 3} })
+
+	// It still resizes, and a window gets the frame at the new size.
+	gui := dial(t, sock, "gui")
+	gui.waitFor("the first frames", func(m any) bool { f, ok := m.(proto.Frame); return ok && f.Pane == id })
+	fp.mu.Lock()
+	fp.title = "resized" // only a frame built after the resize has it
+	fp.mu.Unlock()
+	if e := cli.request(proto.Resize{Pane: id, Cols: 100, Rows: 30}); e != "" {
+		t.Fatal(e)
+	}
+	gui.waitFor("a frame after the resize", func(m any) bool {
+		f, ok := m.(proto.Frame)
+		return ok && f.Pane == id && f.Grid.Title == "resized"
+	})
+	fp.mu.Lock()
+	size := fp.size
+	fp.mu.Unlock()
+	if size != [2]int{100, 30} {
+		t.Fatalf("pane size %v", size)
+	}
 	if e := cli.request(proto.ClosePane{Pane: id}); e != "" {
 		t.Fatal(e)
 	}

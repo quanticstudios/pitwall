@@ -164,15 +164,20 @@ const (
 )
 
 // Resize sets the kernel and emulator sizes under one lock, so concurrent
-// calls cannot leave the two disagreeing.
+// calls cannot leave the two disagreeing. Once the process has exited only
+// the emulator resizes: its PTY is closed, and the screen is still shown.
 func (p *Pane) Resize(cols, rows int) error {
 	if cols < 1 || rows < 1 || cols > maxSide || rows > maxSide || cols*rows > maxCells {
 		return fmt.Errorf("pane size %dx%d out of range", cols, rows)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := p.setSize(cols, rows); err != nil {
-		return err
+	select {
+	case <-p.done:
+	default:
+		if err := p.setSize(cols, rows); err != nil {
+			return err
+		}
 	}
 	p.vt.Resize(cols, rows)
 	return nil

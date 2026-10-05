@@ -450,7 +450,16 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		if err != nil {
 			return err
 		}
-		return p.Resize(m.Cols, m.Rows)
+		if err := p.Resize(m.Cols, m.Rows); err != nil {
+			return err
+		}
+		d.mu.Lock()
+		exited := d.inputs[m.Pane] == nil
+		d.mu.Unlock()
+		if exited {
+			d.pushFrame(m.Pane, p) // a held pane's watcher has stopped
+		}
+		return nil
 	case proto.Scroll:
 		return d.scroll(m)
 	case proto.AgentEvent:

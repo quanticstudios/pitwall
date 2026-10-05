@@ -123,19 +123,15 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if len(cmd) == 0 {
 			return errors.New(usage)
 		}
-		// why: the daemon runs cmd in dir with its own PATH; resolve both here.
-		if strings.ContainsRune(cmd[0], '/') || strings.ContainsRune(cmd[0], filepath.Separator) {
-			abs, err := filepath.Abs(cmd[0])
-			if err != nil {
-				return err
-			}
-			cmd[0] = abs
-		}
+		// why: the daemon runs cmd in dir with its own PATH, so it gets the
+		// program as an absolute path, found and resolved from here.
 		path, err := exec.LookPath(cmd[0])
-		if err != nil {
+		if err != nil && !errors.Is(err, exec.ErrDot) {
+			return err // ErrDot: a relative PATH entry, which this shell would run too
+		}
+		if cmd[0], err = filepath.Abs(path); err != nil {
 			return err
 		}
-		cmd[0] = path
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)

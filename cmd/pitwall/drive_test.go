@@ -197,6 +197,25 @@ func TestCLINewRelativeCommand(t *testing.T) {
 	}
 }
 
+// A program found through a relative PATH entry is the caller's too.
+func TestCLINewRelativePath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "tool"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	t.Setenv("PATH", "bin")
+	before, after := cliState(), cliState()
+	after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", SessionID: "m"})
+	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: dir, SessionID: "m", Cmd: []string{filepath.Join(dir, "bin", "tool")}}, state: after})
+	if code, out, stderr := cliOutput("new", "--", "tool"); code != 0 || out != "#3\n" {
+		t.Fatalf("%d: %s %s", code, out, stderr)
+	}
+}
+
 // A live pane beats an exited one, and an agent beats a shell among each.
 func TestMainPane(t *testing.T) {
 	deadClaude := model.Pane{ID: "dead", Provider: model.ProviderClaude, Exited: true}
