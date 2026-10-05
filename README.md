@@ -364,7 +364,9 @@ pitwall ls --json | jq '.[] | {n, title, state, question}'
 Give the agent its whole task as the prompt argument. Typing into a running
 agent is not offered, because pitwall can't reliably tell when an agent is
 ready to take input. A command tab's pane, and its exit code, last until you
-close it or the daemon restarts. Any process running as you can reach the
+close it, across daemon restarts too. A restart keeps the exit code but not
+the output, resumes an agent with a known session, and does not run any
+other unfinished command again: its exit code shows as unknown. Any process running as you can reach the
 daemon's socket, so these commands give nothing a local process did not
 already have.
 

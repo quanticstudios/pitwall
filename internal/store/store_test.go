@@ -41,8 +41,9 @@ func TestSaveLoad(t *testing.T) {
 		}},
 		Panes: []model.Pane{
 			{ID: "p1", WorkspaceID: "workspace", Cmd: []string{"claude", "--model", "sonnet"}, Cwd: "/repo/store", Title: "Claude", Provider: model.ProviderClaude, SessionID: "session", Prompt: "fix the store"},
-			{ID: "p2", WorkspaceID: "workspace", Cmd: []string{"false"}, Exited: true, ExitCode: 1, Provider: model.ProviderTerminal},
+			{ID: "p2", WorkspaceID: "workspace", Cmd: []string{"false"}, Exited: true, ExitCode: 1, Held: true, Provider: model.ProviderTerminal},
 			{ID: "p3", WorkspaceID: "workspace"},
+			{ID: "p4", WorkspaceID: "workspace", Cmd: []string{"make"}, Exited: true, ExitUnknown: true, Held: true},
 		},
 		Activities: []model.Activity{{PaneID: "p1", WorkspaceID: "workspace", Provider: model.ProviderClaude, SessionID: "session", State: model.StateWorking, Detail: "saving", UpdatedAt: now}},
 		Stats:      map[string]model.BranchStats{"workspace": {Additions: 10, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 1, Behind: 3}},

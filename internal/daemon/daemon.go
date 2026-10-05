@@ -97,7 +97,6 @@ type Daemon struct {
 	views       map[string]*view       // scroll positions, see scroll.go
 	clients     map[*client]struct{}   // gui clients only
 	watchers    map[*client]struct{}   // watch clients: StateMsg and PaneExited, no frames
-	held        map[string]bool        // panes that stay, Exited, after their command ends; not saved
 	closing     bool
 	savePending bool
 	live        liveness
@@ -141,6 +140,12 @@ func New() (*Daemon, error) {
 // NewWith loads state through o.Load and relaunches every saved pane that had
 // not exited, using o.RestoreCmd in the pane's saved Cwd. Activities from the
 // previous run are dropped: the agents behind them are new processes.
+//
+// A held pane (model.Pane.Held) is relaunched only when o.RestoreCmd resumes
+// its agent. One whose command had exited comes back exited with its code,
+// and any other one comes back exited with ExitUnknown, because running its
+// command twice may not be safe. Either shows a notice in place of its
+// screen, which is not saved.
 func NewWith(o Options) (*Daemon, error) {
 	if o.StatsInterval == 0 {
 		o.StatsInterval = 30 * time.Second
@@ -156,7 +161,7 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, held: map[string]bool{}, resumed: map[string]time.Time{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}}
 	if o.Decisions != nil {
 		d.dec.cur = o.Decisions()
 	}
@@ -175,12 +180,17 @@ func NewWith(o Options) (*Daemon, error) {
 		}
 	}
 	var gone []string
-	for _, p := range d.st.Panes {
-		if p.Exited {
+	for i := range d.st.Panes {
+		p := &d.st.Panes[i]
+		if p.Exited && !p.Held {
 			gone = append(gone, p.ID) // saved by an older daemon, which kept exited panes
 			continue
 		}
-		cmd := o.RestoreCmd(p)
+		cmd := o.RestoreCmd(*p)
+		if p.Held && (p.Exited || slices.Equal(cmd, p.Cmd)) {
+			d.panes[p.ID] = d.stoppedPane(p)
+			continue
+		}
 		if err := d.start(p.ID, cmd, p.Cwd); err != nil {
 			log.Printf("restore pane %s: %q", p.ID, err)
 			gone = append(gone, p.ID)
@@ -784,7 +794,6 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.inputs, id)
 	delete(d.views, id)
 	delete(d.resumed, id)
-	delete(d.held, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.det, id)
@@ -1096,7 +1105,8 @@ func (d *Daemon) exited(id string, p Pane) {
 	}
 	code := p.ExitCode()
 	sp := &d.st.Panes[i]
-	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || code != 0 && time.Since(at) < resumeGrace) {
+	// A held pane keeps a failed resume's exit, which pitwall wait reports.
+	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || !sp.Held && code != 0 && time.Since(at) < resumeGrace) {
 		log.Printf("pane %s: exited %d; resumed %q session, opening a shell", id, code, sp.Provider)
 		closeAll([]Pane{d.dropPane(id)})
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode = nil, "", "", "", "", ""
@@ -1109,7 +1119,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		log.Printf("pane %s: shell after failed resume: %q", id, err)
 	}
 	var closing []Pane
-	if d.held[id] {
+	if sp.Held {
 		// why: the tab keeps the command's output on screen, and pitwall wait reads its status.
 		d.st.Panes[i].Exited, d.st.Panes[i].ExitCode = true, code
 		log.Printf("pane %s: exited %d; held", id, code)

@@ -241,3 +241,44 @@ func TestMainPane(t *testing.T) {
 		t.Error("no panes, a pane")
 	}
 }
+
+// restoredHeld is tab build after a daemon restart: its held command had
+// exited with code (unknown false), or was still running (unknown true).
+func restoredHeld(code int, unknown bool) proto.StateMsg {
+	m := driveState("", "", true, code)
+	m.State.Panes[0].Cmd, m.State.Panes[0].Held, m.State.Panes[0].ExitUnknown = []string{"make"}, true, unknown
+	return m
+}
+
+func TestCLIRestoredHeld(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		unknown bool
+		until   string
+		code    int
+		out     string
+		json    string
+	}{
+		{"exited", false, "exit", 4, "exit 4\n", `"exit_code":4`},
+		{"exited done", false, "done", 4, "exit 4\n", `"exit_code":4`},
+		{"unknown", true, "exit", 3, "exit unknown\n", `"exit_code":null`},
+		{"unknown done", true, "done", 3, "exit unknown\n", `"exit_code":null`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := restoredHeld(4, tc.unknown)
+			if tc.unknown {
+				m.State.Panes[0].ExitCode = 0
+			}
+			fakeWatch(t, m)
+			code, out, stderr := cliOutput("wait", "build", "--until", tc.until)
+			if code != tc.code || out != tc.out {
+				t.Fatalf("wait: code %d out %q stderr %q; want %d %q", code, out, stderr, tc.code, tc.out)
+			}
+			fakeCLI(t, cliExchange{state: m.State})
+			code, out, stderr = cliOutput("ls", "--json")
+			if code != 0 || !strings.Contains(out, `"state":"exited"`) || !strings.Contains(out, tc.json) {
+				t.Fatalf("ls --json: %d %s\n%s\nwant %s", code, stderr, out, tc.json)
+			}
+		})
+	}
+}

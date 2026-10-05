@@ -24,6 +24,15 @@ To cut a release: add a section below and merge it, then
   size, 80x24 for a new pane whose size arrived late, as it can behind a burst
   of typing. A resize now redraws the pane. A size the window failed to send
   is sent again.
+- A command tab from `pitwall new -- <cmd>` survives a daemon restart. A
+  command that had exited keeps its exit code, and an agent with a known
+  session resumes and stays. Any other command that was still running is
+  not run again, because that may not be safe: it comes back exited with
+  its exit code unknown (`exit_code` null in `pitwall ls --json`, and
+  `pitwall wait` prints `exit unknown` and exits 3). The output is not
+  saved, so the pane shows a one-line notice instead.
+- The daemon protocol is now version 14; the next `pitwall` restarts an
+  older daemon. The state file format is unchanged.
 
 ## v0.1.0-alpha.5
 

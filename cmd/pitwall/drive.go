@@ -31,7 +31,7 @@ type tabJSON struct {
 	Agent    string `json:"agent"`
 	State    string `json:"state"`
 	Question string `json:"question"`
-	ExitCode *int   `json:"exit_code"` // null until the process exits
+	ExitCode *int   `json:"exit_code"` // null until the process exits, and when its code was lost
 	Panes    int    `json:"panes"`
 	Detached bool   `json:"detached"`
 }
@@ -49,7 +49,7 @@ func tabsJSON(state model.State, session string) []tabJSON {
 		t.Panes = len(panes)
 		if p := mainPane(panes); p != nil {
 			t.Agent, t.State, t.Question = paneState(state, *p)
-			if p.Exited {
+			if p.Exited && !p.ExitUnknown {
 				t.ExitCode = &p.ExitCode
 			}
 		}
@@ -306,6 +306,11 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		}
 		hadAgent = hadAgent || agent != ""
 		if i < 0 || st == "exited" {
+			if i >= 0 && state.Panes[i].ExitUnknown {
+				// why: the daemon restarted while the command ran, and did not run it again.
+				fmt.Fprintln(out, "exit unknown")
+				return waitExited, nil
+			}
 			code, ok := watch.exitOf(state, pane)
 			if timedOut.Load() {
 				return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
