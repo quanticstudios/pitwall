@@ -35,6 +35,12 @@ To cut a release: add a section below and merge it, then
   queued reports at shutdown, the result included; it now sends the last
   result before the shutdown. Run `pitwall hooks install` to update the
   extension. It replaces the alpha.5 file, which is not counted as edited.
+- A resumed Claude pane no longer sends its first prompt again. A pane
+  opened as `claude "fix the tests"` came back as
+  `claude "fix the tests" --resume <id>`. Resume now keeps only the options
+  `claude --help` documents, minus session selectors, print mode and one-off
+  actions such as `--worktree`. A value option left without its value, such
+  as a trailing `--model`, is dropped too, since it took the `--resume`.
 - The daemon protocol is now version 14; the next `pitwall` restarts an
   older daemon. The state file format is unchanged.
 

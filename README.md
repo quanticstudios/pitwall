@@ -726,7 +726,9 @@ After a reboot, run `pitwall`: tabs, groups and panes come back in their
 folders. State saved by an older version opens with each of its nested tabs
 as a tab of its own, in the same place and group. Agent panes resume with `claude --resume <id>`,
 `codex resume <id>` or `pi --session <id>`, run as the agent's name on PATH or as the binary from the
-pane's original command, with that command's flags. A resume also keeps the permission mode the
+pane's original command, with that command's options. Prompts, session selectors, print mode and
+options the agent does not document are dropped, so a resume never sends the first prompt again. A
+resume also keeps the permission mode the
 agent's hooks last reported: Claude gets `--dangerously-skip-permissions` or `--permission-mode
 <mode>`, and Codex gets `--dangerously-bypass-approvals-and-sandbox` when it ran with the full
 bypass; Codex's other modes are left to its config. Other flags of an agent started in a shell, such
