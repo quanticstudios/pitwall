@@ -9,6 +9,7 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 15 added Pane.Transcript, the agent session file the side panel reads.
 // Version 14 added Pane.Held and ExitUnknown: a held pane survives a daemon
 // restart.
 // Version 13 added Pane.AgentMode.
@@ -36,7 +37,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 14
+const Version = 15
 
 // Client to daemon.
 
