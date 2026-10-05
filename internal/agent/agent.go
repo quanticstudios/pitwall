@@ -432,17 +432,17 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
 }
 
-// PiReport returns the runtime nonce of a pi extension report and whether
-// the report removes the pane's activity; runtime is "" for other payloads.
-// A pi extension loaded again by /reload keeps the session id but not the
-// nonce, so a late remove from the old one can be told from the new one's.
-func PiReport(payload []byte) (runtime string, remove bool) {
+// PiRuntime returns the runtime nonce of a pi extension report, "" for
+// other payloads, and whether the report is a session_start, which every
+// runtime sends first. A pi extension loaded again by /reload keeps the
+// session id but not the nonce, so the old one's late reports can be told
+// from the new one's.
+func PiRuntime(payload []byte) (runtime string, start bool) {
 	p, err := decode(payload)
 	if err != nil || p.PiEvent == "" {
 		return "", false
 	}
-	_, _, remove, _ = mapPi(p)
-	return p.Runtime, remove
+	return p.Runtime, p.PiEvent == "session_start"
 }
 
 // UserPrompt is the prompt of any UserPromptSubmit hook from the main
@@ -457,7 +457,7 @@ func UserPrompt(payload []byte) string {
 
 // LastMessage is the agent's final message of a finished turn: Stop's
 // last_assistant_message, Codex notify's last-assistant-message, or the
-// message of pi's agent_settled (the extension sends its first 200 runes).
+// message of pi's agent_settled (whole, up to 16000 runes).
 func LastMessage(payload []byte) string {
 	p, err := decode(payload)
 	if err != nil {

@@ -336,14 +336,28 @@ func TestDerivePi(t *testing.T) {
 			t.Errorf("pi Detail %q for %v", next.Detail, fields["stop_reason"])
 		}
 	}
-	if rt, remove := PiReport([]byte(`{"event":"session_shutdown","runtime":"r1"}`)); rt != "r1" || !remove {
-		t.Errorf("PiReport(shutdown) = %q, %v", rt, remove)
+	if rt, start := PiRuntime([]byte(`{"event":"session_start","runtime":"r1"}`)); rt != "r1" || !start {
+		t.Errorf("PiRuntime(session_start) = %q, %v", rt, start)
 	}
-	if rt, remove := PiReport([]byte(`{"event":"agent_start","runtime":"r1"}`)); rt != "r1" || remove {
-		t.Errorf("PiReport(agent_start) = %q, %v", rt, remove)
+	if rt, start := PiRuntime([]byte(`{"event":"session_shutdown","runtime":"r1"}`)); rt != "r1" || start {
+		t.Errorf("PiRuntime(shutdown) = %q, %v", rt, start)
 	}
-	if rt, _ := PiReport(fixture(t, "claude_stop")); rt != "" {
-		t.Errorf("PiReport(claude) = %q", rt)
+	if rt, _ := PiRuntime(fixture(t, "claude_stop")); rt != "" {
+		t.Errorf("PiRuntime(claude) = %q", rt)
+	}
+	// The extension sends the reply whole, so summary redacts before it cuts:
+	// a token across rune 200, or near the extension's 16000-rune cap, never
+	// reaches Detail in part.
+	for _, at := range []int{195, 15990} {
+		msg := strings.Repeat("x", at-1) + " " + token + " tail"
+		b, _ := json.Marshal(map[string]any{"event": "agent_settled", "stop_reason": "stop", "message": msg})
+		next, ok := Derive(&model.Activity{State: model.StateWorking}, model.ProviderPi, b, now)
+		if !ok || strings.Contains(next.Detail, "QQ") || strings.Contains(next.Detail, "ghp_") {
+			t.Errorf("token at %d: Detail %q", at, next.Detail)
+		}
+		if lm := LastMessage(b); lm != msg {
+			t.Errorf("token at %d: LastMessage cut the reply", at)
+		}
 	}
 }
 
@@ -367,7 +381,7 @@ func TestPiExtension(t *testing.T) {
 		}
 	}
 	src := string(PiExtension("pitwall"))
-	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", "runtime = randomUUID()", "{ event, runtime,", "Array.from(", "kill(current);\n\t});", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
+	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", "kill(current);\n\t});", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
 		if !strings.Contains(src, s) {
 			t.Errorf("extension lacks %s", s)
 		}

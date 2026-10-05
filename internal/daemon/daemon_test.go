@@ -594,10 +594,10 @@ func TestPiStaleShutdownIgnored(t *testing.T) {
 	}
 }
 
-// /reload loads pi's extension again in the same session. A shutdown from
-// the old runtime that reaches the daemon after the new runtime reported
-// must not end the new runtime's activity; one that arrives first still
-// ends the old activity.
+// /reload loads pi's extension again in the same session, as a new runtime
+// that starts with session_start. Any report from the runtime it replaced
+// that reaches the daemon later changes nothing; reports before any
+// session_start are taken.
 func TestPiReloadOrdering(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
@@ -615,32 +615,35 @@ func TestPiReloadOrdering(t *testing.T) {
 		b := fmt.Sprintf(`{"event":%q,"runtime":%q,"session_id":"s1","stop_reason":"stop","message":"done"}`, event, runtime)
 		must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: []byte(b)}))
 	}
-	// In order: the old runtime's shutdown ends its finished turn.
+	state := func() model.AgentState { return d.activityOf(id).State }
+	send("agent_start", "early")
+	if s := state(); s != model.StateWorking {
+		t.Fatalf("a report before any session_start was dropped: %q", s)
+	}
 	send("session_start", "old")
 	send("agent_settled", "old")
 	send("session_shutdown", "old")
-	if a := d.activityOf(id); a.State != "" {
-		t.Fatalf("in-order shutdown kept the activity: %+v", a)
+	if s := state(); s != "" {
+		t.Fatalf("the current runtime's shutdown kept the activity: %q", s)
 	}
-	// Late: the new runtime started a turn before the old shutdown arrived.
-	send("session_start", "old")
 	send("agent_settled", "old")
 	send("session_start", "new")
 	send("agent_start", "new")
+	send("agent_settled", "old") // late, from the runtime /reload replaced
+	if s := state(); s != model.StateWorking {
+		t.Fatalf("the old runtime's late report changed the state to %q", s)
+	}
 	send("session_shutdown", "old")
-	if a := d.activityOf(id); a.State != model.StateWorking {
-		t.Fatalf("the old runtime's late shutdown ended the new one's turn: %+v", a)
+	if s := state(); s != model.StateWorking {
+		t.Fatalf("the old runtime's late shutdown changed the state to %q", s)
 	}
-	// Even when the new runtime has only started, it owns the pane.
 	send("agent_settled", "new")
-	send("session_start", "newer")
-	send("session_shutdown", "new")
-	if a := d.activityOf(id); a.State != model.StateCompleted {
-		t.Fatalf("a replaced runtime's shutdown removed the activity: %+v", a)
+	if s := state(); s != model.StateCompleted {
+		t.Fatalf("the new runtime's report was dropped: %q", s)
 	}
-	send("session_shutdown", "newer")
-	if a := d.activityOf(id); a.State != "" {
-		t.Fatalf("the current runtime's shutdown kept the activity: %+v", a)
+	send("session_shutdown", "new")
+	if s := state(); s != "" {
+		t.Fatalf("the new runtime's shutdown kept the activity: %q", s)
 	}
 }
 

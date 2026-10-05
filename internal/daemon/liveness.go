@@ -26,8 +26,8 @@ type liveness struct {
 	hookAt map[string]time.Time // pane: when its agent last sent a hook
 	fg     map[string]int       // pane: its foreground process group at that hook
 	det    map[string]*detected // pane: what detect saw at its last poll
-	// piRuntime is, per pane, the extension nonce of pi's latest report
-	// that did not remove its activity (see agent.PiReport).
+	// piRuntime is, per pane, the extension nonce of pi's latest
+	// session_start (see agent.PiRuntime).
 	piRuntime map[string]string
 }
 

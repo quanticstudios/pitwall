@@ -734,6 +734,20 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
+	// The pane's pi runtime is the one of its latest session_start; a report
+	// from any other, such as one /reload replaced, changes nothing.
+	if rt, start := agent.PiRuntime(m.Payload); rt != "" {
+		if cur := d.live.piRuntime[p.ID]; !start && cur != "" && cur != rt {
+			d.mu.Unlock()
+			return nil
+		}
+		if start {
+			if d.live.piRuntime == nil {
+				d.live.piRuntime = map[string]string{}
+			}
+			d.live.piRuntime[p.ID] = rt
+		}
+	}
 	d.sawHook(p.ID)
 	ai := slices.IndexFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
 	var prev *model.Activity
@@ -744,18 +758,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	now := time.Now()
 	changed := false
 
-	// A remove from a pi extension runtime that /reload replaced changes nothing.
-	staleRemove := false
-	if rt, remove := agent.PiReport(m.Payload); rt != "" && remove {
-		staleRemove = d.live.piRuntime[p.ID] != "" && d.live.piRuntime[p.ID] != rt
-	} else if rt != "" {
-		if d.live.piRuntime == nil {
-			d.live.piRuntime = map[string]string{}
-		}
-		d.live.piRuntime[p.ID] = rt
-	}
-
-	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok && !staleRemove {
+	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok {
 		changed = true
 		clearDecisions(&next) // a new state needs new answers
 		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
