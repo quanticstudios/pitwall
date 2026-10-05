@@ -207,10 +207,13 @@ type ui struct {
 	watchTheme string
 	report     func([]string)
 
-	// The sidebar slides over 200ms; sidebarShown is the visibility the
-	// slide is heading to, slideAt when it started.
+	// The sidebar and the agent panel slide over 200ms; sidebarShown and
+	// panelShown are where each slide is heading, slideAt and panelAt when
+	// it started.
 	sidebarShown bool // true when hidden, matching nav.sidebarHidden
 	slideAt      time.Time
+	panelShown   bool
+	panelAt      time.Time
 
 	// focusReq is the latest attach request, kept until its session is in
 	// the state.
@@ -447,33 +450,37 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	paint.Fill(gtx.Ops, u.th.Bg)
 	sw := gtx.Dp(sidebarWidth)
-	// The panes take their new width at once, so the PTYs resize once; the
-	// sidebar slides over them (aide's 200ms ease-out).
-	slide := min(1, float32(gtx.Now.Sub(u.slideAt))/float32(200*time.Millisecond))
-	if u.slideAt.IsZero() {
-		slide = 1
+	// The panes take their final width at once, so the PTYs resize once.
+	// The sidebar slides in or out and pushes them along; the agent panel
+	// slides in from the right edge (aide's 200ms ease-out).
+	shown := u.slide(gtx, u.slideAt, !u.nav.sidebarHidden) // how much of the sidebar shows
+	sideOpen := u.nav.panelOpen && !u.settings.Shown()
+	if sideOpen != u.panelShown {
+		u.panelShown, u.panelAt = sideOpen, gtx.Now
 	}
-	if slide < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
-	ease := 1 - (1-slide)*(1-slide)*(1-slide)
-	shown := ease // how much of the sidebar shows
-	if u.nav.sidebarHidden {
-		shown = 1 - ease
-	}
+	pshown := u.slide(gtx, u.panelAt, sideOpen)
 	left := 0
 	if !u.nav.sidebarHidden {
 		left = sw + 1
 	}
 	area := image.Rectangle{Min: image.Pt(left, 0), Max: gtx.Constraints.Max}
 	var side image.Rectangle // the agent panel, right of the panes
-	if u.nav.panelOpen && !u.settings.Shown() {
+	if pshown > 0 {
 		if pw := panelWidth(area.Dx(), gtx.Dp(panel.Width)+1, gtx.Dp(panel.MinWidth)+1, gtx.Dp(minPaneArea)); pw > 0 {
-			side = image.Rectangle{Min: image.Pt(area.Max.X-pw, 0), Max: area.Max}
-			area.Max.X = side.Min.X
+			if sideOpen {
+				area.Max.X -= pw
+			}
+			x := gtx.Constraints.Max.X - int(float32(pw)*pshown+0.5)
+			side = image.Rectangle{Min: image.Pt(x, 0), Max: image.Pt(x+pw, gtx.Constraints.Max.Y)}
 		}
 	}
-	off := op.Offset(area.Min).Push(gtx.Ops)
+	edge := int(float32(sw+1)*shown + 0.5) // the sidebar's right edge now
+	visible := image.Rectangle{Min: image.Pt(edge, 0), Max: gtx.Constraints.Max}
+	if !side.Empty() {
+		visible.Max.X = side.Min.X
+	}
+	pc := clip.Rect(visible).Push(gtx.Ops)
+	off := op.Offset(area.Min.Add(image.Pt(edge-left, 0))).Push(gtx.Ops)
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
 	// Another session fades in, so the change of context shows.
@@ -490,13 +497,14 @@ func (u *ui) layout(gtx gl.Context) {
 	fo.Pop()
 	u.drawNotice(pgtx)
 	off.Pop()
+	pc.Pop()
 	u.layoutPanel(gtx, &st, side)
 	if u.nav.tabMode || u.nav.paneMode {
 		u.drawModePill(gtx, area)
 	}
 
-	if x := int(float32(sw+1)*shown + 0.5); x > 0 {
-		so := op.Offset(image.Pt(x-sw-1, 0)).Push(gtx.Ops)
+	if edge > 0 {
+		so := op.Offset(image.Pt(edge-sw-1, 0)).Push(gtx.Ops)
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
 		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.session, u.nav.workspace) {
@@ -954,4 +962,21 @@ func (u *ui) layoutDividers(gtx gl.Context, ws, tab string, root *layout.Node, a
 			s.Pop()
 		}
 	})
+}
+
+// slide is how far a 200ms ease-out slide that started at at has shown its
+// subject, heading to open or closed: 0 is hidden, 1 fully shown. A zero at
+// means no slide. It asks for the next frame until the slide ends.
+func (u *ui) slide(gtx gl.Context, at time.Time, open bool) float32 {
+	t := float32(1)
+	if !at.IsZero() {
+		t = float32(gtx.Now.Sub(at)) / float32(200*time.Millisecond)
+	}
+	if t < 1 {
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	if open {
+		return easeOut(t)
+	}
+	return 1 - easeOut(t)
 }

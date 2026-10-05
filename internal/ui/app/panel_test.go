@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"image"
 	"sync"
 	"testing"
 	"time"
 
 	"gioui.org/io/key"
+	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
@@ -41,6 +45,15 @@ func TestPanelToggle(t *testing.T) {
 		if got := keys(press("L", key.ModCtrl)); got != "" || u.nav.panelOpen {
 			t.Fatalf("%s: second Ctrl+L: open %v, pane got %q", b.Preset, u.nav.panelOpen, got)
 		}
+		u.panel.mu.Lock()
+		sliding := u.panel.filesDir != ""
+		u.panel.mu.Unlock()
+		if !sliding {
+			t.Fatalf("%s: the panel stopped before it slid out", b.Preset)
+		}
+		var ops op.Ops // a frame once the slide is over
+		u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: gl.Exact(image.Pt(1280, 800)), Now: u.panelAt.Add(time.Second)})
 		u.panel.mu.Lock()
 		dir := u.panel.filesDir
 		u.panel.mu.Unlock()
@@ -170,5 +183,28 @@ func TestPanelWatchWaitsForProvider(t *testing.T) {
 	defer mu.Unlock()
 	if len(got) != 1 || got[0] != model.ProviderClaude {
 		t.Fatalf("watches started with providers %q, want one with claude", got)
+	}
+}
+
+// TestSlide: a slide starts hidden or shown, eases out over 200ms, asks for
+// frames until it ends, and a zero start means no slide.
+func TestSlide(t *testing.T) {
+	var u ui
+	at := time.Now()
+	for _, c := range []struct {
+		after time.Duration
+		open  bool
+		want  float32
+	}{
+		{0, true, 0}, {0, false, 1},
+		{100 * time.Millisecond, true, 0.875}, {100 * time.Millisecond, false, 0.125},
+		{200 * time.Millisecond, true, 1}, {time.Second, false, 0},
+	} {
+		if got := u.slide(gl.Context{Ops: new(op.Ops), Now: at.Add(c.after)}, at, c.open); got != c.want {
+			t.Errorf("slide after %v, open %v = %v, want %v", c.after, c.open, got, c.want)
+		}
+	}
+	if got := u.slide(gl.Context{Ops: new(op.Ops), Now: at}, time.Time{}, false); got != 0 {
+		t.Errorf("no slide, closed = %v, want 0", got)
 	}
 }
