@@ -425,6 +425,13 @@ func TestPiExtension(t *testing.T) {
 	if !IsPiExtension([]byte(strings.Replace(string(old), piBinToken, `"/usr/bin/pitwall"`, 1))) || IsPiExtension(old) {
 		t.Error("IsPiExtension misjudges the alpha.5 extension")
 	}
+	old, err = os.ReadFile("testdata/pi_extension_alpha6.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsPiExtension([]byte(strings.Replace(string(old), piBinToken, `"/usr/bin/pitwall"`, 1))) {
+		t.Error("IsPiExtension misjudges the alpha.6 extension")
+	}
 	if IsPiExtension(nil) || IsPiExtension([]byte("export default function () {}\n")) {
 		t.Error("IsPiExtension true for a foreign file")
 	}
@@ -439,6 +446,26 @@ func TestPiSettled(t *testing.T) {
 	for _, b := range []string{`{"event":"session_shutdown","runtime":"r"}`, `{"event":"agent_settled","stop_reason":"stop"}`, `{"hook_event_name":"Stop","stop_reason":"stop"}`, `{`} {
 		if _, ok := PiSettled([]byte(b)); ok {
 			t.Errorf("PiSettled(%s) found a result", b)
+		}
+	}
+}
+
+func TestTranscript(t *testing.T) {
+	for payload, want := range map[string]string{
+		`{"hook_event_name":"Stop","transcript_path":"/home/u/.claude/projects/p/s.jsonl"}`: "/home/u/.claude/projects/p/s.jsonl",
+		`{"hook_event_name":"Stop","transcript_path":null}`:                                 "",
+		`{"hook_event_name":"Stop","transcript_path":"rel/s.jsonl"}`:                        "",
+		`{"hook_event_name":"Stop","transcript_path":"/x/s.json"}`:                          "",
+		`{"hook_event_name":"Stop"}`:                                                        "",
+		`{"event":"agent_start","session_file":"/home/u/.pi/agent/sessions/d/s.jsonl"}`:     "/home/u/.pi/agent/sessions/d/s.jsonl",
+		`{"event":"agent_start","session_file":""}`:                                         "",
+		`not json`: "",
+	} {
+		if runtime.GOOS == "windows" && want != "" {
+			continue
+		}
+		if got := Transcript([]byte(payload)); got != want {
+			t.Errorf("Transcript(%s) = %q, want %q", payload, got, want)
 		}
 	}
 }

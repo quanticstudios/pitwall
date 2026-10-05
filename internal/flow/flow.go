@@ -98,5 +98,5 @@ func (s Subagent) Running() bool { return s.End.IsZero() }
 // what is appended, from its own goroutine; changed must not block. A
 // missing or unreadable file yields an empty Feed and is retried.
 func Watch(ctx context.Context, provider model.Provider, path string, changed func(Feed)) {
-	panic("flow.Watch: not implemented")
+	go watch(ctx, provider, path, changed)
 }

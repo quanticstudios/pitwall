@@ -3,12 +3,15 @@
 package gitstat
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -237,5 +240,112 @@ type FileStat struct {
 // ref they are against ("main"). Untracked files come last, Status '?',
 // with Add their line count; the other files' totals match Stats'.
 func Files(ctx context.Context, worktree string) (base string, files []FileStat, err error) {
-	panic("gitstat.Files: not implemented")
+	ref, err := defaultRef(ctx, worktree)
+	if err != nil || ref == "" {
+		return "", nil, err
+	}
+	base = strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/origin/"), "refs/heads/")
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return "", nil, fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	byPath := map[string]*FileStat{}
+	var order []string
+	stat := func(path string) *FileStat {
+		f := byPath[path]
+		if f == nil {
+			f = &FileStat{Path: path, Status: 'M'}
+			byPath[path] = f
+			order = append(order, path)
+		}
+		return f
+	}
+	// The same two diffs as Stats, so the totals match.
+	for _, revision := range []string{ref + "...HEAD", "HEAD"} {
+		out, err := git(ctx, root, "diff", "--numstat", "-z", revision, "--")
+		if err != nil {
+			return "", nil, err
+		}
+		fields := strings.Split(out, "\x00")
+		for i := 0; i < len(fields); i++ {
+			counts := strings.Split(fields[i], "\t")
+			if len(counts) < 3 {
+				continue
+			}
+			path := counts[2]
+			if path == "" && i+2 < len(fields) { // a rename: old and new path follow
+				path = fields[i+2]
+				i += 2
+			}
+			f := stat(path)
+			if counts[0] == "-" {
+				continue
+			}
+			added, err := strconv.Atoi(counts[0])
+			if err != nil {
+				return "", nil, err
+			}
+			deleted, err := strconv.Atoi(counts[1])
+			if err != nil {
+				return "", nil, err
+			}
+			f.Add += added
+			f.Del += deleted
+		}
+	}
+	// Status is the change from the merge base to the work tree as a whole.
+	mb, err := git(ctx, root, "merge-base", ref, "HEAD")
+	if err != nil {
+		return "", nil, err
+	}
+	out, err := git(ctx, root, "diff", "--name-status", "-z", strings.TrimSpace(mb), "--")
+	if err != nil {
+		return "", nil, err
+	}
+	fields := strings.Split(out, "\x00")
+	for i := 0; i+1 < len(fields); i += 2 {
+		status := fields[i]
+		if status == "" {
+			break
+		}
+		path := fields[i+1]
+		if (status[0] == 'R' || status[0] == 'C') && i+2 < len(fields) {
+			i++
+			path = fields[i+1]
+		}
+		if f := byPath[path]; f != nil {
+			f.Status = status[0]
+			if f.Status == 'C' || f.Status == 'T' {
+				f.Status = 'M'
+			}
+		}
+	}
+	slices.Sort(order)
+	for _, path := range order {
+		files = append(files, *byPath[path])
+	}
+	out, err = git(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return "", nil, err
+	}
+	for _, path := range strings.Split(out, "\x00") {
+		if path != "" {
+			files = append(files, FileStat{Path: path, Add: countLines(filepath.Join(root, path)), Status: '?'})
+		}
+	}
+	return base, files, nil
+}
+
+// countLines is the line count of a text file, 0 for a binary or unreadable one.
+func countLines(path string) int {
+	// ponytail: reads the whole file; an untracked file large enough to matter is rare.
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 || bytes.IndexByte(b, 0) >= 0 {
+		return 0
+	}
+	n := bytes.Count(b, []byte("\n"))
+	if b[len(b)-1] != '\n' {
+		n++
+	}
+	return n
 }

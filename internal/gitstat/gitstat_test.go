@@ -257,3 +257,67 @@ func TestRemoveKeepsUnmergedBranch(t *testing.T) {
 		t.Fatalf("worktree remains: %v", err)
 	}
 }
+
+// Files' tracked totals are Stats' totals, file by file, with untracked files last.
+func TestFilesMatchStats(t *testing.T) {
+	dir := repo(t)
+	writeFile(t, dir, "gone.txt", "a\nb\n")
+	writeFile(t, dir, "moved.txt", "1\n2\n3\n4\n5\n6\n7\n8\n")
+	commit(t, dir)
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "file.txt", "one\n2\nthree\nfour\n")
+	writeFile(t, dir, "added.txt", "x\ny\n")
+	writeFile(t, dir, "bin.dat", "\x00\x01")
+	runGit(t, dir, "mv", "moved.txt", "renamed.txt")
+	commit(t, dir)
+	writeFile(t, dir, "added.txt", "x\n")
+	if err := os.Remove(filepath.Join(dir, "gone.txt")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "new.txt", "u\nv\nw")
+
+	ctx := context.Background()
+	base, files, err := Files(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := Stats(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != "main" {
+		t.Fatalf("base = %q, want main", base)
+	}
+	var add, del int
+	got := map[string]FileStat{}
+	for i, f := range files {
+		got[f.Path] = f
+		if f.Status == '?' {
+			if i != len(files)-1 {
+				t.Fatalf("untracked %s is not last: %+v", f.Path, files)
+			}
+			continue
+		}
+		add += f.Add
+		del += f.Del
+	}
+	if add != stats.Additions || del != stats.Deletions {
+		t.Fatalf("Files totals +%d -%d, Stats +%d -%d: %+v", add, del, stats.Additions, stats.Deletions, files)
+	}
+	want := map[string]FileStat{
+		"file.txt":    {Path: "file.txt", Add: 2, Del: 1, Status: 'M'},
+		"added.txt":   {Path: "added.txt", Add: 2, Del: 1, Status: 'A'},
+		"bin.dat":     {Path: "bin.dat", Status: 'A'},
+		"renamed.txt": {Path: "renamed.txt", Status: 'R'},
+		"gone.txt":    {Path: "gone.txt", Del: 2, Status: 'D'},
+		"new.txt":     {Path: "new.txt", Add: 3, Status: '?'},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("Files = %+v", files)
+	}
+	for p, w := range want {
+		if got[p] != w {
+			t.Errorf("%s = %+v, want %+v", p, got[p], w)
+		}
+	}
+}

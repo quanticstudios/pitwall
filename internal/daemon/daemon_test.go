@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -553,6 +554,41 @@ func TestSideForkKeepsSession(t *testing.T) {
 	defer d.mu.Unlock()
 	if sid := d.st.Panes[0].SessionID; sid != "main" {
 		t.Fatalf("SessionID = %q, want main", sid)
+	}
+}
+
+// A hook names the session's own file; a /side fork's null one does not.
+func TestHookSetsTranscript(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: d.st.Workspaces[0].ID}))
+	id := d.st.Panes[0].ID
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	payload, _ := json.Marshal(map[string]string{"session_id": "s", "transcript_path": path, "hook_event_name": "UserPromptSubmit"})
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: payload}))
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderClaude,
+		Payload: []byte(`{"session_id":"s","transcript_path":null,"hook_event_name":"Stop"}`)}))
+	d.mu.Lock()
+	got := d.st.Panes[0].Transcript
+	d.mu.Unlock()
+	if got != path {
+		t.Fatalf("Transcript = %q, want %q", got, path)
+	}
+	pi := filepath.Join(t.TempDir(), "pi.jsonl")
+	payload, _ = json.Marshal(map[string]string{"event": "session_start", "session_id": "p", "session_file": pi})
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: payload}))
+	d.mu.Lock()
+	got = d.st.Panes[0].Transcript
+	d.mu.Unlock()
+	if got != pi {
+		t.Fatalf("pi Transcript = %q, want %q", got, pi)
 	}
 }
 
