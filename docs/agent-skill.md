@@ -31,10 +31,15 @@ agent, else the first pane. Words after the tab join with spaces; put `--` befor
 with `-`. The paste is bracketed when the program asked for it, so newlines
 stay part of one prompt. Enter follows 300 ms after the paste is written.
 For an agent, send returns once the agent's state changes (at most 10 s;
-past that it warns on stderr and still exits 0). send submits only while no
-turn runs, so any completion after the moment it submitted (its Enter, or
-its paste with `--no-enter`) belongs to the turn it submitted.
-`wait --until done` skips a `done` older than that moment. Two sends into one tab run one after
+past that it warns on stderr and still exits 0). The daemon counts each
+pane's turns: one more each time the agent starts working, or a hook reports
+a new prompt. When send submits (its Enter, or its paste with `--no-enter`),
+it records the number the submitted turn will get; the hook that starts that
+turn waits for send's write, so it is counted after. `wait --until done`
+takes a `done` only once the count has reached that number, so a completion
+from before the send never ends it, however late it arrives. A send that the
+pane's program does not read within 10 s is abandoned with "the pane isn't
+reading input". Two sends into one tab run one after
 the other, each paste followed by its own Enter.
 `--no-enter` pastes without pressing Enter. send refuses:
 

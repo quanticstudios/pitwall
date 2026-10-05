@@ -18,7 +18,12 @@ import (
 // part of the paste; tests shorten it.
 var sendPause = 300 * time.Millisecond
 
+// sendDeadline is how long a whole Send may take. A write the pane's
+// program has not read by then is abandoned; tests shorten it.
+var sendDeadline = 10 * time.Second
+
 var (
+	errNotReading  = errors.New("the pane isn't reading input")
 	errSendBlocked = errors.New("the agent is waiting on a permission prompt or a question; answer it in the tab (pitwall send never answers one it can see)")
 	errSendBusy    = errors.New("the agent is working; wait for it first (pitwall wait <tab> --until done)")
 )
@@ -129,8 +134,18 @@ func (d *Daemon) writeNow(ctx context.Context, id string, p Pane, data []byte, c
 
 // send is proto.Send. The writer checks again right before the paste and
 // again before the Enter, so a prompt pitwall sees by then gets neither.
-// ctx ends with the daemon or the client's connection.
+// It ends when the daemon stops, or sendDeadline after it started.
 func (d *Daemon) send(ctx context.Context, m proto.Send) error {
+	ctx, cancel := context.WithTimeout(ctx, sendDeadline)
+	defer cancel()
+	err := d.sendBy(ctx, m)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errNotReading
+	}
+	return err
+}
+
+func (d *Daemon) sendBy(ctx context.Context, m proto.Send) error {
 	l := d.sendLock(m.Pane)
 	if err := l.lock(ctx); err != nil {
 		return err
@@ -143,11 +158,12 @@ func (d *Daemon) send(ctx context.Context, m proto.Send) error {
 		return err
 	}
 	check := func() error { _, err := d.sendable(m.Pane); return err }
-	// why: the prompt is submitted with this write; a turn that ends after it is the new one.
+	// why: the prompt is submitted with this write, and the hook of the turn
+	// it starts waits for the gate, so that turn's number is Turns+1.
 	stamp := func() {
 		d.mu.Lock()
 		if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == m.Pane }); i >= 0 {
-			d.st.Panes[i].SentAt = time.Now()
+			d.st.Panes[i].SentTurn = d.st.Panes[i].Turns + 1
 			d.changed()
 		}
 		d.mu.Unlock()

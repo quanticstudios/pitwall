@@ -203,7 +203,7 @@ func TestSendPausesAfterThePasteIsWritten(t *testing.T) {
 	if len(writes) != 2 || writes[1].Sub(writes[0]) < sendPause {
 		t.Fatalf("writes at %v, want Enter %s after the paste", writes, sendPause)
 	}
-	watch.waitState("SentAt", func(s model.State) bool { return len(s.Panes) == 1 && !s.Panes[0].SentAt.IsZero() })
+	watch.waitState("SentTurn", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].SentTurn == 1 })
 }
 
 // Two sends into one pane never merge: each paste gets its own Enter.
@@ -230,8 +230,9 @@ func TestSendsDoNotInterleave(t *testing.T) {
 	}
 }
 
-// SentAt is stamped on the writer right after the Enter, before a hook
-// waiting for the pane can run: the turn's completion is never older.
+// A completion queued behind the Enter's write, from before the submitted
+// turn, does not count as that turn's end; the next start and completion
+// do. Turns, not times, tell them apart.
 func TestSendStampsBeforeHooks(t *testing.T) {
 	sendPause = 200 * time.Millisecond
 	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
@@ -240,6 +241,21 @@ func TestSendStampsBeforeHooks(t *testing.T) {
 	defer stop()
 	cli, hook, watch := dial(t, sock, "cli"), dial(t, sock, "hook"), dial(t, sock, "watch")
 	id, fp := sendPane(t, f, cli, watch)
+	event := func(s string) {
+		t.Helper()
+		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(s)})
+	}
+	pane := func(what string, ok func(model.Pane, model.AgentState) bool) model.Pane {
+		t.Helper()
+		st := watch.waitState(what, func(s model.State) bool {
+			return len(s.Panes) == 1 && len(s.Activities) == 1 && ok(s.Panes[0], s.Activities[0].State)
+		})
+		return st.Panes[0]
+	}
+	event("working")
+	event("completed")
+	pane("turn 1 done", func(p model.Pane, s model.AgentState) bool { return p.Turns == 1 && s == model.StateCompleted })
+
 	sent := make(chan string, 1)
 	go func() { sent <- cli.request(proto.Send{Pane: id, Text: "next", Enter: true}) }()
 	for fp.got() != "next" {
@@ -250,18 +266,21 @@ func TestSendStampsBeforeHooks(t *testing.T) {
 	fp.block = block // the Enter's write waits, holding the gate
 	fp.mu.Unlock()
 	time.Sleep(sendPause + 50*time.Millisecond)
-	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("completed")})
-	time.Sleep(50 * time.Millisecond) // the hook waits for the gate
+	event("completed") // emitted before the Enter, queued behind its write
+	time.Sleep(50 * time.Millisecond)
 	close(block)
 	if e := <-sent; e != "" {
 		t.Fatal(e)
 	}
-	st := watch.waitState("stamped and done", func(s model.State) bool {
-		return len(s.Panes) == 1 && !s.Panes[0].SentAt.IsZero() && len(s.Activities) == 1 && s.Activities[0].State == model.StateCompleted
-	})
-	if st.Activities[0].UpdatedAt.Before(st.Panes[0].SentAt) {
-		t.Fatalf("done at %v, sent at %v: the new turn's done looks stale", st.Activities[0].UpdatedAt, st.Panes[0].SentAt)
+	p := pane("sent, old done", func(p model.Pane, s model.AgentState) bool { return p.SentTurn == 2 })
+	if p.Turns >= p.SentTurn {
+		t.Fatalf("turns %d, sent turn %d: the queued done would end a wait", p.Turns, p.SentTurn)
 	}
+	event("working")
+	event("completed")
+	pane("turn 2 done", func(p model.Pane, s model.AgentState) bool {
+		return p.Turns >= p.SentTurn && s == model.StateCompleted
+	})
 }
 
 // An OSC notification asking for input blocks send like a hook's question.
@@ -308,9 +327,11 @@ func TestShutdownWithSendStuck(t *testing.T) {
 	}
 }
 
-// A send stuck on a write gives up when its client hangs up, and frees the
-// pane for the next send.
-func TestSendGivesUpWithItsClient(t *testing.T) {
+// A send stuck on a write the program never reads gives up at its
+// deadline, says so, and frees the pane for the next send.
+func TestSendDeadline(t *testing.T) {
+	sendDeadline = 100 * time.Millisecond
+	t.Cleanup(func() { sendDeadline = 10 * time.Second })
 	f := &fakes{statsCalls: map[string]int{}}
 	d, err := NewWith(f.options())
 	if err != nil {
@@ -325,18 +346,15 @@ func TestSendGivesUpWithItsClient(t *testing.T) {
 	fp.block = make(chan struct{}) // never closed
 	fp.mu.Unlock()
 	t.Cleanup(func() { fp.Close() })
-	ctx, hangUp := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- d.send(ctx, proto.Send{Pane: id, Text: "stuck", Enter: true}) }()
-	time.Sleep(50 * time.Millisecond)
-	hangUp()
+	go func() { done <- d.handle(context.Background(), proto.Send{Pane: id, Text: "stuck", Enter: true}) }()
 	select {
 	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
+		if !errors.Is(err, errNotReading) {
 			t.Fatalf("send: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("send outlives its client")
+		t.Fatal("send outlives its deadline")
 	}
 	if l := d.sendLock(id); !l.tryLock() {
 		t.Fatal("the pane's send lock is still held")

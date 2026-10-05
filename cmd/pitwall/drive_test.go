@@ -128,15 +128,15 @@ func noticeBeforeAgent() proto.StateMsg {
 	return m
 }
 
-// sentAfterDone is tab build's claude done with a turn older than its last
-// send, or, with fresh, done again after it.
+// sentAfterDone is tab build's claude done with turn 1 while its last send
+// submitted turn 2, or, with fresh, done after turn 2 ran. The stale done is
+// newer by the clock: only the turn count tells them apart.
 func sentAfterDone(fresh bool) proto.StateMsg {
 	m := driveState(model.ProviderClaude, model.StateCompleted, false, 0)
-	at := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	m.State.Activities[0].UpdatedAt = at
-	m.State.Panes[0].SentAt = at.Add(time.Second)
+	m.State.Activities[0].UpdatedAt = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m.State.Panes[0].Turns, m.State.Panes[0].SentTurn = 1, 2
 	if fresh {
-		m.State.Activities[0].UpdatedAt = at.Add(time.Minute)
+		m.State.Panes[0].Turns = 2
 	}
 	return m
 }

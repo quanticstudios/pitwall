@@ -104,10 +104,15 @@ type Pane struct {
 	// line only, whitespace collapsed and cut to 48 runes. A new session
 	// clears it; the next prompt fills it.
 	Prompt string
-	// SentAt is when pitwall send last submitted to the pane: its Enter was
-	// written, or, without Enter, its paste. A wait skips a done older than
-	// it. Not saved.
-	SentAt time.Time `json:"-"`
+	// Turns counts the agent's turns: it goes up each time the pane's
+	// activity moves into working from another state, and on each new
+	// prompt a hook reports. Not saved.
+	Turns int `json:"-"`
+	// SentTurn is the number the turn pitwall send last submitted gets:
+	// Turns plus one when its Enter (or, without Enter, its paste) was
+	// written; 0 before any send. A done counts for wait --until done once
+	// Turns reaches it. Not saved.
+	SentTurn int `json:"-"`
 }
 
 type MergeStatus string

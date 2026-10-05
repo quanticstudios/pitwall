@@ -274,7 +274,8 @@ func sendCommand(args []string, errOut io.Writer) error {
 		return err
 	}
 	defer conn.Close()
-	if _, err := syncCLI(conn, proto.Send{Pane: p.ID, Text: strings.Join(args[1:], " "), Enter: !*noEnter}); err != nil {
+	// why: the daemon gives a send 10s before it gives up on the pane.
+	if _, err := syncCLIWithin(conn, 15*time.Second, proto.Send{Pane: p.ID, Text: strings.Join(args[1:], " "), Enter: !*noEnter}); err != nil {
 		return fmt.Errorf("tab %s: %w", tabTitle(w), err)
 	}
 	if *noEnter || agentOf(*p) == "" {
@@ -379,7 +380,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		var agent, st, question string
 		if i >= 0 {
 			agent, st, question = paneState(state, state.Panes[i])
-			if *until == "done" && st == "done" && staleDone(state, state.Panes[i]) {
+			if *until == "done" && st == "done" && staleDone(state.Panes[i]) {
 				st = "" // the turn before the last send: not this one's end
 			}
 		}
@@ -420,10 +421,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	}
 }
 
-// staleDone reports a done activity of pane p older than the last prompt
-// pitwall send submitted to it. send submits only while no turn runs, so a
-// completion after that moment belongs to the submitted turn.
-func staleDone(state model.State, p model.Pane) bool {
-	i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
-	return i >= 0 && state.Activities[i].UpdatedAt.Before(p.SentAt)
-}
+// staleDone reports a done of pane p from before the turn the last pitwall
+// send submitted: that turn is number p.SentTurn, and the daemon counts it
+// only after the send, as its hook waits for the send's write.
+func staleDone(p model.Pane) bool { return p.Turns < p.SentTurn }

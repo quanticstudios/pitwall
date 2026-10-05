@@ -225,6 +225,9 @@ func (d *Daemon) setActivity(ctx context.Context, id string, prov model.Provider
 	now := time.Now()
 	next := model.Activity{PaneID: id, WorkspaceID: p.WorkspaceID, Provider: prov, State: state, Detail: detail, UpdatedAt: now}
 	i := d.activityIndex(id)
+	if state == model.StateWorking && (i < 0 || d.st.Activities[i].State != model.StateWorking) {
+		p.Turns++ // a turn the screen shows start
+	}
 	switch {
 	case i < 0:
 		d.st.Activities = append(d.st.Activities, next)

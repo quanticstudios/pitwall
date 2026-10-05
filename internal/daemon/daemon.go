@@ -372,28 +372,11 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}()
 	}
 
-	// why: a read loop of its own ends connCtx when the client hangs up, so
-	// a send stuck on a pane can give up. Other requests still run after a
-	// hang-up: a hook says its event and leaves.
-	connCtx, hangUp := context.WithCancel(ctx)
-	defer hangUp()
-	msgs := make(chan any)
-	go func() {
-		defer hangUp()
-		defer close(msgs)
-		for {
-			m, err := conn.Recv()
-			if err != nil {
-				return
-			}
-			select {
-			case msgs <- m:
-			case <-ctx.Done():
-				return
-			}
+	for {
+		m, err := conn.Recv()
+		if err != nil {
+			return
 		}
-	}()
-	for m := range msgs {
 		if _, ok := m.(proto.Sync); ok {
 			// Every earlier request on this connection is handled: replies
 			// are synchronous.
@@ -405,12 +388,6 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if show, ok := m.(proto.SessionShow); ok && hello.Kind == "gui" {
 			if err := d.sessionShow(c, show.SessionID); err != nil {
-				c.queue(proto.Error{Message: err.Error()})
-			}
-			continue
-		}
-		if send, ok := m.(proto.Send); ok {
-			if err := d.send(connCtx, send); err != nil {
 				c.queue(proto.Error{Message: err.Error()})
 			}
 			continue
@@ -820,8 +797,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	now := time.Now()
 	changed := false
 
+	started := agent.TurnStart(m.Payload)
 	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok {
 		changed = true
+		started = started || next.State == model.StateWorking && (prev == nil || prev.State != model.StateWorking)
 		clearDecisions(&next) // a new state needs new answers
 		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
 			// The known keys, from the whole message before it is cut.
@@ -849,6 +828,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 				go d.refreshStats(ctx, p.WorkspaceID)
 			}
 		}
+	}
+	if started {
+		p.Turns, changed = p.Turns+1, true
 	}
 	if p.Provider != m.Provider {
 		p.Provider, changed = m.Provider, true

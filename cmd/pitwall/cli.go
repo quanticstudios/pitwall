@@ -67,8 +67,13 @@ func dialKind(kind string) (*cliConn, error) {
 
 // syncCLI acknowledges all requests before Sync, including daemon errors.
 func syncCLI(conn *cliConn, requests ...any) (model.State, error) {
+	return syncCLIWithin(conn, 5*time.Second, requests...)
+}
+
+// syncCLIWithin is syncCLI giving the daemon timeout to answer.
+func syncCLIWithin(conn *cliConn, timeout time.Duration, requests ...any) (model.State, error) {
 	// Confirmation can take longer than the socket timeout.
-	if err := conn.socket.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := conn.socket.SetDeadline(time.Now().Add(timeout)); err != nil {
 		return model.State{}, err
 	}
 	for _, request := range append(requests, proto.Sync{}) {
