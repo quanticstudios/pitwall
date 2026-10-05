@@ -9,9 +9,9 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
-// Version 12 added NewSession.Cmd, Send, Hello.Kind "watch" and
-// model.Pane.Turns and SentTurn, and a pane opened with NewSession.Cmd
-// stays, Exited, after its process ends, until the daemon restarts.
+// Version 12 added NewSession.Cmd, Send and Hello.Kind "watch", and a pane
+// opened with NewSession.Cmd stays, Exited, after its process ends, until
+// the daemon restarts.
 // Version 11 added decision models: Activity.Advice, AdviceP, AdviceRule,
 // Urgency and Review, and State.Decide.
 // Version 10 added vt.Cell.Link, the OSC 8 hyperlink on each cell of a frame.

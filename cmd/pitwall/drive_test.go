@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -95,10 +94,8 @@ func TestCLIWait(t *testing.T) {
 		{"timeout before state", []string{"--until", "done", "--timeout", "50ms"}, nil, 124, ""},
 		// A shell is no agent sitting idle.
 		{"shell never idle", []string{"--until", "idle", "--timeout", "50ms"}, []any{driveState("", "", false, 0)}, 124, ""},
-		{"stale done", []string{"--until", "done"}, []any{sentAfterDone(false), sentAfterDone(true)}, 0, "done\n"},
-		{"stale done only", []string{"--until", "done", "--timeout", "50ms"}, []any{sentAfterDone(false)}, 124, ""},
-		// Ready for input after a --no-enter send: freshness is for done only.
-		{"idle after send", []string{"--until", "idle", "--timeout", "1s"}, []any{sentAfterDone(false)}, 0, "done\n"},
+		// After a send the tab shows working until the agent reports again.
+		{"after send", []string{"--until", "done"}, []any{promptSent(), driveState(claude, model.StateCompleted, false, 0)}, 0, "done\n"},
 		// An OSC question before pitwall has seen the agent still blocks.
 		{"notice before agent", []string{"--until", "done"}, []any{noticeBeforeAgent()}, 2, "blocked: approve?\n"},
 		{"shell exit", []string{"--until", "exit"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 7)}, 7, "exit 7\n"},
@@ -128,16 +125,11 @@ func noticeBeforeAgent() proto.StateMsg {
 	return m
 }
 
-// sentAfterDone is tab build's claude done with turn 1 while its last send
-// submitted turn 2, or, with fresh, done after turn 2 ran. The stale done is
-// newer by the clock: only the turn count tells them apart.
-func sentAfterDone(fresh bool) proto.StateMsg {
-	m := driveState(model.ProviderClaude, model.StateCompleted, false, 0)
-	m.State.Activities[0].UpdatedAt = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	m.State.Panes[0].Turns, m.State.Panes[0].SentTurn = 1, 2
-	if fresh {
-		m.State.Panes[0].Turns = 2
-	}
+// promptSent is tab build's claude right after pitwall send: the daemon
+// shows it working until the agent reports.
+func promptSent() proto.StateMsg {
+	m := driveState(model.ProviderClaude, model.StateWorking, false, 0)
+	m.State.Activities[0].Detail = "prompt sent"
 	return m
 }
 
@@ -211,80 +203,6 @@ func TestCLINewRelativeCommand(t *testing.T) {
 	}
 }
 
-// fakeSendDaemon serves send's two connections: a watch that gets state,
-// then, after the Send on the cli connection, nothing (or a hang-up with
-// hangUp).
-func fakeSendDaemon(t *testing.T, state model.State, hangUp bool) {
-	t.Helper()
-	t.Setenv("PITWALL_PANE", "")
-	path := filepath.Join(t.TempDir(), "send.sock")
-	t.Setenv("PITWALL_SOCKET", path)
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- func() error {
-			wc, err := ln.Accept()
-			if err != nil {
-				return err
-			}
-			defer wc.Close()
-			watch := proto.NewConn(wc)
-			if _, err := watch.Recv(); err != nil {
-				return err
-			}
-			if err := watch.Send(proto.StateMsg{State: state}); err != nil {
-				return err
-			}
-			cc, err := ln.Accept()
-			if err != nil {
-				return err
-			}
-			defer cc.Close()
-			cli := proto.NewConn(cc)
-			for range 3 { // Hello, Send, Sync
-				if _, err := cli.Recv(); err != nil {
-					return err
-				}
-			}
-			if err := cli.Send(proto.StateMsg{State: state}); err != nil {
-				return err
-			}
-			if hangUp {
-				wc.Close()
-			}
-			watch.Recv() // until send hangs up
-			return nil
-		}()
-	}()
-	t.Cleanup(func() {
-		ln.Close()
-		if err := <-done; err != nil {
-			t.Error(err)
-		}
-	})
-}
-
-func TestCLISendUnconfirmed(t *testing.T) {
-	sendSettle = 50 * time.Millisecond
-	t.Cleanup(func() { sendSettle = 10 * time.Second })
-	st := driveState(model.ProviderClaude, model.StateCompleted, false, 0).State
-	t.Run("timeout warns", func(t *testing.T) {
-		fakeSendDaemon(t, st, false)
-		if code, _, stderr := cliOutput("send", "build", "go on"); code != 0 || !strings.Contains(stderr, "didn't change") {
-			t.Fatalf("%d %q", code, stderr)
-		}
-	})
-	t.Run("watch error fails", func(t *testing.T) {
-		fakeSendDaemon(t, st, true)
-		if code, _, stderr := cliOutput("send", "build", "go on"); code != 1 {
-			t.Fatalf("%d %q", code, stderr)
-		}
-	})
-}
-
 // A live pane beats an exited one, and an agent beats a shell among each.
 func TestMainPane(t *testing.T) {
 	deadClaude := model.Pane{ID: "dead", Provider: model.ProviderClaude, Exited: true}
@@ -299,6 +217,8 @@ func TestMainPane(t *testing.T) {
 		{[]model.Pane{deadClaude, shell}, "shell"},
 		{[]model.Pane{deadShell, deadClaude}, "dead"},
 		{[]model.Pane{deadShell}, "deadshell"},
+		// An agent Jev reads from the screen is an agent too.
+		{[]model.Pane{shell, {ID: "gemini", Provider: "gemini"}}, "gemini"},
 	} {
 		if got := mainPane(tc.panes); got == nil || got.ID != tc.want {
 			t.Errorf("%v: %v, want %s", tc.panes, got, tc.want)

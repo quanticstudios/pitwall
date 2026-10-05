@@ -361,12 +361,14 @@ pitwall wait "$tab" --until done --timeout 20m   # 0 done, 2 blocked, 3 exited, 
 pitwall send "$tab" "list only the HOLD findings, one per line"
 ```
 
-`send` refuses while the agent is working; `wait --until done` first. It
-also refuses while pitwall sees the tab waiting on a permission prompt or a
-question, by hook, OSC notification or on screen, and checks again right before the paste and
-before the Enter. A prompt the agent draws in the same instant as one of
-those writes can still receive it; no multiplexer can rule that out, since
-the agent draws before it tells anyone. A command tab's pane, and its exit
+`send` refuses while the agent is working (`wait --until done` first) or
+while pitwall sees the tab waiting on a permission prompt or a question, by
+hook, OSC notification or on screen. It checks again right before the paste
+and right before the Enter. After a send the tab shows working until the
+agent reports again, so `wait --until done` waits for the reply. Limits: a
+prompt drawn in the same instant as the paste or the Enter can still receive
+it, and an agent read from its screen (no hooks) is polled, so its state can
+be misread around the moment of a send. A command tab's pane, and its exit
 code, last until you close it or the daemon restarts. Any process running as you can reach the daemon's
 socket, so these commands give nothing a local process did not already have.
 

@@ -124,42 +124,6 @@ func sendPane(t *testing.T, f *fakes, cli, watch *testClient) (string, *fakePane
 	return st.Panes[0].ID, f.pane(0)
 }
 
-// A prompt pitwall sees after send's first check, while the paste waits in
-// the pane's queue, still stops the paste: the writer checks right before
-// it writes.
-func TestSendChecksOnTheWriter(t *testing.T) {
-	sendPause = time.Millisecond
-	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
-	f := &fakes{statsCalls: map[string]int{}}
-	sock, stop := run(t, f)
-	defer stop()
-	cli, hook, watch := dial(t, sock, "cli"), dial(t, sock, "hook"), dial(t, sock, "watch")
-	id, fp := sendPane(t, f, cli, watch)
-
-	block := make(chan struct{})
-	fp.mu.Lock()
-	fp.block = block
-	fp.mu.Unlock()
-	if e := cli.request(proto.Input{Pane: id, Data: []byte("k")}); e != "" {
-		t.Fatal(e) // the writer now sits in this Write
-	}
-	sent := make(chan string, 1)
-	sender := dial(t, sock, "cli")
-	go func() { sent <- sender.request(proto.Send{Pane: id, Text: "yes", Enter: true}) }()
-	time.Sleep(50 * time.Millisecond) // past send's first check, into the queue
-	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("pending-approval")})
-	watch.waitState("blocked", func(s model.State) bool {
-		return slices.ContainsFunc(s.Activities, func(a model.Activity) bool { return a.State == model.StatePendingApproval })
-	})
-	close(block)
-	if e := <-sent; !strings.Contains(e, "answer it in the tab") {
-		t.Fatalf("send: %q", e)
-	}
-	if got := fp.got(); got != "k" {
-		t.Fatalf("pane got %q, want only the key before the prompt", got)
-	}
-}
-
 // A prompt on screen stops send in a pane no hook or detection has named
 // an agent yet, as a freshly started agent's trust prompt is.
 func TestSendReadsTheScreenOfEveryPane(t *testing.T) {
@@ -177,33 +141,6 @@ func TestSendReadsTheScreenOfEveryPane(t *testing.T) {
 	if got := fp.got(); got != "" {
 		t.Fatalf("pane got %q", got)
 	}
-}
-
-// The pause before Enter runs from the paste's completed write, and the
-// send is stamped on the pane.
-func TestSendPausesAfterThePasteIsWritten(t *testing.T) {
-	sendPause = 50 * time.Millisecond
-	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
-	f := &fakes{statsCalls: map[string]int{}}
-	sock, stop := run(t, f)
-	defer stop()
-	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
-	id, fp := sendPane(t, f, cli, watch)
-	block := make(chan struct{})
-	fp.mu.Lock()
-	fp.block = block
-	fp.mu.Unlock()
-	time.AfterFunc(200*time.Millisecond, func() { close(block) })
-	if e := cli.request(proto.Send{Pane: id, Text: "go", Enter: true}); e != "" {
-		t.Fatal(e)
-	}
-	fp.mu.Lock()
-	writes := slices.Clone(fp.writes)
-	fp.mu.Unlock()
-	if len(writes) != 2 || writes[1].Sub(writes[0]) < sendPause {
-		t.Fatalf("writes at %v, want Enter %s after the paste", writes, sendPause)
-	}
-	watch.waitState("SentTurn", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].SentTurn == 1 })
 }
 
 // Two sends into one pane never merge: each paste gets its own Enter.
@@ -230,59 +167,6 @@ func TestSendsDoNotInterleave(t *testing.T) {
 	}
 }
 
-// A completion queued behind the Enter's write, from before the submitted
-// turn, does not count as that turn's end; the next start and completion
-// do. Turns, not times, tell them apart.
-func TestSendStampsBeforeHooks(t *testing.T) {
-	sendPause = 200 * time.Millisecond
-	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
-	f := &fakes{statsCalls: map[string]int{}}
-	sock, stop := run(t, f)
-	defer stop()
-	cli, hook, watch := dial(t, sock, "cli"), dial(t, sock, "hook"), dial(t, sock, "watch")
-	id, fp := sendPane(t, f, cli, watch)
-	event := func(s string) {
-		t.Helper()
-		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(s)})
-	}
-	pane := func(what string, ok func(model.Pane, model.AgentState) bool) model.Pane {
-		t.Helper()
-		st := watch.waitState(what, func(s model.State) bool {
-			return len(s.Panes) == 1 && len(s.Activities) == 1 && ok(s.Panes[0], s.Activities[0].State)
-		})
-		return st.Panes[0]
-	}
-	event("working")
-	event("completed")
-	pane("turn 1 done", func(p model.Pane, s model.AgentState) bool { return p.Turns == 1 && s == model.StateCompleted })
-
-	sent := make(chan string, 1)
-	go func() { sent <- cli.request(proto.Send{Pane: id, Text: "next", Enter: true}) }()
-	for fp.got() != "next" {
-		time.Sleep(time.Millisecond) // the paste is written; the pause runs
-	}
-	block := make(chan struct{})
-	fp.mu.Lock()
-	fp.block = block // the Enter's write waits, holding the gate
-	fp.mu.Unlock()
-	time.Sleep(sendPause + 50*time.Millisecond)
-	event("completed") // emitted before the Enter, queued behind its write
-	time.Sleep(50 * time.Millisecond)
-	close(block)
-	if e := <-sent; e != "" {
-		t.Fatal(e)
-	}
-	p := pane("sent, old done", func(p model.Pane, s model.AgentState) bool { return p.SentTurn == 2 })
-	if p.Turns >= p.SentTurn {
-		t.Fatalf("turns %d, sent turn %d: the queued done would end a wait", p.Turns, p.SentTurn)
-	}
-	event("working")
-	event("completed")
-	pane("turn 2 done", func(p model.Pane, s model.AgentState) bool {
-		return p.Turns >= p.SentTurn && s == model.StateCompleted
-	})
-}
-
 // An OSC notification asking for input blocks send like a hook's question.
 func TestSendRefusesAnOSCNotice(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
@@ -304,8 +188,8 @@ func TestSendRefusesAnOSCNotice(t *testing.T) {
 	}
 }
 
-// The daemon stops while a send is stuck on a write the program never
-// reads, and with a hook for that pane waiting behind it.
+// The daemon stops while a pane's writer is stuck on a write the program
+// never reads, after a send queued into it and a hook for the pane.
 func TestShutdownWithSendStuck(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	sock, stop := run(t, f)
@@ -323,15 +207,39 @@ func TestShutdownWithSendStuck(t *testing.T) {
 	select {
 	case <-stopped:
 	case <-time.After(5 * time.Second):
-		t.Fatal("shutdown hangs behind a stuck send")
+		t.Fatal("shutdown hangs behind a stuck writer")
 	}
 }
 
-// A send stuck on a write the program never reads gives up at its
-// deadline, says so, and frees the pane for the next send.
-func TestSendDeadline(t *testing.T) {
-	sendDeadline = 100 * time.Millisecond
-	t.Cleanup(func() { sendDeadline = 10 * time.Second })
+// After a send the pane's agent shows working, so a wait for done waits
+// for the reply; the agent's next done ends it.
+func TestSendShowsWorking(t *testing.T) {
+	sendPause = time.Millisecond
+	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	cli, hook, watch := dial(t, sock, "cli"), dial(t, sock, "hook"), dial(t, sock, "watch")
+	id, _ := sendPane(t, f, cli, watch)
+	activity := func(what string, ok func(model.Activity) bool) {
+		t.Helper()
+		watch.waitState(what, func(s model.State) bool { return len(s.Activities) == 1 && ok(s.Activities[0]) })
+	}
+	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("completed")})
+	activity("the last turn done", func(a model.Activity) bool { return a.State == model.StateCompleted })
+	if e := cli.request(proto.Send{Pane: id, Text: "next", Enter: true}); e != "" {
+		t.Fatal(e)
+	}
+	activity("prompt sent", func(a model.Activity) bool {
+		return a.State == model.StateWorking && a.Detail == "prompt sent" && a.Provider == model.ProviderClaude
+	})
+	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("completed")})
+	activity("the reply done", func(a model.Activity) bool { return a.State == model.StateCompleted })
+}
+
+// A pane whose input channel is full gets nothing, send says the pane is
+// not reading, and the pane's send lock is free again.
+func TestSendToAPaneNotReading(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	d, err := NewWith(f.options())
 	if err != nil {
@@ -339,24 +247,20 @@ func TestSendDeadline(t *testing.T) {
 	}
 	must(t, d.handle(context.Background(), proto.NewSession{Cwd: t.TempDir(), Cmd: []string{"tool"}}))
 	d.mu.Lock()
-	id := d.st.Panes[0].ID
+	id, in := d.st.Panes[0].ID, d.inputs[d.st.Panes[0].ID]
 	d.mu.Unlock()
 	fp := f.pane(0)
 	fp.mu.Lock()
-	fp.block = make(chan struct{}) // never closed
+	fp.block = make(chan struct{}) // the writer sits in its first Write
 	fp.mu.Unlock()
 	t.Cleanup(func() { fp.Close() })
-	done := make(chan error, 1)
-	go func() { done <- d.handle(context.Background(), proto.Send{Pane: id, Text: "stuck", Enter: true}) }()
-	select {
-	case err := <-done:
-		if !errors.Is(err, errNotReading) {
-			t.Fatalf("send: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("send outlives its deadline")
+	for len(in) < cap(in) {
+		d.input(id, []byte("k"))
 	}
-	if l := d.sendLock(id); !l.tryLock() {
+	if err := d.handle(context.Background(), proto.Send{Pane: id, Text: "hi", Enter: true}); err == nil || !strings.Contains(err.Error(), "not reading") {
+		t.Fatalf("send: %v", err)
+	}
+	if l := d.sendLock(id); !l.TryLock() {
 		t.Fatal("the pane's send lock is still held")
 	}
 }

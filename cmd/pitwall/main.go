@@ -55,10 +55,10 @@ const usage = `usage:
                              before the paste and before Enter
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there. done: it
-                             finished a turn newer than the last send; idle:
-                             done, or at its prompt; blocked: it waits on a
-                             permission prompt or a question; exit: its
-                             process ended. Without an agent, done means exit. Exit codes: 0 reached,
+                             finished its turn (a send shows working until
+                             the agent reports); idle: done, or at its prompt;
+                             blocked: it waits on a permission prompt or a
+                             question; exit: its process ended. Without an agent, done means exit. Exit codes: 0 reached,
                              2 blocked instead, 3 the process exited, 124
                              timed out, 1 error; for exit, the process's code
   pitwall attach [name]      show a tab in a window

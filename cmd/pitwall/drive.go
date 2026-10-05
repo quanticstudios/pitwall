@@ -94,10 +94,11 @@ func mainPane(panes []model.Pane) *model.Pane {
 	return best
 }
 
-// agentOf names the agent a pane runs: the one hooks or detection saw, else
-// the one its command starts; "" for neither.
+// agentOf names the agent a pane runs: the one hooks or detection saw,
+// Jev's screen-read agents included, else the one its command starts; ""
+// for neither.
 func agentOf(p model.Pane) string {
-	if p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex {
+	if p.Provider != "" && p.Provider != model.ProviderTerminal {
 		return string(p.Provider)
 	}
 	if len(p.Cmd) > 0 {
@@ -231,11 +232,7 @@ func (w *watcher) exitOf(state model.State, pane string) (int, bool) {
 // the state; a pane closed on purpose has none.
 var exitGrace = 2 * time.Second
 
-// sendSettle is how long send waits for an agent to take up the prompt, so
-// a wait --until done right after it waits for this turn.
-var sendSettle = 10 * time.Second
-
-func sendCommand(args []string, errOut io.Writer) error {
+func sendCommand(args []string) error {
 	flags := flag.NewFlagSet("send", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	sessionName := flags.String("s", "", "")
@@ -247,13 +244,12 @@ func sendCommand(args []string, errOut io.Writer) error {
 	if len(args) < 1 {
 		return errors.New("usage: pitwall send [--no-enter] [-s session] <tab> <text...>")
 	}
-	// why: subscribe before sending, to see the agent take up the prompt.
-	watch, err := dialWatch()
+	conn, err := dialCLI()
 	if err != nil {
 		return err
 	}
-	defer watch.Close()
-	state, err := watch.next()
+	defer conn.Close()
+	state, err := syncCLI(conn)
 	if err != nil {
 		return err
 	}
@@ -269,45 +265,10 @@ func sendCommand(args []string, errOut io.Writer) error {
 	if p == nil {
 		return fmt.Errorf("tab %s has no pane", tabTitle(w))
 	}
-	conn, err := dialCLI()
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	// why: the daemon gives a send 10s before it gives up on the pane.
-	if _, err := syncCLIWithin(conn, 15*time.Second, proto.Send{Pane: p.ID, Text: strings.Join(args[1:], " "), Enter: !*noEnter}); err != nil {
+	if _, err := syncCLI(conn, proto.Send{Pane: p.ID, Text: strings.Join(args[1:], " "), Enter: !*noEnter}); err != nil {
 		return fmt.Errorf("tab %s: %w", tabTitle(w), err)
 	}
-	if *noEnter || agentOf(*p) == "" {
-		return nil
-	}
-	activity := func(s model.State) (model.Activity, bool) {
-		i := slices.IndexFunc(s.Activities, func(a model.Activity) bool { return a.PaneID == p.ID })
-		if i < 0 {
-			return model.Activity{}, false
-		}
-		return s.Activities[i], true
-	}
-	before, had := activity(state)
-	var timedOut atomic.Bool
-	timer := time.AfterFunc(sendSettle, func() { timedOut.Store(true); watch.Close() })
-	defer timer.Stop()
-	for {
-		s, err := watch.next()
-		if timedOut.Load() {
-			// A slash command starts no turn, and an agent without hooks shows one late.
-			_, err := fmt.Fprintf(errOut, "pitwall: sent; the agent's state didn't change within %s\n", sendSettle)
-			return err
-		}
-		if err != nil {
-			return err
-		}
-		a, has := activity(s)
-		gone := !slices.ContainsFunc(s.Panes, func(sp model.Pane) bool { return sp.ID == p.ID && !sp.Exited })
-		if gone || has != had || a.State != before.State || !a.UpdatedAt.Equal(before.UpdatedAt) {
-			return nil
-		}
-	}
+	return nil
 }
 
 // Exit codes of pitwall wait.
@@ -380,9 +341,6 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		var agent, st, question string
 		if i >= 0 {
 			agent, st, question = paneState(state, state.Panes[i])
-			if *until == "done" && st == "done" && staleDone(state.Panes[i]) {
-				st = "" // the turn before the last send: not this one's end
-			}
 		}
 		hadAgent = hadAgent || agent != ""
 		if i < 0 || st == "exited" {
@@ -420,8 +378,3 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		}
 	}
 }
-
-// staleDone reports a done of pane p from before the turn the last pitwall
-// send submitted: that turn is number p.SentTurn, and the daemon counts it
-// only after the send, as its hook waits for the send's write.
-func staleDone(p model.Pane) bool { return p.Turns < p.SentTurn }

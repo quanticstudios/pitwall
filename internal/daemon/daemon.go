@@ -91,13 +91,12 @@ type Daemon struct {
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
-	inputs      map[string]chan write // per pane, drained by writeInput
-	gates       sync.Map              // pane: paneLock, see gate in send.go
-	sends       sync.Map              // pane: paneLock, see sendLock in send.go
-	views       map[string]*view      // scroll positions, see scroll.go
-	clients     map[*client]struct{}  // gui clients only
-	watchers    map[*client]struct{}  // watch clients: StateMsg and PaneExited, no frames
-	held        map[string]bool       // panes that stay, Exited, after their command ends; not saved
+	inputs      map[string]chan []byte // per pane, drained by writeInput
+	sends       sync.Map               // pane: *sync.Mutex, see sendLock in send.go
+	views       map[string]*view       // scroll positions, see scroll.go
+	clients     map[*client]struct{}   // gui clients only
+	watchers    map[*client]struct{}   // watch clients: StateMsg and PaneExited, no frames
+	held        map[string]bool        // panes that stay, Exited, after their command ends; not saved
 	closing     bool
 	savePending bool
 	live        liveness
@@ -156,7 +155,7 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan write{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, held: map[string]bool{}, resumed: map[string]time.Time{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, held: map[string]bool{}, resumed: map[string]time.Time{}}
 	if o.Decisions != nil {
 		d.dec.cur = o.Decisions()
 	}
@@ -435,7 +434,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.Input:
 		return d.input(m.Pane, m.Data)
 	case proto.Send:
-		return d.send(ctx, m)
+		return d.send(m)
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
 		if err != nil {
@@ -476,11 +475,6 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 
 // input queues data for a pane's process, as typed.
 func (d *Daemon) input(id string, data []byte) error {
-	return d.queueInput(id, write{data: data})
-}
-
-// queueInput queues w for a pane's writer.
-func (d *Daemon) queueInput(id string, w write) error {
 	d.mu.Lock()
 	p, in := d.panes[id], d.inputs[id]
 	d.mu.Unlock()
@@ -492,11 +486,11 @@ func (d *Daemon) queueInput(id string, w write) error {
 	}
 	d.unscroll(id, p)
 	select {
-	case in <- w:
-		d.noteInput(id, w.data)
+	case in <- data:
+		d.noteInput(id, data)
 		return nil
 	default:
-		return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", id, len(w.data))
+		return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", id, len(data))
 	}
 }
 
@@ -736,7 +730,6 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.views, id)
 	delete(d.resumed, id)
 	delete(d.held, id)
-	d.gates.Delete(id)
 	d.sends.Delete(id)
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
@@ -761,11 +754,6 @@ func closeAll(ps []Pane) {
 // agentEvent applies one hook event and starts, in the background, the
 // decisions it calls for.
 func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
-	g := d.gate(m.Pane)
-	if err := g.lock(ctx); err != nil {
-		return err // the daemon stops while a send is stuck writing to the pane
-	}
-	defer g.unlock()
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
 	if pi < 0 {
@@ -797,10 +785,8 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	now := time.Now()
 	changed := false
 
-	started := agent.TurnStart(m.Payload)
 	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok {
 		changed = true
-		started = started || next.State == model.StateWorking && (prev == nil || prev.State != model.StateWorking)
 		clearDecisions(&next) // a new state needs new answers
 		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
 			// The known keys, from the whole message before it is cut.
@@ -828,9 +814,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 				go d.refreshStats(ctx, p.WorkspaceID)
 			}
 		}
-	}
-	if started {
-		p.Turns, changed = p.Turns+1, true
 	}
 	if p.Provider != m.Provider {
 		p.Provider, changed = m.Provider, true
@@ -949,10 +932,10 @@ func (d *Daemon) start(id string, cmd []string, cwd string) error {
 		return err
 	}
 	d.panes[id] = p
-	in := make(chan write, inputQueue)
+	in := make(chan []byte, inputQueue)
 	d.inputs[id] = in
 	go d.watch(id, p)
-	go d.writeInput(id, p, in)
+	go writeInput(p, in)
 	return nil
 }
 
@@ -962,14 +945,11 @@ func (d *Daemon) start(id string, cmd []string, cwd string) error {
 // ponytail: the PTY fd is in blocking mode, so a write stuck when the pane
 // closes leaks this goroutine and the fd until the daemon exits; a
 // non-blocking fd in package pane would let Close interrupt it.
-func (d *Daemon) writeInput(id string, p Pane, in <-chan write) {
+func writeInput(p Pane, in <-chan []byte) {
 	for {
 		select {
-		case w := <-in:
-			err := d.writeChecked(id, p, w)
-			if w.done != nil {
-				w.done <- err
-			}
+		case b := <-in:
+			p.Write(b) // a pane that cannot take input has exited, which watch reports
 		case <-p.Done():
 			return
 		}

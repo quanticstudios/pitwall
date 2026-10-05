@@ -42,10 +42,8 @@ type fakePane struct {
 	off    int    // the last SnapshotAt offset
 	title  string // the emulator's title
 	screen string // one row of text Snapshot shows instead of "x"
-	// block, when set, holds every Write until it is closed; writes
-	// records when each Write finished.
-	block  chan struct{}
-	writes []time.Time
+	// block, when set, holds every Write until it is closed.
+	block chan struct{}
 }
 
 func (p *fakePane) Write(b []byte) (int, error) {
@@ -61,7 +59,6 @@ func (p *fakePane) Write(b []byte) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.input = append(p.input, b...)
-	p.writes = append(p.writes, time.Now())
 	return len(b), nil
 }
 func (p *fakePane) Resize(c, r int) error {

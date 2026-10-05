@@ -137,11 +137,6 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		cwd = l.p.Cwd() // the shell's directory names its tab
 	}
 
-	gate := d.gate(l.id)
-	if !gate.tryLock() {
-		return // a checked send is writing; the next poll looks again
-	}
-	defer gate.unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if hooked := !d.live.hookAt[l.id].IsZero(); d.closing || d.panes[l.id] != l.p || hooked != l.hooked {
@@ -225,9 +220,6 @@ func (d *Daemon) setActivity(ctx context.Context, id string, prov model.Provider
 	now := time.Now()
 	next := model.Activity{PaneID: id, WorkspaceID: p.WorkspaceID, Provider: prov, State: state, Detail: detail, UpdatedAt: now}
 	i := d.activityIndex(id)
-	if state == model.StateWorking && (i < 0 || d.st.Activities[i].State != model.StateWorking) {
-		p.Turns++ // a turn the screen shows start
-	}
 	switch {
 	case i < 0:
 		d.st.Activities = append(d.st.Activities, next)

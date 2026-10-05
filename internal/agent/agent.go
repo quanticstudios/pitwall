@@ -281,13 +281,6 @@ func SessionID(provider model.Provider, payload []byte) string {
 	return sessionID(p)
 }
 
-// TurnStart reports a hook event that starts a turn: a prompt submitted to
-// Claude Code or Codex (UserPromptSubmit for both), slash commands too.
-func TurnStart(payload []byte) bool {
-	p, err := decode(payload)
-	return err == nil && p.Event == "UserPromptSubmit" && !sideFork(p)
-}
-
 // Prompt returns the prompt text of a UserPromptSubmit hook or a pi
 // before_agent_start event, or "". All three carry it in "prompt". A /side
 // fork's prompt returns "": it is not the pane's main session.

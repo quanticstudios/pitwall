@@ -27,38 +27,29 @@ when the command ends, and its exit code is gone. A relative command path
 `pitwall send [--no-enter] <tab> <text...>` pastes the text into the tab's
 main pane, then presses Enter. The main pane is the first live pane running
 an agent, else the first live pane, else the first exited pane that ran an
-agent, else the first pane. Words after the tab join with spaces; put `--` before text that starts
-with `-`. The paste is bracketed when the program asked for it, so newlines
-stay part of one prompt. Enter follows 300 ms after the paste is written.
-For an agent, send returns once the agent's state changes (at most 10 s;
-past that it warns on stderr and still exits 0). The daemon counts each
-pane's turns: one more each time the agent starts working, or a hook reports
-a new prompt. When send submits (its Enter, or its paste with `--no-enter`),
-it records the number the submitted turn will get; the hook that starts that
-turn waits for send's write, so it is counted after. `wait --until done`
-takes a `done` only once the count has reached that number, so a completion
-from before the send never ends it, however late it arrives. A send that the
-pane's program does not read within 10 s is abandoned with "the pane isn't
-reading input". Two sends into one tab run one after
-the other, each paste followed by its own Enter.
-`--no-enter` pastes without pressing Enter. send refuses:
+agent, else the first pane. Words after the tab join with spaces; put `--`
+before text that starts with `-`. The paste is bracketed when the program
+asked for it, so newlines stay part of one prompt, and Enter follows 300 ms
+later. `--no-enter` pastes without pressing Enter. Two sends into one tab
+run one after the other, each paste followed by its own Enter.
 
-- while the agent is working. Text sent into a busy agent queues or
-  interrupts its input, and its turn would end after the send; run
-  `pitwall wait <tab> --until done` first;
+send refuses:
+
+- while the agent is working. Run `pitwall wait <tab> --until done` first;
 - while pitwall sees the pane waiting on a permission prompt, a question or
   a plan, by hook state, OSC notification or on screen. Tell the user the tab
   needs them, and let them answer in the tab;
-- when the tab's process has exited.
+- when the pane's process has exited, or is not reading its input.
 
-pitwall checks again on the pane's writer right before the paste and right
-before the Enter, and drops the write if it sees a prompt then. A prompt the
-agent draws in the same instant as one of those writes can still receive it:
-the agent draws before it tells anyone, so no multiplexer can rule that out.
-Do not send into a tab you expect to prompt.
+It checks again right before the paste and right before the Enter. After a
+send the tab shows `working` until the agent reports again, so
+`wait --until done` waits for the reply.
 
-A tab without an agent (a shell) takes text in any state, unless its screen
-shows a prompt.
+Known limits: a prompt the agent draws in the same instant as the paste or
+the Enter can still receive it. An agent pitwall reads from its screen
+(no hooks) is polled, so its state can be misread around the moment of a
+send. A tab without an agent (a shell) takes text unless its screen shows a
+prompt.
 
 `pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]` blocks
 until the tab's agent reaches the state, and prints the state it saw. There
@@ -74,8 +65,7 @@ is no timeout unless you give one.
 | `exited`  | the tab's process ended (`exit_code` has its status)                    |
 | `""`      | an agent the tab was started with has not been seen running yet         |
 
-`--until done` waits for a `done` newer than the last send, or for `idle`
-after a turn it saw (an interrupted turn ends idle). `--until idle` takes
+`--until done` waits for `done`, or for `idle` after a turn it saw (an interrupted turn ends idle). `--until idle` takes
 `idle` or `done`: the agent is ready for input. Only an agent is ever idle,
 so `--until idle` on a shell tab waits until the timeout. `--until blocked`
 waits for a prompt or question. `--until exit` waits for the process to
@@ -103,7 +93,8 @@ order, detached tabs last. Every key is always present; unknown strings are
 {"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false}
 ```
 
-`agent` is `claude`, `codex` or `""`. `state` is one from the table above, for
+`agent` is the agent's name (`claude`, `codex`, or one pitwall reads from
+the screen, such as `gemini`) or `""`. `state` is one from the table above, for
 the tab's main pane (see send). `question` is set while blocked.
 `exit_code` is `null` until the process exits, then its exit code.
 
@@ -136,6 +127,6 @@ read a failure, until it is closed or the daemon restarts. Close it with
 
 Any process running as the user can already reach pitwall's socket, so these
 commands add no access. They can start programs, type into agents and read
-their state. send refuses to type into a pane while pitwall sees it waiting
-on a permission prompt or a question; it cannot rule out a prompt drawn in
-the same instant as its write.
+their state. send refuses to type into a pane while pitwall sees its agent
+working or waiting on a permission prompt or a question; it cannot rule out
+a prompt drawn in the same instant as its write.

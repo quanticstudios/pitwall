@@ -105,9 +105,6 @@ func (d *Daemon) settle(id string, at time.Time) {
 	if a := &d.st.Activities[i]; a.State != model.StateWorking {
 		a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", time.Now()
 		clearDecisions(a)
-		if pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); pi >= 0 {
-			d.st.Panes[pi].Turns++
-		}
 		d.changed()
 	}
 }
