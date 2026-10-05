@@ -25,7 +25,7 @@ To cut a release: add a section below and merge it, then
   Decisions, or with `pitwall jev login`; the key stays in a 0600
   `credentials` file or `TYPESAFE_API_KEY`, never in `config.toml`.
   Nothing is sent until you connect, and connecting keeps your settings.
-  With none set:
+  With the other `[decisions]` settings left at their defaults:
   - Approvals suggest only: a Claude Code or Codex permission request
     shows the model's recommendation on the tab's pill, in the switcher,
     in the hover card and on the pane, with any risk pitwall reads in the
