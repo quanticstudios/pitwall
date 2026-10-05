@@ -64,6 +64,24 @@ func TestEngine(t *testing.T) {
 	})
 }
 
+// TestResizeQuietPane: a Resize that reaches a pane after its program's last
+// output, as one queued behind an input flood does, still sends the window a
+// frame at the new size. The program here never redraws; before the pane
+// signalled a resize, the window kept its 80x24 frame until the next output.
+func TestResizeQuietPane(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	gui := connect(t, "gui")
+	w := newWorkspace(t, gui)
+	p := openPane(t, gui, w.ID, []string{"sh", "-c", "printf ready; exec sleep 30"})
+	gui.waitFor(t, timeout, frameContains(p.ID, "ready"))
+	gui.send(t, proto.Resize{Pane: p.ID, Cols: 100, Rows: 30})
+	gui.waitFor(t, timeout, func(msg any) bool {
+		f, ok := msg.(proto.Frame)
+		return ok && f.Pane == p.ID && f.Grid.Cols == 100 && f.Grid.Rows == 30
+	})
+}
+
 // A tab opened from a shell that cd'd starts there and is titled after that
 // directory, as is the shell's own tab; a shell's exit closes its tab.
 func TestNewTabFollowsCwd(t *testing.T) {
