@@ -480,3 +480,26 @@ func TestLoadDecisionsScrubsKeyForCommand(t *testing.T) {
 		t.Error("the key reached the command provider")
 	}
 }
+
+// When TYPESAFE_API_KEY overrides the saved key, both are scrubbed, for
+// either provider.
+func TestLoadDecisionsScrubsBothKeys(t *testing.T) {
+	const saved, env = "ts_live_savedkey_abcdefghijklmnopqrstuv", "ts_live_envkey_abcdefghijklmnopqrstuvw"
+	for _, provider := range []string{"jev", "command"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Setenv(decide.KeyEnv, "")
+			dir := t.TempDir()
+			cfg := filepath.Join(dir, "config.toml")
+			cred := decide.CredentialsPath(dir)
+			os.WriteFile(cfg, []byte("[decisions]\nprovider = \""+provider+"\"\ncommand = [\"my-classifier\"]\n"), 0o644)
+			if err := decide.SaveKey(cred, saved); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(decide.KeyEnv, env)
+			x := loadDecisions(cfg, cred)()
+			if !slices.Contains(x.Secrets, saved) || !slices.Contains(x.Secrets, env) {
+				t.Errorf("secrets hold saved %v, env %v", slices.Contains(x.Secrets, saved), slices.Contains(x.Secrets, env))
+			}
+		})
+	}
+}

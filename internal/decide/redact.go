@@ -3,7 +3,9 @@ package decide
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -83,27 +85,25 @@ func RedactValue(v any, extra ...string) any {
 	case string:
 		return Redact(t, extra...)
 	case map[string]any:
+		names := redactKeys(slices.Collect(maps.Keys(t)), extra)
 		out := make(map[string]any, len(t))
 		for k, x := range t {
-			nk := redactKey(k, out, extra)
 			if secretKey.MatchString(k) {
-				out[nk] = Redacted
+				out[names[k]] = Redacted
 				continue
 			}
-			out[nk] = RedactValue(x, extra...)
+			out[names[k]] = RedactValue(x, extra...)
 		}
 		return out
 	case map[string]string:
+		names := redactKeys(slices.Collect(maps.Keys(t)), extra)
 		out := make(map[string]string, len(t))
-		taken := map[string]any{}
 		for k, x := range t {
-			nk := redactKey(k, taken, extra)
-			taken[nk] = nil
 			if secretKey.MatchString(k) {
-				out[nk] = Redacted
+				out[names[k]] = Redacted
 				continue
 			}
-			out[nk] = Redact(x, extra...)
+			out[names[k]] = Redact(x, extra...)
 		}
 		return out
 	case []any:
@@ -149,17 +149,30 @@ func wholeText(b []byte, cut bool) string {
 	return s
 }
 
-// redactKey is map key k redacted, made unique among the keys already in
-// out so two redacted keys do not overwrite each other.
-func redactKey(k string, out map[string]any, extra []string) string {
-	nk := Redact(k, extra...)
-	if nk == k {
-		return k
-	}
-	for i := 2; ; i++ {
-		if _, taken := out[nk]; !taken {
-			return nk
+// redactKeys maps each key to the name it is sent under: itself when it
+// holds no secret, else its redacted form, made unique as "[redacted 2]",
+// "[redacted 3]", ... against every other key. Keys are taken in sorted
+// order, the unchanged ones first, so the result never depends on map
+// order and no entry overwrites another.
+func redactKeys(keys []string, extra []string) map[string]string {
+	slices.Sort(keys)
+	names := make(map[string]string, len(keys))
+	used := map[string]bool{}
+	var changed []string
+	for _, k := range keys {
+		if Redact(k, extra...) == k {
+			names[k], used[k] = k, true
+		} else {
+			changed = append(changed, k)
 		}
-		nk = fmt.Sprintf("%s #%d", Redact(k, extra...), i)
 	}
+	for _, k := range changed {
+		base := Redact(k, extra...)
+		nk := base
+		for i := 2; used[nk]; i++ {
+			nk = fmt.Sprintf("%s %d", base, i)
+		}
+		names[k], used[nk] = nk, true
+	}
+	return names
 }

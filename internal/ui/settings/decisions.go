@@ -91,7 +91,7 @@ func (p *Page) disconnect() {
 func (p *Page) test() {
 	d := p.s.Decisions
 	var prov decide.Provider
-	var secrets []string
+	secrets := decide.KnownKeys(p.credPath()) // as the daemon scrubs them
 	if d.Provider == "command" {
 		prov = decide.Command{Argv: d.Command}
 	} else {
@@ -102,7 +102,7 @@ func (p *Page) test() {
 			p.dp.mu.Unlock()
 			return
 		}
-		prov, secrets = decide.NewJev(key, d.Model), []string{key}
+		prov = decide.NewJev(key, d.Model)
 	}
 	p.dp.mu.Lock()
 	if p.dp.testing {

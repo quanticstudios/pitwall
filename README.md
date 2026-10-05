@@ -654,7 +654,10 @@ A choice answer needs a probability for every option, summing to 1, with
 the chosen option highest; a `score` answer carries `score`, `probabilities`
 for every level keyed `"0"`, `"1"`, ... and `confidence`; a `noul` answer
 carries `noul`, the probability of yes. pitwall ignores any other reply.
-The same timeout and redaction apply.
+The same timeout and redaction apply, and the command never sees
+`TYPESAFE_API_KEY`. On timeout pitwall kills the command's process group
+(Windows: the command itself); a provider that detaches its own children
+(`setsid`, daemonizing) is responsible for stopping them.
 
 ### Turn it off
 

@@ -311,6 +311,20 @@ func TestHelperCommand(t *testing.T) {
 	case "fail":
 		fmt.Fprint(os.Stderr, "model offline")
 		os.Exit(1)
+	case "env":
+		// Reports, without printing any value, whether the key and the
+		// helper's own variable reached it.
+		key, helper := "no", "no"
+		for _, kv := range os.Environ() {
+			if strings.HasPrefix(strings.ToUpper(kv), KeyEnv+"=") {
+				key = "yes"
+			}
+			if strings.HasPrefix(kv, "DECIDE_HELPER=") {
+				helper = "yes"
+			}
+		}
+		fmt.Fprintf(os.Stderr, "key=%s helper=%s", key, helper)
+		os.Exit(1)
 	}
 }
 
@@ -682,9 +696,10 @@ func TestPrepareMeasuresJSON(t *testing.T) {
 	}
 }
 
-// On timeout the command's whole process group goes, so a grandchild that
-// holds stdout cannot outlive it.
-func TestCommandKillsGroup(t *testing.T) {
+// On timeout the command's process group is killed, so a grandchild that
+// stays in the group and holds stdout goes with it. A child that detaches
+// with setsid is outside this promise.
+func TestCommandKillsProcessGroup(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("reads /proc to see the grandchild go")
 	}
@@ -718,5 +733,78 @@ func TestCommandKillsGroup(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("grandchild %d outlived the timeout", pid)
 		}
+	}
+}
+
+// A command provider never gets the TypeSafe key in its environment.
+func TestCommandEnvHasNoKey(t *testing.T) {
+	if os.Getenv("DECIDE_HELPER") != "" {
+		return
+	}
+	const key = "ts_live_envkey_abcdefghijklmnopqrstuvwxyz"
+	t.Setenv(KeyEnv, key)
+	t.Setenv("DECIDE_HELPER", "env")
+	_, err := Command{Argv: []string{os.Args[0], "-test.run=TestHelperCommand"}}.Ask(context.Background(), Request{State: "s"})
+	if err == nil || !strings.Contains(err.Error(), "key=no") {
+		t.Errorf("the command saw the key: %v", err)
+	}
+	if !strings.Contains(err.Error(), "helper=yes") {
+		t.Errorf("the command lost the rest of its environment: %v", err)
+	}
+	if got := withoutCredentials([]string{"A=1", "typesafe_api_key=x", KeyEnv + "=y", "B=2"}); strings.Join(got, ",") != "A=1,B=2" {
+		t.Errorf("withoutCredentials = %v", got)
+	}
+}
+
+// Both keys are known when the environment overrides the file, and a key
+// in a file too open to use is still scrubbed.
+func TestKnownKeys(t *testing.T) {
+	t.Setenv(KeyEnv, "")
+	path := CredentialsPath(t.TempDir())
+	if k := KnownKeys(path); len(k) != 0 {
+		t.Errorf("no keys: %v", k)
+	}
+	SaveKey(path, fakeKey)
+	t.Setenv(KeyEnv, "env_key_123456789")
+	if k := KnownKeys(path); !contains(k, fakeKey) || !contains(k, "env_key_123456789") {
+		t.Errorf("both keys: %v", k)
+	}
+	if runtime.GOOS != "windows" {
+		os.Chmod(path, 0o644)
+		if k := KnownKeys(path); !contains(k, fakeKey) {
+			t.Errorf("open file: %v", k)
+		}
+	}
+}
+
+// A literal "[redacted]" key and several secret keys are all kept, and the
+// result is the same every time, whatever the map order.
+func TestRedactedKeysDeterministic(t *testing.T) {
+	in := map[string]any{
+		"[redacted]":                     "literal",
+		"[redacted 2]":                   "literal two",
+		"ghp_" + strings.Repeat("a", 30): "one",
+		"ghp_" + strings.Repeat("b", 30): "two",
+		"ghp_" + strings.Repeat("c", 30): "three",
+		"plain":                          "keep",
+	}
+	first, _ := json.Marshal(RedactValue(in))
+	for range 200 {
+		got, _ := json.Marshal(RedactValue(in))
+		if string(got) != string(first) {
+			t.Fatalf("output changed:\n%s\n%s", first, got)
+		}
+	}
+	var out map[string]any
+	json.Unmarshal(first, &out)
+	if len(out) != len(in) || out["[redacted]"] != "literal" || out["[redacted 2]"] != "literal two" || out["plain"] != "keep" {
+		t.Errorf("entries lost or overwritten: %s", first)
+	}
+	if strings.Contains(string(first), "ghp_") {
+		t.Errorf("a secret key was sent: %s", first)
+	}
+	ss := map[string]string{"[redacted]": "literal", "ghp_" + strings.Repeat("d", 30): "x"}
+	if got := RedactValue(ss).(map[string]string); len(got) != 2 || got["[redacted]"] != "literal" {
+		t.Errorf("map[string]string: %v", got)
 	}
 }

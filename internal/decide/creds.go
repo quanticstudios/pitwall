@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -36,27 +37,53 @@ func LoadKey(path string) (key, source string, err error) {
 	if k := strings.TrimSpace(os.Getenv(KeyEnv)); k != "" {
 		return k, FromEnv, nil
 	}
-	fi, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", "", nil
-	}
-	if err != nil {
+	key, err = fileKey(path)
+	if key == "" || err != nil {
 		return "", "", err
 	}
-	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
-		return "", "", fmt.Errorf("%s can be read by other users; run chmod 600 on it", path)
+	return key, FromFile, nil
+}
+
+// KnownKeys are every TypeSafe key pitwall can see, from the environment
+// and from the credentials file at path, whichever is in use, and even
+// from a file too open to use: all of them are scrubbed from what any
+// provider is sent and from errors shown.
+func KnownKeys(path string) []string {
+	var out []string
+	if k := strings.TrimSpace(os.Getenv(KeyEnv)); k != "" {
+		out = append(out, k)
 	}
-	if di, err := os.Stat(filepath.Dir(path)); err == nil && runtime.GOOS != "windows" && di.Mode().Perm()&0o022 != 0 {
-		return "", "", fmt.Errorf("%s can be changed by other users, who could swap the credentials file; run chmod 700 on it", filepath.Dir(path))
+	if k, _ := readKeyFile(path); k != "" && !slices.Contains(out, k) {
+		out = append(out, k)
 	}
+	return out
+}
+
+func readKeyFile(path string) (string, error) {
 	var c credentials
 	if _, err := toml.DecodeFile(path, &c); err != nil {
-		return "", "", fmt.Errorf("%s: not a valid credentials file", path)
+		return "", fmt.Errorf("%s: not a valid credentials file", path)
 	}
-	if c.TypeSafe == "" {
-		return "", "", nil
+	return strings.TrimSpace(c.TypeSafe), nil
+}
+
+// fileKey reads the key from the credentials file at path, "" when there
+// is none; a file or folder others can read or change is refused.
+func fileKey(path string) (string, error) {
+	fi, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
 	}
-	return c.TypeSafe, FromFile, nil
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("%s can be read by other users; run chmod 600 on it", path)
+	}
+	if di, err := os.Stat(filepath.Dir(path)); err == nil && runtime.GOOS != "windows" && di.Mode().Perm()&0o022 != 0 {
+		return "", fmt.Errorf("%s can be changed by other users, who could swap the credentials file; run chmod 700 on it", filepath.Dir(path))
+	}
+	return readKeyFile(path)
 }
 
 // CheckKey reports what is wrong with a key someone typed or pasted.

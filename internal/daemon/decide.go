@@ -50,8 +50,9 @@ type decisions struct {
 
 // loadDecisions reads [decisions] from the config at cfgPath and the key
 // from credPath (or $TYPESAFE_API_KEY), again only when either file
-// changed. The key is scrubbed from every state whichever provider
-// answers: a screen or an error may show it.
+// changed. Every key pitwall can see, from the environment and from the
+// file, is scrubbed from every state whichever provider answers: a
+// screen or an error may show it.
 func loadDecisions(cfgPath, credPath string) func() Decisions {
 	var mu sync.Mutex
 	var stamp string
@@ -70,9 +71,7 @@ func loadDecisions(cfgPath, credPath string) func() Decisions {
 		if err != nil && s.Provider == "jev" {
 			log.Printf("pitwall: decisions: %v", err) // never holds the key
 		}
-		if key != "" {
-			last.Secrets = []string{key}
-		}
+		last.Secrets = decide.KnownKeys(credPath)
 		switch s.Provider {
 		case "jev":
 			if key != "" {

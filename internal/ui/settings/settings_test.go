@@ -2,12 +2,14 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"image"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -372,5 +374,35 @@ func TestDecisionsStates(t *testing.T) {
 		p.dp.mu.Unlock()
 		p.dp.keyErr = st.keyErr
 		draw()
+	}
+}
+
+// The Settings connection test scrubs the same keys the daemon does, the
+// saved one and the environment's, for the command provider too.
+func TestDecisionsTestScrubsKeys(t *testing.T) {
+	const saved, env = "ts_live_savedkey_abcdefghijklmnopqrstuv", "ts_live_envkey_abcdefghijklmnopqrstuvw"
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	os.WriteFile(path, []byte("[decisions]\nprovider = \"command\"\ncommand = [\"my-classifier\"]\n"), 0o644)
+	if err := decide.SaveKey(decide.CredentialsPath(dir), saved); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(decide.KeyEnv, env)
+	defer func(f func(context.Context, decide.Provider, time.Duration, ...string) (time.Duration, error)) {
+		ping = f
+	}(ping)
+	got := make(chan []string, 1)
+	ping = func(_ context.Context, p decide.Provider, _ time.Duration, secrets ...string) (time.Duration, error) {
+		got <- secrets
+		return 0, errors.New("command: exit status 1: " + saved + " " + env)
+	}
+	var p Page
+	p.Show(path)
+	p.s, _ = config.LoadFile(path)
+	p.test()
+	secrets := <-got
+	if !slices.Contains(secrets, saved) || !slices.Contains(secrets, env) {
+		t.Errorf("command test scrubs %d of 2 keys", len(secrets))
 	}
 }

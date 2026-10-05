@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -18,10 +20,11 @@ type Command struct {
 	Argv []string
 }
 
-// Ask runs the command. When ctx ends, the command is killed with every
-// process in its group on Unix; on Windows only the command itself is
-// killed, and output pipes a grandchild holds open are let go after
-// WaitDelay.
+// Ask runs the command, without the TypeSafe key in its environment.
+// When ctx ends, the command's process group is killed on Unix; a child
+// that leaves the group (setsid, daemonizing) is the provider's to stop.
+// On Windows only the command itself is killed. Output pipes a stray
+// child still holds are let go after WaitDelay.
 func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
 	if len(c.Argv) == 0 || c.Argv[0] == "" {
 		return nil, errors.New("decisions.command is empty")
@@ -31,6 +34,7 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
+	cmd.Env = withoutCredentials(os.Environ())
 	ownGroup(cmd)
 	cmd.WaitDelay = 500 * time.Millisecond // stop waiting on pipes a stray child still holds
 	cmd.Stdin = bytes.NewReader(in)
@@ -55,6 +59,23 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 		return nil, fmt.Errorf("command: %w", err)
 	}
 	return ans, nil
+}
+
+// credentialEnv are the variables pitwall reads a Jev key from. A command
+// provider never sees them.
+var credentialEnv = []string{KeyEnv}
+
+// withoutCredentials is env with every credentialEnv variable removed,
+// matched without case as Windows does.
+func withoutCredentials(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.ContainsFunc(credentialEnv, func(c string) bool { return strings.EqualFold(c, name) }) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // limited keeps the first max bytes written to it and drops the rest,
