@@ -817,3 +817,32 @@ func TestRestoredAgentExitKeepsShell(t *testing.T) {
 		t.Fatalf("shell start: %+v", last)
 	}
 }
+
+// A new session starts without the old one's permission mode until a hook
+// of its own reports one; an unknown mode changes nothing.
+func TestAgentModeFollowsSession(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	defer stop()
+	gui := dial(t, sock, "gui")
+	st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	id := st.Panes[0].ID
+	hook := dial(t, sock, "hook")
+	for _, step := range []struct{ payload, sid, mode string }{
+		{`{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "a", "bypassPermissions"},
+		{`{"session_id":"b","hook_event_name":"Stop"}`, "b", ""},
+		{`{"session_id":"b","hook_event_name":"Stop","permission_mode":"plan"}`, "b", "plan"},
+		{`{"session_id":"b","hook_event_name":"Stop","permission_mode":"auto"}`, "b", "plan"},
+		{`{"session_id":"c","hook_event_name":"Stop","permission_mode":"default"}`, "c", "default"},
+	} {
+		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(step.payload)})
+		// The fake Derive makes the payload the activity's state, so the
+		// wait ends only once this hook was applied.
+		st := gui.waitState(step.payload, func(s model.State) bool {
+			return len(s.Activities) == 1 && string(s.Activities[0].State) == step.payload
+		})
+		if p := st.Panes[0]; p.SessionID != step.sid || p.AgentMode != step.mode {
+			t.Fatalf("after %s: session %q, mode %q", step.payload, p.SessionID, p.AgentMode)
+		}
+	}
+}

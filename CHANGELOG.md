@@ -25,7 +25,8 @@ To cut a release: add a section below and merge it, then
   structs, and `[]` when no daemon runs. Tabs can also be named by that `id`.
 - A resumed agent keeps the permission mode its hooks last reported. Claude
   comes back with `--dangerously-skip-permissions` for bypassPermissions and
-  `--permission-mode <mode>` for acceptEdits, plan and dontAsk; Codex comes
+  `--permission-mode <mode>` for its other modes, default included, so a
+  bypass set as the default in settings stays off once you left it; Codex comes
   back with `--dangerously-bypass-approvals-and-sandbox` for
   bypassPermissions. A pane whose command already sets permissions keeps its
   own flag. Other flags of an agent started in a shell, such as `--model`,

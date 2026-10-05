@@ -177,6 +177,9 @@ func RestoreCmd(p model.Pane) []string {
 	cmd := []string{binary}
 	if p.Provider == model.ProviderClaude {
 		for i := 0; i < len(args); i++ {
+			if args[i] == "--" {
+				break // a prompt follows, and after it flags would be prompt text
+			}
 			flag, _, attached := strings.Cut(args[i], "=")
 			switch flag {
 			case "--resume", "-r":
@@ -188,11 +191,13 @@ func RestoreCmd(p model.Pane) []string {
 				cmd = append(cmd, args[i])
 			}
 		}
-		if !hasFlag(args, "--dangerously-skip-permissions", "--permission-mode") {
+		// "default" is passed too: settings may make bypass the default
+		// mode, which the user had left.
+		if !hasFlag(cmd[1:], "--dangerously-skip-permissions", "--permission-mode") {
 			switch p.AgentMode {
 			case "bypassPermissions":
 				cmd = append(cmd, "--dangerously-skip-permissions")
-			case "acceptEdits", "plan", "dontAsk":
+			case "default", "acceptEdits", "plan", "dontAsk":
 				cmd = append(cmd, "--permission-mode", p.AgentMode)
 			}
 		}
@@ -243,16 +248,19 @@ func RestoreCmd(p model.Pane) []string {
 	// Codex reports Claude's mode names. Only the full bypass has one codex
 	// flag; the others depend on its config, which the command already
 	// carries.
-	if p.AgentMode == "bypassPermissions" && !hasFlag(args, "--dangerously-bypass-approvals-and-sandbox", "-s", "--sandbox", "-a", "--ask-for-approval") &&
-		!slices.ContainsFunc(args, func(a string) bool { return len(a) > 2 && (a[:2] == "-s" || a[:2] == "-a") }) {
+	if kept := cmd[2:]; p.AgentMode == "bypassPermissions" && !hasFlag(kept, "--dangerously-bypass-approvals-and-sandbox", "-s", "--sandbox", "-a", "--ask-for-approval") &&
+		!slices.ContainsFunc(kept, func(a string) bool { return len(a) > 2 && (a[:2] == "-s" || a[:2] == "-a") }) {
 		cmd = append(cmd, "--dangerously-bypass-approvals-and-sandbox")
 	}
 	return append(cmd, p.SessionID)
 }
 
-// hasFlag reports whether args has one of flags, alone or with an attached
-// value.
+// hasFlag reports whether the options of args, before any "--", include
+// one of flags, alone or with an attached value.
 func hasFlag(args []string, flags ...string) bool {
+	if i := slices.Index(args, "--"); i >= 0 {
+		args = args[:i]
+	}
 	return slices.ContainsFunc(args, func(a string) bool {
 		f, _, _ := strings.Cut(a, "=")
 		return slices.Contains(flags, f)

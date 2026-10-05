@@ -816,7 +816,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		p.Provider, changed = m.Provider, true
 	}
 	if sid := d.o.SessionID(m.Provider, m.Payload); sid != "" && sid != p.SessionID {
-		p.SessionID, p.Prompt, changed = sid, "", true
+		p.SessionID, p.Prompt, p.AgentMode, changed = sid, "", "", true // a new session reports its own mode
 	}
 	if mode := agent.PermissionMode(m.Payload); mode != "" && mode != p.AgentMode {
 		p.AgentMode, changed = mode, true
@@ -1012,10 +1012,11 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 var resumeGrace = 3 * time.Second
 
 // exited closes a pane whose process ended, and its tab and session when it
-// was their last. An agent resumed in a shell pane gets the shell back when
-// it exits, as it would have before the restart. Any other agent resume that
-// fails right after a restart (the session expired, the binary moved) gets a
-// shell in its place too, so a restart never silently loses a session.
+// was their last. An agent resumed in a pane that was a shell gets the shell
+// back whenever it exits, as it would have before the restart. A pane opened
+// with a command whose resume exits non-zero within resumeGrace of the
+// restart (the session expired, the binary moved) gets a shell in its place
+// too; after that, its exit closes the pane like any other command's.
 func (d *Daemon) exited(id string, p Pane) {
 	d.mu.Lock()
 	if d.closing || d.panes[id] != p {
