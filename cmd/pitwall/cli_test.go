@@ -126,7 +126,7 @@ func TestCLIList(t *testing.T) {
 				lines := strings.Split(strings.TrimSpace(out), "\n")
 				// Numbered in sidebar order (group g above tab c), detached last.
 				if len(lines) != 4 || strings.Join(strings.Fields(lines[0]), " ") != "# NAME STATE FOLDER GROUP" ||
-					strings.Join(strings.Fields(lines[1]), " ") != "1 fix login Agent Error ~/src agents" ||
+					strings.Join(strings.Fields(lines[1]), " ") != "1 fix login Error ~/src agents" ||
 					strings.Join(strings.Fields(lines[2]), " ") != "2 ~ idle /work/c -" ||
 					strings.Join(strings.Fields(lines[3]), " ") != "3 alpine idle /work/b - (detached)" {
 					t.Fatal(out)

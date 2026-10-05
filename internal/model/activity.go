@@ -145,13 +145,11 @@ func Pulses(a *Activity) bool {
 	return a != nil && (a.State == StateWorking || a.State == StateConnecting)
 }
 
+// PillLabel is a state's short label, "Working" or "Approval". It names
+// no agent: every place that shows it also shows the agent's mark or name.
 func PillLabel(a Activity) string {
-	l := shortLabels[a.State]
 	if a.State == StateCompleted && a.Review {
-		l = "Check"
+		return "Check"
 	}
-	if a.Provider == ProviderTerminal {
-		return l
-	}
-	return "Agent " + l
+	return shortLabels[a.State]
 }

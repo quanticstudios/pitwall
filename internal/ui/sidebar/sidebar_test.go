@@ -177,10 +177,10 @@ func TestShortPathAndPill(t *testing.T) {
 		{ask, "command", "Model: allow 96%"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "allow", AdviceP: 0.99, AdviceRule: "sudo"}, "jev", "Jev: allow 99% · sudo"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "deny", AdviceP: 0.9, AdviceRule: "rm -rf"}, "jev", "Jev: deny 90% · rm -rf"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval}, "jev", "Agent Approval"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "now"}, "jev", "Agent Input · now"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "later"}, "jev", "Agent Input"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StateCompleted, Review: true}, "jev", "Agent Check"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval}, "jev", "Approval"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "now"}, "jev", "Input · now"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "later"}, "jev", "Input"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StateCompleted, Review: true}, "jev", "Check"},
 	} {
 		if got := PillText(tc.a, tc.by); got != tc.want {
 			t.Errorf("PillText(%+v) = %q, want %q", tc.a, got, tc.want)

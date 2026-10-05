@@ -148,6 +148,7 @@ func fakeState(now time.Time) model.State {
 	add("ws-term", "p-api", "Paginate the orders endpoint", "orders-pagination", 2*time.Minute, model.ProviderCodex, model.StateConnecting)
 	add("ws-daemon", "p-api", "Rotate the signing keys", "key-rotation", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)
 	add("ws-conflict", "p-api", "Retry failed webhooks", "webhook-retry", 9*time.Minute, model.ProviderClaude, model.StateError)
+	add("ws-pi", "p-api", "Port the parser", "parser-port", 7*time.Minute, model.ProviderPi, model.StateCompleted)
 	add("ws-plan", "p-api", "Split the billing service", "billing-split", 22*time.Minute, model.ProviderClaude, model.StatePlanReady)
 	add("ws-hotkeys", "p-web", "Fix the checkout race", "fix/checkout-race", 12*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
 	add("ws-release", "p-web", "Release 2.3", "release/2.3", 26*time.Hour, model.ProviderCodex, model.StateCompleted)

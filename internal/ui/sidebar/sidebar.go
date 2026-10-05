@@ -1082,9 +1082,10 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 }
 
 // workspaceRow draws tab ws's row: its agent's mark or its state icon,
-// title and pill, then the agent's name and the branch with its diff
-// stats (or the folder). A ghost row is the lifted copy under the
-// pointer: no input, no hover buttons, its fill left to the caller.
+// title and pill, then the branch with its diff stats (or the folder) and
+// the time, which the "…" menu trigger covers on hover. A ghost row is the
+// lifted copy under the pointer: no input, no hover buttons, its fill left
+// to the caller.
 func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, ghost bool) (layout.Dimensions, bool) {
 	th := v.th
 	r := s.row(ws.ID)
@@ -1130,10 +1131,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		paint.FillShape(gtx.Ops, StateColor(th, unseen.State), clip.UniformRRect(bar, bar.Dx()/2).Op(gtx.Ops))
 	}
 
+	// The "…" trigger shows on hover in place of line 2's time. Its dots
+	// end at the content's right inset; its 24dp hit area runs past them.
+	showMore := !ghost && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
+	btn, glyph := gtx.Dp(24), gtx.Dp(16)
+	dots := (btn-glyph)/2 + glyph/6 // the button's edge to the dots' edge
 	content := func(gtx layout.Context) layout.Dimensions {
-		// pl-3 pr-10
+		// pl-3 pr-3
 		left := gtx.Dp(12)
-		inner := w - left - gtx.Dp(40)
+		inner := w - 2*left
 		gtx.Constraints = layout.Exact(image.Pt(inner, l1))
 		off := op.Offset(image.Pt(left, pad)).Push(gtx.Ops)
 		nameCol := theme.Mix(base, th.Fg, 0.95)
@@ -1189,6 +1195,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		switch {
+		case showMore:
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return layout.Dimensions{Size: image.Pt(btn-dots, 0)}
+			}})
 		case inRepo && hasStats && stats.MergeStatus == model.MergeConflicts:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, 11, th.Red, "Merge conflicts")
@@ -1215,12 +1225,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	clickable(cg, &r.click, content)
 	area.Pop()
 
-	// The "…" trigger: absolute right-1 top-1.5, visible on row hover.
-	btn := gtx.Dp(24)
-	pos := image.Pt(w-gtx.Dp(4)-btn, gtx.Dp(6))
+	// The "…" trigger, centred on line 2.
+	pos := image.Pt(w-gtx.Dp(12)+dots-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
 	off := op.Offset(pos).Push(gtx.Ops)
-	if (hovered && !s.drag.active) || s.menuWS == ws.ID {
-		iconButton(gtx, th, &r.more, icEllipsis, btn, gtx.Dp(16), false)
+	if showMore {
+		iconButton(gtx, th, &r.more, icEllipsis, btn, glyph, false)
 	} else {
 		// Keep the hit area so the hidden button still opens the menu.
 		clickable(gtx, &r.more, func(gtx layout.Context) layout.Dimensions {

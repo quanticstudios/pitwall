@@ -30,11 +30,13 @@ const (
 )
 
 // pi's logo from pi (MIT), packages/ai/src/utils/oauth-page.ts: a 4x4 grid
-// of blocks, cropped from its 800x800 box to fill 24x24 like the others.
+// of blocks, cropped from its 800x800 box. Solid blocks read heavier than
+// Claude's and OpenAI's open strokes, so they fill a centred 18x18 of the
+// 24x24 box (4.5 units a block).
 const (
-	icPi1 = "M0 0H18V12H12V6H0Z"
-	icPi2 = "M0 6H6V12H12V18H6V24H0Z"
-	icPi3 = "M18 12H24V24H18Z"
+	icPi1 = "M3 3H16.5V12H12V7.5H3Z"
+	icPi2 = "M3 7.5H7.5V12H12V16.5H7.5V21H3Z"
+	icPi3 = "M16.5 12H21V21H16.5Z"
 )
 
 func isAgent(p model.Provider) bool {
