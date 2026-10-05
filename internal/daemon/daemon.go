@@ -94,6 +94,8 @@ type Daemon struct {
 	inputs      map[string]chan []byte // per pane, drained by writeInput
 	views       map[string]*view       // scroll positions, see scroll.go
 	clients     map[*client]struct{}   // gui clients only
+	watchers    map[*client]struct{}   // watch clients: StateMsg and PaneExited, no frames
+	held        map[string]bool        // panes that stay, Exited, after their command ends
 	closing     bool
 	savePending bool
 	live        liveness
@@ -152,7 +154,7 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, resumed: map[string]time.Time{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, held: map[string]bool{}, resumed: map[string]time.Time{}}
 	if o.Decisions != nil {
 		d.dec.cur = o.Decisions()
 	}
@@ -311,7 +313,8 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 }
 
 // serveConn requires Hello first. Only Kind "gui" receives StateMsg, Frame
-// and PaneExited pushes; every kind gets Error replies to failed requests.
+// and PaneExited pushes, and "watch" the first and last of those; every kind
+// gets Error replies to failed requests.
 func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	conn := proto.NewConn(nc)
 	defer conn.Close()
@@ -352,6 +355,17 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			if c.session != "" && !d.closing {
 				d.changed() // Session.Windows drops
 			}
+			d.mu.Unlock()
+		}()
+	}
+	if hello.Kind == "watch" {
+		d.mu.Lock()
+		d.watchers[c] = struct{}{}
+		c.push(func() { c.state = true })
+		d.mu.Unlock()
+		defer func() {
+			d.mu.Lock()
+			delete(d.watchers, c)
 			d.mu.Unlock()
 		}()
 	}
@@ -417,20 +431,9 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
-		d.mu.Lock()
-		p, in := d.panes[m.Pane], d.inputs[m.Pane]
-		d.mu.Unlock()
-		if p == nil {
-			return fmt.Errorf("no pane %s", m.Pane)
-		}
-		d.unscroll(m.Pane, p)
-		select {
-		case in <- m.Data:
-			d.noteInput(m.Pane, m.Data)
-			return nil
-		default:
-			return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", m.Pane, len(m.Data))
-		}
+		return d.input(m.Pane, m.Data)
+	case proto.Send:
+		return d.send(m)
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
 		if err != nil {
@@ -467,6 +470,27 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.deleteGroup(m)
 	}
 	return fmt.Errorf("unexpected message %T", m)
+}
+
+// input queues data for a pane's process, as typed.
+func (d *Daemon) input(id string, data []byte) error {
+	d.mu.Lock()
+	p, in := d.panes[id], d.inputs[id]
+	d.mu.Unlock()
+	if p == nil {
+		return fmt.Errorf("no pane %s", id)
+	}
+	if in == nil {
+		return fmt.Errorf("pane %s has exited", id)
+	}
+	d.unscroll(id, p)
+	select {
+	case in <- data:
+		d.noteInput(id, data)
+		return nil
+	default:
+		return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", id, len(data))
+	}
 }
 
 func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
@@ -704,6 +728,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.inputs, id)
 	delete(d.views, id)
 	delete(d.resumed, id)
+	delete(d.held, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.det, id)
@@ -1013,9 +1038,22 @@ func (d *Daemon) exited(id string, p Pane) {
 		}
 		log.Printf("pitwall: pane %s: shell after failed resume: %v", id, err)
 	}
-	closing := d.removePane(id)
+	var closing []Pane
+	if d.held[id] {
+		// why: the tab keeps the command's output on screen, and pitwall wait reads its status.
+		d.st.Panes[i].Exited, d.st.Panes[i].ExitCode = true, code
+		delete(d.inputs, id)
+		delete(d.live.hookAt, id)
+		delete(d.live.fg, id)
+		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
+	} else {
+		closing = d.removePane(id)
+	}
 	d.changed()
 	for c := range d.clients {
+		c.queue(proto.PaneExited{Pane: id, ExitCode: code})
+	}
+	for c := range d.watchers {
 		c.queue(proto.PaneExited{Pane: id, ExitCode: code})
 	}
 	d.mu.Unlock()
@@ -1048,6 +1086,9 @@ func (d *Daemon) changed() {
 	d.fixOrders()
 	d.st.Version++
 	for c := range d.clients {
+		c.push(func() { c.state = true })
+	}
+	for c := range d.watchers {
 		c.push(func() { c.state = true })
 	}
 	if !d.savePending && !d.closing {

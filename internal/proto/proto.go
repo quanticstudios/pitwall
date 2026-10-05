@@ -9,6 +9,8 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 12 added NewSession.Cmd, Send and Hello.Kind "watch", and a pane
+// opened with NewSession.Cmd stays, Exited, after its process ends.
 // Version 11 added decision models: Activity.Advice, AdviceP, AdviceRule,
 // Urgency and Review, and State.Decide.
 // Version 10 added vt.Cell.Link, the OSC 8 hyperlink on each cell of a frame.
@@ -30,13 +32,16 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 11
+const Version = 12
 
 // Client to daemon.
 
 type Hello struct {
 	Version int
-	Kind    string // "gui", "hook", "cli"
+	// Kind is "gui", "hook", "cli" or "watch". A watch client gets every
+	// StateMsg and PaneExited a GUI gets, but no frames, and counts as no
+	// window.
+	Kind string
 	// Cwd is where the GUI was launched. When no session exists yet, the
 	// daemon opens one there with a shell, so pitwall starts like tmux.
 	Cwd string
@@ -57,6 +62,9 @@ type NewSession struct {
 	Cwd       string
 	GroupID   string
 	SessionID string
+	// Cmd, when set, runs in the pane instead of the shell. The pane stays
+	// after the command exits, Exited with its ExitCode, until closed.
+	Cmd []string
 	// FromPane, when set, starts the session in that pane's current
 	// directory (where its shell is now), falling back to Cwd.
 	FromPane string
@@ -88,6 +96,17 @@ type DeleteGroup struct {
 type Input struct {
 	Pane string
 	Data []byte
+}
+
+// Send types Text into Pane as a paste: bracketed when the pane's program
+// turned bracketed paste on, then, with Enter, a separate carriage return
+// after a short pause. The daemon refuses while the pane's agent waits on a
+// permission prompt or a question, and while it works unless Force.
+type Send struct {
+	Pane  string
+	Text  string
+	Enter bool
+	Force bool
 }
 
 type Resize struct {
@@ -297,7 +316,7 @@ type SeePane struct {
 
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
-	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
+	Hello{}, Input{}, Send{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
 	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
 	NewTab{}, CloseTab{}, RenameTab{}, SelectTab{}, DetachSession{}, KillSession{},

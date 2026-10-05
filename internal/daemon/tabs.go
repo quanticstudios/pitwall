@@ -36,14 +36,17 @@ func paneTab(w *model.Workspace, pane string) int {
 	return slices.IndexFunc(w.Tabs, func(t model.Tab) bool { return slices.Contains(layout.Panes(t.Layout), pane) })
 }
 
-// addTab opens a tab with a shell in cwd and makes it active. Callers hold
-// d.mu.
-func (d *Daemon) addTab(w *model.Workspace, cwd string) error {
+// addTab opens a tab running cmd in cwd, or a shell when cmd is empty, and
+// makes it active. A command's pane stays after it exits. Callers hold d.mu.
+func (d *Daemon) addTab(w *model.Workspace, cwd string, cmd []string) error {
 	id := newID()
-	if err := d.start(id, nil, cwd); err != nil {
+	if err := d.start(id, cmd, cwd); err != nil {
 		return err
 	}
-	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cwd: cwd})
+	if len(cmd) > 0 {
+		d.held[id] = true
+	}
+	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: cmd, Cwd: cwd})
 	w.Tabs = append(w.Tabs, model.Tab{ID: newID(), Layout: &layout.Node{Pane: id}})
 	w.ActiveTab = w.Tabs[len(w.Tabs)-1].ID
 	return nil

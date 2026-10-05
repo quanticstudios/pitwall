@@ -15,7 +15,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// newSession opens a tab holding a shell in m.Cwd ("" means $HOME), named
+// newSession opens a tab holding m.Cmd or a shell in m.Cwd ("" means $HOME), named
 // m.Name or unnamed, in m.SessionID (see proto.NewSession). Without a
 // group, it joins the session's project whose folder holds its directory;
 // ungrouped, it goes last.
@@ -87,7 +87,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
 	w := model.Workspace{ID: newID(), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
-	if err := d.addTab(&w, path); err != nil {
+	if err := d.addTab(&w, path, m.Cmd); err != nil {
 		d.st.Sessions = d.st.Sessions[:sessions] // drop one made for this tab
 		return err
 	}
