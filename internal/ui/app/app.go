@@ -113,6 +113,7 @@ func Run(b Backend) error {
 	go wd.watch(stop)
 	var ops op.Ops
 	var display string
+	var closing bool
 	var slow logs.Limiter
 	slow.Every = 10 * time.Second
 	for {
@@ -160,6 +161,10 @@ func Run(b Backend) error {
 			if u.nav.closed {
 				// Like a tmux client when its last session ends: the window
 				// goes, detached tabs keep running in the daemon.
+				if !closing {
+					closing = true
+					log.Printf("session %s ended and no session has a tab to show; closing the window", u.nav.session)
+				}
 				w.Perform(system.ActionClose)
 			}
 		}
@@ -245,6 +250,9 @@ var sendErrs = logs.Limiter{Every: 10 * time.Second}
 
 // send reports whether the backend took msg.
 func (u *ui) send(msg any) bool {
+	if k, ok := msg.(proto.SessionKill); ok {
+		log.Printf("killing session %s", k.SessionID)
+	}
 	err := u.b.Send(msg)
 	if err != nil {
 		if ok, held := sendErrs.Allow("", time.Now()); ok {
@@ -394,6 +402,9 @@ func (u *ui) layout(gtx gl.Context) {
 			u.nav.sessionUI = ""
 			u.sw.openAt(&st, u.nav.session, m, gtx.Now) // the keys after this one are the switcher's
 		}
+	}
+	if prev := u.showSent; prev != "" && prev != u.nav.session && st.Session(prev) == nil {
+		log.Printf("session %s ended; the window shows %s", prev, u.nav.session)
 	}
 	u.sessionChanged(gtx)
 	u.markSeen(&st)

@@ -21,6 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/testenv"
 )
 
 // TestMain runs pitwall's main instead of the tests when a test re-executes
@@ -44,7 +45,7 @@ func TestMain(m *testing.M) {
 		main()
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	testenv.Main(m)
 }
 
 func TestDaemonRefusesHeldLock(t *testing.T) {

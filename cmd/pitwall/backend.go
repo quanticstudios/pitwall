@@ -170,7 +170,13 @@ func (b *backend) recvLoop() {
 			return
 		}
 		if focus, ok := msg.(proto.FocusSession); ok {
-			b.focus <- focus
+			// why: the window takes requests on another goroutine that can be
+			// busy raising it; blocking here would stop every later state.
+			select {
+			case <-b.focus: // the newest request wins
+			default:
+			}
+			b.focus <- focus // recvLoop is the only sender, so there is room
 			select {
 			case b.changed <- struct{}{}:
 			default:
