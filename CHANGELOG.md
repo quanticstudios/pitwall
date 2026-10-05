@@ -24,6 +24,36 @@ To cut a release: add a section below and merge it, then
   size, 80x24 for a new pane whose size arrived late, as it can behind a burst
   of typing. A resize now redraws the pane. A size the window failed to send
   is sent again.
+- A command tab from `pitwall new -- <cmd>` survives a daemon restart. A
+  command that had exited keeps its exit code, and an agent with a known
+  session resumes and stays. Any other command that was still running is
+  not run again, because that may not be safe: it comes back exited with
+  its exit code unknown (`exit_code` null in `pitwall ls --json`, and
+  `pitwall wait` prints `exit unknown` and exits 3). The output is not
+  saved, so the pane shows a one-line notice instead. Command tabs saved by
+  alpha.5 count as such tabs: a pane with a command and no agent session to
+  resume is not run again after the upgrade.
+- A `pi -p` tab opened with `pitwall new -- pi -p ...` ends showing Done or
+  Error. pi's extension used to drop its queued reports at shutdown, the
+  result included. Now it drops them and sends one final shutdown report
+  that carries the run's result, from a process that outlives pi, so even a
+  slow hook delivers it after pi exits. pitwall takes that report as the
+  result, then the shutdown. In a command tab, the shutdown and the exit
+  after it keep the Done or Error; elsewhere a pi shutdown clears the tab's
+  status as before. Once a pi runtime has shut down, pitwall ignores any
+  report it sends later. pi also exits up to a second sooner: the extension
+  no longer holds it open for its whole shutdown deadline. Run
+  `pitwall hooks install` to update the extension. It replaces the alpha.5
+  file, which is not counted as edited.
+- A resumed Claude pane no longer sends its first prompt again. A pane
+  opened as `claude "fix the tests"` came back as
+  `claude "fix the tests" --resume <id>`. Resume now keeps only the options
+  `claude --help` documents, minus session selectors, print mode and one-off
+  actions such as `--worktree`. A value option left without its value, such
+  as a trailing `--model`, is dropped too, since it took the `--resume`.
+- The daemon protocol is now version 14; the next `pitwall` restarts an
+  older daemon. The state file format is now version 8, so an older pitwall
+  can't read state this one saved.
 
 ## v0.1.0-alpha.5
 

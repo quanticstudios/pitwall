@@ -647,6 +647,33 @@ func TestPiReloadOrdering(t *testing.T) {
 	}
 }
 
+// A pi runtime that sent its session_shutdown is retired: a report it sends
+// later, its own session_start included, changes nothing.
+func TestPiRetiredRuntime(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.Derive, o.SessionID = agent.Derive, agent.SessionID
+	d := newDaemon(t, o)
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.AddProject{Path: t.TempDir()}))
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: d.st.Workspaces[0].ID}))
+	id := d.st.Panes[0].ID
+	send := func(event string) {
+		t.Helper()
+		b := fmt.Sprintf(`{"event":%q,"runtime":"r","session_id":"s1"}`, event)
+		must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: []byte(b)}))
+	}
+	send("session_start")
+	send("agent_start")
+	send("session_shutdown")
+	for _, late := range []string{"agent_start", "session_start", "tool_call"} {
+		send(late)
+		if a := d.activityOf(id); a.State != "" {
+			t.Fatalf("a late %s from the retired runtime set %q", late, a.State)
+		}
+	}
+}
+
 // A SetLayout built from stale state is rejected; a current one is taken with
 // its ratios made sane.
 func TestSetLayoutValidates(t *testing.T) {

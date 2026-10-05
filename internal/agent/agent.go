@@ -8,9 +8,12 @@
 package agent
 
 import (
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -96,7 +99,9 @@ type payload struct {
 //	session_start                           no change (pi is idle at its prompt)
 //	session_shutdown                        remove, unless prev belongs to another pi
 //	                                        session: a late report from one pi ended
-//	                                        by /new, /resume or /reload
+//	                                        by /new, /resume or /reload. One that
+//	                                        carries stop_reason holds the run's result:
+//	                                        the daemon applies PiSettled first
 //
 // pi has no permission prompts of its own, so it never reports
 // pending-approval, awaiting-input or plan-ready.
@@ -368,7 +373,9 @@ const piBinToken = "__PITWALL_BIN__"
 // PiExtension returns the TypeScript extension pi loads from
 // <agent dir>/extensions/pitwall.ts. Inside a pitwall pane, on each event it
 // runs `<bin> hook pi` with a JSON payload on stdin, without a shell, one at
-// a time in the background; pi waits for it only at shutdown, at most 1s.
+// a time in the background. At shutdown it drops what is still queued and
+// sends one final report, with the run's result, from a detached process
+// that outlives pi; pi waits at most 1s for its payload to be written.
 // Outside a pane it registers nothing. bin is quoted as a JSON string, which is a
 // valid TypeScript string literal for any path.
 func PiExtension(bin string) []byte {
@@ -376,19 +383,29 @@ func PiExtension(bin string) []byte {
 	return []byte(strings.Replace(piTemplate, piBinToken, string(q), 1))
 }
 
+// piReleased are the SHA-256 sums of pi_extension.ts as earlier releases
+// shipped it, so an install replaces those files as unedited.
+var piReleased = []string{
+	"6075137b80ebb0c738c88c2abca9f192e9fc3858eab4e215f4702bceb3bcca02", // v0.1.0-alpha.5
+}
+
 // IsPiExtension reports whether b is exactly what PiExtension returns for
-// some binary path: a file pitwall wrote and nobody edited since.
+// some binary path, now or in an earlier release: a file pitwall wrote and
+// nobody edited since.
 func IsPiExtension(b []byte) bool {
-	pre, post, _ := strings.Cut(piTemplate, piBinToken)
-	s := string(b)
-	if len(s) < len(pre)+len(post) || !strings.HasPrefix(s, pre) || !strings.HasSuffix(s, post) {
-		return false
-	}
+	// why: JSON escapes newlines, so the bin literal ends at the first ";\n".
+	pre, rest, ok := strings.Cut(string(b), "const bin = ")
+	lit, post, ok2 := strings.Cut(rest, ";\n")
 	var bin string
-	if json.Unmarshal([]byte(s[len(pre):len(s)-len(post)]), &bin) != nil {
+	if !ok || !ok2 || json.Unmarshal([]byte(lit), &bin) != nil {
 		return false
 	}
-	return string(PiExtension(bin)) == s
+	if q, _ := json.Marshal(bin); string(q) != lit {
+		return false
+	}
+	tmpl := pre + "const bin = " + piBinToken + ";\n" + post
+	sum := sha256.Sum256([]byte(tmpl))
+	return tmpl == piTemplate || slices.Contains(piReleased, hex.EncodeToString(sum[:]))
 }
 
 func hooksJSON(bin, provider string, events []hookEvent) []byte {
@@ -446,6 +463,34 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 		return "", "", nil, "", false
 	}
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
+}
+
+// PiEvent returns the event of a pi extension report, such as
+// "session_shutdown", and "" for other payloads.
+func PiEvent(payload []byte) string {
+	p, err := decode(payload)
+	if err != nil {
+		return ""
+	}
+	return p.PiEvent
+}
+
+// PiSettled returns the agent_settled a pi session_shutdown carries: the
+// same report as agent_settled, when it has a stop_reason. The extension
+// sends its last run's result with its shutdown, because reports queued
+// behind a slow hook do not outlive pi.
+func PiSettled(payload []byte) ([]byte, bool) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(payload, &m) != nil || string(m["event"]) != `"session_shutdown"` {
+		return nil, false
+	}
+	var reason string
+	if json.Unmarshal(m["stop_reason"], &reason) != nil || reason == "" {
+		return nil, false
+	}
+	m["event"] = json.RawMessage(`"agent_settled"`)
+	b, err := json.Marshal(m)
+	return b, err == nil
 }
 
 // PiRuntime returns the runtime nonce of a pi extension report, "" for

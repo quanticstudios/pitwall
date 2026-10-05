@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -41,8 +42,9 @@ func TestSaveLoad(t *testing.T) {
 		}},
 		Panes: []model.Pane{
 			{ID: "p1", WorkspaceID: "workspace", Cmd: []string{"claude", "--model", "sonnet"}, Cwd: "/repo/store", Title: "Claude", Provider: model.ProviderClaude, SessionID: "session", Prompt: "fix the store"},
-			{ID: "p2", WorkspaceID: "workspace", Cmd: []string{"false"}, Exited: true, ExitCode: 1, Provider: model.ProviderTerminal},
+			{ID: "p2", WorkspaceID: "workspace", Cmd: []string{"false"}, Exited: true, ExitCode: 1, Held: true, Provider: model.ProviderTerminal},
 			{ID: "p3", WorkspaceID: "workspace"},
+			{ID: "p4", WorkspaceID: "workspace", Cmd: []string{"make"}, Exited: true, ExitUnknown: true, Held: true},
 		},
 		Activities: []model.Activity{{PaneID: "p1", WorkspaceID: "workspace", Provider: model.ProviderClaude, SessionID: "session", State: model.StateWorking, Detail: "saving", UpdatedAt: now}},
 		Stats:      map[string]model.BranchStats{"workspace": {Additions: 10, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 1, Behind: 3}},
@@ -96,7 +98,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":8,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":9,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -139,6 +141,15 @@ func TestRestoreCmd(t *testing.T) {
 		{"claude attached", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "--resume=old", "--model=sonnet"}}, []string{"claude", "--model=sonnet", "--resume", "new"}},
 		{"claude optional resume", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "-r", "--model", "sonnet"}}, []string{"claude", "--model", "sonnet", "--resume", "new"}},
 		{"claude empty", model.Pane{Provider: model.ProviderClaude, SessionID: "new"}, []string{"claude", "--resume", "new"}},
+		{"claude prompt", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "fix the tests", "--model", "opus", "and this"}}, []string{"claude", "--model", "opus", "--resume", "new"}},
+		{"claude dangling model", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "--verbose", "--model"}}, []string{"claude", "--verbose", "--resume", "new"}},
+		{"claude dangling before prompt", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "--effort", "--", "fix it"}}, []string{"claude", "--resume", "new"}},
+		{"claude kept flags", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "--add-dir", "../a", "../b", "--settings=s.json", "-d", "api", "--effort", "high", "--allowed-tools", "Bash(git *)", "Edit", "--bare", "--system-prompt", "-be terse"}},
+			[]string{"claude", "--add-dir", "../a", "../b", "--settings=s.json", "-d", "api", "--effort", "high", "--allowed-tools", "Bash(git *)", "Edit", "--bare", "--system-prompt", "-be terse", "--resume", "new"}},
+		{"claude dropped flags", model.Pane{Provider: model.ProviderClaude, SessionID: "new", Cmd: []string{"claude", "-p", "--output-format", "json", "-w", "feature", "--session-id", "x", "--fork-session", "--bg", "--name", "n", "--plugin-flag", "v", "--model", "opus"}}, []string{"claude", "--model", "opus", "--resume", "new"}},
+		{"claude mode not duplicated", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "plan", Cmd: []string{"claude", "--permission-mode", "acceptEdits", "fix it"}}, []string{"claude", "--permission-mode", "acceptEdits", "--resume", "new"}},
+		{"claude bypass not duplicated", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "bypassPermissions", Cmd: []string{"claude", "--dangerously-skip-permissions", "fix it"}}, []string{"claude", "--dangerously-skip-permissions", "--resume", "new"}},
+		{"claude dangling mode", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "plan", Cmd: []string{"claude", "--permission-mode"}}, []string{"claude", "--permission-mode", "plan", "--resume", "new"}},
 		{"codex flags", model.Pane{Provider: model.ProviderCodex, SessionID: "new", Cmd: []string{"/bin/codex", "-m", "gpt-5", "-c", "model_reasoning_effort=high", "--profile=work", "--search", "original prompt"}}, []string{"/bin/codex", "resume", "-m", "gpt-5", "-c", "model_reasoning_effort=high", "--profile=work", "--search", "new"}},
 		{"codex resumed", model.Pane{Provider: model.ProviderCodex, SessionID: "new", Cmd: []string{"codex", "--config", "x=true", "resume", "old", "--last", "--all", "--model=gpt-5"}}, []string{"codex", "resume", "--config", "x=true", "--model=gpt-5", "new"}},
 		{"codex short attached", model.Pane{Provider: model.ProviderCodex, SessionID: "new", Cmd: []string{"codex", "-mgpt-5", "-cx=true"}}, []string{"codex", "resume", "-mgpt-5", "-cx=true", "new"}},
@@ -431,5 +442,38 @@ func TestLoadMigratesVersion6Sessions(t *testing.T) {
 	}
 	if s, err := Load(path); err != nil || len(s.Sessions) != 0 {
 		t.Fatalf("empty: %+v %v", s.Sessions, err)
+	}
+}
+
+// A version 7 file marks held the panes `pitwall new -- cmd` opened: those
+// with a command and no agent session to resume. A version 8 file is taken
+// as saved.
+func TestLoadMigratesVersion7Held(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	panes := `[
+		{"ID":"shell"},
+		{"ID":"make","Cmd":["make"]},
+		{"ID":"done","Cmd":["false"],"Exited":true,"ExitCode":1},
+		{"ID":"claude","Cmd":["claude","fix it"],"Provider":"claude","SessionID":"s"},
+		{"ID":"unseen","Cmd":["codex","fix it"]},
+		{"ID":"terminal","Cmd":["make"],"Provider":"terminal","SessionID":"s"}]`
+	for version, want := range map[int][]string{7: {"make", "done", "unseen", "terminal"}, 8: nil} {
+		data := fmt.Sprintf(`{"format_version":%d,"state":{"Panes":%s}}`, version, panes)
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var held []string
+		for _, p := range s.Panes {
+			if p.Held {
+				held = append(held, p.ID)
+			}
+		}
+		if !reflect.DeepEqual(held, want) {
+			t.Fatalf("version %d: held %v, want %v", version, held, want)
+		}
 	}
 }

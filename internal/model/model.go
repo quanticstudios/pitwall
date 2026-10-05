@@ -94,10 +94,16 @@ type Pane struct {
 	Cmd         []string // argv as launched; empty means the user's shell
 	// Cwd is where the pane started; the daemon follows a shell at its
 	// prompt into the directory it changes to, about once a second.
-	Cwd       string
-	Title     string // last OSC title, spinner and status glyphs stripped
-	Exited    bool
-	ExitCode  int
+	Cwd      string
+	Title    string // last OSC title, spinner and status glyphs stripped
+	Exited   bool
+	ExitCode int
+	// ExitUnknown marks an Exited pane whose exit code was lost: the daemon
+	// restarted while its command ran and did not run it again.
+	ExitUnknown bool
+	// Held panes run a command from NewSession.Cmd and stay, Exited, after
+	// it ends, until closed. A restart keeps them; see daemon.NewWith.
+	Held      bool
 	Provider  Provider // "" until a hook reports or detection sees an agent
 	SessionID string   // agent session id from hooks, used to resume
 	// Prompt is the first prompt of the agent session (SessionID), first

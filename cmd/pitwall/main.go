@@ -47,8 +47,9 @@ const usage = `usage:
   pitwall new [-n name] [-d] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. A cmd's pane stays after it
-                             exits, showing its output, until closed or the
-                             daemon restarts
+                             exits, showing its output, until closed. After a
+                             daemon restart it shows a notice instead; a cmd
+                             still running then is not run again (exit unknown)
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there (its first
                              live agent pane, else live pane). done: it
@@ -56,7 +57,8 @@ const usage = `usage:
                              blocked: it waits on a permission prompt or a
                              question; exit: its process ended. Without an agent, done means exit. Exit codes: 0 reached,
                              2 blocked instead, 3 the process exited, 124
-                             timed out, 1 error; for exit, the process's code
+                             timed out, 1 error; for exit, the process's code,
+                             or 3 when a daemon restart lost it
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
@@ -95,6 +97,8 @@ func main() {
 	case "daemon":
 		err = runDaemon()
 	case "hook":
+		// why: pi's final report runs detached, with no one left to kill a hook stuck on a busy daemon.
+		time.AfterFunc(5*time.Second, func() { os.Exit(0) })
 		runHook(os.Args[2:])
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)

@@ -24,9 +24,13 @@ pane, commands act on the pane's session; `-s <session>` picks another.
 current directory by default) running cmd instead of a shell, and prints its
 number, as `#4`. `-d` keeps it out of the sidebar until attached; leave it off
 when the user should see the work. When cmd exits, its pane stays with the
-output on screen and the exit code recorded, until someone closes it or the
-daemon restarts. A restarted daemon forgets that the pane stays: it closes
-when the command ends, and its exit code is gone. A relative command path
+output on screen and the exit code recorded, until someone closes it. The
+tab survives a daemon restart (an upgrade or a reboot), but its screen does
+not: the pane shows a one-line notice instead. A command that had exited
+keeps its exit code. An agent with a known session resumes. Any other
+command still running is not run again, since that may not be safe: it comes
+back exited with its exit code unknown (`exit_code` null, and `wait` prints
+`exit unknown` and exits 3). A relative command path
 (`./tool`) is the caller's, made absolute before the tab opens.
 
 `pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]` blocks
@@ -57,11 +61,13 @@ means `exit`; once a tab ran an agent, its exit ends `--until done` with 3.
 | 0         | the state was reached                                                                   |
 | 2         | the agent became blocked while waiting for something else; prints `blocked: <question>` |
 | 3         | the process exited while waiting for something else; prints `exit <code>`               |
+| 3         | a daemon restart stopped the command, so its code is lost; prints `exit unknown`        |
 | 124       | `--timeout` passed                                                                      |
 | 1         | an error: no such tab, no daemon, the tab was closed                                    |
 
 With `--until exit`, and `done` on a tab that never showed an agent, wait
-exits with the process's own exit code instead (1 when a signal killed it).
+exits with the process's own exit code instead (1 when a signal killed it,
+3 when a daemon restart lost it).
 The daemon pushes state in snapshots, so changes close together arrive as
 one; wait judges the latest. An agent pitwall reads from its screen (no
 hooks) is polled, so its state can lag or be misread.
@@ -106,7 +112,8 @@ pitwall wait "$tab" --until exit --timeout 15m   # exits with go test's status
 ```
 
 The tab stays open with the output after the command ends, so the user can
-read a failure, until it is closed or the daemon restarts. Close it with
+read a failure, until it is closed. After a daemon restart it keeps the exit
+code but not the output. Close it with
 `pitwall kill -f "$tab"`.
 
 ## What this allows

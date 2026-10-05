@@ -9,6 +9,8 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 14 added Pane.Held and ExitUnknown: a held pane survives a daemon
+// restart.
 // Version 13 added Pane.AgentMode.
 // Version 12 added NewSession.Cmd and Hello.Kind "watch", and a pane
 // opened with NewSession.Cmd stays, Exited, after its process ends, until
@@ -34,7 +36,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 13
+const Version = 14
 
 // Client to daemon.
 
@@ -64,9 +66,9 @@ type NewSession struct {
 	Cwd       string
 	GroupID   string
 	SessionID string
-	// Cmd, when set, runs in the pane instead of the shell. The pane stays
-	// after the command exits, Exited with its ExitCode, until closed or
-	// until the daemon restarts, which forgets that it stays.
+	// Cmd, when set, runs in the pane instead of the shell. The pane is
+	// Held: it stays after the command exits, Exited with its ExitCode,
+	// until closed, across daemon restarts too (see daemon.NewWith).
 	Cmd []string
 	// FromPane, when set, starts the session in that pane's current
 	// directory (where its shell is now), falling back to Cwd.

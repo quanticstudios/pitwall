@@ -21,13 +21,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// formatVersion 8 added Pane.Held;
 // formatVersion 7 added sessions, which own the tabs, groups and order;
 // formatVersion 6 added State.Order and dropped generated tab names;
 // formatVersion 5 made each tab a workspace of its own; version 4 added Workspace.NameSet and Label and Pane.Prompt; version
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 7
+const formatVersion = 8
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -124,7 +125,28 @@ func Load(path string) (model.State, error) {
 			return model.State{}, err
 		}
 	}
+	if saved.FormatVersion < 8 {
+		migrateHeld(saved.State)
+	}
 	return *saved.State, nil
+}
+
+// migrateHeld marks the panes `pitwall new -- cmd` opened before Held was
+// saved, so a restart does not run their commands again. Only NewSession.Cmd
+// gave a pane a command: pitwall's own clients open every other pane with a
+// shell. A pane whose agent session is known keeps resuming unheld, as it did.
+func migrateHeld(s *model.State) {
+	for i := range s.Panes {
+		if p := &s.Panes[i]; len(p.Cmd) > 0 && !Resumes(*p) {
+			p.Held = true
+		}
+	}
+}
+
+// Resumes reports whether RestoreCmd brings p back as a resumed agent
+// session rather than its original command.
+func Resumes(p model.Pane) bool {
+	return p.SessionID != "" && (p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex || p.Provider == model.ProviderPi)
 }
 
 // migrateSessions puts every tab and group of an older file into one
@@ -164,7 +186,7 @@ func migrateSessions(data []byte, version int, s *model.State) error {
 // command already sets its permissions.
 // Adapted from tuios (MIT): internal/session/agent_resume.go
 func RestoreCmd(p model.Pane) []string {
-	if p.SessionID == "" || (p.Provider != model.ProviderClaude && p.Provider != model.ProviderCodex && p.Provider != model.ProviderPi) {
+	if !Resumes(p) {
 		return p.Cmd
 	}
 	binary := string(p.Provider)
@@ -176,21 +198,7 @@ func RestoreCmd(p model.Pane) []string {
 	}
 	cmd := []string{binary}
 	if p.Provider == model.ProviderClaude {
-		for i := 0; i < len(args); i++ {
-			if args[i] == "--" {
-				break // a prompt follows, and after it flags would be prompt text
-			}
-			flag, _, attached := strings.Cut(args[i], "=")
-			switch flag {
-			case "--resume", "-r":
-				if !attached && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-					i++
-				}
-			case "--continue", "-c":
-			default:
-				cmd = append(cmd, args[i])
-			}
-		}
+		cmd = claudeFlags(cmd, args)
 		// "default" is passed too: settings may make bypass the default
 		// mode, which the user had left.
 		if !hasFlag(cmd[1:], "--dangerously-skip-permissions", "--permission-mode") {
@@ -253,6 +261,80 @@ func RestoreCmd(p model.Pane) []string {
 		cmd = append(cmd, "--dangerously-bypass-approvals-and-sandbox")
 	}
 	return append(cmd, p.SessionID)
+}
+
+// claudeOpt is one option of `claude --help`: the values it takes, '1' one,
+// '+' one or more, '?' an optional one, 0 none, and whether a resumed
+// session keeps it.
+type claudeOpt struct {
+	values byte
+	keep   bool
+}
+
+// claudeOptions are the options of `claude --help` (2.1.289). A resume drops
+// session selectors, print mode and its options, and one-off actions such as
+// --worktree and --bg.
+var claudeOptions = map[string]claudeOpt{
+	"--add-dir": {'+', true}, "--agent": {'1', true}, "--agents": {'1', true},
+	"--allow-dangerously-skip-permissions": {0, true}, "--allowedTools": {'+', true}, "--allowed-tools": {'+', true},
+	"--append-system-prompt": {'1', true}, "--autocompact": {'1', true}, "--ax-screen-reader": {0, true},
+	"--bare": {0, true}, "--betas": {'+', true}, "--brief": {0, true}, "--chrome": {0, true},
+	"--dangerously-skip-permissions": {0, true}, "-d": {'?', true}, "--debug": {'?', true}, "--debug-file": {'1', true},
+	"--disable-slash-commands": {0, true}, "--disallowedTools": {'+', true}, "--disallowed-tools": {'+', true},
+	"--effort": {'1', true}, "--exclude-dynamic-system-prompt-sections": {0, true}, "--fallback-model": {'1', true},
+	"--ide": {0, true}, "--mcp-config": {'+', true}, "--model": {'1', true}, "--no-chrome": {0, true},
+	"--permission-mode": {'1', true}, "--plugin-dir": {'1', true}, "--plugin-url": {'1', true},
+	"--remote-control": {'?', true}, "--remote-control-session-name-prefix": {'1', true}, "--restricted": {0, true},
+	"--safe-mode": {0, true}, "--setting-sources": {'1', true}, "--settings": {'1', true},
+	"--strict-mcp-config": {0, true}, "--system-prompt": {'1', true}, "--system-prompt-snapshot": {'1', true},
+	"--tools": {'+', true}, "--verbose": {0, true},
+
+	"--bg": {}, "--background": {}, "--cloud": {'?', false}, "-c": {}, "--continue": {}, "--desktop": {},
+	"--environment": {'1', false}, "--file": {'+', false}, "--fork-session": {}, "--forward-subagent-text": {},
+	"--from-pr": {'?', false}, "-h": {}, "--help": {}, "--include-hook-events": {}, "--include-partial-messages": {},
+	"--input-format": {'1', false}, "--json-schema": {'1', false}, "--max-budget-usd": {'1', false},
+	"-n": {'1', false}, "--name": {'1', false}, "--no-session-persistence": {}, "--output-format": {'1', false},
+	"--permission-prompts": {'1', false}, "-p": {}, "--print": {}, "--prompt-suggestions": {'?', false},
+	"--replay-user-messages": {}, "-r": {'?', false}, "--resume": {'?', false}, "--session-id": {'1', false},
+	"--teleport": {'?', false}, "--tmux": {}, "-v": {}, "--version": {}, "-w": {'?', false}, "--worktree": {'?', false},
+}
+
+// claudeFlags appends to cmd the options of claude's args that a resumed
+// session keeps, with their values, parsed as claude's commander parser
+// does. Prompts, dropped options and options claude does not document go;
+// so does a value option missing its value, which would take --resume.
+func claudeFlags(cmd, args []string) []string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			break // a prompt follows, and after it flags would be prompt text
+		}
+		flag, _, attached := strings.Cut(args[i], "=")
+		opt, known := claudeOptions[flag]
+		if !known {
+			continue // a prompt, or an option claude does not document
+		}
+		start := i
+		switch opt.values {
+		case '1', '+':
+			if !attached {
+				if i+1 >= len(args) || args[i+1] == "--" {
+					continue
+				}
+				i++
+			}
+			for opt.values == '+' && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+		case '?':
+			if !attached && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+		}
+		if opt.keep {
+			cmd = append(cmd, args[start:i+1]...)
+		}
+	}
+	return cmd
 }
 
 // hasFlag reports whether the options of args, before any "--", include
