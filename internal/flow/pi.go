@@ -44,8 +44,8 @@ func (pi) line(b *builder, line []byte) {
 	}
 	var blocks []piBlock
 	var text string
-	if json.Unmarshal(m.Content, &text) != nil && json.Unmarshal(m.Content, &blocks) != nil {
-		return
+	if json.Unmarshal(m.Content, &text) != nil {
+		_ = json.Unmarshal(m.Content, &blocks)
 	}
 	switch m.Role {
 	case "user":
@@ -78,7 +78,6 @@ func (pi) line(b *builder, line []byte) {
 			}
 		}
 	case "toolResult":
-		b.active(ts)
 		b.result(m.ToolCallID, m.IsError)
 	}
 }

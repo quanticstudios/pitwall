@@ -109,7 +109,6 @@ func (c *codex) line(b *builder, line []byte) {
 	case "response_item/local_shell_call":
 		b.call(ts, p.CallID, "shell", command(p.Action.Command))
 	case "response_item/function_call_output", "response_item/custom_tool_call_output":
-		b.active(ts)
 		b.result(p.CallID, codexFailed(p.Output))
 		if s := b.subBy(p.CallID); s != nil {
 			var out struct {

@@ -22,6 +22,7 @@ type builder struct {
 	subs     []*sub
 	calls    map[string]ref // a kept call's id to where it is
 	dropped  int            // turns dropped from the front, for maxTurns
+	aborted  bool           // the last turn was aborted; it does not reopen
 	last     string         // the latest text reply, cut to 2000 runes
 }
 
@@ -59,7 +60,7 @@ func (b *builder) prompt(ts time.Time, text string) {
 // add appends t, then drops the oldest turns past maxTurns, with the ids
 // of their calls.
 func (b *builder) add(t Turn) {
-	b.turns = append(b.turns, t)
+	b.turns, b.aborted = append(b.turns, t), false
 	n := len(b.turns) - maxTurns
 	if n <= 0 {
 		return
@@ -83,9 +84,11 @@ func (b *builder) callByID(id string) *Call {
 }
 
 // active is the turn the agent works on at ts: the last one, open again if
-// it had ended, or a turn without a prompt when the read began mid-turn.
+// it had ended, or a new turn without a prompt when the read began mid-turn
+// or the last turn was aborted. Only the agent's own activity calls it,
+// never a call's result.
 func (b *builder) active(ts time.Time) *Turn {
-	if len(b.turns) == 0 {
+	if len(b.turns) == 0 || b.aborted {
 		b.add(Turn{Start: ts})
 	}
 	t := &b.turns[len(b.turns)-1]
@@ -101,7 +104,8 @@ func (b *builder) call(ts time.Time, id, tool, arg string) {
 	}
 }
 
-// result records a call's result; it reports false for an unknown call.
+// result records a call's result, in its turn even if that ended; it
+// reports false for an unknown call.
 func (b *builder) result(id string, failed bool) bool {
 	c := b.callByID(id)
 	if c == nil {
@@ -139,6 +143,7 @@ func (b *builder) end(ts time.Time, aborted bool) {
 		t.End = ts
 	}
 	if aborted {
+		b.aborted = true
 		for i := range t.Calls {
 			if t.Calls[i].Running {
 				t.Calls[i].Running, t.Calls[i].Failed = false, true

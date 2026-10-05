@@ -101,7 +101,6 @@ func (c *claude) user(b *builder, e claudeEntry) {
 		for _, bl := range blocks {
 			switch bl.Type {
 			case "tool_result":
-				b.active(ts)
 				b.result(bl.ToolUseID, bl.IsError)
 				c.toolResult(b, e, bl)
 				if c := b.callByID(bl.ToolUseID); c != nil && c.Tool == "SubagentHandback" {

@@ -328,3 +328,65 @@ func TestBadInput(t *testing.T) {
 		read(t, p, path)
 	}
 }
+
+// A result that comes after its turn ended updates only the call; agent
+// activity after an aborted turn starts a turn without a prompt.
+func TestLateResults(t *testing.T) {
+	for _, c := range []struct {
+		provider model.Provider
+		lines    string
+	}{
+		{model.ProviderClaude, `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"one"}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:01Z","message":{"content":[{"type":"tool_use","id":"a","name":"Bash","input":{}}]}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-10-05T10:00:02Z"}
+{"type":"user","timestamp":"2026-10-05T10:00:03Z","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"ok"}]}}
+{"type":"user","timestamp":"2026-10-05T10:01:00Z","message":{"content":"two"}}
+{"type":"assistant","timestamp":"2026-10-05T10:01:01Z","message":{"content":[{"type":"tool_use","id":"b","name":"Bash","input":{}}]}}
+{"type":"user","timestamp":"2026-10-05T10:01:02Z","message":{"content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"user","timestamp":"2026-10-05T10:01:03Z","message":{"content":[{"type":"tool_result","tool_use_id":"b","content":"x","is_error":true}]}}
+{"type":"assistant","timestamp":"2026-10-05T10:01:04Z","message":{"content":[{"type":"text","text":"later"}],"stop_reason":"end_turn"}}
+`},
+		{model.ProviderCodex, `{"timestamp":"2026-10-05T10:00:00Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-10-05T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"one"}]}}
+{"timestamp":"2026-10-05T10:00:01Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"a","arguments":"{}"}}
+{"timestamp":"2026-10-05T10:00:02Z","type":"event_msg","payload":{"type":"task_complete"}}
+{"timestamp":"2026-10-05T10:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"a","output":"ok"}}
+{"timestamp":"2026-10-05T10:01:00Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-10-05T10:01:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"two"}]}}
+{"timestamp":"2026-10-05T10:01:01Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"b","arguments":"{}"}}
+{"timestamp":"2026-10-05T10:01:02Z","type":"event_msg","payload":{"type":"turn_aborted"}}
+{"timestamp":"2026-10-05T10:01:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"b","output":"x"}}
+{"timestamp":"2026-10-05T10:01:04Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"later"}]}}
+{"timestamp":"2026-10-05T10:01:04Z","type":"event_msg","payload":{"type":"task_complete"}}
+`},
+		{model.ProviderPi, `{"type":"message","timestamp":"2026-10-05T10:00:00Z","message":{"role":"user","content":"one"}}
+{"type":"message","timestamp":"2026-10-05T10:00:01Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"a","name":"bash","arguments":{}}],"stopReason":"toolUse"}}
+{"type":"message","timestamp":"2026-10-05T10:00:02Z","message":{"role":"toolResult","toolCallId":"a"}}
+{"type":"message","timestamp":"2026-10-05T10:00:02Z","message":{"role":"assistant","content":[{"type":"text","text":"done"}],"stopReason":"stop"}}
+{"type":"message","timestamp":"2026-10-05T10:00:03Z","message":{"role":"toolResult","toolCallId":"a"}}
+{"type":"message","timestamp":"2026-10-05T10:01:00Z","message":{"role":"user","content":"two"}}
+{"type":"message","timestamp":"2026-10-05T10:01:01Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"b","name":"bash","arguments":{}}],"stopReason":"toolUse"}}
+{"type":"message","timestamp":"2026-10-05T10:01:02Z","message":{"role":"assistant","content":[],"stopReason":"aborted"}}
+{"type":"message","timestamp":"2026-10-05T10:01:03Z","message":{"role":"toolResult","toolCallId":"b","isError":true}}
+{"type":"message","timestamp":"2026-10-05T10:01:04Z","message":{"role":"assistant","content":[{"type":"text","text":"later"}],"stopReason":"stop"}}
+`},
+	} {
+		path := filepath.Join(t.TempDir(), "s.jsonl")
+		write(t, path, c.lines)
+		f := read(t, c.provider, path)
+		if len(f.Turns) != 3 {
+			t.Errorf("%s: turns = %+v", c.provider, f.Turns)
+			continue
+		}
+		one, two, three := f.Turns[0], f.Turns[1], f.Turns[2]
+		if !one.End.Equal(at(0, 2)) || one.Calls[0].Running {
+			t.Errorf("%s: turn one = %+v", c.provider, one)
+		}
+		if !two.End.Equal(at(1, 2)) || !two.Calls[0].Failed || two.Calls[0].Running {
+			t.Errorf("%s: turn two = %+v", c.provider, two)
+		}
+		if three.Prompt != "" || three.Reply != "later" || !three.Start.Equal(at(1, 4)) {
+			t.Errorf("%s: turn three = %+v", c.provider, three)
+		}
+	}
+}
