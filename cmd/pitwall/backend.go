@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"slices"
 	"sync"
@@ -22,12 +23,23 @@ type backend struct {
 	session string // the session the window shows, from SessionShow
 	state   model.State
 	frames  map[string]proto.Frame
+
+	// Send queues for sendLoop, so a daemon busy in a slow request never
+	// blocks the window: a few hundred small frames fill a unix socket.
+	outMu   sync.Mutex
+	out     []any
+	outErr  error // the write error that ended sendLoop
+	dropped bool  // a drop since the queue last emptied was logged
+	outWake chan struct{}
 }
+
+// sendQueueMax is the queue length past which Send drops messages.
+const sendQueueMax = 256
 
 // newBackend queues a FocusSession for the window's first session, and the
 // tab $PITWALL_ATTACH names.
 func newBackend(c *proto.Conn, session string) *backend {
-	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), frames: map[string]proto.Frame{}}
+	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), frames: map[string]proto.Frame{}, outWake: make(chan struct{}, 1)}
 	if f := (proto.FocusSession{WorkspaceID: os.Getenv("PITWALL_ATTACH"), SessionID: session}); f != (proto.FocusSession{}) {
 		b.focus <- f
 	}
@@ -49,15 +61,90 @@ func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 	return f.Grid, f.Modes, ok
 }
 
-// Send sends msg; a SessionShow also tells the backend which session's
-// frames redraw the window.
+// Send queues msg for sendLoop and returns at once; the error is the one
+// that broke the connection. A SessionShow also tells the backend which
+// session's frames redraw the window.
 func (b *backend) Send(msg any) error {
 	if s, ok := msg.(proto.SessionShow); ok {
 		b.mu.Lock()
 		b.session = s.SessionID
 		b.mu.Unlock()
 	}
-	return b.conn.Send(msg)
+	b.outMu.Lock()
+	if err := b.outErr; err != nil {
+		b.outMu.Unlock()
+		return err
+	}
+	var dropped bool
+	b.out, dropped = enqueue(b.out, msg, sendQueueMax)
+	if dropped && !b.dropped {
+		b.dropped = true
+		log.Printf("pitwall: the daemon is not reading; dropping old queued messages, keeping input")
+	}
+	b.outMu.Unlock()
+	select {
+	case b.outWake <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// sendLoop writes queued messages in order until a write fails.
+func (b *backend) sendLoop() {
+	for range b.outWake {
+		for {
+			b.outMu.Lock()
+			if len(b.out) == 0 {
+				b.dropped = false
+				b.outMu.Unlock()
+				break
+			}
+			msg := b.out[0]
+			b.out[0] = nil
+			b.out = b.out[1:]
+			b.outMu.Unlock()
+			if err := b.conn.Send(msg); err != nil {
+				b.outMu.Lock()
+				b.outErr, b.out = err, nil
+				b.outMu.Unlock()
+				return
+			}
+		}
+	}
+}
+
+// enqueue appends msg to q. A Resize replaces the pane's queued one. With
+// max or more queued, an Input joins the pane's last queued Input, and any
+// other message first drops the oldest one that is neither; input is never
+// dropped, and each pane's input stays in order. dropped reports a drop.
+func enqueue(q []any, msg any, max int) (_ []any, dropped bool) {
+	switch m := msg.(type) {
+	case proto.Resize:
+		q = slices.DeleteFunc(q, func(o any) bool { r, ok := o.(proto.Resize); return ok && r.Pane == m.Pane })
+	case proto.Input:
+		for i := len(q) - 1; i >= 0 && len(q) >= max; i-- {
+			if in, ok := q[i].(proto.Input); ok && in.Pane == m.Pane {
+				in.Data = append(slices.Clip(in.Data), m.Data...) // the caller may reuse m.Data's array
+				q[i] = in
+				return q, false
+			}
+		}
+	default:
+		if len(q) >= max {
+			if i := slices.IndexFunc(q, droppable); i >= 0 {
+				q, dropped = slices.Delete(q, i, i+1), true
+			}
+		}
+	}
+	return append(q, msg), dropped
+}
+
+func droppable(m any) bool {
+	switch m.(type) {
+	case proto.Input, proto.Resize:
+		return false
+	}
+	return true
 }
 
 func (b *backend) Changed() <-chan struct{}         { return b.changed }

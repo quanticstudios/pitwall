@@ -217,6 +217,7 @@ func runGUI(session string) error {
 	b := newBackend(conn, target.ID)
 	b.state = initial.State
 	go b.recvLoop()
+	go b.sendLoop()
 	return app.Run(b)
 }
 
