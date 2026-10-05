@@ -21,6 +21,33 @@ To cut a release: add a section below and merge it, then
 - Tabs inside a group are indented under the group header.
 - The "+" on a hovered tab row is gone; it covered the state pill. Right-click
   a tab for **New tab below**, or use the "+" on the group or sidebar header.
+- Decision models, starting with TypeSafe's Jev. Connect it in Settings,
+  Decisions, or with `pitwall jev login`; the key stays in a 0600
+  `credentials` file or `TYPESAFE_API_KEY`, never in `config.toml`.
+  Nothing is sent until you connect, and connecting keeps your settings.
+  With the other `[decisions]` settings left at their defaults:
+  - Approvals suggest only: a Claude Code or Codex permission request
+    shows the model's recommendation on the tab's pill, in the switcher,
+    in the hover card and on the pane, with any risk pitwall reads in the
+    call ("Jev: allow 96% · sudo"). The agent's prompt is never delayed
+    and pitwall never answers it. Automatic approval was left out because
+    a command's text can't show what it will run, so it needs sandboxed
+    execution.
+  - Attention triage (on by default) sorts what needs you as fyi, later,
+    soon or now for the jump-to-attention key and notifications; fyi sends
+    no notification.
+  - Optional: status for agent CLIs without hooks (Gemini CLI, OpenCode,
+    Aider, Amp, Cursor agent, Goose, Crush) read from their screen, and a
+    turn check that turns Done into Check when a turn needs review; it
+    reads the agent's last message only, never the screen.
+  - `provider = "command"` runs your own classifier instead. Every call
+    has secrets removed before anything is cut to size, a timeout (1.5 s
+    by default, 0.2 to 10 s) and a per-pane limit; any failure leaves
+    pitwall as it was. See the README's Decisions section.
+- A finished turn's notification shows the start of the agent's last
+  message.
+- The daemon protocol is now version 11; the next `pitwall` restarts an
+  older daemon. The state file format is unchanged.
 
 ## v0.1.0-alpha.3
 

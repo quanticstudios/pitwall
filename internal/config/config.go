@@ -23,11 +23,12 @@ import (
 
 // Config is config.toml.
 type Config struct {
-	Keys   Keys   `toml:"keys" doc:"Keybindings: a preset, then single actions overriding it. A value is a chord (\"Ctrl+Shift+T\"), an array of chords, or [] to unbind."`
-	Theme  Theme  `toml:"theme" doc:"Colors."`
-	Font   Font   `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
-	Layout Layout `toml:"layout" doc:"Spacing around panes, in dp."`
-	Term   Term   `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
+	Keys      Keys      `toml:"keys" doc:"Keybindings: a preset, then single actions overriding it. A value is a chord (\"Ctrl+Shift+T\"), an array of chords, or [] to unbind."`
+	Theme     Theme     `toml:"theme" doc:"Colors."`
+	Font      Font      `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
+	Layout    Layout    `toml:"layout" doc:"Spacing around panes, in dp."`
+	Term      Term      `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
+	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
 }
 
 // Keys is [keys]. Every Binding field is an action.
@@ -194,6 +195,8 @@ type Settings struct {
 	CopyOnSelect bool
 	// Links underlines links in panes and opens them on Ctrl+click.
 	Links bool
+	// Decisions is [decisions] resolved.
+	Decisions DecideSettings
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -339,6 +342,12 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
+	var di []issue
+	var dn []issue
+	s.Decisions, di, dn = resolveDecisions(c.Decisions)
+	fi = append(fi, di...)
+	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
+	sort.SliceStable(s.Notes, func(i, j int) bool { return s.Notes[i].Line < s.Notes[j].Line })
 	if s.Font.UIFamily == "" {
 		s.Font.UIFamily = DefaultUIFamily
 	}
@@ -470,6 +479,16 @@ func parse(file string, data []byte, v any, renamed *[]issue) []Problem {
 			return []Problem{{File: file, Line: pe.Position.Line, Msg: pe.Message}}
 		}
 		return []Problem{{File: file, Msg: err.Error()}}
+	}
+	if d, ok := m["decisions"].(map[string]any); ok && renamed != nil {
+		if a, ok := d["approvals"].(map[string]any); ok {
+			for _, k := range RemovedApprovals {
+				if _, set := a[k]; set {
+					delete(a, k)
+					*renamed = append(*renamed, issue{"decisions.approvals." + k, "no longer supported: automatic approval was removed; this line is ignored"})
+				}
+			}
+		}
 	}
 	if keys, ok := m["keys"].(map[string]any); ok && renamed != nil {
 		for _, old := range slices.Sorted(mapKeys(keys)) {

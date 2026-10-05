@@ -563,9 +563,13 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}
 
 	unseen := map[string]model.Activity{}
+	advice := map[string]string{}
 	for _, a := range st.Activities {
 		if a.Unseen && a.WorkspaceID == ws.ID {
 			unseen[a.PaneID] = a
+		}
+		if s := sidebar.AdviceText(a, st.Decide.Provider); s != "" && a.WorkspaceID == ws.ID {
+			advice[a.PaneID] = s
 		}
 	}
 	// Pane frames sit pane_margin in from the edges and pane_gap apart on
@@ -599,6 +603,9 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			att = &a
 		}
 		u.layoutPane(gtx, p, id, r, id == focused, sole, att)
+		if s := advice[id]; s != "" {
+			u.drawAdvice(gtx, r, s)
+		}
 		if id == zoom {
 			u.drawZoomHint(gtx, r)
 		}

@@ -1,11 +1,15 @@
 package settings
 
 import (
+	"context"
+	"errors"
 	"image"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +22,8 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -227,5 +233,198 @@ func TestPaneModeSection(t *testing.T) {
 	}
 	if v := (edit{"next", "keys.pane", b.Pane["next"]}).value("aide"); v != nil {
 		t.Errorf("preset pane value written: %s", *v)
+	}
+}
+
+// TestDecisionsConnect: the Decisions page saves a pasted key to a 0600
+// credentials file, never to config.toml, turns Jev on, tests it, and
+// disconnecting removes both.
+func TestDecisionsConnect(t *testing.T) {
+	const key = "ts_live_abcdefghijklmnopqrstuvwxyz012345"
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	defer func(f func(context.Context, decide.Provider, time.Duration, ...string) (time.Duration, error)) {
+		ping = f
+	}(ping)
+	pinged := make(chan string, 1)
+	ping = func(_ context.Context, p decide.Provider, _ time.Duration, secrets ...string) (time.Duration, error) {
+		pinged <- string(p.(*decide.Jev).Key)
+		return 120 * time.Millisecond, nil
+	}
+	var p Page
+	p.Show(path)
+	p.s, _ = config.LoadFile(path)
+	p.th = theme.Dark()
+	if p.dp.keySrc != "" {
+		t.Fatal("a key before connecting")
+	}
+	p.dp.key.SetText("  " + key + "\n")
+	p.connect()
+	if got := <-pinged; got != key {
+		t.Errorf("tested %q", got)
+	}
+	cred := filepath.Join(dir, "credentials")
+	if fi, err := os.Stat(cred); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
+		t.Fatalf("credentials %v %v", fi, err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), key) {
+		t.Fatal("the key went into config.toml")
+	}
+	p.s, _ = config.LoadFile(path)
+	if p.s.Decisions.Provider != "jev" || p.dp.keySrc != decide.FromFile || p.dp.key.Text() != "" {
+		t.Fatalf("after connect: provider %q, source %q, field %q", p.s.Decisions.Provider, p.dp.keySrc, p.dp.key.Text())
+	}
+	for start := time.Now(); ; time.Sleep(time.Millisecond) {
+		p.dp.mu.Lock()
+		res, testing := p.dp.result, p.dp.testing
+		p.dp.mu.Unlock()
+		if !testing && res != "" {
+			if res != "Connection ok · 120 ms" {
+				t.Errorf("result %q", res)
+			}
+			break
+		}
+		if time.Since(start) > time.Second {
+			t.Fatal("test never finished")
+		}
+	}
+	p.disconnect()
+	p.s, _ = config.LoadFile(path)
+	if _, err := os.Stat(cred); !os.IsNotExist(err) || p.s.Decisions.Provider != "" || p.dp.keySrc != "" {
+		t.Errorf("after disconnect: %v, provider %q, source %q", err, p.s.Decisions.Provider, p.dp.keySrc)
+	}
+	p.dp.key.SetText("short")
+	p.connect()
+	if p.dp.keyErr == "" {
+		t.Error("a bad key connected")
+	}
+}
+
+// TestDecisionsStates: the Connect card picks the right row for each
+// setup, and every state lays out.
+func TestDecisionsStates(t *testing.T) {
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	var p Page
+	p.Show(path)
+	p.th = theme.Dark()
+	var ops op.Ops
+	draw := func() {
+		t.Helper()
+		ops.Reset()
+		p.cat = catDecisions
+		gtx := gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1000, 700)), Now: time.Now()}
+		p.Layout(gtx, theme.Dark(), p.s, nil)
+	}
+	conn := func() string { return p.decisions()[0].rows[0].label }
+	setup := func(cfg string) {
+		os.WriteFile(path, []byte(cfg), 0o644)
+		p.s, _ = config.LoadFile(path)
+		p.readKey()
+	}
+	cred := decide.CredentialsPath(dir)
+	setup("")
+	if got := conn(); got != "Connect Jev" || p.decisions()[0].rows[0].wide != true {
+		t.Errorf("disconnected: %q", got)
+	}
+	draw()
+	decide.SaveKey(cred, "ts_live_abcdefghijklmnopqrstuvwxyz012345")
+	setup("")
+	if got := p.decisions()[0].rows[0]; got.label != "Connect Jev" || !strings.Contains(got.desc, "decisions are off") {
+		t.Errorf("key saved, provider off: %+v", got.label)
+	}
+	draw()
+	setup("[decisions]\nprovider = \"jev\"\n")
+	if got := conn(); got != "Jev is connected" {
+		t.Errorf("connected: %q", got)
+	}
+	draw()
+	t.Setenv(decide.KeyEnv, "env_key_1234567890")
+	setup("[decisions]\nprovider = \"jev\"\n")
+	if got := p.decisions()[0].rows[0]; !strings.Contains(got.desc, "TYPESAFE_API_KEY") {
+		t.Errorf("env key: %q", got.desc)
+	}
+	draw()
+	t.Setenv(decide.KeyEnv, "")
+	setup("[decisions]\nprovider = \"command\"\ncommand = [\"my-classifier\"]\n")
+	if got := conn(); got != "Your command" {
+		t.Errorf("command provider: %q", got)
+	}
+	draw()
+	// An old auto config shows suggest; the page offers only off and suggest.
+	setup("[decisions]\nprovider = \"jev\"\n[decisions.approvals]\nmode = \"auto\"\nallow_above = 0.99\n")
+	p.SetDecisions(model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: decide.FeatureApprovals, Calls: 3, Errors: 1}}})
+	secs := p.decisions()
+	if p.s.Decisions.Approvals != config.ModeSuggest || len(secs) != 2 || len(secs[1].rows) != 4 || !strings.Contains(secs[1].rows[0].desc, "3 calls, 1 failed") ||
+		!strings.Contains(secs[1].rows[0].desc, "sandboxed execution") {
+		t.Errorf("approvals: mode %q, %d sections, %d feature rows", p.s.Decisions.Approvals, len(secs), len(secs[1].rows))
+	}
+	draw()
+	for _, st := range []struct {
+		testing bool
+		result  string
+		ok      bool
+		keyErr  string
+	}{{true, "", false, ""}, {false, "Connection ok · 90 ms", true, ""}, {false, "jev: HTTP 401, the API key was refused", false, ""}, {false, "", false, "the key has spaces or quotes in it"}} {
+		p.dp.mu.Lock()
+		p.dp.testing, p.dp.result, p.dp.ok = st.testing, st.result, st.ok
+		p.dp.mu.Unlock()
+		p.dp.keyErr = st.keyErr
+		draw()
+	}
+}
+
+// The Settings connection test scrubs the same keys the daemon does, the
+// saved one and the environment's, for the command provider too.
+func TestDecisionsTestScrubsKeys(t *testing.T) {
+	const saved, env = "ts_live_savedkey_abcdefghijklmnopqrstuv", "ts_live_envkey_abcdefghijklmnopqrstuvw"
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	os.WriteFile(path, []byte("[decisions]\nprovider = \"command\"\ncommand = [\"my-classifier\"]\n"), 0o644)
+	if err := decide.SaveKey(decide.CredentialsPath(dir), saved); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(decide.KeyEnv, env)
+	defer func(f func(context.Context, decide.Provider, time.Duration, ...string) (time.Duration, error)) {
+		ping = f
+	}(ping)
+	got := make(chan []string, 1)
+	ping = func(_ context.Context, p decide.Provider, _ time.Duration, secrets ...string) (time.Duration, error) {
+		got <- secrets
+		return 0, errors.New("command: exit status 1: " + saved + " " + env)
+	}
+	var p Page
+	p.Show(path)
+	p.s, _ = config.LoadFile(path)
+	p.test()
+	secrets := <-got
+	if !slices.Contains(secrets, saved) || !slices.Contains(secrets, env) {
+		t.Errorf("command test scrubs %d of 2 keys", len(secrets))
+	}
+}
+
+// The command provider's arguments are shown redacted: the saved key
+// first, then the generic patterns.
+func TestDecisionsCommandShownRedacted(t *testing.T) {
+	const saved = "plainsavedkeyvalue42"
+	t.Setenv(decide.KeyEnv, "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := decide.SaveKey(decide.CredentialsPath(dir), saved); err != nil {
+		t.Fatal(err)
+	}
+	token := "sk-ant-api03-" + strings.Repeat("Z", 30)
+	os.WriteFile(path, []byte("[decisions]\nprovider = \"command\"\ncommand = [\"my-classifier\", \"--api-key\", \""+token+"\", \"--key2\", \""+saved+"\"]\n"), 0o644)
+	var p Page
+	p.Show(path)
+	p.s, _ = config.LoadFile(path)
+	p.th = theme.Dark()
+	desc := p.decisions()[0].rows[0].desc
+	if strings.Contains(desc, "ZZZZ") || strings.Contains(desc, saved) || !strings.Contains(desc, "my-classifier") {
+		t.Errorf("command shown as %q", desc)
 	}
 }

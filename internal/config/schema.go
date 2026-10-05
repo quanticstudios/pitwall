@@ -55,6 +55,10 @@ func schemaFor(t reflect.Type, title string) []byte {
 		for old, now := range Renamed {
 			props[old] = map[string]any{"$ref": "#/$defs/binding", "deprecated": true, "description": "Renamed to " + now}
 		}
+		approvals := root["properties"].(map[string]any)["decisions"].(map[string]any)["properties"].(map[string]any)["approvals"].(map[string]any)["properties"].(map[string]any)
+		for _, k := range RemovedApprovals {
+			approvals[k] = map[string]any{"deprecated": true, "description": "No longer supported: automatic approval was removed. Ignored."}
+		}
 	}
 	root["$defs"] = map[string]any{
 		"chord": map[string]any{

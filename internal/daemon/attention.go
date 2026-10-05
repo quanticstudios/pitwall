@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -105,6 +106,7 @@ func (d *Daemon) showNotice(id string, a *attention, n vt.Notification) {
 	case n.Title != "":
 		detail = n.Title + ": " + n.Body
 	}
+	detail = decide.Redact(detail, d.dec.cur.Secrets...) // it shows in the sidebar and desktop notifications
 	now := time.Now()
 	a.last = now
 	a.notice = &model.Activity{PaneID: id, WorkspaceID: p.WorkspaceID, Provider: prov,

@@ -1337,7 +1337,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		}})
 	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), 10, col, PillText(a))
+		return label(gtx, th, semibold(th.UIFont), 10, col, PillText(a, v.st.Decide.Provider))
 	}})
 	d := hrowFit(gtx, h, gtx.Dp(4), items...)
 	off.Pop()
@@ -1505,13 +1505,43 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, trigger int, ent
 	return tops
 }
 
-// PillText is a tab pill's label: the command a busy terminal runs,
-// else aide's label for the state.
-func PillText(a model.Activity) string {
+// PillText is a tab pill's label: the command a busy terminal runs, a
+// decision model's recommendation on an approval ("Jev: allow 96%"),
+// else aide's label for the state, with " · now" when triage says the
+// user is needed now. by is State.Decide.Provider.
+func PillText(a model.Activity, by string) string {
 	if a.State == model.StateTerminalRunning && a.Detail != "" {
 		return a.Detail
 	}
+	if s := AdviceText(a, by); s != "" {
+		return s
+	}
+	if a.Urgency == "now" && model.NeedsYou(a.State) {
+		return model.PillLabel(a) + " · now"
+	}
 	return model.PillLabel(a)
+}
+
+// AdviceText is the recommendation on a pending approval, "Jev: allow
+// 96%", with the first risk pitwall sees in the call after it, "Jev:
+// allow 96% · sudo"; "" without one. It is only a suggestion.
+func AdviceText(a model.Activity, by string) string {
+	if a.State != model.StatePendingApproval || a.Advice == "" {
+		return ""
+	}
+	s := fmt.Sprintf("%s: %s %.0f%%", DecideName(by), a.Advice, a.AdviceP*100)
+	if a.AdviceRule != "" {
+		s += " · " + a.AdviceRule
+	}
+	return s
+}
+
+// DecideName is how the UI names a decision provider.
+func DecideName(provider string) string {
+	if provider == "jev" {
+		return "Jev"
+	}
+	return "Model"
 }
 
 var homeDir = sync.OnceValue(func() string {
@@ -1842,7 +1872,7 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 		a := model.Aggregate(acts[ws.ID])
 		state, stateCol := "idle", th.Muted
 		if a != nil {
-			state, stateCol = PillText(*a), StateColor(th, a.State)
+			state, stateCol = PillText(*a, v.st.Decide.Provider), StateColor(th, a.State)
 		}
 		off := op.Offset(image.Pt(p+gtx.Dp(8), top+i*rowH)).Push(gtx.Ops)
 		gtx := gtx

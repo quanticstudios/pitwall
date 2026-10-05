@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -72,12 +74,15 @@ type Options struct {
 	Stats          func(ctx context.Context, worktree string) (model.BranchStats, error)
 	AddWorktree    func(ctx context.Context, repoRoot, name string) (path, branch string, err error)
 	RemoveWorktree func(ctx context.Context, repoRoot, path string, deleteBranch bool) error
-	Save           func(model.State) error
-	Load           func() (model.State, error)
-	RestoreCmd     func(model.Pane) []string
-	Split          func(root *layout.Node, target, newPane string, dir layout.Dir) *layout.Node
-	Remove         func(root *layout.Node, pane string) *layout.Node
-	StatsInterval  time.Duration // 0 means 30s
+	// Decisions reads the decision settings and provider; nil leaves every
+	// decision feature off.
+	Decisions     func() Decisions
+	Save          func(model.State) error
+	Load          func() (model.State, error)
+	RestoreCmd    func(model.Pane) []string
+	Split         func(root *layout.Node, target, newPane string, dir layout.Dir) *layout.Node
+	Remove        func(root *layout.Node, pane string) *layout.Node
+	StatsInterval time.Duration // 0 means 30s
 }
 
 type Daemon struct {
@@ -94,6 +99,7 @@ type Daemon struct {
 	live        liveness
 	resumed     map[string]time.Time  // pane: when NewWith relaunched it with a resume command
 	attn        map[string]*attention // pane: seen time and OSC notification, see attention.go
+	dec         decisions             // see decide.go
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -122,6 +128,7 @@ func New() (*Daemon, error) {
 		Save:           func(s model.State) error { return store.Save(path, s) },
 		Load:           func() (model.State, error) { return store.Load(path) },
 		RestoreCmd:     store.RestoreCmd,
+		Decisions:      loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
 		Split:          layout.Split,
 		Remove:         layout.Remove,
 	})
@@ -146,6 +153,9 @@ func NewWith(o Options) (*Daemon, error) {
 	}
 	st.Activities = nil
 	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, resumed: map[string]time.Time{}}
+	if o.Decisions != nil {
+		d.dec.cur = o.Decisions()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	for i := range d.st.Workspaces {
 		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
@@ -698,6 +708,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.fg, id)
 	delete(d.live.det, id)
 	delete(d.attn, id)
+	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
 }
@@ -712,11 +723,13 @@ func closeAll(ps []Pane) {
 	}
 }
 
+// agentEvent applies one hook event and starts, in the background, the
+// decisions it calls for.
 func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
 	if pi < 0 {
+		d.mu.Unlock()
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
@@ -732,6 +745,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 
 	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok {
 		changed = true
+		clearDecisions(&next) // a new state needs new answers
+		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
+			// The known keys, from the whole message before it is cut.
+			if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {
+				next.Detail = agent.Summary(msg, secrets...)
+			} else {
+				next.Detail = decide.Redact(next.Detail, secrets...)
+			}
+		}
 		switch {
 		case next.State == "" && ai >= 0:
 			d.st.Activities = slices.Delete(d.st.Activities, ai, ai+1)
@@ -758,16 +780,20 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		p.SessionID, p.Prompt, changed = sid, "", true
 	}
 	if p.Prompt == "" {
-		if s := promptTitle(agent.Prompt(m.Provider, m.Payload)); s != "" {
+		// Secrets go before the cut, so no part of a key names the tab.
+		if s := promptTitle(decide.Redact(agent.Prompt(m.Provider, m.Payload), d.dec.cur.Secrets...)); s != "" {
 			p.Prompt, changed = s, true
 		}
 	}
+	job := d.planDecisions(*p, m, now)
 	if changed {
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			w.UpdatedAt = now
 		}
 		d.changed()
 	}
+	d.mu.Unlock()
+	d.runDecisions(ctx, job)
 	return nil
 }
 
@@ -1070,6 +1096,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Panes = slices.Clone(s.Panes)
 	s.Activities = d.attended()
 	s.Stats = maps.Clone(s.Stats)
+	s.Decide = d.decideInfo()
 	return s
 }
 

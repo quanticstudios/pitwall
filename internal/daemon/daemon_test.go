@@ -180,7 +180,15 @@ func (f *fakes) pane(i int) *fakePane {
 // and a stop func that waits for Serve to return.
 func run(t *testing.T, f *fakes) (string, func()) {
 	t.Helper()
-	d, err := NewWith(f.options())
+	return runWith(t, f, func(*Options) {})
+}
+
+// runWith is run with Options changed by edit.
+func runWith(t *testing.T, f *fakes, edit func(*Options)) (string, func()) {
+	t.Helper()
+	o := f.options()
+	edit(&o)
+	d, err := NewWith(o)
 	if err != nil {
 		t.Fatal(err)
 	}

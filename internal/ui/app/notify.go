@@ -15,6 +15,10 @@ import (
 
 const notificationInterval = 3 * time.Second
 
+// triageWait is how long a notification waits for its triage level
+// (Activity.Urgency) before it goes out without one.
+const triageWait = 3 * time.Second
+
 type notificationKey struct {
 	pane    string
 	state   model.AgentState
@@ -35,10 +39,12 @@ type notificationHistory struct {
 }
 
 // decideNotifications is pure: it copies history before updating it. Returned
-// activities are deliveries; pending activities wait until the workspace's
-// three-second interval expires. Only unseen activities (Activity.Unseen)
-// notify, so a notification and the attention ring agree; looking at a
-// workspace consumes its activity too.
+// activities are deliveries, most urgent first; pending activities wait
+// until the workspace's three-second interval expires, and while triage
+// is still rating them, up to triageWait. Triage's fyi sends nothing.
+// Only unseen activities (Activity.Unseen) notify, so a notification and
+// the attention ring agree; looking at a workspace consumes its activity
+// too.
 func decideNotifications(previous notificationHistory, next []model.Activity, focused bool, activeWorkspace string, now time.Time) (notificationHistory, []model.Activity) {
 	h := notificationHistory{
 		activities: make(map[string]model.Activity, len(next)),
@@ -59,6 +65,8 @@ func decideNotifications(previous notificationHistory, next []model.Activity, fo
 		current, ok := h.activities[a.PaneID]
 		if !ok || current.State != a.State || !current.Unseen || current.WorkspaceID != ws || focused && ws == activeWorkspace {
 			delete(h.pending, ws)
+		} else {
+			h.pending[ws] = current // with triage's answer, once it came
 		}
 	}
 	ordered := slices.Clone(next)
@@ -86,15 +94,35 @@ func decideNotifications(previous notificationHistory, next []model.Activity, fo
 	}
 	var out []model.Activity
 	for ws, a := range h.pending {
-		last, sent := h.last[ws]
-		if !sent || !now.Before(last.Add(notificationInterval)) {
+		switch {
+		case a.Urgency == "fyi":
+			delete(h.pending, ws)
+		case !now.Before(notifyDue(h, ws, a)):
 			out = append(out, a)
 			h.last[ws] = now
 			delete(h.pending, ws)
 		}
 	}
-	slices.SortFunc(out, func(a, b model.Activity) int { return strings.Compare(a.WorkspaceID, b.WorkspaceID) })
+	slices.SortFunc(out, func(a, b model.Activity) int {
+		if ra, rb := model.UrgencyRank(a), model.UrgencyRank(b); ra != rb {
+			return rb - ra
+		}
+		return strings.Compare(a.WorkspaceID, b.WorkspaceID)
+	})
 	return h, out
+}
+
+// notifyDue is when the pending activity a of workspace ws may go out:
+// after the workspace's interval, and once triage answered or gave up.
+func notifyDue(h notificationHistory, ws string, a model.Activity) time.Time {
+	var t time.Time
+	if last, sent := h.last[ws]; sent {
+		t = last.Add(notificationInterval)
+	}
+	if w := a.UpdatedAt.Add(triageWait); a.Urgency == model.UrgencyPending && w.After(t) {
+		t = w
+	}
+	return t
 }
 
 type notification struct {
@@ -103,7 +131,7 @@ type notification struct {
 }
 
 func notificationCommand(ctx context.Context, n notification) *exec.Cmd {
-	urgent := n.activity.State == model.StatePendingApproval || n.activity.State == model.StateError
+	urgent := n.activity.State == model.StatePendingApproval || n.activity.State == model.StateError || n.activity.Urgency == "now"
 	body := model.PillLabel(n.activity)
 	if detail := []rune(n.activity.Detail); len(detail) > 0 {
 		body += ": " + string(detail[:min(120, len(detail))])
@@ -233,8 +261,8 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 		}
 		timer.Stop()
 		var due time.Time
-		for ws := range h.pending {
-			t := h.last[ws].Add(notificationInterval)
+		for ws, a := range h.pending {
+			t := notifyDue(h, ws, a)
 			if due.IsZero() || t.Before(due) {
 				due = t
 			}

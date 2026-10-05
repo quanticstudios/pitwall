@@ -223,6 +223,11 @@ func TestNotificationCommand(t *testing.T) {
 			}
 		})
 	}
+	now := notifyActivity(model.StateAwaitingInput, time.Time{})
+	now.Urgency = "now"
+	if cmd := notificationCommand(context.Background(), notification{now, "p / w"}); cmd.Args[2] != "--urgency=critical" {
+		t.Errorf("triaged now: %q", cmd.Args)
+	}
 	a := notifyActivity(model.StateAwaitingInput, time.Time{})
 	a.Provider, a.Detail = model.ProviderTerminal, "tests passed"
 	if cmd := notificationCommand(context.Background(), notification{a, "p / w"}); cmd.Args[len(cmd.Args)-1] != "tests passed" {
@@ -334,5 +339,52 @@ func TestNotifiesOnce(t *testing.T) {
 	// With no window counted (the fake backend), a window notifies all.
 	if !notifies(&model.State{Sessions: []model.Session{{ID: "a"}, {ID: "c"}}}, "c", "a") {
 		t.Error("lone window stays quiet")
+	}
+}
+
+// TestTriagedNotifications: fyi sends nothing, a pending triage holds the
+// notification up to triageWait, and the most urgent goes first.
+func TestTriagedNotifications(t *testing.T) {
+	now := time.Unix(100, 0)
+	in := func(ws, urgency string) model.Activity {
+		return model.Activity{PaneID: "p" + ws, WorkspaceID: ws, Provider: model.ProviderClaude, State: model.StateAwaitingInput,
+			UpdatedAt: now, Unseen: true, Urgency: urgency}
+	}
+	working := func(ws string) model.Activity {
+		return model.Activity{PaneID: "p" + ws, WorkspaceID: ws, Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: now.Add(-time.Second)}
+	}
+	h, _ := decideNotifications(notificationHistory{}, []model.Activity{working("a"), working("b"), working("c"), working("d")}, false, "", now)
+
+	h, got := decideNotifications(h, []model.Activity{in("a", "fyi"), in("b", "later"), in("c", "now"), in("d", model.UrgencyPending)}, false, "", now)
+	var order []string
+	for _, a := range got {
+		order = append(order, a.WorkspaceID)
+	}
+	if strings.Join(order, ",") != "c,b" {
+		t.Fatalf("delivered %v, want c then b (fyi dropped, pending held)", order)
+	}
+	if _, ok := h.pending["d"]; !ok {
+		t.Fatal("the pending triage is not held")
+	}
+	if due := notifyDue(h, "d", h.pending["d"]); !due.Equal(now.Add(triageWait)) {
+		t.Errorf("due %v", due)
+	}
+	// Triage answers fyi: dropped, never sent.
+	h2, got := decideNotifications(h, []model.Activity{in("d", "fyi")}, false, "", now.Add(time.Second))
+	if len(got) != 0 || len(h2.pending) != 0 {
+		t.Errorf("fyi after waiting: delivered %v, pending %v", got, h2.pending)
+	}
+	// Triage answers soon: sent with it.
+	_, got = decideNotifications(h, []model.Activity{in("d", "soon")}, false, "", now.Add(time.Second))
+	if len(got) != 1 || got[0].Urgency != "soon" {
+		t.Errorf("soon: delivered %v", got)
+	}
+	// Triage never answers: sent after triageWait.
+	h3, got := decideNotifications(h, []model.Activity{in("d", model.UrgencyPending)}, false, "", now.Add(time.Second))
+	if len(got) != 0 {
+		t.Errorf("sent before triageWait: %v", got)
+	}
+	if _, got = decideNotifications(h3, []model.Activity{in("d", model.UrgencyPending)}, false, "", now.Add(triageWait)); len(got) != 1 {
+		t.Errorf("not sent after triageWait: %v", got)
 	}
 }

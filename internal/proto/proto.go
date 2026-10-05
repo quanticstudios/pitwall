@@ -9,6 +9,8 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 11 added decision models: Activity.Advice, AdviceP, AdviceRule,
+// Urgency and Review, and State.Decide.
 // Version 10 added vt.Cell.Link, the OSC 8 hyperlink on each cell of a frame.
 // Version 9 added sessions: model.Session and State.Sessions in place of
 // State.Order, SessionID on tabs and groups, Hello.Session, SessionNew,
@@ -28,7 +30,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 10
+const Version = 11
 
 // Client to daemon.
 

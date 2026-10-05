@@ -149,6 +149,21 @@ type State struct {
 	Panes      []Pane
 	Activities []Activity             // one per pane with an agent or a running command
 	Stats      map[string]BranchStats // keyed by workspace id
+	// Decide is the decision features' status. The daemon fills it in; it
+	// is not saved.
+	Decide DecideInfo `json:"-"`
+}
+
+// DecideInfo is what clients show about decision models.
+type DecideInfo struct {
+	Provider string // "jev" or "command" when one is set up and usable, else ""
+	Counts   []DecideCount
+}
+
+// DecideCount is one feature's calls and failed calls today.
+type DecideCount struct {
+	Feature       string
+	Calls, Errors int
 }
 
 // LivePath is where the tab is now: the live working directory of the first

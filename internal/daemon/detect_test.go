@@ -16,10 +16,14 @@ import (
 )
 
 // The fake process table: group 200 is the pane's shell, 100 runs Claude, 300
-// Codex, and any other group runs sleep. The shell may exec codex (execd).
+// Codex, 700 Gemini CLI, and any other group runs sleep. The shell may exec codex (execd).
 func fakeSession(int) int { return 200 }
 
 var execd atomic.Bool
+
+// commGone makes the leader of group 700 report another comm, as when
+// the program exited and its pid went to something else.
+var commGone atomic.Bool
 
 func fakeComm(pid int) string {
 	switch {
@@ -27,6 +31,8 @@ func fakeComm(pid int) string {
 		return "codex"
 	case pid == 200:
 		return shellComm
+	case pid == 700 && commGone.Load():
+		return "zsh"
 	}
 	_, comm := fakeIdentify(pid)
 	return comm
@@ -38,6 +44,10 @@ func fakeIdentify(pg int) (model.Provider, string) {
 		return model.ProviderClaude, "claude"
 	case pg == 300, pg == 200 && execd.Load():
 		return model.ProviderCodex, "codex"
+	case pg == 700:
+		return "", "gemini"
+	case pg == 701:
+		return "", "opencode"
 	}
 	return "", "sleep"
 }
