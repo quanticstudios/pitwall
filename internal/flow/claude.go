@@ -17,10 +17,11 @@ import (
 // <transcript without .jsonl>/subagents/, with a meta.json naming the
 // toolUseId of the Agent call that spawned it.
 type claude struct {
-	path  string
-	child bool                  // a subagent's file, whose entries are all sidechain
-	metas map[string]claudeMeta // by meta.json file name
-	tasks map[string]int        // a TaskCreate call's id to its plan index, until its result
+	path    string
+	child   bool                  // a subagent's file, whose entries are all sidechain
+	metas   map[string]claudeMeta // by meta.json file name
+	tasks   map[string]int        // a TaskCreate call's id to its plan index, until its result
+	created int                   // TaskCreate calls since the Task tools took the plan
 }
 
 type claudeMeta struct {
@@ -172,13 +173,15 @@ func (c *claude) toolUse(b *builder, e claudeEntry, bl claudeBlock) {
 		if json.Unmarshal(bl.Input, &in) != nil {
 			return
 		}
-		if b.plan == nil {
-			b.setPlan(nil)
+		// The Task tools own the plan from their first call after a TodoWrite.
+		if b.planIDs == nil {
+			b.plan, b.planIDs, c.created = []Step{}, []string{}, 0
 		}
-		// why: Claude Code numbers a session's tasks from 1; the result
-		// names the real id when it comes.
+		// why: Claude Code numbers a task list from 1; the result names the
+		// real id when it comes.
+		c.created++
 		b.plan = append(b.plan, Step{Text: in.Subject})
-		b.planIDs = append(b.planIDs, strconv.Itoa(len(b.plan)))
+		b.planIDs = append(b.planIDs, strconv.Itoa(c.created))
 		c.taskCalls()[bl.ID] = len(b.plan) - 1
 	case "TaskUpdate":
 		var in struct {

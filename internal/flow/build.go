@@ -18,7 +18,7 @@ type builder struct {
 	provider model.Provider
 	turns    []Turn
 	plan     []Step
-	planIDs  []string // Claude's task ids beside plan, for TaskUpdate
+	planIDs  []string // Claude's task ids beside plan; nil unless the Task tools own it
 	subs     []*sub
 	calls    map[string]ref // a kept call's id to where it is
 	dropped  int            // turns dropped from the front, for maxTurns

@@ -73,18 +73,26 @@ func TestClaude(t *testing.T) {
 	checkCalls(t, "background", bg.Calls, []Call{{Tool: "Bash", Arg: "make e2e"}, {Tool: "SubagentHandback"}})
 }
 
-// A Claude Code session with the Task tools for its plan.
+// The Task tools own the plan from the first TaskCreate after a TodoWrite,
+// keyed by task id, until the next TodoWrite replaces it.
 func TestClaudeTasks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	write(t, path, `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"Plan it"}}
-{"type":"assistant","timestamp":"2026-10-05T10:00:01Z","message":{"content":[{"type":"tool_use","id":"a","name":"TaskCreate","input":{"subject":"One"}},{"type":"tool_use","id":"b","name":"TaskCreate","input":{"subject":"Two"}}]}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:00Z","message":{"content":[{"type":"tool_use","id":"t","name":"TodoWrite","input":{"todos":[{"content":"Old","status":"pending"}]}}]}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:01Z","message":{"content":[{"type":"tool_use","id":"a","name":"TaskCreate","input":{"subject":"One"}},{"type":"tool_use","id":"b","name":"TaskCreate","input":{"subject":"Two"}},{"type":"tool_use","id":"c","name":"TaskCreate","input":{"subject":"Three"}}]}}
 {"type":"user","timestamp":"2026-10-05T10:00:02Z","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"ok"}]},"toolUseResult":{"task":{"id":"7","subject":"One"}}}
 {"type":"user","timestamp":"2026-10-05T10:00:02Z","message":{"content":[{"type":"tool_result","tool_use_id":"b","content":"ok"}]}}
-{"type":"assistant","timestamp":"2026-10-05T10:00:03Z","message":{"content":[{"type":"tool_use","id":"c","name":"TaskUpdate","input":{"taskId":"7","status":"completed"}},{"type":"tool_use","id":"d","name":"TaskUpdate","input":{"taskId":"2","status":"in_progress"}}]}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:03Z","message":{"content":[{"type":"tool_use","id":"d","name":"TaskUpdate","input":{"taskId":"7","status":"completed"}},{"type":"tool_use","id":"e","name":"TaskUpdate","input":{"taskId":"2","status":"in_progress"}},{"type":"tool_use","id":"f","name":"TaskUpdate","input":{"taskId":3,"status":"deleted"}}]}}
 `)
 	f := read(t, model.ProviderClaude, path)
 	if want := []Step{{"One", StepDone}, {"Two", StepActive}}; !reflect.DeepEqual(f.Plan, want) {
 		t.Errorf("plan = %+v", f.Plan)
+	}
+	appendFile(t, path, `{"type":"assistant","timestamp":"2026-10-05T10:00:04Z","message":{"content":[{"type":"tool_use","id":"g","name":"TodoWrite","input":{"todos":[{"content":"New","status":"in_progress"}]}},{"type":"tool_use","id":"h","name":"TaskUpdate","input":{"taskId":"2","status":"completed"}}]}}
+`)
+	f = read(t, model.ProviderClaude, path)
+	if want := []Step{{"New", StepActive}}; !reflect.DeepEqual(f.Plan, want) {
+		t.Errorf("plan after TodoWrite = %+v", f.Plan)
 	}
 }
 
