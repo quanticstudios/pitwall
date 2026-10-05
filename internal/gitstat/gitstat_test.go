@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -64,7 +65,7 @@ func TestStats(t *testing.T) {
 	runGit(t, dir, "add", "staged.txt")
 	writeFile(t, dir, "file.txt", "one\nfour\nfive\nsix\n")
 	writeFile(t, dir, "untracked.txt", "not in git diff\n")
-	// Committed: +2/-1. Staged and unstaged against HEAD: +2/-1.
+	// From the merge base to the work tree: file.txt +3/-2, staged.txt +1.
 	checkStats(t, dir, model.BranchStats{Additions: 4, Deletions: 2, Ahead: 1, MergeStatus: model.MergeClean})
 	// A default-branch commit is excluded from the merge-base diff.
 	runGit(t, dir, "stash", "push", "--include-untracked")
@@ -258,19 +259,29 @@ func TestRemoveKeepsUnmergedBranch(t *testing.T) {
 	}
 }
 
-// Files' tracked totals are Stats' totals, file by file, with untracked files last.
+// Files' totals, untracked files left out, are Stats' totals: one diff from
+// the merge base to the work tree, so a line changed in a commit and back
+// in the work tree counts nowhere and a renamed file shows by its last name.
 func TestFilesMatchStats(t *testing.T) {
 	dir := repo(t)
 	writeFile(t, dir, "gone.txt", "a\nb\n")
 	writeFile(t, dir, "moved.txt", "1\n2\n3\n4\n5\n6\n7\n8\n")
+	writeFile(t, dir, "churn.txt", "same\n")
 	commit(t, dir)
 	runGit(t, dir, "checkout", "-b", "feature")
 	writeFile(t, dir, "file.txt", "one\n2\nthree\nfour\n")
 	writeFile(t, dir, "added.txt", "x\ny\n")
 	writeFile(t, dir, "bin.dat", "\x00\x01")
-	runGit(t, dir, "mv", "moved.txt", "renamed.txt")
+	writeFile(t, dir, "churn.txt", "changed\n")
+	runGit(t, dir, "mv", "moved.txt", "mid.txt")
+	tab := runtime.GOOS != "windows" // Windows file names cannot hold a tab
+	if tab {
+		writeFile(t, dir, "tab\tname.txt", "t\n")
+	}
 	commit(t, dir)
 	writeFile(t, dir, "added.txt", "x\n")
+	writeFile(t, dir, "churn.txt", "same\n")
+	runGit(t, dir, "mv", "mid.txt", "renamed.txt")
 	if err := os.Remove(filepath.Join(dir, "gone.txt")); err != nil {
 		t.Fatal(err)
 	}
@@ -306,18 +317,42 @@ func TestFilesMatchStats(t *testing.T) {
 	}
 	want := map[string]FileStat{
 		"file.txt":    {Path: "file.txt", Add: 2, Del: 1, Status: 'M'},
-		"added.txt":   {Path: "added.txt", Add: 2, Del: 1, Status: 'A'},
+		"added.txt":   {Path: "added.txt", Add: 1, Status: 'A'},
 		"bin.dat":     {Path: "bin.dat", Status: 'A'},
 		"renamed.txt": {Path: "renamed.txt", Status: 'R'},
 		"gone.txt":    {Path: "gone.txt", Del: 2, Status: 'D'},
 		"new.txt":     {Path: "new.txt", Add: 3, Status: '?'},
+	}
+	if tab {
+		want["tab\tname.txt"] = FileStat{Path: "tab\tname.txt", Add: 1, Status: 'A'}
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Files = %+v", files)
 	}
 	for p, w := range want {
 		if got[p] != w {
-			t.Errorf("%s = %+v, want %+v", p, got[p], w)
+			t.Errorf("%q = %+v, want %+v", p, got[p], w)
 		}
+	}
+}
+
+// An untracked symlink, or a file over 1 MiB, counts no lines.
+func TestFilesUntrackedLimits(t *testing.T) {
+	dir := repo(t)
+	writeFile(t, dir, "big.txt", strings.Repeat("x\n", 600<<10))
+	if err := os.Symlink("file.txt", filepath.Join(dir, "link.txt")); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	_, files, err := Files(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if f.Status != '?' || f.Add != 0 {
+			t.Errorf("%+v, want untracked with no lines", f)
+		}
+	}
+	if len(files) != 2 {
+		t.Fatalf("Files = %+v", files)
 	}
 }
