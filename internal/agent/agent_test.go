@@ -317,6 +317,18 @@ func TestDerivePi(t *testing.T) {
 	if got := Prompt(model.ProviderPi, []byte(`{"event":"agent_start","prompt":"x"}`)); got != "" {
 		t.Errorf("Prompt of agent_start = %q", got)
 	}
+	if got := UserPrompt([]byte(`{"event":"before_agent_start","prompt":"fix it"}`)); got != "fix it" {
+		t.Errorf("UserPrompt = %q", got)
+	}
+	if got := LastMessage([]byte(`{"event":"agent_settled","stop_reason":"stop","message":"done"}`)); got != "done" {
+		t.Errorf("LastMessage = %q", got)
+	}
+	// A completed Detail goes through the same redaction as Claude's and Codex's.
+	token := "ghp_" + strings.Repeat("Q", 36)
+	b, _ := json.Marshal(map[string]any{"event": "agent_settled", "stop_reason": "stop", "message": "Pushed with " + token})
+	if next, ok := Derive(&model.Activity{State: model.StateWorking}, model.ProviderPi, b, now); !ok || strings.Contains(next.Detail, "QQQQ") || !strings.Contains(next.Detail, "Pushed with") {
+		t.Errorf("pi Detail %q", next.Detail)
+	}
 }
 
 func TestPiExtension(t *testing.T) {
