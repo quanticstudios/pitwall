@@ -37,6 +37,7 @@ type payload struct {
 	LastMessage      string `json:"last_assistant_message"`
 	Error            string `json:"error"`
 	ErrorDetails     string `json:"error_details"`
+	PermissionMode   string `json:"permission_mode"`
 	BackgroundTasks  []struct {
 		Type   string `json:"type"`
 		Status string `json:"status"`
@@ -279,6 +280,21 @@ func SessionID(provider model.Provider, payload []byte) string {
 		return ""
 	}
 	return sessionID(p)
+}
+
+// PermissionMode returns the permission mode a Claude Code or Codex hook
+// reports, both under these names, or "" for any other value. A /side
+// fork's mode returns "": it is not the pane's main session.
+func PermissionMode(payload []byte) string {
+	p, err := decode(payload)
+	if err != nil || sideFork(p) {
+		return ""
+	}
+	switch p.PermissionMode {
+	case "default", "acceptEdits", "plan", "dontAsk", "bypassPermissions":
+		return p.PermissionMode
+	}
+	return ""
 }
 
 // Prompt returns the prompt text of a UserPromptSubmit hook or a pi

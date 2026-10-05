@@ -138,6 +138,31 @@ func TestSessionID(t *testing.T) {
 	}
 }
 
+func TestPermissionMode(t *testing.T) {
+	for _, mode := range []string{"default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"} {
+		payload := `{"session_id":"s","hook_event_name":"Stop","permission_mode":"` + mode + `"}`
+		if got := PermissionMode([]byte(payload)); got != mode {
+			t.Errorf("%s: got %q", mode, got)
+		}
+	}
+	for name, payload := range map[string]string{
+		"unknown":   `{"hook_event_name":"Stop","permission_mode":"--model x"}`,
+		"missing":   `{"hook_event_name":"Stop"}`,
+		"side fork": `{"hook_event_name":"Stop","transcript_path":null,"permission_mode":"plan"}`,
+		"bad json":  `{`,
+	} {
+		if got := PermissionMode([]byte(payload)); got != "" {
+			t.Errorf("%s: got %q, want none", name, got)
+		}
+	}
+	if got := PermissionMode(fixture(t, "claude_exit_plan_mode")); got != "plan" {
+		t.Errorf("claude_exit_plan_mode fixture: %q", got)
+	}
+	if got := PermissionMode(fixture(t, "codex_stop")); got != "default" {
+		t.Errorf("codex_stop fixture: %q", got)
+	}
+}
+
 func TestPrompt(t *testing.T) {
 	for name, want := range map[string]string{
 		"claude_user_prompt_submit": "fix the failing auth test",

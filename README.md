@@ -722,8 +722,14 @@ socket in `%LOCALAPPDATA%\pitwall`. The `XDG_*` variables win when set.
 After a reboot, run `pitwall`: tabs, groups and panes come back in their
 folders. State saved by an older version opens with each of its nested tabs
 as a tab of its own, in the same place and group. Agent panes resume with `claude --resume <id>`,
-`codex resume <id>` or `pi --session <id>`; if a resume fails, the pane falls back to a shell in the
-same folder. Running processes and scrollback do not survive a reboot.
+`codex resume <id>` or `pi --session <id>`, run as the agent's name on PATH or as the binary from the
+pane's original command, with that command's flags. A resume also keeps the permission mode the
+agent's hooks last reported: Claude gets `--dangerously-skip-permissions` or `--permission-mode
+<mode>`, and Codex gets `--dangerously-bypass-approvals-and-sandbox` when it ran with the full
+bypass; Codex's other modes are left to its config. Other flags of an agent started in a shell, such
+as `--model`, are not restored. If a resume fails within 3 seconds, the pane falls back to a shell
+in the same folder. A restored agent in a pane that was a shell also drops to a shell in the same
+folder whenever it exits. Running processes and scrollback do not survive a reboot.
 
 When you upgrade pitwall while an older daemon is running, the next `pitwall`
 detects it, has it save its state and stop, and starts the new one. Programs
