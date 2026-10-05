@@ -321,7 +321,6 @@ optional name act on the pane's own tab.
 | `pitwall session kill [-f] <name>`    | End a session and close its processes                         |
 | `pitwall ls [--json]`                 | List the session's tabs in sidebar order: #, name, state, folder, group |
 | `pitwall new [-n name] [-d] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell |
-| `pitwall send [--no-enter] <tab> <text...>` | Paste text into the tab's agent and press Enter |
 | `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up) |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
@@ -350,27 +349,23 @@ pitwall session attach billing                 # open a window on it
 
 ### Driving tabs from agents and scripts
 
-`new -- cmd`, `send`, `wait` and `ls --json` let an agent or a shell script
-open tabs, type into them and wait for them, in tabs you can watch and take
-over. [docs/agent-skill.md](docs/agent-skill.md) is a page to hand an agent:
-the states, exit codes and recipes.
+`new -- cmd`, `wait` and `ls --json` let an agent or a shell script start an
+agent or a command in a tab you can watch and take over, then wait for it.
+[docs/agent-skill.md](docs/agent-skill.md) is a page to hand an agent: the
+states, exit codes and recipes.
 
 ```sh
-tab=$(pitwall new -n review -d -- codex "review origin/main..HEAD, end with SHIP or HOLD")
+tab=$(pitwall new -n review -d -- codex "review origin/main..HEAD; write SHIP or HOLD to review.txt")
 pitwall wait "$tab" --until done --timeout 20m   # 0 done, 2 blocked, 3 exited, 124 timed out
-pitwall send "$tab" "list only the HOLD findings, one per line"
+pitwall ls --json | jq '.[] | {n, title, state, question}'
 ```
 
-`send` refuses while the agent is working (`wait --until done` first) or
-while pitwall sees the tab waiting on a permission prompt or a question, by
-hook, OSC notification or on screen. It checks again right before the paste
-and right before the Enter. After a send the tab shows working until the
-agent reports again, so `wait --until done` waits for the reply. Limits: a
-prompt drawn in the same instant as the paste or the Enter can still receive
-it, and an agent read from its screen (no hooks) is polled, so its state can
-be misread around the moment of a send. A command tab's pane, and its exit
-code, last until you close it or the daemon restarts. Any process running as you can reach the daemon's
-socket, so these commands give nothing a local process did not already have.
+Give the agent its whole task as the prompt argument. Typing into a running
+agent is not offered, because pitwall can't reliably tell when an agent is
+ready to take input. A command tab's pane, and its exit code, last until you
+close it or the daemon restarts. Any process running as you can reach the
+daemon's socket, so these commands give nothing a local process did not
+already have.
 
 ## Keybindings
 

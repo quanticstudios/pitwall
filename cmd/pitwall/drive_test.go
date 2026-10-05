@@ -94,8 +94,6 @@ func TestCLIWait(t *testing.T) {
 		{"timeout before state", []string{"--until", "done", "--timeout", "50ms"}, nil, 124, ""},
 		// A shell is no agent sitting idle.
 		{"shell never idle", []string{"--until", "idle", "--timeout", "50ms"}, []any{driveState("", "", false, 0)}, 124, ""},
-		// After a send the tab shows working until the agent reports again.
-		{"after send", []string{"--until", "done"}, []any{promptSent(), driveState(claude, model.StateCompleted, false, 0)}, 0, "done\n"},
 		// An OSC question before pitwall has seen the agent still blocks.
 		{"notice before agent", []string{"--until", "done"}, []any{noticeBeforeAgent()}, 2, "blocked: approve?\n"},
 		{"shell exit", []string{"--until", "exit"}, []any{driveState("", model.StateTerminalRunning, false, 0), driveState("", "", true, 7)}, 7, "exit 7\n"},
@@ -125,14 +123,6 @@ func noticeBeforeAgent() proto.StateMsg {
 	return m
 }
 
-// promptSent is tab build's claude right after pitwall send: the daemon
-// shows it working until the agent reports.
-func promptSent() proto.StateMsg {
-	m := driveState(model.ProviderClaude, model.StateWorking, false, 0)
-	m.State.Activities[0].Detail = "prompt sent"
-	return m
-}
-
 func TestCLIListJSON(t *testing.T) {
 	st := driveState(model.ProviderCodex, model.StatePendingApproval, false, 0).State
 	fakeCLI(t, cliExchange{state: st})
@@ -157,6 +147,10 @@ func TestPaneState(t *testing.T) {
 		{model.Pane{ID: "p", Provider: model.ProviderCodex}, model.StateConnecting, "codex", "working"},
 		{model.Pane{ID: "p", Provider: model.ProviderCodex}, model.StatePlanReady, "codex", "blocked"},
 		{model.Pane{ID: "p", Provider: model.ProviderCodex}, model.StateCompleted, "codex", "done"},
+		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StateCompleted, "pi", "done"},
+		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StateError, "pi", "done"},
+		{model.Pane{ID: "p", Cmd: []string{"/usr/bin/pi", "fix it"}}, "", "pi", ""},
+		{model.Pane{ID: "p", Provider: "gemini"}, "", "gemini", "idle"},
 		{model.Pane{ID: "p", Provider: model.ProviderCodex, Exited: true}, model.StateWorking, "codex", "exited"},
 	} {
 		st := model.State{Panes: []model.Pane{tc.pane}}

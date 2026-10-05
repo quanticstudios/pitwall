@@ -92,7 +92,6 @@ type Daemon struct {
 	st          model.State
 	panes       map[string]Pane
 	inputs      map[string]chan []byte // per pane, drained by writeInput
-	sends       sync.Map               // pane: *sync.Mutex, see sendLock in send.go
 	views       map[string]*view       // scroll positions, see scroll.go
 	clients     map[*client]struct{}   // gui clients only
 	watchers    map[*client]struct{}   // watch clients: StateMsg and PaneExited, no frames
@@ -432,9 +431,20 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
-		return d.input(m.Pane, m.Data)
-	case proto.Send:
-		return d.send(m)
+		d.mu.Lock()
+		p, in := d.panes[m.Pane], d.inputs[m.Pane]
+		d.mu.Unlock()
+		if p == nil {
+			return fmt.Errorf("no pane %s", m.Pane)
+		}
+		d.unscroll(m.Pane, p)
+		select {
+		case in <- m.Data:
+			d.noteInput(m.Pane, m.Data)
+			return nil
+		default:
+			return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", m.Pane, len(m.Data))
+		}
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
 		if err != nil {
@@ -471,27 +481,6 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.deleteGroup(m)
 	}
 	return fmt.Errorf("unexpected message %T", m)
-}
-
-// input queues data for a pane's process, as typed.
-func (d *Daemon) input(id string, data []byte) error {
-	d.mu.Lock()
-	p, in := d.panes[id], d.inputs[id]
-	d.mu.Unlock()
-	if p == nil {
-		return fmt.Errorf("no pane %s", id)
-	}
-	if in == nil {
-		return fmt.Errorf("pane %s has exited", id)
-	}
-	d.unscroll(id, p)
-	select {
-	case in <- data:
-		d.noteInput(id, data)
-		return nil
-	default:
-		return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", id, len(data))
-	}
 }
 
 func (d *Daemon) addProject(ctx context.Context, m proto.AddProject) error {
@@ -730,7 +719,6 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.views, id)
 	delete(d.resumed, id)
 	delete(d.held, id)
-	d.sends.Delete(id)
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.det, id)

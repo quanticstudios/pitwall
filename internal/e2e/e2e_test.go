@@ -509,7 +509,7 @@ func run(t *testing.T, limit time.Duration, dir, name string, args ...string) st
 }
 
 // TestDriveTabs drives a real daemon the way an agent or a script does,
-// through the pitwall binary: new -- cmd, send, wait and ls --json.
+// through the pitwall binary: new -- cmd, wait and ls --json.
 func TestDriveTabs(t *testing.T) {
 	isolate(t)
 	bin := filepath.Join(t.TempDir(), "pitwall")
@@ -530,12 +530,9 @@ func TestDriveTabs(t *testing.T) {
 		return cmd.ProcessState.ExitCode(), out.String(), errOut.String()
 	}
 
-	// A tab running a command takes a line and keeps its pane after exiting.
-	if code, out, stderr := pitwall("new", "-n", "echo", "--", "sh", "-c", `read line; echo "got $line"; exit 4`); code != 0 || out != "#1\n" {
+	// A tab running a command keeps its pane, and its exit code, after exiting.
+	if code, out, stderr := pitwall("new", "-n", "echo", "--", "sh", "-c", `echo done; exit 4`); code != 0 || out != "#1\n" {
 		t.Fatalf("new: %d %q %s", code, out, stderr)
-	}
-	if code, _, stderr := pitwall("send", "echo", "hello"); code != 0 {
-		t.Fatalf("send: %d %s", code, stderr)
 	}
 	if code, out, stderr := pitwall("wait", "echo", "--until", "exit", "--timeout", "10s"); code != 4 || out != "exit 4\n" {
 		t.Fatalf("wait: %d %q %s", code, out, stderr)
@@ -546,7 +543,7 @@ func TestDriveTabs(t *testing.T) {
 		t.Fatalf("ls --json: %v %s", err, out)
 	}
 
-	// send never answers a permission prompt, and wait reports it.
+	// wait reports an agent blocked on a permission prompt, then its finished turn.
 	if code, _, stderr := pitwall("new", "-n", "agent", "--", "sh"); code != 0 {
 		t.Fatalf("new: %d %s", code, stderr)
 	}
@@ -556,9 +553,6 @@ func TestDriveTabs(t *testing.T) {
 	hook := connect(t, "hook")
 	hook.send(t, proto.AgentEvent{Pane: agent, Provider: model.ProviderClaude, Payload: []byte(permission)})
 	waitActivity(t, gui, agent, model.StatePendingApproval)
-	if code, _, stderr := pitwall("send", "agent", "yes"); code != 1 || !strings.Contains(stderr, "answer it in the tab") {
-		t.Fatalf("send to a blocked agent: %d %s", code, stderr)
-	}
 	if code, out, _ := pitwall("wait", "agent", "--until", "done"); code != 2 || !strings.HasPrefix(out, "blocked") {
 		t.Fatalf("wait on a blocked agent: %d %q", code, out)
 	}

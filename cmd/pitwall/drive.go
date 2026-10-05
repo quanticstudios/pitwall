@@ -16,8 +16,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// Commands for agents and scripts that drive pitwall: ls --json, send and
-// wait. docs/agent-skill.md documents them; keep the two in step.
+// Commands for agents and scripts that drive pitwall: ls --json and wait.
+// docs/agent-skill.md documents them; keep the two in step.
 
 // tabJSON is one tab in pitwall ls --json. The shape is a contract: fields
 // may be added, never renamed or dropped.
@@ -71,7 +71,7 @@ func tabPanes(state model.State, w model.Workspace) []model.Pane {
 	return out
 }
 
-// mainPane is the pane send types into and wait watches: the first live
+// mainPane is the pane wait watches and ls --json reports: the first live
 // one running an agent, else the first live one, else the first exited one
 // that ran an agent, else the first one.
 func mainPane(panes []model.Pane) *model.Pane {
@@ -102,14 +102,15 @@ func agentOf(p model.Pane) string {
 		return string(p.Provider)
 	}
 	if len(p.Cmd) > 0 {
-		if b := strings.TrimSuffix(filepath.Base(p.Cmd[0]), ".exe"); b == "claude" || b == "codex" {
-			return b
+		switch b := model.Provider(strings.TrimSuffix(filepath.Base(p.Cmd[0]), ".exe")); b {
+		case model.ProviderClaude, model.ProviderCodex, model.ProviderPi:
+			return string(b)
 		}
 	}
 	return ""
 }
 
-// paneState is a pane's agent and its state as ls --json, send and wait name
+// paneState is a pane's agent and its state as ls --json and wait name
 // it:
 //
 //	working  a turn runs, or, with no agent, a command runs in the shell
@@ -231,45 +232,6 @@ func (w *watcher) exitOf(state model.State, pane string) (int, bool) {
 // exitGrace is how long wait looks for the exit code of a pane gone from
 // the state; a pane closed on purpose has none.
 var exitGrace = 2 * time.Second
-
-func sendCommand(args []string) error {
-	flags := flag.NewFlagSet("send", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	sessionName := flags.String("s", "", "")
-	noEnter := flags.Bool("no-enter", false, "")
-	args, err := parseFlags(flags, args)
-	if err != nil {
-		return err
-	}
-	if len(args) < 1 {
-		return errors.New("usage: pitwall send [--no-enter] [-s session] <tab> <text...>")
-	}
-	conn, err := dialCLI()
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	state, err := syncCLI(conn)
-	if err != nil {
-		return err
-	}
-	session, err := currentSession(state, *sessionName)
-	if err != nil {
-		return err
-	}
-	w, err := resolveTab(state, session.ID, args[0])
-	if err != nil {
-		return err
-	}
-	p := mainPane(tabPanes(state, w))
-	if p == nil {
-		return fmt.Errorf("tab %s has no pane", tabTitle(w))
-	}
-	if _, err := syncCLI(conn, proto.Send{Pane: p.ID, Text: strings.Join(args[1:], " "), Enter: !*noEnter}); err != nil {
-		return fmt.Errorf("tab %s: %w", tabTitle(w), err)
-	}
-	return nil
-}
 
 // Exit codes of pitwall wait.
 const (

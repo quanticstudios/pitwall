@@ -45,18 +45,10 @@ const usage = `usage:
                              shell; prints its #. A cmd's pane stays after it
                              exits, showing its output, until closed or the
                              daemon restarts
-  pitwall send [--no-enter] <tab> <text...>
-                             paste text into the tab's main pane (the first
-                             live agent pane, else live pane, else exited
-                             agent pane, else first pane), then press Enter.
-                             Refuses while the agent works, and while pitwall
-                             sees a permission prompt or question, by hook,
-                             OSC notification or on screen; checks again
-                             before the paste and before Enter
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
-                             block until the tab's agent is there. done: it
-                             finished its turn (a send shows working until
-                             the agent reports); idle: done, or at its prompt;
+                             block until the tab's agent is there (its first
+                             live agent pane, else live pane). done: it
+                             finished its turn; idle: done, or at its prompt;
                              blocked: it waits on a permission prompt or a
                              question; exit: its process ended. Without an agent, done means exit. Exit codes: 0 reached,
                              2 blocked instead, 3 the process exited, 124
@@ -107,7 +99,7 @@ func main() {
 		err = runNotify(os.Args[2:])
 	case "jev":
 		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "send", "wait", "attach", "detach", "kill", "rename", "tab", "session":
+	case "ls", "new", "wait", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

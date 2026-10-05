@@ -11,7 +11,7 @@ import (
 // wireFingerprint is the hash of every message's type and field layout at
 // the current Version. When this test fails, a message changed: bump
 // Version in proto.go, then paste the new hash here.
-const wireFingerprint = "v12:73d7c9d4b3c08979cbee9380c174fcde6ace35e52851b741054fb04bb66524b7"
+const wireFingerprint = "v12:bb6544842bc4f9ec63ec98ea2ff3d2cfa3f2366e9cb34fa683c48068e0a84b84"
 
 func TestWireFingerprint(t *testing.T) {
 	var b strings.Builder

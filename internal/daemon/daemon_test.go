@@ -41,21 +41,9 @@ type fakePane struct {
 	pushed uint64 // ScrollbackPushed
 	off    int    // the last SnapshotAt offset
 	title  string // the emulator's title
-	screen string // one row of text Snapshot shows instead of "x"
-	// block, when set, holds every Write until it is closed.
-	block chan struct{}
 }
 
 func (p *fakePane) Write(b []byte) (int, error) {
-	p.mu.Lock()
-	block := p.block
-	p.mu.Unlock()
-	if block != nil {
-		select {
-		case <-block:
-		case <-p.done: // closed: a real PTY write fails then too
-		}
-	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.input = append(p.input, b...)
@@ -71,13 +59,6 @@ func (p *fakePane) Snapshot() vt.Grid {
 	p.snaps.Add(1)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.screen != "" {
-		var cells []vt.Cell
-		for _, r := range p.screen {
-			cells = append(cells, vt.Cell{Content: string(r), Width: 1})
-		}
-		return vt.Grid{Cols: len(cells), Rows: 1, Cells: cells, Title: p.title}
-	}
 	return vt.Grid{Cols: 1, Rows: 1, Cells: []vt.Cell{{Content: "x", Width: 1}}, Title: p.title}
 }
 func (p *fakePane) SnapshotAt(off int) vt.Grid {

@@ -116,9 +116,6 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if command == "session" {
 		return sessionsCommand(args[1:], in, out, errOut)
 	}
-	if command == "send" {
-		return sendCommand(args[1:])
-	}
 	args = args[1:]
 	var cmd []string
 	if i := slices.Index(args, "--"); i >= 0 && command == "new" {

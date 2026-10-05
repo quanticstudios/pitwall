@@ -9,7 +9,7 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
-// Version 12 added NewSession.Cmd, Send and Hello.Kind "watch", and a pane
+// Version 12 added NewSession.Cmd and Hello.Kind "watch", and a pane
 // opened with NewSession.Cmd stays, Exited, after its process ends, until
 // the daemon restarts.
 // Version 11 added decision models: Activity.Advice, AdviceP, AdviceRule,
@@ -98,19 +98,6 @@ type DeleteGroup struct {
 type Input struct {
 	Pane string
 	Data []byte
-}
-
-// Send types Text into Pane as a paste: bracketed when the pane's program
-// turned bracketed paste on, then, with Enter, a separate carriage return a
-// short pause after the paste is written. The daemon refuses while it sees
-// the pane blocked on a permission prompt or a question, by hook state, OSC
-// notification or on screen, and while its agent works; it checks again
-// right before the paste and before the Enter. A prompt drawn in the same
-// instant as a write can still get it.
-type Send struct {
-	Pane  string
-	Text  string
-	Enter bool
 }
 
 type Resize struct {
@@ -320,7 +307,7 @@ type SeePane struct {
 
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
-	Hello{}, Input{}, Send{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
+	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
 	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},
 	NewTab{}, CloseTab{}, RenameTab{}, SelectTab{}, DetachSession{}, KillSession{},
