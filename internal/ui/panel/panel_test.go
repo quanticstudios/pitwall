@@ -66,7 +66,7 @@ func TestPlanCounts(t *testing.T) {
 
 // TestTimeline: prompts, calls, subagent starts and ends, finished turns
 // and a pending approval merge in time order; a run of calls to one tool
-// folds into a line; a failed call stays on its own.
+// folds into a line; a failed or running call stays on its own.
 func TestTimeline(t *testing.T) {
 	t0 := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
@@ -79,6 +79,7 @@ func TestTimeline(t *testing.T) {
 					{Time: at(21), Tool: "Read", Arg: "a/b.go"}, {Time: at(22), Tool: "Read", Arg: "c.go"},
 					{Time: at(23), Tool: "Read", Arg: "d.go"}, {Time: at(24), Tool: "Read", Arg: "e.go"},
 					{Time: at(30), Tool: "Bash", Arg: "go test", Failed: true}, {Time: at(31), Tool: "Bash", Arg: "go vet"},
+					{Time: at(32), Tool: "Bash", Arg: "go build", Running: true}, {Time: at(33), Tool: "Bash", Arg: "go doc"},
 				}},
 			},
 			Subagents: []flow.Subagent{{Name: "recon", Type: "Explore", Start: at(25), End: at(40)}},
@@ -96,7 +97,7 @@ func TestTimeline(t *testing.T) {
 	want := []string{
 		"You: first", "Read a/x.go", "Finished in 10s",
 		"You: second", "Read b.go, c.go and 2 more", "Spawned Explore: recon",
-		"Bash go test failed", "Bash go vet", "recon finished in 15s",
+		"Bash go test failed", "Bash go vet", "Bash go build", "Bash go doc", "recon finished in 15s",
 		"Approval for rm -rf build | Jev: allow 71%, triage soon",
 	}
 	if !slices.Equal(got, want) {

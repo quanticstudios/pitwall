@@ -182,13 +182,14 @@ func timeline(in *Input) []event {
 }
 
 // foldCalls turns calls into timeline lines: a run of calls to one tool
-// that all succeeded is "Read a.go, b.go and 4 more".
+// that all succeeded is "Read a.go, b.go and 4 more"; a failed or running
+// call stays on its own line.
 func foldCalls(calls []flow.Call) []event {
 	var out []event
 	for i := 0; i < len(calls); {
 		c := calls[i]
 		j := i + 1
-		for j < len(calls) && calls[j].Tool == c.Tool && !calls[j].Failed && !c.Failed {
+		for j < len(calls) && calls[j].Tool == c.Tool && !calls[j].Failed && !c.Failed && !calls[j].Running && !c.Running {
 			j++
 		}
 		e := event{at: c.Time, bad: c.Failed}
