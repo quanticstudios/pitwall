@@ -3,6 +3,7 @@
 package app
 
 import (
+	"fmt"
 	"image"
 	"log"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
@@ -50,6 +52,8 @@ type Focuser interface {
 }
 
 const (
+	// slowFrame is how long one frame may take before the log notes it.
+	slowFrame    = 250 * time.Millisecond
 	sidebarWidth = unit.Dp(288)
 	minRatio     = 0.05
 	// sessionFade is how long the panes take to fade in after the window
@@ -108,15 +112,27 @@ func Run(b Backend) error {
 	wd := newWatchdog()
 	go wd.watch(stop)
 	var ops op.Ops
+	var display string
+	var slow logs.Limiter
+	slow.Every = 10 * time.Second
 	for {
 		ev := w.Event()
 		wd.begin()
 		switch e := ev.(type) {
 		case app.DestroyEvent:
 			return e.Err
+		case app.ViewEvent:
+			// app.WaylandViewEvent, app.X11ViewEvent, app.Win32ViewEvent...
+			if d := strings.TrimSuffix(strings.TrimPrefix(fmt.Sprintf("%T", e), "app."), "ViewEvent"); e.Valid() && d != display {
+				display = d
+				log.Printf("display: %s", d)
+			}
 		case app.ConfigEvent:
 			if e.Config.Focused && !u.winFocused {
 				u.showSent = "" // a focused window's session is the most recently used
+			}
+			if e.Config.Focused != u.winFocused {
+				log.Printf("window focused: %v", e.Config.Focused)
 			}
 			u.winFocused = e.Config.Focused
 			u.notifications.setView(&e.Config.Focused, "", "")
@@ -125,9 +141,18 @@ func Run(b Backend) error {
 				u.sidebar.HideHover()
 			}
 		case app.FrameEvent:
+			start := time.Now()
 			gtx := app.NewContext(&ops, e)
 			u.layout(gtx)
+			laid := time.Now()
+			// Layout and e.Frame are timed apart.
 			e.Frame(gtx.Ops)
+			if took := time.Since(start); took > slowFrame {
+				if ok, held := slow.Allow("", start); ok {
+					log.Printf("slow frame: %v; layout took %v, e.Frame took %v; %d more since the last line",
+						took.Round(time.Millisecond), laid.Sub(start).Round(time.Millisecond), time.Since(laid).Round(time.Millisecond), held)
+				}
+			}
 			if t := u.windowTitle(); t != u.title {
 				u.title = t
 				w.Option(app.Title(t))
@@ -212,10 +237,21 @@ type ui struct {
 	noticeIn image.Rectangle // the pane that copied, in the pane area
 }
 
-func (u *ui) send(msg any) {
-	if err := u.b.Send(msg); err != nil {
-		log.Printf("pitwall: send %T: %v", msg, err)
+// resizes keeps a window drag to a log line a second per pane.
+var resizes = logs.Limiter{Every: time.Second}
+
+// sendErrs keeps a lost connection from logging every message after it.
+var sendErrs = logs.Limiter{Every: 10 * time.Second}
+
+// send reports whether the backend took msg.
+func (u *ui) send(msg any) bool {
+	err := u.b.Send(msg)
+	if err != nil {
+		if ok, held := sendErrs.Allow("", time.Now()); ok {
+			log.Printf("send %T: %q; %d more since the last line", msg, err, held)
+		}
 	}
+	return err == nil
 }
 
 func (u *ui) queueFocus(fs proto.FocusSession) {
@@ -725,8 +761,13 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		u.send(proto.Scroll{Pane: id, Lines: d})
 	}
 	if (cols != g.Cols || rows != g.Rows) && (cols != p.sentCols || rows != p.sentRows) {
-		p.sentCols, p.sentRows = cols, rows
-		u.send(proto.Resize{Pane: id, Cols: cols, Rows: rows})
+		if ok, held := resizes.Allow(id, gtx.Now); ok {
+			log.Printf("pane %s: sending size %dx%d (frame %dx%d; %d more since the last line)", id, cols, rows, g.Cols, g.Rows, held)
+		}
+		// A size that failed to send is sent again on the next frame.
+		if u.send(proto.Resize{Pane: id, Cols: cols, Rows: rows}) {
+			p.sentCols, p.sentRows = cols, rows
+		}
 	}
 }
 

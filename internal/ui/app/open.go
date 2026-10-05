@@ -7,7 +7,7 @@ import "log"
 func openLink(url string) {
 	cmd := openCommand(url)
 	if err := cmd.Start(); err != nil {
-		log.Printf("open link: %v", err)
+		log.Printf("open link: %q", err)
 		return
 	}
 	go func() { _ = cmd.Wait() }()

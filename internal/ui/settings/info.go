@@ -152,7 +152,7 @@ func scanFamilies() []string {
 	dir, _ := os.UserCacheDir()
 	fps, err := fontscan.SystemFonts(log.New(io.Discard, "", 0), dir)
 	if err != nil {
-		log.Printf("settings: fonts: %v", err)
+		log.Printf("settings: fonts: %q", err)
 	}
 	seen := map[string]bool{}
 	out := []string{"Geist"} // bundled

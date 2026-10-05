@@ -54,7 +54,7 @@ func reportProblems(probs []string, last *string) {
 	if s == "" {
 		return
 	}
-	log.Printf("pitwall: config:\n%s", s)
+	log.Printf("config: %q", probs)
 	body := probs
 	if len(body) > 8 {
 		body = append(body[:8:8], fmt.Sprintf("… and %d more (pitwall config check)", len(probs)-8))
@@ -76,7 +76,7 @@ func refreshSchemas() {
 			continue
 		}
 		if err := writeAtomic(path, data); err != nil {
-			log.Printf("pitwall: schema: %v", err)
+			log.Printf("schema: %q", err)
 		}
 	}
 }
@@ -144,7 +144,7 @@ func loadGUIState() guiState {
 		err = json.Unmarshal(data, &g)
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		log.Printf("pitwall: %s: %v", guiStatePath(), err)
+		log.Printf("%q: %q", guiStatePath(), err)
 	}
 	return g
 }
@@ -152,6 +152,6 @@ func loadGUIState() guiState {
 func saveGUIState(g guiState) {
 	data, _ := json.Marshal(g)
 	if err := writeAtomic(guiStatePath(), append(data, '\n')); err != nil {
-		log.Printf("pitwall: %v", err)
+		log.Printf("%q", err)
 	}
 }

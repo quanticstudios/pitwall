@@ -180,6 +180,7 @@ func (p *Pane) Resize(cols, rows int) error {
 		}
 	}
 	p.vt.Resize(cols, rows)
+	p.signal() // the snapshot changed size: a program that does not redraw sends no output
 	return nil
 }
 
@@ -213,7 +214,8 @@ func (p *Pane) Modes() vt.Modes {
 	return p.vt.Modes()
 }
 
-// Dirty has capacity 1 and is signalled after output lands in the emulator.
+// Dirty has capacity 1 and is signalled after output lands in the emulator
+// and after a resize.
 func (p *Pane) Dirty() <-chan struct{} { return p.dirty }
 func (p *Pane) Done() <-chan struct{}  { return p.done }
 

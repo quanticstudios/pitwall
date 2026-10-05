@@ -156,11 +156,11 @@ func desktopSender() func(context.Context, notification) {
 		cmd := notificationCommand(ctx, n)
 		if cmd.Err != nil {
 			disabled = true
-			log.Printf("pitwall: %s unavailable: %v", cmd.Args[0], cmd.Err)
+			log.Printf("%q unavailable: %q", cmd.Args[0], cmd.Err)
 			return
 		}
 		if err := cmd.Run(); err != nil && ctx.Err() != context.Canceled {
-			log.Printf("pitwall: %s: %v", cmd.Args[0], err)
+			log.Printf("%q: %q", cmd.Args[0], err)
 		}
 	}
 }

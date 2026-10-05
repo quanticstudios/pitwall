@@ -238,7 +238,7 @@ func SystemFonts() *fontscan.FontMap {
 		sysFonts = fontscan.NewFontMap(log.New(io.Discard, "", 0))
 		dir, _ := os.UserCacheDir()
 		if err := sysFonts.UseSystemFonts(dir); err != nil {
-			log.Printf("theme: system fonts: %v", err)
+			log.Printf("theme: system fonts: %q", err)
 		}
 	})
 	return sysFonts
@@ -326,12 +326,12 @@ func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 		}
 		ld, err := ot.NewLoader(bytes.NewReader(geistTTF))
 		if err != nil {
-			log.Printf("theme: geist: %v", err)
+			log.Printf("theme: geist: %q", err)
 			break
 		}
 		f, err := fontapi.NewFont(ld)
 		if err != nil {
-			log.Printf("theme: geist: %v", err)
+			log.Printf("theme: geist: %q", err)
 			break
 		}
 		faces = append(faces, font.FontFace{
@@ -367,7 +367,7 @@ func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 		}
 		f, err := opentype.Parse(b)
 		if err != nil {
-			log.Printf("theme: %s: %v", file, err)
+			log.Printf("theme: %q: %q", file, err)
 			continue
 		}
 		monoFaces = append(monoFaces, font.FontFace{Font: font.Font{Typeface: monoFamily, Weight: w}, Face: f})
@@ -393,7 +393,7 @@ func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 			faces = append(faces, font.FontFace{Font: font.Font{Typeface: emojiFamily}, Face: f})
 			mono.Typeface += ", " + emojiFamily
 		} else {
-			log.Printf("theme: emoji: %v", err)
+			log.Printf("theme: emoji: %q", err)
 		}
 	}
 	return fontSet{faces, ui, mono, errors.Join(errs...)}
