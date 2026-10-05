@@ -18,6 +18,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/agent`      | Claude/Codex hook payload to `model.Activity`                  |
 | `internal/gitstat`    | Worktrees and branch stats via `git`                           |
 | `internal/store`      | Persist state, resume commands                                 |
+| `internal/logs`       | Log files with rotation, a rate limiter for log lines          |
 | `internal/input`      | Gio events to PTY bytes                                        |
 | `internal/ui/theme`   | Colors and fonts ported from aide                              |
 | `internal/ui/sidebar` | The sidebar                                                    |

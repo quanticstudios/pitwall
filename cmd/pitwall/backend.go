@@ -5,6 +5,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -30,6 +31,8 @@ type backend struct {
 	out     []any
 	outErr  error // the error that ended the connection
 	outWake chan struct{}
+	backed  time.Time     // when the queue went past backedUp, zero when it is not
+	peak    int           // the longest queue since then
 	done    chan struct{} // closed by fail
 	failed  sync.Once
 }
@@ -74,6 +77,13 @@ func (b *backend) Send(msg any) error {
 		return err
 	}
 	b.out = enqueue(b.out, msg)
+	if n := len(b.out); n > backedUp {
+		if b.backed.IsZero() {
+			b.backed = time.Now()
+			log.Printf("send queue backed up: %d messages", n)
+		}
+		b.peak = max(b.peak, n)
+	}
 	b.outMu.Unlock()
 	select {
 	case b.outWake <- struct{}{}:
@@ -99,6 +109,10 @@ func (b *backend) sendLoop() {
 			msg := b.out[0]
 			b.out[0] = nil
 			b.out = b.out[1:]
+			if !b.backed.IsZero() && len(b.out) < backedUp/10 {
+				log.Printf("send queue drained after %v, peak %d messages", time.Since(b.backed).Round(time.Millisecond), b.peak)
+				b.backed, b.peak = time.Time{}, 0
+			}
 			b.outMu.Unlock()
 			if err := b.conn.Send(msg); err != nil {
 				b.fail(err, 1)
@@ -107,6 +121,10 @@ func (b *backend) sendLoop() {
 		}
 	}
 }
+
+// backedUp is the queue length the log notes, once until it is back under a
+// tenth of that.
+const backedUp = 1000
 
 // fail ends the connection on its first error: it closes it, so recvLoop
 // ends and Changed closes, logs how many accepted messages were not sent,
@@ -119,7 +137,7 @@ func (b *backend) fail(err error, unsent int) {
 		b.out = nil
 		b.outMu.Unlock()
 		b.conn.Close()
-		log.Printf("pitwall: daemon connection lost: %v; %d queued messages not sent", err, unsent)
+		log.Printf("daemon connection lost: %v; %d queued messages not sent", err, unsent)
 		close(b.done)
 	})
 }

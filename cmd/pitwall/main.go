@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/daemon"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
@@ -67,6 +69,7 @@ const usage = `usage:
   pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
   pitwall jev <cmd>          login, status, logout: connect TypeSafe's Jev (see pitwall jev)
+  pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
 `
 
 func main() {
@@ -99,6 +102,8 @@ func main() {
 		err = runNotify(os.Args[2:])
 	case "jev":
 		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	case "logs":
+		err = runLogs(os.Args[2:], os.Stdout)
 	case "ls", "new", "wait", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
@@ -117,8 +122,16 @@ func main() {
 // runDaemon holds an exclusive lock next to the socket for its lifetime, so
 // of two daemons started at once only one restores panes and binds; the
 // other exits cleanly.
-func runDaemon() error {
-	fmt.Fprintln(os.Stderr, "pitwall daemon", versionString(), "starting")
+func runDaemon() (err error) {
+	if f, err := logs.Start(filepath.Join(stateDir(), "daemon.log"), "daemon", versionString()); err == nil {
+		defer f.Close()
+	} else {
+		fmt.Fprintln(os.Stderr, "pitwall: log:", err)
+	}
+	log.Printf("daemon starting")
+	defer func() {
+		log.Printf("daemon stopped: %v", err)
+	}()
 	path, err := proto.SocketPath()
 	if err != nil {
 		return err
@@ -131,7 +144,7 @@ func runDaemon() error {
 	if ok, err := tryLock(lock); err != nil {
 		return err
 	} else if !ok {
-		fmt.Fprintln(os.Stderr, "pitwall: a daemon is already running on", path)
+		log.Printf("a daemon is already running on %s", path)
 		return nil
 	}
 	if c, err := net.Dial("unix", path); err == nil {
@@ -218,11 +231,17 @@ func printHooks() error {
 // and exits instead.
 func runGUI(session string) error {
 	hideConsole()
+	if f, err := logs.Start(filepath.Join(stateDir(), "gui.log"), "gui", versionString()); err == nil {
+		defer f.Close()
+	}
+	log.Printf("gui starting")
 	conn, initial, err := dialOrStart(session)
 	if err != nil {
+		log.Printf("gui: %v", err)
 		return err
 	}
 	defer conn.Close()
+	log.Printf("connected to the daemon")
 	target, raise := guiTarget(initial.State, session)
 	if raise && os.Getenv("PITWALL_ATTACH") == "" {
 		return conn.Send(proto.FocusSession{SessionID: target.ID})
@@ -231,7 +250,9 @@ func runGUI(session string) error {
 	b.state = initial.State
 	go b.recvLoop()
 	go b.sendLoop()
-	return app.Run(b)
+	err = app.Run(b)
+	log.Printf("window closed: %v", err)
+	return err
 }
 
 // dialOrStart completes the GUI handshake before starting the window. An
@@ -252,7 +273,7 @@ func dialOrStart(session string) (*proto.Conn, proto.StateMsg, error) {
 	if err == nil {
 		return conn, initial, nil
 	}
-	fmt.Fprintln(os.Stderr, "pitwall: restarting incompatible daemon")
+	log.Printf("restarting incompatible daemon: %v", err)
 	if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
 		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %v; %w", err, stopErr)
 	}
@@ -343,17 +364,9 @@ func startDaemon(path string) (net.Conn, error) {
 		return nil, err
 	}
 	logPath := filepath.Join(stateDir(), "daemon.log")
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
-		return nil, err
-	}
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	defer log.Close()
-	cmd := exec.Command(bin, "daemon")
-	cmd.Stdout, cmd.Stderr = log, log
-	detach(cmd) // outlive the window
+	log.Printf("starting a daemon")
+	cmd := exec.Command(bin, "daemon") // it logs to logPath itself, crashes included
+	detach(cmd)                        // outlive the window
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

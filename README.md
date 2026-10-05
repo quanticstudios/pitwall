@@ -331,6 +331,7 @@ optional name act on the pane's own tab.
 | `pitwall tab close`                   | Close this pane's tab                                         |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview)            |
 | `pitwall jev login` / `status` / `logout` | Connect TypeSafe's Jev, test the connection, disconnect (see [Decisions](#decisions-jev)) |
+| `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](#logs)) |
 | `pitwall --version`                   | Print the version                                             |
 
 A name is a tab's `#` from `pitwall ls` (`3` or `#3`), its `id` from
@@ -709,14 +710,14 @@ sent.
 | What                | Where                                                         |
 | ------------------- | ------------------------------------------------------------- |
 | Saved tabs          | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
-| Daemon log          | `~/.local/state/pitwall/daemon.log`                           |
+| Logs                | `~/.local/state/pitwall/gui.log` and `daemon.log` (`pitwall logs`) |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
 | Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
 
 macOS uses the same paths. On Windows, config and themes live in
-`%APPDATA%\pitwall`, and saved tabs, the daemon log, window state and the
+`%APPDATA%\pitwall`, and saved tabs, the logs, window state and the
 socket in `%LOCALAPPDATA%\pitwall`. The `XDG_*` variables win when set.
 
 After a reboot, run `pitwall`: tabs, groups and panes come back in their
@@ -745,9 +746,26 @@ running in panes at that moment stop.
 - **The window freezes or is reported as not responding.** When one window
   event runs for over 2 seconds, pitwall writes every goroutine's stack to
   `~/.local/state/pitwall/stall-<time>.txt` and keeps the newest 5. Attach
-  the newest stall file to the bug report.
-- **Something else.** Look at `~/.local/state/pitwall/daemon.log`, which
-  starts with the daemon's version.
+  the newest stall file to the bug report. `gui.log` names it too, and notes
+  frames slower than 250 ms, split into layout and rendering time.
+- **Something else.** Look at the logs.
+
+### Logs
+
+`pitwall logs` prints the paths of the two logs, and `pitwall logs -f`
+follows both as they grow. Every window writes to `gui.log` and the daemon to
+`daemon.log`, both in the state directory, readable only by you. Each line
+starts with the time, `gui` or `daemon`, the version and the process id, so
+the lines of two windows can be told apart. A log that passes 5 MB moves to
+`gui.log.1` or `daemon.log.1`, replacing the older one. A crash's stack lands
+in the log too.
+
+The logs record events: starts and stops, connections, panes starting and
+exiting (with the program's name and exit code), sizes sent and applied,
+errors, slow requests and frames. They never record what a pane shows, what
+you type, prompts, hook payloads, environment variables or a command's
+arguments. They do hold folder paths and pane ids. For a bug report, attach
+both logs from around the time it happened, and any stall file.
 
 ## Development
 

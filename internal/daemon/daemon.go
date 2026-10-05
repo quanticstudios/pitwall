@@ -24,6 +24,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -91,6 +92,7 @@ type Daemon struct {
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
+	sizes       map[string][2]int      // per pane, the last size it took, for the log
 	inputs      map[string]chan []byte // per pane, drained by writeInput
 	views       map[string]*view       // scroll positions, see scroll.go
 	clients     map[*client]struct{}   // gui clients only
@@ -154,7 +156,7 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, held: map[string]bool{}, resumed: map[string]time.Time{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, held: map[string]bool{}, resumed: map[string]time.Time{}}
 	if o.Decisions != nil {
 		d.dec.cur = o.Decisions()
 	}
@@ -180,12 +182,13 @@ func NewWith(o Options) (*Daemon, error) {
 		}
 		cmd := o.RestoreCmd(p)
 		if err := d.start(p.ID, cmd, p.Cwd); err != nil {
-			log.Printf("pitwall: restore pane %s: %v", p.ID, err)
+			log.Printf("restore pane %s: %v", p.ID, err)
 			gone = append(gone, p.ID)
 			continue
 		}
 		if !slices.Equal(cmd, p.Cmd) {
 			d.resumed[p.ID] = time.Now()
+			log.Printf("pane %s: resuming %s, mode %q", p.ID, p.Provider, p.AgentMode)
 		}
 	}
 	for _, id := range gone {
@@ -235,7 +238,7 @@ func (d *Daemon) shutdown() {
 	panes := slices.Collect(maps.Values(d.panes))
 	d.mu.Unlock()
 	if err := d.o.Save(s); err != nil {
-		log.Printf("pitwall: save state: %v", err)
+		log.Printf("save state: %v", err)
 	}
 	d.saveMu.Unlock()
 
@@ -327,11 +330,20 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	}
 	hello, ok := m.(proto.Hello)
 	if !ok || hello.Version != proto.Version {
+		log.Printf("client refused: protocol version %d, want %d", hello.Version, proto.Version)
 		conn.Send(proto.Error{Message: fmt.Sprintf("daemon speaks protocol version %d; send Hello{Version: %d} first", proto.Version, proto.Version)})
 		return
 	}
 
 	c := &client{conn: conn, nc: nc, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
+	cid := newID()[:6]
+	// errs keeps an input flood into a pane that stopped reading from
+	// logging a line per message.
+	errs := logs.Limiter{Every: 10 * time.Second}
+	if hello.Kind != "hook" { // one connection per agent event
+		log.Printf("client %s: %s connected", cid, hello.Kind)
+		defer func() { log.Printf("client %s: %s disconnected: %v", cid, hello.Kind, err) }()
+	}
 	done := make(chan struct{})
 	defer close(done)
 	go d.writeLoop(c, done)
@@ -371,7 +383,8 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	}
 
 	for {
-		m, err := conn.Recv()
+		var m any
+		m, err = conn.Recv()
 		if err != nil {
 			return
 		}
@@ -390,10 +403,32 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			}
 			continue
 		}
-		if err := d.handle(ctx, m); err != nil {
-			c.queue(proto.Error{Message: err.Error()})
+		start := time.Now()
+		herr := d.handle(ctx, m)
+		if took := time.Since(start); took > slowHandler {
+			log.Printf("client %s: %T took %v", cid, m, took.Round(time.Millisecond))
+		}
+		if herr != nil {
+			if ok, held := errs.Allow(fmt.Sprintf("%T", m), start); ok {
+				log.Printf("client %s: %T: %v%s", cid, m, herr, heldNote(held))
+			}
+			c.queue(proto.Error{Message: herr.Error()})
 		}
 	}
+}
+
+// slowHandler is how long one request may take before the log notes it.
+const slowHandler = 500 * time.Millisecond
+
+// resizes keeps a window drag to a log line a second per pane.
+var resizes = logs.Limiter{Every: time.Second}
+
+// heldNote is the suffix for a line that a Limiter held others back for.
+func heldNote(held int) string {
+	if held == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d more since the last line)", held)
 }
 
 func (d *Daemon) handle(ctx context.Context, m any) error {
@@ -453,9 +488,19 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		if err := p.Resize(m.Cols, m.Rows); err != nil {
 			return err
 		}
+		size := [2]int{m.Cols, m.Rows}
 		d.mu.Lock()
 		exited := d.inputs[m.Pane] == nil
+		old := d.sizes[m.Pane]
+		if d.panes[m.Pane] == p {
+			d.sizes[m.Pane] = size
+		}
 		d.mu.Unlock()
+		if old != size {
+			if ok, held := resizes.Allow(m.Pane, time.Now()); ok {
+				log.Printf("pane %s: resized %dx%d to %dx%d%s", m.Pane, old[0], old[1], m.Cols, m.Rows, heldNote(held))
+			}
+		}
 		if exited {
 			d.pushFrame(m.Pane, p) // a held pane's watcher has stopped
 		}
@@ -724,6 +769,7 @@ func (d *Daemon) closePane(id string) error {
 func (d *Daemon) dropPane(id string) Pane {
 	h := d.panes[id]
 	delete(d.panes, id)
+	delete(d.sizes, id)
 	delete(d.inputs, id)
 	delete(d.views, id)
 	delete(d.resumed, id)
@@ -932,6 +978,15 @@ func (d *Daemon) start(id string, cmd []string, cwd string) error {
 		return err
 	}
 	d.panes[id] = p
+	d.sizes[id] = [2]int{defaultCols, defaultRows}
+	program, provider := "shell", model.Provider("")
+	if len(cmd) > 0 {
+		program = filepath.Base(cmd[0]) // never its arguments
+	}
+	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id }); i >= 0 {
+		provider = d.st.Panes[i].Provider
+	}
+	log.Printf("pane %s: started %s, provider %q, %dx%d", id, program, provider, defaultCols, defaultRows)
 	in := make(chan []byte, inputQueue)
 	d.inputs[id] = in
 	go d.watch(id, p)
@@ -1031,7 +1086,7 @@ func (d *Daemon) exited(id string, p Pane) {
 	code := p.ExitCode()
 	sp := &d.st.Panes[i]
 	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || code != 0 && time.Since(at) < resumeGrace) {
-		log.Printf("pitwall: pane %s: resumed %s session exited %d; opening a shell in %s", id, sp.Provider, code, sp.Cwd)
+		log.Printf("pane %s: exited %d; resumed %s session, opening a shell", id, code, sp.Provider)
 		closeAll([]Pane{d.dropPane(id)})
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode = nil, "", "", "", "", ""
 		err := d.start(id, nil, sp.Cwd)
@@ -1040,17 +1095,19 @@ func (d *Daemon) exited(id string, p Pane) {
 			d.mu.Unlock()
 			return
 		}
-		log.Printf("pitwall: pane %s: shell after failed resume: %v", id, err)
+		log.Printf("pane %s: shell after failed resume: %v", id, err)
 	}
 	var closing []Pane
 	if d.held[id] {
 		// why: the tab keeps the command's output on screen, and pitwall wait reads its status.
 		d.st.Panes[i].Exited, d.st.Panes[i].ExitCode = true, code
+		log.Printf("pane %s: exited %d; held", id, code)
 		delete(d.inputs, id)
 		delete(d.live.hookAt, id)
 		delete(d.live.fg, id)
 		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	} else {
+		log.Printf("pane %s: exited %d; closed", id, code)
 		closing = d.removePane(id)
 	}
 	d.changed()
@@ -1113,7 +1170,7 @@ func (d *Daemon) save() {
 	s := d.saveSnapshot()
 	d.mu.Unlock()
 	if err := d.o.Save(s); err != nil {
-		log.Printf("pitwall: save state: %v", err)
+		log.Printf("save state: %v", err)
 	}
 }
 
