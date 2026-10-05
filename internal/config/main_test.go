@@ -1,14 +1,15 @@
 package config
 
 import (
-	"os"
 	"testing"
+
+	"github.com/quanticstudios/pitwall/internal/testenv"
 )
 
 // The switcher is hidden in builds; its tests run with it shown.
 func TestMain(m *testing.M) {
 	SwitcherHidden = false
-	os.Exit(m.Run())
+	testenv.Main(m)
 }
 
 func TestSwitcherHidden(t *testing.T) {
