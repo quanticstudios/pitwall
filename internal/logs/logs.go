@@ -142,7 +142,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 
 func oneLine(p []byte) []byte {
 	line, _ := bytes.CutSuffix(p, []byte("\n"))
-	out := make([]byte, 0, len(p)+1)
+	out := make([]byte, 0, len(p))
 	for _, c := range line {
 		if c < 0x20 && c != '\t' || c == 0x7f {
 			out = fmt.Appendf(out, "\\x%02x", c)
