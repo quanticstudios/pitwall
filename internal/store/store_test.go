@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -97,7 +98,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":8,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":9,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -441,5 +442,38 @@ func TestLoadMigratesVersion6Sessions(t *testing.T) {
 	}
 	if s, err := Load(path); err != nil || len(s.Sessions) != 0 {
 		t.Fatalf("empty: %+v %v", s.Sessions, err)
+	}
+}
+
+// A version 7 file marks held the panes `pitwall new -- cmd` opened: those
+// with a command and no agent session to resume. A version 8 file is taken
+// as saved.
+func TestLoadMigratesVersion7Held(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	panes := `[
+		{"ID":"shell"},
+		{"ID":"make","Cmd":["make"]},
+		{"ID":"done","Cmd":["false"],"Exited":true,"ExitCode":1},
+		{"ID":"claude","Cmd":["claude","fix it"],"Provider":"claude","SessionID":"s"},
+		{"ID":"unseen","Cmd":["codex","fix it"]},
+		{"ID":"terminal","Cmd":["make"],"Provider":"terminal","SessionID":"s"}]`
+	for version, want := range map[int][]string{7: {"make", "done", "unseen", "terminal"}, 8: nil} {
+		data := fmt.Sprintf(`{"format_version":%d,"state":{"Panes":%s}}`, version, panes)
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var held []string
+		for _, p := range s.Panes {
+			if p.Held {
+				held = append(held, p.ID)
+			}
+		}
+		if !reflect.DeepEqual(held, want) {
+			t.Fatalf("version %d: held %v, want %v", version, held, want)
+		}
 	}
 }

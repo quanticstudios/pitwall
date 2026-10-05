@@ -461,6 +461,16 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
 }
 
+// PiEvent returns the event of a pi extension report, such as
+// "session_shutdown", and "" for other payloads.
+func PiEvent(payload []byte) string {
+	p, err := decode(payload)
+	if err != nil {
+		return ""
+	}
+	return p.PiEvent
+}
+
 // PiRuntime returns the runtime nonce of a pi extension report, "" for
 // other payloads, and whether the report is a session_start, which every
 // runtime sends first. A pi extension loaded again by /reload keeps the

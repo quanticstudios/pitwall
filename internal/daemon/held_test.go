@@ -1,11 +1,13 @@
 package daemon
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/vt"
@@ -97,11 +99,13 @@ func screen(g vt.Grid) string {
 // Held panes survive a restart: an exited one keeps its exit code, a resumable
 // agent resumes and stays held, and any other running command is not run
 // again and comes back exited with its code unknown.
+// The agent's restore argv equals its command, so only its metadata tells
+// that it resumes.
 func TestHeldSurvivesRestart(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	sock, stop := run(t, f)
 	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
-	for _, cmd := range [][]string{{"make", "build", "SECRET=1"}, {"sh", "-c", "long job"}, {"claude", "fix it"}} {
+	for _, cmd := range [][]string{{"make", "build", "SECRET=1"}, {"sh", "-c", "long job"}, {"claude", "--resume", "sess-1"}} {
 		if e := cli.request(proto.NewSession{Cwd: t.TempDir(), Cmd: cmd}); e != "" {
 			t.Fatal(e)
 		}
@@ -170,4 +174,31 @@ func TestHeldSurvivesRestart(t *testing.T) {
 		t.Fatalf("after the agent exited: %+v", st.Panes)
 	}
 	stop()
+}
+
+// A held `pi -p` pane keeps showing its result: the shutdown that follows
+// agent_settled, and then the exit, leave the done activity in place.
+func TestHeldPiPrintDone(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) { o.Derive, o.SessionID = agent.Derive, agent.SessionID })
+	defer stop()
+	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
+	if e := cli.request(proto.NewSession{Cwd: t.TempDir(), Cmd: []string{"pi", "-p", "fix it"}}); e != "" {
+		t.Fatal(e)
+	}
+	id := watch.waitState("the tab", func(s model.State) bool { return len(s.Panes) == 1 }).Panes[0].ID
+	for _, event := range []string{"session_start", "agent_settled", "session_shutdown"} {
+		b := fmt.Sprintf(`{"event":%q,"runtime":"r","session_id":"s","stop_reason":"stop","message":"all fixed"}`, event)
+		if e := cli.request(proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: []byte(b)}); e != "" {
+			t.Fatal(e)
+		}
+	}
+	st := watch.waitState("done after the shutdown", func(s model.State) bool {
+		return len(s.Activities) == 1 && s.Activities[0].State == model.StateCompleted
+	})
+	f.pane(0).Close()
+	st = watch.waitState("the exit", func(s model.State) bool { return s.Panes[0].Exited })
+	if len(st.Activities) != 1 || st.Activities[0].State != model.StateCompleted || st.Activities[0].Detail != "all fixed" {
+		t.Fatalf("after the exit: %+v", st.Activities)
+	}
 }

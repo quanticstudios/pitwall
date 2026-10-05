@@ -21,13 +21,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// formatVersion 8 added Pane.Held;
 // formatVersion 7 added sessions, which own the tabs, groups and order;
 // formatVersion 6 added State.Order and dropped generated tab names;
 // formatVersion 5 made each tab a workspace of its own; version 4 added Workspace.NameSet and Label and Pane.Prompt; version
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 7
+const formatVersion = 8
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -124,7 +125,28 @@ func Load(path string) (model.State, error) {
 			return model.State{}, err
 		}
 	}
+	if saved.FormatVersion < 8 {
+		migrateHeld(saved.State)
+	}
 	return *saved.State, nil
+}
+
+// migrateHeld marks the panes `pitwall new -- cmd` opened before Held was
+// saved, so a restart does not run their commands again. Only NewSession.Cmd
+// gave a pane a command: pitwall's own clients open every other pane with a
+// shell. A pane whose agent session is known keeps resuming unheld, as it did.
+func migrateHeld(s *model.State) {
+	for i := range s.Panes {
+		if p := &s.Panes[i]; len(p.Cmd) > 0 && !Resumes(*p) {
+			p.Held = true
+		}
+	}
+}
+
+// Resumes reports whether RestoreCmd brings p back as a resumed agent
+// session rather than its original command.
+func Resumes(p model.Pane) bool {
+	return p.SessionID != "" && (p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex || p.Provider == model.ProviderPi)
 }
 
 // migrateSessions puts every tab and group of an older file into one
@@ -164,7 +186,7 @@ func migrateSessions(data []byte, version int, s *model.State) error {
 // command already sets its permissions.
 // Adapted from tuios (MIT): internal/session/agent_resume.go
 func RestoreCmd(p model.Pane) []string {
-	if p.SessionID == "" || (p.Provider != model.ProviderClaude && p.Provider != model.ProviderCodex && p.Provider != model.ProviderPi) {
+	if !Resumes(p) {
 		return p.Cmd
 	}
 	binary := string(p.Provider)

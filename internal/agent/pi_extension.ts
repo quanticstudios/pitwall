@@ -145,7 +145,7 @@ export default function (pi: any) {
 			else job.done();
 		}
 		await Promise.race([send("session_shutdown"), new Promise((r) => setTimeout(r, 1000))]);
-		// why: no hook of this runtime keeps running; one that already wrote its report may still arrive late, and pitwall drops it by runtime.
+		// why: no hook of this runtime keeps running; one that already wrote its report may still arrive late, and pitwall drops it: the shutdown retired this runtime's nonce.
 		for (const job of pending.splice(0)) job.done();
 		kill(current);
 	});

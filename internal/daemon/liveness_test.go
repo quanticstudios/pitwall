@@ -202,6 +202,21 @@ func TestPaneExitClears(t *testing.T) {
 	waitUntil(t, "exit clears", func() bool { return d.stateOf(id) == "" })
 }
 
+// Once a pane's process has ended, the foreground check leaves its activity
+// to exited, which keeps a held pane's result.
+func TestForegroundSkipsEndedPane(t *testing.T) {
+	d, lp, id := liveDaemon(t, model.StateCompleted)
+	d.mu.Lock()
+	d.closing = true // exited does nothing, so only the foreground check could act
+	d.mu.Unlock()
+	lp.Close()
+	lp.fgGroup.Store(200)
+	time.Sleep(5 * livePoll)
+	if d.stateOf(id) != model.StateCompleted {
+		t.Fatal("the foreground check cleared an ended pane's activity")
+	}
+}
+
 func TestIsInterrupt(t *testing.T) {
 	for in, want := range map[string]bool{
 		"\x1b": true, "\x03": true, "\x1b[27;1u": true, "\x1b[99;5u": true, "\x1b[99;5:1u": true,

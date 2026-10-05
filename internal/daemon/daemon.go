@@ -141,8 +141,8 @@ func New() (*Daemon, error) {
 // not exited, using o.RestoreCmd in the pane's saved Cwd. Activities from the
 // previous run are dropped: the agents behind them are new processes.
 //
-// A held pane (model.Pane.Held) is relaunched only when o.RestoreCmd resumes
-// its agent. One whose command had exited comes back exited with its code,
+// A held pane (model.Pane.Held) is relaunched only when its agent session
+// can be resumed (store.Resumes). One whose command had exited comes back exited with its code,
 // and any other one comes back exited with ExitUnknown, because running its
 // command twice may not be safe. Either shows a notice in place of its
 // screen, which is not saved.
@@ -186,17 +186,19 @@ func NewWith(o Options) (*Daemon, error) {
 			gone = append(gone, p.ID) // saved by an older daemon, which kept exited panes
 			continue
 		}
-		cmd := o.RestoreCmd(*p)
-		if p.Held && (p.Exited || slices.Equal(cmd, p.Cmd)) {
+		// why: argv cannot tell, since `claude --resume s` restores to the same argv.
+		resumes := store.Resumes(*p)
+		if p.Held && (p.Exited || !resumes) {
 			d.panes[p.ID] = d.stoppedPane(p)
 			continue
 		}
+		cmd := o.RestoreCmd(*p)
 		if err := d.start(p.ID, cmd, p.Cwd); err != nil {
 			log.Printf("restore pane %s: %q", p.ID, err)
 			gone = append(gone, p.ID)
 			continue
 		}
-		if !slices.Equal(cmd, p.Cmd) {
+		if resumes {
 			d.resumed[p.ID] = time.Now()
 			log.Printf("pane %s: resuming %q, mode %q", p.ID, p.Provider, p.AgentMode)
 		}
@@ -798,6 +800,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.fg, id)
 	delete(d.live.det, id)
 	delete(d.live.piRuntime, id)
+	delete(d.live.piRetired, id)
 	delete(d.attn, id)
 	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
@@ -825,8 +828,26 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	p := &d.st.Panes[pi]
 	// The pane's pi runtime is the one of its latest session_start; a report
-	// from any other, such as one /reload replaced, changes nothing.
+	// from any other, such as one /reload replaced, changes nothing, and
+	// neither does one a runtime sends after its session_shutdown.
+	piEvent := ""
+	if m.Provider == model.ProviderPi {
+		piEvent = agent.PiEvent(m.Payload)
+	}
 	if rt, start := agent.PiRuntime(m.Payload); rt != "" {
+		if d.live.piRetired[p.ID][rt] {
+			d.mu.Unlock()
+			return nil
+		}
+		if piEvent == "session_shutdown" {
+			if d.live.piRetired == nil {
+				d.live.piRetired = map[string]map[string]bool{}
+			}
+			if d.live.piRetired[p.ID] == nil {
+				d.live.piRetired[p.ID] = map[string]bool{}
+			}
+			d.live.piRetired[p.ID][rt] = true
+		}
 		if cur := d.live.piRuntime[p.ID]; !start && cur != "" && cur != rt {
 			d.mu.Unlock()
 			return nil
@@ -847,8 +868,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	now := time.Now()
 	changed := false
+	// why: a held `pi -p` pane shuts down right after its result; the tab keeps showing it.
+	keep := p.Held && piEvent == "session_shutdown" && prev != nil && ended(prev.State)
 
-	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok {
+	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok && !keep {
 		changed = true
 		clearDecisions(&next) // a new state needs new answers
 		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
@@ -1086,12 +1109,16 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 // shell instead of closing its pane; tests shorten it.
 var resumeGrace = 3 * time.Second
 
-// exited closes a pane whose process ended, and its tab and session when it
-// was their last. An agent resumed in a pane that was a shell gets the shell
-// back whenever it exits, as it would have before the restart. A pane opened
-// with a command whose resume exits non-zero within resumeGrace of the
-// restart (the session expired, the binary moved) gets a shell in its place
-// too; after that, its exit closes the pane like any other command's.
+// exited handles a pane whose process ended. A held pane stays, Exited with
+// the exit code, and keeps a completed or error activity, so its tab still
+// shows how the agent's run ended; a held pane whose resume fails keeps that
+// failure's exit code too, with no shell. Any other pane closes, and its tab
+// and session when it was their last, except that an agent resumed in a pane
+// that was a shell gets the shell back whenever it exits, as it would have
+// before the restart, and a pane opened with a command whose resume exits
+// non-zero within resumeGrace of the restart (the session expired, the
+// binary moved) gets a shell in its place too. After that grace, its exit
+// closes the pane like any other command's.
 func (d *Daemon) exited(id string, p Pane) {
 	d.mu.Lock()
 	if d.closing || d.panes[id] != p {
@@ -1126,7 +1153,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		delete(d.inputs, id)
 		delete(d.live.hookAt, id)
 		delete(d.live.fg, id)
-		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
+		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id && !ended(a.State) })
 	} else {
 		log.Printf("pane %s: exited %d; closed", id, code)
 		closing = d.removePane(id)
@@ -1141,6 +1168,9 @@ func (d *Daemon) exited(id string, p Pane) {
 	d.mu.Unlock()
 	closeAll(closing)
 }
+
+// ended reports whether s is how an agent's run ends: done or error.
+func ended(s model.AgentState) bool { return s == model.StateCompleted || s == model.StateError }
 
 func (d *Daemon) pane(id string) (Pane, error) {
 	d.mu.Lock()

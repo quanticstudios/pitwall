@@ -29,6 +29,9 @@ type liveness struct {
 	// piRuntime is, per pane, the extension nonce of pi's latest
 	// session_start (see agent.PiRuntime).
 	piRuntime map[string]string
+	// piRetired is, per pane, the nonces of pi runtimes that sent their
+	// session_shutdown; their later reports are dropped.
+	piRetired map[string]map[string]bool
 }
 
 // foregrounder is the optional Pane method behind the exit check;
@@ -156,9 +159,19 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.piRuntime, id)
 		}
 	}
+	for id := range d.live.piRetired {
+		if d.panes[id] == nil {
+			delete(d.live.piRetired, id)
+		}
+	}
 	// Hooks own a pane only while their agent's group is in the foreground.
 	// Once it leaves, an agent started later without hooks is detect's.
 	for id, want := range d.live.fg {
+		select {
+		case <-d.panes[id].Done():
+			continue // why: the process ended; exited decides what its activity does
+		default:
+		}
 		if f, ok := d.panes[id].(foregrounder); ok && f.Foreground() != want {
 			delete(d.live.fg, id)
 			delete(d.live.hookAt, id)
