@@ -20,10 +20,16 @@ type builder struct {
 	plan     []Step
 	planIDs  []string // Claude's task ids beside plan, for TaskUpdate
 	subs     []*sub
-	calls    map[string]ref // a call's id to where it is
+	calls    map[string]ref // a kept call's id to where it is
+	dropped  int            // turns dropped from the front, for maxTurns
 	last     string         // the latest text reply, cut to 2000 runes
 }
 
+// maxTurns is how many of the latest turns a Feed keeps.
+const maxTurns = 50
+
+// ref is a call's place: its turn counted from the session's first, then
+// its index in the turn.
 type ref struct{ turn, call int }
 
 // sub is a Subagent as the parent's file tells it, plus the child session
@@ -47,14 +53,40 @@ func (b *builder) prompt(ts time.Time, text string) {
 	if n := len(b.turns); n > 0 && b.turns[n-1].End.IsZero() {
 		b.turns[n-1].End = ts
 	}
-	b.turns = append(b.turns, Turn{Prompt: cut(firstLine(text), 200), Start: ts})
+	b.add(Turn{Prompt: cut(firstLine(text), 200), Start: ts})
+}
+
+// add appends t, then drops the oldest turns past maxTurns, with the ids
+// of their calls.
+func (b *builder) add(t Turn) {
+	b.turns = append(b.turns, t)
+	n := len(b.turns) - maxTurns
+	if n <= 0 {
+		return
+	}
+	b.turns = slices.Clone(b.turns[n:])
+	b.dropped += n
+	for id, r := range b.calls {
+		if r.turn < b.dropped {
+			delete(b.calls, id)
+		}
+	}
+}
+
+// callByID is the kept call with that id, or nil.
+func (b *builder) callByID(id string) *Call {
+	r, ok := b.calls[id]
+	if !ok {
+		return nil
+	}
+	return &b.turns[r.turn-b.dropped].Calls[r.call]
 }
 
 // active is the turn the agent works on at ts: the last one, open again if
 // it had ended, or a turn without a prompt when the read began mid-turn.
 func (b *builder) active(ts time.Time) *Turn {
 	if len(b.turns) == 0 {
-		b.turns = append(b.turns, Turn{Start: ts})
+		b.add(Turn{Start: ts})
 	}
 	t := &b.turns[len(b.turns)-1]
 	t.End = time.Time{}
@@ -65,17 +97,16 @@ func (b *builder) call(ts time.Time, id, tool, arg string) {
 	t := b.active(ts)
 	t.Calls = append(t.Calls, Call{Time: ts, Tool: tool, Arg: cut(arg, 120), Running: true})
 	if id != "" {
-		b.calls[id] = ref{len(b.turns) - 1, len(t.Calls) - 1}
+		b.calls[id] = ref{b.dropped + len(b.turns) - 1, len(t.Calls) - 1}
 	}
 }
 
 // result records a call's result; it reports false for an unknown call.
 func (b *builder) result(id string, failed bool) bool {
-	r, ok := b.calls[id]
-	if !ok {
+	c := b.callByID(id)
+	if c == nil {
 		return false
 	}
-	c := &b.turns[r.turn].Calls[r.call]
 	c.Running, c.Failed = false, c.Failed || failed
 	return true
 }

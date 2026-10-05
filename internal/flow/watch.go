@@ -3,6 +3,7 @@ package flow
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"reflect"
@@ -12,8 +13,12 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
-// maxRead is how much of a file's end the first read takes.
+// maxRead is how much of a file's end the first read takes, and the most
+// any one read takes.
 const maxRead = 8 << 20
+
+// maxLine is the longest partial line read holds; a longer one is dropped.
+const maxLine = 4 << 20
 
 // pollEvery is how often Watch looks at the files; tests shorten it.
 var pollEvery = 500 * time.Millisecond
@@ -120,51 +125,83 @@ type tail struct {
 	info os.FileInfo // nil before the first read and after a reset
 	off  int64
 	part []byte // a last line without its newline yet
+	skip bool   // drop bytes up to the next newline
 }
 
-// read returns the complete lines appended since the last read. The first
-// read takes at most the last maxRead bytes, from the first line that starts
-// in them. reset is true when the file was replaced, truncated or removed,
-// and the lines start over from the new file.
+// read returns the complete lines appended since the last read, at most
+// maxRead bytes of them. The first read starts maxRead bytes before the end,
+// at the first line that starts there. A partial line longer than maxLine is
+// dropped up to its newline. reset is true when the file was replaced,
+// truncated, removed, or can no longer be opened as a regular file: what was
+// read before is void, and the lines start over.
 func (t *tail) read() (lines [][]byte, reset bool) {
-	fi, err := os.Stat(t.path)
-	if t.info != nil && (err != nil || !os.SameFile(t.info, fi) || fi.Size() < t.off) {
-		t.info, t.off, t.part, reset = nil, 0, nil, true
+	if fi, err := os.Stat(t.path); err == nil && t.info != nil && os.SameFile(t.info, fi) &&
+		fi.Size() == t.off && fi.ModTime().Equal(t.info.ModTime()) {
+		return nil, false
 	}
-	if err != nil || t.info != nil && fi.Size() == t.off && fi.ModTime().Equal(t.info.ModTime()) {
-		return nil, reset
-	}
-	f, err := os.Open(t.path)
+	f, fi, err := openRegular(t.path)
 	if err != nil {
-		return nil, reset
+		return nil, t.forget()
 	}
 	defer f.Close()
-	start, skip := t.off, false
+	if t.info != nil && (!os.SameFile(t.info, fi) || fi.Size() < t.off) {
+		reset = t.forget()
+	}
+	start := t.off
 	if t.info == nil && fi.Size() > maxRead {
-		start, skip = fi.Size()-maxRead, true
+		start, t.skip = fi.Size()-maxRead, true
 	}
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
-		return nil, reset
+		return nil, t.forget() || reset
 	}
-	data, err := io.ReadAll(f)
+	data, err := io.ReadAll(io.LimitReader(f, maxRead))
 	if err != nil {
-		return nil, reset
+		return nil, t.forget() || reset
 	}
 	t.info, t.off = fi, start+int64(len(data))
-	if skip {
+	if t.skip {
 		i := bytes.IndexByte(data, '\n')
 		if i < 0 {
 			return nil, reset
 		}
-		data = data[i+1:]
+		data, t.skip = data[i+1:], false
 	}
 	data = append(t.part, data...)
 	end := bytes.LastIndexByte(data, '\n')
 	t.part = bytes.Clone(data[end+1:])
+	if len(t.part) > maxLine {
+		t.part, t.skip = nil, true
+	}
 	for l := range bytes.SplitSeq(data[:end+1], []byte("\n")) {
 		if len(bytes.TrimSpace(l)) > 0 {
 			lines = append(lines, l)
 		}
 	}
 	return lines, reset
+}
+
+// forget drops what t read and reports whether it had read anything.
+func (t *tail) forget() bool {
+	had := t.info != nil
+	*t = tail{path: t.path}
+	return had
+}
+
+var errNotRegular = errors.New("not a regular file")
+
+// openRegular opens path for reading if it is, or links to, a regular file.
+// A FIFO or a device would block the open or never end.
+func openRegular(path string) (*os.File, os.FileInfo, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, nil, errNotRegular
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, fi, nil
 }

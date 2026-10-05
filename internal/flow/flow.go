@@ -17,9 +17,9 @@ import (
 // Feed is one agent session as the panel shows it.
 type Feed struct {
 	Provider model.Provider
-	// Turns are oldest first. The last one is the current turn while End is
-	// zero, else the latest finished one. Turns before the part of the file
-	// Watch read are missing.
+	// Turns are oldest first, at most the latest 50. The last one is the
+	// current turn while End is zero, else the latest finished one. Turns
+	// before the part of the file Watch read are missing.
 	Turns []Turn
 	// Plan is the agent's latest todo list: Claude's TodoWrite or Task
 	// tools, Codex's update_plan. nil when the session never wrote one.
@@ -94,9 +94,11 @@ func (s Subagent) Running() bool { return s.End.IsZero() }
 
 // Watch reads the session file at path, written by provider, and calls
 // changed with a fresh Feed after the first read and after every change,
-// until ctx is done. It reads at most the file's last 8 MiB and then only
-// what is appended, from its own goroutine; changed must not block. A
-// missing or unreadable file yields an empty Feed and is retried.
+// until ctx is done. It returns at once and works in its own goroutine;
+// changed must not block. It reads at most the file's last 8 MiB, then
+// what is appended, at most 8 MiB a poll, twice a second. It opens only
+// regular files: a missing, unreadable or non-regular file yields an empty
+// Feed, once, and is retried.
 func Watch(ctx context.Context, provider model.Provider, path string, changed func(Feed)) {
 	go watch(ctx, provider, path, changed)
 }

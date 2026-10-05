@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -251,19 +252,69 @@ func TestWatch(t *testing.T) {
 	}
 }
 
-// The first read takes the file's last 8 MiB, from the first whole line.
+// The first read takes the file's last 8 MiB, from the first whole line;
+// each later poll reads at most 8 MiB more.
 func TestReadLimit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "big.jsonl")
-	var b strings.Builder
-	b.WriteString(`{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"too early"}}` + "\n")
-	for b.Len() < maxRead+1000 {
-		b.WriteString(`{"type":"filler","pad":"` + strings.Repeat("x", 100) + `"}` + "\n")
+	filler := func(n int) string {
+		var b strings.Builder
+		for b.Len() < n {
+			b.WriteString(`{"type":"filler","pad":"` + strings.Repeat("x", 100) + `"}` + "\n")
+		}
+		return b.String()
 	}
-	b.WriteString(`{"type":"user","timestamp":"2026-10-05T10:01:00Z","message":{"content":"kept"}}` + "\n")
-	write(t, path, b.String())
-	f := read(t, model.ProviderClaude, path)
-	if len(f.Turns) != 1 || f.Turns[0].Prompt != "kept" {
+	prompt := func(s string) string {
+		return `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"` + s + `"}}` + "\n"
+	}
+	write(t, path, prompt("too early")+filler(maxRead+1000)+prompt("kept"))
+	s := newSession(model.ProviderClaude, path, false)
+	s.poll()
+	if f := s.b.feed(); len(f.Turns) != 1 || f.Turns[0].Prompt != "kept" {
 		t.Fatalf("turns = %+v", f.Turns)
+	}
+	appendFile(t, path, filler(maxRead+1000)+prompt("later"))
+	s.poll()
+	if n := len(s.b.feed().Turns); n != 1 {
+		t.Fatalf("one poll read past 8 MiB: %d turns", n)
+	}
+	s.poll()
+	if f := s.b.feed(); len(f.Turns) != 2 || f.Turns[1].Prompt != "later" {
+		t.Fatalf("turns = %+v", f.Turns)
+	}
+}
+
+// A partial line past 4 MiB is dropped, and reading resumes after its newline.
+func TestLongLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, path, "")
+	s := newSession(model.ProviderClaude, path, false)
+	for range 3 {
+		appendFile(t, path, strings.Repeat("y", 2<<20))
+		s.poll()
+		if len(s.t.part) > maxLine {
+			t.Fatalf("holding %d bytes of one line", len(s.t.part))
+		}
+	}
+	appendFile(t, path, "end of it\n"+`{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"next"}}`+"\n")
+	s.poll()
+	if f := s.b.feed(); len(f.Turns) != 1 || f.Turns[0].Prompt != "next" {
+		t.Fatalf("turns = %+v", f.Turns)
+	}
+}
+
+// Only the last maxTurns turns are kept, with no call ids of the dropped ones.
+func TestTurnLimit(t *testing.T) {
+	b := newBuilder(model.ProviderPi)
+	for i := range maxTurns + 10 {
+		b.prompt(at(0, 0), "p"+strconv.Itoa(i))
+		b.call(at(0, 0), "c"+strconv.Itoa(i), "bash", "")
+	}
+	f := b.feed()
+	if len(f.Turns) != maxTurns || f.Turns[0].Prompt != "p10" || len(b.calls) != maxTurns {
+		t.Fatalf("%d turns from %q, %d call ids", len(f.Turns), f.Turns[0].Prompt, len(b.calls))
+	}
+	if b.result("c0", true) || !b.result("c59", true) || !b.feed().Turns[maxTurns-1].Calls[0].Failed {
+		t.Fatal("results of dropped and kept calls")
 	}
 }
 

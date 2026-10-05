@@ -2,7 +2,7 @@ package flow
 
 import (
 	"encoding/json"
-	"os"
+	"io"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -104,7 +104,7 @@ func (c *claude) user(b *builder, e claudeEntry) {
 				b.active(ts)
 				b.result(bl.ToolUseID, bl.IsError)
 				c.toolResult(b, e, bl)
-				if r, ok := b.calls[bl.ToolUseID]; ok && b.turns[r.turn].Calls[r.call].Tool == "SubagentHandback" {
+				if c := b.callByID(bl.ToolUseID); c != nil && c.Tool == "SubagentHandback" {
 					b.end(ts, false)
 				}
 			case "text":
@@ -297,7 +297,12 @@ func (c *claude) resolve(b *builder) {
 	for _, name := range names {
 		m, ok := c.metas[name]
 		if !ok {
-			data, err := os.ReadFile(name)
+			f, _, err := openRegular(name)
+			if err != nil {
+				continue
+			}
+			data, err := io.ReadAll(io.LimitReader(f, 64<<10))
+			f.Close()
 			if err != nil || json.Unmarshal(data, &m) != nil {
 				continue
 			}
