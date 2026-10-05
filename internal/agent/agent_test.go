@@ -406,7 +406,7 @@ func TestPiExtension(t *testing.T) {
 		}
 	}
 	src := string(PiExtension("pitwall"))
-	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", "kill(current);\n\t});", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
+	for _, s := range []string{`spawn(bin, ["hook", "pi"]`, `kill("SIGKILL")`, "const limit = 32;", "pending.splice(0)", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", "kill(current);\n\t});", "job === start || job === settled", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
 		if !strings.Contains(src, s) {
 			t.Errorf("extension lacks %s", s)
 		}
@@ -416,6 +416,14 @@ func TestPiExtension(t *testing.T) {
 	}
 	if strings.Contains(src, "shell: true") || strings.Contains(src, "event.input") {
 		t.Error("extension uses a shell or sends tool arguments")
+	}
+	// An unedited file from an earlier release is pitwall's too.
+	old, err := os.ReadFile("testdata/pi_extension_alpha5.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsPiExtension([]byte(strings.Replace(string(old), piBinToken, `"/usr/bin/pitwall"`, 1))) || IsPiExtension(old) {
+		t.Error("IsPiExtension misjudges the alpha.5 extension")
 	}
 	if IsPiExtension(nil) || IsPiExtension([]byte("export default function () {}\n")) {
 		t.Error("IsPiExtension true for a foreign file")

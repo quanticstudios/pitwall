@@ -31,6 +31,10 @@ To cut a release: add a section below and merge it, then
   its exit code unknown (`exit_code` null in `pitwall ls --json`, and
   `pitwall wait` prints `exit unknown` and exits 3). The output is not
   saved, so the pane shows a one-line notice instead.
+- A fast `pi -p` run shows Done or Error. pi's extension used to drop its
+  queued reports at shutdown, the result included; it now sends the last
+  result before the shutdown. Run `pitwall hooks install` to update the
+  extension. It replaces the alpha.5 file, which is not counted as edited.
 - The daemon protocol is now version 14; the next `pitwall` restarts an
   older daemon. The state file format is unchanged.
 

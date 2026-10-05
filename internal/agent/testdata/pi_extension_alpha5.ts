@@ -135,15 +135,8 @@ export default function (pi: any) {
 	});
 	pi.on("session_shutdown", async () => {
 		if (!started) return;
-		// why: a fast `pi -p` ends with its reports still queued. Its result (the
-		// last agent_settled) and the session_start that names this runtime go
-		// out before the shutdown; the reports in between are dropped.
-		const start = pending.find((job) => job.payload.event === "session_start");
-		const settled = [...pending].reverse().find((job) => job.payload.event === "agent_settled");
-		for (const job of pending.splice(0)) {
-			if (job === start || job === settled) pending.push(job);
-			else job.done();
-		}
+		// why: reports still queued belong to the ending session; only its shutdown goes out.
+		for (const job of pending.splice(0)) job.done();
 		await Promise.race([send("session_shutdown"), new Promise((r) => setTimeout(r, 1000))]);
 		// why: no hook of this runtime keeps running; one that already wrote its report may still arrive late, and pitwall drops it by runtime.
 		for (const job of pending.splice(0)) job.done();

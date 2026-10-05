@@ -8,9 +8,12 @@
 package agent
 
 import (
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -376,19 +379,29 @@ func PiExtension(bin string) []byte {
 	return []byte(strings.Replace(piTemplate, piBinToken, string(q), 1))
 }
 
+// piReleased are the SHA-256 sums of pi_extension.ts as earlier releases
+// shipped it, so an install replaces those files as unedited.
+var piReleased = []string{
+	"6075137b80ebb0c738c88c2abca9f192e9fc3858eab4e215f4702bceb3bcca02", // v0.1.0-alpha.5
+}
+
 // IsPiExtension reports whether b is exactly what PiExtension returns for
-// some binary path: a file pitwall wrote and nobody edited since.
+// some binary path, now or in an earlier release: a file pitwall wrote and
+// nobody edited since.
 func IsPiExtension(b []byte) bool {
-	pre, post, _ := strings.Cut(piTemplate, piBinToken)
-	s := string(b)
-	if len(s) < len(pre)+len(post) || !strings.HasPrefix(s, pre) || !strings.HasSuffix(s, post) {
-		return false
-	}
+	// why: JSON escapes newlines, so the bin literal ends at the first ";\n".
+	pre, rest, ok := strings.Cut(string(b), "const bin = ")
+	lit, post, ok2 := strings.Cut(rest, ";\n")
 	var bin string
-	if json.Unmarshal([]byte(s[len(pre):len(s)-len(post)]), &bin) != nil {
+	if !ok || !ok2 || json.Unmarshal([]byte(lit), &bin) != nil {
 		return false
 	}
-	return string(PiExtension(bin)) == s
+	if q, _ := json.Marshal(bin); string(q) != lit {
+		return false
+	}
+	tmpl := pre + "const bin = " + piBinToken + ";\n" + post
+	sum := sha256.Sum256([]byte(tmpl))
+	return tmpl == piTemplate || slices.Contains(piReleased, hex.EncodeToString(sum[:]))
 }
 
 func hooksJSON(bin, provider string, events []hookEvent) []byte {
