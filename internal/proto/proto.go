@@ -9,8 +9,9 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
-// Version 12 added NewSession.Cmd, Send and Hello.Kind "watch", and a pane
-// opened with NewSession.Cmd stays, Exited, after its process ends.
+// Version 12 added NewSession.Cmd, Send, Hello.Kind "watch" and
+// model.Pane.SentAt, and a pane opened with NewSession.Cmd stays, Exited,
+// after its process ends, until the daemon restarts.
 // Version 11 added decision models: Activity.Advice, AdviceP, AdviceRule,
 // Urgency and Review, and State.Decide.
 // Version 10 added vt.Cell.Link, the OSC 8 hyperlink on each cell of a frame.
@@ -38,9 +39,9 @@ const Version = 12
 
 type Hello struct {
 	Version int
-	// Kind is "gui", "hook", "cli" or "watch". A watch client gets every
-	// StateMsg and PaneExited a GUI gets, but no frames, and counts as no
-	// window.
+	// Kind is "gui", "hook", "cli" or "watch". A watch client gets the
+	// StateMsg and PaneExited pushes a GUI gets, but no frames, and counts
+	// as no window. StateMsg pushes coalesce: close changes arrive as one.
 	Kind string
 	// Cwd is where the GUI was launched. When no session exists yet, the
 	// daemon opens one there with a shell, so pitwall starts like tmux.
@@ -63,7 +64,8 @@ type NewSession struct {
 	GroupID   string
 	SessionID string
 	// Cmd, when set, runs in the pane instead of the shell. The pane stays
-	// after the command exits, Exited with its ExitCode, until closed.
+	// after the command exits, Exited with its ExitCode, until closed or
+	// until the daemon restarts, which forgets that it stays.
 	Cmd []string
 	// FromPane, when set, starts the session in that pane's current
 	// directory (where its shell is now), falling back to Cwd.
@@ -99,9 +101,12 @@ type Input struct {
 }
 
 // Send types Text into Pane as a paste: bracketed when the pane's program
-// turned bracketed paste on, then, with Enter, a separate carriage return
-// after a short pause. The daemon refuses while the pane's agent waits on a
-// permission prompt or a question, and while it works unless Force.
+// turned bracketed paste on, then, with Enter, a separate carriage return a
+// short pause after the paste is written. The daemon refuses while it sees
+// the pane blocked on a permission prompt or a question, by hook state or
+// on screen, and while its agent works unless Force; it checks again right
+// before the paste and before the Enter. A prompt drawn in the same instant
+// as a write can still get it.
 type Send struct {
 	Pane  string
 	Text  string

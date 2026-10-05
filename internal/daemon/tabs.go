@@ -37,7 +37,8 @@ func paneTab(w *model.Workspace, pane string) int {
 }
 
 // addTab opens a tab running cmd in cwd, or a shell when cmd is empty, and
-// makes it active. A command's pane stays after it exits. Callers hold d.mu.
+// makes it active. A command's pane stays after it exits, until closed or
+// until the daemon restarts: held is not saved. Callers hold d.mu.
 func (d *Daemon) addTab(w *model.Workspace, cwd string, cmd []string) error {
 	id := newID()
 	if err := d.start(id, cmd, cwd); err != nil {

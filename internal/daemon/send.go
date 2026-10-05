@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -12,18 +13,72 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// sendPause is how long Send waits between the paste and Enter, so Claude
-// Code and Codex see the Enter as a key and not part of the paste; tests
-// shorten it.
+// sendPause is how long Send waits after the paste is written before it
+// presses Enter, so Claude Code and Codex see the Enter as a key and not
+// part of the paste; tests shorten it.
 var sendPause = 300 * time.Millisecond
 
 var (
-	errSendBlocked = errors.New("the agent is waiting on a permission prompt or a question; answer it in the tab (pitwall never answers for you)")
+	errSendBlocked = errors.New("the agent is waiting on a permission prompt or a question; answer it in the tab (pitwall send never answers one it can see)")
 	errSendBusy    = errors.New("the agent is working; wait for it (pitwall wait <tab> --until done) or send -f")
 )
 
-// send is proto.Send. The checks run again before Enter: a prompt that
-// appeared during the pause must never get that Enter as its answer.
+// write is one input for a pane's writer. check, when set, runs on the
+// writer right before the PTY write, holding the pane's gate and d.mu; an
+// error drops the write. done, when set, gets the outcome once the write
+// finished or was dropped.
+type write struct {
+	data  []byte
+	check func() error
+	done  chan<- error
+}
+
+// gate is pane id's lock between a checked write and the updates that can
+// mark the pane blocked (hooks, screen detection, OSC notifications). It
+// is taken before d.mu, never under it.
+// ponytail: a checked write the program does not read blocks that pane's
+// hook events and notifications until it drains; detection skips the pane.
+func (d *Daemon) gate(id string) *sync.Mutex {
+	g, _ := d.gates.LoadOrStore(id, new(sync.Mutex))
+	return g.(*sync.Mutex)
+}
+
+// writeChecked writes w to p, after w.check when it has one.
+func (d *Daemon) writeChecked(id string, p Pane, w write) error {
+	if w.check == nil {
+		p.Write(w.data) // a pane that cannot take input has exited, which watch reports
+		return nil
+	}
+	g := d.gate(id)
+	g.Lock()
+	defer g.Unlock()
+	d.mu.Lock()
+	err := w.check()
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	_, err = p.Write(w.data)
+	return err
+}
+
+// writeNow queues data for pane id behind check and waits until the writer
+// wrote it or dropped it.
+func (d *Daemon) writeNow(id string, p Pane, data []byte, check func() error) error {
+	done := make(chan error, 1)
+	if err := d.queueInput(id, write{data: data, check: check, done: done}); err != nil {
+		return err
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-p.Done():
+		return fmt.Errorf("pane %s has exited", id)
+	}
+}
+
+// send is proto.Send. The writer checks again right before the paste and
+// again before the Enter, so a prompt pitwall sees by then gets neither.
 func (d *Daemon) send(m proto.Send) error {
 	d.mu.Lock()
 	p, err := d.sendable(m.Pane, m.Force)
@@ -31,23 +86,30 @@ func (d *Daemon) send(m proto.Send) error {
 	if err != nil {
 		return err
 	}
-	if err := d.input(m.Pane, input.Paste(m.Text, p.Modes())); err != nil || !m.Enter {
+	check := func(force bool) func() error {
+		return func() error { _, err := d.sendable(m.Pane, force); return err }
+	}
+	if err := d.writeNow(m.Pane, p, input.Paste(m.Text, p.Modes()), check(m.Force)); err != nil {
 		return err
+	}
+	d.mu.Lock()
+	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == m.Pane }); i >= 0 {
+		d.st.Panes[i].SentAt = time.Now()
+		d.changed()
+	}
+	d.mu.Unlock()
+	if !m.Enter {
+		return nil
 	}
 	time.Sleep(sendPause)
-	d.mu.Lock()
-	_, err = d.sendable(m.Pane, true)
-	d.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	return d.input(m.Pane, []byte("\r"))
+	return d.writeNow(m.Pane, p, []byte("\r"), check(true))
 }
 
-// sendable returns pane id when Send may type into it: it runs, its agent
-// waits on no answer, and, unless force, it is not working. An agent's
-// screen counts too, as a prompt shows before its hook arrives. Callers
-// hold d.mu.
+// sendable returns pane id when Send may type into it: it runs, it waits
+// on no answer pitwall can see, by hook state or on screen, and, unless
+// force, its agent is not working. The screen counts for every pane, as an
+// agent draws a prompt before its hook arrives, or before pitwall knows it
+// is an agent. Callers hold d.mu.
 func (d *Daemon) sendable(id string, force bool) (Pane, error) {
 	p := d.panes[id]
 	if p == nil {
@@ -68,8 +130,7 @@ func (d *Daemon) sendable(id string, force bool) (Pane, error) {
 			return nil, errSendBusy
 		}
 	}
-	i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id })
-	if i >= 0 && d.st.Panes[i].Provider != "" && agent.ReadScreen(p.Snapshot()) == agent.ScreenForm {
+	if agent.ReadScreen(p.Snapshot()) == agent.ScreenForm {
 		return nil, errSendBlocked
 	}
 	return p, nil

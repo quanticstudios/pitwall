@@ -367,6 +367,9 @@ func (d *Daemon) readScreen(ctx context.Context, id, name string, g vt.Grid) {
 		if err != nil {
 			log.Printf("pitwall: agent screen: %v", err)
 		}
+		g := d.gate(id) // the answer can mark the pane blocked
+		g.Lock()
+		defer g.Unlock()
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		pace.busy = false

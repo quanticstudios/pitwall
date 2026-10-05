@@ -137,6 +137,11 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		cwd = l.p.Cwd() // the shell's directory names its tab
 	}
 
+	gate := d.gate(l.id)
+	if !gate.TryLock() {
+		return // a checked send is writing; the next poll looks again
+	}
+	defer gate.Unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if hooked := !d.live.hookAt[l.id].IsZero(); d.closing || d.panes[l.id] != l.p || hooked != l.hooked {

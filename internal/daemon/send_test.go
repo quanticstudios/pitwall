@@ -112,3 +112,96 @@ func TestSendAndHeldCommand(t *testing.T) {
 	}
 	watch.waitState("the tab closed", func(s model.State) bool { return len(s.Workspaces) == 0 })
 }
+
+// sendPane opens a tab running a command over the protocol and returns
+// its pane id and fake.
+func sendPane(t *testing.T, f *fakes, cli, watch *testClient) (string, *fakePane) {
+	t.Helper()
+	if e := cli.request(proto.NewSession{Cwd: t.TempDir(), Cmd: []string{"tool"}}); e != "" {
+		t.Fatal(e)
+	}
+	st := watch.waitState("the tab", func(s model.State) bool { return len(s.Panes) == 1 })
+	return st.Panes[0].ID, f.pane(0)
+}
+
+// A prompt pitwall sees after send's first check, while the paste waits in
+// the pane's queue, still stops the paste: the writer checks right before
+// it writes.
+func TestSendChecksOnTheWriter(t *testing.T) {
+	sendPause = time.Millisecond
+	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	cli, hook, watch := dial(t, sock, "cli"), dial(t, sock, "hook"), dial(t, sock, "watch")
+	id, fp := sendPane(t, f, cli, watch)
+
+	block := make(chan struct{})
+	fp.mu.Lock()
+	fp.block = block
+	fp.mu.Unlock()
+	if e := cli.request(proto.Input{Pane: id, Data: []byte("k")}); e != "" {
+		t.Fatal(e) // the writer now sits in this Write
+	}
+	sent := make(chan string, 1)
+	sender := dial(t, sock, "cli")
+	go func() { sent <- sender.request(proto.Send{Pane: id, Text: "yes", Enter: true, Force: true}) }()
+	time.Sleep(50 * time.Millisecond) // past send's first check, into the queue
+	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("pending-approval")})
+	watch.waitState("blocked", func(s model.State) bool {
+		return slices.ContainsFunc(s.Activities, func(a model.Activity) bool { return a.State == model.StatePendingApproval })
+	})
+	close(block)
+	if e := <-sent; !strings.Contains(e, "answer it in the tab") {
+		t.Fatalf("send: %q", e)
+	}
+	if got := fp.got(); got != "k" {
+		t.Fatalf("pane got %q, want only the key before the prompt", got)
+	}
+}
+
+// A prompt on screen stops send in a pane no hook or detection has named
+// an agent yet, as a freshly started agent's trust prompt is.
+func TestSendReadsTheScreenOfEveryPane(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
+	id, fp := sendPane(t, f, cli, watch)
+	fp.mu.Lock()
+	fp.screen = "Do you want to proceed?"
+	fp.mu.Unlock()
+	if e := cli.request(proto.Send{Pane: id, Text: "1", Enter: true, Force: true}); !strings.Contains(e, "answer it in the tab") {
+		t.Fatalf("send: %q", e)
+	}
+	if got := fp.got(); got != "" {
+		t.Fatalf("pane got %q", got)
+	}
+}
+
+// The pause before Enter runs from the paste's completed write, and the
+// send is stamped on the pane.
+func TestSendPausesAfterThePasteIsWritten(t *testing.T) {
+	sendPause = 50 * time.Millisecond
+	t.Cleanup(func() { sendPause = 300 * time.Millisecond })
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
+	id, fp := sendPane(t, f, cli, watch)
+	block := make(chan struct{})
+	fp.mu.Lock()
+	fp.block = block
+	fp.mu.Unlock()
+	time.AfterFunc(200*time.Millisecond, func() { close(block) })
+	if e := cli.request(proto.Send{Pane: id, Text: "go", Enter: true}); e != "" {
+		t.Fatal(e)
+	}
+	fp.mu.Lock()
+	writes := slices.Clone(fp.writes)
+	fp.mu.Unlock()
+	if len(writes) != 2 || writes[1].Sub(writes[0]) < sendPause {
+		t.Fatalf("writes at %v, want Enter %s after the paste", writes, sendPause)
+	}
+	watch.waitState("SentAt", func(s model.State) bool { return len(s.Panes) == 1 && !s.Panes[0].SentAt.IsZero() })
+}

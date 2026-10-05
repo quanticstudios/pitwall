@@ -60,6 +60,9 @@ func (d *Daemon) notifyingVT(id string) vt.NewFunc {
 // ponytail: one goroutine per notification, so two in one PTY read may land
 // in either order; a per-pane queue if that ever matters.
 func (d *Daemon) notice(id string, n vt.Notification) {
+	g := d.gate(id)
+	g.Lock()
+	defer g.Unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.closing || d.panes[id] == nil {
@@ -77,6 +80,9 @@ func (d *Daemon) notice(id string, n vt.Notification) {
 }
 
 func (d *Daemon) flushNotice(id string) {
+	g := d.gate(id)
+	g.Lock()
+	defer g.Unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	a := d.attn[id]
