@@ -11,8 +11,9 @@ import (
 	"time"
 )
 
-// claude reads a Claude Code transcript. Every entry has a type and a
-// timestamp; user and assistant entries carry a message whose content is a
+// claude reads a Claude Code transcript. Every entry has a type; most have
+// a timestamp, and one without gets the zero time. User and assistant
+// entries carry a message whose content is a
 // string or a list of blocks. A subagent writes its own transcript under
 // <transcript without .jsonl>/subagents/, with a meta.json naming the
 // toolUseId of the Agent call that spawned it.
@@ -104,8 +105,9 @@ func (c *claude) user(b *builder, e claudeEntry) {
 			case "tool_result":
 				b.result(bl.ToolUseID, bl.IsError)
 				c.toolResult(b, e, bl)
-				if c := b.callByID(bl.ToolUseID); c != nil && c.Tool == "SubagentHandback" {
-					b.end(ts, false)
+				// A subagent's handback ends the subagent, not a turn.
+				if c := b.callByID(bl.ToolUseID); c != nil && c.Tool == "SubagentHandback" && b.handback.IsZero() {
+					b.handback = ts
 				}
 			case "text":
 				if text == "" {
@@ -166,6 +168,7 @@ func (c *claude) toolUse(b *builder, e claudeEntry, bl claudeBlock) {
 			steps = append(steps, Step{Text: t.Content, State: stepState(t.Status)})
 		}
 		b.setPlan(steps)
+		c.tasks = nil // a TaskCreate result still to come names a task of the old plan
 	case "TaskCreate":
 		var in struct {
 			Subject string `json:"subject"`

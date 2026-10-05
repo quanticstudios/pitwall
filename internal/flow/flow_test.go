@@ -442,3 +442,53 @@ func TestLateChildFile(t *testing.T) {
 	default:
 	}
 }
+
+// A TaskCreate result that comes after a TodoWrite replaced the plan does
+// not rename a newer task.
+func TestStaleTaskCreate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, path, `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"go"}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:01Z","message":{"content":[{"type":"tool_use","id":"a","name":"TaskCreate","input":{"subject":"Old"}},{"type":"tool_use","id":"t","name":"TodoWrite","input":{"todos":[]}},{"type":"tool_use","id":"b","name":"TaskCreate","input":{"subject":"New"}}]}}
+{"type":"user","timestamp":"2026-10-05T10:00:02Z","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"ok"}]},"toolUseResult":{"task":{"id":"9"}}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:03Z","message":{"content":[{"type":"tool_use","id":"c","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+`)
+	if f := read(t, model.ProviderClaude, path); !reflect.DeepEqual(f.Plan, []Step{{"New", StepDone}}) {
+		t.Errorf("plan = %+v", f.Plan)
+	}
+}
+
+// A handback's result ends its subagent, never a newer turn of its file.
+func TestLateHandback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, path, `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"one"}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:01Z","message":{"content":[{"type":"tool_use","id":"h","name":"SubagentHandback","input":{"message":"report"}}]}}
+{"type":"user","timestamp":"2026-10-05T10:01:00Z","message":{"content":"two"}}
+{"type":"assistant","timestamp":"2026-10-05T10:01:01Z","message":{"content":[{"type":"tool_use","id":"b","name":"Bash","input":{}}]}}
+{"type":"user","timestamp":"2026-10-05T10:01:02Z","message":{"content":[{"type":"tool_result","tool_use_id":"h","content":"ok"}]}}
+`)
+	s := newSession(model.ProviderClaude, path, false)
+	s.poll()
+	if f := s.b.feed(); len(f.Turns) != 2 || !f.Turns[1].End.IsZero() {
+		t.Fatalf("turns = %+v", f.Turns)
+	}
+	sub := &sub{Subagent: Subagent{Start: at(0, 0)}, kid: s}
+	if v := sub.view(); !v.End.Equal(at(1, 2)) || v.Latest != "report" {
+		t.Errorf("subagent = %+v", v)
+	}
+}
+
+// A forked Codex child's copy of its parent's turns, started before the
+// spawn, neither ends the subagent nor adds calls, whatever their times.
+func TestForkedChild(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "child.jsonl")
+	write(t, path, `{"timestamp":"2026-10-05T10:00:01Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-10-05T10:00:20Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"x","arguments":"{}"}}
+{"timestamp":"2026-10-05T10:00:20Z","type":"event_msg","payload":{"type":"task_complete"}}
+`)
+	s := newSession(model.ProviderCodex, path, true)
+	s.poll()
+	sub := &sub{Subagent: Subagent{Start: at(0, 10)}, kid: s}
+	if v := sub.view(); !v.Running() || len(v.Calls) != 0 {
+		t.Errorf("subagent = %+v", v)
+	}
+}

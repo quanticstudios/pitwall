@@ -230,8 +230,9 @@ type FileStat struct {
 
 // Files returns the per-file changes behind Stats' totals, and the base
 // ref they are against ("main"). Untracked files come last, Status '?',
-// with Add their line count; Stats leaves them out, so the other files'
-// totals are Stats'.
+// with Add their line count when the file is regular (not followed through
+// a symlink), not binary and at most 1 MiB, else 0; Stats leaves them out,
+// so the other files' totals are Stats'.
 func Files(ctx context.Context, worktree string) (base string, files []FileStat, err error) {
 	ref, err := defaultRef(ctx, worktree)
 	if err != nil || ref == "" {

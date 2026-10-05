@@ -98,7 +98,9 @@ func (s Subagent) Running() bool { return s.End.IsZero() }
 // changed must not block. It reads at most the file's last 8 MiB, then
 // what is appended, at most 8 MiB a poll, twice a second. It opens only
 // regular files: a missing, unreadable or non-regular file yields an empty
-// Feed, once, and is retried.
+// Feed, once, and is retried. A file that becomes unreadable while its size
+// and mtime stay the same, such as by a chmod alone, is noticed at its next
+// change.
 func Watch(ctx context.Context, provider model.Provider, path string, changed func(Feed)) {
 	go watch(ctx, provider, path, changed, pollEvery, lookFor)
 }

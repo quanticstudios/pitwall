@@ -24,6 +24,7 @@ type builder struct {
 	dropped  int            // turns dropped from the front, for maxTurns
 	aborted  bool           // the last turn was aborted; it does not reopen
 	last     string         // the latest text reply, cut to 2000 runes
+	handback time.Time      // Claude: when a subagent's SubagentHandback got its result
 }
 
 // maxTurns is how many of the latest turns a Feed keeps.
@@ -205,9 +206,10 @@ func (b *builder) feed() Feed {
 	return f
 }
 
-// view is the subagent with what its own file adds: its calls since it was
-// spawned (a forked Codex child repeats its parent's history first), its
-// latest text and when it ended, unless the parent already recorded its
+// view is the subagent with what its own file adds: the calls of its turns
+// that started at or after its spawn (a forked Codex child repeats its
+// parent's history first), its latest text, and its end (its handback, else
+// the end of the last such turn), unless the parent already recorded its
 // result.
 func (s *sub) view() Subagent {
 	v := s.Subagent
@@ -217,19 +219,23 @@ func (s *sub) view() Subagent {
 	}
 	kb := s.kid.b
 	v.Calls = nil
-	for _, t := range kb.turns {
-		for _, c := range t.Calls {
-			if !c.Time.Before(v.Start) {
-				v.Calls = append(v.Calls, c)
-			}
+	var last *Turn
+	for i, t := range kb.turns {
+		if !t.Start.Before(v.Start) {
+			v.Calls = append(v.Calls, t.Calls...)
+			last = &kb.turns[i]
 		}
 	}
 	if !s.final {
 		if kb.last != "" {
 			v.Latest = kb.last
 		}
-		if n := len(kb.turns); v.End.IsZero() && n > 0 {
-			v.End = kb.turns[n-1].End
+		switch {
+		case !v.End.IsZero():
+		case !kb.handback.IsZero():
+			v.End = kb.handback
+		case last != nil:
+			v.End = last.End
 		}
 	}
 	return v
