@@ -10,6 +10,12 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.11
+
+- On Wayland, a window on another workspace no longer hangs and gets
+  "Application Not Responding". pitwall carries a patched copy of Gio
+  (`third_party/gioui.org`, see its PATCH.md) that presents a frame only
+  after the compositor showed the last one.
 ## v0.1.0-alpha.10
 
 - The sidebar (Ctrl+B) slides in and out with the panes moving along,
