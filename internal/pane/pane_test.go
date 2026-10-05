@@ -107,6 +107,23 @@ func TestResizeReachesChild(t *testing.T) {
 	}
 }
 
+// An exited pane still resizes its screen: pitwall keeps a command's pane
+// on screen after it ends, and its PTY is closed by then.
+func TestResizeAfterExit(t *testing.T) {
+	p, err := Start(Config{ID: "p1", Cmd: []string{"sh", "-c", "echo bye"}, Cols: 20, Rows: 5, NewVT: vt.New})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.Close() })
+	waitDone(t, p)
+	if err := p.Resize(40, 10); err != nil {
+		t.Fatal(err)
+	}
+	if g := p.Snapshot(); g.Cols != 40 || g.Rows != 10 {
+		t.Fatalf("screen %dx%d after resize", g.Cols, g.Rows)
+	}
+}
+
 func TestEnv(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-sock")
 	p, f := start(t, "p42", "sh", "-c", `printf '[%s|%s|%s]' "$PITWALL_PANE" "$TERM" "${TMUX-unset}"`)

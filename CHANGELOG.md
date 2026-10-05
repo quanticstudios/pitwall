@@ -10,6 +10,22 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.5
+
+- Agents and scripts can drive tabs (issue #2). `pitwall new ... -- <cmd>`
+  opens a tab running a command instead of a shell; its pane stays after the
+  command exits, showing its output, until you close it or the daemon
+  restarts. `pitwall new -d -- codex "<prompt>"` starts an agent on a task.
+  `pitwall wait <tab> --until done|idle|blocked|exit` blocks until the
+  agent gets there, with exit codes a script can branch on.
+  [docs/agent-skill.md](docs/agent-skill.md) documents them for agents.
+- **Breaking:** `pitwall ls --json` prints one documented object per tab
+  (`n`, `id`, `title`, `group`, `cwd`, `branch`, `agent`, `state`,
+  `question`, `exit_code`, `panes`, `detached`) instead of pitwall's internal
+  structs, and `[]` when no daemon runs. Tabs can also be named by that `id`.
+- The daemon protocol is now version 12; the next `pitwall` restarts an
+  older daemon. The state file format is unchanged.
+
 ## v0.1.0-alpha.4
 
 - The window no longer freezes while the daemon is busy with a slow request,

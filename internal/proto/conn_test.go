@@ -59,7 +59,7 @@ func allMessages() []any {
 		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"},
 		SessionNew{Name: "work", Cwd: "/tmp", FromPane: "a"}, SessionRename{SessionID: "s", Name: "play"},
 		SessionKill{SessionID: "s"}, SessionShow{SessionID: "s"},
-		NewSession{Cwd: "/tmp", GroupID: "g"}, SetSessionGroup{WorkspaceID: "w", GroupID: "g"},
+		NewSession{Cwd: "/tmp", GroupID: "g", Cmd: []string{"make", "test"}}, SetSessionGroup{WorkspaceID: "w", GroupID: "g"},
 		NewGroup{Name: "agents", WorkspaceIDs: []string{"w", "x"}}, RenameGroup{GroupID: "g", Name: "n"}, DeleteGroup{GroupID: "g"},
 		Scroll{Pane: "a", Lines: -3},
 		ClosePane{Pane: "a"},

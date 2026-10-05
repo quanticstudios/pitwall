@@ -9,6 +9,9 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 12 added NewSession.Cmd and Hello.Kind "watch", and a pane
+// opened with NewSession.Cmd stays, Exited, after its process ends, until
+// the daemon restarts.
 // Version 11 added decision models: Activity.Advice, AdviceP, AdviceRule,
 // Urgency and Review, and State.Decide.
 // Version 10 added vt.Cell.Link, the OSC 8 hyperlink on each cell of a frame.
@@ -30,13 +33,16 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 11
+const Version = 12
 
 // Client to daemon.
 
 type Hello struct {
 	Version int
-	Kind    string // "gui", "hook", "cli"
+	// Kind is "gui", "hook", "cli" or "watch". A watch client gets the
+	// StateMsg and PaneExited pushes a GUI gets, but no frames, and counts
+	// as no window. StateMsg pushes coalesce: close changes arrive as one.
+	Kind string
 	// Cwd is where the GUI was launched. When no session exists yet, the
 	// daemon opens one there with a shell, so pitwall starts like tmux.
 	Cwd string
@@ -57,6 +63,10 @@ type NewSession struct {
 	Cwd       string
 	GroupID   string
 	SessionID string
+	// Cmd, when set, runs in the pane instead of the shell. The pane stays
+	// after the command exits, Exited with its ExitCode, until closed or
+	// until the daemon restarts, which forgets that it stays.
+	Cmd []string
 	// FromPane, when set, starts the session in that pane's current
 	// directory (where its shell is now), falling back to Cwd.
 	FromPane string

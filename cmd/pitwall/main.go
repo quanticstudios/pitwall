@@ -39,7 +39,20 @@ const usage = `usage:
   pitwall hooks install      add hooks and pi's extension (--dry-run)
   pitwall hooks uninstall    remove this binary's hooks (--dry-run)
   pitwall ls [--json]        list the current session's tabs, numbered in sidebar order
-  pitwall new [-n name] [-d] [dir]  open a tab (-d detaches it); prints its #
+                             (--json: one object per tab, see docs/agent-skill.md)
+  pitwall new [-n name] [-d] [dir] [-- cmd args...]
+                             open a tab (-d detaches it) running cmd, else a
+                             shell; prints its #. A cmd's pane stays after it
+                             exits, showing its output, until closed or the
+                             daemon restarts
+  pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
+                             block until the tab's agent is there (its first
+                             live agent pane, else live pane). done: it
+                             finished its turn; idle: done, or at its prompt;
+                             blocked: it waits on a permission prompt or a
+                             question; exit: its process ended. Without an agent, done means exit. Exit codes: 0 reached,
+                             2 blocked instead, 3 the process exited, 124
+                             timed out, 1 error; for exit, the process's code
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
@@ -47,7 +60,7 @@ const usage = `usage:
   pitwall tab new            open a tab next to the calling pane's tab
   pitwall tab rename [name...]  name the calling pane's tab (empty clears)
   pitwall tab close          close the calling pane's tab
-  A tab is named by its # in pitwall ls, its title, or a unique prefix
+  A tab is named by its # in pitwall ls, its id, its title, or a unique prefix
   of the title. Outside a pane, name it; inside, it defaults to the
   pane's own tab. Tab commands act on the calling pane's session, else
   the most recently used one; -s <session> picks another.
@@ -86,7 +99,7 @@ func main() {
 		err = runNotify(os.Args[2:])
 	case "jev":
 		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "attach", "detach", "kill", "rename", "tab", "session":
+	case "ls", "new", "wait", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

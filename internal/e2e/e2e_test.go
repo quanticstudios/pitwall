@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -505,4 +506,59 @@ func run(t *testing.T, limit time.Duration, dir, name string, args ...string) st
 		t.Fatalf("%s %v: %v: %s", name, args, err, out)
 	}
 	return string(out)
+}
+
+// TestDriveTabs drives a real daemon the way an agent or a script does,
+// through the pitwall binary: new -- cmd, wait and ls --json.
+func TestDriveTabs(t *testing.T) {
+	isolate(t)
+	bin := filepath.Join(t.TempDir(), "pitwall")
+	run(t, time.Minute, filepath.Join("..", ".."), "go", "build", "-o", bin, "./cmd/pitwall")
+	startDaemon(t)
+	pitwall := func(args ...string) (int, string, string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bin, args...)
+		var out, errOut strings.Builder
+		cmd.Stdout, cmd.Stderr = &out, &errOut
+		err := cmd.Run()
+		var exit *exec.ExitError
+		if err != nil && !errors.As(err, &exit) {
+			t.Fatalf("pitwall %v: %v", args, err)
+		}
+		return cmd.ProcessState.ExitCode(), out.String(), errOut.String()
+	}
+
+	// A tab running a command keeps its pane, and its exit code, after exiting.
+	if code, out, stderr := pitwall("new", "-n", "echo", "--", "sh", "-c", `echo done; exit 4`); code != 0 || out != "#1\n" {
+		t.Fatalf("new: %d %q %s", code, out, stderr)
+	}
+	if code, out, stderr := pitwall("wait", "echo", "--until", "exit", "--timeout", "10s"); code != 4 || out != "exit 4\n" {
+		t.Fatalf("wait: %d %q %s", code, out, stderr)
+	}
+	var tabs []map[string]any
+	_, out, _ := pitwall("ls", "--json")
+	if err := json.Unmarshal([]byte(out), &tabs); err != nil || len(tabs) != 1 || tabs[0]["state"] != "exited" || tabs[0]["exit_code"] != 4.0 {
+		t.Fatalf("ls --json: %v %s", err, out)
+	}
+
+	// wait reports an agent blocked on a permission prompt, then its finished turn.
+	if code, _, stderr := pitwall("new", "-n", "agent", "--", "sh"); code != 0 {
+		t.Fatalf("new: %d %s", code, stderr)
+	}
+	s := snapshot(t)
+	agent := s.Panes[slices.IndexFunc(s.Panes, func(p model.Pane) bool { return len(p.Cmd) == 1 })].ID
+	gui := connect(t, "gui")
+	hook := connect(t, "hook")
+	hook.send(t, proto.AgentEvent{Pane: agent, Provider: model.ProviderClaude, Payload: []byte(permission)})
+	waitActivity(t, gui, agent, model.StatePendingApproval)
+	if code, out, _ := pitwall("wait", "agent", "--until", "done"); code != 2 || !strings.HasPrefix(out, "blocked") {
+		t.Fatalf("wait on a blocked agent: %d %q", code, out)
+	}
+	hook.send(t, proto.AgentEvent{Pane: agent, Provider: model.ProviderClaude, Payload: []byte(stop)})
+	waitActivity(t, gui, agent, model.StateCompleted)
+	if code, out, stderr := pitwall("wait", "agent", "--until", "done", "--timeout", "10s"); code != 0 || out != "done\n" {
+		t.Fatalf("wait on a finished agent: %d %q %s", code, out, stderr)
+	}
 }

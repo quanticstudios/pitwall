@@ -320,7 +320,8 @@ optional name act on the pane's own tab.
 | `pitwall session rename [old] <new>`  | Rename a session, the current one without old                 |
 | `pitwall session kill [-f] <name>`    | End a session and close its processes                         |
 | `pitwall ls [--json]`                 | List the session's tabs in sidebar order: #, name, state, folder, group |
-| `pitwall new [-n name] [-d] [dir]`    | Open a tab and print its #; `-d` leaves it detached           |
+| `pitwall new [-n name] [-d] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell |
+| `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up) |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
 | `pitwall rename [old] <new>`          | Rename a tab                                                  |
@@ -332,7 +333,8 @@ optional name act on the pane's own tab.
 | `pitwall jev login` / `status` / `logout` | Connect TypeSafe's Jev, test the connection, disconnect (see [Decisions](#decisions-jev)) |
 | `pitwall --version`                   | Print the version                                             |
 
-A name is a tab's `#` from `pitwall ls` (`3` or `#3`), else its title. A
+A name is a tab's `#` from `pitwall ls` (`3` or `#3`), its `id` from
+`pitwall ls --json`, else its title. A
 title matches exactly first, then by a unique prefix, so
 `pitwall attach fix` finds the tab titled `fix login redirects`. Numbers
 count within the session, and detached tabs come after the ones the sidebar
@@ -344,6 +346,26 @@ pitwall new -s billing -n api -d               # a tab in it
 pitwall ls -s billing
 pitwall session attach billing                 # open a window on it
 ```
+
+### Driving tabs from agents and scripts
+
+`new -- cmd`, `wait` and `ls --json` let an agent or a shell script start an
+agent or a command in a tab you can watch and take over, then wait for it.
+[docs/agent-skill.md](docs/agent-skill.md) is a page to hand an agent: the
+states, exit codes and recipes.
+
+```sh
+tab=$(pitwall new -n review -d -- codex "review origin/main..HEAD; write SHIP or HOLD to review.txt")
+pitwall wait "$tab" --until done --timeout 20m   # 0 done, 2 blocked, 3 exited, 124 timed out
+pitwall ls --json | jq '.[] | {n, title, state, question}'
+```
+
+Give the agent its whole task as the prompt argument. Typing into a running
+agent is not offered, because pitwall can't reliably tell when an agent is
+ready to take input. A command tab's pane, and its exit code, last until you
+close it or the daemon restarts. Any process running as you can reach the
+daemon's socket, so these commands give nothing a local process did not
+already have.
 
 ## Keybindings
 

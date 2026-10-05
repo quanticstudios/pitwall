@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -37,7 +38,10 @@ func socketPath() (string, error) {
 	return proto.SocketPath()
 }
 
-func dialCLI() (*cliConn, error) {
+func dialCLI() (*cliConn, error) { return dialKind("cli") }
+
+// dialKind connects as a client of kind (see proto.Hello).
+func dialKind(kind string) (*cliConn, error) {
 	path, err := socketPath()
 	if err != nil {
 		return nil, err
@@ -54,7 +58,7 @@ func dialCLI() (*cliConn, error) {
 		conn.Close()
 		return nil, err
 	}
-	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "cli"}); err != nil {
+	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: kind}); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -91,6 +95,9 @@ func syncCLI(conn *cliConn, requests ...any) (model.State, error) {
 }
 
 func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
+	if len(args) > 0 && args[0] == "wait" {
+		return waitCommand(args[1:], out, errOut)
+	}
 	if err := sessionCommand(args, in, out, errOut); err != nil {
 		fmt.Fprintln(errOut, "pitwall:", err)
 		return 1
@@ -109,6 +116,23 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if command == "session" {
 		return sessionsCommand(args[1:], in, out, errOut)
 	}
+	args = args[1:]
+	var cmd []string
+	if i := slices.Index(args, "--"); i >= 0 && command == "new" {
+		args, cmd = args[:i], args[i+1:]
+		if len(cmd) == 0 {
+			return errors.New(usage)
+		}
+		// why: the daemon runs cmd in dir with its own PATH, so it gets the
+		// program as an absolute path, found and resolved from here.
+		path, err := exec.LookPath(cmd[0])
+		if err != nil && !errors.Is(err, exec.ErrDot) {
+			return err // ErrDot: a relative PATH entry, which this shell would run too
+		}
+		if cmd[0], err = filepath.Abs(path); err != nil {
+			return err
+		}
+	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var asJSON, detached, force bool
@@ -126,10 +150,10 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
-	if err := flags.Parse(args[1:]); err != nil {
+	args, err := parseFlags(flags, args)
+	if err != nil {
 		return err
 	}
-	args = flags.Args()
 	if (command == "ls" && len(args) != 0) ||
 		((command == "new" || command == "attach" || command == "detach") && len(args) > 1) ||
 		(command == "kill" && len(args) != 1) ||
@@ -138,6 +162,10 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	conn, err := dialCLI()
 	if errors.Is(err, errNotRunning) && command == "ls" {
+		if asJSON {
+			_, err := fmt.Fprintln(out, "[]")
+			return err
+		}
 		return nil
 	}
 	if err != nil {
@@ -155,11 +183,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	switch command {
 	case "ls":
 		if asJSON {
-			tabs := state.View(session.ID).Workspaces
-			if tabs == nil {
-				tabs = []model.Workspace{}
-			}
-			return json.NewEncoder(out).Encode(tabs)
+			return json.NewEncoder(out).Encode(tabsJSON(state, session.ID))
 		}
 		return listTabs(out, state, session.ID)
 	case "new":
@@ -171,7 +195,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID})
+		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd})
 		if err != nil {
 			return err
 		}
@@ -278,9 +302,9 @@ func resolveSession(state model.State, name string) (model.Session, error) {
 	return model.Session{}, fmt.Errorf("ambiguous session %q; matches %s", name, strings.Join(names, ", "))
 }
 
-// resolveTab finds a tab of session by its number in pitwall ls ("3" or
-// "#3"), then by exact title, then by a unique title prefix. With no name
-// it is the tab of $PITWALL_PANE, in whichever session.
+// resolveTab finds a tab of session by its id, then by its number in
+// pitwall ls ("3" or "#3"), then by exact title, then by a unique title
+// prefix. With no name it is the tab of $PITWALL_PANE, in whichever session.
 func resolveTab(state model.State, session, name string) (model.Workspace, error) {
 	if name == "" {
 		pane := os.Getenv("PITWALL_PANE")
@@ -299,6 +323,9 @@ func resolveTab(state model.State, session, name string) (model.Workspace, error
 		return model.Workspace{}, errors.New("specify a tab name outside a pitwall pane (see pitwall ls)")
 	}
 	tabs := numbered(state, session)
+	if i := slices.IndexFunc(tabs, func(w model.Workspace) bool { return w.ID == name }); i >= 0 {
+		return tabs[i], nil
+	}
 	if n, err := strconv.Atoi(strings.TrimPrefix(name, "#")); err == nil {
 		if n < 1 || n > len(tabs) {
 			return model.Workspace{}, fmt.Errorf("no tab #%d (see pitwall ls)", n)
