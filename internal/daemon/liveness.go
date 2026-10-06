@@ -215,9 +215,10 @@ func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 	}
 	if started, resumed := agent.NewProcess(payload); started || resumed {
 		d.live.started[p.ID], d.live.fresh[p.ID] = true, true
-		// A new session comes with a new id, which clears the mode; a resumed
-		// one's mode stands until the process reports its own.
-		return resumed
+		// A new session comes with a new id, which clears the mode. A resumed
+		// one's mode stands until the process reports its own, which may be
+		// in this very hook.
+		return resumed && agent.PermissionMode(payload) == ""
 	}
 	return d.live.started[p.ID] && !d.live.fresh[p.ID] && p.AgentMode == "bypassPermissions"
 }

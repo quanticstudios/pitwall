@@ -948,6 +948,12 @@ func TestBypassStaysWithProcess(t *testing.T) {
 			{start("resume", "a"), "bypassPermissions"}, // pitwall's own resume says nothing yet
 			{stop("a", "manual"), "manual"},
 		}},
+		{"plain resume reporting its mode at SessionStart", []struct{ payload, mode string }{
+			{start("startup", "a"), ""},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{`{"session_id":"a","hook_event_name":"SessionStart","source":"resume","permission_mode":"manual"}`, "manual"},
+			{stop("a", "auto"), "auto"},
+		}},
 		{"cdang resumed by pitwall stays cdang", []struct{ payload, mode string }{
 			{start("startup", "a"), ""},
 			{stop("a", "bypassPermissions"), "bypassPermissions"},
