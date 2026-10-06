@@ -963,6 +963,13 @@ func TestBypassStaysWithProcess(t *testing.T) {
 			{stop("a", "bypassPermissions"), "bypassPermissions"},
 			{stop("a", "auto"), "bypassPermissions"},
 		}},
+		{"plain claude starting under the same session id", []struct{ payload, mode string }{
+			{start("startup", "a"), ""},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{`{"session_id":"a","hook_event_name":"SessionEnd"}`, "bypassPermissions"},
+			{start("startup", "a"), ""},
+			{`{"session_id":"a","hook_event_name":"Stop"}`, ""},
+		}},
 		{"codex after a cdang session ended", []struct{ payload, mode string }{
 			{start("startup", "a"), ""},
 			{stop("a", "bypassPermissions"), "bypassPermissions"},

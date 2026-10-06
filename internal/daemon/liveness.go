@@ -232,10 +232,9 @@ func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 			return false // the process reports its own mode in this hook
 		case own:
 			return true
-		case resumed:
-			p.AgentMode = ""
 		}
-		return false // a new session comes with a new id, which clears the mode
+		p.AgentMode = "" // a new process has no mode until it reports one
+		return false
 	}
 	if agent.PiEvent(payload) == "" && sessionEnd(payload) {
 		delete(d.live.started, p.ID) // the process is gone; the next one starts over
