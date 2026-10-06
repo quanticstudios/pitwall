@@ -10,6 +10,14 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.17
+
+- In tab mode, Ctrl+T then N opens a tab outside every group, like the
+  sidebar's top "+", and Ctrl+T then G opens one in this tab's group, right
+  after it. The global new-tab chord (aide Alt+Shift+T, conventional
+  Ctrl+Shift+T) still opens it in the group. `[keys.tab]` gains
+  `new_in_group`.
+
 ## v0.1.0-alpha.16
 
 - The "+" next to the session name always opens a tab outside every group,

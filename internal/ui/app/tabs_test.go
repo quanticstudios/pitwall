@@ -77,11 +77,11 @@ func TestTabMode(t *testing.T) {
 	if n.renameTab != "w1" {
 		t.Fatalf("r asked to rename %q", n.renameTab)
 	}
-	if msg := do(press("N", 0)); msg != (proto.NewTab{WorkspaceID: "w1", FromPane: "a"}) {
-		t.Fatalf("n: %#v", msg)
+	if msg := do(press("G", 0)); msg != (proto.NewTab{WorkspaceID: "w1", FromPane: "a"}) {
+		t.Fatalf("g: %#v", msg)
 	}
 	if n.workspace != st.Workspaces[1].ID || n.focused() == "" {
-		t.Fatalf("new tab not below w1, shown and focused: %s/%s", n.workspace, n.focused())
+		t.Fatalf("g: new tab not below w1, shown and focused: %s/%s", n.workspace, n.focused())
 	}
 	added := n.workspace
 	if msg := do(press("X", 0)); msg != (proto.CloseTab{WorkspaceID: added}) {
@@ -105,6 +105,11 @@ func TestTabMode(t *testing.T) {
 	n.key(&st, press("J", key.ModAlt))
 	if n.tabMode || n.workspace != "w1c" {
 		t.Fatalf("Alt+J in tab mode: mode %v at %s", n.tabMode, n.workspace)
+	}
+	// N opens a tab outside every group, from the focused pane.
+	from := n.focused()
+	if ns, ok := do(press("N", 0)).(proto.NewSession); !ok || !ns.Loose || ns.FromPane != from || ns.GroupID != "" {
+		t.Fatalf("n: %#v, want a tab outside every group from pane %s", ns, from)
 	}
 }
 

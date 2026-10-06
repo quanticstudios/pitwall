@@ -434,7 +434,8 @@ aide:
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Alt+S                             | Session switcher                               |
 | Alt+] / Alt+[                     | Next / previous session                        |
-| Ctrl+T then n                     | New tab                                        |
+| Ctrl+T then n                     | New tab outside every group                    |
+| Ctrl+T then g                     | New tab in this tab's group                    |
 | Ctrl+T then x                     | Close the tab                                  |
 | Ctrl+T then r                     | Rename the tab                                 |
 | Ctrl+T then h / l or Left / Right | Previous / next tab in the group               |

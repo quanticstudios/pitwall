@@ -81,22 +81,23 @@ type Keys struct {
 
 // TabKeys is [keys.tab].
 type TabKeys struct {
-	New       Binding `toml:"new" doc:"New tab"`
-	Close     Binding `toml:"close" doc:"Close the tab"`
-	Rename    Binding `toml:"rename" doc:"Rename the tab"`
-	Prev      Binding `toml:"prev" doc:"Previous tab"`
-	Next      Binding `toml:"next" doc:"Next tab"`
-	Attention Binding `toml:"attention" doc:"Go to the tab that needs you, newest first"`
-	Sessions  Binding `toml:"sessions" doc:"Show the session switcher"`
-	Goto1     Binding `toml:"goto_1" doc:"Go to tab 1"`
-	Goto2     Binding `toml:"goto_2" doc:"Go to tab 2"`
-	Goto3     Binding `toml:"goto_3" doc:"Go to tab 3"`
-	Goto4     Binding `toml:"goto_4" doc:"Go to tab 4"`
-	Goto5     Binding `toml:"goto_5" doc:"Go to tab 5"`
-	Goto6     Binding `toml:"goto_6" doc:"Go to tab 6"`
-	Goto7     Binding `toml:"goto_7" doc:"Go to tab 7"`
-	Goto8     Binding `toml:"goto_8" doc:"Go to tab 8"`
-	Goto9     Binding `toml:"goto_9" doc:"Go to tab 9"`
+	New        Binding `toml:"new" doc:"New tab outside every group, in this tab's folder"`
+	NewInGroup Binding `toml:"new_in_group" doc:"New tab in this tab's group, right after it"`
+	Close      Binding `toml:"close" doc:"Close the tab"`
+	Rename     Binding `toml:"rename" doc:"Rename the tab"`
+	Prev       Binding `toml:"prev" doc:"Previous tab"`
+	Next       Binding `toml:"next" doc:"Next tab"`
+	Attention  Binding `toml:"attention" doc:"Go to the tab that needs you, newest first"`
+	Sessions   Binding `toml:"sessions" doc:"Show the session switcher"`
+	Goto1      Binding `toml:"goto_1" doc:"Go to tab 1"`
+	Goto2      Binding `toml:"goto_2" doc:"Go to tab 2"`
+	Goto3      Binding `toml:"goto_3" doc:"Go to tab 3"`
+	Goto4      Binding `toml:"goto_4" doc:"Go to tab 4"`
+	Goto5      Binding `toml:"goto_5" doc:"Go to tab 5"`
+	Goto6      Binding `toml:"goto_6" doc:"Go to tab 6"`
+	Goto7      Binding `toml:"goto_7" doc:"Go to tab 7"`
+	Goto8      Binding `toml:"goto_8" doc:"Go to tab 8"`
+	Goto9      Binding `toml:"goto_9" doc:"Go to tab 9"`
 }
 
 // PaneKeys is [keys.pane].

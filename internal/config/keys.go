@@ -187,7 +187,7 @@ func init() {
 			d := fmt.Sprint(i)
 			p.global["goto_tab_"+d] = []string{"Alt+" + d}
 		}
-		tab := map[string][]string{"new": {"N"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}, "attention": {"U"}, "sessions": {"S"}}
+		tab := map[string][]string{"new": {"N"}, "new_in_group": {"G"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}, "attention": {"U"}, "sessions": {"S"}}
 		for i := 1; i <= 9; i++ {
 			tab[fmt.Sprint("goto_", i)] = []string{fmt.Sprint(i)}
 		}
