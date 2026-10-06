@@ -25,7 +25,11 @@ var (
 type liveness struct {
 	hookAt map[string]time.Time // pane: when its agent last sent a hook
 	fg     map[string]int       // pane: its foreground process group at that hook
-	det    map[string]*detected // pane: what detect saw at its last poll
+	// started marks a pane whose agent sends SessionStart (pitwall's hooks
+	// since alpha.12), and fresh one whose agent process started and has
+	// not reported a permission mode yet; see Daemon.agentMode.
+	started, fresh map[string]bool
+	det            map[string]*detected // pane: what detect saw at its last poll
 	// piRuntime is, per pane, the extension nonce of pi's latest
 	// session_start (see agent.PiRuntime).
 	piRuntime map[string]string
@@ -192,4 +196,28 @@ func (d *Daemon) dropActivity(id string) {
 		d.st.Activities = slices.Delete(d.st.Activities, i, i+1)
 		d.changed()
 	}
+}
+
+// agentMode tracks which agent process a hook comes from, for the
+// permission mode a resume starts with, and reports whether p.AgentMode
+// must stay as it is. An agent that reported bypassPermissions was started
+// with bypass allowed (cdang); it keeps bypass across shift+tab, /clear and
+// compaction for as long as it runs, so a resume starts it the same way.
+// SessionStart tells processes apart: "startup" or "resume" is a new
+// process, which counts only once it reports its own mode, and "startup"
+// is a new session that never ran with bypass. Without SessionStart hooks
+// (older installs, Codex) the mode follows every report. Callers hold d.mu.
+// ponytail: an in-process /resume also reads as a new process, so it can
+// drop bypass; it never adds it.
+func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
+	if d.live.started == nil {
+		d.live.started, d.live.fresh = map[string]bool{}, map[string]bool{}
+	}
+	if started, resumed := agent.NewProcess(payload); started || resumed {
+		d.live.started[p.ID], d.live.fresh[p.ID] = true, true
+		// A new session comes with a new id, which clears the mode; a resumed
+		// one's mode stands until the process reports its own.
+		return resumed
+	}
+	return d.live.started[p.ID] && !d.live.fresh[p.ID] && p.AgentMode == "bypassPermissions"
 }

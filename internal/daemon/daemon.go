@@ -805,6 +805,8 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.resumed, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
+	delete(d.live.started, id)
+	delete(d.live.fresh, id)
 	delete(d.live.det, id)
 	delete(d.live.piRuntime, id)
 	delete(d.live.piRetired, id)
@@ -925,14 +927,21 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if p.Provider != m.Provider {
 		p.Provider, changed = m.Provider, true
 	}
+	keepMode := d.agentMode(p, m.Payload)
 	if sid := d.o.SessionID(m.Provider, m.Payload); sid != "" && sid != p.SessionID {
-		p.SessionID, p.Prompt, p.AgentMode, p.Transcript, changed = sid, "", "", "", true // a new session reports its own mode and file
+		p.SessionID, p.Prompt, p.Transcript, changed = sid, "", "", true // a new session reports its own file
+		if !keepMode {
+			p.AgentMode = "" // and its own mode
+		}
 	}
 	if t := agent.Transcript(m.Payload); t != "" && t != p.Transcript {
 		p.Transcript, changed = t, true
 	}
-	if mode := agent.PermissionMode(m.Payload); mode != "" && mode != p.AgentMode {
+	if mode := agent.PermissionMode(m.Payload); mode != "" && mode != p.AgentMode && !keepMode {
 		p.AgentMode, changed = mode, true
+	}
+	if agent.PermissionMode(m.Payload) != "" {
+		delete(d.live.fresh, p.ID)
 	}
 	if p.Prompt == "" {
 		// Secrets go before the cut, so no part of a key names the tab.
@@ -1177,6 +1186,8 @@ func (d *Daemon) exited(id string, p Pane) {
 		delete(d.inputs, id)
 		delete(d.live.hookAt, id)
 		delete(d.live.fg, id)
+		delete(d.live.started, id)
+		delete(d.live.fresh, id)
 		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id && !ended(a.State) })
 	} else {
 		log.Printf("pane %s: exited %d; closed", id, code)

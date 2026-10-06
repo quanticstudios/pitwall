@@ -316,10 +316,26 @@ func PermissionMode(payload []byte) string {
 		return ""
 	}
 	switch p.PermissionMode {
-	case "default", "acceptEdits", "plan", "dontAsk", "bypassPermissions":
+	case "default", "manual", "auto", "acceptEdits", "plan", "dontAsk", "bypassPermissions":
 		return p.PermissionMode
 	}
 	return ""
+}
+
+// NewProcess reports whether a hook is the SessionStart of an agent process
+// that just started: source "startup" for a new session, "resume" for one
+// it resumed (--resume, --continue or /resume). "clear" and "compact" come
+// from a process that keeps running. A /side fork is never one.
+func NewProcess(payload []byte) (started, resumed bool) {
+	var p struct {
+		Event          string          `json:"hook_event_name"`
+		Source         string          `json:"source"`
+		TranscriptPath json.RawMessage `json:"transcript_path"`
+	}
+	if json.Unmarshal(payload, &p) != nil || p.Event != "SessionStart" || string(p.TranscriptPath) == "null" {
+		return false, false
+	}
+	return p.Source == "startup", p.Source == "resume"
 }
 
 // Prompt returns the prompt text of a UserPromptSubmit hook or a pi
@@ -351,6 +367,7 @@ var claudeEvents = []hookEvent{
 	{name: "Stop"},
 	{name: "StopFailure"},
 	{name: "SessionEnd"},
+	{name: "SessionStart"},
 }
 
 // codexEvents are the Codex hook events Derive acts on.

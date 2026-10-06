@@ -218,8 +218,8 @@ func TestClaudeHooks(t *testing.T) {
 	if m := got["Notification"][0].Matcher; m != "permission_prompt|elicitation_dialog|elicitation_url_dialog" {
 		t.Errorf("Notification matcher %q", m)
 	}
-	if _, ok := got["SessionStart"]; ok {
-		t.Error("SessionStart registered but Derive ignores it")
+	if g, ok := got["SessionStart"]; !ok || g[0].Matcher != "" {
+		t.Errorf("SessionStart, which tells agent processes apart: %+v", g)
 	}
 	if !json.Valid(CodexHooks("pitwall")) {
 		t.Error("CodexHooks: invalid JSON")
@@ -466,6 +466,25 @@ func TestTranscript(t *testing.T) {
 		}
 		if got := Transcript([]byte(payload)); got != want {
 			t.Errorf("Transcript(%s) = %q, want %q", payload, got, want)
+		}
+	}
+}
+
+func TestNewProcess(t *testing.T) {
+	for _, c := range []struct {
+		payload          string
+		started, resumed bool
+	}{
+		{`{"hook_event_name":"SessionStart","source":"startup"}`, true, false},
+		{`{"hook_event_name":"SessionStart","source":"resume"}`, false, true},
+		{`{"hook_event_name":"SessionStart","source":"clear"}`, false, false},
+		{`{"hook_event_name":"SessionStart","source":"compact"}`, false, false},
+		{`{"hook_event_name":"SessionStart","source":"startup","transcript_path":null}`, false, false}, // a /side fork
+		{`{"hook_event_name":"Stop","source":"startup"}`, false, false},
+		{`not json`, false, false},
+	} {
+		if s, r := NewProcess([]byte(c.payload)); s != c.started || r != c.resumed {
+			t.Errorf("NewProcess(%s) = %v, %v; want %v, %v", c.payload, s, r, c.started, c.resumed)
 		}
 	}
 }

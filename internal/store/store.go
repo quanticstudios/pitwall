@@ -205,7 +205,7 @@ func RestoreCmd(p model.Pane) []string {
 			switch p.AgentMode {
 			case "bypassPermissions":
 				cmd = append(cmd, "--dangerously-skip-permissions")
-			case "default", "acceptEdits", "plan", "dontAsk":
+			case "default", "manual", "auto", "acceptEdits", "plan", "dontAsk":
 				cmd = append(cmd, "--permission-mode", p.AgentMode)
 			}
 		}

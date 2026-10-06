@@ -895,7 +895,7 @@ func TestAgentModeFollowsSession(t *testing.T) {
 		{`{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "a", "bypassPermissions"},
 		{`{"session_id":"b","hook_event_name":"Stop"}`, "b", ""},
 		{`{"session_id":"b","hook_event_name":"Stop","permission_mode":"plan"}`, "b", "plan"},
-		{`{"session_id":"b","hook_event_name":"Stop","permission_mode":"auto"}`, "b", "plan"},
+		{`{"session_id":"b","hook_event_name":"Stop","permission_mode":"someday"}`, "b", "plan"},
 		{`{"session_id":"c","hook_event_name":"Stop","permission_mode":"default"}`, "c", "default"},
 	} {
 		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(step.payload)})
@@ -907,5 +907,76 @@ func TestAgentModeFollowsSession(t *testing.T) {
 		if p := st.Panes[0]; p.SessionID != step.sid || p.AgentMode != step.mode {
 			t.Fatalf("after %s: session %q, mode %q", step.payload, p.SessionID, p.AgentMode)
 		}
+	}
+}
+
+// TestBypassStaysWithProcess: an agent that reported bypass keeps it across
+// shift+tab and /clear, so cdang resumes as cdang. A process that starts
+// counts once it reports its own mode: a plain claude after cdang, in the
+// same pane or the same script, resumes plain, and a plain resume of the
+// cdang session drops bypass at its first report. Without SessionStart
+// hooks the mode follows every report.
+func TestBypassStaysWithProcess(t *testing.T) {
+	start := func(src, sid string) string {
+		return `{"session_id":"` + sid + `","hook_event_name":"SessionStart","source":"` + src + `"}`
+	}
+	stop := func(sid, mode string) string {
+		return `{"session_id":"` + sid + `","hook_event_name":"Stop","permission_mode":"` + mode + `"}`
+	}
+	for _, c := range []struct {
+		name  string
+		steps []struct{ payload, mode string }
+	}{
+		{"cdang, shift+tab, /clear, compact", []struct{ payload, mode string }{
+			{start("startup", "a"), ""},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{stop("a", "auto"), "bypassPermissions"},
+			{start("clear", "b"), "bypassPermissions"},
+			{stop("b", "manual"), "bypassPermissions"},
+			{start("compact", "b"), "bypassPermissions"},
+			{stop("b", "acceptEdits"), "bypassPermissions"},
+		}},
+		{"plain claude after cdang", []struct{ payload, mode string }{
+			{start("startup", "a"), ""},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{start("startup", "c"), ""},
+			{stop("c", "manual"), "manual"},
+		}},
+		{"plain resume of a cdang session", []struct{ payload, mode string }{
+			{start("startup", "a"), ""},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{start("resume", "a"), "bypassPermissions"}, // pitwall's own resume says nothing yet
+			{stop("a", "manual"), "manual"},
+		}},
+		{"cdang resumed by pitwall stays cdang", []struct{ payload, mode string }{
+			{start("startup", "a"), ""},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{start("resume", "a"), "bypassPermissions"},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{stop("a", "auto"), "bypassPermissions"},
+		}},
+		{"no SessionStart hooks", []struct{ payload, mode string }{
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{stop("a", "auto"), "auto"},
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := &fakes{statsCalls: map[string]int{}}
+			sock, done := runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+			defer done()
+			gui := dial(t, sock, "gui")
+			st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+			id := st.Panes[0].ID
+			hook := dial(t, sock, "hook")
+			for _, step := range c.steps {
+				hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(step.payload)})
+				st := gui.waitState(step.payload, func(s model.State) bool {
+					return len(s.Activities) == 1 && string(s.Activities[0].State) == step.payload
+				})
+				if got := st.Panes[0].AgentMode; got != step.mode {
+					t.Fatalf("after %s: mode %q, want %q", step.payload, got, step.mode)
+				}
+			}
+		})
 	}
 }
