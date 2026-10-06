@@ -555,6 +555,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.settings.Hide()
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.NewTab:
+		if e.Loose {
+			u.send(u.nav.looseTab(st))
+			break
+		}
 		u.send(u.nav.newTab(st, e.After, e.GroupID))
 	case sidebar.MoveToGroup:
 		for _, id := range e.WorkspaceIDs {

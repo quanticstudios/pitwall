@@ -10,6 +10,13 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.16
+
+- The "+" next to the session name always opens a tab outside every group,
+  in the folder of the tab you are on, even when that folder belongs to a
+  group. A group's own "+" still opens one inside it.
+- Protocol 16: the new `pitwall` restarts an older daemon.
+
 ## v0.1.0-alpha.15
 
 - The sidebar's tab rows and group headers sit 8dp in from both edges, so a

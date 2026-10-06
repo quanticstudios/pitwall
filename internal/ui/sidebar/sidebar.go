@@ -48,7 +48,10 @@ type SelectWorkspace struct{ WorkspaceID, PaneID string }
 // NewTab opens a tab below After (a row's "+"), or with After "" below the
 // open tab: the header's "+" (GroupID "") or a group's "+", which puts it
 // last in GroupID when the open tab is elsewhere.
-type NewTab struct{ After, GroupID string }
+type NewTab struct {
+	After, GroupID string
+	Loose          bool // outside every group, in the active tab's folder
+}
 
 // CloseTab closes a tab and all its panes.
 type CloseTab struct{ WorkspaceID string }
@@ -690,7 +693,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		}
 	}
 	for s.newTab.Clicked(gtx) {
-		s.events = append(s.events, NewTab{})
+		s.events = append(s.events, NewTab{Loose: true})
 	}
 	for s.sessions.Clicked(gtx) {
 		s.events = append(s.events, OpenSessions{})

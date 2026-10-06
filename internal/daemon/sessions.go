@@ -76,7 +76,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		if m.SessionID, err = d.targetSession(m.SessionID, m.FromPane); err != nil {
 			return err
 		}
-		if m.GroupID == "" {
+		if m.GroupID == "" && !m.Loose {
 			m.GroupID = d.projectAt(m.SessionID, path)
 		}
 	}

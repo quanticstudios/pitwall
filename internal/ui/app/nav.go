@@ -408,6 +408,17 @@ func (n *nav) cycleGroup(st *model.State, d int) {
 	n.selectWorkspace(st, firsts[((cur+d)%len(firsts)+len(firsts))%len(firsts)], "")
 }
 
+// looseTab opens a tab outside every group, at the end of the session,
+// with a shell where the focused pane is, or in the active tab's folder.
+func (n *nav) looseTab(st *model.State) proto.NewSession {
+	n.expectSession(st)
+	m := proto.NewSession{SessionID: n.session, FromPane: n.focused(), Loose: true}
+	if w := findWorkspace(st, n.workspace); w != nil {
+		m.Cwd = st.LivePath(*w)
+	}
+	return m
+}
+
 // newTab opens a tab right after after, in its group, with a shell where
 // after's focused pane is. With after "" it follows the active tab; with
 // group set and the active tab elsewhere, it goes last in group. A group

@@ -307,3 +307,20 @@ func TestNavFollowsTopOrder(t *testing.T) {
 		t.Fatalf("prev from w1: %s", n.workspace)
 	}
 }
+
+// TestLooseTab: the sidebar's top "+" asks for a tab outside every group,
+// in the focused pane's folder, in the window's session.
+func TestLooseTab(t *testing.T) {
+	st := model.State{
+		Sessions:   []model.Session{{ID: "s"}},
+		Projects:   []model.Project{{ID: "g", SessionID: "s", Root: "/repo"}},
+		Workspaces: []model.Workspace{{ID: "w", SessionID: "s", ProjectID: "g", Path: "/repo", ActiveTab: "t", Tabs: []model.Tab{{ID: "t", Layout: layout.Leaf("p")}}}},
+		Panes:      []model.Pane{{ID: "p", WorkspaceID: "w", Cwd: "/repo/sub"}},
+	}
+	n := nav{session: "s", workspace: "w", tab: "t", focus: map[string]string{focusKey("w", "t"): "p"}}
+	got := n.looseTab(&st)
+	want := proto.NewSession{SessionID: "s", Cwd: "/repo/sub", FromPane: "p", Loose: true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("looseTab = %+v, want %+v", got, want)
+	}
+}
