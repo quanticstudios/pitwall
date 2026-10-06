@@ -514,11 +514,12 @@ func TestGroupByFolder(t *testing.T) {
 		t.Fatalf("regroup: %+v", st)
 	}
 
-	// A new session inside the project's folder joins it.
+	// A new session inside the project's folder joins it, unless Loose.
 	must(t, d.handle(ctx, proto.NewSession{Cwd: filepath.Join(repo, "sub2")}))
 	must(t, d.handle(ctx, proto.NewSession{Cwd: other}))
+	must(t, d.handle(ctx, proto.NewSession{Cwd: filepath.Join(repo, "sub2"), Loose: true}))
 	ws = d.state().Workspaces
-	if ws[5].ProjectID != p.ID || ws[6].ProjectID != "" {
+	if ws[5].ProjectID != p.ID || ws[6].ProjectID != "" || ws[7].ProjectID != "" {
 		t.Fatalf("auto-join: %+v", ws[5:])
 	}
 }

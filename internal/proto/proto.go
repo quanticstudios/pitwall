@@ -9,6 +9,7 @@ import (
 )
 
 // Version bumps on any incompatible change; the daemon refuses other versions.
+// Version 16 added NewSession.Loose, a tab outside every group.
 // Version 15 added Pane.Transcript, the agent session's own file.
 // Version 14 added Pane.Held and ExitUnknown: a held pane survives a daemon
 // restart.
@@ -37,7 +38,7 @@ import (
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
 // to a message's fields or meaning must bump it; TestWireFingerprint fails
 // until it does.
-const Version = 15
+const Version = 16
 
 // Client to daemon.
 
@@ -74,6 +75,8 @@ type NewSession struct {
 	// FromPane, when set, starts the session in that pane's current
 	// directory (where its shell is now), falling back to Cwd.
 	FromPane string
+	// Loose keeps the tab out of every group, even one for its folder.
+	Loose bool
 }
 
 // SetSessionGroup moves a session into a group; "" ungroups it right after
