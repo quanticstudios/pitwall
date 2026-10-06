@@ -10,6 +10,12 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.13
+
+- A group header shows "+" and "…" only on hover, so a long group name
+  uses the whole row; on hover the name fades out under the two buttons.
+  The buttons get a hover highlight of their own.
+
 ## v0.1.0-alpha.12
 
 - The agent panel opens with Ctrl+Shift+L, so Ctrl+L reaches the shell

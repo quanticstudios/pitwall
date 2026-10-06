@@ -1003,8 +1003,11 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	btn := gtx.Dp(24)
 	gap := gtx.Dp(4)
 	px := gtx.Dp(8)
-	// px-2, then [trigger flex-1] gap-1 [+ 24] gap-1 [overflow slot 24].
-	triggerW := w - 2*px - 2*gap - 2*btn
+	// The name takes the whole row; on hover "+" and "…" sit over its end
+	// (px-2, [+ 24] gap-1 [… 24]) behind a fade.
+	triggerW := w - 2*px
+	bx := w - px - 2*btn - gap // where the buttons start
+	showBtns := hovered || s.appearance == p.ID || s.groupMenu == p.ID
 
 	ctx := clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &ps.ctx) // its handlers nest inside, so right-clicks reach it
@@ -1044,20 +1047,17 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	})
 	off.Pop()
 
-	off = op.Offset(image.Pt(px+triggerW+gap, (h-btn)/2)).Push(gtx.Ops)
-	iconButton(gtx, th, &ps.add, icPlus, btn, gtx.Dp(14), true)
-	off.Pop()
-
-	// The "…" overflow trigger, shown on header hover like aide's.
-	mx := px + triggerW + 2*gap + btn
-	off = op.Offset(image.Pt(mx, (h-btn)/2)).Push(gtx.Ops)
-	if hovered || s.appearance == p.ID || s.groupMenu == p.ID {
-		iconButton(gtx, th, &ps.more, icEllipsis, btn, gtx.Dp(16), true)
-	} else {
-		clickable(gtx, &ps.more, func(gtx layout.Context) layout.Dimensions {
-			return layout.Dimensions{Size: image.Pt(btn, btn)}
-		})
+	if showBtns {
+		fadeOut(gtx, bg, bx-gtx.Dp(40), bx-gap, w, h, gtx.Dp(8))
 	}
+	// "+" and the "…" overflow trigger show on header hover, like aide's;
+	// hidden, they still take the pointer, so hovering their spot shows them.
+	off = op.Offset(image.Pt(bx, (h-btn)/2)).Push(gtx.Ops)
+	headerButton(gtx, th, &ps.add, icPlus, btn, gtx.Dp(14), showBtns)
+	off.Pop()
+	mx := bx + btn + gap
+	off = op.Offset(image.Pt(mx, (h-btn)/2)).Push(gtx.Ops)
+	headerButton(gtx, th, &ps.more, icEllipsis, btn, gtx.Dp(16), showBtns)
 	if s.appearance == p.ID {
 		m := op.Record(gtx.Ops)
 		s.appearanceMenu(gtx, th, p, mx, btn)
@@ -1951,6 +1951,39 @@ func label(gtx layout.Context, th *theme.Theme, f font.Font, size unit.Sp, c col
 	// WrapGraphemes fills the line before the ellipsis; the default policy
 	// cuts a hyphenated name like swift-otter-… at its last hyphen.
 	return widget.Label{MaxLines: 1, WrapPolicy: text.WrapGraphemes}.Layout(gtx, th.Shaper, f, size, txt, material(gtx, c))
+}
+
+// headerButton is an icon button on a hovered group header, whose
+// background is iconButton's hover color, so its own hover is a step
+// lighter. Hidden, it is an empty hit area.
+func headerButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, icon string, size, glyph int, shown bool) layout.Dimensions {
+	gtx.Constraints = layout.Exact(image.Pt(size, size))
+	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
+		if !shown {
+			return layout.Dimensions{Size: image.Pt(size, size)}
+		}
+		col := th.Muted
+		if c.Hovered() {
+			paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.08), clip.UniformRRect(image.Rect(0, 0, size, size), gtx.Dp(6)).Op(gtx.Ops))
+			col = th.Fg
+		}
+		return drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions {
+			return drawIcon(gtx, icon, glyph, col, 0)
+		})
+	})
+}
+
+// fadeOut hides what is drawn under x0..w: a fade from clear to bg across
+// x0..x1, solid bg after, clipped to the row's rounded rect of height h.
+func fadeOut(gtx layout.Context, bg color.NRGBA, x0, x1, w, h, radius int) {
+	defer clip.UniformRRect(image.Rect(0, 0, w, h), radius).Push(gtx.Ops).Pop()
+	clear := bg
+	clear.A = 0
+	area := clip.Rect{Min: image.Pt(x0, 0), Max: image.Pt(x1, h)}.Push(gtx.Ops)
+	paint.LinearGradientOp{Stop1: f32.Pt(float32(x0), 0), Color1: clear, Stop2: f32.Pt(float32(x1), 0), Color2: bg}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+	area.Pop()
+	paint.FillShape(gtx.Ops, bg, clip.Rect{Min: image.Pt(x1, 0), Max: image.Pt(w, h)}.Op())
 }
 
 // clickable wraps c with a pointer cursor.

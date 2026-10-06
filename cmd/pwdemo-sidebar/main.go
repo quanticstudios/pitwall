@@ -121,7 +121,7 @@ func fakeState(now time.Time) model.State {
 	st := model.State{
 		Projects: []model.Project{
 			{ID: "p-api", Name: "acme-api", Root: "/home/me/src/acme-api", Kind: model.ProjectGit, Color: "sky", Icon: "server"},
-			{ID: "p-web", Name: "web-app", Root: "/home/me/src/web-app", Kind: model.ProjectGit, Color: "violet", Icon: "globe"},
+			{ID: "p-web", Name: "web-app-storefront-checkout", Root: "/home/me/src/web-app", Kind: model.ProjectGit, Color: "violet", Icon: "globe"},
 			{ID: "p-notes", Name: "notes", Root: "/home/me/notes", Kind: model.ProjectFolder, Color: "amber"},
 		},
 		Stats: map[string]model.BranchStats{
