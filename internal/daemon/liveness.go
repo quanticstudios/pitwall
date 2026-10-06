@@ -219,12 +219,11 @@ func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 	}
 	if started, resumed := agent.NewProcess(payload); started || resumed {
 		d.live.started[p.ID], d.live.fresh[p.ID] = true, true
-		// Only pitwall's own relaunch, once, and only with the mode it
-		// actually passed: a saved command's own --permission-mode wins
+		// Only pitwall's own relaunch, once, and only if the saved mode went
+		// into its command: a saved command's own --permission-mode wins
 		// over AgentMode in RestoreCmd.
 		_, own := d.resumed[p.ID]
-		own = own && resumed && !d.live.resumeSeen[p.ID] &&
-			(p.AgentMode != "bypassPermissions" || slices.Contains(d.o.RestoreCmd(*p), "--dangerously-skip-permissions"))
+		own = own && resumed && !d.live.resumeSeen[p.ID] && d.modeInRestore(*p)
 		if resumed {
 			d.live.resumeSeen[p.ID] = true
 		}
@@ -245,6 +244,14 @@ func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 	// Only Claude sends SessionStart; another agent in the pane reports its
 	// own mode.
 	return p.Provider == model.ProviderClaude && d.live.started[p.ID] && !d.live.fresh[p.ID] && p.AgentMode == "bypassPermissions"
+}
+
+// modeInRestore reports whether p's resume command carries p.AgentMode:
+// it differs from the one RestoreCmd builds without a mode.
+func (d *Daemon) modeInRestore(p model.Pane) bool {
+	bare := p
+	bare.AgentMode = ""
+	return !slices.Equal(d.o.RestoreCmd(p), d.o.RestoreCmd(bare))
 }
 
 // sessionEnd reports whether a hook is Claude's or Codex's SessionEnd.

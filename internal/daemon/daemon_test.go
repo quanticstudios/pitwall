@@ -1087,6 +1087,8 @@ func TestCodexAfterCdangInPane(t *testing.T) {
 		{model.ProviderClaude, `{"session_id":"a","hook_event_name":"SessionStart","source":"startup"}`, ""},
 		{model.ProviderClaude, `{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "bypassPermissions"},
 		{model.ProviderCodex, `{"session_id":"a","hook_event_name":"Stop","permission_mode":"default"}`, "default"},
+		{model.ProviderClaude, `{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "bypassPermissions"},
+		{model.ProviderCodex, `{"session_id":"a","hook_event_name":"Stop"}`, ""}, // no mode of its own yet
 	} {
 		hook.send(proto.AgentEvent{Pane: id, Provider: step.prov, Payload: []byte(step.payload)})
 		st := gui.waitState(step.payload, func(s model.State) bool {
@@ -1108,7 +1110,7 @@ func TestOwnResumeWithExplicitMode(t *testing.T) {
 	gui := dial(t, sock, "gui")
 	gui.send(proto.AddProject{Path: t.TempDir()})
 	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 2 })
-	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[1].ID, Cmd: []string{"claude", "--permission-mode", "plan"}})
+	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[1].ID, Cmd: []string{"claude", "--permission-mode", "plan", "--system-prompt", "--dangerously-skip-permissions"}})
 	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 2 })
 	id := st.Panes[1].ID
 	hook := dial(t, sock, "hook")

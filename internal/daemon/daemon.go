@@ -926,6 +926,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		}
 	}
 	if p.Provider != m.Provider {
+		if p.Provider != "" {
+			p.AgentMode = "" // a permission mode belongs to the agent that reported it
+		}
 		p.Provider, changed = m.Provider, true
 	}
 	prevMode := p.AgentMode
