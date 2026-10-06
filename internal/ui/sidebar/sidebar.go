@@ -1137,9 +1137,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
 	dots := (btn-glyph)/2 + glyph/6 // the button's edge to the dots' edge
 	content := func(gtx layout.Context) layout.Dimensions {
-		// pl-3 pr-3
+		// pl-3 pr-4: the pill's filled box needs more room from the edge than
+		// the agent mark's glyph to look as far in.
 		left := gtx.Dp(12)
-		inner := w - 2*left
+		inner := w - left - rowRight(gtx)
 		gtx.Constraints = layout.Exact(image.Pt(inner, l1))
 		off := op.Offset(image.Pt(left, pad)).Push(gtx.Ops)
 		nameCol := theme.Mix(base, th.Fg, 0.95)
@@ -1226,7 +1227,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	area.Pop()
 
 	// The "…" trigger, centred on line 2.
-	pos := image.Pt(w-gtx.Dp(12)+dots-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
+	pos := image.Pt(w-rowRight(gtx)+dots-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
 	off := op.Offset(pos).Push(gtx.Ops)
 	if showMore {
 		iconButton(gtx, th, &r.more, icEllipsis, btn, glyph, false)
@@ -1985,6 +1986,9 @@ func fadeOut(gtx layout.Context, bg color.NRGBA, x0, x1, w, h, radius int) {
 	area.Pop()
 	paint.FillShape(gtx.Ops, bg, clip.Rect{Min: image.Pt(x1, 0), Max: image.Pt(w, h)}.Op())
 }
+
+// rowRight is a tab row's right content inset.
+func rowRight(gtx layout.Context) int { return gtx.Dp(16) }
 
 // clickable wraps c with a pointer cursor.
 func clickable(gtx layout.Context, c *widget.Clickable, w layout.Widget) layout.Dimensions {
