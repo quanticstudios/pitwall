@@ -157,11 +157,12 @@ func TestGroupIndent(t *testing.T) {
 		t.Fatalf("a press in the indent armed a drag on %q", h.s.drag.id)
 	}
 	h.pointer(pointer.Release, f32.Pt(6, p.Y))
-	h.pointer(pointer.Press, f32.Pt(16, p.Y))
+	onRow := float32(listPad + 16) // past the list's inset and the 12dp group indent
+	h.pointer(pointer.Press, f32.Pt(onRow, p.Y))
 	if h.s.drag.id != "a" {
 		t.Fatalf("a press on the indented row armed %q", h.s.drag.id)
 	}
-	h.pointer(pointer.Release, f32.Pt(16, p.Y))
+	h.pointer(pointer.Release, f32.Pt(onRow, p.Y))
 
 	h.r.Queue(pointer.Event{Kind: pointer.Move, Position: h.at("u2", 20), Source: pointer.Mouse})
 	h.frame()

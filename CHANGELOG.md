@@ -10,6 +10,12 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.15
+
+- The sidebar's tab rows and group headers sit 8dp in from both edges, so a
+  highlighted row no longer runs into the sidebar's right border. Inside a
+  row, content is 12dp from each side again.
+
 ## v0.1.0-alpha.14
 
 - A Claude Code session started with bypass (`claude
