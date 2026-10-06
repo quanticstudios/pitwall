@@ -224,8 +224,11 @@ func kittyKey(e key.Event, m vt.Modes) []byte {
 	if final != 0 && e.Name != key.NameSpace {
 		isText = false
 	}
-	// Enter, Tab and Backspace retain shell-compatible bytes until report-all.
-	if flags&8 == 0 && (e.Name == key.NameReturn || e.Name == key.NameTab || e.Name == key.NameDeleteBackward) && e.Modifiers&^key.ModShift == 0 {
+	// Unmodified Enter, Tab and Backspace keep shell-compatible bytes until
+	// report-all, so a shell works after a program left the mode on. With any
+	// modifier, Shift included, they are disambiguated: Claude Code and Codex
+	// read Shift+Enter as a newline.
+	if flags&8 == 0 && (e.Name == key.NameReturn || e.Name == key.NameTab || e.Name == key.NameDeleteBackward) && e.Modifiers == 0 {
 		if e.State == key.Release {
 			return nil
 		}

@@ -10,6 +10,14 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.18
+
+- Shift+Enter adds a new line in Claude Code and Codex. Under the kitty
+  keyboard protocol, which both turn on, pitwall sent Shift+Enter as a plain
+  Enter. Enter, Tab and Backspace with any modifier, Shift included, now get
+  their own codes, as in kitty and Ghostty; unmodified they still send the
+  bytes a shell expects.
+
 ## v0.1.0-alpha.17
 
 - In tab mode, Ctrl+T then N opens a tab outside every group, like the
