@@ -26,10 +26,11 @@ type liveness struct {
 	hookAt map[string]time.Time // pane: when its agent last sent a hook
 	fg     map[string]int       // pane: its foreground process group at that hook
 	// started marks a pane whose agent sends SessionStart (pitwall's hooks
-	// since alpha.12), and fresh one whose agent process started and has
-	// not reported a permission mode yet; see Daemon.agentMode.
-	started, fresh map[string]bool
-	det            map[string]*detected // pane: what detect saw at its last poll
+	// since alpha.14), fresh one whose agent process started and has not
+	// reported a permission mode yet, and resumeSeen a pane NewWith resumed
+	// whose agent has sent its resume SessionStart; see Daemon.agentMode.
+	started, fresh, resumeSeen map[string]bool
+	det                        map[string]*detected // pane: what detect saw at its last poll
 	// piRuntime is, per pane, the extension nonce of pi's latest
 	// session_start (see agent.PiRuntime).
 	piRuntime map[string]string
@@ -205,20 +206,32 @@ func (d *Daemon) dropActivity(id string) {
 // compaction for as long as it runs, so a resume starts it the same way.
 // SessionStart tells processes apart: "startup" or "resume" is a new
 // process, which counts only once it reports its own mode, and "startup"
-// is a new session that never ran with bypass. Without SessionStart hooks
-// (older installs, Codex) the mode follows every report. Callers hold d.mu.
-// ponytail: an in-process /resume also reads as a new process, so it can
-// drop bypass; it never adds it.
+// is a new session that never ran with bypass. A resumed session keeps its
+// saved mode only in the process pitwall started for it with that mode
+// (store.RestoreCmd); any other resume, typed by the user or an in-process
+// /resume, starts with no mode until it reports one. Without SessionStart
+// hooks (older installs, Codex) the mode follows every report. Callers hold
+// d.mu.
 func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 	if d.live.started == nil {
-		d.live.started, d.live.fresh = map[string]bool{}, map[string]bool{}
+		d.live.started, d.live.fresh, d.live.resumeSeen = map[string]bool{}, map[string]bool{}, map[string]bool{}
 	}
 	if started, resumed := agent.NewProcess(payload); started || resumed {
 		d.live.started[p.ID], d.live.fresh[p.ID] = true, true
-		// A new session comes with a new id, which clears the mode. A resumed
-		// one's mode stands until the process reports its own, which may be
-		// in this very hook.
-		return resumed && agent.PermissionMode(payload) == ""
+		_, own := d.resumed[p.ID]
+		own = own && resumed && !d.live.resumeSeen[p.ID]
+		if resumed {
+			d.live.resumeSeen[p.ID] = true
+		}
+		switch {
+		case agent.PermissionMode(payload) != "":
+			return false // the process reports its own mode in this hook
+		case own:
+			return true
+		case resumed:
+			p.AgentMode = ""
+		}
+		return false // a new session comes with a new id, which clears the mode
 	}
 	return d.live.started[p.ID] && !d.live.fresh[p.ID] && p.AgentMode == "bypassPermissions"
 }

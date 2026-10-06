@@ -807,6 +807,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.fg, id)
 	delete(d.live.started, id)
 	delete(d.live.fresh, id)
+	delete(d.live.resumeSeen, id)
 	delete(d.live.det, id)
 	delete(d.live.piRuntime, id)
 	delete(d.live.piRetired, id)
@@ -927,7 +928,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if p.Provider != m.Provider {
 		p.Provider, changed = m.Provider, true
 	}
+	prevMode := p.AgentMode
 	keepMode := d.agentMode(p, m.Payload)
+	if p.AgentMode != prevMode {
+		changed = true
+	}
 	if sid := d.o.SessionID(m.Provider, m.Payload); sid != "" && sid != p.SessionID {
 		p.SessionID, p.Prompt, p.Transcript, changed = sid, "", "", true // a new session reports its own file
 		if !keepMode {
@@ -1188,6 +1193,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		delete(d.live.fg, id)
 		delete(d.live.started, id)
 		delete(d.live.fresh, id)
+		delete(d.live.resumeSeen, id)
 		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id && !ended(a.State) })
 	} else {
 		log.Printf("pane %s: exited %d; closed", id, code)

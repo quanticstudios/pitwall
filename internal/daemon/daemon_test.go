@@ -942,10 +942,11 @@ func TestBypassStaysWithProcess(t *testing.T) {
 			{start("startup", "c"), ""},
 			{stop("c", "manual"), "manual"},
 		}},
-		{"plain resume of a cdang session", []struct{ payload, mode string }{
+		{"plain resume of a cdang session, typed by the user", []struct{ payload, mode string }{
 			{start("startup", "a"), ""},
 			{stop("a", "bypassPermissions"), "bypassPermissions"},
-			{start("resume", "a"), "bypassPermissions"}, // pitwall's own resume says nothing yet
+			{start("resume", "a"), ""}, // pitwall did not start it, so it has no mode yet
+			{`{"session_id":"a","hook_event_name":"Stop"}`, ""},
 			{stop("a", "manual"), "manual"},
 		}},
 		{"plain resume reporting its mode at SessionStart", []struct{ payload, mode string }{
@@ -954,10 +955,10 @@ func TestBypassStaysWithProcess(t *testing.T) {
 			{`{"session_id":"a","hook_event_name":"SessionStart","source":"resume","permission_mode":"manual"}`, "manual"},
 			{stop("a", "auto"), "auto"},
 		}},
-		{"cdang resumed by pitwall stays cdang", []struct{ payload, mode string }{
+		{"cdang resumed by hand with bypass stays cdang", []struct{ payload, mode string }{
 			{start("startup", "a"), ""},
 			{stop("a", "bypassPermissions"), "bypassPermissions"},
-			{start("resume", "a"), "bypassPermissions"},
+			{start("resume", "a"), ""},
 			{stop("a", "bypassPermissions"), "bypassPermissions"},
 			{stop("a", "auto"), "bypassPermissions"},
 		}},
@@ -985,4 +986,37 @@ func TestBypassStaysWithProcess(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOwnResumeKeepsBypass: a cdang session pitwall resumed after a restart
+// keeps bypass through its resume SessionStart, so an untouched tab stays
+// cdang across a second restart; a later resume in the same pane does not.
+func TestOwnResumeKeepsBypass(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	gui := dial(t, sock, "gui")
+	st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	id := st.Panes[0].ID
+	hook := dial(t, sock, "hook")
+	send := func(payload, want string) {
+		t.Helper()
+		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(payload)})
+		st := gui.waitState(payload, func(s model.State) bool {
+			return len(s.Activities) == 1 && string(s.Activities[0].State) == payload
+		})
+		if got := st.Panes[0].AgentMode; got != want {
+			t.Fatalf("after %s: mode %q, want %q", payload, got, want)
+		}
+	}
+	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"startup"}`, "")
+	send(`{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "bypassPermissions")
+	stop()
+
+	sock, stop = runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	defer stop()
+	gui = dial(t, sock, "gui")
+	gui.waitState("restored", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].ID == id })
+	hook = dial(t, sock, "hook")
+	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "bypassPermissions")
+	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "")
 }
