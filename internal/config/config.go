@@ -69,7 +69,7 @@ type Keys struct {
 	ScrollPageUp    Binding `toml:"scroll_page_up" doc:"Scroll back a page"`
 	ScrollPageDown  Binding `toml:"scroll_page_down" doc:"Scroll forward a page"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
-	TogglePanel     Binding `toml:"toggle_panel" doc:"Show or hide the agent panel. It follows the agent in the focused pane. Ctrl+L then never reaches the shell (its clear screen); set toggle_panel = [] to give it back"`
+	TogglePanel     Binding `toml:"toggle_panel" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
 	OpenSettings    Binding `toml:"open_settings" doc:"Show or hide the settings page"`
 	TabPrefix       Binding `toml:"tab_prefix" doc:"Tab mode: the next key runs a [keys.tab] action. Pressed twice it sends its control character to the pane"`
 	PanePrefix      Binding `toml:"pane_prefix" doc:"Pane mode: [keys.pane] keys act on panes until Esc or Enter. Pressed twice it sends its control character to the pane"`

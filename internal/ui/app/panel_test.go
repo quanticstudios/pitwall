@@ -34,16 +34,19 @@ func TestPanelWidth(t *testing.T) {
 	}
 }
 
-// TestPanelToggle: Ctrl+L opens and closes the panel in both presets and
-// never reaches the pane.
+// TestPanelToggle: Ctrl+Shift+L opens and closes the panel in both presets
+// and never reaches the pane, while Ctrl+L reaches it to clear the screen.
 func TestPanelToggle(t *testing.T) {
 	for _, b := range []*config.Bindings{aide, conventional} {
 		u, keys := keyWindow(t, b)
-		if got := keys(press("L", key.ModCtrl)); got != "" || !u.nav.panelOpen {
-			t.Fatalf("%s: Ctrl+L: open %v, pane got %q", b.Preset, u.nav.panelOpen, got)
+		if got := keys(press("L", key.ModCtrl|key.ModShift)); got != "" || !u.nav.panelOpen {
+			t.Fatalf("%s: Ctrl+Shift+L: open %v, pane got %q", b.Preset, u.nav.panelOpen, got)
 		}
-		if got := keys(press("L", key.ModCtrl)); got != "" || u.nav.panelOpen {
-			t.Fatalf("%s: second Ctrl+L: open %v, pane got %q", b.Preset, u.nav.panelOpen, got)
+		if got := keys(press("L", key.ModCtrl|key.ModShift)); got != "" || u.nav.panelOpen {
+			t.Fatalf("%s: second Ctrl+Shift+L: open %v, pane got %q", b.Preset, u.nav.panelOpen, got)
+		}
+		if got := keys(press("L", key.ModCtrl)); got != "\x0c" || u.nav.panelOpen {
+			t.Fatalf("%s: Ctrl+L: open %v, pane got %q, want the clear-screen byte", b.Preset, u.nav.panelOpen, got)
 		}
 		u.panel.mu.Lock()
 		sliding := u.panel.filesDir != ""

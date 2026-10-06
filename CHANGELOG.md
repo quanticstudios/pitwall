@@ -10,6 +10,11 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.12
+
+- The agent panel opens with Ctrl+Shift+L, so Ctrl+L reaches the shell
+  again to clear the screen. A `toggle_panel` set in config.toml still wins.
+
 ## v0.1.0-alpha.11
 
 - On Wayland, a window on another workspace no longer hangs and gets
