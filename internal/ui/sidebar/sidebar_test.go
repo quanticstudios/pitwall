@@ -108,8 +108,14 @@ func TestStateColors(t *testing.T) {
 		}
 	}
 	working := &model.Activity{State: model.StateWorking}
-	if rowBase(th, working, false, true) != th.Sidebar {
-		t.Error("a working row must not take the hover fill")
+	if rowBase(th, working, false, true) != theme.Mix(th.Sidebar, th.SurfaceSecondary, 0.85) {
+		t.Error("a row with an agent takes the hover fill")
+	}
+	if rowBase(th, working, false, false) != th.Sidebar {
+		t.Error("a working row without hover keeps the sidebar color")
+	}
+	if done := (&model.Activity{State: model.StateCompleted}); rowBase(th, done, false, true) == th.Sidebar {
+		t.Error("a done row takes the hover fill")
 	}
 	if rowBase(th, nil, false, true) != th.SurfaceSecondary {
 		t.Error("an idle row takes the hover fill")

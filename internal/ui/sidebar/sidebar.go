@@ -2165,8 +2165,12 @@ func rowBase(th *theme.Theme, a *model.Activity, active, hovered bool) color.NRG
 	switch {
 	case active:
 		base = theme.Mix(base, th.Primary, 0.12)
-	case a == nil && hovered:
-		base = th.SurfaceSecondary
+	case hovered:
+		// A state's tint shows through the hover fill, faintly.
+		base = theme.Mix(base, th.SurfaceSecondary, 0.85)
+		if a == nil {
+			base = th.SurfaceSecondary
+		}
 	}
 	return base
 }

@@ -17,6 +17,8 @@ To cut a release: add a section below and merge it, then
   The buttons get a hover highlight of their own.
 - A tab row's pill, time and "…" sit 16dp from its right edge, up from 12dp,
   so the pill's filled box no longer crowds the border.
+- Every tab row highlights on hover, not only rows without an agent; a
+  state's tint (approval, error, plan ready) shows through faintly.
 
 ## v0.1.0-alpha.12
 
