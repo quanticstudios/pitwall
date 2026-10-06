@@ -15,6 +15,8 @@ To cut a release: add a section below and merge it, then
 - A group header shows "+" and "…" only on hover, so a long group name
   uses the whole row; on hover the name fades out under the two buttons.
   The buttons get a hover highlight of their own.
+- A tab row's pill, time and "…" sit 16dp from its right edge, up from 12dp,
+  so the pill's filled box no longer crowds the border.
 
 ## v0.1.0-alpha.12
 
