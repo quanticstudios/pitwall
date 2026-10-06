@@ -132,6 +132,8 @@ func TestKittyKey(t *testing.T) {
 		{"tab compatibility", key.NameTab, 0, 1, key.Press, "\t"},
 		{"backspace compatibility", key.NameDeleteBackward, 0, 1, key.Press, "\x7f"},
 		{"modified return", key.NameReturn, key.ModCtrl, 1, key.Press, "\x1b[13;5u"},
+		{"shift return is a newline", key.NameReturn, key.ModShift, 1, key.Press, "\x1b[13;2u"},
+		{"shift tab disambiguated", key.NameTab, key.ModShift, 1, key.Press, "\x1b[9;2u"},
 		{"all return", key.NameReturn, 0, 8, key.Press, "\x1b[13;1u"},
 		{"keypad enter", key.NameEnter, 0, 1, key.Press, "\x1b[57414;1u"},
 		{"all tab", key.NameTab, 0, 8, key.Press, "\x1b[9;1u"},
