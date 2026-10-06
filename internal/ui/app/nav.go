@@ -662,6 +662,8 @@ func (n *nav) zoomed() string {
 func (n *nav) tabOp(st *model.State, op string) any {
 	switch op {
 	case "new":
+		return n.looseTab(st)
+	case "new_in_group":
 		return n.newTab(st, "", "")
 	case "close":
 		if findWorkspace(st, n.workspace) != nil {
@@ -828,7 +830,9 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		if n.focused() != "" {
 			return proto.ClosePane{Pane: n.focused()}
 		}
-	case "new_tab", "close_tab", "next_tab", "prev_tab":
+	case "new_tab":
+		return n.tabOp(st, "new_in_group")
+	case "close_tab", "next_tab", "prev_tab":
 		return n.tabOp(st, strings.TrimSuffix(act, "_tab"))
 	}
 	if d, ok := strings.CutPrefix(act, "goto_tab_"); ok {
