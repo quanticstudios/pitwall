@@ -158,6 +158,7 @@ func TestRestoreCmd(t *testing.T) {
 		{"codex images", model.Pane{Provider: model.ProviderCodex, SessionID: "new", Cmd: []string{"codex", "--image", "one.png", "two.png", "--model", "gpt-5"}}, []string{"codex", "resume", "--model", "gpt-5", "new"}},
 		{"claude bypass", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "bypassPermissions"}, []string{"claude", "--dangerously-skip-permissions", "--resume", "new"}},
 		{"claude accept edits", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "acceptEdits", Cmd: []string{"claude", "--model", "x"}}, []string{"claude", "--model", "x", "--permission-mode", "acceptEdits", "--resume", "new"}},
+		{"claude auto mode", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "auto", Cmd: []string{"claude"}}, []string{"claude", "--permission-mode", "auto", "--resume", "new"}},
 		{"claude plan", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "plan"}, []string{"claude", "--permission-mode", "plan", "--resume", "new"}},
 		{"claude default mode", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "default"}, []string{"claude", "--permission-mode", "default", "--resume", "new"}},
 		{"claude default mode in command", model.Pane{Provider: model.ProviderClaude, SessionID: "new", AgentMode: "default", Cmd: []string{"claude", "--permission-mode", "plan"}}, []string{"claude", "--permission-mode", "plan", "--resume", "new"}},

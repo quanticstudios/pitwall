@@ -129,11 +129,14 @@ func TestBackendFocus(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() { b.recvLoop(); close(done) }()
-	for _, want := range wanted {
+	// The newest request wins, so "first" may be dropped when "second" lands
+	// before it is read; "second" always arrives, and nothing older after it.
+	last := wanted[len(wanted)-1]
+	for got := (proto.FocusSession{}); got != last; {
 		select {
-		case got := <-b.Focus():
-			if got != want {
-				t.Fatalf("focus: %+v, want %+v", got, want)
+		case got = <-b.Focus():
+			if got != wanted[0] && got != last {
+				t.Fatalf("focus: %+v, want %+v or %+v", got, wanted[0], last)
 			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("focus did not arrive")
@@ -143,6 +146,11 @@ func TestBackendFocus(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("backend did not stop")
+	}
+	select {
+	case got := <-b.Focus():
+		t.Fatalf("an older focus after the newest: %+v", got)
+	default:
 	}
 	if err := <-served; err != nil {
 		t.Fatal(err)

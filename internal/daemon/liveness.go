@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"time"
 
@@ -25,7 +26,12 @@ var (
 type liveness struct {
 	hookAt map[string]time.Time // pane: when its agent last sent a hook
 	fg     map[string]int       // pane: its foreground process group at that hook
-	det    map[string]*detected // pane: what detect saw at its last poll
+	// started marks a pane whose agent sends SessionStart (pitwall's hooks
+	// since alpha.14), fresh one whose agent process started and has not
+	// reported a permission mode yet, and resumeSeen a pane NewWith resumed
+	// whose agent has sent its resume SessionStart; see Daemon.agentMode.
+	started, fresh, resumeSeen map[string]bool
+	det                        map[string]*detected // pane: what detect saw at its last poll
 	// piRuntime is, per pane, the extension nonce of pi's latest
 	// session_start (see agent.PiRuntime).
 	piRuntime map[string]string
@@ -192,4 +198,68 @@ func (d *Daemon) dropActivity(id string) {
 		d.st.Activities = slices.Delete(d.st.Activities, i, i+1)
 		d.changed()
 	}
+}
+
+// agentMode tracks which agent process a hook comes from, for the
+// permission mode a resume starts with, and reports whether p.AgentMode
+// must stay as it is. An agent that reported bypassPermissions was started
+// with bypass allowed (cdang); it keeps bypass across shift+tab, /clear and
+// compaction for as long as it runs, so a resume starts it the same way.
+// SessionStart tells processes apart: "startup" or "resume" is a new
+// process, which counts only once it reports its own mode, and "startup"
+// is a new session that never ran with bypass. A resumed session keeps its
+// saved mode only in the process pitwall started for it with that mode
+// (store.RestoreCmd); any other resume, typed by the user or an in-process
+// /resume, starts with no mode until it reports one. Without SessionStart
+// hooks (older installs, Codex) the mode follows every report. Callers hold
+// d.mu.
+func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
+	if d.live.started == nil {
+		d.live.started, d.live.fresh, d.live.resumeSeen = map[string]bool{}, map[string]bool{}, map[string]bool{}
+	}
+	if started, resumed := agent.NewProcess(payload); started || resumed {
+		d.live.started[p.ID], d.live.fresh[p.ID] = true, true
+		// Only pitwall's own relaunch, once, and only if the saved mode went
+		// into its command: a saved command's own --permission-mode wins
+		// over AgentMode in RestoreCmd.
+		_, own := d.resumed[p.ID]
+		own = own && resumed && !d.live.resumeSeen[p.ID] && d.modeInRestore(*p)
+		if resumed {
+			d.live.resumeSeen[p.ID] = true
+		}
+		switch {
+		case agent.PermissionMode(payload) != "":
+			return false // the process reports its own mode in this hook
+		case own:
+			return true
+		}
+		p.AgentMode = "" // a new process has no mode until it reports one
+		return false
+	}
+	if agent.PiEvent(payload) == "" && sessionEnd(payload) {
+		// The process is gone: the next one starts over, and pitwall's own
+		// relaunch, if this was it, is used up.
+		delete(d.live.started, p.ID)
+		d.live.resumeSeen[p.ID] = true
+		return false
+	}
+	// Only Claude sends SessionStart; another agent in the pane reports its
+	// own mode.
+	return p.Provider == model.ProviderClaude && d.live.started[p.ID] && !d.live.fresh[p.ID] && p.AgentMode == "bypassPermissions"
+}
+
+// modeInRestore reports whether p's resume command carries p.AgentMode:
+// it differs from the one RestoreCmd builds without a mode.
+func (d *Daemon) modeInRestore(p model.Pane) bool {
+	bare := p
+	bare.AgentMode = ""
+	return !slices.Equal(d.o.RestoreCmd(p), d.o.RestoreCmd(bare))
+}
+
+// sessionEnd reports whether a hook is Claude's or Codex's SessionEnd.
+func sessionEnd(payload []byte) bool {
+	var p struct {
+		Event string `json:"hook_event_name"`
+	}
+	return json.Unmarshal(payload, &p) == nil && p.Event == "SessionEnd"
 }

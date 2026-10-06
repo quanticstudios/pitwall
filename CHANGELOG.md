@@ -10,6 +10,17 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.14
+
+- A Claude Code session started with bypass (`claude
+  --dangerously-skip-permissions`, a `cdang` alias) resumes with it, even
+  after shift+tab, `/clear` or compaction moved it to another mode. pitwall
+  tells agent processes apart by Claude's SessionStart hook: a plain
+  `claude` started afterwards, in the same pane or the same script, resumes
+  in its own mode. Run `pitwall hooks install` once to add that hook; until
+  then the mode follows each report, as before.
+- Claude Code's `auto` and `manual` permission modes are kept on resume.
+
 ## v0.1.0-alpha.13
 
 - A group header shows "+" and "…" only on hover, so a long group name
