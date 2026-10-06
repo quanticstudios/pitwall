@@ -24,6 +24,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -962,6 +963,12 @@ func TestBypassStaysWithProcess(t *testing.T) {
 			{stop("a", "bypassPermissions"), "bypassPermissions"},
 			{stop("a", "auto"), "bypassPermissions"},
 		}},
+		{"codex after a cdang session ended", []struct{ payload, mode string }{
+			{start("startup", "a"), ""},
+			{stop("a", "bypassPermissions"), "bypassPermissions"},
+			{`{"session_id":"a","hook_event_name":"SessionEnd"}`, "bypassPermissions"},
+			{stop("a", "default"), "default"},
+		}},
 		{"no SessionStart hooks", []struct{ payload, mode string }{
 			{stop("a", "bypassPermissions"), "bypassPermissions"},
 			{stop("a", "auto"), "auto"},
@@ -993,7 +1000,8 @@ func TestBypassStaysWithProcess(t *testing.T) {
 // cdang across a second restart; a later resume in the same pane does not.
 func TestOwnResumeKeepsBypass(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
-	sock, stop := runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	opts := func(o *Options) { o.SessionID = agent.SessionID; o.RestoreCmd = store.RestoreCmd }
+	sock, stop := runWith(t, f, opts)
 	gui := dial(t, sock, "gui")
 	st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
 	id := st.Panes[0].ID
@@ -1012,7 +1020,7 @@ func TestOwnResumeKeepsBypass(t *testing.T) {
 	send(`{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "bypassPermissions")
 	stop()
 
-	sock, stop = runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	sock, stop = runWith(t, f, opts)
 	defer stop()
 	gui = dial(t, sock, "gui")
 	gui.waitState("restored", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].ID == id })
@@ -1060,4 +1068,70 @@ func TestCancelledOwnResumeDropsBypass(t *testing.T) {
 			t.Fatalf("after %s in the shell: mode %q, want none", payload, got)
 		}
 	}
+}
+
+// TestCodexAfterCdangInPane: Codex reporting its mode in a pane where a
+// cdang Claude ran never keeps Claude's bypass.
+func TestCodexAfterCdangInPane(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	defer stop()
+	gui := dial(t, sock, "gui")
+	st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	id := st.Panes[0].ID
+	hook := dial(t, sock, "hook")
+	for _, step := range []struct {
+		prov          model.Provider
+		payload, mode string
+	}{
+		{model.ProviderClaude, `{"session_id":"a","hook_event_name":"SessionStart","source":"startup"}`, ""},
+		{model.ProviderClaude, `{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "bypassPermissions"},
+		{model.ProviderCodex, `{"session_id":"a","hook_event_name":"Stop","permission_mode":"default"}`, "default"},
+	} {
+		hook.send(proto.AgentEvent{Pane: id, Provider: step.prov, Payload: []byte(step.payload)})
+		st := gui.waitState(step.payload, func(s model.State) bool {
+			return len(s.Activities) == 1 && string(s.Activities[0].State) == step.payload && s.Panes[0].Provider == step.prov
+		})
+		if got := st.Panes[0].AgentMode; got != step.mode {
+			t.Fatalf("after %s from %s: mode %q, want %q", step.payload, step.prov, got, step.mode)
+		}
+	}
+}
+
+// TestOwnResumeWithExplicitMode: a saved command that sets its own
+// --permission-mode resumes in that mode, so the resumed process never
+// keeps the saved bypass it was not started with.
+func TestOwnResumeWithExplicitMode(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	opts := func(o *Options) { o.SessionID = agent.SessionID; o.RestoreCmd = store.RestoreCmd }
+	sock, stop := runWith(t, f, opts)
+	gui := dial(t, sock, "gui")
+	gui.send(proto.AddProject{Path: t.TempDir()})
+	st := gui.waitState("project", func(s model.State) bool { return len(s.Workspaces) == 2 })
+	gui.send(proto.OpenPane{WorkspaceID: st.Workspaces[1].ID, Cmd: []string{"claude", "--permission-mode", "plan"}})
+	st = gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 2 })
+	id := st.Panes[1].ID
+	hook := dial(t, sock, "hook")
+	send := func(payload, want string) {
+		t.Helper()
+		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(payload)})
+		st := gui.waitState(payload, func(s model.State) bool {
+			i := slices.IndexFunc(s.Activities, func(a model.Activity) bool { return a.PaneID == id })
+			return i >= 0 && string(s.Activities[i].State) == payload
+		})
+		i := slices.IndexFunc(st.Panes, func(p model.Pane) bool { return p.ID == id })
+		if got := st.Panes[i].AgentMode; got != want {
+			t.Fatalf("after %s: mode %q, want %q", payload, got, want)
+		}
+	}
+	send(`{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "bypassPermissions")
+	stop()
+
+	sock, stop = runWith(t, f, opts)
+	defer stop()
+	gui = dial(t, sock, "gui")
+	gui.waitState("restored", func(s model.State) bool { return len(s.Panes) == 2 })
+	hook = dial(t, sock, "hook")
+	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "")
+	send(`{"session_id":"a","hook_event_name":"Stop"}`, "")
 }

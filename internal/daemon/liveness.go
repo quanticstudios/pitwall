@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"time"
 
@@ -218,8 +219,12 @@ func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 	}
 	if started, resumed := agent.NewProcess(payload); started || resumed {
 		d.live.started[p.ID], d.live.fresh[p.ID] = true, true
+		// Only pitwall's own relaunch, once, and only with the mode it
+		// actually passed: a saved command's own --permission-mode wins
+		// over AgentMode in RestoreCmd.
 		_, own := d.resumed[p.ID]
-		own = own && resumed && !d.live.resumeSeen[p.ID]
+		own = own && resumed && !d.live.resumeSeen[p.ID] &&
+			(p.AgentMode != "bypassPermissions" || slices.Contains(d.o.RestoreCmd(*p), "--dangerously-skip-permissions"))
 		if resumed {
 			d.live.resumeSeen[p.ID] = true
 		}
@@ -233,5 +238,19 @@ func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 		}
 		return false // a new session comes with a new id, which clears the mode
 	}
-	return d.live.started[p.ID] && !d.live.fresh[p.ID] && p.AgentMode == "bypassPermissions"
+	if agent.PiEvent(payload) == "" && sessionEnd(payload) {
+		delete(d.live.started, p.ID) // the process is gone; the next one starts over
+		return false
+	}
+	// Only Claude sends SessionStart; another agent in the pane reports its
+	// own mode.
+	return p.Provider == model.ProviderClaude && d.live.started[p.ID] && !d.live.fresh[p.ID] && p.AgentMode == "bypassPermissions"
+}
+
+// sessionEnd reports whether a hook is Claude's or Codex's SessionEnd.
+func sessionEnd(payload []byte) bool {
+	var p struct {
+		Event string `json:"hook_event_name"`
+	}
+	return json.Unmarshal(payload, &p) == nil && p.Event == "SessionEnd"
 }
