@@ -1020,3 +1020,44 @@ func TestOwnResumeKeepsBypass(t *testing.T) {
 	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "bypassPermissions")
 	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "")
 }
+
+// TestCancelledOwnResumeDropsBypass: a restored cdang process cancelled
+// before its first hook leaves a shell with no mode, so a plain resume typed
+// there never inherits bypass.
+func TestCancelledOwnResumeDropsBypass(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	gui := dial(t, sock, "gui")
+	st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	id := st.Panes[0].ID
+	hook := dial(t, sock, "hook")
+	hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(`{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`)})
+	gui.waitState("bypass", func(s model.State) bool { return s.Panes[0].AgentMode == "bypassPermissions" })
+	stop()
+
+	f.mu.Lock()
+	started := len(f.panes)
+	f.mu.Unlock()
+	sock, stop = runWith(t, f, func(o *Options) { o.SessionID = agent.SessionID })
+	defer stop()
+	gui = dial(t, sock, "gui")
+	gui.waitState("restored", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].ID == id })
+	f.mu.Lock()
+	restored := f.panes[started]
+	f.mu.Unlock()
+	restored.Close() // Ctrl+C before Claude sent anything
+	gui.waitState("shell", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].SessionID == "" })
+	hook = dial(t, sock, "hook")
+	for _, payload := range []string{
+		`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`,
+		`{"session_id":"a","hook_event_name":"Stop"}`,
+	} {
+		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(payload)})
+		st := gui.waitState(payload, func(s model.State) bool {
+			return len(s.Activities) == 1 && string(s.Activities[0].State) == payload
+		})
+		if got := st.Panes[0].AgentMode; got != "" {
+			t.Fatalf("after %s in the shell: mode %q, want none", payload, got)
+		}
+	}
+}
