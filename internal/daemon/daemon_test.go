@@ -1036,6 +1036,41 @@ func TestOwnResumeKeepsBypass(t *testing.T) {
 	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "")
 }
 
+// TestOwnResumeEndedEarly: pitwall's relaunch that ends before its resume
+// SessionStart uses up the allowance, so a plain resume after it gets no
+// mode.
+func TestOwnResumeEndedEarly(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	opts := func(o *Options) { o.SessionID = agent.SessionID; o.RestoreCmd = store.RestoreCmd }
+	sock, stop := runWith(t, f, opts)
+	gui := dial(t, sock, "gui")
+	st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	id := st.Panes[0].ID
+	hook := dial(t, sock, "hook")
+	send := func(payload, want string) {
+		t.Helper()
+		hook.send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte(payload)})
+		st := gui.waitState(payload, func(s model.State) bool {
+			return len(s.Activities) == 1 && string(s.Activities[0].State) == payload ||
+				len(s.Activities) == 0 && payload == `{"session_id":"a","hook_event_name":"SessionEnd"}`
+		})
+		if got := st.Panes[0].AgentMode; got != want {
+			t.Fatalf("after %s: mode %q, want %q", payload, got, want)
+		}
+	}
+	send(`{"session_id":"a","hook_event_name":"Stop","permission_mode":"bypassPermissions"}`, "bypassPermissions")
+	stop()
+
+	sock, stop = runWith(t, f, opts)
+	defer stop()
+	gui = dial(t, sock, "gui")
+	gui.waitState("restored", func(s model.State) bool { return len(s.Panes) == 1 && s.Panes[0].ID == id })
+	hook = dial(t, sock, "hook")
+	send(`{"session_id":"a","hook_event_name":"SessionEnd"}`, "bypassPermissions")
+	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "")
+	send(`{"session_id":"a","hook_event_name":"Stop"}`, "")
+}
+
 // TestCancelledOwnResumeDropsBypass: a restored cdang process cancelled
 // before its first hook leaves a shell with no mode, so a plain resume typed
 // there never inherits bypass.

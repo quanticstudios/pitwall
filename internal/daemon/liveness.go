@@ -237,7 +237,10 @@ func (d *Daemon) agentMode(p *model.Pane, payload []byte) (keep bool) {
 		return false
 	}
 	if agent.PiEvent(payload) == "" && sessionEnd(payload) {
-		delete(d.live.started, p.ID) // the process is gone; the next one starts over
+		// The process is gone: the next one starts over, and pitwall's own
+		// relaunch, if this was it, is used up.
+		delete(d.live.started, p.ID)
+		d.live.resumeSeen[p.ID] = true
 		return false
 	}
 	// Only Claude sends SessionStart; another agent in the pane reports its
