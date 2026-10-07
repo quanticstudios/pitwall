@@ -10,6 +10,12 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.22
+
+- The first group at the top of the sidebar gets the same 6dp above its
+  header as the others, so its hover box no longer touches the sidebar's
+  header.
+
 ## v0.1.0-alpha.21
 
 - The daemon logs each decision to `decisions.jsonl` in the state folder:

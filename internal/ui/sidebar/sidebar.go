@@ -919,7 +919,7 @@ func rowHeight(gtx layout.Context) int {
 
 // place lays the tree out in content pixels, top-level items in order: a
 // run of ungrouped tabs between pt-1 and pb-1, gap-0.5 apart; a group as
-// its separator (unless first) and header and, when expanded, its tabs
+// its separator (unless first), 6dp, its header and, when expanded, its tabs
 // laid out the same way. It returns the elements and the height.
 func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	var out []elem
@@ -952,8 +952,9 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		endRun()
 		top := y
 		if i > 0 {
-			y += gtx.Dp(6) + 1 + gtx.Dp(6) // mt-1.5 border-t pt-1.5
+			y += gtx.Dp(6) + 1 // mt-1.5 border-t
 		}
+		y += gtx.Dp(6) // pt-1.5, the first group's too
 		head := y
 		y += gtx.Dp(40)
 		out = append(out, elem{kind: 'g', id: id, group: id, top: top, bot: y, head: head})
