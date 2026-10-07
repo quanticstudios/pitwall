@@ -10,6 +10,14 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.20
+
+- Alt+1-9 and Ctrl+T then 1-9 count only the tabs the sidebar shows: a
+  collapsed group's tabs no longer take a number. Hold Alt for a moment and
+  the first nine rows show their number in place of their icon. Rebind
+  `goto_tab_1`-`9` to another modifier, Ctrl+1-9 say, and holding that one
+  shows them instead.
+
 ## v0.1.0-alpha.19
 
 - Hovering a tab shows "…" then "×" in place of its time. The ×

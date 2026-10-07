@@ -570,7 +570,7 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 		for _, ws := range v.st.Workspaces {
 			if ws.ID == s.drag.id {
 				gg.Constraints = layout.Exact(image.Pt(size.X-gx, rowHeight(gtx)))
-				d, _ := s.workspaceRow(gg, v, ws, true)
+				d, _ := s.workspaceRow(gg, v, ws, true, "")
 				h = d.Size.Y
 			}
 		}

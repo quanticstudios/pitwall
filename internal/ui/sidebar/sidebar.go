@@ -105,6 +105,9 @@ type Sidebar struct {
 	ExpandAll bool
 	// Update labels the footer's update button; "" hides it.
 	Update string
+	// Numbers marks the rows, first to ninth from the top, that show their
+	// goto_tab digit in place of their icon.
+	Numbers [9]bool
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -212,9 +215,8 @@ type rowState struct {
 // Layout draws session's groups and tabs in st and returns events from this
 // frame's input.
 func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, session, activeWorkspace string) (layout.Dimensions, []Event) {
-	if s.expanded == nil {
+	if s.projects == nil {
 		s.epoch = gtx.Now
-		s.expanded = map[string]bool{}
 		s.projects = map[string]*projectState{}
 		s.rows = map[string]*rowState{}
 		s.killBtn = map[string]*widget.Clickable{}
@@ -248,6 +250,9 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	if s.renamingGroup != "" && !slices.ContainsFunc(st.Projects, func(p model.Project) bool { return p.ID == s.renamingGroup }) {
 		s.cancelRename()
 	}
+	if s.expanded == nil {
+		s.expanded = map[string]bool{}
+	}
 	if s.ExpandAll {
 		for _, p := range st.Projects {
 			if _, set := s.expanded[p.ID]; !set {
@@ -255,12 +260,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 			}
 		}
 	}
-	if v.activeProject != s.activeProject {
-		s.activeProject = v.activeProject
-		if v.activeProject != "" {
-			s.expanded[v.activeProject] = true
-		}
-	}
+	s.follow(v)
 	for id := range s.selected {
 		if _, ok := v.activity[id]; !ok {
 			delete(s.selected, id) // gone or detached
@@ -416,6 +416,32 @@ func (s *Sidebar) order(v *view) []string {
 		}
 	}
 	return out
+}
+
+// follow expands the active tab's group when the active tab moved to
+// another group.
+func (s *Sidebar) follow(v *view) {
+	if v.activeProject == s.activeProject {
+		return
+	}
+	s.activeProject = v.activeProject
+	if v.activeProject != "" {
+		if s.expanded == nil {
+			s.expanded = map[string]bool{}
+		}
+		s.expanded[v.activeProject] = true
+	}
+}
+
+// Rows is session's tabs top to bottom as the sidebar lists them, without
+// detached tabs and the tabs of collapsed groups: the rows goto_tab_N
+// counts. Like Layout, it expands the active tab's group when the active
+// tab moved to another one, so the count holds while the sidebar is hidden.
+func (s *Sidebar) Rows(st *model.State, session, active string) []string {
+	view := st.View(session)
+	v := newView(layout.Context{}, nil, &view, session, active)
+	s.follow(v)
+	return s.order(v)
 }
 
 // click applies a plain, Ctrl or Shift click on tab id.
@@ -960,7 +986,15 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 	}
 	d := s.list.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
 		w := gtx.Constraints.Max.X
+		n := 0 // rows so far, for their digits
 		for i, e := range elems {
+			digit := ""
+			if e.kind == 's' {
+				if n < len(s.Numbers) && s.Numbers[n] {
+					digit = fmt.Sprint(n + 1)
+				}
+				n++
+			}
 			if s.drag.active && s.carried(e) {
 				continue
 			}
@@ -982,7 +1016,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 			o := op.Offset(image.Pt(e.x, y)).Push(gtx.Ops)
 			rg := gtx
 			rg.Constraints.Max.X = w - e.x
-			_, a := s.workspaceRow(rg, v, byID[e.id], false)
+			_, a := s.workspaceRow(rg, v, byID[e.id], false, digit)
 			o.Pop()
 			if e.id == s.hover.shown {
 				s.cardAt, s.cardY = e.id, y
@@ -1109,8 +1143,8 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 // title and pill, then the branch with its diff stats (or the folder) and
 // the time, which the "…" menu trigger and "×" cover on hover. A ghost row is the
 // lifted copy under the pointer: no input, no hover buttons, its fill left
-// to the caller.
-func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, ghost bool) (layout.Dimensions, bool) {
+// to the caller. A digit other than "" takes the place of the mark or icon.
+func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, ghost bool, digit string) (layout.Dimensions, bool) {
 	th := v.th
 	r := s.row(ws.ID)
 	a := v.activity[ws.ID]
@@ -1171,7 +1205,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			nameCol = th.Fg
 		}
 		items := []item{
-			{w: func(gtx layout.Context) layout.Dimensions { return s.stateIcon(gtx, v, ws, a, isActive, base) }},
+			{w: func(gtx layout.Context) layout.Dimensions {
+				if digit != "" {
+					return gotoDigit(gtx, th, digit, isActive, base)
+				}
+				return s.stateIcon(gtx, v, ws, a, isActive, base)
+			}},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				if s.renaming == ws.ID && !ghost {
 					return s.renameField(gtx, th)
@@ -1351,6 +1390,23 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 		return drawIcon(gtx, icTerminal, sz, th.Green, 0)
 	}
 	return drawIcon(gtx, icGitBranch, sz, StateColor(th, a.State), 0)
+}
+
+// gotoDigit is a row's goto_tab digit while its modifier is held: a small
+// keycap centred on the 12dp icon slot, so the title does not move.
+func gotoDigit(gtx layout.Context, th *theme.Theme, digit string, isActive bool, base color.NRGBA) layout.Dimensions {
+	sz, d := gtx.Dp(12), gtx.Dp(16)
+	fill, col := theme.Mix(base, th.Fg, 0.1), th.Fg
+	if isActive {
+		fill, col = th.Primary, th.OnPrimary
+	}
+	off := op.Offset(image.Pt((sz-d)/2, (sz-d)/2)).Push(gtx.Ops)
+	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(0, 0, d, d), gtx.Dp(4)).Op(gtx.Ops))
+	centered(gtx, image.Pt(d, d), func(gtx layout.Context) layout.Dimensions {
+		return label(gtx, th, semibold(th.UIFont), 10, col, digit)
+	})
+	off.Pop()
+	return layout.Dimensions{Size: image.Pt(sz, sz)}
 }
 
 // pill is ActivityPill: rounded-full, px-1.5 py-px, 10px semibold, a pulsing

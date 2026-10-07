@@ -418,7 +418,7 @@ conventional:
 | Ctrl+Tab / Ctrl+Shift+Tab               | Next / previous tab, across groups                        |
 | Ctrl+PageDown / Ctrl+PageUp             | Next / previous tab, across groups                        |
 | Ctrl+Shift+PageDown / Ctrl+Shift+PageUp | First tab of the next / previous group                    |
-| Alt+1-9                                 | Go to the Nth tab in the sidebar                          |
+| Alt+1-9                                 | Go to the Nth tab the sidebar shows; hold Alt to number them |
 | Ctrl+Shift+O                            | Split the pane to the right                               |
 | Ctrl+Shift+E                            | Split the pane below                                      |
 | Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up   | Next / previous pane                                      |
@@ -444,7 +444,7 @@ aide:
 | Alt+J / Alt+K                     | Next / previous tab, across groups             |
 | Alt+H / Alt+L                     | Previous / next pane                           |
 | Alt+Arrows                        | Same as J / K / H / L                          |
-| Alt+1-9                           | Go to the Nth tab in the sidebar               |
+| Alt+1-9                           | Go to the Nth tab the sidebar shows; hold Alt to number them |
 | Alt+Shift+T                       | New tab below this one, in its folder          |
 | Alt+N                             | Split the pane to the right                    |
 | Alt+Shift+N                       | Split the pane below                           |
@@ -459,7 +459,7 @@ aide:
 | Ctrl+T then x                     | Close the tab                                  |
 | Ctrl+T then r                     | Rename the tab                                 |
 | Ctrl+T then h / l or Left / Right | Previous / next tab in the group               |
-| Ctrl+T then 1-9                   | Go to the Nth tab                              |
+| Ctrl+T then 1-9                   | Go to the Nth tab the sidebar shows            |
 | Ctrl+T then u                     | Go to the tab that needs you, newest first     |
 | Ctrl+T then s                     | Session switcher                               |
 | Ctrl+T twice                      | Send Ctrl+T to the terminal                    |
