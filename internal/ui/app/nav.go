@@ -35,6 +35,10 @@ type nav struct {
 	altHeld   bool              // the hold modifier is down on its own: the switcher shows
 	pinned    bool              // the switcher stays open without the hold
 
+	// rows are the tab ids the sidebar lists in st, top to bottom, which
+	// goto_N counts; nil counts every tab (n.ordered).
+	rows func(st *model.State) []string
+
 	sidebarHidden bool // toggle_sidebar flips it; the window slides the sidebar
 	panelOpen     bool // toggle_panel flips it; kept for the window's life only
 
@@ -529,6 +533,13 @@ func (n *nav) keyFilters() []key.Filter {
 	if hk := b.HoldKey(); hk != "" {
 		fs = append(fs, key.Filter{Name: hk, Optional: all})
 	}
+	// The goto_tab modifiers on their own show the sidebar's digits.
+	mods, _ := gotoKeys(b)
+	for _, k := range modKeys {
+		if mods&k.mod != 0 {
+			fs = append(fs, key.Filter{Name: k.name, Optional: all})
+		}
+	}
 	for _, c := range b.WindowChords() {
 		fs = append(fs, key.Filter{Name: c.Name, Required: c.Mods})
 	}
@@ -658,7 +669,7 @@ func (n *nav) zoomed() string {
 }
 
 // tabOp runs a tab action: new, close, prev, next, goto_N. Tabs are the
-// sidebar's rows; goto_N counts them in sidebar order.
+// sidebar's rows; goto_N counts the rows it shows, skipping collapsed groups.
 func (n *nav) tabOp(st *model.State, op string) any {
 	switch op {
 	case "new":
@@ -679,9 +690,16 @@ func (n *nav) tabOp(st *model.State, op string) any {
 		n.sessionUI = "pick"
 	}
 	if d, ok := strings.CutPrefix(op, "goto_"); ok {
-		ws := n.ordered(st)
-		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(ws) {
-			n.selectWorkspace(st, ws[j-1].ID, "")
+		var ids []string
+		if n.rows != nil {
+			ids = n.rows(st)
+		} else {
+			for _, w := range n.ordered(st) {
+				ids = append(ids, w.ID)
+			}
+		}
+		if j, err := strconv.Atoi(d); err == nil && j >= 1 && j <= len(ids) {
+			n.selectWorkspace(st, ids[j-1], "")
 		}
 	}
 	return nil

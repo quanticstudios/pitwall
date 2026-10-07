@@ -141,8 +141,7 @@ func Run(b Backend) error {
 			u.winFocused = e.Config.Focused
 			u.notifications.setView(&e.Config.Focused, "", "")
 			if !e.Config.Focused {
-				u.nav.altHeld, u.nav.pinned, u.nav.swallow = false, false, ""
-				u.sidebar.HideHover()
+				u.blur()
 			}
 		case app.FrameEvent:
 			start := time.Now()
@@ -176,6 +175,14 @@ func Run(b Backend) error {
 		}
 		wd.end()
 	}
+}
+
+// blur forgets held keys when the window loses focus: their releases go
+// to another window.
+func (u *ui) blur() {
+	u.nav.altHeld, u.nav.pinned, u.nav.swallow = false, false, ""
+	u.hint = gotoHint{}
+	u.sidebar.HideHover()
 }
 
 // Scroller is optionally implemented by a Backend: the scroll position from
@@ -231,6 +238,7 @@ type ui struct {
 	dragUntil uint64 // keep drawing drag until the state passes this version
 
 	shownAt time.Time // switcher fade-in start
+	hint    gotoHint  // the goto_tab modifiers, for the sidebar's digits
 
 	sw       sessionSwitcher
 	showSent string    // the session the last SessionShow named
@@ -369,6 +377,9 @@ func (u *ui) layout(gtx gl.Context) {
 	if u.th == nil {
 		u.th = newTheme()
 	}
+	if u.nav.rows == nil {
+		u.nav.rows = func(st *model.State) []string { return u.sidebar.Rows(st, u.nav.session, u.nav.workspace) }
+	}
 	st := u.b.State()
 	u.nav.sync(&st)
 	u.applyFocus(&st)
@@ -398,6 +409,8 @@ func (u *ui) layout(gtx gl.Context) {
 			break
 		}
 		u.sidebar.HideHover() // keyboard navigation
+		mods, _ := gotoKeys(u.nav.bind())
+		u.hint.key(ev.(key.Event), mods, gtx.Now)
 		if u.sw.open {
 			u.switcherKey(&st, ev.(key.Event))
 			st = u.b.State()
@@ -515,6 +528,15 @@ func (u *ui) layout(gtx gl.Context) {
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
 		u.sidebar.Update = u.updates.label()
+		mods, digits := gotoKeys(u.nav.bind())
+		on, at := u.hint.shown(mods, gtx.Now)
+		if !on {
+			digits = [9]bool{}
+			if !at.IsZero() {
+				gtx.Execute(op.InvalidateCmd{At: at})
+			}
+		}
+		u.sidebar.Numbers = digits
 		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.session, u.nav.workspace) {
 			u.sidebarEvent(&st, ev)
 		}

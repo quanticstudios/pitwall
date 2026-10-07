@@ -289,3 +289,26 @@ func TestCloseButton(t *testing.T) {
 		t.Fatal("clicking × on the hovered row did not close the tab")
 	}
 }
+
+// TestRows: the rows goto_tab_N counts skip detached tabs and collapsed
+// groups, and the active tab's group opens as Layout opens it.
+func TestRows(t *testing.T) {
+	st := &model.State{
+		Projects: []model.Project{{ID: "g1", Kind: model.ProjectGroup}, {ID: "g2", Kind: model.ProjectGroup}},
+		Workspaces: []model.Workspace{
+			{ID: "a"}, {ID: "x", Detached: true}, {ID: "b"},
+			{ID: "c", ProjectID: "g1"}, {ID: "d", ProjectID: "g2"}, {ID: "e", ProjectID: "g2"},
+		},
+	}
+	var s Sidebar
+	if got := s.Rows(st, "", "a"); !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("groups collapsed: %v", got)
+	}
+	if got := s.Rows(st, "", "e"); !slices.Equal(got, []string{"a", "b", "d", "e"}) {
+		t.Fatalf("active in g2: %v", got)
+	}
+	s.expanded["g2"] = false // the user collapsed it
+	if got := s.Rows(st, "", "e"); !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("g2 collapsed again: %v", got)
+	}
+}
