@@ -185,6 +185,7 @@ func TestShortPathAndPill(t *testing.T) {
 		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "allow", AdviceP: 0.99, AdviceRule: "sudo"}, "jev", "Jev: allow 99% · sudo"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "deny", AdviceP: 0.9, AdviceRule: "rm -rf"}, "jev", "Jev: deny 90% · rm -rf"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval}, "jev", "Approval"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, AdviceRule: "sudo"}, "jev", "Risk: sudo"}, // held out
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "now"}, "jev", "Input · now"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "later"}, "jev", "Input"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateCompleted, Review: true}, "jev", "Check"},

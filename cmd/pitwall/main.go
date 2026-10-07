@@ -72,7 +72,7 @@ const usage = `usage:
   the most recently used one; -s <session> picks another.
   pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
-  pitwall jev <cmd>          login, status, logout: connect TypeSafe's Jev (see pitwall jev)
+  pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
 `
 

@@ -244,6 +244,8 @@ func bannerFor(in *Input) banner {
 				why += ": " + a.AdviceRule
 			}
 			why += "."
+		} else if a.AdviceRule != "" {
+			why = strings.TrimSuffix(why, ".") + ". Risk: " + a.AdviceRule + "."
 		}
 		return banner{kind: "wait", eyebrow: "Needs you", what: name + " wants approval", why: why}
 	case model.StateAwaitingInput:
@@ -431,6 +433,8 @@ func graphFor(in *Input) []node {
 			if a.AdviceRule != "" {
 				n.detail += " · " + a.AdviceRule
 			}
+		} else if a.AdviceRule != "" {
+			n.detail = "risk: " + a.AdviceRule
 		}
 		out = append(out, n)
 	}

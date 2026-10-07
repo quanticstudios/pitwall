@@ -10,11 +10,13 @@ package decide
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -185,8 +187,37 @@ func (l *Limiter) Forget(pane string) {
 // every question got an answer of its type. On any error the answers are
 // nil.
 func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs map[string]Question) (map[string]Answer, error) {
+	ans, _, err := c.AskMeta(ctx, feature, pane, state, qs)
+	return ans, err
+}
+
+// Metered is a Provider that also reports the input tokens a request
+// used, as Jev's reply does; 0 means it did not say.
+type Metered interface {
+	AskTokens(ctx context.Context, r Request) (map[string]Answer, int, error)
+}
+
+// Meta is what one call took and cost, for the decisions log. It holds
+// no text.
+type Meta struct {
+	Took time.Duration
+	// InputTokens is the provider's count, or with Estimated set the
+	// request's JSON size / 4; 0 when nothing was sent.
+	InputTokens int
+	Estimated   bool
+	// Err is the kind of failure, "" for an answer: rate_limited and
+	// too_large (nothing sent), timeout, http, bad_reply (the reply did not
+	// decode), bad_answer (an answer failed check), provider (anything else
+	// the provider reported).
+	Err string
+}
+
+// AskMeta is Ask, with what the call took and cost.
+func (c *Client) AskMeta(ctx context.Context, feature, pane string, state any, qs map[string]Question) (map[string]Answer, Meta, error) {
+	var m Meta
 	if c == nil || c.P == nil {
-		return nil, errors.New("no decision provider")
+		m.Err = "provider"
+		return nil, m, errors.New("no decision provider")
 	}
 	now := c.now()
 	l := c.Limit
@@ -194,7 +225,8 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 		l = &c.own
 	}
 	if !l.allow(pane, now) {
-		return nil, ErrRateLimited
+		m.Err = "rate_limited"
+		return nil, m, ErrRateLimited
 	}
 	t := c.Timeout
 	if t <= 0 {
@@ -204,17 +236,30 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 	defer cancel()
 	var ans map[string]Answer
 	prepared, _, err := c.Prepare(state)
-	if err == nil {
-		ans, err = c.P.Ask(ctx, Request{State: prepared, Questions: qs})
-	}
-	if err == nil {
-		err = check(qs, ans)
-	}
-	if err == nil {
-		normalize(ans)
-	}
-	if err == nil && ctx.Err() != nil {
-		err = errors.New("no answer within the timeout") // an answer after the deadline is not used
+	if err != nil {
+		m.Err = "too_large"
+	} else {
+		r := Request{State: prepared, Questions: qs}
+		start := time.Now()
+		if mp, ok := c.P.(Metered); ok {
+			ans, m.InputTokens, err = mp.AskTokens(ctx, r)
+		} else {
+			ans, err = c.P.Ask(ctx, r)
+		}
+		m.Took = time.Since(start)
+		if m.InputTokens <= 0 {
+			b, _ := json.Marshal(r)
+			m.InputTokens, m.Estimated = len(b)/4, true
+		}
+		if err != nil {
+			m.Err = providerErr(ctx, err)
+		} else if err = check(qs, ans); err != nil {
+			m.Err = "bad_answer"
+		} else if ctx.Err() != nil {
+			err, m.Err = errors.New("no answer within the timeout"), "timeout" // an answer after the deadline is not used
+		} else {
+			normalize(ans)
+		}
 	}
 	if err != nil {
 		err = errors.New(Redact(err.Error(), c.Secrets...))
@@ -223,7 +268,22 @@ func (c *Client) Ask(ctx context.Context, feature, pane string, state any, qs ma
 	if c.Counts != nil {
 		c.Counts.add(feature, err != nil, now)
 	}
-	return ans, err
+	return ans, m, err
+}
+
+// providerErr is the Meta.Err kind of a provider's error, read from the
+// error's text, which Jev and Command write.
+func providerErr(ctx context.Context, err error) string {
+	s := err.Error()
+	switch {
+	case ctx.Err() != nil || strings.Contains(s, "within the timeout"):
+		return "timeout"
+	case strings.Contains(s, "HTTP "):
+		return "http"
+	case strings.Contains(s, "bad reply") || strings.Contains(s, "reply too large"):
+		return "bad_reply"
+	}
+	return "provider"
 }
 
 // probTolerance is how far a distribution's sum may be from 1 before the

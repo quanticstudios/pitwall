@@ -126,6 +126,7 @@ func (d *Daemon) seePane(id string) error {
 	}
 	a := d.attnOf(id)
 	a.seen, a.notice = time.Now(), nil
+	d.noteSeen(id, a.seen)
 	d.changed()
 	return nil
 }

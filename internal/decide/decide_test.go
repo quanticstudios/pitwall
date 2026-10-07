@@ -886,3 +886,32 @@ func TestProvidersPrintNoKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestAskMeta: Jev's usage gives the token count; a provider without one
+// gets an estimate from the request size; failures get their kind.
+func TestAskMeta(t *testing.T) {
+	q := map[string]Question{"q": {Type: Noul, Instructions: "Urgent?"}}
+	f := &fakeJev{reply: `{"answers":{"q":{"type":"noul","noul":0.9}},"usage":{"input_tokens":296,"output_tokens":20}}`}
+	_, j := f.start(t)
+	_, m, err := (&Client{P: j}).AskMeta(context.Background(), FeatureTest, "", "state", q)
+	if err != nil || m.InputTokens != 296 || m.Estimated || m.Err != "" {
+		t.Errorf("jev: %+v %v", m, err)
+	}
+	_, m, _ = (&Client{P: slowModel{}}).AskMeta(context.Background(), FeatureTest, "", "state", q)
+	if !m.Estimated || m.InputTokens < 10 || m.Err != "" {
+		t.Errorf("estimate: %+v", m)
+	}
+	f.handle = func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no", http.StatusUnauthorized) }
+	_, m, _ = (&Client{P: j}).AskMeta(context.Background(), FeatureTest, "", "state", q)
+	if m.Err != "http" {
+		t.Errorf("http: %+v", m)
+	}
+	_, m, _ = (&Client{P: slowModel{50 * time.Millisecond}, Timeout: 10 * time.Millisecond}).AskMeta(context.Background(), FeatureTest, "", "state", q)
+	if m.Err != "timeout" {
+		t.Errorf("late: %+v", m)
+	}
+	_, m, _ = (&Client{P: slowModel{}}).AskMeta(context.Background(), FeatureTest, "", "state", map[string]Question{"other": {Type: Noul}})
+	if m.Err != "bad_answer" {
+		t.Errorf("bad answer: %+v", m)
+	}
+}

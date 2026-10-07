@@ -22,6 +22,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/decisionlog"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
@@ -77,7 +78,9 @@ type Options struct {
 	RemoveWorktree func(ctx context.Context, repoRoot, path string, deleteBranch bool) error
 	// Decisions reads the decision settings and provider; nil leaves every
 	// decision feature off.
-	Decisions     func() Decisions
+	Decisions func() Decisions
+	// Journal is decisions.jsonl; nil logs nothing.
+	Journal       *decisionlog.Log
 	Save          func(model.State) error
 	Load          func() (model.State, error)
 	RestoreCmd    func(model.Pane) []string
@@ -112,7 +115,12 @@ type Daemon struct {
 // store.RestoreCmd.
 func New() (*Daemon, error) {
 	path := store.Path()
+	journal, err := decisionlog.Open(filepath.Join(filepath.Dir(path), "decisions.jsonl"))
+	if err != nil {
+		log.Printf("decisions log: %q", err) // decisions work without it
+	}
 	return NewWith(Options{
+		Journal: journal,
 		StartPane: func(c pane.Config) (Pane, error) {
 			p, err := pane.Start(c)
 			if err != nil {
@@ -260,6 +268,7 @@ func (d *Daemon) shutdown() {
 		wg.Go(func() { p.Close() })
 	}
 	wg.Wait()
+	d.o.Journal.Close(time.Second)
 }
 
 // client is one connection's outbound queue. Bursts coalesce: a pending
@@ -343,7 +352,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	}
 	hello, ok := m.(proto.Hello)
 	if !ok || hello.Version != proto.Version {
-		log.Printf("client refused: protocol version %d, want %d", hello.Version, proto.Version)
+		if ok, held := refusals.Allow(fmt.Sprint(hello.Version), time.Now()); ok {
+			log.Printf("client refused: protocol version %d, want %d%s", hello.Version, proto.Version, heldNote(held))
+		}
 		conn.Send(proto.Error{Message: fmt.Sprintf("daemon speaks protocol version %d; send Hello{Version: %d} first", proto.Version, proto.Version)})
 		return
 	}
@@ -443,6 +454,10 @@ func clientKind(k string) string {
 
 // slowHandler is how long one request may take before the log notes it.
 const slowHandler = 500 * time.Millisecond
+
+// refusals keeps hook processes from a newer or older binary, one
+// connection per agent event, to a log line a minute per version.
+var refusals = logs.Limiter{Every: time.Minute}
 
 // resizes keeps a window drag to a log line a second per pane.
 var resizes = logs.Limiter{Every: time.Second}
@@ -957,6 +972,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			p.Prompt, changed = s, true
 		}
 	}
+	d.noteOutcomes(p.ID, m.Payload, now)
 	job := d.planDecisions(*p, m, now)
 	if changed {
 		if w := d.workspace(p.WorkspaceID); w != nil {

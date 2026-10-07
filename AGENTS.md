@@ -7,25 +7,26 @@ agent status next to split terminal panes. Sessions survive the window closing
 
 ## Layout
 
-| Package               | Owns                                                           |
-| --------------------- | -------------------------------------------------------------- |
-| `internal/model`      | Shared types and aide's activity priority/tier logic           |
-| `internal/layout`     | Split tree types and ops                                       |
-| `internal/vt`         | `Emulator` contract and the emulator behind `New`              |
-| `internal/pane`       | One process in a PTY, feeding a `vt.Emulator`                  |
-| `internal/proto`      | Wire messages, gob framing, socket path                        |
-| `internal/daemon`     | State owner, socket server, wiring of pane/agent/gitstat/store |
-| `internal/agent`      | Claude/Codex hook payload to `model.Activity`                  |
-| `internal/gitstat`    | Worktrees and branch stats via `git`                           |
-| `internal/store`      | Persist state, resume commands                                 |
-| `internal/logs`       | Log files, a non-blocking log writer, a line rate limiter      |
-| `internal/update`     | Find a newer GitHub release, install it over the binary        |
-| `internal/input`      | Gio events to PTY bytes                                        |
-| `internal/ui/theme`   | Colors and fonts ported from aide                              |
-| `internal/ui/sidebar` | The sidebar                                                    |
-| `internal/ui/term`    | Grid renderer and pane input                                   |
-| `internal/ui/app`     | Window, splits, Alt navigation, switcher                       |
-| `cmd/pitwall`         | Entry point (orchestrator only)                                |
+| Package                | Owns                                                           |
+| ---------------------- | -------------------------------------------------------------- |
+| `internal/model`       | Shared types and aide's activity priority/tier logic           |
+| `internal/layout`      | Split tree types and ops                                       |
+| `internal/vt`          | `Emulator` contract and the emulator behind `New`              |
+| `internal/pane`        | One process in a PTY, feeding a `vt.Emulator`                  |
+| `internal/proto`       | Wire messages, gob framing, socket path                        |
+| `internal/daemon`      | State owner, socket server, wiring of pane/agent/gitstat/store |
+| `internal/agent`       | Claude/Codex hook payload to `model.Activity`                  |
+| `internal/gitstat`     | Worktrees and branch stats via `git`                           |
+| `internal/store`       | Persist state, resume commands                                 |
+| `internal/logs`        | Log files, a non-blocking log writer, a line rate limiter      |
+| `internal/decisionlog` | decisions.jsonl and `pitwall jev report`                       |
+| `internal/update`      | Find a newer GitHub release, install it over the binary        |
+| `internal/input`       | Gio events to PTY bytes                                        |
+| `internal/ui/theme`    | Colors and fonts ported from aide                              |
+| `internal/ui/sidebar`  | The sidebar                                                    |
+| `internal/ui/term`     | Grid renderer and pane input                                   |
+| `internal/ui/app`      | Window, splits, Alt navigation, switcher                       |
+| `cmd/pitwall`          | Entry point (orchestrator only)                                |
 
 Exported signatures in each package are the contract other packages build
 against. Implement them as written; if one is wrong, say so in your report

@@ -10,6 +10,26 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## v0.1.0-alpha.21
+
+- The daemon logs each decision to `decisions.jsonl` in the state folder:
+  latency, answer, probability, input tokens, and what you did next (how
+  you answered a permission prompt and how fast, whether you prompted
+  again after a turn check, when you focused a triaged pane). It holds ids
+  and numbers, never prompts, commands, paths or screen text.
+- `holdout` under `[decisions.approvals]`, 0.5 by default, hides Jev's
+  recommendation on that share of permission prompts, at random, so the
+  two can be compared. Risk flags always show, alone as "Risk: sudo" when
+  the recommendation is hidden or Jev did not answer. `holdout = 0` shows
+  every recommendation.
+- `pitwall jev report [--days N]` prints calls, failures, latency, an
+  estimated cost, answer times with and without the recommendation, how
+  often Jev agreed with you, the turn check's follow-up rate and triage's
+  time to focus, with a one-line verdict once there is enough data.
+  `pitwall jev status` shows how many events the log holds.
+- An older daemon logs a newer client's protocol version at most once a
+  minute per version, with a count, instead of once per hook.
+
 ## v0.1.0-alpha.20
 
 - Alt+1-9 and Ctrl+T then 1-9 count only the tabs the sidebar shows: a

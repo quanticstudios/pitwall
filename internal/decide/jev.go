@@ -66,8 +66,15 @@ func (j *Jev) client() *http.Client {
 
 // Ask posts the request and decodes the answers.
 func (j *Jev) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
+	ans, _, err := j.AskTokens(ctx, r)
+	return ans, err
+}
+
+// AskTokens is Ask that also returns the input tokens the reply's usage
+// reports.
+func (j *Jev) AskTokens(ctx context.Context, r Request) (map[string]Answer, int, error) {
 	if j.Key == "" {
-		return nil, errors.New("no TypeSafe API key")
+		return nil, 0, errors.New("no TypeSafe API key")
 	}
 	model := j.Model
 	if model == "" {
@@ -78,7 +85,7 @@ func (j *Jev) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
 		Request
 	}{model, r})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	url := j.url
 	if url == "" {
@@ -86,30 +93,30 @@ func (j *Jev) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+string(j.Key))
 	req.Header.Set("Content-Type", "application/json")
 	res, err := j.client().Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("jev: no answer within the timeout")
+			return nil, 0, fmt.Errorf("jev: no answer within the timeout")
 		}
-		return nil, fmt.Errorf("jev: %w", stripURL(err))
+		return nil, 0, fmt.Errorf("jev: %w", stripURL(err))
 	}
 	defer res.Body.Close()
 	const maxReply = 1 << 20
 	data, err := io.ReadAll(io.LimitReader(res.Body, maxReply+1))
 	if err != nil {
-		return nil, fmt.Errorf("jev: read reply: %w", err)
+		return nil, 0, fmt.Errorf("jev: read reply: %w", err)
 	}
 	cut := len(data) > maxReply
 	data = data[:min(len(data), maxReply)]
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jev: %s", statusText(res.StatusCode, wholeText(data, cut), append([]string{string(j.Key)}, []string(j.Secrets)...)...))
+		return nil, 0, fmt.Errorf("jev: %s", statusText(res.StatusCode, wholeText(data, cut), append([]string{string(j.Key)}, []string(j.Secrets)...)...))
 	}
 	if cut {
-		return nil, errors.New("jev: reply too large")
+		return nil, 0, errors.New("jev: reply too large")
 	}
 	return decodeAnswers(data)
 }
@@ -148,17 +155,22 @@ func statusText(code int, body string, keys ...string) string {
 	return out
 }
 
-func decodeAnswers(data []byte) (map[string]Answer, error) {
+// decodeAnswers reads a reply: its answers and the input tokens its usage
+// reports, 0 without one.
+func decodeAnswers(data []byte) (map[string]Answer, int, error) {
 	var reply struct {
 		Answers map[string]Answer `json:"answers"`
+		Usage   struct {
+			InputTokens int `json:"input_tokens"`
+		} `json:"usage"`
 	}
 	if err := json.Unmarshal(data, &reply); err != nil {
-		return nil, fmt.Errorf("bad reply: %w", err)
+		return nil, 0, fmt.Errorf("bad reply: %w", err)
 	}
 	if reply.Answers == nil {
-		return nil, errors.New("bad reply: no answers")
+		return nil, 0, errors.New("bad reply: no answers")
 	}
-	return reply.Answers, nil
+	return reply.Answers, max(reply.Usage.InputTokens, 0), nil
 }
 
 // Ping makes one small real call to p, within timeout, and reports how
