@@ -10,6 +10,7 @@ import (
 	"gioui.org/f32"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -261,5 +262,30 @@ func TestAgentOf(t *testing.T) {
 		if got := AgentOf(st, model.Workspace{ID: ws}); got != want {
 			t.Errorf("%s: %q, want %q", ws, got, want)
 		}
+	}
+}
+
+// TestCloseButton: "×" at the right of a hovered row closes the tab; the
+// same spot on a row that wasn't hovered (no × drawn) closes nothing.
+func TestCloseButton(t *testing.T) {
+	h := newDragHarness(t)
+	row := h.at("u2", 40) // line 2's centre
+	row.X = float32(288 - listPad - 16)
+	closes := func(evs []Event) bool {
+		for _, e := range evs {
+			if c, ok := e.(CloseTab); ok && c.WorkspaceID == "u2" {
+				return true
+			}
+		}
+		return false
+	}
+	if evs := append(h.pointer(pointer.Press, row), h.pointer(pointer.Release, row)...); closes(evs) {
+		t.Fatal("a click where the hidden × sits closed the tab")
+	}
+	h.s.closeMenus()
+	h.r.Queue(pointer.Event{Kind: pointer.Move, Position: row, Source: pointer.Mouse})
+	h.frame()
+	if evs := append(h.pointer(pointer.Press, row), h.pointer(pointer.Release, row)...); !closes(evs) {
+		t.Fatal("clicking × on the hovered row did not close the tab")
 	}
 }

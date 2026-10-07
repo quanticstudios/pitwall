@@ -96,7 +96,7 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 	}
 	over := ""
 	for _, e := range s.elems {
-		if r := s.rows[e.id]; e.kind == 's' && r != nil && (r.click.Hovered() || r.more.Hovered()) {
+		if r := s.rows[e.id]; e.kind == 's' && r != nil && r.hovered() {
 			over = e.id
 		}
 	}
