@@ -16,6 +16,7 @@ func (u *ui) openSettings() {
 	if path == "" {
 		path = config.Path()
 	}
+	u.settings.Version = Version
 	u.settings.Show(path)
 }
 

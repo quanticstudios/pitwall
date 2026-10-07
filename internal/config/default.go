@@ -19,6 +19,7 @@ func defaults() Config {
 	c.Layout = Layout{&gap, &margin}
 	on := true
 	c.Term.CopyOnSelect, c.Term.Links = &on, &on
+	c.Updates.Check = &on
 	c.Decisions = defaultDecisions()
 	return c
 }

@@ -41,6 +41,7 @@ func loadConfig() loaded {
 // apply switches the window to l's keys, theme and spacing.
 func (u *ui) apply(l loaded) {
 	u.cfg, u.th, u.nav.keys, u.probs = l.s, l.th, l.s.Keys, l.probs
+	u.updates.on.Store(l.s.CheckUpdates)
 }
 
 // reportProblems shows config problems as one desktop notification, once
