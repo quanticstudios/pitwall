@@ -199,8 +199,8 @@ var projectColorIDs = [...]string{
 }
 
 type rowState struct {
-	click, more widget.Clickable
-	ctx         int // tag for right- and middle-click
+	click, more, close widget.Clickable
+	ctx                int // tag for right- and middle-click
 }
 
 // Layout draws session's groups and tabs in st and returns events from this
@@ -582,6 +582,9 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		for r.more.Clicked(gtx) {
 			s.toggleMenu(ws.ID)
 		}
+		for r.close.Clicked(gtx) {
+			s.events = append(s.events, CloseTab{WorkspaceID: ws.ID})
+		}
 		right, middle := press(&r.ctx)
 		if right {
 			s.toggleMenu(ws.ID)
@@ -740,6 +743,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for _, r := range s.rows {
 		drain(&r.click)
 		drain(&r.more)
+		drain(&r.close)
 	}
 	for i := range s.menuItem {
 		drain(&s.menuItem[i])
@@ -787,6 +791,11 @@ func (s *Sidebar) project(id string) *projectState {
 		s.projects[id] = p
 	}
 	return p
+}
+
+// hovered reports whether the pointer is over the row or its buttons.
+func (r *rowState) hovered() bool {
+	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered()
 }
 
 func (s *Sidebar) row(id string) *rowState {
@@ -1089,7 +1098,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 
 // workspaceRow draws tab ws's row: its agent's mark or its state icon,
 // title and pill, then the branch with its diff stats (or the folder) and
-// the time, which the "…" menu trigger covers on hover. A ghost row is the
+// the time, which the "…" menu trigger and "×" cover on hover. A ghost row is the
 // lifted copy under the pointer: no input, no hover buttons, its fill left
 // to the caller.
 func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, ghost bool) (layout.Dimensions, bool) {
@@ -1107,7 +1116,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	rr := gtx.Dp(8)
 
 	animating := model.Pulses(a) && !ghost
-	hovered := !ghost && (r.click.Hovered() || r.more.Hovered())
+	hovered := !ghost && r.hovered()
 	base := rowBase(th, a, isActive, hovered)
 	selected := s.selected[ws.ID] && !ghost
 	if selected && !isActive {
@@ -1137,11 +1146,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		paint.FillShape(gtx.Ops, StateColor(th, unseen.State), clip.UniformRRect(bar, bar.Dx()/2).Op(gtx.Ops))
 	}
 
-	// The "…" trigger shows on hover in place of line 2's time. Its dots
+	// "…" then "×" show on hover in place of line 2's time. The ×'s strokes
 	// end at the content's right inset; its 24dp hit area runs past them.
 	showMore := !ghost && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
-	dots := (btn-glyph)/2 + glyph/6 // the button's edge to the dots' edge
+	x := (btn-glyph)/2 + glyph/4 // the button's edge to the ×'s edge
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
 		left := gtx.Dp(12)
@@ -1203,7 +1212,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		switch {
 		case showMore:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(btn-dots, 0)}
+				return layout.Dimensions{Size: image.Pt(2*btn-x, 0)}
 			}})
 		case inRepo && hasStats && stats.MergeStatus == model.MergeConflicts:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -1231,8 +1240,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	clickable(cg, &r.click, content)
 	area.Pop()
 
-	// The "…" trigger, centred on line 2.
-	pos := image.Pt(w-gtx.Dp(12)+dots-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
+	// "×" at the right of line 2, centred on it, and "…" before it. The ×
+	// has no hidden hit area: a stray click there must not close the tab.
+	pos := image.Pt(w-gtx.Dp(12)+x-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
+	if showMore {
+		off := op.Offset(pos).Push(gtx.Ops)
+		iconButton(gtx, th, &r.close, icX, btn, glyph, true)
+		off.Pop()
+	}
+	pos.X -= btn
 	off := op.Offset(pos).Push(gtx.Ops)
 	if showMore {
 		iconButton(gtx, th, &r.more, icEllipsis, btn, glyph, false)
