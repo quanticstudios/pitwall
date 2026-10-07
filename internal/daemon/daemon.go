@@ -343,7 +343,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	}
 	hello, ok := m.(proto.Hello)
 	if !ok || hello.Version != proto.Version {
-		log.Printf("client refused: protocol version %d, want %d", hello.Version, proto.Version)
+		if ok, held := refusals.Allow(fmt.Sprint(hello.Version), time.Now()); ok {
+			log.Printf("client refused: protocol version %d, want %d%s", hello.Version, proto.Version, heldNote(held))
+		}
 		conn.Send(proto.Error{Message: fmt.Sprintf("daemon speaks protocol version %d; send Hello{Version: %d} first", proto.Version, proto.Version)})
 		return
 	}
@@ -443,6 +445,10 @@ func clientKind(k string) string {
 
 // slowHandler is how long one request may take before the log notes it.
 const slowHandler = 500 * time.Millisecond
+
+// refusals keeps hook processes from a newer or older binary, one
+// connection per agent event, to a log line a minute per version.
+var refusals = logs.Limiter{Every: time.Minute}
 
 // resizes keeps a window drag to a log line a second per pane.
 var resizes = logs.Limiter{Every: time.Second}
