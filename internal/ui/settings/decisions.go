@@ -266,7 +266,7 @@ func (p *Page) decisions() []section {
 	rows := []row{
 		{label: "Approvals", desc: "When Claude Code or Codex asks permission, shows the model's recommendation on the approval, with any risk pitwall sees in the call: \"Jev: allow 96% · sudo\". " +
 			"It is only a suggestion; you still answer every prompt. Automatic approval is left out because a command's text cannot show what it will run; that needs sandboxed execution. " +
-			p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
+			holdoutNote(d.Holdout) + p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
 			extra: "approval permission suggest allow deny mode recommendation",
 			control: p.segmented("dmode", []string{config.ModeOff, config.ModeSuggest}, d.Approvals, func(o string) {
 				p.saveValue("decisions.approvals", "mode", config.Quote(o))
@@ -285,4 +285,13 @@ func (p *Page) decisions() []section {
 	)
 
 	return []section{{rows: []row{conn}}, {title: "Features", desc: featDesc, rows: rows}}
+}
+
+// holdoutNote says what share of recommendations is held out to measure
+// them.
+func holdoutNote(h float64) string {
+	if h <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("To measure it, %.0f%% of prompts at random show only the risk (holdout in config.toml); pitwall jev report compares them. ", h*100)
 }

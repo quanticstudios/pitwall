@@ -70,6 +70,7 @@ func (d *Daemon) noteInput(id string, b []byte) {
 	if i >= 0 {
 		s = d.st.Activities[i].State
 	}
+	d.noteKey(id, s, time.Now())
 	d.mu.Unlock()
 	switch {
 	case s == model.StateWorking && isInterrupt(b):

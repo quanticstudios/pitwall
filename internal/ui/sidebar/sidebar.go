@@ -1620,10 +1620,15 @@ func PillText(a model.Activity, by string) string {
 
 // AdviceText is the recommendation on a pending approval, "Jev: allow
 // 96%", with the first risk pitwall sees in the call after it, "Jev:
-// allow 96% · sudo"; "" without one. It is only a suggestion.
+// allow 96% · sudo"; the risk alone, "Risk: sudo", when the
+// recommendation is held out or missing; "" with neither. It is only a
+// suggestion.
 func AdviceText(a model.Activity, by string) string {
-	if a.State != model.StatePendingApproval || a.Advice == "" {
+	if a.State != model.StatePendingApproval || a.Advice == "" && a.AdviceRule == "" {
 		return ""
+	}
+	if a.Advice == "" {
+		return "Risk: " + a.AdviceRule
 	}
 	s := fmt.Sprintf("%s: %s %.0f%%", DecideName(by), a.Advice, a.AdviceP*100)
 	if a.AdviceRule != "" {

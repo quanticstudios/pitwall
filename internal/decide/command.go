@@ -29,12 +29,19 @@ type Command struct {
 // On Windows only the command itself is killed. Output pipes a stray
 // child still holds are let go after WaitDelay.
 func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) {
+	ans, _, err := c.AskTokens(ctx, r)
+	return ans, err
+}
+
+// AskTokens is Ask that also returns the input tokens the reply's usage
+// reports, as Jev's does, or 0.
+func (c Command) AskTokens(ctx context.Context, r Request) (map[string]Answer, int, error) {
 	if len(c.Argv) == 0 || c.Argv[0] == "" {
-		return nil, errors.New("decisions.command is empty")
+		return nil, 0, errors.New("decisions.command is empty")
 	}
 	in, err := json.Marshal(r)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
 	cmd.Env = withoutCredentials(os.Environ())
@@ -46,22 +53,22 @@ func (c Command) Ask(ctx context.Context, r Request) (map[string]Answer, error) 
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, errors.New("command: no answer within the timeout")
+			return nil, 0, errors.New("command: no answer within the timeout")
 		}
 		msg := clip(strings.Join(strings.Fields(Redact(wholeText(errb.Bytes(), errb.cut), []string(c.Secrets)...)), " "), 300)
 		if msg != "" {
-			return nil, fmt.Errorf("command: %v: %s", err, msg)
+			return nil, 0, fmt.Errorf("command: %v: %s", err, msg)
 		}
-		return nil, fmt.Errorf("command: %v", err)
+		return nil, 0, fmt.Errorf("command: %v", err)
 	}
 	if out.cut {
-		return nil, errors.New("command: reply too large")
+		return nil, 0, errors.New("command: reply too large")
 	}
-	ans, err := decodeAnswers(out.Bytes())
+	ans, n, err := decodeAnswers(out.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("command: %w", err)
+		return nil, 0, fmt.Errorf("command: %w", err)
 	}
-	return ans, nil
+	return ans, n, nil
 }
 
 // credentialEnv are the variables pitwall reads a Jev key from. A command

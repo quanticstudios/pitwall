@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/decisionlog"
 )
 
 const jevUsage = `usage:
@@ -21,6 +24,10 @@ const jevUsage = `usage:
                        (reads the key without echo, or from stdin when piped)
   pitwall jev status   test the connection and show what is on
   pitwall jev logout   remove the saved key and turn decisions off
+  pitwall jev report [--days N]
+                       what the decisions log says about the last N days
+                       (default 7): calls, latency, cost, and whether
+                       recommendations change how you answer approvals
 Get a key at ` + decide.KeysURL + `
 `
 
@@ -49,6 +56,9 @@ var readSecret = func(stdin io.Reader, prompt io.Writer) (string, error) {
 }
 
 func runJev(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "report" {
+		return jevReport(args[1:], stdout, stderr)
+	}
 	if len(args) != 1 {
 		fmt.Fprint(stderr, jevUsage)
 		return 2
@@ -130,6 +140,11 @@ func jevStatus(stdout, stderr io.Writer) int {
 	default:
 		fmt.Fprintln(stdout, "provider:   none; decisions are off")
 	}
+	if evs, err := decisionlog.Read(journalPath(), time.Time{}); err == nil && len(evs) > 0 {
+		fmt.Fprintf(stdout, "log:        %d events since %s (pitwall jev report)\n", len(evs), evs[0].T.Local().Format(time.DateOnly))
+	} else {
+		fmt.Fprintln(stdout, "log:        no decisions logged yet")
+	}
 	if key == "" {
 		fmt.Fprintln(stdout, "key:        none (pitwall jev login)")
 		if s.Provider == "jev" {
@@ -154,5 +169,28 @@ func jevStatus(stdout, stderr io.Writer) int {
 		onOff := map[bool]string{true: "on", false: "off"}
 		fmt.Fprintf(stdout, "features:   approvals %s, triage %s, agents %s, turn check %s\n", s.Approvals, onOff[s.Triage], onOff[s.Agents], onOff[s.TurnCheck])
 	}
+	return 0
+}
+
+// journalPath is the daemon's decisions log.
+func journalPath() string { return filepath.Join(stateDir(), "decisions.jsonl") }
+
+// jevReport prints what the decisions log says about the last --days.
+func jevReport(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("jev report", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	days := fs.Int("days", 7, "how many days back to read")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 || *days < 1 {
+		fmt.Fprint(stderr, jevUsage)
+		return 2
+	}
+	now := time.Now()
+	from := now.AddDate(0, 0, -*days)
+	evs, err := decisionlog.Read(journalPath(), from)
+	if err != nil {
+		fmt.Fprintln(stderr, "pitwall:", err)
+		return 1
+	}
+	decisionlog.Report(stdout, evs, from, now)
 	return 0
 }

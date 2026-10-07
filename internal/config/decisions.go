@@ -24,6 +24,7 @@ type Decisions struct {
 type Approvals struct {
 	Mode       string   `toml:"mode" enum:"off,suggest" doc:"off, or suggest: show the model's recommendation on the approval pill, with any risk pitwall sees in the call. It never approves or denies anything for you."`
 	NeverAllow []string `toml:"never_allow" doc:"More risks to flag: a tool call whose input contains any of these strings gets never_allow #N next to the recommendation (the number, never the text)."`
+	Holdout    *float64 `toml:"holdout" min:"0" max:"1" doc:"Share of permission prompts, 0 to 1, picked at random, whose recommendation is asked and logged but not shown, so pitwall jev report can compare answering with and without it. Risk flags always show. 0 shows every recommendation."`
 }
 
 // RemovedApprovals are [decisions.approvals] keys of automatic approval,
@@ -63,6 +64,9 @@ const (
 	DefaultDecideTimeout  = 1.5
 	DefaultAgentThreshold = 0.8
 	DefaultTurnThreshold  = 0.8
+	// DefaultHoldout hides half the recommendations: the even split gets
+	// both arms of pitwall jev report to a verdict soonest.
+	DefaultHoldout = 0.5
 )
 
 // DecideSettings is [decisions] with every value filled in.
@@ -73,6 +77,7 @@ type DecideSettings struct {
 	Timeout        time.Duration
 	Approvals      string // ModeOff or ModeSuggest
 	NeverAllow     []string
+	Holdout        float64 // share of approvals whose recommendation is hidden
 	Triage         bool
 	Agents         bool
 	AgentThreshold float64
@@ -85,11 +90,11 @@ type DecideSettings struct {
 func (d DecideSettings) On() bool { return d.Provider != "" }
 
 func defaultDecisions() Decisions {
-	t, at, tt := DefaultDecideTimeout, DefaultAgentThreshold, DefaultTurnThreshold
+	t, at, tt, ho := DefaultDecideTimeout, DefaultAgentThreshold, DefaultTurnThreshold, DefaultHoldout
 	on, off := true, false
 	return Decisions{
 		Command: []string{}, Model: "jev-latest", Timeout: &t,
-		Approvals: Approvals{Mode: ModeSuggest, NeverAllow: []string{}},
+		Approvals: Approvals{Mode: ModeSuggest, NeverAllow: []string{}, Holdout: &ho},
 		Triage:    Toggle{Enabled: &on},
 		Agents:    Agents{Enabled: &off, Threshold: &at, Programs: []string{}},
 		TurnCheck: Feature{Enabled: &off, Threshold: &tt},
@@ -139,6 +144,7 @@ func resolveDecisions(c Decisions) (_ DecideSettings, issues, notes []issue) {
 	d.Timeout = time.Duration(num(c.Timeout, "decisions.timeout", DefaultDecideTimeout, 0.2, 10) * float64(time.Second))
 	d.AgentThreshold = num(c.Agents.Threshold, "decisions.agents.threshold", DefaultAgentThreshold, 0.5, 1)
 	d.TurnThreshold = num(c.TurnCheck.Threshold, "decisions.turn_check.threshold", DefaultTurnThreshold, 0.5, 1)
+	d.Holdout = num(c.Approvals.Holdout, "decisions.approvals.holdout", DefaultHoldout, 0, 1)
 	d.Triage = c.Triage.Enabled == nil || *c.Triage.Enabled
 	d.Agents = c.Agents.Enabled != nil && *c.Agents.Enabled
 	d.TurnCheck = c.TurnCheck.Enabled != nil && *c.TurnCheck.Enabled

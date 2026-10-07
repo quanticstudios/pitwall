@@ -503,6 +503,16 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
 }
 
+// HookEvent returns a Claude Code or Codex hook's event name and tool
+// name, "" for other payloads and for a /side fork.
+func HookEvent(payload []byte) (event, tool string) {
+	p, err := decode(payload)
+	if err != nil || sideFork(p) {
+		return "", ""
+	}
+	return p.Event, p.ToolName
+}
+
 // PiEvent returns the event of a pi extension report, such as
 // "session_shutdown", and "" for other payloads.
 func PiEvent(payload []byte) string {

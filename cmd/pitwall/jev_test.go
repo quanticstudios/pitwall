@@ -14,12 +14,14 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/decisionlog"
 )
 
 func TestRunJev(t *testing.T) {
 	const key = "ts_live_abcdefghijklmnopqrstuvwxyz012345"
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_STATE_HOME", dir)
 	t.Setenv(decide.KeyEnv, "")
 	defer func(p func(context.Context, string, string) (time.Duration, error), r func(io.Reader, io.Writer) (string, error)) {
 		jevPing, readSecret = p, r
@@ -107,5 +109,32 @@ func TestRunJev(t *testing.T) {
 	}
 	if code, _ := run("", "nope"); code != 2 {
 		t.Error("unknown subcommand accepted")
+	}
+
+	// The decisions log: status counts it, report reads it.
+	if _, out := run("", "status"); !strings.Contains(out, "log:        no decisions logged yet") {
+		t.Errorf("status without a log: %q", out)
+	}
+	if code, out := run("", "report"); code != 0 || !strings.Contains(out, "Nothing logged") {
+		t.Errorf("empty report: %d %q", code, out)
+	}
+	j, err := decisionlog.Open(journalPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	j.Add(decisionlog.Event{T: time.Now().Add(-time.Hour), Kind: decisionlog.Call, ID: "a", Feature: "triage", Ms: 120, Tokens: 300, Answer: "now"})
+	j.Add(decisionlog.Event{T: time.Now().AddDate(0, 0, -10), Kind: decisionlog.Call, ID: "b", Feature: "triage", Ms: 90})
+	j.Close(time.Second)
+	if _, out := run("", "status"); !strings.Contains(out, "log:        2 events since") {
+		t.Errorf("status with a log: %q", out)
+	}
+	if code, out := run("", "report"); code != 0 || !strings.Contains(out, "1 calls") || !strings.Contains(out, "Verdict: not enough data yet") {
+		t.Errorf("report: %d %q", code, out)
+	}
+	if code, out := run("", "report", "--days", "30"); code != 0 || !strings.Contains(out, "2 calls") {
+		t.Errorf("report --days 30: %d %q", code, out)
+	}
+	if code, _ := run("", "report", "--days", "0"); code != 2 {
+		t.Error("report --days 0 accepted")
 	}
 }

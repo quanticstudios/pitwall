@@ -360,7 +360,7 @@ optional name act on the pane's own tab.
 | `pitwall tab rename [name...]`        | Name this pane's tab; no name goes back to the automatic one  |
 | `pitwall tab close`                   | Close this pane's tab                                         |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview)            |
-| `pitwall jev login` / `status` / `logout` | Connect TypeSafe's Jev, test the connection, disconnect (see [Decisions](#decisions-jev)) |
+| `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](#decisions-jev)) |
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](#logs)) |
 | `pitwall --version`                   | Print the version                                             |
 
@@ -644,6 +644,7 @@ then either open Settings, Decisions, paste it and press Connect, or run:
 pitwall jev login     # asks for the key without echo; or: pass show typesafe | pitwall jev login
 pitwall jev status    # one small real call: prints ok, the latency and what is on
 pitwall jev logout    # removes the saved key; turns decisions off if the provider was jev
+pitwall jev report    # what the decisions log says about the last 7 days (--days N)
 ```
 
 The key goes into `credentials` next to `config.toml`
@@ -666,7 +667,7 @@ suggest; screen reading and turn checks stay off until you turn them on.
 
 | Feature | What it does | What it sends, and when |
 | ------- | ------------ | ----------------------- |
-| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (the default) shows the answer on the tab's pill, in the switcher, in the hover card and in the pane's corner ("Jev: allow 96%"), with any risk pitwall sees in the call ("Jev: allow 96% · sudo"). It is only a suggestion: the agent's prompt shows at once, as without pitwall, and you answer it. `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
+| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (the default) shows the answer on the tab's pill, in the switcher, in the hover card and in the pane's corner ("Jev: allow 96%"), with any risk pitwall sees in the call ("Jev: allow 96% · sudo"). It is only a suggestion: the agent's prompt shows at once, as without pitwall, and you answer it. While measuring, `holdout` of the prompts show only the risk; see [Is it worth it?](#is-it-worth-it). `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
 | Attention triage (`[decisions.triage]`) | Rates a pane that needs you as fyi, later, soon or now. The jump-to-attention key goes to the most urgent first, desktop notifications go out most urgent first (now is marked urgent), and fyi sends no notification. The pill reads "Input · now" for now. | When an agent pane starts needing you: its state and its question, approval detail, error or turn summary. |
 | Agents without hooks (`[decisions.agents]`) | For Gemini CLI, OpenCode, Aider, Amp, Cursor agent, Goose and Crush (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (default 0.8). Programs are matched by process name, so a CLI that shows up as `node` is not seen. | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
 | Turn check (`[decisions.turn_check]`) | When an agent finishes a turn, asks whether it needs your review: failed tests, errors left, unfinished work. The Done pill reads Check when the answer reaches `threshold` (default 0.8). | When a turn ends: the agent's last message only, never the screen. |
@@ -706,7 +707,53 @@ or a plan approval.
 Jev bills per input token, about $0.04 per million; output is free. A
 question is a few hundred to a few thousand tokens, so a busy day of agents
 costs cents. Settings, Decisions shows each feature's calls and failures
-today.
+today, and `pitwall jev report` adds up the tokens the log recorded.
+
+### Is it worth it?
+
+The daemon logs every decision to `decisions.jsonl` in the state folder,
+next to `daemon.log` (`~/.local/state/pitwall/` on Linux). Each call gets a
+line with its feature, the pane id, the latency, the failure kind (timeout,
+http, bad_reply, ...), the answer with its probability and confidence, and
+the input tokens. Each outcome gets a line joined to its call by a random
+id: how you answered a permission prompt and how long that took, whether
+you prompted the agent again after a turn check, and how long a triaged
+pane waited for you to focus it. The log never holds prompt text,
+commands, tool input, file paths, screen text or error messages. It is
+mode 0600 in a 0700 folder; at 10 MB it moves to `decisions.jsonl.1`,
+replacing the one before. Token counts come from Jev's reply
+(`usage.input_tokens`). A provider whose reply carries none, and a call
+that timed out, get the request's JSON size divided by 4, marked as an
+estimate.
+
+Neither Claude Code nor Codex reports your answer to a permission prompt,
+so pitwall reads it from what follows. The tool's `PostToolUse` (or
+`PostToolUseFailure`) means you allowed it. A new prompt
+(`UserPromptSubmit`), the end of the turn (`Stop`, `StopFailure`, Codex's
+`Interrupt`) or of the session means you denied it. Another permission
+request first, or closing the pane, leaves it unknown. The answer's time is
+the last key you typed into the pane while it asked, else that hook. Blind
+spots: a subagent running the same tool in between reads as an allow;
+parallel prompts read as unknown; a deny Codex carries on from is only
+seen when the turn ends, though its time still comes from your key.
+
+To tell whether the recommendation helps, `holdout` under
+`[decisions.approvals]` hides it on that share of permission prompts,
+picked at random per prompt and recorded in the log. Jev is still asked and
+its answer logged, but no pill, switcher, hover card or pane corner shows
+it. pitwall's own risk flags still show ("Risk: sudo"). The default, 0.5,
+fills both halves fastest, so a normal week gives an answer; set
+`holdout = 0` to show every recommendation again.
+
+`pitwall jev report [--days N]` reads the log for the last N days (7 by
+default) and prints calls, failures and latency per feature, an estimated
+cost at $0.04 per million input tokens, approval answer times with and
+without the recommendation, how often Jev agreed with you, how often a
+Check turn was followed by another prompt within 5 minutes against a Done
+turn, and time to focus per triage level. It gives a one-line verdict once
+each half has 30 answered prompts, with a bootstrap interval on the
+difference in median answer time; until then it says how many it has.
+`pitwall jev status` shows how many events the log holds.
 
 ### A local model instead
 
@@ -746,6 +793,7 @@ sent.
 | ------------------- | ------------------------------------------------------------- |
 | Saved tabs          | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
 | Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
+| Decisions log       | `~/.local/state/pitwall/decisions.jsonl` (`pitwall jev report`) |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
