@@ -10,6 +10,18 @@ To cut a release: add a section below and merge it, then
 `git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
 `git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
 
+## Unreleased
+
+- An Update button shows at the bottom of the sidebar when GitHub has a
+  newer release. A click downloads the archive for your system, checks it
+  against the release's `checksums.txt`, and replaces the binary the window
+  runs; "Restart to finish" then reopens the window on the new version.
+  Release builds on Linux and macOS check when a window opens and every 6
+  hours; builds from source and Windows never do. `[updates]` gains `check`
+  to turn it off, also under About in the settings page.
+- About in the settings page shows a release archive's version instead of
+  `dev-` and its commit.
+
 ## v0.1.0-alpha.18
 
 - Shift+Enter adds a new line in Claude Code and Codex. Under the kitty

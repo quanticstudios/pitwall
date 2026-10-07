@@ -28,6 +28,7 @@ type Config struct {
 	Font      Font      `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
 	Layout    Layout    `toml:"layout" doc:"Spacing around panes, in dp."`
 	Term      Term      `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
+	Updates   Updates   `toml:"updates" doc:"Release updates."`
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
 }
 
@@ -173,6 +174,11 @@ type Term struct {
 	Links        *bool `toml:"links" doc:"Underline web and file links in panes, plain URLs and OSC 8 hyperlinks alike, and open them with Ctrl+click"`
 }
 
+// Updates is [updates].
+type Updates struct {
+	Check *bool `toml:"check" doc:"Check GitHub for a newer release at start and every 6 hours, and offer it with an Update button at the bottom of the sidebar. Release builds on Linux and macOS only"`
+}
+
 // Font defaults.
 const (
 	DefaultUIFamily   = "Geist"
@@ -197,6 +203,8 @@ type Settings struct {
 	CopyOnSelect bool
 	// Links underlines links in panes and opens them on Ctrl+click.
 	Links bool
+	// CheckUpdates looks for a newer release on GitHub.
+	CheckUpdates bool
 	// Decisions is [decisions] resolved.
 	Decisions DecideSettings
 	// Notes are things that work but should change, like an action under
@@ -344,6 +352,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
+	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
 	var di []issue
 	var dn []issue
 	s.Decisions, di, dn = resolveDecisions(c.Decisions)

@@ -35,7 +35,8 @@ import (
 // Event is one of SelectWorkspace, NewTab, CloseTab, RenameTab, AddProject,
 // DetachSession, AttachSession, KillSession, GroupByFolder, DeleteWorkspace,
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
-// Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions.
+// Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
+// RunUpdate.
 type Event any
 
 // OpenSessions is a click on the session name in the header: show the
@@ -70,6 +71,9 @@ type GroupByFolder struct{ WorkspaceID string }
 type DeleteWorkspace struct{ WorkspaceID string }
 type OpenSettings struct{}
 
+// RunUpdate is a click on the footer's update button.
+type RunUpdate struct{}
+
 // SetProjectAppearance carries the project's whole appearance: a lucide
 // icon name and an aide color id.
 type SetProjectAppearance struct{ ProjectID, Icon, Color string }
@@ -99,6 +103,8 @@ type Sidebar struct {
 	// ExpandAll starts every group expanded, for a drawing of a session
 	// the window does not show (the session switcher's preview).
 	ExpandAll bool
+	// Update labels the footer's update button; "" hides it.
+	Update string
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -108,7 +114,7 @@ type Sidebar struct {
 	rows     map[string]*rowState
 	list     layout.List
 
-	addProject, detached, comments, settings, newTab, sessions widget.Clickable
+	addProject, detached, comments, settings, newTab, sessions, upgrade widget.Clickable
 
 	// session is the session drawn; switchedAt is when it last changed, for
 	// the header's flash.
@@ -712,6 +718,9 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for s.settings.Clicked(gtx) {
 		s.events = append(s.events, OpenSettings{})
 	}
+	for s.upgrade.Clicked(gtx) {
+		s.events = append(s.events, RunUpdate{})
+	}
 	// Refresh hover state for every clickable drawn below.
 	drain := func(c *widget.Clickable) {
 		for {
@@ -751,7 +760,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for i := range s.groupItem {
 		drain(&s.groupItem[i])
 	}
-	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions} {
+	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions, &s.upgrade} {
 		drain(c)
 	}
 }
@@ -1766,8 +1775,8 @@ func floatingSurface(gtx layout.Context, th *theme.Theme, size image.Point) {
 	hl.Pop()
 }
 
-// footer: Open folder as group, detached tabs, comments (disabled),
-// settings.
+// footer: Open folder as group, the update button when there is one,
+// detached tabs, comments (disabled), settings.
 func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	th := v.th
 	w := gtx.Constraints.Max.X
@@ -1776,29 +1785,17 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Max: image.Pt(w, 1)}.Op())
 	gap := gtx.Dp(4)
 	addW := w - 2*px - 3*(btn+gap)
-
+	x := px + addW + gap
 	off := op.Offset(image.Pt(px, 1+px)).Push(gtx.Ops)
-	ag := gtx
-	ag.Constraints = layout.Exact(image.Pt(addW, btn))
-	clickable(ag, &s.addProject, func(gtx layout.Context) layout.Dimensions {
-		col := th.Muted
-		if s.addProject.Hovered() {
-			col = th.Fg
-			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, addW, btn), gtx.Dp(8)).Op(gtx.Ops))
-		}
-		gtx.Constraints = layout.Exact(image.Pt(addW-gtx.Dp(16), btn))
-		defer op.Offset(image.Pt(gtx.Dp(8), 0)).Push(gtx.Ops).Pop()
-		hrow(gtx, btn, gtx.Dp(8),
-			item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icFolderKanb, gtx.Dp(14), col, 0) }},
-			item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), 12.5, col, "Open folder as group")
-			}},
-		)
-		return layout.Dimensions{Size: image.Pt(addW, btn)}
-	})
+	if s.Update != "" {
+		// The update button takes the label's room; the folder keeps its icon.
+		s.updateButton(gtx, th, addW, btn)
+		iconButton(gtx, th, &s.addProject, icFolderKanb, btn, gtx.Dp(14), true)
+	} else {
+		s.addButton(gtx, th, addW, btn)
+	}
 	off.Pop()
 
-	x := px + addW + gap
 	for i, b := range []struct {
 		c    *widget.Clickable
 		icon string
@@ -1820,6 +1817,53 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 		off.Pop()
 	}
 	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// addButton is "Open folder as group", addW wide.
+func (s *Sidebar) addButton(gtx layout.Context, th *theme.Theme, addW, btn int) {
+	ag := gtx
+	ag.Constraints = layout.Exact(image.Pt(addW, btn))
+	clickable(ag, &s.addProject, func(gtx layout.Context) layout.Dimensions {
+		col := th.Muted
+		if s.addProject.Hovered() {
+			col = th.Fg
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, addW, btn), gtx.Dp(8)).Op(gtx.Ops))
+		}
+		gtx.Constraints = layout.Exact(image.Pt(addW-gtx.Dp(16), btn))
+		defer op.Offset(image.Pt(gtx.Dp(8), 0)).Push(gtx.Ops).Pop()
+		hrow(gtx, btn, gtx.Dp(8),
+			item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icFolderKanb, gtx.Dp(14), col, 0) }},
+			item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, medium(th.UIFont), 12.5, col, "Open folder as group")
+			}},
+		)
+		return layout.Dimensions{Size: image.Pt(addW, btn)}
+	})
+}
+
+// updateButton draws the update button, primary text on a primary tint,
+// ending at x, h tall.
+func (s *Sidebar) updateButton(gtx layout.Context, th *theme.Theme, x, h int) {
+	m := op.Record(gtx.Ops)
+	lg := gtx
+	lg.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(140), h)}
+	d := label(lg, th, medium(th.UIFont), 12, th.Primary, s.Update)
+	text := m.Stop()
+	pad, bh := gtx.Dp(10), gtx.Dp(22)
+	size := image.Pt(d.Size.X+2*pad, h)
+	defer op.Offset(image.Pt(x-size.X, 0)).Push(gtx.Ops).Pop()
+	gtx.Constraints = layout.Exact(size)
+	clickable(gtx, &s.upgrade, func(gtx layout.Context) layout.Dimensions {
+		tint := float32(0.14)
+		if s.upgrade.Hovered() {
+			tint = 0.24
+		}
+		top := (h - bh) / 2
+		paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, tint), clip.UniformRRect(image.Rect(0, top, size.X, top+bh), gtx.Dp(6)).Op(gtx.Ops))
+		defer op.Offset(image.Pt(pad, (h-d.Size.Y)/2)).Push(gtx.Ops).Pop()
+		text.Add(gtx.Ops)
+		return layout.Dimensions{Size: size}
+	})
 }
 
 // folderCount is how many ungrouped tabs, detached ones included, share

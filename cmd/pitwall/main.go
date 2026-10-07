@@ -256,6 +256,7 @@ func runGUI(session string) error {
 	b.state = initial.State
 	go b.recvLoop()
 	go b.sendLoop()
+	app.Version, app.Relaunch = versionString(), launchGUI
 	err = app.Run(b)
 	log.Printf("window closed: %s", outcome(err))
 	return err

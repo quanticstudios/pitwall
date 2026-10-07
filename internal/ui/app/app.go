@@ -80,6 +80,7 @@ func Run(b Backend) error {
 	u.sidebarShown = u.nav.sidebarHidden
 	stop := make(chan struct{})
 	defer close(stop)
+	go u.updates.watch(stop, w.Invalidate)
 	go watchConfig(stop, func() []string {
 		u.cfgMu.Lock()
 		defer u.cfgMu.Unlock()
@@ -169,6 +170,9 @@ func Run(b Backend) error {
 				}
 				w.Perform(system.ActionClose)
 			}
+			if u.relaunched {
+				w.Perform(system.ActionClose)
+			}
 		}
 		wd.end()
 	}
@@ -241,6 +245,9 @@ type ui struct {
 	settings   settings.Page // shown in place of the panes
 	settingsWS string        // the tab it was opened over; leaving it closes the page
 	probs      []string      // the loaded config's problems, for the settings page
+
+	updates    updater // the sidebar's update button
+	relaunched bool    // a new window took over after an update; close this one
 
 	panel      sidePanel // the agent panel on the right while nav.panelOpen
 	invalidate func()    // the window's Invalidate; nil in tests
@@ -507,6 +514,7 @@ func (u *ui) layout(gtx gl.Context) {
 		so := op.Offset(image.Pt(edge-sw-1, 0)).Push(gtx.Ops)
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
+		u.sidebar.Update = u.updates.label()
 		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.session, u.nav.workspace) {
 			u.sidebarEvent(&st, ev)
 		}
@@ -585,6 +593,16 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.modal.open(modalAddProject, "")
 	case sidebar.OpenSettings:
 		u.openSettings()
+	case sidebar.RunUpdate:
+		name := ""
+		if s := st.Session(u.nav.session); s != nil {
+			name = s.Name
+		}
+		u.relaunched = u.updates.click(name, u.nav.workspace, func() {
+			if u.invalidate != nil {
+				u.invalidate()
+			}
+		})
 	case sidebar.OpenSessions:
 		u.sw.openAt(st, u.nav.session, "pick", time.Now())
 	case sidebar.NewWorktreeSession:

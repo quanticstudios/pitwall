@@ -75,6 +75,26 @@ Known gaps on Windows:
 The Linux release archive holds only the binary. For a desktop entry and
 icon, build from source as below.
 
+### Updates
+
+On Linux and macOS, a release build checks GitHub for a newer release when a
+window opens and every 6 hours after. When there is one, an Update button
+shows at the bottom of the sidebar. It downloads the release's archive for
+your system, checks it against `checksums.txt`, and replaces the `pitwall`
+binary the window runs; a symlink to it keeps pointing at the new one. When
+the download or the checksum fails, nothing is installed, the button reads
+"Update failed", and a click tries again. After an install, "Restart to
+finish" opens a new window on the same tab and closes this one.
+
+The update leaves the daemon running, so tabs keep their processes. When the
+new release speaks a newer protocol, the new window restarts the daemon, as
+after any upgrade, and tabs come back as they do after a reboot.
+
+A build from source (`git describe` past a tag, or `-dirty`) never checks.
+Windows has no button; run the install command again to update. To stop the
+check, set `check = false` under `[updates]` in config.toml or use the switch
+under About in the settings page.
+
 ### Build from source
 
 You need Git, a C compiler, pkg-config, and [mise](https://mise.jdx.dev). Gio,

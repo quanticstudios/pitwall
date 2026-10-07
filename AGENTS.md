@@ -19,6 +19,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/gitstat`    | Worktrees and branch stats via `git`                           |
 | `internal/store`      | Persist state, resume commands                                 |
 | `internal/logs`       | Log files, a non-blocking log writer, a line rate limiter      |
+| `internal/update`     | Find a newer GitHub release, install it over the binary        |
 | `internal/input`      | Gio events to PTY bytes                                        |
 | `internal/ui/theme`   | Colors and fonts ported from aide                              |
 | `internal/ui/sidebar` | The sidebar                                                    |

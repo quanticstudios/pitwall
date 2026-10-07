@@ -66,6 +66,10 @@ const repo = "https://github.com/quanticstudios/pitwall"
 
 // Page is the settings page's state. The zero value is hidden.
 type Page struct {
+	// Version is main's version. "" reads the build info instead, which
+	// has no -ldflags in a release archive: those are built with -trimpath.
+	Version string
+
 	shown  bool
 	cat    int
 	th     *theme.Theme
@@ -118,7 +122,10 @@ func (p *Page) Show(configPath string) {
 	p.themes = config.AllThemes(filepath.Join(filepath.Dir(configPath), "themes"))
 	home, _ := os.UserHomeDir()
 	p.hooks = hookStatus(home)
-	p.ver = version()
+	p.ver = p.Version
+	if p.ver == "" {
+		p.ver = version()
+	}
 	p.s.Path = configPath
 	p.readKey()
 	families(nil) // start the font scan
@@ -1185,6 +1192,8 @@ func (p *Page) about() []section {
 				},
 			)
 		}},
+		{label: "Check for updates", desc: "Look for a newer release on GitHub at start and every 6 hours, and show an Update button at the bottom of the sidebar. Release builds on Linux and macOS only.", extra: "updates check upgrade release github",
+			control: p.toggle("updates", "check", p.s.CheckUpdates)},
 		{label: "Documentation", desc: "The README covers every option; the changelog lists what each release changed.", extra: "readme changelog help docs github",
 			control: func(gtx gl.Context) gl.Dimensions {
 				return hstack(gtx, 8, link("readme", "README", repo+"#readme"), link("changelog", "Changelog", repo+"/blob/main/CHANGELOG.md"))
