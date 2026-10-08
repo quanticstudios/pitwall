@@ -17,6 +17,9 @@ type Screen struct {
 	scroll uv.Rectangle
 	// scrollback is the scrollback buffer for lines scrolled off the top.
 	scrollback *Scrollback
+	// wrapped marks the rows whose text ran past the right margin onto the
+	// next row (a soft wrap), as opposed to ending in a line break.
+	wrapped []bool
 }
 
 // NewScreen creates a new screen.
@@ -24,6 +27,7 @@ func NewScreen(w, h int) *Screen {
 	s := Screen{
 		buf:        uv.NewRenderBuffer(w, h),
 		scrollback: NewScrollback(DefaultScrollbackSize),
+		wrapped:    make([]bool, h),
 	}
 	s.scroll = s.buf.Bounds()
 	return &s
@@ -38,6 +42,7 @@ func (s *Screen) Reset() {
 	s.saved = Cursor{}
 	s.scroll = s.buf.Bounds()
 	s.buf.Touched = nil
+	clear(s.wrapped)
 }
 
 // Bounds returns the bounds of the screen.
@@ -70,15 +75,47 @@ func (s *Screen) Height() int {
 	return s.buf.Height()
 }
 
-// Resize resizes the screen.
+// Resize resizes the screen. Rows are cut or padded, not rewrapped, so a
+// width change forgets which rows wrapped.
 func (s *Screen) Resize(width int, height int) {
 	if s.buf == nil {
 		s.buf = uv.NewRenderBuffer(width, height)
 	} else {
+		if width != s.buf.Width() {
+			clear(s.wrapped)
+		}
 		s.buf.Resize(width, height)
 		s.buf.Touched = nil
 	}
+	if len(s.wrapped) < height {
+		s.wrapped = append(s.wrapped, make([]bool, height-len(s.wrapped))...)
+	}
+	s.wrapped = s.wrapped[:height]
 	s.scroll = s.buf.Bounds()
+}
+
+// Line returns row y of the screen, or nil out of bounds.
+func (s *Screen) Line(y int) uv.Line {
+	return s.buf.Line(y)
+}
+
+// Wrapped reports whether row y soft-wraps: its text ran past the right
+// margin and goes on in row y+1.
+func (s *Screen) Wrapped(y int) bool {
+	return y >= 0 && y < len(s.wrapped) && s.wrapped[y]
+}
+
+// setWrapped marks whether row y soft-wraps.
+func (s *Screen) setWrapped(y int, v bool) {
+	if y >= 0 && y < len(s.wrapped) {
+		s.wrapped[y] = v
+	}
+}
+
+// fullWidth reports whether the scroll region spans every column, so whole
+// rows move when it scrolls.
+func (s *Screen) fullWidth() bool {
+	return s.scroll.Min.X == 0 && s.scroll.Max.X == s.buf.Width()
 }
 
 // Width returns the width of the screen.
@@ -100,7 +137,7 @@ func (s *Screen) ClearWithScrollback() {
 		for y := 0; y < s.buf.Height(); y++ {
 			line := s.buf.Line(y)
 			if line != nil && !s.isLineEmpty(line) {
-				s.scrollback.Push(line)
+				s.scrollback.push(line, s.Wrapped(y))
 			}
 		}
 	}
@@ -119,8 +156,7 @@ func (s *Screen) isLineEmpty(line uv.Line) bool {
 
 // ClearArea clears the given area.
 func (s *Screen) ClearArea(area uv.Rectangle) {
-	s.buf.ClearArea(area)
-	s.touchArea(area)
+	s.FillArea(nil, area)
 }
 
 // Fill fills the screen or part of it.
@@ -128,10 +164,16 @@ func (s *Screen) Fill(c *uv.Cell) {
 	s.FillArea(c, s.Bounds())
 }
 
-// FillArea fills the given area with the given cell.
+// FillArea fills the given area with the given cell. A row filled up to the
+// right margin no longer wraps.
 func (s *Screen) FillArea(c *uv.Cell, area uv.Rectangle) {
 	s.buf.FillArea(c, area)
 	s.touchArea(area)
+	if area.Max.X >= s.buf.Width() {
+		for y := max(area.Min.Y, 0); y < min(area.Max.Y, len(s.wrapped)); y++ {
+			s.wrapped[y] = false
+		}
+	}
 }
 
 // setHorizontalMargins sets the horizontal margins.
@@ -332,6 +374,12 @@ func (s *Screen) InsertLine(n int) bool {
 	}
 
 	s.buf.InsertLineArea(y, n, s.blankCell(), s.scroll)
+	if s.fullWidth() {
+		n = min(n, s.scroll.Max.Y-y)
+		w := s.wrapped
+		copy(w[y+n:s.scroll.Max.Y], w[y:s.scroll.Max.Y-n])
+		clear(w[y : y+n])
+	}
 
 	return true
 }
@@ -359,14 +407,20 @@ func (s *Screen) DeleteLine(n int) bool {
 	// Save lines to scrollback if we're at the top of the scroll region
 	// and the scroll region uses the full width (typical terminal scroll).
 	// This captures lines that would be lost during scroll up operations.
-	if s.scrollback != nil && y == scroll.Min.Y &&
-		scroll.Min.X == 0 && scroll.Max.X == s.buf.Width() {
+	if s.scrollback != nil && y == scroll.Min.Y && s.fullWidth() {
 		// Save lines that will be deleted
-		linesToSave := min(n, scroll.Max.Y-y)
-		s.scrollback.PushN(s.buf, y, linesToSave)
+		for i := range min(n, scroll.Max.Y-y) {
+			s.scrollback.push(s.buf.Line(y+i), s.wrapped[y+i])
+		}
 	}
 
 	s.buf.DeleteLineArea(y, n, s.blankCell(), scroll)
+	if s.fullWidth() {
+		n = min(n, scroll.Max.Y-y)
+		w := s.wrapped
+		copy(w[y:scroll.Max.Y-n], w[y+n:scroll.Max.Y])
+		clear(w[scroll.Max.Y-n : scroll.Max.Y])
+	}
 
 	return true
 }

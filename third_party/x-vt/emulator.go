@@ -247,6 +247,35 @@ func (e *Emulator) Resize(width int, height int) {
 	}
 }
 
+// MainLines returns the main screen's rows, which of them soft-wrap, its
+// cursor and its saved cursor, whichever screen is active. The cursor's X is
+// the width while a character in the last column waits to wrap. The slices
+// belong to the screen: read them, do not change them.
+func (e *Emulator) MainLines() (lines []uv.Line, wrapped []bool, cur, saved uv.Position) {
+	s := &e.scrs[0]
+	cur = s.cur.Position
+	if e.atPhantom && !e.IsAltScreen() {
+		cur.X = s.Width()
+	}
+	return s.buf.Lines, s.wrapped, cur, s.saved.Position
+}
+
+// ResizeMain is Resize with the main screen's rows replaced by lines:
+// height rows of width cells, wrapped[y] marking a soft wrap at the end of
+// row y. cur and saved are the main screen's cursor and saved cursor; a cur.X
+// of width leaves the cursor in the last column waiting to wrap. The screen
+// keeps the slices.
+func (e *Emulator) ResizeMain(width, height int, lines []uv.Line, wrapped []bool, cur, saved uv.Position) {
+	e.Resize(width, height)
+	s := &e.scrs[0]
+	s.buf.Lines, s.wrapped = lines, wrapped
+	s.setCursor(min(cur.X, width-1), cur.Y, false)
+	s.saved.X, s.saved.Y = min(saved.X, width-1), min(saved.Y, height-1)
+	if !e.IsAltScreen() {
+		e.atPhantom = cur.X >= width
+	}
+}
+
 // Read reads data from the terminal input buffer.
 func (e *Emulator) Read(p []byte) (n int, err error) {
 	if e.closed {

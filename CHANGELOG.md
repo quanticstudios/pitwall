@@ -33,6 +33,13 @@ build. Either step takes `--dry-run`.
   "Disconnected from pitwall's background service." and reconnects on its
   own, starting a daemon when none runs, with a Reconnect button that tries
   at once. It used to sit dead until reopened.
+- Resizing a pane rewraps its text, as Ghostty, kitty and WezTerm do. A long
+  line cut by a split comes back whole when the pane widens again, in the
+  scrollback too, and line breaks the program printed stay where they were.
+  Colors, links and wide characters move with their text, the cursor stays
+  on its character, and the bottom of the pane stays put: narrowing pushes
+  the top into scrollback instead of losing the last lines. Full-screen
+  programs on the alternate screen redraw themselves as before.
 
 ## v0.1.0-alpha.22
 
