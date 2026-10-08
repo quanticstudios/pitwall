@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.1
 
 - pitwall is in beta. Releases are `v0.1.0-beta.N`, and
   `scripts/release.sh` numbers the next release in the newest series.
