@@ -136,6 +136,7 @@ func Run(b Backend) error {
 		case app.ConfigEvent:
 			if e.Config.Focused && !u.winFocused {
 				u.showSent = "" // a focused window's session is the most recently used
+				u.updates.focused()
 			}
 			if e.Config.Focused != u.winFocused {
 				log.Printf("window focused: %v", e.Config.Focused)

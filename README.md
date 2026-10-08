@@ -78,7 +78,8 @@ icon, build from source as below.
 ### Updates
 
 On Linux and macOS, a release build checks GitHub for a newer release when a
-window opens and every 6 hours after. When there is one, an Update button
+window opens, every hour after, and when the window regains focus half an hour
+or more after the last check. When there is one, an Update button
 shows at the bottom of the sidebar. It downloads the release's archive for
 your system, checks it against `checksums.txt`, and replaces the `pitwall`
 binary the window runs; a symlink to it keeps pointing at the new one. When

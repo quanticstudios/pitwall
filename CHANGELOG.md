@@ -14,6 +14,13 @@ pass) and opens a `Release v0.1.0-alpha.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- pitwall checks for a newer release every hour instead of every 6 hours,
+  and also when its window regains focus half an hour or more after the
+  last check, so a new release shows its Update button soon after it is
+  out.
+
 ## v0.1.0-alpha.23
 
 - Shift+Insert pastes and Ctrl+Insert copies, as in Ghostty and kitty, so
