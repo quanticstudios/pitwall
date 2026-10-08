@@ -19,6 +19,10 @@ build. Either step takes `--dry-run`.
 
 - pitwall is in beta. Releases are `v0.1.0-beta.N`, and
   `scripts/release.sh` numbers the next release in the newest series.
+- When an agent that pitwall resumed after a restart exits and its pane
+  drops back to a shell, the shell keeps the pane's size. It used to start
+  at 80x24 and stay there until another pane opened, so a `claude
+  --continue` typed in it drew in the top-left corner of the pane.
 
 ## v0.1.0-alpha.24
 
