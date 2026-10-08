@@ -15,6 +15,11 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- The README and the site no longer list the AUR package. It is not on the
+  AUR yet: new AUR accounts are closed for now.
+
 ## v0.1.0-beta.1
 
 - pitwall is in beta. Releases are `v0.1.0-beta.N`, and

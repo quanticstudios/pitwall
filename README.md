@@ -38,12 +38,6 @@ scoop bucket add quanticstudios https://github.com/quanticstudios/scoop-bucket
 scoop install pitwall
 ```
 
-From the AUR, on Arch Linux, with an AUR helper such as yay or paru:
-
-```sh
-yay -S pitwall-bin
-```
-
 Or with the install script, on Linux or macOS:
 
 ```sh
