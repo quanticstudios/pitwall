@@ -27,7 +27,7 @@ var pollEvery = 500 * time.Millisecond
 var lookFor = 30 * time.Second
 
 func watch(ctx context.Context, provider model.Provider, path string, changed func(Feed), every, look time.Duration) {
-	s := newSession(provider, path, false)
+	s := newSession(provider, path, false, time.Time{})
 	s.look = look
 	var last Feed
 	first := true
@@ -53,6 +53,7 @@ type session struct {
 	provider model.Provider
 	path     string
 	child    bool
+	since    time.Time     // a subagent's spawn
 	look     time.Duration // lookFor, read once by Watch
 	t        tail
 	b        *builder
@@ -66,14 +67,15 @@ type parser interface {
 	resolve(b *builder)
 }
 
-func newSession(provider model.Provider, path string, child bool) *session {
-	s := &session{provider: provider, path: path, child: child, t: tail{path: path}}
+func newSession(provider model.Provider, path string, child bool, since time.Time) *session {
+	s := &session{provider: provider, path: path, child: child, since: since, t: tail{path: path}}
 	s.reset()
 	return s
 }
 
 func (s *session) reset() {
 	s.b = newBuilder(s.provider)
+	s.b.since = s.since
 	switch s.provider {
 	case model.ProviderClaude:
 		s.p = &claude{path: s.path, child: s.child}
@@ -94,6 +96,7 @@ func (s *session) poll() bool {
 	for _, l := range lines {
 		s.parse(l)
 	}
+	s.b.usage.Partial = s.t.cut && s.provider != model.ProviderCodex
 	changed := reset || len(lines) > 0
 	if s.child {
 		return changed
@@ -109,7 +112,7 @@ func (s *session) poll() bool {
 			continue
 		}
 		if c.kid == nil {
-			c.kid = newSession(s.provider, c.file, true)
+			c.kid = newSession(s.provider, c.file, true, c.Start)
 		}
 		if c.kid.poll() {
 			changed = true
@@ -148,6 +151,7 @@ type tail struct {
 	off  int64
 	part []byte // a last line without its newline yet
 	skip bool   // drop bytes up to the next newline
+	cut  bool   // the first read started past the file's start
 }
 
 // read returns the complete lines appended since the last read, at most
@@ -171,7 +175,7 @@ func (t *tail) read() (lines [][]byte, reset bool) {
 	}
 	start := t.off
 	if t.info == nil && fi.Size() > maxRead {
-		start, t.skip = fi.Size()-maxRead, true
+		start, t.skip, t.cut = fi.Size()-maxRead, true, true
 	}
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		return nil, t.forget() || reset

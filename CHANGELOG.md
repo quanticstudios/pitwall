@@ -70,6 +70,13 @@ build. Either step takes `--dry-run`.
   needs the background service from this release: on an older one the bar
   says "Search needs the background service restarted" and searches
   nothing.
+- The agent panel shows the agent's model, the tokens its session used and
+  how full its context window is, with a meter that turns yellow at 80% and
+  red at 95%. Flow's Session section splits the tokens into input, output,
+  cache read and cache write, by model, subagents included. A tab's hover
+  card shows the same line. `show_cost = true` under `[usage]`, or the
+  switch under Agents in settings, adds the cost at the API's list prices
+  from a dated table; a model the table lacks shows tokens only.
 
 ## v0.1.0-alpha.22
 

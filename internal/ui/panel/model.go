@@ -27,6 +27,8 @@ type Input struct {
 	Git    bool
 	Decide string // model.State.Decide.Provider
 	Now    time.Time
+	// ShowCost shows what the agent's tokens cost at list prices.
+	ShowCost bool
 }
 
 // View is one of the panel's tabs.

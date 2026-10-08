@@ -25,6 +25,8 @@ type builder struct {
 	aborted  bool           // the last turn was aborted; it does not reopen
 	last     string         // the latest text reply, cut to 2000 runes
 	handback time.Time      // Claude: when a subagent's SubagentHandback got its result
+	usage    Usage
+	since    time.Time // a subagent's spawn: usage before it is not its own
 }
 
 // maxTurns is how many of the latest turns a Feed keeps.
@@ -195,13 +197,16 @@ func stepState(status string) StepState {
 
 // feed is a copy of what b holds that shares nothing with it.
 func (b *builder) feed() Feed {
-	f := Feed{Provider: b.provider, Plan: slices.Clone(b.plan)}
+	f := Feed{Provider: b.provider, Plan: slices.Clone(b.plan), Usage: b.usage.clone()}
 	for _, t := range b.turns {
 		t.Calls, t.Subagents = slices.Clone(t.Calls), slices.Clone(t.Subagents)
 		f.Turns = append(f.Turns, t)
 	}
 	for _, s := range b.subs {
 		f.Subagents = append(f.Subagents, s.view())
+		if s.kid != nil {
+			f.Usage.Add(Usage{Models: s.kid.b.usage.Models})
+		}
 	}
 	return f
 }

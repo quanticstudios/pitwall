@@ -107,7 +107,7 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 
 // card is what a tab's hover card shows. Lines lists which lines, in
 // order: 't' title, 'f' folder, 'b' branch, 's' agent state, 'd' its
-// detail, 'j' the decision model's advice, 'p' pane count.
+// detail, 'u' token use, 'j' the decision model's advice, 'p' pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -117,6 +117,7 @@ type card struct {
 	add, del     int
 	state        model.AgentState
 	detail       string
+	usage        string // UsageText of the tab's agents
 	decision     string
 	panes        int
 }
@@ -134,6 +135,9 @@ func (c card) lines() string {
 		if c.detail != "" {
 			out += "d"
 		}
+	}
+	if c.usage != "" {
+		out += "u"
 	}
 	if c.decision != "" {
 		out += "j"
@@ -332,6 +336,12 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 			line(nil, func(gtx layout.Context) layout.Dimensions {
 				return detailLabel(gtx, th, theme.Mix(bg, th.Fg, 0.8), c.detail)
 			})
+		case 'u':
+			line(iconOf(icGauge, muted), func(gtx layout.Context) layout.Dimensions {
+				return hrowFit(gtx, gtx.Sp(13*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, th.UIFont, 12, theme.Mix(bg, th.Fg, 0.8), c.usage)
+				}})
+			})
 		case 'j':
 			line(iconOf(icCircleCheck, muted), func(gtx layout.Context) layout.Dimensions {
 				return wrapLabel(gtx, th, th.UIFont, 12, muted, c.decision, 2)
@@ -395,7 +405,13 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 	alpha = 1 - (1-alpha)*(1-alpha)
 	// Record once to learn the height, then place it.
 	m := op.Record(gtx.Ops)
-	size := drawCard(gtx, v.th, cardFor(v, *ws), alpha)
+	c := cardFor(v, *ws)
+	if s.Usage != nil {
+		if u := s.Usage(ws.ID); u != nil {
+			c.usage = UsageText(*u, s.ShowCost)
+		}
+	}
+	size := drawCard(gtx, v.th, c, alpha)
 	call := m.Stop()
 	margin := gtx.Dp(8)
 	y := min(s.cardY, h-size.Y-margin)

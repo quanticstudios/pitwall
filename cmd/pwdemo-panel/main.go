@@ -24,12 +24,16 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
+// showCost is the -cost flag.
+var showCost bool
+
 func main() {
 	agent := flag.String("agent", "claude", "claude, codex or pi")
 	view := flag.String("view", "flow", "flow, subagents, plan, changes or timeline")
 	detail := flag.Int("detail", -1, "in subagents, the subagent to open")
 	static := flag.Bool("static", false, "no simulated updates")
 	file := flag.String("file", "", "read this session file of -agent through flow.Watch instead of the fake feed")
+	flag.BoolVar(&showCost, "cost", false, "show token use in dollars, as [usage] show_cost does")
 	flag.Parse()
 	go func() {
 		w := new(app.Window)
@@ -85,6 +89,7 @@ func run(w *app.Window, agent string, view panel.View, detail int, static bool, 
 			mu.Lock()
 			in := *inputs[agent]
 			in.Now = time.Now()
+			in.ShowCost = showCost
 			p.Layout(gtx, th, in)
 			mu.Unlock()
 			e.Frame(gtx.Ops)
@@ -147,6 +152,10 @@ func claude(start time.Time) *panel.Input {
 				flow.Call{Time: subat(15), Tool: "Read", Arg: "loadtest/checkout_test.go"}, flow.Call{Time: subat(41), Tool: "Write", Arg: "loadtest/orders_test.go +160"},
 				flow.Call{Time: subat(90), Tool: "Edit", Arg: "loadtest/orders_test.go +30 -35", Running: true}),
 		},
+		Usage: flow.Usage{Model: "claude-opus-5-5", Context: 312_400, Models: map[string]flow.Tokens{
+			"claude-opus-5-5":  {Input: 2_180, Output: 61_250, CacheRead: 4_812_000, CacheWrite: 298_400, CacheWrite1h: 298_400},
+			"claude-haiku-4-5": {Input: 41_300, Output: 9_870, CacheRead: 210_500, CacheWrite: 38_100},
+		}},
 	}
 	return &panel.Input{
 		Pane:     &model.Pane{ID: "p1", Provider: model.ProviderClaude, AgentMode: "bypass permissions", Transcript: "/fake"},
@@ -176,7 +185,10 @@ func codex(start time.Time) *panel.Input {
 		Pane: &model.Pane{ID: "p2", Provider: model.ProviderCodex, Transcript: "/fake"},
 		Activity: &model.Activity{PaneID: "p2", Provider: model.ProviderCodex, State: model.StatePendingApproval, UpdatedAt: at(400),
 			Detail: "psql … EXPLAIN SELECT * FROM orders", Advice: "allow", AdviceP: 0.96, AdviceRule: "reads the database", Urgency: "now"},
-		Feed:   &flow.Feed{Provider: model.ProviderCodex, Turns: []flow.Turn{{Prompt: "Add cursor pagination to GET /orders", Start: t0, Calls: calls}}},
+		Feed: &flow.Feed{Provider: model.ProviderCodex, Turns: []flow.Turn{{Prompt: "Add cursor pagination to GET /orders", Start: t0, Calls: calls}},
+			Usage: flow.Usage{Model: "gpt-6.1-sol", Context: 221_700, Window: 258_400, Models: map[string]flow.Tokens{
+				"gpt-6.1-sol": {Input: 96_400, Output: 18_900, CacheRead: 1_402_000},
+			}}},
 		Branch: model.BranchStats{Additions: 128, Deletions: 21},
 		Git:    true, Base: "main",
 		Files:  []gitstat.FileStat{{Path: "internal/orders/list.go", Add: 92, Del: 14, Status: 'M'}, {Path: "internal/orders/list_test.go", Add: 36, Del: 7, Status: 'M'}},

@@ -23,6 +23,8 @@ type claude struct {
 	metas   map[string]claudeMeta // by meta.json file name
 	tasks   map[string]int        // a TaskCreate call's id to its plan index, until its result
 	created int                   // TaskCreate calls since the Task tools took the plan
+	msg     string                // the latest assistant message's id
+	msgUse  Tokens                // and the usage already counted for it
 }
 
 type claudeMeta struct {
@@ -43,8 +45,22 @@ type claudeEntry struct {
 	Message struct {
 		Content    json.RawMessage `json:"content"`
 		StopReason string          `json:"stop_reason"`
+		ID         string          `json:"id"`
+		Model      string          `json:"model"`
+		Usage      *claudeUsage    `json:"usage"`
 	} `json:"message"`
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
+}
+
+type claudeUsage struct {
+	Input         int64 `json:"input_tokens"`
+	Output        int64 `json:"output_tokens"`
+	CacheRead     int64 `json:"cache_read_input_tokens"`
+	CacheWrite    int64 `json:"cache_creation_input_tokens"`
+	CacheCreation struct {
+		Hour int64 `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
+	Speed string `json:"speed"`
 }
 
 type claudeBlock struct {
@@ -68,6 +84,7 @@ func (c *claude) line(b *builder, line []byte) {
 	case "user":
 		c.user(b, e)
 	case "assistant":
+		c.usage(b, ts, e)
 		var blocks []claudeBlock
 		if json.Unmarshal(e.Message.Content, &blocks) != nil {
 			return
@@ -90,6 +107,26 @@ func (c *claude) line(b *builder, line []byte) {
 			b.end(ts, false)
 		}
 	}
+}
+
+// usage counts an assistant entry's tokens. Claude Code writes each
+// content block of a reply as its own entry, every one with the reply's
+// usage so far, so an entry of the same message counts only what it adds.
+func (c *claude) usage(b *builder, ts time.Time, e claudeEntry) {
+	u, m := e.Message.Usage, e.Message.Model
+	if u == nil || m == "" || m == "<synthetic>" {
+		return
+	}
+	if u.Speed == "fast" {
+		m += " (fast)"
+	}
+	t := Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, CacheWrite1h: u.CacheCreation.Hour}
+	if id := e.Message.ID; id != "" && id == c.msg {
+		t, c.msgUse = t.minus(c.msgUse), t
+	} else {
+		c.msg, c.msgUse = id, t
+	}
+	b.use(ts, m, t, u.Input+u.CacheRead+u.CacheWrite, 0)
 }
 
 func (c *claude) user(b *builder, e claudeEntry) {

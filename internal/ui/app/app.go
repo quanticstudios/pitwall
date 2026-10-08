@@ -25,6 +25,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -71,6 +72,7 @@ func Run(b Backend) error {
 	w.Option(app.Title("pitwall"), app.Size(1280, 800), app.MinSize(640, 360))
 	u := &ui{b: b, panes: map[string]*paneUI{}, invalidate: w.Invalidate}
 	defer u.panel.stop()
+	defer u.usage.prune(nil)
 	l := loadConfig()
 	u.apply(l)
 	var reported string
@@ -265,8 +267,9 @@ type ui struct {
 	linkBackdrop                 int
 	relaunchTried, quit, offline bool
 
-	panel      sidePanel // the agent panel on the right while nav.panelOpen
-	invalidate func()    // the window's Invalidate; nil in tests
+	panel      sidePanel  // the agent panel on the right while nav.panelOpen
+	usage      usageWatch // token use for the tabs' hover cards
+	invalidate func()     // the window's Invalidate; nil in tests
 
 	find findBar // the find bar, on the focused pane while open
 
@@ -575,6 +578,15 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 		u.sidebar.Numbers = digits
 		u.sidebar.GH = ghInstalled()
+		u.sidebar.ShowCost = u.cfg.ShowCost
+		u.usage.prune(&st)
+		u.sidebar.Usage = func(ws string) *flow.Usage {
+			invalidate := u.invalidate
+			if invalidate == nil {
+				invalidate = func() {}
+			}
+			return u.usage.of(&st, ws, invalidate)
+		}
 		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.session, u.nav.workspace) {
 			u.sidebarEvent(&st, ev)
 		}

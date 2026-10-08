@@ -63,7 +63,7 @@ func TestOpenFailureResets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	line := `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"go"}}` + "\n"
 	write(t, path, line)
-	s := newSession(model.ProviderClaude, path, false)
+	s := newSession(model.ProviderClaude, path, false, time.Time{})
 	s.poll()
 	appendFile(t, path, line)
 	if err := os.Chmod(path, 0); err != nil {

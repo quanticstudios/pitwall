@@ -26,6 +26,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -39,7 +40,9 @@ func main() {
 	flag.BoolVar(&sb.ExpandAll, "expand-all", false, "start every group expanded")
 	unseen := flag.Bool("unseen", false, "mark every needs-you activity unseen")
 	size := flag.String("size", "900x860", "window size WxH in dp")
+	flag.BoolVar(&sb.ShowCost, "cost", false, "show token use in hover cards in dollars, as [usage] show_cost does")
 	flag.Parse()
+	sb.Usage = fakeUsage
 	var width, height int
 	if _, err := fmt.Sscanf(*size, "%dx%d", &width, &height); err != nil {
 		log.Fatalf("-size %q: want WxH", *size)
@@ -62,6 +65,22 @@ func main() {
 		os.Exit(0)
 	}()
 	app.Main()
+}
+
+// fakeUsage is the token use hover cards show: a Claude session past
+// half its context, a Codex one near its window, nothing for the rest.
+func fakeUsage(ws string) *flow.Usage {
+	switch ws {
+	case "ws-sidebar":
+		return &flow.Usage{Model: "claude-opus-5-5", Context: 612_000, Models: map[string]flow.Tokens{
+			"claude-opus-5-5": {Input: 3_200, Output: 88_400, CacheRead: 9_120_000, CacheWrite: 640_000, CacheWrite1h: 640_000},
+		}}
+	case "ws-term":
+		return &flow.Usage{Model: "gpt-6.1-sol", Context: 231_000, Window: 258_400, Models: map[string]flow.Tokens{
+			"gpt-6.1-sol": {Input: 120_000, Output: 22_000, CacheRead: 1_800_000},
+		}}
+	}
+	return nil
 }
 
 func run(w *app.Window, sb *sidebar.Sidebar, st model.State, active string) error {

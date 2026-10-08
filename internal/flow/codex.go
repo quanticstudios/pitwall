@@ -16,7 +16,9 @@ import (
 // A subagent writes its own rollout, named by its thread id.
 type codex struct {
 	path  string
-	tasks bool // task_started was seen: turns are bounded by task events
+	tasks bool   // task_started was seen: turns are bounded by task events
+	model string // the model of the latest turn_context
+	total Tokens // the latest token_count's running total
 }
 
 type codexEntry struct {
@@ -37,8 +39,10 @@ type codexPayload struct {
 	Action    struct {
 		Command []string `json:"command"`
 	} `json:"action"`
-	Author           string `json:"author"`
-	LastAgentMessage string `json:"last_agent_message"`
+	Model            string     `json:"model"`
+	Info             *codexInfo `json:"info"`
+	Author           string     `json:"author"`
+	LastAgentMessage string     `json:"last_agent_message"`
 	Item             struct {
 		Type          string `json:"type"`
 		ID            string `json:"id"`
@@ -47,6 +51,27 @@ type codexPayload struct {
 		AgentPath     string `json:"agent_path"`
 		AgentThreadID string `json:"agent_thread_id"`
 	} `json:"item"`
+}
+
+// codexInfo is a token_count event's: running totals for the thread, the
+// latest call's counts, and the model's context window.
+type codexInfo struct {
+	Total  codexTokens `json:"total_token_usage"`
+	Last   codexTokens `json:"last_token_usage"`
+	Window int64       `json:"model_context_window"`
+}
+
+// codexTokens counts input with its cached part in it, and output with its
+// reasoning.
+type codexTokens struct {
+	Input  int64 `json:"input_tokens"`
+	Cached int64 `json:"cached_input_tokens"`
+	Write  int64 `json:"cache_write_input_tokens"`
+	Output int64 `json:"output_tokens"`
+}
+
+func (t codexTokens) tokens() Tokens {
+	return Tokens{Input: t.Input - t.Cached - t.Write, Output: t.Output, CacheRead: t.Cached, CacheWrite: t.Write}
 }
 
 func (c *codex) line(b *builder, line []byte) {
@@ -63,6 +88,21 @@ func (c *codex) line(b *builder, line []byte) {
 			return
 		}
 		b.prompt(ts, "")
+	case "turn_context/":
+		c.model = p.Model
+	case "event_msg/token_count":
+		if p.Info == nil {
+			return
+		}
+		// Totals can repeat, so the call's tokens are what the total grew
+		// by. A total that shrank started over: a forked child's own.
+		total := p.Info.Total.tokens()
+		d := total.minus(c.total)
+		if d.Input < 0 || d.Output < 0 || d.CacheRead < 0 || d.CacheWrite < 0 {
+			d = total
+		}
+		c.total = total
+		b.use(ts, c.model, d, p.Info.Last.Input, p.Info.Window)
 	case "event_msg/task_complete":
 		b.reply(ts, p.LastAgentMessage)
 		b.end(ts, false)
