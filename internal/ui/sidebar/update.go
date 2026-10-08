@@ -263,6 +263,22 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.events = append(s.events, DeleteWorkspace{WorkspaceID: id})
 			s.closeMenus()
 		}
+		diffClicked, prClicked := s.menuItem[actDiff].Clicked(gtx), s.menuItem[actPR].Clicked(gtx)
+		for _, ws := range v.st.Workspaces {
+			if ws.ID != id || !diffClicked && !prClicked {
+				continue
+			}
+			// An off entry stays open and does nothing.
+			diff, pr := ReviewBlocked(v.st, ws, s.GH)
+			if diffClicked && diff == "" {
+				s.events = append(s.events, ViewDiff{WorkspaceID: id})
+				s.closeMenus()
+			}
+			if prClicked && pr == "" {
+				s.events = append(s.events, CreatePR{WorkspaceID: id})
+				s.closeMenus()
+			}
+		}
 	}
 	if s.Editing() {
 		for {

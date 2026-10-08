@@ -106,13 +106,13 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		m := op.Record(gtx.Ops)
 		s.catcher(gtx)
 		entries := []menuEntry{
-			{&s.groupItem[0], icPencil, "Rename group", false, false, ""},
-			{&s.groupItem[1], projectIcon("palette"), "Icon and color", false, false, ""},
+			{c: &s.groupItem[0], icon: icPencil, text: "Rename group"},
+			{c: &s.groupItem[1], icon: projectIcon("palette"), text: "Icon and color"},
 		}
 		if p.Kind == model.ProjectGit {
-			entries = append(entries, menuEntry{&s.groupItem[3], projectIcon("git-branch"), "New tab in a worktree", false, false, ""})
+			entries = append(entries, menuEntry{c: &s.groupItem[3], icon: projectIcon("git-branch"), text: "New tab in a worktree"})
 		}
-		entries = append(entries, menuEntry{&s.groupItem[2], projectIcon("layers"), "Ungroup", false, true, ""})
+		entries = append(entries, menuEntry{c: &s.groupItem[2], icon: projectIcon("layers"), text: "Ungroup", sep: true})
 		s.menuList(gtx, th, btn, entries)
 		op.Defer(gtx.Ops, m.Stop())
 	}

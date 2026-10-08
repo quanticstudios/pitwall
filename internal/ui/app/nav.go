@@ -867,6 +867,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		}
 	case "new_tab":
 		return n.tabOp(st, "new_in_group")
+	case "view_diff", "create_pr":
+		return n.review(st, ws, act)
 	case "close_tab", "next_tab", "prev_tab":
 		return n.tabOp(st, strings.TrimSuffix(act, "_tab"))
 	}

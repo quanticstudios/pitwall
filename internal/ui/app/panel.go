@@ -15,7 +15,9 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 )
 
@@ -176,4 +178,8 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	pgtx.Constraints = gl.Exact(r.Size())
 	u.panel.view.Layout(pgtx, u.th, in)
 	off.Pop()
+	if f, ok := u.panel.view.Diff(); ok && dir != "" && in.Base != "" {
+		u.nav.expectPane(st)
+		u.send(proto.OpenPane{WorkspaceID: u.nav.workspace, Dir: layout.Horizontal, Cmd: diffCmd(dir, in.Base, &f)})
+	}
 }

@@ -1,7 +1,7 @@
-16.2
+16.3
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
-model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int}
+model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
 model.DecideCount{Feature string; Calls int; Errors int}
 model.DecideInfo{Provider string; Counts []model.DecideCount}
 model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; Prompt string; AgentMode string; Transcript string}

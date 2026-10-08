@@ -14,6 +14,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -22,6 +23,7 @@ type menuEntry struct {
 	c          *widget.Clickable
 	icon, text string
 	danger     bool   // red, like Delete
+	off        bool   // muted and inert; hint says why
 	sep        bool   // a divider above it
 	hint       string // muted text at the right edge
 }
@@ -63,6 +65,12 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 		entries = append(entries, menuEntry{c: &s.menuItem[actGroupFolder], icon: projectIcon("folder"),
 			text: "Group tabs in " + baseName(ws.RepoRoot), hint: fmt.Sprint(n)})
 	}
+	if _, git := v.st.Stats[ws.ID]; git {
+		diff, pr := ReviewBlocked(v.st, ws, s.GH)
+		entries = append(entries,
+			menuEntry{c: &s.menuItem[actDiff], icon: icFileDiff, text: "View diff", sep: true, off: diff != "", hint: diff},
+			menuEntry{c: &s.menuItem[actPR], icon: icGitPullRequest, text: "Create pull request", off: pr != "", hint: pr})
+	}
 	entries = append(entries,
 		menuEntry{c: &s.menuItem[actDetach], icon: icDetach, text: "Detach tab", sep: true},
 		menuEntry{c: &s.menuItem[actClose], icon: icX, text: "Close tab"})
@@ -103,7 +111,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 			c = &widget.Clickable{}
 			s.moveBtn[g.ID] = c
 		}
-		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(w-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "")
+		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(w-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "", false)
 	}
 }
 
@@ -130,19 +138,23 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, trigger int, ent
 			paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Border, 0.9), clip.Rect{Min: image.Pt(p+gtx.Dp(4), sy), Max: image.Pt(w-p-gtx.Dp(4), sy+1)}.Op())
 		}
 		col, iconCol := th.Fg, th.Muted
-		if e.danger {
+		switch {
+		case e.danger:
 			col, iconCol = th.Red, th.Red
+		case e.off:
+			col, iconCol = th.Muted, theme.Mix(th.SurfaceSecondary, th.Muted, 0.6)
 		}
-		s.menuRow(gtx, th, e.c, image.Pt(p, tops[i]), image.Pt(w-2*p, itemH), e.icon, iconCol, e.text, col, e.hint)
+		s.menuRow(gtx, th, e.c, image.Pt(p, tops[i]), image.Pt(w-2*p, itemH), e.icon, iconCol, e.text, col, e.hint, e.off)
 	}
 	return tops
 }
 
-func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickable, at, size image.Point, icon string, iconCol color.NRGBA, text string, col color.NRGBA, hint string) {
+// menuRow draws one entry; an off one has no hover fill.
+func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickable, at, size image.Point, icon string, iconCol color.NRGBA, text string, col color.NRGBA, hint string, off bool) {
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 	gtx.Constraints = layout.Exact(size)
 	clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		if c.Hovered() {
+		if c.Hovered() && !off {
 			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
 		}
 		gtx.Constraints = layout.Exact(image.Pt(size.X-gtx.Dp(16), size.Y))
@@ -159,6 +171,33 @@ func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickab
 		hrow(gtx, size.Y, gtx.Dp(8), items...)
 		return layout.Dimensions{Size: size}
 	})
+}
+
+// ReviewBlocked says why tab ws cannot show its diff, or open a pull
+// request, "" when it can, in a few words for the menu's right edge. gh is
+// whether the gh CLI is installed.
+func ReviewBlocked(st *model.State, ws model.Workspace, gh bool) (diff, pr string) {
+	bs := st.Stats[ws.ID]
+	switch {
+	case bs.Base == "" && bs.MergeStatus != "":
+		diff = "restart daemon" // one before proto.Level 2 sends no Base
+	case bs.Base == "":
+		diff = "no base branch"
+	}
+	base := gitstat.BranchName(bs.Base)
+	switch {
+	case diff != "":
+		pr = diff
+	case !gh:
+		pr = "no gh CLI"
+	case ws.Branch == "":
+		pr = "no branch"
+	case ws.Branch == base:
+		pr = "on " + base
+	case bs.Ahead == 0:
+		pr = "no commits"
+	}
+	return diff, pr
 }
 
 // catcher covers the whole window under a popover so a click anywhere else

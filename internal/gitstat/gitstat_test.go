@@ -57,7 +57,7 @@ func checkStats(t *testing.T, dir string, want model.BranchStats) {
 
 func TestStats(t *testing.T) {
 	dir := repo(t)
-	checkStats(t, dir, model.BranchStats{MergeStatus: model.MergeUpToDate})
+	checkStats(t, dir, model.BranchStats{MergeStatus: model.MergeUpToDate, Base: "refs/heads/main"})
 	runGit(t, dir, "checkout", "-b", "feature")
 	writeFile(t, dir, "file.txt", "one\nthree\nfour\nfive\n")
 	commit(t, dir)
@@ -66,18 +66,18 @@ func TestStats(t *testing.T) {
 	writeFile(t, dir, "file.txt", "one\nfour\nfive\nsix\n")
 	writeFile(t, dir, "untracked.txt", "not in git diff\n")
 	// From the merge base to the work tree: file.txt +3/-2, staged.txt +1.
-	checkStats(t, dir, model.BranchStats{Additions: 4, Deletions: 2, Ahead: 1, MergeStatus: model.MergeClean})
+	checkStats(t, dir, model.BranchStats{Additions: 4, Deletions: 2, Ahead: 1, MergeStatus: model.MergeClean, Base: "refs/heads/main"})
 	// A default-branch commit is excluded from the merge-base diff.
 	runGit(t, dir, "stash", "push", "--include-untracked")
 	runGit(t, dir, "checkout", "main")
 	writeFile(t, dir, "base.txt", "default only\n")
 	commit(t, dir)
 	runGit(t, dir, "checkout", "feature")
-	checkStats(t, dir, model.BranchStats{Additions: 2, Deletions: 1, Ahead: 1, Behind: 1, MergeStatus: model.MergeClean})
+	checkStats(t, dir, model.BranchStats{Additions: 2, Deletions: 1, Ahead: 1, Behind: 1, MergeStatus: model.MergeClean, Base: "refs/heads/main"})
 	runGit(t, dir, "checkout", "main")
 	runGit(t, dir, "branch", "behind", "HEAD~1")
 	runGit(t, dir, "checkout", "behind")
-	checkStats(t, dir, model.BranchStats{Behind: 1, MergeStatus: model.MergeClean})
+	checkStats(t, dir, model.BranchStats{Behind: 1, MergeStatus: model.MergeClean, Base: "refs/heads/main"})
 }
 
 func TestMergeConflict(t *testing.T) {
@@ -89,7 +89,7 @@ func TestMergeConflict(t *testing.T) {
 	writeFile(t, dir, "file.txt", "main\ntwo\nthree\n")
 	commit(t, dir)
 	runGit(t, dir, "checkout", "feature")
-	checkStats(t, dir, model.BranchStats{Additions: 1, Deletions: 1, Ahead: 1, Behind: 1, MergeStatus: model.MergeConflicts})
+	checkStats(t, dir, model.BranchStats{Additions: 1, Deletions: 1, Ahead: 1, Behind: 1, MergeStatus: model.MergeConflicts, Base: "refs/heads/main"})
 	if out := runGit(t, dir, "status", "--porcelain"); out != "" {
 		t.Fatalf("merge-tree changed worktree: %s", out)
 	}
@@ -125,7 +125,7 @@ func TestDefaultRef(t *testing.T) {
 	writeFile(t, dir, "feature.txt", "feature\n")
 	commit(t, dir)
 	runGit(t, dir, "branch", "-f", "trunk", "HEAD")
-	checkStats(t, dir, model.BranchStats{Additions: 1, Ahead: 1, MergeStatus: model.MergeClean})
+	checkStats(t, dir, model.BranchStats{Additions: 1, Ahead: 1, MergeStatus: model.MergeClean, Base: "refs/remotes/origin/trunk"})
 }
 
 func TestWorktrees(t *testing.T) {
@@ -296,8 +296,8 @@ func TestFilesMatchStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if base != "main" {
-		t.Fatalf("base = %q, want main", base)
+	if base != stats.Base || BranchName(base) != "main" {
+		t.Fatalf("base = %q, Stats' %q, want refs/heads/main", base, stats.Base)
 	}
 	var add, del int
 	got := map[string]FileStat{}

@@ -124,8 +124,9 @@ func NewFakeBackend() *FakeBackend {
 		}
 	}
 	f.st.Stats = map[string]model.BranchStats{
-		"w1": {Additions: 412, Deletions: 38}, "w1b": {Additions: 412, Deletions: 38}, "w1c": {Additions: 412, Deletions: 38},
-		"w4": {Additions: 18, Deletions: 44, MergeStatus: model.MergeConflicts},
+		"w1":  {Additions: 412, Deletions: 38, Ahead: 3, MergeStatus: model.MergeClean, Base: "refs/remotes/origin/main"},
+		"w1b": {Additions: 412, Deletions: 38}, "w1c": {Additions: 412, Deletions: 38},
+		"w4": {Additions: 18, Deletions: 44, MergeStatus: model.MergeConflicts, Base: "refs/remotes/origin/main"},
 		"w6": {Additions: 6, Deletions: 6},
 		"w9": {Additions: 231, Deletions: 57}, "w10": {Additions: 4, Deletions: 2},
 	}
@@ -453,7 +454,11 @@ func (f *FakeBackend) Send(msg any) error {
 		f.nextID++
 		id := fmt.Sprintf("n%d", f.nextID)
 		t := f.tabFor(w, m.TabID)
-		t.Layout = splitTree(t.Layout, m.Target, id, m.Dir)
+		if m.Target == "" && t.Layout != nil { // beside the whole tree, as the daemon does
+			t.Layout = &layout.Node{Dir: m.Dir, Ratios: []float64{0.5, 0.5}, Children: []*layout.Node{t.Layout, layout.Leaf(id)}}
+		} else {
+			t.Layout = splitTree(t.Layout, m.Target, id, m.Dir)
+		}
 		f.st.Panes = append(f.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd})
 	case proto.ClosePane:
 		for _, p := range f.st.Panes {

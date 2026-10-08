@@ -101,7 +101,7 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 			continue
 		}
 		o := op.Offset(image.Pt(pad, ry)).Push(gtx.Ops)
-		u.paletteRow(gtx, &d.rows[i], e, i == sel, image.Pt(inner, rowH))
+		u.paletteRow(gtx, &d.rows[i], e, u.nav.reviewBlocked(st, e.action.Name), i == sel, image.Pt(inner, rowH))
 		o.Pop()
 	}
 	if sel >= 0 {
@@ -119,8 +119,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 }
 
 // paletteRow draws one action: its title, its group, then its keys on the
-// right, at most two.
-func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, sel bool, size image.Point) {
+// right, at most two. An action that cannot run now, why not "", is muted,
+// with why in place of its group.
+func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, why string, sel bool, size image.Point) {
 	th := u.th
 	g := gtx
 	g.Constraints = gl.Exact(size)
@@ -142,10 +143,14 @@ func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, sel
 		o.Pop()
 		kx -= gtx.Dp(6)
 	}
-	gc, gsz := textCall(gtx, th, th.UIFont, 12, th.Muted, e.action.Group)
+	group, fg := e.action.Group, th.Fg
+	if why != "" {
+		group, fg = why, th.Muted
+	}
+	gc, gsz := textCall(gtx, th, th.UIFont, 12, th.Muted, group)
 	tg := gtx
 	tg.Constraints.Max.X = max(0, kx-px-gtx.Dp(12)-gsz.X-gtx.Dp(10))
-	tc, tsz := textCall(tg, th, medium(th.UIFont), 13, th.Fg, e.action.Title())
+	tc, tsz := textCall(tg, th, medium(th.UIFont), 13, fg, e.action.Title())
 	o := op.Offset(image.Pt(px, (size.Y-tsz.Y)/2)).Push(gtx.Ops)
 	tc.Add(gtx.Ops)
 	o.Pop()

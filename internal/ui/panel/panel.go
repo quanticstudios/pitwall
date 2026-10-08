@@ -20,6 +20,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -42,11 +43,23 @@ type Panel struct {
 	lists   map[string]*layout.List
 	tabBtn  map[View]*widget.Clickable
 	rowBtn  []widget.Clickable // one per subagent
+	fileBtn []widget.Clickable // one per changed file
 	back    widget.Clickable
 	subNode widget.Clickable
+	diff    *gitstat.FileStat // the file clicked in Changes, until Diff takes it
 
 	// Set while drawing: something pulses or spins, or a duration ticks.
 	live, tick bool
+}
+
+// Diff returns the file last clicked in Changes, once.
+func (p *Panel) Diff() (gitstat.FileStat, bool) {
+	f := p.diff
+	p.diff = nil
+	if f == nil {
+		return gitstat.FileStat{}, false
+	}
+	return *f, true
 }
 
 // SetView opens view, and in Subagents the subagent at index detail (-1
@@ -108,6 +121,14 @@ func (p *Panel) Layout(gtx layout.Context, th *theme.Theme, in Input) layout.Dim
 		if p.rowBtn[i].Clicked(gtx) {
 			p.detail = i
 			p.list("detail").Position = layout.Position{}
+		}
+	}
+	for len(p.fileBtn) < len(in.Files) {
+		p.fileBtn = append(p.fileBtn, widget.Clickable{})
+	}
+	for i, f := range in.Files {
+		if p.fileBtn[i].Clicked(gtx) {
+			p.diff = &f
 		}
 	}
 	shown := false
@@ -851,7 +872,7 @@ func (d *drawer) changes() []layout.Widget {
 	for _, f := range in.Files {
 		add, del = add+f.Add, del+f.Del
 	}
-	base := in.Base
+	base := gitstat.BranchName(in.Base)
 	if base == "" {
 		base = "base"
 	}
@@ -866,7 +887,9 @@ func (d *drawer) changes() []layout.Widget {
 	if len(in.Files) == 0 {
 		return append(out, d.note("No changes from "+base+"."))
 	}
-	for _, f := range in.Files {
+	// A click on a file opens its diff.
+	for i, f := range in.Files {
+		btn := &d.p.fileBtn[i]
 		out = append(out, func(gtx layout.Context) layout.Dimensions {
 			dir, name := splitPath(f.Path)
 			stCol := map[byte]color.NRGBA{'A': d.c.green, 'D': d.c.red, 'M': d.c.yellow, 'R': d.c.purple}[f.Status]
@@ -874,15 +897,22 @@ func (d *drawer) changes() []layout.Widget {
 				stCol = d.c.quiet
 			}
 			mono := d.th.MonoFont
-			return layout.Inset{Top: 4, Bottom: 4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return row(gtx,
-					part{w: fixed(gtx.Dp(14), d.text(mono, 11, stCol, string(f.Status), 1))},
-					part{gap: gtx.Dp(4), flex: true, w: func(gtx layout.Context) layout.Dimensions {
-						return row(gtx, part{w: d.text(mono, 12, d.c.quiet, dir, 1)}, part{flex: true, w: d.text(mono, 12, theme.Mix(d.c.muted, d.c.fg, 0.7), name, 1)})
-					}},
-					part{gap: gtx.Dp(8), w: d.text(mono, 11, d.c.green, fmt.Sprintf("+%d", f.Add), 1)},
-					part{gap: gtx.Dp(6), w: d.text(mono, 11, d.c.red, fmt.Sprintf("-%d", f.Del), 1)},
-				)
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return clickable(gtx, btn, func(gtx layout.Context) layout.Dimensions {
+				return boxed(gtx, layout.Inset{Top: 4, Bottom: 4, Left: 4, Right: 4}, func(gtx layout.Context) layout.Dimensions {
+					return row(gtx,
+						part{w: fixed(gtx.Dp(14), d.text(mono, 11, stCol, string(f.Status), 1))},
+						part{gap: gtx.Dp(4), flex: true, w: func(gtx layout.Context) layout.Dimensions {
+							return row(gtx, part{w: d.text(mono, 12, d.c.quiet, dir, 1)}, part{flex: true, w: d.text(mono, 12, theme.Mix(d.c.muted, d.c.fg, 0.7), name, 1)})
+						}},
+						part{gap: gtx.Dp(8), w: d.text(mono, 11, d.c.green, fmt.Sprintf("+%d", f.Add), 1)},
+						part{gap: gtx.Dp(6), w: d.text(mono, 11, d.c.red, fmt.Sprintf("-%d", f.Del), 1)},
+					)
+				}, func(sz image.Point) {
+					if btn.Hovered() {
+						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, color.NRGBA{})
+					}
+				})
 			})
 		})
 	}
