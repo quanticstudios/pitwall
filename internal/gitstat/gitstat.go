@@ -43,6 +43,7 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 	if err != nil || base == "" {
 		return stats, err
 	}
+	stats.Base = base
 	mb, err := mergeBase(ctx, worktree, base)
 	if err != nil {
 		return stats, err
@@ -158,6 +159,12 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch boo
 	return nil
 }
 
+// BranchName is the branch a base ref names: "main" for
+// "refs/remotes/origin/main" or "refs/heads/main".
+func BranchName(ref string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/origin/"), "refs/heads/")
+}
+
 var workspaceSegment = regexp.MustCompile(`[^a-z0-9]+`)
 
 // defaultRef prefers origin's default branch, then main/master, then the current branch.
@@ -229,21 +236,20 @@ type FileStat struct {
 }
 
 // Files returns the per-file changes behind Stats' totals, and the base
-// ref they are against ("main"). Untracked files come last, Status '?',
+// ref they are against, as Stats' Base. Untracked files come last, Status '?',
 // with Add their line count when the file is regular (not followed through
 // a symlink), not binary and at most 1 MiB, else 0; Stats leaves them out,
 // so the other files' totals are Stats'.
 func Files(ctx context.Context, worktree string) (base string, files []FileStat, err error) {
-	ref, err := defaultRef(ctx, worktree)
-	if err != nil || ref == "" {
+	base, err = defaultRef(ctx, worktree)
+	if err != nil || base == "" {
 		return "", nil, err
 	}
-	base = strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/origin/"), "refs/heads/")
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
 		return "", nil, fmt.Errorf("%s is not in a git repository", worktree)
 	}
-	mb, err := mergeBase(ctx, root, ref)
+	mb, err := mergeBase(ctx, root, base)
 	if err != nil {
 		return "", nil, err
 	}

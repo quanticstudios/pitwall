@@ -35,6 +35,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 3 added model.BranchStats.Base, the default branch's ref.
 // Level 2 added State.Notice and DismissNotice: why the daemon started
 // without the saved tabs.
 // Level 1 added Hello.Level, StateMsg.Level and Unknown, and made a
@@ -71,7 +72,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 2
+const Level = 3
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.

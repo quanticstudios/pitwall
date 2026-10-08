@@ -4,7 +4,7 @@ package sidebar
 // DetachSession, AttachSession, KillSession, GroupByFolder, DeleteWorkspace,
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
-// RunUpdate.
+// RunUpdate, ViewDiff, CreatePR.
 type Event any
 
 // OpenSessions is a click on the session name in the header: show the
@@ -38,6 +38,12 @@ type KillSession struct{ WorkspaceID string }
 type GroupByFolder struct{ WorkspaceID string }
 type DeleteWorkspace struct{ WorkspaceID string }
 type OpenSettings struct{}
+
+// ViewDiff shows the tab's diff from its default branch.
+type ViewDiff struct{ WorkspaceID string }
+
+// CreatePR opens a pull request for the tab's branch.
+type CreatePR struct{ WorkspaceID string }
 
 // RunUpdate is a click on the footer's update button.
 type RunUpdate struct{}

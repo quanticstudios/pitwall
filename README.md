@@ -279,6 +279,21 @@ is 432dp wide (scaled with the display), narrows to 320dp in a small window,
 then hides. Each window keeps its own open state until it closes. Ctrl+L still
 reaches the shell, to clear the screen.
 
+To review an agent's work, click a file under Changes: its diff opens in a
+new pane beside the tab's panes, from the merge base with the default branch
+to what is on disk now, committed or not. The tab's "…" menu and the command
+palette have View diff, the same for the whole branch, and Create pull
+request. The diff runs `git diff` in your pager: `$GIT_PAGER`, else
+`core.pager`, else delta when it is installed, else `less -R`. Press q to
+close it. Create pull request opens a tab in the tab's folder that runs
+`git push -u origin HEAD` when the branch has no upstream, then
+`gh pr create --fill`, so you see both commands and answer gh's questions
+there; the tab stays when gh exits, with the pull request's link. It never
+force-pushes. The menu greys the entry out and says why when gh is not
+installed, the tab is on the default branch, or the branch has no commits
+ahead of it. Neither action has a key by default; set `view_diff` or
+`create_pr` under `[keys]` to give them one.
+
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
 Drag to select, double-click a word, or hold Shift when a program owns the

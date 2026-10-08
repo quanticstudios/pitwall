@@ -567,6 +567,7 @@ func (u *ui) layout(gtx gl.Context) {
 			}
 		}
 		u.sidebar.Numbers = digits
+		u.sidebar.GH = ghInstalled()
 		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.session, u.nav.workspace) {
 			u.sidebarEvent(&st, ev)
 		}
@@ -672,6 +673,15 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.CloseTab{WorkspaceID: e.WorkspaceID})
 	case sidebar.RenameTab:
 		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, Name: e.Name})
+	case sidebar.ViewDiff:
+		u.nav.selectWorkspace(st, e.WorkspaceID, "")
+		if m := u.nav.review(st, e.WorkspaceID, "view_diff"); m != nil {
+			u.send(m)
+		}
+	case sidebar.CreatePR:
+		if m := u.nav.review(st, e.WorkspaceID, "create_pr"); m != nil {
+			u.send(m)
+		}
 	}
 }
 

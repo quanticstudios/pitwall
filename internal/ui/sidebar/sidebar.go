@@ -31,6 +31,8 @@ type Sidebar struct {
 	// Numbers marks the rows, first to ninth from the top, that show their
 	// goto_tab digit in place of their icon.
 	Numbers [9]bool
+	// GH is whether the gh CLI is installed, for Create pull request.
+	GH bool
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -116,6 +118,8 @@ const (
 	actDetach
 	actDelete
 	actNewBelow
+	actDiff
+	actPR
 	actCount
 )
 

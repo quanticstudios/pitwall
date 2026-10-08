@@ -19,6 +19,15 @@ build. Either step takes `--dry-run`.
 - Shift+Insert pastes and Ctrl+Insert copies, as in Ghostty and kitty, so
   Omarchy's Super+V and Super+C work in pitwall's panes. The Insert key
   itself now reaches programs; Gio used to drop it.
+- Review an agent's changes and open a pull request without leaving
+  pitwall. Clicking a file under Changes in the agent panel opens its diff
+  from the default branch in a new pane, in your git pager (`$GIT_PAGER`,
+  delta, or `less -R`); q closes it. View diff in the tab's "…" menu and the
+  command palette shows the whole branch. Create pull request opens a tab
+  that pushes the branch when it has no upstream, never with force, then
+  runs `gh pr create --fill`. The menu says why it is greyed out: no gh, on
+  the default branch, or no commits ahead. A daemon from an older release
+  shows "restart daemon" until it restarts.
 - A command palette lists every action with its group and the keys bound to
   it in your config, and runs the one you pick. Ctrl+Shift+P opens it
   in both presets; `command_palette` rebinds it. Type to filter, Enter to

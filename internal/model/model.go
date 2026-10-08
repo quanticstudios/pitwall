@@ -136,6 +136,9 @@ type BranchStats struct {
 	MergeStatus MergeStatus
 	Ahead       int
 	Behind      int
+	// Base is the default branch's ref the rest is counted against, such as
+	// "refs/remotes/origin/main"; "" from a daemon before proto.Level 2.
+	Base string
 }
 
 // Session is a named set of tabs and groups, like a tmux session. A window

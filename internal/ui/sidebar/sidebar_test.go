@@ -306,3 +306,30 @@ func TestRows(t *testing.T) {
 		t.Fatalf("g2 collapsed again: %v", got)
 	}
 }
+
+// TestReviewBlocked: the diff needs a base branch, and a pull request also
+// needs gh, a branch other than the base and a commit ahead of it.
+func TestReviewBlocked(t *testing.T) {
+	base := model.BranchStats{Ahead: 1, MergeStatus: model.MergeClean, Base: "refs/remotes/origin/main"}
+	for _, c := range []struct {
+		name     string
+		branch   string
+		stats    model.BranchStats
+		gh       bool
+		diff, pr string
+	}{
+		{"ready", "feature", base, true, "", ""},
+		{"no gh", "feature", base, false, "", "no gh CLI"},
+		{"default branch", "main", base, true, "", "on main"},
+		{"detached HEAD", "", base, true, "", "no branch"},
+		{"no commits", "feature", model.BranchStats{MergeStatus: model.MergeUpToDate, Base: "refs/heads/main"}, true, "", "no commits"},
+		{"old daemon", "feature", model.BranchStats{Ahead: 1, MergeStatus: model.MergeClean}, true, "restart daemon", "restart daemon"},
+		{"no base", "feature", model.BranchStats{}, true, "no base branch", "no base branch"},
+	} {
+		ws := model.Workspace{ID: "w", Branch: c.branch}
+		st := model.State{Workspaces: []model.Workspace{ws}, Stats: map[string]model.BranchStats{"w": c.stats}}
+		if diff, pr := ReviewBlocked(&st, ws, c.gh); diff != c.diff || pr != c.pr {
+			t.Errorf("%s: %q, %q; want %q, %q", c.name, diff, pr, c.diff, c.pr)
+		}
+	}
+}
