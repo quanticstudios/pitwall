@@ -20,6 +20,13 @@ build. Either step takes `--dry-run`.
   and also when its window regains focus half an hour or more after the
   last check, so a new release shows its Update button soon after it is
   out.
+- Install pitwall with `brew install quanticstudios/tap/pitwall` on macOS
+  or Linux, `scoop install pitwall` from the quanticstudios bucket on
+  Windows, or the `pitwall-bin` AUR package on Arch. On macOS, `get.sh` also
+  installs an unsigned `pitwall.app` in `~/Applications` for the Dock and
+  Spotlight; started from it, pitwall takes PATH from your login shell and
+  opens in your home folder. Hooks installed from a Homebrew pitwall point at
+  its `opt` path, so they survive `brew upgrade`.
 
 ## v0.1.0-alpha.23
 

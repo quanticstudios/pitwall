@@ -1,0 +1,25 @@
+# Maintainer: Quantic Studios <info@quanticstudios.io>
+# Rendered by scripts/pkgrender in quanticstudios/pitwall for each release.
+pkgname=pitwall-bin
+pkgver=0.1.0alpha.23
+_tag=v0.1.0-alpha.23
+pkgrel=1
+pkgdesc='Terminal multiplexer for coding agents'
+arch=('x86_64' 'aarch64')
+url='https://github.com/quanticstudios/pitwall'
+license=('MIT')
+depends=('glibc' 'libglvnd' 'wayland' 'libxkbcommon' 'libxkbcommon-x11' 'libx11' 'libxcb' 'libxcursor' 'libxfixes')
+provides=('pitwall')
+conflicts=('pitwall')
+options=('!debug' '!strip')
+source_x86_64=("pitwall_linux_amd64_$_tag.tar.gz::$url/releases/download/$_tag/pitwall_linux_amd64.tar.gz")
+source_aarch64=("pitwall_linux_arm64_$_tag.tar.gz::$url/releases/download/$_tag/pitwall_linux_arm64.tar.gz")
+sha256sums_x86_64=('03543c4f7f827342b6268a0a5a0fe74c2c33889bdbfc11b54965dc590f9e699d')
+sha256sums_aarch64=('4b614bfd9b6086784094fe31d2fb9a3ed5276a597b063e1e11f1f5162a1297c3')
+
+package() {
+	install -Dm755 pitwall "$pkgdir/usr/bin/pitwall"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 pitwall.desktop "$pkgdir/usr/share/applications/pitwall.desktop"
+	install -Dm644 pitwall.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/pitwall.svg"
+}

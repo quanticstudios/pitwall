@@ -22,7 +22,26 @@ macOS and Windows builds are new; see the notes below. Releases are tagged
 
 ## Install
 
-On Linux or macOS:
+With Homebrew, on macOS or Linux:
+
+```sh
+brew install quanticstudios/tap/pitwall
+```
+
+With Scoop, on Windows:
+
+```powershell
+scoop bucket add quanticstudios https://github.com/quanticstudios/scoop-bucket
+scoop install pitwall
+```
+
+From the AUR, on Arch Linux, with an AUR helper such as yay or paru:
+
+```sh
+yay -S pitwall-bin
+```
+
+Or with the install script, on Linux or macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh
@@ -36,10 +55,12 @@ irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps
 
 The script downloads the latest release for your system, checks it against
 the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
-Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin` and adds that
-folder to your user PATH. To pin a release, set `PITWALL_VERSION=v0.1.0-alpha.1`; to
-install somewhere else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them
-first with `$env:PITWALL_VERSION = 'v0.1.0-alpha.1'`.
+macOS it also installs `pitwall.app` in `~/Applications`, so pitwall opens
+from the Dock, Launchpad and Spotlight. On Windows it installs `pitwall.exe`
+in `%LOCALAPPDATA%\pitwall\bin` and adds that folder to your user PATH. To
+pin a release, set `PITWALL_VERSION=v0.1.0-alpha.1`; to install somewhere
+else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them first with
+`$env:PITWALL_VERSION = 'v0.1.0-alpha.1'`.
 
 | Platform                       | Release builds | Status                     |
 | ------------------------------ | -------------- | -------------------------- |
@@ -53,9 +74,14 @@ what breaks.
 
 Known gaps on macOS:
 
-- Release binaries are not signed. `get.sh` clears the quarantine flag; for an
-  archive you downloaded yourself, run `xattr -d com.apple.quarantine pitwall`.
-- There is no app bundle or Dock icon yet. Start pitwall from a terminal.
+- Release binaries are not signed. Homebrew sets no quarantine flag and
+  `get.sh` clears it; for an archive you downloaded yourself, run
+  `xattr -dr com.apple.quarantine pitwall pitwall.app`.
+- The app bundle comes from `get.sh`, or from the release archive: copy its
+  `pitwall.app` to `~/Applications`. Homebrew installs only the `pitwall`
+  command. Started from the Dock, pitwall reads PATH from your login shell
+  (`$SHELL -ilc`) once, so it finds `claude` and `codex` as a terminal
+  would, and opens its first session in your home folder.
 - Notifications come through `osascript`, so macOS shows them under Script
   Editor.
 
@@ -72,8 +98,9 @@ Known gaps on Windows:
 - When an upgrade replaces a running daemon, the old daemon is stopped without
   a final save. It saves within moments of every change, so little is lost.
 
-The Linux release archive holds only the binary. For a desktop entry and
-icon, build from source as below.
+The AUR package installs a desktop entry and icon. The Linux release archive
+holds them as `pitwall.desktop` and `pitwall.svg` next to the binary, and
+`scripts/install.sh` installs them when you build from source as below.
 
 ### Updates
 
@@ -96,6 +123,11 @@ A build from source (`git describe` past a tag, or `-dirty`) never checks.
 Windows has no button; run the install command again to update. To stop the
 check, set `check = false` under `[updates]` in config.toml or use the switch
 under About in the settings page.
+
+Update a Homebrew or AUR install with its package manager, and stop
+the check there. The button cannot write over an AUR package's
+`/usr/bin/pitwall`, and on Homebrew it would replace the binary behind brew's
+back.
 
 ### Build from source
 

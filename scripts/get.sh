@@ -54,7 +54,7 @@ main() {
         printf 'pitwall: %s does not match checksums.txt; nothing installed\n' "$name" >&2
         exit 1
     fi
-    tar -xzf "$tmp/$name" -C "$tmp" pitwall
+    tar -xzf "$tmp/$name" -C "$tmp"
     mkdir -p "$dir"
     # why: a rename leaves a running pitwall on its old binary.
     cp "$tmp/pitwall" "$dir/.pitwall.new"
@@ -63,6 +63,14 @@ main() {
     if [ "$os" = Darwin ]; then
         xattr -d com.apple.quarantine "$dir/pitwall" 2>/dev/null || true
         printf '%s\n' 'Cleared the macOS quarantine flag: release binaries are not signed yet.'
+        # why: older releases have no app bundle.
+        if [ -d "$tmp/pitwall.app" ]; then
+            mkdir -p "$HOME/Applications"
+            rm -rf "$HOME/Applications/pitwall.app"
+            cp -R "$tmp/pitwall.app" "$HOME/Applications/"
+            xattr -dr com.apple.quarantine "$HOME/Applications/pitwall.app" 2>/dev/null || true
+            printf 'Installed pitwall.app in %s/Applications for the Dock and Spotlight.\n' "$HOME"
+        fi
     fi
     printf 'Installed %s in %s.\n' "$("$dir/pitwall" --version)" "$dir"
     case ":$PATH:" in

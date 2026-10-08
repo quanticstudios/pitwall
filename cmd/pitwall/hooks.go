@@ -21,7 +21,21 @@ var hookExecutable = func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.EvalSymlinks(bin)
+	bin, err = filepath.EvalSymlinks(bin)
+	return homebrewOpt(bin), err
+}
+
+// homebrewOpt maps a Homebrew keg's binary, which brew upgrade deletes, to
+// its opt link, which brew points at each new version.
+func homebrewOpt(bin string) string {
+	prefix, rest, ok := strings.Cut(bin, "/Cellar/pitwall/")
+	if !ok {
+		return bin
+	}
+	if _, rest, ok = strings.Cut(rest, "/"); !ok {
+		return bin
+	}
+	return prefix + "/opt/pitwall/" + rest
 }
 
 var hookBeforeWrite = func(path string) {}

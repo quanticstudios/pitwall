@@ -92,6 +92,7 @@ func main() {
 		fmt.Println("pitwall", versionString())
 		return
 	case "":
+		bundleEnv()
 		err = runGUI("")
 	case "-s":
 		if len(os.Args) != 3 || os.Args[2] == "" {

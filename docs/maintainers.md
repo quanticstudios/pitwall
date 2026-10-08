@@ -62,11 +62,38 @@ does, and what to check around it.
    before building and publishes the release as the latest one.
 4. Review the six platform archives, `checksums.txt`, notices and release notes
    on the GitHub release before announcing it.
+5. Push the AUR package by hand, as below. The workflow updates Homebrew and
+   Scoop itself.
 
 The **release tags: immutable** ruleset blocks updates and deletion of `v*`
 tags with no bypass actors. Correct a published release with a new version.
 The release workflow grants `contents: write` only to the job that publishes
-the release; build and verification jobs use read access.
+the release and to the packages job, which attaches the AUR files to it;
+build and verification jobs use read access.
+
+## Package managers
+
+After the release is out, the workflow's `packages` job runs
+`scripts/pkgrender` on the release's `checksums.txt`. It pushes
+`Formula/pitwall.rb` to `quanticstudios/homebrew-tap` and
+`bucket/pitwall.json` to `quanticstudios/scoop-bucket` as Quantic Studios,
+each with its own deploy key, held in the `HOMEBREW_TAP_DEPLOY_KEY` and
+`SCOOP_BUCKET_DEPLOY_KEY` repository secrets. It skips a repository whose
+secret is missing. A failure there leaves the release published; rerun the
+job once it is fixed.
+
+The job also attaches `pitwall-bin.aur.tar.gz`, the AUR `PKGBUILD` and
+`.SRCINFO`. Pushing to the AUR takes the maintainer's AUR account, so it is
+a hand step, from a clone of `ssh://aur@aur.archlinux.org/pitwall-bin.git`:
+
+```sh
+curl -fsSL https://github.com/quanticstudios/pitwall/releases/download/v0.1.0-alpha.N/pitwall-bin.aur.tar.gz | tar -xz
+git add PKGBUILD .SRCINFO
+git commit -m "pitwall v0.1.0-alpha.N"
+git push origin HEAD:master
+```
+
+The AUR accepts only a `master` branch, whatever git's default is.
 
 ## Before announcing pitwall
 
