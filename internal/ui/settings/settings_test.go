@@ -111,6 +111,12 @@ func TestHookStatus(t *testing.T) {
 	if hs := hookStatus(t.TempDir()); hs[0].Have != 0 || hs[0].Err != "" {
 		t.Errorf("missing file: %+v", hs[0])
 	}
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	os.MkdirAll(filepath.Join(home, ".pi", "agent", "extensions"), 0o755)
+	os.WriteFile(filepath.Join(home, ".pi", "agent", "extensions", "pitwall.ts"), agent.PiExtension("/opt/bin/pitwall"), 0o644)
+	if got := HooksInstalled(home); !got["claude"] || got["codex"] || !got["pi"] {
+		t.Errorf("HooksInstalled = %v", got)
+	}
 }
 
 func TestVersion(t *testing.T) {

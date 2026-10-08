@@ -32,7 +32,7 @@ can build and test on Linux, macOS or Windows. GitHub runs the platform checks.
 ### Linux
 
 Install the native dependencies listed in
-[README.md](README.md#build-from-source), then run:
+[docs/install.md](docs/install.md#build-from-source), then run:
 
 ```sh
 gofmt -w cmd internal third_party/x-vt

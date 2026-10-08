@@ -261,6 +261,7 @@ func runGUI(session string) error {
 		log.Printf("crash output: %q", err)
 	}
 	app.Version, app.Relaunch, app.InstallHooks = versionString(), launchGUI, installHooks
+	app.NoteFirstRun() // before the daemon starts and saves its state
 	conn, initial, err := guiDial(session, false)
 	var b *backend
 	var refused incompatible

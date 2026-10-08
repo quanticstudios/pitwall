@@ -485,6 +485,21 @@ func GeminiDir(home string) string {
 	return filepath.Join(home, ".gemini")
 }
 
+// PiDir is pi's agent directory: $PI_CODING_AGENT_DIR, with a leading "~"
+// for home, else .pi/agent in home.
+func PiDir(home string) string {
+	dir := os.Getenv("PI_CODING_AGENT_DIR")
+	switch {
+	case dir == "~":
+		return home
+	case strings.HasPrefix(dir, "~/"):
+		return filepath.Join(home, dir[2:])
+	case dir == "":
+		return filepath.Join(home, ".pi", "agent")
+	}
+	return dir
+}
+
 // CodexNotify returns the `notify = [...]` line for ~/.codex/config.toml.
 // Notify reports only finished turns; CodexHooks covers every state. The
 // command no-ops outside a pitwall pane.

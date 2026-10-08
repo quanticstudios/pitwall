@@ -30,9 +30,9 @@ type Config struct {
 	Term      Term      `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
 	Updates   Updates   `toml:"updates" doc:"Release updates."`
 	Usage     Usage     `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
-	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
+	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see docs/decisions.md for what each feature sends."`
 	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
-	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see the README's Phone section."`
+	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Hosts     []Host    `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
 }
 
@@ -81,7 +81,7 @@ type Keys struct {
 	ScrollPageUp    Binding `toml:"scroll_page_up" group:"Terminal" doc:"Scroll back a page"`
 	ScrollPageDown  Binding `toml:"scroll_page_down" group:"Terminal" doc:"Scroll forward a page"`
 	Find            Binding `toml:"find" group:"Terminal" doc:"Find in the focused pane's scrollback. Enter or F3 goes to the next match up, Shift with either back down, Esc closes"`
-	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see the README"`
+	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see docs/usage.md"`
 	NextPrompt      Binding `toml:"next_prompt" group:"Terminal" doc:"Scroll forward to the next shell prompt (OSC 133)"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`

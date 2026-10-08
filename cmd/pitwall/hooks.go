@@ -229,18 +229,10 @@ func installHooks(dry bool) (string, error) {
 	return strings.Join(lines, ""), err
 }
 
-// piAgentDir is pi's agent directory, $PI_CODING_AGENT_DIR or ~/.pi/agent,
-// or "" when pi is neither on PATH nor configured, so hooks skip it.
+// piAgentDir is agent.PiDir, or "" when pi is neither on PATH nor
+// configured, so hooks skip it.
 func piAgentDir(home string) string {
-	dir := os.Getenv("PI_CODING_AGENT_DIR")
-	switch {
-	case dir == "~":
-		dir = home
-	case strings.HasPrefix(dir, "~/"):
-		dir = filepath.Join(home, dir[2:])
-	case dir == "":
-		dir = filepath.Join(home, ".pi", "agent")
-	}
+	dir := agent.PiDir(home)
 	if !installed("pi", dir) {
 		return ""
 	}

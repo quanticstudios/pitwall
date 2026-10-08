@@ -78,8 +78,10 @@ func Run(b Backend) error {
 	var reported string
 	reportProblems(l.probs, &reported)
 	refreshSchemas()
-	u.nav.sidebarHidden = loadGUIState().SidebarHidden
+	u.gui = loadGUIState()
+	u.nav.sidebarHidden = u.gui.SidebarHidden
 	u.sidebarShown = u.nav.sidebarHidden
+	u.welcome.on = u.gui.Welcome && Host == "" // a host's agents are not on this PATH
 	stop := make(chan struct{})
 	defer close(stop)
 	go u.updates.watch(stop, w.Invalidate)
@@ -281,6 +283,9 @@ type ui struct {
 
 	hooks hooksDialog // the Install hooks dialog and the pane notices
 
+	gui     guiState // gui.json as loaded, and as last saved
+	welcome welcome  // the first-run card
+
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
 	noticeIn image.Rectangle // the pane that copied, in the pane area
@@ -298,6 +303,9 @@ var sendErrs = logs.Limiter{Every: 10 * time.Second}
 
 // send reports whether the backend took msg.
 func (u *ui) send(msg any) bool {
+	if u.welcome.on && byUser(msg) {
+		u.endWelcome()
+	}
 	if k, ok := msg.(proto.SessionKill); ok {
 		log.Printf("killing session %s", k.SessionID)
 	}
@@ -502,7 +510,8 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebarShown = u.nav.sidebarHidden
 		u.slideAt = gtx.Now
 		if u.report != nil { // a real window, not a test
-			saveGUIState(guiState{SidebarHidden: u.sidebarShown}) // in order, so the last toggle wins
+			u.gui.SidebarHidden = u.sidebarShown
+			saveGUIState(u.gui) // in order, so the last toggle wins
 		}
 	}
 	if u.sidebar.Dragging() {
@@ -566,6 +575,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.layoutSettings(pgtx, &st)
 	} else {
 		u.layoutPanes(pgtx, &st)
+		u.drawWelcome(pgtx, &st)
 	}
 	fo.Pop()
 	u.drawNotice(pgtx)

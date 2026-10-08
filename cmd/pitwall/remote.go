@@ -16,8 +16,8 @@ const remoteUsage = `usage:
   pitwall remote pair [name]     show a QR code that pairs a phone, good for 10 minutes
   pitwall remote devices         list paired devices
   pitwall remote revoke <name>   unpair a device, by name or id
-Turn the phone page on with [remote] enabled = true in config.toml; see the
-README's Phone section for tailscale serve.
+Turn the phone page on with [remote] enabled = true in config.toml; see
+docs/phone.md for tailscale serve.
 `
 
 // runRemote is `pitwall remote <cmd>`; it returns the exit status.

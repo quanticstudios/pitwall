@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pitwall</title>
+<meta name="description" content="A terminal multiplexer for coding agents. Every agent's live state at a glance, and one key jumps to the agent waiting on you.">
+<meta name="color-scheme" content="dark">
+<style>
+:root {
+  --bg: #08090c;
+  --surface: #14161b;
+  --surface-2: #1c1f26;
+  --elevated: #252932;
+  --border: #252932;
+  --fg: #f2f3f5;
+  --muted: #8e939c;
+  --primary: #2997ff;
+  --on-primary: #06121f;
+  --red: #ff6b6b;
+  --yellow: #ffc533;
+  --green: #59d499;
+  --blue: #57c1ff;
+  --purple: #bd93ff;
+  --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 var(--sans);
+}
+a { color: var(--blue); }
+a:hover { color: var(--fg); }
+img { display: block; max-width: 100%; height: auto; }
+code, pre { font-family: var(--mono); font-size: 14px; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+header.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 20px 0;
+}
+.brand { display: flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; font-weight: 600; font-size: 18px; }
+.brand svg { width: 32px; height: 32px; }
+nav.top a { color: var(--muted); text-decoration: none; margin-left: 20px; font-size: 15px; }
+nav.top a:hover { color: var(--fg); }
+
+.hero { padding: 40px 0 32px; }
+.hero h1 {
+  font-size: clamp(30px, 5vw, 48px); line-height: 1.15; letter-spacing: -0.02em;
+  margin: 0 0 16px; max-width: 22ch; font-weight: 650;
+}
+.hero p.lede { color: var(--muted); font-size: 18px; max-width: 60ch; margin: 0 0 28px; }
+.states { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 28px; padding: 0; list-style: none; font-size: 14px; color: var(--muted); }
+.states li::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 7px; background: currentColor; vertical-align: 1px; }
+.states .working { color: var(--blue); }
+.states .input { color: var(--yellow); }
+.states .plan { color: var(--purple); }
+.states .done { color: var(--green); }
+.states .error { color: var(--red); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.button {
+  display: inline-block; padding: 10px 18px; border-radius: 6px;
+  font-weight: 600; font-size: 15px; text-decoration: none;
+  border: 1px solid var(--border); color: var(--fg); background: var(--surface);
+}
+.button.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.button:hover { border-color: var(--muted); color: var(--fg); }
+.button.primary:hover { background: var(--blue); border-color: var(--blue); color: var(--on-primary); }
+
+.shot { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.hero-shot { margin-bottom: 56px; }
+.feature .shot img { aspect-ratio: 16 / 9; width: 100%; object-fit: cover; object-position: left top; }
+
+section { padding: 56px 0; border-top: 1px solid var(--border); }
+section h2 { font-size: 26px; line-height: 1.25; margin: 0 0 12px; letter-spacing: -0.01em; font-weight: 650; }
+section p { color: var(--muted); margin: 0 0 14px; max-width: 62ch; }
+section p strong { color: var(--fg); font-weight: 600; }
+kbd {
+  font-family: var(--mono); font-size: 13px; color: var(--fg);
+  background: var(--surface-2); border: 1px solid var(--elevated); border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+}
+
+.story { display: grid; grid-template-columns: 5fr 7fr; gap: 40px; align-items: center; }
+.story ol { margin: 18px 0 0; padding-left: 20px; color: var(--muted); }
+.story ol li { margin-bottom: 8px; }
+
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+.feature h3 { font-size: 18px; margin: 18px 0 8px; font-weight: 600; }
+.feature p { font-size: 15px; }
+
+.install pre {
+  margin: 0 0 18px; padding: 14px 16px; overflow-x: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--fg);
+}
+.install .label { font-size: 14px; color: var(--muted); margin: 0 0 6px; }
+
+.docs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 28px; margin: 18px 0 0; padding: 0; list-style: none; }
+.docs li { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.docs a { text-decoration: none; font-weight: 600; }
+.docs span { display: block; color: var(--muted); font-size: 14px; }
+
+footer { border-top: 1px solid var(--border); padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
+footer a { color: var(--muted); }
+
+@media (max-width: 800px) {
+  .story, .features { grid-template-columns: 1fr; }
+  .story { gap: 24px; }
+  .docs { grid-template-columns: 1fr 1fr; }
+  section { padding: 40px 0; }
+}
+@media (max-width: 520px) {
+  nav.top a:not(.gh) { display: none; }
+  .docs { grid-template-columns: 1fr; }
+  .hero { padding-top: 16px; }
+  .hero p.lede { font-size: 17px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./">
+      <svg viewBox="0 0 256 256" aria-hidden="true">
+        <defs>
+          <linearGradient id="lbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#181c24"/><stop offset="1" stop-color="#07080a"/></linearGradient>
+          <linearGradient id="lbowl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#b9c6da"/></linearGradient>
+        </defs>
+        <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#lbg)"/>
+        <rect x="8.5" y="8.5" width="239" height="239" rx="55.5" fill="none" stroke="#fff" stroke-opacity=".1"/>
+        <path d="M91 70h50a34 34 0 0 1 0 68h-50" fill="none" stroke="url(#lbowl)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+        <g stroke="#0d1016" stroke-width="5">
+          <rect x="76" y="56" width="30" height="44" rx="15" fill="#57c1ff"/>
+          <rect x="76" y="106" width="30" height="44" rx="15" fill="#ffc533"/>
+          <rect x="76" y="156" width="30" height="44" rx="15" fill="#59d499"/>
+        </g>
+      </svg>
+      pitwall
+    </a>
+    <nav class="top">
+      <a href="#install">Install</a>
+      <a href="#docs">Docs</a>
+      <a class="gh" href="https://github.com/quanticstudios/pitwall">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <h1>Every agent's live state at a glance. One key to the one waiting on you.</h1>
+    <p class="lede">pitwall is a terminal multiplexer for Claude Code, Codex, Gemini CLI, OpenCode and pi. A sidebar shows what each agent is doing right now. Sessions survive closing the window and a reboot, and you can approve an agent from your phone.</p>
+    <ul class="states" aria-label="Agent states the sidebar shows">
+      <li class="working">Working</li>
+      <li class="input">Input</li>
+      <li class="input">Approval</li>
+      <li class="plan">Plan</li>
+      <li class="done">Done</li>
+      <li class="error">Error</li>
+    </ul>
+    <div class="actions">
+      <a class="button primary" href="#install">Install</a>
+      <a class="button" href="https://github.com/quanticstudios/pitwall">View on GitHub</a>
+    </div>
+  </div>
+
+  <div class="shot hero-shot">
+    <img src="media/pitwall-hero.webp" width="1600" height="900" alt="The pitwall window: a sidebar of Claude Code and Codex tabs with live states, a pane that rings green when its agent finishes, and the jump key switching to the tab whose agent asks for approval">
+  </div>
+</div>
+
+<main>
+  <section>
+    <div class="wrap story">
+      <div>
+        <h2>One agent asks, one key, approved</h2>
+        <p>You are reading code in one tab while three agents work in others. You do not watch them.</p>
+        <ol>
+          <li>A Codex pane finishes in the background and rings green.</li>
+          <li>The billing agent asks for approval. Its row turns yellow and you get a desktop notification.</li>
+          <li><kbd>Ctrl+Shift+U</kbd> jumps to it, in any session. Press it again for the next one.</li>
+        </ol>
+        <p>With hooks installed the states are exact. Without them, pitwall reads Claude Code, Codex and pi from the screen.</p>
+      </div>
+      <div class="shot">
+        <img src="media/attention.webp" width="880" height="495" loading="lazy" alt="A Codex pane finishes in the background and rings green, the billing tab asks for approval, and Ctrl+Shift+U jumps to each in turn">
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap features">
+      <div class="feature">
+        <div class="shot"><img src="media/survive.webp" width="880" height="495" loading="lazy" alt="The window closes, pitwall ls shows every tab still running, the window comes back, and after a reboot the agents resume"></div>
+        <h3>Survives the window and a reboot</h3>
+        <p>A background daemon owns every terminal. Close the window and the agents keep working. After a reboot, tabs come back in their folders with agents resumed where they left off.</p>
+      </div>
+      <div class="feature">
+        <div class="shot"><img src="media/notify.webp" width="880" height="495" loading="lazy" alt="A test pane runs npm test and pitwall notify, then rings amber and sends a desktop notification saying tests passed"></div>
+        <h3>Any command can ask for you</h3>
+        <p><code>npm test &amp;&amp; pitwall notify "tests passed"</code> rings the pane it ran in. Bells and terminal notifications (OSC 9, 777, 99) ring it too. No hooks needed.</p>
+      </div>
+      <div class="feature">
+        <div class="shot"><img src="media/sessions.webp" width="1280" height="800" loading="lazy" alt="The session switcher: three sessions with their agents and live counts on the left, the highlighted session's sidebar on the right"></div>
+        <h3>Sessions, like tmux</h3>
+        <p>One session per project, each with its own sidebar. The switcher shows how many agents are working and how many need you, and draws a session's sidebar before you switch.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="install">
+    <div class="wrap">
+      <h2>Install</h2>
+      <p>The install script downloads the latest release, checks it against the release's checksums and installs <code>pitwall</code> in <code>~/.local/bin</code>. pitwall is in alpha: used every day on Linux, new on macOS and Windows.</p>
+      <p class="label">Homebrew, on macOS or Linux</p>
+      <pre><code>brew install quanticstudios/tap/pitwall</code></pre>
+      <p class="label">Scoop, on Windows</p>
+      <pre><code>scoop bucket add quanticstudios https://github.com/quanticstudios/scoop-bucket
+scoop install pitwall</code></pre>
+      <p class="label">Arch Linux, from the AUR</p>
+      <pre><code>yay -S pitwall-bin</code></pre>
+      <p class="label">Or the install script, on Linux or macOS</p>
+      <pre><code>curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh</code></pre>
+      <p class="label">Windows, in PowerShell</p>
+      <pre><code>irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps1 | iex</code></pre>
+      <p class="label">Then</p>
+      <pre><code>pitwall</code></pre>
+      <p>The first window lists the agents it found on your <code>PATH</code>, installs their hooks with one button, and starts one in a tab.</p>
+    </div>
+  </section>
+
+  <section id="docs">
+    <div class="wrap">
+      <h2>Docs</h2>
+      <ul class="docs">
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/usage.md">Using pitwall</a><span>Watching agents, sessions, tabs and panes, worktrees</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/keys.md">Keybindings</a><span>Both presets, tab mode, pane mode, find</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/cli.md">Command line</a><span>Every command, and driving tabs from scripts</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/config.md">Configuration</a><span>config.toml, themes, fonts</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/hooks.md">Hooks</a><span>What the installer changes for each agent</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md">Phone</a><span>Answer agents from your phone</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/remote.md">Remote hosts</a><span>Agents on another machine over ssh</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/decisions.md">Decisions</a><span>Approval recommendations and triage</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/install.md">Install</a><span>Platform notes, updates, building from source</span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    pitwall is MIT licensed. <a href="https://github.com/quanticstudios/pitwall">Source on GitHub</a> · <a href="https://github.com/quanticstudios/pitwall/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/quanticstudios/pitwall/issues">Issues</a>
+  </div>
+</footer>
+</body>
+</html>
