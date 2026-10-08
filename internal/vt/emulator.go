@@ -176,8 +176,8 @@ func (t *emulator) Write(p []byte) (int, error) {
 	}
 	if sb := t.e.Scrollback(); sb.Len() > 0 {
 		lines := sb.Lines()
-		for _, l := range lines {
-			t.st.hist.push(l)
+		for i, l := range lines {
+			t.st.hist.push(l, sb.Wrapped(i))
 		}
 		clear(lines) // Clear keeps the backing array, which would pin the lines
 		sb.Clear()
@@ -185,10 +185,16 @@ func (t *emulator) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// Resize rewraps history and the main screen to the new width; see reflow.
 func (t *emulator) Resize(cols, rows int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.e.Resize(max(cols, 1), max(rows, 1))
+	cols, rows = max(cols, 1), max(rows, 1)
+	if cols == t.e.Width() && rows == t.e.Height() {
+		t.e.Resize(cols, rows)
+	} else {
+		t.reflow(cols, rows)
+	}
 	t.st.last = nil
 }
 
@@ -325,16 +331,19 @@ func toColor(c color.Color) Color {
 	return RGBFlag | Color(r>>8)<<16 | Color(g>>8)<<8 | Color(b>>8)
 }
 
+// attrs pairs x/vt's attribute bits with ours; underline is a style there.
+var attrs = [...]struct {
+	uv uint8
+	a  Attr
+}{
+	{uv.AttrBold, Bold}, {uv.AttrFaint, Faint}, {uv.AttrItalic, Italic},
+	{uv.AttrBlink | uv.AttrRapidBlink, Blink}, {uv.AttrReverse, Reverse},
+	{uv.AttrConceal, Invisible}, {uv.AttrStrikethrough, Strike},
+}
+
 func toAttr(a uint8, underline bool) Attr {
 	var out Attr
-	for _, m := range [...]struct {
-		uv uint8
-		a  Attr
-	}{
-		{uv.AttrBold, Bold}, {uv.AttrFaint, Faint}, {uv.AttrItalic, Italic},
-		{uv.AttrBlink | uv.AttrRapidBlink, Blink}, {uv.AttrReverse, Reverse},
-		{uv.AttrConceal, Invisible}, {uv.AttrStrikethrough, Strike},
-	} {
+	for _, m := range attrs {
 		if a&m.uv != 0 {
 			out |= m.a
 		}

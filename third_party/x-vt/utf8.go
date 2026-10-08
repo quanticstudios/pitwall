@@ -85,6 +85,15 @@ func (e *Emulator) handleGrapheme(content string, width int) {
 		// moves cursor down similar to [Terminal.linefeed] except it doesn't
 		// respects [ansi.LNM] mode.
 		// This will reset the phantom state i.e. pending wrap state.
+		e.scr.setWrapped(y, true)
+		e.index()
+		_, y = e.scr.CursorPosition()
+		x = 0
+	} else if awm && x > 0 && x+cell.Width > e.scr.Width() {
+		// A wide char that does not fit before the margin wraps whole,
+		// leaving a zero cell behind, as in xterm.
+		e.scr.SetCell(x, y, &uv.Cell{})
+		e.scr.setWrapped(y, true)
 		e.index()
 		_, y = e.scr.CursorPosition()
 		x = 0
@@ -122,9 +131,12 @@ func (e *Emulator) handleGrapheme(content string, width int) {
 
 	e.scr.SetCell(x, y, &cell)
 
-	// Handle phantom state at the end of the line
-	e.atPhantom = awm && x >= e.scr.Width()-1
-	if !e.atPhantom {
+	// Handle phantom state at the end of the line: a char that reaches the
+	// last column, wide or not, leaves the cursor there waiting to wrap.
+	e.atPhantom = awm && x+max(cell.Width, 1) >= e.scr.Width()
+	if e.atPhantom {
+		x = e.scr.Width() - 1
+	} else {
 		x += cell.Width
 	}
 

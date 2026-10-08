@@ -16,6 +16,31 @@ Pitwall never displays alternate-screen history. Keeping full cells for its
 10,000 invisible history lines retains about 134 MiB per pane at 120 columns.
 Disabling that buffer retains zero history lines.
 
+## Patch: soft wraps for reflow
+
+pitwall rewraps the main screen and its history when a pane changes width,
+which needs to know which rows ended at the right margin rather than at a
+line break. Upstream does not record that.
+
+- `Screen` keeps a `wrapped` flag per row. `handleGrapheme` in `utf8.go` sets
+  it when autowrap moves to the next row. Erasing or filling a row through
+  its last column clears it, and line insertion, deletion and scrolling move
+  the flags with their rows. `Screen.Wrapped` and `Screen.Line` read them.
+- `Scrollback` stores the flag beside each line (`Scrollback.Wrapped`). A
+  wrapped line keeps its trailing blanks, which are text that goes on in the
+  next line. `Push` behaves as before and pushes an unwrapped line.
+- A wide character that does not fit before the right margin wraps whole and
+  leaves a zero cell behind, as in xterm. One that ends in the last column
+  leaves the cursor there waiting to wrap. Upstream wrote a cut-off blank in
+  the first case and let the next character overwrite the wide character's
+  right half in the second.
+- `Emulator.MainLines` returns the main screen's rows, flags and cursors, and
+  `Emulator.ResizeMain` resizes with the main screen's rows replaced. The
+  rewrapping itself lives in pitwall's `internal/vt/reflow.go`.
+
+`TestSoftWrapFlags` in `wrap_test.go` covers the flags, and
+`internal/vt/reflow_test.go` covers the reflow.
+
 ## Why option 3
 
 On 2026-10-02, `go list -m -versions github.com/charmbracelet/x/vt` returns

@@ -87,25 +87,6 @@ func TestAltScreenHasNoHistory(t *testing.T) {
 	}
 }
 
-func TestHistoryAcrossResize(t *testing.T) {
-	e := New(8, 2, nil)
-	feed(e, "abcdefgh\r\n中x\r\n\r\n")
-	e.Resize(3, 2)
-	g := e.SnapshotAt(2)
-	if g.Cols != 3 || row(g, 0) != "abc" || row(g, 1) != "中x" {
-		t.Fatalf("narrow %dx%d %q", g.Cols, g.Rows, screenText(g))
-	}
-	e.Resize(1, 2) // a wide char cut in half becomes a blank
-	if g = e.SnapshotAt(2); row(g, 1) != "" {
-		t.Fatalf("half a wide char: %+v", g.At(0, 1))
-	}
-	e.Resize(10, 3)
-	g = e.SnapshotAt(2)
-	if row(g, 0) != "abcdefgh" || g.At(0, 1) != (Cell{Content: "中", Width: 2}) || g.At(1, 1).Width != 0 || g.At(2, 1).Content != "x" {
-		t.Fatalf("wide again %q", screenText(g))
-	}
-}
-
 func TestHistoryClearAndRing(t *testing.T) {
 	e := New(10, 2, nil)
 	feed(e, lines("x", 0, 5))
