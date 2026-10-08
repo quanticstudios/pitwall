@@ -1151,6 +1151,8 @@ func (p *Page) agents() []section {
 				},
 			)
 		}})
+	rows = append(rows, row{label: "Show cost", desc: "Next to each agent's tokens, what they would cost at the API's list prices. A subscription does not bill per token, so this is off by default.",
+		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
 	return []section{{rows: rows}}
 }
 

@@ -198,7 +198,8 @@ func (d *drawer) text(f font.Font, size unit.Sp, col color.NRGBA, s string, line
 	return func(gtx layout.Context) layout.Dimensions { return label(gtx, d.th, f, size, col, s, lines) }
 }
 
-// tabs is the sticky tab row with its bottom hairline.
+// tabs is the sticky tab row, the agent's token use under it, and the
+// bottom hairline.
 func (d *drawer) tabs(gtx layout.Context, tabs []tab) layout.Dimensions {
 	var parts []part
 	for i, t := range tabs {
@@ -240,9 +241,14 @@ func (d *drawer) tabs(gtx layout.Context, tabs []tab) layout.Dimensions {
 			})
 		}})
 	}
-	dims := layout.Inset{Top: 10, Bottom: 10, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return row(gtx, parts...)
-	})
+	dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: 10, Bottom: 10, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return row(gtx, parts...)
+			})
+		}),
+		layout.Rigid(d.usageLine),
+	)
 	h := dims.Size.Y + gtx.Dp(1)
 	w := gtx.Constraints.Max.X
 	paint.FillShape(gtx.Ops, d.c.border, clip.Rect{Min: image.Pt(0, h-gtx.Dp(1)), Max: image.Pt(w, h)}.Op())
@@ -330,6 +336,9 @@ func (d *drawer) flow() []layout.Widget {
 		return append(out, space(12), d.note("No transcript yet. The panel reads the agent's session file once a hook names it, usually at the next prompt or tool call."))
 	}
 	out = append(out, space(12), d.graph(graphFor(in)), space(12), d.stats(statsFor(in)))
+	if u := in.usage(); u != nil {
+		out = append(out, d.session(*u)...)
+	}
 	if n := len(in.Feed.Turns); n > 1 {
 		out = append(out, d.section("Earlier turns"))
 		for i := n - 2; i >= max(0, n-11); i-- {

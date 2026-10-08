@@ -21,6 +21,13 @@ type piEntry struct {
 		ToolCallID string          `json:"toolCallId"`
 		IsError    bool            `json:"isError"`
 		Timestamp  int64           `json:"timestamp"`
+		Model      string          `json:"model"`
+		Usage      *struct {
+			Input      int64 `json:"input"`
+			Output     int64 `json:"output"`
+			CacheRead  int64 `json:"cacheRead"`
+			CacheWrite int64 `json:"cacheWrite"`
+		} `json:"usage"`
 	} `json:"message"`
 }
 
@@ -58,6 +65,9 @@ func (pi) line(b *builder, line []byte) {
 			b.prompt(ts, text)
 		}
 	case "assistant":
+		if u := m.Usage; u != nil && m.Model != "" {
+			b.use(ts, m.Model, Tokens{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite}, u.Input+u.CacheRead+u.CacheWrite, 0)
+		}
 		b.reply(ts, text)
 		for _, bl := range blocks {
 			switch bl.Type {

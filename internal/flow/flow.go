@@ -26,6 +26,9 @@ type Feed struct {
 	Plan []Step
 	// Subagents are in the order they were spawned.
 	Subagents []Subagent
+	// Usage is the tokens of the part of the file read, and of the
+	// subagents' files.
+	Usage Usage
 }
 
 // Turn is one user prompt and everything the agent did for it.

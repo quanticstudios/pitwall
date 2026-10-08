@@ -294,6 +294,19 @@ installed, the tab is on the default branch, or the branch has no commits
 ahead of it. Neither action has a key by default; set `view_diff` or
 `create_pr` under `[keys]` to give them one.
 
+Under the tabs, a line shows the agent's model, the tokens its session used
+and how full its context window is, with a small meter that turns yellow at
+80% and red at 95%. Flow's Session section splits the tokens into input,
+output, cache read and cache write, by model when the session used several,
+subagents included. A tab's hover card shows the same line for its agents.
+The counts come from the agent's session file: Claude Code's message usage,
+Codex's token counts, pi's message usage. A file over 8 MiB is read from its
+last 8 MiB, so its counts read "≥". Cost in dollars is off, since a
+subscription does not bill per token; set `show_cost = true` under `[usage]`
+or use the switch under Agents in the settings page to add what the tokens
+would cost at the API's list prices. pitwall carries a dated price table and
+shows its date; a model missing from it shows tokens and no cost.
+
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
 Drag to select, double-click a word, or hold Shift when a program owns the

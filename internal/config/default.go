@@ -20,6 +20,8 @@ func defaults() Config {
 	on := true
 	c.Term.CopyOnSelect, c.Term.Links = &on, &on
 	c.Updates.Check = &on
+	off := false
+	c.Usage.ShowCost = &off
 	c.Decisions = defaultDecisions()
 	return c
 }

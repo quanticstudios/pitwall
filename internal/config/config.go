@@ -29,6 +29,7 @@ type Config struct {
 	Layout    Layout    `toml:"layout" doc:"Spacing around panes, in dp."`
 	Term      Term      `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
 	Updates   Updates   `toml:"updates" doc:"Release updates."`
+	Usage     Usage     `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
 }
 
@@ -184,6 +185,11 @@ type Updates struct {
 	Check *bool `toml:"check" doc:"Check GitHub for a newer release at start and every 6 hours, and offer it with an Update button at the bottom of the sidebar. Release builds on Linux and macOS only"`
 }
 
+// Usage is [usage].
+type Usage struct {
+	ShowCost *bool `toml:"show_cost" doc:"Show what the tokens would cost at the API's list prices next to them. Off by default: a subscription does not bill per token. Models pitwall has no price for show tokens only"`
+}
+
 // Font defaults.
 const (
 	DefaultUIFamily   = "Geist"
@@ -210,6 +216,8 @@ type Settings struct {
 	Links bool
 	// CheckUpdates looks for a newer release on GitHub.
 	CheckUpdates bool
+	// ShowCost shows token use in dollars next to the tokens.
+	ShowCost bool
 	// Decisions is [decisions] resolved.
 	Decisions DecideSettings
 	// Notes are things that work but should change, like an action under
@@ -358,6 +366,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
+	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
 	var di []issue
 	var dn []issue
 	s.Decisions, di, dn = resolveDecisions(c.Decisions)

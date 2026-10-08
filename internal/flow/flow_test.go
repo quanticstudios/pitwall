@@ -17,7 +17,7 @@ func at(m, s int) time.Time { return time.Date(2026, 10, 5, 10, m, s, 0, time.UT
 
 func read(t *testing.T, provider model.Provider, path string) Feed {
 	t.Helper()
-	s := newSession(provider, path, false)
+	s := newSession(provider, path, false, time.Time{})
 	s.poll()
 	return s.b.feed()
 }
@@ -275,10 +275,10 @@ func TestReadLimit(t *testing.T) {
 		return `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"` + s + `"}}` + "\n"
 	}
 	write(t, path, prompt("too early")+filler(maxRead+1000)+prompt("kept"))
-	s := newSession(model.ProviderClaude, path, false)
+	s := newSession(model.ProviderClaude, path, false, time.Time{})
 	s.poll()
-	if f := s.b.feed(); len(f.Turns) != 1 || f.Turns[0].Prompt != "kept" {
-		t.Fatalf("turns = %+v", f.Turns)
+	if f := s.b.feed(); len(f.Turns) != 1 || f.Turns[0].Prompt != "kept" || !f.Usage.Partial {
+		t.Fatalf("turns = %+v, usage partial %v", f.Turns, f.Usage.Partial)
 	}
 	appendFile(t, path, filler(maxRead+1000)+prompt("later"))
 	s.poll()
@@ -295,7 +295,7 @@ func TestReadLimit(t *testing.T) {
 func TestLongLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.jsonl")
 	write(t, path, "")
-	s := newSession(model.ProviderClaude, path, false)
+	s := newSession(model.ProviderClaude, path, false, time.Time{})
 	for range 3 {
 		appendFile(t, path, strings.Repeat("y", 2<<20))
 		s.poll()
@@ -466,7 +466,7 @@ func TestLateHandback(t *testing.T) {
 {"type":"assistant","timestamp":"2026-10-05T10:01:01Z","message":{"content":[{"type":"tool_use","id":"b","name":"Bash","input":{}}]}}
 {"type":"user","timestamp":"2026-10-05T10:01:02Z","message":{"content":[{"type":"tool_result","tool_use_id":"h","content":"ok"}]}}
 `)
-	s := newSession(model.ProviderClaude, path, false)
+	s := newSession(model.ProviderClaude, path, false, time.Time{})
 	s.poll()
 	if f := s.b.feed(); len(f.Turns) != 2 || !f.Turns[1].End.IsZero() {
 		t.Fatalf("turns = %+v", f.Turns)
@@ -485,7 +485,7 @@ func TestForkedChild(t *testing.T) {
 {"timestamp":"2026-10-05T10:00:20Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","call_id":"x","arguments":"{}"}}
 {"timestamp":"2026-10-05T10:00:20Z","type":"event_msg","payload":{"type":"task_complete"}}
 `)
-	s := newSession(model.ProviderCodex, path, true)
+	s := newSession(model.ProviderCodex, path, true, time.Time{})
 	s.poll()
 	sub := &sub{Subagent: Subagent{Start: at(0, 10)}, kid: s}
 	if v := sub.view(); !v.Running() || len(v.Calls) != 0 {

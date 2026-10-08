@@ -15,6 +15,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -33,6 +34,10 @@ type Sidebar struct {
 	Numbers [9]bool
 	// GH is whether the gh CLI is installed, for Create pull request.
 	GH bool
+	// Usage is the token use of a tab's agents for its hover card, nil
+	// when unknown. ShowCost adds what the tokens cost.
+	Usage    func(workspace string) *flow.Usage
+	ShowCost bool
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
