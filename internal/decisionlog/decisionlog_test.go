@@ -2,6 +2,7 @@ package decisionlog
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -49,10 +50,9 @@ func TestRotate(t *testing.T) {
 	}
 }
 
-// TestReport checks the report's numbers on a fixture: two holdout arms
-// of 30 answered approvals, turn checks, triage and a failed call.
-func TestReport(t *testing.T) {
-	to := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+// fixture is two holdout arms of 30 answered approvals, turn checks,
+// triage and a failed call, all two days before to.
+func fixture(to time.Time) []Event {
 	at := to.Add(-48 * time.Hour)
 	var evs []Event
 	n := 0
@@ -92,7 +92,13 @@ func TestReport(t *testing.T) {
 	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "done"}, Event{})
 	add(Event{Feature: triage, Ms: 100, Tokens: 800, Answer: "now"}, Event{User: Focused, WaitMs: 3000})
 	add(Event{Feature: triage, Ms: 100, Tokens: 800, Answer: "fyi"}, Event{})
+	return evs
+}
 
+// TestReport checks the report's numbers on the fixture.
+func TestReport(t *testing.T) {
+	to := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	evs := fixture(to)
 	var b strings.Builder
 	Report(&b, evs, to.Add(-7*24*time.Hour), to)
 	out := b.String()
@@ -125,5 +131,64 @@ func TestReport(t *testing.T) {
 	Report(&b, evs[:20], to.Add(-7*24*time.Hour), to)
 	if !strings.Contains(b.String(), "not enough data yet. It needs 30 answered approvals in each arm; there are 10 shown and 0 held out") {
 		t.Errorf("small report:\n%s", b.String())
+	}
+}
+
+// TestReportGolden pins the report's text byte for byte: a full report,
+// one short of a verdict, and an empty one.
+func TestReportGolden(t *testing.T) {
+	defer func(l *time.Location) { time.Local = l }(time.Local)
+	time.Local = time.UTC
+	to := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	from := to.Add(-7 * 24 * time.Hour)
+	evs := fixture(to)
+	var b strings.Builder
+	Report(&b, evs, from, to)
+	b.WriteString("=====\n")
+	Report(&b, evs[:20], from, to)
+	b.WriteString("=====\n")
+	Report(&b, nil, from, to)
+	want, err := os.ReadFile(filepath.Join("testdata", "report.golden"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.String() != string(want) {
+		t.Errorf("report changed:\n%s", b.String())
+	}
+}
+
+// TestStats checks the numbers the settings page draws: both arms, the
+// interval, the days, and no interval short of MinPerArm.
+func TestStats(t *testing.T) {
+	defer func(l *time.Location) { time.Local = l }(time.Local)
+	time.Local = time.UTC
+	to := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	s := Compute(fixture(to), to.Add(-7*24*time.Hour), to)
+	a := s.Approvals
+	if !a.Ready() || len(a.Shown) != 30 || len(a.Held) != 30 || Median(a.Shown) != 15 || Median(a.Held) != 25 {
+		t.Fatalf("arms: %d shown median %v, %d held median %v", len(a.Shown), Median(a.Shown), len(a.Held), Median(a.Held))
+	}
+	if a.Diff != -10 || a.Lo > a.Diff || a.Hi < a.Diff || a.Hi >= 0 {
+		t.Errorf("difference %v, interval %v to %v", a.Diff, a.Lo, a.Hi)
+	}
+	if a.N-a.HeldN != 30 || a.Agree-a.HeldAgree != 27 || a.HeldAgree != 28 {
+		t.Errorf("agreement: shown %d of %d, held %d of %d", a.Agree-a.HeldAgree, a.N-a.HeldN, a.HeldAgree, a.HeldN)
+	}
+	if s.Speed() != "you answer faster with the suggestion shown" || s.Calls != 67 || s.P50 != 200 || s.SpanDays() != 7 {
+		t.Errorf("speed %q, %d calls, p50 %v, %d days", s.Speed(), s.Calls, s.P50, s.SpanDays())
+	}
+	if len(s.Days) != 8 || s.Days[5].Calls != 67 || s.Days[5].Date.Day() != 6 || math.Abs(s.Days[5].Dollars-s.Dollars) > 1e-12 {
+		t.Errorf("days: %+v", s.Days)
+	}
+	if s.Turns != (Turns{Check: 1, CheckN: 2, DoneN: 2}) || s.Turns.Lift() != 50 {
+		t.Errorf("turns: %+v", s.Turns)
+	}
+	if len(s.Triage.Levels) != 1 || s.Triage.Levels[0] != (Level{"now", 1, 3}) || s.Triage.Unfocused != 1 {
+		t.Errorf("triage: %+v", s.Triage)
+	}
+
+	short := Compute(fixture(to)[:20], to.Add(-7*24*time.Hour), to)
+	if short.Approvals.Ready() || short.Speed() != "" || short.Approvals.Lo != 0 || short.Approvals.Hi != 0 {
+		t.Errorf("short of MinPerArm: %+v", short.Approvals)
 	}
 }
