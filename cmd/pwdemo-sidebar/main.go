@@ -35,6 +35,7 @@ import (
 func main() {
 	var sb sidebar.Sidebar
 	flag.StringVar(&sb.Update, "update", "", "footer update button label")
+	flag.StringVar(&sb.Host, "host", "", "ssh host named in the header, as pitwall --host shows it")
 	numbers := flag.Bool("numbers", false, "show goto_tab digits on the first nine rows")
 	active := flag.String("active", "ws-sidebar", "active tab id")
 	flag.BoolVar(&sb.ExpandAll, "expand-all", false, "start every group expanded")

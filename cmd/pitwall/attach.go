@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"slices"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -14,7 +15,7 @@ var launchGUI = func(session, workspaceID string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(bin, "-s", session)
+	cmd := exec.Command(bin, append(slices.Clone(hostArgs), "-s", session)...)
 	if workspaceID != "" {
 		cmd.Env = append(os.Environ(), "PITWALL_ATTACH="+workspaceID)
 	}

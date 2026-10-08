@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -489,6 +490,9 @@ func splitPath(in string) (dir, prefix string) {
 // dirMatches lists the subdirectories of in's directory whose names start
 // with its last segment, hidden ones only when that segment starts with ".".
 func dirMatches(in string) []string {
+	if Host != "" { // the folders are on the host
+		return nil
+	}
 	dir, prefix := splitPath(in)
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -539,6 +543,12 @@ func resolveDir(in string) (string, error) {
 	in = strings.TrimSpace(in)
 	if in == "" {
 		return "", errors.New("Type a folder path.")
+	}
+	if Host != "" { // the folder is on the host, whose daemon checks it
+		if !strings.HasPrefix(in, "/") {
+			return "", errors.New("Type the folder's full path on " + Host + ".")
+		}
+		return path.Clean(in), nil
 	}
 	p := expandHome(in)
 	if !filepath.IsAbs(p) {

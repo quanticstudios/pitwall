@@ -237,6 +237,20 @@ func TestOSC52AndBell(t *testing.T) {
 	}
 }
 
+func TestHosts(t *testing.T) {
+	dir := t.TempDir()
+	s, probs := LoadFile(write(t, dir, "config.toml", "[[hosts]]\nname = \"box\"\nssh = \"me@box\"\n\n[[hosts]]\nname = \"gpu\"\nport = 22\n"))
+	if got := msgs(probs); !strings.Contains(got, `hosts.port: unknown key "port"`) {
+		t.Fatalf("problems: %q", got)
+	}
+	if want := []Host{{"box", "me@box"}, {Name: "gpu"}}; !slices.Equal(s.Hosts, want) {
+		t.Fatalf("hosts %v, want %v", s.Hosts, want)
+	}
+	if _, probs = LoadFile(write(t, dir, "config.toml", "hosts = \"box\"\n")); msgs(probs) != "config.toml:1: hosts: want an array of tables" {
+		t.Fatalf("not a table: %q", msgs(probs))
+	}
+}
+
 func TestLoadOverridesAndProblems(t *testing.T) {
 	dir := t.TempDir()
 	p := write(t, dir, "config.toml", `[keys]
