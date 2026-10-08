@@ -339,13 +339,18 @@ func (u *ui) applyFocus(st *model.State) {
 	}
 }
 
-// windowTitle is "<session> · pitwall".
+// windowTitle is "<session> · pitwall", or "<session> · <host> · pitwall"
+// on a Host.
 func (u *ui) windowTitle() string {
+	t := "pitwall"
+	if Host != "" {
+		t = Host + " · " + t
+	}
 	st := u.b.State()
 	if s := st.Session(u.nav.session); s != nil {
-		return s.Name + " · pitwall"
+		return s.Name + " · " + t
 	}
-	return "pitwall"
+	return t
 }
 
 // switcherKey runs one key in the open session switcher; the switcher's
@@ -575,7 +580,7 @@ func (u *ui) layout(gtx gl.Context) {
 		so := op.Offset(image.Pt(edge-sw-1, 0)).Push(gtx.Ops)
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
-		u.sidebar.Update = u.updates.label()
+		u.sidebar.Update, u.sidebar.Host = u.updates.label(), Host
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
 		if !on {

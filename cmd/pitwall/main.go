@@ -36,6 +36,10 @@ const usage = `usage:
                              window shows, else on a new session here
                              (starts the daemon if needed)
   pitwall -s <name>          open a window on session name, made if missing
+  pitwall --host <host> [-s <name>]
+                             open a window on the daemon of ssh host host,
+                             a [[hosts]] name in config.toml or a destination
+                             (starts the daemon there if needed)
   pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
   pitwall daemon             run the daemon in the foreground
   pitwall hook <provider>    forward an agent hook event (claude, codex, pi, gemini, opencode)
@@ -95,6 +99,15 @@ func main() {
 			os.Exit(2)
 		}
 		err = runGUI(os.Args[2])
+	case "--host":
+		host, session, ok := parseHost(os.Args[2:])
+		if !ok {
+			fmt.Fprint(os.Stderr, usage)
+			os.Exit(2)
+		}
+		err = runHostGUI(host, session)
+	case "remote-start":
+		err = runRemoteStart(os.Args[2:], os.Stdout)
 	case "daemon":
 		err = runDaemon()
 	case "hook":
@@ -121,7 +134,7 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pitwall:", err)
-		if cmd == "" || cmd == "-s" {
+		if cmd == "" || cmd == "-s" || cmd == "--host" {
 			startFailed(err) // launched from a desktop launcher, stderr goes nowhere
 		}
 		os.Exit(1)
@@ -247,7 +260,7 @@ func runGUI(session string) error {
 		log.Printf("crash output: %q", err)
 	}
 	app.Version, app.Relaunch, app.InstallHooks = versionString(), launchGUI, installHooks
-	conn, initial, err := dialOrStart(session, false)
+	conn, initial, err := guiDial(session, false)
 	var b *backend
 	var refused incompatible
 	switch {
@@ -272,7 +285,7 @@ func runGUI(session string) error {
 		go b.recvLoop()
 		go b.sendLoop()
 	}
-	b.name, b.redial = session, dialOrStart
+	b.name, b.redial = session, guiDial
 	err = app.Run(b)
 	log.Printf("window closed: %s", outcome(err))
 	return err
@@ -451,8 +464,11 @@ func crashOutput() error {
 }
 
 // cwd is where the GUI was launched; the daemon opens the first session
-// there.
+// there. A host's daemon opens it in the home folder there.
 func cwd() string {
+	if app.Host != "" {
+		return ""
+	}
 	d, _ := os.Getwd()
 	return d
 }

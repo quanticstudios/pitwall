@@ -33,6 +33,13 @@ type Config struct {
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
 	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see the README's Phone section."`
+	Hosts     []Host    `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
+}
+
+// Host is one [[hosts]] entry.
+type Host struct {
+	Name string `toml:"name" doc:"What pitwall --host takes, and what the window title and sidebar show"`
+	SSH  string `toml:"ssh" doc:"The ssh destination as you would type it after ssh: user@box, or a Host from ~/.ssh/config, which sets the port, key and jump host. Empty means name"`
 }
 
 // Keys is [keys]. Every Binding field is an action; its group tag heads
@@ -234,6 +241,8 @@ type Settings struct {
 	Worktrees WorktreeSettings
 	// Remote is [remote] resolved.
 	Remote RemoteSettings
+	// Hosts is [[hosts]] as written.
+	Hosts []Host
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -397,6 +406,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	}
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
 	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
+	s.Hosts = c.Hosts
 	var di []issue
 	var dn []issue
 	s.Decisions, di, dn = resolveDecisions(c.Decisions)
@@ -685,6 +695,24 @@ func set(f reflect.Value, val any, path string, issues *[]issue) string {
 			return msg
 		}
 		f.Set(p)
+	case reflect.Slice:
+		// An array of tables, [[hosts]]; other slices have their own case.
+		ts, ok := val.([]map[string]any)
+		if a, inline := val.([]any); inline { // hosts = [] or [{...}]
+			ok = true
+			for _, x := range a {
+				t, table := x.(map[string]any)
+				ts, ok = append(ts, t), ok && table
+			}
+		}
+		if !ok {
+			return "want an array of tables"
+		}
+		out := reflect.MakeSlice(f.Type(), len(ts), len(ts))
+		for i, t := range ts {
+			decode(t, out.Index(i), path+".", issues)
+		}
+		f.Set(out)
 	case reflect.Bool:
 		b, ok := val.(bool)
 		if !ok {

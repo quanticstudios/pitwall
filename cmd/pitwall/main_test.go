@@ -34,6 +34,9 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if dir := os.Getenv("PITWALL_TEST_SSH"); dir != "" {
+		os.Exit(fakeSSH(dir, os.Args[1:]))
+	}
 	if os.Getenv("PITWALL_TEST_MAIN") == "1" {
 		if len(os.Args) == 2 && os.Args[1] == "daemon" {
 			if err := fakeOldDaemon("healthy"); err != nil {

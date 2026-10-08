@@ -42,6 +42,14 @@ build. Either step takes `--dry-run`.
   new tab's shell. A `setup` from the repo's file waits for you to press
   Enter; one from your own `config.toml` runs at once. Nothing is
   overwritten, and nothing is copied unless you list it.
+- `pitwall --host <host>` opens a window on the daemon of another machine
+  over ssh, so agents keep running there when the laptop closes. It uses
+  your `ssh` and its config, starts the daemon on the host when none runs,
+  and after the link drops reconnects through a new ssh connection. The
+  window title and the sidebar header name the host. `[[hosts]]` in
+  config.toml gives hosts short names. A host without pitwall, or with one
+  of another protocol major version, gets the install command instead of a
+  window. See "Remote hosts" in the README.
 - A command palette lists every action with its group and the keys bound to
   it in your config, and runs the one you pick. Ctrl+Shift+P opens it
   in both presets; `command_palette` rebinds it. Type to filter, Enter to

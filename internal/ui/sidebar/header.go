@@ -33,19 +33,41 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) la
 		flash *= flash
 		gtx.Execute(op.InvalidateCmd{})
 	}
-	hrow(gtx, h-1, gtx.Dp(6),
-		item{w: func(gtx layout.Context) layout.Dimensions {
+	items := []item{
+		{w: func(gtx layout.Context) layout.Dimensions {
 			return drawLogo(gtx, th, gtx.Dp(22))
 		}},
-		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+		{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return s.sessionButton(gtx, th, session, flash)
 		}},
-		item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-			return iconButton(gtx, th, &s.newTab, icPlus, gtx.Dp(28), gtx.Dp(16), true)
-		}},
-	)
+	}
+	if s.Host != "" {
+		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+			return hostTag(gtx, th, s.Host)
+		}})
+	}
+	hrow(gtx, h-1, gtx.Dp(6), append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+		return iconButton(gtx, th, &s.newTab, icPlus, gtx.Dp(28), gtx.Dp(16), true)
+	}})...)
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// hostTag is the header's ssh host: muted text on a filled tag, at most
+// 112dp wide, after the session's name.
+func hostTag(gtx layout.Context, th *theme.Theme, host string) layout.Dimensions {
+	h, px := gtx.Dp(20), gtx.Dp(6)
+	m := op.Record(gtx.Ops)
+	g := gtx
+	g.Constraints = layout.Constraints{Max: image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(112))-2*px, h)}
+	d := label(g, th, th.UIFont, 12, th.Muted, host)
+	call := m.Stop()
+	size := image.Pt(d.Size.X+2*px, h)
+	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(4)).Op(gtx.Ops))
+	o := op.Offset(image.Pt(px, (h-d.Size.Y)/2)).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	o.Pop()
+	return layout.Dimensions{Size: size}
 }
 
 // sessionButton is the header's session name with a chevron: hover fills

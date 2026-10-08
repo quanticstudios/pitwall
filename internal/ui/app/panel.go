@@ -167,7 +167,11 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	if invalidate == nil {
 		invalidate = func() {}
 	}
-	u.panel.follow(in.Pane, dir, invalidate)
+	if Host != "" { // the transcript and the folder are on the host
+		u.panel.follow(nil, "", invalidate)
+	} else {
+		u.panel.follow(in.Pane, dir, invalidate)
+	}
 	u.panel.mu.Lock()
 	in.Feed, in.Base, in.Files, in.Git = u.panel.feed, u.panel.base, u.panel.files, u.panel.git
 	u.panel.mu.Unlock()

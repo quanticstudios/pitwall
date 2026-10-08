@@ -29,6 +29,9 @@ type Sidebar struct {
 	ExpandAll bool
 	// Update labels the footer's update button; "" hides it.
 	Update string
+	// Host is the ssh host the daemon runs on, named in the header; ""
+	// for this machine.
+	Host string
 	// Numbers marks the rows, first to ninth from the top, that show their
 	// goto_tab digit in place of their icon.
 	Numbers [9]bool
