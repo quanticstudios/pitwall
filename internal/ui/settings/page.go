@@ -50,6 +50,7 @@ const (
 	catTerminal
 	catAgents
 	catDecisions
+	catPhone
 	catAbout
 )
 
@@ -59,6 +60,7 @@ var categories = []struct{ name, desc string }{
 	{"Terminal", "How every pane behaves."},
 	{"Agents", "The sidebar learns what Claude Code and Codex are doing from hooks in their configs."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
+	{"Phone", "See which agents need you and answer them from your phone, over your own network."},
 	{"About", "Version, config file and documentation."},
 }
 
@@ -104,6 +106,7 @@ type Page struct {
 	copiedAt time.Time
 
 	dp decisionsPage
+	ph phonePage
 }
 
 // pending is a recorded chord another action already has.
@@ -128,6 +131,7 @@ func (p *Page) Show(configPath string) {
 	}
 	p.s.Path = configPath
 	p.readKey()
+	p.readDevices()
 	families(nil) // start the font scan
 }
 
@@ -724,6 +728,8 @@ func (p *Page) sections(cat int) []section {
 		return p.agents()
 	case catDecisions:
 		return p.decisions()
+	case catPhone:
+		return p.phone()
 	case catAbout:
 		return p.about()
 	}

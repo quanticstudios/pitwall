@@ -21,6 +21,8 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/logs`        | Log files, a non-blocking log writer, a line rate limiter      |
 | `internal/decisionlog` | decisions.jsonl and `pitwall jev report`                       |
 | `internal/update`      | Find a newer GitHub release, install it over the binary        |
+| `internal/remote`      | The phone page: pairing, device tokens, its HTTP server        |
+| `internal/qr`          | QR codes for pairing                                           |
 | `internal/input`       | Gio events to PTY bytes                                        |
 | `internal/ui/theme`    | Colors and fonts ported from aide                              |
 | `internal/ui/sidebar`  | The sidebar                                                    |

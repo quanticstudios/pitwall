@@ -74,6 +74,7 @@ const usage = `usage:
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
+  pitwall remote <cmd>       pair, devices, revoke: answer agents from a phone (see pitwall remote)
 `
 
 func main() {
@@ -110,6 +111,8 @@ func main() {
 		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "logs":
 		err = runLogs(os.Args[2:], os.Stdout)
+	case "remote":
+		os.Exit(runRemote(os.Args[2:], os.Stdout, os.Stderr))
 	case "ls", "new", "wait", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:

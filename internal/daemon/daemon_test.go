@@ -40,10 +40,12 @@ type fakePane struct {
 	input  []byte
 	size   [2]int
 	closed bool
-	hist   int    // ScrollbackLen
-	pushed uint64 // ScrollbackPushed
-	off    int    // the last SnapshotAt offset
-	title  string // the emulator's title
+	hist   int      // ScrollbackLen
+	pushed uint64   // ScrollbackPushed
+	off    int      // the last SnapshotAt offset
+	title  string   // the emulator's title
+	screen []string // rows Snapshot shows instead of "x"
+	modes  vt.Modes
 }
 
 func (p *fakePane) Write(b []byte) (int, error) {
@@ -62,6 +64,19 @@ func (p *fakePane) Snapshot() vt.Grid {
 	p.snaps.Add(1)
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.screen != nil {
+		g := vt.Grid{Cols: 80, Rows: len(p.screen), Title: p.title}
+		for _, row := range p.screen {
+			for x := range g.Cols {
+				c := vt.Cell{Width: 1}
+				if x < len(row) {
+					c.Content = row[x : x+1]
+				}
+				g.Cells = append(g.Cells, c)
+			}
+		}
+		return g
+	}
 	return vt.Grid{Cols: 1, Rows: 1, Cells: []vt.Cell{{Content: "x", Width: 1}}, Title: p.title}
 }
 func (p *fakePane) SnapshotAt(off int) vt.Grid {
@@ -77,7 +92,7 @@ func (p *fakePane) Search(q string, limit int) ([]vt.Match, bool) {
 	defer p.mu.Unlock()
 	return []vt.Match{{Line: p.pushed, Cols: len(q)}}, limit < 1
 }
-func (p *fakePane) Modes() vt.Modes        { return vt.Modes{} }
+func (p *fakePane) Modes() vt.Modes        { p.mu.Lock(); defer p.mu.Unlock(); return p.modes }
 func (p *fakePane) Dirty() <-chan struct{} { return p.dirty }
 func (p *fakePane) Done() <-chan struct{}  { return p.done }
 func (p *fakePane) ExitCode() int          { return p.code }
