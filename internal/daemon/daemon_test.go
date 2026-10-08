@@ -944,6 +944,38 @@ func TestRestoredAgentExitKeepsShell(t *testing.T) {
 	}
 }
 
+// The shell that replaces a restored agent starts at the size the window
+// last sent for the pane. The window sends no Resize for a size it already
+// sent, so a default size would stick until a relayout.
+func TestShellAfterResumeKeepsSize(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	gui := dial(t, sock, "gui")
+	st := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 })
+	id := st.Panes[0].ID
+	dial(t, sock, "hook").send(proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("working")})
+	gui.waitState("session", func(s model.State) bool { return s.Panes[0].SessionID != "" })
+	stop()
+
+	sock, stop = run(t, f)
+	defer stop()
+	gui = dial(t, sock, "gui")
+	gui.waitState("restored", func(s model.State) bool { return len(s.Panes) == 1 })
+	f.mu.Lock()
+	agent := f.panes[len(f.panes)-1]
+	f.mu.Unlock()
+	gui.send(proto.Resize{Pane: id, Cols: 153, Rows: 67})
+	waitUntil(t, "resized", func() bool { agent.mu.Lock(); defer agent.mu.Unlock(); return agent.size == [2]int{153, 67} })
+	agent.Close()
+	waitUntil(t, "shell started", func() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.panes[len(f.panes)-1] != agent })
+	f.mu.Lock()
+	c := f.panes[len(f.panes)-1].cfg
+	f.mu.Unlock()
+	if c.ID != id || c.Cmd != nil || c.Cols != 153 || c.Rows != 67 {
+		t.Fatalf("shell started as %s %q at %dx%d, want %s at 153x67", c.ID, c.Cmd, c.Cols, c.Rows, id)
+	}
+}
+
 // A new session starts without the old one's permission mode until a hook
 // of its own reports one; an unknown mode changes nothing.
 func TestAgentModeFollowsSession(t *testing.T) {

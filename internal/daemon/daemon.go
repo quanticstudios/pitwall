@@ -109,7 +109,7 @@ type Daemon struct {
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
-	sizes       map[string][2]int      // per pane, the last size it took, for the log
+	sizes       map[string][2]int      // per pane, the last size it took; a process started in the pane again starts at it
 	inputs      map[string]chan []byte // per pane, drained by writeInput
 	views       map[string]*view       // scroll positions, see scroll.go
 	clients     map[*client]struct{}   // gui clients only
@@ -1161,7 +1161,8 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 	}
 }
 
-// start launches a pane and its watcher. A pane in a tab with ports gets
+// start launches a pane and its watcher, at the pane's last size when it
+// had one and the default size otherwise. A pane in a tab with ports gets
 // them in its environment, and its output is watched for a port conflict.
 // Callers hold d.mu.
 func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBlock) error {
@@ -1173,12 +1174,16 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 			return &portWatch{Emulator: inner(cols, rows, reply), hit: func() { go d.portInUse(id) }}
 		}
 	}
-	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: portEnv(ports), Cols: defaultCols, Rows: defaultRows, NewVT: newVT})
+	size, ok := d.sizes[id]
+	if !ok || size[0] <= 0 || size[1] <= 0 {
+		size = [2]int{defaultCols, defaultRows}
+	}
+	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: portEnv(ports), Cols: size[0], Rows: size[1], NewVT: newVT})
 	if err != nil {
 		return err
 	}
 	d.panes[id] = p
-	d.sizes[id] = [2]int{defaultCols, defaultRows}
+	d.sizes[id] = size
 	program, provider := "shell", model.Provider("")
 	if len(cmd) > 0 {
 		program = filepath.Base(cmd[0]) // never its arguments
@@ -1186,7 +1191,7 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id }); i >= 0 {
 		provider = d.st.Panes[i].Provider
 	}
-	log.Printf("pane %s: started %q, provider %q, %dx%d", id, program, provider, defaultCols, defaultRows)
+	log.Printf("pane %s: started %q, provider %q, %dx%d", id, program, provider, size[0], size[1])
 	in := make(chan []byte, inputQueue)
 	d.inputs[id] = in
 	go d.watch(id, p)
@@ -1292,7 +1297,13 @@ func (d *Daemon) exited(id string, p Pane) {
 	// A held pane keeps a failed resume's exit, which pitwall wait reports.
 	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || !sp.Held && code != 0 && time.Since(at) < resumeGrace) {
 		log.Printf("pane %s: exited %d; resumed %q session, opening a shell", id, code, sp.Provider)
+		size, sized := d.sizes[id]
 		closeAll([]Pane{d.dropPane(id)})
+		// why: the window sends no Resize for a size it already sent, so the
+		// shell must start at that size, not the default.
+		if sized {
+			d.sizes[id] = size
+		}
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
 		err := d.start(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID))
 		if err == nil {
