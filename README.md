@@ -125,7 +125,7 @@ pitwall --version
 
 ```sh
 pitwall hooks install --dry-run   # see what would change
-pitwall hooks install             # let Claude Code, Codex and pi report their state
+pitwall hooks install             # let your agents report their state
 pitwall                           # open the window
 ```
 
@@ -207,6 +207,21 @@ install`). Without hooks, pitwall still recognizes `claude`, `codex` and
 little less precise. pi has no permission prompts of its own, so a pi tab
 shows Working, Done, Error or nothing, never Input, Approval or Plan; a
 dialog an extension opens with `ctx.ui.confirm` is not reported.
+
+Gemini CLI and OpenCode report through hooks too. Gemini CLI fires no hook
+when a turn fails, so it never shows Error; a failed turn stays Working
+until the next prompt. OpenCode has no plan to approve, so it never shows
+Plan. Without their hooks, they get a state only from a decision model
+reading their screen (`[decisions.agents]`, below).
+
+When an agent runs in a pane without reporting, the pane shows "Install
+hooks for live status" with an Install button: after the agent has run for
+20 seconds without a hook, or as soon as its screen shows a turn (Codex
+sends nothing until its first prompt). Install lists what would change in
+each config, then installs on confirm. Settings > Agents has the same
+button. Agents already running load their hooks only when restarted.
+pitwall knows Gemini CLI and OpenCode by their process name, so one
+installed through npm, which runs as `node`, gets no notice.
 
 ### Sessions
 
@@ -748,14 +763,20 @@ reported and the default is used. `[layout]` sets `pane_gap` and
 
 ## Hooks
 
-Hooks are how Claude Code, Codex and pi tell pitwall exactly what they are
-doing. `pitwall hooks install` merges pitwall's entries into
-`~/.claude/settings.json` and `~/.codex/hooks.json`:
+Hooks are how Claude Code, Codex, pi, Gemini CLI and OpenCode tell pitwall
+exactly what they are doing. `pitwall hooks install` merges pitwall's
+entries into `~/.claude/settings.json`, `~/.codex/hooks.json` and, when
+Gemini CLI is installed, `~/.gemini/settings.json` (in `$GEMINI_CLI_HOME`
+when set):
 
 - It keeps every existing setting and hook and never adds a duplicate.
 - It backs each file up first as `<file>.pitwall-backup-<unix time>` and
   writes atomically. A symlinked config stays a symlink.
-- Add `--dry-run` to print the result without writing.
+- Add `--dry-run` to print each change and the files it makes without
+  writing.
+- Gemini reads its settings with comments, which the merge cannot keep, so
+  a `settings.json` that has them is skipped with a warning; add the block
+  `pitwall hooks` prints by hand.
 
 pi has no shell hooks, so for pi the same command writes a small extension,
 `~/.pi/agent/extensions/pitwall.ts` (under `$PI_CODING_AGENT_DIR` when set).
@@ -768,6 +789,15 @@ daemon never fails pi. pitwall skips pi when `pi` is not on your `PATH` and
 its agent directory does not exist. It replaces the extension only when
 nobody edited it; an edited one is left alone with a warning, and the other
 agents' hooks are installed as usual.
+
+OpenCode takes plugins rather than shell hooks, so for OpenCode the command
+writes `~/.config/opencode/plugins/pitwall.js` (under `$XDG_CONFIG_HOME`
+when set), when `opencode` is on your `PATH` or that directory exists. The
+plugin works like pi's extension: inside a pitwall pane it runs `pitwall
+hook opencode` in the background, one at a time, on each prompt, tool call,
+permission prompt, question, and finished, failed or aborted run of the main
+session, never a subagent's. It sends the tool's name but never its
+arguments, and replaces or removes only a file nobody edited.
 
 Inside Codex, run `/hooks` once to trust the new hooks, and restart agent
 sessions that were already running (`/reload` in pi). `pitwall hooks
@@ -828,7 +858,7 @@ suggest; screen reading and turn checks stay off until you turn them on.
 | ------- | ------------ | ----------------------- |
 | Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (the default) shows the answer on the tab's pill, in the switcher, in the hover card and in the pane's corner ("Jev: allow 96%"), with any risk pitwall sees in the call ("Jev: allow 96% · sudo"). It is only a suggestion: the agent's prompt shows at once, as without pitwall, and you answer it. While measuring, `holdout` of the prompts show only the risk; see [Is it worth it?](#is-it-worth-it). `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
 | Attention triage (`[decisions.triage]`) | Rates a pane that needs you as fyi, later, soon or now. The jump-to-attention key goes to the most urgent first, desktop notifications go out most urgent first (now is marked urgent), and fyi sends no notification. The pill reads "Input · now" for now. | When an agent pane starts needing you: its state and its question, approval detail, error or turn summary. |
-| Agents without hooks (`[decisions.agents]`) | For Gemini CLI, OpenCode, Aider, Amp, Cursor agent, Goose and Crush (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (default 0.8). Programs are matched by process name, so a CLI that shows up as `node` is not seen. | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
+| Agents without hooks (`[decisions.agents]`) | For Aider, Amp, Cursor agent, Goose and Crush, and Gemini CLI and OpenCode while their hooks are not installed (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (default 0.8). Programs are matched by process name, so a CLI that shows up as `node` is not seen. | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
 | Turn check (`[decisions.turn_check]`) | When an agent finishes a turn, asks whether it needs your review: failed tests, errors left, unfinished work. The Done pill reads Check when the answer reaches `threshold` (default 0.8). | When a turn ends: the agent's last message only, never the screen. |
 
 Before anything leaves your machine, pitwall removes what looks secret:

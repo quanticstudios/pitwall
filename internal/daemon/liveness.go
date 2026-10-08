@@ -19,6 +19,9 @@ var (
 	// how long before that the first of the two compared snapshots is taken.
 	settleDelay = 1500 * time.Millisecond
 	stillFor    = 500 * time.Millisecond
+	// hookGrace is how long an agent whose hooks report its start may run
+	// without one before its pane shows that hooks are missing.
+	hookGrace = 20 * time.Second
 )
 
 // liveness is what the daemon keeps to catch an activity no hook will end:
@@ -52,6 +55,7 @@ func (d *Daemon) sawHook(id string) {
 		d.live.hookAt, d.live.fg = map[string]time.Time{}, map[string]int{}
 	}
 	d.live.hookAt[id] = time.Now()
+	d.setHooksMissing(id, false)
 	if f, ok := d.panes[id].(foregrounder); ok {
 		if pg := f.Foreground(); pg > 0 {
 			d.live.fg[id] = pg

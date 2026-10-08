@@ -92,7 +92,22 @@ func runHooks(args []string, out io.Writer) error {
 	}
 	if dir := piAgentDir(home); dir != "" {
 		files = append(files, config{path: filepath.Join(dir, "extensions", "pitwall.ts"), merge: func(original []byte) ([]byte, []string, error) {
-			return mergePiExtension(original, agent.PiExtension(bin), install)
+			return mergeGenerated(original, agent.PiExtension(bin), install, agent.IsPiExtension, "pi extension")
+		}})
+	}
+	if dir := agent.GeminiDir(home); installed("gemini", dir) {
+		files = append(files, config{path: filepath.Join(dir, "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
+			data, changes, err := mergeHooks(original, agent.GeminiHooks(bin), install)
+			if err != nil {
+				// why: Gemini reads settings.json with comments, which this merge cannot keep; the other agents still install.
+				return nil, nil, skipError{err.Error() + "; add the block `pitwall hooks` prints by hand"}
+			}
+			return data, changes, nil
+		}})
+	}
+	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
+		files = append(files, config{path: filepath.Join(dir, "plugins", "pitwall.js"), merge: func(original []byte) ([]byte, []string, error) {
+			return mergeGenerated(original, agent.OpenCodePlugin(bin), install, agent.IsOpenCodePlugin, "OpenCode plugin")
 		}})
 	}
 	for i := range files {
@@ -107,12 +122,21 @@ func runHooks(args []string, out io.Writer) error {
 	}
 	for _, f := range files {
 		if dry {
-			if f.skip != "" {
-				fmt.Fprintf(out, "# %s\nskipped: %s\n", f.path, f.skip)
-			} else if f.data == nil {
-				fmt.Fprintf(out, "# %s\n(no file)\n", f.path)
-			} else {
-				fmt.Fprintf(out, "# %s\n%s\n", f.path, f.data)
+			// The changes as comment lines, then the file they make.
+			switch {
+			case f.skip != "":
+				fmt.Fprintf(out, "# %s: skipped: %s\n", f.path, f.skip)
+			case len(f.changes) == 0:
+				fmt.Fprintf(out, "# %s: unchanged\n", f.path)
+			default:
+				for _, change := range f.changes {
+					fmt.Fprintf(out, "# %s: %s\n", f.path, change)
+				}
+				if f.data == nil {
+					fmt.Fprintln(out, "(no file)")
+				} else {
+					fmt.Fprintf(out, "%s\n", f.data)
+				}
 			}
 			continue
 		}
@@ -169,6 +193,28 @@ func runHooks(args []string, out io.Writer) error {
 	return nil
 }
 
+// installHooks is `pitwall hooks install` for the window's Install
+// button. A dry run returns only what would change, one line per change,
+// without the files.
+func installHooks(dry bool) (string, error) {
+	var b strings.Builder
+	args := []string{"install"}
+	if dry {
+		args = append(args, "--dry-run")
+	}
+	err := runHooks(args, &b)
+	if !dry {
+		return b.String(), err
+	}
+	var lines []string
+	for line := range strings.Lines(b.String()) {
+		if s, ok := strings.CutPrefix(line, "# "); ok {
+			lines = append(lines, s)
+		}
+	}
+	return strings.Join(lines, ""), err
+}
+
 // piAgentDir is pi's agent directory, $PI_CODING_AGENT_DIR or ~/.pi/agent,
 // or "" when pi is neither on PATH nor configured, so hooks skip it.
 func piAgentDir(home string) string {
@@ -181,30 +227,39 @@ func piAgentDir(home string) string {
 	case dir == "":
 		dir = filepath.Join(home, ".pi", "agent")
 	}
-	if _, err := exec.LookPath("pi"); err != nil {
-		if _, err := os.Stat(dir); err != nil {
-			return ""
-		}
+	if !installed("pi", dir) {
+		return ""
 	}
 	return dir
 }
 
-// mergePiExtension returns the extension file's next contents, nil to
-// remove it. Install replaces only a file some pitwall binary wrote and
-// nobody edited since; uninstall removes only this binary's file.
-func mergePiExtension(original, generated []byte, install bool) ([]byte, []string, error) {
+// installed reports whether an agent is on PATH or its config dir exists;
+// hooks skip one that is neither.
+func installed(name, dir string) bool {
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	_, err := os.Stat(dir)
+	return err == nil
+}
+
+// mergeGenerated returns the next contents of a file pitwall generates
+// whole, such as pi's extension, nil to remove it. Install replaces only a
+// file some pitwall binary wrote and nobody edited since (is reports one);
+// uninstall removes only this binary's file.
+func mergeGenerated(original, generated []byte, install bool, is func([]byte) bool, name string) ([]byte, []string, error) {
 	switch {
 	case original != nil && bytes.Equal(original, generated):
 		if install {
 			return original, nil, nil
 		}
-		return nil, []string{"removed pi extension"}, nil
+		return nil, []string{"removed " + name}, nil
 	case !install:
 		return original, nil, nil
-	case original != nil && !agent.IsPiExtension(original):
+	case original != nil && !is(original):
 		return nil, nil, skipError{"edited since pitwall wrote it; move it away to reinstall"}
 	}
-	return generated, []string{"wrote pi extension"}, nil
+	return generated, []string{"wrote " + name}, nil
 }
 
 // skipError is a merge result that leaves the file alone and warns, instead

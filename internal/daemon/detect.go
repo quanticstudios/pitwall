@@ -57,6 +57,12 @@ func paneShell(cmd []string) string {
 type detected struct {
 	sid   int       // the pane's session id, which is the pid of its first process
 	cells []vt.Cell // the agent's screen at the last poll, to see it still
+	// agent is the foreground agent that hooks could report on, since when
+	// it was seen starting (zero when it already ran at the first poll),
+	// and turns the polls in a row its screen showed a turn without a hook.
+	agent model.Provider
+	since time.Time
+	turns int
 }
 
 // look is one pane's poll, read under d.mu and run outside it.
@@ -111,6 +117,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	var prov model.Provider
 	var comm string
 	var g vt.Grid
+	var screen model.AgentState // an agent's state read from its screen, without hooks
 	switch {
 	case own && l.shell != "" && commOf(fg) == l.shell: // the shell at its prompt, not exec'd into something else
 	case l.hooked && fg == l.hookFg:
@@ -119,6 +126,9 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		prov, comm = identify(fg)
 		if prov != "" && !l.hooked || prov == "" && slices.Contains(l.screens, comm) {
 			g = l.p.Snapshot()
+		}
+		if prov != "" && !l.hooked {
+			screen = agent.State(g)
 		}
 	}
 	// An agent CLI without hooks, read by the decision model. Only these
@@ -146,11 +156,13 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		d.live.det = map[string]*detected{}
 	}
 	det := d.live.det[l.id]
-	if det == nil {
+	fresh := det == nil
+	if fresh {
 		det = &detected{}
 		d.live.det[l.id] = det
 	}
 	det.sid = l.sid
+	d.noteHooks(l.id, det, prov, comm, screen, l.hooked, fresh)
 	var prev model.AgentState
 	if i := d.activityIndex(l.id); i >= 0 {
 		a := d.st.Activities[i]
@@ -174,7 +186,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		// never a terminal command, and the next poll reads its screen.
 		d.setActivity(ctx, l.id, "", "", "")
 	case prov != "":
-		s := agent.State(g)
+		s := screen
 		if s == "" && prev == model.StateWorking && !slices.Equal(det.cells, g.Cells) {
 			s = model.StateWorking // a reply streaming with the spinner hidden
 		} else if s == "" && (prev == model.StateWorking || prev == model.StateCompleted) {
@@ -193,6 +205,42 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 			d.changed()
 			go d.refreshStats(ctx, d.st.Panes[i].WorkspaceID) // a cd can change the repo
 		}
+	}
+}
+
+// noteHooks sets Pane.HooksMissing from one poll: the foreground runs an
+// agent pitwall has hooks for, prov or by its comm, and no hook came from
+// it while its screen showed a turn for three polls, or, for an agent
+// whose hooks report its start, for hookGrace after it was seen starting.
+// An agent already running when the daemon started may have reported to
+// the daemon before, so time alone never flags it. Callers hold d.mu.
+func (d *Daemon) noteHooks(id string, det *detected, prov model.Provider, comm string, screen model.AgentState, hooked, fresh bool) {
+	kind := prov
+	if kind == "" {
+		kind = agent.HooksFor(comm)
+	}
+	if kind != det.agent {
+		det.agent, det.since, det.turns = kind, time.Time{}, 0
+		if kind != "" && !fresh {
+			det.since = time.Now()
+		}
+	}
+	if screen != "" {
+		det.turns++
+	} else {
+		det.turns = 0
+	}
+	// why: Codex sends no hook until its first prompt, so only a turn shows its hooks are missing.
+	startHook := kind != "" && kind != model.ProviderCodex && !det.since.IsZero() && time.Since(det.since) >= hookGrace
+	d.setHooksMissing(id, !hooked && kind != "" && (det.turns >= 3 || startHook))
+}
+
+// setHooksMissing sets Pane.HooksMissing, pushing state only on a change.
+// Callers hold d.mu.
+func (d *Daemon) setHooksMissing(id string, missing bool) {
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 && d.st.Panes[i].HooksMissing != missing {
+		d.st.Panes[i].HooksMissing = missing
+		d.changed()
 	}
 }
 

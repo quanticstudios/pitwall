@@ -25,3 +25,15 @@ func Identify(comm, exe string) model.Provider {
 	}
 	return ""
 }
+
+// HooksFor reports whether a hookless program, by its process name, is an
+// agent `pitwall hooks install` can set hooks up for, and which.
+func HooksFor(comm string) model.Provider {
+	switch comm {
+	case "gemini":
+		return model.ProviderGemini
+	case "opencode":
+		return model.ProviderOpenCode
+	}
+	return ""
+}

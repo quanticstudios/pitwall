@@ -39,9 +39,10 @@ import (
 type Result int
 
 const (
-	None   Result = iota
-	Closed        // back to the terminal
-	Saved         // config.toml changed; reload it now
+	None         Result = iota
+	Closed              // back to the terminal
+	Saved               // config.toml changed; reload it now
+	InstallHooks        // open the Install hooks dialog
 )
 
 const (
@@ -58,7 +59,7 @@ var categories = []struct{ name, desc string }{
 	{"Appearance", "Theme, fonts and spacing. Changes apply as you make them."},
 	{"Keyboard shortcuts", "Click a shortcut to record a new one."},
 	{"Terminal", "How every pane behaves."},
-	{"Agents", "The sidebar learns what Claude Code and Codex are doing from hooks in their configs."},
+	{"Agents", "The sidebar learns what each agent is doing from hooks in its config."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
 	{"Phone", "See which agents need you and answer them from your phone, over your own network."},
 	{"About", "Version, config file and documentation."},
@@ -133,6 +134,12 @@ func (p *Page) Show(configPath string) {
 	p.readKey()
 	p.readDevices()
 	families(nil) // start the font scan
+}
+
+// ReloadHooks reads the agents' hook configs again, after an install.
+func (p *Page) ReloadHooks() {
+	home, _ := os.UserHomeDir()
+	p.hooks = hookStatus(home)
 }
 
 // Hide closes the page, dropping a recording or open dropdown.
@@ -1127,6 +1134,8 @@ func (p *Page) agents() []section {
 	for _, h := range p.hooks {
 		status, col := "Not installed", th.Muted
 		switch {
+		case h.Edited:
+			status, col = "Edited", th.Yellow
 		case h.Err != "":
 			status, col = "Unreadable", th.Red
 		case h.Have > 0 && h.Have == h.Want:
@@ -1153,23 +1162,13 @@ func (p *Page) agents() []section {
 				)
 			}})
 	}
-	const cmd = "pitwall hooks install"
-	rows = append(rows, row{label: "Install or update", desc: "Run this in a terminal; it adds pitwall's hooks to both files and keeps a backup. This page only reads them.",
-		extra: "hooks command", control: func(gtx gl.Context) gl.Dimensions {
-			c := p.btn("copy-hooks")
+	rows = append(rows, row{label: "Install or update", desc: "Shows what changes in each agent's config, then adds pitwall's hooks and keeps a backup of every file. Same as pitwall hooks install.",
+		extra: "hooks command install", control: func(gtx gl.Context) gl.Dimensions {
+			c := p.btn("install-hooks")
 			for c.Clicked(gtx) {
-				p.copy(gtx, "copy-hooks", cmd)
+				p.result = InstallHooks
 			}
-			return hstack(gtx, 8,
-				func(gtx gl.Context) gl.Dimensions {
-					return boxed(gtx, th.Bg, th.Border, gtx.Dp(6), image.Pt(gtx.Dp(10), gtx.Dp(5)), func(gtx gl.Context) gl.Dimensions {
-						return p.text(gtx, th.MonoFont, p.sp(12), th.Fg, cmd)
-					})
-				},
-				func(gtx gl.Context) gl.Dimensions {
-					return p.button(gtx, c, secondary, p.copyLabel("copy-hooks", "Copy"))
-				},
-			)
+			return p.button(gtx, c, primary, "Install")
 		}})
 	rows = append(rows, row{label: "Show cost", desc: "Next to each agent's tokens, what they would cost at the API's list prices. A subscription does not bill per token, so this is off by default.",
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})

@@ -33,6 +33,7 @@ const (
 	modalNone modalKind = iota
 	modalDelete
 	modalAddProject
+	modalHooks
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -171,6 +172,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = func(gtx gl.Context) gl.Dimensions { return u.deleteBody(gtx, st, ws) }
 	case modalAddProject:
 		content = u.addProjectBody
+	case modalHooks:
+		content = u.hooksBody
 	}
 	u.card(gtx, &m.body, content)
 }
@@ -221,6 +224,8 @@ func (u *ui) confirmModal() {
 		}
 		u.send(proto.AddProject{Path: p, SessionID: u.nav.session})
 		m.close()
+	case modalHooks:
+		u.confirmHooks()
 	}
 }
 

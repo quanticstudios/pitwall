@@ -102,6 +102,8 @@ const (
 	ProviderClaude   Provider = "claude"
 	ProviderCodex    Provider = "codex"
 	ProviderPi       Provider = "pi"
+	ProviderGemini   Provider = "gemini"
+	ProviderOpenCode Provider = "opencode"
 	ProviderTerminal Provider = "terminal"
 )
 
@@ -136,6 +138,11 @@ type Pane struct {
 	// Claude's transcript, Codex's rollout or pi's session. "" until a hook
 	// names one. Not saved; the next hook after a restart names it again.
 	Transcript string `json:"-"`
+	// HooksMissing marks a pane whose agent has hooks `pitwall hooks
+	// install` sets up, but none of them reported: the agent runs with a
+	// turn on its screen, or has run for a while, without one. The daemon
+	// fills it in; it is not saved.
+	HooksMissing bool `json:"-"`
 }
 
 type MergeStatus string
