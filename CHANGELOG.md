@@ -14,7 +14,7 @@ pass) and opens a `Release v0.1.0-alpha.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-alpha.23
 
 - Shift+Insert pastes and Ctrl+Insert copies, as in Ghostty and kitty, so
   Omarchy's Super+V and Super+C work in pitwall's panes. The Insert key
