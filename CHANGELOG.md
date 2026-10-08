@@ -27,6 +27,18 @@ build. Either step takes `--dry-run`.
   Spotlight; started from it, pitwall takes PATH from your login shell and
   opens in your home folder. Hooks installed from a Homebrew pitwall point at
   its `opt` path, so they survive `brew upgrade`.
+- The first launch shows a welcome card over the shell instead of a bare
+  prompt. It lists the agent CLIs on your PATH (Claude Code, Codex, Gemini
+  CLI, OpenCode, pi), whether each has pitwall's hooks, a Start button that
+  opens each in a tab of its own, an Install hooks button that opens the
+  usual hooks dialog, and the keys for the agent waiting on you, a new tab
+  and the command palette. With no agent on PATH it is one line of install
+  links. Dismiss it, start an agent or type in the shell, and it never
+  comes back. A launch with saved state or a config file skips it.
+- Settings, Agents shows pi's hooks next to the other agents'.
+- The README is short now: what pitwall does, install, quick start and the
+  ten keys that matter. The rest moved, unchanged, to pages under `docs/`,
+  and `docs/index.html` is a one-page site for GitHub Pages.
 
 ## v0.1.0-alpha.23
 

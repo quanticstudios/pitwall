@@ -100,7 +100,8 @@ The AUR accepts only a `master` branch, whatever git's default is.
 - Review open security alerts and resolve confirmed vulnerabilities.
 - Scan reachable Git history for credentials as well as the current files.
   Rotate any exposed credential; deleting a file does not revoke a credential.
-- Keep the alpha status and platform limitations in [README.md](../README.md)
-  accurate. Check the install commands against the release you announce.
+- Keep the alpha status in [README.md](../README.md) and the platform
+  limitations in [install.md](install.md#platform-notes) accurate. Check the
+  install commands against the release you announce.
 - Check that media, fonts, copied code and dependency notices have the licenses
   needed for redistribution. Promo media must have redistribution rights.

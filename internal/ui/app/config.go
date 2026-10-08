@@ -134,6 +134,9 @@ func watchConfig(stop <-chan struct{}, files func() []string, reload func()) {
 // guiState is what the window remembers between runs, outside config.toml.
 type guiState struct {
 	SidebarHidden bool `json:"sidebar_hidden"`
+	// Welcome keeps the first-run card up, across restarts, until the user
+	// dismisses it or does anything else.
+	Welcome bool `json:"welcome,omitempty"`
 }
 
 func guiStatePath() string { return filepath.Join(config.StateDir(), "gui.json") }

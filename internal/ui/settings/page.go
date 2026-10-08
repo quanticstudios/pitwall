@@ -1215,7 +1215,7 @@ func (p *Page) about() []section {
 		}},
 		{label: "Check for updates", desc: "Look for a newer release on GitHub at start, every hour, and on regaining focus half an hour after the last check, and show an Update button at the bottom of the sidebar. Release builds on Linux and macOS only.", extra: "updates check upgrade release github",
 			control: p.toggle("updates", "check", p.s.CheckUpdates)},
-		{label: "Documentation", desc: "The README covers every option; the changelog lists what each release changed.", extra: "readme changelog help docs github",
+		{label: "Documentation", desc: "The README links a page on every option; the changelog lists what each release changed.", extra: "readme changelog help docs github",
 			control: func(gtx gl.Context) gl.Dimensions {
 				return hstack(gtx, 8, link("readme", "README", repo+"#readme"), link("changelog", "Changelog", repo+"/blob/main/CHANGELOG.md"))
 			}},
