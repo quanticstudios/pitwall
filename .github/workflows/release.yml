@@ -61,11 +61,29 @@ jobs:
           mkdir -p stage dist
           go build -trimpath -ldflags "-X main.version=$TAG" -o "stage/$exe" ./cmd/pitwall
           cp LICENSE THIRD_PARTY_NOTICES.md stage/
+          set -- "$exe" LICENSE THIRD_PARTY_NOTICES.md
+          case "$GOOS" in
+            linux)
+              # why: the AUR package installs the desktop entry and icon from the archive.
+              cp packaging/pitwall.desktop packaging/pitwall.svg stage/
+              set -- "$@" pitwall.desktop pitwall.svg
+              ;;
+            darwin)
+              # packaging/pitwall.icns is pitwall.svg at 16 to 1024 px; rebuild it when the svg changes.
+              app=stage/pitwall.app/Contents
+              mkdir -p "$app/MacOS" "$app/Resources"
+              sed "s/@VERSION@/${TAG#v}/" packaging/Info.plist > "$app/Info.plist"
+              cp packaging/pitwall.icns "$app/Resources/"
+              # why: tar stores a hard link once, so the bundle adds no second copy of the binary.
+              ln stage/pitwall "$app/MacOS/pitwall"
+              set -- "$@" pitwall.app
+              ;;
+          esac
           name="pitwall_${GOOS}_${GOARCH}"
           if [ "$GOOS" = windows ]; then
-            (cd stage && zip -q "../dist/$name.zip" "$exe" LICENSE THIRD_PARTY_NOTICES.md)
+            (cd stage && zip -q "../dist/$name.zip" "$@")
           else
-            tar -czf "dist/$name.tar.gz" -C stage "$exe" LICENSE THIRD_PARTY_NOTICES.md
+            tar -czf "dist/$name.tar.gz" -C stage "$@"
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -102,3 +120,58 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" dist/* --title "pitwall $TAG" --notes-file notes.md --verify-tag --latest
+
+  # The release is out by now: a failure here leaves it as it is.
+  packages:
+    needs: release
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Render the formula, the manifest and the AUR files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" -p checksums.txt -D sums
+          go run ./scripts/pkgrender -tag "$TAG" -sums sums/checksums.txt -out pkg
+          tar -czf pitwall-bin.aur.tar.gz -C pkg PKGBUILD .SRCINFO
+          gh release upload "$TAG" pitwall-bin.aur.tar.gz --clobber
+      - name: Push the Homebrew formula and the Scoop manifest
+        env:
+          TAG: ${{ github.ref_name }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          SCOOP_BUCKET_DEPLOY_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
+        run: |
+          printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > known_hosts
+          # publish copies $3 to $4 in GitHub repo $1 and pushes it with deploy key $2.
+          publish() {
+            if [ -z "$2" ]; then
+              echo "::notice::No deploy key for $1; skipped."
+              return 0
+            fi
+            dir=$(mktemp -d)
+            printf '%s\n' "$2" > "$dir/key"
+            chmod 600 "$dir/key"
+            export GIT_SSH_COMMAND="ssh -i $dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$PWD/known_hosts"
+            git clone -q --depth 1 "git@github.com:$1.git" "$dir/repo"
+            mkdir -p "$dir/repo/$(dirname "$4")"
+            cp "$3" "$dir/repo/$4"
+            git -C "$dir/repo" add "$4"
+            if git -C "$dir/repo" diff --cached --quiet; then
+              echo "$1 already has $4 for $TAG."
+            else
+              git -C "$dir/repo" -c user.name='Quantic Studios' -c user.email=info@quanticstudios.io commit -q -m "pitwall $TAG"
+              git -C "$dir/repo" push -q origin HEAD
+            fi
+            rm -rf "$dir"
+          }
+          publish quanticstudios/homebrew-tap "$HOMEBREW_TAP_DEPLOY_KEY" pkg/pitwall.rb Formula/pitwall.rb
+          publish quanticstudios/scoop-bucket "$SCOOP_BUCKET_DEPLOY_KEY" pkg/pitwall.json bucket/pitwall.json

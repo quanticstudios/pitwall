@@ -533,3 +533,16 @@ func TestHooksGeminiAndOpenCode(t *testing.T) {
 		t.Fatal("a skipped agent kept Claude's hooks from installing")
 	}
 }
+
+func TestHomebrewOpt(t *testing.T) {
+	for bin, want := range map[string]string{
+		"/opt/homebrew/Cellar/pitwall/0.1.0-alpha.24/bin/pitwall":              "/opt/homebrew/opt/pitwall/bin/pitwall",
+		"/home/linuxbrew/.linuxbrew/Cellar/pitwall/0.1.0-alpha.24/bin/pitwall": "/home/linuxbrew/.linuxbrew/opt/pitwall/bin/pitwall",
+		"/home/me/.local/bin/pitwall":                                          "/home/me/.local/bin/pitwall",
+		"/opt/homebrew/Cellar/pitwall":                                         "/opt/homebrew/Cellar/pitwall",
+	} {
+		if got := homebrewOpt(bin); got != want {
+			t.Errorf("homebrewOpt(%q) = %q, want %q", bin, got, want)
+		}
+	}
+}

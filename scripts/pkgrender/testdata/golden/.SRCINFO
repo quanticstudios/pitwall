@@ -1,0 +1,27 @@
+pkgbase = pitwall-bin
+	pkgdesc = Terminal multiplexer for coding agents
+	pkgver = 0.1.0alpha.23
+	pkgrel = 1
+	url = https://github.com/quanticstudios/pitwall
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	depends = glibc
+	depends = libglvnd
+	depends = wayland
+	depends = libxkbcommon
+	depends = libxkbcommon-x11
+	depends = libx11
+	depends = libxcb
+	depends = libxcursor
+	depends = libxfixes
+	provides = pitwall
+	conflicts = pitwall
+	options = !debug
+	options = !strip
+	source_x86_64 = pitwall_linux_amd64_v0.1.0-alpha.23.tar.gz::https://github.com/quanticstudios/pitwall/releases/download/v0.1.0-alpha.23/pitwall_linux_amd64.tar.gz
+	sha256sums_x86_64 = 03543c4f7f827342b6268a0a5a0fe74c2c33889bdbfc11b54965dc590f9e699d
+	source_aarch64 = pitwall_linux_arm64_v0.1.0-alpha.23.tar.gz::https://github.com/quanticstudios/pitwall/releases/download/v0.1.0-alpha.23/pitwall_linux_arm64.tar.gz
+	sha256sums_aarch64 = 4b614bfd9b6086784094fe31d2fb9a3ed5276a597b063e1e11f1f5162a1297c3
+
+pkgname = pitwall-bin
