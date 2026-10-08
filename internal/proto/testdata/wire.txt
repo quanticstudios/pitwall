@@ -1,0 +1,59 @@
+16.1
+layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
+model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
+model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int}
+model.DecideCount{Feature string; Calls int; Errors int}
+model.DecideInfo{Provider string; Counts []model.DecideCount}
+model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; Prompt string; AgentMode string; Transcript string}
+model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
+model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; Decide model.DecideInfo}
+model.Tab{ID string; Name string; Title string; Layout *layout.Node}
+model.Workspace{ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; RepoRoot string; Detached bool; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string}
+proto.AddProject{Path string; SessionID string}
+proto.AgentEvent{Pane string; Provider model.Provider; Payload []uint8}
+proto.ArchiveWorkspace{WorkspaceID string; Archived bool}
+proto.ClosePane{Pane string}
+proto.CloseTab{WorkspaceID string; TabID string}
+proto.DeleteGroup{GroupID string}
+proto.DeleteWorkspace{WorkspaceID string; RemoveBranch bool}
+proto.DetachSession{WorkspaceID string; Detached bool}
+proto.Error{Message string}
+proto.FocusSession{WorkspaceID string; TabID string; SessionID string}
+proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int}
+proto.GroupByFolder{WorkspaceID string}
+proto.Hello{Version int; Level int; Kind string; Cwd string; Session string}
+proto.Input{Pane string; Data []uint8}
+proto.KillSession{WorkspaceID string}
+proto.MoveGroup{GroupID string; Before string}
+proto.MoveSession{WorkspaceID string; GroupID string; Before string}
+proto.NewGroup{Name string; WorkspaceIDs []string}
+proto.NewSession{Name string; Cwd string; GroupID string; SessionID string; Cmd []string; FromPane string; Loose bool}
+proto.NewTab{WorkspaceID string; Cwd string; FromPane string}
+proto.NewWorkspace{ProjectID string; Name string}
+proto.OpenPane{WorkspaceID string; TabID string; Target string; Dir layout.Dir; Cmd []string}
+proto.PaneExited{Pane string; ExitCode int}
+proto.RenameGroup{GroupID string; Name string}
+proto.RenameTab{WorkspaceID string; TabID string; Pane string; Name string}
+proto.RenameWorkspace{WorkspaceID string; Name string}
+proto.Resize{Pane string; Cols int; Rows int}
+proto.Scroll{Pane string; Lines int}
+proto.SeePane{Pane string}
+proto.SelectTab{WorkspaceID string; TabID string}
+proto.SessionKill{SessionID string}
+proto.SessionNew{Name string; Cwd string; FromPane string}
+proto.SessionRename{SessionID string; Name string}
+proto.SessionShow{SessionID string}
+proto.SetLayout{WorkspaceID string; TabID string; Layout *layout.Node}
+proto.SetProjectAppearance{ProjectID string; Icon string; Color string}
+proto.SetSessionGroup{WorkspaceID string; GroupID string}
+proto.StateMsg{State model.State; Level int}
+proto.Sync{}
+time.Location{name string; zone []time.zone; tx []time.zoneTrans; extend string; cacheStart int64; cacheEnd int64; cacheZone *time.zone}
+time.Time{wall uint64; ext int64; loc *time.Location}
+time.zone{name string; offset int; isDST bool}
+time.zoneTrans{when int64; index uint8; isstd bool; isutc bool}
+vt.Cell{Content string; Width uint8; FG vt.Color; BG vt.Color; Attrs vt.Attr; Link string}
+vt.Cursor{X int; Y int; Visible bool; Shape vt.CursorShape}
+vt.Grid{Cols int; Rows int; Cells []vt.Cell; Cursor vt.Cursor; Title string; AltScreen bool}
+vt.Modes{AppCursorKeys bool; AppKeypad bool; BracketedPaste bool; FocusEvents bool; Mouse vt.MouseMode; MouseSGR bool; KittyKeyboard uint8}

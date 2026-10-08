@@ -9,6 +9,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -104,6 +106,8 @@ func (c *Conn) Send(msg any) (err error) {
 	return err
 }
 
+// Recv returns the next message, or Unknown for a type this build does not
+// know; the connection stays usable after an Unknown.
 func (c *Conn) Recv() (any, error) {
 	var header [4]byte
 	if _, err := io.ReadFull(c.c, header[:]); err != nil {
@@ -120,9 +124,22 @@ func (c *Conn) Recv() (any, error) {
 	c.in.Reset(body)
 	var e envelope
 	if err := c.dec.Decode(&e); err != nil {
+		// why: gob has no typed error for this. It reads the type
+		// definitions in the frame before it looks the name up, so the
+		// decoder keeps every type it was sent, and the next frame starts
+		// clean.
+		if _, name, ok := strings.Cut(err.Error(), unregistered); ok {
+			if n, qerr := strconv.Unquote(name); qerr == nil {
+				return Unknown{Name: n}, nil
+			}
+		}
 		return nil, err
 	}
 	return e.M, nil
 }
+
+// unregistered starts the gob error for an interface value of a type the
+// decoder has no Register for.
+const unregistered = "name not registered for interface: "
 
 func (c *Conn) Close() error { return c.c.Close() }

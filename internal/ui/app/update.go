@@ -35,8 +35,9 @@ const (
 )
 
 // updater checks for a newer release and installs it on a click. The daemon
-// is never touched: it keeps running the old binary until the next window
-// finds it speaks another protocol and restarts it, as after any upgrade.
+// is never touched: it keeps running the old binary, which serves the new
+// windows while their proto.Version matches. Otherwise the new window asks
+// before restarting it, as after any upgrade.
 type updater struct {
 	on atomic.Bool // [updates] check
 

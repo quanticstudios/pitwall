@@ -112,7 +112,7 @@ func fakeOldDaemon(mode string) error {
 		if err != nil {
 			return err
 		}
-		if mode == "error" || mode == "healthy" {
+		if mode != "raw" && mode != "silent" {
 			conn := proto.NewConn(nc)
 			if _, err := conn.Recv(); err != nil {
 				conn.Close()
@@ -127,7 +127,7 @@ func fakeOldDaemon(mode string) error {
 				conn.Close()
 				return err
 			}
-			if err := conn.Send(proto.Error{Message: "protocol version mismatch"}); err != nil {
+			if err := conn.Send(proto.Error{Message: "daemon speaks protocol version 15; send Hello{Version: 15} first"}); err != nil {
 				conn.Close()
 				return err
 			}
@@ -145,7 +145,10 @@ func fakeOldDaemon(mode string) error {
 	}
 }
 
-func TestDialOrStartRestartsOldDaemon(t *testing.T) {
+// A daemon that refuses this client's proto.Version keeps running until
+// the user chooses to restart it; one that does not answer the handshake
+// is never restarted.
+func TestDialOrStartAsksBeforeRestart(t *testing.T) {
 	t.Setenv("PITWALL_SOCKET", "")
 	for _, mode := range []string{"raw", "error", "silent", "empty", "stuck"} {
 		t.Run(mode, func(t *testing.T) {
@@ -196,7 +199,24 @@ func TestDialOrStartRestartsOldDaemon(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("old daemon did not start")
 			}
-			conn, initial, err := dialOrStart("")
+			_, _, err = dialOrStart("", false)
+			var refused incompatible
+			if mode == "raw" || mode == "silent" {
+				if err == nil || errors.As(err, &refused) || !strings.Contains(err.Error(), "daemon handshake failed") {
+					t.Fatalf("a daemon that does not answer: %v", err)
+				}
+			} else if !errors.As(err, &refused) || refused.version != 15 {
+				t.Fatalf("got %v, want a refusal of version 15", err)
+			}
+			select {
+			case err := <-exited:
+				t.Fatalf("the old daemon stopped before anyone chose to restart it: %v", err)
+			case <-time.After(100 * time.Millisecond):
+			}
+			if mode == "raw" || mode == "silent" {
+				return
+			}
+			conn, initial, err := dialOrStart("", true)
 			// "empty" is a daemon from before the pid was written: it is
 			// found through /proc/locks and replaced like the others.
 			if mode == "stuck" {
@@ -281,7 +301,7 @@ func TestDialOrStartHealthyDaemon(t *testing.T) {
 		time.Sleep(2100 * time.Millisecond)
 		served <- conn.Send(proto.Frame{Pane: "healthy"})
 	}()
-	conn, initial, err := dialOrStart("work")
+	conn, initial, err := dialOrStart("work", false)
 	if err != nil {
 		t.Fatal(err)
 	}

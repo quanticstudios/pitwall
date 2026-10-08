@@ -86,9 +86,10 @@ the download or the checksum fails, nothing is installed, the button reads
 "Update failed", and a click tries again. After an install, "Restart to
 finish" opens a new window on the same tab and closes this one.
 
-The update leaves the daemon running, so tabs keep their processes. When the
-new release speaks a newer protocol, the new window restarts the daemon, as
-after any upgrade, and tabs come back as they do after a reboot.
+The update leaves the daemon running, so tabs keep their processes. Most
+releases work with the daemon already running; when one cannot, the new
+window asks before restarting it, as after any upgrade (see
+[Upgrades](#upgrades)).
 
 A build from source (`git describe` past a tag, or `-dirty`) never checks.
 Windows has no button; run the install command again to update. To stop the
@@ -827,9 +828,36 @@ as `--model`, are not restored. If a resume fails within 3 seconds, the pane fal
 in the same folder. A restored agent in a pane that was a shell also drops to a shell in the same
 folder whenever it exits. Running processes and scrollback do not survive a reboot.
 
-When you upgrade pitwall while an older daemon is running, the next `pitwall`
-detects it, has it save its state and stop, and starts the new one. Programs
-running in panes at that moment stop.
+### Upgrades
+
+The window and the daemon speak a protocol with a major version and a
+feature level. A new window works with a daemon of the same major version,
+whatever either one's level, so after most upgrades the running daemon keeps
+serving new windows and every program in a pane keeps running. The daemon
+runs the old binary until it restarts, so features that need the new daemon
+arrive then.
+
+A release that changes the protocol's major version cannot use the running
+daemon. Its first window asks: "pitwall <version> needs to restart its
+background service; programs running in panes will stop." Nothing stops
+until you choose:
+
+- **Restart now** has the old daemon save its state and stop, then starts
+  the new one. Tabs come back as after a reboot, with agents resumed.
+- **Later** closes the window and leaves the old daemon and its programs
+  running. Windows still open from before the upgrade keep working. Run
+  `pitwall` again when you are ready to restart; it asks again.
+
+A window from before the upgrade whose daemon was restarted by a newer one
+reopens itself on the installed binary. CLI commands and agent hooks of the
+other major version get an error or, for hooks, nothing, until the restart.
+
+When a window loses its daemon connection, for example because the daemon
+crashed, it keeps showing the last screen under "Disconnected from pitwall's
+background service." It reconnects on its own, starting a daemon when none
+runs: at once, then 0.5 seconds after a failed try and twice as long after
+each further one, up to 30 seconds. The Reconnect button tries at once. A
+daemon started this way restores tabs as after a reboot.
 
 ## Troubleshooting
 

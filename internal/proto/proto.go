@@ -3,12 +3,42 @@
 package proto
 
 import (
+	"fmt"
+
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
-// Version bumps on any incompatible change; the daemon refuses other versions.
+// Version is the protocol major. A client and a daemon interoperate when
+// their Versions match, whatever their Levels; a daemon refuses any other
+// Version with an Error that RefusedVersion reads.
+//
+// Level counts additive changes within a Version. When a message changes,
+// decide which kind of change it is:
+//
+//   - Additive, bump Level: a new field in a struct, or a new message type
+//     appended to Messages, where a peer that ignores the field or never
+//     sends the message still behaves correctly. gob leaves a field the
+//     sender lacks at its zero value and skips one the receiver lacks, and
+//     Recv returns Unknown for a type this build lacks. A daemon sends a
+//     message type added at level N only to clients whose Hello.Level is at
+//     least N, and a client sends one only when the daemon's StateMsg.Level
+//     is at least N: peers below level 1 drop the connection on a type they
+//     do not know.
+//   - Breaking, bump Version and set Level to 0: a field removed or renamed,
+//     a field's type changed, a message type removed, or a field or message
+//     whose meaning changes so that an older peer would act on it wrongly.
+//     Running daemons then refuse the new clients, and the GUI asks to
+//     restart the daemon, which stops every program running in a pane.
+//
+// TestWireFingerprint checks a layout change against testdata/wire.txt and
+// fails until the right number is bumped.
+//
+// Level 1 added Hello.Level, StateMsg.Level and Unknown, and made a
+// matching Version enough. Daemons of Version 16 and earlier refuse every
+// Version but their own and ignore Level.
+//
 // Version 16 added NewSession.Loose, a tab outside every group.
 // Version 15 added Pane.Transcript, the agent session's own file.
 // Version 14 added Pane.Held and ExitUnknown: a held pane survives a daemon
@@ -35,15 +65,18 @@ import (
 // Version 4 added Workspace.NameSet and Label and Pane.Prompt.
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
-// RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames. Any change
-// to a message's fields or meaning must bump it; TestWireFingerprint fails
-// until it does.
+// RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames.
 const Version = 16
+
+// Level is the count of additive changes within Version; see Version.
+const Level = 1
 
 // Client to daemon.
 
 type Hello struct {
 	Version int
+	// Level is the client's proto.Level, 0 from clients before level 1.
+	Level int
 	// Kind is "gui", "hook", "cli" or "watch". A watch client gets the
 	// StateMsg and PaneExited pushes a GUI gets, but no frames, and counts
 	// as no window. StateMsg pushes coalesce: close changes arrive as one.
@@ -175,6 +208,8 @@ type AgentEvent struct {
 
 type StateMsg struct {
 	State model.State
+	// Level is the daemon's proto.Level, 0 from daemons before level 1.
+	Level int
 }
 
 type Frame struct {
@@ -193,6 +228,27 @@ type PaneExited struct {
 
 type Error struct {
 	Message string
+}
+
+// Unknown is what Recv returns for a message of a type this build does not
+// know, from a peer at a higher Level. It never crosses the socket.
+type Unknown struct {
+	Name string // the type's gob name, such as "<module>/internal/proto.Thing"
+}
+
+// refusal is the daemon's answer to a Hello of another Version, unchanged
+// since Version 2 so that clients of any Version can read it.
+const refusal = "daemon speaks protocol version %d; send Hello{Version: %d} first"
+
+// Refusal is the Error a daemon sends to a Hello of another Version.
+func Refusal() Error { return Error{Message: fmt.Sprintf(refusal, Version, Version)} }
+
+// RefusedVersion reports whether e refused a Hello for its Version, and the
+// daemon's Version when it did.
+func RefusedVersion(e Error) (int, bool) {
+	var v, again int
+	n, _ := fmt.Sscanf(e.Message, refusal, &v, &again)
+	return v, n == 2
 }
 
 // NewTab opens a tab, which is a session of its own: right after

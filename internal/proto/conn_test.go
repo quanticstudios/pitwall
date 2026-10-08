@@ -16,6 +16,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/testenv"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -44,7 +45,7 @@ func allMessages() []any {
 		Decide: model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}}},
 	}
 	return []any{
-		Hello{Version: Version, Kind: "gui", Session: "work"},
+		Hello{Version: Version, Level: Level, Kind: "gui", Session: "work"},
 		Input{Pane: "a", Data: []byte("ls\r")},
 		Resize{Pane: "a", Cols: 80, Rows: 24},
 		AddProject{Path: "/r"},
@@ -65,7 +66,7 @@ func allMessages() []any {
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},
 		AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(`{"x":1}`)},
-		StateMsg{State: st},
+		StateMsg{State: st, Level: Level},
 		Frame{Pane: "a", Grid: bigGrid(200, 60), Modes: vt.Modes{AppCursorKeys: true, Mouse: vt.MouseAny, MouseSGR: true, KittyKeyboard: 3}},
 		PaneExited{Pane: "a", ExitCode: 1},
 		Error{Message: "boom"},
@@ -224,5 +225,52 @@ func TestDial(t *testing.T) {
 	m, err := c.Recv()
 	if err != nil || m != (Hello{Version: Version, Kind: "cli"}) {
 		t.Fatalf("got %v, %v", m, err)
+	}
+}
+
+// A message type from a newer peer comes out of Recv as Unknown, and the
+// messages after it, even a second one of that type, still decode.
+func TestRecvUnknown(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	b.SetDeadline(time.Now().Add(5 * time.Second))
+	sender, receiver := NewConn(testenv.FromFuture(a)), NewConn(b)
+	sent := []any{testenv.Future{Note: "new"}, Hello{Version: Version, Kind: "cli"}, testenv.Future{Note: "again"}, Sync{}}
+	go func() {
+		for _, m := range sent {
+			if err := sender.Send(m); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	lost := Unknown{Name: "pitwall.test/future-lost"}
+	for i, w := range []any{lost, sent[1], lost, sent[3]} {
+		got, err := receiver.Recv()
+		if err != nil {
+			t.Fatalf("message %d: %v", i, err)
+		}
+		if got != w {
+			t.Fatalf("message %d = %#v, want %#v", i, got, w)
+		}
+	}
+}
+
+// Clients read the daemon's Version from its refusal, which every daemon
+// since Version 2 words the same.
+func TestRefusedVersion(t *testing.T) {
+	for _, c := range []struct {
+		msg string
+		v   int
+		ok  bool
+	}{
+		{Refusal().Message, Version, true},
+		{"daemon speaks protocol version 15; send Hello{Version: 15} first", 15, true},
+		{"no session named work", 0, false},
+	} {
+		if v, ok := RefusedVersion(Error{Message: c.msg}); v != c.v || ok != c.ok {
+			t.Errorf("%q: %d %v, want %d %v", c.msg, v, ok, c.v, c.ok)
+		}
 	}
 }
