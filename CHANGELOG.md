@@ -14,7 +14,7 @@ pass) and opens a `Release v0.1.0-alpha.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-alpha.24
 
 - The Update button stays hidden when Homebrew or a distro package owns the
   pitwall binary; update those with the package manager.
