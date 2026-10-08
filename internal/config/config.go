@@ -32,6 +32,7 @@ type Config struct {
 	Usage     Usage     `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
 	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
+	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see the README's Phone section."`
 }
 
 // Keys is [keys]. Every Binding field is an action; its group tag heads
@@ -231,6 +232,8 @@ type Settings struct {
 	Decisions DecideSettings
 	// Worktrees is [worktrees] resolved.
 	Worktrees WorktreeSettings
+	// Remote is [remote] resolved.
+	Remote RemoteSettings
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -398,6 +401,9 @@ func LoadFile(path string) (Settings, []Problem) {
 	var dn []issue
 	s.Decisions, di, dn = resolveDecisions(c.Decisions)
 	fi = append(fi, di...)
+	var ri []issue
+	s.Remote, ri = resolveRemote(c.Remote)
+	fi = append(fi, ri...)
 	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
 	var wi []issue
 	s.Worktrees, wi = resolveWorktrees(c.Worktrees, WorktreeSettings{PortBase: DefaultPortBase, PortStep: DefaultPortStep}, "worktrees.")

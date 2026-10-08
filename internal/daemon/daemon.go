@@ -31,6 +31,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -86,7 +87,11 @@ type Options struct {
 	// decision feature off.
 	Decisions func() Decisions
 	// Journal is decisions.jsonl; nil logs nothing.
-	Journal       *decisionlog.Log
+	Journal *decisionlog.Log
+	// Remote reads [remote]; nil never serves the phone page. RemoteDir
+	// holds its pairings, devices and certificate.
+	Remote        func() config.RemoteSettings
+	RemoteDir     string
 	Save          func(model.State) error
 	Load          func() (model.State, error)
 	RestoreCmd    func(model.Pane) []string
@@ -153,6 +158,8 @@ func New() (*Daemon, error) {
 		RestoreCmd:     store.RestoreCmd,
 		Decisions:      loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
 		Bell:           bellSetting(config.Path()),
+		Remote:         func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
+		RemoteDir:      remote.Dir(),
 		Split:          layout.Split,
 		Remove:         layout.Remove,
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
@@ -249,6 +256,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	go d.statsLoop(ctx)
 	var wg sync.WaitGroup
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
+	wg.Go(func() { d.remoteLoop(ctx) })
 
 	var acceptErr error
 	for {

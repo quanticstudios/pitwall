@@ -107,6 +107,16 @@ build. Either step takes `--dry-run`.
   service. While one from an earlier release runs, they do nothing until
   it restarts.
 
+- Answer agents from your phone. With `[remote] enabled = true`, the
+  background service serves a page that lists the tabs needing you, with
+  the agent's question and pitwall's risk flags, Allow and Deny buttons
+  for Claude Code and Codex permission prompts, and a reply box. It never
+  shows a pane's screen. It listens on 127.0.0.1:7777; `tailscale serve`
+  puts it on your tailnet. Pair a phone with `pitwall remote pair` or in
+  Settings, Phone, by QR code; `pitwall remote devices` and `revoke` list
+  and unpair them. Any other address needs `tls = true`. See the README's
+  Phone section.
+
 ## v0.1.0-alpha.22
 
 - The first group at the top of the sidebar gets the same 6dp above its
