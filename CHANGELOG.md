@@ -47,6 +47,13 @@ build. Either step takes `--dry-run`.
   and uncached tokens with what the cache saved, and a table by model or
   by day. It reads the agents' own session files, and a reopen reads only
   what they appended since.
+- Settings has a Decision stats page: what `pitwall jev report` prints,
+  drawn, over the last 7 days, 30 days or all time. It leads with the
+  verdict on whether you answer approvals faster with the model's
+  suggestion shown, or how many answers each half still needs, then
+  calls, cost, cost per day, median latency, the two holdout halves side
+  by side with the median difference and its 95% interval, calls per day,
+  turn checks and triage.
 
 ## v0.1.0-alpha.23
 

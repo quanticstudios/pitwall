@@ -52,6 +52,7 @@ const (
 	catAgents
 	catUsage
 	catDecisions
+	catStats
 	catPhone
 	catAbout
 )
@@ -63,6 +64,7 @@ var categories = []struct{ name, desc string }{
 	{"Agents", "The sidebar learns what each agent is doing from hooks in its config."},
 	{"Usage", "What your coding agents cost, from their own session files."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
+	{"Decision stats", "What the decisions log shows: calls, cost, and whether seeing the model's suggestion changes how you answer approvals."},
 	{"Phone", "See which agents need you and answer them from your phone, over your own network."},
 	{"About", "Version, config file and documentation."},
 }
@@ -109,6 +111,7 @@ type Page struct {
 	copiedAt time.Time
 
 	dp decisionsPage
+	st statsPage
 	ph phonePage
 	us usagePage
 }
@@ -137,6 +140,8 @@ func (p *Page) Show(configPath string) {
 	p.readKey()
 	p.readDevices()
 	p.us.gen++
+	// Decision stats reads the log again when it shows.
+	p.st.read = false
 	families(nil) // start the font scan
 }
 
@@ -484,6 +489,7 @@ type row struct {
 	wide        bool
 	control     gl.Widget
 	below       gl.Widget // a prompt under the row, like a shortcut conflict
+	bare        bool      // control draws its own frame, as Decision stats' panels do
 }
 
 type section struct {
@@ -660,6 +666,9 @@ func (p *Page) alert(gtx gl.Context) gl.Dimensions {
 // card draws one row as part of a bordered card: rounded on top for the
 // first, at the bottom for the last, a hairline between rows.
 func (p *Page) card(gtx gl.Context, r row, first, last bool) gl.Dimensions {
+	if r.bare {
+		return r.control(gtx)
+	}
 	th := p.th
 	pad := image.Pt(gtx.Dp(16), gtx.Dp(12))
 	w := gtx.Constraints.Max.X
@@ -744,6 +753,8 @@ func (p *Page) sections(cat int) []section {
 		return p.usage()
 	case catDecisions:
 		return p.decisions()
+	case catStats:
+		return p.stats()
 	case catPhone:
 		return p.phone()
 	case catAbout:

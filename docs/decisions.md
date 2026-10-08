@@ -132,7 +132,9 @@ Check turn was followed by another prompt within 5 minutes against a Done
 turn, and time to focus per triage level. It gives a one-line verdict once
 each half has 30 answered prompts, with a bootstrap interval on the
 difference in median answer time; until then it says how many it has.
-`pitwall jev status` shows how many events the log holds.
+`pitwall jev status` shows how many events the log holds. Settings,
+Decision stats draws the same numbers over the last 7 days, 30 days or all
+time, with calls per day as a chart.
 
 ## A local model instead
 

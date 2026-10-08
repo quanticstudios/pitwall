@@ -1,0 +1,45 @@
+Decisions 2026-10-01 to 2026-10-08: 67 calls, 64 outcomes.
+
+Calls
+  feature       calls  failed      p50      p95
+  approvals        61      2%   200 ms   400 ms
+  triage            2      0%   100 ms   100 ms
+  turn_check        4      0%   100 ms   100 ms
+  failures: timeout 1
+  cost: about $0.0026 for 64900 input tokens at $0.04 per million (an estimate; 1% of the tokens are guessed from request size, where the reply gave no count)
+
+Approvals
+  time to answer, suggestion shown:  median 15.0s, p75 23.0s (n=30)
+  time to answer, held out:          median 25.0s, p75 33.0s (n=30)
+  left out, no event showed the answer: 1
+  Jev agreed with you on 92% (n=60); held out only 93% (n=30); at confidence 0.9 or more 95% (n=58)
+  Jev said ask or deny and you allowed: 2; Jev said allow and you denied: 3
+  of the 8 you denied, Jev said ask or deny on 5
+
+Turn check: turns you prompted again within 5 minutes
+  marked Check: 1 of 2 (50%); marked Done: 0 of 2 (0%); lift +50 points
+
+Triage: time until you focused the pane
+  now    median 3.0s (n=1)
+  not focused before the pane moved on: 1
+
+Verdict: you answer faster with the suggestion shown (median 15.0s shown vs 25.0s held out; 95% interval of the difference -17.0s to -2.0s). Jev agreed with you on 92% of approvals and said ask or deny on 5 of the 8 you denied. About $0.0026 over 7 days.
+=====
+Decisions 2026-10-01 to 2026-10-08: 10 calls, 10 outcomes.
+
+Calls
+  feature       calls  failed      p50      p95
+  approvals        10      0%   200 ms   200 ms
+  cost: about $0.0004 for 10000 input tokens at $0.04 per million (an estimate)
+
+Approvals
+  time to answer, suggestion shown:  median 5.0s, p75 8.0s (n=10)
+  time to answer, held out:          none yet
+  Jev agreed with you on 70% (n=10); held out only - (n=0); at confidence 0.9 or more 70% (n=10)
+  Jev said ask or deny and you allowed: 0; Jev said allow and you denied: 3
+  of the 3 you denied, Jev said ask or deny on 0
+
+Verdict: not enough data yet. It needs 30 answered approvals in each arm; there are 10 shown and 0 held out.
+=====
+Decisions 2026-10-01 to 2026-10-08: 0 calls, 0 outcomes.
+Nothing logged in this period. pitwall logs while a decision provider is on.

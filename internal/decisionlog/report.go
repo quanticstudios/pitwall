@@ -30,9 +30,79 @@ const (
 	turnCheck = "turn_check"
 )
 
-// Report writes a plain-text summary of evs, the events logged from from
-// to to.
-func Report(w io.Writer, evs []Event, from, to time.Time) {
+// Stats is what the log says about the events from From to To: what
+// Report prints and the settings page draws.
+type Stats struct {
+	From, To        time.Time
+	Calls, Outcomes int // decisions with a call, with an outcome
+
+	Features          []Feature      // by name
+	Failures          map[string]int // failed calls per kind
+	Tokens, Estimated int            // input tokens; of those, guessed from request size
+	Dollars           float64        // Tokens at CostPerMTok
+	P50               float64        // median latency in ms of every answered call
+	Days              []Day          // each local day from From to To
+
+	Approvals Approvals
+	Turns     Turns
+	Triage    Triage
+}
+
+// Feature is one feature's calls.
+type Feature struct {
+	Name                    string
+	Calls, Failed, Answered int
+	P50, P95                float64 // latency in ms of the answered calls
+}
+
+// Day is one local day's calls.
+type Day struct {
+	Date    time.Time // local midnight
+	Calls   int
+	Dollars float64
+}
+
+// Approvals is the holdout: approvals answered with the suggestion shown
+// and held out.
+type Approvals struct {
+	Shown, Held        []float64 // seconds to answer, per arm
+	Agree, N           int       // Jev's verdict matched the user's answer
+	HeldAgree, HeldN   int       // of those, held out
+	ConfAgree, ConfN   int       // of those, at confidence 0.9 or more
+	FlaggedAllowed     int       // Jev said ask or deny; the user allowed
+	AllowDenied        int       // Jev said allow; the user denied
+	Denied, Caught     int       // the user denied; of those, Jev said ask or deny
+	Unknown, Unmatched int
+
+	// Once Ready: median(Shown) - median(Held) in seconds and its 95%
+	// bootstrap interval.
+	Diff, Lo, Hi float64
+}
+
+// Ready reports whether both arms have MinPerArm answers, enough for a
+// verdict.
+func (a Approvals) Ready() bool { return len(a.Shown) >= MinPerArm && len(a.Held) >= MinPerArm }
+
+// Turns is the turn check: turns prompted again within FollowUp, by
+// answer.
+type Turns struct{ Check, CheckN, Done, DoneN int }
+
+// Triage is the time until the user focused a pane, per urgency.
+type Triage struct {
+	Levels    []Level // now, soon, later, fyi; those with a focus
+	Unfocused int     // calls with no focus before the pane moved on
+}
+
+// Level is one urgency's focus times.
+type Level struct {
+	Name   string
+	N      int
+	Median float64 // seconds
+}
+
+// Compute works out the stats of evs, the events logged from from to to.
+func Compute(evs []Event, from, to time.Time) Stats {
+	s := Stats{From: from, To: to, Failures: map[string]int{}}
 	calls := map[string]Event{}
 	outs := map[string]Event{}
 	for _, e := range evs {
@@ -43,194 +113,146 @@ func Report(w io.Writer, evs []Event, from, to time.Time) {
 			outs[e.ID] = e
 		}
 	}
-	fmt.Fprintf(w, "Decisions %s to %s: %d calls, %d outcomes.\n", from.Local().Format(time.DateOnly), to.Local().Format(time.DateOnly), len(calls), len(outs))
-	if len(calls) == 0 {
-		fmt.Fprintln(w, "Nothing logged in this period. pitwall logs while a decision provider is on.")
-		return
-	}
-	dollars := callsSection(w, evs)
-	ap := approvalsSection(w, evs, calls)
-	turnSection(w, evs, outs, to)
-	triageSection(w, evs, calls, outs)
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, verdict(ap, dollars, to.Sub(from)))
+	s.Calls, s.Outcomes = len(calls), len(outs)
+	s.calls(evs)
+	s.approvals(evs, calls)
+	s.turns(evs, outs)
+	s.triage(evs, calls, outs)
+	return s
 }
 
-// callsSection prints calls, failures and latency per feature, and the
-// cost, which it returns.
-func callsSection(w io.Writer, evs []Event) float64 {
-	type stat struct {
-		n, failed int
-		ms        []float64
+func (s *Stats) calls(evs []Event) {
+	ms := map[string][]float64{}
+	feats := map[string]*Feature{}
+	var all []float64
+	day := map[string]int{} // local date to its index in Days
+	for d := midnight(s.From); !d.After(s.To); d = d.AddDate(0, 0, 1) {
+		day[d.Format(time.DateOnly)] = len(s.Days)
+		s.Days = append(s.Days, Day{Date: d})
 	}
-	stats := map[string]*stat{}
-	kinds := map[string]int{}
-	var tokens, est int
 	for _, e := range evs {
 		if e.Kind != Call {
 			continue
 		}
-		s := stats[e.Feature]
-		if s == nil {
-			s = &stat{}
-			stats[e.Feature] = s
+		f := feats[e.Feature]
+		if f == nil {
+			f = &Feature{Name: e.Feature}
+			feats[e.Feature] = f
 		}
-		s.n++
-		tokens += e.Tokens
+		f.Calls++
+		s.Tokens += e.Tokens
 		if e.Estimated {
-			est += e.Tokens
+			s.Estimated += e.Tokens
+		}
+		if i, ok := day[e.T.Local().Format(time.DateOnly)]; ok {
+			s.Days[i].Calls++
+			s.Days[i].Dollars += float64(e.Tokens) * CostPerMTok / 1e6
 		}
 		if e.Err != "" {
-			s.failed++
-			kinds[e.Err]++
+			f.Failed++
+			s.Failures[e.Err]++
 			continue
 		}
-		s.ms = append(s.ms, float64(e.Ms))
+		ms[e.Feature] = append(ms[e.Feature], float64(e.Ms))
+		all = append(all, float64(e.Ms))
 	}
-	fmt.Fprintln(w, "\nCalls")
-	const row = "  %-12s %6s %7s %8s %8s\n"
-	fmt.Fprintf(w, row, "feature", "calls", "failed", "p50", "p95")
-	for _, f := range slices.Sorted(maps.Keys(stats)) {
-		s := stats[f]
-		p50, p95 := "-", "-"
-		if len(s.ms) > 0 {
-			p50, p95 = fmt.Sprintf("%.0f ms", quantile(s.ms, .5)), fmt.Sprintf("%.0f ms", quantile(s.ms, .95))
-		}
-		fmt.Fprintf(w, row, f, fmt.Sprint(s.n), pct(s.failed, s.n), p50, p95)
+	for _, name := range slices.Sorted(maps.Keys(feats)) {
+		f := feats[name]
+		f.Answered, f.P50, f.P95 = len(ms[name]), quantile(ms[name], .5), quantile(ms[name], .95)
+		s.Features = append(s.Features, *f)
 	}
-	if len(kinds) > 0 {
-		var parts []string
-		for _, k := range slices.Sorted(maps.Keys(kinds)) {
-			parts = append(parts, fmt.Sprintf("%s %d", k, kinds[k]))
-		}
-		fmt.Fprintln(w, "  failures:", strings.Join(parts, ", "))
-	}
-	dollars := float64(tokens) * CostPerMTok / 1e6
-	fmt.Fprintf(w, "  cost: about %s for %d input tokens at $%.2f per million (an estimate", money(dollars), tokens, CostPerMTok)
-	if est > 0 {
-		fmt.Fprintf(w, "; %s of the tokens are guessed from request size, where the reply gave no count", pct(est, tokens))
-	}
-	fmt.Fprintln(w, ")")
-	return dollars
+	s.Dollars = float64(s.Tokens) * CostPerMTok / 1e6
+	s.P50 = quantile(all, .5)
 }
 
-// approvalStats is what the verdict needs from the approvals section.
-type approvalStats struct {
-	shown, held        []float64 // seconds to answer, per arm
-	agree, n           int       // Jev's verdict matched the user's answer
-	flaggedAllowed     int       // Jev said ask or deny; the user allowed
-	allowDenied        int       // Jev said allow; the user denied
-	denied, caught     int       // the user denied; of those, Jev said ask or deny
-	heldAgree, heldN   int
-	confAgree, confN   int
-	unknown, unmatched int
+func midnight(t time.Time) time.Time {
+	y, m, d := t.Local().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 }
 
-func approvalsSection(w io.Writer, evs []Event, calls map[string]Event) approvalStats {
-	var s approvalStats
+func (s *Stats) approvals(evs []Event, calls map[string]Event) {
+	a := &s.Approvals
 	for _, o := range evs {
 		if o.Kind != Outcome || o.Feature != approvals {
 			continue
 		}
 		if o.User != Allowed && o.User != Denied {
-			s.unknown++
+			a.Unknown++
 			continue
 		}
 		secs := float64(o.WaitMs) / 1000
 		if o.Held {
-			s.held = append(s.held, secs)
+			a.Held = append(a.Held, secs)
 		} else {
-			s.shown = append(s.shown, secs)
+			a.Shown = append(a.Shown, secs)
 		}
 		c, ok := calls[o.ID]
 		if !ok || c.Err != "" || c.Answer == "" {
-			s.unmatched++
+			a.Unmatched++
 			continue
 		}
 		jevAllow, userAllow := c.Answer == "allow", o.User == Allowed
 		agree := jevAllow == userAllow
-		s.n++
+		a.N++
 		if agree {
-			s.agree++
+			a.Agree++
 		}
 		if o.Held {
-			s.heldN++
+			a.HeldN++
 			if agree {
-				s.heldAgree++
+				a.HeldAgree++
 			}
 		}
 		if c.Conf >= 0.9 {
-			s.confN++
+			a.ConfN++
 			if agree {
-				s.confAgree++
+				a.ConfAgree++
 			}
 		}
 		switch {
 		case !jevAllow && userAllow:
-			s.flaggedAllowed++
+			a.FlaggedAllowed++
 		case jevAllow && !userAllow:
-			s.allowDenied++
+			a.AllowDenied++
 		}
 		if !userAllow {
-			s.denied++
+			a.Denied++
 			if !jevAllow {
-				s.caught++
+				a.Caught++
 			}
 		}
 	}
-	if len(s.shown)+len(s.held)+s.unknown == 0 {
-		return s
+	if a.Ready() {
+		a.Diff = quantile(a.Shown, .5) - quantile(a.Held, .5)
+		a.Lo, a.Hi = medianDiffCI(a.Shown, a.Held)
 	}
-	fmt.Fprintln(w, "\nApprovals")
-	fmt.Fprintf(w, "  time to answer, suggestion shown:  %s\n", spread(s.shown))
-	fmt.Fprintf(w, "  time to answer, held out:          %s\n", spread(s.held))
-	if s.unknown > 0 {
-		fmt.Fprintf(w, "  left out, no event showed the answer: %d\n", s.unknown)
-	}
-	if s.n > 0 {
-		fmt.Fprintf(w, "  Jev agreed with you on %s (n=%d); held out only %s (n=%d); at confidence 0.9 or more %s (n=%d)\n",
-			pct(s.agree, s.n), s.n, pct(s.heldAgree, s.heldN), s.heldN, pct(s.confAgree, s.confN), s.confN)
-		fmt.Fprintf(w, "  Jev said ask or deny and you allowed: %d; Jev said allow and you denied: %d\n", s.flaggedAllowed, s.allowDenied)
-		fmt.Fprintf(w, "  of the %d you denied, Jev said ask or deny on %d\n", s.denied, s.caught)
-	}
-	return s
 }
 
-func turnSection(w io.Writer, evs []Event, outs map[string]Event, to time.Time) {
-	var check, done, checkN, doneN int
+func (s *Stats) turns(evs []Event, outs map[string]Event) {
+	t := &s.Turns
 	for _, c := range evs {
-		if c.Kind != Call || c.Feature != turnCheck || c.Err != "" || c.T.After(to.Add(-FollowUp)) {
+		if c.Kind != Call || c.Feature != turnCheck || c.Err != "" || c.T.After(s.To.Add(-FollowUp)) {
 			continue // a turn under FollowUp old may still get its prompt
 		}
 		o, ok := outs[c.ID]
 		followed := ok && o.User == Prompted && o.WaitMs <= FollowUp.Milliseconds()
 		switch c.Answer {
 		case "check":
-			checkN++
+			t.CheckN++
 			if followed {
-				check++
+				t.Check++
 			}
 		case "done":
-			doneN++
+			t.DoneN++
 			if followed {
-				done++
+				t.Done++
 			}
 		}
 	}
-	if checkN+doneN == 0 {
-		return
-	}
-	fmt.Fprintf(w, "\nTurn check: turns you prompted again within %d minutes\n", int(FollowUp.Minutes()))
-	fmt.Fprintf(w, "  marked Check: %d of %d (%s); marked Done: %d of %d (%s)", check, checkN, pct(check, checkN), done, doneN, pct(done, doneN))
-	if checkN > 0 && doneN > 0 {
-		fmt.Fprintf(w, "; lift %+.0f points", 100*(float64(check)/float64(checkN)-float64(done)/float64(doneN)))
-	}
-	fmt.Fprintln(w)
 }
 
-func triageSection(w io.Writer, evs []Event, calls, outs map[string]Event) {
+func (s *Stats) triage(evs []Event, calls, outs map[string]Event) {
 	waits := map[string][]float64{}
-	unfocused, seen := 0, false
 	for _, e := range evs {
 		if e.Feature != triage {
 			continue
@@ -239,54 +261,148 @@ func triageSection(w io.Writer, evs []Event, calls, outs map[string]Event) {
 		case e.Kind == Outcome && e.User == Focused:
 			if c, ok := calls[e.ID]; ok && c.Err == "" {
 				waits[c.Answer] = append(waits[c.Answer], float64(e.WaitMs)/1000)
-				seen = true
 			}
 		case e.Kind == Call && e.Err == "":
 			if _, ok := outs[e.ID]; !ok {
-				unfocused++
-				seen = true
+				s.Triage.Unfocused++
 			}
 		}
 	}
-	if !seen {
-		return
-	}
-	fmt.Fprintln(w, "\nTriage: time until you focused the pane")
 	for _, u := range []string{"now", "soon", "later", "fyi"} {
 		if xs := waits[u]; len(xs) > 0 {
-			fmt.Fprintf(w, "  %-6s median %s (n=%d)\n", u, secs(quantile(xs, .5)), len(xs))
+			s.Triage.Levels = append(s.Triage.Levels, Level{Name: u, N: len(xs), Median: quantile(xs, .5)})
 		}
-	}
-	if unfocused > 0 {
-		fmt.Fprintf(w, "  not focused before the pane moved on: %d\n", unfocused)
 	}
 }
 
-// verdict is one line on whether showing Jev's verdict changes how fast
+// Report writes a plain-text summary of evs, the events logged from from
+// to to.
+func Report(w io.Writer, evs []Event, from, to time.Time) { Compute(evs, from, to).Write(w) }
+
+// Write prints s as plain text.
+func (s Stats) Write(w io.Writer) {
+	fmt.Fprintf(w, "Decisions %s to %s: %d calls, %d outcomes.\n", s.From.Local().Format(time.DateOnly), s.To.Local().Format(time.DateOnly), s.Calls, s.Outcomes)
+	if s.Calls == 0 {
+		fmt.Fprintln(w, "Nothing logged in this period. pitwall logs while a decision provider is on.")
+		return
+	}
+	s.writeCalls(w)
+	s.writeApprovals(w)
+	s.writeTurns(w)
+	s.writeTriage(w)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, s.Verdict())
+}
+
+func (s Stats) writeCalls(w io.Writer) {
+	fmt.Fprintln(w, "\nCalls")
+	const row = "  %-12s %6s %7s %8s %8s\n"
+	fmt.Fprintf(w, row, "feature", "calls", "failed", "p50", "p95")
+	for _, f := range s.Features {
+		p50, p95 := "-", "-"
+		if f.Answered > 0 {
+			p50, p95 = fmt.Sprintf("%.0f ms", f.P50), fmt.Sprintf("%.0f ms", f.P95)
+		}
+		fmt.Fprintf(w, row, f.Name, fmt.Sprint(f.Calls), Pct(f.Failed, f.Calls), p50, p95)
+	}
+	if len(s.Failures) > 0 {
+		var parts []string
+		for _, k := range slices.Sorted(maps.Keys(s.Failures)) {
+			parts = append(parts, fmt.Sprintf("%s %d", k, s.Failures[k]))
+		}
+		fmt.Fprintln(w, "  failures:", strings.Join(parts, ", "))
+	}
+	fmt.Fprintf(w, "  cost: about %s for %d input tokens at $%.2f per million (an estimate", Money(s.Dollars), s.Tokens, CostPerMTok)
+	if s.Estimated > 0 {
+		fmt.Fprintf(w, "; %s of the tokens are guessed from request size, where the reply gave no count", Pct(s.Estimated, s.Tokens))
+	}
+	fmt.Fprintln(w, ")")
+}
+
+func (s Stats) writeApprovals(w io.Writer) {
+	a := s.Approvals
+	if len(a.Shown)+len(a.Held)+a.Unknown == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nApprovals")
+	fmt.Fprintf(w, "  time to answer, suggestion shown:  %s\n", spread(a.Shown))
+	fmt.Fprintf(w, "  time to answer, held out:          %s\n", spread(a.Held))
+	if a.Unknown > 0 {
+		fmt.Fprintf(w, "  left out, no event showed the answer: %d\n", a.Unknown)
+	}
+	if a.N > 0 {
+		fmt.Fprintf(w, "  Jev agreed with you on %s (n=%d); held out only %s (n=%d); at confidence 0.9 or more %s (n=%d)\n",
+			Pct(a.Agree, a.N), a.N, Pct(a.HeldAgree, a.HeldN), a.HeldN, Pct(a.ConfAgree, a.ConfN), a.ConfN)
+		fmt.Fprintf(w, "  Jev said ask or deny and you allowed: %d; Jev said allow and you denied: %d\n", a.FlaggedAllowed, a.AllowDenied)
+		fmt.Fprintf(w, "  of the %d you denied, Jev said ask or deny on %d\n", a.Denied, a.Caught)
+	}
+}
+
+func (s Stats) writeTurns(w io.Writer) {
+	t := s.Turns
+	if t.CheckN+t.DoneN == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nTurn check: turns you prompted again within %d minutes\n", int(FollowUp.Minutes()))
+	fmt.Fprintf(w, "  marked Check: %d of %d (%s); marked Done: %d of %d (%s)", t.Check, t.CheckN, Pct(t.Check, t.CheckN), t.Done, t.DoneN, Pct(t.Done, t.DoneN))
+	if t.CheckN > 0 && t.DoneN > 0 {
+		fmt.Fprintf(w, "; lift %+.0f points", t.Lift())
+	}
+	fmt.Fprintln(w)
+}
+
+// Lift is how many points more often a Check turn than a Done turn was
+// prompted again.
+func (t Turns) Lift() float64 {
+	return 100 * (float64(t.Check)/float64(t.CheckN) - float64(t.Done)/float64(t.DoneN))
+}
+
+func (s Stats) writeTriage(w io.Writer) {
+	t := s.Triage
+	if len(t.Levels) == 0 && t.Unfocused == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nTriage: time until you focused the pane")
+	for _, l := range t.Levels {
+		fmt.Fprintf(w, "  %-6s median %s (n=%d)\n", l.Name, Secs(l.Median), l.N)
+	}
+	if t.Unfocused > 0 {
+		fmt.Fprintf(w, "  not focused before the pane moved on: %d\n", t.Unfocused)
+	}
+}
+
+// Speed is the verdict on answer time without its numbers, "" until the
+// approvals are Ready.
+func (s Stats) Speed() string {
+	a := s.Approvals
+	switch {
+	case !a.Ready():
+		return ""
+	case a.Hi < 0:
+		return "you answer faster with the suggestion shown"
+	case a.Lo > 0:
+		return "you answer slower with the suggestion shown"
+	}
+	return "no clear difference in answer time"
+}
+
+// SpanDays is the period in whole days, at least 1.
+func (s Stats) SpanDays() int { return max(1, int(math.Round(s.To.Sub(s.From).Hours()/24))) }
+
+// Verdict is one line on whether showing Jev's verdict changes how fast
 // approvals get answered, how often Jev agrees and what it cost.
-func verdict(s approvalStats, dollars float64, span time.Duration) string {
-	if len(s.shown) < MinPerArm || len(s.held) < MinPerArm {
-		v := fmt.Sprintf("Verdict: not enough data yet. It needs %d answered approvals in each arm; there are %d shown and %d held out", MinPerArm, len(s.shown), len(s.held))
-		if len(s.held) == 0 && len(s.shown) >= MinPerArm {
+func (s Stats) Verdict() string {
+	a := s.Approvals
+	if !a.Ready() {
+		v := fmt.Sprintf("Verdict: not enough data yet. It needs %d answered approvals in each arm; there are %d shown and %d held out", MinPerArm, len(a.Shown), len(a.Held))
+		if len(a.Held) == 0 && len(a.Shown) >= MinPerArm {
 			v += " (holdout under [decisions.approvals] is 0?)"
 		}
 		return v + "."
 	}
-	ms, mh := quantile(s.shown, .5), quantile(s.held, .5)
-	lo, hi := medianDiffCI(s.shown, s.held)
-	var speed string
-	switch {
-	case hi < 0:
-		speed = "you answer faster with the suggestion shown"
-	case lo > 0:
-		speed = "you answer slower with the suggestion shown"
-	default:
-		speed = "no clear difference in answer time"
-	}
-	days := max(1, int(math.Round(span.Hours()/24)))
 	return fmt.Sprintf("Verdict: %s (median %s shown vs %s held out; 95%% interval of the difference %+.1fs to %+.1fs). "+
 		"Jev agreed with you on %s of approvals and said ask or deny on %d of the %d you denied. About %s over %d days.",
-		speed, secs(ms), secs(mh), lo, hi, pct(s.agree, s.n), s.caught, s.denied, money(dollars), days)
+		s.Speed(), Secs(quantile(a.Shown, .5)), Secs(quantile(a.Held, .5)), a.Lo, a.Hi, Pct(a.Agree, a.N), a.Caught, a.Denied, Money(s.Dollars), s.SpanDays())
 }
 
 // medianDiffCI is a 95% bootstrap interval of median(a) - median(b), with
@@ -308,6 +424,9 @@ func medianDiffCI(a, b []float64) (lo, hi float64) {
 	return quantile(d, .025), quantile(d, .975)
 }
 
+// Median is the nearest-rank median of xs, 0 for none.
+func Median(xs []float64) float64 { return quantile(xs, .5) }
+
 // quantile is the nearest-rank q-quantile of xs, 0 for none.
 func quantile(xs []float64, q float64) float64 {
 	if len(xs) == 0 {
@@ -321,19 +440,22 @@ func spread(xs []float64) string {
 	if len(xs) == 0 {
 		return "none yet"
 	}
-	return fmt.Sprintf("median %s, p75 %s (n=%d)", secs(quantile(xs, .5)), secs(quantile(xs, .75)), len(xs))
+	return fmt.Sprintf("median %s, p75 %s (n=%d)", Secs(quantile(xs, .5)), Secs(quantile(xs, .75)), len(xs))
 }
 
-func money(d float64) string {
+// Money is dollars as the report writes them: four decimals under $1.
+func Money(d float64) string {
 	if d < 1 {
 		return fmt.Sprintf("$%.4f", d)
 	}
 	return fmt.Sprintf("$%.2f", d)
 }
 
-func secs(s float64) string { return fmt.Sprintf("%.1fs", s) }
+// Secs is seconds to one decimal: "4.2s".
+func Secs(s float64) string { return fmt.Sprintf("%.1fs", s) }
 
-func pct(n, of int) string {
+// Pct is n of of as a whole percentage, "-" for none.
+func Pct(n, of int) string {
 	if of == 0 {
 		return "-"
 	}
