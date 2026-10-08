@@ -27,6 +27,8 @@ type nav struct {
 	// sessionUI asks the window to open the session switcher: "pick",
 	// "new" or "rename".
 	sessionUI string
+	// palette asks the window to open the command palette.
+	palette bool
 
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
@@ -589,10 +591,6 @@ func (n *nav) tabKey(st *model.State, e key.Event) any {
 	if a == "" && e.Modifiers != 0 {
 		a = b.TabAction(key.Event{Name: e.Name})
 	}
-	if a == "rename" {
-		n.renameTab = n.workspace
-		return nil
-	}
 	return n.tabOp(st, a)
 }
 
@@ -611,6 +609,11 @@ func (n *nav) paneKey(st *model.State, e key.Event) (any, bool) {
 	if a == "" {
 		return nil, false
 	}
+	return n.paneOp(st, a), true
+}
+
+// paneOp runs a [keys.pane] action.
+func (n *nav) paneOp(st *model.State, a string) any {
 	root := n.root(st)
 	area := n.area
 	if area.W <= 0 || area.H <= 0 {
@@ -619,17 +622,17 @@ func (n *nav) paneKey(st *model.State, e key.Event) (any, bool) {
 	switch a {
 	case "new", "split_down", "split_right":
 		if n.workspace == "" {
-			return nil, true
+			return nil
 		}
 		dir := layout.Horizontal
 		if r, ok := rectsOf(root, area, 0)[n.focused()]; a == "split_down" || a == "new" && ok && r.H > r.W {
 			dir = layout.Vertical
 		}
 		n.expectPane(st)
-		return proto.OpenPane{WorkspaceID: n.workspace, TabID: n.tab, Target: n.focused(), Dir: dir}, true
+		return proto.OpenPane{WorkspaceID: n.workspace, TabID: n.tab, Target: n.focused(), Dir: dir}
 	case "close":
 		if n.focused() != "" {
-			return proto.ClosePane{Pane: n.focused()}, true
+			return proto.ClosePane{Pane: n.focused()}
 		}
 	case "focus_left", "focus_right", "focus_up", "focus_down":
 		d := map[string]layout.Direction{"focus_left": layout.Left, "focus_right": layout.Right, "focus_up": layout.Up, "focus_down": layout.Down}[a]
@@ -649,7 +652,7 @@ func (n *nav) paneKey(st *model.State, e key.Event) (any, bool) {
 		n.cyclePane(st, 1)
 		n.zoom = ""
 	}
-	return nil, true
+	return nil
 }
 
 // root is the shown tab's split tree, or nil.
@@ -668,10 +671,13 @@ func (n *nav) zoomed() string {
 	return ""
 }
 
-// tabOp runs a tab action: new, close, prev, next, goto_N. Tabs are the
-// sidebar's rows; goto_N counts the rows it shows, skipping collapsed groups.
+// tabOp runs a tab action: new, close, rename, prev, next, goto_N. Tabs are
+// the sidebar's rows; goto_N counts the rows it shows, skipping collapsed
+// groups.
 func (n *nav) tabOp(st *model.State, op string) any {
 	switch op {
+	case "rename":
+		n.renameTab = n.workspace
 	case "new":
 		return n.looseTab(st)
 	case "new_in_group":
@@ -799,9 +805,20 @@ func (n *nav) key(st *model.State, e key.Event) any {
 			return nil
 		}
 	}
+	return n.globalOp(st, b.Action(e))
+}
+
+// globalOp runs a [keys] action the window owns. The prefixes enter their
+// mode, as the command palette runs them; keys handle them in key.
+func (n *nav) globalOp(st *model.State, act string) any {
 	ws := n.workspace
-	act := b.Action(e)
 	switch act {
+	case "tab_prefix":
+		n.tabMode, n.paneMode = true, false
+	case "pane_prefix":
+		n.paneMode, n.tabMode = true, false
+	case "command_palette":
+		n.palette = true
 	case "next_group":
 		n.cycleGroup(st, 1)
 	case "prev_group":

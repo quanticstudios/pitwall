@@ -34,13 +34,18 @@ func (u *ui) settingsShortcut(e key.Event) bool {
 		return false
 	}
 	if e.State == key.Press {
-		if u.settings.Shown() {
-			u.settings.Hide()
-		} else {
-			u.openSettings()
-		}
+		u.toggleSettings()
 	}
 	return true
+}
+
+// toggleSettings opens the settings page, or closes it when it is shown.
+func (u *ui) toggleSettings() {
+	if u.settings.Shown() {
+		u.settings.Hide()
+	} else {
+		u.openSettings()
+	}
 }
 
 // layoutSettings draws the page, or the panes again once another tab is

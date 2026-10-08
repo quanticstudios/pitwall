@@ -36,8 +36,7 @@ type sessionSwitcher struct {
 	err       string // why Enter did not take the name
 
 	openedAt time.Time
-	selY     float32   // the highlight's drawn top, easing toward the row
-	lastAt   time.Time // the frame selY was last eased in
+	list     listScroll
 	selAt    time.Time // when sel last changed, for the preview's fade
 	draw     switcherDraw
 }
@@ -54,7 +53,7 @@ type switcherResult struct {
 // "rename").
 func (s *sessionSwitcher) openAt(st *model.State, current, mode string, now time.Time) {
 	if !s.open {
-		s.openedAt, s.selY = now, -1
+		s.openedAt, s.list.selY = now, -1
 	}
 	s.open, s.filter, s.filtering, s.err = true, "", false, ""
 	s.setSel(current, now)

@@ -102,6 +102,8 @@ func TestPresets(t *testing.T) {
 		{aide, "session_switcher", "Alt+S"},
 		{aide, "session_next", "Alt+]"},
 		{aide, "session_prev", "Alt+["},
+		{aide, "command_palette", "Ctrl+Shift+P"},
+		{conv, "command_palette", "Ctrl+Shift+P"},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)

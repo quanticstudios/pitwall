@@ -110,21 +110,9 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			}
 			// Both press and release of a bound key stay out of the program.
 			switch a := v.keys().Action(e); {
-			case a == "copy":
-				if e.State == key.Press && v.sel.on {
-					v.copy(gtx, g)
-				}
-				continue
-			case a == "paste":
+			case config.PaneAction(a):
 				if e.State == key.Press {
-					gtx.Execute(clipboard.ReadCmd{Tag: v})
-				}
-				continue
-			case a == "scroll_page_up" || a == "scroll_page_down":
-				if e.State == key.Press && a == "scroll_page_up" {
-					v.scrollLines += rows
-				} else if e.State == key.Press {
-					v.scrollLines -= rows
+					v.action(gtx, g, a, rows)
 				}
 				continue
 			case a != "":
@@ -163,6 +151,10 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			ctrlDown = ctrlDown && e.Focus
 		}
 	}
+	if a := v.queued; a != "" {
+		v.queued = ""
+		v.action(gtx, g, a, rows)
+	}
 	if v.selDone && v.CopyOnSelect {
 		v.copy(gtx, g)
 	}
@@ -173,6 +165,26 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 		out = append(out, input.Focus(in, m.FocusEvents)...)
 	}
 	return out
+}
+
+// Run runs a pane action (config.PaneAction) in the next Layout, as its
+// key would. The command palette runs them this way.
+func (v *View) Run(action string) { v.queued = action }
+
+// action runs a pane action: copy, paste, or scroll a page of rows.
+func (v *View) action(gtx layout.Context, g *vt.Grid, a string, rows int) {
+	switch a {
+	case "copy":
+		if v.sel.on {
+			v.copy(gtx, g)
+		}
+	case "paste":
+		gtx.Execute(clipboard.ReadCmd{Tag: v})
+	case "scroll_page_up":
+		v.scrollLines += rows
+	case "scroll_page_down":
+		v.scrollLines -= rows
+	}
 }
 
 // copy puts the selection on the clipboard. Gio's X11 backend sets PRIMARY
