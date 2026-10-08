@@ -168,6 +168,10 @@ type State struct {
 	// Decide is the decision features' status. The daemon fills it in; it
 	// is not saved.
 	Decide DecideInfo `json:"-"`
+	// Notice is what a window shows until someone dismisses it: why the
+	// daemon started without the saved tabs, or that it restored some. It
+	// is not saved.
+	Notice string `json:"-"`
 }
 
 // DecideInfo is what clients show about decision models.

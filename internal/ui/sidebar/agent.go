@@ -103,9 +103,11 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 }
 
 // Icon draws the lucide icon name ("plus", "pencil", "trash", "terminal",
-// "layers", "check") in a size box, for lists outside the sidebar.
+// "layers", "check", "x", "circle-alert") in a size box, for lists outside
+// the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
-	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck}[name]
+	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
+		"x": icX, "circle-alert": icCircleAlert}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}

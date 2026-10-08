@@ -192,7 +192,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), unit.Sp(14), nameC, title)
 		where := w.Branch
 		if where == "" {
-			where = sidebar.ShortPath(w.Path)
+			where = model.ShortPath(w.Path)
 		}
 		if ag := sidebar.AgentOf(st, w); ag != "" {
 			where = sidebar.AgentName(ag) + " · " + where

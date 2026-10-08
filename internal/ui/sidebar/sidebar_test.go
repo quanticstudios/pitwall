@@ -158,14 +158,7 @@ func TestProjectIcons(t *testing.T) {
 	}
 }
 
-func TestShortPathAndPill(t *testing.T) {
-	for in, want := range map[string]string{
-		"/home/me": "~", "/home/me/Work/x": "~/Work/x", "/home/meow": "/home/meow", "/tmp": "/tmp", "": "",
-	} {
-		if got := shortPath(in, "/home/me"); got != want {
-			t.Errorf("shortPath(%q) = %q, want %q", in, got, want)
-		}
-	}
+func TestPillText(t *testing.T) {
 	run := model.Activity{Provider: model.ProviderTerminal, State: model.StateTerminalRunning, Detail: "go"}
 	if PillText(run, "") != "go" {
 		t.Errorf("running terminal pill = %q", PillText(run, ""))

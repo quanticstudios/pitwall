@@ -111,8 +111,8 @@ type Daemon struct {
 	helloMu sync.Mutex // see firstSession
 }
 
-// New loads state from store.Path() and relaunches saved panes with
-// store.RestoreCmd.
+// New loads state from store.Path() with store.Open, which sets aside a file
+// it cannot read, and relaunches saved panes with store.RestoreCmd.
 func New() (*Daemon, error) {
 	path := store.Path()
 	journal, err := decisionlog.Open(filepath.Join(filepath.Dir(path), "decisions.jsonl"))
@@ -137,7 +137,7 @@ func New() (*Daemon, error) {
 		AddWorktree:    gitstat.AddWorktree,
 		RemoveWorktree: gitstat.RemoveWorktree,
 		Save:           func(s model.State) error { return store.Save(path, s) },
-		Load:           func() (model.State, error) { return store.Load(path) },
+		Load:           func() (model.State, error) { return store.Open(path) },
 		RestoreCmd:     store.RestoreCmd,
 		Decisions:      loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
 		Split:          layout.Split,
@@ -581,6 +581,14 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.deleteGroup(m)
 	case proto.Unknown:
 		return fmt.Errorf("this pitwall daemon is older than the client and does not know %s", m.Name)
+	case proto.DismissNotice:
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if m.Notice != "" && d.st.Notice == m.Notice {
+			d.st.Notice = ""
+			d.changed()
+		}
+		return nil
 	}
 	return fmt.Errorf("unexpected message %T", m)
 }

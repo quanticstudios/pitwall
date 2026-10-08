@@ -5,9 +5,6 @@ import (
 	"image"
 	"image/color"
 	"math"
-	"os"
-	"strings"
-	"sync"
 	"time"
 
 	"gioui.org/f32"
@@ -122,7 +119,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		inRepo := ws.Branch != ""
 		where := ws.Branch
 		if !inRepo {
-			where = ShortPath(v.st.LivePath(ws))
+			where = model.ShortPath(v.st.LivePath(ws))
 		}
 		var line []item
 		line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -379,26 +376,6 @@ func DecideName(provider string) string {
 		return "Jev"
 	}
 	return "Model"
-}
-
-var homeDir = sync.OnceValue(func() string {
-	h, _ := os.UserHomeDir()
-	return h
-})
-
-// ShortPath is p with the home directory written as ~.
-func ShortPath(p string) string { return shortPath(p, homeDir()) }
-
-func shortPath(p, home string) string {
-	switch {
-	case home == "" || home == "/":
-		return p
-	case p == home:
-		return "~"
-	case strings.HasPrefix(p, home+"/"):
-		return "~" + p[len(home):]
-	}
-	return p
 }
 
 // shimmer is .sidebar-working-shimmer: a 200%-wide white gradient (0, .02,

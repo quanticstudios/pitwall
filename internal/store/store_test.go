@@ -478,3 +478,139 @@ func TestLoadMigratesVersion7Held(t *testing.T) {
 		}
 	}
 }
+
+// badFiles is the names of the files Open set aside next to path.
+func badFiles(t *testing.T, path string) []string {
+	t.Helper()
+	names, err := filepath.Glob(path + ".bad-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return names
+}
+
+// TestOpenSetsAside checks a file Load refuses is moved aside with its bytes,
+// never over an earlier one, and the daemon gets an empty state with a
+// notice that says why and where the file is, under ~ in the home directory.
+func TestOpenSetsAside(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, "state.json")
+	full := model.State{Sessions: []model.Session{{ID: "s", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}}}
+	if err := Save(path, full); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, data, why string }{
+		{"corrupt", "{", "damaged"},
+		{"truncated", string(saved[:len(saved)/2]), "damaged"},
+		{"newer", `{"format_version":99,"state":{}}`, "newer pitwall"},
+		{"again in the same second", "{", "damaged"},
+	}
+	for i, c := range cases {
+		if err := os.WriteFile(path, []byte(c.data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		bad := badFiles(t, path)
+		if len(bad) != i+1 {
+			t.Fatalf("%s: set-aside files %v, want %d", c.name, bad, i+1)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s: state.json still there: %v", c.name, err)
+		}
+		kept := ""
+		for _, b := range bad {
+			if strings.Contains(s.Notice, " ~/"+filepath.Base(b)+".") {
+				kept = b
+			}
+		}
+		if got, err := os.ReadFile(kept); err != nil || string(got) != c.data {
+			t.Fatalf("%s: kept %q = %q, %v; notice %q", c.name, kept, got, err, s.Notice)
+		}
+		if !strings.Contains(s.Notice, c.why) || len(s.Workspaces) != 0 {
+			t.Fatalf("%s: state %#v", c.name, s)
+		}
+	}
+}
+
+// TestLoadKeepsPrev checks a migration copies the original to state.json.prev,
+// replacing an earlier one, and a current file writes none.
+func TestLoadKeepsPrev(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path+".prev", []byte("older"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v7 := `{"format_version":7,"state":{"Sessions":[{"ID":"s","Name":"main"}],"Workspaces":[{"ID":"w","SessionID":"s"}]}}`
+	if err := os.WriteFile(path, []byte(v7), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(path + ".prev"); err != nil || string(got) != v7 {
+		t.Fatalf("prev = %q, %v", got, err)
+	}
+	if err := os.Remove(path + ".prev"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".prev"); !os.IsNotExist(err) {
+		t.Fatalf("current file wrote a prev: %v", err)
+	}
+}
+
+// TestOpenRestores checks a set-aside file that loads now, as one a newer
+// pitwall saved does after an update, joins the state once, and one that
+// still does not stays.
+func TestOpenRestores(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	now := model.State{Sessions: []model.Session{{ID: "s1", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w1", SessionID: "s1"}}, Panes: []model.Pane{{ID: "p1", WorkspaceID: "w1"}}}
+	old := model.State{Sessions: []model.Session{{ID: "s2", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w2", SessionID: "s2"}, {ID: "w3", SessionID: "s2"}}, Panes: []model.Pane{{ID: "p2", WorkspaceID: "w2"}, {ID: "p3", WorkspaceID: "w3"}}}
+	if err := Save(path+".bad-20261001-120000", old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".bad-20261002-120000", []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, now); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Workspaces) != 3 || len(s.Panes) != 3 || len(s.Sessions) != 2 || s.Sessions[1].Name != "main-2" {
+		t.Fatalf("merged state %#v", s)
+	}
+	if !strings.Contains(s.Notice, "Restored 2 saved tabs") {
+		t.Fatalf("notice %q", s.Notice)
+	}
+	if bad := badFiles(t, path); len(bad) != 1 || !strings.HasSuffix(bad[0], "20261002-120000") {
+		t.Fatalf("set-aside files left %v", bad)
+	}
+	if _, err := os.Stat(path + ".restored-20261001-120000"); err != nil {
+		t.Fatal(err)
+	}
+	// The merged state is on disk, so the next start restores nothing.
+	s, err = Open(path)
+	if err != nil || len(s.Workspaces) != 3 || s.Notice != "" {
+		t.Fatalf("second open: %#v, %v", s, err)
+	}
+	// A file already merged before a crash adds nothing again.
+	if n := merge(&s, old); n != 0 || len(s.Workspaces) != 3 {
+		t.Fatalf("merge again added %d", n)
+	}
+}

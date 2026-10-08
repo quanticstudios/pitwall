@@ -263,7 +263,7 @@ func runGUI(session string) error {
 			return conn.Send(proto.FocusSession{SessionID: target.ID})
 		}
 		b = newBackend(conn, target.ID)
-		b.state = initial.State
+		b.state, b.link.Level = initial.State, initial.Level
 		go b.recvLoop()
 		go b.sendLoop()
 	}

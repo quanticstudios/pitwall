@@ -271,6 +271,10 @@ type ui struct {
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
 	noticeIn image.Rectangle // the pane that copied, in the pane area
+
+	dismiss   widget.Clickable // State.Notice's close button
+	dismissed string           // the State.Notice closed here, hidden before the daemon clears it
+	noticeTag int              // State.Notice's box, which keeps presses off the pane under it
 }
 
 // resizes keeps a window drag to a log line a second per pane.
@@ -541,6 +545,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	fo.Pop()
 	u.drawNotice(pgtx)
+	u.drawStateNotice(pgtx, st.Notice)
 	off.Pop()
 	pc.Pop()
 	u.layoutPanel(gtx, &st, side)

@@ -57,7 +57,7 @@ func allMessages() []any {
 		NewTab{WorkspaceID: "w", FromPane: "a"}, CloseTab{WorkspaceID: "w", TabID: "t"}, RenameTab{Pane: "a", Name: "fix auth"},
 		SelectTab{WorkspaceID: "w", TabID: "t"}, DetachSession{WorkspaceID: "w", Detached: true}, KillSession{WorkspaceID: "w"},
 		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t", SessionID: "s"},
-		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"},
+		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"}, DismissNotice{Notice: "n"},
 		SessionNew{Name: "work", Cwd: "/tmp", FromPane: "a"}, SessionRename{SessionID: "s", Name: "play"},
 		SessionKill{SessionID: "s"}, SessionShow{SessionID: "s"},
 		NewSession{Cwd: "/tmp", GroupID: "g", Cmd: []string{"make", "test"}}, SetSessionGroup{WorkspaceID: "w", GroupID: "g"},

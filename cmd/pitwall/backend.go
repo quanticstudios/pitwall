@@ -51,6 +51,10 @@ type backend struct {
 // errNotConnected is Send's error before the first connection.
 var errNotConnected = errors.New("not connected to the daemon")
 
+// errOlderDaemon is Send's error for a message type the daemon's
+// proto.Level predates; nothing is sent.
+var errOlderDaemon = errors.New("the daemon is older than this window")
+
 // The waits between reconnect tries double from retryMin up to retryMax.
 var retryMin, retryMax = 500 * time.Millisecond, 30 * time.Second
 
@@ -90,13 +94,19 @@ func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 }
 
 // Send queues msg for sendLoop and returns at once; the error is the one
-// that broke the connection. A SessionShow also tells the backend which
-// session's frames redraw the window.
+// that broke the connection, or errOlderDaemon. A SessionShow also tells the
+// backend which session's frames redraw the window.
 func (b *backend) Send(msg any) error {
+	b.mu.Lock()
 	if s, ok := msg.(proto.SessionShow); ok {
-		b.mu.Lock()
 		b.session = s.SessionID
-		b.mu.Unlock()
+	}
+	level := b.link.Level
+	b.mu.Unlock()
+	// why: a daemon below proto.Level 1 drops the connection on a message
+	// type it does not know.
+	if need := proto.Since(msg); need > level {
+		return fmt.Errorf("%w: %T needs level %d, the daemon is at %d", errOlderDaemon, msg, need, level)
 	}
 	b.outMu.Lock()
 	if err := b.outErr; err != nil {
@@ -236,7 +246,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.mu.Lock()
 	b.state, b.frames = initial.State, map[string]proto.Frame{}
 	b.dialing = false
-	b.link = app.Link{Epoch: b.link.Epoch + 1}
+	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level}
 	first := b.session == ""
 	b.mu.Unlock()
 	log.Printf("connected to the daemon")
@@ -351,7 +361,7 @@ func (b *backend) recvLoop() {
 		b.mu.Lock()
 		switch m := msg.(type) {
 		case proto.StateMsg:
-			b.state = m.State
+			b.state, b.link.Level = m.State, m.Level
 			live := map[string]bool{}
 			for _, p := range m.State.Panes {
 				live[p.ID] = true
