@@ -47,7 +47,7 @@ func fakeCLI(t *testing.T, exchanges ...cliExchange) {
 			defer nc.Close()
 			nc.SetDeadline(time.Now().Add(5 * time.Second))
 			c := proto.NewConn(nc)
-			want := proto.Hello{Version: proto.Version, Kind: "cli"}
+			want := proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "cli"}
 			if got, err := c.Recv(); err != nil || got != want {
 				return fmt.Errorf("Hello = %#v, %v", got, err)
 			}

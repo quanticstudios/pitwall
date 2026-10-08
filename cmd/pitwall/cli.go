@@ -58,7 +58,7 @@ func dialKind(kind string) (*cliConn, error) {
 		conn.Close()
 		return nil, err
 	}
-	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: kind}); err != nil {
+	if err := conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: kind}); err != nil {
 		conn.Close()
 		return nil, err
 	}

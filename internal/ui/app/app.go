@@ -169,7 +169,7 @@ func Run(b Backend) error {
 				}
 				w.Perform(system.ActionClose)
 			}
-			if u.relaunched {
+			if u.relaunched || u.quit {
 				w.Perform(system.ActionClose)
 			}
 		}
@@ -257,6 +257,13 @@ type ui struct {
 
 	updates    updater // the sidebar's update button
 	relaunched bool    // a new window took over after an update; close this one
+
+	// The connection dialog, see layoutLink. epoch is the Link.Epoch the
+	// panes' sizes were sent for; quit is Later: close, leaving the daemon.
+	epoch                        int
+	linkOK, linkLater            widget.Clickable
+	linkBackdrop                 int
+	relaunchTried, quit, offline bool
 
 	panel      sidePanel // the agent panel on the right while nav.panelOpen
 	invalidate func()    // the window's Invalidate; nil in tests
@@ -395,6 +402,9 @@ func (u *ui) layout(gtx gl.Context) {
 		u.nav.rows = func(st *model.State) []string { return u.sidebar.Rows(st, u.nav.session, u.nav.workspace) }
 	}
 	st := u.b.State()
+	link := u.link()
+	u.syncLink(link)
+	u.offline = link.State != LinkUp
 	u.nav.sync(&st)
 	u.applyFocus(&st)
 	u.openRequested(&st, gtx.Now)
@@ -582,6 +592,7 @@ func (u *ui) layout(gtx gl.Context) {
 			cl.Pop()
 		}
 	}
+	u.layoutLink(gtx, &st, link)
 	if u.notifications != nil {
 		u.notifications.setView(nil, u.nav.workspace, u.nav.session)
 	}
@@ -713,8 +724,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode || u.nav.paneMode || u.pal.open {
-		focused = "" // the dialog, a rename field, tab mode or the palette holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline {
+		focused = "" // a dialog, a rename field, tab mode or the palette holds key focus
 	}
 	u.nav.area = area
 	zoom := u.nav.zoomed()

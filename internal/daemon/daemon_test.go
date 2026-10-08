@@ -25,6 +25,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/store"
+	"github.com/quanticstudios/pitwall/internal/testenv"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -410,6 +411,44 @@ func TestVersionMismatch(t *testing.T) {
 	}
 	if _, err := c.Recv(); err != io.EOF {
 		t.Fatalf("connection should close, got %v", err)
+	}
+}
+
+// Clients of the daemon's Version are served at any Level: one from before
+// levels (0), and a newer one whose request the daemon does not know gets
+// an Error and keeps its connection.
+func TestSameVersionInteroperates(t *testing.T) {
+	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
+	defer stop()
+	for _, level := range []int{0, proto.Level + 1} {
+		nc, err := net.Dial("unix", sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer nc.Close()
+		nc.SetDeadline(time.Now().Add(5 * time.Second))
+		c := proto.NewConn(testenv.FromFuture(nc))
+		for _, m := range []any{proto.Hello{Version: proto.Version, Level: level, Kind: "cli"}, testenv.Future{}, proto.Sync{}} {
+			if err := c.Send(m); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var got []string
+		for len(got) < 2 {
+			m, err := c.Recv()
+			if err != nil {
+				t.Fatalf("level %d after %v: %v", level, got, err)
+			}
+			switch m := m.(type) {
+			case proto.Error:
+				got = append(got, m.Message)
+			case proto.StateMsg:
+				got = append(got, fmt.Sprint("state at level ", m.Level))
+			}
+		}
+		if !strings.Contains(got[0], "does not know pitwall.test/future-lost") || got[1] != fmt.Sprint("state at level ", proto.Level) {
+			t.Fatalf("level %d: %q", level, got)
+		}
 	}
 }
 

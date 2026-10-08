@@ -213,7 +213,7 @@ func sendHook(path, pane string, provider model.Provider, payload []byte) {
 		return
 	}
 	defer conn.Close()
-	conn.Send(proto.Hello{Version: proto.Version, Kind: "hook"})
+	conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "hook"})
 	conn.Send(proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload})
 }
 
@@ -241,30 +241,50 @@ func runGUI(session string) error {
 	if err := crashOutput(); err != nil {
 		log.Printf("crash output: %q", err)
 	}
-	conn, initial, err := dialOrStart(session)
-	if err != nil {
+	app.Version, app.Relaunch = versionString(), launchGUI
+	conn, initial, err := dialOrStart(session, false)
+	var b *backend
+	var refused incompatible
+	switch {
+	case errors.As(err, &refused):
+		// The window asks before the restart, which stops every program
+		// in a pane.
+		log.Printf("gui: %q; asking to restart it", err)
+		b = newBackend(nil, "")
+		b.link.State = app.LinkRestart
+	case err != nil:
 		log.Printf("gui: %q", err)
 		return err
+	default:
+		defer conn.Close()
+		log.Printf("connected to the daemon")
+		target, raise := guiTarget(initial.State, session)
+		if raise && os.Getenv("PITWALL_ATTACH") == "" {
+			return conn.Send(proto.FocusSession{SessionID: target.ID})
+		}
+		b = newBackend(conn, target.ID)
+		b.state = initial.State
+		go b.recvLoop()
+		go b.sendLoop()
 	}
-	defer conn.Close()
-	log.Printf("connected to the daemon")
-	target, raise := guiTarget(initial.State, session)
-	if raise && os.Getenv("PITWALL_ATTACH") == "" {
-		return conn.Send(proto.FocusSession{SessionID: target.ID})
-	}
-	b := newBackend(conn, target.ID)
-	b.state = initial.State
-	go b.recvLoop()
-	go b.sendLoop()
-	app.Version, app.Relaunch = versionString(), launchGUI
+	b.name, b.redial = session, dialOrStart
 	err = app.Run(b)
 	log.Printf("window closed: %s", outcome(err))
 	return err
 }
 
-// dialOrStart completes the GUI handshake before starting the window. An
-// incompatible daemon gets one graceful restart so it can save its state.
-func dialOrStart(session string) (*proto.Conn, proto.StateMsg, error) {
+// incompatible is a daemon's refusal of this client's proto.Version.
+type incompatible struct{ version int }
+
+func (e incompatible) Error() string {
+	return fmt.Sprintf("the daemon speaks protocol version %d and this pitwall %d", e.version, proto.Version)
+}
+
+// dialOrStart completes the GUI handshake, starting a daemon when none
+// runs. A daemon of another proto.Version keeps running, reported as
+// incompatible, unless restart is set: then it gets one graceful restart,
+// so it saves its state, and a daemon of this version replaces it.
+func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, error) {
 	path, err := socketPath()
 	if err != nil {
 		return nil, proto.StateMsg{}, err
@@ -279,6 +299,12 @@ func dialOrStart(session string) (*proto.Conn, proto.StateMsg, error) {
 	conn, initial, err := guiHandshake(nc, session)
 	if err == nil {
 		return conn, initial, nil
+	}
+	if !errors.As(err, new(incompatible)) {
+		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %w; see daemon.log (pitwall logs)", err)
+	}
+	if !restart {
+		return nil, proto.StateMsg{}, err
 	}
 	log.Printf("restarting incompatible daemon: %q", err)
 	if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
@@ -304,7 +330,7 @@ func guiHandshake(nc net.Conn, session string) (*proto.Conn, proto.StateMsg, err
 	if err := nc.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return fail(err)
 	}
-	if err := conn.Send(proto.Hello{Version: proto.Version, Kind: "gui", Cwd: cwd(), Session: session}); err != nil {
+	if err := conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: cwd(), Session: session}); err != nil {
 		return fail(err)
 	}
 	for {
@@ -319,7 +345,11 @@ func guiHandshake(nc net.Conn, session string) (*proto.Conn, proto.StateMsg, err
 			}
 			return conn, m, nil
 		case proto.Error:
-			return fail(errors.New(m.Message))
+			if v, ok := proto.RefusedVersion(m); ok {
+				return fail(incompatible{v})
+			}
+			// The daemon could not open the session; its state follows.
+			log.Printf("daemon: %q", m.Message)
 		}
 	}
 }

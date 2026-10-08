@@ -34,7 +34,7 @@ func fakeWatch(t *testing.T, msgs ...any) {
 			}
 			defer nc.Close()
 			c := proto.NewConn(nc)
-			if got, err := c.Recv(); err != nil || got != (proto.Hello{Version: proto.Version, Kind: "watch"}) {
+			if got, err := c.Recv(); err != nil || got != (proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "watch"}) {
 				return fmt.Errorf("Hello = %#v, %v", got, err)
 			}
 			for _, m := range msgs {

@@ -165,8 +165,6 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		gtx.Execute(key.FocusCmd{Tag: tag})
 	}
 
-	th := u.th
-	width := min(gtx.Dp(448), size.X-gtx.Dp(32))
 	var content gl.Widget
 	switch m.kind {
 	case modalDelete:
@@ -174,6 +172,14 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	case modalAddProject:
 		content = u.addProjectBody
 	}
+	u.card(gtx, &m.body, content)
+}
+
+// card draws content on a dialog card in the middle of the window; tag
+// takes the presses inside it.
+func (u *ui) card(gtx gl.Context, tag event.Tag, content gl.Widget) {
+	th, size := u.th, gtx.Constraints.Max
+	width := min(gtx.Dp(448), size.X-gtx.Dp(32))
 	pad := gtx.Dp(24)
 	rec := op.Record(gtx.Ops)
 	cg := gtx
@@ -194,7 +200,7 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.07), clip.UniformRRect(rect, r).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
 	body := clip.Rect(rect).Push(gtx.Ops)
-	event.Op(gtx.Ops, &m.body)
+	event.Op(gtx.Ops, tag)
 	body.Pop()
 	o := op.Offset(image.Pt(pad, pad)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
@@ -336,7 +342,12 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 // buttons is a dialog footer: an optional secondary button and the primary
 // one, right-aligned.
 func (u *ui) buttons(gtx gl.Context, cancel, ok string, okBg, okFg color.NRGBA) gl.Dimensions {
-	th, m := u.th, &u.modal
+	return u.buttonPair(gtx, &u.modal.cancel, &u.modal.ok, cancel, ok, okBg, okFg)
+}
+
+// buttonPair is buttons with its own clickables.
+func (u *ui) buttonPair(gtx gl.Context, cancelC, okC *widget.Clickable, cancel, ok string, okBg, okFg color.NRGBA) gl.Dimensions {
+	th := u.th
 	h := gtx.Dp(36)
 	w := gtx.Constraints.Max.X
 	x := w
@@ -363,9 +374,9 @@ func (u *ui) buttons(gtx gl.Context, cancel, ok string, okBg, okFg color.NRGBA) 
 		o.Pop()
 		x -= gtx.Dp(8)
 	}
-	draw(&m.ok, ok, okBg, okFg)
+	draw(okC, ok, okBg, okFg)
 	if cancel != "" {
-		draw(&m.cancel, cancel, th.SurfaceSecondary, th.Fg)
+		draw(cancelC, cancel, th.SurfaceSecondary, th.Fg)
 	}
 	return gl.Dimensions{Size: image.Pt(w, h)}
 }

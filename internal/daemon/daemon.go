@@ -321,7 +321,7 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 		var out []any
 		if state {
 			d.mu.Lock()
-			out = append(out, proto.StateMsg{State: d.snapshot()})
+			out = append(out, proto.StateMsg{State: d.snapshot(), Level: proto.Level})
 			d.mu.Unlock()
 		}
 		for _, f := range frames {
@@ -339,7 +339,8 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 
 // serveConn requires Hello first. Only Kind "gui" receives StateMsg, Frame
 // and PaneExited pushes, and "watch" the first and last of those; every kind
-// gets Error replies to failed requests.
+// gets Error replies to failed requests. Any Hello.Level of proto.Version is
+// served; see proto.Version for what that asks of a new message type.
 func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	conn := proto.NewConn(nc)
 	defer conn.Close()
@@ -355,7 +356,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if ok, held := refusals.Allow(fmt.Sprint(hello.Version), time.Now()); ok {
 			log.Printf("client refused: protocol version %d, want %d%s", hello.Version, proto.Version, heldNote(held))
 		}
-		conn.Send(proto.Error{Message: fmt.Sprintf("daemon speaks protocol version %d; send Hello{Version: %d} first", proto.Version, proto.Version)})
+		conn.Send(proto.Refusal())
 		return
 	}
 
@@ -419,7 +420,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			d.mu.Lock()
 			s := d.snapshot()
 			d.mu.Unlock()
-			c.queue(proto.StateMsg{State: s})
+			c.queue(proto.StateMsg{State: s, Level: proto.Level})
 			continue
 		}
 		if show, ok := m.(proto.SessionShow); ok && hello.Kind == "gui" {
@@ -578,6 +579,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.renameGroup(m)
 	case proto.DeleteGroup:
 		return d.deleteGroup(m)
+	case proto.Unknown:
+		return fmt.Errorf("this pitwall daemon is older than the client and does not know %s", m.Name)
 	}
 	return fmt.Errorf("unexpected message %T", m)
 }

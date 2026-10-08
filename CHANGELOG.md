@@ -21,6 +21,18 @@ build. Either step takes `--dry-run`.
   in both presets; `command_palette` rebinds it. Type to filter, Enter to
   run, Esc to close. Actions with no key, such as tab and pane mode in the
   conventional preset, run from it too. The empty pane area names its key.
+- Upgrading pitwall no longer restarts the background service, so programs
+  running in panes keep running. A window works with a daemon of the same
+  protocol major version, older or newer. This release runs on the daemon
+  from v0.1.0-alpha.22 as it is.
+- When a release does need a new daemon, its window asks first: "pitwall
+  <version> needs to restart its background service; programs running in
+  panes will stop." Restart now restarts it, and agents resume as before.
+  Later closes the window and leaves everything running.
+- A window that loses its daemon connection keeps its last screen under
+  "Disconnected from pitwall's background service." and reconnects on its
+  own, starting a daemon when none runs, with a Reconnect button that tries
+  at once. It used to sit dead until reopened.
 
 ## v0.1.0-alpha.22
 
