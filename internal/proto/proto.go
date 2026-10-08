@@ -35,6 +35,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 4 added Search, SearchResult and Frame.ScrollPushed.
 // Level 3 added model.BranchStats.Base, the default branch's ref.
 // Level 2 added State.Notice and DismissNotice: why the daemon started
 // without the saved tabs.
@@ -72,12 +73,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 3
+const Level = 4
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Search, SearchResult:
+		return 4
 	case DismissNotice:
 		return 2
 	}
@@ -199,6 +202,14 @@ type Scroll struct {
 	Lines int
 }
 
+// Search asks for every match of Query in Pane's scrollback and screen
+// (vt.Emulator.Search). The daemon answers this client alone with a
+// SearchResult.
+type Search struct {
+	Pane  string
+	Query string
+}
+
 type ClosePane struct {
 	Pane string
 }
@@ -232,6 +243,19 @@ type Frame struct {
 	// ScrollOffset is how many lines above the live screen the view starts;
 	// ScrollMax is the scrollback length. Both 0 when there is no history.
 	ScrollOffset, ScrollMax int
+	// ScrollPushed counts lines that ever entered the pane's history: row y
+	// of Grid shows line ScrollPushed-ScrollOffset+y, as vt.Match numbers
+	// lines. 0 from daemons below Level 4.
+	ScrollPushed uint64
+}
+
+// SearchResult answers a Search: the newest matches of Query, oldest
+// first, and More when older ones were left out.
+type SearchResult struct {
+	Pane    string
+	Query   string
+	Matches []vt.Match
+	More    bool
 }
 
 type PaneExited struct {
@@ -397,4 +421,5 @@ var Messages = []any{
 	SessionNew{}, SessionRename{}, SessionKill{}, SessionShow{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 	DismissNotice{},
+	Search{}, SearchResult{},
 }

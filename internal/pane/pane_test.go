@@ -43,12 +43,13 @@ func (f *fakeVT) Resize(c, r int) {
 	f.size = [2]int{c, r}
 	f.mu.Unlock()
 }
-func (f *fakeVT) Snapshot() vt.Grid        { return vt.Grid{} }
-func (f *fakeVT) SnapshotAt(int) vt.Grid   { return vt.Grid{} }
-func (f *fakeVT) ScrollbackLen() int       { return 0 }
-func (f *fakeVT) ScrollbackPushed() uint64 { return 0 }
-func (f *fakeVT) Modes() vt.Modes          { return vt.Modes{} }
-func (f *fakeVT) String() string           { f.mu.Lock(); defer f.mu.Unlock(); return f.buf.String() }
+func (f *fakeVT) Snapshot() vt.Grid                     { return vt.Grid{} }
+func (f *fakeVT) SnapshotAt(int) vt.Grid                { return vt.Grid{} }
+func (f *fakeVT) ScrollbackLen() int                    { return 0 }
+func (f *fakeVT) ScrollbackPushed() uint64              { return 0 }
+func (f *fakeVT) Search(string, int) ([]vt.Match, bool) { return nil, false }
+func (f *fakeVT) Modes() vt.Modes                       { return vt.Modes{} }
+func (f *fakeVT) String() string                        { f.mu.Lock(); defer f.mu.Unlock(); return f.buf.String() }
 
 func start(t *testing.T, id string, cmd ...string) (*Pane, *fakeVT) {
 	t.Helper()

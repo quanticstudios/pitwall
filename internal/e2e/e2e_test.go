@@ -64,6 +64,40 @@ func TestEngine(t *testing.T) {
 	})
 }
 
+// TestSearchScrollback finds a line that scrolled into history and scrolls
+// to it: a frame's row y shows line ScrollPushed-ScrollOffset+y, the
+// numbering a SearchResult uses.
+func TestSearchScrollback(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	gui := connect(t, "gui")
+	w := newWorkspace(t, gui)
+	p := openPane(t, gui, w.ID, []string{"sh", "-c", "i=0; while [ $i -lt 100 ]; do echo row$i; i=$((i+1)); done; echo done; exec sleep 30"})
+	gui.waitFor(t, timeout, frameContains(p.ID, "done"))
+	gui.send(t, proto.Search{Pane: p.ID, Query: "ROW7"}) // a capital: no row7 matches
+	if r := gui.waitFor(t, timeout, func(msg any) bool { _, ok := msg.(proto.SearchResult); return ok }).(proto.SearchResult); len(r.Matches) != 0 {
+		t.Fatalf("ROW7: %+v", r.Matches)
+	}
+	gui.send(t, proto.Search{Pane: p.ID, Query: "row7"})
+	r := gui.waitFor(t, timeout, func(msg any) bool { _, ok := msg.(proto.SearchResult); return ok }).(proto.SearchResult)
+	if len(r.Matches) != 11 { // row7 and row70-row79
+		t.Fatalf("row7: %d matches: %+v", len(r.Matches), r.Matches)
+	}
+	m := r.Matches[0]
+	gui.send(t, proto.Scroll{Pane: p.ID, Lines: 1000})
+	f := gui.waitFor(t, timeout, func(msg any) bool {
+		f, ok := msg.(proto.Frame)
+		return ok && f.Pane == p.ID && f.ScrollOffset > 0 && f.ScrollOffset == f.ScrollMax
+	}).(proto.Frame)
+	y := int(m.Line - (f.ScrollPushed - uint64(f.ScrollOffset)))
+	if y < 0 || y >= f.Grid.Rows {
+		t.Fatalf("match line %d is off the view: row %d", m.Line, y)
+	}
+	if row := strings.Split(gridText(f.Grid), "\n")[y]; row[m.Col:m.Col+m.Cols] != "row7" || row != "row7" {
+		t.Fatalf("row %d is %q", y, row)
+	}
+}
+
 // TestResizeQuietPane: a Resize that reaches a pane after its program's last
 // output, as one queued behind an input flood does, still sends the window a
 // frame at the new size. The program here never redraws; before the pane

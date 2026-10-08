@@ -70,6 +70,7 @@ type Keys struct {
 	Paste           Binding `toml:"paste" group:"Terminal" doc:"Paste"`
 	ScrollPageUp    Binding `toml:"scroll_page_up" group:"Terminal" doc:"Scroll back a page"`
 	ScrollPageDown  Binding `toml:"scroll_page_down" group:"Terminal" doc:"Scroll forward a page"`
+	Find            Binding `toml:"find" group:"Terminal" doc:"Find in the focused pane's scrollback. Enter or F3 goes to the next match up, Shift with either back down, Esc closes"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
 	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the tab's changes since its default branch, committed or not, in your git pager in a new pane"`

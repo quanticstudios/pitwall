@@ -4,7 +4,30 @@ import (
 	"fmt"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
+
+// maxMatches caps a SearchResult: one letter can match most of a 10,000-line
+// history.
+const maxMatches = 10000
+
+// search answers m with its pane's newest maxMatches matches. A Pane
+// without Search, like a test fake, has none.
+func (d *Daemon) search(m proto.Search) any {
+	d.mu.Lock()
+	p := d.panes[m.Pane]
+	d.mu.Unlock()
+	if p == nil {
+		return proto.Error{Message: fmt.Sprintf("no pane %s", m.Pane)}
+	}
+	r := proto.SearchResult{Pane: m.Pane, Query: m.Query}
+	if s, ok := p.(interface {
+		Search(query string, limit int) ([]vt.Match, bool)
+	}); ok {
+		r.Matches, r.More = s.Search(m.Query, maxMatches)
+	}
+	return r
+}
 
 // view is where a pane's view sits in its scrollback. It is view state shared
 // by every client and never saved.
@@ -49,7 +72,7 @@ func (d *Daemon) view(id string, p Pane) (*view, int) {
 // those lines; the next frame corrects it.
 func (d *Daemon) frame(id string, p Pane) proto.Frame {
 	v, hist := d.view(id, p)
-	return proto.Frame{Pane: id, Grid: p.SnapshotAt(v.off), Modes: p.Modes(), ScrollOffset: v.off, ScrollMax: hist}
+	return proto.Frame{Pane: id, Grid: p.SnapshotAt(v.off), Modes: p.Modes(), ScrollOffset: v.off, ScrollMax: hist, ScrollPushed: v.pushed}
 }
 
 // scroll moves the view m.Lines into history (negative goes back toward the

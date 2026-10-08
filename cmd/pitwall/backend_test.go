@@ -124,7 +124,7 @@ func TestSendsByDaemonLevel(t *testing.T) {
 	go b.sendLoop()
 	c := proto.NewConn(daemon)
 	daemon.SetDeadline(time.Now().Add(5 * time.Second))
-	newer := proto.DismissNotice{Notice: "n"}
+	newer := proto.Search{Pane: "p", Query: "q"}
 	for _, level := range []int{0, proto.Since(newer)} {
 		if err := c.Send(proto.StateMsg{State: model.State{Version: uint64(1 + level)}, Level: level}); err != nil {
 			t.Fatal(err)

@@ -29,6 +29,8 @@ type nav struct {
 	sessionUI string
 	// palette asks the window to open the command palette.
 	palette bool
+	// find asks the window to open the find bar on the focused pane.
+	find bool
 
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
@@ -833,6 +835,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.sidebarHidden = !n.sidebarHidden
 	case "toggle_panel":
 		n.panelOpen = !n.panelOpen
+	case "find":
+		n.find = n.focused() != ""
 	case "jump_attention":
 		n.jumpAttention(st)
 	case "session_switcher":

@@ -61,6 +61,11 @@ func (s *stopped) SnapshotAt(off int) vt.Grid {
 	defer s.mu.Unlock()
 	return s.vt.SnapshotAt(off)
 }
+func (s *stopped) Search(query string, limit int) ([]vt.Match, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.vt.Search(query, limit)
+}
 func (s *stopped) ScrollbackLen() int     { s.mu.Lock(); defer s.mu.Unlock(); return s.vt.ScrollbackLen() }
 func (s *stopped) Modes() vt.Modes        { s.mu.Lock(); defer s.mu.Unlock(); return s.vt.Modes() }
 func (s *stopped) Dirty() <-chan struct{} { return nil }

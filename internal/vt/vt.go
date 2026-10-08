@@ -94,8 +94,14 @@ type Emulator interface {
 	ScrollbackLen() int
 	// ScrollbackPushed counts lines that ever entered history. It keeps
 	// growing once the oldest lines drop out, so the change between two calls
-	// is how far the screen scrolled.
+	// is how far the screen scrolled. A resize that rewraps history moves it
+	// by the rows history gained or lost, so it never falls below
+	// ScrollbackLen.
 	ScrollbackPushed() uint64
+	// Search returns query's matches in history and on the screen, oldest
+	// first, case-insensitive unless query has an upper-case letter: the
+	// newest limit of them, and whether older ones were left out.
+	Search(query string, limit int) ([]Match, bool)
 	Modes() Modes
 }
 

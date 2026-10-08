@@ -24,6 +24,7 @@ type FakeBackend struct {
 	st      model.State
 	sizes   map[string][2]int // pane -> cols, rows
 	scroll  map[string]int    // pane -> lines scrolled back
+	queries map[string]string // pane -> its last Search query
 	sent    []any
 	changed chan struct{}
 	focus   chan proto.FocusSession
@@ -51,7 +52,7 @@ var fakeHome = func() string {
 // a Codex waiting for an answer, and a psql tab. brave-lynx has a Claude
 // writing docs and a shell.
 func NewFakeBackend() *FakeBackend {
-	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, seen: map[string]time.Time{}, changed: make(chan struct{}, 1),
+	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, queries: map[string]string{}, seen: map[string]time.Time{}, changed: make(chan struct{}, 1),
 		focus: make(chan proto.FocusSession, 8)}
 	now := time.Now()
 	f.st.Sessions = []model.Session{
@@ -370,6 +371,24 @@ func (f *FakeBackend) Scroll(pane string) (offset, max int) {
 	return f.scroll[pane], fakeScrollback
 }
 
+// Found implements Finder by searching the pane's fake screen, which has
+// no history and does not move as it scrolls: row y is line y.
+func (f *FakeBackend) Found(pane string) (proto.SearchResult, uint64) {
+	f.mu.Lock()
+	q, ok := f.queries[pane]
+	f.mu.Unlock()
+	if !ok {
+		return proto.SearchResult{}, 0
+	}
+	g, _, _ := f.Frame(pane)
+	r := proto.SearchResult{Pane: pane, Query: q}
+	fd := vt.NewFinder(q)
+	for y := range g.Rows {
+		r.Matches = fd.Row(r.Matches, uint64(y), g.Cells[y*g.Cols:(y+1)*g.Cols])
+	}
+	return r, 0
+}
+
 // Sent returns every message passed to Send, oldest first.
 func (f *FakeBackend) Sent() []any {
 	f.mu.Lock()
@@ -442,6 +461,8 @@ func (f *FakeBackend) Send(msg any) error {
 		f.sizes[m.Pane] = [2]int{m.Cols, m.Rows}
 	case proto.Scroll:
 		f.scroll[m.Pane] = min(max(f.scroll[m.Pane]+m.Lines, 0), fakeScrollback)
+	case proto.Search:
+		f.queries[m.Pane] = m.Query
 	case proto.SetLayout:
 		if w := ws(m.WorkspaceID); w != nil {
 			f.tabFor(w, m.TabID).Layout = cloneNode(m.Layout)
