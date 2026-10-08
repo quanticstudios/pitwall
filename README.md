@@ -15,12 +15,13 @@ terminal or an agent working, waiting for your answer, asking for approval,
 done, or failed. Terminals are drawn with real fonts and pixels, not character
 cells.
 
-**pitwall is in alpha.** It is used every day on Linux, but expect rough
-edges, and config or saved state may change between releases. It is
+**pitwall is in beta.** It is used every day on Linux. Config and saved
+state carry over between releases, and a release that cannot keep them says
+so in the changelog. It is
 developed on Linux (Hyprland) and works on any Wayland or X11 desktop.
 macOS and Windows builds are new; see the
 [platform notes](docs/install.md#platform-notes). Releases are tagged
-`v0.1.0-alpha.N`.
+`v0.1.0-beta.N`.
 
 ## Install
 
@@ -62,9 +63,9 @@ known gaps on macOS and Windows, updates, and building from source.
 
 | Platform                       | Release builds | Status                     |
 | ------------------------------ | -------------- | -------------------------- |
-| Linux (glibc 2.35 or newer)    | x86_64, arm64  | alpha, used every day      |
-| macOS                          | arm64, x86_64  | alpha, new and not yet run |
-| Windows 10 1809 or newer, 11   | x86_64, arm64  | alpha, new and not yet run |
+| Linux (glibc 2.35 or newer)    | x86_64, arm64  | beta, used every day       |
+| macOS                          | arm64, x86_64  | beta, new and not yet run  |
+| Windows 10 1809 or newer, 11   | x86_64, arm64  | beta, new and not yet run  |
 
 ## Quick start
 

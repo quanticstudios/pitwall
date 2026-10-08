@@ -6,9 +6,9 @@ The install commands and the platform table are in the
 The script downloads the latest release for your system, checks it against
 the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
 Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin` and adds that
-folder to your user PATH. To pin a release, set `PITWALL_VERSION=v0.1.0-alpha.1`; to
+folder to your user PATH. To pin a release, set `PITWALL_VERSION=v0.1.0-beta.1`; to
 install somewhere else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them
-first with `$env:PITWALL_VERSION = 'v0.1.0-alpha.1'`.
+first with `$env:PITWALL_VERSION = 'v0.1.0-beta.1'`.
 
 ## Platform notes
 

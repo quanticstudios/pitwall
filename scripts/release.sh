@@ -43,12 +43,14 @@ git fetch --quiet --tags origin
     die 'main differs from origin/main; run: git pull --ff-only'
 
 if [ -z "$version" ]; then
-    latest=$(git tag --list 'v0.1.0-alpha.*' --sort=-v:refname | head -n 1)
+    # The newest pre-release series: v0.1.0-beta.* sorts after v0.1.0-alpha.*.
+    latest=$(git tag --list 'v0.1.0-*' --sort=-v:refname | head -n 1)
     n=${latest##*.}
     case "$n" in
         '' | *[!0-9]*) n=0 ;;
     esac
-    version=v0.1.0-alpha.$((n + 1))
+    series=${latest%.*}
+    version=${series:-v0.1.0-beta}.$((n + 1))
     step "Next version after ${latest:-no tags}: $version"
 else
     step "Version: $version"
