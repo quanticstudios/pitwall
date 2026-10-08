@@ -308,6 +308,7 @@ func TestBinaryHook(t *testing.T) {
 func isolate(t *testing.T) {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // defaults, whatever the user's config.toml says
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("SHELL", "/bin/sh") // the first session's shell, without the user's rc files
 	// why: run inside a pitwall pane, these point hooks and the CLI at the user's own daemon.
@@ -438,7 +439,8 @@ func (c *client) waitFor(t *testing.T, limit time.Duration, match func(any) bool
 	}
 }
 
-func newWorkspace(t *testing.T, gui *client) model.Workspace {
+// gitRepo is a new repository on main with one commit.
+func gitRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
 	run(t, timeout, repo, "git", "init", "-b", "main")
@@ -447,6 +449,58 @@ func newWorkspace(t *testing.T, gui *client) model.Workspace {
 	}
 	run(t, timeout, repo, "git", "add", "README")
 	run(t, timeout, repo, "git", "-c", "user.name=Pitwall Test", "-c", "user.email=pitwall@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "Initialize test repository")
+	return repo
+}
+
+// A worktree tab's shell has the tab's ports, and the repo's
+// .pitwall/worktree.toml copies .env from the main checkout and types its
+// setup into that shell, where it runs only once the user presses Enter.
+func TestWorktreeSetup(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	gui := connect(t, "gui")
+	repo := gitRepo(t)
+	for name, body := range map[string]string{
+		".env":                   "SECRET=1\n",
+		".pitwall/worktree.toml": "copy = [\".env\"]\nsetup = 'echo \"$PORT $PITWALL_PORT_BASE $PITWALL_PORTS\" > port.txt'\n",
+	} {
+		os.MkdirAll(filepath.Dir(filepath.Join(repo, name)), 0o700)
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gui.send(t, proto.AddProject{Path: repo})
+	p := waitState(t, gui, func(s model.State) bool { return len(s.Projects) == 1 }).Projects[0]
+	gui.send(t, proto.NewWorkspace{ProjectID: p.ID})
+	s := waitState(t, gui, func(s model.State) bool {
+		return slices.ContainsFunc(s.Workspaces, func(w model.Workspace) bool { return w.ProjectID == p.ID && len(w.Tabs) == 1 })
+	})
+	w := s.Workspaces[slices.IndexFunc(s.Workspaces, func(w model.Workspace) bool { return w.ProjectID == p.ID })]
+	if w.Ports.String() != "3010-3019" {
+		t.Fatalf("ports %v, want 3010-3019", w.Ports)
+	}
+	shell := s.Panes[slices.IndexFunc(s.Panes, func(sp model.Pane) bool { return sp.WorkspaceID == w.ID })].ID
+	gui.waitFor(t, timeout, frameContains(shell, "> port.txt"))
+	time.Sleep(500 * time.Millisecond) // the time a line with Enter would take to run
+	if _, err := os.Stat(filepath.Join(w.Path, "port.txt")); err == nil {
+		t.Fatal("the repo's setup ran without Enter")
+	}
+	gui.send(t, proto.Input{Pane: shell, Data: []byte("\r")})
+	var got []byte
+	for deadline := time.Now().Add(timeout); time.Now().Before(deadline) && len(got) == 0; time.Sleep(20 * time.Millisecond) {
+		got, _ = os.ReadFile(filepath.Join(w.Path, "port.txt"))
+	}
+	if string(got) != "3010 3010 3010-3019\n" {
+		t.Errorf("setup wrote %q", got)
+	}
+	if env, err := os.ReadFile(filepath.Join(w.Path, ".env")); string(env) != "SECRET=1\n" {
+		t.Errorf("worktree .env %q %v", env, err)
+	}
+}
+
+func newWorkspace(t *testing.T, gui *client) model.Workspace {
+	t.Helper()
+	repo := gitRepo(t)
 	gui.send(t, proto.AddProject{Path: repo})
 	s := gui.waitFor(t, timeout, func(msg any) bool {
 		s, ok := msg.(proto.StateMsg)

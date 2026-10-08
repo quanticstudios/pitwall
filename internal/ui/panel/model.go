@@ -26,7 +26,9 @@ type Input struct {
 	Files  []gitstat.FileStat
 	Git    bool
 	Decide string // model.State.Decide.Provider
-	Now    time.Time
+	// Ports is the tab's port block; Changes shows its first port.
+	Ports model.PortBlock
+	Now   time.Time
 	// ShowCost shows what the agent's tokens cost at list prices.
 	ShowCost bool
 }

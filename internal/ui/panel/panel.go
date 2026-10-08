@@ -887,11 +887,20 @@ func (d *drawer) changes() []layout.Widget {
 	}
 	sb := semibold(d.th.UIFont)
 	out := []layout.Widget{pad(0, 2, 4, 2, func(gtx layout.Context) layout.Dimensions {
-		return rowFit(gtx,
-			part{w: d.ui(12, d.c.quiet, "Worktree vs "+base+" · ")},
-			part{w: d.text(sb, 12, d.c.green, fmt.Sprintf("+%d", add), 1)},
-			part{gap: gtx.Dp(4), w: d.text(sb, 12, d.c.red, fmt.Sprintf("-%d", del), 1)},
-		)
+		parts := []part{
+			{w: d.ui(12, d.c.quiet, "Worktree vs "+base+" · ")},
+			{w: d.text(sb, 12, d.c.green, fmt.Sprintf("+%d", add), 1)},
+			{gap: gtx.Dp(4), w: d.text(sb, 12, d.c.red, fmt.Sprintf("-%d", del), 1)},
+		}
+		if p := in.Ports.First; p != 0 {
+			// A worktree tab's first port, at the right.
+			parts = append(parts, part{flex: true, gap: gtx.Dp(8), w: func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				return layout.E.Layout(gtx, d.text(d.th.MonoFont, 11, d.c.quiet, fmt.Sprint("PORT ", p), 1))
+			}})
+			return row(gtx, parts...)
+		}
+		return rowFit(gtx, parts...)
 	})}
 	if len(in.Files) == 0 {
 		return append(out, d.note("No changes from "+base+"."))

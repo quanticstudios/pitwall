@@ -28,6 +28,20 @@ build. Either step takes `--dry-run`.
   runs `gh pr create --fill`. The menu says why it is greyed out: no gh, on
   the default branch, or no commits ahead. A daemon from an older release
   shows "restart daemon" until it restarts.
+- Each worktree tab gets its own block of ports, 3010-3019 for the first,
+  so agents in parallel worktrees stop fighting over port 3000. Its panes
+  get `PORT`, `PITWALL_PORT_BASE` and `PITWALL_PORTS`; the main checkout
+  keeps its usual ports. The block survives restarts and shows on the
+  tab's hover card and as `PORT 3010` in the agent panel's Changes view;
+  `[worktrees]` `port_base` and `port_step` move it. When a shell in the
+  tab prints "address already in use", the tab asks for you and names its
+  ports.
+- A repo's `.pitwall/worktree.toml` (or `[worktrees]` in `config.toml`) can
+  copy files such as `.env` from the main checkout into a new worktree, link
+  `node_modules`, and type a `setup` command such as `pnpm install` into the
+  new tab's shell. A `setup` from the repo's file waits for you to press
+  Enter; one from your own `config.toml` runs at once. Nothing is
+  overwritten, and nothing is copied unless you list it.
 - A command palette lists every action with its group and the keys bound to
   it in your config, and runs the one you pick. Ctrl+Shift+P opens it
   in both presets; `command_palette` rebinds it. Type to filter, Enter to

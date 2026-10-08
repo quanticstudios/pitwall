@@ -24,6 +24,7 @@ func defaults() Config {
 	off := false
 	c.Usage.ShowCost = &off
 	c.Decisions = defaultDecisions()
+	c.Worktrees = defaultWorktrees()
 	return c
 }
 

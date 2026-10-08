@@ -75,7 +75,7 @@ func cardState() *model.State {
 	return &model.State{
 		Projects: []model.Project{{ID: "g1", Name: "web-app", Color: "sky"}},
 		Workspaces: []model.Workspace{
-			{ID: "agent", Name: "fix-login", NameSet: true, ProjectID: "g1", Branch: "fix/login", Path: "/srv/demo/web-app"},
+			{ID: "agent", Name: "fix-login", NameSet: true, ProjectID: "g1", Branch: "fix/login", Path: "/srv/demo/web-app", Ports: model.PortBlock{First: 3010, Last: 3019}},
 			{ID: "shell", Name: "shell", Path: "/srv/demo/notes"},
 		},
 		Panes: []model.Pane{
@@ -93,10 +93,10 @@ func TestCardLines(t *testing.T) {
 	st := cardState()
 	v := newView(layout.Context{}, theme.Dark(), st, "", "")
 	c := cardFor(v, st.Workspaces[0])
-	if got := c.lines(); got != "tfbsdp" {
-		t.Errorf("agent tab lines %q, want tfbsdp", got)
+	if got := c.lines(); got != "tfbosdp" {
+		t.Errorf("agent tab lines %q, want tfbosdp", got)
 	}
-	if c.group != "web-app" || c.agent != model.ProviderClaude || c.add != 12 || c.del != 3 || c.panes != 2 ||
+	if c.group != "web-app" || c.ports != "3010-3019" || c.agent != model.ProviderClaude || c.add != 12 || c.del != 3 || c.panes != 2 ||
 		c.detail != "Which database should the tests use?" || stateText(c.state) != "Waiting for input" {
 		t.Errorf("agent card %+v", c)
 	}
@@ -111,7 +111,7 @@ func TestCardLines(t *testing.T) {
 	st.Decide = model.DecideInfo{Provider: "jev"}
 	st.Activities[0].State, st.Activities[0].Advice, st.Activities[0].AdviceP, st.Activities[0].AdviceRule = model.StatePendingApproval, "allow", 0.96, "sudo"
 	v = newView(layout.Context{}, theme.Dark(), st, "", "")
-	if c := cardFor(v, st.Workspaces[0]); c.decision != "Jev: allow 96% · sudo" || c.lines() != "tfbsdjp" {
+	if c := cardFor(v, st.Workspaces[0]); c.decision != "Jev: allow 96% · sudo" || c.lines() != "tfbosdjp" {
 		t.Errorf("advice card %q, lines %q", c.decision, c.lines())
 	}
 	if c := cardFor(v, st.Workspaces[1]); c.decision != "" {
