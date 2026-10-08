@@ -16,6 +16,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- The Update button stays hidden when Homebrew or a distro package owns the
+  pitwall binary; update those with the package manager.
 - pitwall checks for a newer release every hour instead of every 6 hours,
   and also when its window regains focus half an hour or more after the
   last check, so a new release shows its Update button soon after it is

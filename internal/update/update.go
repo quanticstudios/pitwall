@@ -30,6 +30,13 @@ const LatestURL = "https://api.github.com/repos/quanticstudios/pitwall/releases/
 // update button; get.ps1 updates it.
 const Supported = runtime.GOOS != "windows"
 
+// Managed is whether a package manager owns the binary at exe, a resolved
+// path: Homebrew's Cellar, or /usr/bin from pacman or a distro package.
+// Its package manager updates it, so the button stays hidden.
+func Managed(exe string) bool {
+	return strings.Contains(exe, "/Cellar/") || strings.HasPrefix(exe, "/usr/bin/")
+}
+
 // Release is a GitHub release: its tag and its assets' download URLs by
 // file name.
 type Release struct {

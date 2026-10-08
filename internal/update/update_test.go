@@ -150,3 +150,18 @@ func TestDevBuildNeverChecks(t *testing.T) {
 		t.Fatalf("dev builds made %d requests", n)
 	}
 }
+
+func TestManaged(t *testing.T) {
+	for exe, want := range map[string]bool{
+		"/opt/homebrew/Cellar/pitwall/0.1.0/bin/pitwall":              true,
+		"/home/linuxbrew/.linuxbrew/Cellar/pitwall/0.1.0/bin/pitwall": true,
+		"/usr/bin/pitwall":           true,
+		"/home/u/.local/bin/pitwall": false,
+		"/Users/u/Applications/pitwall.app/Contents/MacOS/pitwall": false,
+		"/usr/local/bin/pitwall":                                   false,
+	} {
+		if got := Managed(exe); got != want {
+			t.Errorf("Managed(%q) = %v, want %v", exe, got, want)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -69,7 +70,7 @@ func (up *updater) focused() {
 // watch checks at start, every updateEvery, and when the window regains
 // focus recheckAfter after the last check, until stop closes.
 func (up *updater) watch(stop <-chan struct{}, invalidate func()) {
-	if !update.Supported {
+	if !update.Supported || managed() {
 		return
 	}
 	poke := make(chan struct{}, 1)
@@ -161,6 +162,19 @@ func (up *updater) click(session, workspace string, invalidate func()) (relaunch
 		invalidate()
 	}()
 	return false
+}
+
+// managed is whether a package manager owns the running binary; tests
+// swap it.
+var managed = func() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return update.Managed(exe)
 }
 
 // installRelease replaces the running binary with rel's; tests swap it.
