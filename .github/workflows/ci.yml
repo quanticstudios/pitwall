@@ -46,11 +46,50 @@ jobs:
         run: |
           go -C third_party/x-vt vet ./...
           go -C third_party/x-vt test -race -timeout 5m ./...
-      - name: Install scripts
+      - name: Scripts
         run: |
           sh -n scripts/install.sh
           sh -n scripts/get.sh
           sh scripts/get_test.sh
+          sh scripts/release_test.sh
+
+  changelog:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # why: HEAD is the PR merged into its base, so HEAD^1 is the base.
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require a CHANGELOG.md entry for cmd/ and internal/ changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if git diff --quiet HEAD^1 HEAD -- cmd internal; then
+            echo 'No change under cmd/ or internal/.'
+            exit 0
+          fi
+          # why: read live, so adding the label and re-running the job skips it.
+          label=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json labels --jq 'any(.labels[]; .name == "no-changelog")') || label=false
+          if [ "$label" = true ]; then
+            echo 'Skipped: the PR has the no-changelog label.'
+            exit 0
+          fi
+          git show HEAD^1:CHANGELOG.md | awk '/^## /{n++} n==1' > base.md
+          awk '/^## /{n++} n==1' CHANGELOG.md > head.md
+          added=$(grep -vxFf base.md head.md | grep -v '^## ' | grep '[^[:space:]]' || true)
+          if [ -n "$added" ]; then
+            printf 'New in the top CHANGELOG.md section:\n%s\n' "$added"
+            exit 0
+          fi
+          echo "::error file=CHANGELOG.md::This PR changes cmd/ or internal/ but adds no line under the top '## Unreleased' section of CHANGELOG.md. Add one, or ask a maintainer for the no-changelog label and re-run this job."
+          exit 1
 
   other:
     strategy:

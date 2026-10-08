@@ -42,6 +42,7 @@ mise exec -- go test -race -timeout 5m ./...
 mise exec -- go -C third_party/x-vt vet ./...
 mise exec -- go -C third_party/x-vt test -race -timeout 5m ./...
 sh scripts/get_test.sh
+sh scripts/release_test.sh
 ```
 
 ### macOS
@@ -80,6 +81,14 @@ Keep a change focused on one problem. Add a regression test for a behavior
 change. Use the standard library first; explain any new dependency. Keep
 copied code's attribution and update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 when licenses or bundled dependencies change.
+
+Describe a change users will notice in a line under `## Unreleased` at the
+top of [CHANGELOG.md](CHANGELOG.md). Add the heading above the newest version
+if it is missing. CI fails a pull request that changes `cmd/` or `internal/`
+without such a line. For a change users will not notice, such as a refactor or
+a test, ask a maintainer to add the `no-changelog` label, then re-run the
+check. Maintainers release with `scripts/release.sh`, as described at the top
+of CHANGELOG.md.
 
 ### Visual checks
 
