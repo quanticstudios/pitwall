@@ -345,9 +345,9 @@ func convertKeysym(s C.xkb_keysym_t) (key.Name, bool) {
 		n = key.NameEnd
 	case C.XKB_KEY_KP_Begin:
 		n = key.NameHome
-	case C.XKB_KEY_KP_Insert:
-		// not supported
-		return "", false
+	case C.XKB_KEY_Insert, C.XKB_KEY_KP_Insert:
+		// pitwall: io/key has no NameInsert; Shift+Insert pastes in terminals.
+		n = "Insert"
 	case C.XKB_KEY_KP_Delete:
 		n = key.NameDeleteForward
 	case C.XKB_KEY_KP_Multiply:

@@ -20,6 +20,9 @@ Each change is marked `pitwall` in a comment:
   (one queued before the last presented); that frame is drawn again on the
   callback.
 - `app/egl_wayland.go`, `Present`: goes through `window.present`.
+- `app/internal/xkb/xkb_unix.go`, `convertKeysym`: Insert and keypad Insert
+  arrive as `key.Name("Insert")`; upstream drops them, so Shift+Insert and
+  Ctrl+Insert, the terminal paste and copy keys, never reached the program.
 
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would
