@@ -68,10 +68,8 @@ Windows has no button; run the install command again to update. To stop the
 check, set `check = false` under `[updates]` in config.toml or use the switch
 under About in the settings page.
 
-Update a Homebrew or AUR install with its package manager, and stop
-the check there. The button cannot write over an AUR package's
-`/usr/bin/pitwall`, and on Homebrew it would replace the binary behind brew's
-back.
+A Homebrew or AUR install has no button: pitwall sees that the package
+manager owns its binary, so update it with `brew upgrade` or your AUR helper.
 
 ## Build from source
 
