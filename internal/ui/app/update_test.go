@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/update"
 )
@@ -50,4 +51,52 @@ func TestUpdateButton(t *testing.T) {
 	if !up.click("main", "w1", invalidate) || to != [2]string{"main", "w1"} {
 		t.Fatalf("restart did not relaunch on main/w1: %v", to)
 	}
+}
+
+// TestUpdateRecheck: regaining focus checks again only once recheckAfter
+// has passed since the last check; it does not wait for the hourly timer.
+func TestUpdateRecheck(t *testing.T) {
+	if !update.Supported {
+		t.Skip("no update checks on this platform")
+	}
+	checks := make(chan struct{}, 8)
+	check, after := checkLatest, recheckAfter
+	checkLatest = func(context.Context) (update.Release, bool, error) {
+		checks <- struct{}{}
+		return update.Release{}, false, nil
+	}
+	t.Cleanup(func() { checkLatest, recheckAfter = check, after })
+	got := func(want bool, what string) {
+		t.Helper()
+		select {
+		case <-checks:
+			if !want {
+				t.Fatalf("%s: checked", what)
+			}
+		case <-time.After(200 * time.Millisecond):
+			if want {
+				t.Fatalf("%s: no check", what)
+			}
+		}
+	}
+	// run starts a watch with recheckAfter d and returns its stop.
+	run := func(d time.Duration) (*updater, func()) {
+		recheckAfter = d
+		up := &updater{}
+		up.on.Store(true)
+		stop, done := make(chan struct{}), make(chan struct{})
+		go func() { up.watch(stop, func() {}); close(done) }()
+		got(true, "start")
+		return up, func() { close(stop); <-done }
+	}
+
+	up, stop := run(time.Hour)
+	up.focused()
+	got(false, "focus right after a check")
+	stop()
+
+	up, stop = run(0)
+	up.focused()
+	got(true, "focus after recheckAfter")
+	stop()
 }

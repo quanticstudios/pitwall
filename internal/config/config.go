@@ -195,7 +195,7 @@ type Term struct {
 
 // Updates is [updates].
 type Updates struct {
-	Check *bool `toml:"check" doc:"Check GitHub for a newer release at start and every 6 hours, and offer it with an Update button at the bottom of the sidebar. Release builds on Linux and macOS only"`
+	Check *bool `toml:"check" doc:"Check GitHub for a newer release at start, every hour, and on regaining focus half an hour after the last check, and offer it with an Update button at the bottom of the sidebar. Release builds on Linux and macOS only"`
 }
 
 // Usage is [usage].

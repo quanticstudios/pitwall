@@ -20,9 +20,18 @@ var Version string
 // process; main sets it. Nil leaves "Restart to finish" to the user.
 var Relaunch func(session, workspace string) error
 
+// recheckAfter is how long since the last check before regaining focus
+// checks again; tests shorten it.
+var recheckAfter = 30 * time.Minute
+
+// checkLatest asks GitHub for the latest release; tests swap it.
+var checkLatest = func(ctx context.Context) (update.Release, bool, error) {
+	return update.Check(ctx, http.DefaultClient, update.LatestURL, Version)
+}
+
 const (
 	// updateEvery is how often a window checks GitHub for a release.
-	updateEvery = 6 * time.Hour
+	updateEvery = time.Hour
 	// updateTimeout bounds one install's downloads.
 	updateTimeout = 10 * time.Minute
 )
@@ -44,17 +53,35 @@ type updater struct {
 	mu   sync.Mutex
 	rel  update.Release // the newer release, Tag "" while there is none
 	step string         // "", updating, updated or updateFailed
+	poke chan struct{}  // focus regained; made by watch
 }
 
-// watch checks at start and every updateEvery until stop closes.
+// focused asks watch to check again if the last check is recheckAfter old.
+func (up *updater) focused() {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	select {
+	case up.poke <- struct{}{}:
+	default: // watch not started, or a poke already waits
+	}
+}
+
+// watch checks at start, every updateEvery, and when the window regains
+// focus recheckAfter after the last check, until stop closes.
 func (up *updater) watch(stop <-chan struct{}, invalidate func()) {
 	if !update.Supported {
 		return
 	}
+	poke := make(chan struct{}, 1)
+	up.mu.Lock()
+	up.poke = poke
+	up.mu.Unlock()
+	var last time.Time
 	for {
 		if up.on.Load() {
+			last = time.Now()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			rel, newer, err := update.Check(ctx, http.DefaultClient, update.LatestURL, Version)
+			rel, newer, err := checkLatest(ctx)
 			cancel()
 			switch {
 			case err != nil:
@@ -69,10 +96,20 @@ func (up *updater) watch(stop <-chan struct{}, invalidate func()) {
 				up.mu.Unlock()
 			}
 		}
-		select {
-		case <-stop:
-			return
-		case <-time.After(updateEvery):
+		timer := time.NewTimer(updateEvery)
+		for waiting := true; waiting; {
+			select {
+			case <-stop:
+				timer.Stop()
+				return
+			case <-timer.C:
+				waiting = false
+			case <-poke:
+				if time.Since(last) >= recheckAfter {
+					timer.Stop()
+					waiting = false
+				}
+			}
 		}
 	}
 }
