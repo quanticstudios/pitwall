@@ -47,6 +47,11 @@ before approving a run. Use GitHub-hosted runners for public contributions.
 
 ## Publish a release
 
+`scripts/release.sh` runs steps 1 and 3: it opens the release pull request
+from the `## Unreleased` section, and `scripts/release.sh --tag` tags the
+merged release commit and pushes the tag once. The steps below are what it
+does, and what to check around it.
+
 1. Merge the release changes and the matching `## v0.1.0-alpha.N` section in
    [CHANGELOG.md](../CHANGELOG.md) through a pull request.
 2. Check that all required CI jobs passed for the commit you intend to tag.

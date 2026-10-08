@@ -6,9 +6,13 @@ GitHub, which is what the installers take. The `v0.0.N` tags before that
 were the same alpha under patch numbers. A release is a git tag on `main`; `scripts/install.sh` stamps the
 binary with `git describe`, and `pitwall --version` prints it.
 
-To cut a release: add a section below and merge it, then
-`git tag -a v0.1.0-alpha.N -m "pitwall v0.1.0-alpha.N"` on that commit and
-`git push origin v0.1.0-alpha.N` (the tag alone, so the release build runs).
+Changes land with their notes under `## Unreleased` at the top. To cut a
+release from an up-to-date, clean `main`, run `sh scripts/release.sh`. It
+renames `## Unreleased` to the next `## v0.1.0-alpha.N` (or the version you
+pass) and opens a `Release v0.1.0-alpha.N` pull request. Once that merges,
+`git pull --ff-only` and run `sh scripts/release.sh --tag`. It tags the
+release commit on `main` and pushes the tag once, which starts the release
+build. Either step takes `--dry-run`.
 
 ## v0.1.0-alpha.22
 
