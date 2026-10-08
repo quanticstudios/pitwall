@@ -76,7 +76,8 @@ func (d *Daemon) frame(id string, p Pane) proto.Frame {
 }
 
 // scroll moves the view m.Lines into history (negative goes back toward the
-// live screen), clamped to [0, ScrollbackLen], and pushes a frame.
+// live screen), clamped to [0, ScrollbackLen], then m.Prompts shell prompts,
+// and pushes a frame.
 func (d *Daemon) scroll(m proto.Scroll) error {
 	d.mu.Lock()
 	p := d.panes[m.Pane]
@@ -86,6 +87,9 @@ func (d *Daemon) scroll(m proto.Scroll) error {
 	}
 	v, hist := d.view(m.Pane, p)
 	v.off = max(0, min(v.off+m.Lines, hist))
+	if j, ok := p.(interface{ PromptOffset(off, n int) int }); ok && m.Prompts != 0 {
+		v.off = max(0, min(j.PromptOffset(v.off, m.Prompts), hist))
+	}
 	d.mu.Unlock()
 	d.pushFrame(m.Pane, p)
 	return nil

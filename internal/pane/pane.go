@@ -214,6 +214,17 @@ func (p *Pane) Search(query string, limit int) ([]vt.Match, bool) {
 	return p.vt.Search(query, limit)
 }
 
+// PromptOffset is the emulator's PromptOffset; off for an emulator
+// without prompt marks.
+func (p *Pane) PromptOffset(off, n int) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if m, ok := p.vt.(interface{ PromptOffset(off, n int) int }); ok {
+		return m.PromptOffset(off, n)
+	}
+	return off
+}
+
 func (p *Pane) Modes() vt.Modes {
 	p.mu.Lock()
 	defer p.mu.Unlock()

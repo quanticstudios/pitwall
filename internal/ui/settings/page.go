@@ -853,6 +853,16 @@ func (p *Page) toggle(table, k string, on bool) gl.Widget {
 }
 
 // segmented is a row of options with the current one raised.
+// choice is a two-way segmented control for an on-or-off string setting:
+// opts[0] is on, opts[1] off.
+func (p *Page) choice(table, k string, opts []string, on bool) gl.Widget {
+	cur := opts[1]
+	if on {
+		cur = opts[0]
+	}
+	return p.segmented(table+"."+k, opts, cur, func(o string) { p.saveValue(table, k, config.Quote(o)) })
+}
+
 func (p *Page) segmented(id string, opts []string, cur string, pick func(string)) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
 		th := p.th
@@ -1072,6 +1082,10 @@ func (p *Page) terminal() []section {
 			control: p.toggle("terminal", "copy_on_select", p.s.CopyOnSelect)},
 		{label: "Links", desc: "Underline web and file links in panes. Ctrl+click opens one in your browser, even inside Claude Code or Codex.", extra: "url hyperlink browser open ctrl click links",
 			control: p.toggle("terminal", "links", p.s.Links)},
+		{label: "Clipboard from programs", desc: "Programs such as Neovim and tmux, also over ssh, can set the clipboard with OSC 52. They can never read it.", extra: "osc52 osc 52 clipboard copy yank ssh tmux neovim",
+			control: p.choice("terminal", "osc52", []string{"write", "off"}, p.s.OSC52)},
+		{label: "Bell", desc: "A bell in a pane you are not looking at rings the pane and marks its tab, as an agent waiting for you does.", extra: "bel beep alert attention notification",
+			control: p.choice("terminal", "bell", []string{"attention", "off"}, p.s.Bell)},
 		{label: "Scrollback", desc: "Lines of history each pane keeps. Fixed in this version.", extra: "history lines buffer",
 			control: func(gtx gl.Context) gl.Dimensions {
 				return p.text(gtx, p.th.UIFont, p.sp(13), p.th.Fg, "10,000 lines")

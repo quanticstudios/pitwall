@@ -213,6 +213,30 @@ func TestCopyOnSelect(t *testing.T) {
 	}
 }
 
+// TestOSC52AndBell checks [terminal] osc52 and bell: on by default and
+// when set to their on value, off with "off", and on with a problem for
+// anything else.
+func TestOSC52AndBell(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		body        string
+		osc52, bell bool
+		problem     string
+	}{
+		{"", true, true, ""},
+		{`osc52 = "write"` + "\nbell = \"attention\"", true, true, ""},
+		{`osc52 = "off"`, false, true, ""},
+		{`bell = "off"`, true, false, ""},
+		{`osc52 = "read"`, true, true, `config.toml:2: terminal.osc52: "read" is not write or off; using write`},
+		{`bell = "visual"`, true, true, `config.toml:2: terminal.bell: "visual" is not attention or off; using attention`},
+	} {
+		s, probs := LoadFile(write(t, dir, "config.toml", "[terminal]\n"+tc.body+"\n"))
+		if s.OSC52 != tc.osc52 || s.Bell != tc.bell || msgs(probs) != tc.problem {
+			t.Errorf("%q: osc52 %v, bell %v, problems %q", tc.body, s.OSC52, s.Bell, msgs(probs))
+		}
+	}
+}
+
 func TestLoadOverridesAndProblems(t *testing.T) {
 	dir := t.TempDir()
 	p := write(t, dir, "config.toml", `[keys]

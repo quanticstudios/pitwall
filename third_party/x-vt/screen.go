@@ -17,9 +17,8 @@ type Screen struct {
 	scroll uv.Rectangle
 	// scrollback is the scrollback buffer for lines scrolled off the top.
 	scrollback *Scrollback
-	// wrapped marks the rows whose text ran past the right margin onto the
-	// next row (a soft wrap), as opposed to ending in a line break.
-	wrapped []bool
+	// flags holds each row's LineFlags; it moves with the rows.
+	flags []LineFlags
 }
 
 // NewScreen creates a new screen.
@@ -27,7 +26,7 @@ func NewScreen(w, h int) *Screen {
 	s := Screen{
 		buf:        uv.NewRenderBuffer(w, h),
 		scrollback: NewScrollback(DefaultScrollbackSize),
-		wrapped:    make([]bool, h),
+		flags:      make([]LineFlags, h),
 	}
 	s.scroll = s.buf.Bounds()
 	return &s
@@ -42,7 +41,7 @@ func (s *Screen) Reset() {
 	s.saved = Cursor{}
 	s.scroll = s.buf.Bounds()
 	s.buf.Touched = nil
-	clear(s.wrapped)
+	clear(s.flags)
 }
 
 // Bounds returns the bounds of the screen.
@@ -82,15 +81,18 @@ func (s *Screen) Resize(width int, height int) {
 		s.buf = uv.NewRenderBuffer(width, height)
 	} else {
 		if width != s.buf.Width() {
-			clear(s.wrapped)
+			for y := range s.flags {
+				s.flags[y] &^= LineWrapped
+			}
 		}
 		s.buf.Resize(width, height)
 		s.buf.Touched = nil
 	}
-	if len(s.wrapped) < height {
-		s.wrapped = append(s.wrapped, make([]bool, height-len(s.wrapped))...)
+	// Like the buffer, rows go or come at the bottom.
+	if len(s.flags) < height {
+		s.flags = append(s.flags, make([]LineFlags, height-len(s.flags))...)
 	}
-	s.wrapped = s.wrapped[:height]
+	s.flags = s.flags[:height]
 	s.scroll = s.buf.Bounds()
 }
 
@@ -102,13 +104,16 @@ func (s *Screen) Line(y int) uv.Line {
 // Wrapped reports whether row y soft-wraps: its text ran past the right
 // margin and goes on in row y+1.
 func (s *Screen) Wrapped(y int) bool {
-	return y >= 0 && y < len(s.wrapped) && s.wrapped[y]
+	return s.LineFlags(y)&LineWrapped != 0
 }
 
 // setWrapped marks whether row y soft-wraps.
 func (s *Screen) setWrapped(y int, v bool) {
-	if y >= 0 && y < len(s.wrapped) {
-		s.wrapped[y] = v
+	if y >= 0 && y < len(s.flags) {
+		s.flags[y] &^= LineWrapped
+		if v {
+			s.flags[y] |= LineWrapped
+		}
 	}
 }
 
@@ -126,6 +131,7 @@ func (s *Screen) Width() int {
 // Clear clears the screen with blank cells.
 func (s *Screen) Clear() {
 	s.ClearArea(s.Bounds())
+	clear(s.flags)
 }
 
 // ClearWithScrollback saves all non-empty lines to scrollback before clearing.
@@ -137,7 +143,7 @@ func (s *Screen) ClearWithScrollback() {
 		for y := 0; y < s.buf.Height(); y++ {
 			line := s.buf.Line(y)
 			if line != nil && !s.isLineEmpty(line) {
-				s.scrollback.push(line, s.Wrapped(y))
+				s.scrollback.push(line, s.flags[y])
 			}
 		}
 	}
@@ -170,8 +176,8 @@ func (s *Screen) FillArea(c *uv.Cell, area uv.Rectangle) {
 	s.buf.FillArea(c, area)
 	s.touchArea(area)
 	if area.Max.X >= s.buf.Width() {
-		for y := max(area.Min.Y, 0); y < min(area.Max.Y, len(s.wrapped)); y++ {
-			s.wrapped[y] = false
+		for y := max(area.Min.Y, 0); y < min(area.Max.Y, len(s.flags)); y++ {
+			s.flags[y] &^= LineWrapped
 		}
 	}
 }
@@ -376,9 +382,9 @@ func (s *Screen) InsertLine(n int) bool {
 	s.buf.InsertLineArea(y, n, s.blankCell(), s.scroll)
 	if s.fullWidth() {
 		n = min(n, s.scroll.Max.Y-y)
-		w := s.wrapped
-		copy(w[y+n:s.scroll.Max.Y], w[y:s.scroll.Max.Y-n])
-		clear(w[y : y+n])
+		f := s.flags
+		copy(f[y+n:s.scroll.Max.Y], f[y:s.scroll.Max.Y-n])
+		clear(f[y : y+n])
 	}
 
 	return true
@@ -410,16 +416,16 @@ func (s *Screen) DeleteLine(n int) bool {
 	if s.scrollback != nil && y == scroll.Min.Y && s.fullWidth() {
 		// Save lines that will be deleted
 		for i := range min(n, scroll.Max.Y-y) {
-			s.scrollback.push(s.buf.Line(y+i), s.wrapped[y+i])
+			s.scrollback.push(s.buf.Line(y+i), s.flags[y+i])
 		}
 	}
 
 	s.buf.DeleteLineArea(y, n, s.blankCell(), scroll)
 	if s.fullWidth() {
 		n = min(n, scroll.Max.Y-y)
-		w := s.wrapped
-		copy(w[y:scroll.Max.Y-n], w[y+n:scroll.Max.Y])
-		clear(w[scroll.Max.Y-n : scroll.Max.Y])
+		f := s.flags
+		copy(f[y:scroll.Max.Y-n], f[y+n:scroll.Max.Y])
+		clear(f[scroll.Max.Y-n : scroll.Max.Y])
 	}
 
 	return true
@@ -442,6 +448,21 @@ func (s *Screen) blankCell() *uv.Cell {
 func (s *Screen) touchArea(area uv.Rectangle) {
 	for y := area.Min.Y; y < area.Max.Y; y++ {
 		s.buf.TouchLine(area.Min.X, y, area.Max.X-area.Min.X)
+	}
+}
+
+// LineFlags returns row y's flags; 0 outside the screen.
+func (s *Screen) LineFlags(y int) LineFlags {
+	if y < 0 || y >= len(s.flags) {
+		return 0
+	}
+	return s.flags[y]
+}
+
+// SetLineFlags sets row y's flags. It does nothing outside the screen.
+func (s *Screen) SetLineFlags(y int, f LineFlags) {
+	if y >= 0 && y < len(s.flags) {
+		s.flags[y] = f
 	}
 }
 

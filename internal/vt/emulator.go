@@ -59,6 +59,8 @@ type state struct {
 	hist      history
 	term      byte          // the last byte of the chunk x/vt is parsing: BEL or ESC when it ends an OSC
 	dropped   atomic.Uint64 // reply bytes dropped at replyCap
+	bell      func()        // set by SetBellFunc
+	clip      func(string)  // set by SetClipboardFunc
 }
 
 // New returns an Emulator backed by github.com/charmbracelet/x/vt.
@@ -78,6 +80,11 @@ func New(cols, rows int, reply io.Writer) Emulator {
 		Title:            func(s string) { st.title = s },
 		CursorVisibility: func(v bool) { st.hidden = !v },
 		CursorStyle:      func(s xvt.CursorStyle, _ bool) { st.shape = CursorShape(s) },
+		Bell: func() {
+			if st.bell != nil {
+				st.bell()
+			}
+		},
 		EnableMode: func(m ansi.Mode) {
 			if m == modeSync && !st.syncing {
 				st.syncStart = time.Now()
@@ -96,6 +103,7 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	})
 	registerKitty(e, st)
 	registerColorQueries(e, st)
+	registerShell(e, st)
 	e.RegisterCsiHandler('J', func(p ansi.Params) bool {
 		if n, _, _ := p.Param(0, 0); n == 3 && !e.IsAltScreen() {
 			st.hist.clear()
@@ -140,6 +148,23 @@ func (t *emulator) SetNotifyFunc(f func(Notification)) {
 	t.notify = f
 }
 
+// SetBellFunc sets f to be called for each BEL in the output, under the
+// same conditions as SetNotifyFunc.
+func (t *emulator) SetBellFunc(f func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.st.bell = f
+}
+
+// SetClipboardFunc sets f to be called with the text of each OSC 52
+// clipboard write, under the same conditions as SetNotifyFunc. Reads are
+// never answered.
+func (t *emulator) SetClipboardFunc(f func(string)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.st.clip = f
+}
+
 // Close stops the reply goroutines; the screen stays readable. Panes find it
 // through an interface check and call it once their process is gone.
 func (t *emulator) Close() error {
@@ -175,9 +200,9 @@ func (t *emulator) Write(p []byte) (int, error) {
 		p = p[i:]
 	}
 	if sb := t.e.Scrollback(); sb.Len() > 0 {
-		lines := sb.Lines()
+		lines, flags := sb.Lines(), sb.Flags()
 		for i, l := range lines {
-			t.st.hist.push(l, sb.Wrapped(i))
+			t.st.hist.push(l, flags[i])
 		}
 		clear(lines) // Clear keeps the backing array, which would pin the lines
 		sb.Clear()
@@ -256,6 +281,46 @@ func (t *emulator) ScrollbackPushed() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.st.hist.pushed
+}
+
+// PromptOffset is the scroll offset that puts the n-th prompt mark (OSC
+// 133;A) above the top of the view at off at the top of the view; n < 0
+// counts marks below it instead. Past the last mark it is 0, the live
+// screen; past the first it stays at the first. The alt screen has no
+// marks and returns off.
+func (t *emulator) PromptOffset(off, n int) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.e.IsAltScreen() {
+		return off
+	}
+	// The view's top row is history line top; the live screen starts at
+	// line hl. A mark on the live screen can only be reached at offset 0.
+	h := &t.st.hist
+	hl := h.len()
+	prompt := func(i int) bool { return h.at(i).flags&xvt.LinePrompt != 0 }
+	top := hl - max(0, min(off, hl))
+	for ; n > 0; n-- {
+		i := top - 1
+		for i >= 0 && !prompt(i) {
+			i--
+		}
+		if i < 0 {
+			break
+		}
+		top = i
+	}
+	for ; n < 0; n++ {
+		i := top + 1
+		for i < hl && !prompt(i) {
+			i++
+		}
+		if i >= hl {
+			return 0
+		}
+		top = i
+	}
+	return hl - top
 }
 
 func (t *emulator) snapshot() Grid {
@@ -411,6 +476,38 @@ func registerColorQueries(e *xvt.Emulator, st *state) {
 				c = rgb(DefaultPalette.ANSI[n])
 			}
 			reply("4;"+strconv.Itoa(n), c)
+		}
+		return true
+	})
+}
+
+// registerShell records OSC 133 shell integration marks on the cursor's
+// row and passes OSC 52 clipboard writes to st.clip.
+func registerShell(e *xvt.Emulator, st *state) {
+	e.RegisterOscHandler(133, func(data []byte) bool {
+		_, args, _ := strings.Cut(string(data), ";")
+		mark, _, _ := strings.Cut(args, ";")
+		var f xvt.LineFlags
+		switch mark {
+		case "A":
+			f = xvt.LinePrompt
+		case "B":
+			f = xvt.LineInput
+		case "C":
+			f = xvt.LineOutput
+		case "D":
+			f = xvt.LineEnd // the exit code after it is not kept
+		default:
+			return true
+		}
+		y := e.CursorPosition().Y
+		e.SetLineFlags(y, e.LineFlags(y)|f)
+		return true
+	})
+	e.RegisterOscHandler(52, func(data []byte) bool {
+		_, payload, _ := strings.Cut(string(data), ";")
+		if text, ok := parseClipboard(payload); ok && st.clip != nil {
+			st.clip(text)
 		}
 		return true
 	})

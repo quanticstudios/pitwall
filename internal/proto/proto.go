@@ -35,6 +35,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 5 added Scroll.Prompts and State.Clipboard, and GUIs that send
+// SeePane on every change of their focused pane, "" for none.
 // Level 4 added Search, SearchResult and Frame.ScrollPushed.
 // Level 3 added model.BranchStats.Base, the default branch's ref.
 // Level 2 added State.Notice and DismissNotice: why the daemon started
@@ -73,7 +75,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 4
+const Level = 5
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
@@ -197,9 +199,13 @@ type OpenPane struct {
 
 // Scroll moves the pane's view into scrollback. Lines > 0 goes back in
 // history; the daemon clamps the offset and snaps to 0 on new input.
+// Prompts then moves it that many shell prompts (OSC 133 marks) back, or
+// forward when negative, putting the prompt at the top; a daemon below
+// Level 5 ignores it and the view stays.
 type Scroll struct {
-	Pane  string
-	Lines int
+	Pane    string
+	Lines   int
+	Prompts int
 }
 
 // Search asks for every match of Query in Pane's scrollback and screen
@@ -400,10 +406,18 @@ type SessionShow struct {
 }
 
 // SeePane tells the daemon a GUI shows Pane focused in a focused window,
-// which marks its activity seen and clears an OSC notification.
+// which marks its activity seen and clears an OSC notification. A GUI of
+// SeeFocusLevel or above sends it whenever that pane changes, with Pane ""
+// when it shows none focused, and the daemon keeps a bell in the pane it
+// shows quiet. A daemon below that Level ignores Pane "".
 type SeePane struct {
 	Pane string
 }
+
+// SeeFocusLevel is the Level of GUIs whose SeePane follows their focus.
+// Older ones send it only for a pane whose activity is unseen, so the
+// daemon does not take it as their focus.
+const SeeFocusLevel = 5
 
 // DismissNotice clears State.Notice in every window, when it still is
 // Notice, from the close button on it.

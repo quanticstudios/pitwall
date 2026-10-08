@@ -82,6 +82,9 @@ func (p *fakePane) Dirty() <-chan struct{} { return p.dirty }
 func (p *fakePane) Done() <-chan struct{}  { return p.done }
 func (p *fakePane) ExitCode() int          { return p.code }
 func (p *fakePane) Cwd() string            { return p.cfg.Cwd }
+
+// PromptOffset jumps n prompts, which the fake has every 7 lines.
+func (p *fakePane) PromptOffset(off, n int) int { return off + 7*n }
 func (p *fakePane) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

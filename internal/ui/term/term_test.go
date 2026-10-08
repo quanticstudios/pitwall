@@ -375,6 +375,20 @@ func TestScroll(t *testing.T) {
 	if v.ScrollDelta() != 0 {
 		t.Error("ScrollDelta does not clear")
 	}
+
+	// The prompt keys count jumps and send the program nothing.
+	cs := key.ModCtrl | key.ModShift
+	r.Queue(key.Event{Name: key.NameUpArrow, Modifiers: cs, State: key.Press}, key.Event{Name: key.NameUpArrow, Modifiers: cs, State: key.Release},
+		key.Event{Name: key.NameUpArrow, Modifiers: cs, State: key.Press}, key.Event{Name: key.NameDownArrow, Modifiers: cs, State: key.Press})
+	gtx := testContext(image.Pt(400, 300))
+	gtx.Source = r.Source()
+	if _, in, _, _ := v.Layout(gtx, th, g, vt.Modes{}, true); len(in) != 0 {
+		t.Errorf("prompt keys reached the program: %q", in)
+	}
+	r.Frame(gtx.Ops)
+	if got := v.PromptDelta(); got != 1 || v.PromptDelta() != 0 || v.ScrollDelta() != 0 {
+		t.Errorf("PromptDelta = %d, want 1, then 0", got)
+	}
 }
 
 // TestPadding checks the pointer maps through the padding to cells.

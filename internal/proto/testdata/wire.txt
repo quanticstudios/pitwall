@@ -1,13 +1,14 @@
-16.4
+16.5
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
+model.Clipboard{Seq uint64; Text string}
 model.DecideCount{Feature string; Calls int; Errors int}
 model.DecideInfo{Provider string; Counts []model.DecideCount}
 model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; Prompt string; AgentMode string; Transcript string}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; Decide model.DecideInfo; Notice string}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Workspace{ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; RepoRoot string; Detached bool; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string}
 proto.AddProject{Path string; SessionID string}
@@ -38,7 +39,7 @@ proto.RenameGroup{GroupID string; Name string}
 proto.RenameTab{WorkspaceID string; TabID string; Pane string; Name string}
 proto.RenameWorkspace{WorkspaceID string; Name string}
 proto.Resize{Pane string; Cols int; Rows int}
-proto.Scroll{Pane string; Lines int}
+proto.Scroll{Pane string; Lines int; Prompts int}
 proto.Search{Pane string; Query string}
 proto.SearchResult{Pane string; Query string; Matches []vt.Match; More bool}
 proto.SeePane{Pane string}

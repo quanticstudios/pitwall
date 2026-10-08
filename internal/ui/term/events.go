@@ -171,7 +171,8 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 // key would. The command palette runs them this way.
 func (v *View) Run(action string) { v.queued = action }
 
-// action runs a pane action: copy, paste, or scroll a page of rows.
+// action runs a pane action: copy, paste, scroll a page of rows, or jump
+// to a shell prompt.
 func (v *View) action(gtx layout.Context, g *vt.Grid, a string, rows int) {
 	switch a {
 	case "copy":
@@ -184,6 +185,10 @@ func (v *View) action(gtx layout.Context, g *vt.Grid, a string, rows int) {
 		v.scrollLines += rows
 	case "scroll_page_down":
 		v.scrollLines -= rows
+	case "prev_prompt":
+		v.prompts++
+	case "next_prompt":
+		v.prompts--
 	}
 }
 

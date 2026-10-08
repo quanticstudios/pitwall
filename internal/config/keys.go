@@ -139,7 +139,7 @@ func (c Chord) String() string {
 type Binding []string
 
 // paneActions are handled by the terminal view, not the window.
-var paneActions = []string{"copy", "paste", "scroll_page_up", "scroll_page_down"}
+var paneActions = []string{"copy", "paste", "scroll_page_up", "scroll_page_down", "prev_prompt", "next_prompt"}
 
 // presets hold every action's chords. Actions a preset leaves out are
 // unbound in it.
@@ -157,6 +157,7 @@ var presets = map[string]struct {
 			"new_tab": {"Alt+Shift+T"}, "pin_switcher": {"Alt+Space"},
 			"copy": {"Ctrl+Shift+C", "Ctrl+Insert"}, "paste": {"Ctrl+Shift+V", "Shift+Insert"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
+			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
 			"command_palette":  {"Ctrl+Shift+P"},
 			"jump_attention":   {"Alt+U"},
@@ -175,6 +176,7 @@ var presets = map[string]struct {
 			"switcher": {"Ctrl+Shift+Space"},
 			"copy":     {"Ctrl+Shift+C", "Ctrl+Insert"}, "paste": {"Ctrl+Shift+V", "Shift+Insert"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
+			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
 			"command_palette":  {"Ctrl+Shift+P"},
 			"jump_attention":   {"Ctrl+Shift+U"},

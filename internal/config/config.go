@@ -72,6 +72,8 @@ type Keys struct {
 	ScrollPageUp    Binding `toml:"scroll_page_up" group:"Terminal" doc:"Scroll back a page"`
 	ScrollPageDown  Binding `toml:"scroll_page_down" group:"Terminal" doc:"Scroll forward a page"`
 	Find            Binding `toml:"find" group:"Terminal" doc:"Find in the focused pane's scrollback. Enter or F3 goes to the next match up, Shift with either back down, Esc closes"`
+	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see the README"`
+	NextPrompt      Binding `toml:"next_prompt" group:"Terminal" doc:"Scroll forward to the next shell prompt (OSC 133)"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
 	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the tab's changes since its default branch, committed or not, in your git pager in a new pane"`
@@ -176,8 +178,10 @@ type Layout struct {
 
 // Term is [terminal].
 type Term struct {
-	CopyOnSelect *bool `toml:"copy_on_select" doc:"Copy text to the clipboard as soon as you select it with the mouse, as zellij and Warp do. The copy key works either way"`
-	Links        *bool `toml:"links" doc:"Underline web and file links in panes, plain URLs and OSC 8 hyperlinks alike, and open them with Ctrl+click"`
+	CopyOnSelect *bool  `toml:"copy_on_select" doc:"Copy text to the clipboard as soon as you select it with the mouse, as zellij and Warp do. The copy key works either way"`
+	Links        *bool  `toml:"links" doc:"Underline web and file links in panes, plain URLs and OSC 8 hyperlinks alike, and open them with Ctrl+click"`
+	OSC52        string `toml:"osc52" enum:"write,off" doc:"write lets programs (Neovim, tmux, anything over ssh) set the clipboard with OSC 52, up to 1 MB; off ignores them. Programs can never read the clipboard this way"`
+	Bell         string `toml:"bell" enum:"attention,off" doc:"attention: a bell (BEL) in a pane you are not looking at rings the pane and marks its tab, with a desktop notification, as an agent waiting for you does; off ignores bells"`
 }
 
 // Updates is [updates].
@@ -214,6 +218,10 @@ type Settings struct {
 	CopyOnSelect bool
 	// Links underlines links in panes and opens them on Ctrl+click.
 	Links bool
+	// OSC52 lets programs write the clipboard.
+	OSC52 bool
+	// Bell lets a bell raise its pane's attention.
+	Bell bool
 	// CheckUpdates looks for a newer release on GitHub.
 	CheckUpdates bool
 	// ShowCost shows token use in dollars next to the tokens.
@@ -365,6 +373,22 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
+	s.OSC52, s.Bell = true, true
+	for _, o := range []struct {
+		v             *bool
+		name, val, on string
+	}{
+		{&s.OSC52, "terminal.osc52", c.Term.OSC52, "write"},
+		{&s.Bell, "terminal.bell", c.Term.Bell, "attention"},
+	} {
+		switch o.val {
+		case "", o.on:
+		case "off":
+			*o.v = false
+		default:
+			fi = append(fi, issue{o.name, fmt.Sprintf("%q is not %s or off; using %s", o.val, o.on, o.on)})
+		}
+	}
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
 	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
 	var di []issue

@@ -77,6 +77,21 @@ build. Either step takes `--dry-run`.
   card shows the same line. `show_cost = true` under `[usage]`, or the
   switch under Agents in settings, adds the cost at the API's list prices
   from a dated table; a model the table lacks shows tokens only.
+- Programs can set the clipboard with OSC 52, as Neovim, tmux and Helix do,
+  also over ssh. A write holds up to 1 MB of text, and read requests get no
+  answer, so no program can see what you copied. `osc52 = "off"` under
+  `[terminal]` ignores the writes.
+- A bell (BEL) in a pane you are not looking at rings it like an OSC 9
+  notification, with a desktop notification, at most once a second. In the
+  focused pane a bell does nothing. `bell = "off"` under `[terminal]`
+  ignores bells.
+- Ctrl+Shift+Up and Ctrl+Shift+Down scroll to the previous and next shell
+  prompt in both presets (`prev_prompt`, `next_prompt`). pitwall records
+  OSC 133 prompt marks on their rows, history included; fish 4 sends them,
+  and the README has the lines for zsh and bash.
+- Clipboard writes, bells and prompt jumps happen in the background
+  service. While one from an earlier release runs, they do nothing until
+  it restarts.
 
 ## v0.1.0-alpha.22
 

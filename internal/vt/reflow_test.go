@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	xvt "github.com/charmbracelet/x/vt"
 )
 
 // all returns every row, history first, then the screen.
@@ -205,5 +207,38 @@ func BenchmarkReflow(b *testing.B) {
 	for b.Loop() {
 		e.Resize(widths[i%len(widths)], 40)
 		i++
+	}
+}
+
+// TestReflowKeepsPromptMarks checks OSC 133 marks share the row byte with
+// the soft wrap and survive a rewrap: a mark stays on its line's first row,
+// and wrapping does not take a row's marks or give it new ones.
+func TestReflowKeepsPromptMarks(t *testing.T) {
+	e := New(10, 3, nil)
+	feed(e, "\x1b]133;A\x07$ a-long-command\r\nout\r\n\x1b]133;A\x07$ ")
+	// prompts is the text of each row with a prompt mark, history first.
+	prompts := func() []string {
+		var out []string
+		h := &e.(*emulator).st.hist
+		for i := range h.len() {
+			if l := h.at(i); l.flags&xvt.LinePrompt != 0 {
+				out = append(out, l.text)
+			}
+		}
+		_, flags, _, _ := e.(*emulator).e.MainLines()
+		g := e.Snapshot()
+		for y := range g.Rows {
+			if flags[y]&xvt.LinePrompt != 0 {
+				out = append(out, row(g, y))
+			}
+		}
+		return out
+	}
+	const cmd = "$ a-long-command"
+	for _, w := range []int{6, 30, 10} {
+		e.Resize(w, 3)
+		if got, want := prompts(), []string{cmd[:min(w, len(cmd))], "$"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("at %d cols: prompt rows %q, want %q", w, got, want)
+		}
 	}
 }
