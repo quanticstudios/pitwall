@@ -50,6 +50,7 @@ const (
 	catKeys
 	catTerminal
 	catAgents
+	catUsage
 	catDecisions
 	catPhone
 	catAbout
@@ -60,6 +61,7 @@ var categories = []struct{ name, desc string }{
 	{"Keyboard shortcuts", "Click a shortcut to record a new one."},
 	{"Terminal", "How every pane behaves."},
 	{"Agents", "The sidebar learns what each agent is doing from hooks in its config."},
+	{"Usage", "What your coding agents cost, from their own session files."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
 	{"Phone", "See which agents need you and answer them from your phone, over your own network."},
 	{"About", "Version, config file and documentation."},
@@ -108,6 +110,7 @@ type Page struct {
 
 	dp decisionsPage
 	ph phonePage
+	us usagePage
 }
 
 // pending is a recorded chord another action already has.
@@ -133,6 +136,7 @@ func (p *Page) Show(configPath string) {
 	p.s.Path = configPath
 	p.readKey()
 	p.readDevices()
+	p.us.gen++
 	families(nil) // start the font scan
 }
 
@@ -688,6 +692,9 @@ func (p *Page) card(gtx gl.Context, r row, first, last bool) gl.Dimensions {
 
 func (p *Page) rowContent(gtx gl.Context, r row) gl.Dimensions {
 	th := p.th
+	if r.label == "" {
+		return r.control(gtx) // a control that is the whole card
+	}
 	labels := func(gtx gl.Context) gl.Dimensions {
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -733,6 +740,8 @@ func (p *Page) sections(cat int) []section {
 		return p.terminal()
 	case catAgents:
 		return p.agents()
+	case catUsage:
+		return p.usage()
 	case catDecisions:
 		return p.decisions()
 	case catPhone:

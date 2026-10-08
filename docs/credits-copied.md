@@ -54,6 +54,43 @@ Inc. pitwall's terminal emulator is x/vt. A copy lives in `third_party/x-vt`
 with one line changed to turn off alternate-screen scrollback; its license is
 in `third_party/x-vt/LICENSE` and the change in `third_party/x-vt/PATCH.md`.
 
+### T3 Code
+
+<https://github.com/pingdotgg/t3code>, MIT License, Copyright (c) 2026 T3
+Tools Inc. Read at commit `a6ec88f7a716fc421bd22c2484881c44110f9375`.
+
+Settings, Usage follows T3 Code's usage page. pitwall took its rules, each
+marked `// Adapted from t3code (MIT): <path>`:
+
+| pitwall file | T3 Code source |
+| --- | --- |
+| `internal/flow/scan.go` | `apps/server/src/usage/usageTranscripts.ts` (Claude's `message.id:requestId` dedupe, skipping a forked Codex rollout's copied history) |
+| `internal/ui/settings/usage.go` | `apps/web/src/components/usage/UsageProviderChart.tsx` (the chart's 1-2-5 scale and monotone curve) |
+
+```text
+MIT License
+
+Copyright (c) 2026 T3 Tools Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### Simple Icons
 
 <https://simpleicons.org>, CC0 1.0 Universal. `internal/ui/sidebar/agent.go`

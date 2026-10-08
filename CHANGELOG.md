@@ -39,6 +39,12 @@ build. Either step takes `--dry-run`.
 - The README is short now: what pitwall does, install, quick start and the
   ten keys that matter. The rest moved, unchanged, to pages under `docs/`,
   and `docs/index.html` is a one-page site for GitHub Pages.
+- Settings has a Usage page: what Claude Code, Codex and pi cost on this
+  machine over the last 7, 30 or 90 days, at the API's list prices. It
+  shows the total and each agent's share, a daily cost chart, the cached
+  and uncached tokens with what the cache saved, and a table by model or
+  by day. It reads the agents' own session files, and a reopen reads only
+  what they appended since.
 
 ## v0.1.0-alpha.23
 
