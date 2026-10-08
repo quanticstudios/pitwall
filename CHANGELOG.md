@@ -40,6 +40,15 @@ build. Either step takes `--dry-run`.
   on its character, and the bottom of the pane stays put: narrowing pushes
   the top into scrollback instead of losing the last lines. Full-screen
   programs on the alternate screen redraw themselves as before.
+- A damaged `state.json`, or one a newer pitwall saved, no longer stops
+  pitwall from starting. The daemon moves it to `state.json.bad-<time>`,
+  starts without those tabs, and the window says why and where the file is
+  until you close the notice. After you update, the next start adds the
+  tabs from a `.bad` file it can now read and renames it to
+  `state.json.restored-<time>`.
+- Before it upgrades `state.json` to a newer format, pitwall copies the old
+  file to `state.json.prev`, so going back to an older pitwall keeps your
+  tabs.
 
 ## v0.1.0-alpha.22
 

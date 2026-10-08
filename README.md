@@ -803,6 +803,7 @@ sent.
 | What                | Where                                                         |
 | ------------------- | ------------------------------------------------------------- |
 | Saved tabs          | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
+| Saved tab backups   | `state.json.prev`, `state.json.bad-<time>` and `state.json.restored-<time>` next to it |
 | Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
 | Decisions log       | `~/.local/state/pitwall/decisions.jsonl` (`pitwall jev report`) |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
@@ -827,6 +828,16 @@ bypass; Codex's other modes are left to its config. Other flags of an agent star
 as `--model`, are not restored. If a resume fails within 3 seconds, the pane falls back to a shell
 in the same folder. A restored agent in a pane that was a shell also drops to a shell in the same
 folder whenever it exits. Running processes and scrollback do not survive a reboot.
+
+pitwall never deletes saved tabs it cannot read. Before it upgrades
+`state.json` to a newer format, it copies the old file to `state.json.prev`,
+so you can copy it back for an older pitwall. A damaged `state.json`, or one a
+newer pitwall saved, moves to `state.json.bad-<time>`, and pitwall starts
+without those tabs and says so at the top of the window until you close the
+notice. When a later pitwall can read a `state.json.bad-<time>` file, as
+after you update past the version that saved it, it adds that file's tabs to
+the ones you have and renames it to `state.json.restored-<time>`. A damaged
+file stays where it is for you to fix or delete.
 
 ### Upgrades
 

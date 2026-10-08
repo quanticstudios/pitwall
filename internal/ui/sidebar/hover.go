@@ -147,7 +147,7 @@ func (c card) lines() string {
 // cardFor collects tab ws's card from the frame's view.
 func cardFor(v *view, ws model.Workspace) card {
 	c := card{title: Title(ws), when: relTime(v.now, ws.UpdatedAt), agent: v.agent[ws.ID],
-		path: ShortPath(v.st.LivePath(ws)), branch: ws.Branch}
+		path: model.ShortPath(v.st.LivePath(ws)), branch: ws.Branch}
 	if g := v.groupOf(ws.ID); g != "" {
 		for _, p := range v.st.Projects {
 			if p.ID == g {

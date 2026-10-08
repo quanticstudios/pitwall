@@ -1218,3 +1218,30 @@ func TestOwnResumeWithExplicitMode(t *testing.T) {
 	send(`{"session_id":"a","hook_event_name":"SessionStart","source":"resume"}`, "")
 	send(`{"session_id":"a","hook_event_name":"Stop"}`, "")
 }
+
+// TestStartsPastBadState checks the daemon starts on a state file it cannot
+// read, a GUI gets a shell and the notice, and dismissing the notice in one
+// window clears it in every window.
+func TestStartsPastBadState(t *testing.T) {
+	for name, data := range map[string]string{
+		"corrupt":   "{",
+		"truncated": `{"format_version":8,"state":{"Sessions":[{"ID":"s","Na`,
+		"newer":     `{"format_version":99,"state":{}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.json")
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f := &fakes{statsCalls: map[string]int{}}
+			sock, stop := runWith(t, f, func(o *Options) { o.Load = func() (model.State, error) { return store.Open(path) } })
+			defer stop()
+			gui := dial(t, sock, "gui")
+			st := gui.waitState("notice and a shell", func(s model.State) bool { return s.Notice != "" && len(s.Panes) == 1 })
+			other := dial(t, sock, "gui")
+			other.waitState("notice in a second window", func(s model.State) bool { return s.Notice == st.Notice })
+			gui.send(proto.DismissNotice{Notice: st.Notice})
+			other.waitState("notice dismissed", func(s model.State) bool { return s.Notice == "" })
+		})
+	}
+}

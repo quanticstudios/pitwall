@@ -111,6 +111,46 @@ func TestBackendWriteFailure(t *testing.T) {
 	}
 }
 
+// TestSendsByDaemonLevel checks a message type newer than the daemon's
+// proto.Level, which a daemon of v0.1.0-alpha.22 (Level 0) would drop the
+// connection on, is refused and never sent, and goes out once a daemon of
+// that Level answers.
+func TestSendsByDaemonLevel(t *testing.T) {
+	gui, daemon := net.Pipe()
+	defer gui.Close()
+	defer daemon.Close()
+	b := newBackend(proto.NewConn(gui), "")
+	go b.recvLoop()
+	go b.sendLoop()
+	c := proto.NewConn(daemon)
+	daemon.SetDeadline(time.Now().Add(5 * time.Second))
+	newer := proto.DismissNotice{Notice: "n"}
+	for _, level := range []int{0, proto.Since(newer)} {
+		if err := c.Send(proto.StateMsg{State: model.State{Version: uint64(1 + level)}, Level: level}); err != nil {
+			t.Fatal(err)
+		}
+		for deadline := time.Now().Add(5 * time.Second); b.State().Version != uint64(1+level); time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("level %d: no state", level)
+			}
+		}
+		err := b.Send(newer)
+		if (err == nil) != (level >= proto.Since(newer)) {
+			t.Fatalf("level %d: Send(%T) = %v", level, newer, err)
+		}
+		b.Send(proto.Sync{})
+		want := []any{proto.Sync{}}
+		if err == nil {
+			want = []any{newer, proto.Sync{}}
+		}
+		for _, w := range want {
+			if m, err := c.Recv(); err != nil || m != w {
+				t.Fatalf("level %d: got %#v, %v, want %#v", level, m, err, w)
+			}
+		}
+	}
+}
+
 // TestFocusNeverBlocksState: FocusSession requests nobody has taken yet,
 // as when the window is busy raising itself, must not stop the state after
 // them from reaching the window; the newest request wins.
@@ -220,7 +260,7 @@ func TestBackendReconnects(t *testing.T) {
 	d.Send(testenv.Future{}) // a newer daemon's message, which the backend skips
 	st.Version = 3
 	d.Send(proto.StateMsg{State: st, Level: proto.Level})
-	waitFor("reconnect", func() bool { return b.Link() == app.Link{Epoch: 2} && b.State().Version == 3 })
+	waitFor("reconnect", func() bool { return b.Link() == app.Link{Epoch: 2, Level: proto.Level} && b.State().Version == 3 })
 	b.Send(proto.Input{Pane: "p", Data: []byte("x")})
 	if m, err := d.Recv(); err != nil {
 		t.Fatal(err)

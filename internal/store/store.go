@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	mrand "math/rand/v2"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -44,6 +46,10 @@ func Save(path string, s model.State) error {
 	if err != nil {
 		return err
 	}
+	return writeAtomic(path, append(data, '\n'))
+}
+
+func writeAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -54,7 +60,7 @@ func Save(path string, s model.State) error {
 	}
 	defer os.Remove(f.Name())
 	defer f.Close()
-	if _, err := f.Write(append(data, '\n')); err != nil {
+	if _, err := f.Write(data); err != nil {
 		return err
 	}
 	if err := f.Sync(); err != nil {
@@ -78,7 +84,12 @@ func Save(path string, s model.State) error {
 	return d.Sync()
 }
 
-// Load returns an empty state and nil when the file does not exist.
+// ErrNewer is Load's error for a file a newer pitwall saved.
+var ErrNewer = errors.New("saved by a newer pitwall")
+
+// Load returns an empty state and nil when the file does not exist. Before
+// it migrates an older file, which the next Save rewrites in a format an
+// older pitwall cannot read, it copies the file to path.prev.
 func Load(path string) (model.State, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -87,22 +98,140 @@ func Load(path string) (model.State, error) {
 	if err != nil {
 		return model.State{}, err
 	}
+	s, version, err := parse(data)
+	if err != nil {
+		return model.State{}, err
+	}
+	if version < formatVersion {
+		if err := writeAtomic(path+".prev", data); err != nil {
+			return model.State{}, fmt.Errorf("keep the old state: %w", err)
+		}
+	}
+	return s, nil
+}
+
+// Open is Load for the daemon, which starts whatever the file holds. It
+// moves a file Load refuses to path.bad-<time> and returns an empty state
+// whose Notice says why and where the file went. Set-aside files that load
+// now, such as one a newer pitwall saved before this one was updated, join
+// the state (see restore). Open fails only when it cannot move a bad file
+// aside, so that no save overwrites it.
+func Open(path string) (model.State, error) {
+	s, err := Load(path)
+	if err == nil {
+		s.Notice = restore(path, &s)
+		return s, nil
+	}
+	bad, merr := setAside(path)
+	if merr != nil {
+		return model.State{}, fmt.Errorf("%w; moving it aside: %w", err, merr)
+	}
+	log.Printf("state: %q; moved the file to %s and started without saved tabs", err, bad)
+	bad = model.ShortPath(bad)
+	if errors.Is(err, ErrNewer) {
+		return model.State{Notice: "Your saved tabs were saved by a newer pitwall, so this one started without them. " +
+			"Update pitwall and restart it to get them back. Until then they are kept in " + bad + "."}, nil
+	}
+	return model.State{Notice: fmt.Sprintf("Your saved tabs could not be read because the file is damaged (%v), so pitwall started without them. "+
+		"The file is kept in %s.", err, bad)}, nil
+}
+
+// setAside renames path to path.bad-<time>, with -2, -3... after the time
+// when an earlier file has that name, and returns the new name.
+func setAside(path string) (string, error) {
+	stamp := path + ".bad-" + time.Now().Format("20060102-150405")
+	name := stamp
+	for n := 2; ; n++ {
+		if _, err := os.Lstat(name); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		name = stamp + "-" + strconv.Itoa(n)
+	}
+	return name, os.Rename(path, name)
+}
+
+// restore adds to s the sessions, tabs and panes of every path.bad-* file
+// that loads now; one that still does not stays for a later pitwall or the
+// user. It saves s, renames each file it took to path.restored-*, and
+// returns the notice for them, "" when there were none.
+func restore(path string, s *model.State) string {
+	dir, base := filepath.Split(path)
+	entries, _ := os.ReadDir(dir)
+	var took []string
+	tabs := 0
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), base+".bad-") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if old, _, err := parse(data); err == nil {
+			tabs += merge(s, old)
+			took = append(took, e.Name())
+		}
+	}
+	if len(took) == 0 {
+		return ""
+	}
+	log.Printf("state: restored %d tabs from %s", tabs, strings.Join(took, ", "))
+	// why: until the merged state is on disk, the files must stay to restore again.
+	if err := Save(path, *s); err != nil {
+		log.Printf("save restored state: %q", err)
+	} else {
+		for _, name := range took {
+			if err := os.Rename(filepath.Join(dir, name), filepath.Join(dir, strings.Replace(name, ".bad-", ".restored-", 1))); err != nil {
+				log.Printf("restore state: %q", err)
+			}
+		}
+	}
+	return fmt.Sprintf("Restored %d saved tabs from %s.", tabs, strings.Join(took, ", "))
+}
+
+// merge adds old's sessions, groups, tabs and panes to s, numbering a
+// session whose name s already has, and returns how many tabs it added. A
+// file whose tabs s has, restored once before a crash, adds nothing.
+func merge(s *model.State, old model.State) int {
+	if slices.ContainsFunc(old.Workspaces, func(w model.Workspace) bool {
+		return slices.ContainsFunc(s.Workspaces, func(o model.Workspace) bool { return o.ID == w.ID })
+	}) {
+		return 0
+	}
+	for _, se := range old.Sessions {
+		name := se.Name
+		for n := 2; s.SessionNamed(se.Name) != nil; n++ {
+			se.Name = name + "-" + strconv.Itoa(n)
+		}
+		s.Sessions = append(s.Sessions, se)
+	}
+	s.Projects = append(s.Projects, old.Projects...)
+	s.Workspaces = append(s.Workspaces, old.Workspaces...)
+	s.Panes = append(s.Panes, old.Panes...)
+	return len(old.Workspaces)
+}
+
+// parse decodes and migrates a saved file and returns its format version.
+func parse(data []byte) (model.State, int, error) {
 	var saved snapshot
 	if err := json.Unmarshal(data, &saved); err != nil {
-		return model.State{}, fmt.Errorf("load state: %w", err)
+		return model.State{}, 0, fmt.Errorf("load state: %w", err)
 	}
-	if saved.FormatVersion < 1 || saved.FormatVersion > formatVersion {
-		return model.State{}, fmt.Errorf("unsupported state format version %d", saved.FormatVersion)
+	if saved.FormatVersion > formatVersion {
+		return model.State{}, 0, fmt.Errorf("load state: format version %d: %w", saved.FormatVersion, ErrNewer)
+	}
+	if saved.FormatVersion < 1 {
+		return model.State{}, 0, fmt.Errorf("unsupported state format version %d", saved.FormatVersion)
 	}
 	if saved.State == nil {
-		return model.State{}, errors.New("load state: missing state")
+		return model.State{}, 0, errors.New("load state: missing state")
 	}
 	if saved.FormatVersion == 1 {
 		migrateWorktrees(saved.State)
 	}
 	if saved.FormatVersion < 3 {
 		if err := migrateTabs(data, saved.State); err != nil {
-			return model.State{}, err
+			return model.State{}, 0, err
 		}
 	}
 	if saved.FormatVersion < 4 {
@@ -122,13 +251,13 @@ func Load(path string) (model.State, error) {
 	}
 	if saved.FormatVersion < 7 {
 		if err := migrateSessions(data, saved.FormatVersion, saved.State); err != nil {
-			return model.State{}, err
+			return model.State{}, 0, err
 		}
 	}
 	if saved.FormatVersion < 8 {
 		migrateHeld(saved.State)
 	}
-	return *saved.State, nil
+	return *saved.State, saved.FormatVersion, nil
 }
 
 // migrateHeld marks the panes `pitwall new -- cmd` opened before Held was

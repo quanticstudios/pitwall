@@ -35,6 +35,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 2 added State.Notice and DismissNotice: why the daemon started
+// without the saved tabs.
 // Level 1 added Hello.Level, StateMsg.Level and Unknown, and made a
 // matching Version enough. Daemons of Version 16 and earlier refuse every
 // Version but their own and ignore Level.
@@ -69,7 +71,17 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 1
+const Level = 2
+
+// Since is the Level that added msg's type, 0 for one every daemon of this
+// Version knows. A client sends msg only to a daemon at that Level or above.
+func Since(msg any) int {
+	switch msg.(type) {
+	case DismissNotice:
+		return 2
+	}
+	return 0
+}
 
 // Client to daemon.
 
@@ -368,6 +380,12 @@ type SeePane struct {
 	Pane string
 }
 
+// DismissNotice clears State.Notice in every window, when it still is
+// Notice, from the close button on it.
+type DismissNotice struct {
+	Notice string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
@@ -377,4 +395,5 @@ var Messages = []any{
 	GroupByFolder{}, Sync{}, FocusSession{}, MoveSession{}, MoveGroup{}, SeePane{},
 	SessionNew{}, SessionRename{}, SessionKill{}, SessionShow{},
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
+	DismissNotice{},
 }
