@@ -5,7 +5,34 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
+
+func TestSearchReply(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	gui := dial(t, sock, "gui")
+	id := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 }).Panes[0].ID
+	p := f.pane(0)
+	p.mu.Lock()
+	p.hist, p.pushed = 100, 250
+	p.mu.Unlock()
+	p.dirty <- struct{}{}
+	gui.waitFor("frame with pushed", func(m any) bool {
+		fr, ok := m.(proto.Frame)
+		return ok && fr.Pane == id && fr.ScrollPushed == 250
+	})
+
+	gui.send(proto.Search{Pane: id, Query: "err"})
+	r := gui.waitFor("result", func(m any) bool { _, ok := m.(proto.SearchResult); return ok }).(proto.SearchResult)
+	if r.Pane != id || r.Query != "err" || len(r.Matches) != 1 || r.Matches[0] != (vt.Match{Line: 250, Cols: 3}) || r.More {
+		t.Fatalf("result %+v", r)
+	}
+	if e := gui.request(proto.Search{Pane: "nope", Query: "x"}); e == "" {
+		t.Error("no error for a missing pane")
+	}
+}
 
 func TestScroll(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}

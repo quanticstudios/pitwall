@@ -268,6 +268,8 @@ type ui struct {
 	panel      sidePanel // the agent panel on the right while nav.panelOpen
 	invalidate func()    // the window's Invalidate; nil in tests
 
+	find findBar // the find bar, on the focused pane while open
+
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
 	noticeIn image.Rectangle // the pane that copied, in the pane area
@@ -361,7 +363,7 @@ func (u *ui) switcherKey(st *model.State, e key.Event) {
 }
 
 // openRequested opens what the last key asked for: the session switcher
-// or the command palette.
+// the command palette or the find bar.
 func (u *ui) openRequested(st *model.State, now time.Time) {
 	if m := u.nav.sessionUI; m != "" {
 		u.nav.sessionUI = ""
@@ -370,6 +372,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 	if u.nav.palette {
 		u.nav.palette = false
 		u.pal.openAt(now)
+	}
+	if u.nav.find {
+		u.nav.find = false
+		u.openFind()
 	}
 }
 
@@ -538,6 +544,7 @@ func (u *ui) layout(gtx gl.Context) {
 		gtx.Execute(op.InvalidateCmd{})
 	}
 	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
+	u.keepFind(&st)
 	if u.settings.Shown() {
 		u.layoutSettings(pgtx, &st)
 	} else {
@@ -742,6 +749,10 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline {
 		focused = "" // a dialog, a rename field, tab mode or the palette holds key focus
 	}
+	findFocus := focused != "" && focused == u.find.pane
+	if u.find.pane != "" {
+		focused = "" // the find bar holds key focus
+	}
 	u.nav.area = area
 	zoom := u.nav.zoomed()
 	if zoom != "" {
@@ -763,7 +774,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		if a, ok := unseen[id]; ok {
 			att = &a
 		}
-		u.layoutPane(gtx, p, id, r, id == focused, sole, att)
+		u.layoutPane(gtx, p, id, r, id == focused, findFocus && id == u.find.pane, sole, att)
 		if s := advice[id]; s != "" {
 			u.drawAdvice(gtx, r, s)
 		}
@@ -818,7 +829,7 @@ func roundedFor(gtx gl.Context, sole bool) int {
 	return gtx.Dp(10) - 1
 }
 
-func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, sole bool, att *model.Activity) {
+func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, findFocus, sole bool, att *model.Activity) {
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(rect.Size())
@@ -841,9 +852,17 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		off, mx := s.Scroll(id)
 		setScroll(&p.view, off, mx)
 	}
+	finding := id == u.find.pane
+	q, cur := "", image.Pt(0, -1)
+	if finding {
+		q, cur = u.findFrame(gtx, &g)
+		finding = u.find.pane != "" // Escape closed it
+	}
+	p.view.SetFind(q, cur)
 	cl := clip.Rect{Max: rect.Size()}.Push(gtx.Ops)
-	// Pane mode moves focus without giving the pane keys; the frame shows it.
-	lit := focused || u.nav.paneMode && id == u.nav.focused()
+	// Pane mode and the find bar take the pane's keys; the frame shows it
+	// still has focus.
+	lit := focused || finding || u.nav.paneMode && id == u.nav.focused()
 	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, lit, sole)
 	var input []byte
 	cols, rows := g.Cols, g.Rows
@@ -858,6 +877,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	}
 	if att != nil {
 		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole)
+	}
+	if finding {
+		u.drawFind(gtx, grid, findFocus)
 	}
 	// Clicking anywhere in the frame focuses the pane, as aide's onMouseDown
 	// on the pane article does; PassOp lets the grid see the press too.

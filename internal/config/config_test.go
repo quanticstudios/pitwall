@@ -106,6 +106,8 @@ func TestPresets(t *testing.T) {
 		{aide, "session_prev", "Alt+["},
 		{aide, "command_palette", "Ctrl+Shift+P"},
 		{conv, "command_palette", "Ctrl+Shift+P"},
+		{conv, "find", "Ctrl+Shift+F"},
+		{aide, "find", "Ctrl+Shift+F"},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)
@@ -136,6 +138,12 @@ func TestPresets(t *testing.T) {
 	}
 	if a := conv.Action(key.Event{Name: "}", Modifiers: key.ModCtrl}); a != "" {
 		t.Errorf("Ctrl+} runs %q", a)
+	}
+	if a := aide.Action(key.Event{Name: "F", Modifiers: key.ModCtrl | key.ModShift}); a != "find" {
+		t.Errorf("Ctrl+Shift+F runs %q", a)
+	}
+	if !slices.Contains(conv.WindowChords(), Chord{key.ModCtrl | key.ModShift, "F"}) {
+		t.Error("the window does not take Ctrl+Shift+F")
 	}
 	if !slices.Contains(conv.WindowChords(), Chord{key.ModCtrl | key.ModShift, "{"}) {
 		t.Error("the window does not take Ctrl+Shift+{")
@@ -216,6 +224,7 @@ split_right = []
 next_tabb = "Alt+X"
 close_tab = "Alt+K"
 prev_tab = "Hyper+Q"
+find = "super+f"
 
 [keys.tab]
 new = "A"
@@ -238,16 +247,17 @@ mono_size = 99
 		`config.toml:7: keys.next_tabb: unknown key "next_tabb" in [keys] (did you mean "next_tab"?)`,
 		`config.toml:8: keys.close_tab: Alt+K is also bound to keys.prev_tab`,
 		`config.toml:9: keys.prev_tab: "Hyper+Q": unknown modifier "Hyper" (use Ctrl, Alt, Shift, Super)`,
-		`config.toml:19: theme.colors.fg: "white" is not a #rrggbb color`,
-		`config.toml:22: theme.terminal.ansi: has 1 colors, want 16`,
-		`config.toml:25: font.mono_size: 99 is outside 6-48`,
+		`config.toml:20: theme.colors.fg: "white" is not a #rrggbb color`,
+		`config.toml:23: theme.terminal.ansi: has 1 colors, want 16`,
+		`config.toml:26: font.mono_size: 99 is outside 6-48`,
 	}
 	if got := msgs(probs); got != strings.Join(want, "\n") {
 		t.Fatalf("problems:\n%s\nwant:\n%s", got, strings.Join(want, "\n"))
 	}
 	b := s.Keys
 	if b.Hold != 0 || chords(b, "next_tab") != "Ctrl+Tab" || chords(b, "new_tab") != "Ctrl+Shift+T" ||
-		chords(b, "split_right") != "" || chords(b, "close_tab") != "" || chords(b, "prev_tab") != "Alt+K Alt+Up" {
+		chords(b, "split_right") != "" || chords(b, "close_tab") != "" || chords(b, "prev_tab") != "Alt+K Alt+Up" ||
+		chords(b, "find") != "Super+F" {
 		t.Fatalf("bindings: %v", b.Global)
 	}
 	if b.TabAction(key.Event{Name: "A"}) != "new" || b.TabAction(key.Event{Name: "N"}) != "" {

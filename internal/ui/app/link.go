@@ -12,6 +12,7 @@ import (
 	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -45,12 +46,13 @@ type Linker interface {
 	Restart()   // LinkRestart: replace the daemon with this version's
 }
 
-// link is the backend's connection state, LinkUp without a Linker.
+// link is the backend's connection state, LinkUp at this proto.Level
+// without a Linker.
 func (u *ui) link() Link {
 	if l, ok := u.b.(Linker); ok {
 		return l.Link()
 	}
-	return Link{}
+	return Link{Level: proto.Level}
 }
 
 // syncLink starts over on a new connection, which may be to a new daemon:

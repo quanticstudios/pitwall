@@ -156,6 +156,9 @@ func icon(gtx gl.Context, c color.NRGBA, size int, draw func(p *clip.Path, s flo
 	return gl.Dimensions{Size: image.Pt(size, size)}
 }
 
+// SearchIcon draws the search field's magnifier in a size×size box.
+func SearchIcon(gtx gl.Context, c color.NRGBA, size int) { icon(gtx, c, size, searchGlyph) }
+
 func searchGlyph(p *clip.Path, s float32) {
 	// a circle of radius 4.5 at (7,7) and a handle to (13.5,13.5)
 	c := f32.Pt(7*s, 7*s)

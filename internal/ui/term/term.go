@@ -99,6 +99,11 @@ type View struct {
 	scrollLines       int
 	scrollOff, scrMax int
 
+	find    *vt.Finder  // highlights its matches; nil for none
+	findQ   string      // find's query
+	findCur image.Point // the current match's first cell; Y -1 for none
+	found   []vt.Match  // the matches on the row being drawn
+
 	blinkAt    time.Time
 	wasFocused bool
 
@@ -196,6 +201,19 @@ func (v *View) CellSize(gtx layout.Context, th *theme.Theme) image.Point {
 // Layout; the view draws a scrollbar while offset > 0.
 func (v *View) SetScroll(offset, max int) { v.scrollOff, v.scrMax = offset, max }
 
+// SetFind highlights query's matches in the grid Layout draws next, and the
+// one starting at cell cur as the current match (cur.Y -1 for none), as
+// the find bar does. An empty query turns it off. Call it before Layout.
+func (v *View) SetFind(query string, cur image.Point) {
+	if query != v.findQ {
+		v.findQ, v.find = query, nil
+		if query != "" {
+			v.find = vt.NewFinder(query)
+		}
+	}
+	v.findCur = cur
+}
+
 // ScrollDelta returns and clears the wheel scrolling gathered by Layout while
 // the program has not asked for the mouse, in lines (> 0 is back in history).
 // The caller sends it as a proto.Scroll.
@@ -290,7 +308,15 @@ func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
 				}
 			}
 		}
-		k := v.hashRow(cells, s0, s1, v.hovLinks)
+		v.found = v.found[:0]
+		if v.find != nil {
+			v.found = v.find.Row(v.found, 0, cells)
+		}
+		cur := -1
+		if y == v.findCur.Y {
+			cur = v.findCur.X
+		}
+		k := v.hashRow(cells, s0, s1, v.hovLinks, cur)
 		r, ok := v.rows[k]
 		if !ok {
 			if r, ok = v.prev[k]; ok {
@@ -304,7 +330,7 @@ func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
 				}
 				j := &jobs[len(jobs)-1]
 				j.r, j.cells = r, cells
-				v.prepare(j, s0, s1, y)
+				v.prepare(j, s0, s1, y, cur)
 			}
 			v.rows[k] = r
 		}
@@ -356,8 +382,9 @@ func (v *View) take(w, h int) *rowImg {
 }
 
 // prepare resolves the job's styles and glyphs on the UI goroutine. y is
-// the row, for the hovered link.
-func (v *View) prepare(j *rowJob, s0, s1, y int) {
+// the row, for the hovered link; v.found are its find matches, and cur
+// the column of the current one or -1.
+func (v *View) prepare(j *rowJob, s0, s1, y, cur int) {
 	j.st = v.resolveStyles(j.st[:0], j.cells, s0, s1)
 	if v.Links {
 		v.links, v.linkBuf = rowLinks(v.links[:0], v.linkBuf, j.cells)
@@ -372,6 +399,19 @@ func (v *View) prepare(j *rowJob, s0, s1, y int) {
 			}
 		}
 	}
+	// Matches show in yellow, the current one solid; a selection shows
+	// over them.
+	for _, m := range v.found {
+		for x := m.Col; x < min(m.Col+m.Cols, len(j.st)); x++ {
+			switch {
+			case x >= s0 && x < s1:
+			case m.Col == cur:
+				j.st[x].bg, j.st[x].fg = v.th.Yellow, v.th.TermBg
+			default:
+				j.st[x].bg = theme.Mix(v.th.TermBg, v.th.Yellow, 0.3)
+			}
+		}
+	}
 	j.gl = j.gl[:0]
 	for x, c := range j.cells {
 		var g *glyphImg
@@ -382,9 +422,10 @@ func (v *View) prepare(j *rowJob, s0, s1, y int) {
 	}
 }
 
-// hashRow keys a row image: its cells, selection, whether links show, and
-// the hovered links on it.
-func (v *View) hashRow(cells []vt.Cell, s0, s1 int, hov []link) uint64 {
+// hashRow keys a row image: its cells, selection, whether links show, the
+// hovered links on it, and its find matches (v.found) with the current one
+// at column cur.
+func (v *View) hashRow(cells []vt.Cell, s0, s1 int, hov []link, cur int) uint64 {
 	var h maphash.Hash
 	h.SetSeed(v.seed)
 	var b [16]byte
@@ -401,6 +442,16 @@ func (v *View) hashRow(cells []vt.Cell, s0, s1 int, hov []link) uint64 {
 	for _, l := range hov {
 		put(0, uint32(l.x0))
 		put(4, uint32(l.x1))
+		h.Write(b[:8])
+	}
+	if len(v.found) > 0 {
+		h.WriteByte(2) // apart from the hovered links
+		put(0, uint32(cur))
+		h.Write(b[:4])
+	}
+	for _, m := range v.found {
+		put(0, uint32(m.Col))
+		put(4, uint32(m.Cols))
 		h.Write(b[:8])
 	}
 	for _, c := range cells {

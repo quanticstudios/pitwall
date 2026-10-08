@@ -72,11 +72,16 @@ func (p *fakePane) SnapshotAt(off int) vt.Grid {
 }
 func (p *fakePane) ScrollbackLen() int       { p.mu.Lock(); defer p.mu.Unlock(); return p.hist }
 func (p *fakePane) ScrollbackPushed() uint64 { p.mu.Lock(); defer p.mu.Unlock(); return p.pushed }
-func (p *fakePane) Modes() vt.Modes          { return vt.Modes{} }
-func (p *fakePane) Dirty() <-chan struct{}   { return p.dirty }
-func (p *fakePane) Done() <-chan struct{}    { return p.done }
-func (p *fakePane) ExitCode() int            { return p.code }
-func (p *fakePane) Cwd() string              { return p.cfg.Cwd }
+func (p *fakePane) Search(q string, limit int) ([]vt.Match, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return []vt.Match{{Line: p.pushed, Cols: len(q)}}, limit < 1
+}
+func (p *fakePane) Modes() vt.Modes        { return vt.Modes{} }
+func (p *fakePane) Dirty() <-chan struct{} { return p.dirty }
+func (p *fakePane) Done() <-chan struct{}  { return p.done }
+func (p *fakePane) ExitCode() int          { return p.code }
+func (p *fakePane) Cwd() string            { return p.cfg.Cwd }
 func (p *fakePane) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

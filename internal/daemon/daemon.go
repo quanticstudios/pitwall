@@ -423,6 +423,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(proto.StateMsg{State: s, Level: proto.Level})
 			continue
 		}
+		if s, ok := m.(proto.Search); ok {
+			c.queue(d.search(s)) // a reply to this client alone
+			continue
+		}
 		if show, ok := m.(proto.SessionShow); ok && hello.Kind == "gui" {
 			if err := d.sessionShow(c, show.SessionID); err != nil {
 				c.queue(proto.Error{Message: err.Error()})

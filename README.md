@@ -455,6 +455,7 @@ conventional:
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste (also Ctrl+Insert / Shift+Insert)  |
 | Ctrl+Backspace                          | Delete the word before the cursor (sends Ctrl+W)          |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
+| Ctrl+Shift+F                            | Find in the pane's scrollback                             |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
 conventional leaves tab mode and pane mode unbound so Ctrl+T and Ctrl+P
@@ -500,12 +501,22 @@ aide:
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy / paste (also Ctrl+Insert / Shift+Insert) |
 | Ctrl+Backspace                    | Delete the word before the cursor (sends Ctrl+W) |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
+| Ctrl+Shift+F                      | Find in the pane's scrollback                  |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 
 Tab mode runs one key and ends. Pane mode stays on, zellij style, so
 Ctrl+P d j x splits, moves down and closes in one go; it ends on Esc, Enter,
 Ctrl+P or any key it does not know. A pill at the bottom left shows the
 mode and its keys. A fullscreen pane ends when focus leaves it or it closes.
+
+Ctrl+Shift+F opens a find bar at the top right of the focused pane. It
+searches the pane's history (its last 10,000 lines) and screen as you type,
+ignoring case unless the query has a capital letter. Enter or F3 goes to the
+next match up, Shift+Enter or Shift+F3 back down, and the bar shows "3 of 17".
+Escape closes it and returns to the live screen. A line that wrapped matches
+only within each of its rows. While the background service runs a pitwall
+from before find, the bar says "Search needs the background service
+restarted" and searches nothing; it searches once the service restarts.
 
 Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and

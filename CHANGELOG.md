@@ -61,6 +61,15 @@ build. Either step takes `--dry-run`.
 - Before it upgrades `state.json` to a newer format, pitwall copies the old
   file to `state.json.prev`, so going back to an older pitwall keeps your
   tabs.
+- Ctrl+Shift+F (`find` in both presets) opens a find bar on the focused
+  pane. It searches the scrollback and the screen as you type, case-blind
+  unless the query has a capital, highlights every match in view with the
+  current one in solid yellow, and shows "3 of 17" or "No matches". Enter
+  or F3 goes to the next match up into history, Shift+Enter or Shift+F3 back
+  down, and Escape closes the bar and returns to the live screen. Find
+  needs the background service from this release: on an older one the bar
+  says "Search needs the background service restarted" and searches
+  nothing.
 
 ## v0.1.0-alpha.22
 

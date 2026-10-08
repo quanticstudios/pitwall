@@ -208,6 +208,12 @@ func (p *Pane) ScrollbackPushed() uint64 {
 	return p.vt.ScrollbackPushed()
 }
 
+func (p *Pane) Search(query string, limit int) ([]vt.Match, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.vt.Search(query, limit)
+}
+
 func (p *Pane) Modes() vt.Modes {
 	p.mu.Lock()
 	defer p.mu.Unlock()

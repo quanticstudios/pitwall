@@ -32,6 +32,7 @@ type backend struct {
 	session string // the session the window shows, from SessionShow
 	state   model.State
 	frames  map[string]proto.Frame
+	found   map[string]proto.SearchResult // per pane, the reply to its last Search
 	link    app.Link
 	dialing bool // a dial loop runs
 
@@ -62,7 +63,7 @@ var retryMin, retryMax = 500 * time.Millisecond, 30 * time.Second
 // tab $PITWALL_ATTACH names. With c nil it starts disconnected.
 func newBackend(c *proto.Conn, session string) *backend {
 	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), retry: make(chan struct{}, 1),
-		frames: map[string]proto.Frame{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
+		frames: map[string]proto.Frame{}, found: map[string]proto.SearchResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
 	if c == nil {
 		b.outErr = errNotConnected
 		close(b.done)
@@ -78,6 +79,7 @@ func newBackend(c *proto.Conn, session string) *backend {
 var (
 	_ app.Focuser = (*backend)(nil)
 	_ app.Linker  = (*backend)(nil)
+	_ app.Finder  = (*backend)(nil)
 )
 
 func (b *backend) State() model.State {
@@ -244,7 +246,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.conn, b.done, b.outWake, b.out, b.outErr = conn, make(chan struct{}), make(chan struct{}, 1), nil, nil
 	b.outMu.Unlock()
 	b.mu.Lock()
-	b.state, b.frames = initial.State, map[string]proto.Frame{}
+	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
 	b.dialing = false
 	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level}
 	first := b.session == ""
@@ -369,8 +371,11 @@ func (b *backend) recvLoop() {
 			for id := range b.frames {
 				if !live[id] {
 					delete(b.frames, id)
+					delete(b.found, id)
 				}
 			}
+		case proto.SearchResult:
+			b.found[m.Pane] = m
 		case proto.Frame:
 			b.frames[m.Pane] = m
 			if !shown(&b.state, b.session, m.Pane) {
@@ -390,6 +395,14 @@ func (b *backend) Scroll(pane string) (offset, max int) {
 	defer b.mu.Unlock()
 	f := b.frames[pane]
 	return f.ScrollOffset, f.ScrollMax
+}
+
+// Found implements app.Finder from the pane's last SearchResult and frame.
+func (b *backend) Found(pane string) (proto.SearchResult, uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	f := b.frames[pane]
+	return b.found[pane], f.ScrollPushed - uint64(f.ScrollOffset)
 }
 
 // shown reports whether pane is in the active tab of a tab of session the

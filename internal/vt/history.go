@@ -45,9 +45,12 @@ func (h *history) at(i int) *line { return &h.lines[(h.head+i)%len(h.lines)] }
 func (h *history) clear() { h.lines, h.head = nil, 0 }
 
 // set replaces the history with lines, oldest first, keeping the newest
-// historyMax.
+// historyMax. pushed moves by the change in length, so the oldest row keeps
+// its number and the rows after it, the screen's too, number on from it.
 func (h *history) set(lines []line) {
+	n := h.len()
 	h.lines, h.head = slices.Clone(lines[max(0, len(lines)-historyMax):]), 0
+	h.pushed = h.pushed + uint64(h.len()) - uint64(n)
 }
 
 func (h *history) push(cells uv.Line, wrapped bool) {
