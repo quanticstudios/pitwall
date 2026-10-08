@@ -409,6 +409,13 @@ started with. Pick one with `preset` in [config.toml](#configuration) and
 override single actions there. The settings button in the sidebar footer
 shows the bindings in effect.
 
+Ctrl+Shift+P, in both presets, opens the command palette: every
+action, its group and the keys bound to it in your config, filtered as you
+type. Enter runs the highlighted one, the same as its key would; an action
+with no key, like the tab and pane mode ones while their prefix is unbound,
+runs from there too. Arrows or Ctrl+J/K move, Esc closes. Rebind it with
+`command_palette`.
+
 conventional:
 
 | Keys                                    | Action                                                    |
@@ -428,6 +435,7 @@ conventional:
 | Ctrl+Shift+S                            | Session switcher                                          |
 | Ctrl+Shift+] / Ctrl+Shift+[             | Next / previous session                                   |
 | Ctrl+Shift+N                            | New session                                               |
+| Ctrl+Shift+P                            | Command palette: every action and its keys                |
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste                                    |
 | Ctrl+Backspace                          | Delete the word before the cursor (sends Ctrl+W)          |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
@@ -436,6 +444,7 @@ conventional:
 conventional leaves tab mode and pane mode unbound so Ctrl+T and Ctrl+P
 reach the shell. Give `tab_prefix` or `pane_prefix` a chord in config.toml
 or the settings page to use them; their keys are the ones in the aide table.
+The command palette runs their actions either way.
 
 aide:
 
@@ -454,6 +463,7 @@ aide:
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Alt+S                             | Session switcher                               |
 | Alt+] / Alt+[                     | Next / previous session                        |
+| Ctrl+Shift+P                      | Command palette: every action and its keys     |
 | Ctrl+T then n                     | New tab outside every group                    |
 | Ctrl+T then g                     | New tab in this tab's group                    |
 | Ctrl+T then x                     | Close the tab                                  |

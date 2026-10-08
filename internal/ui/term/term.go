@@ -80,6 +80,7 @@ type View struct {
 	buttons   pointer.Buttons // held as of the last pointer event
 	selDone   bool            // a selection was finished this frame
 	copied    string          // what this frame put on the clipboard
+	queued    string          // the pane action Run asked for
 
 	keyText string // text of the key press report-all just encoded
 

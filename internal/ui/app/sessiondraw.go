@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"math"
 	"strings"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -40,7 +38,6 @@ type switcherDraw struct {
 	newBtn, keep, kill    widget.Clickable
 	hover                 string // the row the pointer is over
 	previews              map[string]*sidebar.Sidebar
-	scroll                int
 }
 
 type switcherRow struct{ row, rename, kill widget.Clickable }
@@ -125,21 +122,8 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 		gtx.Execute(op.InvalidateCmd{})
 	}
 
-	// Backdrop: dims the window and closes the switcher on a press.
-	paint.FillShape(gtx.Ops, color.NRGBA{A: uint8(0xa6 * t)}, clip.Rect{Max: size}.Op())
-	for {
-		ev, ok := gtx.Event(pointer.Filter{Target: &d.backdrop, Kinds: pointer.Press})
-		if !ok {
-			break
-		}
-		if _, ok := ev.(pointer.Event); ok {
-			s.close()
-		}
-	}
-	bg := clip.Rect{Max: size}.Push(gtx.Ops)
-	event.Op(gtx.Ops, &d.backdrop)
-	bg.Pop()
-	if !s.open {
+	if backdrop(gtx, t, &d.backdrop) {
+		s.close()
 		return
 	}
 
@@ -153,29 +137,7 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	if previewW = w - listW - 3*pad; previewW < gtx.Dp(180) {
 		listW, previewW = w-2*pad, 0
 	}
-	card := image.Rectangle{Max: image.Pt(w, h)}
-	at := size.Sub(card.Size()).Div(2)
-
-	defer paint.PushOpacity(gtx.Ops, t).Pop()
-	scale := 0.985 + 0.015*t
-	center := f32.Pt(float32(at.X)+float32(w)/2, float32(at.Y)+float32(h)/2)
-	defer op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale)).Offset(f32.Pt(float32(at.X), float32(at.Y)+float32(gtx.Dp(10))*(1-t)))).Push(gtx.Ops).Pop()
-
-	r := gtx.Dp(14)
-	for i, a := range []uint8{0x22, 0x1a, 0x12} {
-		g := gtx.Dp(unit.Dp(6 * (i + 1)))
-		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(card.Add(image.Pt(0, gtx.Dp(8))).Inset(-g), r+g).Op(gtx.Ops))
-	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.1), clip.UniformRRect(card, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(card.Inset(1), r-1).Op(gtx.Ops))
-	for {
-		if _, ok := gtx.Event(pointer.Filter{Target: &d.card, Kinds: pointer.Press}); !ok {
-			break
-		}
-	}
-	cardArea := clip.Rect(card).Push(gtx.Ops)
-	event.Op(gtx.Ops, &d.card) // presses on the card stop here, short of the backdrop
-	cardArea.Pop()
+	defer u.overlayCard(gtx, t, w, h, &d.card)()
 
 	footH := gtx.Dp(44)
 	// Header: the title and the count, the switcher's key on the right.
@@ -199,7 +161,9 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 
 	// The filter field.
 	fieldH := gtx.Dp(34)
-	u.filterField(gtx, image.Rect(pad, y, pad+listW, y+fieldH), st)
+	active := s.filtering && s.mode == modePick
+	u.filterField(gtx, image.Rect(pad, y, pad+listW, y+fieldH), s.filter, "Type to filter",
+		fmt.Sprintf("%d of %d", len(s.rows(st)), len(st.Sessions)), active, s.openedAt)
 	y += fieldH + gtx.Dp(10)
 
 	// The list, scrolled so the highlight shows.
@@ -223,33 +187,14 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	if s.mode == modeNew {
 		selI = len(rows)
 	}
-	viewH := listBot - listTop
-	if selI >= 0 {
-		top := selI * (rowH + gap)
-		d.scroll = min(d.scroll, top)
-		d.scroll = max(d.scroll, top+rowH-viewH)
-	}
-	d.scroll = max(0, min(d.scroll, n*(rowH+gap)-gap-viewH))
+	hy := s.list.update(gtx, selI, n, rowH, gap, listTop, listBot-listTop)
+	hl := image.Rect(pad, hy, pad+listW, hy+rowH)
 	lc := clip.Rect{Min: image.Pt(0, listTop), Max: image.Pt(w, listBot)}.Push(gtx.Ops)
 	if selI >= 0 {
-		target := float32(listTop + selI*(rowH+gap) - d.scroll)
-		if s.selY < 0 || s.lastAt.IsZero() {
-			s.selY = target
-		} else if dt := gtx.Now.Sub(s.lastAt).Seconds(); dt > 0 {
-			k := float32(1 - math.Exp(-dt/0.06))
-			s.selY += (target - s.selY) * k
-			if diff := target - s.selY; diff > 0.5 || diff < -0.5 {
-				gtx.Execute(op.InvalidateCmd{})
-			} else {
-				s.selY = target
-			}
-		}
-		hl := image.Rect(pad, int(s.selY+0.5), pad+listW, int(s.selY+0.5)+rowH)
-		paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.065), clip.UniformRRect(hl, gtx.Dp(8)).Op(gtx.Ops))
+		u.highlight(gtx, hl, false)
 	}
-	s.lastAt = gtx.Now
 	for i, x := range rows {
-		ry := listTop + i*(rowH+gap) - d.scroll
+		ry := listTop + i*(rowH+gap) - s.list.scroll
 		if ry+rowH < listTop || ry > listBot {
 			continue
 		}
@@ -258,16 +203,13 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 		o.Pop()
 	}
 	if s.mode == modeNew {
-		ry := listTop + len(rows)*(rowH+gap) - d.scroll
+		ry := listTop + len(rows)*(rowH+gap) - s.list.scroll
 		o := op.Offset(image.Pt(pad, ry)).Push(gtx.Ops)
 		u.newRow(gtx, image.Pt(listW, rowH))
 		o.Pop()
 	}
 	if selI >= 0 {
-		// A ring over the rows, so it shows on a tinted one too.
-		hl := image.Rect(pad, int(s.selY+0.5), pad+listW, int(s.selY+0.5)+rowH)
-		ring := clip.UniformRRect(hl, gtx.Dp(8)).Path(gtx.Ops)
-		paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.22), clip.Stroke{Path: ring, Width: float32(gtx.Dp(1))}.Op())
+		u.highlight(gtx, hl, true)
 	}
 	if len(rows) == 0 && s.mode != modeNew {
 		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, 13, th.Muted, "No session matches \""+s.filter+"\".")
@@ -289,52 +231,6 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	o = op.Offset(image.Pt(pad, h-footH)).Push(gtx.Ops)
 	u.switcherHints(gtx, footH)
 	o.Pop()
-}
-
-// filterField draws the filter, with a caret while typed keys go to it.
-func (u *ui) filterField(gtx gl.Context, rect image.Rectangle, st *model.State) {
-	th, s := u.th, &u.sw
-	rr := gtx.Dp(8)
-	border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
-	if s.filtering && s.mode == modePick {
-		border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
-	}
-	paint.FillShape(gtx.Ops, border, clip.UniformRRect(rect, rr).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), rr-1).Op(gtx.Ops))
-	x := rect.Min.X + gtx.Dp(12)
-	text, col := s.filter, th.Fg
-	if text == "" && !s.filtering {
-		text, col = "Type to filter", theme.Mix(th.SurfaceSecondary, th.Muted, 0.75)
-	}
-	call, sz := textCall(gtx, th, th.UIFont, 13, col, text)
-	ty := rect.Min.Y + (rect.Dy()-sz.Y)/2
-	o := op.Offset(image.Pt(x, ty)).Push(gtx.Ops)
-	call.Add(gtx.Ops)
-	o.Pop()
-	if s.filtering && s.mode == modePick {
-		cx := x
-		if s.filter != "" {
-			cx += sz.X + 1
-		}
-		u.caret(gtx, image.Rect(cx, ty+gtx.Dp(1), cx+gtx.Dp(2), ty+sz.Y-gtx.Dp(1)))
-		if s.filter != "" {
-			c, csz := textCall(gtx, th, th.UIFont, 12, th.Muted, fmt.Sprintf("%d of %d", len(s.rows(st)), len(st.Sessions)))
-			o := op.Offset(image.Pt(rect.Max.X-gtx.Dp(12)-csz.X, rect.Min.Y+(rect.Dy()-csz.Y)/2)).Push(gtx.Ops)
-			c.Add(gtx.Ops)
-			o.Pop()
-		}
-	}
-}
-
-// caret draws a text caret that blinks once a second.
-func (u *ui) caret(gtx gl.Context, r image.Rectangle) {
-	phase := gtx.Now.Sub(u.sw.openedAt) % time.Second
-	if phase < 600*time.Millisecond {
-		paint.FillShape(gtx.Ops, u.th.Primary, clip.Rect(r).Op())
-		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(600*time.Millisecond - phase)})
-	} else {
-		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second - phase)})
-	}
 }
 
 // sessionRow draws session x as row i: its number, name, a "current" tag
@@ -559,7 +455,7 @@ func (u *ui) nameField(gtx gl.Context, rect image.Rectangle) {
 	o.Pop()
 	if !s.fresh || s.field == "" {
 		cx := x + sz.X + 1
-		u.caret(gtx, image.Rect(cx, y+gtx.Dp(2), cx+gtx.Dp(2), y+sz.Y-gtx.Dp(2)))
+		u.caret(gtx, image.Rect(cx, y+gtx.Dp(2), cx+gtx.Dp(2), y+sz.Y-gtx.Dp(2)), s.openedAt)
 	}
 }
 
@@ -677,7 +573,7 @@ func (u *ui) preview(gtx gl.Context, st *model.State, rect image.Rectangle) {
 
 // switcherHints are the keys the switcher's mode takes, as keycaps.
 func (u *ui) switcherHints(gtx gl.Context, h int) {
-	th, s := u.th, &u.sw
+	s := &u.sw
 	var hints [][2]string
 	switch s.mode {
 	case modeNew:
@@ -693,19 +589,7 @@ func (u *ui) switcherHints(gtx gl.Context, h int) {
 		}
 		hints = append(hints, [2]string{"Esc", map[bool]string{true: "clear filter", false: "close"}[s.filtering]})
 	}
-	x := 0
-	for _, k := range hints {
-		kc, ks := keycap(gtx, th, k[0])
-		o := op.Offset(image.Pt(x, (h-ks.Y)/2)).Push(gtx.Ops)
-		kc.Add(gtx.Ops)
-		o.Pop()
-		x += ks.X + gtx.Dp(6)
-		tc, tsz := textCall(gtx, th, th.UIFont, 12, th.Muted, k[1])
-		o = op.Offset(image.Pt(x, (h-tsz.Y)/2)).Push(gtx.Ops)
-		tc.Add(gtx.Ops)
-		o.Pop()
-		x += tsz.X + gtx.Dp(16)
-	}
+	u.drawHints(gtx, h, hints)
 }
 
 // plural is "1 tab", "3 tabs".

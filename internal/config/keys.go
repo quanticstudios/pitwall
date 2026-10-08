@@ -157,6 +157,7 @@ var presets = map[string]struct {
 			"copy": {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
+			"command_palette":  {"Ctrl+Shift+P"},
 			"jump_attention":   {"Alt+U"},
 			"pane_prefix":      {"Ctrl+P"},
 			"session_switcher": {"Alt+S"}, "session_next": {"Alt+]"}, "session_prev": {"Alt+["},
@@ -174,6 +175,7 @@ var presets = map[string]struct {
 			"copy":     {"Ctrl+Shift+C"}, "paste": {"Ctrl+Shift+V"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
+			"command_palette":  {"Ctrl+Shift+P"},
 			"jump_attention":   {"Ctrl+Shift+U"},
 			"session_switcher": {"Ctrl+Shift+S"}, "session_new": {"Ctrl+Shift+N"},
 			"session_next": {"Ctrl+Shift+]"}, "session_prev": {"Ctrl+Shift+["},
@@ -461,23 +463,40 @@ func mustChords(ss []string) []Chord {
 	return out
 }
 
-// Action is a bindable action: its config name and description. Tab marks
-// a [keys.tab] action, Pane a [keys.pane] one.
+// Action is a bindable action: its config name, description and group.
+// Tab marks a [keys.tab] action, Pane a [keys.pane] one.
 type Action struct {
-	Name, Doc string
-	Tab       bool
-	Pane      bool
+	Name, Doc, Group string
+	Tab              bool
+	Pane             bool
+}
+
+// Title is the action's name for people: its doc up to the first ". " or
+// ": ", so "Tab mode: the next key..." is "Tab mode".
+func (a Action) Title() string {
+	t, _, _ := strings.Cut(a.Doc, ". ")
+	t, _, _ = strings.Cut(t, ": ")
+	return strings.TrimSuffix(t, ".")
 }
 
 // Actions lists every action in config order, [keys], [keys.tab], then
-// [keys.pane].
+// [keys.pane]. [keys] actions take their group tag; the others are in
+// "Tab mode" and "Pane mode".
 func Actions() []Action {
 	var out []Action
 	for _, t := range []reflect.Type{reflect.TypeFor[Keys](), reflect.TypeFor[TabKeys](), reflect.TypeFor[PaneKeys]()} {
+		tab, pane := t == reflect.TypeFor[TabKeys](), t == reflect.TypeFor[PaneKeys]()
 		for _, f := range fields(t) {
-			if f.typ == bindingType && !(SwitcherHidden && switcherActions[f.name]) {
-				out = append(out, Action{f.name, f.doc, t == reflect.TypeFor[TabKeys](), t == reflect.TypeFor[PaneKeys]()})
+			if f.typ != bindingType || SwitcherHidden && switcherActions[f.name] {
+				continue
 			}
+			g := f.tag.Get("group")
+			if tab {
+				g = "Tab mode"
+			} else if pane {
+				g = "Pane mode"
+			}
+			out = append(out, Action{f.name, f.doc, g, tab, pane})
 		}
 	}
 	return out

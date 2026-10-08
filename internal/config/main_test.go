@@ -27,3 +27,27 @@ func TestSwitcherHidden(t *testing.T) {
 		}
 	}
 }
+
+// TestActionGroups: the command palette names and groups every action
+// from its tags.
+func TestActionGroups(t *testing.T) {
+	titles := map[string]string{}
+	for _, a := range Actions() {
+		if a.Group == "" || a.Title() == "" {
+			t.Errorf("%s: group %q, title %q", a.Name, a.Group, a.Title())
+		}
+		if !a.Tab && !a.Pane {
+			titles[a.Name] = a.Group + "/" + a.Title()
+		}
+	}
+	for name, want := range map[string]string{
+		"tab_prefix":       "Tabs/Tab mode",
+		"toggle_sidebar":   "Window/Show or hide the sidebar",
+		"session_switcher": "Sessions/Show the session switcher",
+		"command_palette":  "Window/Show the command palette",
+	} {
+		if titles[name] != want {
+			t.Errorf("%s: %q, want %q", name, titles[name], want)
+		}
+	}
+}

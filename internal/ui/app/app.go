@@ -241,6 +241,7 @@ type ui struct {
 	hint    gotoHint  // the goto_tab modifiers, for the sidebar's digits
 
 	sw       sessionSwitcher
+	pal      palette   // the command palette
 	showSent string    // the session the last SessionShow named
 	switchAt time.Time // when the window last switched sessions
 	title    string    // the window title last set
@@ -348,6 +349,19 @@ func (u *ui) switcherKey(st *model.State, e key.Event) {
 	}
 }
 
+// openRequested opens what the last key asked for: the session switcher
+// or the command palette.
+func (u *ui) openRequested(st *model.State, now time.Time) {
+	if m := u.nav.sessionUI; m != "" {
+		u.nav.sessionUI = ""
+		u.sw.openAt(st, u.nav.session, m, now)
+	}
+	if u.nav.palette {
+		u.nav.palette = false
+		u.pal.openAt(now)
+	}
+}
+
 // sessionChanged tells the daemon which session the window shows, and
 // starts the switch's fade when it is another one.
 func (u *ui) sessionChanged(gtx gl.Context) {
@@ -383,10 +397,7 @@ func (u *ui) layout(gtx gl.Context) {
 	st := u.b.State()
 	u.nav.sync(&st)
 	u.applyFocus(&st)
-	if m := u.nav.sessionUI; m != "" {
-		u.nav.sessionUI = ""
-		u.sw.openAt(&st, u.nav.session, m, gtx.Now)
-	}
+	u.openRequested(&st, gtx.Now)
 
 	wasVisible := u.nav.switcherVisible()
 	wasMode, wasPane := u.nav.tabMode, u.nav.paneMode
@@ -395,12 +406,12 @@ func (u *ui) layout(gtx gl.Context) {
 			gtx.Execute(op.InvalidateCmd{}) // draw the mode pill's new state now
 		}
 	}()
-	if !u.sw.open {
+	if !u.sw.open && !u.pal.open {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 	}
 	for {
 		filters := u.nav.keyFilters()
-		if u.sw.open {
+		if u.sw.open || u.pal.open {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 			filters = append(filters, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
 		}
@@ -411,6 +422,13 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.HideHover() // keyboard navigation
 		mods, _ := gotoKeys(u.nav.bind())
 		u.hint.key(ev.(key.Event), mods, gtx.Now)
+		if u.pal.open {
+			u.paletteKey(&st, ev.(key.Event))
+			st = u.b.State()
+			u.nav.sync(&st)
+			u.openRequested(&st, gtx.Now)
+			continue
+		}
 		if u.sw.open {
 			u.switcherKey(&st, ev.(key.Event))
 			st = u.b.State()
@@ -426,10 +444,7 @@ func (u *ui) layout(gtx gl.Context) {
 			st = u.b.State()
 			u.nav.sync(&st)
 		}
-		if m := u.nav.sessionUI; m != "" {
-			u.nav.sessionUI = ""
-			u.sw.openAt(&st, u.nav.session, m, gtx.Now) // the keys after this one are the switcher's
-		}
+		u.openRequested(&st, gtx.Now) // the keys after this one are the switcher's or the palette's
 	}
 	if prev := u.showSent; prev != "" && prev != u.nav.session && st.Session(prev) == nil {
 		log.Printf("session %s ended; the window shows %s", prev, u.nav.session)
@@ -465,7 +480,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	event.Op(gtx.Ops, &u.modeTag)
-	if (u.nav.tabMode || u.nav.paneMode || u.sw.open) && !gtx.Focused(&u.modeTag) {
+	if (u.nav.tabMode || u.nav.paneMode || u.sw.open || u.pal.open) && !gtx.Focused(&u.modeTag) {
 		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
 	}
 	paint.Fill(gtx.Ops, u.th.Bg)
@@ -546,6 +561,7 @@ func (u *ui) layout(gtx gl.Context) {
 
 	u.layoutModal(gtx, &st)
 	u.drawSessions(gtx, &st)
+	u.drawPalette(gtx, &st)
 	if u.nav.switcherVisible() {
 		u.drawSwitcher(gtx, &st)
 		if u.nav.pinned {
@@ -697,8 +713,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode || u.nav.paneMode {
-		focused = "" // the dialog, a rename field or tab mode holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode || u.nav.paneMode || u.pal.open {
+		focused = "" // the dialog, a rename field, tab mode or the palette holds key focus
 	}
 	u.nav.area = area
 	zoom := u.nav.zoomed()
@@ -847,12 +863,31 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	}
 }
 
-// emptyState is a centred button labelled label that runs click.
+// emptyState is a centred button labelled label that runs click, with the
+// command palette's key under it.
 func (u *ui) emptyState(gtx gl.Context, label string, click func()) {
 	if u.open.Clicked(gtx) {
 		click()
 	}
+	hint := gl.Spacer{}.Layout
+	if k := firstChord(u.nav.bind().Global["command_palette"]); k != "" {
+		hint = func(gtx gl.Context) gl.Dimensions {
+			call, sz := textCall(gtx, u.th, u.th.UIFont, 12, u.th.Muted, k+": all commands")
+			call.Add(gtx.Ops)
+			return gl.Dimensions{Size: sz}
+		}
+	}
 	gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+		return gl.Flex{Axis: gl.Vertical, Alignment: gl.Middle}.Layout(gtx,
+			gl.Rigid(u.emptyButton(label)),
+			gl.Rigid(gl.Spacer{Height: 12}.Layout),
+			gl.Rigid(hint))
+	})
+}
+
+// emptyButton is the empty state's button.
+func (u *ui) emptyButton(label string) gl.Widget {
+	return func(gtx gl.Context) gl.Dimensions {
 		return u.open.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.TextSize, u.th.Fg, strings.TrimSpace(label))
 			pad := image.Pt(gtx.Dp(16), gtx.Dp(10))
@@ -869,7 +904,7 @@ func (u *ui) emptyState(gtx gl.Context, label string, click func()) {
 			o.Pop()
 			return gl.Dimensions{Size: box}
 		})
-	})
+	}
 }
 
 // walkSplits visits every node with its rect. A split's children share its

@@ -14,6 +14,14 @@ pass) and opens a `Release v0.1.0-alpha.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- A command palette lists every action with its group and the keys bound to
+  it in your config, and runs the one you pick. Ctrl+Shift+P opens it
+  in both presets; `command_palette` rebinds it. Type to filter, Enter to
+  run, Esc to close. Actions with no key, such as tab and pane mode in the
+  conventional preset, run from it too. The empty pane area names its key.
+
 ## v0.1.0-alpha.22
 
 - The first group at the top of the sidebar gets the same 6dp above its
