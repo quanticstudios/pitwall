@@ -1,10 +1,12 @@
 package vt
 
 import (
+	"encoding/base64"
 	"io"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func titleRow(g Grid, y int) string {
@@ -87,5 +89,65 @@ func TestEmulatorNotify(t *testing.T) {
 	e.Write([]byte("x\x1b]9;Agent ✳ waits\x07y"))
 	if g := e.Snapshot(); titleRow(g, 0) != "xy" || len(got) != 1 || got[0].Body != "Agent ✳ waits" {
 		t.Fatalf("row %q, got %+v", titleRow(g, 0), got)
+	}
+}
+
+func TestClipboard(t *testing.T) {
+	big := strings.Repeat("a", clipboardMax)
+	for _, tc := range []struct {
+		name, payload, want string
+		ok                  bool
+	}{
+		{"write", "c;aGVsbG8=", "hello", true},
+		{"other selection", "p;aGVsbG8=", "hello", true},
+		{"default selection", ";aGVsbG8=", "hello", true},
+		{"read", "c;?", "", false},
+		{"empty", "c;", "", false},
+		{"not base64", "c;h*llo", "", false},
+		{"no selection", "aGVsbG8=", "", false},
+		{"at the cap", "c;" + base64.StdEncoding.EncodeToString([]byte(big)), big, true},
+		{"over the cap", "c;" + base64.StdEncoding.EncodeToString([]byte(big+"a")), "", false},
+	} {
+		if got, ok := parseClipboard(tc.payload); got != tc.want || ok != tc.ok {
+			t.Errorf("%s: %.20q %v, want %.20q %v", tc.name, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// TestEmulatorClipboard sends OSC 52 through the emulator: a write reaches
+// the callback, also one longer than the OSC filter buffers, and a read
+// leaves the screen alone and gets no reply.
+func TestEmulatorClipboard(t *testing.T) {
+	reply := &replyBuf{}
+	e := New(40, 3, reply)
+	var got []string
+	e.(interface{ SetClipboardFunc(func(string)) }).SetClipboardFunc(func(s string) { got = append(got, s) })
+	long := strings.Repeat("x", 100<<10)
+	e.Write([]byte("a\x1b]52;c;aGVsbG8=\x07b\x1b]52;c;?\x1b\\c\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(long)) + "\x07d\x1b[5n"))
+	if g := e.Snapshot(); titleRow(g, 0) != "abcd" || len(got) != 2 || got[0] != "hello" || got[1] != long {
+		t.Fatalf("row %q, got %d writes", titleRow(g, 0), len(got))
+	}
+	// Replies keep their order, so an answer to the read would come before
+	// the DSR's.
+	for deadline := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+		reply.mu.Lock()
+		got := reply.b.String()
+		reply.mu.Unlock()
+		if strings.Contains(got, "\x1b[0n") || time.Now().After(deadline) {
+			if got != "\x1b[0n" {
+				t.Fatalf("replies %q, want only the DSR's", got)
+			}
+			break
+		}
+	}
+}
+
+func TestEmulatorBell(t *testing.T) {
+	e := New(40, 3, io.Discard)
+	n := 0
+	e.(interface{ SetBellFunc(func()) }).SetBellFunc(func() { n++ })
+	e.Write([]byte("a\x07b\x1b]0;title\x07\x1b]8;;http://x\x07c\x1b]8;;\x07\x07"))
+	if n != 2 {
+		t.Fatalf("%d bells, want 2: the BEL ending an OSC is none", n)
 	}
 }

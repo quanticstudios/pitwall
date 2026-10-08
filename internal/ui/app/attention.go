@@ -2,10 +2,13 @@ package app
 
 import (
 	"image"
+	"io"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
+	"gioui.org/io/clipboard"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -21,24 +24,39 @@ import (
 // markSeen clears Unseen on the focused pane's activity in st while the
 // window has focus and shows the panes, and tells the daemon once per
 // activity. Clearing it here too keeps the ring and the sidebar from
-// flashing during the round trip.
+// flashing during the round trip. It also tells the daemon whenever the
+// pane shown that way changes, "" for none, so a bell there stays quiet.
 func (u *ui) markSeen(st *model.State) {
 	f := u.nav.focused()
-	if !u.winFocused || u.settings.Shown() || f == "" {
+	if !u.winFocused || u.settings.Shown() {
+		f = ""
+	}
+	see := f != u.focusSent
+	if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return f != "" && a.PaneID == f && a.Unseen }); i >= 0 {
+		st.Activities = slices.Clone(st.Activities) // the backend's slice is shared
+		st.Activities[i].Unseen = false
+		if u.seeSent == nil {
+			u.seeSent = map[string]time.Time{}
+		}
+		if at := st.Activities[i].UpdatedAt; !u.seeSent[f].Equal(at) {
+			u.seeSent[f] = at
+			see = true
+		}
+	}
+	if see && u.send(proto.SeePane{Pane: f}) {
+		u.focusSent = f
+	}
+}
+
+// writeClipboard puts the text of an OSC 52 write on the clipboard, once
+// per write, unless [terminal] osc52 is off.
+func (u *ui) writeClipboard(gtx gl.Context, c model.Clipboard) {
+	if c.Seq == u.clipSeq {
 		return
 	}
-	i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == f && a.Unseen })
-	if i < 0 {
-		return
-	}
-	st.Activities = slices.Clone(st.Activities) // the backend's slice is shared
-	st.Activities[i].Unseen = false
-	if u.seeSent == nil {
-		u.seeSent = map[string]time.Time{}
-	}
-	if at := st.Activities[i].UpdatedAt; !u.seeSent[f].Equal(at) {
-		u.seeSent[f] = at
-		u.send(proto.SeePane{Pane: f})
+	u.clipSeq = c.Seq
+	if c.Text != "" && u.cfg.OSC52 {
+		gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(c.Text))})
 	}
 }
 

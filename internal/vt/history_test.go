@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	xvt "github.com/charmbracelet/x/vt"
 )
 
 func lines(prefix string, from, to int) string {
@@ -208,4 +210,53 @@ func TestOSC8Links(t *testing.T) {
 	check("screen", e.Snapshot())
 	feed(e, "\r\n\r\n")
 	check("history", e.SnapshotAt(1))
+}
+
+// TestPromptMarks records OSC 133 marks on their rows, keeps them in
+// history, and jumps between prompts from any scroll offset.
+func TestPromptMarks(t *testing.T) {
+	e := New(10, 3, nil)
+	var b strings.Builder
+	for i := range 5 { // the prompt on even rows 0-8, its output on odd ones
+		fmt.Fprintf(&b, "\x1b]133;A\x07$ \x1b]133;B\x07c%d\r\n\x1b]133;C\x07o%d\r\n\x1b]133;D;0\x07", i, i)
+	}
+	g := feed(e, b.String()+"\x1b]133;A\x07$ ") // row 10, on screen with rows 8 and 9
+	if row(g, 0) != "$ c4" || row(g, 2) != "$" {
+		t.Fatalf("marks printed something: %q", screenText(g))
+	}
+	h := &e.(*emulator).st.hist
+	if h.len() != 8 {
+		t.Fatalf("history %d lines", h.len())
+	}
+	// D, the end of the command before, lands on the next prompt's row.
+	for i, want := range []xvt.LineFlags{xvt.LinePrompt | xvt.LineInput | xvt.LineEnd, xvt.LineOutput} {
+		if got := h.at(2 + i).flags; got != want {
+			t.Errorf("history line %d flags %b, want %b", 2+i, got, want)
+		}
+	}
+
+	p := e.(interface{ PromptOffset(off, n int) int })
+	for _, tc := range []struct{ off, n, want int }{
+		{0, 1, 2},  // the live screen's top is row 8; the prompt above is row 6
+		{2, 1, 4},  // from row 6 to row 4
+		{0, 3, 6},  // three back, row 2
+		{3, 1, 4},  // from output row 5 back to row 4
+		{3, -1, 2}, // and forward to row 6
+		{8, 1, 8},  // nothing above row 0
+		{8, -1, 6}, // row 0 to row 2
+		{2, -1, 0}, // the next prompt, row 8, is on the live screen
+		{0, -1, 0},
+		{99, -2, 4}, // off is clamped to the history first
+	} {
+		if got := p.PromptOffset(tc.off, tc.n); got != tc.want {
+			t.Errorf("PromptOffset(%d, %d) = %d, want %d", tc.off, tc.n, got, tc.want)
+		}
+	}
+	if got := row(e.SnapshotAt(p.PromptOffset(0, 1)), 0); got != "$ c3" {
+		t.Errorf("view after a jump starts with %q", got)
+	}
+	feed(e, "\x1b[?1049h")
+	if got := p.PromptOffset(4, 1); got != 4 {
+		t.Errorf("alt screen moved the view to %d", got)
+	}
 }

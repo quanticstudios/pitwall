@@ -97,6 +97,7 @@ type View struct {
 
 	scrollPx          float32 // wheel distance not yet a whole line
 	scrollLines       int
+	prompts           int // prompt jumps asked for, > 0 back
 	scrollOff, scrMax int
 
 	find    *vt.Finder  // highlights its matches; nil for none
@@ -220,6 +221,15 @@ func (v *View) SetFind(query string, cur image.Point) {
 func (v *View) ScrollDelta() int {
 	n := v.scrollLines
 	v.scrollLines = 0
+	return n
+}
+
+// PromptDelta returns and clears the prompt jumps the prompt keys asked
+// for since the last call (> 0 is back in history). The caller sends them
+// as proto.Scroll's Prompts.
+func (v *View) PromptDelta() int {
+	n := v.prompts
+	v.prompts = 0
 	return n
 }
 

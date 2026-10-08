@@ -175,6 +175,16 @@ type State struct {
 	// daemon started without the saved tabs, or that it restored some. It
 	// is not saved.
 	Notice string `json:"-"`
+	// Clipboard is the latest text a program put on the clipboard with OSC
+	// 52. The daemon fills it in; it is not saved.
+	Clipboard Clipboard `json:"-"`
+}
+
+// Clipboard is an OSC 52 clipboard write. A GUI writes Text once per Seq;
+// the daemon leaves Text out of states sent a few seconds after the write.
+type Clipboard struct {
+	Seq  uint64
+	Text string
 }
 
 // DecideInfo is what clients show about decision models.

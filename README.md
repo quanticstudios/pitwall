@@ -192,6 +192,13 @@ that send terminal notifications ring it too: OSC 9 (iTerm2's form), OSC 777
 then shows as Input with the message until you focus it or the agent's state
 changes. ConEmu's numeric OSC 9 forms, such as `9;4` progress, are ignored.
 
+A bell (BEL, `printf '\a'`) rings the pane the same way, with "Bell" as the
+message, when you are not looking at it. In the pane you are looking at a
+bell does nothing, so a failed tab completion stays quiet. A pane rings at
+most once a second however many bells arrive, and a pane whose agent already
+needs you keeps that agent's state. Set `bell = "off"` under `[terminal]`
+to ignore bells.
+
 <img src="docs/media/notify.webp" alt="A test pane runs npm test and pitwall notify, then rings amber and sends a desktop notification saying tests passed" width="800">
 
 States are exact when the agent's hooks are installed (`pitwall hooks
@@ -318,6 +325,40 @@ Links in panes are underlined, both URLs in the text and OSC 8 hyperlinks.
 Ctrl+click one (Cmd+click on macOS) to open it in your browser, even inside
 Claude Code or Codex.
 Set `links = false` under `[terminal]` to turn this off.
+
+Programs can set the clipboard with OSC 52, the way Neovim, tmux and Helix
+copy, also over ssh: `printf '\e]52;c;%s\a' "$(printf hi | base64)"` puts
+"hi" on it. A write may hold up to 1 MB of text. Programs can never read
+the clipboard this way: pitwall leaves OSC 52 read requests unanswered, so a
+program cannot see what you copied elsewhere. Set `osc52 = "off"` under
+`[terminal]` to ignore the writes.
+
+Ctrl+Shift+Up and Ctrl+Shift+Down scroll the pane back and forward to the
+previous and next shell prompt, putting it at the top of the pane; past the
+last prompt the pane is back at the live screen. This needs a shell that
+marks its prompts with OSC 133 (shell integration). fish 4.0 and later
+mark them on their own. For zsh, add to `~/.zshrc`:
+
+```zsh
+_pitwall_precmd() { print -Pn '\e]133;D;%?\a\e]133;A\a' }
+_pitwall_preexec() { print -n '\e]133;C\a' }
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _pitwall_precmd
+add-zsh-hook preexec _pitwall_preexec
+PS1+=$'%{\e]133;B\a%}'
+```
+
+For bash 4.4 or later, add to `~/.bashrc`, after anything that sets `PS1`:
+
+```bash
+PROMPT_COMMAND='printf "\e]133;D;%s\a\e]133;A\a" "$?"'${PROMPT_COMMAND:+;$PROMPT_COMMAND}
+PS1+='\[\e]133;B\a\]'
+PS0='\e]133;C\a'
+```
+
+Only the prompt start (`133;A`) is needed to jump; pitwall keeps the
+other marks on their rows too. The keys are `prev_prompt` and
+`next_prompt` in config.toml.
 
 ### Grouping
 
@@ -469,6 +510,7 @@ conventional:
 | Ctrl+Backspace                          | Delete the word before the cursor (sends Ctrl+W)          |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Ctrl+Shift+F                            | Find in the pane's scrollback                             |
+| Ctrl+Shift+Up / Ctrl+Shift+Down         | Scroll back / forward to the previous / next shell prompt |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
 conventional leaves tab mode and pane mode unbound so Ctrl+T and Ctrl+P
@@ -515,6 +557,7 @@ aide:
 | Ctrl+Backspace                    | Delete the word before the cursor (sends Ctrl+W) |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
 | Ctrl+Shift+F                      | Find in the pane's scrollback                  |
+| Ctrl+Shift+Up / Ctrl+Shift+Down   | Scroll back / forward to the previous / next shell prompt |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 
 Tab mode runs one key and ends. Pane mode stays on, zellij style, so

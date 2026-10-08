@@ -6,6 +6,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	xvt "github.com/charmbracelet/x/vt"
 )
 
 // pos is a cell in a list of rows.
@@ -19,12 +20,12 @@ type pos struct{ row, col int }
 // needs fewer rows, history comes back down to fill the screen. The alt screen
 // is only resized; its app redraws it.
 func (t *emulator) reflow(w, h int) {
-	lines, wrapped, cur, saved := t.e.MainLines()
+	lines, flags, cur, saved := t.e.MainLines()
 	saved.Y = min(saved.Y, len(lines)-1)
 	// Rows below both cursors and the last non-blank row are space, not text.
 	last := max(cur.Y, saved.Y)
 	for y := len(lines) - 1; y > last; y-- {
-		if wrapped[y] || !blank(lines[y]) {
+		if flags[y]&xvt.LineWrapped != 0 || !blank(lines[y]) {
 			last = y
 			break
 		}
@@ -45,7 +46,7 @@ func (t *emulator) reflow(w, h int) {
 		if y == saved.Y {
 			keep = max(keep, saved.X)
 		}
-		rows = append(rows, hist.line(lines[y], wrapped[y], keep))
+		rows = append(rows, hist.line(lines[y], flags[y], keep))
 	}
 	c, s, top := pos{n + cur.Y, cur.X}, pos{n + saved.Y, saved.X}, pos{n, 0}
 	if w != len(lines[0]) {
@@ -55,10 +56,10 @@ func (t *emulator) reflow(w, h int) {
 	below := min(trail, max(0, h-(len(rows)-top.row)))
 	start := min(max(0, len(rows)+below-h), c.row)
 	hist.set(rows[:start])
-	screen, soft := make([]uv.Line, h), make([]bool, h)
+	screen, soft := make([]uv.Line, h), make([]xvt.LineFlags, h)
 	for y := range screen {
 		if i := start + y; i < len(rows) {
-			screen[y], soft[y] = rows[i].unpack(w), rows[i].wrapped
+			screen[y], soft[y] = rows[i].unpack(w), rows[i].flags
 		} else {
 			screen[y] = uv.NewLine(w)
 		}
@@ -89,7 +90,7 @@ func rewrap(rows []line, w int, marks ...*pos) []line {
 	}
 	for i := 0; i < len(rows); {
 		j := i
-		for j < len(rows)-1 && rows[j].wrapped {
+		for j < len(rows)-1 && rows[j].wrapped() {
 			j++
 		}
 		if i == j && rows[i].width() <= w {
@@ -112,6 +113,10 @@ func rewrap(rows []line, w int, marks ...*pos) []line {
 			}
 		}
 		l := join(rows[i : j+1])
+		var shell xvt.LineFlags // the OSC 133 marks of the line's rows go on its first
+		for _, r := range rows[i : j+1] {
+			shell |= r.flags &^ xvt.LineWrapped
+		}
 		n, off, ri := l.width(), 0, 0
 		for a := 0; ; {
 			b := min(a+w, n)
@@ -121,7 +126,13 @@ func rewrap(rows []line, w int, marks ...*pos) []line {
 			if b == a && a < n {
 				b = min(a+2, n) // a wide char wider than the screen
 			}
-			r := line{wrapped: b < n || rows[j].wrapped}
+			r := line{}
+			if a == 0 {
+				r.flags = shell
+			}
+			if b < n || rows[j].wrapped() {
+				r.flags |= xvt.LineWrapped
+			}
 			size := b - a
 			if l.cells != nil {
 				r.cells, size = l.cells[a:b:b], 0
@@ -212,7 +223,7 @@ func (l *line) unpack(w int) uv.Line {
 	out := make(uv.Line, w)
 	n := l.width()
 	for x, c := range cells {
-		if x >= n && l.wrapped || c.Width == 0 && c.Content == "" {
+		if x >= n && l.wrapped() || c.Width == 0 && c.Content == "" {
 			continue // padding, or the right half of a wide char
 		}
 		out[x] = uv.Cell{Content: c.Content, Width: int(c.Width), Link: uv.Link{URL: c.Link},

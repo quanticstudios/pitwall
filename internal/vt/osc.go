@@ -109,6 +109,25 @@ func (f *oscFilter) end(out []byte, title func(string), notify func(Notification
 
 func validUTF8(s string) string { return strings.ToValidUTF8(s, string(utf8.RuneError)) }
 
+// clipboardMax caps the text one OSC 52 write may put on the clipboard.
+const clipboardMax = 1 << 20
+
+// parseClipboard reads the payload of OSC 52: the selections, which all
+// mean the system clipboard here, then the text in base64. It refuses a
+// read request ("?"), which would hand the clipboard to whatever program
+// asks, text over clipboardMax, and an empty or malformed write.
+func parseClipboard(payload string) (string, bool) {
+	_, b64, ok := strings.Cut(payload, ";")
+	if !ok || b64 == "?" || len(b64) > base64.StdEncoding.EncodedLen(clipboardMax) {
+		return "", false
+	}
+	text, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil || len(text) == 0 || len(text) > clipboardMax {
+		return "", false
+	}
+	return validUTF8(string(text)), true
+}
+
 // parseNotification reads the payload of OSC 9, 99 or 777. It skips
 // ConEmu's numeric OSC 9 subcommands (9;4;... is progress), OSC 777 other
 // than notify, and kitty chunks that are not the last (d=0) or carry

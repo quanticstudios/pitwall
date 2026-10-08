@@ -71,6 +71,10 @@ func TestScroll(t *testing.T) {
 	frame("clamped at max", 100, 100)
 	gui.send(proto.Scroll{Pane: id, Lines: -1000})
 	frame("clamped at 0", 0, 100)
+	gui.send(proto.Scroll{Pane: id, Lines: 10, Prompts: 2})
+	frame("two prompts back from 10 lines up", 24, 100)
+	gui.send(proto.Scroll{Pane: id, Prompts: -9})
+	frame("prompts forward stop at the live screen", 0, 100)
 
 	// History is full, so its length stays 100 while 5 more lines scroll off.
 	gui.send(proto.Scroll{Pane: id, Lines: 40})

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -87,6 +88,9 @@ type Options struct {
 	Split         func(root *layout.Node, target, newPane string, dir layout.Dir) *layout.Node
 	Remove        func(root *layout.Node, pane string) *layout.Node
 	StatsInterval time.Duration // 0 means 30s
+	// Bell reports whether a BEL raises its pane's attention ([terminal]
+	// bell); nil means it does.
+	Bell func() bool
 }
 
 type Daemon struct {
@@ -105,6 +109,9 @@ type Daemon struct {
 	live        liveness
 	resumed     map[string]time.Time  // pane: when NewWith relaunched it with a resume command
 	attn        map[string]*attention // pane: seen time and OSC notification, see attention.go
+	clip        model.Clipboard       // the latest OSC 52 write, see attention.go
+	clipAt      time.Time             // when it came
+	clipSeq     atomic.Uint64         // numbers OSC 52 writes as they arrive
 	dec         decisions             // see decide.go
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
@@ -140,6 +147,7 @@ func New() (*Daemon, error) {
 		Load:           func() (model.State, error) { return store.Open(path) },
 		RestoreCmd:     store.RestoreCmd,
 		Decisions:      loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
+		Bell:           bellSetting(config.Path()),
 		Split:          layout.Split,
 		Remove:         layout.Remove,
 	})
@@ -278,6 +286,7 @@ type client struct {
 	conn    *proto.Conn
 	nc      net.Conn // for write deadlines
 	session string   // the session a GUI shows, from SessionShow; guarded by Daemon.mu
+	focus   string   // the pane a GUI shows focused in a focused window, from SeePane; guarded by Daemon.mu
 	wake    chan struct{}
 	mu      sync.Mutex
 	state   bool
@@ -426,6 +435,11 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if s, ok := m.(proto.Search); ok {
 			c.queue(d.search(s)) // a reply to this client alone
 			continue
+		}
+		if see, ok := m.(proto.SeePane); ok && hello.Kind == "gui" && hello.Level >= proto.SeeFocusLevel {
+			d.mu.Lock()
+			c.focus = see.Pane
+			d.mu.Unlock()
 		}
 		if show, ok := m.(proto.SessionShow); ok && hello.Kind == "gui" {
 			if err := d.sessionShow(c, show.SessionID); err != nil {
@@ -1340,6 +1354,10 @@ func (d *Daemon) snapshot() model.State {
 	s.Activities = d.attended()
 	s.Stats = maps.Clone(s.Stats)
 	s.Decide = d.decideInfo()
+	s.Clipboard = d.clip
+	if time.Since(d.clipAt) > clipKeep {
+		s.Clipboard.Text = ""
+	}
 	return s
 }
 

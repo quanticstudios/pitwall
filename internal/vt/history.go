@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
+	xvt "github.com/charmbracelet/x/vt"
 )
 
 // historyMax is how many lines that scrolled off the main screen a pane keeps.
@@ -14,11 +15,15 @@ const historyMax = 10000
 // column, about 134MB per pane at 10k lines of 120 columns; this keeps the
 // text and the style runs.
 type line struct {
-	text    string   // cell contents, concatenated
-	cells   []uint16 // per cell len(Content)<<2 | Width; nil when every cell is one ASCII byte of width 1
-	runs    []run    // style and link changes in column order; the first starts at column 0
-	wrapped bool     // the text goes on in the next line (a soft wrap), rather than ending in a line break
+	text  string        // cell contents, concatenated
+	cells []uint16      // per cell len(Content)<<2 | Width; nil when every cell is one ASCII byte of width 1
+	runs  []run         // style and link changes in column order; the first starts at column 0
+	flags xvt.LineFlags // the row's OSC 133 marks, and LineWrapped
 }
+
+// wrapped reports whether l's text goes on in the next line (a soft wrap),
+// rather than ending in a line break.
+func (l *line) wrapped() bool { return l.flags&xvt.LineWrapped != 0 }
 
 type run struct {
 	col    uint32 // a logical line joined for a reflow can pass 65,535 columns
@@ -53,8 +58,8 @@ func (h *history) set(lines []line) {
 	h.pushed = h.pushed + uint64(h.len()) - uint64(n)
 }
 
-func (h *history) push(cells uv.Line, wrapped bool) {
-	l := h.line(cells, wrapped, 0)
+func (h *history) push(cells uv.Line, flags xvt.LineFlags) {
+	l := h.line(cells, flags, 0)
 	h.pushed++
 	if len(h.lines) < historyMax {
 		h.lines = append(h.lines, l)
@@ -67,7 +72,8 @@ func (h *history) push(cells uv.Line, wrapped bool) {
 // line packs a row of cells. Trailing blanks go, except within the first
 // keep cells; a soft-wrapped row keeps its blanks, which are text, and drops
 // only the padding left where a wide char did not fit.
-func (h *history) line(cells uv.Line, wrapped bool, keep int) line {
+func (h *history) line(cells uv.Line, flags xvt.LineFlags, keep int) line {
+	wrapped := flags&xvt.LineWrapped != 0
 	n := len(cells)
 	for ; n > keep; n-- {
 		c := &cells[n-1]
@@ -79,7 +85,7 @@ func (h *history) line(cells uv.Line, wrapped bool, keep int) line {
 		}
 	}
 	cells = cells[:n]
-	l := line{wrapped: wrapped}
+	l := line{flags: flags}
 	for _, c := range cells {
 		if c.Width != 1 || len(c.Content) != 1 || c.Content[0] >= 0x80 {
 			l.cells = make([]uint16, len(cells))

@@ -3,8 +3,10 @@ package daemon
 import (
 	"io"
 	"slices"
+	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
@@ -37,8 +39,16 @@ func (d *Daemon) attnOf(id string) *attention {
 	return a
 }
 
+// bellInterval is the least time between two bells of a pane that reach
+// the daemon; the ones between are dropped. Tests shorten it.
+var bellInterval = time.Second
+
+// clipKeep is how long states carry an OSC 52 write's text, for GUIs to
+// pick it up; later states carry only its Seq.
+const clipKeep = 5 * time.Second
+
 // notifyingVT wraps d.o.NewVT so the emulator of pane id reports OSC
-// notifications to the daemon.
+// notifications, bells and OSC 52 clipboard writes to the daemon.
 func (d *Daemon) notifyingVT(id string) vt.NewFunc {
 	newVT := d.o.NewVT
 	if newVT == nil {
@@ -46,12 +56,87 @@ func (d *Daemon) notifyingVT(id string) vt.NewFunc {
 	}
 	return func(cols, rows int, reply io.Writer) vt.Emulator {
 		e := newVT(cols, rows, reply)
+		// why: the emulator calls these under the pane's lock, and d.mu
+		// is taken before pane locks elsewhere.
 		if s, ok := e.(interface{ SetNotifyFunc(func(vt.Notification)) }); ok {
-			// why: the emulator calls this under the pane's lock, and
-			// d.mu is taken before pane locks elsewhere.
 			s.SetNotifyFunc(func(n vt.Notification) { go d.notice(id, n) })
 		}
+		if s, ok := e.(interface{ SetBellFunc(func()) }); ok {
+			var last time.Time // guarded by the pane's lock
+			s.SetBellFunc(func() {
+				if now := time.Now(); now.Sub(last) >= bellInterval {
+					last = now
+					go d.bell(id)
+				}
+			})
+		}
+		if s, ok := e.(interface{ SetClipboardFunc(func(string)) }); ok {
+			s.SetClipboardFunc(func(text string) {
+				seq := d.clipSeq.Add(1) // the order they arrived in, whichever goroutine runs first
+				go d.setClipboard(seq, text)
+			})
+		}
 		return e
+	}
+}
+
+// bell raises pane id's attention for a BEL, as an OSC notification
+// does, unless the config turns bells off or a GUI shows the pane focused.
+// A pane whose agent already needs you keeps its activity: the hooks say
+// more than a bell.
+func (d *Daemon) bell(id string) {
+	if d.o.Bell != nil && !d.o.Bell() {
+		return
+	}
+	d.mu.Lock()
+	quiet := d.shownFocused(id)
+	if i := d.activityIndex(id); i >= 0 && model.NeedsYou(d.st.Activities[i].State) {
+		quiet = true
+	}
+	d.mu.Unlock()
+	if !quiet {
+		d.notice(id, vt.Notification{Body: "Bell"})
+	}
+}
+
+// shownFocused reports whether a GUI shows pane id focused in a focused
+// window. Callers hold d.mu.
+func (d *Daemon) shownFocused(id string) bool {
+	for c := range d.clients {
+		if c.focus == id {
+			return true
+		}
+	}
+	return false
+}
+
+// setClipboard makes text, the OSC 52 write numbered seq, the clipboard
+// GUIs write, unless a later write got there first.
+func (d *Daemon) setClipboard(seq uint64, text string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closing || seq <= d.clip.Seq {
+		return
+	}
+	d.clip, d.clipAt = model.Clipboard{Seq: seq, Text: text}, time.Now()
+	d.changed()
+}
+
+// bellSetting reads [terminal] bell from the config at path, again only
+// when the file changed.
+func bellSetting(path string) func() bool {
+	var mu sync.Mutex
+	var stamp string
+	on := true
+	return func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if st := fileStamp(path); st != stamp {
+			stamp = st
+			s, _ := config.LoadFile(path)
+			on = s.Bell
+		}
+		return on
 	}
 }
 

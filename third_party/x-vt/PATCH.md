@@ -16,19 +16,28 @@ Pitwall never displays alternate-screen history. Keeping full cells for its
 10,000 invisible history lines retains about 134 MiB per pane at 120 columns.
 Disabling that buffer retains zero history lines.
 
-## Patch: soft wraps for reflow
+## Patch: line flags, soft wraps for reflow
+
+`lineflags.go` adds `LineFlags`, one byte of metadata per row, with
+`Emulator.LineFlags` and `Emulator.SetLineFlags` on the active screen.
+`Screen` keeps a `flags` slice beside its buffer: `InsertLine` and
+`DeleteLine` shift it with the rows when the scroll region spans every
+column, `Clear` and `Reset` zero it, and `Resize` adds or drops rows at the
+bottom as the buffer does. Lines that `DeleteLine` and
+`ClearWithScrollback` push to the scrollback take their flags along;
+`Scrollback.Flags` returns them in the order of `Lines`. `Push` and `PushN`
+push flag 0.
 
 pitwall rewraps the main screen and its history when a pane changes width,
 which needs to know which rows ended at the right margin rather than at a
 line break. Upstream does not record that.
 
-- `Screen` keeps a `wrapped` flag per row. `handleGrapheme` in `utf8.go` sets
-  it when autowrap moves to the next row. Erasing or filling a row through
-  its last column clears it, and line insertion, deletion and scrolling move
-  the flags with their rows. `Screen.Wrapped` and `Screen.Line` read them.
-- `Scrollback` stores the flag beside each line (`Scrollback.Wrapped`). A
-  wrapped line keeps its trailing blanks, which are text that goes on in the
-  next line. `Push` behaves as before and pushes an unwrapped line.
+- `LineWrapped` marks such a row. `handleGrapheme` in `utf8.go` sets it when
+  autowrap moves to the next row. Erasing or filling a row through its last
+  column clears it, and so does a resize to another width.
+  `Screen.Wrapped`, `Scrollback.Wrapped` and `Screen.Line` read it.
+- A wrapped line in the scrollback keeps its trailing blanks, which are text
+  that goes on in the next line.
 - A wide character that does not fit before the right margin wraps whole and
   leaves a zero cell behind, as in xterm. One that ends in the last column
   leaves the cursor there waiting to wrap. Upstream wrote a cut-off blank in
@@ -38,8 +47,14 @@ line break. Upstream does not record that.
   `Emulator.ResizeMain` resizes with the main screen's rows replaced. The
   rewrapping itself lives in pitwall's `internal/vt/reflow.go`.
 
-`TestSoftWrapFlags` in `wrap_test.go` covers the flags, and
-`internal/vt/reflow_test.go` covers the reflow.
+pitwall also records OSC 133 shell integration marks in the flags
+(`LinePrompt`, `LineInput`, `LineOutput`, `LineEnd`) and moves them into its
+own history with each line. Other per-row metadata belongs in the same byte.
+
+`TestSoftWrapFlags` in `wrap_test.go` and `TestLineFlags` in
+`lineflags_test.go` cover the flags (`go -C third_party/x-vt test ./...`).
+`internal/vt/reflow_test.go` covers the reflow, and `TestPromptMarks` in
+`internal/vt` follows OSC 133 marks into pitwall's history.
 
 ## Why option 3
 

@@ -5,7 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/io/input"
 	"gioui.org/io/key"
+	gl "gioui.org/layout"
+	"gioui.org/op"
+
+	"github.com/quanticstudios/pitwall/internal/config"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -121,6 +126,26 @@ func TestMarkSeen(t *testing.T) {
 		t.Fatal("SeePane sent twice")
 	}
 
+	// Focus changes go to the daemon too, for bells: "" when the window
+	// shows no pane focused.
+	focusSent := func() []string {
+		var out []string
+		for _, m := range b.Sent() {
+			if s, ok := m.(proto.SeePane); ok {
+				out = append(out, s.Pane)
+			}
+		}
+		return out
+	}
+	u.winFocused = false
+	u.markSeen(&st)
+	u.markSeen(&st)
+	u.winFocused = true
+	u.markSeen(&st)
+	if got := focusSent(); !slices.Equal(got, []string{"c", "", "c"}) {
+		t.Fatalf("SeePane sent for %q", got)
+	}
+
 	for since, want := range map[time.Duration]float32{0: 2, ringPulse / 2: 4, ringPulse: 2, 2 * ringPulse: 2, time.Hour: 2} {
 		if got := ringWidth(since); got < want-0.01 || got > want+0.01 {
 			t.Errorf("ringWidth(%v) = %v, want %v", since, got, want)
@@ -156,5 +181,34 @@ func TestJumpAttentionByUrgency(t *testing.T) {
 				st.Activities[j].Unseen = false
 			}
 		}
+	}
+}
+
+// TestWriteClipboard puts each OSC 52 write on the clipboard once, and none
+// while [terminal] osc52 is off.
+func TestWriteClipboard(t *testing.T) {
+	u := &ui{cfg: config.Settings{OSC52: true}}
+	var r input.Router
+	write := func(c model.Clipboard) string {
+		var ops op.Ops
+		u.writeClipboard(gl.Context{Ops: &ops, Source: r.Source()}, c)
+		r.Frame(&ops)
+		if _, b, ok := r.WriteClipboard(); ok {
+			return string(b)
+		}
+		return ""
+	}
+	if got := write(model.Clipboard{Seq: 1, Text: "one"}); got != "one" {
+		t.Fatalf("first write: %q", got)
+	}
+	if got := write(model.Clipboard{Seq: 1, Text: "one"}); got != "" {
+		t.Fatalf("the same write again: %q", got)
+	}
+	if got := write(model.Clipboard{Seq: 2}); got != "" {
+		t.Fatalf("a write whose text expired: %q", got)
+	}
+	u.cfg.OSC52 = false
+	if got := write(model.Clipboard{Seq: 3, Text: "three"}); got != "" {
+		t.Fatalf("osc52 = off wrote %q", got)
 	}
 }

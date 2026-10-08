@@ -251,6 +251,8 @@ type ui struct {
 	notifications *notifier
 	winFocused    bool                 // the window has keyboard focus
 	seeSent       map[string]time.Time // pane: the UpdatedAt its last SeePane was for
+	focusSent     string               // the pane the last SeePane named, "" for none
+	clipSeq       uint64               // the last OSC 52 write put on the clipboard (State.Clipboard.Seq)
 	rings         map[string]ring      // pane: its attention ring, see attentionRing
 
 	settings   settings.Page // shown in place of the panes
@@ -474,6 +476,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	u.sessionChanged(gtx)
 	u.markSeen(&st)
+	u.writeClipboard(gtx, st.Clipboard)
 	if !wasVisible && u.nav.switcherVisible() {
 		u.shownAt = gtx.Now
 	}
@@ -909,8 +912,8 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	if len(input) > 0 {
 		u.send(proto.Input{Pane: id, Data: input})
 	}
-	if d := p.view.ScrollDelta(); d != 0 {
-		u.send(proto.Scroll{Pane: id, Lines: d})
+	if d, n := p.view.ScrollDelta(), p.view.PromptDelta(); d != 0 || n != 0 {
+		u.send(proto.Scroll{Pane: id, Lines: d, Prompts: n})
 	}
 	if (cols != g.Cols || rows != g.Rows) && (cols != p.sentCols || rows != p.sentRows) {
 		if ok, held := resizes.Allow(id, gtx.Now); ok {
