@@ -1,8 +1,19 @@
 // Command pwdemo-sidebar shows the sidebar against a fake state that covers
 // every agent state, for visual checks against aide.
+//
+// Flags force states that are hard to reach by clicking:
+//
+//	-update label  show the footer's update button with this label
+//	-numbers       show the goto_tab digits on the first nine rows
+//	-active id     the active tab (default ws-sidebar); groups other than
+//	               its own start collapsed
+//	-expand-all    start every group expanded
+//	-unseen        mark every needs-you activity unseen
+//	-size WxH      window size in dp (default 900x860)
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -21,10 +32,31 @@ import (
 )
 
 func main() {
+	var sb sidebar.Sidebar
+	flag.StringVar(&sb.Update, "update", "", "footer update button label")
+	numbers := flag.Bool("numbers", false, "show goto_tab digits on the first nine rows")
+	active := flag.String("active", "ws-sidebar", "active tab id")
+	flag.BoolVar(&sb.ExpandAll, "expand-all", false, "start every group expanded")
+	unseen := flag.Bool("unseen", false, "mark every needs-you activity unseen")
+	size := flag.String("size", "900x860", "window size WxH in dp")
+	flag.Parse()
+	var width, height int
+	if _, err := fmt.Sscanf(*size, "%dx%d", &width, &height); err != nil {
+		log.Fatalf("-size %q: want WxH", *size)
+	}
+	if *numbers {
+		sb.Numbers = [9]bool{true, true, true, true, true, true, true, true, true}
+	}
+	st := fakeState(time.Now())
+	if *unseen {
+		for i := range st.Activities {
+			st.Activities[i].Unseen = model.NeedsYou(st.Activities[i].State)
+		}
+	}
 	go func() {
 		w := new(app.Window)
-		w.Option(app.Title("pwdemo-sidebar"), app.Size(unit.Dp(900), unit.Dp(860)))
-		if err := run(w); err != nil {
+		w.Option(app.Title("pwdemo-sidebar"), app.Size(unit.Dp(width), unit.Dp(height)))
+		if err := run(w, &sb, st, *active); err != nil {
 			log.Fatal(err)
 		}
 		os.Exit(0)
@@ -32,11 +64,8 @@ func main() {
 	app.Main()
 }
 
-func run(w *app.Window) error {
+func run(w *app.Window, sb *sidebar.Sidebar, st model.State, active string) error {
 	th := theme.Dark()
-	st := fakeState(time.Now())
-	active := "ws-sidebar"
-	var sb sidebar.Sidebar
 	var ops op.Ops
 	for {
 		switch e := w.Event().(type) {

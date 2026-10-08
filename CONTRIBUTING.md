@@ -81,6 +81,17 @@ change. Use the standard library first; explain any new dependency. Keep
 copied code's attribution and update [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 when licenses or bundled dependencies change.
 
+### Visual checks
+
+`go run ./cmd/pwdemo-sidebar` draws the sidebar against a fake state with
+every agent state. Its flags force states that are hard to reach by clicking:
+`-update <label>` shows the footer's update button, `-numbers` shows the
+goto_tab digits, `-active <tab id>` picks the active tab, `-expand-all` opens
+every group, `-unseen` marks needs-you activity unseen and `-size WxH` sets the
+window size in dp. Run `go run ./cmd/pwdemo-sidebar -h` for the list. In an
+`agent-ws` display, Gio repaints hover only after the second pointer move, so
+move the pointer twice before a hover screenshot.
+
 ## Open a pull request
 
 1. Push your branch to your fork and open a pull request against
