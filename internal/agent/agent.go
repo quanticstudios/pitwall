@@ -1,9 +1,11 @@
 // Package agent maps coding-agent hook events to model.Activity.
 //
-// Claude Code and Codex hooks send the same JSON shape on stdin
+// Claude Code, Codex and Gemini CLI hooks send the same JSON shape on stdin
 // (hook_event_name, session_id, cwd, tool_name, tool_input, ...), so one
-// decoder serves both. Codex's older notify program sends a different object
-// as its one argv argument; Derive tells the two apart by hook_event_name.
+// decoder serves all three; Gemini's events have names of their own.
+// pitwall's OpenCode plugin reports OpenCode's events in Claude Code's
+// vocabulary. Codex's older notify program sends a different object as its
+// one argv argument; Derive tells the two apart by hook_event_name.
 // pitwall's pi extension sends a small object of its own keyed by "event".
 package agent
 
@@ -12,6 +14,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -46,6 +49,17 @@ type payload struct {
 		Type   string `json:"type"`
 		Status string `json:"status"`
 	} `json:"background_tasks"`
+
+	// Gemini CLI fields: AfterAgent's reply, and what a ToolPermission
+	// notification asks about.
+	PromptResponse string `json:"prompt_response"`
+	Details        struct {
+		Type        string `json:"type"`
+		Title       string `json:"title"`
+		RootCommand string `json:"rootCommand"`
+		FileName    string `json:"fileName"`
+		ToolName    string `json:"toolName"`
+	} `json:"details"`
 
 	// Codex legacy notify fields.
 	Type            string `json:"type"`
@@ -108,6 +122,28 @@ type payload struct {
 // pi has no permission prompts of its own, so it never reports
 // pending-approval, awaiting-input or plan-ready.
 //
+// Gemini CLI:
+//
+//	BeforeAgent, BeforeTool, AfterTool      working
+//	Notification ToolPermission, by details.type:
+//	  ask_user                              awaiting-input, Detail = "question"
+//	  exit_plan_mode                        plan-ready
+//	  others                                pending-approval, Detail = the command,
+//	                                        file or tool it asks about
+//	AfterAgent                              completed, Detail = the start of the reply
+//	SessionStart, SessionEnd                as above
+//
+// Gemini fires no hook when a turn fails or the user cancels it, so it never
+// reports error; the daemon ends a cancelled turn as it does Claude's.
+//
+// OpenCode reports through the plugin OpenCodePlugin writes, in Claude's
+// event names: UserPromptSubmit and PreToolUse (working), Notification
+// permission_prompt (pending-approval) and elicitation_dialog (its question
+// tool, awaiting-input), PostToolUse once the user answered (working), Stop
+// (completed), StopFailure (error) and Interrupt for a run the user aborted
+// (remove). OpenCode has no plan the user approves, so it never reports
+// plan-ready.
+//
 // Tool failures stay working: an agent recovers from a failed command inside
 // the same turn, so error is reserved for turns the API ended. A Claude turn
 // the user interrupts fires no hook; the daemon ends it from the keys it
@@ -152,6 +188,9 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 	}
 	if sideFork(p) {
 		return "", "", false, false
+	}
+	if state, detail, ok := mapGemini(p); ok {
+		return state, detail, false, true
 	}
 	switch p.Event {
 	case "UserPromptSubmit", "PostToolUse", "PostToolUseFailure":
@@ -226,6 +265,29 @@ func Summary(msg string, known ...string) string {
 		s = "" // one long token: none of it
 	}
 	return s + "…"
+}
+
+// mapGemini maps the events only Gemini CLI sends; ok is false for the
+// rest, its SessionStart and SessionEnd included.
+func mapGemini(p payload) (state model.AgentState, detail string, ok bool) {
+	switch p.Event {
+	case "BeforeAgent", "BeforeTool", "AfterTool":
+		return model.StateWorking, "", true
+	case "AfterAgent":
+		return model.StateCompleted, summary(p.PromptResponse), true
+	case "Notification":
+		if p.NotificationType != "ToolPermission" {
+			return "", "", false
+		}
+		switch p.Details.Type {
+		case "ask_user":
+			return model.StateAwaitingInput, "question", true
+		case "exit_plan_mode":
+			return model.StatePlanReady, "", true
+		}
+		return model.StatePendingApproval, firstNonEmpty(p.Details.RootCommand, p.Details.FileName, p.Details.ToolName, p.Details.Title), true
+	}
+	return "", "", false
 }
 
 func mapPi(p payload) (state model.AgentState, detail string, remove, ok bool) {
@@ -338,12 +400,13 @@ func NewProcess(payload []byte) (started, resumed bool) {
 	return p.Source == "startup", p.Source == "resume"
 }
 
-// Prompt returns the prompt text of a UserPromptSubmit hook or a pi
-// before_agent_start event, or "". All three carry it in "prompt". A /side
-// fork's prompt returns "": it is not the pane's main session.
+// Prompt returns the prompt text of a UserPromptSubmit hook, Gemini's
+// BeforeAgent or a pi before_agent_start event, or "". All of them carry it
+// in "prompt". A /side fork's prompt returns "": it is not the pane's main
+// session.
 func Prompt(provider model.Provider, payload []byte) string {
 	p, err := decode(payload)
-	if err != nil || (p.Event != "UserPromptSubmit" && p.PiEvent != "before_agent_start") || sideFork(p) {
+	if err != nil || !promptEvent(p) || sideFork(p) {
 		return ""
 	}
 	// why: a slash command (/clear, /model) says nothing about the work, so
@@ -381,19 +444,46 @@ var codexEvents = []hookEvent{
 	{name: "SessionEnd"},
 }
 
+// geminiEvents are the Gemini CLI hook events Derive acts on, and
+// SessionStart, so a Gemini waiting at its first prompt has reported.
+var geminiEvents = []hookEvent{
+	{name: "SessionStart"},
+	{name: "BeforeAgent"},
+	{name: "BeforeTool"},
+	{name: "AfterTool"},
+	{name: "Notification"},
+	{name: "AfterAgent"},
+	{name: "SessionEnd"},
+}
+
 type hookEvent struct{ name, matcher string }
 
 // ClaudeHooks returns the "hooks" object for ~/.claude/settings.json that
 // runs `<bin> hook claude` on every event Derive reads. The command no-ops
 // when PITWALL_PANE is unset, so registering it globally is harmless for
 // Claude sessions started outside pitwall.
-func ClaudeHooks(bin string) []byte { return hooksJSON(bin, "claude", claudeEvents) }
+func ClaudeHooks(bin string) []byte { return hooksJSON(bin, "claude", claudeEvents, 5) }
 
 // CodexHooks returns the "hooks" object for ~/.codex/hooks.json that runs
 // `<bin> hook codex` on every Codex hook event Derive reads. Codex runs a
 // hook only after the user trusts it once with /hooks. Like ClaudeHooks, the
 // command no-ops outside a pitwall pane.
-func CodexHooks(bin string) []byte { return hooksJSON(bin, "codex", codexEvents) }
+func CodexHooks(bin string) []byte { return hooksJSON(bin, "codex", codexEvents, 5) }
+
+// GeminiHooks returns the "hooks" object for ~/.gemini/settings.json that
+// runs `<bin> hook gemini` on every Gemini CLI event Derive reads. Gemini
+// takes timeouts in milliseconds. Like ClaudeHooks, the command no-ops
+// outside a pitwall pane.
+func GeminiHooks(bin string) []byte { return hooksJSON(bin, "gemini", geminiEvents, 5000) }
+
+// GeminiDir is Gemini CLI's user directory: .gemini in $GEMINI_CLI_HOME
+// when set, else in home.
+func GeminiDir(home string) string {
+	if h := os.Getenv("GEMINI_CLI_HOME"); h != "" {
+		home = h
+	}
+	return filepath.Join(home, ".gemini")
+}
 
 // CodexNotify returns the `notify = [...]` line for ~/.codex/config.toml.
 // Notify reports only finished turns; CodexHooks covers every state. The
@@ -430,7 +520,39 @@ var piReleased = []string{
 // IsPiExtension reports whether b is exactly what PiExtension returns for
 // some binary path, now or in an earlier release: a file pitwall wrote and
 // nobody edited since.
-func IsPiExtension(b []byte) bool {
+func IsPiExtension(b []byte) bool { return isGenerated(b, piTemplate, piReleased) }
+
+//go:embed opencode_plugin.js
+var openCodeTemplate string
+
+// OpenCodePlugin returns the JavaScript plugin OpenCode loads from
+// <OpenCodeDir>/plugins/pitwall.js. Inside a pitwall pane it runs `<bin> hook
+// opencode` with a JSON payload on stdin, without a shell, one at a time in
+// the background, on each prompt, tool call, permission or question, and
+// finished, failed or aborted run of the main session; subagents' sessions
+// are left out. It sends the tool's name but never its arguments. Outside a
+// pane it registers nothing.
+func OpenCodePlugin(bin string) []byte {
+	q, _ := json.Marshal(bin)
+	return []byte(strings.Replace(openCodeTemplate, piBinToken, string(q), 1))
+}
+
+// IsOpenCodePlugin reports whether b is exactly what OpenCodePlugin returns
+// for some binary path: a file pitwall wrote and nobody edited since.
+func IsOpenCodePlugin(b []byte) bool { return isGenerated(b, openCodeTemplate, nil) }
+
+// OpenCodeDir is OpenCode's global config directory,
+// $XDG_CONFIG_HOME/opencode or ~/.config/opencode on every system.
+func OpenCodeDir(home string) string {
+	if x := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(x) {
+		return filepath.Join(x, "opencode")
+	}
+	return filepath.Join(home, ".config", "opencode")
+}
+
+// isGenerated reports whether b is template, or one of the released
+// templates by SHA-256, with some binary path in place of the bin token.
+func isGenerated(b []byte, template string, released []string) bool {
 	// why: JSON escapes newlines, so the bin literal ends at the first ";\n".
 	pre, rest, ok := strings.Cut(string(b), "const bin = ")
 	lit, post, ok2 := strings.Cut(rest, ";\n")
@@ -443,10 +565,10 @@ func IsPiExtension(b []byte) bool {
 	}
 	tmpl := pre + "const bin = " + piBinToken + ";\n" + post
 	sum := sha256.Sum256([]byte(tmpl))
-	return tmpl == piTemplate || slices.Contains(piReleased, hex.EncodeToString(sum[:]))
+	return tmpl == template || slices.Contains(released, hex.EncodeToString(sum[:]))
 }
 
-func hooksJSON(bin, provider string, events []hookEvent) []byte {
+func hooksJSON(bin, provider string, events []hookEvent, timeout int) []byte {
 	type handler struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -461,7 +583,7 @@ func hooksJSON(bin, provider string, events []hookEvent) []byte {
 	cmd := commandPath(runtime.GOOS, bin) + " hook " + provider
 	out := map[string][]group{}
 	for _, e := range events {
-		out[e.name] = []group{{Matcher: e.matcher, Hooks: []handler{{Type: "command", Command: cmd, Timeout: 5}}}}
+		out[e.name] = []group{{Matcher: e.matcher, Hooks: []handler{{Type: "command", Command: cmd, Timeout: timeout}}}}
 	}
 	b, _ := json.MarshalIndent(out, "", "  ")
 	return b
@@ -555,18 +677,23 @@ func PiRuntime(payload []byte) (runtime string, start bool) {
 }
 
 // UserPrompt is the prompt of any UserPromptSubmit hook from the main
-// session, or of pi's before_agent_start, or "".
+// session, of Gemini's BeforeAgent, or of pi's before_agent_start, or "".
 func UserPrompt(payload []byte) string {
 	p, err := decode(payload)
-	if err != nil || (p.Event != "UserPromptSubmit" && p.PiEvent != "before_agent_start") || sideFork(p) {
+	if err != nil || !promptEvent(p) || sideFork(p) {
 		return ""
 	}
 	return p.Prompt
 }
 
+func promptEvent(p payload) bool {
+	return p.Event == "UserPromptSubmit" || p.Event == "BeforeAgent" || p.PiEvent == "before_agent_start"
+}
+
 // LastMessage is the agent's final message of a finished turn: Stop's
-// last_assistant_message, Codex notify's last-assistant-message, or the
-// message of pi's agent_settled (whole, up to 16000 runes).
+// last_assistant_message, Codex notify's last-assistant-message, Gemini's
+// prompt_response, or the message of pi's agent_settled (whole, up to
+// 16000 runes).
 func LastMessage(payload []byte) string {
 	p, err := decode(payload)
 	if err != nil {
@@ -575,7 +702,7 @@ func LastMessage(payload []byte) string {
 	if p.PiEvent == "agent_settled" {
 		return p.Message
 	}
-	return firstNonEmpty(p.LastMessage, p.LastMessageDash)
+	return firstNonEmpty(p.LastMessage, p.LastMessageDash, p.PromptResponse)
 }
 
 // NeedsInteraction reports tools whose permission request is really a

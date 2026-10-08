@@ -261,3 +261,61 @@ func TestHookedProviderClearsOnExit(t *testing.T) {
 	lp.fgGroup.Store(200) // the hooked codex exited to the shell
 	waitUntil(t, "cleared", func() bool { return d.providerOf(id) == "" })
 }
+
+func (d *Daemon) hooksMissing(id string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, p := range d.st.Panes {
+		if p.ID == id {
+			return p.HooksMissing
+		}
+	}
+	return false
+}
+
+// An agent seen starting that sends no hook within hookGrace, or one whose
+// screen shows a turn without a hook, marks its pane; a hook clears it.
+// Codex sends nothing while idle, and an agent already running when the
+// daemon started may have hooks, so neither is marked by time alone.
+func TestHooksMissing(t *testing.T) {
+	old := hookGrace
+	hookGrace = 50 * time.Millisecond
+	t.Cleanup(func() { hookGrace = old })
+
+	d, lp, id := openLive(t, 200)
+	lp.show("❯ ", false)
+	polls()
+	lp.fgGroup.Store(100) // claude starts, without hooks
+	waitUntil(t, "claude marked", func() bool { return d.hooksMissing(id) })
+	must(t, d.handle(context.Background(), proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("clear")}))
+	if d.hooksMissing(id) {
+		t.Fatal("a hook left the mark")
+	}
+
+	lp.fgGroup.Store(200)
+	waitUntil(t, "back at the shell", func() bool { return d.providerOf(id) == "" })
+	lp.show(codexIdle, false)
+	lp.fgGroup.Store(300) // codex, idle
+	polls()
+	if d.hooksMissing(id) {
+		t.Fatal("idle codex marked")
+	}
+	lp.show(codexWorking, false)
+	waitUntil(t, "codex in a turn marked", func() bool { return d.hooksMissing(id) })
+	lp.fgGroup.Store(200)
+	waitUntil(t, "mark cleared at the shell", func() bool { return !d.hooksMissing(id) })
+	lp.fgGroup.Store(700) // gemini, by its process name
+	waitUntil(t, "gemini marked", func() bool { return d.hooksMissing(id) })
+}
+
+func TestHooksMissingSkipsAgentFoundRunning(t *testing.T) {
+	old := hookGrace
+	hookGrace = 50 * time.Millisecond
+	t.Cleanup(func() { hookGrace = old })
+	d, lp, id := openLive(t, 100) // claude running at the first poll
+	lp.show("❯ ", false)
+	polls()
+	if d.hooksMissing(id) {
+		t.Fatal("an agent found running marked by time")
+	}
+}

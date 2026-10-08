@@ -33,6 +33,7 @@ func TestDerive(t *testing.T) {
 	const (
 		claude = model.ProviderClaude
 		codex  = model.ProviderCodex
+		gemini = model.ProviderGemini
 		none   = model.AgentState("")
 	)
 	tests := []struct {
@@ -78,6 +79,15 @@ func TestDerive(t *testing.T) {
 		{"codex_interrupt", codex, model.StateWorking, true, none, ""},
 		{"codex_side_fork", codex, model.StateWorking, false, none, ""},
 		{"codex_session_end", codex, model.StateCompleted, true, none, ""},
+		{"gemini_session_start", gemini, none, false, none, ""},
+		{"gemini_before_agent", gemini, model.StateCompleted, true, model.StateWorking, ""},
+		{"gemini_before_tool", gemini, none, true, model.StateWorking, ""},
+		{"gemini_after_tool", gemini, model.StatePendingApproval, true, model.StateWorking, ""},
+		{"gemini_notification_exec", gemini, model.StateWorking, true, model.StatePendingApproval, "rm, go"},
+		{"gemini_notification_ask", gemini, model.StateWorking, true, model.StateAwaitingInput, "question"},
+		{"gemini_notification_plan", gemini, model.StateWorking, true, model.StatePlanReady, ""},
+		{"gemini_after_agent", gemini, model.StateWorking, true, model.StateCompleted, "The test raced on the clock. It now uses a fake clock and passes 200 runs."},
+		{"gemini_session_end", gemini, model.StateCompleted, true, none, ""},
 	}
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	for _, tt := range tests {

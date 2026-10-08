@@ -38,9 +38,9 @@ const usage = `usage:
   pitwall -s <name>          open a window on session name, made if missing
   pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
   pitwall daemon             run the daemon in the foreground
-  pitwall hook <provider>    forward an agent hook event (claude, codex, pi)
-  pitwall hooks              print the Claude Code, Codex and pi hook config
-  pitwall hooks install      add hooks and pi's extension (--dry-run)
+  pitwall hook <provider>    forward an agent hook event (claude, codex, pi, gemini, opencode)
+  pitwall hooks              print the hook config for every agent
+  pitwall hooks install      add hooks, pi's extension and OpenCode's plugin (--dry-run)
   pitwall hooks uninstall    remove this binary's hooks (--dry-run)
   pitwall ls [--json]        list the current session's tabs, numbered in sidebar order
                              (--json: one object per tab, see docs/agent-skill.md)
@@ -228,7 +228,9 @@ func printHooks() error {
 	fmt.Printf("# ~/.claude/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.ClaudeHooks(bin))
 	fmt.Printf("# ~/.codex/hooks.json (then trust them once with /hooks inside codex):\n{\"hooks\": %s}\n\n", agent.CodexHooks(bin))
 	fmt.Printf("# or, for finished turns only, ~/.codex/config.toml:\n%s\n\n", agent.CodexNotify(bin))
-	fmt.Printf("# ~/.pi/agent/extensions/pitwall.ts ($PI_CODING_AGENT_DIR/extensions/pitwall.ts when set):\n%s", agent.PiExtension(bin))
+	fmt.Printf("# ~/.pi/agent/extensions/pitwall.ts ($PI_CODING_AGENT_DIR/extensions/pitwall.ts when set):\n%s\n", agent.PiExtension(bin))
+	fmt.Printf("# ~/.gemini/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.GeminiHooks(bin))
+	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js ($XDG_CONFIG_HOME/opencode/plugins/pitwall.js when set):\n%s", agent.OpenCodePlugin(bin))
 	return nil
 }
 
@@ -244,7 +246,7 @@ func runGUI(session string) error {
 	if err := crashOutput(); err != nil {
 		log.Printf("crash output: %q", err)
 	}
-	app.Version, app.Relaunch = versionString(), launchGUI
+	app.Version, app.Relaunch, app.InstallHooks = versionString(), launchGUI, installHooks
 	conn, initial, err := dialOrStart(session, false)
 	var b *backend
 	var refused incompatible

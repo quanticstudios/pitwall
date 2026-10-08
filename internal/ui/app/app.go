@@ -197,6 +197,9 @@ type paneUI struct {
 	sentCols   int
 	sentRows   int
 	focusClick bool // its address is the click-to-focus pointer tag
+	// The hooks notice: its buttons, and its area's pointer tag.
+	hooksInstall, hooksHide widget.Clickable
+	hooksBox                bool
 	// Last, so a zero-size View never shares an address with focusClick.
 	view term.View
 }
@@ -274,6 +277,8 @@ type ui struct {
 	invalidate func()     // the window's Invalidate; nil in tests
 
 	find findBar // the find bar, on the focused pane while open
+
+	hooks hooksDialog // the Install hooks dialog and the pane notices
 
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
@@ -792,6 +797,9 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		u.layoutPane(gtx, p, id, r, id == focused, findFocus && id == u.find.pane, sole, att)
 		if s := advice[id]; s != "" {
 			u.drawAdvice(gtx, r, s)
+		}
+		if pn := findPane(st, id); pn != nil && pn.HooksMissing && u.hooksNotice() {
+			u.drawHooksNotice(gtx, p, r)
 		}
 		if id == zoom {
 			u.drawZoomHint(gtx, r)

@@ -106,6 +106,23 @@ build. Either step takes `--dry-run`.
 - Clipboard writes, bells and prompt jumps happen in the background
   service. While one from an earlier release runs, they do nothing until
   it restarts.
+- Gemini CLI and OpenCode report their state through hooks, like Claude
+  Code and Codex. `pitwall hooks install` adds pitwall's hooks to
+  `~/.gemini/settings.json` and writes an OpenCode plugin to
+  `~/.config/opencode/plugins/pitwall.js`, each only when that agent is
+  installed. Gemini shows Working, Input, Approval, Plan and Done but never
+  Error, because it fires no hook for a failed turn. OpenCode shows Working,
+  Input, Approval, Done and Error, and has no Plan. Gemini's settings with
+  comments are skipped with a warning instead of stopping the install.
+- A pane whose agent runs without hooks says so: "Install hooks for live
+  status" with an Install button, after the agent has run for 20 seconds
+  without reporting, or as soon as its screen shows a turn. Install shows
+  what changes in each file, then installs on confirm and reminds you to
+  restart running agents and trust Codex's hooks with /hooks. Settings >
+  Agents has the same Install button in place of the command to copy, and
+  lists Gemini CLI and OpenCode.
+- `pitwall hooks install --dry-run` lists each change as a comment line
+  above the file it makes, and no longer prints files that stay unchanged.
 
 - Answer agents from your phone. With `[remote] enabled = true`, the
   background service serves a page that lists the tabs needing you, with

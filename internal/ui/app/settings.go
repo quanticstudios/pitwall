@@ -21,9 +21,10 @@ func (u *ui) openSettings() {
 }
 
 // settingsKeys lets the page take its keys before the window's shortcuts:
-// a chord being recorded, and Escape. An open switcher keeps Escape.
+// a chord being recorded, and Escape. An open switcher or dialog keeps
+// Escape.
 func (u *ui) settingsKeys(gtx gl.Context) {
-	if !u.nav.switcherVisible() {
+	if !u.nav.switcherVisible() && u.modal.kind == modalNone {
 		u.settingsResult(u.settings.Keys(gtx))
 	}
 }
@@ -66,6 +67,8 @@ func (u *ui) settingsResult(r settings.Result) {
 		u.settings.Hide()
 	case settings.Saved:
 		u.reloadConfig()
+	case settings.InstallHooks:
+		u.openHooks()
 	}
 }
 

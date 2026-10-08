@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"slices"
@@ -23,14 +24,48 @@ type hookFile struct {
 	Agent, Path string
 	Have, Want  int // events running `pitwall hook <agent>`, of those pitwall installs
 	Err         string
+	Edited      bool // a plugin pitwall wrote whole, edited since; install leaves it
 }
 
-// hookStatus reads (never writes) the agents' hook configs under home.
+// hookStatus reads (never writes) the agents' hook configs under home:
+// Claude Code's and Codex's always, Gemini CLI's and OpenCode's when the
+// agent is installed, as `pitwall hooks install` decides.
 func hookStatus(home string) []hookFile {
-	return []hookFile{
+	out := []hookFile{
 		checkHooks("Claude Code", filepath.Join(home, ".claude", "settings.json"), agent.ClaudeHooks("pitwall"), " hook claude"),
 		checkHooks("Codex", filepath.Join(home, ".codex", "hooks.json"), agent.CodexHooks("pitwall"), " hook codex"),
 	}
+	if dir := agent.GeminiDir(home); installed("gemini", dir) {
+		out = append(out, checkHooks("Gemini CLI", filepath.Join(dir, "settings.json"), agent.GeminiHooks("pitwall"), " hook gemini"))
+	}
+	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
+		out = append(out, checkPlugin("OpenCode", filepath.Join(dir, "plugins", "pitwall.js"), agent.IsOpenCodePlugin))
+	}
+	return out
+}
+
+func installed(name, dir string) bool {
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	_, err := os.Stat(dir)
+	return err == nil
+}
+
+// checkPlugin reports a plugin file pitwall writes whole: installed when
+// some pitwall binary wrote it and nobody edited it since.
+func checkPlugin(name, path string, is func([]byte) bool) hookFile {
+	h := hookFile{Agent: name, Path: path, Want: 1}
+	switch data, err := os.ReadFile(path); {
+	case os.IsNotExist(err):
+	case err != nil:
+		h.Err = err.Error()
+	case is(data):
+		h.Have = 1
+	default:
+		h.Edited = true
+	}
+	return h
 }
 
 type hookGroups map[string][]struct {

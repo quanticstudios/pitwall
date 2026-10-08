@@ -137,7 +137,7 @@ func NewFakeBackend() *FakeBackend {
 	for _, w := range f.st.Workspaces {
 		for _, t := range w.Tabs {
 			for _, p := range panesOf(t.Layout) {
-				f.st.Panes = append(f.st.Panes, model.Pane{ID: p, WorkspaceID: w.ID, Cwd: w.Path, Provider: agents[p]})
+				f.st.Panes = append(f.st.Panes, model.Pane{ID: p, WorkspaceID: w.ID, Cwd: w.Path, Provider: agents[p], HooksMissing: p == "c"})
 			}
 		}
 	}

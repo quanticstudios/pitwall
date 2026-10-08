@@ -20,6 +20,8 @@ func hooksHome(t *testing.T) string {
 	// why: pi is skipped unless on PATH or configured; tests opt in through its dir.
 	t.Setenv("PATH", "")
 	t.Setenv("PI_CODING_AGENT_DIR", "")
+	t.Setenv("GEMINI_CLI_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
 	previous := hookExecutable
 	hookExecutable = func() (string, error) { return "/opt/pitwall/bin/pitwall", nil }
 	t.Cleanup(func() { hookExecutable = previous })
@@ -467,5 +469,67 @@ func TestHooksPiExtension(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("uninstall left the extension")
+	}
+}
+
+func TestHooksGeminiAndOpenCode(t *testing.T) {
+	home := hooksHome(t)
+	var out bytes.Buffer
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), ".gemini") || strings.Contains(out.String(), "opencode") {
+		t.Fatalf("set up agents that are not installed: %s", out.String())
+	}
+
+	gemini := filepath.Join(home, ".gemini", "settings.json")
+	original := `{"theme":"Dracula","hooksConfig":{"enabled":true},"hooks":{"BeforeTool":[{"matcher":"write_file","hooks":[{"type":"command","command":"lint.sh"}]}]}}`
+	writeHooksTestFile(t, gemini, original)
+	cfg := filepath.Join(t.TempDir(), "config")
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, "opencode"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(cfg, "opencode", "plugins", "pitwall.js")
+	out.Reset()
+	if err := runHooks([]string{"install", "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "# "+plugin) || !strings.Contains(out.String(), `hook gemini"`) || string(readHooksTestFile(t, gemini)) != original {
+		t.Fatalf("dry-run: %s", out.String())
+	}
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := hookJSON[hookObject](readHooksTestFile(t, gemini))
+	events, _ := hookJSON[hookObject](root["hooks"])
+	if string(root["theme"]) != `"Dracula"` || len(events) != 7 || !strings.Contains(string(events["BeforeTool"]), "lint.sh") || !strings.Contains(string(events["AfterAgent"]), `"timeout": 5000`) {
+		t.Fatalf("Gemini settings: %s", readHooksTestFile(t, gemini))
+	}
+	if !bytes.Equal(readHooksTestFile(t, plugin), agent.OpenCodePlugin("/opt/pitwall/bin/pitwall")) {
+		t.Fatal("install wrote another plugin")
+	}
+	if err := runHooks([]string{"uninstall"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	equalHookJSON(t, readHooksTestFile(t, gemini), []byte(original))
+	if _, err := os.Stat(plugin); !os.IsNotExist(err) {
+		t.Fatal("uninstall left the plugin")
+	}
+
+	// Gemini's settings may carry comments: they are skipped with a
+	// warning, and the rest installs. An edited plugin is left alone.
+	commented := "// mine\n" + original
+	writeHooksTestFile(t, gemini, commented)
+	writeHooksTestFile(t, plugin, "export const Mine = async () => ({})\n")
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if string(readHooksTestFile(t, gemini)) != commented || !strings.Contains(out.String(), gemini+": skipped:") || !strings.Contains(out.String(), plugin+": skipped: edited") {
+		t.Fatalf("install touched a file it cannot merge: %s", out.String())
+	}
+	if !strings.Contains(string(readHooksTestFile(t, filepath.Join(home, ".claude", "settings.json"))), "hook claude") {
+		t.Fatal("a skipped agent kept Claude's hooks from installing")
 	}
 }
