@@ -16,6 +16,9 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Shift+Insert pastes and Ctrl+Insert copies, as in Ghostty and kitty, so
+  Omarchy's Super+V and Super+C work in pitwall's panes. The Insert key
+  itself now reaches programs; Gio used to drop it.
 - A command palette lists every action with its group and the keys bound to
   it in your config, and runs the one you pick. Ctrl+Shift+P opens it
   in both presets; `command_palette` rebinds it. Type to filter, Enter to

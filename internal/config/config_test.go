@@ -90,7 +90,9 @@ func TestPresets(t *testing.T) {
 		{conv, "next_pane", "Ctrl+Alt+Right Ctrl+Alt+Down"},
 		{conv, "prev_group", "Ctrl+Shift+PageUp"},
 		{conv, "switcher", "Ctrl+Shift+Space"},
-		{conv, "copy", "Ctrl+Shift+C"},
+		{conv, "copy", "Ctrl+Shift+C Ctrl+Insert"},
+		{conv, "paste", "Ctrl+Shift+V Shift+Insert"},
+		{aide, "paste", "Ctrl+Shift+V Shift+Insert"},
 		{conv, "scroll_page_up", "Shift+PageUp"},
 		{conv, "tab_prefix", ""},
 		{conv, "pane_prefix", ""},
@@ -115,6 +117,16 @@ func TestPresets(t *testing.T) {
 	for _, name := range Presets {
 		if _, issues := resolveKeys(Keys{Preset: name}); len(issues) > 0 {
 			t.Errorf("%s: %v", name, issues)
+		}
+	}
+	// Omarchy's universal paste sends Shift+Insert to terminals; Gio names
+	// Insert by its xkb patch (third_party/gioui.org/PATCH.md).
+	for _, b := range []*Bindings{aide, conv} {
+		if a := b.Action(key.Event{Name: "Insert", Modifiers: key.ModShift}); a != "paste" {
+			t.Errorf("%s: Shift+Insert runs %q", b.Preset, a)
+		}
+		if a := b.Action(key.Event{Name: "Insert", Modifiers: key.ModCtrl}); a != "copy" {
+			t.Errorf("%s: Ctrl+Insert runs %q", b.Preset, a)
 		}
 	}
 	// Gio names a shifted symbol key by the symbol it types: Ctrl+Shift+]
