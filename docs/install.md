@@ -42,7 +42,7 @@ Known gaps on Windows:
 - When an upgrade replaces a running daemon, the old daemon is stopped without
   a final save. It saves within moments of every change, so little is lost.
 
-The AUR package installs a desktop entry and icon. The Linux release archive
+The Linux release archive
 holds them as `pitwall.desktop` and `pitwall.svg` next to the binary, and
 `scripts/install.sh` installs them when you build from source as below.
 
@@ -68,8 +68,9 @@ Windows has no button; run the install command again to update. To stop the
 check, set `check = false` under `[updates]` in config.toml or use the switch
 under About in the settings page.
 
-A Homebrew or AUR install has no button: pitwall sees that the package
-manager owns its binary, so update it with `brew upgrade` or your AUR helper.
+A Homebrew or distro package install has no button: pitwall sees that the
+package manager owns its binary, so update it with `brew upgrade` or the
+distro's package manager.
 
 ## Build from source
 
