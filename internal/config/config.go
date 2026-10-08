@@ -31,6 +31,7 @@ type Config struct {
 	Updates   Updates   `toml:"updates" doc:"Release updates."`
 	Usage     Usage     `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see the README for what each feature sends."`
+	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 }
 
 // Keys is [keys]. Every Binding field is an action; its group tag heads
@@ -228,6 +229,8 @@ type Settings struct {
 	ShowCost bool
 	// Decisions is [decisions] resolved.
 	Decisions DecideSettings
+	// Worktrees is [worktrees] resolved.
+	Worktrees WorktreeSettings
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -396,6 +399,9 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.Decisions, di, dn = resolveDecisions(c.Decisions)
 	fi = append(fi, di...)
 	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
+	var wi []issue
+	s.Worktrees, wi = resolveWorktrees(c.Worktrees, WorktreeSettings{PortBase: DefaultPortBase, PortStep: DefaultPortStep}, "worktrees.")
+	fi = append(fi, wi...)
 	sort.SliceStable(s.Notes, func(i, j int) bool { return s.Notes[i].Line < s.Notes[j].Line })
 	if s.Font.UIFamily == "" {
 		s.Font.UIFamily = DefaultUIFamily

@@ -106,14 +106,16 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 }
 
 // card is what a tab's hover card shows. Lines lists which lines, in
-// order: 't' title, 'f' folder, 'b' branch, 's' agent state, 'd' its
-// detail, 'u' token use, 'j' the decision model's advice, 'p' pane count.
+// order: 't' title, 'f' folder, 'b' branch, 'o' the worktree's ports, 's'
+// agent state, 'd' its detail, 'u' token use, 'j' the decision model's
+// advice, 'p' pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
 	group        string         // the group's name
 	groupColor   string         // its aide color id
 	path, branch string
+	ports        string // the worktree's port block, "3010-3019"
 	add, del     int
 	state        model.AgentState
 	detail       string
@@ -129,6 +131,9 @@ func (c card) lines() string {
 	}
 	if c.branch != "" {
 		out += "b"
+	}
+	if c.ports != "" {
+		out += "o"
 	}
 	if c.state != "" {
 		out += "s"
@@ -151,7 +156,7 @@ func (c card) lines() string {
 // cardFor collects tab ws's card from the frame's view.
 func cardFor(v *view, ws model.Workspace) card {
 	c := card{title: Title(ws), when: relTime(v.now, ws.UpdatedAt), agent: v.agent[ws.ID],
-		path: model.ShortPath(v.st.LivePath(ws)), branch: ws.Branch}
+		path: model.ShortPath(v.st.LivePath(ws)), branch: ws.Branch, ports: ws.Ports.String()}
 	if g := v.groupOf(ws.ID); g != "" {
 		for _, p := range v.st.Projects {
 			if p.ID == g {
@@ -316,6 +321,14 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 					}})
 				}
 				return hrowFit(gtx, gtx.Sp(13*1.5), gtx.Dp(6), items...)
+			})
+		case 'o':
+			line(iconOf(icPlug, muted), func(gtx layout.Context) layout.Dimensions {
+				return hrowFit(gtx, gtx.Sp(13*1.5), gtx.Dp(6), item{w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, th.UIFont, 12, muted, "Ports")
+				}}, item{w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, th.MonoFont, 11, theme.Mix(bg, th.Fg, 0.85), c.ports)
+				}})
 			})
 		case 's':
 			col := StateColor(th, c.state)

@@ -24,6 +24,7 @@ const (
 	icFolder         = "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
 	icLoader         = "M21 12a9 9 0 1 1-6.219-8.56"
 	icTerminal       = "M12 19h8M4 17l6-6-6-6"
+	icPlug           = "M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"
 	icPlus           = "M5 12h14M12 5v14"
 	icCheck          = "M20 6L9 17l-5-5"
 	icChevronsUpDown = "M7 15l5 5 5-5M7 9l5-5 5 5"

@@ -4,6 +4,7 @@ package model
 
 import (
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -70,6 +71,11 @@ type Workspace struct {
 	// worktree for this session. Only then does deleting the session remove
 	// the directory.
 	WorktreeRoot string
+	// Ports is the block of TCP ports the daemon reserved for the worktree
+	// at Path, set only with WorktreeRoot. Its panes get it as PORT,
+	// PITWALL_PORT_BASE and PITWALL_PORTS; no other tab has the block while
+	// this one exists.
+	Ports PortBlock
 	// RepoRoot is the git toplevel of Path, or Path outside a repo. Group by
 	// folder uses it.
 	RepoRoot  string
@@ -77,6 +83,17 @@ type Workspace struct {
 	UpdatedAt time.Time
 	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
 	ActiveTab string // the id of Tabs[0]
+}
+
+// PortBlock is the TCP ports First to Last; the zero value is none.
+type PortBlock struct{ First, Last int }
+
+// String is "3010-3019", or "" for none.
+func (b PortBlock) String() string {
+	if b.First == 0 {
+		return ""
+	}
+	return strconv.Itoa(b.First) + "-" + strconv.Itoa(b.Last)
 }
 
 type Provider string

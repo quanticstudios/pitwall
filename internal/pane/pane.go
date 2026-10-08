@@ -93,12 +93,15 @@ func Start(c Config) (*Pane, error) {
 }
 
 // environ is os.Environ() without the variables that make nested tools think
-// they already run inside tmux or zellij.
+// they already run inside tmux or zellij, and without a worktree tab's
+// ports when pitwall itself started from one of its panes.
 func environ() []string {
 	var out []string
+	_, ported := os.LookupEnv("PITWALL_PORTS")
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if k == "TMUX" || k == "TMUX_PANE" || strings.HasPrefix(k, "ZELLIJ") {
+		if k == "TMUX" || k == "TMUX_PANE" || strings.HasPrefix(k, "ZELLIJ") ||
+			k == "PITWALL_PORTS" || k == "PITWALL_PORT_BASE" || ported && k == "PORT" {
 			continue
 		}
 		out = append(out, kv)

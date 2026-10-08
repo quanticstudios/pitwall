@@ -91,7 +91,7 @@ func NewFakeBackend() *FakeBackend {
 	heron := ws("w8", "", "calm-heron", "tmp", "", "/tmp", 5*time.Hour, "t8", "zsh", leaf("l"))
 	heron.Detached = true
 	worktree := ws("w4", "g1", "brave-ant", "Fix the checkout race", "fix-checkout-race", fakeHome+"/src/web-app/.worktrees/fix-checkout-race", 5*time.Minute, "t4", "claude", leaf("g"))
-	worktree.WorktreeRoot = fakeHome + "/src/web-app"
+	worktree.WorktreeRoot, worktree.Ports = fakeHome+"/src/web-app", model.PortBlock{First: 3010, Last: 3019}
 	f.st.Workspaces = []model.Workspace{
 		ws("w1", "", "fast-bee", "go test", "main", pw, 20*time.Second, "t1", "go test", split(layout.Horizontal, leaf("a"), split(layout.Vertical, leaf("b"), leaf("c")))),
 		ws("w1b", "", "bold-fox", "Add rate limiting to the public API", "main", pw, 40*time.Second, "t2", "claude", leaf("i")),

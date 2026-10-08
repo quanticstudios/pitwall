@@ -377,6 +377,71 @@ For a Git repo group, **New worktree tab** in the group menu starts a tab in a
 fresh worktree under `<repo>/.worktrees/`, so parallel agents on one repo do
 not step on each other. Deleting that tab removes the worktree it made. pitwall never deletes a folder it did not create.
 
+### Worktree ports and setup
+
+Each worktree tab pitwall makes gets its own block of 10 ports, so two
+agents can each run a dev server without one crashing on a taken port. The
+first gets 3010-3019, the next 3020-3029, and the main checkout keeps 3000.
+Every pane in the tab has:
+
+| Variable            | Value       |
+| ------------------- | ----------- |
+| `PORT`              | `3010`      |
+| `PITWALL_PORT_BASE` | `3010`      |
+| `PITWALL_PORTS`     | `3010-3019` |
+
+Tabs outside a pitwall worktree, the main checkout's included, get none of
+them. The block is saved with the tab, so it survives a restart, and no
+other tab gets it while this one exists. The tab's hover card shows the
+block, and the agent panel's Changes view shows `PORT 3010`. When a shell
+or command in the tab prints `EADDRINUSE` or "address already in use", the
+tab asks for you with "Port in use: this worktree's ports are 3010-3019".
+
+Next.js, Create React App, Rails with Puma's default config and any app that
+reads `process.env.PORT` pick up `PORT` on their own. Others need it passed:
+
+- Vite: `server: { port: Number(process.env.PORT) || 5173, strictPort: true }`
+  in `vite.config.ts`, or `vite --port $PORT --strictPort`. Without
+  `strictPort`, Vite quietly moves to the next port, which may be another
+  tab's.
+- Astro: `astro dev --port $PORT`.
+- Storybook or a second service in the same tab: count up from the base,
+  `storybook dev -p $((PITWALL_PORT_BASE + 1))`, up to the end of
+  `PITWALL_PORTS`.
+
+`port_base` and `port_step` under `[worktrees]` in `config.toml` move the
+blocks and size them; `port_step = 0` turns ports off.
+
+A repo can also bring files into each new worktree and run a command there,
+from `.pitwall/worktree.toml` at its root, or `[worktrees]` in `config.toml`
+for every repo. Nothing is copied, linked or run without one.
+
+```toml
+# .pitwall/worktree.toml
+copy = [".env", ".env.local"] # copied from the main checkout
+link = ["node_modules"]       # symlinked to the main checkout's
+setup = "pnpm install"        # typed into the new tab's shell
+```
+
+- `copy` takes files, not folders, and keeps their permissions. `.env`
+  holds secrets, so pitwall copies it only when you list it.
+- `link` saves an install, but a shared `node_modules` breaks when branches
+  need different dependencies, and an install in one worktree changes it for
+  all of them. A `.gitignore` line `node_modules/` matches only a folder, not
+  the link: write `node_modules`.
+- A path the worktree already has, or the main checkout lacks, is skipped.
+  Nothing is overwritten, and paths must stay inside the repo.
+- `setup` is typed into the first pane of the new tab after `copy` and
+  `link`, so you watch it run and keep the shell afterwards. A `setup` from
+  your own `config.toml` runs at once. One from the repo's
+  `.pitwall/worktree.toml` is typed without Enter: anyone can put a command
+  in a repo you clone, so it waits on the prompt until you read it and
+  press Enter. One with a line break or another control character is not
+  typed at all.
+
+Keys in the repo's file win over `config.toml`. A mistake in it shows as an
+error when you make the tab, and the tab is made anyway.
+
 ### Detaching
 
 <img src="docs/media/survive.webp" alt="The window closes, pitwall ls shows every tab still running, the window comes back, and after a reboot the agents resume" width="800">

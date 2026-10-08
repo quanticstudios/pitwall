@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"maps"
 	"math"
@@ -77,6 +78,10 @@ type Options struct {
 	Stats          func(ctx context.Context, worktree string) (model.BranchStats, error)
 	AddWorktree    func(ctx context.Context, repoRoot, name string) (path, branch string, err error)
 	RemoveWorktree func(ctx context.Context, repoRoot, path string, deleteBranch bool) error
+	// Worktrees reads the settings for a new worktree of repoRoot and the
+	// problems in the repo's own file; nil gives worktrees no ports and no
+	// setup.
+	Worktrees func(repoRoot string) (config.WorktreeSettings, []config.Problem)
 	// Decisions reads the decision settings and provider; nil leaves every
 	// decision feature off.
 	Decisions func() Decisions
@@ -150,6 +155,9 @@ func New() (*Daemon, error) {
 		Bell:           bellSetting(config.Path()),
 		Split:          layout.Split,
 		Remove:         layout.Remove,
+		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
+			return config.LoadWorktrees(config.Path(), root)
+		},
 	})
 }
 
@@ -210,7 +218,7 @@ func NewWith(o Options) (*Daemon, error) {
 			continue
 		}
 		cmd := o.RestoreCmd(*p)
-		if err := d.start(p.ID, cmd, p.Cwd); err != nil {
+		if err := d.start(p.ID, cmd, p.Cwd, d.portsOf(p.WorkspaceID)); err != nil {
 			log.Printf("restore pane %s: %q", p.ID, err)
 			gone = append(gone, p.ID)
 			continue
@@ -673,14 +681,59 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		}
 	}
 	root := d.repoRoot(ctx, path)
+	owned := worktreeRoot(p, path)
+	var wt config.WorktreeSettings
+	var problems []error
+	if owned != "" && d.o.Worktrees != nil {
+		var probs []config.Problem
+		wt, probs = d.o.Worktrees(owned)
+		for _, pr := range probs {
+			problems = append(problems, errors.New(pr.String()))
+		}
+		if err := prepareWorktree(owned, path, wt); err != nil {
+			problems = append(problems, err)
+		}
+	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.st.Workspaces = append(d.st.Workspaces, model.Workspace{
+	w := model.Workspace{
 		ID: newID(), SessionID: p.SessionID, ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
-		WorktreeRoot: worktreeRoot(p, path), RepoRoot: root,
-	})
+		WorktreeRoot: owned, RepoRoot: root,
+	}
+	if owned != "" {
+		w.Ports = portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
+	}
+	d.st.Workspaces = append(d.st.Workspaces, w)
+	var err error
+	if len(problems) > 0 {
+		err = fmt.Errorf("worktree %s is ready, but: %w", m.Name, errors.Join(problems...))
+	}
+	typed, serr := setupInput(wt)
+	if serr != nil {
+		err = errors.Join(err, serr)
+	}
+	if typed != nil || err != nil {
+		// The tab opens on a shell with setup typed in, so it runs in view
+		// and the shell stays once it ends. A problem shows as the shell's
+		// notice: a GUI shows no request's error.
+		nw := &d.st.Workspaces[len(d.st.Workspaces)-1]
+		if aerr := d.addTab(nw, path, nil); aerr != nil {
+			err = errors.Join(err, aerr)
+		} else {
+			id := d.st.Panes[len(d.st.Panes)-1].ID
+			if typed != nil {
+				d.inputs[id] <- typed
+			}
+			if err != nil {
+				d.showNotice(id, d.attnOf(id), vt.Notification{Title: "Worktree setup", Body: err.Error()})
+			}
+		}
+	}
 	d.changed()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -805,7 +858,7 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 		return fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
 	}
 	id := newID()
-	if err := d.start(id, m.Cmd, w.Path); err != nil {
+	if err := d.start(id, m.Cmd, w.Path, w.Ports); err != nil {
 		return err
 	}
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: w.Path})
@@ -1100,9 +1153,19 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 	}
 }
 
-// start launches a pane and its watcher. Callers hold d.mu.
-func (d *Daemon) start(id string, cmd []string, cwd string) error {
-	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Cols: defaultCols, Rows: defaultRows, NewVT: d.notifyingVT(id)})
+// start launches a pane and its watcher. A pane in a tab with ports gets
+// them in its environment, and its output is watched for a port conflict.
+// Callers hold d.mu.
+func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBlock) error {
+	newVT := d.notifyingVT(id)
+	if ports.First != 0 && newVT != nil {
+		inner := newVT
+		newVT = func(cols, rows int, reply io.Writer) vt.Emulator {
+			// why: the emulator writes under the pane's lock, which d.mu precedes.
+			return &portWatch{Emulator: inner(cols, rows, reply), hit: func() { go d.portInUse(id) }}
+		}
+	}
+	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: portEnv(ports), Cols: defaultCols, Rows: defaultRows, NewVT: newVT})
 	if err != nil {
 		return err
 	}
@@ -1223,7 +1286,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		log.Printf("pane %s: exited %d; resumed %q session, opening a shell", id, code, sp.Provider)
 		closeAll([]Pane{d.dropPane(id)})
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
-		err := d.start(id, nil, sp.Cwd)
+		err := d.start(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID))
 		if err == nil {
 			d.changed()
 			d.mu.Unlock()

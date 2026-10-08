@@ -41,7 +41,7 @@ func paneTab(w *model.Workspace, pane string) int {
 // closed, across restarts too. Callers hold d.mu.
 func (d *Daemon) addTab(w *model.Workspace, cwd string, cmd []string) error {
 	id := newID()
-	if err := d.start(id, cmd, cwd); err != nil {
+	if err := d.start(id, cmd, cwd, w.Ports); err != nil {
 		return err
 	}
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: cmd, Cwd: cwd, Held: len(cmd) > 0})

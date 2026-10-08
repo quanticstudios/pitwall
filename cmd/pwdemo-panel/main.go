@@ -162,6 +162,7 @@ func claude(start time.Time) *panel.Input {
 		Activity: &model.Activity{PaneID: "p1", Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: start},
 		Feed:     feed,
 		Branch:   model.BranchStats{Additions: 412, Deletions: 38},
+		Ports:    model.PortBlock{First: 3010, Last: 3019},
 		Git:      true, Base: "main",
 		Files: []gitstat.FileStat{
 			{Path: "internal/ratelimit/bucket.go", Add: 86, Status: 'A'}, {Path: "internal/ratelimit/bucket_test.go", Add: 112, Status: 'A'},
