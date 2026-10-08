@@ -201,6 +201,16 @@ or use the switch under Agents in the settings page to add what the tokens
 would cost at the API's list prices. pitwall carries a dated price table and
 shows its date; a model missing from it shows tokens and no cost.
 
+Settings, Usage adds up every Claude Code, Codex and pi session on the
+machine over the last 7, 30 or 90 days: the total cost and each agent's
+share, a daily cost chart, cached and uncached input, output, what cache
+reads saved against the full input price, and a table by model or by day.
+It reads `~/.claude/projects`, `~/.codex/sessions` and pi's `sessions`
+directory, opens only files written in the window, and on a reopen reads
+only what the agents appended since. A call that Claude Code repeats in a
+subagent's or a resumed session's file counts once. Models without a list
+price show as Unpriced and add tokens but no cost.
+
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
 Drag to select, double-click a word, or hold Shift when a program owns the

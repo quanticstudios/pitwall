@@ -93,6 +93,18 @@ func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) l
 	return fillIcon(gtx, icClaude, size, claudeColor)
 }
 
+// AgentColor is the agent's color in charts: Claude's orange, fg for
+// Codex, pi's blue block.
+func AgentColor(p model.Provider, fg color.NRGBA) color.NRGBA {
+	switch p {
+	case model.ProviderClaude:
+		return claudeColor
+	case model.ProviderPi:
+		return piMark[1].col
+	}
+	return fg
+}
+
 // TabMark draws what marks tab ws in lists outside the sidebar: its agent's
 // mark, else a terminal glyph in col.
 func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, col, fg color.NRGBA) layout.Dimensions {
