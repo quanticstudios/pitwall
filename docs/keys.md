@@ -22,6 +22,19 @@ it come first. A pane mode action that does what a window action does,
 such as Split the pane below, is one row with both keys. The nine Go to
 tab actions are one row, "Go to tab 1–9", until you type a digit.
 
+To find what a key does, type it: in the palette, the settings search or the
+search field on the Keyboard shortcuts page, `ctrl+shift+d`, `shift ctrl d`
+and `⌃⇧D` all list only the actions bound to Ctrl+Shift+D. `+`, `-` and
+spaces separate keys, modifiers go in any order, and cmd, command, ⌘, super,
+win and meta all mean Super (Cmd in mac), ctrl, control and ^ mean Ctrl,
+alt, option, opt and ⌥ mean Alt, and ⇧ means Shift. Return, esc, del, pgup
+and the arrows ↑ ↓ ← → work too. A query that is not a whole chord, like
+`split` or `command`, matches names as before. On the Keyboard shortcuts page, **Record keys**
+finds the next chord you press instead, in every table: window, sessions,
+tab mode and pane mode. It says "Nothing uses Ctrl+Shift+K" when nothing
+does. Esc or a second click stops it. Keys your desktop takes for itself
+never reach pitwall, so type those.
+
 conventional:
 
 | Keys                                    | Action                                                    |

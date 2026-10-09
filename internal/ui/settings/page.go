@@ -105,6 +105,11 @@ type Page struct {
 	recHad   bool // recTag has had focus since recording started
 	conflict *pending
 
+	keySearch widget.Editor // Keyboard shortcuts' own search (keysearch.go)
+	keyChord  config.Chord  // the chord Record put in keySearch
+	keyRec    bool          // Record is on: the recorder fills keySearch
+	focusKeys bool
+
 	dd       string // the open font dropdown's config key
 	ddFilter widget.Editor
 	ddList   widget.List
@@ -137,7 +142,9 @@ func (p *Page) Shown() bool { return p.shown }
 
 // Show opens the page and reads what it shows from disk: themes, hooks.
 func (p *Page) Show(configPath string) {
-	p.shown, p.focusSearch, p.err = true, true, ""
+	p.shown, p.err = true, ""
+	p.focusKeys = p.cat == catKeys
+	p.focusSearch = !p.focusKeys
 	p.themes = config.AllThemes(filepath.Join(filepath.Dir(configPath), "themes"))
 	home, _ := os.UserHomeDir()
 	p.hooks = hookStatus(home)
@@ -162,7 +169,7 @@ func (p *Page) ReloadHooks() {
 
 // Hide closes the page, dropping a recording or open dropdown.
 func (p *Page) Hide() {
-	p.shown, p.rec, p.conflict, p.dd = false, slot{}, nil, ""
+	p.shown, p.rec, p.keyRec, p.conflict, p.dd = false, slot{}, false, nil, ""
 }
 
 // take returns the frame's result. After a save it asks for another
@@ -203,7 +210,7 @@ func (p *Page) Keys(gtx gl.Context) Result {
 	if !p.shown {
 		return None
 	}
-	if p.rec.action != "" {
+	if p.rec.action != "" || p.keyRec {
 		for {
 			ev, ok := gtx.Event(p.recFilters()...)
 			if !ok {
@@ -214,11 +221,12 @@ func (p *Page) Keys(gtx gl.Context) Result {
 				if e.Focus {
 					p.recHad = true
 				} else if p.recHad && !p.recFocus {
-					p.rec = slot{} // focus went elsewhere, like the search field
+					p.rec, p.keyRec = slot{}, false // focus went elsewhere, like the search field
 				}
 			case key.Event:
-				if e.State == key.Press && !modifier(e.Name) && p.rec.action != "" {
+				if e.State == key.Press && !modifier(e.Name) && (p.rec.action != "" || p.keyRec) {
 					p.recorded(config.Unshift(config.Chord{Mods: e.Modifiers, Name: e.Name}))
+					gtx.Execute(op.InvalidateCmd{}) // X11 may send nothing more to draw it
 				}
 			}
 		}
@@ -237,6 +245,9 @@ func (p *Page) Keys(gtx gl.Context) Result {
 				p.conflict = nil
 			case p.search.Text() != "":
 				p.search.SetText("")
+			case p.cat == catKeys && p.keySearch.Text() != "":
+				p.keySearch.SetText("")
+				p.keyChord = config.Chord{}
 			default:
 				p.result = Closed
 			}
@@ -260,6 +271,10 @@ func (p *Page) recFilters() []event.Filter {
 
 // recorded handles one key pressed while recording.
 func (p *Page) recorded(c config.Chord) {
+	if p.keyRec {
+		p.keyRecorded(c)
+		return
+	}
 	s := p.rec
 	p.rec = slot{}
 	switch {
@@ -274,7 +289,7 @@ func (p *Page) recorded(c config.Chord) {
 }
 
 func (p *Page) startRecord(s slot) {
-	p.rec, p.recFocus, p.recHad, p.conflict, p.dd = s, true, false, nil, ""
+	p.rec, p.recFocus, p.recHad, p.conflict, p.dd, p.keyRec = s, true, false, nil, "", false
 }
 
 func (p *Page) write(es ...edit) {
@@ -437,7 +452,8 @@ func (p *Page) searchField(gtx gl.Context) gl.Dimensions {
 // right (or under it, when wide).
 type row struct {
 	label, desc string
-	extra       string // more text the search matches
+	extra       string         // more text the search matches
+	keys        []config.Chord // a shortcut's chords, which a search by keys finds
 	wide        bool
 	control     gl.Widget
 	below       gl.Widget // a prompt under the row, like a shortcut conflict
@@ -449,10 +465,13 @@ type section struct {
 	rows        []row
 }
 
+// filterRows is the rows q matches: by words, or for keys such as
+// "ctrl+shift+d", the rows bound to that chord.
 func filterRows(rs []row, q string) []row {
+	c, chord := config.KeyQuery(q)
 	var out []row
 	for _, r := range rs {
-		if matches(q, r.label, r.desc, r.extra) {
+		if chord && slices.Contains(r.keys, c) || !chord && matches(q, r.label, r.desc, r.extra) {
 			out = append(out, r)
 		}
 	}
@@ -501,7 +520,18 @@ func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
 			}
 		}
 	}
-	if q == "" {
+	if q == "" && p.cat == catKeys {
+		space(24)
+		items = append(items, p.keyBar)
+		secs, msg := p.keyResults()
+		addSections(secs)
+		if len(secs) == 0 {
+			space(24)
+			items = append(items, func(gtx gl.Context) gl.Dimensions {
+				return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, msg)
+			})
+		}
+	} else if q == "" {
 		addSections(p.sections(p.cat))
 	} else {
 		found := false
@@ -525,8 +555,9 @@ func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
 		}
 		if !found {
 			space(24)
+			msg := noMatch(q, config.Chord{}, "No settings match. Search looks at names, descriptions and shortcuts.")
 			items = append(items, func(gtx gl.Context) gl.Dimensions {
-				return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, "No settings match. Search looks at names, descriptions and shortcuts.")
+				return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, msg)
 			})
 		}
 	}
@@ -943,7 +974,7 @@ func (p *Page) shortcuts() []section {
 		for _, c := range cs {
 			names = append(names, c.String())
 		}
-		r := row{label: firstSentence(a.Doc), desc: a.Name, extra: a.Doc + " " + strings.Join(names, " "),
+		r := row{label: firstSentence(a.Doc), desc: a.Name, extra: a.Doc + " " + strings.Join(names, " "), keys: cs,
 			control: p.chords(a), below: p.below(a)}
 		if a.Tab {
 			r.label = "Tab mode: " + strings.ToLower(r.label[:1]) + r.label[1:]

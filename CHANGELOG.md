@@ -15,6 +15,19 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- You can search keyboard shortcuts by their keys. Typing `ctrl+shift+d`,
+  `shift ctrl d` or `⌃⇧D` in the command palette or the settings search
+  lists only what Ctrl+Shift+D runs; before, it listed every action with a
+  D in it, and `cmd+shift+r` found nothing. Modifiers go in any order, and
+  cmd, ⌘, win, meta, option, ⌥, ⇧, return, esc, del, pgup and the arrows
+  all work. A chord nothing uses says so.
+- The Keyboard shortcuts page has its own search field, which keeps its
+  Shortcuts, Sessions, Tab mode and Pane mode sections, and a Record keys
+  button: press a chord and see every action bound to it, in tab and pane
+  mode too.
+
 ## v0.1.0-beta.4
 
 - On Windows, closing a pane or stopping the daemon ends the pane's

@@ -205,6 +205,7 @@ func (p *Page) catRow(gtx gl.Context, i int, q string, counts []int) gl.Dimensio
 	b := &p.cats[i]
 	for b.Clicked(gtx) {
 		p.cat, p.list.Position, p.dd, p.conflict = i, gl.Position{}, "", nil
+		p.focusKeys, p.keyRec = i == catKeys, false
 		p.search.SetText("")
 	}
 	return b.Layout(gtx, func(gtx gl.Context) gl.Dimensions {

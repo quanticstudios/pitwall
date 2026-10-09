@@ -30,7 +30,8 @@ type palette struct {
 // paletteEntry is one row: an action and the keys that run it.
 type paletteEntry struct {
 	action config.Action
-	keys   []string // "Ctrl+Shift+T", or "Ctrl+T N" for a tab-mode key
+	keys   []string       // "Ctrl+Shift+T", or "Ctrl+T N" for a tab-mode key
+	chords []config.Chord // the chords of keys, a mode's without its prefix
 }
 
 func (p *palette) openAt(now time.Time) {
@@ -57,18 +58,22 @@ func paletteEntries(b *config.Bindings) []paletteEntry {
 			cs, prefix = b.Pane[a.Name], firstChord(b.Global["pane_prefix"])
 		}
 		var keys []string
+		var chords []config.Chord
 		for _, c := range cs {
 			switch {
 			case !a.Tab && !a.Pane:
 				keys = append(keys, c.String())
 			case prefix != "":
 				keys = append(keys, prefix+" "+c.String())
+			default:
+				continue
 			}
+			chords = append(chords, c)
 		}
 		if !slices.Contains(groups, a.Group) {
 			groups = append(groups, a.Group)
 		}
-		out = append(out, paletteEntry{a, keys})
+		out = append(out, paletteEntry{a, keys, chords})
 	}
 	slices.SortStableFunc(out, func(x, y paletteEntry) int {
 		return slices.Index(groups, x.action.Group) - slices.Index(groups, y.action.Group)
@@ -81,8 +86,12 @@ func paletteEntries(b *config.Bindings) []paletteEntry {
 // and keys, and scores both matches, so "sidebar" puts toggle_sidebar
 // above "Next tab in sidebar order". A word that is a whole word of the
 // title scores 10 more, so "pane" puts "Next pane" above "agent panel".
-// Ties keep their order.
+// Ties keep their order. Keys such as "ctrl+shift+r" (see
+// config.KeyQuery) find the actions bound to that chord instead.
 func rank(entries []paletteEntry, query string) []paletteEntry {
+	if c, ok := config.KeyQuery(query); ok {
+		return slices.DeleteFunc(slices.Clone(entries), func(e paletteEntry) bool { return !slices.Contains(e.chords, c) })
+	}
 	words := strings.Fields(strings.ToLower(query))
 	if len(words) == 0 {
 		return entries

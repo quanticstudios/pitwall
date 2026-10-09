@@ -11,6 +11,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -111,8 +112,11 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		u.highlight(gtx, hl, true)
 	}
 	if len(rows) == 0 {
-		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+(rowH-gtx.Dp(18))/2), th.UIFont, th.Sp(theme.Body), th.Muted,
-			"Nothing matches \""+p.query+"\". Try part of a name, a group like Panes, or a key like Ctrl+T.")
+		msg := "Nothing matches \"" + p.query + "\". Try part of a name, a group like Panes, or a key like Ctrl+T."
+		if c, ok := config.KeyQuery(p.query); ok {
+			msg = "Nothing uses " + c.String() + "."
+		}
+		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+(rowH-gtx.Dp(18))/2), th.UIFont, th.Sp(theme.Body), th.Muted, msg)
 	}
 	lc.Pop()
 
@@ -128,6 +132,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 // with why in place of its group.
 func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, query, why string, sel bool, size image.Point) {
 	th := u.th
+	if _, ok := config.KeyQuery(query); ok {
+		query = "" // keys match no letters of the title
+	}
 	g := gtx
 	g.Constraints = gl.Exact(size)
 	c.Layout(g, func(gtx gl.Context) gl.Dimensions {
