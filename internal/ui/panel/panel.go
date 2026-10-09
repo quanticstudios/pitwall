@@ -324,19 +324,14 @@ func (d *drawer) section(s string) layout.Widget {
 
 func (d *drawer) flow() []layout.Widget {
 	in := d.in
-	if in.Pane == nil {
-		return []layout.Widget{d.note("No pane is focused.")}
-	}
 	ag := in.agent()
-	if ag == "" {
-		return []layout.Widget{d.note("No agent in this pane. Start Claude Code, Codex, Gemini CLI or pi here and the panel follows it. Changes shows this folder's work.")}
+	b := blankFor(in, ViewFlow)
+	if in.Pane == nil || ag == "" {
+		return []layout.Widget{d.blank(b)}
 	}
 	out := []layout.Widget{d.banner(bannerFor(in))}
-	if !flow.Reads(ag) {
-		return append(out, space(12), d.note(sidebar.AgentName(ag)+" keeps no session file pitwall reads, so its turns and tool calls do not show here. Changes shows this folder's work."))
-	}
-	if in.Feed == nil {
-		return append(out, space(12), d.note("No transcript yet. The panel reads the agent's session file once a hook names it, usually at the next prompt or tool call."))
+	if b != nil {
+		return append(out, d.blank(b))
 	}
 	out = append(out, space(12), d.graph(graphFor(in)), space(12), d.stats(statsFor(in)))
 	if u := in.usage(); u != nil {
@@ -600,8 +595,8 @@ func (d *drawer) subagents() []layout.Widget {
 	if d.in.Feed != nil {
 		subs = d.in.Feed.Subagents
 	}
-	if len(subs) == 0 {
-		return []layout.Widget{d.note("No subagents in this session yet. " + sidebar.AgentName(d.in.agent()) + " starts them for side tasks, and each one shows here with what it is doing.")}
+	if b := blankFor(d.in, ViewSubagents); b != nil {
+		return []layout.Widget{d.blank(b)}
 	}
 	var act, done []int
 	for i, s := range subs {
@@ -779,8 +774,8 @@ func (d *drawer) plan() []layout.Widget {
 	if d.in.Feed != nil {
 		plan = d.in.Feed.Plan
 	}
-	if len(plan) == 0 {
-		return []layout.Widget{d.note("No plan yet. " + sidebar.AgentName(d.in.agent()) + " writes one for longer work, and its steps show here as they finish.")}
+	if b := blankFor(d.in, ViewPlan); b != nil {
+		return []layout.Widget{d.blank(b)}
 	}
 	done, total := planCounts(plan)
 	head := func(gtx layout.Context) layout.Dimensions {
@@ -879,17 +874,15 @@ func (d *drawer) step(i int, s flow.Step, last bool) layout.Widget {
 
 func (d *drawer) changes() []layout.Widget {
 	in := d.in
+	b := blankFor(in, ViewChanges)
 	if !in.Git {
-		return []layout.Widget{d.note("Not in a git repository, or git has not answered yet.")}
+		return []layout.Widget{d.blank(b)}
 	}
 	add, del := 0, 0
 	for _, f := range in.Files {
 		add, del = add+f.Add, del+f.Del
 	}
-	base := gitstat.BranchName(in.Base)
-	if base == "" {
-		base = "base"
-	}
+	base := in.baseName()
 	sb := semibold(d.th.UIFont)
 	out := []layout.Widget{pad(0, 2, 4, 2, func(gtx layout.Context) layout.Dimensions {
 		parts := []part{
@@ -907,8 +900,8 @@ func (d *drawer) changes() []layout.Widget {
 		}
 		return rowFit(gtx, parts...)
 	})}
-	if len(in.Files) == 0 {
-		return append(out, d.note("No changes from "+base+"."))
+	if b != nil {
+		return append(out, d.blank(b))
 	}
 	// A click on a file opens its diff.
 	for i, f := range in.Files {
@@ -945,13 +938,10 @@ func (d *drawer) changes() []layout.Widget {
 // --- Timeline ---
 
 func (d *drawer) timeline() []layout.Widget {
-	evs := timeline(d.in)
-	if len(evs) == 0 {
-		if d.in.Feed == nil {
-			return []layout.Widget{d.note("No transcript yet.")}
-		}
-		return []layout.Widget{d.note("Nothing has happened in this session yet.")}
+	if b := blankFor(d.in, ViewTimeline); b != nil {
+		return []layout.Widget{d.blank(b)}
 	}
+	evs := timeline(d.in)
 	out := make([]layout.Widget, len(evs))
 	for i, e := range evs {
 		out[i] = d.event(e.at.Local().Format("15:04"), e.text, e.note, e.bad)

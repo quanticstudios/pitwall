@@ -74,3 +74,20 @@ func TestColorAndInvalidate(t *testing.T) {
 		t.Errorf("end color %v", got)
 	}
 }
+
+// TestPulse: the dot breathes between 0.35 and 1 over 1.4s, and holds at
+// 1 under reduce_motion.
+func TestPulse(t *testing.T) {
+	t0 := time.UnixMilli(1400 * 1000)
+	if p := pulseAt(t0); p < 0.999 {
+		t.Errorf("start = %v, want 1", p)
+	}
+	if p := pulseAt(t0.Add(700 * time.Millisecond)); p > 0.351 || p < 0.349 {
+		t.Errorf("half way = %v, want 0.35", p)
+	}
+	SetReduced(true)
+	defer SetReduced(false)
+	if p := Pulse(layout.Context{Now: t0.Add(700 * time.Millisecond)}); p != 1 {
+		t.Errorf("reduced = %v, want 1", p)
+	}
+}

@@ -182,6 +182,9 @@ func (p *Page) iconButton(gtx gl.Context, c *widget.Clickable, glyph func(*clip.
 			rrect(gtx, th.SurfaceElevated, image.Rect(0, 0, sz, sz), gtx.Dp(6))
 			fg = th.Fg
 		}
+		if gtx.Focused(c) {
+			kit.FocusRing(gtx, th, image.Rect(0, 0, sz, sz), gtx.Dp(theme.RadiusControl))
+		}
 		is := gtx.Dp(16)
 		o := op.Offset(image.Pt((sz-is)/2, (sz-is)/2)).Push(gtx.Ops)
 		icon(gtx, fg, is, glyph)

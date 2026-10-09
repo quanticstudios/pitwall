@@ -3,6 +3,7 @@ package anim
 
 import (
 	"image/color"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -125,4 +126,20 @@ func (c *Color) at(now time.Time) color.NRGBA {
 func lerp(a, b color.NRGBA, t float32) color.NRGBA {
 	l := func(x, y uint8) uint8 { return uint8(float32(x) + (float32(y)-float32(x))*t + 0.5) }
 	return color.NRGBA{R: l(a.R, b.R), G: l(a.G, b.G), B: l(a.B, b.B), A: l(a.A, b.A)}
+}
+
+// Pulse is a dot's breathing opacity at gtx.Now: 1 down to 0.35 and back
+// every 1.4s, asking for frames at 30 a second. Under reduce_motion it is
+// 1 and asks for none.
+func Pulse(gtx layout.Context) float32 {
+	if Reduced() {
+		return 1
+	}
+	gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
+	return pulseAt(gtx.Now)
+}
+
+func pulseAt(now time.Time) float32 {
+	t := float64(now.UnixMilli()%1400) / 1400
+	return float32(0.675 + 0.325*math.Cos(t*2*math.Pi))
 }

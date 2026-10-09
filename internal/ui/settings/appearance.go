@@ -32,10 +32,7 @@ func hex(c config.Color) color.NRGBA {
 // theme ringed in the accent color. A click applies the theme.
 func (p *Page) themeCards(gtx gl.Context) gl.Dimensions {
 	w := gtx.Constraints.Max.X
-	cols := 3
-	if w < gtx.Dp(540) {
-		cols = 2
-	}
+	cols := themeCols(gtx, w)
 	gap := gtx.Dp(12)
 	cw := (w - gap*(cols-1)) / cols
 	y, rowH := 0, 0
@@ -52,7 +49,13 @@ func (p *Page) themeCards(gtx gl.Context) gl.Dimensions {
 		o := op.Offset(image.Pt((i%cols)*(cw+gap), y)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = gl.Constraints{Min: image.Pt(cw, 0), Max: image.Pt(cw, gtx.Constraints.Max.Y)}
-		d := c.Layout(g, func(gtx gl.Context) gl.Dimensions { return p.themeCard(gtx, t, cw, c.Hovered()) })
+		d := c.Layout(g, func(gtx gl.Context) gl.Dimensions {
+			d := p.themeCard(gtx, t, cw, c.Hovered())
+			if gtx.Focused(c) {
+				kit.FocusRing(gtx, p.th, image.Rectangle{Max: d.Size}, gtx.Dp(8))
+			}
+			return d
+		})
 		o.Pop()
 		rowH = max(rowH, d.Size.Y)
 	}
@@ -172,6 +175,9 @@ func (p *Page) fontPicker(k, cur, def string) gl.Widget {
 					border := th.Border
 					if c.Hovered() || p.dd == k {
 						border = theme.Mix(th.Border, th.Fg, 0.25)
+					}
+					if gtx.Focused(c) {
+						kit.FocusRing(gtx, th, image.Rect(0, 0, w, h), gtx.Dp(theme.RadiusControl))
 					}
 					rrect(gtx, border, image.Rect(0, 0, w, h), gtx.Dp(6))
 					rrect(gtx, th.SurfaceElevated, image.Rect(1, 1, w-1, h-1), gtx.Dp(6)-1)

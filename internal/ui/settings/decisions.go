@@ -272,7 +272,7 @@ func (p *Page) decisions() []section {
 			"It is only a suggestion; you still answer every prompt. Automatic approval is left out because a command's text cannot show what it will run; that needs sandboxed execution. " +
 			holdoutNote(d.Holdout) + p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
 			extra: "approval permission suggest allow deny mode recommendation",
-			control: p.segmented("dmode", []string{config.ModeOff, config.ModeSuggest}, d.Approvals, func(o string) {
+			control: p.labeled("dmode", []string{config.ModeOff, config.ModeSuggest}, []string{"Off", "Suggest"}, d.Approvals, func(o string) {
 				p.saveValue("decisions.approvals", "mode", config.Quote(o))
 			})},
 	}
