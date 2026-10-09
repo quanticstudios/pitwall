@@ -32,12 +32,13 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		return
 	}
 	b := u.nav.bind()
-	all := paletteEntries(b)
-	rows := rank(all, p.query)
+	all := paletteRows(b, "", nil)
+	rows := paletteRows(b, p.query, u.gui.Recent)
 	for i := range min(len(rows), len(d.rows)) {
 		if d.rows[i].Clicked(gtx) {
-			p.close()
-			u.runAction(st, rows[i].action)
+			if r := p.pick(rows, i); r != nil {
+				u.runEntry(st, *r)
+			}
 			gtx.Execute(op.InvalidateCmd{})
 			return
 		}
@@ -50,14 +51,20 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	size := gtx.Constraints.Max
 	w := min(gtx.Dp(600), size.X-gtx.Dp(48))
-	h := min(gtx.Dp(520), size.Y-gtx.Dp(64))
-	defer u.overlayCard(gtx, t, w, h, &d.card)()
 	pad, footH := gtx.Dp(16), gtx.Dp(44)
 	inner := w - 2*pad
+	tc, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Commands")
+	fieldH, rowH, gap := gtx.Dp(34), gtx.Dp(34), gtx.Dp(2)
+	// The card fits its rows, up to 420dp, and eases to a new height; its
+	// top stays where the tallest card's would be, so the field holds still.
+	most := min(gtx.Dp(420), size.Y-gtx.Dp(64))
+	chrome := pad + tsz.Y + gtx.Dp(12) + fieldH + gtx.Dp(10) - gap + gtx.Dp(8) + footH
+	p.height.Set(gtx.Now, float32(paletteHeight(len(rows), rowH+gap, chrome, most)), anim.Menu)
+	h := int(p.height.Get(gtx) + 0.5)
+	defer u.overlayCardAt(gtx, t, w, h, (size.Y-most)/2, &d.card)()
 
 	// Header: the title and the count, the palette's key on the right.
 	y := pad
-	tc, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Commands")
 	o := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
 	tc.Add(gtx.Ops)
 	o.Pop()
@@ -73,13 +80,11 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	y += tsz.Y + gtx.Dp(12)
 
-	fieldH := gtx.Dp(34)
 	u.filterField(gtx, image.Rect(pad, y, pad+inner, y+fieldH), p.query, "Type an action, a group or a key",
 		fmt.Sprintf("%d of %d", len(rows), len(all)), true, p.openedAt)
 	y += fieldH + gtx.Dp(10)
 
 	listTop, listBot := y, h-footH-gtx.Dp(8)
-	rowH, gap := gtx.Dp(34), gtx.Dp(2)
 	sel := p.sel
 	if len(rows) == 0 {
 		sel = -1
@@ -99,14 +104,15 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 			continue
 		}
 		o := op.Offset(image.Pt(pad, ry)).Push(gtx.Ops)
-		u.paletteRow(gtx, &d.rows[i], e, u.nav.reviewBlocked(st, e.action.Name), i == sel, image.Pt(inner, rowH))
+		u.paletteRow(gtx, &d.rows[i], e, p.query, u.nav.reviewBlocked(st, e.action.Name), i == sel, image.Pt(inner, rowH))
 		o.Pop()
 	}
 	if sel >= 0 {
 		u.highlight(gtx, hl, true)
 	}
 	if len(rows) == 0 {
-		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, th.Sp(theme.Body), th.Muted, "No action matches \""+p.query+"\".")
+		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+(rowH-gtx.Dp(18))/2), th.UIFont, th.Sp(theme.Body), th.Muted,
+			"Nothing matches \""+p.query+"\". Try part of a name, a group like Panes, or a key like Ctrl+T.")
 	}
 	lc.Pop()
 
@@ -117,9 +123,10 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 }
 
 // paletteRow draws one action: its title, its group, then its keys on the
-// right, at most two. An action that cannot run now, why not "", is muted,
+// right, at most two. The title's characters query matched are semibold
+// and the rest muted. An action that cannot run now, why not "", is muted,
 // with why in place of its group.
-func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, why string, sel bool, size image.Point) {
+func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, query, why string, sel bool, size image.Point) {
 	th := u.th
 	g := gtx
 	g.Constraints = gl.Exact(size)
@@ -146,13 +153,28 @@ func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, why
 		group, fg = why, th.Muted
 	}
 	gc, gsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, group)
-	tg := gtx
-	tg.Constraints.Max.X = max(0, kx-px-gtx.Dp(12)-gsz.X-gtx.Dp(10))
-	tc, tsz := textCall(tg, th, medium(th.UIFont), th.Sp(theme.Body), fg, e.action.Title())
-	o := op.Offset(image.Pt(px, (size.Y-tsz.Y)/2)).Push(gtx.Ops)
-	tc.Add(gtx.Ops)
-	o.Pop()
-	o = op.Offset(image.Pt(px+tsz.X+gtx.Dp(10), (size.Y-gsz.Y)/2)).Push(gtx.Ops)
+	room := max(0, kx-px-gtx.Dp(12)-gsz.X-gtx.Dp(10))
+	x := px
+	for _, s := range hitSpans(e.action.Title(), query) {
+		f, col := medium(th.UIFont), fg
+		switch {
+		case s.hit:
+			f = semibold(th.UIFont)
+		case query != "":
+			col = th.Muted
+		}
+		tg := gtx
+		tg.Constraints.Max.X = room - (x - px)
+		if tg.Constraints.Max.X <= 0 {
+			break
+		}
+		tc, tsz := textCall(tg, th, f, th.Sp(theme.Body), col, s.s)
+		o := op.Offset(image.Pt(x, (size.Y-tsz.Y)/2)).Push(gtx.Ops)
+		tc.Add(gtx.Ops)
+		o.Pop()
+		x += tsz.X
+	}
+	o := op.Offset(image.Pt(x+gtx.Dp(10), (size.Y-gsz.Y)/2)).Push(gtx.Ops)
 	gc.Add(gtx.Ops)
 	o.Pop()
 }

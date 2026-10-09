@@ -46,9 +46,15 @@ func (u *ui) backdrop(gtx gl.Context, t float32, tag *int) bool {
 // in by t, and takes presses on it so they stop short of the backdrop. The
 // caller draws the contents from the card's top left, then calls end.
 func (u *ui) overlayCard(gtx gl.Context, t float32, w, h int, tag *int) (end func()) {
+	return u.overlayCardAt(gtx, t, w, h, (gtx.Constraints.Max.Y-h)/2, tag)
+}
+
+// overlayCardAt is overlayCard with the card's top at top, so a card that
+// changes height keeps its top still.
+func (u *ui) overlayCardAt(gtx gl.Context, t float32, w, h, top int, tag *int) (end func()) {
 	th := u.th
 	card := image.Rectangle{Max: image.Pt(w, h)}
-	at := gtx.Constraints.Max.Sub(card.Size()).Div(2)
+	at := image.Pt((gtx.Constraints.Max.X-w)/2, top)
 	pop := kit.PopIn(gtx, t, card.Add(at), 10)
 	move := op.Offset(at).Push(gtx.Ops)
 	kit.Surface(gtx, card, gtx.Dp(theme.RadiusCard), kit.Modal, th.BorderSubtle, th.Surface)
@@ -113,8 +119,10 @@ func (u *ui) highlight(gtx gl.Context, r image.Rectangle, ring bool) {
 		paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
 		return
 	}
-	p := clip.UniformRRect(r, gtx.Dp(8)).Path(gtx.Ops)
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.22), clip.Stroke{Path: p, Width: float32(gtx.Dp(1))}.Op())
+	// The keyboard's focus: kit.FocusRing's color, inside the row.
+	w := gtx.Dp(2)
+	p := clip.UniformRRect(r.Inset(w/2), gtx.Dp(8)-w/2).Path(gtx.Ops)
+	paint.FillShape(gtx.Ops, theme.Mix(th.Primary, th.Bg, 0.3), clip.Stroke{Path: p, Width: float32(w)}.Op())
 }
 
 // filterField draws a filter holding text, with a caret blinking since
