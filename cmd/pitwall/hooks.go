@@ -459,7 +459,7 @@ func mergeCursorHooks(original, generated []byte, install bool) ([]byte, []strin
 				return nil, nil, fmt.Errorf("hooks.%s must be an array of hooks", name)
 			}
 		}
-		kept := make([]hookObject, 0, len(handlers)+1)
+		kept := make([]hookObject, 0, len(handlers))
 		found := false
 		for _, h := range handlers {
 			if cmd, _ := hookJSON[string](h["command"]); cmd == command && h != nil {
