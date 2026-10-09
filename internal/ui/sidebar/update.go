@@ -171,25 +171,29 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	}
 	for _, ws := range v.st.Workspaces {
 		r := s.row(ws.ID)
-		for {
-			c, ok := r.click.Update(gtx)
-			if !ok {
-				break
-			}
-			switch {
-			case dropped:
-			case c.NumClicks >= 2 && c.Modifiers == 0:
-				s.startRename(ws.ID, "", Title(ws))
-			default:
-				s.click(v, ws.ID, c.Modifiers)
-			}
-		}
+		// The agent count folds the sub-rows; the row under it takes the
+		// same click, which must not also open the tab.
+		folding := false
 		for r.fold.Clicked(gtx) {
 			if !dropped {
 				if s.folded == nil {
 					s.folded = map[string]bool{}
 				}
 				s.folded[ws.ID] = !s.folded[ws.ID]
+				folding = true
+			}
+		}
+		for {
+			c, ok := r.click.Update(gtx)
+			if !ok {
+				break
+			}
+			switch {
+			case dropped, folding:
+			case c.NumClicks >= 2 && c.Modifiers == 0:
+				s.startRename(ws.ID, "", Title(ws))
+			default:
+				s.click(v, ws.ID, c.Modifiers)
 			}
 		}
 		for r.more.Clicked(gtx) {
