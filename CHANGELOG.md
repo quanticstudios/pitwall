@@ -27,6 +27,7 @@ build. Either step takes `--dry-run`.
   Shortcuts, Sessions, Tab mode and Pane mode sections, and a Record keys
   button: press a chord and see every action bound to it, in tab and pane
   mode too.
+- Token counts that miss the start of a long session file end in "+" (`2M+`) instead of a "≥" the UI font cannot draw, and counts of a billion or more read `1.1B` instead of `1076M`. The review view's folded lines start with "…".
 
 ## v0.1.0-beta.4
 

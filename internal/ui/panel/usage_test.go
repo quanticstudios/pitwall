@@ -31,7 +31,7 @@ func TestUsageText(t *testing.T) {
 			"local-llama · 940 tokens",
 			"Context: 900. No list price for local-llama, so no cost."},
 		{"partial", flow.Usage{Model: "gpt-6.1-sol", Context: 129_200, Window: 258_400, Partial: true, Models: map[string]flow.Tokens{"gpt-6.1-sol": {Input: 2_000_000}}}, true,
-			"gpt-6.1-sol · ≥2M tokens · 50% context · ≥$4.00",
+			"gpt-6.1-sol · 2M+ tokens · 50% context · $4.00+",
 			"Context: 129k of 258k (50%). $4.00 at list prices of " + flow.PricesAsOf + ". The session file is long: these count its last 8 MiB."},
 	} {
 		if got := headerText(c.u, c.cost); got != c.header {
