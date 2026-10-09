@@ -388,10 +388,15 @@ func dirName(dir string) string {
 }
 
 // genericTitle reports a title that says nothing about the work: empty, an
-// agent's own name, or the name of the session's directory, repo or user.
+// agent's own name, the name of the session's directory, repo or user, or
+// the program's path, which ConPTY titles a console with until the program
+// sets its own (C:\Program Files\Git\usr\bin\sh.exe).
 func genericTitle(w *model.Workspace, title string) bool {
 	switch strings.ToLower(title) {
 	case "", "~", "claude", "claude code", "codex", "pi", "π":
+		return true
+	}
+	if len(title) > 3 && title[1] == ':' && title[2] == '\\' && strings.HasSuffix(strings.ToLower(title), ".exe") {
 		return true
 	}
 	for _, s := range []string{filepath.Base(w.Path), filepath.Base(w.RepoRoot), loginName()} {

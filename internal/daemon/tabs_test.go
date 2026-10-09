@@ -179,6 +179,10 @@ func TestTabTitle(t *testing.T) {
 	if user := loginName(); user != "" && !genericTitle(w, strings.ToUpper(user)) {
 		t.Errorf("login name %q is not generic", user)
 	}
+	// ConPTY's title before the program sets one.
+	if !genericTitle(w, `C:\Program Files\Git\usr\bin\sh.exe`) || genericTitle(w, "make test.exe") {
+		t.Error("a console's program path is not generic, or a title like one is")
+	}
 }
 
 func TestPromptTitle(t *testing.T) {

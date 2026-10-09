@@ -40,12 +40,24 @@ func TestEngine(t *testing.T) {
 	gui.send(t, proto.Input{Pane: shell.ID, Data: []byte("echo typed\r")})
 	gui.waitFor(t, timeout, frameContains(shell.ID, "\ntyped\n"))
 	gui.send(t, proto.Resize{Pane: shell.ID, Cols: 100, Rows: 30})
-	gui.send(t, proto.Input{Pane: shell.ID, Data: []byte("stty size\r")})
-	gui.waitFor(t, timeout, func(msg any) bool {
-		f, ok := msg.(proto.Frame)
-		return ok && f.Pane == shell.ID && f.Grid.Cols == 100 && f.Grid.Rows == 30 &&
-			strings.Contains(gridText(f.Grid), "\n30 100\n")
-	})
+	// why: ConPTY resizes after ResizePseudoConsole returns, so on Windows
+	// the first stty can still see 80x24; ask again until it reports.
+	var last string
+	for deadline := time.Now().Add(timeout); ; {
+		if time.Now().After(deadline) {
+			t.Fatalf("stty size never printed 30 100; the screen:\n%s", last)
+		}
+		gui.send(t, proto.Input{Pane: shell.ID, Data: []byte("stty size\r")})
+		if gui.waitUntil(time.Second, func(msg any) bool {
+			f, ok := msg.(proto.Frame)
+			if ok && f.Pane == shell.ID {
+				last = gridText(f.Grid)
+			}
+			return ok && f.Pane == shell.ID && f.Grid.Cols == 100 && f.Grid.Rows == 30 && strings.Contains(last, "\n30 100\n")
+		}) {
+			break
+		}
+	}
 
 	hook := connect(t, "hook")
 	hook.send(t, proto.AgentEvent{Pane: shell.ID, Provider: model.ProviderClaude, Payload: []byte(permission)})
@@ -304,6 +316,13 @@ func TestBinaryHook(t *testing.T) {
 	// Git stats can independently update the state version.
 	before.Stats, after.Stats = nil, nil
 	before.Version, after.Version = 0, 0
+	// So can a pane's title: ConPTY titles the console with the program's
+	// path whenever it gets to it.
+	for _, s := range []*model.State{&before, &after} {
+		for i := range s.Panes {
+			s.Panes[i].Title = ""
+		}
+	}
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("hook without PITWALL_PANE changed state: before %+v, after %+v", before, after)
 	}
@@ -443,6 +462,25 @@ func (c *client) waitFor(t *testing.T, limit time.Duration, match func(any) bool
 			}
 		case <-timer.C:
 			t.Fatalf("no matching daemon message within %s", limit)
+		}
+	}
+}
+
+// waitUntil is waitFor that reports a timeout instead of failing.
+func (c *client) waitUntil(limit time.Duration, match func(any) bool) bool {
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	for {
+		select {
+		case msg, ok := <-c.msgs:
+			if !ok {
+				return false
+			}
+			if match(msg) {
+				return true
+			}
+		case <-timer.C:
+			return false
 		}
 	}
 }
