@@ -75,7 +75,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 				d := gtx.Dp(16)
 				paint.FillShape(gtx.Ops, theme.Mix(bg, th.Yellow, 0.14), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
 				centered(gtx, image.Pt(d, d), func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Yellow, fmt.Sprint(attention))
+					return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(th.Yellow, theme.Mix(bg, th.Yellow, 0.14)), fmt.Sprint(attention))
 				})
 				return layout.Dimensions{Size: image.Pt(d, d)}
 			}})

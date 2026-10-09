@@ -114,7 +114,7 @@ func PRChip(gtx layout.Context, th *theme.Theme, pr model.PR, base color.NRGBA) 
 		}})
 	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), col, fmt.Sprintf("#%d", pr.Number))
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), fmt.Sprintf("#%d", pr.Number))
 	}})
 	switch {
 	case open && pr.Review == model.ReviewApproved:

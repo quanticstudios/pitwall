@@ -122,9 +122,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		hrow(gtx, l1, gtx.Dp(8), items...)
 		off.Pop()
 
-		// pl-5 under the name, text-[11px] muted/70; the time quieter.
-		muted := theme.Mix(base, th.Muted, 0.7)
-		quiet := theme.Mix(base, th.Muted, 0.45)
+		// pl-5 under the name, text-[11px] muted; the time quieter, both kept
+		// at 4.5:1 on the row.
+		muted := th.Readable(th.Muted, base)
+		quiet := th.Readable(th.TextQuiet, base)
 		gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
 		off = op.Offset(image.Pt(left+gtx.Dp(20), pad+l1+gtx.Dp(4))).Push(gtx.Ops)
 		inRepo := ws.Branch != ""
@@ -344,7 +345,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		}})
 	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), col, PillText(a, v.st.Decide.Provider))
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), PillText(a, v.st.Decide.Provider))
 	}})
 	d := hrowFit(gtx, h, gtx.Dp(4), items...)
 	off.Pop()

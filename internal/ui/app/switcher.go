@@ -79,6 +79,9 @@ func chipColors(th *theme.Theme, s model.AgentState) (bg, fg color.NRGBA) {
 // chip records a rounded label and returns it with its size.
 func chip(gtx gl.Context, th *theme.Theme, bg, border, fg color.NRGBA, s string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
+	if bg.A == 0xff { // over a translucent fill the result depends on what is under it
+		fg = th.Readable(fg, bg)
+	}
 	call, ts := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), fg, s)
 	pad := image.Pt(gtx.Dp(7), gtx.Dp(2))
 	sz := ts.Add(pad.Mul(2))
