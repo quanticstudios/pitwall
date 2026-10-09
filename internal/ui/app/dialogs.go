@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"gioui.org/f32"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -59,10 +61,14 @@ type modal struct {
 	matches           []string // directories completing the path field
 	wt                worktreeForm
 
-	backdrop, body int // tags: the click-outside catcher, the dialog's own area
+	backdrop, body int       // tags: the click-outside catcher, the dialog's own area
+	openedAt       time.Time // for the dialog's entrance
 }
 
 func (m *modal) open(kind modalKind, ws string) {
+	if m.kind == modalNone {
+		m.openedAt = time.Now()
+	}
 	m.kind, m.ws, m.removeBranch, m.focus, m.pathErr, m.matches = kind, ws, false, true, "", nil
 	m.archive, m.armed = false, false
 	if kind == modalAddProject {
@@ -171,7 +177,7 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	// Backdrop: catches clicks outside the dialog and holds key focus when
 	// the dialog has no text field.
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 0xc8}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, scrim(u.th, anim.At(gtx, m.openedAt, anim.Dialog)), clip.Rect{Max: size}.Op())
 	bg := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &m.backdrop)
 	bg.Pop()
@@ -203,15 +209,17 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	case modalDiscard:
 		content = u.discardBody
 	}
-	u.card(gtx, &m.body, content)
+	u.card(gtx, &m.body, m.openedAt, content)
 }
 
-// card draws content on a dialog card in the middle of the window; tag
-// takes the presses inside it.
-func (u *ui) card(gtx gl.Context, tag event.Tag, content gl.Widget) { u.cardW(gtx, tag, 448, content) }
+// card draws content on a dialog card in the middle of the window, easing
+// in from at; tag takes the presses inside it.
+func (u *ui) card(gtx gl.Context, tag event.Tag, at time.Time, content gl.Widget) {
+	u.cardW(gtx, tag, 448, at, content)
+}
 
 // cardW is card width dp wide, narrower in a narrow window.
-func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, content gl.Widget) {
+func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, from time.Time, content gl.Widget) {
 	th, size := u.th, gtx.Constraints.Max
 	w := min(gtx.Dp(width), size.X-gtx.Dp(32))
 	pad := gtx.Dp(24)
@@ -222,17 +230,13 @@ func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, content gl.Widg
 	call := rec.Stop()
 	box := image.Pt(w, d.Size.Y+2*pad)
 	at := size.Sub(box).Div(2)
+	defer popIn(gtx, anim.At(gtx, from, anim.Dialog), image.Rectangle{Min: at, Max: at.Add(box)})()
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 
-	// rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]
-	r := gtx.Dp(16)
+	r := gtx.Dp(theme.RadiusCard)
 	rect := image.Rectangle{Max: box}
-	for i, a := range []uint8{0x20, 0x20, 0x20} {
-		g := gtx.Dp(unit.Dp(8 * (i + 1)))
-		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(rect.Add(image.Pt(0, gtx.Dp(12))).Inset(-g), r+g).Op(gtx.Ops))
-	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.07), clip.UniformRRect(rect, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
+	kit.Surface(gtx, rect, r, kit.Modal, th.BorderSubtle, th.Surface)
+
 	body := clip.Rect(rect).Push(gtx.Ops)
 	event.Op(gtx.Ops, tag)
 	body.Pop()

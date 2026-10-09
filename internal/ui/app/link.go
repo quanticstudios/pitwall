@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image/color"
 	"log"
+	"time"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -120,7 +121,7 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 
 	// Like the modal: a dimmed window that takes every press, and a card.
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 0xc8}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, scrim(th, 1), clip.Rect{Max: size}.Op())
 	bg := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &u.linkBackdrop)
 	bg.Pop()
@@ -147,7 +148,7 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 	kids = append(kids, gl.Rigid(gl.Spacer{Height: 20}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		return u.buttonPair(gtx, &u.linkLater, &u.linkOK, later, ok, okKind)
 	}))
-	u.card(gtx, &u.linkBackdrop, func(gtx gl.Context) gl.Dimensions {
+	u.card(gtx, &u.linkBackdrop, time.Time{}, func(gtx gl.Context) gl.Dimensions {
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 	})
 }

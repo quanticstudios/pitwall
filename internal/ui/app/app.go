@@ -479,11 +479,13 @@ func (u *ui) layout(gtx gl.Context) {
 			gtx.Execute(op.InvalidateCmd{}) // draw the mode pill's new state now
 		}
 	}()
-	if !u.sw.open && !u.pal.open {
+	// A dialog takes every key: none of the window's shortcuts run behind it.
+	dialog := u.modal.kind != modalNone
+	if !u.sw.open && !u.pal.open && !dialog {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 		u.reviewKeys(gtx, &st)
 	}
-	for {
+	for u.modal.kind == modalNone {
 		filters := u.nav.keyFilters()
 		if u.sw.open || u.pal.open {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand

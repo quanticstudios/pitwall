@@ -5,6 +5,7 @@ import (
 	"image"
 	"os"
 	"os/exec"
+	"time"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -19,6 +20,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/store"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -49,7 +51,10 @@ type welcome struct {
 	start                    []widget.Clickable // one per agent
 	links                    []widget.Clickable // one per welcomeAgents entry
 	install, dismiss, cancel widget.Clickable
-	tag                      int // the card's area, which keeps presses off the pane under it
+	tag                      int       // the card's area, which keeps presses off the pane under it
+	backdrop                 int       // the dimmed panes around the card
+	shownAt                  time.Time // the card's first frame, for its entrance
+
 }
 
 type foundAgent struct {
@@ -152,11 +157,20 @@ func (u *ui) drawWelcome(gtx gl.Context, st *model.State) {
 			break
 		}
 	}
+	if w.shownAt.IsZero() {
+		w.shownAt = gtx.Now
+	}
 	if len(w.agents) == 0 {
 		u.drawNoAgents(gtx)
 		return
 	}
-	u.card(gtx, &w.tag, u.welcomeBody)
+	// The panes dim behind the card; a press on them dismisses it, as one
+	// outside an overlay closes it.
+	if u.backdrop(gtx, anim.At(gtx, w.shownAt, anim.Dialog), &w.backdrop) {
+		u.endWelcome()
+		return
+	}
+	u.card(gtx, &w.tag, w.shownAt, u.welcomeBody)
 }
 
 func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {

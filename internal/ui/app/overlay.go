@@ -13,8 +13,8 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -24,9 +24,9 @@ import (
 
 // backdrop dims the window by t and reports whether it was pressed, which
 // closes the overlay.
-func backdrop(gtx gl.Context, t float32, tag *int) bool {
+func (u *ui) backdrop(gtx gl.Context, t float32, tag *int) bool {
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, color.NRGBA{A: uint8(0xa6 * t)}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, scrim(u.th, t), clip.Rect{Max: size}.Op())
 	pressed := false
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: tag, Kinds: pointer.Press})
@@ -50,18 +50,9 @@ func (u *ui) overlayCard(gtx gl.Context, t float32, w, h int, tag *int) (end fun
 	th := u.th
 	card := image.Rectangle{Max: image.Pt(w, h)}
 	at := gtx.Constraints.Max.Sub(card.Size()).Div(2)
-	fade := paint.PushOpacity(gtx.Ops, t)
-	scale := 0.985 + 0.015*t
-	center := f32.Pt(float32(at.X)+float32(w)/2, float32(at.Y)+float32(h)/2)
-	move := op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale)).Offset(f32.Pt(float32(at.X), float32(at.Y)+float32(gtx.Dp(10))*(1-t)))).Push(gtx.Ops)
-
-	r := gtx.Dp(14)
-	for i, a := range []uint8{0x22, 0x1a, 0x12} {
-		g := gtx.Dp(unit.Dp(6 * (i + 1)))
-		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(card.Add(image.Pt(0, gtx.Dp(8))).Inset(-g), r+g).Op(gtx.Ops))
-	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.1), clip.UniformRRect(card, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(card.Inset(1), r-1).Op(gtx.Ops))
+	pop := popIn(gtx, t, card.Add(at))
+	move := op.Offset(at).Push(gtx.Ops)
+	kit.Surface(gtx, card, gtx.Dp(theme.RadiusCard), kit.Modal, th.BorderSubtle, th.Surface)
 	for {
 		if _, ok := gtx.Event(pointer.Filter{Target: tag, Kinds: pointer.Press}); !ok {
 			break
@@ -70,7 +61,24 @@ func (u *ui) overlayCard(gtx gl.Context, t float32, w, h int, tag *int) (end fun
 	area := clip.Rect(card).Push(gtx.Ops)
 	event.Op(gtx.Ops, tag)
 	area.Pop()
+	return func() { move.Pop(); pop() }
+}
+
+// popIn fades and scales in what is drawn at r, by t from 0 to 1: from 98.5%
+// and 10dp low. It returns the call that ends it.
+func popIn(gtx gl.Context, t float32, r image.Rectangle) func() {
+	fade := paint.PushOpacity(gtx.Ops, t)
+	scale := 0.985 + 0.015*t
+	center := f32.Pt(float32(r.Min.X+r.Max.X)/2, float32(r.Min.Y+r.Max.Y)/2)
+	move := op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale)).Offset(f32.Pt(0, float32(gtx.Dp(10))*(1-t)))).Push(gtx.Ops)
 	return func() { move.Pop(); fade.Pop() }
+}
+
+// scrim is the backdrop under a dialog or overlay, faded in by t.
+func scrim(th *theme.Theme, t float32) color.NRGBA {
+	c := th.Scrim
+	c.A = uint8(float32(c.A) * t)
+	return c
 }
 
 // listScroll scrolls a list of equal rows so the highlighted one shows,

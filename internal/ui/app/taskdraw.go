@@ -137,7 +137,7 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 		t.focus = false
 		gtx.Execute(key.FocusCmd{Tag: &t.prompt})
 	}
-	u.cardW(gtx, &m.body, 560, func(gtx gl.Context) gl.Dimensions { return u.taskBody(gtx, field) })
+	u.cardW(gtx, &m.body, 560, m.openedAt, func(gtx gl.Context) gl.Dimensions { return u.taskBody(gtx, field) })
 }
 
 // syncName fills in the worktree name from the prompt until the user

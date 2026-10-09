@@ -114,7 +114,7 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	size := gtx.Constraints.Max
 	t := anim.At(gtx, s.openedAt, anim.Overlay)
 
-	if backdrop(gtx, t, &d.backdrop) {
+	if u.backdrop(gtx, t, &d.backdrop) {
 		s.close()
 		return
 	}

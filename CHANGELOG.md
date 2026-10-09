@@ -33,6 +33,11 @@ build. Either step takes `--dry-run`.
   hover cards, the command palette, the side panel and dialogs too, on one
   scale of five sizes. The smallest labels, such as status chips and diff
   counts, are 11px instead of 10px.
+- Dialogs fade and scale in over 150ms on one backdrop, the same as the
+  command palette's, and none of the window's shortcuts run behind an open
+  dialog: Ctrl+Shift+L no longer opens the agent panel under it.
+- The first run asks to install hooks once, on the welcome card, which now
+  dims the panes behind it. The pane notice shows after the card is gone.
 
 ## v0.1.0-beta.3
 

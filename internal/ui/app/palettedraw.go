@@ -44,7 +44,7 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	p.sel = min(p.sel, max(len(rows)-1, 0))
 	t := anim.At(gtx, p.openedAt, anim.Overlay)
-	if backdrop(gtx, t, &d.backdrop) {
+	if u.backdrop(gtx, t, &d.backdrop) {
 		p.close()
 		return
 	}
