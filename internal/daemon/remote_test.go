@@ -2,8 +2,11 @@ package daemon
 
 import (
 	"context"
+	"crypto/ecdh"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -233,5 +236,56 @@ func TestGUIAnswer(t *testing.T) {
 	}
 	if got := gotAfter(t, f.pane(1), 0, 1); got != "\x1b" {
 		t.Fatalf("deny sent %q", got)
+	}
+}
+
+// TestPushLoop: with no window open, the daemon pushes an approval that
+// comes after it started, by the desktop's triggers, and nothing for the
+// approvals it found waiting.
+func TestPushLoop(t *testing.T) {
+	d, _, do := remoteDaemon(t)
+	got := make(chan *http.Request, 10)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got <- r
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	ua, _ := ecdh.P256().GenerateKey(nil)
+	sub, _ := json.Marshal(remote.Subscription{Endpoint: srv.URL + "/p", Keys: remote.PushKeys{
+		P256dh: base64.RawURLEncoding.EncodeToString(ua.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(make([]byte, 16))}})
+	if st, body := do("POST", "/api/push", string(sub)); st != 200 {
+		t.Fatalf("subscribe: %d %s", st, body)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { d.pushLoop(ctx, &remote.Pusher{Dir: d.o.RemoteDir, Client: srv.Client()}); close(done) }()
+	defer func() { cancel(); <-done }()
+	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(time.Millisecond) {
+		d.mu.Lock()
+		running := d.pushWake != nil // its baseline is in
+		d.mu.Unlock()
+		if running {
+			break
+		}
+	}
+	d.mu.Lock()
+	d.changed()
+	d.mu.Unlock()
+	select {
+	case r := <-got:
+		t.Fatalf("pushed the approvals waiting at start: %v", r.Header)
+	case <-time.After(50 * time.Millisecond):
+	}
+	time.Sleep(time.Millisecond)
+	d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte("working")})
+	time.Sleep(50 * time.Millisecond) // the loop sees working, as the desktop's would
+	d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(model.StatePendingApproval)})
+	select {
+	case r := <-got:
+		if r.Header.Get("Urgency") != "high" || !strings.HasPrefix(r.Header.Get("Authorization"), "vapid t=") {
+			t.Fatalf("push headers %v", r.Header)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no push for a new approval")
 	}
 }

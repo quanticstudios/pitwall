@@ -116,9 +116,35 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.HandleFunc("GET /{$}", file("index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /app.js", file("app.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /sw.js", file("sw.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /manifest.webmanifest", file("manifest.webmanifest", "application/manifest+json"))
+	for _, png := range []string{"icon-192.png", "icon-512.png", "apple-touch-icon.png"} {
+		mux.HandleFunc("GET /"+png, file(png, "image/png"))
+	}
 	mux.HandleFunc("POST /api/pair", s.pair)
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name})
+	}))
+	mux.HandleFunc("GET /api/push", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+		key, err := VAPIDKey(s.Dir)
+		if err != nil {
+			log.Printf("remote: push key: %q", err)
+			http.Error(w, "push is unavailable", http.StatusInternalServerError)
+			return
+		}
+		writeJSON200(w, map[string]any{"key": VAPIDPublic(key), "subscribed": Subscribed(s.Dir, d.ID)})
+	}))
+	mux.HandleFunc("POST /api/push", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+		var sub Subscription
+		if !decode(w, r, &sub) {
+			return
+		}
+		if err := Subscribe(s.Dir, d.ID, sub); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		log.Printf("remote: %q turned on push notifications", d.Name)
+		writeJSON200(w, map[string]any{})
 	}))
 	mux.HandleFunc("POST /api/answer", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		var req struct {
@@ -166,7 +192,7 @@ func (s *Server) Handler() http.Handler {
 func headers(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
-		hd.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		hd.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("Referrer-Policy", "no-referrer")
 		hd.Set("Cache-Control", "no-store")

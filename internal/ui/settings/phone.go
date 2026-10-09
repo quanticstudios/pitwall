@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"net"
+	"strings"
 	"time"
 
 	gl "gioui.org/layout"
@@ -25,6 +26,7 @@ type phonePage struct {
 	until   time.Time
 	fp      string // the certificate's SHA-256, with tls
 	note    string // what happened last: paired, revoked, or an error
+	test    pushTest
 }
 
 func (p *Page) phoneDir() string {
@@ -113,7 +115,8 @@ func (p *Page) phone() []section {
 	pair := row{label: "Pair a phone", desc: "Shows a QR code that pairs one phone. The phone keeps a token; this computer keeps only its hash.",
 		extra: "pair qr code phone device", control: btn("rpair", "Pair", primary, p.pairPhone), below: note}
 	if p.ph.code != nil {
-		pair.label, pair.desc = "Scan with your phone", fmt.Sprintf("Or open %s. It pairs %q once, until %s.", p.ph.url, p.ph.name, p.ph.until.Format("15:04"))
+		_, code, _ := strings.Cut(p.ph.url, "#pair=")
+		pair.label, pair.desc = "Scan with your phone", fmt.Sprintf("Or open %s, or enter %s on the page. It pairs %q once, until %s.", p.ph.url, code, p.ph.name, p.ph.until.Format("15:04"))
 		if p.ph.fp != "" {
 			pair.desc += " The page's certificate SHA-256 is " + p.ph.fp + "."
 		}
@@ -141,7 +144,7 @@ func (p *Page) phone() []section {
 					p.ph.note = "Revoked " + d.Name + "."
 				}
 				p.readDevices()
-			})})
+			})}, p.pushRow(d, btn))
 	}
 	secs := []section{{rows: rows}}
 	if len(devs) > 0 {

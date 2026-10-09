@@ -43,11 +43,11 @@ only the token's SHA-256 under `remote/` in the state folder (mode 0600). A
 request without a valid token gets nothing. After 10 failed codes or tokens
 in a minute, every request is refused until the minute is up.
 
-| Command                         | Does                                              |
-| ------------------------------- | ------------------------------------------------- |
-| `pitwall remote pair [name]`    | Pair a phone; prints the QR code and URL          |
-| `pitwall remote devices`        | List paired devices                               |
-| `pitwall remote revoke <name>`  | Unpair one by name or id; its token stops at once |
+| Command                         | Does                                                                       |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `pitwall remote pair [name]`    | Pair a phone; prints the QR code and URL                                   |
+| `pitwall remote devices`        | List paired devices                                                        |
+| `pitwall remote revoke <name>`  | Unpair one by name or id; its token and its push subscription stop at once |
 
 ## What the page shows and sends
 
@@ -55,7 +55,8 @@ The page lists the tabs that need you: approvals, questions, finished turns
 and errors, each with the agent's question or the tool it wants, and the
 risk pitwall flags in a permission request. It shows what the sidebar shows,
 never a pane's screen or scrollback. It asks for the list every 3 seconds
-while it is open.
+while it is open, and push notifications reach the phone while it is
+closed or locked.
 
 Allow presses the first option of the agent's prompt, Yes: `1` for Claude
 Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
@@ -67,6 +68,39 @@ pi has no permission prompts, so its tabs only take replies.
 `daemon.log` gets a line for each pairing and each answer, with the device's
 name: "allow sent to pane …", "reply sent to pane …", never what the reply
 said.
+
+## Notifications
+
+The page can push a notification to the phone when an agent needs you:
+an approval, a question, a plan, an error, or a turn that finished. It
+pushes what the desktop notifies, by the same rules: only what you have
+not seen in a window, at most one every 3 seconds per tab, nothing for
+what triage calls fyi, and an approval or an error at high urgency. The
+background service decides, so pushes come with every window closed. A
+device gets at most 6 a minute. Each push holds the tab's title, its
+state and the line the page shows; tapping it opens the page on that tab.
+
+Push needs HTTPS with a certificate the phone trusts, which `tailscale
+serve` gives. Browsers refuse it with the certificate pitwall makes for
+itself. Then open the page and tap Turn on, and allow notifications.
+
+On an iPhone (iOS 16.4 or later), only a page added to the Home Screen
+gets pushes:
+
+1. Open the pairing link in Safari.
+2. Tap Share, then Add to Home Screen.
+3. Open pitwall from the Home Screen. It keeps its own storage, so it is
+   not paired yet: enter the code that `pitwall remote pair` or Settings,
+   Phone shows.
+4. Tap Turn on, then Allow.
+
+Settings, Phone shows under each paired device whether it gets pushes,
+and Send test sends it one. pitwall signs pushes with a key it makes
+once, `remote/vapid.pem` in the state folder (mode 0600), and keeps each
+device's subscription next to its token. A push service such as Apple's,
+Google's or Mozilla's carries each push; it sees when and how much, but
+the text is encrypted for the phone. A subscription the push service
+reports gone is dropped.
 
 ## Another address
 
