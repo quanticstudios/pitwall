@@ -31,6 +31,9 @@ type nav struct {
 	palette bool
 	// find asks the window to open the find bar on the focused pane.
 	find bool
+	// prAct asks the window to run open_pr, merge_pr or rerun_checks on
+	// the open tab: a browser or a dialog, which nav has no hold of.
+	prAct string
 
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
@@ -875,6 +878,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		return n.tabOp(st, "new_in_group")
 	case "view_diff", "create_pr":
 		return n.review(st, ws, act)
+	case "open_pr", "merge_pr", "rerun_checks":
+		n.prAct = act
 	case "close_tab", "next_tab", "prev_tab":
 		return n.tabOp(st, strings.TrimSuffix(act, "_tab"))
 	}

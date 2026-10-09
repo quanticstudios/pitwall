@@ -35,14 +35,17 @@ const (
 	modalDelete
 	modalAddProject
 	modalHooks
+	modalMerge // merge a tab's pull request, see pr.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
 // add-project folder prompt. While one shows, panes give up key focus.
 type modal struct {
 	kind         modalKind
-	ws           string // the workspace a delete dialog is about
+	ws           string // the workspace a delete or merge dialog is about
 	removeBranch bool
+	archive      bool // the delete dialog archives a tab whose PR merged
+	armed        bool // the merge dialog was confirmed once with checks failing
 	focus        bool // move key focus into the dialog this frame
 
 	check, cancel, ok widget.Clickable
@@ -55,6 +58,7 @@ type modal struct {
 
 func (m *modal) open(kind modalKind, ws string) {
 	m.kind, m.ws, m.removeBranch, m.focus, m.pathErr, m.matches = kind, ws, false, true, "", nil
+	m.archive, m.armed = false, false
 	if kind == modalAddProject {
 		m.path.SingleLine, m.path.Submit = true, true
 		m.path.SetText("~/")
@@ -69,7 +73,7 @@ func (m *modal) close() { m.kind = modalNone }
 func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	m := &u.modal
 	ws := findWorkspace(st, m.ws)
-	if m.kind == modalDelete && ws == nil {
+	if (m.kind == modalDelete || m.kind == modalMerge) && ws == nil {
 		m.close() // deleted elsewhere
 	}
 	if m.kind == modalNone {
@@ -175,6 +179,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = u.addProjectBody
 	case modalHooks:
 		content = u.hooksBody
+	case modalMerge:
+		content = func(gtx gl.Context) gl.Dimensions { return u.mergeBody(gtx, st, ws) }
 	}
 	u.card(gtx, &m.body, content)
 }
@@ -227,22 +233,31 @@ func (u *ui) confirmModal() {
 		m.close()
 	case modalHooks:
 		u.confirmHooks()
+	case modalMerge:
+		u.confirmMerge()
 	}
 }
 
 // deleteBody is DeleteWorkspaceModal. pitwall always removes a linked
 // worktree with its workspace, so where aide offers to delete the folder,
-// this offers to delete the branch too.
+// this offers to delete the branch too. Archive, for a tab whose pull
+// request merged, is the same dialog with its own words.
 func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl.Dimensions {
 	th := u.th
 	worktree := ws.WorktreeRoot != "" // the daemon removes only worktrees it made
+	verb, what := "Delete", "Stops its terminals and agents and removes it from pitwall."
+	okBg, okFg := th.Red, theme.Hex("#ffffff")
+	if u.modal.archive {
+		verb, what = "Archive", "Its pull request merged. Archiving stops its terminals and agents and removes it from pitwall."
+		okBg, okFg = th.Primary, th.OnPrimary
+	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Delete \""+tabTitle(*ws)+"\"?")
+			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, verb+" \""+tabTitle(*ws)+"\"?")
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Stops its terminals and agents and removes it from pitwall.")
+			return para(gtx, th, th.UIFont, 14, th.Muted, what)
 		}),
 	}
 	if worktree {
@@ -273,7 +288,7 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", "Delete", th.Red, theme.Hex("#ffffff"))
+			return u.buttons(gtx, "Cancel", verb, okBg, okFg)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)

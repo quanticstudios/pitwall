@@ -133,6 +133,10 @@ const (
 	actNewBelow
 	actDiff
 	actPR
+	actOpenPR
+	actMergePR
+	actRerun
+	actArchive
 	actCount
 )
 
@@ -150,6 +154,7 @@ var projectColorIDs = [...]string{
 type rowState struct {
 	click, more, close widget.Clickable
 	allow, deny        widget.Clickable // a pending approval's answers
+	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	ctx                int              // tag for right- and middle-click
 }
 
@@ -398,7 +403,8 @@ func (s *Sidebar) project(id string) *projectState {
 
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
-	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered()
+	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() ||
+		r.pr.Hovered() || r.archive.Hovered()
 }
 
 func (s *Sidebar) row(id string) *rowState {

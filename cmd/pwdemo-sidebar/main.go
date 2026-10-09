@@ -181,6 +181,19 @@ func fakeState(now time.Time) model.State {
 			"ws-plan":     {MergeStatus: model.MergeUpToDate},
 			"ws-hotkeys":  {Additions: 6, Deletions: 6},
 		},
+		// One PR chip per state: open with each CI rollup and review, a
+		// draft, merged and closed.
+		PRs: map[string]model.PR{
+			"ws-sidebar": {Number: 123, State: model.PROpen, Review: model.ReviewApproved, URL: "https://github.com/acme/api/pull/123",
+				Checks: []model.Check{{Name: "build", State: model.CheckPass}, {Name: "test", State: model.CheckPass}}},
+			"ws-term": {Number: 131, State: model.PROpen, Review: model.ReviewChanges, URL: "https://github.com/acme/api/pull/131",
+				Checks: []model.Check{{Name: "build", State: model.CheckPass}, {Name: "test (ubuntu-latest)", State: model.CheckFail}, {Name: "lint", State: model.CheckPending}}},
+			"ws-daemon": {Number: 9, State: model.PROpen, Draft: true, URL: "https://github.com/acme/api/pull/9",
+				Checks: []model.Check{{Name: "build", State: model.CheckPending}}},
+			"ws-pi":       {Number: 118, State: model.PRMerged, URL: "https://github.com/acme/api/pull/118"},
+			"ws-hotkeys":  {Number: 77, State: model.PRClosed, URL: "https://github.com/acme/web/pull/77"},
+			"ws-conflict": {Number: 140, State: model.PROpen, Review: model.ReviewRequired, Conflicts: true, URL: "https://github.com/acme/api/pull/140"},
+		},
 	}
 	add := func(id, project, name, branch string, updated time.Duration, provider model.Provider, state model.AgentState) {
 		st.Workspaces = append(st.Workspaces, model.Workspace{ID: id, ProjectID: project, Name: name, Branch: branch, Path: "/home/me/src/" + name, UpdatedAt: ago(updated)})

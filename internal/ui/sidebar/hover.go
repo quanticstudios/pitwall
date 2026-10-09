@@ -106,9 +106,9 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 }
 
 // card is what a tab's hover card shows. Lines lists which lines, in
-// order: 't' title, 'f' folder, 'b' branch, 'o' the worktree's ports, 's'
-// agent state, 'd' its detail, 'u' token use, 'j' the decision model's
-// advice, 'p' pane count.
+// order: 't' title, 'f' folder, 'b' branch, 'r' its pull request, 'c'
+// the PR's checks, 'o' the worktree's ports, 's' agent state, 'd' its
+// detail, 'u' token use, 'j' the decision model's advice, 'p' pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -117,6 +117,7 @@ type card struct {
 	path, branch string
 	ports        string // the worktree's port block, "3010-3019"
 	add, del     int
+	pr           *model.PR // the branch's pull request
 	state        model.AgentState
 	detail       string
 	usage        string // UsageText of the tab's agents
@@ -131,6 +132,12 @@ func (c card) lines() string {
 	}
 	if c.branch != "" {
 		out += "b"
+	}
+	if c.pr != nil {
+		out += "r"
+		if c.pr.State == model.PROpen && len(c.pr.Checks) > 0 {
+			out += "c"
+		}
 	}
 	if c.ports != "" {
 		out += "o"
@@ -166,6 +173,9 @@ func cardFor(v *view, ws model.Workspace) card {
 	}
 	if st, ok := v.st.Stats[ws.ID]; ok && c.branch != "" {
 		c.add, c.del = st.Additions, st.Deletions
+	}
+	if pr, ok := v.st.PRs[ws.ID]; ok && c.branch != "" {
+		c.pr = &pr
 	}
 	if a := v.activity[ws.ID]; a != nil {
 		c.state, c.detail = a.State, clampDetail(a.Detail)
@@ -322,6 +332,43 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				}
 				return hrowFit(gtx, gtx.Sp(13*1.5), gtx.Dp(6), items...)
 			})
+		case 'r':
+			line(iconOf(icGitPullRequest, PRColor(th, *c.pr)), func(gtx layout.Context) layout.Dimensions {
+				return hrowFit(gtx, gtx.Sp(13*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, medium(th.UIFont), 12, theme.Mix(bg, th.Fg, 0.85), PRSummary(*c.pr))
+				}})
+			})
+		case 'c':
+			// The checks belong to the PR above them, closer together.
+			checks := c.pr.Checks
+			if len(checks) > maxChecks {
+				checks = checks[:maxChecks-1]
+			}
+			for _, ch := range checks {
+				y -= gap / 2
+				dot := func(gtx layout.Context) layout.Dimensions {
+					d := gtx.Dp(6)
+					o := op.Offset(image.Pt((icon-d)/2, (icon-d)/2)).Push(gtx.Ops)
+					paint.FillShape(gtx.Ops, CheckColor(th, ch.State), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
+					o.Pop()
+					return layout.Dimensions{Size: image.Pt(icon, icon)}
+				}
+				line(dot, func(gtx layout.Context) layout.Dimensions {
+					return hrow(gtx, gtx.Sp(12*1.4), gtx.Dp(8),
+						item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, th, th.UIFont, 12, theme.Mix(bg, th.Fg, 0.8), ch.Name)
+						}},
+						item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, th, th.UIFont, 11, CheckColor(th, ch.State), checkText(ch.State))
+						}})
+				})
+			}
+			if n := len(c.pr.Checks) - len(checks); n > 0 {
+				y -= gap / 2
+				line(nil, func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, th.UIFont, 11, muted, fmt.Sprintf("and %d more", n))
+				})
+			}
 		case 'o':
 			line(iconOf(icPlug, muted), func(gtx layout.Context) layout.Dimensions {
 				return hrowFit(gtx, gtx.Sp(13*1.5), gtx.Dp(6), item{w: func(gtx layout.Context) layout.Dimensions {

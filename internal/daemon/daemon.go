@@ -25,6 +25,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/decisionlog"
+	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
@@ -98,6 +99,11 @@ type Options struct {
 	Split         func(root *layout.Node, target, newPane string, dir layout.Dir) *layout.Node
 	Remove        func(root *layout.Node, pane string) *layout.Node
 	StatsInterval time.Duration // 0 means 30s
+	// PR is the pull request of the branch checked out at dir, nil for
+	// none (forge.View); nil never asks. ArchiveOnMerge reads [git]
+	// archive_on_merge; nil means off.
+	PR             func(ctx context.Context, dir string) (*model.PR, error)
+	ArchiveOnMerge func() bool
 	// Bell reports whether a BEL raises its pane's attention ([terminal]
 	// bell); nil means it does.
 	Bell func() bool
@@ -126,6 +132,7 @@ type Daemon struct {
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed bool
 	pushWake     chan struct{} // wakes pushLoop, nil when it is not running
+	prs          prPoll        // see pr.go
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -156,6 +163,8 @@ func New() (*Daemon, error) {
 		Stats:          gitstat.Stats,
 		AddWorktree:    gitstat.AddWorktree,
 		RemoveWorktree: gitstat.RemoveWorktree,
+		PR:             forge.View,
+		ArchiveOnMerge: func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
 		Save:           func(s model.State) error { return store.Save(path, s) },
 		Load:           func() (model.State, error) { return store.Open(path) },
 		RestoreCmd:     store.RestoreCmd,
@@ -195,10 +204,12 @@ func NewWith(o Options) (*Daemon, error) {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	st.Activities = nil
+	st.PRs = map[string]model.PR{}
 	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}}
 	if o.Decisions != nil {
 		d.dec.cur = o.Decisions()
 	}
+	d.prs = prPoll{seen: map[string]*prSeen{}, wake: make(chan struct{}, 1)}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	for i := range d.st.Workspaces {
 		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
@@ -257,6 +268,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	defer cancel()
 	context.AfterFunc(ctx, func() { ln.Close() })
 	go d.statsLoop(ctx)
+	go d.prLoop(ctx)
 	var wg sync.WaitGroup
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
@@ -1362,6 +1374,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		delete(d.live.fresh, id)
 		delete(d.live.resumeSeen, id)
 		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id && !ended(a.State) })
+		d.pokePR(sp.WorkspaceID) // a gh pr create or merge may have changed it
 	} else {
 		log.Printf("pane %s: exited %d; closed", id, code)
 		closing = d.removePane(id)
@@ -1476,6 +1489,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Panes = slices.Clone(s.Panes)
 	s.Activities = d.attended()
 	s.Stats = maps.Clone(s.Stats)
+	s.PRs = maps.Clone(s.PRs) // entries are replaced, never changed in place
 	s.Decide = d.decideInfo()
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {

@@ -1,0 +1,64 @@
+{
+  "isDraft": false,
+  "mergeable": "MERGEABLE",
+  "number": 123,
+  "reviewDecision": "CHANGES_REQUESTED",
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-08T14:02:11Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/example/widgets/actions/runs/1001/job/2001",
+      "name": "build",
+      "startedAt": "2026-10-08T13:58:40Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-08T14:03:52Z",
+      "conclusion": "FAILURE",
+      "detailsUrl": "https://github.com/example/widgets/actions/runs/1001/job/2002",
+      "name": "test (ubuntu-latest)",
+      "startedAt": "2026-10-08T13:58:41Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "0001-01-01T00:00:00Z",
+      "conclusion": "",
+      "detailsUrl": "https://github.com/example/widgets/actions/runs/1001/job/2003",
+      "name": "lint",
+      "startedAt": "2026-10-08T13:58:41Z",
+      "status": "IN_PROGRESS",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-08T13:58:42Z",
+      "conclusion": "SKIPPED",
+      "detailsUrl": "https://github.com/example/widgets/actions/runs/1002/job/2004",
+      "name": "deploy-preview",
+      "startedAt": "2026-10-08T13:58:42Z",
+      "status": "COMPLETED",
+      "workflowName": "Preview"
+    },
+    {
+      "__typename": "StatusContext",
+      "context": "ci/circleci: e2e",
+      "startedAt": "2026-10-08T13:59:03Z",
+      "state": "PENDING",
+      "targetUrl": "https://circleci.com/gh/example/widgets/77"
+    },
+    {
+      "__typename": "StatusContext",
+      "context": "license/cla",
+      "startedAt": "2026-10-08T13:58:39Z",
+      "state": "SUCCESS",
+      "targetUrl": "https://cla.example.com/example/widgets?pullRequest=123"
+    }
+  ],
+  "url": "https://github.com/example/widgets/pull/123"
+}

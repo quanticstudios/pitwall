@@ -25,6 +25,7 @@ func defaults() Config {
 	c.Usage.ShowCost, c.Usage.LimitsInSidebar = &off, &off
 	c.Decisions = defaultDecisions()
 	c.Worktrees = defaultWorktrees()
+	c.Git = defaultGit()
 	c.Remote = defaultRemote()
 	c.Notify = defaultNotifications()
 	return c

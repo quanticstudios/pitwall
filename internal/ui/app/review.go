@@ -89,9 +89,13 @@ func (n *nav) review(st *model.State, id, act string) any {
 	return nil
 }
 
-// reviewBlocked is why the palette's view_diff or create_pr cannot run on
-// the open tab, "" when it can or for any other action.
+// reviewBlocked is why the palette's view_diff, create_pr, open_pr,
+// merge_pr or rerun_checks cannot run on the open tab, "" when it can or
+// for any other action.
 func (n *nav) reviewBlocked(st *model.State, act string) string {
+	if why, ok := n.prBlocked(st, act); ok {
+		return why
+	}
 	if act != "view_diff" && act != "create_pr" {
 		return ""
 	}

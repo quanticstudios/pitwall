@@ -104,6 +104,7 @@ func (d *Daemon) removeWorkspace(id string) []Pane {
 	session := d.st.SessionOf(id)
 	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.ID == id })
 	delete(d.st.Stats, id)
+	delete(d.st.PRs, id)
 	d.endSession(session)
 	return out
 }
