@@ -119,6 +119,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 	s.elems = elems
 	s.noteExpands(gtx.Now, v)
 	s.cardAt = ""
+	s.cursorFrame(gtx, v, elems, total)
 	offs, moving := s.animate(gtx, elems, total)
 	animating := false
 	byID := map[string]model.Workspace{}

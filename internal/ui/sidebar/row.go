@@ -71,7 +71,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if selected || isActive && !ghost {
 		paint.FillShape(gtx.Ops, theme.Mix(base, th.Primary, 0.55), clip.Stroke{Path: clip.UniformRRect(rect.Inset(1), rr-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	}
-	if !ghost && gtx.Focused(&r.click) {
+	if !ghost && (gtx.Focused(&r.click) || s.cursorOn('s', ws.ID)) {
 		g := gtx.Dp(3)
 		kit.FocusRing(gtx, th, rect.Inset(g), rr-g)
 	}

@@ -191,7 +191,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, ap model.Age
 		if base != th.Sidebar {
 			paint.FillShape(gtx.Ops, base, clip.UniformRRect(image.Rectangle{Max: size}, rr).Op(gtx.Ops))
 		}
-		if gtx.Focused(&r.click) {
+		if gtx.Focused(&r.click) || s.cursorOn('a', ap.Pane.ID) {
 			g := gtx.Dp(3)
 			kit.FocusRing(gtx, th, image.Rectangle{Max: size}.Inset(g), max(rr-g, 0))
 		}

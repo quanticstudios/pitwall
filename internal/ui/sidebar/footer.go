@@ -31,6 +31,13 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 		s.limitMeter(mg, th, top)
 		off.Pop()
 	}
+	if s.Hints != nil {
+		off := op.Offset(image.Pt(px+gtx.Dp(8), 1+px+top)).Push(gtx.Ops)
+		hg := gtx
+		hg.Constraints = layout.Constraints{Max: image.Pt(w-2*px-gtx.Dp(16), gtx.Constraints.Max.Y)}
+		top += s.Hints(hg).Size.Y + gtx.Dp(4)
+		off.Pop()
+	}
 	defer op.Offset(image.Pt(0, top)).Push(gtx.Ops).Pop()
 	h := 1 + 2*px + btn + top
 	gap := gtx.Dp(4)

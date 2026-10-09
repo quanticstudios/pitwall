@@ -14,6 +14,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -24,6 +25,10 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	hovered := ps.toggle.Hovered() || ps.add.Hovered() || ps.more.Hovered()
 	if hovered {
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
+	}
+	if s.cursorOn('g', p.ID) {
+		g := gtx.Dp(3)
+		kit.FocusRing(gtx, th, image.Rect(0, 0, w, h).Inset(g), gtx.Dp(8)-g)
 	}
 	attention := 0 // tabs with something the user has not seen
 	for _, ws := range v.byProject[p.ID] {
