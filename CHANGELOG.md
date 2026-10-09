@@ -15,6 +15,13 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- The daemon sends a window only the panes it draws. Agents in other tabs
+  and sessions keep running, and a pane shows its current screen as soon
+  as you switch to it. With 32 busy panes and four on screen, a window
+  receives 4 MB/s instead of 34.
+
 ## v0.1.0-beta.3
 
 - On Windows, `pitwall.exe` is a GUI program with pitwall's icon: it opens

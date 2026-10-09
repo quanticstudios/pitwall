@@ -1,4 +1,4 @@
-16.13
+16.14
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -66,6 +66,7 @@ proto.StateMsg{State model.State; Level int}
 proto.Sync{}
 proto.Text{Pane string; Sel vt.Selection}
 proto.TextResult{Pane string; Sel vt.Selection; Text string}
+proto.View{Panes []string}
 proto.WorktreeInfo{Query proto.WorktreeQuery; Err string; Default string; Local []string; Remote []string; GitHub bool; Changed []string; Unmerged bool; Orphans []model.Orphan}
 proto.WorktreeQuery{ProjectID string; WorkspaceID string; Orphans bool}
 time.Location{name string; zone []time.zone; tx []time.zoneTrans; extend string; cacheStart int64; cacheEnd int64; cacheZone *time.zone}

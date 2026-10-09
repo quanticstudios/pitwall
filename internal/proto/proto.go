@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 14 added View: a GUI that sends it gets frames of the panes it
+// shows alone.
 // Level 13 added Text, TextResult and vt.Grid.Wrapped: a copy of a
 // selection that runs past the view.
 // Level 12 added State.Tasks, NewTask and DropTask: the task queue.
@@ -90,12 +92,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 13
+const Level = 14
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case View:
+		return 14
 	case Text, TextResult:
 		return 13
 	case NewTask, DropTask:
@@ -293,6 +297,14 @@ type Search struct {
 type Text struct {
 	Pane string
 	Sel  vt.Selection
+}
+
+// View names the panes a GUI draws now. The daemon sends that GUI frames
+// of these panes alone, and a full Frame of each one it adds, so a pane
+// shows current once it is drawn again; the others keep running unseen. A
+// GUI of this Level gets no frames until its first View.
+type View struct {
+	Panes []string
 }
 
 type ClosePane struct {
@@ -535,4 +547,5 @@ var Messages = []any{
 	Answer{},
 	WorktreeQuery{}, WorktreeInfo{}, DeleteWorktree{},
 	Text{}, TextResult{},
+	View{},
 }

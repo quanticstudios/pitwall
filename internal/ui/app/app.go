@@ -793,6 +793,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	live := map[string]bool{}
 	defer func() { // a pane no longer drawn has lost focus
+		u.showPanes(live)
 		for id, p := range u.panes {
 			if live[id] {
 				continue

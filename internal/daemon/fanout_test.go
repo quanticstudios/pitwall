@@ -127,7 +127,7 @@ func fanoutState(panes int) model.State {
 }
 
 // fanoutClient is a GUI that keeps the latest frame of every pane, as
-// cmd/pitwall's backend does, and shows tab w.
+// cmd/pitwall's backend does.
 type fanoutClient struct {
 	tap    *tapConn
 	conn   *proto.Conn
@@ -136,7 +136,9 @@ type fanoutClient struct {
 	mark   int          // tap length when measuring started
 }
 
-func dialFanout(b *testing.B, sock string, level int) *fanoutClient {
+// dialFanout connects a GUI of level that shows tab, telling the daemon so
+// when level has View.
+func dialFanout(b *testing.B, sock string, level, tab int) *fanoutClient {
 	nc, err := net.Dial("unix", sock)
 	if err != nil {
 		b.Fatal(err)
@@ -146,6 +148,15 @@ func dialFanout(b *testing.B, sock string, level int) *fanoutClient {
 	b.Cleanup(func() { c.conn.Close() })
 	if err := c.conn.Send(proto.Hello{Version: proto.Version, Level: level, Kind: "gui", Session: "bench"}); err != nil {
 		b.Fatal(err)
+	}
+	if level >= proto.Since(proto.View{}) {
+		v := proto.View{}
+		for i := range 4 {
+			v.Panes = append(v.Panes, fmt.Sprintf("p%02d-%d", tab, i))
+		}
+		if err := c.conn.Send(v); err != nil {
+			b.Fatal(err)
+		}
 	}
 	go func() {
 		for {
@@ -217,12 +228,15 @@ func (c *readConn) Close() error                { return nil }
 // MB/s and frames/s, the CPU of the whole process (daemon and GUIs, as
 // cpu-%), and the time spent encoding (daemon) and decoding (GUIs) the
 // frames, in ms per second of wall time. One op is 10ms of wall time.
+// GUIs of level 13 predate View and get every pane's frames.
 func BenchmarkFanout(b *testing.B) {
-	for _, panes := range []int{8, 16, 32} {
-		for _, guis := range []int{1, 2} {
-			b.Run(fmt.Sprintf("panes=%d/guis=%d", panes, guis), func(b *testing.B) {
-				benchFanout(b, panes, guis, proto.Level)
-			})
+	for _, level := range []int{13, proto.Level} {
+		for _, panes := range []int{8, 16, 32} {
+			for _, guis := range []int{1, 2} {
+				b.Run(fmt.Sprintf("level=%d/panes=%d/guis=%d", level, panes, guis), func(b *testing.B) {
+					benchFanout(b, panes, guis, level)
+				})
+			}
 		}
 	}
 }
@@ -237,8 +251,8 @@ func benchFanout(b *testing.B, panes, guis, level int) {
 	})
 	defer stop()
 	var cs []*fanoutClient
-	for range guis {
-		cs = append(cs, dialFanout(b, sock, level))
+	for i := range guis {
+		cs = append(cs, dialFanout(b, sock, level, i))
 	}
 	for t := range panes / 4 {
 		for i := range 4 {

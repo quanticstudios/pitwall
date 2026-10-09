@@ -346,11 +346,14 @@ type client struct {
 	nc      net.Conn // for write deadlines
 	session string   // the session a GUI shows, from SessionShow; guarded by Daemon.mu
 	focus   string   // the pane a GUI shows focused in a focused window, from SeePane; guarded by Daemon.mu
-	wake    chan struct{}
-	mu      sync.Mutex
-	state   bool
-	frames  map[string]proto.Frame
-	msgs    []any
+	// view is the panes a GUI draws, from proto.View, nil for one below
+	// that Level, which gets every pane's frames; guarded by Daemon.mu.
+	view   map[string]bool
+	wake   chan struct{}
+	mu     sync.Mutex
+	state  bool
+	frames map[string]proto.Frame
+	msgs   []any
 }
 
 func (c *client) push(f func()) {
@@ -457,10 +460,15 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		d.mu.Lock()
 		d.clients[c] = struct{}{}
+		if hello.Level >= proto.Since(proto.View{}) {
+			c.view = map[string]bool{}
+		}
 		c.push(func() {
 			c.state = true
 			for id, p := range d.panes {
-				c.frames[id] = d.frame(id, p)
+				if c.shows(id) {
+					c.frames[id] = d.frame(id, p)
+				}
 			}
 		})
 		d.mu.Unlock()
@@ -513,6 +521,12 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if t, ok := m.(proto.Text); ok {
 			c.queue(d.text(t))
+			continue
+		}
+		if v, ok := m.(proto.View); ok {
+			if hello.Kind == "gui" {
+				d.setView(c, v.Panes)
+			}
 			continue
 		}
 		if see, ok := m.(proto.SeePane); ok && hello.Kind == "gui" && hello.Level >= proto.SeeFocusLevel {
@@ -1305,8 +1319,8 @@ func writeInput(p Pane, in <-chan []byte) {
 	}
 }
 
-// titlePoll is how long a pane's title may lag its output while no GUI is
-// connected; with one, every frame carries the title.
+// titlePoll is how long a pane's title may lag its output while no GUI
+// shows it; a GUI that does gets the title with every frame.
 const titlePoll = 500 * time.Millisecond
 
 // watch pushes at most 60 frames a second for one pane and keeps its title.
@@ -1346,14 +1360,47 @@ func (d *Daemon) watch(id string, p Pane) {
 func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.panes[id] != p || len(d.clients) == 0 {
+	if d.panes[id] != p {
 		return "", false
 	}
-	f := d.frame(id, p)
+	var f *proto.Frame
 	for c := range d.clients {
-		c.push(func() { c.frames[id] = f })
+		if !c.shows(id) {
+			continue
+		}
+		if f == nil {
+			fr := d.frame(id, p)
+			f = &fr
+		}
+		c.push(func() { c.frames[id] = *f })
+	}
+	if f == nil {
+		return "", false
 	}
 	return f.Grid.Title, true
+}
+
+// shows reports whether c draws pane id. Callers hold d.mu.
+func (c *client) shows(id string) bool { return c.view == nil || c.view[id] }
+
+// setView makes panes what c draws, and queues a frame of each pane it
+// did not draw before: its last frame may be long stale.
+func (d *Daemon) setView(c *client, panes []string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	view := map[string]bool{}
+	for _, id := range panes {
+		view[id] = true
+	}
+	old := c.view
+	c.view = view
+	c.push(func() {
+		for id := range view {
+			if p := d.panes[id]; p != nil && (old == nil || !old[id]) {
+				c.frames[id] = d.frame(id, p)
+			}
+		}
+	})
 }
 
 // resumeGrace is how soon after a restart a resumed agent may fail and get a
