@@ -135,12 +135,13 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		var line []item
 		if v.agents[ws.ID] != nil {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
-				return s.foldChip(gtx, v, ws.ID, muted, ghost)
+				return s.foldChip(gtx, v, ws.ID, muted, ghost, answering)
 			}})
 		}
-		// Allow and Deny leave it a few letters at most; a title that says
-		// the same ("~" for home) needs no second word.
-		if !answering && where != title {
+		// Allow and Deny or the agent count leave it a few letters at most,
+		// and the hover card has it; a title that says the same ("~" for
+		// home) needs no second word.
+		if !answering && v.agents[ws.ID] == nil && where != title {
 			line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})

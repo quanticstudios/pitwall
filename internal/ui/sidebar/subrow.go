@@ -279,11 +279,16 @@ func (s *Sidebar) ghostSubs(gtx layout.Context, v *view, id string) int {
 }
 
 // foldChip is the agent count on line 2 of a tab with sub-rows, after a
-// chevron that turns as clicking it folds and unfolds them.
-func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRGBA, ghost bool) layout.Dimensions {
+// chevron that turns as clicking it folds and unfolds them. Short, beside
+// Allow and Deny, it only counts them; the pill names the state.
+func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRGBA, ghost, short bool) layout.Dimensions {
 	th := v.th
 	r := s.row(id)
 	_, l2 := rowLines(gtx, th)
+	text := agentCount(v.agents[id])
+	if short {
+		text = fmt.Sprintf("%d agents", len(v.agents[id]))
+	}
 	draw := func(gtx layout.Context) layout.Dimensions {
 		c := col
 		if !ghost && r.fold.Hovered() {
@@ -294,7 +299,7 @@ func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRG
 				return chevron(gtx, &r.foldT, !s.folded[id], gtx.Dp(12), c)
 			}},
 			item{w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), c, agentCount(v.agents[id]))
+				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), c, text)
 			}})
 	}
 	if ghost {
