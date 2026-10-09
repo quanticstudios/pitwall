@@ -92,7 +92,8 @@ type Keys struct {
 	NextPrompt      Binding `toml:"next_prompt" group:"Terminal" doc:"Scroll forward to the next shell prompt (OSC 133)"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
-	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the tab's changes since its default branch, committed or not, in your git pager in a new pane"`
+	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the review view of the tab's changes since its default branch, committed or not, where you comment on lines and send the comments to the tab's agent"`
+	DiffPager       Binding `toml:"diff_pager" group:"Review" doc:"Open diff in pager: the same changes in your git pager in a new pane"`
 	CreatePR        Binding `toml:"create_pr" group:"Review" doc:"Create pull request: gh pr create --fill in a new tab in the tab's folder, after git push -u origin HEAD when the branch has no upstream"`
 	OpenPR          Binding `toml:"open_pr" group:"Review" doc:"Open PR: the tab's pull request in your browser"`
 	MergePR         Binding `toml:"merge_pr" group:"Review" doc:"Merge PR: gh pr merge in a new tab, by [git] merge_method, after you confirm, and again when checks failed"`

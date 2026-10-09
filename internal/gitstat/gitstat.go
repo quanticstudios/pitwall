@@ -657,3 +657,97 @@ func Conflicts(ctx context.Context, dir, a, b string) ([]string, error) {
 	}
 	return files, nil
 }
+
+// Patch is the change Files lists, as text: the diff from the merge base
+// with Base to the work tree, and the untracked files, which a diff leaves
+// out, by path.
+type Patch struct {
+	Base, Root string // the default branch's ref and the repository's top level
+	Diff       []byte // git diff with a/ and b/ prefixes, renames found, every line as context
+	Untracked  []string
+}
+
+// fullContext is the context Diff asks for: enough to have every
+// unchanged line of a file in one hunk, so the review view can unfold it.
+const fullContext = 100000
+
+// Diff returns worktree's Patch. The user's config cannot change its
+// format: no color, external diff or textconv, the usual prefixes.
+func Diff(ctx context.Context, worktree string) (Patch, error) {
+	var p Patch
+	base, err := defaultRef(ctx, worktree)
+	if err != nil || base == "" {
+		return p, err
+	}
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return p, fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	mb, err := mergeBase(ctx, root, base)
+	if err != nil {
+		return p, err
+	}
+	out, err := git(ctx, root, "-c", "core.quotePath=true", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
+		"--src-prefix=a/", "--dst-prefix=b/", "-M", fmt.Sprintf("--unified=%d", fullContext), mb, "--")
+	if err != nil {
+		return p, err
+	}
+	p.Base, p.Root, p.Diff = base, root, []byte(out)
+	out, err = git(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return p, err
+	}
+	for _, path := range strings.Split(out, "\x00") {
+		if path != "" {
+			p.Untracked = append(p.Untracked, path)
+		}
+	}
+	return p, nil
+}
+
+// ReadUntracked is the content of the untracked file path under root, and
+// false when it is not a regular file of at most 1 MiB, the limit Files
+// counts lines up to.
+func ReadUntracked(root, path string) ([]byte, bool) {
+	full := filepath.Join(root, path)
+	fi, err := os.Lstat(full)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxCount {
+		return nil, false
+	}
+	b, err := os.ReadFile(full)
+	return b, err == nil && len(b) <= maxCount
+}
+
+// Discard puts paths in worktree back as they are at the merge base with
+// the default branch, in the index and the work tree, which removes a file
+// the merge base does not have. Untracked paths are deleted instead.
+func Discard(ctx context.Context, worktree string, paths []string, untracked bool) error {
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	if untracked {
+		for _, p := range paths {
+			if !filepath.IsLocal(p) {
+				return fmt.Errorf("%q is outside the repository", p)
+			}
+			if err := os.Remove(filepath.Join(root, p)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	base, err := defaultRef(ctx, root)
+	if err != nil {
+		return err
+	}
+	if base == "" {
+		return errors.New("repository has no default branch")
+	}
+	mb, err := mergeBase(ctx, root, base)
+	if err != nil {
+		return err
+	}
+	_, err = git(ctx, root, append([]string{"restore", "--source=" + mb, "--staged", "--worktree", "--"}, paths...)...)
+	return err
+}

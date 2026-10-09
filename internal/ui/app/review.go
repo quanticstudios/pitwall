@@ -63,7 +63,7 @@ exec gh pr create --fill
 // prCmd is the argv of a tab opening a pull request for the branch at dir.
 func prCmd(dir string) []string { return []string{"sh", "-c", prScript, "sh", dir} }
 
-// review runs act, "view_diff" or "create_pr", for tab id: the diff in a
+// review runs act, "diff_pager" or "create_pr", for tab id: the diff in a
 // pane beside the tab's panes, which q closes, or gh in a tab of its own
 // in id's group, which stays when gh exits with its output on screen, and
 // which a daemon restart never runs again. It returns nil when
@@ -76,7 +76,7 @@ func (n *nav) review(st *model.State, id, act string) any {
 	diff, pr := sidebar.ReviewBlocked(st, *ws, ghInstalled())
 	dir := st.LivePath(*ws) // where the branch stats come from
 	switch {
-	case act == "view_diff" && diff == "":
+	case act == "diff_pager" && diff == "":
 		if id == n.workspace {
 			n.expectPane(st)
 		}
@@ -109,13 +109,14 @@ func (n *nav) fileDiff(st *model.State, id, path string) any {
 	return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: diffCmd(st.LivePath(*ws), st.Stats[id].Base, &gitstat.FileStat{Path: path, Status: 'M'})}
 }
 
-// reviewBlocked is why the palette's view_diff or create_pr cannot run on
-// the open tab, "" when it can or for any other action.
+// reviewBlocked is why the palette's view_diff, diff_pager, create_pr,
+// open_pr, merge_pr or rerun_checks cannot run on the open tab, "" when it
+// can or for any other action.
 func (n *nav) reviewBlocked(st *model.State, act string) string {
 	if why, ok := n.prBlocked(st, act); ok {
 		return why
 	}
-	if act != "view_diff" && act != "create_pr" {
+	if act != "view_diff" && act != "diff_pager" && act != "create_pr" {
 		return ""
 	}
 	ws := findWorkspace(st, n.workspace)
@@ -123,8 +124,8 @@ func (n *nav) reviewBlocked(st *model.State, act string) string {
 		return "no tab"
 	}
 	diff, pr := sidebar.ReviewBlocked(st, *ws, ghInstalled())
-	if act == "view_diff" {
-		return diff
+	if act == "create_pr" {
+		return pr
 	}
-	return pr
+	return diff
 }

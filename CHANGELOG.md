@@ -125,6 +125,19 @@ build. Either step takes `--dry-run`.
   paste, Cmd+T opens a tab, Cmd+W closes a pane, Cmd+Shift+P opens the
   palette. It is the default on macOS when the config names no preset.
   `Cmd` is another name for `Super` in config chords.
+- View diff opens a review view in place of the tab's panes instead of a
+  pager. It lists the changed files, untracked ones included, with their
+  status and line counts, and shows each file's diff with line numbers and
+  the unchanged lines folded. Click a line number or press c to comment on
+  a line or a range, then send every comment to the tab's agent as one
+  prompt with file:line references and the quoted lines; a busy agent gets
+  it when it next waits for input. Mark files reviewed (a file the agent
+  changes again comes back unreviewed) or discard a file's changes. Open it
+  with Ctrl+Shift+R, the tab menu, the command palette or a file under
+  Changes; j/k move between files, n/p between hunks, Esc closes it. The
+  pager stays as Open diff in pager. The header shows the branch's pull
+  request as its sidebar row does, and a click opens it. A file in a
+  conflict warning's hover card opens in the review view too.
 
 ## v0.1.0-beta.2
 

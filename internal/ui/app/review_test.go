@@ -155,7 +155,7 @@ func TestPRCmd(t *testing.T) {
 	}
 }
 
-// TestReview: view_diff splits the open tab, create_pr opens a tab in the
+// TestReview: diff_pager splits the open tab, create_pr opens a tab in the
 // tab's group, and a blocked action sends nothing.
 func TestReview(t *testing.T) {
 	old := ghInstalled
@@ -166,8 +166,8 @@ func TestReview(t *testing.T) {
 		Stats:      map[string]model.BranchStats{"w": {Ahead: 1, MergeStatus: model.MergeClean, Base: "refs/remotes/origin/main"}},
 	}
 	n := nav{workspace: "w"}
-	if got, want := n.review(&st, "w", "view_diff"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: diffCmd("/repo", "refs/remotes/origin/main", nil)}); !reflect.DeepEqual(got, want) {
-		t.Errorf("view_diff = %+v, want %+v", got, want)
+	if got, want := n.review(&st, "w", "diff_pager"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: diffCmd("/repo", "refs/remotes/origin/main", nil)}); !reflect.DeepEqual(got, want) {
+		t.Errorf("diff_pager = %+v, want %+v", got, want)
 	}
 	if got, want := n.review(&st, "w", "create_pr"), (proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo")}); !reflect.DeepEqual(got, want) {
 		t.Errorf("create_pr = %+v, want %+v", got, want)

@@ -38,6 +38,8 @@ type nav struct {
 	prAct string
 	// cleanup asks the window to open the Clean up worktrees dialog.
 	cleanup bool
+	// diff asks the window to open or close the review view.
+	diff bool
 
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
@@ -884,7 +886,9 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		}
 	case "new_tab":
 		return n.tabOp(st, "new_in_group")
-	case "view_diff", "create_pr":
+	case "view_diff":
+		n.diff = true
+	case "diff_pager", "create_pr":
 		return n.review(st, ws, act)
 	case "open_pr", "merge_pr", "rerun_checks":
 		n.prAct = act

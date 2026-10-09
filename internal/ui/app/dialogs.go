@@ -39,6 +39,7 @@ const (
 	modalNewWorktree
 	modalCleanup
 	modalTask
+	modalDiscard
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -198,6 +199,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = func(gtx gl.Context) gl.Dimensions { return u.newWorktreeBody(gtx, st) }
 	case modalCleanup:
 		content = func(gtx gl.Context) gl.Dimensions { return u.cleanupBody(gtx, st) }
+	case modalDiscard:
+		content = u.discardBody
 	}
 	u.card(gtx, &m.body, content)
 }
@@ -258,6 +261,8 @@ func (u *ui) confirmModal(st *model.State) {
 	case modalNewWorktree:
 		u.confirmNewWorktree(st)
 	case modalCleanup:
+	case modalDiscard:
+		u.discardFile()
 		m.close()
 	}
 }

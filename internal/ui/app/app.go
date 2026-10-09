@@ -297,6 +297,8 @@ type ui struct {
 	welcome welcome    // the first-run card
 	task    taskDialog // the New task dialog, shown as modalTask
 
+	review reviewView // the review view, shown in place of the panes
+
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
 	noticeIn image.Rectangle // the pane that copied, in the pane area
@@ -424,6 +426,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.task = false
 		u.openTask(st, "")
 	}
+	if u.nav.diff {
+		u.nav.diff = false
+		u.toggleReview(st)
+	}
 }
 
 // sessionChanged tells the daemon which session the window shows, and
@@ -476,6 +482,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}()
 	if !u.sw.open && !u.pal.open {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
+		u.reviewKeys(gtx, &st)
 	}
 	for {
 		filters := u.nav.keyFilters()
@@ -559,7 +566,7 @@ func (u *ui) layout(gtx gl.Context) {
 	// The sidebar slides in or out and pushes them along; the agent panel
 	// slides in from the right edge (aide's 200ms ease-out).
 	shown := u.slide(gtx, u.slideAt, !u.nav.sidebarHidden) // how much of the sidebar shows
-	sideOpen := u.nav.panelOpen && !u.settings.Shown()
+	sideOpen := u.nav.panelOpen && !u.settings.Shown() && !u.review.on
 	if sideOpen != u.panelShown {
 		u.panelShown, u.panelAt = sideOpen, gtx.Now
 	}
@@ -597,6 +604,8 @@ func (u *ui) layout(gtx gl.Context) {
 	u.keepFind(&st)
 	if u.settings.Shown() {
 		u.layoutSettings(pgtx, &st)
+	} else if u.review.on {
+		u.layoutReview(pgtx, &st)
 	} else {
 		u.layoutPanes(pgtx, &st)
 		u.drawWelcome(pgtx, &st)
@@ -648,6 +657,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 
 	u.layoutModal(gtx, &st)
+	u.tickReview(gtx, &st)
 	u.drawSessions(gtx, &st)
 	u.drawPalette(gtx, &st)
 	if u.nav.switcherVisible() {
@@ -688,6 +698,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	switch e := ev.(type) {
 	case sidebar.SelectWorkspace:
 		u.settings.Hide()
+		u.review.hide()
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.NewTab:
 		if e.Loose {
@@ -753,14 +764,14 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, Name: e.Name})
 	case sidebar.ViewDiff:
 		u.nav.selectWorkspace(st, e.WorkspaceID, "")
-		if m := u.nav.review(st, e.WorkspaceID, "view_diff"); m != nil {
-			u.send(m)
-		}
+		u.openReview(st, e.WorkspaceID, "")
 	case sidebar.Answer:
 		u.send(proto.Answer{Pane: e.PaneID, At: e.At, Allow: e.Allow})
 	case sidebar.ViewFileDiff:
 		u.nav.selectWorkspace(st, e.WorkspaceID, "")
-		if m := u.nav.fileDiff(st, e.WorkspaceID, e.Path); m != nil {
+		if Host == "" {
+			u.openReview(st, e.WorkspaceID, e.Path)
+		} else if m := u.nav.fileDiff(st, e.WorkspaceID, e.Path); m != nil {
 			u.send(m)
 		}
 	case sidebar.CreatePR:

@@ -114,6 +114,8 @@ func TestPresets(t *testing.T) {
 		{aide, "deny_prompt", "Ctrl+Shift+D"},
 		{conv, "copy_mode", "Ctrl+Shift+X"},
 		{aide, "copy_mode", "Ctrl+Shift+X"},
+		{conv, "view_diff", "Ctrl+Shift+R"},
+		{aide, "view_diff", "Ctrl+Shift+R"},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)
@@ -274,7 +276,7 @@ func TestMacPreset(t *testing.T) {
 		"command_palette": "Shift+Super+P", "find": "Super+F", "open_settings": "Super+,",
 		"split_right": "Super+D", "copy_mode": "Shift+Super+X", "goto_tab_2": "Super+2",
 		"next_tab": "Ctrl+Tab Shift+Super+]", "allow_prompt": "Shift+Super+Y", "deny_prompt": "Shift+Super+N",
-		"new_task": "Shift+Super+A",
+		"new_task": "Shift+Super+A", "view_diff": "Shift+Super+R",
 	} {
 		if got := chords(mac, action); got != want {
 			t.Errorf("mac %s = %q, want %q", action, got, want)

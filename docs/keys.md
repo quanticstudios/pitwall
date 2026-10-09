@@ -34,6 +34,7 @@ conventional:
 | Ctrl+Alt+Right/Down, Ctrl+Alt+Left/Up   | Next / previous pane                                      |
 | Ctrl+Shift+B                            | Show or hide the sidebar                                  |
 | Ctrl+Shift+L                            | Show or hide the agent panel                              |
+| Ctrl+Shift+R                            | Review the tab's changes: comment, then send to its agent |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Shift+Y / Ctrl+Shift+D             | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                            | New task: an agent on a prompt, started now or queued     |
@@ -68,6 +69,7 @@ aide:
 | Alt+Shift+W                       | Close the pane                                 |
 | Ctrl+B                            | Show or hide the sidebar (the shell no longer gets Ctrl+B) |
 | Ctrl+Shift+L                      | Show or hide the agent panel                   |
+| Ctrl+Shift+R                      | Review the tab's changes and comment on them   |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Shift+Y / Ctrl+Shift+D       | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                      | New task: an agent on a prompt, started now or queued |
@@ -112,6 +114,7 @@ mac:
 | Cmd+Option+Arrows                       | Next / previous pane                                      |
 | Cmd+B                                   | Show or hide the sidebar                                  |
 | Cmd+L                                   | Show or hide the agent panel                              |
+| Cmd+Shift+R                             | Review the tab's changes: comment, then send to its agent |
 | Cmd+U                                   | Go to the tab that needs you, newest first, in any session |
 | Cmd+Shift+Y / Cmd+Shift+N               | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Cmd+Shift+A                             | New task: an agent on a prompt, started now or queued     |
