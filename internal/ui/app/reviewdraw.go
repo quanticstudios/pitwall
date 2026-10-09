@@ -141,9 +141,11 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 			u.send(m)
 		}
 	}
-	place(func(gtx gl.Context) gl.Dimensions {
-		return u.reviewButton(gtx, &r.pr, "Create pull request", prOff == "", false)
-	})
+	if _, has := st.PRs[r.ws]; !has { // else the PR chip opens it
+		place(func(gtx gl.Context) gl.Dimensions {
+			return u.reviewButton(gtx, &r.pr, "Create pull request", prOff == "", false)
+		})
+	}
 	for r.pager.Clicked(gtx) {
 		if m := u.nav.review(st, r.ws, "diff_pager"); m != nil {
 			r.hide()
@@ -179,7 +181,7 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 		parts = append(parts, part{th.Green, fmt.Sprintf("+%d", add)}, part{th.Red, fmt.Sprintf("−%d", del)}, part{th.Muted, n})
 	}
 	for _, part := range parts {
-		if part.s == "" || left >= g.Constraints.Max.X {
+		if part.s == "" || left >= x-pad {
 			continue
 		}
 		g.Constraints.Max.X = max(0, x-pad-left)
