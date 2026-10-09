@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.4
 
 - On Windows, closing a pane or stopping the daemon ends the pane's
   programs within 2 seconds, children included. A program that held off
