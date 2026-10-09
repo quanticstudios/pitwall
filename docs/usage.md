@@ -26,6 +26,38 @@ resumed where they left off.
 - **Daemon**: the background process that owns the terminals. The window and
   the `pitwall` commands talk to it.
 
+## First run
+
+```sh
+pitwall
+```
+
+The first window shows a welcome card. It lists the agent CLIs it found on
+your `PATH` (Claude Code, Codex, Gemini CLI, OpenCode, pi, Cursor CLI, Amp,
+Aider) and whether each one's hooks are installed. Start opens an agent in
+a tab of its own, and Install hooks shows what it would change before it
+changes it. Dismiss the card, or do anything else, and it never shows
+again. With no agent on your `PATH`, you get a shell and a line with where
+to install one.
+
+Hooks let agents report their state exactly. To install them from a
+terminal instead:
+
+```sh
+pitwall hooks install --dry-run   # see what would change
+pitwall hooks install             # let your agents report their state
+```
+
+The window opens on a shell in the folder you launched it from, in a
+session with a generated name such as `swift-otter`. Run `claude`, `codex`,
+`pi`, a dev server, anything. The tab's row in the sidebar shows what is
+happening: the name of a running command, or the agent's state.
+
+Open more tabs with **+** in the sidebar header. Each tab can be split into
+panes. Typing `exit` closes a pane; an empty tab closes, and the session
+ends with its last tab. Closing the window only detaches it: every session
+keeps running, and `pitwall` opens the most recently used one again.
+
 ## Everyday use
 
 ### Watching agents
@@ -165,7 +197,7 @@ same button. Agents already running load their hooks only when restarted.
 
 ### Sessions
 
-<img src="media/sessions.webp" alt="The session switcher: three sessions with their agents and live counts on the left, the highlighted session's sidebar on the right" width="800">
+<img src="media/sessions.webp" alt="The session switcher: three sessions with their agents and live counts on the left, the highlighted session's sidebar on the right" width="640">
 
 A session is a separate set of tabs and groups with a name, the way tmux
 and zellij work: one per project or per piece of work, each with its own
@@ -241,6 +273,8 @@ is 432dp wide (scaled with the display), narrows to 320dp in a small window,
 then hides. Each window keeps its own open state until it closes. Ctrl+L still
 reaches the shell, to clear the screen.
 
+<img src="media/review.webp" alt="The review view: three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and a Send 2 comments to claude button" width="800">
+
 To review an agent's work, press Ctrl+Shift+R (Cmd+Shift+R in mac), pick
 View diff from the tab's "…" menu or the command palette, or click a file
 under Changes. The review
@@ -308,6 +342,8 @@ add Archive, which closes the tab and, for a worktree pitwall made, removes
 the worktree and deletes the branch, as Delete does with its box ticked.
 Set `archive_on_merge = true` under `[git]` to archive a merged worktree
 tab without the click.
+<img src="media/conflict.webp" alt="The hover card of a tab whose branch conflicts with another: its pull request and checks, the conflicting file in red, the suggestion to merge this tab first, and its ports" width="600">
+
 Agents in worktrees of one repository can edit the same files without
 knowing it. When two tabs on different branches of the same repository
 change a file in common, committed or not, both rows get a warning
@@ -336,6 +372,8 @@ subscription does not bill per token; set `show_cost = true` under `[usage]`
 or use the switch under Agents in the settings page to add what the tokens
 would cost at the API's list prices. pitwall carries a dated price table and
 shows its date; a model missing from it shows tokens and no cost.
+
+<img src="media/cost.webp" alt="Settings, Usage, Cost: the 30-day total split between Claude Code and Codex, and a daily cost chart" width="640">
 
 Settings, Usage adds up every Claude Code, Codex and pi session on the
 machine over the last 7, 30 or 90 days: the total cost and each agent's
@@ -520,6 +558,8 @@ Keys in the repo's file win over `config.toml`. A mistake in it shows as an
 error when you make the tab, and the tab is made anyway.
 
 ### Tasks and the queue
+
+<img src="media/new-task.webp" alt="The New task dialog: project, where it runs, agent, mode and prompt, with Queue and Start buttons" width="480">
 
 **New task** (Ctrl+Shift+A, the command palette, or **New task…** in a
 group's menu) starts an agent on a prompt in a tab of its own, as

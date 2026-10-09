@@ -65,6 +65,8 @@ naming both.
 
 ## Themes
 
+<img src="media/appearance.webp" alt="Settings, Appearance: the four built-in themes as cards with aide-dark picked, then the interface and terminal fonts, their sizes and the line height" width="800">
+
 Built in: `aide-dark` (the default), `aide-light`, `tokyo-night`,
 `catppuccin-mocha`. A custom theme is `~/.config/pitwall/themes/<name>.toml`
 with the same keys as `[theme]`; its `name` picks the built-in it starts
