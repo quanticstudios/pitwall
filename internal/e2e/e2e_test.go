@@ -209,8 +209,11 @@ func TestPersistenceAndRestore(t *testing.T) {
 	if !reflect.DeepEqual(s.Projects, before.Projects) || !reflect.DeepEqual(s.Workspaces, before.Workspaces) {
 		t.Fatalf("restored %s\nwant %s", dump(s), dump(before))
 	}
-	if !reflect.DeepEqual(s.Panes, before.Panes) {
-		t.Fatalf("restored pane: %+v, want %+v", s.Panes, p)
+	// why: ConPTY titles a console with its program's path at no fixed point
+	// after its output, so on Windows the title can land between the
+	// snapshot and the save. Tabs pass over that title (genericTitle).
+	if !reflect.DeepEqual(untitled(s.Panes), untitled(before.Panes)) {
+		t.Fatalf("restored panes: %+v, want %+v", s.Panes, before.Panes)
 	}
 	restored.waitFor(t, timeout, frameContains(p.ID, "hello"))
 }
@@ -636,6 +639,15 @@ func utc(s model.State) model.State {
 		s.Workspaces[i].UpdatedAt = s.Workspaces[i].UpdatedAt.UTC()
 	}
 	return s
+}
+
+// untitled is panes without their titles.
+func untitled(panes []model.Pane) []model.Pane {
+	panes = slices.Clone(panes)
+	for i := range panes {
+		panes[i].Title = ""
+	}
+	return panes
 }
 
 // dump renders s's groups, tabs with their layouts, and panes for a failure.
