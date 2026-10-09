@@ -56,8 +56,7 @@ func Items(st model.State) []Item {
 		if a.Advice != "" {
 			it.Advice = fmt.Sprintf("%s %.0f%%", a.Advice, a.AdviceP*100)
 		}
-		_, known := answers[a.Provider]
-		it.Answer = a.State == model.StatePendingApproval && known
+		it.Answer = Answerable(a)
 		for _, w := range st.Workspaces {
 			if w.ID == a.WorkspaceID {
 				it.Tab = w.Label

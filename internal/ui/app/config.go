@@ -42,6 +42,9 @@ func loadConfig() loaded {
 func (u *ui) apply(l loaded) {
 	u.cfg, u.th, u.nav.keys, u.probs = l.s, l.th, l.s.Keys, l.probs
 	u.updates.on.Store(l.s.CheckUpdates)
+	if u.notifications != nil {
+		u.notifications.setRules(l.s.Notifications)
+	}
 }
 
 // reportProblems shows config problems as one desktop notification, once

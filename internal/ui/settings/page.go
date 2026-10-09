@@ -52,6 +52,7 @@ const (
 	catKeys
 	catTerminal
 	catAgents
+	catNotify
 	catUsage
 	catDecisions
 	catStats
@@ -64,6 +65,7 @@ var categories = []struct{ name, desc string }{
 	{"Keyboard shortcuts", "Click a shortcut to record a new one."},
 	{"Terminal", "How every pane behaves."},
 	{"Agents", "The sidebar learns what each agent is doing from hooks in its config."},
+	{"Notifications", "Desktop notifications for a pane that needs you while you are looking elsewhere."},
 	{"Usage", "Your plan limits and what your coding agents cost, from their own files."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
 	{"Decision stats", "What the decisions log shows: calls, cost, and whether seeing the model's suggestion changes how you answer approvals."},
@@ -118,6 +120,7 @@ type Page struct {
 	dp decisionsPage
 	st statsPage
 	ph phonePage
+	nt notifyPage
 	us usagePage
 }
 
@@ -754,6 +757,8 @@ func (p *Page) sections(cat int) []section {
 		return p.terminal()
 	case catAgents:
 		return p.agents()
+	case catNotify:
+		return p.notifications()
 	case catUsage:
 		return p.usage()
 	case catDecisions:
@@ -859,11 +864,16 @@ func (p *Page) resetSlot(id string, shown bool) gl.Widget {
 // toggle is a switch for a bool key, primary when on. A click writes the
 // other value.
 func (p *Page) toggle(table, k string, on bool) gl.Widget {
+	return p.switchOf(table+"."+k, on, func() { p.saveValue(table, k, fmt.Sprint(!on)) })
+}
+
+// switchOf is a switch with button id that runs flip on a click.
+func (p *Page) switchOf(id string, on bool, flip func()) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
 		th := p.th
-		c := p.btn(table + "." + k)
+		c := p.btn(id)
 		for c.Clicked(gtx) {
-			p.saveValue(table, k, fmt.Sprint(!on))
+			flip()
 		}
 		return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 			sz := image.Pt(gtx.Dp(32), gtx.Dp(18))

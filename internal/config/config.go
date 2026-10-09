@@ -32,6 +32,7 @@ type Config struct {
 	Usage     Usage     `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see docs/decisions.md for what each feature sends."`
 	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
+	Notify    Notify    `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
 	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Hosts     []Host    `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
 }
@@ -62,6 +63,8 @@ type Keys struct {
 	GotoTab8        Binding `toml:"goto_tab_8" group:"Tabs" doc:"Go to tab 8"`
 	GotoTab9        Binding `toml:"goto_tab_9" group:"Tabs" doc:"Go to tab 9"`
 	JumpAttention   Binding `toml:"jump_attention" group:"Agents" doc:"Go to the tab that needs you, newest first"`
+	AllowPrompt     Binding `toml:"allow_prompt" group:"Agents" doc:"Allow the permission prompt of the focused pane, else of the shown tab, as its Allow button does"`
+	DenyPrompt      Binding `toml:"deny_prompt" group:"Agents" doc:"Deny the permission prompt of the focused pane, else of the shown tab, as its Deny button does"`
 	NewTab          Binding `toml:"new_tab" group:"Tabs" doc:"New tab below this one, in its folder"`
 	CloseTab        Binding `toml:"close_tab" group:"Tabs" doc:"Close the tab and all its panes"`
 	NextPane        Binding `toml:"next_pane" group:"Panes" doc:"Next pane"`
@@ -244,6 +247,8 @@ type Settings struct {
 	Worktrees WorktreeSettings
 	// Remote is [remote] resolved.
 	Remote RemoteSettings
+	// Notifications is [notifications] resolved.
+	Notifications NotifySettings
 	// Hosts is [[hosts]] as written.
 	Hosts []Host
 	// Notes are things that work but should change, like an action under
@@ -417,6 +422,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, di...)
 	var ri []issue
 	s.Remote, ri = resolveRemote(c.Remote)
+	fi = append(fi, ri...)
+	s.Notifications, ri = resolveNotifications(c.Notify)
 	fi = append(fi, ri...)
 	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
 	var wi []issue

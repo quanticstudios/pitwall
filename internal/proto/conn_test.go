@@ -64,6 +64,7 @@ func allMessages() []any {
 		NewGroup{Name: "agents", WorkspaceIDs: []string{"w", "x"}}, RenameGroup{GroupID: "g", Name: "n"}, DeleteGroup{GroupID: "g"},
 		Scroll{Pane: "a", Lines: -3},
 		Search{Pane: "a", Query: "Error"},
+		Answer{Pane: "a", At: 1 << 60, Allow: true},
 		SearchResult{Pane: "a", Query: "Error", Matches: []vt.Match{{Line: 1 << 40, Col: 3, Cols: 5}}, More: true},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},

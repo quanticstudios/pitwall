@@ -43,6 +43,9 @@ type Sidebar struct {
 	ShowCost bool
 	// Limits are the plan limits the footer's meter shows; nil hides it.
 	Limits []flow.Limit
+	// Answers shows Allow and Deny on a row whose permission prompt they
+	// answer (remote.Answerable): the daemon takes proto.Answer.
+	Answers bool
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -146,7 +149,8 @@ var projectColorIDs = [...]string{
 
 type rowState struct {
 	click, more, close widget.Clickable
-	ctx                int // tag for right- and middle-click
+	allow, deny        widget.Clickable // a pending approval's answers
+	ctx                int              // tag for right- and middle-click
 }
 
 // Layout draws session's groups and tabs in st and returns events from this
@@ -394,7 +398,7 @@ func (s *Sidebar) project(id string) *projectState {
 
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
-	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered()
+	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered()
 }
 
 func (s *Sidebar) row(id string) *rowState {

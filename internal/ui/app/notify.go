@@ -10,7 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/remote"
 )
 
 const notificationInterval = 3 * time.Second
@@ -128,10 +131,15 @@ func notifyDue(h notificationHistory, ws string, a model.Activity) time.Time {
 type notification struct {
 	activity model.Activity
 	title    string
+	sound    string       // [notifications] sound to play, "" for none
+	answer   bool         // Allow and Deny answer it
+	act      func(string) // runs a clicked action (see notifySendArgs); nil for none
 }
 
-func notificationCommand(ctx context.Context, n notification) *exec.Cmd {
-	urgent := n.activity.State == model.StatePendingApproval || n.activity.State == model.StateError || n.activity.Urgency == "now"
+// notificationCommand shows n, with its actions when actions is set
+// (notifySendArgs).
+func notificationCommand(ctx context.Context, n notification, actions bool) *exec.Cmd {
+	urgent := urgentActivity(n.activity)
 	body := model.PillLabel(n.activity)
 	if detail := []rune(n.activity.Detail); len(detail) > 0 {
 		body += ": " + string(detail[:min(120, len(detail))])
@@ -140,20 +148,40 @@ func notificationCommand(ctx context.Context, n notification) *exec.Cmd {
 			body = string(detail[:min(120, len(detail))])
 		}
 	}
+	if actions {
+		return exec.CommandContext(ctx, "notify-send", notifySendArgs(urgent, true, n.answer, n.activity.WorkspaceID, n.title, body)...)
+	}
 	return desktopCommand(ctx, urgent, n.activity.WorkspaceID, n.title, body)
 }
 
 // desktopSender runs only on the notifier goroutine. A missing executable
-// disables delivery for this window and logs once.
+// disables delivery for this window and logs once. Where notify-send takes
+// actions, a notification with act waits for a click in the background.
 func desktopSender() func(context.Context, notification) {
-	disabled := false
+	disabled, soundFailed := false, false
+	var actions *bool
 	return func(ctx context.Context, n notification) {
+		if n.sound != "" {
+			if err := playSound(n.sound); err != nil && !soundFailed {
+				soundFailed = true
+				log.Printf("sound %q: %q", n.sound, err)
+			}
+		}
 		if disabled {
+			return
+		}
+		if actions == nil {
+			ok := notifyActions()
+			actions = &ok
+		}
+		if *actions && n.act != nil {
+			ctx, cancel := context.WithTimeout(ctx, actionWait)
+			waitAction(notificationCommand(ctx, n, true), n.act, cancel)
 			return
 		}
 		ctx, cancel := context.WithTimeout(ctx, notifyTimeout)
 		defer cancel()
-		cmd := notificationCommand(ctx, n)
+		cmd := notificationCommand(ctx, n, false)
 		if cmd.Err != nil {
 			disabled = true
 			log.Printf("%q unavailable: %q", cmd.Args[0], cmd.Err)
@@ -169,15 +197,17 @@ type notifier struct {
 	mu      sync.Mutex
 	focused bool
 	active  string
-	session string // the window's session
+	session string                // the window's session
+	rules   config.NotifySettings // [notifications]
+	jump    func(model.Activity)  // shows a's pane and raises the window; nil for none
 	wake    chan struct{}
 	cancel  context.CancelFunc
 	done    chan struct{}
 }
 
-func newNotifier(b Backend, invalidate func(), send func(context.Context, notification)) *notifier {
+func newNotifier(b Backend, invalidate func(), send func(context.Context, notification), jump func(model.Activity)) *notifier {
 	ctx, cancel := context.WithCancel(context.Background())
-	n := &notifier{wake: make(chan struct{}, 1), cancel: cancel, done: make(chan struct{})}
+	n := &notifier{wake: make(chan struct{}, 1), cancel: cancel, done: make(chan struct{}), jump: jump, rules: config.DefaultNotifySettings()}
 	st := b.State()
 	go n.run(ctx, b, st, invalidate, send)
 	return n
@@ -252,11 +282,18 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 		for _, a := range deliveries {
 			n.mu.Lock()
 			viewing := n.focused && n.active == a.WorkspaceID
+			rules := n.rules
 			n.mu.Unlock()
 			ws := findWorkspace(&st, a.WorkspaceID)
-			if !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
+			show, sound := notifyRule(rules, a, now)
+			if show && !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
 				h.last[a.WorkspaceID] = time.Now()
-				send(ctx, notification{a, notificationTitle(&st, *ws)})
+				nt := notification{activity: a, title: notificationTitle(&st, *ws), answer: remote.Answerable(a) && linkLevel(b) >= proto.Since(proto.Answer{})}
+				if sound {
+					nt.sound = rules.Sound
+				}
+				nt.act = func(action string) { n.act(b, a, action) }
+				send(ctx, nt)
 			}
 		}
 		timer.Stop()

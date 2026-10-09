@@ -26,6 +26,7 @@ func defaults() Config {
 	c.Decisions = defaultDecisions()
 	c.Worktrees = defaultWorktrees()
 	c.Remote = defaultRemote()
+	c.Notify = defaultNotifications()
 	return c
 }
 

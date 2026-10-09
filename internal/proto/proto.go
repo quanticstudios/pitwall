@@ -40,6 +40,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 8 added Answer, Allow or Deny from a GUI.
 // Level 7 added Pane.HooksMissing.
 // Level 6 added Workspace.Ports, the port block of a worktree tab.
 // Level 5 added Scroll.Prompts and State.Clipboard, and GUIs that send
@@ -82,12 +83,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 7
+const Level = 8
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Answer:
+		return 8
 	case Search, SearchResult:
 		return 4
 	case DismissNotice:
@@ -433,6 +436,15 @@ type DismissNotice struct {
 	Notice string
 }
 
+// Answer presses Allow or Deny on Pane's permission prompt, as the phone
+// page's buttons do: only while Pane's activity is still the one whose
+// UpdatedAt, in Unix nanoseconds, is At, and its screen shows the prompt.
+type Answer struct {
+	Pane  string
+	At    int64
+	Allow bool
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
@@ -444,4 +456,5 @@ var Messages = []any{
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 	DismissNotice{},
 	Search{}, SearchResult{},
+	Answer{},
 }

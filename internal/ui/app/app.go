@@ -100,7 +100,12 @@ func Run(b Backend) error {
 	})
 	u.watchTheme = l.s.ThemeName
 	u.report = func(probs []string) { reportProblems(probs, &reported) }
-	u.notifications = newNotifier(b, w.Invalidate, desktopSender())
+	u.notifications = newNotifier(b, w.Invalidate, desktopSender(), func(a model.Activity) {
+		u.queueJump(a)
+		w.Invalidate()
+		w.Perform(system.ActionRaise)
+	})
+	u.notifications.setRules(u.cfg.Notifications)
 	defer u.notifications.close()
 	if f, ok := b.(Focuser); ok {
 		select {
@@ -240,6 +245,7 @@ type ui struct {
 	// the state.
 	focusMu  sync.Mutex
 	focusReq *proto.FocusSession
+	jumpReq  *model.Activity // a clicked notification's, see queueJump
 
 	drags     []*gesture.Drag
 	drag      *layout.Node // layout being dragged, drawn instead of the state's
@@ -444,6 +450,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.offline = link.State != LinkUp
 	u.nav.sync(&st)
 	u.applyFocus(&st)
+	u.applyJump(&st)
 	u.openRequested(&st, gtx.Now)
 
 	wasVisible := u.nav.switcherVisible()
@@ -610,6 +617,7 @@ func (u *ui) layout(gtx gl.Context) {
 		if u.cfg.LimitsInSidebar {
 			u.sidebar.Limits = u.limits.get()
 		}
+		u.sidebar.Answers = u.canAnswer()
 		u.usage.prune(&st)
 		u.sidebar.Usage = func(ws string) *flow.Usage {
 			invalidate := u.invalidate
@@ -728,6 +736,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		if m := u.nav.review(st, e.WorkspaceID, "view_diff"); m != nil {
 			u.send(m)
 		}
+	case sidebar.Answer:
+		u.send(proto.Answer{Pane: e.PaneID, At: e.At, Allow: e.Allow})
 	case sidebar.CreatePR:
 		if m := u.nav.review(st, e.WorkspaceID, "create_pr"); m != nil {
 			u.send(m)
