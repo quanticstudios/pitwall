@@ -302,7 +302,7 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 			}),
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Muted, ws.Path)
+				return u.pathLines(gtx, model.ShortPath(ws.Path))
 			}),
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
 		)
@@ -341,13 +341,19 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.field(gtx, &m.path, th.MonoFont, gtx.Dp(36), "")
+			d := u.field(gtx, &m.path, th.MonoFont, gtx.Dp(36), "")
+			if m.pathErr != "" {
+				r := gtx.Dp(8)
+				paint.FillShape(gtx.Ops, th.Red, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: d.Size}, r).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+			}
+			return d
 		}),
 		gl.Rigid(gl.Spacer{Height: 6}.Layout),
 	}
 	if m.pathErr != "" {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Red, m.pathErr)
+			gtx.Constraints.Min = image.Point{}
+			return widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Small), m.pathErr, colorCall(gtx, th.Red))
 		}))
 	} else {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -501,6 +507,39 @@ func keycap(gtx gl.Context, th *theme.Theme, s string) (op.CallOp, image.Point) 
 	return m.Stop(), sz
 }
 
+// pathLines draws path in the small mono font, wrapped after path
+// separators to the constraints' width rather than inside a name.
+func (u *ui) pathLines(gtx gl.Context, path string) gl.Dimensions {
+	th := u.th
+	const n = 40
+	g := gtx
+	g.Constraints.Max.X = 1 << 20 // measure n characters uncut
+	_, w := textCall(g, th, th.MonoFont, th.Sp(theme.Small), th.Muted, strings.Repeat("0", n))
+	cols := gtx.Constraints.Max.X * n / max(w.X, 1)
+	return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Muted, strings.Join(wrapPath(path, cols-1), "\n"))
+}
+
+// wrapPath cuts path into lines of at most cols characters, each ending
+// after a separator where one fits; a name longer than a line is cut
+// where the line ends.
+func wrapPath(path string, cols int) []string {
+	cols = max(cols, 1)
+	var lines []string
+	for utf8.RuneCountInString(path) > cols {
+		rs := []rune(path)
+		cut := cols
+		for i := cols; i > 0; i-- {
+			if rs[i-1] == '/' || rs[i-1] == filepath.Separator {
+				cut = i
+				break
+			}
+		}
+		lines = append(lines, string(rs[:cut]))
+		path = string(rs[cut:])
+	}
+	return append(lines, path)
+}
+
 // para draws wrapping text at the constraints' width.
 func para(gtx gl.Context, th *theme.Theme, f font.Font, size unit.Sp, c color.NRGBA, s string) gl.Dimensions {
 	gtx.Constraints.Min = image.Point{}
@@ -617,9 +656,9 @@ func resolveDir(in string) (string, error) {
 	fi, err := os.Stat(p)
 	switch {
 	case err != nil:
-		return "", errors.New("No folder at " + p)
+		return "", errors.New("No folder at " + model.ShortPath(p) + ".")
 	case !fi.IsDir():
-		return "", errors.New(p + " is a file, not a folder.")
+		return "", errors.New(model.ShortPath(p) + " is a file, not a folder.")
 	}
 	return p, nil
 }

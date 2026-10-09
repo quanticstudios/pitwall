@@ -47,15 +47,21 @@ func (u *ui) drawReview(gtx gl.Context, st *model.State) {
 	headH := u.reviewHeader(gtx, st, files, base, root)
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, headH), Max: image.Pt(size.X, headH+1)}.Op())
 	body := image.Rect(0, headH+1, size.X, size.Y)
-	switch {
-	case errText != "" && len(files) == 0:
-		u.reviewMessage(gtx, body, th.Red, errText)
+	switch state, line := reviewBlank(errText, loaded, len(files), base); state {
+	case reviewFailed:
+		u.reviewMessage(gtx, body, th.Red, line)
 		return
-	case !loaded:
-		u.reviewMessage(gtx, body, th.Muted, "Reading the diff…")
-		return
-	case len(files) == 0:
-		u.reviewMessage(gtx, body, th.Muted, "No changes from "+gitstat.BranchName(base)+".")
+	case reviewReading, reviewEmpty:
+		g := gtx
+		g.Constraints = gl.Constraints{Max: image.Pt(body.Dx(), body.Dy())}
+		defer op.Offset(image.Pt(0, body.Min.Y+gtx.Dp(theme.Space2XL)*2)).Push(gtx.Ops).Pop()
+		if state == reviewReading {
+			kit.Loading(g, th, line)
+			return
+		}
+		kit.Empty(g, th, func(gtx gl.Context, size int, col color.NRGBA) gl.Dimensions {
+			return sidebar.Icon(gtx, "check", size, col)
+		}, line, nil)
 		return
 	}
 	listW := min(gtx.Dp(300), size.X/3)
@@ -74,6 +80,29 @@ func (u *ui) drawReview(gtx gl.Context, st *model.State) {
 		u.reviewDiff(dg, files, f, root)
 	}
 	o.Pop()
+}
+
+// What the review body shows instead of the files.
+const (
+	reviewFiles   = iota // the files, nothing instead
+	reviewFailed         // the diff failed: the error in red
+	reviewReading        // a loading line
+	reviewEmpty          // no changes from the base
+)
+
+// reviewBlank is what the review body shows, and its line, for a diff
+// that failed with errText, has loaded or not, and has files files
+// against base.
+func reviewBlank(errText string, loaded bool, files int, base string) (int, string) {
+	switch {
+	case errText != "" && files == 0:
+		return reviewFailed, errText
+	case !loaded:
+		return reviewReading, "Reading the diff…"
+	case files == 0:
+		return reviewEmpty, "No changes from " + gitstat.BranchName(base) + "."
+	}
+	return reviewFiles, ""
 }
 
 func (u *ui) reviewMessage(gtx gl.Context, r image.Rectangle, c color.NRGBA, s string) {
