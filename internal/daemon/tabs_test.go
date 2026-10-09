@@ -400,7 +400,7 @@ func TestDetachAndKill(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
 	removed := 0
-	o.RemoveWorktree = func(context.Context, string, string, bool) error { removed++; return nil }
+	o.RemoveWorktree = func(context.Context, string, string, bool, bool) error { removed++; return nil }
 	d := newDaemon(t, o)
 	ctx := context.Background()
 	repo := filepath.Join(t.TempDir(), "repo")

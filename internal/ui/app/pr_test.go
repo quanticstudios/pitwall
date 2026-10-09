@@ -33,11 +33,11 @@ func TestMergeFlow(t *testing.T) {
 	if u.modal.kind != modalMerge || u.modal.ws != "w4" {
 		t.Fatalf("Merge PR did not open the dialog: %v", u.modal.kind)
 	}
-	u.confirmModal()
+	u.confirmModal(&st)
 	if !u.modal.armed || u.modal.kind != modalMerge || len(b.Sent()) != before {
 		t.Fatalf("first confirm with a failed check: armed %v, sent %v", u.modal.armed, b.Sent()[before:])
 	}
-	u.confirmModal()
+	u.confirmModal(&st)
 	ws := findWorkspace(&st, "w4")
 	want := proto.NewSession{Name: "Merge #12", Cwd: st.LivePath(*ws), GroupID: ws.ProjectID, SessionID: ws.SessionID, Cmd: mergeCmd(st.LivePath(*ws), 12, "rebase")}
 	if sent := b.Sent()[before:]; u.modal.kind != modalNone || len(sent) != 1 || !reflect.DeepEqual(sent[0], want) {
@@ -47,7 +47,7 @@ func TestMergeFlow(t *testing.T) {
 	b.st.PRs["w4"] = model.PR{Number: 12, State: model.PROpen, URL: "u"}
 	st = b.State()
 	u.prAction(&st, "w4", "merge_pr")
-	u.confirmModal()
+	u.confirmModal(&st)
 	if u.modal.kind != modalNone || len(b.Sent()) != before+2 {
 		t.Fatalf("passing checks merge on the first confirm: %v", b.Sent()[before:])
 	}
@@ -66,7 +66,7 @@ func TestMergeFlow(t *testing.T) {
 	if u.modal.kind != modalDelete || !u.modal.archive || !u.modal.removeBranch {
 		t.Fatalf("Archive: kind %v, archive %v, branch %v", u.modal.kind, u.modal.archive, u.modal.removeBranch)
 	}
-	u.confirmModal()
+	u.confirmModal(&st)
 	if last := b.Sent()[len(b.Sent())-1]; last != (proto.DeleteWorkspace{WorkspaceID: "w4", RemoveBranch: true}) {
 		t.Fatalf("Archive sent %+v", last)
 	}

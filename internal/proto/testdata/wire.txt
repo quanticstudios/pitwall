@@ -1,4 +1,4 @@
-16.10
+16.11
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -6,6 +6,7 @@ model.Check{Name string; State model.CheckState}
 model.Clipboard{Seq uint64; Text string}
 model.DecideCount{Feature string; Calls int; Errors int}
 model.DecideInfo{Provider string; Counts []model.DecideCount}
+model.Orphan{Root string; Path string; Branch string; Committed time.Time; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
 model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; Conflicts bool; Checks []model.Check}
 model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; Prompt string; AgentMode string; Transcript string; HooksMissing bool}
@@ -15,6 +16,7 @@ model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows 
 model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Workspace{ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string}
+model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
 proto.AddProject{Path string; SessionID string}
 proto.AgentEvent{Pane string; Provider model.Provider; Payload []uint8}
 proto.Answer{Pane string; At int64; Allow bool}
@@ -22,7 +24,8 @@ proto.ArchiveWorkspace{WorkspaceID string; Archived bool}
 proto.ClosePane{Pane string}
 proto.CloseTab{WorkspaceID string; TabID string}
 proto.DeleteGroup{GroupID string}
-proto.DeleteWorkspace{WorkspaceID string; RemoveBranch bool}
+proto.DeleteWorkspace{WorkspaceID string; RemoveBranch bool; Force bool}
+proto.DeleteWorktree{Root string; Path string; Force bool}
 proto.DetachSession{WorkspaceID string; Detached bool}
 proto.DismissNotice{Notice string}
 proto.Error{Message string}
@@ -37,7 +40,7 @@ proto.MoveSession{WorkspaceID string; GroupID string; Before string}
 proto.NewGroup{Name string; WorkspaceIDs []string}
 proto.NewSession{Name string; Cwd string; GroupID string; SessionID string; Cmd []string; FromPane string; Loose bool}
 proto.NewTab{WorkspaceID string; Cwd string; FromPane string}
-proto.NewWorkspace{ProjectID string; Name string}
+proto.NewWorkspace{ProjectID string; Name string; From model.WorktreeFrom; Cmd []string}
 proto.OpenPane{WorkspaceID string; TabID string; Target string; Dir layout.Dir; Cmd []string}
 proto.PaneExited{Pane string; ExitCode int}
 proto.RenameGroup{GroupID string; Name string}
@@ -58,6 +61,8 @@ proto.SetProjectAppearance{ProjectID string; Icon string; Color string}
 proto.SetSessionGroup{WorkspaceID string; GroupID string}
 proto.StateMsg{State model.State; Level int}
 proto.Sync{}
+proto.WorktreeInfo{Query proto.WorktreeQuery; Err string; Default string; Local []string; Remote []string; GitHub bool; Changed []string; Unmerged bool; Orphans []model.Orphan}
+proto.WorktreeQuery{ProjectID string; WorkspaceID string; Orphans bool}
 time.Location{name string; zone []time.zone; tx []time.zoneTrans; extend string; cacheStart int64; cacheEnd int64; cacheZone *time.zone}
 time.Time{wall uint64; ext int64; loc *time.Location}
 time.zone{name string; offset int; isDST bool}

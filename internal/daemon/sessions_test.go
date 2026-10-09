@@ -138,7 +138,7 @@ func TestDeleteGroupedSessionKeepsDirectory(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
 	removed := 0
-	o.RemoveWorktree = func(context.Context, string, string, bool) error { removed++; return nil }
+	o.RemoveWorktree = func(context.Context, string, string, bool, bool) error { removed++; return nil }
 	d, err := NewWith(o)
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestHandmadeWorktreeSurvivesRestart(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
 	removed := 0
-	o.RemoveWorktree = func(context.Context, string, string, bool) error { removed++; return nil }
+	o.RemoveWorktree = func(context.Context, string, string, bool, bool) error { removed++; return nil }
 	d, err := NewWith(o)
 	if err != nil {
 		t.Fatal(err)

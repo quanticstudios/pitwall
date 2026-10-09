@@ -78,6 +78,9 @@ const usage = `usage:
   of the title. Outside a pane, name it; inside, it defaults to the
   pane's own tab. Tab commands act on the calling pane's session, else
   the most recently used one; -s <session> picks another.
+  pitwall worktree <cmd>     ls, new, rm, prune: this repo's git worktrees (see pitwall worktree)
+  pitwall completion <shell>  bash, zsh, fish: print the shell's completion script, e.g.
+                             source <(pitwall completion bash)
   pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
@@ -133,6 +136,10 @@ func main() {
 		err = runLogs(os.Args[2:], os.Stdout)
 	case "remote":
 		os.Exit(runRemote(os.Args[2:], os.Stdout, os.Stderr))
+	case "worktree":
+		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
+	case "completion":
+		err = runCompletion(os.Args[2:], os.Stdout)
 	case "ls", "new", "wait", "attach", "detach", "kill", "rename", "tab", "session":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:

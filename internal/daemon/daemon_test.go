@@ -152,10 +152,10 @@ func (f *fakes) options() Options {
 			f.statsCalls[wt]++
 			return model.BranchStats{Additions: 5, Ahead: f.statsCalls[wt]}, nil
 		},
-		AddWorktree: func(_ context.Context, root, name string) (string, string, error) {
+		AddWorktree: func(_ context.Context, root, name string, _ model.WorktreeFrom) (string, string, error) {
 			return filepath.Join(root, ".worktrees", name), name, nil
 		},
-		RemoveWorktree: func(context.Context, string, string, bool) error { return nil },
+		RemoveWorktree: func(context.Context, string, string, bool, bool) error { return nil },
 		Save: func(s model.State) error {
 			f.mu.Lock()
 			f.saved = s
@@ -864,7 +864,7 @@ func TestSetLayoutValidates(t *testing.T) {
 func TestDeleteWorkspaceBranchKept(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
-	o.RemoveWorktree = func(context.Context, string, string, bool) error {
+	o.RemoveWorktree = func(context.Context, string, string, bool, bool) error {
 		return fmt.Errorf("%w: branch not fully merged", gitstat.ErrBranchKept)
 	}
 	d, err := NewWith(o)

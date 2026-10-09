@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,8 @@ type FakeBackend struct {
 	ticks   int
 	nextID  int
 	seen    map[string]time.Time // pane -> when SeePane last named it
+	tree    proto.WorktreeInfo   // the reply to the last WorktreeQuery
+	stray   []model.Orphan       // worktrees no tab uses, for Clean up worktrees
 }
 
 // fakeHome is $HOME, so the fake's paths shorten to ~ like real ones.
@@ -142,6 +145,7 @@ func NewFakeBackend() *FakeBackend {
 		}
 	}
 	f.setActivities()
+	f.stray = fakeStray(now)
 	f.st.Decide = fakeDecide()
 	f.st.Version = 1
 	return f
@@ -463,6 +467,10 @@ func (f *FakeBackend) Send(msg any) error {
 		f.scroll[m.Pane] = min(max(f.scroll[m.Pane]+m.Lines, 0), fakeScrollback)
 	case proto.Search:
 		f.queries[m.Pane] = m.Query
+	case proto.WorktreeQuery:
+		f.tree = f.worktreeQuery(m)
+	case proto.DeleteWorktree:
+		f.stray = slices.DeleteFunc(f.stray, func(o model.Orphan) bool { return o.Path == m.Path })
 	case proto.SetLayout:
 		if w := ws(m.WorkspaceID); w != nil {
 			f.tabFor(w, m.TabID).Layout = cloneNode(m.Layout)
@@ -658,10 +666,7 @@ func (f *FakeBackend) Send(msg any) error {
 	case proto.NewWorkspace:
 		f.nextID++
 		id := fmt.Sprintf("nw%d", f.nextID)
-		name := m.Name
-		if name == "" {
-			name = "workspace " + id
-		}
+		name := cmp.Or(m.Name, m.From.Name(), "workspace "+id)
 		f.st.Workspaces = append(f.st.Workspaces, model.Workspace{ID: id, SessionID: f.st.SessionOf(m.ProjectID), ProjectID: m.ProjectID, Name: name, Label: name, Branch: name, UpdatedAt: time.Now()})
 	case proto.RenameWorkspace:
 		if w := ws(m.WorkspaceID); w != nil {

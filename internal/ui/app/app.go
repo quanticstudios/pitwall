@@ -414,6 +414,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.prAct = ""
 		u.prAction(st, u.nav.workspace, a)
 	}
+	if u.nav.cleanup {
+		u.nav.cleanup = false
+		u.openCleanup()
+	}
 }
 
 // sessionChanged tells the daemon which session the window shows, and
@@ -705,7 +709,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.GroupByFolder:
 		u.send(proto.GroupByFolder{WorkspaceID: e.WorkspaceID})
 	case sidebar.DeleteWorkspace:
-		u.modal.open(modalDelete, e.WorkspaceID)
+		u.openDelete(st, e.WorkspaceID)
 	case sidebar.AddProject:
 		u.modal.open(modalAddProject, "")
 	case sidebar.OpenSettings:
@@ -723,8 +727,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.OpenSessions:
 		u.sw.openAt(st, u.nav.session, "pick", time.Now())
 	case sidebar.NewWorktreeSession:
-		u.nav.expectSession(st)
-		u.send(proto.NewWorkspace{ProjectID: e.GroupID})
+		u.openNewWorktree(st, e.GroupID)
 	case sidebar.SetProjectAppearance:
 		u.send(proto.SetProjectAppearance{ProjectID: e.ProjectID, Icon: e.Icon, Color: e.Color})
 	case sidebar.MoveSession:

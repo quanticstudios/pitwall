@@ -36,6 +36,8 @@ const (
 	modalAddProject
 	modalHooks
 	modalMerge // merge a tab's pull request, see pr.go
+	modalNewWorktree
+	modalCleanup
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -52,6 +54,7 @@ type modal struct {
 	path              widget.Editor
 	pathErr           string
 	matches           []string // directories completing the path field
+	wt                worktreeForm
 
 	backdrop, body int // tags: the click-outside catcher, the dialog's own area
 }
@@ -148,8 +151,11 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	for m.ok.Clicked(gtx) {
 		confirm = true
 	}
-	if confirm {
-		u.confirmModal()
+	if m.kind == modalNewWorktree && u.worktreeEvents(gtx) {
+		confirm = true
+	}
+	if confirm && m.kind != modalNone {
+		u.confirmModal(st)
 	}
 	if m.kind == modalNone { // closed by Escape, Cancel, or a confirm above
 		return
@@ -167,6 +173,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		tag := event.Tag(&m.backdrop)
 		if m.kind == modalAddProject {
 			tag = &m.path
+		} else if m.kind == modalNewWorktree {
+			tag = m.wt.worktreeFocus()
 		}
 		gtx.Execute(key.FocusCmd{Tag: tag})
 	}
@@ -181,6 +189,10 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = u.hooksBody
 	case modalMerge:
 		content = func(gtx gl.Context) gl.Dimensions { return u.mergeBody(gtx, st, ws) }
+	case modalNewWorktree:
+		content = func(gtx gl.Context) gl.Dimensions { return u.newWorktreeBody(gtx, st) }
+	case modalCleanup:
+		content = func(gtx gl.Context) gl.Dimensions { return u.cleanupBody(gtx, st) }
 	}
 	u.card(gtx, &m.body, content)
 }
@@ -217,11 +229,11 @@ func (u *ui) card(gtx gl.Context, tag event.Tag, content gl.Widget) {
 	o.Pop()
 }
 
-func (u *ui) confirmModal() {
+func (u *ui) confirmModal(st *model.State) {
 	m := &u.modal
 	switch m.kind {
 	case modalDelete:
-		u.send(proto.DeleteWorkspace{WorkspaceID: m.ws, RemoveBranch: m.removeBranch})
+		u.send(proto.DeleteWorkspace{WorkspaceID: m.ws, RemoveBranch: m.removeBranch, Force: u.deleteForce(m.ws)})
 		m.close()
 	case modalAddProject:
 		p, err := resolveDir(m.path.Text())
@@ -235,6 +247,10 @@ func (u *ui) confirmModal() {
 		u.confirmHooks()
 	case modalMerge:
 		u.confirmMerge()
+	case modalNewWorktree:
+		u.confirmNewWorktree(st)
+	case modalCleanup:
+		m.close()
 	}
 }
 
@@ -271,16 +287,13 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 				return para(gtx, th, th.MonoFont, 12, th.Muted, ws.Path)
 			}),
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
-			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.UIFont, 12, th.Muted, "Git refuses if it has uncommitted files.")
-			}),
 		)
+		kids = append(kids, u.deleteChanges(ws.ID)...)
 		if ws.Branch != "" {
 			kids = append(kids,
 				gl.Rigid(gl.Spacer{Height: 12}.Layout),
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-					return u.checkbox(gtx, &u.modal.check, u.modal.removeBranch, "Also delete the branch "+ws.Branch,
-						"git branch -d refuses if it is not merged.")
+					return u.checkbox(gtx, &u.modal.check, u.modal.removeBranch, "Also delete the branch "+ws.Branch, u.branchNote(ws.ID))
 				}),
 			)
 		}
@@ -288,7 +301,11 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", verb, okBg, okFg)
+			ok := verb
+			if u.deleteForce(ws.ID) {
+				ok, okBg, okFg = verb+" anyway", th.Red, theme.Hex("#ffffff")
+			}
+			return u.buttons(gtx, "Cancel", ok, okBg, okFg)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -305,27 +322,7 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 			return para(gtx, th, th.UIFont, 14, th.Muted, "Makes a group for the folder. A git repository also gets worktree tabs.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			// field: h-9, field-background, field-border, focus ring primary
-			w, h := gtx.Constraints.Max.X, gtx.Dp(36)
-			rect := image.Rect(0, 0, w, h)
-			r := gtx.Dp(8)
-			border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
-			if gtx.Focused(&m.path) {
-				border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
-			}
-			paint.FillShape(gtx.Ops, border, clip.UniformRRect(rect, r).Op(gtx.Ops))
-			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
-			eg := gtx
-			eg.Constraints = gl.Exact(image.Pt(w-gtx.Dp(24), h))
-			o := op.Offset(image.Pt(gtx.Dp(12), 0)).Push(gtx.Ops)
-			gl.W.Layout(eg, func(gtx gl.Context) gl.Dimensions {
-				gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-				return m.path.Layout(gtx, th.Shaper, th.MonoFont, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
-			})
-			o.Pop()
-			return gl.Dimensions{Size: rect.Size()}
-		}),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.field(gtx, &m.path) }),
 		gl.Rigid(gl.Spacer{Height: 6}.Layout),
 	}
 	if m.pathErr != "" {
@@ -358,6 +355,30 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
+}
+
+// field draws a dialog's one-line text field: h-9, field-background,
+// field-border, focus ring primary.
+func (u *ui) field(gtx gl.Context, ed *widget.Editor) gl.Dimensions {
+	th := u.th
+	w, h := gtx.Constraints.Max.X, gtx.Dp(36)
+	rect := image.Rect(0, 0, w, h)
+	r := gtx.Dp(8)
+	border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
+	if gtx.Focused(ed) {
+		border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
+	}
+	paint.FillShape(gtx.Ops, border, clip.UniformRRect(rect, r).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
+	eg := gtx
+	eg.Constraints = gl.Exact(image.Pt(w-gtx.Dp(24), h))
+	o := op.Offset(image.Pt(gtx.Dp(12), 0)).Push(gtx.Ops)
+	gl.W.Layout(eg, func(gtx gl.Context) gl.Dimensions {
+		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
+		return ed.Layout(gtx, th.Shaper, th.MonoFont, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
+	})
+	o.Pop()
+	return gl.Dimensions{Size: rect.Size()}
 }
 
 // buttons is a dialog footer: an optional secondary button and the primary

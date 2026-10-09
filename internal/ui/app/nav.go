@@ -34,6 +34,8 @@ type nav struct {
 	// prAct asks the window to run open_pr, merge_pr or rerun_checks on
 	// the open tab: a browser or a dialog, which nav has no hold of.
 	prAct string
+	// cleanup asks the window to open the Clean up worktrees dialog.
+	cleanup bool
 
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
@@ -840,6 +842,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.panelOpen = !n.panelOpen
 	case "find":
 		n.find = n.focused() != ""
+	case "cleanup_worktrees":
+		n.cleanup = true
 	case "jump_attention":
 		n.jumpAttention(st)
 	case "allow_prompt", "deny_prompt":

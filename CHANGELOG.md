@@ -80,6 +80,26 @@ build. Either step takes `--dry-run`.
   suggests which branch to merge first. A notice tells you the first time
   two tabs start sharing a file. `conflict_radar = false` under `[git]`
   turns it off.
+- New worktree tab asks what the worktree checks out: a new branch off any
+  local or remote branch, an existing local branch, a remote branch that a
+  new local branch tracks, or, when origin is on GitHub, a pull request by
+  number, fetched into `pr-<number>`. A new branch no longer tracks the
+  branch it starts from, so Create pull request pushes it with `-u`.
+- The first worktree in a repo adds `/.worktrees/` to `.git/info/exclude`,
+  so worktrees stop showing as untracked files. `.gitignore` is untouched.
+- Deleting a worktree tab lists the worktree's uncommitted and untracked
+  files and offers Delete anyway, which used to fail without a word. Deleting
+  its branch warns when the branch is not merged, and then deletes it
+  anyway. The main checkout is never removed.
+- Clean up worktrees, in the command palette, runs `git worktree prune` and
+  lists the worktrees under `.worktrees` that no tab uses, with their last
+  commit and changes, to open or delete. The daemon prunes on start and says
+  when it finds some.
+- `pitwall worktree ls`, `new`, `rm` and `prune` do the same from a
+  terminal: `new <name> --from <ref>`, `--branch <branch>` or `--pr <n>`
+  opens a tab, `-- cmd` runs a command in it.
+- `pitwall completion bash`, `zsh` or `fish` prints a completion script for
+  every pitwall command.
 
 ## v0.1.0-beta.2
 

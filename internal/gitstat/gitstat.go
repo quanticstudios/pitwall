@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -102,32 +103,236 @@ func ListWorktrees(ctx context.Context, repoRoot string) ([]Worktree, error) {
 	return trees, nil
 }
 
-// AddWorktree creates branch name off the default branch in a new worktree.
-func AddWorktree(ctx context.Context, repoRoot, name string) (path, branch string, err error) {
-	branch = strings.Trim(workspaceSegment.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-"), "-")
-	if branch == "" {
+// Slug is the folder name AddWorktree gives a worktree called name: name
+// lowered to letters, digits and dashes.
+func Slug(name string) string {
+	return strings.Trim(workspaceSegment.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-"), "-")
+}
+
+// AddWorktree makes a worktree in <repoRoot>/.worktrees/<Slug(name)>,
+// checked out as from says, and returns its path and branch. It first
+// keeps .worktrees out of git status (see excludeWorktrees).
+func AddWorktree(ctx context.Context, repoRoot, name string, from model.WorktreeFrom) (path, branch string, err error) {
+	slug := Slug(name)
+	if slug == "" {
 		return "", "", fmt.Errorf("workspace name must contain a letter or digit")
 	}
-	base, err := defaultRef(ctx, repoRoot)
+	if strings.HasPrefix(from.Ref, "-") {
+		return "", "", fmt.Errorf("no branch %q", from.Ref)
+	}
+	path, err = filepath.Abs(filepath.Join(repoRoot, ".worktrees", slug))
 	if err != nil {
 		return "", "", err
 	}
-	if base == "" {
-		return "", "", fmt.Errorf("repository has no default branch")
+	var args []string
+	switch from.Kind {
+	case model.FromNew:
+		base := from.Ref
+		if base == "" {
+			if base, err = defaultRef(ctx, repoRoot); err != nil {
+				return "", "", err
+			}
+			if base == "" {
+				return "", "", fmt.Errorf("repository has no default branch")
+			}
+		}
+		// why: a branch tracking its base has an upstream, so create_pr would skip push -u.
+		branch, args = slug, []string{"worktree", "add", "--no-track", "-b", slug, path, base}
+	case model.FromBranch:
+		if !hasRef(ctx, repoRoot, "refs/heads/"+from.Ref) {
+			return "", "", fmt.Errorf("no local branch %q", from.Ref)
+		}
+		branch, args = from.Ref, []string{"worktree", "add", path, from.Ref}
+	case model.FromRemote:
+		branch = model.LocalOf(from.Ref)
+		if branch == "" || !hasRef(ctx, repoRoot, "refs/remotes/"+from.Ref) {
+			return "", "", fmt.Errorf("no remote branch %q", from.Ref)
+		}
+		args = []string{"worktree", "add", "--track", "-b", branch, path, "refs/remotes/" + from.Ref}
+	case model.FromPR:
+		if from.PR <= 0 {
+			return "", "", fmt.Errorf("no pull request #%d", from.PR)
+		}
+		if !GitHub(ctx, repoRoot) {
+			return "", "", errors.New("origin is not a GitHub repository")
+		}
+		branch = "pr-" + strconv.Itoa(from.PR)
+		// Without a leading +, a pr-N with commits of its own refuses the update.
+		if _, err := git(ctx, repoRoot, "fetch", "origin", fmt.Sprintf("pull/%d/head:refs/heads/%s", from.PR, branch)); err != nil {
+			return "", "", err
+		}
+		args = []string{"worktree", "add", path, branch}
+	default:
+		return "", "", fmt.Errorf("unknown worktree kind %d", from.Kind)
 	}
-	path, err = filepath.Abs(filepath.Join(repoRoot, ".worktrees", branch))
-	if err != nil {
+	if err := excludeWorktrees(ctx, repoRoot); err != nil {
 		return "", "", err
 	}
-	_, err = git(ctx, repoRoot, "worktree", "add", "-b", branch, path, base)
+	_, err = git(ctx, repoRoot, args...)
 	return path, branch, err
+}
+
+// excludeWorktrees adds /.worktrees/ to the repo's .git/info/exclude
+// unless git ignores .worktrees already, so worktrees never show as
+// untracked files. .gitignore is the user's and stays as it is.
+func excludeWorktrees(ctx context.Context, repoRoot string) error {
+	if _, err := git(ctx, repoRoot, "check-ignore", "-q", ".worktrees/"); err == nil {
+		return nil
+	} else if exitCode(err) != 1 || ctx.Err() != nil {
+		return err
+	}
+	out, err := git(ctx, repoRoot, "rev-parse", "--git-path", "info/exclude")
+	if err != nil {
+		return err
+	}
+	path := strings.TrimSpace(out)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repoRoot, path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	old, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	line := "/.worktrees/\n"
+	if len(old) > 0 && old[len(old)-1] != '\n' {
+		line = "\n" + line
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(line)
+	return errors.Join(err, f.Close())
+}
+
+// hasRef reports whether ref, such as "refs/heads/main", exists.
+func hasRef(ctx context.Context, dir, ref string) bool {
+	_, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", ref)
+	return err == nil
+}
+
+// GitHub reports whether the repo's origin is on GitHub, so a pull request
+// can be fetched from it. It reads the configured URL, before any
+// url.<base>.insteadOf rewrite.
+func GitHub(ctx context.Context, repoRoot string) bool {
+	out, err := git(ctx, repoRoot, "config", "--get", "remote.origin.url")
+	return err == nil && strings.Contains(strings.ToLower(out), "github.com")
+}
+
+// Refs is what a new worktree of a repo can start from.
+type Refs struct {
+	Default string   // the default branch, such as "origin/main"; "" for none
+	Local   []string // local branches
+	Remote  []string // remote branches, such as "origin/fix"
+	GitHub  bool     // see GitHub
+}
+
+// ListRefs returns the repo's branches, in git's order.
+func ListRefs(ctx context.Context, repoRoot string) (Refs, error) {
+	var r Refs
+	def, err := defaultRef(ctx, repoRoot)
+	if err != nil {
+		return r, err
+	}
+	r.Default = strings.TrimPrefix(strings.TrimPrefix(def, "refs/remotes/"), "refs/heads/")
+	out, err := git(ctx, repoRoot, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes")
+	if err != nil {
+		return r, err
+	}
+	for _, ref := range strings.Fields(out) {
+		if name, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+			r.Local = append(r.Local, name)
+		} else if name, ok := strings.CutPrefix(ref, "refs/remotes/"); ok && !strings.HasSuffix(name, "/HEAD") {
+			r.Remote = append(r.Remote, name)
+		}
+	}
+	r.GitHub = GitHub(ctx, repoRoot)
+	return r, nil
+}
+
+// Status lists what git status shows in worktree: changed, staged and
+// untracked paths, an untracked folder as one "dir/".
+func Status(ctx context.Context, worktree string) ([]string, error) {
+	out, err := git(ctx, worktree, "status", "--porcelain", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	fields := strings.Split(out, "\x00")
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if len(f) < 4 {
+			continue
+		}
+		files = append(files, f[3:])
+		if f[0] == 'R' || f[0] == 'C' { // the old path follows
+			i++
+		}
+	}
+	return files, nil
+}
+
+// Merged reports whether every commit of local branch is on the default
+// branch, so git branch -d deletes it without losing work. Without a
+// default branch nothing counts as merged.
+func Merged(ctx context.Context, repoRoot, branch string) (bool, error) {
+	base, err := defaultRef(ctx, repoRoot)
+	if err != nil || base == "" {
+		return false, err
+	}
+	_, err = git(ctx, repoRoot, "merge-base", "--is-ancestor", "refs/heads/"+branch, base)
+	if err == nil {
+		return true, nil
+	}
+	if exitCode(err) == 1 && ctx.Err() == nil {
+		return false, nil
+	}
+	return false, err
+}
+
+// Prune drops git's records of worktrees whose folder is gone.
+func Prune(ctx context.Context, repoRoot string) error {
+	_, err := git(ctx, repoRoot, "worktree", "prune")
+	return err
+}
+
+// Orphans lists the worktrees under <repoRoot>/.worktrees/ that used
+// says no tab uses, with their last commit and whether they have changes.
+func Orphans(ctx context.Context, repoRoot string, used func(path string) bool) ([]model.Orphan, error) {
+	trees, err := ListWorktrees(ctx, repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(repoRoot, ".worktrees")
+	var out []model.Orphan
+	for _, t := range trees {
+		if filepath.Dir(filepath.Clean(t.Path)) != dir || used(t.Path) {
+			continue
+		}
+		o := model.Orphan{Root: repoRoot, Path: t.Path, Branch: t.Branch}
+		if s, err := git(ctx, t.Path, "log", "-1", "--format=%ct"); err == nil {
+			if sec, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+				o.Committed = time.Unix(sec, 0)
+			}
+		}
+		changed, err := Status(ctx, t.Path)
+		o.Dirty = err != nil || len(changed) > 0 // unreadable counts as changed: delete asks to force
+		out = append(out, o)
+	}
+	return out, nil
 }
 
 // ErrBranchKept wraps the error of a RemoveWorktree that removed the worktree
 // but could not delete its branch, such as an unmerged one.
 var ErrBranchKept = errors.New("worktree removed, branch kept")
 
-func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch bool) error {
+// RemoveWorktree removes the worktree at path, and its branch when
+// deleteBranch is set. Git refuses a worktree with changes, and an
+// unmerged branch, unless force is set. Git never removes the main worktree.
+func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch, force bool) error {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(repoRoot, path)
 	}
@@ -148,11 +353,19 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch boo
 			}
 		}
 	}
-	if _, err := git(ctx, repoRoot, "worktree", "remove", "--", path); err != nil {
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	if _, err := git(ctx, repoRoot, append(args, "--", path)...); err != nil {
 		return err
 	}
 	if branch != "" {
-		if _, err := git(ctx, repoRoot, "branch", "-d", "--", branch); err != nil {
+		del := "-d"
+		if force {
+			del = "-D"
+		}
+		if _, err := git(ctx, repoRoot, "branch", del, "--", branch); err != nil {
 			return fmt.Errorf("%w: %w", ErrBranchKept, err)
 		}
 	}
