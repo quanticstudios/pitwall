@@ -130,10 +130,16 @@ func TestTwoWindows(t *testing.T) {
 	one.send(t, proto.Input{Pane: p1, Data: []byte("echo mark-one\r")})
 	two.send(t, proto.Input{Pane: p2, Data: []byte("printf '\\033]0;title-two\\007'; echo mark-two\r")})
 	two.until(t, p2, "\nmark-two\n", p1)
-	one.until(t, p1, "\nmark-one\n", p2)
-	waitState(t, one.client, func(s model.State) bool {
-		i := slices.IndexFunc(s.Panes, func(p model.Pane) bool { return p.ID == p2 })
-		return i >= 0 && s.Panes[i].Title == "title-two"
+	marked, titled := false, false
+	one.waitFor(t, timeout, func(msg any) bool {
+		if s, ok := msg.(proto.StateMsg); ok {
+			i := slices.IndexFunc(s.State.Panes, func(p model.Pane) bool { return p.ID == p2 })
+			titled = titled || i >= 0 && s.State.Panes[i].Title == "title-two"
+		}
+		if one.apply(t, msg, p1, []string{p2}) {
+			marked = marked || strings.Contains(gridText(one.frames[p1].Grid), "\nmark-one\n")
+		}
+		return marked && titled
 	})
 }
 
