@@ -189,6 +189,15 @@ func TestSessionSwitcherWindow(t *testing.T) {
 		r.Queue(e)
 		frame()
 	}
+	// The previews drawn are the sessions' trees, without the live footer.
+	if len(u.sw.draw.previews) == 0 {
+		t.Fatal("the switcher drew no preview")
+	}
+	for id, sb := range u.sw.draw.previews {
+		if !sb.TreeOnly {
+			t.Errorf("the preview of %s draws the header and footer", id)
+		}
+	}
 	frame()
 	if u.nav.session != "s2" || u.sw.open {
 		t.Fatalf("at %s, switcher open %v", u.nav.session, u.sw.open)
