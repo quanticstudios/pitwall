@@ -17,6 +17,16 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- The sidebar works from the keyboard. Ctrl+Shift+H (Ctrl+Shift+B in
+  aide, Cmd+Shift+B in mac, or "Focus sidebar" in the command palette)
+  puts a focus ring on the shown tab's row. Arrows or j and k move through
+  group headers, tabs and their agents, Left and Right open and close
+  groups, Enter shows a tab or focuses an agent's pane, Space shows a tab
+  and stays, Shift+F10 or the Menu key opens the row's menu, F2 renames,
+  and Delete opens the Delete dialog for the tab. Esc, or the same chord,
+  goes back to the pane. No key reaches a pane meanwhile, a hidden sidebar
+  shows until you leave, and the footer lists the keys. Rebind it with
+  `focus_sidebar`.
 - You can search keyboard shortcuts by their keys. Typing `ctrl+shift+d`,
   `shift ctrl d` or `⌃⇧D` in the command palette or the settings search
   lists only what Ctrl+Shift+D runs; before, it listed every action with a
