@@ -33,6 +33,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -345,18 +346,7 @@ func (p *Page) Layout(gtx gl.Context, th *theme.Theme, s config.Settings, probs 
 	p.search.SingleLine = true
 	q := strings.TrimSpace(p.search.Text())
 
-	navW := min(gtx.Dp(224), size.X/3)
-	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: image.Pt(navW, size.Y)}.Op())
-	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(navW, 0), Max: image.Pt(navW+1, size.Y)}.Op())
-	ng := gtx
-	ng.Constraints = gl.Exact(image.Pt(navW, size.Y))
-	p.nav(ng, q)
-
-	cg := gtx
-	cg.Constraints = gl.Exact(image.Pt(size.X-navW-1, size.Y))
-	o := op.Offset(image.Pt(navW+1, 0)).Push(gtx.Ops)
-	p.content(cg, q)
-	o.Pop()
+	p.columns(gtx, q)
 
 	if p.focusSearch {
 		p.focusSearch = false
@@ -385,14 +375,7 @@ func (p *Page) Layout(gtx gl.Context, th *theme.Theme, s config.Settings, probs 
 // nav is the left column: title, search field, categories.
 func (p *Page) nav(gtx gl.Context, q string) gl.Dimensions {
 	th := p.th
-	counts := make([]int, len(categories))
-	if q != "" {
-		for i := range categories {
-			for _, sec := range p.sections(i) {
-				counts[i] += len(filterRows(sec.rows, q))
-			}
-		}
-	}
+	counts := p.counts(q)
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return gl.Inset{Left: 8, Top: 4, Bottom: 4}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
@@ -403,47 +386,8 @@ func (p *Page) nav(gtx gl.Context, q string) gl.Dimensions {
 		gl.Rigid(p.searchField),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 	}
-	for i, c := range categories {
-		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			b := &p.cats[i]
-			for b.Clicked(gtx) {
-				p.cat, p.list.Position, p.dd, p.conflict = i, gl.Position{}, "", nil
-				p.search.SetText("")
-			}
-			return b.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-				h, w := gtx.Dp(30), gtx.Constraints.Max.X
-				sel := q == "" && p.cat == i
-				fg := th.Muted
-				f := th.UIFont
-				switch {
-				case sel:
-					rrect(gtx, theme.Mix(th.SurfaceElevated, th.Fg, 0.04), image.Rect(0, 0, w, h), gtx.Dp(6))
-					fg, f = th.Fg, weight(f, font.Medium)
-				case b.Hovered():
-					rrect(gtx, th.SurfaceElevated, image.Rect(0, 0, w, h), gtx.Dp(6))
-					fg = th.Fg
-				case q != "" && counts[i] == 0:
-					fg = theme.Mix(th.Bg, th.Muted, 0.5)
-				}
-				m := op.Record(gtx.Ops)
-				d := p.text(gtx, f, p.th.Sp(theme.Body), fg, c.name)
-				call := m.Stop()
-				oo := op.Offset(image.Pt(gtx.Dp(10), (h-d.Size.Y)/2)).Push(gtx.Ops)
-				call.Add(gtx.Ops)
-				oo.Pop()
-				if q != "" && counts[i] > 0 {
-					m := op.Record(gtx.Ops)
-					d := p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, fmt.Sprint(counts[i]))
-					call := m.Stop()
-					oo := op.Offset(image.Pt(w-gtx.Dp(10)-d.Size.X, (h-d.Size.Y)/2)).Push(gtx.Ops)
-					call.Add(gtx.Ops)
-					oo.Pop()
-				}
-				defer clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops).Pop()
-				pointer.CursorPointer.Add(gtx.Ops)
-				return gl.Dimensions{Size: image.Pt(w, h)}
-			})
-		}))
+	for i := range categories {
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.catRow(gtx, i, q, counts) }))
 		kids = append(kids, gl.Rigid(gl.Spacer{Height: 2}.Layout))
 	}
 	return gl.UniformInset(16).Layout(gtx, func(gtx gl.Context) gl.Dimensions {
@@ -626,10 +570,7 @@ func (p *Page) header(gtx gl.Context, title, desc string) gl.Dimensions {
 			for c.Clicked(gtx) {
 				p.result = Closed
 			}
-			return hstack(gtx, 8,
-				func(gtx gl.Context) gl.Dimensions { return p.keycap(gtx, "Esc", false, false) },
-				func(gtx gl.Context) gl.Dimensions { return p.button(gtx, c, secondary, "Close") },
-			)
+			return kit.ButtonHint(gtx, th, c, secondary, kit.Medium, "Close", "Esc")
 		}),
 	)
 }
@@ -731,14 +672,7 @@ func (p *Page) rowContent(gtx gl.Context, r row) gl.Dimensions {
 	if r.wide {
 		kids = append(kids, gl.Rigid(labels), gl.Rigid(gl.Spacer{Height: 12}.Layout), gl.Rigid(r.control))
 	} else {
-		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			gtx.Constraints.Min.X = gtx.Constraints.Max.X
-			return gl.Flex{Alignment: gl.Middle}.Layout(gtx,
-				gl.Flexed(1, labels),
-				gl.Rigid(gl.Spacer{Width: 16}.Layout),
-				gl.Rigid(r.control),
-			)
-		}))
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.rowLine(gtx, labels, r.control) }))
 	}
 	if r.below != nil {
 		kids = append(kids, gl.Rigid(gl.Spacer{Height: 10}.Layout), gl.Rigid(r.below))
@@ -894,9 +828,12 @@ func (p *Page) switchOf(id string, on bool, flip func()) gl.Widget {
 			rrect(gtx, track, image.Rect(1, 1, sz.X-1, sz.Y-1), sz.Y/2-1)
 			fg := th.Muted
 			if on {
-				fg = th.OnPrimary
+				fg = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 			}
 			rrect(gtx, fg, image.Rect(x, in, x+knob, in+knob), knob/2)
+			if gtx.Focused(c) {
+				kit.FocusRing(gtx, th, image.Rectangle{Max: sz}, sz.Y/2)
+			}
 			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
 			pointer.CursorPointer.Add(gtx.Ops)
 			return gl.Dimensions{Size: sz}
@@ -907,15 +844,22 @@ func (p *Page) switchOf(id string, on bool, flip func()) gl.Widget {
 // segmented is a row of options with the current one raised.
 // choice is a two-way segmented control for an on-or-off string setting:
 // opts[0] is on, opts[1] off.
-func (p *Page) choice(table, k string, opts []string, on bool) gl.Widget {
+// labels are what the options read as, in the same order.
+func (p *Page) choice(table, k string, opts, labels []string, on bool) gl.Widget {
 	cur := opts[1]
 	if on {
 		cur = opts[0]
 	}
-	return p.segmented(table+"."+k, opts, cur, func(o string) { p.saveValue(table, k, config.Quote(o)) })
+	return p.labeled(table+"."+k, opts, labels, cur, func(o string) { p.saveValue(table, k, config.Quote(o)) })
 }
 
 func (p *Page) segmented(id string, opts []string, cur string, pick func(string)) gl.Widget {
+	return p.labeled(id, opts, nil, cur, pick)
+}
+
+// labeled is segmented with labels for the options, nil to show them as
+// they are.
+func (p *Page) labeled(id string, opts, labels []string, cur string, pick func(string)) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
 		th := p.th
 		for _, o := range opts {
@@ -927,12 +871,14 @@ func (p *Page) segmented(id string, opts []string, cur string, pick func(string)
 		}
 		return boxed(gtx, th.SurfaceElevated, th.Border, gtx.Dp(6), image.Pt(gtx.Dp(2), gtx.Dp(2)), func(gtx gl.Context) gl.Dimensions {
 			var ws []gl.Widget
-			for _, o := range opts {
+			for i, o := range opts {
 				c := p.btn(id + ":" + o)
 				ws = append(ws, func(gtx gl.Context) gl.Dimensions {
 					return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 						label := o
-						if label == "" {
+						if labels != nil {
+							label = labels[i]
+						} else if label == "" {
 							label = "None"
 						}
 						fg, f := th.Muted, th.UIFont
@@ -947,6 +893,9 @@ func (p *Page) segmented(id string, opts []string, cur string, pick func(string)
 						sz := image.Pt(d.Size.X+2*gtx.Dp(10), gtx.Dp(24))
 						if o == cur {
 							rrect(gtx, theme.Mix(th.SurfaceElevated, th.Fg, 0.1), image.Rectangle{Max: sz}, gtx.Dp(4))
+						}
+						if gtx.Focused(c) {
+							kit.FocusRing(gtx, th, image.Rectangle{Max: sz}, gtx.Dp(4))
 						}
 						oo := op.Offset(sz.Sub(d.Size).Div(2)).Push(gtx.Ops)
 						call.Add(gtx.Ops)
@@ -1043,6 +992,9 @@ func (p *Page) chords(a config.Action) gl.Widget {
 			ws = append(ws, func(gtx gl.Context) gl.Dimensions {
 				return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 					d := p.keycap(gtx, label, hot, c.Hovered())
+					if gtx.Focused(c) {
+						kit.FocusRing(gtx, th, image.Rectangle{Max: d.Size}, gtx.Dp(4))
+					}
 					defer clip.Rect{Max: d.Size}.Push(gtx.Ops).Pop()
 					pointer.CursorPointer.Add(gtx.Ops)
 					return d
@@ -1135,9 +1087,9 @@ func (p *Page) terminal() []section {
 		{label: "Links", desc: "Underline web and file links in panes. Ctrl+click opens one in your browser, even inside Claude Code or Codex.", extra: "url hyperlink browser open ctrl click links",
 			control: p.toggle("terminal", "links", p.s.Links)},
 		{label: "Clipboard from programs", desc: "Programs such as Neovim and tmux, also over ssh, can set the clipboard with OSC 52. They can never read it.", extra: "osc52 osc 52 clipboard copy yank ssh tmux neovim",
-			control: p.choice("terminal", "osc52", []string{"write", "off"}, p.s.OSC52)},
+			control: p.choice("terminal", "osc52", []string{"write", "off"}, []string{"Allow", "Off"}, p.s.OSC52)},
 		{label: "Bell", desc: "A bell in a pane you are not looking at rings the pane and marks its tab, as an agent waiting for you does.", extra: "bel beep alert attention notification",
-			control: p.choice("terminal", "bell", []string{"attention", "off"}, p.s.Bell)},
+			control: p.choice("terminal", "bell", []string{"attention", "off"}, []string{"Mark the tab", "Off"}, p.s.Bell)},
 		{label: "Scrollback", desc: "Lines of history each new pane keeps, up to 200,000. Every 10,000 lines of agent output take about 2 MB per pane.", extra: "history lines buffer memory",
 			control: p.stepper("terminal", "scrollback", float64(p.s.Scrollback), 1000, config.MaxScrollback, 10000, config.DefaultScrollback)},
 		{label: "Colors", desc: "From the theme. Set them under [theme.terminal] in config.toml, or in a custom theme.", extra: "palette ansi colour",
