@@ -65,7 +65,7 @@ func TestCompletion(t *testing.T) {
 		"session": {"ls", "new", "attach", "rename", "kill"}, "worktree": {"ls", "new", "rm", "prune"},
 		"tab": {"new", "rename", "close"}, "hooks": {"install", "uninstall"}, "completion": {"bash", "zsh", "fish"},
 		"config": {"path", "default", "init", "check", "schema"}, "remote": {"pair", "devices", "revoke"},
-		"jev": {"login", "status", "logout", "report"},
+		"jev": {"login", "status", "logout", "report"}, "queue": {"ls", "add", "rm"},
 	} {
 		if !slices.Equal(subs[name], want) {
 			t.Errorf("%s completes %q, want %q", name, subs[name], want)

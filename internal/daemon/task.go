@@ -177,9 +177,6 @@ func (d *Daemon) worktree(ctx context.Context, root, name string, from model.Wor
 	return path, branch, wt, problems, nil
 }
 
-// agentProviders are the providers whose panes count as running agents.
-var agentProviders = []model.Provider{model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderGemini, model.ProviderOpenCode}
-
 // runningPanes maps each pane that runs an agent or a command to its
 // session: a pane opened with a command (Held) or one an agent reported
 // from, until it exits or its agent is done or failed.
@@ -192,7 +189,8 @@ func runningPanes(st *model.State) map[string]string {
 	}
 	out := map[string]string{}
 	for _, p := range st.Panes {
-		if p.Exited || ended[p.ID] || !p.Held && !slices.Contains(agentProviders, p.Provider) {
+		agent := p.Provider != "" && p.Provider != model.ProviderTerminal
+		if p.Exited || ended[p.ID] || !p.Held && !agent {
 			continue
 		}
 		if s := st.SessionOf(p.WorkspaceID); s != "" {

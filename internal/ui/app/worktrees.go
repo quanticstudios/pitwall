@@ -334,40 +334,13 @@ func (u *ui) newWorktreeBody(gtx gl.Context, st *model.State) gl.Dimensions {
 }
 
 // kindTabs is the row of what a worktree starts from, the chosen one
-// filled; Pull request only for a GitHub origin.
+// picked as New task's options are; Pull request only for a GitHub origin.
 func (u *ui) kindTabs(gtx gl.Context, github bool) gl.Dimensions {
-	th, f := u.th, &u.modal.wt
-	h, x := gtx.Dp(28), 0
-	for i, l := range kindLabels {
-		if model.WorktreeKind(i) == model.FromPR && !github {
-			continue
-		}
-		on := model.WorktreeKind(i) == f.kind
-		fg, bg := th.Fg, th.SurfaceSecondary
-		if on {
-			fg, bg = th.OnPrimary, th.Primary
-		}
-		call, sz := textCall(gtx, th, medium(th.UIFont), 13, fg, l)
-		w := sz.X + 2*gtx.Dp(12)
-		o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
-		g := gtx
-		g.Constraints = gl.Exact(image.Pt(w, h))
-		f.kinds[i].Layout(g, func(gtx gl.Context) gl.Dimensions {
-			b := bg
-			if f.kinds[i].Hovered() && !on {
-				b = theme.Mix(bg, th.Fg, 0.08)
-			}
-			paint.FillShape(gtx.Ops, b, clip.UniformRRect(image.Rect(0, 0, w, h), h/2).Op(gtx.Ops))
-			pointer.CursorPointer.Add(gtx.Ops)
-			t := op.Offset(image.Pt((w-sz.X)/2, (h-sz.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			t.Pop()
-			return gl.Dimensions{Size: image.Pt(w, h)}
-		})
-		o.Pop()
-		x += w + gtx.Dp(6)
+	f, labels := &u.modal.wt, kindLabels[:]
+	if !github {
+		labels = labels[:model.FromPR] // the last
 	}
-	return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}
+	return u.chips(gtx, f.kinds[:], labels, int(f.kind))
 }
 
 // pickRow is one matching branch under the ref field; a click takes it.

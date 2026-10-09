@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -124,7 +125,18 @@ func TestTaskWorktree(t *testing.T) {
 	if !slices.Equal(st.Panes[0].Cmd, []string{"claude", "fix it"}) || len(st.Panes[1].Cmd) != 0 || st.Panes[1].WorkspaceID != w.ID {
 		t.Fatalf("panes %+v", st.Panes[:2])
 	}
-	if got := f.pane(1).got(); got != "make\r" {
-		t.Fatalf("setup pane got %q", got)
+	waitUntil(t, "setup typed", func() bool { return f.pane(1).got() == "make\r" })
+}
+
+// Every agent's pane counts as running, a shell's does not.
+func TestRunningPanes(t *testing.T) {
+	st := model.State{
+		Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}},
+		Panes: []model.Pane{{ID: "cursor", WorkspaceID: "w", Provider: model.ProviderCursor},
+			{ID: "aider", WorkspaceID: "w", Provider: model.ProviderAider}, {ID: "sh", WorkspaceID: "w"},
+			{ID: "term", WorkspaceID: "w", Provider: model.ProviderTerminal}, {ID: "held", WorkspaceID: "w", Held: true}},
+	}
+	if got := runningPanes(&st); !maps.Equal(got, map[string]string{"cursor": "s", "aider": "s", "held": "s"}) {
+		t.Errorf("runningPanes = %v", got)
 	}
 }

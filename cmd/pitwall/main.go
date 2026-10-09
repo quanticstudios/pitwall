@@ -74,8 +74,8 @@ const usage = `usage:
   pitwall tab new            open a tab next to the calling pane's tab
   pitwall tab rename [name...]  name the calling pane's tab (empty clears)
   pitwall tab close          close the calling pane's tab
-  pitwall queue <cmd>        ls, add [dir] -- cmd..., rm <n>: tasks that start
-                             when a running agent finishes (see pitwall queue)
+  pitwall queue <cmd>        ls, add, rm: tasks that start when a running
+                             agent finishes (see pitwall queue)
   A tab is named by its # in pitwall ls, its id, its title, or a unique prefix
   of the title. Outside a pane, name it; inside, it defaults to the
   pane's own tab. Tab commands act on the calling pane's session, else
