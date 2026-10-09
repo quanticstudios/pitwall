@@ -192,6 +192,7 @@ The built-in themes in `internal/config/themes.go` copy color values from
 [Catppuccin](https://github.com/catppuccin/palette) (MIT, Catppuccin) and,
 for aide-light's state and ANSI colors, GitHub's
 [Primer](https://github.com/primer/primitives) light palette (MIT, GitHub Inc.).
+Each theme's muted color is nudged from the source to reach 4.5:1.
 
 ### Ideas and behavior, no code copied
 

@@ -800,6 +800,10 @@ func (p *Page) appearance() []section {
 			{label: "Pane margin", desc: "Space between the panes and the window edges and sidebar, in dp.", extra: "spacing padding",
 				control: p.stepper("layout", "pane_margin", p.s.PaneMargin, 0, 64, 1, config.DefaultPaneMargin)},
 		}},
+		{title: "Motion", rows: []row{
+			{label: "Reduce motion", desc: "Show dialogs, menus, hover and focus changes at once instead of easing them in.",
+				extra: "animation reduce_motion", control: p.toggle("appearance", "reduce_motion", p.s.ReduceMotion)},
+		}},
 	}
 }
 

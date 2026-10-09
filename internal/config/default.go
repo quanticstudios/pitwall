@@ -25,6 +25,7 @@ func defaults() Config {
 	c.Updates.Check = &on
 	off := false
 	c.Usage.ShowCost, c.Usage.LimitsInSidebar = &off, &off
+	c.Appear.ReduceMotion = &off
 	c.Decisions = defaultDecisions()
 	c.Worktrees = defaultWorktrees()
 	c.Git = defaultGit()

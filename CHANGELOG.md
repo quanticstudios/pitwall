@@ -26,6 +26,9 @@ build. Either step takes `--dry-run`.
   tokyo-night, aide-light and catppuccin-mocha get a slightly stronger
   muted color, and status chips darken or lighten their text where it
   was faint, most visibly in aide-light.
+- `[appearance] reduce_motion`, also a switch under Settings, Appearance,
+  shows dialogs, menus, hover and focus changes at once instead of easing
+  them in.
 
 ## v0.1.0-beta.3
 
