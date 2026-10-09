@@ -14,6 +14,22 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 `git pull --ff-only` and run `sh scripts/release.sh --tag`. It tags the
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
+- pitwall knows more agents. Cursor CLI, Amp and Aider get a logo in the
+  sidebar and a line on the welcome card, and so do Gemini CLI and
+  OpenCode, which had neither. `pitwall hooks install` sets up Cursor's
+  hooks in `~/.cursor/hooks.json`.
+- An agent installed through npm or pip, which runs as `node`, `bun`,
+  `deno` or `python`, is recognized by its script's path. pitwall reads the
+  start of the argument list only for the processes in a pane's own
+  foreground group.
+- Without hooks or a decision model, Gemini CLI, OpenCode and Aider get
+  their state from their screen, as Claude and Codex do.
+- Gemini CLI, OpenCode and Cursor sessions resume after a restart, like
+  Claude's.
+- The side panel follows Gemini CLI sessions, with their plan from
+  `write_todos`, and Settings > Usage counts Gemini's tokens.
+- OpenCode shows Plan when its experimental plan mode asks to switch to the
+  build agent. Reinstall hooks to update the plugin.
 
 ## Unreleased
 
@@ -57,32 +73,6 @@ build. Either step takes `--dry-run`.
   does that on its own. The daemon asks `gh` about each branch every minute
   or so, slower while no window has focus, and shows nothing without `gh`
   or a login.
-
-## v0.1.0-beta.2
-
-- Agent state stays current after an upgrade you chose to restart the
-  daemon for later. Hooks run the new `pitwall` on your PATH, and the old
-  daemon used to refuse every one of them until it restarted, so each
-  agent's sidebar row stopped changing. Now a hook refused for its protocol
-  version sends again in the daemon's, and daemons serve hooks of any
-  version. A daemon that gets hooks from a newer pitwall shows a notice
-  once asking you to restart it, and logs a line a minute with a count.
-- pitwall knows more agents. Cursor CLI, Amp and Aider get a logo in the
-  sidebar and a line on the welcome card, and so do Gemini CLI and
-  OpenCode, which had neither. `pitwall hooks install` sets up Cursor's
-  hooks in `~/.cursor/hooks.json`.
-- An agent installed through npm or pip, which runs as `node`, `bun`,
-  `deno` or `python`, is recognized by its script's path. pitwall reads the
-  start of the argument list only for the processes in a pane's own
-  foreground group.
-- Without hooks or a decision model, Gemini CLI, OpenCode and Aider get
-  their state from their screen, as Claude and Codex do.
-- Gemini CLI, OpenCode and Cursor sessions resume after a restart, like
-  Claude's.
-- The side panel follows Gemini CLI sessions, with their plan from
-  `write_todos`, and Settings > Usage counts Gemini's tokens.
-- OpenCode shows Plan when its experimental plan mode asks to switch to the
-  build agent. Reinstall hooks to update the plugin.
 
 ## v0.1.0-beta.2
 
