@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.5
 
 - The sidebar works from the keyboard. Ctrl+Shift+H (Ctrl+Shift+B in
   aide, Cmd+Shift+B in mac, or "Focus sidebar" in the command palette)
