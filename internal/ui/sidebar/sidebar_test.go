@@ -364,4 +364,13 @@ func TestHrowDropsOpt(t *testing.T) {
 	if got := row(200); got != 120 {
 		t.Errorf("width %d, want 120: all fit", got)
 	}
+	// An opt item that would shrink to its room, as a label cuts itself,
+	// still drops when its whole width does not fit.
+	squeeze := func(gtx layout.Context) layout.Dimensions {
+		return layout.Dimensions{Size: image.Pt(min(50, gtx.Constraints.Max.X), 10)}
+	}
+	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(60, 10)}}
+	if got := hrowFit(gtx, 10, 0, item{w: box(30)}, item{opt: true, w: squeeze}).Size.X; got != 30 {
+		t.Errorf("width %d, want 30: the squeezed opt dropped", got)
+	}
 }
