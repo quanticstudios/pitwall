@@ -18,6 +18,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -497,29 +498,13 @@ func (u *ui) newButton(gtx gl.Context) {
 // smallButton records a 24dp button with 6dp corners: red for a danger
 // action, quiet otherwise.
 func (u *ui) smallButton(gtx gl.Context, c *widget.Clickable, label string, danger bool) (op.CallOp, image.Point) {
-	th := u.th
-	m := op.Record(gtx.Ops)
-	fg, bg := th.Fg, th.SurfaceSecondary
+	k := kit.Secondary
 	if danger {
-		fg, bg = theme.Hex("#ffffff"), th.Red
+		k = kit.Danger
 	}
-	call, sz := textCall(gtx, th, medium(th.UIFont), 12, fg, label)
-	box := image.Pt(sz.X+gtx.Dp(20), gtx.Dp(24))
-	g := gtx
-	g.Constraints = gl.Exact(box)
-	c.Layout(g, func(gtx gl.Context) gl.Dimensions {
-		b := bg
-		if c.Hovered() {
-			b = theme.Mix(bg, th.Fg, 0.1)
-		}
-		paint.FillShape(gtx.Ops, b, clip.UniformRRect(image.Rectangle{Max: box}, gtx.Dp(6)).Op(gtx.Ops))
-		pointer.CursorPointer.Add(gtx.Ops)
-		o := op.Offset(box.Sub(sz).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
-		return gl.Dimensions{Size: box}
-	})
-	return m.Stop(), box
+	m := op.Record(gtx.Ops)
+	d := kit.Button(gtx, u.th, c, k, kit.Small, label)
+	return m.Stop(), d.Size
 }
 
 // preview draws the highlighted session's sidebar, live and scaled to fit

@@ -23,6 +23,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/review"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -241,42 +242,14 @@ func (u *ui) reviewPRStatus(gtx gl.Context, st *model.State) gl.Dimensions {
 	})
 }
 
-// reviewButton is aide's size="sm" button, as the settings page draws
-// it; an off one is muted and takes no clicks.
+// reviewButton is a medium button, primary or secondary; an off one is
+// half opacity and takes no clicks.
 func (u *ui) reviewButton(gtx gl.Context, c *widget.Clickable, label string, on, primary bool) gl.Dimensions {
-	th := u.th
-	draw := func(gtx gl.Context) gl.Dimensions {
-		h := gtx.Dp(28)
-		fill, fg, border := th.SurfaceElevated, th.Fg, theme.Mix(th.SurfaceElevated, th.Fg, 0.08)
-		switch {
-		case !on:
-			fill, fg, border = th.SurfaceSecondary, th.Muted, th.SurfaceSecondary
-		case primary:
-			fill, fg, border = th.Primary, th.OnPrimary, th.Primary
-		}
-		if on && c.Hovered() {
-			fill = theme.Mix(fill, th.Fg, 0.08)
-		}
-		call, tsz := textCall(gtx, th, medium(th.UIFont), 13, fg, label)
-		sz := image.Pt(tsz.X+2*gtx.Dp(10), h)
-		rrect := func(c color.NRGBA, r image.Rectangle, rad int) {
-			paint.FillShape(gtx.Ops, c, clip.UniformRRect(r, rad).Op(gtx.Ops))
-		}
-		rrect(border, image.Rectangle{Max: sz}, gtx.Dp(6))
-		rrect(fill, image.Rect(1, 1, sz.X-1, sz.Y-1), gtx.Dp(6)-1)
-		o := op.Offset(sz.Sub(tsz).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
-		if on {
-			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-			pointer.CursorPointer.Add(gtx.Ops)
-		}
-		return gl.Dimensions{Size: sz}
+	k := kit.Secondary
+	if primary {
+		k = kit.Primary
 	}
-	if !on {
-		return draw(gtx)
-	}
-	return c.Layout(gtx, draw)
+	return kit.Button(gtx, u.th, c, k.When(on), kit.Medium, label)
 }
 
 // statusColor is a file status's letter color.
@@ -813,7 +786,7 @@ func (u *ui) discardBody(gtx gl.Context) gl.Dimensions {
 		}),
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", "Discard", th.Red, theme.Hex("#ffffff"))
+			return u.buttons(gtx, "Cancel", "Discard", kit.Danger)
 		}),
 	)
 }

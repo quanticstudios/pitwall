@@ -14,6 +14,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -63,49 +64,18 @@ func boxed(gtx gl.Context, fill, border color.NRGBA, radius int, pad image.Point
 	return gl.Dimensions{Size: sz, Baseline: d.Baseline + pad.Y}
 }
 
-type btnKind int
+type btnKind = kit.Kind
 
 const (
-	ghost btnKind = iota
-	secondary
-	primary
-	danger
+	ghost     = kit.Ghost
+	secondary = kit.Secondary
+	primary   = kit.Primary
+	danger    = kit.Danger
 )
 
-// button is aide's size="sm" button: h-7, px-2.5, rounded-md, 13px medium.
-func (p *Page) button(gtx gl.Context, c *widget.Clickable, kind btnKind, label string) gl.Dimensions {
-	th := p.th
-	return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-		h := gtx.Dp(28)
-		fill, fg, border := th.SurfaceElevated, th.Fg, theme.Mix(th.SurfaceElevated, th.Fg, 0.08)
-		switch kind {
-		case ghost:
-			fill, fg, border = th.SurfaceSecondary, th.Muted, th.SurfaceSecondary
-			if c.Hovered() {
-				fill, fg = th.SurfaceElevated, th.Fg
-				border = fill
-			}
-		case primary:
-			fill, fg, border = th.Primary, th.OnPrimary, th.Primary
-		case danger:
-			fill, fg, border = theme.Mix(th.SurfaceSecondary, th.Red, 0.15), th.Red, theme.Mix(th.SurfaceSecondary, th.Red, 0.4)
-		}
-		if c.Hovered() && kind != ghost {
-			fill = theme.Mix(fill, th.Fg, 0.08)
-		}
-		m := op.Record(gtx.Ops)
-		td := p.text(gtx, weight(th.UIFont, font.Medium), p.sp(13), fg, label)
-		call := m.Stop()
-		sz := image.Pt(td.Size.X+2*gtx.Dp(10), h)
-		rrect(gtx, border, image.Rectangle{Max: sz}, gtx.Dp(6))
-		rrect(gtx, fill, image.Rect(1, 1, sz.X-1, sz.Y-1), gtx.Dp(6)-1)
-		o := op.Offset(sz.Sub(td.Size).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
-		defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
-		pointer.CursorPointer.Add(gtx.Ops)
-		return gl.Dimensions{Size: sz}
-	})
+// button is the medium button: 28dp, 13px medium.
+func (p *Page) button(gtx gl.Context, c *widget.Clickable, kind kit.Kind, label string) gl.Dimensions {
+	return kit.Button(gtx, p.th, c, kind, kit.Medium, label)
 }
 
 // keycap is aide's .keycap: 20px tall, surface gradient, border ring. Hot

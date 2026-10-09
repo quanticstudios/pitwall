@@ -10,26 +10,9 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
-
-// textButton is a small ghost button with a text label.
-func textButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, text string, h int) layout.Dimensions {
-	m := op.Record(gtx.Ops)
-	d := label(gtx, th, medium(th.UIFont), 12, th.Fg, text)
-	call := m.Stop()
-	size := image.Pt(d.Size.X+gtx.Dp(20), h)
-	gtx.Constraints = layout.Exact(size)
-	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		if c.Hovered() {
-			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Op(gtx.Ops))
-		}
-		off := op.Offset(size.Sub(d.Size).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		off.Pop()
-		return layout.Dimensions{Size: size}
-	})
-}
 
 // footer: the plan limits' meter when it shows, then Open folder as
 // group, the update button when there is one, detached tabs, comments
@@ -202,12 +185,12 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 				)
 			}},
 			{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return textButton(gtx, th, at, "Attach", gtx.Dp(28))
+				return kit.Button(gtx, th, at, kit.Ghost, kit.Small, "Attach")
 			}},
 		}
 		if s.killArmed == ws.ID {
 			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-				return dangerButton(gtx, th, kill, "Kill", gtx.Dp(28))
+				return kit.Button(gtx, th, kill, kit.Danger, kit.Small, "Kill")
 			}})
 		} else {
 			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
@@ -217,25 +200,4 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 		hrow(gtx, rowH, gtx.Dp(4), items...)
 		off.Pop()
 	}
-}
-
-// dangerButton is the armed state of a two-click action: red text on a
-// red-soft fill.
-func dangerButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, text string, h int) layout.Dimensions {
-	m := op.Record(gtx.Ops)
-	d := label(gtx, th, semibold(th.UIFont), 12, th.Red, text)
-	call := m.Stop()
-	size := image.Pt(d.Size.X+gtx.Dp(20), h)
-	gtx.Constraints = layout.Exact(size)
-	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		a := float32(0.14)
-		if c.Hovered() {
-			a = 0.22
-		}
-		paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Red, a), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Op(gtx.Ops))
-		off := op.Offset(size.Sub(d.Size).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		off.Pop()
-		return layout.Dimensions{Size: size}
-	})
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -877,7 +878,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		if s := advice[id]; s != "" {
 			u.drawAdvice(gtx, r, s)
 		}
-		if pn := findPane(st, id); pn != nil && pn.HooksMissing && u.hooksNotice() {
+		if pn := findPane(st, id); pn != nil && pn.HooksMissing && !u.welcome.on && u.hooksNotice() { // the welcome card offers the install already
 			u.drawHooksNotice(gtx, p, r)
 		}
 		if id == zoom {
@@ -1037,22 +1038,7 @@ func (u *ui) emptyState(gtx gl.Context, label string, click func()) {
 // emptyButton is the empty state's button.
 func (u *ui) emptyButton(label string) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
-		return u.open.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.TextSize, u.th.Fg, strings.TrimSpace(label))
-			pad := image.Pt(gtx.Dp(16), gtx.Dp(10))
-			box := sz.Add(pad.Mul(2))
-			bg := u.th.SurfaceSecondary
-			if u.open.Hovered() {
-				bg = u.th.SurfaceElevated
-			}
-			rr := gtx.Dp(8)
-			paint.FillShape(gtx.Ops, u.th.Border, clip.UniformRRect(image.Rectangle{Max: box}, rr).Op(gtx.Ops))
-			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rect(1, 1, box.X-1, box.Y-1), rr-1).Op(gtx.Ops))
-			o := op.Offset(pad).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			return gl.Dimensions{Size: box}
-		})
+		return kit.Button(gtx, u.th, &u.open, kit.Secondary, kit.Large, strings.TrimSpace(label))
 	}
 }
 

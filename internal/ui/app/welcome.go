@@ -19,6 +19,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/store"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -209,9 +210,9 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 	}
 	kids = append(kids, gl.Rigid(gl.Spacer{Height: 18}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		if missing {
-			return u.buttonPair(gtx, &w.dismiss, &w.install, "Dismiss", "Install hooks", th.Primary, th.OnPrimary)
+			return u.buttonPair(gtx, &w.dismiss, &w.install, "Dismiss", "Install hooks", kit.Primary)
 		}
-		return u.buttonPair(gtx, &w.cancel, &w.dismiss, "", "Dismiss", th.SurfaceSecondary, th.Fg)
+		return u.buttonPair(gtx, &w.cancel, &w.dismiss, "", "Dismiss", kit.Secondary)
 	}))
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
@@ -240,24 +241,9 @@ func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable)
 	sc.Add(gtx.Ops)
 	o.Pop()
 
-	lc, ls := textCall(gtx, th, medium(th.UIFont), 13, th.Fg, "Start")
-	bw := ls.X + 2*gtx.Dp(14)
-	o = op.Offset(image.Pt(gtx.Constraints.Max.X-bw, 0)).Push(gtx.Ops)
-	g := gtx
-	g.Constraints = gl.Exact(image.Pt(bw, h))
-	start.Layout(g, func(gtx gl.Context) gl.Dimensions {
-		bg := th.SurfaceSecondary
-		if start.Hovered() {
-			bg = th.SurfaceElevated
-		}
-		r := gtx.Dp(6)
-		paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(image.Rect(0, 0, bw, h), r).Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rect(1, 1, bw-1, h-1), r-1).Op(gtx.Ops))
-		pointer.CursorPointer.Add(gtx.Ops)
-		t := op.Offset(image.Pt((bw-ls.X)/2, (h-ls.Y)/2)).Push(gtx.Ops)
-		lc.Add(gtx.Ops)
-		t.Pop()
-		return gl.Dimensions{Size: image.Pt(bw, h)}
+	o = op.Offset(image.Pt(0, (h-gtx.Dp(28))/2)).Push(gtx.Ops)
+	kit.Row(gtx, 0, func(gtx gl.Context) gl.Dimensions {
+		return kit.Button(gtx, th, start, kit.Secondary, kit.Medium, "Start")
 	})
 	o.Pop()
 	return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}

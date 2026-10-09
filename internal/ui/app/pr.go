@@ -11,8 +11,8 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
-	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // mergeScript merges pull request $2 of the repository at $1 by method
@@ -161,15 +161,14 @@ func (u *ui) mergeBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl.
 	if pr.Conflicts {
 		warn(th.Yellow, "GitHub reports merge conflicts.")
 	}
-	ok, bg := "Merge", th.Primary
-	fg := th.OnPrimary
+	ok, kind := "Merge", kit.Primary
 	if m.armed {
 		warn(th.Fg, "Merge with failing checks? Click again to merge.")
-		ok, bg, fg = "Merge anyway", th.Red, theme.Hex("#ffffff")
+		ok, kind = "Merge anyway", kit.Danger
 	}
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "Cancel", ok, bg, fg) }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "Cancel", ok, kind) }),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }

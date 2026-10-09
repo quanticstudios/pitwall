@@ -18,6 +18,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -327,7 +328,7 @@ func (u *ui) newWorktreeBody(gtx gl.Context, st *model.State) gl.Dimensions {
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 20}.Layout),
 		text(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", "Create", th.Primary, th.OnPrimary)
+			return u.buttons(gtx, "Cancel", "Create", kit.Primary)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -494,13 +495,13 @@ func (u *ui) cleanupBody(gtx gl.Context, st *model.State) gl.Dimensions {
 				rows = append(rows, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 12, col, l) }))
 			}
 			d := gl.Flex{Axis: gl.Vertical}.Layout(tg, rows...)
-			b := u.buttonPair(gtx, &f.open[i], &f.del[i], "Open", del, th.Red, theme.Hex("#ffffff"))
+			b := u.buttonPair(gtx, &f.open[i], &f.del[i], "Open", del, kit.Danger)
 			return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, max(d.Size.Y, b.Size.Y))}
 		}))
 	}
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
-		text(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "", "Close", th.Primary, th.OnPrimary) }),
+		text(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "", "Close", kit.Primary) }),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }

@@ -15,6 +15,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -255,9 +256,9 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 	}
 	kids = append(kids, gap(20), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		d := u.buttonRow(gtx,
-			dialogButton{&t.start, "Start", th.Primary, th.OnPrimary},
-			dialogButton{&t.queue, "Queue", th.SurfaceSecondary, th.Fg},
-			dialogButton{&t.cancel, "Cancel", th.SurfaceSecondary, th.Fg})
+			dialogButton{&t.start, "Start", kit.Primary},
+			dialogButton{&t.queue, "Queue", kit.Secondary},
+			dialogButton{&t.cancel, "Cancel", kit.Secondary})
 		call, sz := textCall(gtx, th, th.UIFont, 12, th.Muted, "Ctrl+Enter starts")
 		o := op.Offset(image.Pt(0, (d.Size.Y-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)

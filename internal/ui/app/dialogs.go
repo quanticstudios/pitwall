@@ -25,6 +25,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -275,10 +276,10 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 	th := u.th
 	worktree := ws.WorktreeRoot != "" // the daemon removes only worktrees it made
 	verb, what := "Delete", "Stops its terminals and agents and removes it from pitwall."
-	okBg, okFg := th.Red, theme.Hex("#ffffff")
+	okKind := kit.Danger
 	if u.modal.archive {
 		verb, what = "Archive", "Its pull request merged. Archiving stops its terminals and agents and removes it from pitwall."
-		okBg, okFg = th.Primary, th.OnPrimary
+		okKind = kit.Primary
 	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -316,9 +317,9 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			ok := verb
 			if u.deleteForce(ws.ID) {
-				ok, okBg, okFg = verb+" anyway", th.Red, theme.Hex("#ffffff")
+				ok, okKind = verb+" anyway", kit.Danger
 			}
-			return u.buttons(gtx, "Cancel", ok, okBg, okFg)
+			return u.buttons(gtx, "Cancel", ok, okKind)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -366,7 +367,7 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 20}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", "Open", th.Primary, th.OnPrimary)
+			return u.buttons(gtx, "Cancel", "Open", kit.Primary)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -406,61 +407,35 @@ func (u *ui) field(gtx gl.Context, e *widget.Editor, f font.Font, h int, placeho
 	return gl.Dimensions{Size: rect.Size()}
 }
 
-// buttons is a dialog footer: an optional secondary button and the primary
-// one, right-aligned.
-func (u *ui) buttons(gtx gl.Context, cancel, ok string, okBg, okFg color.NRGBA) gl.Dimensions {
-	return u.buttonPair(gtx, &u.modal.cancel, &u.modal.ok, cancel, ok, okBg, okFg)
+// buttons is a dialog footer: an optional secondary button and the one
+// the dialog is for, of kind ok, right-aligned.
+func (u *ui) buttons(gtx gl.Context, cancel, ok string, kind kit.Kind) gl.Dimensions {
+	return u.buttonPair(gtx, &u.modal.cancel, &u.modal.ok, cancel, ok, kind)
 }
 
 // buttonPair is buttons with its own clickables.
-func (u *ui) buttonPair(gtx gl.Context, cancelC, okC *widget.Clickable, cancel, ok string, okBg, okFg color.NRGBA) gl.Dimensions {
-	bs := []dialogButton{{okC, ok, okBg, okFg}}
+func (u *ui) buttonPair(gtx gl.Context, cancelC, okC *widget.Clickable, cancel, ok string, kind kit.Kind) gl.Dimensions {
+	bs := []dialogButton{{okC, ok, kind}}
 	if cancel != "" {
-		bs = append(bs, dialogButton{cancelC, cancel, u.th.SurfaceSecondary, u.th.Fg})
+		bs = append(bs, dialogButton{cancelC, cancel, kit.Secondary})
 	}
 	return u.buttonRow(gtx, bs...)
 }
 
 // dialogButton is one button of a dialog footer.
 type dialogButton struct {
-	c      *widget.Clickable
-	text   string
-	bg, fg color.NRGBA
+	c    *widget.Clickable
+	text string
+	kind kit.Kind
 }
 
 // buttonRow draws bs right-aligned, the first rightmost.
 func (u *ui) buttonRow(gtx gl.Context, bs ...dialogButton) gl.Dimensions {
-	th := u.th
-	h := gtx.Dp(36)
-	w := gtx.Constraints.Max.X
-	x := w
-	draw := func(c *widget.Clickable, text string, bg, fg color.NRGBA) {
-		call, sz := textCall(gtx, th, medium(th.UIFont), 14, fg, text)
-		bw := sz.X + 2*gtx.Dp(16)
-		x -= bw
-		o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
-		g := gtx
-		g.Constraints = gl.Exact(image.Pt(bw, h))
-		c.Layout(g, func(gtx gl.Context) gl.Dimensions {
-			b := bg
-			if c.Hovered() {
-				b = theme.Mix(bg, th.Fg, 0.08)
-			}
-			rr := clip.UniformRRect(image.Rect(0, 0, bw, h), h/2)
-			paint.FillShape(gtx.Ops, b, rr.Op(gtx.Ops))
-			pointer.CursorPointer.Add(gtx.Ops)
-			t := op.Offset(image.Pt((bw-sz.X)/2, (h-sz.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			t.Pop()
-			return gl.Dimensions{Size: image.Pt(bw, h)}
-		})
-		o.Pop()
-		x -= gtx.Dp(8)
+	ws := make([]gl.Widget, len(bs))
+	for i, b := range bs {
+		ws[i] = func(gtx gl.Context) gl.Dimensions { return kit.Button(gtx, u.th, b.c, b.kind, kit.Large, b.text) }
 	}
-	for _, b := range bs {
-		draw(b.c, b.text, b.bg, b.fg)
-	}
-	return gl.Dimensions{Size: image.Pt(w, h)}
+	return kit.Row(gtx, theme.SpaceS, ws...)
 }
 
 // checkbox draws a 16px box and a label with a muted second line.
