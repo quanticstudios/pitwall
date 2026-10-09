@@ -86,10 +86,13 @@ func centered(gtx layout.Context, size image.Point, w layout.Widget) layout.Dime
 // item is one child of hrow. shrink marks the single child that takes the
 // leftover width and truncates (CSS min-w-0 truncate); right pushes it and
 // everything after it to the right edge (ml-auto); ml adds left margin.
+// opt drops the child, with its gap, when it does not fit beside the rest;
+// the later opt children are kept first.
 type item struct {
 	w      layout.Widget
 	shrink bool
 	right  bool
+	opt    bool
 	ml     int
 }
 
@@ -104,6 +107,7 @@ func hrowFit(gtx layout.Context, h, gap int, items ...item) layout.Dimensions {
 	maxW := gtx.Constraints.Max.X
 	calls := make([]op.CallOp, len(items))
 	dims := make([]layout.Dimensions, len(items))
+	drop := make([]bool, len(items))
 	measure := func(i, avail int) {
 		m := op.Record(gtx.Ops)
 		g := gtx
@@ -111,15 +115,32 @@ func hrowFit(gtx layout.Context, h, gap int, items ...item) layout.Dimensions {
 		dims[i] = items[i].w(g)
 		calls[i] = m.Stop()
 	}
-	used := 0
-	for i, it := range items {
-		used += it.ml
-		if i > 0 {
-			used += gap
+	used, kept := 0, 0
+	room := func(it item) int { // the gap and margin before it
+		if kept == 0 {
+			return it.ml
 		}
+		return gap + it.ml
+	}
+	for i, it := range items {
+		if it.opt {
+			continue
+		}
+		used += room(it)
+		kept++
 		if !it.shrink {
 			measure(i, maxW-used)
 			used += dims[i].Size.X
+		}
+	}
+	for i := len(items) - 1; i >= 0; i-- {
+		if it := items[i]; it.opt {
+			pre := room(it)
+			measure(i, maxW-used-pre)
+			if drop[i] = used+pre+dims[i].Size.X > maxW; !drop[i] {
+				used += pre + dims[i].Size.X
+				kept++
+			}
 		}
 	}
 	for i, it := range items {
@@ -128,11 +149,15 @@ func hrowFit(gtx layout.Context, h, gap int, items ...item) layout.Dimensions {
 			used += dims[i].Size.X
 		}
 	}
-	x := 0
+	x, first := 0, true
 	for i, it := range items {
-		if i > 0 {
+		if drop[i] {
+			continue
+		}
+		if !first {
 			x += gap
 		}
+		first = false
 		x += it.ml
 		if it.right {
 			x = max(x, maxW-(used-x))

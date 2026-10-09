@@ -347,3 +347,21 @@ func TestReviewBlocked(t *testing.T) {
 		}
 	}
 }
+
+// An opt item that does not fit drops out with its gap, the later ones
+// kept first, so a row's extras never run under what is drawn beside it.
+func TestHrowDropsOpt(t *testing.T) {
+	box := func(w int) layout.Widget {
+		return func(layout.Context) layout.Dimensions { return layout.Dimensions{Size: image.Pt(w, 10)} }
+	}
+	row := func(maxW int) int {
+		gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Constraints{Max: image.Pt(maxW, 10)}}
+		return hrowFit(gtx, 10, 10, item{shrink: true, w: box(0)}, item{opt: true, w: box(30)}, item{opt: true, w: box(40)}, item{w: box(20)}).Size.X
+	}
+	if got := row(100); got != 80 {
+		t.Errorf("width %d, want 80: the first opt dropped", got)
+	}
+	if got := row(200); got != 120 {
+		t.Errorf("width %d, want 120: all fit", got)
+	}
+}

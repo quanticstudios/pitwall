@@ -41,7 +41,7 @@ func radarMark(v *view, id string) []item {
 	if !ok {
 		return nil
 	}
-	return []item{{w: func(gtx layout.Context) layout.Dimensions {
+	return []item{{opt: true, w: func(gtx layout.Context) layout.Dimensions {
 		return drawIcon(gtx, icTriangleAlert, gtx.Dp(11), col, 0)
 	}}}
 }
