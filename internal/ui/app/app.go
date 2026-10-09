@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"fmt"
 	"image"
+	"image/color"
 	"log"
 	"path/filepath"
 	"strings"
@@ -210,6 +211,7 @@ type paneUI struct {
 	// The hooks notice: its buttons, and its area's pointer tag.
 	hooksInstall, hooksHide widget.Clickable
 	hooksBox                bool
+	border                  anim.Color // the frame's color, easing between focused and not
 	// Last, so a zero-size View never shares an address with focusClick.
 	view term.View
 }
@@ -908,18 +910,22 @@ func findPane(st *model.State, id string) *model.Pane {
 // paneChrome draws one rounded terminal surface per pane, as aide's canvas
 // does, with a blue border on the focused pane when there is more than one.
 // It returns the rect the terminal fills; the term view pads itself.
-func paneChrome(gtx gl.Context, th *theme.Theme, frame image.Rectangle, focused, sole bool) image.Rectangle {
+func paneChrome(gtx gl.Context, th *theme.Theme, frame image.Rectangle, border color.NRGBA, sole bool) image.Rectangle {
 	if sole {
 		paint.FillShape(gtx.Ops, th.TermBg, clip.Rect(frame).Op())
 		return frame
 	}
 	r := gtx.Dp(10)
-	border := theme.Mix(th.TermBg, th.TermFg, 0.08)
-	if focused {
-		border = theme.Mix(th.TermBg, th.Primary, 0.75)
-	}
 	paint.FillShape(gtx.Ops, border, clip.UniformRRect(frame, r).Op(gtx.Ops))
 	return frame.Inset(1)
+}
+
+// paneBorder is a split pane's frame color, focused or not.
+func paneBorder(th *theme.Theme, focused bool) color.NRGBA {
+	if focused {
+		return theme.Mix(th.TermBg, th.Primary, 0.75)
+	}
+	return theme.Mix(th.TermBg, th.TermFg, 0.08)
 }
 
 // roundedFor is the terminal's corner radius inside paneChrome's border.
@@ -964,7 +970,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	// Pane mode and the find bar take the pane's keys; the frame shows it
 	// still has focus.
 	lit := focused || finding || u.nav.paneMode && id == u.nav.focused()
-	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, lit, sole)
+	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, p.border.Get(gtx, paneBorder(u.th, lit), anim.Focus), sole)
 	var input []byte
 	cols, rows := g.Cols, g.Rows
 	if !grid.Empty() {
@@ -977,7 +983,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		o.Pop()
 	}
 	if att != nil {
-		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole)
+		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole, lit)
 	}
 	if finding {
 		u.drawFind(gtx, grid, findFocus)

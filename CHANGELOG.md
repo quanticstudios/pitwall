@@ -42,6 +42,10 @@ build. Either step takes `--dry-run`.
   instead of running off the window, and every menu, submenu, hover card
   and the group icon picker stays inside the window. Menus fade in over
   120ms.
+- The pane focus border crossfades over 120ms, a sidebar row's fill eases
+  over 80ms on hover and 160ms when its state changes, and a group's tabs
+  fade in as it opens. A focused pane that also wants attention keeps a
+  thin accent line inside the attention ring.
 
 ## v0.1.0-beta.3
 

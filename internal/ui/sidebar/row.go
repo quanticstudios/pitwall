@@ -57,8 +57,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	}
 	if ghost {
 		base = th.SurfaceSecondary
-	} else if base != th.Sidebar {
-		paint.FillShape(gtx.Ops, base, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+	} else {
+		base = r.fill(gtx, base, hovered)
+		if base != th.Sidebar {
+			paint.FillShape(gtx.Ops, base, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+		}
 	}
 	if animating {
 		shimmer(gtx, rect, rr, base, v.t(s))

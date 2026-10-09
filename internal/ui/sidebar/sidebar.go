@@ -5,6 +5,7 @@ package sidebar
 
 import (
 	"image"
+	"image/color"
 	"slices"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -74,11 +76,15 @@ type Sidebar struct {
 	rowAt  image.Point // the top left of the row or header being drawn, in the sidebar
 	// The open menu and its submenu's entrances: menuKey names the open
 	// menu, menuAt is when it opened, subAt when the submenu did.
-	menuKey  string
-	menuAt   time.Time
-	subAt    time.Time
-	footerAt image.Point // the footer's top left, in the sidebar
-	menuWS   string      // workspace whose overflow menu is open
+	menuKey string
+	menuAt  time.Time
+	subAt   time.Time
+	// A group's rows fade in when it opens: whether each group was open
+	// last frame, and when each one opened.
+	wasExpanded map[string]bool
+	expandAt    map[string]time.Time
+
+	menuWS   string // workspace whose overflow menu is open
 	menuItem [actCount]widget.Clickable
 	moveOpen bool                         // the "Move to group" flyout shows
 	moveBtn  map[string]*widget.Clickable // flyout entries by group id
@@ -177,6 +183,19 @@ type rowState struct {
 	allow, deny        widget.Clickable // a pending approval's answers
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	ctx                int              // tag for right- and middle-click
+	// bg eases the row's fill to each new one: anim.Hover when only the
+	// hover changed it, anim.State otherwise.
+	bg       anim.Color
+	wasHover bool
+}
+
+// fill is the row's fill on its way to target, which hovered is part of.
+func (r *rowState) fill(gtx layout.Context, target color.NRGBA, hovered bool) color.NRGBA {
+	dur := anim.State
+	if hovered != r.wasHover {
+		r.wasHover, dur = hovered, anim.Hover
+	}
+	return r.bg.Get(gtx, target, dur)
 }
 
 // Layout draws session's groups and tabs in st and returns events from this
