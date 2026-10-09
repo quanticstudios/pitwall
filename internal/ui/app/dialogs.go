@@ -283,22 +283,22 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, verb+" \""+tabTitle(*ws)+"\"?")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, verb+" \""+tabTitle(*ws)+"\"?")
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, what)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, what)
 		}),
 	}
 	if worktree {
 		kids = append(kids,
 			gl.Rigid(gl.Spacer{Height: 12}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.UIFont, 14, th.Fg, "Its worktree folder is removed:")
+				return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Fg, "Its worktree folder is removed:")
 			}),
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.MonoFont, 12, th.Muted, ws.Path)
+				return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Muted, ws.Path)
 			}),
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
 		)
@@ -329,11 +329,11 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	th, m := u.th, &u.modal
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Open folder as group")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Open folder as group")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Makes a group for the folder. A git repository also gets worktree tabs.")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "Makes a group for the folder. A git repository also gets worktree tabs.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -343,11 +343,11 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	}
 	if m.pathErr != "" {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 12, th.Red, m.pathErr)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Red, m.pathErr)
 		}))
 	} else {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 12, th.Muted, "Tab completes a folder name. Enter adds it.")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Tab completes a folder name. Enter adds it.")
 		}))
 	}
 	if len(m.matches) > 0 {
@@ -355,12 +355,12 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 		for i, name := range m.matches {
 			if i == 6 {
 				kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-					return para(gtx, th, th.UIFont, 12, th.Muted, "and more")
+					return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "and more")
 				}))
 				break
 			}
 			kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.MonoFont, 12, theme.Mix(th.Surface, th.Fg, 0.8), name+"/")
+				return para(gtx, th, th.MonoFont, th.Sp(theme.Small), theme.Mix(th.Surface, th.Fg, 0.8), name+"/")
 			}))
 		}
 	}
@@ -396,12 +396,12 @@ func (u *ui) field(gtx gl.Context, e *widget.Editor, f font.Font, h int, placeho
 	o := op.Offset(pad).Push(gtx.Ops)
 	if e.Len() == 0 && placeholder != "" {
 		dir.Layout(eg, func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 13, th.Muted, placeholder)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, placeholder)
 		})
 	}
 	dir.Layout(eg, func(gtx gl.Context) gl.Dimensions {
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-		return e.Layout(gtx, th.Shaper, f, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
+		return e.Layout(gtx, th.Shaper, f, th.Sp(theme.Body), colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
 	})
 	o.Pop()
 	return gl.Dimensions{Size: rect.Size()}
@@ -463,10 +463,10 @@ func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note s
 		g := gtx
 		g.Constraints = gl.Constraints{Max: image.Pt(gtx.Constraints.Max.X-x, gtx.Constraints.Max.Y)}
 		o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
-		d1 := para(g, th, th.UIFont, 14, th.Fg, text)
+		d1 := para(g, th, th.UIFont, th.Sp(theme.Large), th.Fg, text)
 		o.Pop()
 		o = op.Offset(image.Pt(x, d1.Size.Y+gtx.Dp(2))).Push(gtx.Ops)
-		d2 := para(g, th, th.UIFont, 12, th.Muted, note)
+		d2 := para(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
 		o.Pop()
 		size := image.Pt(gtx.Constraints.Max.X, d1.Size.Y+gtx.Dp(2)+d2.Size.Y)
 		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
@@ -479,7 +479,7 @@ func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note s
 // border-token ring, 12px body text.
 func keycap(gtx gl.Context, th *theme.Theme, s string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
-	call, ts := textCall(gtx, th, th.UIFont, 12, theme.Mix(th.Muted, th.Fg, 0.54), s)
+	call, ts := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(th.Muted, th.Fg, 0.54), s)
 	h := gtx.Dp(20)
 	sz := image.Pt(max(ts.X+2*gtx.Dp(6), h), h)
 	r := gtx.Dp(4)

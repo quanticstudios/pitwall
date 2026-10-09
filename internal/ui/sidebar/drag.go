@@ -625,7 +625,7 @@ func (s *Sidebar) badgeCount(v *view) int {
 // badge is a primary count pill at the lifted row's top right corner.
 func (s *Sidebar) badge(gtx layout.Context, th *theme.Theme, n, w int) {
 	m := op.Record(gtx.Ops)
-	d := label(gtx, th, semibold(th.UIFont), 11, th.OnPrimary, fmt.Sprint(n))
+	d := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.OnPrimary, fmt.Sprint(n))
 	call := m.Stop()
 	h := gtx.Dp(18)
 	bw := max(h, d.Size.X+gtx.Dp(10))

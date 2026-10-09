@@ -144,11 +144,11 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	// Header: the title and the count, the switcher's key on the right.
 	y := pad
 	title := "Sessions"
-	tc, tsz := textCall(gtx, th, semibold(th.UIFont), 15, th.Fg, title)
+	tc, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, title)
 	o := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
 	tc.Add(gtx.Ops)
 	o.Pop()
-	cc, _ := textCall(gtx, th, th.UIFont, 13, th.Muted, fmt.Sprint(len(st.Sessions)))
+	cc, _ := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, fmt.Sprint(len(st.Sessions)))
 	o = op.Offset(image.Pt(pad+tsz.X+gtx.Dp(8), y+gtx.Dp(2))).Push(gtx.Ops)
 	cc.Add(gtx.Ops)
 	o.Pop()
@@ -213,7 +213,7 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 		u.highlight(gtx, hl, true)
 	}
 	if len(rows) == 0 && s.mode != modeNew {
-		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, 13, th.Muted, "No session matches \""+s.filter+"\".")
+		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, th.Sp(theme.Body), th.Muted, "No session matches \""+s.filter+"\".")
 	}
 	lc.Pop()
 
@@ -308,12 +308,12 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 	} else {
 		ng := gtx
 		ng.Constraints.Max.X = max(0, nameMax)
-		nc, nsz := textCall(ng, th, semibold(th.UIFont), 14, th.Fg, x.Name)
+		nc, nsz := textCall(ng, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, x.Name)
 		o := op.Offset(image.Pt(nx, l1)).Push(gtx.Ops)
 		nc.Add(gtx.Ops)
 		o.Pop()
 		if x.ID == u.nav.session && nameMax-nsz.X > gtx.Dp(60) {
-			tag, tsz := textCall(gtx, th, semibold(th.UIFont), 10.5, th.Primary, "current")
+			tag, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Primary, "current")
 			tp := image.Pt(gtx.Dp(5), gtx.Dp(1))
 			box := image.Rectangle{Max: tsz.Add(tp.Mul(2))}
 			o := op.Offset(image.Pt(nx+nsz.X+gtx.Dp(8), l1+(nsz.Y-box.Dy())/2)).Push(gtx.Ops)
@@ -344,19 +344,19 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 		}
 		mg := gtx
 		mg.Constraints.Max.X = max(0, bx-nx-gtx.Dp(6))
-		mc, _ := textCall(mg, th, th.UIFont, 12, th.Red, msg)
+		mc, _ := textCall(mg, th, th.UIFont, th.Sp(theme.Small), th.Red, msg)
 		o := op.Offset(image.Pt(nx, l2)).Push(gtx.Ops)
 		mc.Add(gtx.Ops)
 		o.Pop()
 	case renaming && s.err != "":
-		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, 12, th.Red, s.err)
+		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, th.Sp(theme.Small), th.Red, s.err)
 	case renaming:
-		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, 12, th.Muted, "Enter renames · Esc cancels")
+		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, th.Sp(theme.Small), th.Muted, "Enter renames · Esc cancels")
 	default:
 		lx := nx
 		part := func(c color.NRGBA, dot bool, txt string) {
 			if lx > nx {
-				sc, ssz := textCall(gtx, th, th.UIFont, 12, theme.Mix(base, th.Muted, 0.6), "·")
+				sc, ssz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(base, th.Muted, 0.6), "·")
 				o := op.Offset(image.Pt(lx+gtx.Dp(5), l2)).Push(gtx.Ops)
 				sc.Add(gtx.Ops)
 				o.Pop()
@@ -367,7 +367,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 				paint.FillShape(gtx.Ops, c, clip.Ellipse{Min: image.Pt(lx, l2+gtx.Dp(6)), Max: image.Pt(lx+dd, l2+gtx.Dp(6)+dd)}.Op(gtx.Ops))
 				lx += dd + gtx.Dp(5)
 			}
-			tc, tsz := textCall(gtx, th, th.UIFont, 12, c, txt)
+			tc, tsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), c, txt)
 			o := op.Offset(image.Pt(lx, l2)).Push(gtx.Ops)
 			tc.Add(gtx.Ops)
 			o.Pop()
@@ -385,7 +385,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 			part(c, true, fmt.Sprintf("%d need%s you", sum.NeedsYou, map[bool]string{true: "s"}[sum.NeedsYou == 1]))
 		}
 		if rt := sidebar.RelTime(gtx.Now, sum.Active); rt != "" && right-lx > gtx.Dp(70) {
-			rc, rsz := textCall(gtx, th, th.UIFont, 11.5, theme.Mix(base, th.Muted, 0.55), rt)
+			rc, rsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(base, th.Muted, 0.55), rt)
 			o := op.Offset(image.Pt(right-rsz.X, l2+gtx.Dp(1))).Push(gtx.Ops)
 			rc.Add(gtx.Ops)
 			o.Pop()
@@ -432,9 +432,9 @@ func (u *ui) newRow(gtx gl.Context, size image.Point) {
 	nx := px + gtx.Dp(20) + gtx.Dp(12)
 	u.nameField(gtx, image.Rect(nx-gtx.Dp(6), gtx.Dp(6), size.X-px, gtx.Dp(32)))
 	if s.err != "" {
-		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, 12, th.Red, s.err)
+		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, th.Sp(theme.Small), th.Red, s.err)
 	} else {
-		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, 12, th.Muted, "Enter makes it and switches · Esc cancels")
+		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, th.Sp(theme.Small), th.Muted, "Enter makes it and switches · Esc cancels")
 	}
 }
 
@@ -445,7 +445,7 @@ func (u *ui) nameField(gtx gl.Context, rect image.Rectangle) {
 	rr := gtx.Dp(6)
 	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Primary, 0.6), clip.UniformRRect(rect, rr).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), rr-1).Op(gtx.Ops))
-	call, sz := textCall(gtx, th, semibold(th.UIFont), 14, th.Fg, s.field)
+	call, sz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, s.field)
 	x, y := rect.Min.X+gtx.Dp(6), rect.Min.Y+(rect.Dy()-sz.Y)/2
 	if s.fresh && s.field != "" {
 		sel := image.Rect(x-gtx.Dp(2), y, x+sz.X+gtx.Dp(2), y+sz.Y)
@@ -464,7 +464,7 @@ func (u *ui) nameField(gtx gl.Context, rect image.Rectangle) {
 func (u *ui) newButton(gtx gl.Context) {
 	th, d := u.th, &u.sw.draw
 	h := gtx.Dp(34)
-	label, lsz := textCall(gtx, th, medium(th.UIFont), 13, th.Muted, "New session")
+	label, lsz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Muted, "New session")
 	kc, ks := keycap(gtx, th, "N")
 	w := gtx.Dp(12) + gtx.Dp(14) + gtx.Dp(8) + lsz.X + gtx.Dp(10) + ks.X + gtx.Dp(10)
 	g := gtx
@@ -482,7 +482,7 @@ func (u *ui) newButton(gtx gl.Context) {
 		o.Pop()
 		x += gtx.Dp(14) + gtx.Dp(8)
 		if col != th.Muted {
-			label, _ = textCall(gtx, th, medium(th.UIFont), 13, col, "New session")
+			label, _ = textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), col, "New session")
 		}
 		o = op.Offset(image.Pt(x, (h-lsz.Y)/2)).Push(gtx.Ops)
 		label.Add(gtx.Ops)

@@ -274,18 +274,20 @@ func (u *ui) newWorktreeBody(gtx gl.Context, st *model.State) gl.Dimensions {
 	}
 	text := func(c gl.Widget) gl.FlexChild { return gl.Rigid(c) }
 	label := func(s string) gl.FlexChild {
-		return text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, medium(th.UIFont), 13, th.Fg, s) })
+		return text(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Fg, s)
+		})
 	}
 	note := func(s string) gl.FlexChild {
-		return text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 12, th.Muted, s) })
+		return text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, s) })
 	}
 	kids := []gl.FlexChild{
 		text(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "New worktree tab in "+group)
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "New worktree tab in "+group)
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		text(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "The tab gets its own folder under .worktrees, checked out from:")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "The tab gets its own folder under .worktrees, checked out from:")
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		text(func(gtx gl.Context) gl.Dimensions { return u.kindTabs(gtx, r.GitHub) }),
@@ -311,9 +313,9 @@ func (u *ui) newWorktreeBody(gtx gl.Context, st *model.State) gl.Dimensions {
 		gl.Rigid(gl.Spacer{Height: 4}.Layout))
 	switch {
 	case f.err != "":
-		kids = append(kids, text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 12, th.Red, f.err) }))
+		kids = append(kids, text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Red, f.err) }))
 	case have && r.Err != "":
-		kids = append(kids, text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 12, th.Red, r.Err) }))
+		kids = append(kids, text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Red, r.Err) }))
 	case !have && f.kind != model.FromPR:
 		kids = append(kids, note("Reading the branches…"))
 	default:
@@ -353,7 +355,7 @@ func (u *ui) pickRow(gtx gl.Context, c *widget.Clickable, name string) gl.Dimens
 		if c.Hovered() {
 			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.06), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Op(gtx.Ops))
 		}
-		call, sz := textCall(gtx, th, th.MonoFont, 12, theme.Mix(th.Surface, th.Fg, 0.8), name)
+		call, sz := textCall(gtx, th, th.MonoFont, th.Sp(theme.Small), theme.Mix(th.Surface, th.Fg, 0.8), name)
 		o := op.Offset(image.Pt(gtx.Dp(8), (h-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
@@ -382,7 +384,7 @@ func (u *ui) deleteChanges(ws string) []gl.FlexChild {
 		if c == "warn" {
 			col = th.Yellow
 		}
-		return gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 12, col, s) })
+		return gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), col, s) })
 	}
 	if !u.canWorktree() {
 		return []gl.FlexChild{note("", "Git refuses if it has uncommitted files.")}
@@ -403,7 +405,7 @@ func (u *ui) deleteChanges(ws string) []gl.FlexChild {
 			break
 		}
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.MonoFont, 12, theme.Mix(th.Surface, th.Fg, 0.8), p)
+			return para(gtx, th, th.MonoFont, th.Sp(theme.Small), theme.Mix(th.Surface, th.Fg, 0.8), p)
 		}))
 	}
 	return kids
@@ -430,12 +432,12 @@ func (u *ui) cleanupBody(gtx gl.Context, st *model.State) gl.Dimensions {
 	text := func(c gl.Widget) gl.FlexChild { return gl.Rigid(c) }
 	kids := []gl.FlexChild{
 		text(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Clean up worktrees")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Clean up worktrees")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 	}
 	muted := func(s string) gl.FlexChild {
-		return text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 14, th.Muted, s) })
+		return text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, s) })
 	}
 	switch {
 	case !have:
@@ -447,7 +449,7 @@ func (u *ui) cleanupBody(gtx gl.Context, st *model.State) gl.Dimensions {
 	}
 	if have && r.Err != "" {
 		kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout),
-			text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 12, th.Red, r.Err) }))
+			text(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Red, r.Err) }))
 	}
 	for len(f.open) < len(r.Orphans) {
 		f.open, f.del = append(f.open, widget.Clickable{}), append(f.del, widget.Clickable{})
@@ -485,14 +487,14 @@ func (u *ui) cleanupBody(gtx gl.Context, st *model.State) gl.Dimensions {
 			tg := gtx
 			tg.Constraints = gl.Constraints{Max: image.Pt(max(0, gtx.Constraints.Max.X-gtx.Dp(196)), gtx.Constraints.Max.Y)}
 			rows := []gl.FlexChild{gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, medium(th.UIFont), 14, th.Fg, filepath.Base(o.Path))
+				return para(gtx, th, medium(th.UIFont), th.Sp(theme.Large), th.Fg, filepath.Base(o.Path))
 			})}
 			for j, l := range lines {
 				col := th.Muted
 				if o.Dirty && j == len(lines)-1 {
 					col = th.Yellow
 				}
-				rows = append(rows, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 12, col, l) }))
+				rows = append(rows, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), col, l) }))
 			}
 			d := gl.Flex{Axis: gl.Vertical}.Layout(tg, rows...)
 			b := u.buttonPair(gtx, &f.open[i], &f.del[i], "Open", del, kit.Danger)

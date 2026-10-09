@@ -137,7 +137,7 @@ func (u *ui) filterField(gtx gl.Context, rect image.Rectangle, text, hint, count
 	if text == "" {
 		shown, col = hint, theme.Mix(th.SurfaceSecondary, th.Muted, 0.75)
 	}
-	call, sz := textCall(gtx, th, th.UIFont, 13, col, shown)
+	call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), col, shown)
 	ty := rect.Min.Y + (rect.Dy()-sz.Y)/2
 	o := op.Offset(image.Pt(x, ty)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
@@ -151,7 +151,7 @@ func (u *ui) filterField(gtx gl.Context, rect image.Rectangle, text, hint, count
 	}
 	u.caret(gtx, image.Rect(cx, ty+gtx.Dp(1), cx+gtx.Dp(2), ty+sz.Y-gtx.Dp(1)), since)
 	if text != "" && count != "" {
-		c, csz := textCall(gtx, th, th.UIFont, 12, th.Muted, count)
+		c, csz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, count)
 		o := op.Offset(image.Pt(rect.Max.X-gtx.Dp(12)-csz.X, rect.Min.Y+(rect.Dy()-csz.Y)/2)).Push(gtx.Ops)
 		c.Add(gtx.Ops)
 		o.Pop()
@@ -179,7 +179,7 @@ func (u *ui) drawHints(gtx gl.Context, h int, hints [][2]string) {
 		kc.Add(gtx.Ops)
 		o.Pop()
 		x += ks.X + gtx.Dp(6)
-		tc, tsz := textCall(gtx, th, th.UIFont, 12, th.Muted, k[1])
+		tc, tsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, k[1])
 		o = op.Offset(image.Pt(x, (h-tsz.Y)/2)).Push(gtx.Ops)
 		tc.Add(gtx.Ops)
 		o.Pop()

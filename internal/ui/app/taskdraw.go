@@ -180,13 +180,17 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 		return gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, size, col, s) })
 	}
 	label := func(s string) gl.FlexChild {
-		return gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, medium(th.UIFont), 12, th.Muted, s) })
+		return gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, s)
+		})
 	}
 	chips := func(cs []widget.Clickable, names []string, on int) gl.FlexChild {
 		return gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.chips(gtx, cs, names, on) })
 	}
 	kids := []gl.FlexChild{
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "New task") }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "New task")
+		}),
 		gap(6),
 		text(14, th.Muted, "Starts an agent on your prompt in a tab of its own, now or when a running agent finishes."),
 		gap(16), label("Project"), gap(6),
@@ -208,10 +212,10 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 			// Name and base side by side, each under its label.
 			w := gtx.Constraints.Max.X
 			half := (w - gtx.Dp(8)) / 2
-			lc, ls := textCall(gtx, th, medium(th.UIFont), 12, th.Muted, "New branch")
+			lc, ls := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, "New branch")
 			lc.Add(gtx.Ops)
 			o := op.Offset(image.Pt(w-half, 0)).Push(gtx.Ops)
-			bc, _ := textCall(gtx, th, medium(th.UIFont), 12, th.Muted, "Off branch")
+			bc, _ := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, "Off branch")
 			bc.Add(gtx.Ops)
 			o.Pop()
 			top := ls.Y + gtx.Dp(6)
@@ -259,7 +263,7 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 			dialogButton{&t.start, "Start", kit.Primary},
 			dialogButton{&t.queue, "Queue", kit.Secondary},
 			dialogButton{&t.cancel, "Cancel", kit.Secondary})
-		call, sz := textCall(gtx, th, th.UIFont, 12, th.Muted, "Ctrl+Enter starts")
+		call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Ctrl+Enter starts")
 		o := op.Offset(image.Pt(0, (d.Size.Y-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
@@ -281,7 +285,7 @@ func (u *ui) chips(gtx gl.Context, cs []widget.Clickable, names []string, on int
 		if picked {
 			col = th.Fg
 		}
-		call, sz := textCall(gtx, th, medium(th.UIFont), 13, col, n)
+		call, sz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), col, n)
 		bw := min(sz.X+2*gtx.Dp(12), w)
 		if x > 0 && x+bw > w {
 			x, y = 0, y+h+gap

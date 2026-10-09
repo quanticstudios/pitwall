@@ -164,11 +164,13 @@ func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickab
 		defer op.Offset(image.Pt(gtx.Dp(8), 0)).Push(gtx.Ops).Pop()
 		items := []item{
 			{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icon, gtx.Dp(14), iconCol, 0) }},
-			{shrink: true, w: func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 13, col, text) }},
+			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Body), col, text)
+			}},
 		}
 		if hint != "" {
 			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), 12, th.Muted, hint)
+				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, hint)
 			}})
 		}
 		hrow(gtx, size.Y, gtx.Dp(8), items...)
@@ -259,7 +261,7 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 		g := gtx
 		g.Constraints = layout.Exact(image.Pt(inner, labelH))
 		hrow(g, labelH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, medium(th.UIFont), 11, th.Muted, text)
+			return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), th.Muted, text)
 		}})
 		off.Pop()
 	}

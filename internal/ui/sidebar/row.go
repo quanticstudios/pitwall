@@ -103,7 +103,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				if s.renaming == ws.ID && !ghost {
 					return s.renameField(gtx, th)
 				}
-				return label(gtx, th, semibold(th.UIFont), 13, nameCol, title)
+				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), nameCol, title)
 			}},
 		}
 		if unseen != nil {
@@ -132,7 +132,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		var line []item
 		if !answering { // Allow and Deny leave it a few letters at most
 			line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.MonoFont, 11, muted, where)
+				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})
 		}
 		// The stats, the PR chip and the radar mark give way, in that order,
@@ -141,10 +141,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
 				return hrowFit(gtx, l2, gtx.Dp(4),
 					item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), 10, th.Green, fmt.Sprintf("+%d", stats.Additions))
+						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Green, fmt.Sprintf("+%d", stats.Additions))
 					}},
 					item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), 10, th.Red, fmt.Sprintf("-%d", stats.Deletions))
+						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Red, fmt.Sprintf("-%d", stats.Deletions))
 					}},
 				)
 			}})
@@ -173,16 +173,16 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		case inRepo && merged:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, 11, th.Purple, "Merged")
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Purple, "Merged")
 			}})
 		case inRepo && hasStats && stats.MergeStatus == model.MergeConflicts:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, 11, th.Red, "Merge conflicts")
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Red, "Merge conflicts")
 			}})
 		default:
 			if rt := relTime(v.now, ws.UpdatedAt); rt != "" {
 				line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.UIFont, 11, quiet, rt)
+					return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, rt)
 				}})
 			}
 		}
@@ -311,7 +311,7 @@ func gotoDigit(gtx layout.Context, th *theme.Theme, digit string, isActive bool,
 	off := op.Offset(image.Pt((sz-d)/2, (sz-d)/2)).Push(gtx.Ops)
 	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rect(0, 0, d, d), gtx.Dp(4)).Op(gtx.Ops))
 	centered(gtx, image.Pt(d, d), func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), 10, col, digit)
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), col, digit)
 	})
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(sz, sz)}
@@ -341,7 +341,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		}})
 	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), 10, col, PillText(a, v.st.Decide.Provider))
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), col, PillText(a, v.st.Decide.Provider))
 	}})
 	d := hrowFit(gtx, h, gtx.Dp(4), items...)
 	off.Pop()
@@ -375,7 +375,7 @@ func (s *Sidebar) renameField(gtx layout.Context, th *theme.Theme) layout.Dimens
 	off := op.Offset(image.Pt(gtx.Dp(4), 0)).Push(gtx.Ops)
 	centered(gtx, image.Pt(w-gtx.Dp(8), h), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return s.editor.Layout(gtx, th.Shaper, semibold(th.UIFont), 13, material(gtx, th.Fg), material(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
+		return s.editor.Layout(gtx, th.Shaper, semibold(th.UIFont), th.Sp(theme.Body), material(gtx, th.Fg), material(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
 	})
 	off.Pop()
 	return layout.Dimensions{Size: rect.Size()}

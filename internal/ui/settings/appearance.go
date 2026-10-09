@@ -67,7 +67,7 @@ func (p *Page) themeCard(gtx gl.Context, t config.NamedTheme, w int, hover bool)
 	m := op.Record(gtx.Ops)
 	g := gtx
 	g.Constraints.Max.X = tw
-	name := p.text(g, weight(th.UIFont, font.Medium), p.sp(13), th.Fg, t.Name)
+	name := p.text(g, weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), th.Fg, t.Name)
 	call := m.Stop()
 	h := pad + thH + gtx.Dp(8) + name.Size.Y + pad
 	sz := image.Pt(w, h)
@@ -91,7 +91,7 @@ func (p *Page) themeCard(gtx gl.Context, t config.NamedTheme, w int, hover bool)
 	o.Pop()
 	if t.Custom {
 		m := op.Record(gtx.Ops)
-		d := p.text(gtx, th.UIFont, p.sp(12), th.Muted, "custom")
+		d := p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, "custom")
 		c := m.Stop()
 		o := op.Offset(image.Pt(w-pad-d.Size.X, pad+thH+gtx.Dp(8))).Push(gtx.Ops)
 		c.Add(gtx.Ops)
@@ -178,7 +178,7 @@ func (p *Page) fontPicker(k, cur, def string) gl.Widget {
 					g := gtx
 					g.Constraints.Max.X = w - gtx.Dp(40)
 					m := op.Record(gtx.Ops)
-					td := p.text(g, th.UIFont, p.sp(13), th.Fg, cur)
+					td := p.text(g, th.UIFont, p.th.Sp(theme.Body), th.Fg, cur)
 					call := m.Stop()
 					o := op.Offset(image.Pt(gtx.Dp(10), (h-td.Size.Y)/2)).Push(gtx.Ops)
 					call.Add(gtx.Ops)
@@ -298,11 +298,11 @@ func (p *Page) popover(gtx gl.Context, k, cur, def string, w, top int) {
 	case fams == nil:
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(150 * time.Millisecond)})
 		gl.Center.Layout(lg, func(gtx gl.Context) gl.Dimensions {
-			return p.text(gtx, th.UIFont, p.sp(12), th.Muted, "Reading installed fonts…")
+			return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, "Reading installed fonts…")
 		})
 	case len(shown) == 0:
 		gl.Center.Layout(lg, func(gtx gl.Context) gl.Dimensions {
-			return p.text(gtx, th.UIFont, p.sp(12), th.Muted, "No installed font matches")
+			return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, "No installed font matches")
 		})
 	default:
 		p.ddList.Axis = gl.Vertical
@@ -317,7 +317,7 @@ func (p *Page) popover(gtx gl.Context, k, cur, def string, w, top int) {
 				g := gtx
 				g.Constraints.Max.X = sz.X - gtx.Dp(36)
 				mm := op.Record(gtx.Ops)
-				d := p.text(g, th.UIFont, p.sp(13), th.Fg, f)
+				d := p.text(g, th.UIFont, p.th.Sp(theme.Body), th.Fg, f)
 				call := mm.Stop()
 				oo := op.Offset(image.Pt(gtx.Dp(8), (itemH-d.Size.Y)/2)).Push(gtx.Ops)
 				call.Add(gtx.Ops)

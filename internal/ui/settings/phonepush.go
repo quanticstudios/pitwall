@@ -9,6 +9,8 @@ import (
 	"gioui.org/op"
 
 	"github.com/quanticstudios/pitwall/internal/remote"
+
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // pushTest is the Phone page's Send test: one at a time, its result
@@ -51,7 +53,9 @@ func (p *Page) pushRow(d remote.Device, btn func(id, label string, kind btnKind,
 	r := row{label: "Push notifications", extra: "push notification notify alert test " + d.Name}
 	if !remote.Subscribed(p.phoneDir(), d.ID) {
 		r.desc = "Off for " + d.Name + ". To turn them on, open the page on the phone and tap Turn on. On an iPhone, first add the page to the Home Screen and open it from there."
-		r.control = func(gtx gl.Context) gl.Dimensions { return p.para(gtx, th.UIFont, p.sp(13), th.Muted, "Off") }
+		r.control = func(gtx gl.Context) gl.Dimensions {
+			return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, "Off")
+		}
 		return r
 	}
 	r.desc = "On for " + d.Name + ": approvals, questions, errors and finished turns you have not seen reach it, even with every window closed."
@@ -73,7 +77,7 @@ func (p *Page) pushRow(d remote.Device, btn func(id, label string, kind btnKind,
 		case ok:
 			col = th.Green
 		}
-		return p.para(gtx, th.UIFont, p.sp(12), col, text)
+		return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), col, text)
 	}
 	return r
 }

@@ -29,6 +29,10 @@ build. Either step takes `--dry-run`.
 - `[appearance] reduce_motion`, also a switch under Settings, Appearance,
   shows dialogs, menus, hover and focus changes at once instead of easing
   them in.
+- The interface text size in Settings now scales the sidebar, menus,
+  hover cards, the command palette, the side panel and dialogs too, on one
+  scale of five sizes. The smallest labels, such as status chips and diff
+  counts, are 11px instead of 10px.
 
 ## v0.1.0-beta.3
 

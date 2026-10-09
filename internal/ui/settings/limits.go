@@ -50,7 +50,7 @@ func (p *Page) limits() section {
 	if !seen[model.ProviderCodex] {
 		rows = append(rows, row{label: "Codex", desc: "Codex logs its limits in its session files. None of the last 8 days has them.",
 			extra: "limits plan rate", control: func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, th.UIFont, p.sp(13), th.Muted, "Not seen")
+				return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, "Not seen")
 			}})
 	}
 	rows = append(rows, row{label: "Show in sidebar", desc: "The fullest window of each agent at the bottom of the sidebar, yellow from 80% and red from 95%.",
@@ -78,12 +78,12 @@ func (p *Page) window(gtx gl.Context, l flow.Limit, w flow.Window, now time.Time
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return gl.Flex{Alignment: gl.Baseline}.Layout(gtx,
 				gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
-					d := p.text(gtx, th.UIFont, p.sp(13), th.Fg, capital(sidebar.WindowName(w.Minutes))+" window")
+					d := p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Fg, capital(sidebar.WindowName(w.Minutes))+" window")
 					d.Size.X = gtx.Constraints.Max.X // pushes the percentage to the right
 					return d
 				}),
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-					return p.text(gtx, weight(th.UIFont, font.Medium), p.sp(13), col, fmt.Sprintf("%.0f%%", cur.Used))
+					return p.text(gtx, weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), col, fmt.Sprintf("%.0f%%", cur.Used))
 				}),
 			)
 		}),
@@ -98,7 +98,7 @@ func (p *Page) window(gtx gl.Context, l flow.Limit, w flow.Window, now time.Time
 		}),
 		gl.Rigid(gl.Spacer{Height: 6}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return p.para(gtx, th.UIFont, p.sp(12), th.Muted, windowNote(w, l.Seen, now))
+			return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, windowNote(w, l.Seen, now))
 		}),
 	)
 }

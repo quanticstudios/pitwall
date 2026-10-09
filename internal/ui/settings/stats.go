@@ -143,7 +143,7 @@ func (p *Page) stats() []section {
 				gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
 					if note != "" {
 						d := gl.Inset{Top: 4}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-							return p.para(gtx, th.UIFont, p.sp(14), th.Muted, note)
+							return p.para(gtx, th.UIFont, p.th.Sp(theme.Large), th.Muted, note)
 						})
 						d.Size.X = gtx.Constraints.Max.X // keeps the window picker on the right
 						return d
@@ -159,7 +159,7 @@ func (p *Page) stats() []section {
 		}))
 		if err != "" {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return p.para(gtx, th.UIFont, p.sp(12), th.Red, err)
+				return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Red, err)
 			}))
 		}
 		if note == "" {
@@ -273,7 +273,7 @@ func (p *Page) verdict(gtx gl.Context, s *decisionlog.Stats) gl.Dimensions {
 		}),
 		gl.Rigid(gl.Spacer{Height: 6}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return p.para(gtx, th.UIFont, p.sp(13), th.Muted, sub)
+			return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, sub)
 		}),
 	)
 }
@@ -324,13 +324,17 @@ func (p *Page) tiles(gtx gl.Context, s *decisionlog.Stats) gl.Dimensions {
 		d := p.panel(g, func(gtx gl.Context) gl.Dimensions {
 			th := p.th
 			return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
-				gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.text(gtx, th.UIFont, p.sp(12), th.Muted, t.label) }),
+				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+					return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, t.label)
+				}),
 				gl.Rigid(gl.Spacer{Height: 6}.Layout),
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 					return p.text(gtx, weight(th.UIFont, font.SemiBold), p.sp(22), th.Fg, t.value)
 				}),
 				gl.Rigid(gl.Spacer{Height: 2}.Layout),
-				gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.text(gtx, th.UIFont, p.sp(12), th.Muted, t.sub) }),
+				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+					return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, t.sub)
+				}),
 			)
 		})
 		o.Pop()
@@ -372,7 +376,9 @@ func (p *Page) approvalsPanel(gtx gl.Context, a decisionlog.Approvals) gl.Dimens
 			return p.table(gtx, []string{"", "Suggestion shown", "Held out"}, rows)
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.para(gtx, th.UIFont, p.sp(12), th.Muted, note) }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, note)
+		}),
 	)
 }
 
@@ -396,10 +402,10 @@ func (p *Page) table(gtx gl.Context, head []string, rows [][]string) gl.Dimensio
 			paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(1, y), Max: image.Pt(w-1, y+1)}.Op())
 		}
 		for j, cell := range cells {
-			col, size, f := th.Fg, p.sp(13), th.UIFont
+			col, size, f := th.Fg, p.th.Sp(theme.Body), th.UIFont
 			switch {
 			case head != nil && i == 0:
-				col, size, f = th.Muted, p.sp(12), weight(f, font.Medium)
+				col, size, f = th.Muted, p.th.Sp(theme.Small), weight(f, font.Medium)
 			case j == 0:
 				col = th.Muted
 			}
@@ -430,7 +436,7 @@ func (p *Page) dayChart(gtx gl.Context, days []decisionlog.Day) gl.Dimensions {
 		w := gtx.Constraints.Max.X
 		label := func(d decisionlog.Day) gl.Widget {
 			return func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, th.UIFont, p.sp(11), th.Muted, d.Date.Format("Jan 2"))
+				return p.text(gtx, th.UIFont, p.th.Sp(theme.Caption), th.Muted, d.Date.Format("Jan 2"))
 			}
 		}
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx,

@@ -110,7 +110,7 @@ func (d *drawer) usageLine(gtx layout.Context) layout.Dimensions {
 			parts = append(parts, part{w: d.meter(f)})
 		}
 		parts = append(parts, part{gap: gapIf(len(parts) > 0, gtx.Dp(8)), flex: true,
-			w: d.text(d.th.UIFont, 11, d.c.muted, headerText(*u, d.in.ShowCost), 1)})
+			w: d.text(d.th.UIFont, d.th.Sp(theme.Caption), d.c.muted, headerText(*u, d.in.ShowCost), 1)})
 		return row(gtx, parts...)
 	})
 }
@@ -120,7 +120,7 @@ func (d *drawer) usageLine(gtx layout.Context) layout.Dimensions {
 func (d *drawer) meter(f float64) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		w, h := gtx.Dp(36), gtx.Dp(4)
-		lh := gtx.Sp(11 * 1.4)
+		lh := gtx.Sp(d.th.Sp(theme.Caption) * 1.4)
 		y := (lh - h) / 2
 		col := d.c.blue
 		switch {

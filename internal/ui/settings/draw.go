@@ -87,7 +87,7 @@ func (p *Page) keycap(gtx gl.Context, s string, hot, hover bool) gl.Dimensions {
 		fg = th.Fg
 	}
 	m := op.Record(gtx.Ops)
-	td := p.text(gtx, th.UIFont, p.sp(12), fg, s)
+	td := p.text(gtx, th.UIFont, p.th.Sp(theme.Small), fg, s)
 	call := m.Stop()
 	h := gtx.Dp(22)
 	sz := image.Pt(max(td.Size.X+2*gtx.Dp(7), h), h)

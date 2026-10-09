@@ -76,10 +76,10 @@ func (s *Sidebar) drawQueue(gtx layout.Context, th *theme.Theme, b queueBlock) {
 	g.Constraints = layout.Exact(image.Pt(w-2*pad, head))
 	hrow(g, head, gtx.Dp(6),
 		item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, medium(th.UIFont), 11, quiet, "Queued")
+			return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), quiet, "Queued")
 		}},
 		item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, medium(th.UIFont), 11, theme.Mix(th.Sidebar, th.Muted, 0.45), fmt.Sprint(len(b.tasks)))
+			return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), theme.Mix(th.Sidebar, th.Muted, 0.45), fmt.Sprint(len(b.tasks)))
 		}},
 	)
 	o.Pop()
@@ -105,7 +105,7 @@ func (s *Sidebar) drawQueue(gtx layout.Context, th *theme.Theme, b queueBlock) {
 				if hovered {
 					col = th.Fg
 				}
-				return label(gtx, th, th.UIFont, 12, col, t.Title())
+				return label(gtx, th, th.UIFont, th.Sp(theme.Small), col, t.Title())
 			}},
 		}
 		if hovered {

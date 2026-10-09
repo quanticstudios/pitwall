@@ -10,6 +10,8 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // notifyPage is the Notifications category's state.
@@ -49,7 +51,9 @@ func (p *Page) notifications() []section {
 	quiet := row{label: "Quiet hours", desc: "As 22:00-08:00. Then nothing plays a sound, and only approvals, errors and what triage rates now notify. Empty for none.",
 		extra: "notification quiet hours night do not disturb dnd", control: p.quietField(n.QuietHours)}
 	if p.nt.err != "" {
-		quiet.below = func(gtx gl.Context) gl.Dimensions { return p.para(gtx, p.th.UIFont, p.sp(12), p.th.Red, p.nt.err) }
+		quiet.below = func(gtx gl.Context) gl.Dimensions {
+			return p.para(gtx, p.th.UIFont, p.th.Sp(theme.Small), p.th.Red, p.nt.err)
+		}
 	}
 	var agents []row
 	for _, a := range notifyAgents {

@@ -15,6 +15,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
+
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // decisionsPage is the Decisions category's state.
@@ -161,18 +163,20 @@ func (p *Page) decisions() []section {
 		var kids []gl.Widget
 		if p.dp.keyErr != "" {
 			kids = append(kids, func(gtx gl.Context) gl.Dimensions {
-				return p.para(gtx, th.UIFont, p.sp(12), th.Red, p.dp.keyErr)
+				return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Red, p.dp.keyErr)
 			})
 		}
 		switch {
 		case testing:
-			kids = append(kids, func(gtx gl.Context) gl.Dimensions { return p.para(gtx, th.UIFont, p.sp(12), th.Muted, "Testing…") })
+			kids = append(kids, func(gtx gl.Context) gl.Dimensions {
+				return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, "Testing…")
+			})
 		case result != "":
 			col := th.Red
 			if ok {
 				col = th.Green
 			}
-			kids = append(kids, func(gtx gl.Context) gl.Dimensions { return p.para(gtx, th.UIFont, p.sp(12), col, result) })
+			kids = append(kids, func(gtx gl.Context) gl.Dimensions { return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), col, result) })
 		}
 		if len(kids) == 0 {
 			return gl.Dimensions{}

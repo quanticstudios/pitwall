@@ -1022,7 +1022,7 @@ func (u *ui) emptyState(gtx gl.Context, label string, click func()) {
 	hint := gl.Spacer{}.Layout
 	if k := firstChord(u.nav.bind().Global["command_palette"]); k != "" {
 		hint = func(gtx gl.Context) gl.Dimensions {
-			call, sz := textCall(gtx, u.th, u.th.UIFont, 12, u.th.Muted, k+": all commands")
+			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Small), u.th.Muted, k+": all commands")
 			call.Add(gtx.Ops)
 			return gl.Dimensions{Size: sz}
 		}

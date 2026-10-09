@@ -80,7 +80,7 @@ func chipColors(th *theme.Theme, s model.AgentState) (bg, fg color.NRGBA) {
 // chip records a rounded label and returns it with its size.
 func chip(gtx gl.Context, th *theme.Theme, bg, border, fg color.NRGBA, s string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
-	call, ts := textCall(gtx, th, semibold(th.UIFont), th.SmallSize, fg, s)
+	call, ts := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), fg, s)
 	pad := image.Pt(gtx.Dp(7), gtx.Dp(2))
 	sz := ts.Add(pad.Mul(2))
 	r := sz.Y / 2
@@ -124,10 +124,10 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	if w := findWorkspace(st, u.nav.workspace); w != nil {
 		project = groupName(st, *w)
 	}
-	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.SmallSize, th.Muted, "TAB SWITCHER")
+	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.Sp(theme.Caption), th.Muted, "TAB SWITCHER")
 	y += gtx.Dp(4)
 	titleY := y
-	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), unit.Sp(14), th.Fg, project)
+	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.Sp(theme.Large), th.Fg, project)
 	kx := inner
 	b := u.nav.bind()
 	keys := b.Global["pin_switcher"]
@@ -155,7 +155,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 			if i > 0 {
 				y += gtx.Dp(6)
 			}
-			y += drawText(cgtx, th, image.Pt(gtx.Dp(4), y), semibold(th.UIFont), th.SmallSize, th.Muted,
+			y += drawText(cgtx, th, image.Pt(gtx.Dp(4), y), semibold(th.UIFont), th.Sp(theme.Caption), th.Muted,
 				strings.ToUpper(groupName(st, w)))
 			y += gtx.Dp(4)
 		}
@@ -189,7 +189,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		lgtx := cgtx
 		lgtx.Constraints.Max.X = max(0, inner-2*rowPad.X-chipsW-markW)
 		title := tabTitle(w)
-		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), unit.Sp(14), nameC, title)
+		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), th.Sp(theme.Large), nameC, title)
 		where := w.Branch
 		if where == "" {
 			where = model.ShortPath(w.Path)
@@ -197,7 +197,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		if ag := sidebar.AgentOf(st, w); ag != "" {
 			where = sidebar.AgentName(ag) + " · " + where
 		}
-		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.SmallSize, th.Muted, where)
+		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.Sp(theme.Caption), th.Muted, where)
 		rowH := nameSz.Y + brSz.Y + 2*rowPad.Y
 		if current {
 			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rect(0, y, inner, y+rowH), gtx.Dp(4)).Op(gtx.Ops))

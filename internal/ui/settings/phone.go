@@ -14,6 +14,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/qr"
 	"github.com/quanticstudios/pitwall/internal/remote"
+
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // phonePage is the Phone category's state.
@@ -110,7 +112,7 @@ func (p *Page) phone() []section {
 		if p.ph.note == "" {
 			return gl.Dimensions{}
 		}
-		return p.para(gtx, th.UIFont, p.sp(12), th.Muted, p.ph.note)
+		return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, p.ph.note)
 	}
 	pair := row{label: "Pair a phone", desc: "Shows a QR code that pairs one phone. The phone keeps a token; this computer keeps only its hash.",
 		extra: "pair qr code phone device", control: btn("rpair", "Pair", primary, p.pairPhone), below: note}

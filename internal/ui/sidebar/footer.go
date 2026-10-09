@@ -84,7 +84,7 @@ func (s *Sidebar) addButton(gtx layout.Context, th *theme.Theme, addW, btn int) 
 		hrow(gtx, btn, gtx.Dp(8),
 			item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icFolderKanb, gtx.Dp(14), col, 0) }},
 			item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), 12.5, col, "Open folder as group")
+				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, "Open folder as group")
 			}},
 		)
 		return layout.Dimensions{Size: image.Pt(addW, btn)}
@@ -97,7 +97,7 @@ func (s *Sidebar) updateButton(gtx layout.Context, th *theme.Theme, x, h int) {
 	m := op.Record(gtx.Ops)
 	lg := gtx
 	lg.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(140), h)}
-	d := label(lg, th, medium(th.UIFont), 12, th.Primary, s.Update)
+	d := label(lg, th, medium(th.UIFont), th.Sp(theme.Small), th.Primary, s.Update)
 	text := m.Stop()
 	pad, bh := gtx.Dp(10), gtx.Dp(22)
 	size := image.Pt(d.Size.X+2*pad, h)
@@ -143,7 +143,7 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 	hg := gtx
 	hg.Constraints = layout.Exact(inner)
 	hrow(hg, headH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), 12, th.Muted, "Detached tabs")
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Muted, "Detached tabs")
 	}})
 	off.Pop()
 	top := p + headH
@@ -151,7 +151,7 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 		off := op.Offset(image.Pt(p+gtx.Dp(8), top)).Push(gtx.Ops)
 		gtx.Constraints = layout.Exact(image.Pt(inner.X, rowH))
 		hrow(gtx, rowH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.UIFont, 12, th.Muted, "Detach keeps a tab running out of the list")
+			return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Detach keeps a tab running out of the list")
 		}})
 		off.Pop()
 		return
@@ -179,9 +179,11 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), 13, th.Fg, Title(ws))
+						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), th.Fg, Title(ws))
 					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 11, stateCol, state) }),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.UIFont, th.Sp(theme.Caption), stateCol, state)
+					}),
 				)
 			}},
 			{right: true, w: func(gtx layout.Context) layout.Dimensions {

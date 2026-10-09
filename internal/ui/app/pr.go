@@ -13,6 +13,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // mergeScript merges pull request $2 of the repository at $1 by method
@@ -133,20 +134,20 @@ func (u *ui) mergeBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl.
 	pr := st.PRs[ws.ID]
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, fmt.Sprintf("Merge #%d?", pr.Number))
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, fmt.Sprintf("Merge #%d?", pr.Number))
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Merges "+ws.Branch+" on GitHub. The command runs in a new tab:")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "Merges "+ws.Branch+" on GitHub. The command runs in a new tab:")
 		}),
 		gl.Rigid(gl.Spacer{Height: 4}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.MonoFont, 12, th.Fg, fmt.Sprintf("gh pr merge %d --%s", pr.Number, u.mergeMethod()))
+			return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Fg, fmt.Sprintf("gh pr merge %d --%s", pr.Number, u.mergeMethod()))
 		}),
 	}
 	warn := func(col color.NRGBA, s string) {
 		kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 13, col, s)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Body), col, s)
 		}))
 	}
 	switch failed := pr.Failed(); pr.CI() {

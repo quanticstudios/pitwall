@@ -70,7 +70,7 @@ func modePill(gtx gl.Context, th *theme.Theme, b *config.Bindings, pane bool) (o
 func pill(gtx gl.Context, th *theme.Theme, name string, keys [][2]string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
 	x, h := 0, gtx.Dp(28)
-	tag, tsz := textCall(gtx, th, semibold(th.UIFont), 11, th.Primary, name)
+	tag, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Primary, name)
 	cw := tsz.X + gtx.Dp(16)
 	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Primary, 0.16), clip.UniformRRect(image.Rect(0, 0, cw, h), h/2).Op(gtx.Ops))
 	o := op.Offset(image.Pt(gtx.Dp(8), (h-tsz.Y)/2)).Push(gtx.Ops)
@@ -86,7 +86,7 @@ func pill(gtx gl.Context, th *theme.Theme, name string, keys [][2]string) (op.Ca
 		kc.Add(gtx.Ops)
 		o.Pop()
 		x += ks.X + gtx.Dp(5)
-		tc, tsz := textCall(gtx, th, th.UIFont, 12, th.Muted, k[1])
+		tc, tsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, k[1])
 		o = op.Offset(image.Pt(x, (h-tsz.Y)/2)).Push(gtx.Ops)
 		tc.Add(gtx.Ops)
 		o.Pop()
@@ -127,7 +127,7 @@ func (u *ui) drawZoomHint(gtx gl.Context, r layout.Rect) {
 			label += " · " + p + " " + k
 		}
 	}
-	call, tsz := textCall(gtx, th, th.UIFont, 11, theme.Mix(th.Muted, th.Primary, 0.5), label)
+	call, tsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Caption), theme.Mix(th.Muted, th.Primary, 0.5), label)
 	pad := image.Pt(gtx.Dp(8), gtx.Dp(3))
 	box := image.Rectangle{Max: tsz.Add(pad.Mul(2))}
 	at := image.Pt(r.X+r.W-box.Dx()-gtx.Dp(8), r.Y+gtx.Dp(6))

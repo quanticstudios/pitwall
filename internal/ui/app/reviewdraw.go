@@ -80,7 +80,7 @@ func (u *ui) reviewMessage(gtx gl.Context, r image.Rectangle, c color.NRGBA, s s
 	g := gtx
 	g.Constraints = gl.Constraints{Max: image.Pt(r.Dx()-gtx.Dp(48), r.Dy())}
 	defer op.Offset(r.Min.Add(image.Pt(gtx.Dp(24), gtx.Dp(24)))).Push(gtx.Ops).Pop()
-	para(g, u.th, u.th.UIFont, 14, c, s)
+	para(g, u.th, u.th.UIFont, u.th.Sp(theme.Large), c, s)
 }
 
 // reviewHeader draws the branch, its base and the totals on the left and
@@ -161,7 +161,7 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	g := gtx
 	g.Constraints.Max.X = max(0, x-pad)
 	left := pad
-	call, sz := textCall(g, th, semibold(th.UIFont), 15, th.Fg, "Review")
+	call, sz := textCall(g, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Review")
 	o := op.Offset(image.Pt(left, pad+(rowH-sz.Y)/2)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	o.Pop()
@@ -186,7 +186,7 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 			continue
 		}
 		g.Constraints.Max.X = max(0, x-pad-left)
-		call, sz := textCall(g, th, th.UIFont, 13, part.c, part.s)
+		call, sz := textCall(g, th, th.UIFont, th.Sp(theme.Body), part.c, part.s)
 		o := op.Offset(image.Pt(left, pad+(rowH-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()
@@ -203,7 +203,7 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	}
 	g = gtx
 	g.Constraints.Max.X = w - 2*pad
-	call, sz = textCall(g, th, th.UIFont, 12, col, status)
+	call, sz = textCall(g, th, th.UIFont, th.Sp(theme.Small), col, status)
 	o = op.Offset(image.Pt(pad, h)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	o.Pop()
@@ -228,7 +228,7 @@ func (u *ui) reviewPRStatus(gtx gl.Context, st *model.State) gl.Dimensions {
 		m := op.Record(gtx.Ops)
 		chip := sidebar.PRChip(gtx, th, pr, th.Surface)
 		chipCall := m.Stop()
-		call, sz := textCall(gtx, th, th.UIFont, 12, th.Muted, text)
+		call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, text)
 		o := op.Offset(image.Pt(0, (h-chip.Size.Y)/2)).Push(gtx.Ops)
 		chipCall.Add(gtx.Ops)
 		o.Pop()
@@ -311,17 +311,17 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 				})
 				o.Pop()
 				x += box + gtx.Dp(10)
-				x += drawMid(gtx, th, image.Pt(x, rowH), medium(th.MonoFont), 12, u.statusColor(f.Status), string(rune(f.Status)), w) + gtx.Dp(8)
+				x += drawMid(gtx, th, image.Pt(x, rowH), medium(th.MonoFont), th.Sp(theme.Small), u.statusColor(f.Status), string(rune(f.Status)), w) + gtx.Dp(8)
 				counts := ""
 				if f.Binary {
 					counts = "bin"
 				}
 				right := w - gtx.Dp(8)
 				if !f.Binary {
-					right -= drawRight(gtx, th, image.Pt(right, rowH), th.UIFont, 12, th.Red, fmt.Sprintf("−%d", f.Del)) + gtx.Dp(6)
-					right -= drawRight(gtx, th, image.Pt(right, rowH), th.UIFont, 12, th.Green, fmt.Sprintf("+%d", f.Add))
+					right -= drawRight(gtx, th, image.Pt(right, rowH), th.UIFont, th.Sp(theme.Small), th.Red, fmt.Sprintf("−%d", f.Del)) + gtx.Dp(6)
+					right -= drawRight(gtx, th, image.Pt(right, rowH), th.UIFont, th.Sp(theme.Small), th.Green, fmt.Sprintf("+%d", f.Add))
 				} else {
-					right -= drawRight(gtx, th, image.Pt(right, rowH), th.UIFont, 12, th.Muted, counts)
+					right -= drawRight(gtx, th, image.Pt(right, rowH), th.UIFont, th.Sp(theme.Small), th.Muted, counts)
 				}
 				dir, name := path.Split(f.Path)
 				fg := th.Fg
@@ -330,9 +330,9 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 				}
 				g := gtx
 				g.Constraints.Max.X = max(0, right-gtx.Dp(8))
-				x += drawMid(g, th, image.Pt(x, rowH), th.UIFont, 13, fg, name, g.Constraints.Max.X)
+				x += drawMid(g, th, image.Pt(x, rowH), th.UIFont, th.Sp(theme.Body), fg, name, g.Constraints.Max.X)
 				if dir != "" {
-					drawMid(g, th, image.Pt(x+gtx.Dp(6), rowH), th.UIFont, 12, th.Muted, strings.TrimSuffix(dir, "/"), g.Constraints.Max.X)
+					drawMid(g, th, image.Pt(x+gtx.Dp(6), rowH), th.UIFont, th.Sp(theme.Small), th.Muted, strings.TrimSuffix(dir, "/"), g.Constraints.Max.X)
 				}
 				defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
 				pointer.CursorPointer.Add(gtx.Ops)
@@ -431,8 +431,8 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 	}
 	g := gtx
 	g.Constraints.Max.X = max(0, x-pad)
-	nx := pad + drawMid(g, th, image.Pt(pad, headH), medium(th.MonoFont), 13, th.Fg, f.Path, g.Constraints.Max.X)
-	drawMid(g, th, image.Pt(nx+gtx.Dp(10), headH), th.UIFont, 12, th.Muted, statusWord(f), g.Constraints.Max.X)
+	nx := pad + drawMid(g, th, image.Pt(pad, headH), medium(th.MonoFont), th.Sp(theme.Body), th.Fg, f.Path, g.Constraints.Max.X)
+	drawMid(g, th, image.Pt(nx+gtx.Dp(10), headH), th.UIFont, th.Sp(theme.Small), th.Muted, statusWord(f), g.Constraints.Max.X)
 
 	top := headH + 1
 	notes := notesAt(r.notes[root], f)
@@ -541,7 +541,7 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 			if row.N == 1 {
 				s = "⋯  1 unchanged line"
 			}
-			drawMid(gtx, th, image.Pt(gutter+m.mark, sz.Y), th.UIFont, 12, th.Muted, s, w)
+			drawMid(gtx, th, image.Pt(gutter+m.mark, sz.Y), th.UIFont, th.Sp(theme.Small), th.Muted, s, w)
 			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
 			pointer.CursorPointer.Add(gtx.Ops)
 			return gl.Dimensions{Size: sz}
@@ -661,12 +661,12 @@ func (u *ui) reviewField(gtx gl.Context, f *review.File) gl.Dimensions {
 	return boxedCard(gtx, th, th.SurfaceElevated, theme.Mix(th.SurfaceElevated, th.Primary, 0.6), func(gtx gl.Context) gl.Dimensions {
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.UIFont, 12, th.Muted, "Comment on "+ref+" · Enter saves · Esc cancels")
+				return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Comment on "+ref+" · Enter saves · Esc cancels")
 			}),
 			gl.Rigid(gl.Spacer{Height: 6}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return r.edit.Layout(gtx, th.Shaper, th.UIFont, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceElevated, th.Primary, 0.35)))
+				return r.edit.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceElevated, th.Primary, 0.35)))
 			}),
 		)
 	})
@@ -709,14 +709,14 @@ func (u *ui) reviewNote(gtx gl.Context, root string, n *note, lost bool) gl.Dime
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 				w := gtx.Constraints.Max.X
-				call, sz := textCall(gtx, th, medium(th.UIFont), 12, col, label)
+				call, sz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, label)
 				call.Add(gtx.Ops)
 				if n.state == notePending {
 					c := th.Muted
 					if n.del.Hovered() {
 						c = th.Red
 					}
-					dc, dsz := textCall(gtx, th, th.UIFont, 12, c, "Delete")
+					dc, dsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), c, "Delete")
 					o := op.Offset(image.Pt(w-dsz.X, 0)).Push(gtx.Ops)
 					n.del.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 						dc.Add(gtx.Ops)
@@ -734,7 +734,7 @@ func (u *ui) reviewNote(gtx gl.Context, root string, n *note, lost bool) gl.Dime
 				if n.state == noteSent {
 					c = th.Muted
 				}
-				return para(gtx, th, th.UIFont, 13, c, n.Text)
+				return para(gtx, th, th.UIFont, th.Sp(theme.Body), c, n.Text)
 			}),
 		)
 	})
@@ -774,15 +774,15 @@ func (u *ui) discardBody(gtx gl.Context) gl.Dimensions {
 	}
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Discard changes to "+path.Base(f.Path)+"?")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Discard changes to "+path.Base(f.Path)+"?")
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.MonoFont, 12, th.Muted, f.Path)
+			return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Muted, f.Path)
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, what)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, what)
 		}),
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {

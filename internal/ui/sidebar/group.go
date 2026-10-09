@@ -67,7 +67,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 					gtx.Constraints.Max.Y = gtx.Dp(24)
 					return s.renameField(gtx, th)
 				}
-				return label(gtx, th, semibold(th.UIFont), 14, nameCol, p.Name)
+				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), nameCol, p.Name)
 			}},
 		}
 		if attention > 0 {
@@ -75,7 +75,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 				d := gtx.Dp(16)
 				paint.FillShape(gtx.Ops, theme.Mix(bg, th.Yellow, 0.14), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
 				centered(gtx, image.Pt(d, d), func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, semibold(th.UIFont), 9, th.Yellow, fmt.Sprint(attention))
+					return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Yellow, fmt.Sprint(attention))
 				})
 				return layout.Dimensions{Size: image.Pt(d, d)}
 			}})
@@ -133,7 +133,7 @@ func (s *Sidebar) projectHeaderGhost(gtx layout.Context, v *view, p model.Projec
 			return drawIcon(gtx, projectIcon(p.Icon), gtx.Dp(14), th.ProjectColor(p.Color), 0)
 		}},
 		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, semibold(th.UIFont), 14, th.Fg, p.Name)
+			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, p.Name)
 		}},
 	)
 	o.Pop()

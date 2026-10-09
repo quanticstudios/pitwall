@@ -163,11 +163,11 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 	th, w := u.th, &u.welcome
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Agents on this machine")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Agents on this machine")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Start one in a tab of its own. With its hooks installed, the sidebar shows when it works, finishes or waits on you.")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "Start one in a tab of its own. With its hooks installed, the sidebar shows when it works, finishes or waits on you.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 	}
@@ -201,7 +201,7 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 			call, sz := keycap(gtx, th, k.chord)
 			call.Add(gtx.Ops)
 			o := op.Offset(image.Pt(capW+gtx.Dp(10), 0)).Push(gtx.Ops)
-			lc, ls := textCall(gtx, th, th.UIFont, 13, th.Muted, k.label)
+			lc, ls := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, k.label)
 			op.Offset(image.Pt(0, (sz.Y-ls.Y)/2)).Add(gtx.Ops)
 			lc.Add(gtx.Ops)
 			o.Pop()
@@ -222,7 +222,7 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable) gl.Dimensions {
 	th := u.th
 	h := gtx.Dp(30)
-	name, ns := textCall(gtx, th, medium(th.UIFont), 14, th.Fg, a.name)
+	name, ns := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Large), th.Fg, a.name)
 	status, dot := "No hooks", th.Yellow
 	switch {
 	case a.hooks:
@@ -230,7 +230,7 @@ func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable)
 	case a.hookless:
 		status, dot = "Read from its screen", th.Muted
 	}
-	sc, ss := textCall(gtx, th, th.UIFont, 12, th.Muted, status)
+	sc, ss := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, status)
 	o := op.Offset(image.Pt(0, (h-ns.Y)/2)).Push(gtx.Ops)
 	name.Add(gtx.Ops)
 	o.Pop()
@@ -258,17 +258,17 @@ func (u *ui) drawNoAgents(gtx gl.Context) {
 		call op.CallOp
 		size image.Point
 	}
-	msg, ms := textCall(gtx, th, th.UIFont, 13, th.Fg, "No agent CLI on PATH. Install one:")
+	msg, ms := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, "No agent CLI on PATH. Install one:")
 	parts := []part{{call: msg, size: ms}}
 	for i, a := range welcomeAgents {
 		col := th.Primary
 		if w.links[i].Hovered() {
 			col = theme.Mix(th.Primary, th.Fg, 0.3)
 		}
-		c, s := textCall(gtx, th, th.UIFont, 13, col, a.name)
+		c, s := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), col, a.name)
 		parts = append(parts, part{c: &w.links[i], call: c, size: s})
 	}
-	hc, hs := textCall(gtx, th, th.UIFont, 13, th.Muted, "Dismiss")
+	hc, hs := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, "Dismiss")
 	parts = append(parts, part{c: &w.dismiss, call: hc, size: hs})
 	pad, gap := gtx.Dp(12), gtx.Dp(12)
 	box := image.Pt(pad, ms.Y+2*gtx.Dp(10))

@@ -40,9 +40,9 @@ type Theme struct {
 	TermFg, TermBg, TermCur color.NRGBA
 
 	// Shaper is loaded with both faces.
-	UIFont, MonoFont              font.Font
-	TextSize, SmallSize, MonoSize unit.Sp
-	LineHeight                    float32 // terminal cell height multiplier; 0 means 1
+	UIFont, MonoFont   font.Font
+	TextSize, MonoSize unit.Sp
+	LineHeight         float32 // terminal cell height multiplier; 0 means 1
 }
 
 // Hex parses "#rrggbb" or "#rrggbbaa". It panics on bad input, because every
@@ -115,7 +115,6 @@ func New(c config.Theme, f config.Font) (*Theme, error) {
 		TermFg: col(c.Terminal.Foreground), TermBg: col(c.Terminal.Background), TermCur: col(c.Terminal.Cursor),
 
 		TextSize:   unit.Sp(or(f.UISize, config.DefaultUISize)),
-		SmallSize:  unit.Sp(or(f.UISize, config.DefaultUISize) - 2),
 		MonoSize:   unit.Sp(or(f.MonoSize, config.DefaultMonoSize)),
 		LineHeight: float32(or(f.LineHeight, 1)),
 	}

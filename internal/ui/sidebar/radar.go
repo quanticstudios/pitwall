@@ -110,21 +110,21 @@ func radarBody(gtx layout.Context, th *theme.Theme, bg color.NRGBA, e radarEntry
 		head, col = "Conflicts with "+e.name, th.Red
 	}
 	rows := []layout.FlexChild{layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.Y = gtx.Sp(13 * 1.5) // level with the icon
+		gtx.Constraints.Min.Y = gtx.Sp(th.Sp(theme.Body) * 1.5) // level with the icon
 		return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, semibold(th.UIFont), 12, col, head)
+			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), col, head)
 		})
 	})}
 	if e.first != "" {
 		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.UIFont, 11, muted, "Merge "+e.first+" first")
+			return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, "Merge "+e.first+" first")
 		}))
 	}
 	for i, f := range e.o.Files {
 		if i == radarFiles {
 			rest := len(e.o.Files) - i
 			rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, 11, muted, fmt.Sprintf("%d more %s", rest, plural(rest, "file", "files")))
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, fmt.Sprintf("%d more %s", rest, plural(rest, "file", "files")))
 			}))
 			break
 		}
@@ -136,7 +136,7 @@ func radarBody(gtx layout.Context, th *theme.Theme, bg color.NRGBA, e radarEntry
 			draw := func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
 				return layout.Inset{Top: 1, Bottom: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.MonoFont, 11, fc, f)
+					return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), fc, f)
 				})
 			}
 			if btn == nil {

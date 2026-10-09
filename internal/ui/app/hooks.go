@@ -161,11 +161,11 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 	}
 	line := func(f func(gtx gl.Context) gl.Dimensions) gl.FlexChild { return gl.Rigid(f) }
 	text14 := func(s string) gl.FlexChild {
-		return line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 14, th.Muted, s) })
+		return line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, s) })
 	}
 	kids := []gl.FlexChild{
 		line(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Install hooks for live status")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Install hooks for live status")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 	}
@@ -178,7 +178,9 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		kids = append(kids, text14("Reading the agents' configs…"))
 	case errText != "":
 		ok, cancel = "Close", ""
-		kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 14, th.Red, errText) }))
+		kids = append(kids, line(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Red, errText)
+		}))
 	case done:
 		ok, cancel = "Done", ""
 		kids = append(kids, text14("Installed. Restart the agents that are running so they load their hooks. In Codex, run /hooks once to trust them."))
@@ -191,7 +193,7 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		if len(backups) > 0 {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 12}.Layout), text14("Backups:"))
 			for _, b := range backups {
-				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, 12, th.Muted, b) }))
+				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Muted, b) }))
 			}
 		}
 	case !changed:
@@ -208,7 +210,7 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		for _, f := range files {
 			kids = append(kids,
 				gl.Rigid(gl.Spacer{Height: 12}.Layout),
-				line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, 12, th.Fg, f) }),
+				line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Fg, f) }),
 			)
 			for _, c := range changes[f] {
 				col := theme.Mix(th.Surface, th.Fg, 0.7)
@@ -220,7 +222,7 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 				default:
 					c = "+ " + c
 				}
-				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, 12, col, c) }))
+				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, th.Sp(theme.Small), col, c) }))
 			}
 		}
 	}

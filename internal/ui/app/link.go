@@ -14,6 +14,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // LinkState is the state of the window's daemon connection.
@@ -130,7 +131,7 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, title)
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, title)
 		}),
 	}
 	for _, line := range []struct {
@@ -139,7 +140,7 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 	}{{body, th.Muted}, {l.Note, th.Muted}} {
 		if line.text != "" {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.UIFont, 14, line.c, line.text)
+				return para(gtx, th, th.UIFont, th.Sp(theme.Large), line.c, line.text)
 			}))
 		}
 	}
