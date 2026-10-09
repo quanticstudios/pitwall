@@ -4,7 +4,7 @@ package sidebar
 // DetachSession, AttachSession, KillSession, GroupByFolder, DeleteWorkspace,
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
-// RunUpdate, ViewDiff, CreatePR.
+// RunUpdate, ViewDiff, CreatePR, Answer.
 type Event any
 
 // OpenSessions is a click on the session name in the header: show the
@@ -44,6 +44,14 @@ type ViewDiff struct{ WorkspaceID string }
 
 // CreatePR opens a pull request for the tab's branch.
 type CreatePR struct{ WorkspaceID string }
+
+// Answer is a click on a row's Allow or Deny: proto.Answer for its
+// pending approval.
+type Answer struct {
+	PaneID string
+	At     int64 // the activity's UpdatedAt in Unix nanoseconds
+	Allow  bool
+}
 
 // RunUpdate is a click on the footer's update button.
 type RunUpdate struct{}

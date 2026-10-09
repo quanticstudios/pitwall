@@ -186,6 +186,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		for r.close.Clicked(gtx) {
 			s.events = append(s.events, CloseTab{WorkspaceID: ws.ID})
 		}
+		s.answerClicks(gtx, v, ws.ID, r)
 		right, middle := press(&r.ctx)
 		if right {
 			s.toggleMenu(ws.ID)
@@ -364,6 +365,8 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		drain(&r.click)
 		drain(&r.more)
 		drain(&r.close)
+		drain(&r.allow)
+		drain(&r.deny)
 	}
 	for i := range s.menuItem {
 		drain(&s.menuItem[i])

@@ -108,6 +108,10 @@ func TestPresets(t *testing.T) {
 		{conv, "command_palette", "Ctrl+Shift+P"},
 		{conv, "find", "Ctrl+Shift+F"},
 		{aide, "find", "Ctrl+Shift+F"},
+		{conv, "allow_prompt", "Ctrl+Shift+Y"},
+		{conv, "deny_prompt", "Ctrl+Shift+D"},
+		{aide, "allow_prompt", "Ctrl+Shift+Y"},
+		{aide, "deny_prompt", "Ctrl+Shift+D"},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)

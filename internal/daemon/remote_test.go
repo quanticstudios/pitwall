@@ -205,3 +205,33 @@ func TestRemoteReply(t *testing.T) {
 		t.Errorf("reply into an approval: %d %q", st, f.pane(1).got())
 	}
 }
+
+// A GUI's proto.Answer takes the phone's path: it presses the key only on
+// the prompt whose UpdatedAt it names, and only while the screen shows it.
+func TestGUIAnswer(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := func(pane string) int64 {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex(pane)].UpdatedAt.UnixNano()
+	}
+	ctx := context.Background()
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at("a"), Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+		t.Fatalf("allow sent %q", got)
+	}
+	if err := d.handle(ctx, proto.Answer{Pane: "b", At: at("b") - 1}); err == nil || f.pane(1).got() != "" {
+		t.Fatalf("answered a stale prompt: %v %q", err, f.pane(1).got())
+	}
+	if err := d.handle(ctx, proto.Answer{Pane: "c", At: at("c"), Allow: true}); err == nil || f.pane(2).got() != "" {
+		t.Fatalf("answered pi: %v %q", err, f.pane(2).got())
+	}
+	if err := d.handle(ctx, proto.Answer{Pane: "b", At: at("b")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(1), 0, 1); got != "\x1b" {
+		t.Fatalf("deny sent %q", got)
+	}
+}

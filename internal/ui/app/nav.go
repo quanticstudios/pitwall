@@ -839,6 +839,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.find = n.focused() != ""
 	case "jump_attention":
 		n.jumpAttention(st)
+	case "allow_prompt", "deny_prompt":
+		return n.answer(st, act == "allow_prompt")
 	case "session_switcher":
 		n.sessionUI = "pick"
 	case "session_new":

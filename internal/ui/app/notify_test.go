@@ -206,18 +206,18 @@ func TestNotificationCommand(t *testing.T) {
 		t.Run(string(tc.state), func(t *testing.T) {
 			a := notifyActivity(tc.state, time.Time{})
 			a.Detail = strings.Repeat("界", 121) + " $(secret)"
-			cmd := notificationCommand(context.Background(), notification{a, "-project / workspace"})
+			cmd := notificationCommand(context.Background(), notification{activity: a, title: "-project / workspace"}, false)
 			want := []string{"notify-send", "--app-name=pitwall", "--urgency=" + tc.urgency, "--hint=string:x-canonical-private-synchronous:pitwall-ws", "--", "-project / workspace", tc.label + ": " + strings.Repeat("界", 120)}
 			if !reflect.DeepEqual(cmd.Args, want) {
 				t.Fatalf("got %q, want %q", cmd.Args, want)
 			}
 			a.Detail = ""
-			cmd = notificationCommand(context.Background(), notification{a, "p / w"})
+			cmd = notificationCommand(context.Background(), notification{activity: a, title: "p / w"}, false)
 			if cmd.Args[len(cmd.Args)-1] != tc.label {
 				t.Fatal("empty detail adds punctuation")
 			}
 			a.Detail = "Use $(literal) text"
-			cmd = notificationCommand(context.Background(), notification{a, "p / w"})
+			cmd = notificationCommand(context.Background(), notification{activity: a, title: "p / w"}, false)
 			if cmd.Args[len(cmd.Args)-1] != tc.label+": "+a.Detail {
 				t.Fatal("short detail changed")
 			}
@@ -225,12 +225,12 @@ func TestNotificationCommand(t *testing.T) {
 	}
 	now := notifyActivity(model.StateAwaitingInput, time.Time{})
 	now.Urgency = "now"
-	if cmd := notificationCommand(context.Background(), notification{now, "p / w"}); cmd.Args[2] != "--urgency=critical" {
+	if cmd := notificationCommand(context.Background(), notification{activity: now, title: "p / w"}, false); cmd.Args[2] != "--urgency=critical" {
 		t.Errorf("triaged now: %q", cmd.Args)
 	}
 	a := notifyActivity(model.StateAwaitingInput, time.Time{})
 	a.Provider, a.Detail = model.ProviderTerminal, "tests passed"
-	if cmd := notificationCommand(context.Background(), notification{a, "p / w"}); cmd.Args[len(cmd.Args)-1] != "tests passed" {
+	if cmd := notificationCommand(context.Background(), notification{activity: a, title: "p / w"}, false); cmd.Args[len(cmd.Args)-1] != "tests passed" {
 		t.Fatalf("terminal notification body %q", cmd.Args[len(cmd.Args)-1])
 	}
 }
@@ -254,7 +254,7 @@ func TestDesktopSenderMissing(t *testing.T) {
 func TestNotifierWithoutWindow(t *testing.T) {
 	b := NewFakeBackend()
 	delivered := make(chan notification, 20)
-	n := newNotifier(b, func() {}, func(_ context.Context, n notification) { delivered <- n })
+	n := newNotifier(b, func() {}, func(_ context.Context, n notification) { delivered <- n }, nil)
 	defer n.close()
 	focused := false
 	n.setView(&focused, "", "")
@@ -283,7 +283,7 @@ func TestNotifierCoalescesWithoutFrames(t *testing.T) {
 	// Simulate a connected backend's baseline before attaching the notifier.
 	set(model.StateWorking)
 	delivered := make(chan notification, 10)
-	n := newNotifier(b, func() {}, func(_ context.Context, n notification) { delivered <- n })
+	n := newNotifier(b, func() {}, func(_ context.Context, n notification) { delivered <- n }, nil)
 	defer n.close()
 	set(model.StateAwaitingInput)
 	select {

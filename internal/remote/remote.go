@@ -238,6 +238,13 @@ var answers = map[model.Provider]struct{ allow, deny key.Name }{
 	model.ProviderCodex:  {"Y", key.NameEscape},
 }
 
+// Answerable reports whether a is a permission prompt that Allow and Deny
+// answer: pending approval, from an agent whose prompts pitwall knows.
+func Answerable(a model.Activity) bool {
+	_, known := answers[a.Provider]
+	return a.State == model.StatePendingApproval && known
+}
+
 // AnswerKey is the key that answers p's permission prompt, and whether
 // pitwall knows its prompts.
 func AnswerKey(p model.Provider, allow bool) (key.Name, bool) {

@@ -74,6 +74,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	showMore := !ghost && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
 	x := (btn-glyph)/2 + glyph/4 // the button's edge to the ×'s edge
+	answering := s.answering(ghost, a)
+	answerW := 0
+	if answering {
+		answerW = answerSize(gtx, th, *a, base).X
+	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
 		left := gtx.Dp(12)
@@ -138,6 +143,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		switch {
+		case answering: // drawn over the row below, with room for "…" and "×"
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return layout.Dimensions{Size: image.Pt(answerW+gtx.Dp(6)+2*btn-x, 0)}
+			}})
 		case showMore:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(2*btn-x, 0)}
@@ -171,6 +180,14 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	// "×" at the right of line 2, centred on it, and "…" before it. The ×
 	// has no hidden hit area: a stray click there must not close the tab.
 	pos := image.Pt(w-gtx.Dp(12)+x-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
+	if answering {
+		// Left of where "…" and "×" show, hovered or not, so the buttons
+		// never move under the pointer.
+		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
+		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-gtx.Dp(answerH))/2)).Push(gtx.Ops)
+		answerButtons(gtx, th, r, *a, base)
+		off.Pop()
+	}
 	if showMore {
 		off := op.Offset(pos).Push(gtx.Ops)
 		iconButton(gtx, th, &r.close, icX, btn, glyph, true)

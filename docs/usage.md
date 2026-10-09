@@ -55,6 +55,37 @@ for it. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 
+A tab whose Claude Code or Codex asks permission shows Allow and Deny on
+its sidebar row, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
+focused pane, else for the shown tab. They press the same keys the
+[phone page](phone.md) does, and only while the pane still shows the prompt
+the row showed, so a click never lands on a newer question. With a decision
+model, its advice stays in the pill above them, and the button it
+recommends is outlined.
+
+On Linux, a click on a notification raises the window on its pane, as
+Ctrl+Shift+U does, and an approval's notification has Allow and Deny too.
+This needs notify-send from libnotify 0.7.10 or later; older ones show plain
+notifications. macOS notifications from osascript take no actions, so a
+click there does nothing, and Windows toasts stay plain.
+
+Settings > Notifications, or `[notifications]` in config.toml, picks what
+notifies:
+
+```toml
+[notifications]
+sound = "bell"                # or a sound file's path; "" (the default) for none
+approval = true               # permission prompts and plans
+input = true                  # questions, pitwall notify, bells
+done = false                  # finished turns
+failed = true                 # failed turns
+muted_agents = ["codex"]      # claude, codex, pi, gemini, opencode, terminal
+quiet_hours = "22:00-08:00"   # no sound, and only approvals, errors and triage's "now"
+```
+
+The sound plays with paplay, pw-play or afplay, whichever is installed.
+Triage's fyi still sends nothing.
+
 <img src="media/attention.webp" alt="A Codex pane finishes in the background and rings green, the billing tab asks for approval, and Ctrl+Shift+U jumps to each in turn" width="800">
 
 Any command can ask for your attention, no hooks needed:

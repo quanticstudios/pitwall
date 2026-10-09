@@ -625,6 +625,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.agentEvent(ctx, m)
 	case proto.SeePane:
 		return d.seePane(m.Pane)
+	case proto.Answer:
+		return d.remoteAnswer(m.Pane, m.At, m.Allow)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:

@@ -110,7 +110,8 @@ func (d *Daemon) waiting(pane string, at int64) (Pane, model.Activity, error) {
 	return nil, model.Activity{}, errors.New("that pane has moved on; refresh to see what it asks now")
 }
 
-// remoteAnswer presses Allow or Deny on pane's permission prompt.
+// remoteAnswer presses Allow or Deny on pane's permission prompt, for the
+// phone page and for a GUI's proto.Answer.
 func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	p, a, err := d.waiting(pane, at)
 	if err != nil {
