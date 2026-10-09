@@ -121,7 +121,7 @@ func TestStateColors(t *testing.T) {
 	if rowBase(th, nil, false, true) != th.SurfaceSecondary {
 		t.Error("an idle row takes the hover fill")
 	}
-	if got, want := rowBase(th, nil, true, false), theme.Mix(th.Sidebar, th.Primary, 0.12); got != want {
+	if got, want := rowBase(th, nil, true, false), theme.Mix(th.Sidebar, th.Primary, 0.14); got != want {
 		t.Errorf("active row = %v, want %v", got, want)
 	}
 }

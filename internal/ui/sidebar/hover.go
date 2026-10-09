@@ -102,6 +102,9 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 		if r := s.rows[e.id]; e.kind == 's' && r != nil && r.hovered() {
 			over = e.id
 		}
+		if r := s.subs[e.id]; e.kind == 'a' && r != nil && r.hovered() {
+			over = e.parent // a sub-row shows its tab's card
+		}
 	}
 	s.radarInput(gtx)
 	if over == "" && s.cardHover {
@@ -498,7 +501,7 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 		pass.Pop()
 	}
 	call := m.Stop()
-	row := image.Rect(0, s.cardY, w, s.cardY+rowHeight(gtx))
+	row := image.Rect(0, s.cardY, w, s.cardY+rowHeight(gtx, v.th))
 	defer op.Offset(kit.Place(row, size, s.bounds(), kit.Beside, gtx.Dp(6), gtx.Dp(8))).Push(gtx.Ops).Pop()
 	op.Defer(gtx.Ops, call)
 }

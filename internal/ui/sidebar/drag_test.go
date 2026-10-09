@@ -209,7 +209,7 @@ func TestDragOpensGap(t *testing.T) {
 	p := h.at("u1", 20)
 	h.pointer(pointer.Press, p)
 	h.pointer(pointer.Drag, p.Add(f32.Pt(0, 10)))
-	row := float32(rowHeight(layout.Context{Metric: unit.Metric{PxPerDp: 1}}) + 2)
+	row := float32(rowHeight(layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}, theme.Dark()) + 2)
 	// The lower half of a, once u1 is lifted out above it: after a, the
 	// end of g1.
 	h.pointer(pointer.Drag, h.at("a", 40).Sub(f32.Pt(0, row)))

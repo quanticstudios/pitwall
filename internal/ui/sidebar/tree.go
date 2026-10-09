@@ -15,10 +15,16 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// rowHeight is a tab row's height: py-2, line 1 (13px * 1.5), gap-1,
-// line 2 (11px * 1.5), py-2.
-func rowHeight(gtx layout.Context) int {
-	return gtx.Dp(8) + gtx.Dp(19.5) + gtx.Dp(4) + gtx.Dp(16.5) + gtx.Dp(8)
+// rowLines are a tab row's line heights, 1.5 times its body and caption
+// text, so the row grows with [font] ui_size.
+func rowLines(gtx layout.Context, th *theme.Theme) (l1, l2 int) {
+	return gtx.Sp(th.Sp(theme.Body) * 1.5), gtx.Sp(th.Sp(theme.Caption) * 1.5)
+}
+
+// rowHeight is a tab row's height: py-2, line 1, gap-1, line 2, py-2.
+func rowHeight(gtx layout.Context, th *theme.Theme) int {
+	l1, l2 := rowLines(gtx, th)
+	return gtx.Dp(8) + l1 + gtx.Dp(4) + l2 + gtx.Dp(8)
 }
 
 // place lays the tree out in content pixels, top-level items in order: a
@@ -27,7 +33,7 @@ func rowHeight(gtx layout.Context) int {
 // laid out the same way. It returns the elements and the height.
 func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	var out []elem
-	rowH := rowHeight(gtx)
+	rowH := rowHeight(gtx, v.th)
 	y := 0
 	s.queue = s.queue[:0]
 	run := false // inside a run of tab rows
@@ -43,6 +49,16 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		}
 		out = append(out, elem{kind: 's', id: id, group: g, x: x, top: y, bot: y + rowH})
 		y, run = y+rowH, true
+		// Its agents' sub-rows hang under it, 2dp of air after the last.
+		subs := s.shownSubs(v, id)
+		for _, ap := range subs {
+			h := subHeight(gtx, v.th, s.subAnswering(ap))
+			out = append(out, elem{kind: 'a', id: ap.Pane.ID, parent: id, group: g, x: x, top: y, bot: y + h})
+			y += h
+		}
+		if len(subs) > 0 {
+			y += gtx.Dp(2)
+		}
 	}
 	endRun := func() {
 		if run {
@@ -149,10 +165,19 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 			fade := paint.PushOpacity(gtx.Ops, t)
 			rg := gtx
 			rg.Constraints.Max.X = w - e.x
-			_, a := s.workspaceRow(rg, v, byID[e.id], false, digit)
+			var a bool
+			if e.kind == 'a' {
+				last := i+1 == len(elems) || elems[i+1].parent != e.parent
+				subGuide(rg, v.th, e.bot-e.top, last)
+				if ap, ok := v.agentPane(e.parent, e.id); ok {
+					_, a = s.subRowAt(rg, v, e.parent, ap, false)
+				}
+			} else {
+				_, a = s.workspaceRow(rg, v, byID[e.id], false, digit)
+			}
 			fade.Pop()
 			o.Pop()
-			if e.id == s.hover.shown {
+			if e.kind == 's' && e.id == s.hover.shown {
 				s.cardAt, s.cardY = e.id, y
 			}
 			animating = animating || a

@@ -18,9 +18,10 @@ import (
 // answerH is the Allow and Deny buttons' height in dp.
 const answerH = 18
 
-// answering reports whether a row with activity a shows Allow and Deny.
-func (s *Sidebar) answering(ghost bool, a *model.Activity) bool {
-	return s.Answers && !ghost && a != nil && remote.Answerable(*a)
+// answering reports whether tab id's row, with activity a, shows Allow and
+// Deny. A tab whose agents show as sub-rows answers on the asking one's.
+func (s *Sidebar) answering(v *view, id string, ghost bool, a *model.Activity) bool {
+	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && len(s.shownSubs(v, id)) == 0
 }
 
 // answerClicks turns clicks on row r's Allow and Deny into Answer events
@@ -31,7 +32,7 @@ func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowSta
 		allow bool
 	}{{&r.allow, true}, {&r.deny, false}} {
 		for b.c.Clicked(gtx) {
-			if a := v.activity[ws]; s.answering(false, a) {
+			if a := v.activity[ws]; s.answering(v, ws, false, a) {
 				s.events = append(s.events, Answer{PaneID: a.PaneID, At: a.UpdatedAt.UnixNano(), Allow: b.allow})
 			}
 		}
@@ -41,17 +42,17 @@ func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowSta
 // answerSize is the size answerButtons takes.
 func answerSize(gtx layout.Context, th *theme.Theme, a model.Activity, base color.NRGBA) image.Point {
 	m := op.Record(gtx.Ops)
-	d := answerButtons(gtx, th, nil, a, base)
+	d := answerButtons(gtx, th, nil, nil, a, base)
 	m.Stop()
 	return d.Size
 }
 
 // answerButtons draws a pending approval's Allow and Deny, small pills in
 // green and red. The one the decision model advises is outlined, so its
-// recommendation in the pill above points at a button. With r nil they
-// are drawn without input, to measure them.
-func answerButtons(gtx layout.Context, th *theme.Theme, r *rowState, a model.Activity, base color.NRGBA) layout.Dimensions {
-	h := gtx.Dp(answerH)
+// recommendation in the pill above points at a button. With nil
+// clickables they are drawn without input, to measure them.
+func answerButtons(gtx layout.Context, th *theme.Theme, allow, deny *widget.Clickable, a model.Activity, base color.NRGBA) layout.Dimensions {
+	h := answerHeight(gtx, th)
 	btn := func(c *widget.Clickable, text string, col color.NRGBA, advised bool) layout.Widget {
 		draw := func(gtx layout.Context) layout.Dimensions {
 			m := op.Record(gtx.Ops)
@@ -76,10 +77,6 @@ func answerButtons(gtx layout.Context, th *theme.Theme, r *rowState, a model.Act
 			return draw
 		}
 		return func(gtx layout.Context) layout.Dimensions { return clickable(gtx, c, draw) }
-	}
-	var allow, deny *widget.Clickable
-	if r != nil {
-		allow, deny = &r.allow, &r.deny
 	}
 	return hrowFit(gtx, h, gtx.Dp(4),
 		item{w: btn(allow, "Allow", th.Green, a.Advice == "allow")},
