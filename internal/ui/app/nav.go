@@ -40,6 +40,9 @@ type nav struct {
 	cleanup bool
 	// diff asks the window to open or close the review view.
 	diff bool
+	// sidebarKeys asks the window to move the keyboard into the sidebar,
+	// or back to the pane (focus_sidebar).
+	sidebarKeys bool
 
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
@@ -844,6 +847,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.pinned = !n.pinned
 	case "toggle_sidebar":
 		n.sidebarHidden = !n.sidebarHidden
+	case "focus_sidebar":
+		n.sidebarKeys = true
 	case "toggle_panel":
 		n.panelOpen = !n.panelOpen
 	case "find":

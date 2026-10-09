@@ -155,6 +155,11 @@ type Sidebar struct {
 	subs   map[string]*subRow
 	folded map[string]bool
 
+	// Hints draws the keys the sidebar takes above the footer's buttons
+	// while it has the keyboard; nil hides them.
+	Hints layout.Widget
+	cur   cursor // the keyboard cursor, see cursor.go
+
 	events []Event
 }
 

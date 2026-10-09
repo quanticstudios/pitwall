@@ -23,6 +23,9 @@ Each change is marked `pitwall` in a comment:
 - `app/internal/xkb/xkb_unix.go`, `convertKeysym`: Insert and keypad Insert
   arrive as `key.Name("Insert")`; upstream drops them, so Shift+Insert and
   Ctrl+Insert, the terminal paste and copy keys, never reached the program.
+- `app/internal/xkb/xkb_unix.go`, `convertKeysym`, and `app/os_windows.go`,
+  `convertKeyCode`: the Menu key (`XKB_KEY_Menu`, `VK_APPS`) arrives as
+  `key.Name("Menu")`; upstream drops it. It opens the sidebar row's menu.
 
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would

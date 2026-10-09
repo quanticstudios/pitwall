@@ -1139,6 +1139,8 @@ func convertKeyCode(code uintptr) (key.Name, bool) {
 		r = key.NameF9
 	case windows.VK_F10:
 		r = key.NameF10
+	case 0x5D: // pitwall: VK_APPS, the Menu key; io/key has no name for it.
+		r = "Menu"
 	case windows.VK_F11:
 		r = key.NameF11
 	case windows.VK_F12:

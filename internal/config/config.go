@@ -92,6 +92,7 @@ type Keys struct {
 	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see docs/usage.md"`
 	NextPrompt      Binding `toml:"next_prompt" group:"Terminal" doc:"Scroll forward to the next shell prompt (OSC 133)"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`
+	FocusSidebar    Binding `toml:"focus_sidebar" group:"Window" doc:"Focus sidebar: move through its groups, tabs and agents with the arrow keys or j and k, Enter to open one, Esc to go back to the pane. See docs/keys.md"`
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
 	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the review view of the tab's changes since its default branch, committed or not, where you comment on lines and send the comments to the tab's agent"`
 	DiffPager       Binding `toml:"diff_pager" group:"Review" doc:"Open diff in pager: the same changes in your git pager in a new pane"`

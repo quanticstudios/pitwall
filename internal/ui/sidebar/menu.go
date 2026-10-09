@@ -117,12 +117,15 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 	defer s.popIn(gtx, s.subAt, size)()
 	floatingSurface(gtx, th, size)
 	s.blockClicks(gtx, size)
+	fly := make([]*widget.Clickable, len(groups))
+	defer s.noteFlyout(fly)
 	for i, g := range groups {
 		c := s.moveBtn[g.ID]
 		if c == nil {
 			c = &widget.Clickable{}
 			s.moveBtn[g.ID] = c
 		}
+		fly[i] = c
 		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(sw-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "", false)
 	}
 }
@@ -142,6 +145,7 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, anchor image.Rec
 		tops[i] = y
 		y += itemH
 	}
+	s.noteMenu(entries)
 	size := image.Pt(w, y+p)
 	at := kit.Place(anchor, size, s.bounds(), kit.BelowEnd, gtx.Dp(4), gtx.Dp(8)).Sub(anchor.Min)
 	defer op.Offset(at).Push(gtx.Ops).Pop()
@@ -177,7 +181,7 @@ func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickab
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 	gtx.Constraints = layout.Exact(size)
 	clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		if c.Hovered() && !off {
+		if (c.Hovered() || s.keyed(c)) && !off {
 			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
 		}
 		if gtx.Focused(c) {

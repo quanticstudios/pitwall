@@ -22,7 +22,12 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	ps := s.project(p.ID)
 	w, h := gtx.Constraints.Max.X, gtx.Dp(40) // --pane-header-h
 	hovered := ps.toggle.Hovered() || ps.add.Hovered() || ps.more.Hovered()
-	if hovered {
+	cursor := s.cursorOn('g', p.ID)
+	switch {
+	case cursor:
+		paint.FillShape(gtx.Ops, cursorFill(th, th.Sidebar, false), clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
+		cursorRing(gtx, th, image.Rect(0, 0, w, h), gtx.Dp(8))
+	case hovered:
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
 	}
 	attention := 0 // tabs with something the user has not seen
@@ -32,7 +37,10 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		}
 	}
 	bg := th.Sidebar
-	if hovered {
+	switch {
+	case cursor:
+		bg = cursorFill(th, th.Sidebar, false)
+	case hovered:
 		bg = th.SurfaceSecondary
 	}
 	nameCol := theme.Mix(bg, th.Fg, 0.8)

@@ -57,6 +57,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if unseen != nil && !isActive { // the active row's fill keeps clear of state tints
 		base = theme.Mix(base, StateColor(th, unseen.State), 0.1)
 	}
+	cursor := !ghost && s.cursorOn('s', ws.ID)
+	if cursor {
+		base = cursorFill(th, base, isActive)
+	}
 	if ghost {
 		base = th.SurfaceSecondary
 	} else {
@@ -71,7 +75,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if selected || isActive && !ghost {
 		paint.FillShape(gtx.Ops, theme.Mix(base, th.Primary, 0.55), clip.Stroke{Path: clip.UniformRRect(rect.Inset(1), rr-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 	}
-	if !ghost && gtx.Focused(&r.click) {
+	if cursor {
+		cursorRing(gtx, th, rect, rr)
+	} else if !ghost && gtx.Focused(&r.click) {
 		g := gtx.Dp(3)
 		kit.FocusRing(gtx, th, rect.Inset(g), rr-g)
 	}

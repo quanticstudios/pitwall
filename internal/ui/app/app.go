@@ -305,6 +305,7 @@ type ui struct {
 	noticeIn image.Rectangle // the pane that copied, in the pane area
 
 	dismiss   widget.Clickable // State.Notice's close button
+	sideKeys  sidebarKeys      // focus_sidebar's mode, see sidebarfocus.go
 	dismissed string           // the State.Notice closed here, hidden before the daemon clears it
 	noticeTag int              // State.Notice's box, which keeps presses off the pane under it
 }
@@ -431,6 +432,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.diff = false
 		u.toggleReview(st)
 	}
+	if u.nav.sidebarKeys {
+		u.nav.sidebarKeys = false
+		u.toggleSidebarKeys(st)
+	}
 }
 
 // sessionChanged tells the daemon which session the window shows, and
@@ -473,6 +478,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.applyFocus(&st)
 	u.applyJump(&st)
 	u.openRequested(&st, gtx.Now)
+	u.keepSidebarKeys()
 
 	wasVisible := u.nav.switcherVisible()
 	wasMode, wasPane := u.nav.tabMode, u.nav.paneMode
@@ -483,13 +489,13 @@ func (u *ui) layout(gtx gl.Context) {
 	}()
 	// A dialog takes every key: none of the window's shortcuts run behind it.
 	dialog := u.modal.kind != modalNone
-	if !u.sw.open && !u.pal.open && !dialog {
+	if !u.sw.open && !u.pal.open && !dialog && !u.sidebar.Focused() {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 		u.reviewKeys(gtx, &st)
 	}
 	for u.modal.kind == modalNone {
 		filters := u.nav.keyFilters()
-		if u.sw.open || u.pal.open {
+		if u.sw.open || u.pal.open || u.sidebar.Focused() && !u.sidebar.Editing() {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 			filters = append(filters, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
 		}
@@ -513,7 +519,7 @@ func (u *ui) layout(gtx gl.Context) {
 			u.nav.sync(&st)
 			continue
 		}
-		if u.settingsShortcut(ev.(key.Event)) {
+		if u.settingsShortcut(ev.(key.Event)) || u.sidebarKey(&st, ev.(key.Event)) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
@@ -527,6 +533,7 @@ func (u *ui) layout(gtx gl.Context) {
 	if prev := u.showSent; prev != "" && prev != u.nav.session && st.Session(prev) == nil {
 		log.Printf("session %s ended; the window shows %s", prev, u.nav.session)
 	}
+	u.keepSidebarKeys()
 	u.sessionChanged(gtx)
 	u.markSeen(&st)
 	u.writeClipboard(gtx, st.Clipboard)
@@ -560,7 +567,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	event.Op(gtx.Ops, &u.modeTag)
-	if (u.nav.tabMode || u.nav.paneMode || u.sw.open || u.pal.open) && !gtx.Focused(&u.modeTag) {
+	if (u.nav.tabMode || u.nav.paneMode || u.sw.open || u.pal.open || u.sidebar.Focused() && !u.sidebar.Editing()) && !gtx.Focused(&u.modeTag) {
 		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
 	}
 	paint.Fill(gtx.Ops, u.th.Bg)
@@ -643,6 +650,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 		u.sidebar.Answers = u.canAnswer()
 		u.sidebar.Pane = u.nav.focused()
+		u.sidebar.Hints = u.sidebarHints()
 		u.usage.prune(&st)
 		u.sidebar.Usage = func(ws string) *flow.Usage {
 			invalidate := u.invalidate
@@ -652,7 +660,7 @@ func (u *ui) layout(gtx gl.Context) {
 			return u.usage.of(&st, ws, invalidate)
 		}
 		for _, ev := range drawSidebar(sgtx, &u.sidebar, u.th, &st, u.nav.session, u.nav.workspace) {
-			u.sidebarEvent(&st, ev)
+			u.sidebarPointer(&st, ev)
 		}
 		paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: image.Pt(sw, 0), Max: image.Pt(sw+1, area.Max.Y)}.Op())
 		so.Pop()
@@ -847,7 +855,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline {
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline {
 		focused = "" // a dialog, a rename field, tab mode or the palette holds key focus
 	}
 	findFocus := focused != "" && focused == u.find.pane
@@ -949,6 +957,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		}
 		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
 			u.nav.setFocus(id)
+			u.leaveSidebar()
 		}
 	}
 
