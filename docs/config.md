@@ -49,6 +49,10 @@ mono_fallback = ["Noto Sans Mono CJK SC"]
 [layout]
 pane_gap = 4
 pane_margin = 4
+
+[git]
+merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag
+archive_on_merge = false                # archive a merged worktree tab without a click
 ```
 
 Chords are modifiers (`Ctrl`, `Alt`, `Shift`, `Super`) and a key joined by

@@ -20,8 +20,9 @@ import (
 )
 
 // workspaceRow draws tab ws's row: its agent's mark or its state icon,
-// title and pill, then the branch with its diff stats (or the folder) and
-// the time, which the "…" menu trigger and "×" cover on hover. A ghost row is the
+// title and pill, then the branch with its diff stats and PR chip (or the
+// folder) and the time, or "Merged", which the "…" menu trigger and "×",
+// after Archive once merged, cover on hover. A ghost row is the
 // lifted copy under the pointer: no input, no hover buttons, its fill left
 // to the caller. A digit other than "" takes the place of the mark or icon.
 func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, ghost bool, digit string) (layout.Dimensions, bool) {
@@ -30,6 +31,8 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	a := v.activity[ws.ID]
 	isActive := ws.ID == v.active
 	stats, hasStats := v.st.Stats[ws.ID]
+	pr, hasPR := v.st.PRs[ws.ID]
+	merged := hasPR && pr.State == model.PRMerged
 	title := Title(ws)
 
 	w := gtx.Constraints.Max.X
@@ -142,14 +145,30 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				)
 			}})
 		}
+		if inRepo && hasPR {
+			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
+				if ghost {
+					return PRChip(gtx, th, pr, base)
+				}
+				return clickable(gtx, &r.pr, func(gtx layout.Context) layout.Dimensions { return PRChip(gtx, th, pr, base) })
+			}})
+		}
 		switch {
 		case answering: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(answerW+gtx.Dp(6)+2*btn-x, 0)}
 			}})
 		case showMore:
+			n := 2
+			if merged {
+				n++ // Archive
+			}
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(2*btn-x, 0)}
+				return layout.Dimensions{Size: image.Pt(n*btn-x, 0)}
+			}})
+		case inRepo && merged:
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, 11, th.Purple, "Merged")
 			}})
 		case inRepo && hasStats && stats.MergeStatus == model.MergeConflicts:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -209,6 +228,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	off.Pop()
+	if showMore && merged {
+		pos.X -= btn
+		off := op.Offset(pos).Push(gtx.Ops)
+		iconButton(gtx, th, &r.archive, icArchive, btn, glyph, true)
+		off.Pop()
+	}
 	return layout.Dimensions{Size: rect.Size()}, animating
 }
 

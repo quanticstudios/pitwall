@@ -1,0 +1,27 @@
+{
+  "isDraft": false,
+  "mergeable": "CONFLICTING",
+  "number": 77,
+  "reviewDecision": "REVIEW_REQUIRED",
+  "state": "CLOSED",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-09-30T18:40:00Z",
+      "conclusion": "CANCELLED",
+      "detailsUrl": "https://github.com/example/widgets/actions/runs/900/job/1900",
+      "name": "build",
+      "startedAt": "2026-09-30T18:39:00Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "StatusContext",
+      "context": "ci/jenkins",
+      "startedAt": "2026-09-30T18:39:00Z",
+      "state": "ERROR",
+      "targetUrl": "https://jenkins.example.com/job/widgets/12"
+    }
+  ],
+  "url": "https://github.com/example/widgets/pull/77"
+}

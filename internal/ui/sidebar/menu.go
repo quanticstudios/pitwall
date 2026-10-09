@@ -67,9 +67,12 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 	}
 	if _, git := v.st.Stats[ws.ID]; git {
 		diff, pr := ReviewBlocked(v.st, ws, s.GH)
-		entries = append(entries,
-			menuEntry{c: &s.menuItem[actDiff], icon: icFileDiff, text: "View diff", sep: true, off: diff != "", hint: diff},
-			menuEntry{c: &s.menuItem[actPR], icon: icGitPullRequest, text: "Create pull request", off: pr != "", hint: pr})
+		entries = append(entries, menuEntry{c: &s.menuItem[actDiff], icon: icFileDiff, text: "View diff", sep: true, off: diff != "", hint: diff})
+		if p, ok := v.st.PRs[ws.ID]; ok && p.State != model.PRClosed {
+			entries = append(entries, s.prEntries(v, ws, p)...)
+		} else {
+			entries = append(entries, menuEntry{c: &s.menuItem[actPR], icon: icGitPullRequest, text: "Create pull request", off: pr != "", hint: pr})
+		}
 	}
 	entries = append(entries,
 		menuEntry{c: &s.menuItem[actDetach], icon: icDetach, text: "Detach tab", sep: true},

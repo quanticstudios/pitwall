@@ -410,6 +410,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.find = false
 		u.openFind()
 	}
+	if a := u.nav.prAct; a != "" {
+		u.nav.prAct = ""
+		u.prAction(st, u.nav.workspace, a)
+	}
 }
 
 // sessionChanged tells the daemon which session the window shows, and
@@ -742,6 +746,15 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		if m := u.nav.review(st, e.WorkspaceID, "create_pr"); m != nil {
 			u.send(m)
 		}
+	case sidebar.OpenPR:
+		u.prAction(st, e.WorkspaceID, "open_pr")
+	case sidebar.MergePR:
+		u.prAction(st, e.WorkspaceID, "merge_pr")
+	case sidebar.RerunChecks:
+		u.prAction(st, e.WorkspaceID, "rerun_checks")
+	case sidebar.Archive:
+		u.modal.open(modalDelete, e.WorkspaceID)
+		u.modal.archive, u.modal.removeBranch = true, true
 	}
 }
 

@@ -1,0 +1,20 @@
+{
+  "isDraft": false,
+  "mergeable": "UNKNOWN",
+  "number": 118,
+  "reviewDecision": "APPROVED",
+  "state": "MERGED",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-07T09:12:30Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/example/widgets/actions/runs/990/job/1990",
+      "name": "build",
+      "startedAt": "2026-10-07T09:10:02Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    }
+  ],
+  "url": "https://github.com/example/widgets/pull/118"
+}

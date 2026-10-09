@@ -192,6 +192,10 @@ type State struct {
 	Panes      []Pane
 	Activities []Activity             // one per pane with an agent or a running command
 	Stats      map[string]BranchStats // keyed by workspace id
+	// PRs is the pull request of each tab's branch, keyed by workspace id,
+	// for tabs whose branch has one gh can see. The daemon fills it in; it
+	// is not saved.
+	PRs map[string]PR `json:"-"`
 	// Decide is the decision features' status. The daemon fills it in; it
 	// is not saved.
 	Decide DecideInfo `json:"-"`
@@ -295,8 +299,8 @@ func (s *State) SessionOf(id string) string {
 	return ""
 }
 
-// View is the state with only session's groups, tabs, panes, activities
-// and stats; Sessions stays whole.
+// View is the state with only session's groups, tabs, panes, activities,
+// stats and PRs; Sessions stays whole.
 func (s *State) View(session string) State {
 	v := *s
 	v.Projects = slices.DeleteFunc(slices.Clone(s.Projects), func(p Project) bool { return p.SessionID != session })
@@ -311,6 +315,12 @@ func (s *State) View(session string) State {
 	for id, st := range s.Stats {
 		if in[id] {
 			v.Stats[id] = st
+		}
+	}
+	v.PRs = make(map[string]PR, len(s.PRs))
+	for id, pr := range s.PRs {
+		if in[id] {
+			v.PRs[id] = pr
 		}
 	}
 	return v

@@ -33,6 +33,7 @@ type Config struct {
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see docs/decisions.md for what each feature sends."`
 	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Notify    Notify    `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
+	Git       Git       `toml:"git" doc:"Pull requests: how Merge PR merges, and whether a merged worktree tab archives itself."`
 	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Hosts     []Host    `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
 }
@@ -90,6 +91,9 @@ type Keys struct {
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
 	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the tab's changes since its default branch, committed or not, in your git pager in a new pane"`
 	CreatePR        Binding `toml:"create_pr" group:"Review" doc:"Create pull request: gh pr create --fill in a new tab in the tab's folder, after git push -u origin HEAD when the branch has no upstream"`
+	OpenPR          Binding `toml:"open_pr" group:"Review" doc:"Open PR: the tab's pull request in your browser"`
+	MergePR         Binding `toml:"merge_pr" group:"Review" doc:"Merge PR: gh pr merge in a new tab, by [git] merge_method, after you confirm, and again when checks failed"`
+	RerunChecks     Binding `toml:"rerun_checks" group:"Review" doc:"Re-run failed checks: gh run rerun --failed on the branch's latest failed run, in a new tab"`
 	OpenSettings    Binding `toml:"open_settings" group:"Window" doc:"Show or hide the settings page"`
 	CommandPalette  Binding `toml:"command_palette" group:"Window" doc:"Show the command palette: every action with its keys, to find and run one"`
 	TabPrefix       Binding `toml:"tab_prefix" group:"Tabs" doc:"Tab mode: the next key runs a [keys.tab] action. Pressed twice it sends its control character to the pane"`
@@ -249,6 +253,10 @@ type Settings struct {
 	Remote RemoteSettings
 	// Notifications is [notifications] resolved.
 	Notifications NotifySettings
+	// MergeMethod is [git] merge_method: squash, merge or rebase.
+	MergeMethod string
+	// ArchiveOnMerge archives a merged worktree tab without a click.
+	ArchiveOnMerge bool
 	// Hosts is [[hosts]] as written.
 	Hosts []Host
 	// Notes are things that work but should change, like an action under
@@ -425,6 +433,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ri...)
 	s.Notifications, ri = resolveNotifications(c.Notify)
 	fi = append(fi, ri...)
+	fi = append(fi, resolveGit(c.Git, &s)...)
 	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
 	var wi []issue
 	s.Worktrees, wi = resolveWorktrees(c.Worktrees, WorktreeSettings{PortBase: DefaultPortBase, PortStep: DefaultPortStep}, "worktrees.")

@@ -47,6 +47,16 @@ build. Either step takes `--dry-run`.
   shows a notice once, and `limits_in_sidebar = true` under `[usage]` adds
   a meter to the bottom of the sidebar that turns yellow at 80% and red at
   95%. pitwall never asks Anthropic or OpenAI for them.
+- A tab whose branch has a pull request shows it on its row: the number in
+  the PR's state color, a CI dot and the review, with each check by name
+  in the hover card. Click it to open the PR. The tab's menu and the
+  command palette gain Open PR, Merge PR (asks first, and again when checks
+  failed; `[git] merge_method` picks squash, merge or rebase) and Re-run
+  failed checks. A merged tab says Merged and offers Archive, which closes
+  it and removes its worktree and branch; `[git] archive_on_merge = true`
+  does that on its own. The daemon asks `gh` about each branch every minute
+  or so, slower while no window has focus, and shows nothing without `gh`
+  or a login.
 
 ## v0.1.0-beta.2
 

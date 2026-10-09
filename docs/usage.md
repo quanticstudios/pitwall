@@ -219,6 +219,30 @@ installed, the tab is on the default branch, or the branch has no commits
 ahead of it. Neither action has a key by default; set `view_diff` or
 `create_pr` under `[keys]` to give them one.
 
+Once the branch has a pull request, its row shows a chip with the number,
+green while open, grey as a draft, purple once merged and red when closed.
+On an open one, a dot before the number is CI: yellow while checks run,
+green when they pass, red when one failed, and a check or a red diff glyph
+after it is the review: approved, or changes requested. The hover card lists
+the checks by name. Click the chip to open the pull request in your browser.
+The daemon asks `gh pr view` about each branch: at once for a new branch,
+every minute for an open pull request and every five for a branch without
+one, five times slower while no pitwall window has focus, and not at all
+for 15 minutes after GitHub says its rate limit is hit. It never asks you to
+log in: without `gh`, or logged out, the row shows nothing.
+
+The "…" menu and the command palette then have Open PR, Merge PR and, when
+a check failed, Re-run failed checks in place of Create pull request.
+Merge PR asks first and, with failed checks, asks again; it runs
+`gh pr merge --squash` in a new tab, or `--merge` or `--rebase` per
+`merge_method` under `[git]`. Re-run failed checks runs
+`gh run rerun --failed` on the branch's latest failed run, in a tab too.
+When the pull request has merged, the row says Merged and its hover buttons
+add Archive, which closes the tab and, for a worktree pitwall made, removes
+the worktree and deletes the branch, as Delete does with its box ticked.
+Set `archive_on_merge = true` under `[git]` to archive a merged worktree
+tab without the click.
+
 Under the tabs, a line shows the agent's model, the tokens its session used
 and how full its context window is, with a small meter that turns yellow at
 80% and red at 95%. Flow's Session section splits the tokens into input,
