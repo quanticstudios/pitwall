@@ -17,6 +17,16 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- The command palette fits its results instead of keeping a fixed height,
+  lists the actions you ran last first, and shows the letters you typed in
+  bold. "Go to tab 1–9" with Alt+1…9 replaces nine Go to tab rows, and
+  Split the pane below and the other pane mode actions that repeat a window
+  action are listed once with all their keys. When nothing matches, it says
+  what you can search by.
+- The find bar has up, down and close buttons, and its border turns red
+  when nothing matches.
+- The session switcher's preview shows the session's tabs and groups
+  without the sidebar's header and footer buttons.
 - The daemon sends a window only the panes it draws, and of those only
   the rows that changed. Agents in other tabs and sessions keep running,
   and a pane shows its current screen as soon as you switch to it. With 32
