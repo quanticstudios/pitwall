@@ -74,7 +74,7 @@ type Sidebar struct {
 	dismiss  int                          // tag for the click-outside catcher
 
 	groupMenu string // group whose overflow menu is open
-	groupItem [4]widget.Clickable
+	groupItem [5]widget.Clickable
 
 	// pending holds the group ids from before a NewGroup; the id that is
 	// not in it once the state changes is the new group, renamed inline.
@@ -122,6 +122,10 @@ type Sidebar struct {
 	cardHover bool
 	fileBtn   map[string]*widget.Clickable
 	fileFor   string
+
+	// The queued tasks: this frame's blocks, and each task's row state.
+	queue    []queueBlock
+	taskRows map[string]*taskRow
 
 	events []Event
 }
@@ -293,6 +297,7 @@ type view struct {
 	top           []string                     // groups and live ungrouped sessions, in order
 	groups        map[string]bool
 	agent         map[string]model.Provider // a live session's agent, idle or busy
+	queued        map[string][]model.Task   // the session's queued tasks by the group they show under, "" for none
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
@@ -336,6 +341,16 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 	for _, id := range st.TopOrder(session) {
 		if _, live := v.activity[id]; live || groups[id] {
 			v.top = append(v.top, id)
+		}
+	}
+	v.queued = map[string][]model.Task{}
+	for _, t := range st.Tasks {
+		if t.SessionID == session {
+			g := t.GroupID
+			if !groups[g] {
+				g = ""
+			}
+			v.queued[g] = append(v.queued[g], t)
 		}
 	}
 	return v

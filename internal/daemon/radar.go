@@ -291,5 +291,5 @@ func (d *Daemon) tabName(id, fallback string) string {
 // radarSetting reads [git] conflict_radar from the config at path, again
 // only when the file changed.
 func radarSetting(path string) func() bool {
-	return setting(path, func(s config.Settings) bool { return s.ConflictRadar })
+	return setting(path, true, func(s config.Settings) bool { return s.ConflictRadar })
 }

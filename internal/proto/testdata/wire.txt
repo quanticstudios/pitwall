@@ -1,4 +1,4 @@
-16.11
+16.12
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -13,8 +13,9 @@ model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string
 model.PortBlock{First int; Last int}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
+model.Task{ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string}
 model.Workspace{ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string}
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
 proto.AddProject{Path string; SessionID string}
@@ -28,6 +29,7 @@ proto.DeleteWorkspace{WorkspaceID string; RemoveBranch bool; Force bool}
 proto.DeleteWorktree{Root string; Path string; Force bool}
 proto.DetachSession{WorkspaceID string; Detached bool}
 proto.DismissNotice{Notice string}
+proto.DropTask{ID string; Start bool}
 proto.Error{Message string}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string}
 proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64}
@@ -40,6 +42,7 @@ proto.MoveSession{WorkspaceID string; GroupID string; Before string}
 proto.NewGroup{Name string; WorkspaceIDs []string}
 proto.NewSession{Name string; Cwd string; GroupID string; SessionID string; Cmd []string; FromPane string; Loose bool}
 proto.NewTab{WorkspaceID string; Cwd string; FromPane string}
+proto.NewTask{Task model.Task; Queue bool; FromPane string}
 proto.NewWorkspace{ProjectID string; Name string; From model.WorktreeFrom; Cmd []string}
 proto.OpenPane{WorkspaceID string; TabID string; Target string; Dir layout.Dir; Cmd []string}
 proto.PaneExited{Pane string; ExitCode int}

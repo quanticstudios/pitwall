@@ -48,6 +48,7 @@ func TestSaveLoad(t *testing.T) {
 		},
 		Activities: []model.Activity{{PaneID: "p1", WorkspaceID: "workspace", Provider: model.ProviderClaude, SessionID: "session", State: model.StateWorking, Detail: "saving", UpdatedAt: now}},
 		Stats:      map[string]model.BranchStats{"workspace": {Additions: 10, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 1, Behind: 3}},
+		Tasks:      []model.Task{{ID: "task", SessionID: "s", GroupID: "project", Dir: "/repo", Worktree: "fix", Base: "main", Cmd: []string{"codex", "fix it"}}},
 	}
 	// Overwrite an existing snapshot as well as creating the first one.
 	for _, state := range []model.State{{}, want} {

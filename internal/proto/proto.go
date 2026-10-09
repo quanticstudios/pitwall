@@ -40,6 +40,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 12 added State.Tasks, NewTask and DropTask: the task queue.
 // Level 11 added NewWorkspace.From and Cmd, DeleteWorkspace.Force,
 // WorktreeQuery, WorktreeInfo and DeleteWorktree.
 // Level 10 added State.Overlaps, the conflict radar.
@@ -87,12 +88,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 11
+const Level = 12
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case NewTask, DropTask:
+		return 12
 	case WorktreeQuery, WorktreeInfo, DeleteWorktree:
 		return 11
 	case Answer:

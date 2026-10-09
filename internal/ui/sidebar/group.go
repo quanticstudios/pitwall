@@ -112,6 +112,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		if p.Kind == model.ProjectGit {
 			entries = append(entries, menuEntry{c: &s.groupItem[3], icon: projectIcon("git-branch"), text: "New tab in a worktree"})
 		}
+		entries = append(entries, menuEntry{c: &s.groupItem[4], icon: icPlay, text: "New task…"})
 		entries = append(entries, menuEntry{c: &s.groupItem[2], icon: projectIcon("layers"), text: "Ungroup", sep: true})
 		s.menuList(gtx, th, btn, entries)
 		op.Defer(gtx.Ops, m.Stop())

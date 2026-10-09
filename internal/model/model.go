@@ -3,8 +3,10 @@
 package model
 
 import (
+	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -221,6 +223,8 @@ type State struct {
 	// other tabs whose branches change some of the same files. The daemon
 	// fills it in; it is not saved.
 	Overlaps map[string][]Overlap `json:"-"`
+	// Tasks are the queued tasks of every session, first to start first.
+	Tasks []Task
 }
 
 // Overlap is another tab whose branch, in the same repository, changes
@@ -234,6 +238,41 @@ type Overlap struct {
 	// Conflicts counts the files that merging the two branches' commits
 	// would leave in conflict. Uncommitted changes are never counted.
 	Conflicts int
+}
+
+// Task is an agent to start on a prompt, in a tab of its own: at once, or
+// from its session's queue (State.Tasks) when an agent there finishes.
+type Task struct {
+	ID        string
+	SessionID string
+	GroupID   string // the group its tab joins and its queue entry shows under, "" for none
+	// Dir is the folder the agent runs in, or the repo a worktree is made
+	// from.
+	Dir string
+	// Worktree names a new worktree and its branch, made off Base, or the
+	// default branch when Base is "". Branch instead checks out an
+	// existing branch in a new worktree. With neither, the agent runs in
+	// Dir.
+	Worktree, Base, Branch string
+	Cmd                    []string // the agent, its flags and the prompt
+}
+
+// Title is the first line of a task's last argument, its prompt, or the
+// command's name when it has no arguments.
+func (t Task) Title() string {
+	if len(t.Cmd) == 0 {
+		return ""
+	}
+	s := t.Cmd[len(t.Cmd)-1]
+	if len(t.Cmd) == 1 {
+		s = filepath.Base(s)
+	}
+	for l := range strings.Lines(s) {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return ""
 }
 
 // Clipboard is an OSC 52 clipboard write. A GUI writes Text once per Seq;

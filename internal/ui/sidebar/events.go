@@ -5,7 +5,7 @@ package sidebar
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
-// RerunChecks, Archive.
+// RerunChecks, Archive, NewTaskIn, DropTask.
 type Event any
 
 // OpenSessions is a click on the session name in the header: show the
@@ -96,3 +96,12 @@ type Ungroup struct{ GroupID string }
 // NewWorktreeSession asks for a tab in a fresh git worktree of the group's
 // repository.
 type NewWorktreeSession struct{ GroupID string }
+
+// NewTaskIn opens the New task dialog on the group's folder.
+type NewTaskIn struct{ GroupID string }
+
+// DropTask takes a queued task off the queue, and with Start starts it.
+type DropTask struct {
+	ID    string
+	Start bool
+}

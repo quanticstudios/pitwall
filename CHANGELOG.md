@@ -100,6 +100,16 @@ build. Either step takes `--dry-run`.
   opens a tab, `-- cmd` runs a command in it.
 - `pitwall completion bash`, `zsh` or `fish` prints a completion script for
   every pitwall command.
+- Start an agent on a task from the window: New task (Ctrl+Shift+A, the
+  command palette, or a group's menu) picks the project, where it runs
+  (the folder, a new worktree off a branch you choose, or an existing
+  branch), the agent on your PATH, Claude's or Codex's permission mode, and
+  the prompt. Queue holds the task until a running agent of the session
+  finishes, or under `[agents] max_running` until fewer than that many run.
+  The queue shows under its group in the sidebar, survives a daemon
+  restart, and `pitwall queue ls`, `add` and `rm` manage it from a shell.
+  Windows need a daemon of this release for tasks; an older one says so in
+  the dialog.
 
 ## v0.1.0-beta.2
 

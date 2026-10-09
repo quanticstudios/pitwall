@@ -31,6 +31,7 @@ conventional:
 | Ctrl+Shift+L                            | Show or hide the agent panel                              |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Shift+Y / Ctrl+Shift+D             | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
+| Ctrl+Shift+A                            | New task: an agent on a prompt, started now or queued     |
 | Ctrl+Shift+S                            | Session switcher                                          |
 | Ctrl+Shift+] / Ctrl+Shift+[             | Next / previous session                                   |
 | Ctrl+Shift+N                            | New session                                               |
@@ -63,6 +64,7 @@ aide:
 | Ctrl+Shift+L                      | Show or hide the agent panel                   |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Shift+Y / Ctrl+Shift+D       | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
+| Ctrl+Shift+A                      | New task: an agent on a prompt, started now or queued |
 | Alt+S                             | Session switcher                               |
 | Alt+] / Alt+[                     | Next / previous session                        |
 | Ctrl+Shift+P                      | Command palette: every action and its keys     |

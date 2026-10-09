@@ -125,24 +125,24 @@ func (d *Daemon) setClipboard(seq uint64, text string) {
 // bellSetting reads [terminal] bell from the config at path, again only
 // when the file changed.
 func bellSetting(path string) func() bool {
-	return setting(path, func(s config.Settings) bool { return s.Bell })
+	return setting(path, true, func(s config.Settings) bool { return s.Bell })
 }
 
-// setting reads one switch, pick, from the config at path, again only when
-// the file changed.
-func setting(path string, pick func(config.Settings) bool) func() bool {
+// setting reads one value of the config at path with get, again only when
+// the file changed; it is def until the file exists.
+func setting[T any](path string, def T, get func(config.Settings) T) func() T {
 	var mu sync.Mutex
 	var stamp string
-	on := true
-	return func() bool {
+	v := def
+	return func() T {
 		mu.Lock()
 		defer mu.Unlock()
 		if st := fileStamp(path); st != stamp {
 			stamp = st
 			s, _ := config.LoadFile(path)
-			on = pick(s)
+			v = get(s)
 		}
-		return on
+		return v
 	}
 }
 

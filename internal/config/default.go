@@ -28,6 +28,8 @@ func defaults() Config {
 	c.Git = defaultGit()
 	c.Remote = defaultRemote()
 	c.Notify = defaultNotifications()
+	none := 0.0
+	c.Agents.MaxRunning = &none
 	return c
 }
 

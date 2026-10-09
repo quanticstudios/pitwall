@@ -292,8 +292,9 @@ type ui struct {
 
 	hooks hooksDialog // the Install hooks dialog and the pane notices
 
-	gui     guiState // gui.json as loaded, and as last saved
-	welcome welcome  // the first-run card
+	gui     guiState   // gui.json as loaded, and as last saved
+	welcome welcome    // the first-run card
+	task    taskDialog // the New task dialog, shown as modalTask
 
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
@@ -417,6 +418,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 	if u.nav.cleanup {
 		u.nav.cleanup = false
 		u.openCleanup()
+	}
+	if u.nav.task {
+		u.nav.task = false
+		u.openTask(st, "")
 	}
 }
 
@@ -728,6 +733,13 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.sw.openAt(st, u.nav.session, "pick", time.Now())
 	case sidebar.NewWorktreeSession:
 		u.openNewWorktree(st, e.GroupID)
+	case sidebar.NewTaskIn:
+		u.openTask(st, e.GroupID)
+	case sidebar.DropTask:
+		if e.Start {
+			u.nav.expectSession(st)
+		}
+		u.send(proto.DropTask{ID: e.ID, Start: e.Start})
 	case sidebar.SetProjectAppearance:
 		u.send(proto.SetProjectAppearance{ProjectID: e.ProjectID, Icon: e.Icon, Color: e.Color})
 	case sidebar.MoveSession:
