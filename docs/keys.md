@@ -17,7 +17,10 @@ action, its group and the keys bound to it in your config, filtered as you
 type. Enter runs the highlighted one, the same as its key would; an action
 with no key, like the tab and pane mode ones while their prefix is unbound,
 runs from there too. Arrows or Ctrl+J/K move, Esc closes. Rebind it with
-`command_palette`.
+`command_palette`. With nothing typed, the last five actions you ran from
+it come first. A pane mode action that does what a window action does,
+such as Split the pane below, is one row with both keys. The nine Go to
+tab actions are one row, "Go to tab 1–9", until you type a digit.
 
 conventional:
 
@@ -140,7 +143,9 @@ Ctrl+Shift+F (Cmd+F in mac) opens a find bar at the top right of the focused pan
 searches the pane's history (10,000 lines unless `scrollback` says otherwise) and screen as you type,
 ignoring case unless the query has a capital letter. Enter or F3 goes to the
 next match up, Shift+Enter or Shift+F3 back down, and the bar shows "3 of 17".
-Escape closes it and returns to the live screen. A line that wrapped matches
+The up, down and × buttons at the bar's right edge do the same, and its
+border turns red when nothing matches. Escape closes it and returns to the
+live screen. A line that wrapped matches
 only within each of its rows. While the background service runs a pitwall
 from before find, the bar says "Search needs the background service
 restarted" and searches nothing; it searches once the service restarts.

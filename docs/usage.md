@@ -169,7 +169,7 @@ Ctrl+Shift+S (Alt+S in the aide preset), or a click on the session name in
 the sidebar header, opens the session switcher. It lists every session with
 its agents, how many are working and how many need you, and when it was last
 active; a session with something you have not seen gets an accent bar. The
-right side draws the highlighted session's sidebar as it is now, so you can
+right side draws the highlighted session's tabs and groups as they are now, so you can
 watch its agents before you switch. In the switcher:
 
 | Key           | Does                                                                     |

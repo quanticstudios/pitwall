@@ -3,7 +3,9 @@ package app
 import (
 	"fmt"
 	"image"
+	"image/color"
 
+	"gioui.org/f32"
 	"gioui.org/io/key"
 	gl "gioui.org/layout"
 	"gioui.org/op"
@@ -13,7 +15,9 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -40,6 +44,8 @@ type findBar struct {
 	atOK bool
 	jump bool // scroll the current match into view
 	keep bool // the pane is in copy mode: Esc leaves its view where it is
+
+	up, down, shut widget.Clickable // the buttons: Enter's step, Shift+Enter's, Esc
 }
 
 // current is the current match, if there is one.
@@ -151,6 +157,17 @@ func (u *ui) keepFind(st *model.State) {
 // g, Y -1 for none.
 func (u *ui) findFrame(gtx gl.Context, g *vt.Grid) (string, image.Point) {
 	f := &u.find
+	if f.shut.Clicked(gtx) {
+		u.closeFind(!f.keep)
+		gtx.Execute(op.InvalidateCmd{})
+		return "", image.Pt(0, -1)
+	}
+	for f.up.Clicked(gtx) {
+		f.step(1)
+	}
+	for f.down.Clicked(gtx) {
+		f.step(-1)
+	}
 	for {
 		ev, ok := gtx.Event(
 			key.Filter{Focus: &f.ed, Name: key.NameEscape},
@@ -217,16 +234,18 @@ func (u *ui) findFrame(gtx gl.Context, g *vt.Grid) (string, image.Point) {
 }
 
 // drawFind draws the find bar at the top right of area, the pane's
-// terminal, and gives it key focus when focus is set.
+// terminal, and gives it key focus when focus is set. Its right edge holds
+// the count and the up, down and close buttons; its border is red when
+// nothing matches.
 func (u *ui) drawFind(gtx gl.Context, area image.Rectangle, focus bool) {
 	th, f := u.th, &u.find
 	if focus && !gtx.Focused(&f.ed) {
 		gtx.Execute(key.FocusCmd{Tag: &f.ed})
 	}
-	in, w := gtx.Dp(8), gtx.Dp(320)
+	in, w := gtx.Dp(8), gtx.Dp(380)
 	hint := "Find"
 	if f.ed.ReadOnly {
-		hint, w = searchOld, gtx.Dp(360)
+		hint, w = searchOld, gtx.Dp(420)
 	}
 	w, h := min(w, area.Dx()-2*in), gtx.Dp(32)
 	if w < gtx.Dp(120) || area.Dy() < h+2*in {
@@ -236,8 +255,12 @@ func (u *ui) drawFind(gtx gl.Context, area image.Rectangle, focus bool) {
 	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
 	box := image.Rectangle{Max: r.Size()}
 	rr := gtx.Dp(8)
+	none := f.label() == "No matches"
 	border := theme.Mix(th.SurfaceElevated, th.Fg, 0.1)
-	if gtx.Focused(&f.ed) {
+	switch {
+	case none:
+		border = th.Red
+	case gtx.Focused(&f.ed):
 		border = theme.Mix(th.SurfaceElevated, th.Primary, 0.6)
 	}
 	paint.FillShape(gtx.Ops, border, clip.UniformRRect(box, rr).Op(gtx.Ops))
@@ -248,10 +271,29 @@ func (u *ui) drawFind(gtx gl.Context, area image.Rectangle, focus bool) {
 	settings.SearchIcon(gtx, th.Muted, is)
 	o.Pop()
 
-	right := w - gtx.Dp(10)
+	// The buttons, 24dp, 4dp in from the right edge and 2dp apart.
+	bs, bgap := gtx.Dp(24), gtx.Dp(2)
+	right := w - (h-bs)/2
+	live := len(f.res.Matches) > 0
+	for _, b := range []struct {
+		c    *widget.Clickable
+		k    kit.Kind
+		icon func(gl.Context, color.NRGBA, int)
+	}{
+		{&f.shut, kit.Ghost, func(gtx gl.Context, c color.NRGBA, s int) { sidebar.Icon(gtx, "x", s, c) }},
+		{&f.down, kit.Ghost.When(live), chevron(false)},
+		{&f.up, kit.Ghost.When(live), chevron(true)},
+	} {
+		right -= bs
+		o := op.Offset(image.Pt(right, (h-bs)/2)).Push(gtx.Ops)
+		kit.IconButton(gtx, th, b.c, b.k, kit.Small, b.icon)
+		o.Pop()
+		right -= bgap
+	}
+	right -= gtx.Dp(6)
 	if s := f.label(); s != "" {
 		col := th.Muted
-		if s == "No matches" {
+		if none {
 			col = th.Red
 		}
 		call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), col, s)
@@ -277,4 +319,21 @@ func (u *ui) drawFind(gtx gl.Context, area image.Rectangle, focus bool) {
 		return f.ed.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceElevated, th.Primary, 0.35)))
 	})
 	o.Pop()
+}
+
+// chevron draws lucide's chevron-up, or chevron-down, in a size box.
+func chevron(up bool) func(gl.Context, color.NRGBA, int) {
+	return func(gtx gl.Context, col color.NRGBA, size int) {
+		s := float32(size) / 24
+		tip, ends := float32(9), float32(15)
+		if !up {
+			tip, ends = ends, tip
+		}
+		var p clip.Path
+		p.Begin(gtx.Ops)
+		p.MoveTo(f32.Pt(6*s, ends*s))
+		p.LineTo(f32.Pt(12*s, tip*s))
+		p.LineTo(f32.Pt(18*s, ends*s))
+		paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p.End(), Width: 2 * s}.Op())
+	}
 }

@@ -147,6 +147,9 @@ type guiState struct {
 	// Reviewed is the review view's marks: repository root, then path,
 	// then the hash of the change that was reviewed (review.File.Hash).
 	Reviewed map[string]map[string]string `json:"reviewed,omitempty"`
+	// Recent is the command palette's last run actions, newest first
+	// (paletteEntry.id).
+	Recent []string `json:"recent_actions,omitempty"`
 }
 
 func guiStatePath() string { return filepath.Join(config.StateDir(), "gui.json") }

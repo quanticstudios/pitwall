@@ -29,6 +29,9 @@ type Sidebar struct {
 	// ExpandAll starts every group expanded, for a drawing of a session
 	// the window does not show (the session switcher's preview).
 	ExpandAll bool
+	// TreeOnly draws the rows alone, without the header and footer, for
+	// the session switcher's preview.
+	TreeOnly bool
 	// Update labels the footer's update button; "" hides it.
 	Update string
 	// Host is the ssh host the daemon runs on, named in the header; ""
@@ -282,8 +285,14 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	gtx.Constraints = layout.Exact(image.Pt(w-1, h))
 	animating, moving := false, false
 	s.editorLaidOut = false
+	bar := func(f func(gtx layout.Context) layout.Dimensions) layout.FlexChild {
+		if s.TreeOnly {
+			f = func(layout.Context) layout.Dimensions { return layout.Dimensions{} }
+		}
+		return layout.Rigid(f)
+	}
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.header(gtx, th, name) }),
+		bar(func(gtx layout.Context) layout.Dimensions { return s.header(gtx, th, name) }),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			// px-2: rows and group headers keep clear of both edges.
 			return layout.Inset{Left: listPad, Right: listPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -292,7 +301,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 				return d
 			})
 		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.footer(gtx, v) }),
+		bar(func(gtx layout.Context) layout.Dimensions { return s.footer(gtx, v) }),
 	)
 	if !s.editorLaidOut {
 		s.cancelRename()

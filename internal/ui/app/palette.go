@@ -10,6 +10,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 )
 
 // palette is the command palette's state, kept free of Gio windows so its
@@ -21,6 +22,7 @@ type palette struct {
 	query    string
 	sel      int // the highlighted row of rank's result
 	openedAt time.Time
+	height   anim.Value // the card's height, easing to fit the rows
 	list     listScroll
 	draw     paletteDraw
 }
@@ -33,7 +35,7 @@ type paletteEntry struct {
 
 func (p *palette) openAt(now time.Time) {
 	if !p.open {
-		p.openedAt, p.list.selY = now, -1
+		p.openedAt, p.list.selY, p.height = now, -1, anim.Value{}
 	}
 	p.open, p.query, p.sel = true, "", 0
 }
@@ -177,9 +179,9 @@ func wordChar(c byte) bool {
 }
 
 // key applies one key press to the open palette: Escape closes it, the
-// arrows, Tab and Ctrl+J/K move, typing filters, and Enter closes it and
-// returns the highlighted action to run.
-func (p *palette) key(rows []paletteEntry, e key.Event) *config.Action {
+// arrows, Tab and Ctrl+J/K move, typing filters, and Enter picks the
+// highlighted row.
+func (p *palette) key(rows []paletteEntry, e key.Event) *paletteEntry {
 	if e.State != key.Press || modifierKey(e.Name) {
 		return nil
 	}
@@ -188,10 +190,7 @@ func (p *palette) key(rows []paletteEntry, e key.Event) *config.Action {
 	case e.Name == key.NameEscape:
 		p.close()
 	case e.Name == key.NameReturn || e.Name == key.NameEnter:
-		if p.sel < len(rows) {
-			p.close()
-			return &rows[p.sel].action
-		}
+		return p.pick(rows, p.sel)
 	case e.Name == key.NameUpArrow, e.Name == "K" && e.Modifiers == key.ModCtrl,
 		e.Name == key.NameTab && e.Modifiers == key.ModShift:
 		move(-1)
@@ -217,6 +216,20 @@ func (p *palette) key(rows []paletteEntry, e key.Event) *config.Action {
 	return nil
 }
 
+// pick is row i run: it closes the palette and returns the row. "Go to
+// tab 1–9" asks for the digit instead, and the palette stays open.
+func (p *palette) pick(rows []paletteEntry, i int) *paletteEntry {
+	if i < 0 || i >= len(rows) {
+		return nil
+	}
+	if rows[i].action.Name == gotoAny {
+		p.query, p.sel = "go to tab ", 0
+		return nil
+	}
+	p.close()
+	return &rows[i]
+}
+
 // paletteKey runs one key in the open palette. Its own shortcut closes it.
 func (u *ui) paletteKey(st *model.State, e key.Event) {
 	b := u.nav.bind()
@@ -224,12 +237,24 @@ func (u *ui) paletteKey(st *model.State, e key.Event) {
 		if e.State == key.Press {
 			u.pal.close()
 		}
-	} else if a := u.pal.key(rank(paletteEntries(b), u.pal.query), e); a != nil {
-		u.runAction(st, *a)
+	} else if r := u.pal.key(paletteRows(b, u.pal.query, u.gui.Recent), e); r != nil {
+		u.runEntry(st, *r)
 	}
 	if !u.pal.open {
 		u.nav.swallow = e.Name // its release must not reach the pane
 	}
+}
+
+// runEntry runs the palette's row e and puts it first among the recent
+// ones.
+func (u *ui) runEntry(st *model.State, e paletteEntry) {
+	if r := pushRecent(u.gui.Recent, e.id()); !slices.Equal(r, u.gui.Recent) {
+		u.gui.Recent = r
+		if u.report != nil { // a real window, not a test
+			saveGUIState(u.gui)
+		}
+	}
+	u.runAction(st, e.action)
 }
 
 // runAction runs a as its key would; the palette's Enter and click come
