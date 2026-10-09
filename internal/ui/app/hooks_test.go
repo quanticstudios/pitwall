@@ -32,23 +32,29 @@ func TestHookChanges(t *testing.T) {
 
 // The dialog shows the dry run first and installs only on confirm; with
 // nothing to change, confirm closes it. An install hides the pane notices.
+// The statusline box goes to both runs.
 func TestHooksDialog(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		dry  string
-		want []bool
+		name       string
+		dry        string
+		statusline bool
+		want       []bool
 	}{
-		{"changes", "/h/.claude/settings.json: added Stop: 'x' hook claude\n/h/.codex/hooks.json: unchanged\n", []bool{true, false}},
-		{"nothing to do", "/h/.claude/settings.json: unchanged\n", []bool{true}},
+		{"changes", "/h/.claude/settings.json: added Stop: 'x' hook claude\n/h/.codex/hooks.json: unchanged\n", false, []bool{true, false}},
+		{"statusline", "/h/.claude/settings.json: wrapped statusLine: x\n", true, []bool{true, false}},
+		{"nothing to do", "/h/.claude/settings.json: unchanged\n", false, []bool{true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var mu sync.Mutex
 			var calls []bool
 			old := InstallHooks
-			InstallHooks = func(dry bool) (string, error) {
+			InstallHooks = func(dry, statusline bool) (string, error) {
 				mu.Lock()
 				calls = append(calls, dry)
 				mu.Unlock()
+				if statusline != tc.statusline {
+					t.Errorf("statusline %v", statusline)
+				}
 				if dry {
 					return tc.dry, nil
 				}
@@ -80,7 +86,7 @@ func TestHooksDialog(t *testing.T) {
 			if !u.hooksNotice() {
 				t.Fatal("notice hidden before an install")
 			}
-			u.openHooks()
+			u.openHooksWith(tc.statusline)
 			idle()
 			frame()
 			u.confirmHooks()

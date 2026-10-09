@@ -200,7 +200,8 @@ type Updates struct {
 
 // Usage is [usage].
 type Usage struct {
-	ShowCost *bool `toml:"show_cost" doc:"Show what the tokens would cost at the API's list prices next to them. Off by default: a subscription does not bill per token. Models pitwall has no price for show tokens only"`
+	ShowCost        *bool `toml:"show_cost" doc:"Show what the tokens would cost at the API's list prices next to them. Off by default: a subscription does not bill per token. Models pitwall has no price for show tokens only"`
+	LimitsInSidebar *bool `toml:"limits_in_sidebar" doc:"Show the fullest plan-limit window of Claude Code and Codex at the bottom of the sidebar, yellow from 80% and red from 95%"`
 }
 
 // Font defaults.
@@ -235,6 +236,8 @@ type Settings struct {
 	CheckUpdates bool
 	// ShowCost shows token use in dollars next to the tokens.
 	ShowCost bool
+	// LimitsInSidebar shows the plan limits' meter in the sidebar.
+	LimitsInSidebar bool
 	// Decisions is [decisions] resolved.
 	Decisions DecideSettings
 	// Worktrees is [worktrees] resolved.
@@ -406,6 +409,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	}
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
 	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
+	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts
 	var di []issue
 	var dn []issue

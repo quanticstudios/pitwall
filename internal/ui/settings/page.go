@@ -32,6 +32,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -39,10 +40,11 @@ import (
 type Result int
 
 const (
-	None         Result = iota
-	Closed              // back to the terminal
-	Saved               // config.toml changed; reload it now
-	InstallHooks        // open the Install hooks dialog
+	None              Result = iota
+	Closed                   // back to the terminal
+	Saved                    // config.toml changed; reload it now
+	InstallHooks             // open the Install hooks dialog
+	InstallStatusline        // open it with pitwall statusline ticked
 )
 
 const (
@@ -62,7 +64,7 @@ var categories = []struct{ name, desc string }{
 	{"Keyboard shortcuts", "Click a shortcut to record a new one."},
 	{"Terminal", "How every pane behaves."},
 	{"Agents", "The sidebar learns what each agent is doing from hooks in its config."},
-	{"Usage", "What your coding agents cost, from their own session files."},
+	{"Usage", "Your plan limits and what your coding agents cost, from their own files."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
 	{"Decision stats", "What the decisions log shows: calls, cost, and whether seeing the model's suggestion changes how you answer approvals."},
 	{"Phone", "See which agents need you and answer them from your phone, over your own network."},
@@ -76,6 +78,9 @@ type Page struct {
 	// Version is main's version. "" reads the build info instead, which
 	// has no -ldflags in a release archive: those are built with -trimpath.
 	Version string
+	// Limits are the agents' plan limits for Usage, nil before the window
+	// first read them.
+	Limits []flow.Limit
 
 	shown  bool
 	cat    int

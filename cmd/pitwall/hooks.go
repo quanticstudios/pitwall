@@ -44,10 +44,20 @@ func runHooks(args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return printHooks()
 	}
-	if (args[0] != "install" && args[0] != "uninstall") || len(args) > 2 || (len(args) == 2 && args[1] != "--dry-run") {
-		return errors.New("usage: pitwall hooks [install|uninstall] [--dry-run]")
+	install, dry, statusline := args[0] == "install", false, false
+	for _, a := range args[1:] {
+		switch {
+		case a == "--dry-run" && !dry:
+			dry = true
+		case a == "--statusline" && install && !statusline:
+			statusline = true
+		default:
+			args = nil
+		}
 	}
-	install, dry := args[0] == "install", len(args) == 2
+	if args == nil || !install && args[0] != "uninstall" {
+		return errors.New("usage: pitwall hooks [install [--statusline]|uninstall] [--dry-run]")
+	}
 	bin, err := hookExecutable()
 	if err != nil {
 		return err
@@ -101,7 +111,14 @@ func runHooks(args []string, out io.Writer) error {
 		return func(original []byte) ([]byte, []string, error) { return mergeHooks(original, generated, install) }
 	}
 	files := []config{
-		{path: filepath.Join(home, ".claude", "settings.json"), merge: jsonHooks(agent.ClaudeHooks(bin))},
+		{path: filepath.Join(home, ".claude", "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
+			data, changes, err := jsonHooks(agent.ClaudeHooks(bin))(original)
+			if err != nil || install && !statusline {
+				return data, changes, err
+			}
+			data, more, err := mergeStatusline(data, bin, install)
+			return data, append(changes, more...), err
+		}},
 		{path: filepath.Join(home, ".codex", "hooks.json"), merge: jsonHooks(agent.CodexHooks(bin))},
 	}
 	if dir := piAgentDir(home); dir != "" {
@@ -209,10 +226,13 @@ func runHooks(args []string, out io.Writer) error {
 
 // installHooks is `pitwall hooks install` for the window's Install
 // button. A dry run returns only what would change, one line per change,
-// without the files.
-func installHooks(dry bool) (string, error) {
+// without the files. statusline adds pitwall statusline to Claude Code's.
+func installHooks(dry, statusline bool) (string, error) {
 	var b strings.Builder
 	args := []string{"install"}
+	if statusline {
+		args = append(args, "--statusline")
+	}
 	if dry {
 		args = append(args, "--dry-run")
 	}

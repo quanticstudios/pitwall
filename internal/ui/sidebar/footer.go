@@ -31,14 +31,25 @@ func textButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, text s
 	})
 }
 
-// footer: Open folder as group, the update button when there is one,
-// detached tabs, comments (disabled), settings.
+// footer: the plan limits' meter when it shows, then Open folder as
+// group, the update button when there is one, detached tabs, comments
+// (disabled), settings.
 func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	th := v.th
 	w := gtx.Constraints.Max.X
 	px, btn := gtx.Dp(8), gtx.Dp(28)
-	h := 1 + 2*px + btn
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Max: image.Pt(w, 1)}.Op())
+	top := 0
+	if len(s.Limits) > 0 {
+		top = gtx.Dp(20)
+		off := op.Offset(image.Pt(px+gtx.Dp(8), 1+px)).Push(gtx.Ops)
+		mg := gtx
+		mg.Constraints.Max.X = w - 2*px - gtx.Dp(16)
+		s.limitMeter(mg, th, top)
+		off.Pop()
+	}
+	defer op.Offset(image.Pt(0, top)).Push(gtx.Ops).Pop()
+	h := 1 + 2*px + btn + top
 	gap := gtx.Dp(4)
 	addW := w - 2*px - 3*(btn+gap)
 	x := px + addW + gap

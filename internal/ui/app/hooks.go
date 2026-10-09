@@ -20,8 +20,9 @@ import (
 
 // InstallHooks runs `pitwall hooks install` and returns its report; with
 // dry set it changes nothing and reports what would change, one line per
-// change. main sets it; nil hides the pane notice.
-var InstallHooks func(dry bool) (string, error)
+// change. statusline adds `--statusline`. main sets it; nil hides the pane
+// notice.
+var InstallHooks func(dry, statusline bool) (string, error)
 
 // hooksDialog is the Install hooks dialog: what an install would change,
 // then what it did. InstallHooks runs off the UI goroutine.
@@ -37,6 +38,10 @@ type hooksDialog struct {
 	// when restarted.
 	hidden   bool
 	reloaded bool // the settings page read the configs again after the install
+	// statusline is the box for pitwall statusline, which the dry run and
+	// the install add; tick is its clickable.
+	statusline bool
+	tick       widget.Clickable
 }
 
 // hooksNotice reports whether panes whose agent sends no hooks show the
@@ -47,11 +52,18 @@ func (u *ui) hooksNotice() bool {
 	return InstallHooks != nil && !u.hooks.hidden
 }
 
-// openHooks shows the dialog and starts its dry run.
-func (u *ui) openHooks() {
+// openHooks shows the dialog and starts its dry run, with the statusline
+// box unticked.
+func (u *ui) openHooks() { u.openHooksWith(false) }
+
+// openHooksWith is openHooks with the statusline box ticked or not.
+func (u *ui) openHooksWith(statusline bool) {
 	if InstallHooks == nil {
 		return
 	}
+	u.hooks.mu.Lock()
+	u.hooks.statusline = statusline
+	u.hooks.mu.Unlock()
 	u.modal.open(modalHooks, "")
 	u.runHooks(true)
 }
@@ -62,9 +74,10 @@ func (u *ui) runHooks(dry bool) {
 	h.gen++
 	gen := h.gen
 	h.busy, h.install, h.text, h.err, h.reloaded = true, !dry, "", "", false
+	statusline := h.statusline
 	h.mu.Unlock()
 	go func() {
-		out, err := InstallHooks(dry)
+		out, err := InstallHooks(dry, statusline)
 		h.mu.Lock()
 		if h.gen == gen {
 			h.busy, h.text = false, out
@@ -126,7 +139,14 @@ func hookChanges(report string) (files []string, changes map[string][]string, ch
 
 func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 	th, h := u.th, &u.hooks
+	for h.tick.Clicked(gtx) {
+		h.mu.Lock()
+		h.statusline = !h.statusline
+		h.mu.Unlock()
+		u.runHooks(true) // what the files would change with the box as it is now
+	}
 	h.mu.Lock()
+	statusline := h.statusline
 	busy, installing, text, errText := h.busy, h.install, h.text, h.err
 	done := installing && !busy
 	reload := done && !h.reloaded
@@ -177,6 +197,10 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		kids = append(kids, text14("pitwall adds its entries to these files and keeps a backup of each. The hooks do nothing outside a pitwall pane."))
 	}
 	if !busy && errText == "" && !done {
+		kids = append(kids, gl.Rigid(gl.Spacer{Height: 16}.Layout), line(func(gtx gl.Context) gl.Dimensions {
+			return u.checkbox(gtx, &h.tick, statusline, "Also show Claude Code's plan limits",
+				"Runs Claude Code's status line through pitwall statusline, which saves the 5-hour and weekly limits for Settings, Usage, then prints your own status line as before.")
+		}))
 		for _, f := range files {
 			kids = append(kids,
 				gl.Rigid(gl.Spacer{Height: 12}.Layout),

@@ -44,8 +44,12 @@ const usage = `usage:
   pitwall daemon             run the daemon in the foreground
   pitwall hook <provider>    forward an agent hook event (claude, codex, pi, gemini, opencode)
   pitwall hooks              print the hook config for every agent
-  pitwall hooks install      add hooks, pi's extension and OpenCode's plugin (--dry-run)
-  pitwall hooks uninstall    remove this binary's hooks (--dry-run)
+  pitwall hooks install      add hooks, pi's extension and OpenCode's plugin (--dry-run;
+                             --statusline also runs Claude Code's status line through
+                             pitwall statusline, to show its plan limits)
+  pitwall hooks uninstall    remove this binary's hooks and status line (--dry-run)
+  pitwall statusline [cmd]   Claude Code's status line: save its plan limits for
+                             Settings, Usage, then run cmd, your own status line
   pitwall ls [--json]        list the current session's tabs, numbered in sidebar order
                              (--json: one object per tab, see docs/agent-skill.md)
   pitwall new [-n name] [-d] [dir] [-- cmd args...]
@@ -117,6 +121,8 @@ func main() {
 		runHook(os.Args[2:])
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)
+	case "statusline":
+		os.Exit(runStatusline(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "config":
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
 	case "notify":

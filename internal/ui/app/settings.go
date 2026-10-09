@@ -58,6 +58,7 @@ func (u *ui) layoutSettings(gtx gl.Context, st *model.State) {
 		return
 	}
 	u.settings.SetDecisions(st.Decide)
+	u.settings.Limits = u.limits.get()
 	u.settingsResult(u.settings.Layout(gtx, u.th, u.cfg, u.probs))
 }
 
@@ -69,6 +70,8 @@ func (u *ui) settingsResult(r settings.Result) {
 		u.reloadConfig()
 	case settings.InstallHooks:
 		u.openHooks()
+	case settings.InstallStatusline:
+		u.openHooksWith(true)
 	}
 }
 

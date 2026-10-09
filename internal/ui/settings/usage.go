@@ -89,7 +89,7 @@ func (p *Page) usage() []section {
 	u := &p.us
 	r := u.shown()
 	windows := []string{"7 days", "30 days", "90 days"}
-	sections := []section{{rows: []row{
+	sections := []section{p.limits(), {title: "Cost", rows: []row{
 		{label: "Window", desc: "What Claude Code, Codex and pi cost on this machine, read from their session files and priced at the API's list prices of " + flow.PricesAsOf + ". A subscription bills differently.",
 			extra: "usage cost spend tokens price dollars models sessions",
 			control: p.segmented("uwin", windows, fmt.Sprint(u.window(), " days"), func(o string) {
