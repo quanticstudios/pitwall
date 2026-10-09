@@ -3,7 +3,6 @@ package sidebar
 import (
 	"fmt"
 	"image"
-	"image/color"
 	"slices"
 	"time"
 
@@ -14,9 +13,9 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -586,11 +585,9 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 		o := op.Offset(image.Pt(gx, y)).Push(gtx.Ops)
 		center := f32.Pt(float32(rect.Dx())/2, float32(h)/2)
 		sc := op.Affine(f32.Affine2D{}.Scale(center, f32.Pt(1+0.025*lift, 1+0.025*lift))).Push(gtx.Ops)
-		for i, a := range []uint8{40, 26, 14} {
-			g := gtx.Dp(unit.Dp(2 * (i + 1)))
-			sh := rect.Inset(-g).Add(image.Pt(0, g/2+gtx.Dp(2)))
-			paint.FillShape(gtx.Ops, color.NRGBA{A: uint8(float32(a) * lift)}, clip.UniformRRect(sh, r+g).Op(gtx.Ops))
-		}
+		sh := paint.PushOpacity(gtx.Ops, lift)
+		kit.Shadow(gtx, rect, r, kit.Raised)
+		sh.Pop()
 		paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.12), clip.UniformRRect(rect, r).Op(gtx.Ops))
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
 		row.Add(gtx.Ops)

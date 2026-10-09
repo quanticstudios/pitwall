@@ -110,7 +110,7 @@ func (l *listScroll) update(gtx gl.Context, sel, n, rowH, gap, top, viewH int) i
 func (u *ui) highlight(gtx gl.Context, r image.Rectangle, ring bool) {
 	th := u.th
 	if !ring {
-		paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.065), clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
 		return
 	}
 	p := clip.UniformRRect(r, gtx.Dp(8)).Path(gtx.Ops)
@@ -123,7 +123,7 @@ func (u *ui) highlight(gtx gl.Context, r image.Rectangle, ring bool) {
 func (u *ui) filterField(gtx gl.Context, rect image.Rectangle, text, hint, count string, active bool, since time.Time) {
 	th := u.th
 	rr := gtx.Dp(8)
-	border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
+	border := th.BorderSubtle
 	if active {
 		border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
 	}

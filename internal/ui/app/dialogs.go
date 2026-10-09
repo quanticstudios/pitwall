@@ -385,7 +385,7 @@ func (u *ui) field(gtx gl.Context, e *widget.Editor, f font.Font, h int, placeho
 	w := gtx.Constraints.Max.X
 	rect := image.Rect(0, 0, w, h)
 	r := gtx.Dp(8)
-	border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
+	border := th.BorderSubtle
 	if gtx.Focused(e) {
 		border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
 	}

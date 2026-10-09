@@ -18,6 +18,9 @@ type Tokens struct {
 	SelectedBg                 color.NRGBA // a picked option's fill
 }
 
+// Transparent is no color: a fill or ring left out.
+var Transparent color.NRGBA
+
 // ScrimAlpha is the one backdrop alpha every dialog and overlay uses.
 const ScrimAlpha = 0xa6
 

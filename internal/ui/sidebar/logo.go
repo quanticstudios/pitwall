@@ -34,6 +34,7 @@ func drawLogo(gtx layout.Context, th *theme.Theme, size int) layout.Dimensions {
 	p.CubeTo(f32.Pt(141+k, 70), f32.Pt(175, 104-k), f32.Pt(175, 104))
 	p.CubeTo(f32.Pt(175, 104+k), f32.Pt(141+k, 138), f32.Pt(141, 138))
 	p.LineTo(f32.Pt(91, 138))
+	// why: the logo's own gradient, kept on dark themes; light ones take Fg.
 	from, to := theme.Hex("#ffffff"), theme.Hex("#b9c6da")
 	if int(th.Fg.R)+int(th.Fg.G)+int(th.Fg.B) < 384 {
 		from, to = th.Fg, theme.Mix(th.Fg, th.Primary, 0.35)

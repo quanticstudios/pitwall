@@ -14,10 +14,10 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -274,12 +274,7 @@ func (p *Page) popover(gtx gl.Context, k, cur, def string, w, top int) {
 	listH := min(gtx.Dp(280), max(1, len(shown))*itemH)
 	panel := image.Rect(0, 0, w+gtx.Dp(40), pad+gtx.Dp(32)+pad+listH+pad)
 	o := op.Offset(image.Pt(0, top+gtx.Dp(4))).Push(gtx.Ops)
-	for i, a := range []uint8{0x18, 0x18} {
-		g := gtx.Dp(unit.Dp(4 * (i + 1)))
-		rrect(gtx, color.NRGBA{A: a}, panel.Add(image.Pt(0, gtx.Dp(4))).Inset(-g), gtx.Dp(8)+g)
-	}
-	rrect(gtx, theme.Mix(th.SurfaceElevated, th.Fg, 0.1), panel, gtx.Dp(8))
-	rrect(gtx, th.SurfaceElevated, panel.Inset(1), gtx.Dp(8)-1)
+	kit.Surface(gtx, panel, gtx.Dp(theme.RadiusPopover), kit.Floating, theme.Mix(th.SurfaceElevated, th.Fg, 0.1), th.SurfaceElevated)
 	pa := clip.Rect(panel).Push(gtx.Ops)
 	event.Op(gtx.Ops, &p.ddPanel) // the panel takes presses the backdrop would
 	pa.Pop()

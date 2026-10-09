@@ -240,7 +240,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 	rr := gtx.Dp(8)
 	base := th.Surface
 	if sel {
-		base = theme.Mix(th.Surface, th.Fg, 0.065)
+		base = th.Hover
 	}
 
 	var unseen []model.Activity
@@ -249,7 +249,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 			unseen = append(unseen, a)
 		}
 	}
-	accent := color.NRGBA{}
+	accent := theme.Transparent
 	if a := model.Aggregate(unseen); a != nil {
 		accent = sidebar.StateColor(th, a.State)
 		paint.FillShape(gtx.Ops, theme.Mix(base, accent, 0.09), clip.UniformRRect(rect, rr).Op(gtx.Ops))
@@ -464,7 +464,7 @@ func (u *ui) newButton(gtx gl.Context) {
 		col := th.Muted
 		if d.newBtn.Hovered() {
 			col = th.Fg
-			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.065), clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
 		}
 		pointer.CursorPointer.Add(gtx.Ops)
 		x := gtx.Dp(12)

@@ -301,7 +301,7 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 			fg := theme.Mix(th.SurfaceSecondary, th.Fg, 0.85)
 			switch {
 			case selected:
-				bg := theme.Mix(th.SurfaceSecondary, th.Primary, 0.15)
+				bg := th.SelectedBg
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
 				paint.FillShape(gtx.Ops, theme.Mix(bg, th.Primary, 0.5), clip.Stroke{Path: clip.UniformRRect(r, gtx.Dp(8)).Path(gtx.Ops), Width: 1}.Op())
 				fg = th.Primary

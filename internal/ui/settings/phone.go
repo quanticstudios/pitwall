@@ -161,6 +161,7 @@ func drawQR(gtx gl.Context, c qr.Code) gl.Dimensions {
 	n := len(c) + 2*quiet
 	m := max(gtx.Dp(200)/n, 2)
 	sz := image.Pt(n*m, n*m)
+	// why: a QR code scans as black on white, whatever the theme.
 	rrect(gtx, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, image.Rectangle{Max: sz}, gtx.Dp(6))
 	for y, row := range c {
 		for x, dark := range row {

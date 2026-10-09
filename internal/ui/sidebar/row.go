@@ -438,6 +438,7 @@ func shimmer(gtx layout.Context, rect image.Rectangle, r int, base color.NRGBA, 
 	_, p := math.Modf(t / 3)
 	e := float32(p * p * (3 - 2*p))
 	c := float32(math.Mod(float64(w*(3-4*e)), float64(2*w)))
+	// why: aide's shimmer is a white gradient in every theme.
 	white := func(a float32) color.NRGBA { return theme.Mix(base, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, a) }
 	stops := []struct{ x, a float32 }{{-1, 0}, {-0.2, 0.02}, {0, 0.04}, {0.2, 0.02}, {1, 0}}
 	for _, cx := range []float32{c - 2*w, c, c + 2*w} {

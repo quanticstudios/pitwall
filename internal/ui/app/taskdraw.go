@@ -15,6 +15,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -129,7 +130,7 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 	}
 
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 0xc8}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, scrim(u.th, anim.At(gtx, m.openedAt, anim.Dialog)), clip.Rect{Max: size}.Op())
 	bg := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &m.backdrop)
 	bg.Pop()
@@ -297,10 +298,10 @@ func (u *ui) chips(gtx gl.Context, cs []widget.Clickable, names []string, on int
 		c.Layout(g, func(gtx gl.Context) gl.Dimensions {
 			r := gtx.Dp(8)
 			rect := image.Rect(0, 0, bw, h)
-			bg, ring := th.SurfaceSecondary, theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
+			bg, ring := th.SurfaceSecondary, th.BorderSubtle
 			switch {
 			case picked:
-				bg = theme.Mix(th.SurfaceSecondary, th.Primary, 0.15)
+				bg = th.SelectedBg
 				ring = theme.Mix(bg, th.Primary, 0.5)
 			case c.Hovered():
 				bg = th.SurfaceElevated

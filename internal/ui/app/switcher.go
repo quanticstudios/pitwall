@@ -17,6 +17,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -172,7 +173,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		// beside the name, so show the one that needs attention most.
 		if a := model.Aggregate(activities[w.ID]); a != nil {
 			bg, fg := chipColors(th, a.State)
-			c, s := chip(rgtx, th, bg, color.NRGBA{}, fg, sidebar.PillText(*a, st.Decide.Provider))
+			c, s := chip(rgtx, th, bg, theme.Transparent, fg, sidebar.PillText(*a, st.Decide.Provider))
 			chips, sizes = append(chips, c), append(sizes, s)
 		}
 		c, s := chip(rgtx, th, th.SurfaceElevated, th.Border, th.Muted, strconv.Itoa(i+1))
@@ -227,14 +228,9 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	defer op.Offset(image.Pt(x, top)).Push(gtx.Ops).Pop()
 
 	card := image.Rectangle{Max: image.Pt(width, h)}
-	r := gtx.Dp(12)
+	r := gtx.Dp(theme.RadiusCard)
 	// floating-surface: a soft drop shadow, a 16% white hairline, popover fill.
-	for i, a := range []uint8{0x30, 0x20, 0x10} {
-		g := gtx.Dp(unit.Dp(2 * (i + 1)))
-		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(card.Inset(-g).Add(image.Pt(0, g)), r+g).Op(gtx.Ops))
-	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.16), clip.UniformRRect(card, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(card.Inset(1), r-1).Op(gtx.Ops))
+	kit.Surface(gtx, card, r, kit.Floating, theme.Mix(th.Surface, th.Fg, 0.16), th.Surface)
 	defer clip.UniformRRect(card.Inset(1), r-1).Push(gtx.Ops).Pop()
 	defer op.Offset(image.Pt(pad, pad)).Push(gtx.Ops).Pop()
 	bodyCall.Add(gtx.Ops)

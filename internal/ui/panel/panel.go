@@ -235,7 +235,7 @@ func (d *drawer) tabs(gtx layout.Context, tabs []tab) layout.Dimensions {
 					return rowFit(gtx, ps...)
 				}, func(sz image.Point) {
 					if on {
-						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, color.NRGBA{})
+						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, theme.Transparent)
 					}
 				})
 			})
@@ -466,7 +466,7 @@ func (d *drawer) node(gtx layout.Context, n node) layout.Dimensions {
 		top = theme.Mix(d.c.green, d.c.fg, 0.35)
 	case nodeRunning:
 		g := gtx.Dp(3)
-		rrect(gtx, r.Inset(-g), rad+g, theme.Mix(d.c.graph, d.c.blue, 0.12), color.NRGBA{})
+		rrect(gtx, r.Inset(-g), rad+g, theme.Mix(d.c.graph, d.c.blue, 0.12), theme.Transparent)
 		rrect(gtx, r, rad, theme.Mix(d.c.graph, d.c.blue, 0.08), theme.Mix(d.c.graph, d.c.blue, 0.7))
 		top = d.c.blue
 	case nodeWaiting:
@@ -476,12 +476,12 @@ func (d *drawer) node(gtx layout.Context, n node) layout.Dimensions {
 			top = d.c.red
 		}
 	default:
-		rrect(gtx, r, rad, d.c.node, color.NRGBA{})
+		rrect(gtx, r, rad, d.c.node, theme.Transparent)
 		dashedBorder(gtx, r, rad, d.c.border2)
 		title = d.c.muted
 	}
 	if n.subagents && d.p.subNode.Hovered() {
-		paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 10}, clip.UniformRRect(r, rad).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, theme.Mix(d.c.node, d.th.Fg, 0.04), clip.UniformRRect(r, rad).Op(gtx.Ops))
 	}
 	icon := func(gtx layout.Context) layout.Dimensions {
 		s := gtx.Dp(10)
@@ -661,7 +661,7 @@ func (d *drawer) subRow(i int, s flow.Subagent) layout.Widget {
 				)
 			}, func(sz image.Point) {
 				if btn.Hovered() {
-					rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.th.SurfaceSecondary, color.NRGBA{})
+					rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.th.SurfaceSecondary, theme.Transparent)
 				}
 			})
 		})
@@ -686,7 +686,7 @@ func (d *drawer) detail(s flow.Subagent) []layout.Widget {
 				}
 				return boxed(gtx, layout.Inset{Top: 4, Bottom: 4, Left: 6, Right: 6}, d.ui(12.5, col, "‹ Subagents"), func(sz image.Point) {
 					if d.p.back.Hovered() {
-						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, color.NRGBA{})
+						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, theme.Transparent)
 					}
 				})
 			})
@@ -721,7 +721,7 @@ func (d *drawer) detail(s flow.Subagent) []layout.Widget {
 				dm.Size.X = gtx.Constraints.Max.X
 				return dm
 			}, func(sz image.Point) {
-				rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.c.card2, color.NRGBA{})
+				rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.c.card2, theme.Transparent)
 				paint.FillShape(gtx.Ops, d.c.border2, clip.Rect{Max: image.Pt(gtx.Dp(2), sz.Y)}.Op())
 			})
 		},
@@ -933,7 +933,7 @@ func (d *drawer) changes() []layout.Widget {
 					)
 				}, func(sz image.Point) {
 					if btn.Hovered() {
-						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, color.NRGBA{})
+						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, theme.Transparent)
 					}
 				})
 			})
