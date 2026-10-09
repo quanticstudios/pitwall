@@ -15,28 +15,8 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## v0.1.0-beta.2
+## Unreleased
 
-<<<<<<< HEAD
-- Agent state stays current after an upgrade you chose to restart the
-  daemon for later. Hooks run the new `pitwall` on your PATH, and the old
-  daemon used to refuse every one of them until it restarted, so each
-  agent's sidebar row stopped changing. Now a hook refused for its protocol
-  version sends again in the daemon's, and daemons serve hooks of any
-  version. A daemon that gets hooks from a newer pitwall shows a notice
-  once asking you to restart it, and logs a line a minute with a count.
-<<<<<<< HEAD
-- Settings, Usage starts with Limits: how much of Claude Code's and
-  Codex's 5-hour and weekly plan limits you have used, when each window
-  resets, how old the report is, and when you hit 100% at the current pace.
-  Codex's come from its session files. Claude Code reports them only to its
-  status line, so `pitwall hooks install --statusline`, or a box in the
-  install dialog, runs your status line through `pitwall statusline`, which
-  saves them and prints your own status line unchanged. A window at 90%
-  shows a notice once, and `limits_in_sidebar = true` under `[usage]` adds
-  a meter to the bottom of the sidebar that turns yellow at 80% and red at
-  95%. pitwall never asks Anthropic or OpenAI for them.
-=======
 - A sidebar row whose Claude Code or Codex asks permission has Allow and
   Deny buttons, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
   focused pane. They take the phone page's path: the key goes only to the
@@ -48,8 +28,6 @@ build. Either step takes `--dry-run`.
   notifications off per state or per agent, add a sound, and set quiet
   hours (`quiet_hours = "22:00-08:00"`) that keep only approvals, errors
   and urgent questions, silently.
->>>>>>> e7df7b6 (Answer approvals from the sidebar and notifications, add notification rules)
-=======
 - The phone page can push notifications to your phone when an agent
   needs you, with the page closed or the phone locked. Tap Turn on in
   the page; on an iPhone, add it to the Home Screen first. pitwall pushes
@@ -59,8 +37,26 @@ build. Either step takes `--dry-run`.
   certificate the phone trusts, such as `tailscale serve` gives.
 - The phone page can be added to the Home Screen as an app, and pairs by
   a typed code as well as by the QR code.
+- Settings, Usage starts with Limits: how much of Claude Code's and
+  Codex's 5-hour and weekly plan limits you have used, when each window
+  resets, how old the report is, and when you hit 100% at the current pace.
+  Codex's come from its session files. Claude Code reports them only to its
+  status line, so `pitwall hooks install --statusline`, or a box in the
+  install dialog, runs your status line through `pitwall statusline`, which
+  saves them and prints your own status line unchanged. A window at 90%
+  shows a notice once, and `limits_in_sidebar = true` under `[usage]` adds
+  a meter to the bottom of the sidebar that turns yellow at 80% and red at
+  95%. pitwall never asks Anthropic or OpenAI for them.
 
->>>>>>> a27bd6d (Push notifications to paired phones)
+## v0.1.0-beta.2
+
+- Agent state stays current after an upgrade you chose to restart the
+  daemon for later. Hooks run the new `pitwall` on your PATH, and the old
+  daemon used to refuse every one of them until it restarted, so each
+  agent's sidebar row stopped changing. Now a hook refused for its protocol
+  version sends again in the daemon's, and daemons serve hooks of any
+  version. A daemon that gets hooks from a newer pitwall shows a notice
+  once asking you to restart it, and logs a line a minute with a count.
 - The README and the site no longer list the AUR package. It is not on the
   AUR yet: new AUR accounts are closed for now.
 
