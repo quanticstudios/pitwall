@@ -207,8 +207,10 @@ func TestDragSubRows(t *testing.T) {
 		{kind: 'a', id: "y", parent: "t", top: 80, bot: 104},
 		{kind: 's', id: "n", top: 108, bot: 164},
 	}
-	if d := tabDrop(flow, 95, expandedExcept(), ""); d != (drop{before: "n", at: 3, ok: true}) {
-		t.Errorf("lower sub-row: %+v", d)
+	for _, y := range []int{60, 95} {
+		if d := tabDrop(flow, y, expandedExcept(), ""); d != (drop{before: "n", at: 3, ok: true}) {
+			t.Errorf("over a sub-row in the block's lower half, y=%d: %+v", y, d)
+		}
 	}
 	if d := tabDrop(flow, 45, expandedExcept(), ""); d != (drop{before: "t", at: 0, ok: true}) {
 		t.Errorf("upper half of the block: %+v", d)
