@@ -74,22 +74,25 @@ func sessionPane(s model.State, name string) string {
 	return ""
 }
 
-// ticker counts to 150, a step each 10ms, on one line, then prints done.
-func ticker(name string) []string {
-	return []string{"sh", "-c", fmt.Sprintf(`i=0; while [ $i -lt 150 ]; do i=$((i+1)); printf '\r%s %%d' $i; sleep 0.01; done; printf '\n%s done\n'; exec sleep 30`, name, name)}
+// echoer prints "<name> ready", then "<name> got <line>" for each line it
+// reads, and is idle in between: a pane changes only when the test types.
+func echoer(name string) []string {
+	return []string{"sh", "-c", fmt.Sprintf(`echo %s ready; while read l; do echo %s got $l; done`, name, name)}
 }
 
-// TestTabSwitch shows one busy tab, then switches to another: the window
-// gets no frames of the tab it does not show, the first one of the tab it
-// switches to is whole and current, and the rows that follow keep it equal
-// to the daemon's screen.
+// TestTabSwitch shows one tab, then switches to another whose program
+// printed while hidden and is idle now: the window gets no frames of the
+// tab it does not show, the first one of the tab it switches to is whole
+// and current with no output to follow it, and the rows after keep it equal
+// to a whole frame. A window of Level 13 watches every pane, to know when
+// the hidden one's output has landed.
 func TestTabSwitch(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
 	w := openWindow(t, "e2e")
 	s := waitState(t, w.client, func(s model.State) bool { return sessionPane(s, "e2e") != "" })
 	sid := s.SessionNamed("e2e").ID
-	a, b := ticker("tab-a"), ticker("tab-b")
+	a, b := echoer("tab-a"), echoer("tab-b")
 	w.send(t, proto.NewSession{SessionID: sid, Cmd: a})
 	w.send(t, proto.NewSession{SessionID: sid, Cmd: b})
 	s = waitState(t, w.client, func(s model.State) bool { return len(s.Panes) == 3 })
@@ -97,15 +100,18 @@ func TestTabSwitch(t *testing.T) {
 		return s.Panes[slices.IndexFunc(s.Panes, func(p model.Pane) bool { return slices.Equal(p.Cmd, cmd) })].ID
 	}
 	pa, pb := pane(a), pane(b)
+	all := connectHello(t, proto.Hello{Version: proto.Version, Level: proto.Since(proto.View{}) - 1, Kind: "gui", Cwd: t.TempDir(), Session: "e2e"})
 
 	w.send(t, proto.View{Panes: []string{pa}})
-	w.until(t, pa, "tab-a 20", pb)
+	w.until(t, pa, "tab-a ready", pb)
+	w.send(t, proto.Input{Pane: pb, Data: []byte("hidden\r")})
+	all.waitFor(t, timeout, frameContains(pb, "tab-b got hidden"))
 	w.send(t, proto.View{Panes: []string{pb}})
-	f, ok := w.next(t, pb).(proto.Frame)
-	if !ok || !strings.Contains(gridText(f.Grid), "tab-b ") {
+	if f, ok := w.next(t, pb).(proto.Frame); !ok || !strings.Contains(gridText(f.Grid), "tab-b got hidden") {
 		t.Fatalf("first frame of the tab switched to: %#v", f)
 	}
-	w.until(t, pb, "tab-b done", pa)
+	w.send(t, proto.Input{Pane: pb, Data: []byte("shown\r")})
+	w.until(t, pb, "tab-b got shown", pa)
 
 	// Shown again, the pane comes whole: it equals what rows built.
 	built := gridText(w.frames[pb].Grid)
@@ -186,7 +192,8 @@ func TestResizeWholeFrame(t *testing.T) {
 	s := waitState(t, w.client, func(s model.State) bool { return sessionPane(s, "e2e") != "" })
 	p := sessionPane(s, "e2e")
 	w.send(t, proto.View{Panes: []string{p}})
-	w.until(t, p, "$")
+	w.send(t, proto.Input{Pane: p, Data: []byte("echo before\r")})
+	w.until(t, p, "\nbefore\n")
 	w.send(t, proto.Resize{Pane: p, Cols: 100, Rows: 30})
 	w.waitFor(t, timeout, func(msg any) bool {
 		f, ok := msg.(proto.Frame)

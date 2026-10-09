@@ -73,8 +73,12 @@ func TestFrameOnShow(t *testing.T) {
 	b.link.Level = proto.Since(proto.View{}) - 1
 	b.view = map[string]bool{}
 	b.mu.Unlock()
-	start := time.Now()
-	if g, _, _ := b.Frame("p2"); g.At(0, 0).Content != "b" || time.Since(start) >= frameWait {
-		t.Fatalf("an older daemon's frame: %q after %v", g.At(0, 0).Content, time.Since(start))
+	if g, _, _ := b.Frame("p2"); g.At(0, 0).Content != "b" {
+		t.Fatalf("an older daemon's frame: %q", g.At(0, 0).Content)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.view) != 0 || len(b.waits) != 0 {
+		t.Fatalf("asked an older daemon for frames: view %v", b.view)
 	}
 }

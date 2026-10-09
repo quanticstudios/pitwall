@@ -3,7 +3,6 @@ package daemon
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -47,6 +46,15 @@ func (c *testClient) frameOf(pane string, not ...string) proto.Frame {
 	}).(proto.Frame)
 }
 
+// rowOf waits for a Frame of pane whose first row is text.
+func (c *testClient) rowOf(pane, text string) {
+	c.t.Helper()
+	c.waitFor(pane+" showing "+text, func(m any) bool {
+		f, ok := m.(proto.Frame)
+		return ok && f.Pane == pane && row0(f) == text
+	})
+}
+
 func row0(f proto.Frame) string {
 	s := ""
 	for x := range f.Grid.Cols {
@@ -73,10 +81,9 @@ func TestViewFrames(t *testing.T) {
 		t.Fatalf("first frame of a shown pane is empty: %+v", fr)
 	}
 	f.paneNamed(hidden).draw("while hidden")
-	time.Sleep(50 * time.Millisecond) // its watcher has run
-	if fr := old.frameOf(hidden); row0(fr) != "while hidden" {
-		t.Fatalf("older GUI's frame of %s: %q", hidden, row0(fr))
-	}
+	// The older GUI shows every pane: once it has this frame, the daemon
+	// has pushed it to every GUI that shows the pane.
+	old.rowOf(hidden, "while hidden")
 	f.paneNamed(shown).draw("shown")
 	if fr := gui.frameOf(shown, hidden); row0(fr) != "shown" {
 		t.Fatalf("frame of %s: %q", shown, row0(fr))
@@ -89,7 +96,7 @@ func TestViewFrames(t *testing.T) {
 		t.Fatalf("frame of %s once shown: %q", hidden, row0(fr))
 	}
 	f.paneNamed(shown).draw("now hidden")
-	time.Sleep(50 * time.Millisecond)
+	old.rowOf(shown, "now hidden")
 	f.paneNamed(hidden).draw("live")
 	if fr := gui.frameOf(hidden, shown); row0(fr) != "live" {
 		t.Fatalf("frame of %s: %q", hidden, row0(fr))
@@ -150,8 +157,7 @@ func TestFrameRows(t *testing.T) {
 	// Shown again after a change unseen, it comes whole: the backend waits
 	// for a Frame.
 	gui.send(proto.View{})
-	p.draw("aaa", "bXb", "Zcc", "ddY", "eee")
-	time.Sleep(50 * time.Millisecond)
+	p.draw("aaa", "bXb", "Zcc", "ddY", "eee") // on the screen now, its frame or not
 	gui.send(proto.View{Panes: []string{id}})
 	next("proto.Frame", "aaa", "bXb", "Zcc", "ddY", "eee")
 	p.mu.Lock()
