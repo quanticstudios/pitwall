@@ -29,7 +29,7 @@ func TestPollPRs(t *testing.T) {
 		return answer, answerErr
 	}
 	o.ArchiveOnMerge = func() bool { return archive }
-	o.RemoveWorktree = func(_ context.Context, root, path string, branch bool) error {
+	o.RemoveWorktree = func(_ context.Context, root, path string, branch, _ bool) error {
 		if branch {
 			removed = append(removed, path)
 		}

@@ -49,10 +49,10 @@ func allMessages() []any {
 		Input{Pane: "a", Data: []byte("ls\r")},
 		Resize{Pane: "a", Cols: 80, Rows: 24},
 		AddProject{Path: "/r"},
-		NewWorkspace{ProjectID: "p", Name: "x"},
+		NewWorkspace{ProjectID: "p", Name: "x", From: model.WorktreeFrom{Kind: model.FromPR, PR: 7}, Cmd: []string{"claude"}},
 		RenameWorkspace{WorkspaceID: "w", Name: "y"},
 		ArchiveWorkspace{WorkspaceID: "w", Archived: true},
-		DeleteWorkspace{WorkspaceID: "w", RemoveBranch: true},
+		DeleteWorkspace{WorkspaceID: "w", RemoveBranch: true, Force: true},
 		OpenPane{WorkspaceID: "w", Target: "a", Dir: layout.Vertical, Cmd: []string{"codex"}},
 		NewTab{WorkspaceID: "w", FromPane: "a"}, CloseTab{WorkspaceID: "w", TabID: "t"}, RenameTab{Pane: "a", Name: "fix auth"},
 		SelectTab{WorkspaceID: "w", TabID: "t"}, DetachSession{WorkspaceID: "w", Detached: true}, KillSession{WorkspaceID: "w"},
@@ -75,6 +75,10 @@ func allMessages() []any {
 		PaneExited{Pane: "a", ExitCode: 1},
 		Error{Message: "boom"},
 		SetProjectAppearance{ProjectID: "p", Icon: "code", Color: "sky"},
+		WorktreeQuery{ProjectID: "p", Orphans: true},
+		WorktreeInfo{Query: WorktreeQuery{WorkspaceID: "w"}, Default: "origin/main", Local: []string{"main"}, Remote: []string{"origin/fix"}, GitHub: true,
+			Changed: []string{"a.go"}, Unmerged: true, Orphans: []model.Orphan{{Root: "/r", Path: "/r/.worktrees/x", Branch: "x", Committed: now, Dirty: true}}},
+		DeleteWorktree{Root: "/r", Path: "/r/.worktrees/x", Force: true},
 	}
 }
 

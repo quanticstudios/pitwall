@@ -4,6 +4,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -78,8 +79,11 @@ type Options struct {
 	RepoRoot       func(ctx context.Context, path string) (string, bool)
 	Branch         func(ctx context.Context, path string) (branch string, inRepo bool)
 	Stats          func(ctx context.Context, worktree string) (model.BranchStats, error)
-	AddWorktree    func(ctx context.Context, repoRoot, name string) (path, branch string, err error)
-	RemoveWorktree func(ctx context.Context, repoRoot, path string, deleteBranch bool) error
+	AddWorktree    func(ctx context.Context, repoRoot, name string, from model.WorktreeFrom) (path, branch string, err error)
+	RemoveWorktree func(ctx context.Context, repoRoot, path string, deleteBranch, force bool) error
+	// Orphans runs git worktree prune in repoRoot and lists the worktrees
+	// under its .worktrees that used says no tab uses; nil lists none.
+	Orphans func(ctx context.Context, repoRoot string, used func(path string) bool) ([]model.Orphan, error)
 	// Worktrees reads the settings for a new worktree of repoRoot and the
 	// problems in the repo's own file; nil gives worktrees no ports and no
 	// setup.
@@ -172,6 +176,7 @@ func New() (*Daemon, error) {
 		RemoveWorktree: gitstat.RemoveWorktree,
 		PR:             forge.View,
 		ArchiveOnMerge: func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
+		Orphans:        pruneOrphans,
 		Save:           func(s model.State) error { return store.Save(path, s) },
 		Load:           func() (model.State, error) { return store.Open(path) },
 		RestoreCmd:     store.RestoreCmd,
@@ -282,6 +287,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	d.radar.mu.Unlock()
 	go d.statsLoop(ctx)
 	go d.prLoop(ctx)
+	go d.noteOrphans(ctx)
 	var wg sync.WaitGroup
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
@@ -489,6 +495,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(d.search(s)) // a reply to this client alone
 			continue
 		}
+		if q, ok := m.(proto.WorktreeQuery); ok {
+			c.queue(d.worktreeQuery(ctx, q)) // a reply to this client alone
+			continue
+		}
 		if see, ok := m.(proto.SeePane); ok && hello.Kind == "gui" && hello.Level >= proto.SeeFocusLevel {
 			d.mu.Lock()
 			c.focus = see.Pane
@@ -595,6 +605,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.setLayout(m)
 	case proto.DeleteWorkspace:
 		return d.deleteWorkspace(ctx, m)
+	case proto.DeleteWorktree:
+		return d.deleteWorktree(ctx, m)
 	case proto.OpenPane:
 		return d.openPane(m)
 	case proto.ClosePane:
@@ -740,13 +752,13 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	}
 	named := m.Name != ""
 	if !named {
-		m.Name = d.nextWorkspaceName(p.ID)
+		m.Name = cmp.Or(m.From.Name(), d.nextWorkspaceName(p.ID))
 	}
 
 	path, branch := p.Root, ""
 	if p.Kind == model.ProjectGit {
 		var err error
-		if path, branch, err = d.o.AddWorktree(ctx, p.Root, m.Name); err != nil {
+		if path, branch, err = d.o.AddWorktree(ctx, p.Root, m.Name, m.From); err != nil {
 			return err
 		}
 	}
@@ -783,12 +795,16 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	if serr != nil {
 		err = errors.Join(err, serr)
 	}
-	if typed != nil || err != nil {
+	if typed != nil && len(m.Cmd) > 0 {
+		err = errors.Join(err, errors.New("setup not typed: the tab runs a command"))
+		typed = nil
+	}
+	if typed != nil || err != nil || len(m.Cmd) > 0 {
 		// The tab opens on a shell with setup typed in, so it runs in view
 		// and the shell stays once it ends. A problem shows as the shell's
 		// notice: a GUI shows no request's error.
 		nw := &d.st.Workspaces[len(d.st.Workspaces)-1]
-		if aerr := d.addTab(nw, path, nil); aerr != nil {
+		if aerr := d.addTab(nw, path, m.Cmd); aerr != nil {
 			err = errors.Join(err, aerr)
 		} else {
 			id := d.st.Panes[len(d.st.Panes)-1].ID
@@ -898,7 +914,7 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	if ws.WorktreeRoot != "" {
 		// A kept branch is still reported, but the worktree is gone, so the
 		// workspace goes too.
-		if err = d.o.RemoveWorktree(ctx, ws.WorktreeRoot, ws.Path, m.RemoveBranch); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
+		if err = d.o.RemoveWorktree(ctx, ws.WorktreeRoot, ws.Path, m.RemoveBranch, m.Force); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
 			return err
 		}
 	}

@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 11 added NewWorkspace.From and Cmd, DeleteWorkspace.Force,
+// WorktreeQuery, WorktreeInfo and DeleteWorktree.
 // Level 10 added State.Overlaps, the conflict radar.
 // Level 9 added State.PRs, the pull request of each tab's branch.
 // Level 8 added Answer, Allow or Deny from a GUI.
@@ -85,12 +87,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 10
+const Level = 11
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case WorktreeQuery, WorktreeInfo, DeleteWorktree:
+		return 11
 	case Answer:
 		return 8
 	case Search, SearchResult:
@@ -182,7 +186,15 @@ type AddProject struct {
 
 type NewWorkspace struct {
 	ProjectID string
-	Name      string // also the branch name for git projects
+	// Name names the tab and, in a git group, the worktree's folder and a
+	// new branch. "" takes the branch From checks out, else a generated name.
+	Name string
+	// From is what a git group's worktree checks out; a daemon below Level
+	// 8 ignores it and makes a new branch off the default one.
+	From model.WorktreeFrom
+	// Cmd, when set, runs in the tab's first pane, held as NewSession.Cmd
+	// is; else the tab starts with no pane.
+	Cmd []string
 }
 
 type RenameWorkspace struct {
@@ -198,6 +210,45 @@ type ArchiveWorkspace struct {
 type DeleteWorkspace struct {
 	WorkspaceID  string
 	RemoveBranch bool
+	// Force removes a worktree with changes and an unmerged branch, which
+	// git refuses otherwise. A daemon below Level 8 ignores it.
+	Force bool
+}
+
+// WorktreeQuery asks about worktrees. The daemon answers this client
+// alone with a WorktreeInfo: with ProjectID, what a new worktree of that
+// git group can start from; with WorkspaceID, what deleting that tab's
+// worktree would lose; with Orphans, after git worktree prune in every git
+// group's repo, the worktrees no tab uses.
+type WorktreeQuery struct {
+	ProjectID   string
+	WorkspaceID string
+	Orphans     bool
+}
+
+// WorktreeInfo answers Query. Err is why the daemon could not.
+type WorktreeInfo struct {
+	Query WorktreeQuery
+	Err   string
+	// For ProjectID, as gitstat.Refs: the default branch ("origin/main"),
+	// the local and remote branches, and whether origin is on GitHub.
+	Default       string
+	Local, Remote []string
+	GitHub        bool
+	// For WorkspaceID: what git status lists, and whether the tab's branch
+	// has commits the default branch lacks.
+	Changed  []string
+	Unmerged bool
+	// For Orphans, every git group's in the daemon.
+	Orphans []model.Orphan
+}
+
+// DeleteWorktree removes the worktree at Path under <Root>/.worktrees/,
+// where Root is a git group's, when no tab uses it, keeping its branch.
+// Force removes it with changes.
+type DeleteWorktree struct {
+	Root, Path string
+	Force      bool
 }
 
 // OpenPane splits Target (or creates the first pane when Target is "").
@@ -459,4 +510,5 @@ var Messages = []any{
 	DismissNotice{},
 	Search{}, SearchResult{},
 	Answer{},
+	WorktreeQuery{}, WorktreeInfo{}, DeleteWorktree{},
 }

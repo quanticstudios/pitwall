@@ -90,7 +90,7 @@ func TestSidebarEvents(t *testing.T) {
 		t.Fatalf("delete did not open the dialog: %+v", u.modal.kind)
 	}
 	u.modal.removeBranch = true
-	u.confirmModal()
+	u.confirmModal(&st)
 	want := []any{
 		proto.DetachSession{WorkspaceID: "w2", Detached: true},
 		proto.DetachSession{WorkspaceID: "w2", Detached: true},
@@ -110,7 +110,7 @@ func TestSidebarEvents(t *testing.T) {
 		proto.NewSession{GroupID: "g9", SessionID: "s1"}, // a group with no tabs
 		proto.CloseTab{WorkspaceID: "w1b"},
 		proto.RenameTab{WorkspaceID: "w1c"},
-		proto.NewWorkspace{ProjectID: "g2"},
+		proto.WorktreeQuery{ProjectID: "g2"}, // the New worktree tab dialog asks what it can start from
 		proto.DeleteWorkspace{WorkspaceID: "w3", RemoveBranch: true},
 	}
 	if got := b.Sent(); !reflect.DeepEqual(got, want) {

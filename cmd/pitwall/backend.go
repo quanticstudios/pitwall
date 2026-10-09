@@ -33,6 +33,7 @@ type backend struct {
 	state   model.State
 	frames  map[string]proto.Frame
 	found   map[string]proto.SearchResult // per pane, the reply to its last Search
+	tree    proto.WorktreeInfo            // the reply to the last WorktreeQuery, cleared when one is sent
 	link    app.Link
 	dialing bool // a dial loop runs
 
@@ -77,9 +78,10 @@ func newBackend(c *proto.Conn, session string) *backend {
 }
 
 var (
-	_ app.Focuser = (*backend)(nil)
-	_ app.Linker  = (*backend)(nil)
-	_ app.Finder  = (*backend)(nil)
+	_ app.Focuser   = (*backend)(nil)
+	_ app.Linker    = (*backend)(nil)
+	_ app.Finder    = (*backend)(nil)
+	_ app.Worktreer = (*backend)(nil)
 )
 
 func (b *backend) State() model.State {
@@ -102,6 +104,9 @@ func (b *backend) Send(msg any) error {
 	b.mu.Lock()
 	if s, ok := msg.(proto.SessionShow); ok {
 		b.session = s.SessionID
+	}
+	if _, ok := msg.(proto.WorktreeQuery); ok {
+		b.tree = proto.WorktreeInfo{}
 	}
 	level := b.link.Level
 	b.mu.Unlock()
@@ -376,6 +381,8 @@ func (b *backend) recvLoop() {
 			}
 		case proto.SearchResult:
 			b.found[m.Pane] = m
+		case proto.WorktreeInfo:
+			b.tree = m
 		case proto.Frame:
 			b.frames[m.Pane] = m
 			if !shown(&b.state, b.session, m.Pane) {
@@ -395,6 +402,13 @@ func (b *backend) Scroll(pane string) (offset, max int) {
 	defer b.mu.Unlock()
 	f := b.frames[pane]
 	return f.ScrollOffset, f.ScrollMax
+}
+
+// Worktree implements app.Worktreer.
+func (b *backend) Worktree() proto.WorktreeInfo {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.tree
 }
 
 // Found implements app.Finder from the pane's last SearchResult and frame.

@@ -386,7 +386,30 @@ Tabs inside a group sit indented under its header; loose tabs stay flush.
 
 For a Git repo group, **New worktree tab** in the group menu starts a tab in a
 fresh worktree under `<repo>/.worktrees/`, so parallel agents on one repo do
-not step on each other. Deleting that tab removes the worktree it made. pitwall never deletes a folder it did not create.
+not step on each other. The dialog picks what it checks out:
+
+- **New branch**: a branch named after the tab, off a base you pick from
+  the local and remote branches (the default branch unless you change it).
+- **Branch**: an existing local branch.
+- **Remote branch**: a new local branch of the same name that tracks it.
+- **Pull request**: when origin is on GitHub, the pull request's head,
+  fetched like `gh pr checkout` into the branch `pr-<number>`.
+
+The first worktree in a repo adds `/.worktrees/` to `.git/info/exclude`, so
+the worktrees never show in `git status`. Your `.gitignore` is left alone.
+
+Deleting that tab removes the worktree it made. pitwall never deletes a
+folder it did not create, nor the main checkout. When the worktree has
+uncommitted or untracked files, the delete dialog lists them and its button
+reads **Delete anyway**. Deleting the branch too warns when it has commits
+the default branch lacks.
+
+**Clean up worktrees** in the command palette runs `git worktree prune` in
+every repo group and lists the worktrees under `.worktrees/` that no tab
+uses, with their last commit and whether they have changes, to open in a
+tab or delete. Their branches stay. The daemon prunes on start too, and
+says when it finds such worktrees. `pitwall worktree` does the same from a
+terminal (see [Command line](cli.md)).
 
 ### Worktree ports and setup
 

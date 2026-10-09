@@ -123,13 +123,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if len(cmd) == 0 {
 			return errors.New(usage)
 		}
-		// why: the daemon runs cmd in dir with its own PATH, so it gets the
-		// program as an absolute path, found and resolved from here.
-		path, err := exec.LookPath(cmd[0])
-		if err != nil && !errors.Is(err, exec.ErrDot) {
-			return err // ErrDot: a relative PATH entry, which this shell would run too
-		}
-		if cmd[0], err = filepath.Abs(path); err != nil {
+		if err := absCmd(cmd); err != nil {
 			return err
 		}
 	}
@@ -253,6 +247,17 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		request = proto.KillSession{WorkspaceID: w.ID}
 	}
 	_, err = syncCLI(conn, request)
+	return err
+}
+
+// absCmd makes cmd's program an absolute path, found on this shell's
+// PATH. why: the daemon runs cmd in another folder with its own PATH.
+func absCmd(cmd []string) error {
+	path, err := exec.LookPath(cmd[0])
+	if err != nil && !errors.Is(err, exec.ErrDot) {
+		return err // ErrDot: a relative PATH entry, which this shell would run too
+	}
+	cmd[0], err = filepath.Abs(path)
 	return err
 }
 

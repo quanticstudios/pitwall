@@ -135,7 +135,7 @@ func TestWorktrees(t *testing.T) {
 	runGit(t, dir, "checkout", "-b", "feature")
 	writeFile(t, dir, "feature.txt", "feature only\n")
 	commit(t, dir)
-	path, branch, err := AddWorktree(ctx, dir, " Workspace 2 ")
+	path, branch, err := AddWorktree(ctx, dir, " Workspace 2 ", model.WorktreeFrom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,14 +152,14 @@ func TestWorktrees(t *testing.T) {
 	if len(trees) != 2 || trees[1] != (Worktree{Path: path, Branch: branch, Head: base}) {
 		t.Fatalf("ListWorktrees = %+v", trees)
 	}
-	if _, _, err := AddWorktree(ctx, dir, "Workspace 2"); err == nil {
+	if _, _, err := AddWorktree(ctx, dir, "Workspace 2", model.WorktreeFrom{}); err == nil {
 		t.Fatal("duplicate worktree succeeded")
 	}
-	if _, _, err := AddWorktree(ctx, dir, " ../ "); err == nil {
+	if _, _, err := AddWorktree(ctx, dir, " ../ ", model.WorktreeFrom{}); err == nil {
 		t.Fatal("empty slug succeeded")
 	}
 	writeFile(t, path, "dirty.txt", "keep me\n")
-	if err := RemoveWorktree(ctx, dir, path, true); err == nil {
+	if err := RemoveWorktree(ctx, dir, path, true, false); err == nil {
 		t.Fatal("dirty worktree removed")
 	}
 	if _, err := os.Stat(filepath.Join(path, "dirty.txt")); err != nil {
@@ -168,15 +168,15 @@ func TestWorktrees(t *testing.T) {
 	if err := os.Remove(filepath.Join(path, "dirty.txt")); err != nil {
 		t.Fatal(err)
 	}
-	if err := RemoveWorktree(ctx, dir, path, false); err != nil {
+	if err := RemoveWorktree(ctx, dir, path, false, false); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, dir, "show-ref", "--verify", "refs/heads/"+branch)
-	path, branch, err = AddWorktree(ctx, dir, "delete me")
+	path, branch, err = AddWorktree(ctx, dir, "delete me", model.WorktreeFrom{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RemoveWorktree(ctx, dir, filepath.Join(".worktrees", branch), true); err != nil {
+	if err := RemoveWorktree(ctx, dir, filepath.Join(".worktrees", branch), true, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := git(ctx, dir, "show-ref", "--verify", "refs/heads/"+branch); err == nil {
@@ -203,7 +203,7 @@ func TestDetachedWorktreePath(t *testing.T) {
 	if root, ok := RepoRoot(ctx, path); !ok || root != path {
 		t.Fatalf("RepoRoot = %q, %v", root, ok)
 	}
-	if err := RemoveWorktree(ctx, dir, path, true); err != nil {
+	if err := RemoveWorktree(ctx, dir, path, true, false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -231,7 +231,7 @@ func TestRepoRootAndErrors(t *testing.T) {
 	empty := t.TempDir()
 	runGit(t, empty, "init", "--initial-branch=main")
 	checkStats(t, empty, model.BranchStats{})
-	if _, _, err := AddWorktree(ctx, empty, "new"); err == nil {
+	if _, _, err := AddWorktree(ctx, empty, "new", model.WorktreeFrom{}); err == nil {
 		t.Fatal("unborn worktree succeeded")
 	}
 	cancelled, cancel := context.WithCancel(ctx)
@@ -244,13 +244,13 @@ func TestRepoRootAndErrors(t *testing.T) {
 func TestRemoveKeepsUnmergedBranch(t *testing.T) {
 	ctx := context.Background()
 	dir := repo(t)
-	path, branch, err := AddWorktree(ctx, dir, "unmerged")
+	path, branch, err := AddWorktree(ctx, dir, "unmerged", model.WorktreeFrom{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, path, "unmerged.txt", "keep this commit\n")
 	commit(t, path)
-	if err := RemoveWorktree(ctx, dir, path, true); !errors.Is(err, ErrBranchKept) {
+	if err := RemoveWorktree(ctx, dir, path, true, false); !errors.Is(err, ErrBranchKept) {
 		t.Fatalf("got %v, want ErrBranchKept", err)
 	}
 	runGit(t, dir, "show-ref", "--verify", "refs/heads/"+branch)

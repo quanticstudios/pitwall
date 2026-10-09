@@ -24,6 +24,11 @@ optional name act on the pane's own tab.
 | `pitwall tab new`                     | Open a tab next to this pane's tab, in its folder             |
 | `pitwall tab rename [name...]`        | Name this pane's tab; no name goes back to the automatic one  |
 | `pitwall tab close`                   | Close this pane's tab                                         |
+| `pitwall worktree ls [--all]`         | List this repo's worktrees: tab, branch, changed files, commits ahead of and behind the default branch; `--all` covers every repo pitwall has a group for |
+| `pitwall worktree new <name> [--from <ref> \| --branch <branch> \| --pr <n>] [-- cmd...]` | Open a tab in a new worktree, `<repo>/.worktrees/<name>`, and print its #: a new branch off ref (the default branch without `--from`), an existing local or remote branch, or a GitHub pull request; with `-- cmd` the tab runs cmd |
+| `pitwall worktree rm <name> [--force]` | Remove a worktree and close its tab; with changes it lists them and stops unless `--force`. The branch stays |
+| `pitwall worktree prune`              | Forget worktrees whose folder is gone, and list the ones under `.worktrees` that no tab uses |
+| `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |
