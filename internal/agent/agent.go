@@ -3,6 +3,7 @@
 // Claude Code, Codex and Gemini CLI hooks send the same JSON shape on stdin
 // (hook_event_name, session_id, cwd, tool_name, tool_input, ...), so one
 // decoder serves all three; Gemini's events have names of their own.
+// Cursor CLI's hooks send camelCase events and conversation_id.
 // pitwall's OpenCode plugin reports OpenCode's events in Claude Code's
 // vocabulary. Codex's older notify program sends a different object as its
 // one argv argument; Derive tells the two apart by hook_event_name.
@@ -60,6 +61,10 @@ type payload struct {
 		FileName    string `json:"fileName"`
 		ToolName    string `json:"toolName"`
 	} `json:"details"`
+
+	// Cursor CLI fields: its session id, and how a stop ended the turn.
+	ConversationID string `json:"conversation_id"`
+	Status         string `json:"status"`
 
 	// Codex legacy notify fields.
 	Type            string `json:"type"`
@@ -136,13 +141,26 @@ type payload struct {
 // Gemini fires no hook when a turn fails or the user cancels it, so it never
 // reports error; the daemon ends a cancelled turn as it does Claude's.
 //
+// Cursor CLI, from the events CursorHooks registers:
+//
+//	afterAgentThought, postToolUse, postToolUseFailure,
+//	afterShellExecution, afterMCPExecution,
+//	afterFileEdit                           working
+//	stop                                    by status: completed, error, or
+//	                                        remove when aborted
+//	sessionEnd                              remove
+//
+// Its prompt and permission hooks decide for the agent, so pitwall does not
+// register them, and a hooked Cursor tab never shows pending-approval.
+//
 // OpenCode reports through the plugin OpenCodePlugin writes, in Claude's
 // event names: UserPromptSubmit and PreToolUse (working), Notification
 // permission_prompt (pending-approval) and elicitation_dialog (its question
 // tool, awaiting-input), PostToolUse once the user answered (working), Stop
 // (completed), StopFailure (error) and Interrupt for a run the user aborted
-// (remove). OpenCode has no plan the user approves, so it never reports
-// plan-ready.
+// (remove). The question plan_exit asks, whether to switch to the build
+// agent, comes as PreToolUse of ExitPlanMode (plan-ready); OpenCode has
+// that tool only with OPENCODE_EXPERIMENTAL_PLAN_MODE set.
 //
 // Tool failures stay working: an agent recovers from a failed command inside
 // the same turn, so error is reserved for turns the API ended. A Claude turn
@@ -191,6 +209,9 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 	}
 	if state, detail, ok := mapGemini(p); ok {
 		return state, detail, false, true
+	}
+	if state, remove, ok := mapCursor(p); ok {
+		return state, "", remove, true
 	}
 	switch p.Event {
 	case "UserPromptSubmit", "PostToolUse", "PostToolUseFailure":
@@ -290,6 +311,26 @@ func mapGemini(p payload) (state model.AgentState, detail string, ok bool) {
 	return "", "", false
 }
 
+// mapCursor maps the Cursor CLI's hook events, all named in camelCase;
+// ok is false for any other event, its sessionStart included.
+func mapCursor(p payload) (state model.AgentState, remove, ok bool) {
+	switch p.Event {
+	case "afterAgentThought", "postToolUse", "postToolUseFailure", "afterShellExecution", "afterMCPExecution", "afterFileEdit":
+		return model.StateWorking, false, true
+	case "stop":
+		switch p.Status {
+		case "error":
+			return model.StateError, false, true
+		case "aborted":
+			return "", true, true
+		}
+		return model.StateCompleted, false, true
+	case "sessionEnd":
+		return "", true, true
+	}
+	return "", false, false
+}
+
 func mapPi(p payload) (state model.AgentState, detail string, remove, ok bool) {
 	switch p.PiEvent {
 	case "before_agent_start", "agent_start":
@@ -317,14 +358,15 @@ func decode(b []byte) (payload, error) {
 }
 
 // sideFork reports a hook from Codex's /side fork, which runs with a null
-// transcript; it is not the pane's main session.
-func sideFork(p payload) bool { return string(p.TranscriptPath) == "null" }
+// transcript; it is not the pane's main session. Cursor, which names its
+// session conversation_id, sends a null transcript when transcripts are off.
+func sideFork(p payload) bool { return string(p.TranscriptPath) == "null" && p.ConversationID == "" }
 
 func sessionID(p payload) string {
 	if p.Event == "" && p.PiEvent == "" {
 		return p.ThreadID
 	}
-	return p.SessionID
+	return firstNonEmpty(p.SessionID, p.ConversationID)
 }
 
 func firstNonEmpty(s ...string) string {
@@ -338,7 +380,8 @@ func firstNonEmpty(s ...string) string {
 
 // SessionID returns the agent session id carried by the payload, or "".
 // Claude and Codex hooks and pi's events carry session_id (a subagent's
-// hooks carry the parent's); Codex notify carries thread-id. The provider is
+// hooks carry the parent's); Codex notify carries thread-id, and Cursor's
+// hooks conversation_id. The provider is
 // not needed to tell them apart. A pi session that cannot be resumed, and
 // pi's shutdown report, which may arrive after the next session started,
 // return "". A /side fork's hook returns "": resuming it would lose
@@ -433,6 +476,21 @@ var claudeEvents = []hookEvent{
 	{name: "SessionStart"},
 }
 
+// cursorEvents are the Cursor hook events Derive acts on, and
+// sessionStart. Only events whose output Cursor ignores: a before* hook
+// that prints nothing could block the action it gates.
+var cursorEvents = []hookEvent{
+	{name: "sessionStart"},
+	{name: "afterAgentThought"},
+	{name: "postToolUse"},
+	{name: "postToolUseFailure"},
+	{name: "afterShellExecution"},
+	{name: "afterMCPExecution"},
+	{name: "afterFileEdit"},
+	{name: "stop"},
+	{name: "sessionEnd"},
+}
+
 // codexEvents are the Codex hook events Derive acts on.
 var codexEvents = []hookEvent{
 	{name: "UserPromptSubmit"},
@@ -475,6 +533,26 @@ func CodexHooks(bin string) []byte { return hooksJSON(bin, "codex", codexEvents,
 // takes timeouts in milliseconds. Like ClaudeHooks, the command no-ops
 // outside a pitwall pane.
 func GeminiHooks(bin string) []byte { return hooksJSON(bin, "gemini", geminiEvents, 5000) }
+
+// CursorHooks returns the "hooks" object for ~/.cursor/hooks.json that
+// runs `<bin> hook cursor` on every Cursor event Derive reads. Cursor lists
+// commands per event, not matcher groups, and takes timeouts in seconds.
+// Like ClaudeHooks, the command no-ops outside a pitwall pane.
+func CursorHooks(bin string) []byte {
+	type handler struct {
+		Command string `json:"command"`
+		Timeout int    `json:"timeout"`
+	}
+	out := map[string][]handler{}
+	for _, e := range cursorEvents {
+		out[e.name] = []handler{{Command: commandPath(runtime.GOOS, bin) + " hook cursor", Timeout: 5}}
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	return b
+}
+
+// CursorDir is Cursor's user directory, where its CLI reads hooks.json.
+func CursorDir(home string) string { return filepath.Join(home, ".cursor") }
 
 // GeminiDir is Gemini CLI's user directory: .gemini in $GEMINI_CLI_HOME
 // when set, else in home.
@@ -554,7 +632,13 @@ func OpenCodePlugin(bin string) []byte {
 
 // IsOpenCodePlugin reports whether b is exactly what OpenCodePlugin returns
 // for some binary path: a file pitwall wrote and nobody edited since.
-func IsOpenCodePlugin(b []byte) bool { return isGenerated(b, openCodeTemplate, nil) }
+func IsOpenCodePlugin(b []byte) bool { return isGenerated(b, openCodeTemplate, openCodeReleased) }
+
+// openCodeReleased are the SHA-256 sums of opencode_plugin.js as earlier
+// releases shipped it, so an install replaces those files as unedited.
+var openCodeReleased = []string{
+	"5e48c0f9ff7ae39bf0153001d3f7df57b4f5f9e0a6b9726b5fea39186a9d62c6", // v0.1.0-alpha.23
+}
 
 // OpenCodeDir is OpenCode's global config directory,
 // $XDG_CONFIG_HOME/opencode or ~/.config/opencode on every system.

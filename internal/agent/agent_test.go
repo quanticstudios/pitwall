@@ -34,6 +34,7 @@ func TestDerive(t *testing.T) {
 		claude = model.ProviderClaude
 		codex  = model.ProviderCodex
 		gemini = model.ProviderGemini
+		cursor = model.ProviderCursor
 		none   = model.AgentState("")
 	)
 	tests := []struct {
@@ -88,6 +89,11 @@ func TestDerive(t *testing.T) {
 		{"gemini_notification_plan", gemini, model.StateWorking, true, model.StatePlanReady, ""},
 		{"gemini_after_agent", gemini, model.StateWorking, true, model.StateCompleted, "The test raced on the clock. It now uses a fake clock and passes 200 runs."},
 		{"gemini_session_end", gemini, model.StateCompleted, true, none, ""},
+		{"cursor_after_shell_execution", cursor, model.StateCompleted, true, model.StateWorking, ""},
+		{"cursor_stop", cursor, model.StateWorking, true, model.StateCompleted, ""},
+		{"cursor_stop_error", cursor, model.StateWorking, true, model.StateError, ""},
+		{"cursor_stop_aborted", cursor, model.StateWorking, true, none, ""},
+		{"cursor_session_end", cursor, model.StateCompleted, true, none, ""},
 	}
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	for _, tt := range tests {
@@ -145,6 +151,13 @@ func TestSessionID(t *testing.T) {
 	}
 	if got := SessionID(model.ProviderClaude, []byte("nope")); got != "" {
 		t.Errorf("garbage: %q", got)
+	}
+	if got := SessionID(model.ProviderCursor, fixture(t, "cursor_stop")); got != "668320d2-2fd8-4888-b33c-2a466fec86e7" {
+		t.Errorf("cursor: %q", got)
+	}
+	null := []byte(`{"conversation_id":"c1","hook_event_name":"stop","status":"completed","transcript_path":null}`)
+	if got := SessionID(model.ProviderCursor, null); got != "c1" {
+		t.Errorf("cursor without a transcript: %q", got)
 	}
 }
 

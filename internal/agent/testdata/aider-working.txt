@@ -1,0 +1,5 @@
+────────────────────────────────────────────────────────────────────────────────
+main.go
+> add a --verbose flag
+
+░█        Waiting for anthropic/claude-opus-5-5

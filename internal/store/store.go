@@ -275,7 +275,11 @@ func migrateHeld(s *model.State) {
 // Resumes reports whether RestoreCmd brings p back as a resumed agent
 // session rather than its original command.
 func Resumes(p model.Pane) bool {
-	return p.SessionID != "" && (p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex || p.Provider == model.ProviderPi)
+	switch p.Provider {
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor:
+		return p.SessionID != ""
+	}
+	return false
 }
 
 // migrateSessions puts every tab and group of an older file into one
@@ -319,10 +323,13 @@ func RestoreCmd(p model.Pane) []string {
 		return p.Cmd
 	}
 	binary := string(p.Provider)
+	if p.Provider == model.ProviderCursor {
+		binary = "cursor-agent"
+	}
 	var args []string
 	// Hooks identify the agent inside a pane, not the command that launched it.
 	// Reusing a shell or wrapper can execute the original script again.
-	if len(p.Cmd) > 0 && filepath.Base(p.Cmd[0]) == binary {
+	if len(p.Cmd) > 0 && (filepath.Base(p.Cmd[0]) == binary || p.Provider == model.ProviderCursor && filepath.Base(p.Cmd[0]) == "agent") {
 		binary, args = p.Cmd[0], p.Cmd[1:]
 	}
 	cmd := []string{binary}
@@ -340,8 +347,16 @@ func RestoreCmd(p model.Pane) []string {
 		}
 		return append(cmd, "--resume", p.SessionID)
 	}
-	if p.Provider == model.ProviderPi {
+	switch p.Provider {
+	case model.ProviderPi:
 		return append(piFlags(cmd, args), "--session", p.SessionID)
+	case model.ProviderGemini:
+		return append(keepFlags(cmd, args, geminiOptions), "--resume", p.SessionID)
+	case model.ProviderOpenCode:
+		return append(keepFlags(cmd, args, openCodeOptions), "--session", p.SessionID)
+	case model.ProviderCursor:
+		// why: the Cursor CLI's options are not documented in full, so none are carried over.
+		return append(cmd, "--resume", p.SessionID)
 	}
 	cmd = append(cmd, "resume")
 	// codex resume accepts these options from codex --help. Positional
@@ -392,10 +407,10 @@ func RestoreCmd(p model.Pane) []string {
 	return append(cmd, p.SessionID)
 }
 
-// claudeOpt is one option of `claude --help`: the values it takes, '1' one,
+// cliOpt is one option of an agent's CLI: the values it takes, '1' one,
 // '+' one or more, '?' an optional one, 0 none, and whether a resumed
 // session keeps it.
-type claudeOpt struct {
+type cliOpt struct {
 	values byte
 	keep   bool
 }
@@ -403,7 +418,7 @@ type claudeOpt struct {
 // claudeOptions are the options of `claude --help` (2.1.289). A resume drops
 // session selectors, print mode and its options, and one-off actions such as
 // --worktree and --bg.
-var claudeOptions = map[string]claudeOpt{
+var claudeOptions = map[string]cliOpt{
 	"--add-dir": {'+', true}, "--agent": {'1', true}, "--agents": {'1', true},
 	"--allow-dangerously-skip-permissions": {0, true}, "--allowedTools": {'+', true}, "--allowed-tools": {'+', true},
 	"--append-system-prompt": {'1', true}, "--autocompact": {'1', true}, "--ax-screen-reader": {0, true},
@@ -432,15 +447,50 @@ var claudeOptions = map[string]claudeOpt{
 // session keeps, with their values, parsed as claude's commander parser
 // does. Prompts, dropped options and options claude does not document go;
 // so does a value option missing its value, which would take --resume.
-func claudeFlags(cmd, args []string) []string {
+func claudeFlags(cmd, args []string) []string { return keepFlags(cmd, args, claudeOptions) }
+
+// geminiOptions are the options of Gemini CLI's yargs parser (packages/cli
+// src/config/config.ts). A resume keeps the model, approval, sandbox,
+// policy, tool and extension settings, which the session file does not
+// store, and drops prompts, session selectors, output modes and one-off
+// actions.
+var geminiOptions = map[string]cliOpt{
+	"-d": {0, true}, "--debug": {0, true}, "-m": {'1', true}, "--model": {'1', true},
+	"--skip-trust": {0, true}, "-s": {0, true}, "--sandbox": {0, true}, "-y": {0, true}, "--yolo": {0, true},
+	"--approval-mode": {'1', true}, "--policy": {'+', true}, "--admin-policy": {'+', true},
+	"--allowed-mcp-server-names": {'+', true}, "--allowed-tools": {'+', true}, "-e": {'+', true}, "--extensions": {'+', true},
+	"--include-directories": {'+', true}, "--screen-reader": {0, true}, "--raw-output": {0, true}, "--accept-raw-output-risk": {0, true},
+	"-p": {'1', false}, "--prompt": {'1', false}, "-i": {'1', false}, "--prompt-interactive": {'1', false},
+	"-w": {'?', false}, "--worktree": {'?', false}, "--acp": {}, "--experimental-acp": {},
+	"-l": {}, "--list-extensions": {}, "-r": {'?', false}, "--resume": {'?', false}, "--session-file": {'1', false},
+	"--session-id": {'1', false}, "--list-sessions": {}, "--delete-session": {'1', false}, "-o": {'1', false}, "--output-format": {'1', false},
+}
+
+// openCodeOptions are the options of OpenCode's default TUI command
+// (packages/opencode/src/cli/cmd/tui.ts, cli/network.ts and its global
+// options). A resume keeps the agent, permission, logging and network
+// settings, and drops the model, which the session's last message sets
+// anyway, the prompt and the session selectors.
+var openCodeOptions = map[string]cliOpt{
+	"--agent": {'1', true}, "--auto": {0, true}, "--yolo": {0, true}, "--dangerously-skip-permissions": {0, true},
+	"--pure": {0, true}, "--print-logs": {0, true}, "--log-level": {'1', true}, "--mini": {0, true},
+	"--port": {'1', true}, "--hostname": {'1', true}, "--mdns": {0, true}, "--mdns-domain": {'1', true}, "--cors": {'+', true},
+	"-m": {'1', false}, "--model": {'1', false}, "--prompt": {'1', false}, "-c": {}, "--continue": {},
+	"-s": {'1', false}, "--session": {'1', false}, "--fork": {}, "--replay-limit": {'1', false}, "--no-replay": {},
+}
+
+// keepFlags appends to cmd the options of args that opts keeps, with
+// their values. Prompts, dropped options and options opts lacks go; so
+// does a value option missing its value, which would take the session id.
+func keepFlags(cmd, args []string, opts map[string]cliOpt) []string {
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--" {
 			break // a prompt follows, and after it flags would be prompt text
 		}
 		flag, _, attached := strings.Cut(args[i], "=")
-		opt, known := claudeOptions[flag]
+		opt, known := opts[flag]
 		if !known {
-			continue // a prompt, or an option claude does not document
+			continue // a prompt, or an option the agent does not document
 		}
 		start := i
 		switch opt.values {

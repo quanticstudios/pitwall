@@ -121,9 +121,10 @@ SOFTWARE.
 ### Simple Icons
 
 <https://simpleicons.org>, CC0 1.0 Universal. `internal/ui/sidebar/agent.go`
-embeds the Claude and OpenAI path data from simple-icons 16.33.0. The logos
-are trademarks of Anthropic and OpenAI; pitwall uses them only to show which
-agent runs in a tab.
+embeds the Claude, OpenAI, Google Gemini, Cursor and OpenCode path data from
+simple-icons 16.33.0, Gemini's with its quadratic curves rewritten as cubic
+ones. The logos are trademarks of Anthropic, OpenAI, Google, Anysphere and
+their other owners; pitwall uses them only to show which agent runs in a tab.
 
 ### pi logo
 

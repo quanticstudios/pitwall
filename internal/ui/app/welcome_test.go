@@ -55,7 +55,7 @@ func TestFindAgents(t *testing.T) {
 		t.Skip("fake agents are shell scripts")
 	}
 	bin, home := t.TempDir(), t.TempDir()
-	for _, name := range []string{"codex", "claude", "notanagent"} {
+	for _, name := range []string{"codex", "claude", "aider", "notanagent"} {
 		os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nsleep 1000\n"), 0o755)
 	}
 	t.Setenv("PATH", bin)
@@ -63,7 +63,7 @@ func TestFindAgents(t *testing.T) {
 	t.Setenv("GEMINI_CLI_HOME", home)
 	t.Setenv("PI_CODING_AGENT_DIR", "")
 	got := findAgents(home)
-	if len(got) != 2 || got[0].cmd != "claude" || got[1].cmd != "codex" || got[0].hooks || got[1].hooks {
+	if len(got) != 3 || got[0].cmd != "claude" || got[1].cmd != "codex" || got[2].cmd != "aider" || got[0].hooks || got[1].hooks || got[0].hookless || !got[2].hookless {
 		t.Fatalf("findAgents = %+v", got)
 	}
 }

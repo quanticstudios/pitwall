@@ -18,8 +18,9 @@ import (
 // command's name.
 
 // Process reads behind detection; tests replace them. Only stat, comm, the
-// exe link and the children lists are read: cmdline and the environment carry
-// secrets.
+// exe link and the children lists are read, plus, for an interpreter such as
+// node in the pane's foreground group, the start of its argv, which only
+// agent.Script sees: arguments and the environment carry secrets.
 var (
 	sessionOf = procSession
 	identify  = procIdentify
@@ -114,8 +115,8 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		l.sid = sessionOf(fg) // every process on the terminal shares it
 	}
 	own := fg == l.sid
-	var prov model.Provider
-	var comm string
+	var prov, seen model.Provider // seen is the agent even when the decision model reads it
+	var comm, name string         // name is what the decision model's programs call it
 	var g vt.Grid
 	var screen model.AgentState // an agent's state read from its screen, without hooks
 	switch {
@@ -124,11 +125,16 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		return // the hooked agent: hooks own it
 	default:
 		prov, comm = identify(fg)
-		if prov != "" && !l.hooked || prov == "" && slices.Contains(l.screens, comm) {
+		seen, name = prov, comm
+		// why: a decision model the user turned on for an agent reads more than its text rules do.
+		if c := agent.Command(prov); agent.ScreenRules(prov) && slices.Contains(l.screens, c) {
+			prov, name = "", c
+		}
+		if prov != "" && !l.hooked || prov == "" && slices.Contains(l.screens, name) {
 			g = l.p.Snapshot()
 		}
 		if prov != "" && !l.hooked {
-			screen = agent.State(g)
+			screen = agent.StateOf(prov, g)
 		}
 	}
 	// An agent CLI without hooks, read by the decision model. Only these
@@ -136,8 +142,8 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	// is read again after the capture, so a program that exited in
 	// between cannot get the shell's screen sent under its name.
 	reader := ""
-	if prov == "" && (!own || l.shell == "") && slices.Contains(l.screens, comm) {
-		reader = comm
+	if prov == "" && (!own || l.shell == "") && slices.Contains(l.screens, name) {
+		reader = name
 		if fg2 := l.p.(foregrounder).Foreground(); fg2 != fg || commOf(fg) != comm {
 			return
 		}
@@ -162,7 +168,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		d.live.det[l.id] = det
 	}
 	det.sid = l.sid
-	d.noteHooks(l.id, det, prov, comm, screen, l.hooked, fresh)
+	d.noteHooks(l.id, det, seen, screen, l.hooked, fresh)
 	var prev model.AgentState
 	if i := d.activityIndex(l.id); i >= 0 {
 		a := d.st.Activities[i]
@@ -209,15 +215,15 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 }
 
 // noteHooks sets Pane.HooksMissing from one poll: the foreground runs an
-// agent pitwall has hooks for, prov or by its comm, and no hook came from
+// agent pitwall has hooks for, prov, and no hook came from
 // it while its screen showed a turn for three polls, or, for an agent
 // whose hooks report its start, for hookGrace after it was seen starting.
 // An agent already running when the daemon started may have reported to
 // the daemon before, so time alone never flags it. Callers hold d.mu.
-func (d *Daemon) noteHooks(id string, det *detected, prov model.Provider, comm string, screen model.AgentState, hooked, fresh bool) {
+func (d *Daemon) noteHooks(id string, det *detected, prov model.Provider, screen model.AgentState, hooked, fresh bool) {
 	kind := prov
-	if kind == "" {
-		kind = agent.HooksFor(comm)
+	if !agent.HooksFor(kind) {
+		kind = ""
 	}
 	if kind != det.agent {
 		det.agent, det.since, det.turns = kind, time.Time{}, 0
@@ -230,8 +236,8 @@ func (d *Daemon) noteHooks(id string, det *detected, prov model.Provider, comm s
 	} else {
 		det.turns = 0
 	}
-	// why: Codex sends no hook until its first prompt, so only a turn shows its hooks are missing.
-	startHook := kind != "" && kind != model.ProviderCodex && !det.since.IsZero() && time.Since(det.since) >= hookGrace
+	// why: Codex sends no hook until its first prompt, and Cursor's CLI is not documented to send its sessionStart, so only a turn shows their hooks are missing.
+	startHook := kind != "" && kind != model.ProviderCodex && kind != model.ProviderCursor && !det.since.IsZero() && time.Since(det.since) >= hookGrace
 	d.setHooksMissing(id, !hooked && kind != "" && (det.turns >= 3 || startHook))
 }
 

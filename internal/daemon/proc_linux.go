@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -16,10 +17,11 @@ func procSession(pid int) int { return statField(pid, 6) }
 // comm of its leader. A wrapper runs its agent as a child in the same group:
 // node for an npm install of Codex, a launcher script that does not exec. So
 // when the leader is no agent, its group is walked, at most groupWalk
-// processes and three levels deep.
+// processes and three levels deep. An interpreter (node for an npm install
+// of Gemini CLI) is named by its script, from the start of its argv.
 func procIdentify(pg int) (model.Provider, string) {
 	comm := readComm(pg)
-	if p := agent.Identify(comm, readExe(pg)); p != "" {
+	if p := identifyProc(pg, comm); p != "" {
 		return p, comm
 	}
 	n := 0
@@ -32,7 +34,7 @@ func procIdentify(pg int) (model.Provider, string) {
 			if statField(c, 5) != pg {
 				continue // a background job or a daemon the leader started
 			}
-			if p := agent.Identify(readComm(c), readExe(c)); p != "" {
+			if p := identifyProc(c, readComm(c)); p != "" {
 				return p
 			}
 			if depth < 3 {
@@ -46,14 +48,49 @@ func procIdentify(pg int) (model.Provider, string) {
 	return walk(pg, 1), comm
 }
 
+// procRoot is where procfs is mounted; tests point it at a fake tree.
+var procRoot = "/proc"
+
+// identifyProc names the agent process pid runs, by its comm and exe, or,
+// for an interpreter, by the script its argv starts with.
+func identifyProc(pid int, comm string) model.Provider {
+	exe := readExe(pid)
+	if p := agent.Identify(comm, exe); p != "" || !agent.Interpreter(comm, exe) {
+		return p
+	}
+	return agent.Script(readArgs(pid))
+}
+
+// argsRead bounds the bytes of an argv readArgs reads: a script's path
+// comes first, and the rest is never looked at.
+const argsRead = 4096
+
+// readArgs is the start of pid's argv, at most argsRead bytes of it, cut
+// short at the limit. Callers pass it to agent.Script only, for a process
+// of a pane's own foreground group, and never log or keep it: arguments
+// can carry secrets.
+func readArgs(pid int) []string {
+	f, err := os.Open(procRoot + "/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	b, _ := io.ReadAll(io.LimitReader(f, argsRead))
+	args := strings.Split(string(b), "\x00")
+	if len(args) > 0 && args[len(args)-1] == "" {
+		args = args[:len(args)-1]
+	}
+	return args
+}
+
 func readComm(pid int) string {
-	b, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
+	b, _ := os.ReadFile(procRoot + "/" + strconv.Itoa(pid) + "/comm")
 	return strings.TrimSpace(string(b))
 }
 
 // Adapted from tuios (MIT): internal/session/agent_detect_linux.go
 func readExe(pid int) string {
-	s, _ := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe")
+	s, _ := os.Readlink(procRoot + "/" + strconv.Itoa(pid) + "/exe")
 	return strings.TrimSuffix(s, " (deleted)")
 }
 
@@ -63,7 +100,7 @@ func readExe(pid int) string {
 //
 // Adapted from tuios (MIT): internal/session/agent_detect_linux.go
 func statField(pid, n int) int {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	b, err := os.ReadFile(procRoot + "/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return 0
 	}
@@ -81,7 +118,7 @@ func statField(pid, n int) int {
 //
 // Adapted from tuios (MIT): internal/session/agent_detect_linux.go
 func children(pid int) []int {
-	dir := "/proc/" + strconv.Itoa(pid) + "/task/"
+	dir := procRoot + "/" + strconv.Itoa(pid) + "/task/"
 	tids, _ := os.ReadDir(dir)
 	var out []int
 	for _, t := range tids[:min(len(tids), 64)] {

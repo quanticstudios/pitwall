@@ -55,8 +55,7 @@ func (in *Input) agent() model.Provider {
 	case in.Feed != nil:
 		p = in.Feed.Provider
 	}
-	switch p {
-	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi:
+	if model.IsAgent(p) {
 		return p
 	}
 	return ""

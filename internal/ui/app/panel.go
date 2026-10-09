@@ -67,7 +67,7 @@ type sidePanel struct {
 // both. invalidate is called after new data lands.
 func (s *sidePanel) follow(p *model.Pane, dir string, invalidate func()) {
 	key := ""
-	if p != nil && p.Transcript != "" && p.Provider != "" {
+	if p != nil && p.Transcript != "" && flow.Reads(p.Provider) {
 		key = p.ID + "\x00" + string(p.Provider) + "\x00" + p.Transcript
 	}
 	s.mu.Lock()

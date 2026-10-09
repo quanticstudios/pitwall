@@ -1,10 +1,21 @@
 # Hooks
 
-Hooks are how Claude Code, Codex, pi, Gemini CLI and OpenCode tell pitwall
-exactly what they are doing. `pitwall hooks install` merges pitwall's
-entries into `~/.claude/settings.json`, `~/.codex/hooks.json` and, when
-Gemini CLI is installed, `~/.gemini/settings.json` (in `$GEMINI_CLI_HOME`
-when set):
+Hooks are how Claude Code, Codex, pi, Gemini CLI, OpenCode and Cursor CLI
+tell pitwall exactly what they are doing. Amp and Aider have no hooks;
+pitwall recognizes them and reads what it can from their screens (see
+[Watching agents](usage.md#watching-agents)).
+
+| Agent      | What `pitwall hooks install` writes               | Installed when                                |
+| ---------- | ------------------------------------------------- | --------------------------------------------- |
+| Claude     | hooks in `~/.claude/settings.json`                | always                                        |
+| Codex      | hooks in `~/.codex/hooks.json`                    | always                                        |
+| Gemini CLI | hooks in `~/.gemini/settings.json`                | `gemini` is on `PATH` or the dir exists       |
+| Cursor CLI | hooks in `~/.cursor/hooks.json`                   | `cursor-agent` is on `PATH` or the dir exists |
+| pi         | an extension, `~/.pi/agent/extensions/pitwall.ts` | `pi` is on `PATH` or the dir exists           |
+| OpenCode   | a plugin, `~/.config/opencode/plugins/pitwall.js` | `opencode` is on `PATH` or the dir exists     |
+| Amp, Aider | nothing: they have no hooks                       |                                               |
+
+For the JSON configs (Gemini's is in `$GEMINI_CLI_HOME` when set):
 
 - It keeps every existing setting and hook and never adds a duplicate.
 - It backs each file up first as `<file>.pitwall-backup-<unix time>` and
@@ -35,6 +46,16 @@ hook opencode` in the background, one at a time, on each prompt, tool call,
 permission prompt, question, and finished, failed or aborted run of the main
 session, never a subagent's. It sends the tool's name but never its
 arguments, and replaces or removes only a file nobody edited.
+
+Cursor's `hooks.json` lists commands per event. pitwall adds its command
+to the events that only report (`afterAgentThought`, `postToolUse`,
+`afterShellExecution`, `afterFileEdit`, `stop`, `sessionEnd` and a few
+more) and sets `"version": 1` when the file has none. It leaves out the
+`before*` events: Cursor reads their hooks' output as a decision, and a
+hook that printed nothing could block the action. Cursor's docs do not say
+which events its CLI fires, as opposed to the editor; the editor reads the
+same file, and the hooks do nothing there unless it runs inside a pitwall
+pane.
 
 Inside Codex, run `/hooks` once to trust the new hooks, and restart agent
 sessions that were already running (`/reload` in pi). `pitwall hooks

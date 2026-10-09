@@ -67,6 +67,23 @@ build. Either step takes `--dry-run`.
   version sends again in the daemon's, and daemons serve hooks of any
   version. A daemon that gets hooks from a newer pitwall shows a notice
   once asking you to restart it, and logs a line a minute with a count.
+- pitwall knows more agents. Cursor CLI, Amp and Aider get a logo in the
+  sidebar and a line on the welcome card, and so do Gemini CLI and
+  OpenCode, which had neither. `pitwall hooks install` sets up Cursor's
+  hooks in `~/.cursor/hooks.json`.
+- An agent installed through npm or pip, which runs as `node`, `bun`,
+  `deno` or `python`, is recognized by its script's path. pitwall reads the
+  start of the argument list only for the processes in a pane's own
+  foreground group.
+- Without hooks or a decision model, Gemini CLI, OpenCode and Aider get
+  their state from their screen, as Claude and Codex do.
+- Gemini CLI, OpenCode and Cursor sessions resume after a restart, like
+  Claude's.
+- The side panel follows Gemini CLI sessions, with their plan from
+  `write_todos`, and Settings > Usage counts Gemini's tokens.
+- OpenCode shows Plan when its experimental plan mode asks to switch to the
+  build agent. Reinstall hooks to update the plugin.
+
 - The README and the site no longer list the AUR package. It is not on the
   AUR yet: new AUR accounts are closed for now.
 

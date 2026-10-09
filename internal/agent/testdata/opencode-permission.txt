@@ -1,0 +1,4 @@
+  ┃  △ Permission required
+  ┃    $ rm -rf build
+  ┃
+  ┃   Allow once   Allow always   Reject          ⇆ select  enter confirm

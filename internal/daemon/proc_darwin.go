@@ -15,10 +15,11 @@ func procSession(pid int) int {
 
 // procIdentify names the agent in the foreground group pg, and returns the
 // comm of its leader. When the leader is no agent, the group's other members
-// are checked, at most groupWalk of them; macOS lists a group directly.
+// are checked, at most groupWalk of them; macOS lists a group directly. An
+// interpreter is named by its script, from the start of its argv.
 func procIdentify(pg int) (model.Provider, string) {
 	comm := readComm(pg)
-	if p := agent.Identify(comm, readExe(pg)); p != "" {
+	if p := identifyProc(pg, comm); p != "" {
 		return p, comm
 	}
 	procs, _ := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pg)
@@ -27,11 +28,27 @@ func procIdentify(pg int) (model.Provider, string) {
 		if pid == pg {
 			continue
 		}
-		if p := agent.Identify(unix.ByteSliceToString(kp.Proc.P_comm[:]), readExe(pid)); p != "" {
+		if p := identifyProc(pid, unix.ByteSliceToString(kp.Proc.P_comm[:])); p != "" {
 			return p, comm
 		}
 	}
 	return "", comm
+}
+
+// identifyProc names the agent process pid runs, by its comm and exe, or,
+// for an interpreter, by the script its argv starts with.
+func identifyProc(pid int, comm string) model.Provider {
+	exe := readExe(pid)
+	if p := agent.Identify(comm, exe); p != "" || !agent.Interpreter(comm, exe) {
+		return p
+	}
+	// The buffer holds the environment too; only the first arguments are
+	// taken from it, for agent.Script alone, and it is never logged or kept.
+	b, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil {
+		return ""
+	}
+	return agent.Script(procArgs2(b, 16))
 }
 
 func readComm(pid int) string {

@@ -348,11 +348,8 @@ func tabTitle(w *model.Workspace, t *model.Tab, panes map[string]*model.Pane, ru
 		return w.Name
 	}
 	ids := layout.Panes(t.Layout)
-	agent := func(p *model.Pane) bool {
-		return p.Provider == model.ProviderClaude || p.Provider == model.ProviderCodex || p.Provider == model.ProviderPi
-	}
 	for _, id := range ids {
-		if p := panes[id]; p != nil && agent(p) && !genericTitle(w, p.Title) {
+		if p := panes[id]; p != nil && model.IsAgent(p.Provider) && !genericTitle(w, p.Title) {
 			return p.Title
 		}
 	}

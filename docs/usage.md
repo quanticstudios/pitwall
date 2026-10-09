@@ -3,9 +3,9 @@
 pitwall is a terminal multiplexer for running coding agents side by side. It
 opens straight into a shell like tmux, but it is a native window: a sidebar
 lists every tab and what it is doing right now, whether that is a command
-running in a terminal or a Claude Code, Codex or pi agent working, waiting for
-your answer, asking for approval, done, or failed. Terminals are drawn with
-real fonts and pixels, not character cells.
+running in a terminal or a coding agent working, waiting for your answer,
+asking for approval, done, or failed. Terminals are drawn with real fonts
+and pixels, not character cells.
 
 A background daemon owns every terminal. Closing the window leaves tabs
 running, and after a reboot they come back in the same folders with agents
@@ -42,8 +42,9 @@ Each sidebar row shows a tab's state:
 | Error    | The turn failed                                   |
 | `go`     | A terminal is running that command                |
 
-A tab running Claude, Codex or pi always shows it, idle or busy: the agent's logo
-replaces the row icon. The logo goes when the agent exits back to the shell.
+A tab running an agent pitwall knows always shows it, idle or busy: the
+agent's logo replaces the row icon. The logo goes when the agent exits back
+to the shell.
 
 When an agent needs you (a question, an approval, a plan, an error, a
 finished turn) in a pane you are not looking at, that pane gets a ring in the
@@ -105,26 +106,54 @@ to ignore bells.
 <img src="media/notify.webp" alt="A test pane runs npm test and pitwall notify, then rings amber and sends a desktop notification saying tests passed" width="800">
 
 States are exact when the agent's hooks are installed (`pitwall hooks
-install`). Without hooks, pitwall still recognizes `claude`, `codex` and
-`pi` running in a pane and reads their state from the screen, which is a
-little less precise. pi has no permission prompts of its own, so a pi tab
-shows Working, Done, Error or nothing, never Input, Approval or Plan; a
-dialog an extension opens with `ctx.ui.confirm` is not reported.
+install`). Without hooks, pitwall still recognizes an agent running in a
+pane and, for most, reads its state from the screen, which is a little less
+precise. It knows an agent by its process name, and one an interpreter runs
+(`node`, `bun`, `deno` or `python`, as an npm or pip install does) by
+the path of its script. For that it reads the start of the argument list of
+the processes in the pane's own foreground group, and nothing else's.
 
-Gemini CLI and OpenCode report through hooks too. Gemini CLI fires no hook
-when a turn fails, so it never shows Error; a failed turn stays Working
-until the next prompt. OpenCode has no plan to approve, so it never shows
-Plan. Without their hooks, they get a state only from a decision model
-reading their screen ([`[decisions.agents]`](decisions.md#features)).
+| Agent      | Hooks        | States without hooks    | Resumes after a restart | Side panel and usage |
+| ---------- | ------------ | ----------------------- | ----------------------- | -------------------- |
+| Claude     | yes          | from the screen         | yes                     | yes                  |
+| Codex      | yes          | from the screen         | yes                     | yes                  |
+| pi         | an extension | from the screen         | yes                     | yes                  |
+| Gemini CLI | yes          | from the screen         | yes                     | yes                  |
+| OpenCode   | a plugin     | from the screen         | yes                     | no                   |
+| Cursor CLI | yes          | none (the logo only)    | yes                     | no                   |
+| Amp        | none         | none (the logo only)    | no                      | no                   |
+| Aider      | none         | Working, Input and Done | no                      | no                   |
+
+Some states are out of reach:
+
+- pi has no permission prompts of its own, so a pi tab shows Working, Done,
+  Error or nothing, never Input, Approval or Plan; a dialog an extension
+  opens with `ctx.ui.confirm` is not reported.
+- Gemini CLI fires no hook when a turn fails, so with hooks it never shows
+  Error; a failed turn stays Working until the next prompt.
+- OpenCode shows Plan only with its experimental plan mode on
+  (`OPENCODE_EXPERIMENTAL_PLAN_MODE=1`), when it asks to switch to the
+  build agent.
+- Cursor's prompt and approval hooks decide for the agent, so pitwall does
+  not install them: a Cursor tab shows Working, Done, Error or nothing,
+  never Approval.
+- Amp and Aider have no hooks. Amp gets no state from pitwall's own rules,
+  as its screen's text is not documented; turn on its notifications
+  (`amp.notifications.enabled`, with `AMP_FORCE_BEL=1`) and its bell rings
+  the pane. Aider shows Working while it waits for the model, Input at a
+  yes/no question, and Done at its prompt.
+- With [`[decisions.agents]`](decisions.md#features) on, a decision model
+  reads the screens of the agents it lists instead of these rules.
+
+OpenCode keeps its sessions in SQLite, which pitwall does not read, so its
+side panel shows only its state.
 
 When an agent runs in a pane without reporting, the pane shows "Install
 hooks for live status" with an Install button: after the agent has run for
-20 seconds without a hook, or as soon as its screen shows a turn (Codex
-sends nothing until its first prompt). Install lists what would change in
-each config, then installs on confirm. Settings > Agents has the same
-button. Agents already running load their hooks only when restarted.
-pitwall knows Gemini CLI and OpenCode by their process name, so one
-installed through npm, which runs as `node`, gets no notice.
+20 seconds without a hook, or as soon as its screen shows a turn (Codex and
+Cursor send nothing until their first prompt). Install lists what would
+change in each config, then installs on confirm. Settings > Agents has the
+same button. Agents already running load their hooks only when restarted.
 
 ### Sessions
 
@@ -143,16 +172,16 @@ active; a session with something you have not seen gets an accent bar. The
 right side draws the highlighted session's sidebar as it is now, so you can
 watch its agents before you switch. In the switcher:
 
-| Key            | Does                                                   |
-| -------------- | ------------------------------------------------------ |
-| j / k, arrows  | Move                                                   |
-| Enter, click   | Switch the window to the session                       |
-| 1-9            | Switch to the Nth session                              |
-| any other key  | Filter by name (`/` starts a filter that may begin with j, k, n, r or x) |
-| n              | New session; type a name or keep the suggested one     |
-| r              | Rename the highlighted session                         |
-| x              | Kill the highlighted session, after a y                |
-| Esc            | Clear the filter, then close                           |
+| Key           | Does                                                                     |
+| ------------- | ------------------------------------------------------------------------ |
+| j / k, arrows | Move                                                                     |
+| Enter, click  | Switch the window to the session                                         |
+| 1-9           | Switch to the Nth session                                                |
+| any other key | Filter by name (`/` starts a filter that may begin with j, k, n, r or x) |
+| n             | New session; type a name or keep the suggested one                       |
+| r             | Rename the highlighted session                                           |
+| x             | Kill the highlighted session, after a y                                  |
+| Esc           | Clear the filter, then close                                             |
 
 Ctrl+Shift+] and Ctrl+Shift+[ (Alt+] and Alt+[ in aide) step through the
 sessions without the switcher, and Ctrl+Shift+N makes one. Ctrl+Shift+U

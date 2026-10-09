@@ -1,0 +1,6 @@
+  ┃  Build Agent
+  ┃  Plan at .opencode/plans/1760000000-auth.md is complete. Would you like to
+  ┃  switch to the build agent and start implementing?
+  ┃  1. Yes   Switch to build agent and start implementing the plan
+  ┃  2. No    Stay with plan agent to continue refining the plan
+  ┃  ↑↓ select  enter submit  esc dismiss

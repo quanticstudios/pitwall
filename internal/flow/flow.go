@@ -3,7 +3,7 @@
 // subagents.
 //
 // The files are Claude Code's transcript (and its subagents/ directory),
-// Codex's rollout and pi's session, all JSONL. Their text stays in memory:
+// Codex's rollout, pi's session and Gemini CLI's chat, all JSONL. Their text stays in memory:
 // nothing here logs or saves a prompt, a reply or a tool argument.
 package flow
 
@@ -94,6 +94,17 @@ type Subagent struct {
 
 // Running reports whether the subagent has not finished.
 func (s Subagent) Running() bool { return s.End.IsZero() }
+
+// Reads reports whether Watch can read agent p's session file. OpenCode
+// keeps its sessions in SQLite, and Cursor's, Amp's and Aider's files are
+// not read.
+func Reads(p model.Provider) bool {
+	switch p {
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderGemini:
+		return true
+	}
+	return false
+}
 
 // Watch reads the session file at path, written by provider, and calls
 // changed with a fresh Feed after the first read and after every change,

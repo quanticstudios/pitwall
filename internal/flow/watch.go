@@ -81,6 +81,8 @@ func (s *session) reset() {
 		s.p = &claude{path: s.path, child: s.child}
 	case model.ProviderCodex:
 		s.p = &codex{path: s.path}
+	case model.ProviderGemini:
+		s.p = &gemini{}
 	default:
 		s.p = pi{}
 	}

@@ -329,9 +329,12 @@ func (d *drawer) flow() []layout.Widget {
 	}
 	ag := in.agent()
 	if ag == "" {
-		return []layout.Widget{d.note("No agent in this pane. Start Claude Code, Codex or pi here and the panel follows it. Changes shows this folder's work.")}
+		return []layout.Widget{d.note("No agent in this pane. Start Claude Code, Codex, Gemini CLI or pi here and the panel follows it. Changes shows this folder's work.")}
 	}
 	out := []layout.Widget{d.banner(bannerFor(in))}
+	if !flow.Reads(ag) {
+		return append(out, space(12), d.note(sidebar.AgentName(ag)+" keeps no session file pitwall reads, so its turns and tool calls do not show here. Changes shows this folder's work."))
+	}
 	if in.Feed == nil {
 		return append(out, space(12), d.note("No transcript yet. The panel reads the agent's session file once a hook names it, usually at the next prompt or tool call."))
 	}
@@ -349,6 +352,8 @@ func (d *drawer) flow() []layout.Widget {
 	switch {
 	case ag == model.ProviderPi:
 		out = append(out, space(14), d.note("pi has no plan or subagents to show."))
+	case ag == model.ProviderGemini && in.Feed.Plan == nil:
+		out = append(out, space(14), d.note("Plan shows once Gemini calls write_todos."))
 	case ag == model.ProviderCodex && (in.Feed.Plan == nil || len(in.Feed.Subagents) == 0):
 		out = append(out, space(14), d.note("Plan and Subagents show once Codex calls update_plan or spawn_agent."))
 	}

@@ -1,0 +1,7 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Ready to start implementation?                                               │
+│                                                                              │
+│ ● 1. Yes, automatically accept edits                                         │
+│   2. Yes, manually accept edits                                              │
+│   3. No, keep planning (esc)                                                 │
+╰──────────────────────────────────────────────────────────────────────────────╯

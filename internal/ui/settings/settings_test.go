@@ -117,6 +117,11 @@ func TestHookStatus(t *testing.T) {
 	if got := HooksInstalled(home); !got["claude"] || got["codex"] || !got["pi"] {
 		t.Errorf("HooksInstalled = %v", got)
 	}
+	os.MkdirAll(filepath.Join(home, ".cursor"), 0o755)
+	os.WriteFile(filepath.Join(home, ".cursor", "hooks.json"), []byte(`{"version":1,"hooks":`+string(agent.CursorHooks("/opt/bin/pitwall"))+`}`), 0o644)
+	if got := HooksInstalled(home); !got["cursor-agent"] {
+		t.Errorf("HooksInstalled without Cursor's: %v", got)
+	}
 }
 
 func TestVersion(t *testing.T) {

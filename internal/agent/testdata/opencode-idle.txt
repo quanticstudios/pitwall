@@ -1,0 +1,6 @@
+  Added the --verbose flag to main.go.
+
+  ┃
+  ┃  Build  claude-opus-5-5 Anthropic
+  ┃
+  ~/src/demo:main                                  tab agents  ctrl+p commands

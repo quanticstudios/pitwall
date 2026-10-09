@@ -285,21 +285,21 @@ func arg(tool string, input json.RawMessage) string {
 		return ""
 	}
 	switch tool {
-	case "Bash", "bash", "exec_command", "shell_command", "shell":
+	case "Bash", "bash", "exec_command", "shell_command", "shell", "run_shell_command":
 		var argv []string
 		if json.Unmarshal(in["command"], &argv) == nil {
 			return command(argv)
 		}
 		return firstLine(str("command", "cmd"))
-	case "Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "read", "edit", "write":
+	case "Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "read", "edit", "write", "read_file", "write_file", "replace":
 		if p := str("file_path", "path", "notebook_path"); p != "" {
 			return path.Base(strings.ReplaceAll(p, `\`, "/"))
 		}
 	case "apply_patch":
 		return patchFile(str("input", "patch"))
-	case "Grep", "Glob", "grep", "find":
+	case "Grep", "Glob", "grep", "find", "glob", "search_file_content", "grep_search":
 		return firstLine(str("pattern"))
-	case "WebSearch", "web_search":
+	case "WebSearch", "web_search", "google_web_search":
 		return firstLine(str("query"))
 	case "WebFetch":
 		if u, err := url.Parse(str("url")); err == nil {

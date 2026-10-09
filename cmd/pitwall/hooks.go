@@ -136,6 +136,11 @@ func runHooks(args []string, out io.Writer) error {
 			return data, changes, nil
 		}})
 	}
+	if dir := agent.CursorDir(home); installed("cursor-agent", dir) {
+		files = append(files, config{path: filepath.Join(dir, "hooks.json"), merge: func(original []byte) ([]byte, []string, error) {
+			return mergeCursorHooks(original, agent.CursorHooks(bin), install)
+		}})
+	}
 	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
 		files = append(files, config{path: filepath.Join(dir, "plugins", "pitwall.js"), merge: func(original []byte) ([]byte, []string, error) {
 			return mergeGenerated(original, agent.OpenCodePlugin(bin), install, agent.IsOpenCodePlugin, "OpenCode plugin")
@@ -405,6 +410,84 @@ func mergeHooks(original, generated []byte, install bool) ([]byte, []string, err
 		}
 	}
 	if len(changes) > 0 {
+		if len(events) == 0 {
+			delete(root, "hooks")
+		} else {
+			root["hooks"], _ = json.Marshal(events)
+		}
+	}
+	data, err := json.MarshalIndent(root, "", "  ")
+	return append(data, '\n'), changes, err
+}
+
+// mergeCursorHooks is mergeHooks for Cursor's hooks.json: {"version": 1,
+// "hooks": {event: [{command, ...}]}}, a list of commands per event rather
+// than matcher groups. Install adds each missing command and sets version
+// 1 when unset; uninstall removes exactly the commands generated holds.
+func mergeCursorHooks(original, generated []byte, install bool) ([]byte, []string, error) {
+	root := hookObject{}
+	if original != nil {
+		var err error
+		root, err = hookJSON[hookObject](original)
+		if err != nil || root == nil {
+			return nil, nil, errors.New("config must be a JSON object")
+		}
+	}
+	events := hookObject{}
+	if raw, ok := root["hooks"]; ok {
+		var err error
+		events, err = hookJSON[hookObject](raw)
+		if err != nil || events == nil {
+			return nil, nil, errors.New("hooks must be a JSON object")
+		}
+	}
+	wanted, _ := hookJSON[map[string][]hookObject](generated)
+	names := make([]string, 0, len(wanted))
+	for name := range wanted {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var changes []string
+	for _, name := range names {
+		ours := wanted[name][0]
+		command, _ := hookJSON[string](ours["command"])
+		handlers := []hookObject{}
+		if raw, ok := events[name]; ok {
+			var err error
+			handlers, err = hookJSON[[]hookObject](raw)
+			if err != nil || handlers == nil {
+				return nil, nil, fmt.Errorf("hooks.%s must be an array of hooks", name)
+			}
+		}
+		kept := make([]hookObject, 0, len(handlers)+1)
+		found := false
+		for _, h := range handlers {
+			if cmd, _ := hookJSON[string](h["command"]); cmd == command && h != nil {
+				found = true
+				if !install {
+					changes = append(changes, "removed "+name+": "+cmd)
+					continue
+				}
+			}
+			kept = append(kept, h)
+		}
+		switch {
+		case install && !found:
+			kept = append(kept, ours)
+			changes = append(changes, "added "+name+": "+command)
+		case install || !found:
+			continue
+		}
+		if len(kept) == 0 {
+			delete(events, name)
+		} else {
+			events[name], _ = json.Marshal(kept)
+		}
+	}
+	if len(changes) > 0 {
+		if _, ok := root["version"]; !ok && install {
+			root["version"] = json.RawMessage("1")
+		}
 		if len(events) == 0 {
 			delete(root, "hooks")
 		} else {

@@ -150,6 +150,30 @@ func TestPi(t *testing.T) {
 	checkCalls(t, "turn 1", t1.Calls, []Call{{Tool: "edit", Arg: "a.go", Running: true}})
 }
 
+// The Gemini fixture follows chatRecordingService's format: a message is
+// appended again whole when its tool calls finish, and tokens count once.
+func TestGemini(t *testing.T) {
+	f := read(t, model.ProviderGemini, "testdata/gemini/session-2026-10-05T10-00-3f2a9c1e.jsonl")
+	if len(f.Turns) != 2 || f.Subagents != nil {
+		t.Fatalf("feed = %+v", f)
+	}
+	t0, t1 := f.Turns[0], f.Turns[1]
+	if t0.Prompt != "List the files" || !t0.End.Equal(at(0, 5)) || t0.Reply != "There is one file." {
+		t.Errorf("turn 0 = %+v", t0)
+	}
+	checkCalls(t, "turn 0", t0.Calls, []Call{{Tool: "run_shell_command", Arg: "ls -la"}, {Tool: "read_file", Arg: "README.md", Failed: true}})
+	if t1.Prompt != "Plan the edit" || !t1.End.IsZero() {
+		t.Errorf("turn 1 = %+v", t1)
+	}
+	checkCalls(t, "turn 1", t1.Calls, []Call{{Tool: "write_todos"}, {Tool: "replace", Arg: "main.go", Running: true}})
+	if want := []Step{{"Read main.go", StepDone}, {"Add the flag", StepActive}, {"Run the tests", StepPending}}; !reflect.DeepEqual(f.Plan, want) {
+		t.Errorf("plan = %+v", f.Plan)
+	}
+	if got, want := f.Usage.Tokens(), (Tokens{Input: 1024 + 180, Output: 52 + 8, CacheRead: 4096 + 5120}); got != want {
+		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+}
+
 func TestArg(t *testing.T) {
 	for _, c := range []struct{ tool, input, want string }{
 		{"Bash", `{"command":"  make\nsecond"}`, "make"},

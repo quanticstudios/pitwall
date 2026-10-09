@@ -45,11 +45,11 @@ func fakeIdentify(pg int) (model.Provider, string) {
 	case pg == 300, pg == 200 && execd.Load():
 		return model.ProviderCodex, "codex"
 	case pg == 700:
-		return "", "gemini"
+		return model.ProviderGemini, "gemini"
 	case pg == 800:
 		return model.ProviderPi, "pi"
 	case pg == 701:
-		return "", "opencode"
+		return model.ProviderOpenCode, "opencode"
 	}
 	return "", "sleep"
 }
@@ -306,6 +306,24 @@ func TestHooksMissing(t *testing.T) {
 	waitUntil(t, "mark cleared at the shell", func() bool { return !d.hooksMissing(id) })
 	lp.fgGroup.Store(700) // gemini, by its process name
 	waitUntil(t, "gemini marked", func() bool { return d.hooksMissing(id) })
+}
+
+// Without hooks or a decision model, Gemini CLI's state comes from its
+// screen's text, and its finished turn from the screen going quiet.
+func TestGeminiScreenRules(t *testing.T) {
+	d, lp, id := openLive(t, 200)
+	lp.show("$ ", false)
+	polls()
+	lp.show(" ⠏ Reading the directory (esc to cancel, 4s)", false)
+	lp.fgGroup.Store(700)
+	waitUntil(t, "gemini working", func() bool { return d.stateOf(id) == model.StateWorking })
+	if a := d.activityOf(id); a.Provider != model.ProviderGemini {
+		t.Errorf("activity %+v", a)
+	}
+	lp.show("│ >   Type your message or @path/to/file │", false)
+	waitUntil(t, "gemini done", func() bool { return d.stateOf(id) == model.StateCompleted })
+	lp.show("│ Action Required │\n│ ● 1. Allow once │", false)
+	waitUntil(t, "gemini asks", func() bool { return d.stateOf(id) == model.StatePendingApproval })
 }
 
 func TestHooksMissingSkipsAgentFoundRunning(t *testing.T) {

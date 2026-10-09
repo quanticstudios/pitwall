@@ -1,0 +1,6 @@
+ ✦ There are three Go files: main.go, flow.go and flow_test.go.
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ >   Type your message or @path/to/file                                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ~/src/demo (main*)          no sandbox          gemini-3-pro (97% context left)

@@ -68,8 +68,8 @@ pitwall
 ```
 
 The first window shows a welcome card. It lists the agent CLIs it found on
-your `PATH` (Claude Code, Codex, Gemini CLI, OpenCode, pi) and whether each
-one's hooks are installed. Start opens an agent in a tab of its own, and
+your `PATH` (Claude Code, Codex, Gemini CLI, OpenCode, pi, Cursor CLI, Amp,
+Aider) and whether each one's hooks are installed. Start opens an agent in a tab of its own, and
 Install hooks shows what it would change before it changes it. Dismiss the
 card, or do anything else, and it never shows again. With no agent on your
 `PATH`, you get a shell and a line with where to install one.

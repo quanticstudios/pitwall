@@ -1,0 +1,7 @@
+ > list the go files
+
+ ✦ I'll list the files in the current directory.
+
+ ⠏ Reading the directory (esc to cancel, 4s)
+
+ ~/src/demo (main*)          no sandbox          gemini-3-pro (98% context left)

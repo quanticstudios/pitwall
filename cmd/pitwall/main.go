@@ -289,6 +289,7 @@ func printHooks() error {
 	fmt.Printf("# or, for finished turns only, ~/.codex/config.toml:\n%s\n\n", agent.CodexNotify(bin))
 	fmt.Printf("# ~/.pi/agent/extensions/pitwall.ts ($PI_CODING_AGENT_DIR/extensions/pitwall.ts when set):\n%s\n", agent.PiExtension(bin))
 	fmt.Printf("# ~/.gemini/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.GeminiHooks(bin))
+	fmt.Printf("# ~/.cursor/hooks.json, merge into the top-level object:\n{\"version\": 1, \"hooks\": %s}\n\n", agent.CursorHooks(bin))
 	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js ($XDG_CONFIG_HOME/opencode/plugins/pitwall.js when set):\n%s", agent.OpenCodePlugin(bin))
 	return nil
 }

@@ -71,6 +71,79 @@ func State(g vt.Grid) model.AgentState {
 	return model.StatePendingApproval
 }
 
+// screenText is what marks each state on an agent's screen, as lowercase
+// substrings of its bottom rows.
+type screenText struct {
+	plan, input, approval, busy []string
+}
+
+// screens are the agents whose screens StateOf reads by their text rather
+// than ReadScreen's Claude and Codex rules. Cursor CLI and Amp are missing:
+// no source or docs give their screens' text.
+var screens = map[model.Provider]screenText{
+	// Gemini CLI's confirmation queue titles, its tool approval options,
+	// and its loading line, "(esc to cancel, 5s)".
+	model.ProviderGemini: {
+		plan:     []string{"ready to start implementation?"},
+		input:    []string{"answer questions"},
+		approval: []string{"allow once", "action required", "waiting for user confirmation"},
+		busy:     []string{"esc to cancel"},
+	},
+	// OpenCode's question dialog footer, plan_exit's question header, its
+	// permission prompt, and the prompt's "esc interrupt" while a run goes.
+	model.ProviderOpenCode: {
+		plan:     []string{"build agent"},
+		input:    []string{"esc dismiss"},
+		approval: []string{"permission required"},
+		busy:     []string{"esc interrupt", "again to interrupt"},
+	},
+	// aider's confirm_ask, "Add file to the chat? (Y)es/(N)o [Yes]:", and
+	// its spinner while the model answers, "Waiting for <model>".
+	model.ProviderAider: {
+		input: []string{"(y)es/(n)o"},
+		busy:  []string{"waiting for "},
+	},
+}
+
+// StateOf is State for agent p: Claude's, Codex's and pi's screens by
+// State's rules, the agents in screens by their text, and "" for any other.
+func StateOf(p model.Provider, g vt.Grid) model.AgentState {
+	s, ok := screens[p]
+	if !ok {
+		if p == model.ProviderClaude || p == model.ProviderCodex || p == model.ProviderPi {
+			return State(g)
+		}
+		return ""
+	}
+	lines := bottomLines(g, screenLines)
+	for _, m := range []struct {
+		subs  []string
+		state model.AgentState
+	}{
+		{s.plan, model.StatePlanReady},
+		{s.input, model.StateAwaitingInput},
+		{s.approval, model.StatePendingApproval},
+		{s.busy, model.StateWorking},
+	} {
+		for _, l := range lines {
+			low := strings.ToLower(l)
+			for _, sub := range m.subs {
+				if strings.Contains(low, sub) {
+					return m.state
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// ScreenRules reports whether StateOf reads agent p by the text in
+// screens, which a decision model reading p's screen replaces.
+func ScreenRules(p model.Provider) bool {
+	_, ok := screens[p]
+	return ok
+}
+
 // bottomLines returns up to n non-empty rows of g, bottom row first.
 func bottomLines(g vt.Grid, n int) []string {
 	var out []string
