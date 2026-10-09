@@ -58,6 +58,15 @@ func TestFrameOnShow(t *testing.T) {
 	}
 	// p1's frame is stale now: drawing it again waits for a current one.
 	shows("p1", "c", "p1", "p2")
+	// Rows change the frame held.
+	d.Send(proto.FrameRows{Pane: "p1", Rows: []int{0}, Cells: []vt.Cell{{Content: "d", Width: 1}}})
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		if g, _, _ := b.Frame("p1"); g.At(0, 0).Content == "d" {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("p1 after FrameRows: %q", g.At(0, 0).Content)
+		}
+	}
 
 	// A daemon below View's Level sends every frame, unasked.
 	b.mu.Lock()

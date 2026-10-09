@@ -131,8 +131,8 @@ func fanoutState(panes int) model.State {
 type fanoutClient struct {
 	tap    *tapConn
 	conn   *proto.Conn
-	frames map[string]vt.Grid
-	n      atomic.Int64 // frames received
+	frames map[string]proto.Frame
+	n      atomic.Int64 // frames and FrameRows received
 	mark   int          // tap length when measuring started
 }
 
@@ -143,7 +143,7 @@ func dialFanout(b *testing.B, sock string, level, tab int) *fanoutClient {
 	if err != nil {
 		b.Fatal(err)
 	}
-	c := &fanoutClient{tap: &tapConn{Conn: nc}, frames: map[string]vt.Grid{}}
+	c := &fanoutClient{tap: &tapConn{Conn: nc}, frames: map[string]proto.Frame{}}
 	c.conn = proto.NewConn(c.tap)
 	b.Cleanup(func() { c.conn.Close() })
 	if err := c.conn.Send(proto.Hello{Version: proto.Version, Level: level, Kind: "gui", Session: "bench"}); err != nil {
@@ -164,8 +164,12 @@ func dialFanout(b *testing.B, sock string, level, tab int) *fanoutClient {
 			if err != nil {
 				return
 			}
-			if f, ok := m.(proto.Frame); ok {
-				c.frames[f.Pane] = f.Grid
+			switch m := m.(type) {
+			case proto.Frame:
+				c.frames[m.Pane] = m
+				c.n.Add(1)
+			case proto.FrameRows:
+				c.frames[m.Pane], _ = m.Apply(c.frames[m.Pane])
 				c.n.Add(1)
 			}
 		}
@@ -182,8 +186,9 @@ func cpuSeconds() float64 {
 	return s[0].Value.Float64() + s[1].Value.Float64()
 }
 
-// replay decodes the bytes c read after mark, timing that part, and then
-// encodes the same messages again, as the daemon did.
+// replay decodes the bytes c read after mark and applies FrameRows, as the
+// backend does, timing that part, and then encodes the same messages again,
+// as the daemon did; the daemon's diffing counts in cpu-% alone.
 func (c *fanoutClient) replay(b *testing.B) (decode, encode time.Duration) {
 	c.tap.mu.Lock()
 	data := bytes.Clone(c.tap.buf.Bytes())
@@ -191,12 +196,19 @@ func (c *fanoutClient) replay(b *testing.B) (decode, encode time.Duration) {
 	r := &readConn{r: bytes.NewReader(data)}
 	dec := proto.NewConn(r)
 	var msgs []any
+	frames := map[string]proto.Frame{}
 	for {
 		at := len(data) - r.r.Len()
 		start := time.Now()
 		m, err := dec.Recv()
 		if err != nil {
 			break
+		}
+		switch m := m.(type) {
+		case proto.Frame:
+			frames[m.Pane] = m
+		case proto.FrameRows:
+			frames[m.Pane], _ = m.Apply(frames[m.Pane])
 		}
 		if at >= c.mark {
 			decode += time.Since(start)

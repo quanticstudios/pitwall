@@ -33,6 +33,7 @@ proto.DropTask{ID string; Start bool}
 proto.Error{Message string}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string}
 proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64}
+proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64}
 proto.GroupByFolder{WorkspaceID string}
 proto.Hello{Version int; Level int; Kind string; Cwd string; Session string}
 proto.Input{Pane string; Data []uint8}

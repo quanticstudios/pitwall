@@ -340,7 +340,9 @@ func (d *Daemon) shutdown() {
 
 // client is one connection's outbound queue. Bursts coalesce: a pending
 // StateMsg is built from the current state when the writer gets to it, and a
-// newer Frame for a pane replaces an unsent older one.
+// newer Frame for a pane replaces an unsent older one. The writer sends a
+// GUI of FrameRows' Level each Frame as a proto.Diff from the last one it
+// sent of that pane.
 type client struct {
 	conn    *proto.Conn
 	nc      net.Conn // for write deadlines
@@ -349,11 +351,15 @@ type client struct {
 	// view is the panes a GUI draws, from proto.View, nil for one below
 	// that Level, which gets every pane's frames; guarded by Daemon.mu.
 	view   map[string]bool
+	diffs  bool // the GUI takes FrameRows
 	wake   chan struct{}
 	mu     sync.Mutex
 	state  bool
 	frames map[string]proto.Frame
-	msgs   []any
+	// fresh is the panes whose next frame goes whole: they left the view,
+	// or came back into it.
+	fresh map[string]bool
+	msgs  []any
 }
 
 func (c *client) push(f func()) {
@@ -379,6 +385,7 @@ func (c *client) queue(m any) {
 }
 
 func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
+	sent := map[string]proto.Frame{} // what the GUI holds, for diffs
 	for {
 		select {
 		case <-c.wake:
@@ -386,8 +393,8 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 			return
 		}
 		c.mu.Lock()
-		state, frames, msgs := c.state, c.frames, c.msgs
-		c.state, c.frames, c.msgs = false, map[string]proto.Frame{}, nil
+		state, frames, fresh, msgs := c.state, c.frames, c.fresh, c.msgs
+		c.state, c.frames, c.fresh, c.msgs = false, map[string]proto.Frame{}, nil, nil
 		c.mu.Unlock()
 		var out []any
 		if state {
@@ -395,8 +402,22 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 			out = append(out, proto.StateMsg{State: d.snapshot(), Level: proto.Level})
 			d.mu.Unlock()
 		}
-		for _, f := range frames {
-			out = append(out, f)
+		for id := range fresh {
+			delete(sent, id)
+		}
+		for id, f := range frames {
+			if !c.diffs {
+				out = append(out, f)
+				continue
+			}
+			var m any = f
+			if old, ok := sent[id]; ok {
+				m = proto.Diff(&old, f)
+			}
+			if m != nil {
+				out = append(out, m)
+			}
+			sent[id] = f
 		}
 		for _, m := range append(out, msgs...) {
 			c.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
@@ -463,6 +484,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if hello.Level >= proto.Since(proto.View{}) {
 			c.view = map[string]bool{}
 		}
+		c.diffs = hello.Level >= proto.Since(proto.FrameRows{})
 		c.push(func() {
 			c.state = true
 			for id, p := range d.panes {
@@ -1395,9 +1417,19 @@ func (d *Daemon) setView(c *client, panes []string) {
 	old := c.view
 	c.view = view
 	c.push(func() {
+		if c.fresh == nil {
+			c.fresh = map[string]bool{}
+		}
+		for id := range old {
+			if !view[id] {
+				c.fresh[id] = true // frees its last frame
+				delete(c.frames, id)
+			}
+		}
 		for id := range view {
 			if p := d.panes[id]; p != nil && (old == nil || !old[id]) {
 				c.frames[id] = d.frame(id, p)
+				c.fresh[id] = true
 			}
 		}
 	})

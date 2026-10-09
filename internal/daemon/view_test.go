@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,10 +21,10 @@ func (f *fakes) paneNamed(id string) *fakePane {
 	return nil
 }
 
-// draw puts row on p's screen and signals output.
-func (p *fakePane) draw(row string) {
+// draw puts rows on p's screen and signals output.
+func (p *fakePane) draw(rows ...string) {
 	p.mu.Lock()
-	p.screen = []string{row}
+	p.screen = rows
 	p.mu.Unlock()
 	select {
 	case p.dirty <- struct{}{}:
@@ -92,5 +93,73 @@ func TestViewFrames(t *testing.T) {
 	f.paneNamed(hidden).draw("live")
 	if fr := gui.frameOf(hidden, shown); row0(fr) != "live" {
 		t.Fatalf("frame of %s: %q", hidden, row0(fr))
+	}
+}
+
+// A GUI of FrameRows' Level gets a whole frame first and on a resize or a
+// scroll, and the changed rows otherwise; applied, they give the screen.
+func TestFrameRows(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}, saved: fanoutState(4)}
+	sock, stop := run(t, f)
+	defer stop()
+	id := "p00-0"
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Session: "bench"})
+	gui.waitState("state", func(model.State) bool { return true })
+	p := f.paneNamed(id)
+	p.draw("aaa", "bbb", "ccc", "ddd")
+	gui.send(proto.View{Panes: []string{id}})
+	var held proto.Frame
+	// next waits for id's next Frame or FrameRows, of type want, applies it
+	// to held and checks held's first rows.
+	next := func(want string, rows ...string) {
+		t.Helper()
+		m := gui.waitFor("frame of "+id, func(m any) bool {
+			f, isFrame := m.(proto.Frame)
+			r, isRows := m.(proto.FrameRows)
+			return isFrame && f.Pane == id || isRows && r.Pane == id
+		})
+		switch m := m.(type) {
+		case proto.Frame:
+			held = m
+		case proto.FrameRows:
+			var ok bool
+			if held, ok = m.Apply(held); !ok {
+				t.Fatalf("rows %v do not fit the frame", m.Rows)
+			}
+		}
+		if got := fmt.Sprintf("%T", m); got != want {
+			t.Fatalf("got a %s, want a %s", got, want)
+		}
+		for y, r := range rows {
+			s := ""
+			for x := range len(r) {
+				s += held.Grid.At(x, y).Content
+			}
+			if s != r {
+				t.Fatalf("row %d is %q, want %q", y, s, r)
+			}
+		}
+	}
+	next("proto.Frame", "aaa", "bbb", "ccc", "ddd")
+	p.draw("aaa", "bXb", "ccc", "ddd")
+	next("proto.FrameRows", "aaa", "bXb", "ccc", "ddd")
+	p.draw("aaa", "bXb", "ccc", "ddd", "eee") // the pane grew a row
+	next("proto.Frame", "aaa", "bXb", "ccc", "ddd", "eee")
+	p.draw("aaa", "bXb", "ccc", "ddY", "eee")
+	next("proto.FrameRows", "aaa", "bXb", "ccc", "ddY", "eee")
+	// Shown again after a change unseen, it comes whole: the backend waits
+	// for a Frame.
+	gui.send(proto.View{})
+	p.draw("aaa", "bXb", "Zcc", "ddY", "eee")
+	time.Sleep(50 * time.Millisecond)
+	gui.send(proto.View{Panes: []string{id}})
+	next("proto.Frame", "aaa", "bXb", "Zcc", "ddY", "eee")
+	p.mu.Lock()
+	p.hist = 10
+	p.mu.Unlock()
+	gui.send(proto.Scroll{Pane: id, Lines: 3})
+	next("proto.Frame")
+	if held.ScrollOffset != 3 {
+		t.Fatalf("scrolled frame at offset %d", held.ScrollOffset)
 	}
 }

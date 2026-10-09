@@ -17,10 +17,11 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- The daemon sends a window only the panes it draws. Agents in other tabs
-  and sessions keep running, and a pane shows its current screen as soon
-  as you switch to it. With 32 busy panes and four on screen, a window
-  receives 4 MB/s instead of 34.
+- The daemon sends a window only the panes it draws, and of those only
+  the rows that changed. Agents in other tabs and sessions keep running,
+  and a pane shows its current screen as soon as you switch to it. With 32
+  busy panes and four on screen, a window receives 0.2 MB/s instead of
+  34.
 
 ## v0.1.0-beta.3
 

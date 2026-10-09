@@ -40,8 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
-// Level 14 added View: a GUI that sends it gets frames of the panes it
-// shows alone.
+// Level 14 added View and FrameRows: a GUI of this Level gets frames of
+// the panes it shows alone, and of each one the rows that changed.
 // Level 13 added Text, TextResult and vt.Grid.Wrapped: a copy of a
 // selection that runs past the view.
 // Level 12 added State.Tasks, NewTask and DropTask: the task queue.
@@ -98,7 +98,7 @@ const Level = 14
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
-	case View:
+	case View, FrameRows:
 		return 14
 	case Text, TextResult:
 		return 13
@@ -347,6 +347,22 @@ type Frame struct {
 	ScrollPushed uint64
 }
 
+// FrameRows brings the client's last Frame of Pane up to date: row Rows[i]
+// of its Grid becomes Cells[i*Cols:(i+1)*Cols], and the other fields
+// replace the Frame's. A daemon sends it to GUIs of its Level in place of a
+// Frame of the same size, screen and scroll offset; see Diff.
+type FrameRows struct {
+	Pane         string
+	Rows         []int
+	Cells        []vt.Cell
+	Wrapped      []bool // the whole Grid's
+	Cursor       vt.Cursor
+	Title        string
+	Modes        vt.Modes
+	ScrollMax    int
+	ScrollPushed uint64
+}
+
 // SearchResult answers a Search: the newest matches of Query, oldest
 // first, and More when older ones were left out.
 type SearchResult struct {
@@ -547,5 +563,5 @@ var Messages = []any{
 	Answer{},
 	WorktreeQuery{}, WorktreeInfo{}, DeleteWorktree{},
 	Text{}, TextResult{},
-	View{},
+	View{}, FrameRows{},
 }

@@ -416,6 +416,7 @@ func (b *backend) recvLoop() {
 			continue
 		}
 		b.mu.Lock()
+		pane := "" // of a frame
 		switch m := msg.(type) {
 		case proto.StateMsg:
 			b.state, b.link.Level = m.State, m.Level
@@ -442,11 +443,18 @@ func (b *backend) recvLoop() {
 				close(w)
 				delete(b.waits, m.Pane)
 			}
-			if !shown(&b.state, b.session, m.Pane) {
-				// Kept for when its tab is shown; no redraw for it now.
-				b.mu.Unlock()
-				continue
+			pane = m.Pane
+		case proto.FrameRows:
+			// The daemon sends rows only after a whole frame of the pane.
+			if f, ok := m.Apply(b.frames[m.Pane]); ok {
+				b.frames[m.Pane] = f
 			}
+			pane = m.Pane
+		}
+		if pane != "" && !shown(&b.state, b.session, pane) {
+			// Kept for when its tab is shown; no redraw for it now.
+			b.mu.Unlock()
+			continue
 		}
 		b.mu.Unlock()
 		b.notify()
