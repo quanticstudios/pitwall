@@ -89,25 +89,9 @@ func grid(lines ...string) *vt.Grid {
 	return g
 }
 
-func TestSelectionText(t *testing.T) {
-	g := grid("hello world", "second line", "third")
-	s := selection{a: image.Pt(2, 2), b: image.Pt(6, 0), on: true} // backwards drag
-	if got, want := selectionText(g, s), "world\nsecond line\nthi"; got != want {
-		t.Errorf("selectionText = %q, want %q", got, want)
-	}
-	// Wide char: trailing half is skipped, not doubled.
-	g = &vt.Grid{Cols: 4, Rows: 1, Cells: []vt.Cell{
-		{Content: "a", Width: 1}, {Content: "漢", Width: 2}, {Width: 0}, {Content: "b", Width: 1},
-	}}
-	if got := selectionText(g, selection{b: image.Pt(3, 0), on: true}); got != "a漢b" {
-		t.Errorf("wide = %q", got)
-	}
+func TestWordAt(t *testing.T) {
 	if x0, x1 := wordAt(grid("ls /tmp/x.go (ok)"), 6, 0); x0 != 3 || x1 != 11 {
 		t.Errorf("wordAt = %d,%d", x0, x1)
-	}
-	s0, s1 := selection{a: image.Pt(3, 1), b: image.Pt(1, 1), on: true}.cols(1, 10)
-	if s0 != 1 || s1 != 4 {
-		t.Errorf("cols = %d,%d", s0, s1)
 	}
 }
 
@@ -401,7 +385,7 @@ func TestPadding(t *testing.T) {
 	g := grid("abcdef", "ghijkl")
 	press := func(x, y float32) image.Point {
 		v.pointer(pointer.Event{Kind: pointer.Press, Buttons: pointer.ButtonPrimary, Position: f32.Pt(x, y)}, g, vt.Modes{}, true)
-		return v.sel.a
+		return image.Pt(v.sel.A.Col, int(v.sel.A.Line))
 	}
 	if c := press(p+1, p+1); c != image.Pt(0, 0) {
 		t.Errorf("first cell = %v", c)
@@ -556,9 +540,9 @@ func TestFocusReports(t *testing.T) {
 	}
 }
 
-// TestCopyOnSelect checks a finished mouse selection reaches the clipboard:
-// on drag release and on a double-clicked word, not mid-drag, not on a plain
-// click, and not at all with CopyOnSelect off.
+// TestCopyOnSelect checks a finished mouse selection is copied: on drag
+// release and on a double-clicked word, not mid-drag, not on a plain click,
+// and not at all with CopyOnSelect off.
 func TestCopyOnSelect(t *testing.T) {
 	var r input.Router
 	v := &View{CopyOnSelect: true}
@@ -569,11 +553,11 @@ func TestCopyOnSelect(t *testing.T) {
 		gtx.Source = r.Source()
 		v.Layout(gtx, th, g, vt.Modes{}, true)
 		r.Frame(gtx.Ops)
-		got := v.Copied()
-		if mime, b, ok := r.WriteClipboard(); ok != (got != "") || ok && (mime != "application/text" || string(b) != got) {
-			t.Fatalf("clipboard %v %q %q, Copied %q", ok, mime, b, got)
+		c, ok := v.Copied()
+		if ok != (c.Text != "") || ok && !c.Whole {
+			t.Fatalf("Copied %+v, %v", c, ok)
 		}
-		return got
+		return c.Text
 	}
 	frame()
 	frame()

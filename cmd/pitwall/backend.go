@@ -34,6 +34,7 @@ type backend struct {
 	frames  map[string]proto.Frame
 	found   map[string]proto.SearchResult // per pane, the reply to its last Search
 	tree    proto.WorktreeInfo            // the reply to the last WorktreeQuery, cleared when one is sent
+	texts   map[string]proto.TextResult   // per pane, a Text reply not yet taken
 	link    app.Link
 	dialing bool // a dial loop runs
 
@@ -64,7 +65,7 @@ var retryMin, retryMax = 500 * time.Millisecond, 30 * time.Second
 // tab $PITWALL_ATTACH names. With c nil it starts disconnected.
 func newBackend(c *proto.Conn, session string) *backend {
 	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), retry: make(chan struct{}, 1),
-		frames: map[string]proto.Frame{}, found: map[string]proto.SearchResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
+		frames: map[string]proto.Frame{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
 	if c == nil {
 		b.outErr = errNotConnected
 		close(b.done)
@@ -82,6 +83,7 @@ var (
 	_ app.Linker    = (*backend)(nil)
 	_ app.Finder    = (*backend)(nil)
 	_ app.Worktreer = (*backend)(nil)
+	_ app.Texter    = (*backend)(nil)
 )
 
 func (b *backend) State() model.State {
@@ -377,12 +379,15 @@ func (b *backend) recvLoop() {
 				if !live[id] {
 					delete(b.frames, id)
 					delete(b.found, id)
+					delete(b.texts, id)
 				}
 			}
 		case proto.SearchResult:
 			b.found[m.Pane] = m
 		case proto.WorktreeInfo:
 			b.tree = m
+		case proto.TextResult:
+			b.texts[m.Pane] = m
 		case proto.Frame:
 			b.frames[m.Pane] = m
 			if !shown(&b.state, b.session, m.Pane) {
@@ -397,11 +402,20 @@ func (b *backend) recvLoop() {
 }
 
 // Scroll implements app.Scroller from the pane's last frame.
-func (b *backend) Scroll(pane string) (offset, max int) {
+func (b *backend) Scroll(pane string) (offset, max int, pushed uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	f := b.frames[pane]
-	return f.ScrollOffset, f.ScrollMax
+	return f.ScrollOffset, f.ScrollMax, f.ScrollPushed
+}
+
+// TakeText implements app.Texter: the pane's TextResult, once.
+func (b *backend) TakeText(pane string) (proto.TextResult, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, ok := b.texts[pane]
+	delete(b.texts, pane)
+	return r, ok
 }
 
 // Worktree implements app.Worktreer.

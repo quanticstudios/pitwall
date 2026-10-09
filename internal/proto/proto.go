@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 13 added Text, TextResult and vt.Grid.Wrapped: a copy of a
+// selection that runs past the view.
 // Level 12 added State.Tasks, NewTask and DropTask: the task queue.
 // Level 11 added NewWorkspace.From and Cmd, DeleteWorkspace.Force,
 // WorktreeQuery, WorktreeInfo and DeleteWorktree.
@@ -88,12 +90,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 12
+const Level = 13
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Text, TextResult:
+		return 13
 	case NewTask, DropTask:
 		return 12
 	case WorktreeQuery, WorktreeInfo, DeleteWorktree:
@@ -282,6 +286,15 @@ type Search struct {
 	Query string
 }
 
+// Text asks for the text of Sel in Pane's scrollback and screen
+// (vt.Emulator.Text), for a copy of a selection that runs past what the
+// client's frame shows. The daemon answers this client alone with a
+// TextResult.
+type Text struct {
+	Pane string
+	Sel  vt.Selection
+}
+
 type ClosePane struct {
 	Pane string
 }
@@ -329,6 +342,13 @@ type SearchResult struct {
 	Query   string
 	Matches []vt.Match
 	More    bool
+}
+
+// TextResult answers a Text with Sel's text.
+type TextResult struct {
+	Pane string
+	Sel  vt.Selection
+	Text string
 }
 
 type PaneExited struct {
@@ -514,4 +534,5 @@ var Messages = []any{
 	Search{}, SearchResult{},
 	Answer{},
 	WorktreeQuery{}, WorktreeInfo{}, DeleteWorktree{},
+	Text{}, TextResult{},
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -27,6 +28,18 @@ var modNames = []struct {
 	{key.ModAlt, []string{"Alt"}},
 	{key.ModShift, []string{"Shift"}},
 	{key.ModSuper, []string{"Super"}},
+	{key.ModCommand, []string{"Cmd", "Command"}},
+}
+
+// superMod is what Super and Cmd in a config mean: the logo key, or on
+// macOS the Command key, which Gio reports as ModCommand.
+var superMod = superFor(runtime.GOOS)
+
+func superFor(goos string) key.Modifiers {
+	if goos == "darwin" {
+		return key.ModCommand
+	}
+	return key.ModSuper
 }
 
 // keyNames maps the spellings a config may use to Gio key names. The first
@@ -96,9 +109,13 @@ func ParseChord(s string) (Chord, error) {
 func parseMod(s string) (key.Modifiers, bool) {
 	for _, m := range modNames {
 		for _, n := range m.names {
-			if strings.EqualFold(s, n) {
-				return m.mod, true
+			if !strings.EqualFold(s, n) {
+				continue
 			}
+			if m.mod == key.ModSuper || m.mod == key.ModCommand {
+				return superMod, true
+			}
+			return m.mod, true
 		}
 	}
 	return 0, false
@@ -139,7 +156,7 @@ func (c Chord) String() string {
 type Binding []string
 
 // paneActions are handled by the terminal view, not the window.
-var paneActions = []string{"copy", "paste", "scroll_page_up", "scroll_page_down", "prev_prompt", "next_prompt"}
+var paneActions = []string{"copy", "copy_mode", "paste", "scroll_page_up", "scroll_page_down", "prev_prompt", "next_prompt"}
 
 // presets hold every action's chords. Actions a preset leaves out are
 // unbound in it.
@@ -155,7 +172,7 @@ var presets = map[string]struct {
 			"next_pane": {"Alt+L", "Alt+Right"}, "prev_pane": {"Alt+H", "Alt+Left"},
 			"split_right": {"Alt+N"}, "split_down": {"Alt+Shift+N"}, "close_pane": {"Alt+Shift+W"},
 			"new_tab": {"Alt+Shift+T"}, "pin_switcher": {"Alt+Space"},
-			"copy": {"Ctrl+Shift+C", "Ctrl+Insert"}, "paste": {"Ctrl+Shift+V", "Shift+Insert"},
+			"copy": {"Ctrl+Shift+C", "Ctrl+Insert"}, "paste": {"Ctrl+Shift+V", "Shift+Insert"}, "copy_mode": {"Ctrl+Shift+X"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
 			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
@@ -176,7 +193,7 @@ var presets = map[string]struct {
 			"split_right": {"Ctrl+Shift+O"}, "split_down": {"Ctrl+Shift+E"}, "close_pane": {"Ctrl+Shift+W"},
 			"new_tab":  {"Ctrl+Shift+T"},
 			"switcher": {"Ctrl+Shift+Space"},
-			"copy":     {"Ctrl+Shift+C", "Ctrl+Insert"}, "paste": {"Ctrl+Shift+V", "Shift+Insert"},
+			"copy":     {"Ctrl+Shift+C", "Ctrl+Insert"}, "paste": {"Ctrl+Shift+V", "Shift+Insert"}, "copy_mode": {"Ctrl+Shift+X"},
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
 			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
@@ -188,13 +205,41 @@ var presets = map[string]struct {
 			"session_next": {"Ctrl+Shift+]"}, "session_prev": {"Ctrl+Shift+["},
 		},
 	},
+	// mac is conventional with its Ctrl+Shift keys on Cmd (Super), and
+	// Cmd's usual macOS meanings: Cmd+D splits as in iTerm2, Cmd+Shift+[
+	// and ] change tabs as in Safari, Cmd+1-9 go to a tab.
+	"mac": {
+		hold: "",
+		global: map[string][]string{
+			"next_tab": {"Ctrl+Tab", "Super+Shift+]"}, "prev_tab": {"Ctrl+Shift+Tab", "Super+Shift+["},
+			"next_group": {"Super+Shift+PageDown"}, "prev_group": {"Super+Shift+PageUp"},
+			"next_pane": {"Super+Alt+Right", "Super+Alt+Down"}, "prev_pane": {"Super+Alt+Left", "Super+Alt+Up"},
+			"split_right": {"Super+D"}, "split_down": {"Super+Shift+D"}, "close_pane": {"Super+W"},
+			"new_tab":  {"Super+T"},
+			"switcher": {"Ctrl+Shift+Space"},
+			"copy":     {"Super+C"}, "paste": {"Super+V"}, "copy_mode": {"Super+Shift+X"},
+			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Super+F"},
+			"prev_prompt": {"Super+Up"}, "next_prompt": {"Super+Down"},
+			"toggle_sidebar": {"Super+B"}, "toggle_panel": {"Super+L"}, "open_settings": {"Super+,"},
+			"allow_prompt": {"Super+Shift+Y"}, "deny_prompt": {"Super+Shift+N"},
+			"command_palette":  {"Super+Shift+P"},
+			"jump_attention":   {"Super+U"},
+			"new_task":         {"Super+Shift+A"},
+			"session_switcher": {"Super+S"}, "session_new": {"Super+N"},
+			"session_next": {"Super+]"}, "session_prev": {"Super+["},
+		},
+	},
 }
 
 func init() {
 	for name, p := range presets {
+		mod := "Alt+"
+		if name == "mac" {
+			mod = "Super+" // Option+digit types a symbol on macOS
+		}
 		for i := 1; i <= 9; i++ {
 			d := fmt.Sprint(i)
-			p.global["goto_tab_"+d] = []string{"Alt+" + d}
+			p.global["goto_tab_"+d] = []string{mod + d}
 		}
 		tab := map[string][]string{"new": {"N"}, "new_in_group": {"G"}, "close": {"X"}, "rename": {"R"}, "prev": {"H", "Left"}, "next": {"L", "Right"}, "attention": {"U"}, "sessions": {"S"}}
 		for i := 1; i <= 9; i++ {
@@ -225,11 +270,19 @@ var SwitcherHidden = true
 
 var switcherActions = map[string]bool{"switcher": true, "pin_switcher": true}
 
-// Presets are the preset names, the default first.
-var Presets = []string{"conventional", "aide"}
+// DefaultPreset is the preset a config without one gets: mac on macOS,
+// conventional elsewhere.
+var DefaultPreset = defaultPreset(runtime.GOOS)
 
-// DefaultPreset is the preset a config without one gets.
-const DefaultPreset = "conventional"
+func defaultPreset(goos string) string {
+	if goos == "darwin" {
+		return "mac"
+	}
+	return "conventional"
+}
+
+// Presets are the preset names, the default first.
+var Presets = append([]string{DefaultPreset}, slices.DeleteFunc([]string{"conventional", "aide", "mac"}, func(p string) bool { return p == DefaultPreset })...)
 
 // Bindings are the effective keys: a preset with the config's overrides.
 type Bindings struct {

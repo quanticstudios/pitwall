@@ -64,7 +64,7 @@ func chords(b *Bindings, action string) string {
 	return strings.Join(out, " ")
 }
 
-// TestPresets pins both presets and checks neither binds one chord twice.
+// TestPresets pins the presets and checks none binds one chord twice.
 func TestPresets(t *testing.T) {
 	aide, conv := Preset("aide"), Preset("conventional")
 	for _, tc := range []struct {
@@ -112,6 +112,8 @@ func TestPresets(t *testing.T) {
 		{conv, "deny_prompt", "Ctrl+Shift+D"},
 		{aide, "allow_prompt", "Ctrl+Shift+Y"},
 		{aide, "deny_prompt", "Ctrl+Shift+D"},
+		{conv, "copy_mode", "Ctrl+Shift+X"},
+		{aide, "copy_mode", "Ctrl+Shift+X"},
 	} {
 		if got := chords(tc.b, tc.action); got != tc.want {
 			t.Errorf("%s %s = %q, want %q", tc.b.Preset, tc.action, got, tc.want)
@@ -238,6 +240,66 @@ func TestOSC52AndBell(t *testing.T) {
 		if s.OSC52 != tc.osc52 || s.Bell != tc.bell || msgs(probs) != tc.problem {
 			t.Errorf("%q: osc52 %v, bell %v, problems %q", tc.body, s.OSC52, s.Bell, msgs(probs))
 		}
+	}
+}
+
+// TestScrollback checks [terminal] scrollback: 10,000 by default, a whole
+// number from 1,000 to 200,000, and the default with a problem otherwise.
+func TestScrollback(t *testing.T) {
+	dir := t.TempDir()
+	for _, tc := range []struct {
+		body    string
+		want    int
+		problem string
+	}{
+		{"", 10000, ""},
+		{"scrollback = 50000", 50000, ""},
+		{"scrollback = 500000", 10000, "config.toml:2: terminal.scrollback: 500000 is not a whole number from 1000 to 200000"},
+		{"scrollback = 1500.5", 10000, "config.toml:2: terminal.scrollback: 1500.5 is not a whole number from 1000 to 200000"},
+	} {
+		s, probs := LoadFile(write(t, dir, "config.toml", "[terminal]\n"+tc.body+"\n"))
+		if s.Scrollback != tc.want || msgs(probs) != tc.problem {
+			t.Errorf("%q: scrollback %d, problems %q", tc.body, s.Scrollback, msgs(probs))
+		}
+	}
+}
+
+// TestMacPreset checks the mac preset puts the app's keys on Cmd, which a
+// config spells Super or Cmd, that Cmd is the Command key on macOS and the
+// logo key elsewhere, and that macOS alone defaults to it.
+func TestMacPreset(t *testing.T) {
+	mac := Preset("mac")
+	for action, want := range map[string]string{
+		"copy": "Super+C", "paste": "Super+V", "new_tab": "Super+T", "close_pane": "Super+W",
+		"command_palette": "Shift+Super+P", "find": "Super+F", "open_settings": "Super+,",
+		"split_right": "Super+D", "copy_mode": "Shift+Super+X", "goto_tab_2": "Super+2",
+		"next_tab": "Ctrl+Tab Shift+Super+]", "allow_prompt": "Shift+Super+Y", "deny_prompt": "Shift+Super+N",
+		"new_task": "Shift+Super+A",
+	} {
+		if got := chords(mac, action); got != want {
+			t.Errorf("mac %s = %q, want %q", action, got, want)
+		}
+	}
+	if a := mac.Action(key.Event{Name: "C", Modifiers: key.ModSuper}); a != "copy" {
+		t.Errorf("Super+C runs %q", a)
+	}
+	if a := mac.Action(key.Event{Name: "C", Modifiers: key.ModCtrl | key.ModShift}); a != "" {
+		t.Errorf("mac: Ctrl+Shift+C runs %q", a)
+	}
+	if c, err := ParseChord("Cmd+K"); err != nil || c != (Chord{key.ModSuper, "K"}) {
+		t.Errorf("Cmd+K = %v, %v", c, err)
+	}
+	if superFor("darwin") != key.ModCommand || superFor("linux") != key.ModSuper {
+		t.Error("Super is not Command on macOS and the logo key elsewhere")
+	}
+	if defaultPreset("darwin") != "mac" || defaultPreset("linux") != "conventional" || defaultPreset("windows") != "conventional" {
+		t.Error("only macOS defaults to mac")
+	}
+	if Presets[0] != DefaultPreset || len(Presets) != 3 {
+		t.Errorf("Presets = %v", Presets)
+	}
+	if s, _ := LoadFile(write(t, t.TempDir(), "config.toml", "[keys]\npreset = \"aide\"\n")); s.Keys.Preset != "aide" {
+		t.Errorf("a chosen preset gives %q", s.Keys.Preset)
 	}
 }
 

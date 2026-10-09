@@ -29,6 +29,22 @@ func (d *Daemon) search(m proto.Search) any {
 	return r
 }
 
+// text answers m with its selection's text. A Pane without Text, like a
+// test fake, has none.
+func (d *Daemon) text(m proto.Text) any {
+	d.mu.Lock()
+	p := d.panes[m.Pane]
+	d.mu.Unlock()
+	if p == nil {
+		return proto.Error{Message: fmt.Sprintf("no pane %s", m.Pane)}
+	}
+	r := proto.TextResult{Pane: m.Pane, Sel: m.Sel}
+	if t, ok := p.(interface{ Text(vt.Selection) string }); ok {
+		r.Text = t.Text(m.Sel)
+	}
+	return r
+}
+
 // view is where a pane's view sits in its scrollback. It is view state shared
 // by every client and never saved.
 type view struct {

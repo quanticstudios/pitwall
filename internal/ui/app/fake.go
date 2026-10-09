@@ -23,9 +23,10 @@ import (
 type FakeBackend struct {
 	mu      sync.Mutex
 	st      model.State
-	sizes   map[string][2]int // pane -> cols, rows
-	scroll  map[string]int    // pane -> lines scrolled back
-	queries map[string]string // pane -> its last Search query
+	sizes   map[string][2]int       // pane -> cols, rows
+	scroll  map[string]int          // pane -> lines scrolled back
+	queries map[string]string       // pane -> its last Search query
+	texts   map[string]vt.Selection // pane -> its Text not yet taken
 	sent    []any
 	changed chan struct{}
 	focus   chan proto.FocusSession
@@ -55,7 +56,7 @@ var fakeHome = func() string {
 // a Codex waiting for an answer, and a psql tab. brave-lynx has a Claude
 // writing docs and a shell.
 func NewFakeBackend() *FakeBackend {
-	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, queries: map[string]string{}, seen: map[string]time.Time{}, changed: make(chan struct{}, 1),
+	f := &FakeBackend{sizes: map[string][2]int{}, scroll: map[string]int{}, queries: map[string]string{}, texts: map[string]vt.Selection{}, seen: map[string]time.Time{}, changed: make(chan struct{}, 1),
 		focus: make(chan proto.FocusSession, 8)}
 	now := time.Now()
 	f.st.Sessions = []model.Session{
@@ -368,11 +369,12 @@ func (f *FakeBackend) newWorkspace(group, cwd string) model.Workspace {
 // fakeScrollback is how many lines of history every fake pane has.
 const fakeScrollback = 200
 
-// Scroll implements Scroller.
-func (f *FakeBackend) Scroll(pane string) (offset, max int) {
+// Scroll implements Scroller. The fake screen does not move as it
+// scrolls, so its top row is always line 0, as Found has it.
+func (f *FakeBackend) Scroll(pane string) (offset, max int, pushed uint64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.scroll[pane], fakeScrollback
+	return f.scroll[pane], fakeScrollback, uint64(f.scroll[pane])
 }
 
 // Found implements Finder by searching the pane's fake screen, which has
@@ -391,6 +393,20 @@ func (f *FakeBackend) Found(pane string) (proto.SearchResult, uint64) {
 		r.Matches = fd.Row(r.Matches, uint64(y), g.Cells[y*g.Cols:(y+1)*g.Cols])
 	}
 	return r, 0
+}
+
+// TakeText implements Texter for the fake's static screen, whose top row
+// is line 0.
+func (f *FakeBackend) TakeText(pane string) (proto.TextResult, bool) {
+	f.mu.Lock()
+	sel, ok := f.texts[pane]
+	delete(f.texts, pane)
+	f.mu.Unlock()
+	if !ok {
+		return proto.TextResult{}, false
+	}
+	g, _, _ := f.Frame(pane)
+	return proto.TextResult{Pane: pane, Sel: sel, Text: sel.Text(vt.GridLines(&g, 0))}, true
 }
 
 // Sent returns every message passed to Send, oldest first.
@@ -471,6 +487,8 @@ func (f *FakeBackend) Send(msg any) error {
 		f.tree = f.worktreeQuery(m)
 	case proto.DeleteWorktree:
 		f.stray = slices.DeleteFunc(f.stray, func(o model.Orphan) bool { return o.Path == m.Path })
+	case proto.Text:
+		f.texts[m.Pane] = m.Sel
 	case proto.SetLayout:
 		if w := ws(m.WorkspaceID); w != nil {
 			f.tabFor(w, m.TabID).Layout = cloneNode(m.Layout)

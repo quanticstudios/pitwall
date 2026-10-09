@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -286,10 +285,4 @@ func (d *Daemon) tabName(id, fallback string) string {
 		name = w.Branch
 	}
 	return cmp.Or(name, fallback)
-}
-
-// radarSetting reads [git] conflict_radar from the config at path, again
-// only when the file changed.
-func radarSetting(path string) func() bool {
-	return setting(path, true, func(s config.Settings) bool { return s.ConflictRadar })
 }

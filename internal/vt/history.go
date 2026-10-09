@@ -8,7 +8,8 @@ import (
 	xvt "github.com/charmbracelet/x/vt"
 )
 
-// historyMax is how many lines that scrolled off the main screen a pane keeps.
+// historyMax is how many lines that scrolled off the main screen a pane
+// keeps unless SetScrollback says otherwise.
 const historyMax = 10000
 
 // line is one row of history. x/vt keeps a full uv.Cell (112 bytes) per
@@ -38,11 +39,20 @@ func (r run) withCol(c uint32) run { r.col = c; return r }
 type history struct {
 	lines  []line
 	head   int
+	max    int    // lines kept; 0 means historyMax
 	pushed uint64 // lines ever pushed; clear does not reset it
 	runs   []run  // scratch for push
 }
 
 func (h *history) len() int { return len(h.lines) }
+
+// limit is how many lines h keeps.
+func (h *history) limit() int {
+	if h.max > 0 {
+		return h.max
+	}
+	return historyMax
+}
 
 // at returns line i, 0 being the oldest.
 func (h *history) at(i int) *line { return &h.lines[(h.head+i)%len(h.lines)] }
@@ -50,23 +60,23 @@ func (h *history) at(i int) *line { return &h.lines[(h.head+i)%len(h.lines)] }
 func (h *history) clear() { h.lines, h.head = nil, 0 }
 
 // set replaces the history with lines, oldest first, keeping the newest
-// historyMax. pushed moves by the change in length, so the oldest row keeps
+// limit. pushed moves by the change in length, so the oldest row keeps
 // its number and the rows after it, the screen's too, number on from it.
 func (h *history) set(lines []line) {
 	n := h.len()
-	h.lines, h.head = slices.Clone(lines[max(0, len(lines)-historyMax):]), 0
+	h.lines, h.head = slices.Clone(lines[max(0, len(lines)-h.limit()):]), 0
 	h.pushed = h.pushed + uint64(h.len()) - uint64(n)
 }
 
 func (h *history) push(cells uv.Line, flags xvt.LineFlags) {
 	l := h.line(cells, flags, 0)
 	h.pushed++
-	if len(h.lines) < historyMax {
+	if len(h.lines) < h.limit() {
 		h.lines = append(h.lines, l)
 		return
 	}
 	h.lines[h.head] = l
-	h.head = (h.head + 1) % historyMax
+	h.head = (h.head + 1) % len(h.lines)
 }
 
 // line packs a row of cells. Trailing blanks go, except within the first

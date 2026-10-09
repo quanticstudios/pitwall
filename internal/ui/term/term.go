@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -73,16 +74,26 @@ type View struct {
 		img paint.ImageOp
 	}
 
-	sel       selection
-	dragging  bool
+	sel       vt.Selection // the selection, while selOn
+	selOn     bool
+	selCols   int  // the grid width sel was made at: a rewrap renumbers lines
+	dragging  bool // a mouse selection is being dragged
+	dragAt    f32.Point
+	auto      int // rows the drag is above (< 0) or below the view, which scrolls it
+	autoAt    time.Time
+	autoAcc   float64 // autoscroll not yet a whole line
+	clicks    int     // presses in a row on one cell: 2 selects a word, 3 a line
 	lastPress pointer.Event
 	lastCell  image.Point
 	buttons   pointer.Buttons // held as of the last pointer event
 	selDone   bool            // a selection was finished this frame
-	copied    string          // what this frame put on the clipboard
+	copied    *Copy           // what this frame asks to copy
 	queued    string          // the pane action Run asked for
+	cm        copyMode
+	wantFind  bool // copy mode's / or ? asks for the find bar
 
 	keyText string // text of the key press report-all just encoded
+	eatText string // text of the key press that just left copy mode
 
 	inside    bool        // the pointer is over the pane
 	ptr       image.Point // the cell under the pointer
@@ -99,6 +110,8 @@ type View struct {
 	scrollLines       int
 	prompts           int // prompt jumps asked for, > 0 back
 	scrollOff, scrMax int
+	pushed            uint64 // proto.Frame's ScrollPushed
+	top               uint64 // the line the frame's top row shows
 
 	find    *vt.Finder  // highlights its matches; nil for none
 	findQ   string      // find's query
@@ -148,7 +161,9 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 	v.pad = gtx.Dp(padding)
 	cols, rows = fit(size.Sub(image.Pt(2*v.pad, 2*v.pad)), v.cell)
 
+	v.dropStale(g)
 	input = v.events(gtx, g, m, focused, rows)
+	v.keepSelection(gtx, g)
 	v.hoverOn = false
 	if v.Links && ctrlDown && v.inside {
 		if l, ok := v.linkAt(g, v.ptr); ok {
@@ -161,6 +176,9 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 
 	n, h := min(g.Cols, cols), min(g.Rows, rows)
 	v.drawRows(gtx.Ops, g, n, h)
+	if v.cm.on {
+		v.copyCursor(gtx.Ops, g, n, h)
+	}
 
 	// The cursor blinks only while focused, restarting on input or focus,
 	// and an unfocused pane schedules no frames for it.
@@ -174,7 +192,7 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 		on = el/blink%2 == 0
 		gtx.Execute(op.InvalidateCmd{At: v.blinkAt.Add((el/blink + 1) * blink)})
 	}
-	if c := g.Cursor; c.Visible && on && c.X >= 0 && c.X < n && c.Y >= 0 && c.Y < h {
+	if c := g.Cursor; c.Visible && on && !v.cm.on && c.X >= 0 && c.X < n && c.Y >= 0 && c.Y < h {
 		v.cursor(gtx.Ops, g, c, focused)
 	}
 	v.scrollbar(gtx, size, rows)
@@ -198,9 +216,13 @@ func (v *View) CellSize(gtx layout.Context, th *theme.Theme) image.Point {
 }
 
 // SetScroll tells the view where the frame it is about to draw sits in the
-// scrollback (proto.Frame's ScrollOffset and ScrollMax). Call it before
-// Layout; the view draws a scrollbar while offset > 0.
-func (v *View) SetScroll(offset, max int) { v.scrollOff, v.scrMax = offset, max }
+// scrollback (proto.Frame's ScrollOffset, ScrollMax and ScrollPushed), which
+// keeps a selection on its text as output arrives. Call it before Layout;
+// the view draws a scrollbar while offset > 0.
+func (v *View) SetScroll(offset, max int, pushed uint64) {
+	v.scrollOff, v.scrMax, v.pushed = offset, max, pushed
+	v.top = pushed - uint64(offset)
+}
 
 // SetFind highlights query's matches in the grid Layout draws next, and the
 // one starting at cell cur as the current match (cur.Y -1 for none), as
@@ -211,6 +233,9 @@ func (v *View) SetFind(query string, cur image.Point) {
 		if query != "" {
 			v.find = vt.NewFinder(query)
 		}
+	}
+	if v.cm.on && cur.Y >= 0 && cur != v.findCur {
+		v.cm.cur = vt.Pos{Line: v.top + uint64(cur.Y), Col: cur.X}
 	}
 	v.findCur = cur
 }
@@ -241,12 +266,25 @@ func (v *View) OpenLink() string {
 	return s
 }
 
-// Copied returns and clears the text the last Layout put on the clipboard,
-// by the copy key or CopyOnSelect, or "" when it copied nothing.
-func (v *View) Copied() string {
-	s := v.copied
-	v.copied = ""
-	return s
+// Copy is a selection to put on the clipboard.
+type Copy struct {
+	Sel vt.Selection
+	// Text is Sel's text as far as the frame shows it, and Whole whether
+	// that is all of it. When it is not, the caller asks the daemon for
+	// the rest (proto.Text).
+	Text  string
+	Whole bool
+}
+
+// Copied returns and clears the selection the last Layout asked to copy,
+// by the copy key, copy mode or CopyOnSelect.
+func (v *View) Copied() (Copy, bool) {
+	c := v.copied
+	v.copied = nil
+	if c == nil {
+		return Copy{}, false
+	}
+	return *c, true
 }
 
 // fit is how many whole cells fit in size, at least one each way so a
@@ -306,9 +344,13 @@ func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
 	}
 	order := make([]placed, 0, h)
 	jobs := v.jobs[:0] // keeps each job's buffers
+	shown := v.sel.Expand(vt.GridLines(g, v.top))
 	for y := range h {
 		cells := g.Cells[y*g.Cols : y*g.Cols+n]
-		s0, s1 := v.sel.cols(y, n)
+		s0, s1 := -1, -1
+		if v.selOn {
+			s0, s1 = shown.Cols(v.top+uint64(y), n)
+		}
 		v.hovLinks = v.hovLinks[:0]
 		if v.Links && v.hoverOn {
 			v.links, v.linkBuf = rowLinks(v.links[:0], v.linkBuf, cells)

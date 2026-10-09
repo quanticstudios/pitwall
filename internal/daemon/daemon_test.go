@@ -92,11 +92,12 @@ func (p *fakePane) Search(q string, limit int) ([]vt.Match, bool) {
 	defer p.mu.Unlock()
 	return []vt.Match{{Line: p.pushed, Cols: len(q)}}, limit < 1
 }
-func (p *fakePane) Modes() vt.Modes        { p.mu.Lock(); defer p.mu.Unlock(); return p.modes }
-func (p *fakePane) Dirty() <-chan struct{} { return p.dirty }
-func (p *fakePane) Done() <-chan struct{}  { return p.done }
-func (p *fakePane) ExitCode() int          { return p.code }
-func (p *fakePane) Cwd() string            { return p.cfg.Cwd }
+func (p *fakePane) Text(s vt.Selection) string { return fmt.Sprintf("lines %d-%d", s.A.Line, s.B.Line) }
+func (p *fakePane) Modes() vt.Modes            { p.mu.Lock(); defer p.mu.Unlock(); return p.modes }
+func (p *fakePane) Dirty() <-chan struct{}     { return p.dirty }
+func (p *fakePane) Done() <-chan struct{}      { return p.done }
+func (p *fakePane) ExitCode() int              { return p.code }
+func (p *fakePane) Cwd() string                { return p.cfg.Cwd }
 
 // PromptOffset jumps n prompts, which the fake has every 7 lines.
 func (p *fakePane) PromptOffset(off, n int) int { return off + 7*n }

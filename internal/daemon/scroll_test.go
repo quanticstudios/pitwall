@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -31,6 +32,38 @@ func TestSearchReply(t *testing.T) {
 	}
 	if e := gui.request(proto.Search{Pane: "nope", Query: "x"}); e == "" {
 		t.Error("no error for a missing pane")
+	}
+}
+
+// TestTextReply checks a Text request is answered to its client with the
+// pane's text of the selection.
+func TestTextReply(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	defer stop()
+	gui := dial(t, sock, "gui")
+	id := gui.waitState("pane", func(s model.State) bool { return len(s.Panes) == 1 }).Panes[0].ID
+	sel := vt.Selection{A: vt.Pos{Line: 3}, B: vt.Pos{Line: 9000, Col: 2}}
+	gui.send(proto.Text{Pane: id, Sel: sel})
+	r := gui.waitFor("result", func(m any) bool { _, ok := m.(proto.TextResult); return ok }).(proto.TextResult)
+	if r.Pane != id || r.Sel != sel || r.Text != "lines 3-9000" {
+		t.Fatalf("result %+v", r)
+	}
+	if e := gui.request(proto.Text{Pane: "nope"}); e == "" {
+		t.Error("no error for a missing pane")
+	}
+}
+
+// TestScrollbackSetting checks [terminal] scrollback reaches new panes'
+// emulators.
+func TestScrollbackSetting(t *testing.T) {
+	d := &Daemon{o: Options{NewVT: vt.New, Scrollback: func() int { return 5 }}}
+	e := d.notifyingVT("p")(8, 3, nil)
+	for i := range 20 {
+		fmt.Fprintf(e, "line %d\r\n", i)
+	}
+	if n := e.ScrollbackLen(); n != 5 {
+		t.Errorf("ScrollbackLen %d, want 5", n)
 	}
 }
 

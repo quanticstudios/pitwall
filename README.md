@@ -95,7 +95,8 @@ running, and `pitwall` opens the most recently used one again.
 ## Keys
 
 The default preset follows Linux terminal conventions and leaves plain
-Ctrl+letters to the shell. The aide preset is the Alt-key layout. Every
+Ctrl+letters to the shell. The aide preset is the Alt-key layout. On macOS
+the default is the mac preset, which puts these keys on Cmd. Every
 binding is in [docs/keys.md](docs/keys.md), and Ctrl+Shift+P lists them all.
 
 | conventional                | aide                | Does                                              |
@@ -115,7 +116,8 @@ binding is in [docs/keys.md](docs/keys.md), and Ctrl+Shift+P lists them all.
 
 - [Using pitwall](docs/usage.md): concepts, watching agents, sessions, tabs
   and panes, grouping, worktrees, detaching
-- [Keybindings](docs/keys.md): both presets, tab mode, pane mode, find
+- [Keybindings](docs/keys.md): the presets, tab mode, pane mode, find, copy
+  mode
 - [Command line](docs/cli.md): every command, and driving tabs from scripts
 - [Configuration](docs/config.md): config.toml, themes, fonts
 - [Hooks](docs/hooks.md): what `pitwall hooks install` changes for each agent

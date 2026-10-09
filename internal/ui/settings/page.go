@@ -968,8 +968,8 @@ func (p *Page) shortcuts() []section {
 		return strings.TrimSuffix(config.Chord{Mods: m}.String(), "+")
 	}
 	general := section{rows: []row{
-		{label: "Preset", desc: "conventional follows Linux terminals (Ghostty, kitty, GNOME Terminal); aide is aide's Alt-key layout. Shortcuts you changed stay changed.",
-			extra: "keys layout conventional aide", control: p.segmented("preset", config.Presets, b.Preset, func(o string) {
+		{label: "Preset", desc: "conventional follows Linux terminals (Ghostty, kitty, GNOME Terminal); aide is aide's Alt-key layout; mac puts the keys on Cmd, as macOS apps do. Shortcuts you changed stay changed.",
+			extra: "keys layout conventional aide mac macos cmd command super", control: p.segmented("preset", config.Presets, b.Preset, func(o string) {
 				p.saveValue("keys", "preset", config.Quote(o))
 			})},
 	}}
@@ -1134,10 +1134,8 @@ func (p *Page) terminal() []section {
 			control: p.choice("terminal", "osc52", []string{"write", "off"}, p.s.OSC52)},
 		{label: "Bell", desc: "A bell in a pane you are not looking at rings the pane and marks its tab, as an agent waiting for you does.", extra: "bel beep alert attention notification",
 			control: p.choice("terminal", "bell", []string{"attention", "off"}, p.s.Bell)},
-		{label: "Scrollback", desc: "Lines of history each pane keeps. Fixed in this version.", extra: "history lines buffer",
-			control: func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, p.th.UIFont, p.sp(13), p.th.Fg, "10,000 lines")
-			}},
+		{label: "Scrollback", desc: "Lines of history each new pane keeps, up to 200,000. Every 10,000 lines of agent output take about 2 MB per pane.", extra: "history lines buffer memory",
+			control: p.stepper("terminal", "scrollback", float64(p.s.Scrollback), 1000, config.MaxScrollback, 10000, config.DefaultScrollback)},
 		{label: "Colors", desc: "From the theme. Set them under [theme.terminal] in config.toml, or in a custom theme.", extra: "palette ansi colour",
 			control: p.palette},
 	}}}

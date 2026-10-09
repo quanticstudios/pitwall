@@ -55,6 +55,9 @@ type Grid struct {
 	Cursor     Cursor
 	Title      string
 	AltScreen  bool
+	// Wrapped[y] reports that row y soft-wraps into row y+1. Nil from
+	// daemons below proto Level 8.
+	Wrapped []bool
 }
 
 func (g *Grid) At(x, y int) Cell { return g.Cells[y*g.Cols+x] }
@@ -90,7 +93,8 @@ type Emulator interface {
 	// screen ignores it.
 	SnapshotAt(off int) Grid
 	// ScrollbackLen is how many lines of main-screen history there are, up to
-	// 10,000; 0 while the alt screen is up.
+	// the pane's scrollback (10,000 unless SetScrollback changed it); 0
+	// while the alt screen is up.
 	ScrollbackLen() int
 	// ScrollbackPushed counts lines that ever entered history. It keeps
 	// growing once the oldest lines drop out, so the change between two calls
@@ -102,6 +106,9 @@ type Emulator interface {
 	// first, case-insensitive unless query has an upper-case letter: the
 	// newest limit of them, and whether older ones were left out.
 	Search(query string, limit int) ([]Match, bool)
+	// Text is a selection's text from history and the screen; see
+	// Selection.Text.
+	Text(s Selection) string
 	Modes() Modes
 }
 

@@ -198,15 +198,16 @@ func (u *ui) blur() {
 }
 
 // Scroller is optionally implemented by a Backend: the scroll position from
-// the pane's last proto.Frame (ScrollOffset, ScrollMax).
+// the pane's last proto.Frame (ScrollOffset, ScrollMax, ScrollPushed).
 type Scroller interface {
-	Scroll(pane string) (offset, max int)
+	Scroll(pane string) (offset, max int, pushed uint64)
 }
 
 type paneUI struct {
 	sentCols   int
 	sentRows   int
-	focusClick bool // its address is the click-to-focus pointer tag
+	copyWant   *vt.Selection // the selection whose proto.Text reply is awaited
+	focusClick bool          // its address is the click-to-focus pointer tag
 	// The hooks notice: its buttons, and its area's pointer tag.
 	hooksInstall, hooksHide widget.Clickable
 	hooksBox                bool
@@ -938,12 +939,12 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		g = vt.Grid{}
 	}
 	if s, ok := u.b.(Scroller); ok {
-		off, mx := s.Scroll(id)
-		setScroll(&p.view, off, mx)
+		p.view.SetScroll(s.Scroll(id))
 	}
 	finding := id == u.find.pane
 	q, cur := "", image.Pt(0, -1)
 	if finding {
+		u.find.keep = p.view.CopyMode() != ""
 		q, cur = u.findFrame(gtx, &g)
 		finding = u.find.pane != "" // Escape closed it
 	}
@@ -970,6 +971,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	if finding {
 		u.drawFind(gtx, grid, findFocus)
 	}
+	u.copyBadge(gtx, p, grid)
 	// Clicking anywhere in the frame focuses the pane, as aide's onMouseDown
 	// on the pane article does; PassOp lets the grid see the press too.
 	pass := pointer.PassOp{}.Push(gtx.Ops)
@@ -977,9 +979,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	pass.Pop()
 	cl.Pop()
 
-	if s := p.view.Copied(); s != "" {
-		u.showNotice(gtx, copiedText(s), rect)
-	}
+	u.paneCopy(gtx, p, id, rect)
 	if l := p.view.OpenLink(); l != "" {
 		openLink(l)
 	}
