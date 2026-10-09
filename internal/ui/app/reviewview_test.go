@@ -236,3 +236,20 @@ func TestReviewLayout(t *testing.T) {
 		t.Error("Escape left the view open")
 	}
 }
+
+// The header shows the branch's pull request, as its sidebar row does,
+// and nothing for a branch without one.
+func TestReviewPRStatus(t *testing.T) {
+	u := &ui{th: theme.Dark()}
+	u.review.ws = "w"
+	st := &model.State{PRs: map[string]model.PR{"w": {Number: 12, State: model.PROpen, Review: model.ReviewApproved}}}
+	var ops op.Ops
+	gtx := gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Constraints{Max: image.Pt(400, 100)}}
+	if d := u.reviewPRStatus(gtx, st); d.Size.X < 60 || d.Size.Y != 28 {
+		t.Errorf("PR status %v", d.Size)
+	}
+	st.PRs = nil
+	if d := u.reviewPRStatus(gtx, st); d.Size != (image.Point{}) {
+		t.Errorf("no PR drew %v", d.Size)
+	}
+}

@@ -309,8 +309,8 @@ leaves the work trees alone). Uncommitted changes count as touching, never as
 a conflict. The hover card names the other tab, lists the files with the
 conflicting ones first in red, and suggests which branch to merge first: the
 one with fewer conflicting files, else the one not behind the default
-branch, else the smaller one. Click a file in the card to open its diff in
-that tab. The first time two tabs share a file, a notice says so, such as
+branch, else the smaller one. Click a file in the card to open that tab's
+review view on it. The first time two tabs share a file, a notice says so, such as
 "billing and acme-api both edit src/server/router.ts"; it comes back only for
 a new file or a new conflict. pitwall checks when it refreshes the branch
 stats, at most every 30 seconds, and only while tabs sit on two or more

@@ -135,7 +135,9 @@ build. Either step takes `--dry-run`.
   changes again comes back unreviewed) or discard a file's changes. Open it
   with Ctrl+Shift+R, the tab menu, the command palette or a file under
   Changes; j/k move between files, n/p between hunks, Esc closes it. The
-  pager stays as Open diff in pager.
+  pager stays as Open diff in pager. The header shows the branch's pull
+  request as its sidebar row does, and a click opens it. A file in a
+  conflict warning's hover card opens in the review view too.
 
 ## v0.1.0-beta.2
 

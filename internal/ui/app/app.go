@@ -769,7 +769,9 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.Answer{Pane: e.PaneID, At: e.At, Allow: e.Allow})
 	case sidebar.ViewFileDiff:
 		u.nav.selectWorkspace(st, e.WorkspaceID, "")
-		if m := u.nav.fileDiff(st, e.WorkspaceID, e.Path); m != nil {
+		if Host == "" {
+			u.openReview(st, e.WorkspaceID, e.Path)
+		} else if m := u.nav.fileDiff(st, e.WorkspaceID, e.Path); m != nil {
 			u.send(m)
 		}
 	case sidebar.CreatePR:

@@ -207,10 +207,36 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	return h + sz.Y + gtx.Dp(10)
 }
 
-// reviewPRStatus is the header's slot for the branch's pull request
-// status; it draws nothing yet.
+// reviewPRStatus is the branch's pull request in the header, as the
+// sidebar row shows it, with its state and review in words; a click opens
+// it. Nothing without one.
 func (u *ui) reviewPRStatus(gtx gl.Context, st *model.State) gl.Dimensions {
-	return gl.Dimensions{}
+	th, r := u.th, &u.review
+	pr, ok := st.PRs[r.ws]
+	if !ok {
+		return gl.Dimensions{}
+	}
+	for r.prChip.Clicked(gtx) {
+		u.prAction(st, r.ws, "open_pr")
+	}
+	h := gtx.Dp(28) // the buttons' height
+	text := strings.TrimPrefix(sidebar.PRSummary(pr), fmt.Sprintf("#%d ", pr.Number))
+	return r.prChip.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+		m := op.Record(gtx.Ops)
+		chip := sidebar.PRChip(gtx, th, pr, th.Surface)
+		chipCall := m.Stop()
+		call, sz := textCall(gtx, th, th.UIFont, 12, th.Muted, text)
+		o := op.Offset(image.Pt(0, (h-chip.Size.Y)/2)).Push(gtx.Ops)
+		chipCall.Add(gtx.Ops)
+		o.Pop()
+		o = op.Offset(image.Pt(chip.Size.X+gtx.Dp(6), (h-sz.Y)/2)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		size := image.Pt(chip.Size.X+gtx.Dp(6)+sz.X, h)
+		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+		pointer.CursorPointer.Add(gtx.Ops)
+		return gl.Dimensions{Size: size}
+	})
 }
 
 // reviewButton is aide's size="sm" button, as the settings page draws

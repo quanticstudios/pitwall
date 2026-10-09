@@ -104,7 +104,8 @@ type reviewView struct {
 	editFrom, editTo int
 
 	send, pr, pager, mark, discard, showHuge widget.Clickable
-	status                                   string // the line under the header: sent, queued, a failure
+	prChip                                   widget.Clickable // the PR status in the header: opens the pull request
+	status                                   string           // the line under the header: sent, queued, a failure
 
 	notes      map[string][]*note // by repository root
 	queue      []delivery
