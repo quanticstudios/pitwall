@@ -41,6 +41,27 @@ build. Either step takes `--dry-run`.
   as "~" under "~". Row heights follow `[font] ui_size`, and keyboard
   focus on a row or a menu entry shows a ring.
 
+- Settings fits a narrow window. Below 760dp the category list becomes a
+  dropdown next to the search field, and a row whose label would get
+  narrower than 220dp puts its control under the label instead of
+  squeezing the label to a few letters a line.
+- Settings polish: the Close button shows Esc as its hint instead of a
+  separate keycap, the theme cards sit four to a row, or two by two in a
+  narrow window, switches have a white knob, Clipboard from programs and
+  Bell read "Allow" and "Mark the tab" instead of their config values, and
+  rows, switches, segments and buttons show a focus ring under Tab.
+- The side panel says "Reading git…" with a pulsing dot until git
+  answers, then either lists the changes or says the folder is not a git
+  repository, where it used to show one line for both. Every tab's empty
+  state, and the review view's, has an icon and one short line.
+- Decision stats hides its 7 days, 30 days and All time picker until the
+  log has something in it, and offers Set up decisions while no provider
+  is connected. Usage says it is reading your agents' session files while
+  it scans.
+- Open folder as group keeps the path as you typed it after an error,
+  turns the field's border red and gives a one-line reason with `~` for
+  your home folder. The Delete dialog shows the worktree folder with `~`
+  too, wrapped after a `/` rather than inside a name.
 - The daemon sends a window only the panes it draws, and of those only
   the rows that changed. Agents in other tabs and sessions keep running,
   and a pane shows its current screen as soon as you switch to it. With 32
