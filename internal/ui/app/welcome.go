@@ -5,6 +5,7 @@ import (
 	"image"
 	"os"
 	"os/exec"
+	"time"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -19,6 +20,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/store"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -48,7 +51,10 @@ type welcome struct {
 	start                    []widget.Clickable // one per agent
 	links                    []widget.Clickable // one per welcomeAgents entry
 	install, dismiss, cancel widget.Clickable
-	tag                      int // the card's area, which keeps presses off the pane under it
+	tag                      int       // the card's area, which keeps presses off the pane under it
+	backdrop                 int       // the dimmed panes around the card
+	shownAt                  time.Time // the card's first frame, for its entrance
+
 }
 
 type foundAgent struct {
@@ -151,22 +157,31 @@ func (u *ui) drawWelcome(gtx gl.Context, st *model.State) {
 			break
 		}
 	}
+	if w.shownAt.IsZero() {
+		w.shownAt = gtx.Now
+	}
 	if len(w.agents) == 0 {
 		u.drawNoAgents(gtx)
 		return
 	}
-	u.card(gtx, &w.tag, u.welcomeBody)
+	// The panes dim behind the card; a press on them dismisses it, as one
+	// outside an overlay closes it.
+	if u.backdrop(gtx, anim.At(gtx, w.shownAt, anim.Dialog), &w.backdrop) {
+		u.endWelcome()
+		return
+	}
+	u.card(gtx, &w.tag, w.shownAt, u.welcomeBody)
 }
 
 func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 	th, w := u.th, &u.welcome
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Agents on this machine")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Agents on this machine")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Start one in a tab of its own. With its hooks installed, the sidebar shows when it works, finishes or waits on you.")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "Start one in a tab of its own. With its hooks installed, the sidebar shows when it works, finishes or waits on you.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 	}
@@ -200,7 +215,7 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 			call, sz := keycap(gtx, th, k.chord)
 			call.Add(gtx.Ops)
 			o := op.Offset(image.Pt(capW+gtx.Dp(10), 0)).Push(gtx.Ops)
-			lc, ls := textCall(gtx, th, th.UIFont, 13, th.Muted, k.label)
+			lc, ls := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, k.label)
 			op.Offset(image.Pt(0, (sz.Y-ls.Y)/2)).Add(gtx.Ops)
 			lc.Add(gtx.Ops)
 			o.Pop()
@@ -209,9 +224,9 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 	}
 	kids = append(kids, gl.Rigid(gl.Spacer{Height: 18}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		if missing {
-			return u.buttonPair(gtx, &w.dismiss, &w.install, "Dismiss", "Install hooks", th.Primary, th.OnPrimary)
+			return u.buttonPair(gtx, &w.dismiss, &w.install, "Dismiss", "Install hooks", kit.Primary)
 		}
-		return u.buttonPair(gtx, &w.cancel, &w.dismiss, "", "Dismiss", th.SurfaceSecondary, th.Fg)
+		return u.buttonPair(gtx, &w.cancel, &w.dismiss, "", "Dismiss", kit.Secondary)
 	}))
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
@@ -221,7 +236,7 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable) gl.Dimensions {
 	th := u.th
 	h := gtx.Dp(30)
-	name, ns := textCall(gtx, th, medium(th.UIFont), 14, th.Fg, a.name)
+	name, ns := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Large), th.Fg, a.name)
 	status, dot := "No hooks", th.Yellow
 	switch {
 	case a.hooks:
@@ -229,7 +244,7 @@ func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable)
 	case a.hookless:
 		status, dot = "Read from its screen", th.Muted
 	}
-	sc, ss := textCall(gtx, th, th.UIFont, 12, th.Muted, status)
+	sc, ss := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, status)
 	o := op.Offset(image.Pt(0, (h-ns.Y)/2)).Push(gtx.Ops)
 	name.Add(gtx.Ops)
 	o.Pop()
@@ -240,24 +255,9 @@ func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable)
 	sc.Add(gtx.Ops)
 	o.Pop()
 
-	lc, ls := textCall(gtx, th, medium(th.UIFont), 13, th.Fg, "Start")
-	bw := ls.X + 2*gtx.Dp(14)
-	o = op.Offset(image.Pt(gtx.Constraints.Max.X-bw, 0)).Push(gtx.Ops)
-	g := gtx
-	g.Constraints = gl.Exact(image.Pt(bw, h))
-	start.Layout(g, func(gtx gl.Context) gl.Dimensions {
-		bg := th.SurfaceSecondary
-		if start.Hovered() {
-			bg = th.SurfaceElevated
-		}
-		r := gtx.Dp(6)
-		paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(image.Rect(0, 0, bw, h), r).Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rect(1, 1, bw-1, h-1), r-1).Op(gtx.Ops))
-		pointer.CursorPointer.Add(gtx.Ops)
-		t := op.Offset(image.Pt((bw-ls.X)/2, (h-ls.Y)/2)).Push(gtx.Ops)
-		lc.Add(gtx.Ops)
-		t.Pop()
-		return gl.Dimensions{Size: image.Pt(bw, h)}
+	o = op.Offset(image.Pt(0, (h-gtx.Dp(28))/2)).Push(gtx.Ops)
+	kit.Row(gtx, 0, func(gtx gl.Context) gl.Dimensions {
+		return kit.Button(gtx, th, start, kit.Secondary, kit.Medium, "Start")
 	})
 	o.Pop()
 	return gl.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}
@@ -272,17 +272,17 @@ func (u *ui) drawNoAgents(gtx gl.Context) {
 		call op.CallOp
 		size image.Point
 	}
-	msg, ms := textCall(gtx, th, th.UIFont, 13, th.Fg, "No agent CLI on PATH. Install one:")
+	msg, ms := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, "No agent CLI on PATH. Install one:")
 	parts := []part{{call: msg, size: ms}}
 	for i, a := range welcomeAgents {
 		col := th.Primary
 		if w.links[i].Hovered() {
 			col = theme.Mix(th.Primary, th.Fg, 0.3)
 		}
-		c, s := textCall(gtx, th, th.UIFont, 13, col, a.name)
+		c, s := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), col, a.name)
 		parts = append(parts, part{c: &w.links[i], call: c, size: s})
 	}
-	hc, hs := textCall(gtx, th, th.UIFont, 13, th.Muted, "Dismiss")
+	hc, hs := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, "Dismiss")
 	parts = append(parts, part{c: &w.dismiss, call: hc, size: hs})
 	pad, gap := gtx.Dp(12), gtx.Dp(12)
 	box := image.Pt(pad, ms.Y+2*gtx.Dp(10))

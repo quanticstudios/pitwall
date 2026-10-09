@@ -5,6 +5,7 @@ package sidebar
 
 import (
 	"image"
+	"image/color"
 	"slices"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -66,6 +68,21 @@ type Sidebar struct {
 	// the range from anchor. Group actions on a selected row apply to all.
 	selected map[string]bool
 	anchor   string
+
+	// Window is the window's size, which popovers keep inside; the
+	// sidebar's own height when zero.
+	Window image.Point
+	height int         // the sidebar's height this frame
+	rowAt  image.Point // the top left of the row or header being drawn, in the sidebar
+	// The open menu and its submenu's entrances: menuKey names the open
+	// menu, menuAt is when it opened, subAt when the submenu did.
+	menuKey string
+	menuAt  time.Time
+	subAt   time.Time
+	// A group's rows fade in when it opens: whether each group was open
+	// last frame, and when each one opened.
+	wasExpanded map[string]bool
+	expandAt    map[string]time.Time
 
 	menuWS   string // workspace whose overflow menu is open
 	menuItem [actCount]widget.Clickable
@@ -166,6 +183,19 @@ type rowState struct {
 	allow, deny        widget.Clickable // a pending approval's answers
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	ctx                int              // tag for right- and middle-click
+	// bg eases the row's fill to each new one: anim.Hover when only the
+	// hover changed it, anim.State otherwise.
+	bg       anim.Color
+	wasHover bool
+}
+
+// fill is the row's fill on its way to target, which hovered is part of.
+func (r *rowState) fill(gtx layout.Context, target color.NRGBA, hovered bool) color.NRGBA {
+	dur := anim.State
+	if hovered != r.wasHover {
+		r.wasHover, dur = hovered, anim.Hover
+	}
+	return r.bg.Get(gtx, target, dur)
 }
 
 // Layout draws session's groups and tabs in st and returns events from this
@@ -234,6 +264,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	}
 	before := s.snapshot()
 	s.update(gtx, v)
+	s.noteMenus(gtx.Now)
 	s.hoverFrame(gtx)
 	if s.snapshot() != before || len(s.events) > 0 {
 		// The input landed this frame; draw its result now, and give the
@@ -243,6 +274,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 
 	w := min(gtx.Dp(Width), gtx.Constraints.Max.X)
 	h := gtx.Constraints.Max.Y
+	s.height = h
 	size := image.Pt(w, h)
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.Sidebar, clip.Rect{Max: size}.Op())

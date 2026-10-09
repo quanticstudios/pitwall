@@ -13,18 +13,19 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // The copy notice fades in fast, holds, and fades out.
 const (
-	noticeIn   = 120 * time.Millisecond
+	noticeIn   = anim.Focus
 	noticeHold = 1200 * time.Millisecond
-	noticeOut  = 250 * time.Millisecond
+	noticeOut  = anim.Long
 )
 
 // copiedText is the notice for copying s: its lines when there are several,
@@ -53,22 +54,19 @@ func (u *ui) drawNotice(gtx gl.Context) {
 		return
 	}
 	t := gtx.Now.Sub(u.noticeAt)
-	alpha := float32(1)
-	switch {
-	case t < noticeIn:
-		alpha = float32(t) / float32(noticeIn)
-		gtx.Execute(op.InvalidateCmd{})
+	alpha := anim.At(gtx, u.noticeAt, noticeIn)
+	switch out := u.noticeAt.Add(noticeIn + noticeHold); {
 	case t < noticeIn+noticeHold:
-		gtx.Execute(op.InvalidateCmd{At: u.noticeAt.Add(noticeIn + noticeHold)})
-	case t < noticeIn+noticeHold+noticeOut:
-		alpha = 1 - float32(t-noticeIn-noticeHold)/float32(noticeOut)
-		gtx.Execute(op.InvalidateCmd{})
+		gtx.Execute(op.InvalidateCmd{At: out})
+	case t < noticeIn+noticeHold+noticeOut && !anim.Reduced():
+		alpha = 1 - anim.At(gtx, out, noticeOut)
 	default:
 		u.notice = ""
 		return
 	}
+
 	th := u.th
-	call, ts := textCall(gtx, th, th.UIFont, th.TextSize*unit.Sp(12.0/13), th.Fg, u.notice)
+	call, ts := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, u.notice)
 	is, gap := gtx.Dp(14), gtx.Dp(6)
 	pad := image.Pt(gtx.Dp(10), gtx.Dp(6))
 	h := max(ts.Y, is) + 2*pad.Y
@@ -120,7 +118,7 @@ func (u *ui) drawStateNotice(gtx gl.Context, text string) {
 	matCall := mat.Stop()
 	tgtx := gtx
 	tgtx.Constraints = gl.Constraints{Max: image.Pt(tw, gtx.Constraints.Max.Y)}
-	ts := widget.Label{MaxLines: 4}.Layout(tgtx, th.Shaper, th.UIFont, th.TextSize*unit.Sp(12.0/13), text, matCall).Size
+	ts := widget.Label{MaxLines: 4}.Layout(tgtx, th.Shaper, th.UIFont, th.Sp(theme.Small), text, matCall).Size
 	call := m.Stop()
 	box := image.Pt(w, max(ts.Y, is)+2*pad.Y)
 

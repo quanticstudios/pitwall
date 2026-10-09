@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"slices"
 	"strings"
+	"time"
 
 	"gioui.org/io/event"
 	"gioui.org/layout"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -25,12 +28,13 @@ type menuEntry struct {
 	danger     bool   // red, like Delete
 	off        bool   // muted and inert; hint says why
 	sep        bool   // a divider above it
+	sub        bool   // a chevron: hovering it opens a submenu
 	hint       string // muted text at the right edge
 }
 
 // menu is WorkspaceOverflowMenu with tab words plus the grouping actions. Move, new group
 // and remove act on the whole selection when ws is part of it.
-func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger int) {
+func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor image.Rectangle) {
 	th := v.th
 	s.catcher(gtx)
 	targets := s.targets(v, ws.ID)
@@ -55,7 +59,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 	move := -1
 	if len(groups) > 0 {
 		move = len(entries)
-		entries = append(entries, menuEntry{c: &s.menuItem[actMove], icon: icFolderInput, text: "Move to group"})
+		entries = append(entries, menuEntry{c: &s.menuItem[actMove], icon: icFolderInput, text: "Move to group", sub: true})
 	}
 	entries = append(entries, menuEntry{c: &s.menuItem[actNewGroup], icon: icFolderPlus, text: newText})
 	if grouped {
@@ -82,19 +86,20 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 	}
 	// Hovering "Move to group" opens its flyout; hovering another entry
 	// closes it.
+	was := s.moveOpen
 	for i, e := range entries {
 		if e.c.Hovered() {
 			s.moveOpen = i == move
 		}
 	}
-	tops := s.menuList(gtx, th, trigger, entries)
+	if s.moveOpen && !was {
+		s.subAt = gtx.Now
+	}
+	at, tops := s.menuList(gtx, th, anchor, entries)
 	if move < 0 {
 		return
 	}
-	// The chevron marks the submenu.
-	off := op.Offset(image.Pt(trigger-gtx.Dp(28), trigger+gtx.Dp(4)+tops[move]+(gtx.Dp(32)-gtx.Dp(14))/2)).Push(gtx.Ops)
-	drawIcon(gtx, icChevronRight, gtx.Dp(14), th.Muted, 0)
-	off.Pop()
+	w := gtx.Dp(220)
 	if !s.moveOpen {
 		return
 	}
@@ -103,9 +108,13 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 			delete(s.moveBtn, id)
 		}
 	}
-	w, itemH, p := gtx.Dp(200), gtx.Dp(32), gtx.Dp(4)
-	size := image.Pt(w, 2*p+len(groups)*itemH)
-	defer op.Offset(image.Pt(trigger+gtx.Dp(2), trigger+gtx.Dp(4)+tops[move]-p)).Push(gtx.Ops).Pop()
+	sw, itemH, p := gtx.Dp(200), gtx.Dp(32), gtx.Dp(4)
+	size := image.Pt(sw, 2*p+len(groups)*itemH)
+	// Beside the menu, level with its entry.
+	row := image.Rectangle{Min: at.Add(image.Pt(0, tops[move]-p)), Max: at.Add(image.Pt(w, tops[move]-p+itemH))}
+	sub := kit.Place(row.Add(anchor.Min), size, s.bounds(), kit.Beside, gtx.Dp(2), gtx.Dp(8)).Sub(anchor.Min)
+	defer op.Offset(sub).Push(gtx.Ops).Pop()
+	defer s.popIn(gtx, s.subAt, size)()
 	floatingSurface(gtx, th, size)
 	s.blockClicks(gtx, size)
 	for i, g := range groups {
@@ -114,13 +123,15 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, trigger 
 			c = &widget.Clickable{}
 			s.moveBtn[g.ID] = c
 		}
-		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(w-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "", false)
+		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(sw-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "", false)
 	}
 }
 
-// menuList draws entries as a menu placed "bottom end" under a trigger of
-// size trigger and returns each entry's top inside the menu.
-func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, trigger int, entries []menuEntry) []int {
+// menuList draws entries as a menu placed "bottom end" under anchor, the
+// trigger's rect in the sidebar, which the drawing's origin is the top left
+// of. It flips above when there is no room below. It returns the menu's
+// top left and each entry's top inside it.
+func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, anchor image.Rectangle, entries []menuEntry) (image.Point, []int) {
 	w, itemH, p, sepH := gtx.Dp(220), gtx.Dp(32), gtx.Dp(4), gtx.Dp(9)
 	tops := make([]int, len(entries))
 	y := p
@@ -132,8 +143,11 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, trigger int, ent
 		y += itemH
 	}
 	size := image.Pt(w, y+p)
-	defer op.Offset(image.Pt(trigger-w, trigger+gtx.Dp(4))).Push(gtx.Ops).Pop()
+	at := kit.Place(anchor, size, s.bounds(), kit.BelowEnd, gtx.Dp(4), gtx.Dp(8)).Sub(anchor.Min)
+	defer op.Offset(at).Push(gtx.Ops).Pop()
+	defer s.popIn(gtx, s.menuAt, size)()
 	floatingSurface(gtx, th, size)
+
 	s.blockClicks(gtx, size)
 	for i, e := range entries {
 		if e.sep {
@@ -148,8 +162,14 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, trigger int, ent
 			col, iconCol = th.Muted, theme.Mix(th.SurfaceSecondary, th.Muted, 0.6)
 		}
 		s.menuRow(gtx, th, e.c, image.Pt(p, tops[i]), image.Pt(w-2*p, itemH), e.icon, iconCol, e.text, col, e.hint, e.off)
+		if e.sub {
+			off := op.Offset(image.Pt(w-gtx.Dp(28), tops[i]+(itemH-gtx.Dp(14))/2)).Push(gtx.Ops)
+			drawIcon(gtx, icChevronRight, gtx.Dp(14), th.Muted, 0)
+			off.Pop()
+		}
+
 	}
-	return tops
+	return at, tops
 }
 
 // menuRow draws one entry; an off one has no hover fill.
@@ -164,11 +184,13 @@ func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickab
 		defer op.Offset(image.Pt(gtx.Dp(8), 0)).Push(gtx.Ops).Pop()
 		items := []item{
 			{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icon, gtx.Dp(14), iconCol, 0) }},
-			{shrink: true, w: func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 13, col, text) }},
+			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Body), col, text)
+			}},
 		}
 		if hint != "" {
 			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), 12, th.Muted, hint)
+				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, hint)
 			}})
 		}
 		hrow(gtx, size.Y, gtx.Dp(8), items...)
@@ -231,10 +253,9 @@ func appearanceOf(p model.Project) (icon, color string) {
 }
 
 // appearanceMenu is ProjectOverflowMenu without the icon search and the
-// setup entry: a 7-column icon grid and aide's color row. x is the trigger's
-// offset in the sidebar, so the 320px popover keeps its left edge inside the
-// window.
-func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Project, x, trigger int) {
+// setup entry: a 7-column icon grid and aide's color row, placed under
+// anchor, the trigger's rect in the sidebar, kept inside the window.
+func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Project, anchor image.Rectangle) {
 	s.catcher(gtx)
 	icon, col := appearanceOf(p)
 	w, pad, gap := gtx.Dp(320), gtx.Dp(10), gtx.Dp(4)
@@ -249,8 +270,9 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 	colorH := colorRows*(sw+gap) - gap
 	size := image.Pt(w, pad+labelH+gtx.Dp(8)+gridH+gtx.Dp(12)+labelH+gtx.Dp(8)+colorH+pad)
 
-	left := max(trigger-w, gtx.Dp(8)-x) // "bottom end", clamped to the window
-	defer op.Offset(image.Pt(left, trigger+gtx.Dp(4))).Push(gtx.Ops).Pop()
+	at := kit.Place(anchor, size, s.bounds(), kit.BelowEnd, gtx.Dp(4), gtx.Dp(8)).Sub(anchor.Min)
+	defer op.Offset(at).Push(gtx.Ops).Pop()
+	defer s.popIn(gtx, s.menuAt, size)()
 	floatingSurface(gtx, th, size)
 	s.blockClicks(gtx, size)
 
@@ -259,7 +281,7 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 		g := gtx
 		g.Constraints = layout.Exact(image.Pt(inner, labelH))
 		hrow(g, labelH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, medium(th.UIFont), 11, th.Muted, text)
+			return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), th.Muted, text)
 		}})
 		off.Pop()
 	}
@@ -279,7 +301,7 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 			fg := theme.Mix(th.SurfaceSecondary, th.Fg, 0.85)
 			switch {
 			case selected:
-				bg := theme.Mix(th.SurfaceSecondary, th.Primary, 0.15)
+				bg := th.SelectedBg
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
 				paint.FillShape(gtx.Ops, theme.Mix(bg, th.Primary, 0.5), clip.Stroke{Path: clip.UniformRRect(r, gtx.Dp(8)).Path(gtx.Ops), Width: 1}.Op())
 				fg = th.Primary
@@ -322,18 +344,38 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 // floatingSurface is aide's .floating-surface: popover fill, a 1px
 // border-strong ring and an inset top highlight, rounded-lg.
 func floatingSurface(gtx layout.Context, th *theme.Theme, size image.Point) {
-	r := gtx.Dp(10)
+	r := gtx.Dp(theme.RadiusPopover)
 	rect := image.Rectangle{Max: size}
-	shadow := rect.Add(image.Pt(0, gtx.Dp(4))).Inset(-gtx.Dp(2))
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 90}, clip.UniformRRect(shadow, r+gtx.Dp(2)).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Fg, 0.14), clip.UniformRRect(rect.Inset(-1), r+1).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect, r).Op(gtx.Ops))
+	kit.Surface(gtx, rect.Inset(-1), r+1, kit.Floating, th.BorderStrong, th.SurfaceSecondary)
 	hl := clip.UniformRRect(rect, r).Push(gtx.Ops)
 	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.06), clip.Rect{Min: image.Pt(r, 0), Max: image.Pt(size.X-r, 1)}.Op())
 	hl.Pop()
 }
 
+// bounds is the window in sidebar coordinates, for placing popovers.
+func (s *Sidebar) bounds() image.Rectangle {
+	w := s.Window.X
+	if w == 0 {
+		w = 1 << 16
+	}
+	return image.Rect(0, 0, w, s.height)
+}
+
+// popIn eases a popover of size at the drawing's origin in from at.
+func (s *Sidebar) popIn(gtx layout.Context, at time.Time, size image.Point) func() {
+	return kit.PopIn(gtx, anim.At(gtx, at, anim.Menu), image.Rectangle{Max: size}, -4)
+}
+
+// noteMenus starts a menu's entrance when the open one changes.
+func (s *Sidebar) noteMenus(now time.Time) {
+	k := fmt.Sprint(s.menuWS, "\x00", s.groupMenu, "\x00", s.appearance, "\x00", s.detachedOpen)
+	if k != s.menuKey {
+		s.menuKey, s.menuAt = k, now
+	}
+}
+
 // folderCount is how many ungrouped tabs, detached ones included, share
+
 // ws's RepoRoot: the ones "Group tabs in" would move.
 func folderCount(st *model.State, ws model.Workspace) int {
 	if ws.RepoRoot == "" {

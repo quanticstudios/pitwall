@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -15,6 +16,8 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -37,7 +40,8 @@ type hooksDialog struct {
 	// Dismiss, or an install, whose hooks the running agents load only
 	// when restarted.
 	hidden   bool
-	reloaded bool // the settings page read the configs again after the install
+	reloaded bool      // the settings page read the configs again after the install
+	shownAt  time.Time // when the pane notices first showed, for their fade; UI goroutine only
 	// statusline is the box for pitwall statusline, which the dry run and
 	// the install add; tick is its clickable.
 	statusline bool
@@ -157,11 +161,11 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 	}
 	line := func(f func(gtx gl.Context) gl.Dimensions) gl.FlexChild { return gl.Rigid(f) }
 	text14 := func(s string) gl.FlexChild {
-		return line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 14, th.Muted, s) })
+		return line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, s) })
 	}
 	kids := []gl.FlexChild{
 		line(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Install hooks for live status")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Install hooks for live status")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 	}
@@ -174,7 +178,9 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		kids = append(kids, text14("Reading the agents' configs…"))
 	case errText != "":
 		ok, cancel = "Close", ""
-		kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, 14, th.Red, errText) }))
+		kids = append(kids, line(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Red, errText)
+		}))
 	case done:
 		ok, cancel = "Done", ""
 		kids = append(kids, text14("Installed. Restart the agents that are running so they load their hooks. In Codex, run /hooks once to trust them."))
@@ -187,7 +193,7 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		if len(backups) > 0 {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 12}.Layout), text14("Backups:"))
 			for _, b := range backups {
-				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, 12, th.Muted, b) }))
+				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Muted, b) }))
 			}
 		}
 	case !changed:
@@ -204,7 +210,7 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		for _, f := range files {
 			kids = append(kids,
 				gl.Rigid(gl.Spacer{Height: 12}.Layout),
-				line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, 12, th.Fg, f) }),
+				line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Fg, f) }),
 			)
 			for _, c := range changes[f] {
 				col := theme.Mix(th.Surface, th.Fg, 0.7)
@@ -216,13 +222,13 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 				default:
 					c = "+ " + c
 				}
-				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, 12, col, c) }))
+				kids = append(kids, line(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.MonoFont, th.Sp(theme.Small), col, c) }))
 			}
 		}
 	}
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
-		line(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, cancel, ok, th.Primary, th.OnPrimary) }),
+		line(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, cancel, ok, kit.Primary) }),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
@@ -239,19 +245,23 @@ func (u *ui) drawHooksNotice(gtx gl.Context, p *paneUI, r layout.Rect) {
 		u.hooks.mu.Unlock()
 	}
 	th := u.th
-	msg, ms := textCall(gtx, th, th.UIFont, 13, th.Fg, "Install hooks for live status")
-	install, is := textCall(gtx, th, medium(th.UIFont), 13, th.OnPrimary, "Install")
-	hide, hs := textCall(gtx, th, th.UIFont, 13, th.Muted, "Dismiss")
-	pad, gap := gtx.Dp(12), gtx.Dp(10)
-	bh := ms.Y + gtx.Dp(8)
-	iw, hw := is.X+2*gtx.Dp(10), hs.X+2*gtx.Dp(8)
-	box := image.Pt(pad+ms.X+gap+iw+gtx.Dp(4)+hw+gtx.Dp(6), bh+2*gtx.Dp(6))
-	if box.X+gtx.Dp(24) > r.W {
+	msg, ms := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, "Install hooks for live status")
+	rec := func(c *widget.Clickable, k kit.Kind, label string) (op.CallOp, image.Point) {
+		m := op.Record(gtx.Ops)
+		d := kit.Button(gtx, th, c, k, kit.Small, label)
+		return m.Stop(), d.Size
+	}
+	install, is := rec(&p.hooksInstall, kit.Primary, "Install")
+	hide, hs := rec(&p.hooksHide, kit.Ghost, "Dismiss")
+	pad, gap := gtx.Dp(theme.SpaceM), gtx.Dp(theme.SpaceM)
+	box := image.Pt(pad+ms.X+gap+is.X+gtx.Dp(theme.SpaceXS)+hs.X+gtx.Dp(theme.SpaceS), max(ms.Y, is.Y)+2*gtx.Dp(theme.SpaceS))
+	if box.X+gtx.Dp(theme.SpaceXL) > r.W {
 		return
 	}
-	at := image.Pt(r.X+(r.W-box.X)/2, r.Y+r.H-box.Y-gtx.Dp(16))
+	at := image.Pt(r.X+(r.W-box.X)/2, r.Y+r.H-box.Y-gtx.Dp(theme.SpaceL))
 	defer op.Offset(at).Push(gtx.Ops).Pop()
-	rad := gtx.Dp(8)
+	defer paint.PushOpacity(gtx.Ops, anim.At(gtx, u.hooksShownAt(gtx), anim.Fade)).Pop()
+	rad := gtx.Dp(theme.RadiusPopover)
 	paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(image.Rectangle{Max: box}, rad).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(image.Rect(1, 1, box.X-1, box.Y-1), rad-1).Op(gtx.Ops))
 	// why: presses on the notice must not reach the terminal under it.
@@ -266,29 +276,19 @@ func (u *ui) drawHooksNotice(gtx gl.Context, p *paneUI, r layout.Rect) {
 	o := op.Offset(image.Pt(pad, (box.Y-ms.Y)/2)).Push(gtx.Ops)
 	msg.Add(gtx.Ops)
 	o.Pop()
-	button := func(c *widget.Clickable, x, w int, primary bool, call op.CallOp, ts image.Point) {
-		o := op.Offset(image.Pt(x, (box.Y-bh)/2)).Push(gtx.Ops)
-		defer o.Pop()
-		g := gtx
-		g.Constraints = gl.Exact(image.Pt(w, bh))
-		c.Layout(g, func(gtx gl.Context) gl.Dimensions {
-			rr := clip.UniformRRect(image.Rect(0, 0, w, bh), gtx.Dp(6))
-			switch {
-			case primary && c.Hovered():
-				paint.FillShape(gtx.Ops, theme.Mix(th.Primary, th.Fg, 0.08), rr.Op(gtx.Ops))
-			case primary:
-				paint.FillShape(gtx.Ops, th.Primary, rr.Op(gtx.Ops))
-			case c.Hovered():
-				paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
-			}
-			pointer.CursorPointer.Add(gtx.Ops)
-			t := op.Offset(image.Pt((w-ts.X)/2, (bh-ts.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			t.Pop()
-			return gl.Dimensions{Size: image.Pt(w, bh)}
-		})
-	}
 	x := pad + ms.X + gap
-	button(&p.hooksInstall, x, iw, true, install, is)
-	button(&p.hooksHide, x+iw+gtx.Dp(4), hw, false, hide, hs)
+	o = op.Offset(image.Pt(x, (box.Y-is.Y)/2)).Push(gtx.Ops)
+	install.Add(gtx.Ops)
+	o.Pop()
+	o = op.Offset(image.Pt(x+is.X+gtx.Dp(theme.SpaceXS), (box.Y-hs.Y)/2)).Push(gtx.Ops)
+	hide.Add(gtx.Ops)
+	o.Pop()
+}
+
+// hooksShownAt is when the pane notices first showed, for their fade.
+func (u *ui) hooksShownAt(gtx gl.Context) time.Time {
+	if u.hooks.shownAt.IsZero() {
+		u.hooks.shownAt = gtx.Now
+	}
+	return u.hooks.shownAt
 }

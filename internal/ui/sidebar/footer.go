@@ -10,26 +10,9 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
-
-// textButton is a small ghost button with a text label.
-func textButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, text string, h int) layout.Dimensions {
-	m := op.Record(gtx.Ops)
-	d := label(gtx, th, medium(th.UIFont), 12, th.Fg, text)
-	call := m.Stop()
-	size := image.Pt(d.Size.X+gtx.Dp(20), h)
-	gtx.Constraints = layout.Exact(size)
-	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		if c.Hovered() {
-			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Op(gtx.Ops))
-		}
-		off := op.Offset(size.Sub(d.Size).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		off.Pop()
-		return layout.Dimensions{Size: size}
-	})
-}
 
 // footer: the plan limits' meter when it shows, then Open folder as
 // group, the update button when there is one, detached tabs, comments
@@ -78,7 +61,8 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 		}
 		if b.c == &s.detached && s.detachedOpen {
 			m := op.Record(gtx.Ops)
-			s.detachedMenu(gtx, v, btn)
+			at := image.Pt(x+i*(btn+gap), s.height-h+top+1+px)
+			s.detachedMenu(gtx, v, image.Rectangle{Min: at, Max: at.Add(image.Pt(btn, btn))})
 			op.Defer(gtx.Ops, m.Stop())
 		}
 		off.Pop()
@@ -101,7 +85,7 @@ func (s *Sidebar) addButton(gtx layout.Context, th *theme.Theme, addW, btn int) 
 		hrow(gtx, btn, gtx.Dp(8),
 			item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icFolderKanb, gtx.Dp(14), col, 0) }},
 			item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), 12.5, col, "Open folder as group")
+				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, "Open folder as group")
 			}},
 		)
 		return layout.Dimensions{Size: image.Pt(addW, btn)}
@@ -114,7 +98,7 @@ func (s *Sidebar) updateButton(gtx layout.Context, th *theme.Theme, x, h int) {
 	m := op.Record(gtx.Ops)
 	lg := gtx
 	lg.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(140), h)}
-	d := label(lg, th, medium(th.UIFont), 12, th.Primary, s.Update)
+	d := label(lg, th, medium(th.UIFont), th.Sp(theme.Small), th.Primary, s.Update)
 	text := m.Stop()
 	pad, bh := gtx.Dp(10), gtx.Dp(22)
 	size := image.Pt(d.Size.X+2*pad, h)
@@ -133,9 +117,10 @@ func (s *Sidebar) updateButton(gtx layout.Context, th *theme.Theme, x, h int) {
 	})
 }
 
-// detachedMenu lists the detached tabs above its trigger, each with its
-// agent state, Attach, and Kill behind a second click.
-func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
+// detachedMenu lists the detached tabs above anchor, its trigger's rect in
+// the sidebar, each with its agent state, Attach, and Kill behind a second
+// click.
+func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, anchor image.Rectangle) {
 	th := v.th
 	s.catcher(gtx)
 	var detached []model.Workspace
@@ -151,16 +136,18 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 	w, p, rowH, headH := gtx.Dp(300), gtx.Dp(4), gtx.Dp(44), gtx.Dp(30)
 	n := max(len(detached), 1)
 	size := image.Pt(w, 2*p+headH+n*rowH)
-	x := max(trigger/2-w/2, -gtx.Dp(120)) // placement "top", kept inside the sidebar
-	defer op.Offset(image.Pt(x, -size.Y-gtx.Dp(8))).Push(gtx.Ops).Pop()
+	at := kit.Place(anchor, size, s.bounds(), kit.Above, gtx.Dp(8), gtx.Dp(8)).Sub(anchor.Min)
+	defer op.Offset(at).Push(gtx.Ops).Pop()
+	defer s.popIn(gtx, s.menuAt, size)()
 	floatingSurface(gtx, th, size)
+
 	s.blockClicks(gtx, size)
 	inner := image.Pt(w-2*p-gtx.Dp(16), headH)
 	off := op.Offset(image.Pt(p+gtx.Dp(8), p)).Push(gtx.Ops)
 	hg := gtx
 	hg.Constraints = layout.Exact(inner)
 	hrow(hg, headH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), 12, th.Muted, "Detached tabs")
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Muted, "Detached tabs")
 	}})
 	off.Pop()
 	top := p + headH
@@ -168,7 +155,7 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 		off := op.Offset(image.Pt(p+gtx.Dp(8), top)).Push(gtx.Ops)
 		gtx.Constraints = layout.Exact(image.Pt(inner.X, rowH))
 		hrow(gtx, rowH, 0, item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.UIFont, 12, th.Muted, "Detach keeps a tab running out of the list")
+			return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Detach keeps a tab running out of the list")
 		}})
 		off.Pop()
 		return
@@ -196,18 +183,20 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), 13, th.Fg, Title(ws))
+						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), th.Fg, Title(ws))
 					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions { return label(gtx, th, th.UIFont, 11, stateCol, state) }),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.UIFont, th.Sp(theme.Caption), stateCol, state)
+					}),
 				)
 			}},
 			{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return textButton(gtx, th, at, "Attach", gtx.Dp(28))
+				return kit.Button(gtx, th, at, kit.Ghost, kit.Small, "Attach")
 			}},
 		}
 		if s.killArmed == ws.ID {
 			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-				return dangerButton(gtx, th, kill, "Kill", gtx.Dp(28))
+				return kit.Button(gtx, th, kill, kit.Danger, kit.Small, "Kill")
 			}})
 		} else {
 			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
@@ -217,25 +206,4 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 		hrow(gtx, rowH, gtx.Dp(4), items...)
 		off.Pop()
 	}
-}
-
-// dangerButton is the armed state of a two-click action: red text on a
-// red-soft fill.
-func dangerButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, text string, h int) layout.Dimensions {
-	m := op.Record(gtx.Ops)
-	d := label(gtx, th, semibold(th.UIFont), 12, th.Red, text)
-	call := m.Stop()
-	size := image.Pt(d.Size.X+gtx.Dp(20), h)
-	gtx.Constraints = layout.Exact(size)
-	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
-		a := float32(0.14)
-		if c.Hovered() {
-			a = 0.22
-		}
-		paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Red, a), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6)).Op(gtx.Ops))
-		off := op.Offset(size.Sub(d.Size).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		off.Pop()
-		return layout.Dimensions{Size: size}
-	})
 }

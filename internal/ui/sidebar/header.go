@@ -60,7 +60,7 @@ func hostTag(gtx layout.Context, th *theme.Theme, host string) layout.Dimensions
 	m := op.Record(gtx.Ops)
 	g := gtx
 	g.Constraints = layout.Constraints{Max: image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(112))-2*px, h)}
-	d := label(g, th, th.UIFont, 12, th.Muted, host)
+	d := label(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, host)
 	call := m.Stop()
 	size := image.Pt(d.Size.X+2*px, h)
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(4)).Op(gtx.Ops))
@@ -79,7 +79,7 @@ func (s *Sidebar) sessionButton(gtx layout.Context, th *theme.Theme, name string
 	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Constraints.Max.X-2*px, bh)}
 	d := hrowFit(g, bh, gtx.Dp(6),
 		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, semibold(th.UIFont), 14, th.Fg, name)
+			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, name)
 		}},
 		item{w: func(gtx layout.Context) layout.Dimensions {
 			return drawIcon(gtx, icChevronsUpDown, gtx.Dp(14), th.Muted, 0)

@@ -103,4 +103,13 @@ colors; a running daemon picks a change up the next time it starts.
 characters the terminal font lacks before any monospace font and color
 emoji. Families are any installed font (`fc-list : family`); a missing one is
 reported and the default is used. `[layout]` sets `pane_gap` and
-`pane_margin` in dp (both 4).
+`pane_margin` in dp (both 4). `ui_size` scales the sidebar, menus, the
+command palette and dialogs as well as the settings page.
+
+`[appearance]` has `reduce_motion` (default `false`). On, dialogs, menus,
+hover cards, hover fills and the pane focus border change at once instead
+of easing in over 80 to 200 ms.
+
+The muted text color of every built-in theme reads at 4.5:1 or better on
+its backgrounds. Status chips darken or lighten their text until it does,
+so a custom theme's chips stay readable too.

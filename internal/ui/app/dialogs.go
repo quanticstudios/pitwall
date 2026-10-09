@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"gioui.org/f32"
@@ -25,6 +26,8 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -58,10 +61,14 @@ type modal struct {
 	matches           []string // directories completing the path field
 	wt                worktreeForm
 
-	backdrop, body int // tags: the click-outside catcher, the dialog's own area
+	backdrop, body int       // tags: the click-outside catcher, the dialog's own area
+	openedAt       time.Time // for the dialog's entrance
 }
 
 func (m *modal) open(kind modalKind, ws string) {
+	if m.kind == modalNone {
+		m.openedAt = time.Now()
+	}
 	m.kind, m.ws, m.removeBranch, m.focus, m.pathErr, m.matches = kind, ws, false, true, "", nil
 	m.archive, m.armed = false, false
 	if kind == modalAddProject {
@@ -170,7 +177,7 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	// Backdrop: catches clicks outside the dialog and holds key focus when
 	// the dialog has no text field.
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 0xc8}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, scrim(u.th, anim.At(gtx, m.openedAt, anim.Dialog)), clip.Rect{Max: size}.Op())
 	bg := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &m.backdrop)
 	bg.Pop()
@@ -202,15 +209,17 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	case modalDiscard:
 		content = u.discardBody
 	}
-	u.card(gtx, &m.body, content)
+	u.card(gtx, &m.body, m.openedAt, content)
 }
 
-// card draws content on a dialog card in the middle of the window; tag
-// takes the presses inside it.
-func (u *ui) card(gtx gl.Context, tag event.Tag, content gl.Widget) { u.cardW(gtx, tag, 448, content) }
+// card draws content on a dialog card in the middle of the window, easing
+// in from at; tag takes the presses inside it.
+func (u *ui) card(gtx gl.Context, tag event.Tag, at time.Time, content gl.Widget) {
+	u.cardW(gtx, tag, 448, at, content)
+}
 
 // cardW is card width dp wide, narrower in a narrow window.
-func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, content gl.Widget) {
+func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, from time.Time, content gl.Widget) {
 	th, size := u.th, gtx.Constraints.Max
 	w := min(gtx.Dp(width), size.X-gtx.Dp(32))
 	pad := gtx.Dp(24)
@@ -221,17 +230,13 @@ func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, content gl.Widg
 	call := rec.Stop()
 	box := image.Pt(w, d.Size.Y+2*pad)
 	at := size.Sub(box).Div(2)
+	defer kit.PopIn(gtx, anim.At(gtx, from, anim.Dialog), image.Rectangle{Min: at, Max: at.Add(box)}, 10)()
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 
-	// rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]
-	r := gtx.Dp(16)
+	r := gtx.Dp(theme.RadiusCard)
 	rect := image.Rectangle{Max: box}
-	for i, a := range []uint8{0x20, 0x20, 0x20} {
-		g := gtx.Dp(unit.Dp(8 * (i + 1)))
-		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(rect.Add(image.Pt(0, gtx.Dp(12))).Inset(-g), r+g).Op(gtx.Ops))
-	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.07), clip.UniformRRect(rect, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
+	kit.Surface(gtx, rect, r, kit.Modal, th.BorderSubtle, th.Surface)
+
 	body := clip.Rect(rect).Push(gtx.Ops)
 	event.Op(gtx.Ops, tag)
 	body.Pop()
@@ -275,29 +280,29 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 	th := u.th
 	worktree := ws.WorktreeRoot != "" // the daemon removes only worktrees it made
 	verb, what := "Delete", "Stops its terminals and agents and removes it from pitwall."
-	okBg, okFg := th.Red, theme.Hex("#ffffff")
+	okKind := kit.Danger
 	if u.modal.archive {
 		verb, what = "Archive", "Its pull request merged. Archiving stops its terminals and agents and removes it from pitwall."
-		okBg, okFg = th.Primary, th.OnPrimary
+		okKind = kit.Primary
 	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, verb+" \""+tabTitle(*ws)+"\"?")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, verb+" \""+tabTitle(*ws)+"\"?")
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, what)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, what)
 		}),
 	}
 	if worktree {
 		kids = append(kids,
 			gl.Rigid(gl.Spacer{Height: 12}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.UIFont, 14, th.Fg, "Its worktree folder is removed:")
+				return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Fg, "Its worktree folder is removed:")
 			}),
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.MonoFont, 12, th.Muted, ws.Path)
+				return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Muted, ws.Path)
 			}),
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
 		)
@@ -316,9 +321,9 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			ok := verb
 			if u.deleteForce(ws.ID) {
-				ok, okBg, okFg = verb+" anyway", th.Red, theme.Hex("#ffffff")
+				ok, okKind = verb+" anyway", kit.Danger
 			}
-			return u.buttons(gtx, "Cancel", ok, okBg, okFg)
+			return u.buttons(gtx, "Cancel", ok, okKind)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -328,11 +333,11 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	th, m := u.th, &u.modal
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, "Open folder as group")
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Open folder as group")
 		}),
 		gl.Rigid(gl.Spacer{Height: 8}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Makes a group for the folder. A git repository also gets worktree tabs.")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "Makes a group for the folder. A git repository also gets worktree tabs.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -342,11 +347,11 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	}
 	if m.pathErr != "" {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 12, th.Red, m.pathErr)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Red, m.pathErr)
 		}))
 	} else {
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 12, th.Muted, "Tab completes a folder name. Enter adds it.")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Tab completes a folder name. Enter adds it.")
 		}))
 	}
 	if len(m.matches) > 0 {
@@ -354,19 +359,19 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 		for i, name := range m.matches {
 			if i == 6 {
 				kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-					return para(gtx, th, th.UIFont, 12, th.Muted, "and more")
+					return para(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "and more")
 				}))
 				break
 			}
 			kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.MonoFont, 12, theme.Mix(th.Surface, th.Fg, 0.8), name+"/")
+				return para(gtx, th, th.MonoFont, th.Sp(theme.Small), theme.Mix(th.Surface, th.Fg, 0.8), name+"/")
 			}))
 		}
 	}
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 20}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return u.buttons(gtx, "Cancel", "Open", th.Primary, th.OnPrimary)
+			return u.buttons(gtx, "Cancel", "Open", kit.Primary)
 		}),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -380,7 +385,7 @@ func (u *ui) field(gtx gl.Context, e *widget.Editor, f font.Font, h int, placeho
 	w := gtx.Constraints.Max.X
 	rect := image.Rect(0, 0, w, h)
 	r := gtx.Dp(8)
-	border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
+	border := th.BorderSubtle
 	if gtx.Focused(e) {
 		border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
 	}
@@ -395,72 +400,46 @@ func (u *ui) field(gtx gl.Context, e *widget.Editor, f font.Font, h int, placeho
 	o := op.Offset(pad).Push(gtx.Ops)
 	if e.Len() == 0 && placeholder != "" {
 		dir.Layout(eg, func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 13, th.Muted, placeholder)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, placeholder)
 		})
 	}
 	dir.Layout(eg, func(gtx gl.Context) gl.Dimensions {
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-		return e.Layout(gtx, th.Shaper, f, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
+		return e.Layout(gtx, th.Shaper, f, th.Sp(theme.Body), colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
 	})
 	o.Pop()
 	return gl.Dimensions{Size: rect.Size()}
 }
 
-// buttons is a dialog footer: an optional secondary button and the primary
-// one, right-aligned.
-func (u *ui) buttons(gtx gl.Context, cancel, ok string, okBg, okFg color.NRGBA) gl.Dimensions {
-	return u.buttonPair(gtx, &u.modal.cancel, &u.modal.ok, cancel, ok, okBg, okFg)
+// buttons is a dialog footer: an optional secondary button and the one
+// the dialog is for, of kind ok, right-aligned.
+func (u *ui) buttons(gtx gl.Context, cancel, ok string, kind kit.Kind) gl.Dimensions {
+	return u.buttonPair(gtx, &u.modal.cancel, &u.modal.ok, cancel, ok, kind)
 }
 
 // buttonPair is buttons with its own clickables.
-func (u *ui) buttonPair(gtx gl.Context, cancelC, okC *widget.Clickable, cancel, ok string, okBg, okFg color.NRGBA) gl.Dimensions {
-	bs := []dialogButton{{okC, ok, okBg, okFg}}
+func (u *ui) buttonPair(gtx gl.Context, cancelC, okC *widget.Clickable, cancel, ok string, kind kit.Kind) gl.Dimensions {
+	bs := []dialogButton{{okC, ok, kind}}
 	if cancel != "" {
-		bs = append(bs, dialogButton{cancelC, cancel, u.th.SurfaceSecondary, u.th.Fg})
+		bs = append(bs, dialogButton{cancelC, cancel, kit.Secondary})
 	}
 	return u.buttonRow(gtx, bs...)
 }
 
 // dialogButton is one button of a dialog footer.
 type dialogButton struct {
-	c      *widget.Clickable
-	text   string
-	bg, fg color.NRGBA
+	c    *widget.Clickable
+	text string
+	kind kit.Kind
 }
 
 // buttonRow draws bs right-aligned, the first rightmost.
 func (u *ui) buttonRow(gtx gl.Context, bs ...dialogButton) gl.Dimensions {
-	th := u.th
-	h := gtx.Dp(36)
-	w := gtx.Constraints.Max.X
-	x := w
-	draw := func(c *widget.Clickable, text string, bg, fg color.NRGBA) {
-		call, sz := textCall(gtx, th, medium(th.UIFont), 14, fg, text)
-		bw := sz.X + 2*gtx.Dp(16)
-		x -= bw
-		o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
-		g := gtx
-		g.Constraints = gl.Exact(image.Pt(bw, h))
-		c.Layout(g, func(gtx gl.Context) gl.Dimensions {
-			b := bg
-			if c.Hovered() {
-				b = theme.Mix(bg, th.Fg, 0.08)
-			}
-			rr := clip.UniformRRect(image.Rect(0, 0, bw, h), h/2)
-			paint.FillShape(gtx.Ops, b, rr.Op(gtx.Ops))
-			pointer.CursorPointer.Add(gtx.Ops)
-			t := op.Offset(image.Pt((bw-sz.X)/2, (h-sz.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			t.Pop()
-			return gl.Dimensions{Size: image.Pt(bw, h)}
-		})
-		o.Pop()
-		x -= gtx.Dp(8)
+	ws := make([]gl.Widget, len(bs))
+	for i, b := range bs {
+		ws[i] = func(gtx gl.Context) gl.Dimensions { return kit.Button(gtx, u.th, b.c, b.kind, kit.Large, b.text) }
 	}
-	for _, b := range bs {
-		draw(b.c, b.text, b.bg, b.fg)
-	}
-	return gl.Dimensions{Size: image.Pt(w, h)}
+	return kit.Row(gtx, theme.SpaceS, ws...)
 }
 
 // checkbox draws a 16px box and a label with a muted second line.
@@ -488,10 +467,10 @@ func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note s
 		g := gtx
 		g.Constraints = gl.Constraints{Max: image.Pt(gtx.Constraints.Max.X-x, gtx.Constraints.Max.Y)}
 		o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
-		d1 := para(g, th, th.UIFont, 14, th.Fg, text)
+		d1 := para(g, th, th.UIFont, th.Sp(theme.Large), th.Fg, text)
 		o.Pop()
 		o = op.Offset(image.Pt(x, d1.Size.Y+gtx.Dp(2))).Push(gtx.Ops)
-		d2 := para(g, th, th.UIFont, 12, th.Muted, note)
+		d2 := para(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
 		o.Pop()
 		size := image.Pt(gtx.Constraints.Max.X, d1.Size.Y+gtx.Dp(2)+d2.Size.Y)
 		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
@@ -504,7 +483,7 @@ func (u *ui) checkbox(gtx gl.Context, c *widget.Clickable, on bool, text, note s
 // border-token ring, 12px body text.
 func keycap(gtx gl.Context, th *theme.Theme, s string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
-	call, ts := textCall(gtx, th, th.UIFont, 12, theme.Mix(th.Muted, th.Fg, 0.54), s)
+	call, ts := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(th.Muted, th.Fg, 0.54), s)
 	h := gtx.Dp(20)
 	sz := image.Pt(max(ts.X+2*gtx.Dp(6), h), h)
 	r := gtx.Dp(4)

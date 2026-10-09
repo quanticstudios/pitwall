@@ -119,7 +119,7 @@ func (p *Page) overview(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		}
 		return gl.Inset{Top: 24, Bottom: 24}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 			return gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, th.UIFont, p.sp(13), th.Muted, msg)
+				return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, msg)
 			})
 		})
 	}
@@ -128,7 +128,7 @@ func (p *Page) overview(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, weight(th.UIFont, font.Medium), p.sp(13), th.Fg, "Daily cost")
+				return p.text(gtx, weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), th.Fg, "Daily cost")
 			}),
 			gl.Rigid(gl.Spacer{Height: 12}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.chart(gtx, r) }),
@@ -159,7 +159,7 @@ func (p *Page) summary(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return p.text(gtx, weight(th.UIFont, font.SemiBold), p.sp(30), th.Fg, money(r.Cost))
 		}),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.para(gtx, th.UIFont, p.sp(12), th.Muted, sub) }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, sub) }),
 	}
 	for _, pu := range r.Providers {
 		share := 0.0
@@ -176,21 +176,21 @@ func (p *Page) summary(gtx gl.Context, r *flow.Report) gl.Dimensions {
 							return hstack(gtx, 6,
 								func(gtx gl.Context) gl.Dimensions { return dot(gtx, sidebar.AgentColor(pu.Provider, th.Fg), gtx.Dp(8)) },
 								func(gtx gl.Context) gl.Dimensions {
-									return p.text(gtx, th.UIFont, p.sp(13), th.Fg, agentName(pu.Provider))
+									return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Fg, agentName(pu.Provider))
 								},
 								func(gtx gl.Context) gl.Dimensions {
-									return p.text(gtx, th.UIFont, p.sp(11), th.Muted, plural(pu.Sessions, "session"))
+									return p.text(gtx, th.UIFont, p.th.Sp(theme.Caption), th.Muted, plural(pu.Sessions, "session"))
 								},
 							)
 						}),
 						gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-							return p.text(gtx, weight(th.UIFont, font.Medium), p.sp(13), th.Fg, money(pu.Cost))
+							return p.text(gtx, weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), th.Fg, money(pu.Cost))
 						}),
 					)
 				}),
 				gl.Rigid(gl.Spacer{Height: 2}.Layout),
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-					return p.text(gtx, th.UIFont, p.sp(12), th.Muted, percent(share)+" of cost · "+compact(pu.Tokens.Total())+" tokens")
+					return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, percent(share)+" of cost · "+compact(pu.Tokens.Total())+" tokens")
 				}),
 			)
 		}))
@@ -225,7 +225,7 @@ func (p *Page) chart(gtx gl.Context, r *flow.Report) gl.Dimensions {
 	top, step := niceScale(peak, 4)
 	label := func(s string) (op.CallOp, image.Point) {
 		m := op.Record(gtx.Ops)
-		d := p.text(gtx, th.UIFont, p.sp(11), th.Muted, s)
+		d := p.text(gtx, th.UIFont, p.th.Sp(theme.Caption), th.Muted, s)
 		return m.Stop(), d.Size
 	}
 	// The y labels' column is as wide as the widest of them.
@@ -388,7 +388,7 @@ func (p *Page) totals(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		g := gtx
 		g.Constraints = gl.Constraints{Max: image.Pt(cw-gtx.Dp(8), gtx.Constraints.Max.Y)}
 		d := gl.Flex{Axis: gl.Vertical}.Layout(g,
-			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.text(gtx, th.UIFont, p.sp(12), th.Muted, c.k) }),
+			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, c.k) }),
 			gl.Rigid(gl.Spacer{Height: 4}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				return p.text(gtx, weight(th.UIFont, font.Medium), p.sp(18), th.Fg, c.v)
@@ -445,7 +445,7 @@ func (p *Page) breakdown(gtx gl.Context, r *flow.Report) gl.Dimensions {
 	costW, shareW, tokW := gtx.Dp(96), gtx.Dp(104), gtx.Dp(72)
 	cell := func(gtx gl.Context, x, w int, c color.NRGBA, s string, f font.Font) {
 		m := op.Record(gtx.Ops)
-		d := p.text(gtx, f, p.sp(13), c, s)
+		d := p.text(gtx, f, p.th.Sp(theme.Body), c, s)
 		call := m.Stop()
 		o := op.Offset(image.Pt(x+w-d.Size.X, 0)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
@@ -468,7 +468,7 @@ func (p *Page) breakdown(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		x := 0
 		if l.mark != "" {
 			is := gtx.Dp(14)
-			o := op.Offset(image.Pt(0, (gtx.Sp(p.sp(13)*1.2)-is)/2)).Push(gtx.Ops)
+			o := op.Offset(image.Pt(0, (gtx.Sp(p.th.Sp(theme.Body)*1.2)-is)/2)).Push(gtx.Ops)
 			sidebar.AgentMark(gtx, l.mark, is, th.Fg)
 			o.Pop()
 			x = is + gtx.Dp(8)
@@ -477,7 +477,7 @@ func (p *Page) breakdown(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		g := gtx
 		g.Constraints.Max.X = nameW - gtx.Dp(8)
 		o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
-		p.text(g, f, p.sp(13), fg, l.name)
+		p.text(g, f, p.th.Sp(theme.Body), fg, l.name)
 		o.Pop()
 		x = w - costW - shareW - tokW
 		costFg := fg
@@ -493,7 +493,7 @@ func (p *Page) breakdown(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		default:
 			s := percent(l.share)
 			m := op.Record(gtx.Ops)
-			d := p.text(gtx, f, p.sp(13), fg, s)
+			d := p.text(gtx, f, p.th.Sp(theme.Body), fg, s)
 			call := m.Stop()
 			bw, bh := gtx.Dp(32), gtx.Dp(4)
 			sx := x + costW + shareW - d.Size.X - gtx.Dp(8) - bw
@@ -516,7 +516,7 @@ func (p *Page) breakdown(gtx gl.Context, r *flow.Report) gl.Dimensions {
 		}
 		cell(gtx, x+costW+shareW, tokW, fg, tok, f)
 		call := m.Stop()
-		lh := gtx.Sp(p.sp(13) * 1.2)
+		lh := gtx.Sp(p.th.Sp(theme.Body) * 1.2)
 		o = op.Offset(image.Pt(0, (h-lh)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()

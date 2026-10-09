@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -42,6 +43,7 @@ func loadConfig() loaded {
 func (u *ui) apply(l loaded) {
 	u.cfg, u.th, u.nav.keys, u.probs = l.s, l.th, l.s.Keys, l.probs
 	u.updates.on.Store(l.s.CheckUpdates)
+	anim.SetReduced(l.s.ReduceMotion)
 	if u.notifications != nil {
 		u.notifications.setRules(l.s.Notifications)
 	}

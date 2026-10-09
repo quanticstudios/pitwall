@@ -55,7 +55,7 @@ func answerButtons(gtx layout.Context, th *theme.Theme, r *rowState, a model.Act
 	btn := func(c *widget.Clickable, text string, col color.NRGBA, advised bool) layout.Widget {
 		draw := func(gtx layout.Context) layout.Dimensions {
 			m := op.Record(gtx.Ops)
-			d := label(gtx, th, semibold(th.UIFont), 10, col, text)
+			d := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), col, text)
 			call := m.Stop()
 			sz := image.Pt(d.Size.X+gtx.Dp(16), h)
 			fill := float32(0.14)

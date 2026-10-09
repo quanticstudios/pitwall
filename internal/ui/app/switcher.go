@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"gioui.org/font"
 	gl "gioui.org/layout"
@@ -17,6 +16,8 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -24,7 +25,6 @@ import (
 // Ported from aide's WorkspaceSwitcherOverlay (workspace-switcher mode): a
 // 288dp floating card, 16dp from the right edge, vertically centred, fading
 // and sliding in over 120ms.
-const fadeIn = 120 * time.Millisecond
 
 // groupName is the name of w's group, "Tabs" for an ungrouped one.
 func groupName(st *model.State, w model.Workspace) string {
@@ -80,7 +80,10 @@ func chipColors(th *theme.Theme, s model.AgentState) (bg, fg color.NRGBA) {
 // chip records a rounded label and returns it with its size.
 func chip(gtx gl.Context, th *theme.Theme, bg, border, fg color.NRGBA, s string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
-	call, ts := textCall(gtx, th, semibold(th.UIFont), th.SmallSize, fg, s)
+	if bg.A == 0xff { // over a translucent fill the result depends on what is under it
+		fg = th.Readable(fg, bg)
+	}
+	call, ts := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), fg, s)
 	pad := image.Pt(gtx.Dp(7), gtx.Dp(2))
 	sz := ts.Add(pad.Mul(2))
 	r := sz.Y / 2
@@ -100,11 +103,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	if len(ws) == 0 {
 		return
 	}
-	t := min(1, float32(gtx.Now.Sub(u.shownAt))/float32(fadeIn))
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
-	ease := 1 - (1-t)*(1-t)*(1-t)
+	ease := anim.At(gtx, u.shownAt, anim.Menu)
 
 	activities := map[string][]model.Activity{}
 	for _, a := range st.Activities {
@@ -124,10 +123,10 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	if w := findWorkspace(st, u.nav.workspace); w != nil {
 		project = groupName(st, *w)
 	}
-	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.SmallSize, th.Muted, "TAB SWITCHER")
+	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.Sp(theme.Caption), th.Muted, "TAB SWITCHER")
 	y += gtx.Dp(4)
 	titleY := y
-	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), unit.Sp(14), th.Fg, project)
+	y += drawText(cgtx, th, image.Pt(0, y), semibold(th.UIFont), th.Sp(theme.Large), th.Fg, project)
 	kx := inner
 	b := u.nav.bind()
 	keys := b.Global["pin_switcher"]
@@ -155,7 +154,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 			if i > 0 {
 				y += gtx.Dp(6)
 			}
-			y += drawText(cgtx, th, image.Pt(gtx.Dp(4), y), semibold(th.UIFont), th.SmallSize, th.Muted,
+			y += drawText(cgtx, th, image.Pt(gtx.Dp(4), y), semibold(th.UIFont), th.Sp(theme.Caption), th.Muted,
 				strings.ToUpper(groupName(st, w)))
 			y += gtx.Dp(4)
 		}
@@ -174,7 +173,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		// beside the name, so show the one that needs attention most.
 		if a := model.Aggregate(activities[w.ID]); a != nil {
 			bg, fg := chipColors(th, a.State)
-			c, s := chip(rgtx, th, bg, color.NRGBA{}, fg, sidebar.PillText(*a, st.Decide.Provider))
+			c, s := chip(rgtx, th, bg, theme.Transparent, fg, sidebar.PillText(*a, st.Decide.Provider))
 			chips, sizes = append(chips, c), append(sizes, s)
 		}
 		c, s := chip(rgtx, th, th.SurfaceElevated, th.Border, th.Muted, strconv.Itoa(i+1))
@@ -189,7 +188,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		lgtx := cgtx
 		lgtx.Constraints.Max.X = max(0, inner-2*rowPad.X-chipsW-markW)
 		title := tabTitle(w)
-		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), unit.Sp(14), nameC, title)
+		nameCall, nameSz := textCall(lgtx, th, semibold(th.UIFont), th.Sp(theme.Large), nameC, title)
 		where := w.Branch
 		if where == "" {
 			where = model.ShortPath(w.Path)
@@ -197,7 +196,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		if ag := sidebar.AgentOf(st, w); ag != "" {
 			where = sidebar.AgentName(ag) + " · " + where
 		}
-		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.SmallSize, th.Muted, where)
+		brCall, brSz := textCall(lgtx, th, th.MonoFont, th.Sp(theme.Caption), th.Muted, where)
 		rowH := nameSz.Y + brSz.Y + 2*rowPad.Y
 		if current {
 			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rect(0, y, inner, y+rowH), gtx.Dp(4)).Op(gtx.Ops))
@@ -229,14 +228,9 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	defer op.Offset(image.Pt(x, top)).Push(gtx.Ops).Pop()
 
 	card := image.Rectangle{Max: image.Pt(width, h)}
-	r := gtx.Dp(12)
+	r := gtx.Dp(theme.RadiusCard)
 	// floating-surface: a soft drop shadow, a 16% white hairline, popover fill.
-	for i, a := range []uint8{0x30, 0x20, 0x10} {
-		g := gtx.Dp(unit.Dp(2 * (i + 1)))
-		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(card.Inset(-g).Add(image.Pt(0, g)), r+g).Op(gtx.Ops))
-	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.16), clip.UniformRRect(card, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(card.Inset(1), r-1).Op(gtx.Ops))
+	kit.Surface(gtx, card, r, kit.Floating, theme.Mix(th.Surface, th.Fg, 0.16), th.Surface)
 	defer clip.UniformRRect(card.Inset(1), r-1).Push(gtx.Ops).Pop()
 	defer op.Offset(image.Pt(pad, pad)).Push(gtx.Ops).Pop()
 	bodyCall.Add(gtx.Ops)

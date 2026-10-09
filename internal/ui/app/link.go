@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image/color"
 	"log"
+	"time"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -105,7 +107,7 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 
 	th := u.th
 	title, body, ok, later := "Disconnected from pitwall's background service.", "", "Reconnect", ""
-	okBg, okFg := th.Primary, th.OnPrimary
+	okKind := kit.Primary
 	if l.State != LinkDown {
 		v := "pitwall"
 		if Version != "" {
@@ -114,12 +116,12 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 		title = v + " needs to restart its background service; programs running in panes will stop."
 		body = "Agents resume after the restart. Later closes this window and leaves everything running."
 		ok, later = "Restart now", "Later"
-		okBg, okFg = th.Red, theme.Hex("#ffffff")
+		okKind = kit.Danger
 	}
 
 	// Like the modal: a dimmed window that takes every press, and a card.
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 0xc8}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, scrim(th, 1), clip.Rect{Max: size}.Op())
 	bg := clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &u.linkBackdrop)
 	bg.Pop()
@@ -130,7 +132,7 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, title)
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, title)
 		}),
 	}
 	for _, line := range []struct {
@@ -139,14 +141,14 @@ func (u *ui) layoutLink(gtx gl.Context, st *model.State, l Link) {
 	}{{body, th.Muted}, {l.Note, th.Muted}} {
 		if line.text != "" {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return para(gtx, th, th.UIFont, 14, line.c, line.text)
+				return para(gtx, th, th.UIFont, th.Sp(theme.Large), line.c, line.text)
 			}))
 		}
 	}
 	kids = append(kids, gl.Rigid(gl.Spacer{Height: 20}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-		return u.buttonPair(gtx, &u.linkLater, &u.linkOK, later, ok, okBg, okFg)
+		return u.buttonPair(gtx, &u.linkLater, &u.linkOK, later, ok, okKind)
 	}))
-	u.card(gtx, &u.linkBackdrop, func(gtx gl.Context) gl.Dimensions {
+	u.card(gtx, &u.linkBackdrop, time.Time{}, func(gtx gl.Context) gl.Dimensions {
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 	})
 }

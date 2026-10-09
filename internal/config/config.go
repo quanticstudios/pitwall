@@ -25,6 +25,7 @@ import (
 type Config struct {
 	Keys      Keys        `toml:"keys" doc:"Keybindings: a preset, then single actions overriding it. A value is a chord (\"Ctrl+Shift+T\"), an array of chords, or [] to unbind."`
 	Theme     Theme       `toml:"theme" doc:"Colors."`
+	Appear    Appearance  `toml:"appearance" doc:"How the window moves."`
 	Font      Font        `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
 	Layout    Layout      `toml:"layout" doc:"Spacing around panes, in dp."`
 	Term      Term        `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
@@ -191,6 +192,11 @@ type Font struct {
 	MonoFallback []string `toml:"mono_fallback" doc:"Families tried, in order, for characters the terminal font lacks, before any monospace font and color emoji"`
 }
 
+// Appearance is [appearance].
+type Appearance struct {
+	ReduceMotion *bool `toml:"reduce_motion" doc:"Show dialogs, menus, hover and focus changes at once instead of easing them in"`
+}
+
 // Layout is [layout].
 type Layout struct {
 	PaneGap    *float64 `toml:"pane_gap" min:"0" max:"64" doc:"Space between split panes"`
@@ -253,6 +259,8 @@ type Settings struct {
 	CheckUpdates bool
 	// ShowCost shows token use in dollars next to the tokens.
 	ShowCost bool
+	// ReduceMotion turns the window's transitions off.
+	ReduceMotion bool
 	// LimitsInSidebar shows the plan limits' meter in the sidebar.
 	LimitsInSidebar bool
 	// Decisions is [decisions] resolved.
@@ -444,6 +452,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	}
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
 	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
+	s.ReduceMotion = c.Appear.ReduceMotion != nil && *c.Appear.ReduceMotion
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts
 	var di []issue

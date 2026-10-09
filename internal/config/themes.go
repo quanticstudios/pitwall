@@ -31,7 +31,7 @@ var builtins = map[string]Theme{
 	"aide-light": {
 		Colors: Colors{
 			Bg: "#f5f5f7", Sidebar: "#f5f5f7", Surface: "#ebebef", SurfaceSecondary: "#e1e1e6",
-			SurfaceElevated: "#d6d6dc", Border: "#dcdce0", Fg: "#1d1d1f", Muted: "#6e6e73",
+			SurfaceElevated: "#d6d6dc", Border: "#dcdce0", Fg: "#1d1d1f", Muted: "#626267",
 			Primary: "#0066cc", OnPrimary: "#ffffff", Red: "#cf222e", Yellow: "#9a6700",
 			Green: "#1a7f37", Blue: "#0969da", Purple: "#8250df",
 		},
@@ -45,7 +45,7 @@ var builtins = map[string]Theme{
 	"tokyo-night": {
 		Colors: Colors{
 			Bg: "#16161e", Sidebar: "#16161e", Surface: "#1a1b26", SurfaceSecondary: "#232433",
-			SurfaceElevated: "#292e42", Border: "#24253a", Fg: "#c0caf5", Muted: "#737aa2",
+			SurfaceElevated: "#292e42", Border: "#24253a", Fg: "#c0caf5", Muted: "#838ab4",
 			Primary: "#7aa2f7", OnPrimary: "#16161e", Red: "#f7768e", Yellow: "#e0af68",
 			Green: "#9ece6a", Blue: "#7dcfff", Purple: "#bb9af7",
 		},
@@ -59,7 +59,7 @@ var builtins = map[string]Theme{
 	"catppuccin-mocha": {
 		Colors: Colors{
 			Bg: "#181825", Sidebar: "#181825", Surface: "#1e1e2e", SurfaceSecondary: "#313244",
-			SurfaceElevated: "#45475a", Border: "#28283a", Fg: "#cdd6f4", Muted: "#9399b2",
+			SurfaceElevated: "#45475a", Border: "#28283a", Fg: "#cdd6f4", Muted: "#969cb5",
 			Primary: "#89b4fa", OnPrimary: "#11111b", Red: "#f38ba8", Yellow: "#f9e2af",
 			Green: "#a6e3a1", Blue: "#74c7ec", Purple: "#cba6f7",
 		},

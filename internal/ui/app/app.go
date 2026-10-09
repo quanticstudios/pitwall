@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"fmt"
 	"image"
+	"image/color"
 	"log"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -59,9 +62,6 @@ const (
 	slowFrame    = 250 * time.Millisecond
 	sidebarWidth = unit.Dp(288)
 	minRatio     = 0.05
-	// sessionFade is how long the panes take to fade in after the window
-	// switched sessions.
-	sessionFade = 260 * time.Millisecond
 )
 
 // Run opens the window and blocks until it closes.
@@ -211,6 +211,7 @@ type paneUI struct {
 	// The hooks notice: its buttons, and its area's pointer tag.
 	hooksInstall, hooksHide widget.Clickable
 	hooksBox                bool
+	border                  anim.Color // the frame's color, easing between focused and not
 	// Last, so a zero-size View never shares an address with focusClick.
 	view term.View
 }
@@ -480,11 +481,13 @@ func (u *ui) layout(gtx gl.Context) {
 			gtx.Execute(op.InvalidateCmd{}) // draw the mode pill's new state now
 		}
 	}()
-	if !u.sw.open && !u.pal.open {
+	// A dialog takes every key: none of the window's shortcuts run behind it.
+	dialog := u.modal.kind != modalNone
+	if !u.sw.open && !u.pal.open && !dialog {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 		u.reviewKeys(gtx, &st)
 	}
-	for {
+	for u.modal.kind == modalNone {
 		filters := u.nav.keyFilters()
 		if u.sw.open || u.pal.open {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
@@ -596,10 +599,7 @@ func (u *ui) layout(gtx gl.Context) {
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
 	// Another session fades in, so the change of context shows.
-	fade := easeOut(float32(gtx.Now.Sub(u.switchAt)) / float32(sessionFade))
-	if fade < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	fade := anim.At(gtx, u.switchAt, anim.Long)
 	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
 	u.keepFind(&st)
 	if u.settings.Shown() {
@@ -625,6 +625,7 @@ func (u *ui) layout(gtx gl.Context) {
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
 		u.sidebar.Update, u.sidebar.Host = u.updates.label(), Host
+		u.sidebar.Window = gtx.Constraints.Max
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
 		if !on {
@@ -877,7 +878,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		if s := advice[id]; s != "" {
 			u.drawAdvice(gtx, r, s)
 		}
-		if pn := findPane(st, id); pn != nil && pn.HooksMissing && u.hooksNotice() {
+		if pn := findPane(st, id); pn != nil && pn.HooksMissing && !u.welcome.on && u.hooksNotice() { // the welcome card offers the install already
 			u.drawHooksNotice(gtx, p, r)
 		}
 		if id == zoom {
@@ -909,18 +910,22 @@ func findPane(st *model.State, id string) *model.Pane {
 // paneChrome draws one rounded terminal surface per pane, as aide's canvas
 // does, with a blue border on the focused pane when there is more than one.
 // It returns the rect the terminal fills; the term view pads itself.
-func paneChrome(gtx gl.Context, th *theme.Theme, frame image.Rectangle, focused, sole bool) image.Rectangle {
+func paneChrome(gtx gl.Context, th *theme.Theme, frame image.Rectangle, border color.NRGBA, sole bool) image.Rectangle {
 	if sole {
 		paint.FillShape(gtx.Ops, th.TermBg, clip.Rect(frame).Op())
 		return frame
 	}
 	r := gtx.Dp(10)
-	border := theme.Mix(th.TermBg, th.TermFg, 0.08)
-	if focused {
-		border = theme.Mix(th.TermBg, th.Primary, 0.75)
-	}
 	paint.FillShape(gtx.Ops, border, clip.UniformRRect(frame, r).Op(gtx.Ops))
 	return frame.Inset(1)
+}
+
+// paneBorder is a split pane's frame color, focused or not.
+func paneBorder(th *theme.Theme, focused bool) color.NRGBA {
+	if focused {
+		return theme.Mix(th.TermBg, th.Primary, 0.75)
+	}
+	return theme.Mix(th.TermBg, th.TermFg, 0.08)
 }
 
 // roundedFor is the terminal's corner radius inside paneChrome's border.
@@ -965,7 +970,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	// Pane mode and the find bar take the pane's keys; the frame shows it
 	// still has focus.
 	lit := focused || finding || u.nav.paneMode && id == u.nav.focused()
-	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, lit, sole)
+	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, p.border.Get(gtx, paneBorder(u.th, lit), anim.Focus), sole)
 	var input []byte
 	cols, rows := g.Cols, g.Rows
 	if !grid.Empty() {
@@ -978,7 +983,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		o.Pop()
 	}
 	if att != nil {
-		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole)
+		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole, lit)
 	}
 	if finding {
 		u.drawFind(gtx, grid, findFocus)
@@ -1021,7 +1026,7 @@ func (u *ui) emptyState(gtx gl.Context, label string, click func()) {
 	hint := gl.Spacer{}.Layout
 	if k := firstChord(u.nav.bind().Global["command_palette"]); k != "" {
 		hint = func(gtx gl.Context) gl.Dimensions {
-			call, sz := textCall(gtx, u.th, u.th.UIFont, 12, u.th.Muted, k+": all commands")
+			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Small), u.th.Muted, k+": all commands")
 			call.Add(gtx.Ops)
 			return gl.Dimensions{Size: sz}
 		}
@@ -1037,22 +1042,7 @@ func (u *ui) emptyState(gtx gl.Context, label string, click func()) {
 // emptyButton is the empty state's button.
 func (u *ui) emptyButton(label string) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
-		return u.open.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			call, sz := textCall(gtx, u.th, u.th.UIFont, u.th.TextSize, u.th.Fg, strings.TrimSpace(label))
-			pad := image.Pt(gtx.Dp(16), gtx.Dp(10))
-			box := sz.Add(pad.Mul(2))
-			bg := u.th.SurfaceSecondary
-			if u.open.Hovered() {
-				bg = u.th.SurfaceElevated
-			}
-			rr := gtx.Dp(8)
-			paint.FillShape(gtx.Ops, u.th.Border, clip.UniformRRect(image.Rectangle{Max: box}, rr).Op(gtx.Ops))
-			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rect(1, 1, box.X-1, box.Y-1), rr-1).Op(gtx.Ops))
-			o := op.Offset(pad).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			return gl.Dimensions{Size: box}
-		})
+		return kit.Button(gtx, u.th, &u.open, kit.Secondary, kit.Large, strings.TrimSpace(label))
 	}
 }
 
@@ -1196,15 +1186,10 @@ func (u *ui) layoutDividers(gtx gl.Context, ws, tab string, root *layout.Node, a
 // subject, heading to open or closed: 0 is hidden, 1 fully shown. A zero at
 // means no slide. It asks for the next frame until the slide ends.
 func (u *ui) slide(gtx gl.Context, at time.Time, open bool) float32 {
-	t := float32(1)
-	if !at.IsZero() {
-		t = float32(gtx.Now.Sub(at)) / float32(200*time.Millisecond)
-	}
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	t := anim.At(gtx, at, anim.Long)
 	if open {
-		return easeOut(t)
+		return t
 	}
-	return 1 - easeOut(t)
+	return 1 - t
+
 }

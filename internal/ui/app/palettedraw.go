@@ -12,6 +12,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -42,11 +43,8 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		}
 	}
 	p.sel = min(p.sel, max(len(rows)-1, 0))
-	t := easeOut(float32(gtx.Now.Sub(p.openedAt)) / float32(switcherOpen))
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
-	if backdrop(gtx, t, &d.backdrop) {
+	t := anim.At(gtx, p.openedAt, anim.Overlay)
+	if u.backdrop(gtx, t, &d.backdrop) {
 		p.close()
 		return
 	}
@@ -59,11 +57,11 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 
 	// Header: the title and the count, the palette's key on the right.
 	y := pad
-	tc, tsz := textCall(gtx, th, semibold(th.UIFont), 15, th.Fg, "Commands")
+	tc, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Commands")
 	o := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
 	tc.Add(gtx.Ops)
 	o.Pop()
-	cc, _ := textCall(gtx, th, th.UIFont, 13, th.Muted, fmt.Sprint(len(all)))
+	cc, _ := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, fmt.Sprint(len(all)))
 	o = op.Offset(image.Pt(pad+tsz.X+gtx.Dp(8), y+gtx.Dp(2))).Push(gtx.Ops)
 	cc.Add(gtx.Ops)
 	o.Pop()
@@ -108,7 +106,7 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		u.highlight(gtx, hl, true)
 	}
 	if len(rows) == 0 {
-		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, 13, th.Muted, "No action matches \""+p.query+"\".")
+		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, th.Sp(theme.Body), th.Muted, "No action matches \""+p.query+"\".")
 	}
 	lc.Pop()
 
@@ -147,10 +145,10 @@ func (u *ui) paletteRow(gtx gl.Context, c *widget.Clickable, e paletteEntry, why
 	if why != "" {
 		group, fg = why, th.Muted
 	}
-	gc, gsz := textCall(gtx, th, th.UIFont, 12, th.Muted, group)
+	gc, gsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, group)
 	tg := gtx
 	tg.Constraints.Max.X = max(0, kx-px-gtx.Dp(12)-gsz.X-gtx.Dp(10))
-	tc, tsz := textCall(tg, th, medium(th.UIFont), 13, fg, e.action.Title())
+	tc, tsz := textCall(tg, th, medium(th.UIFont), th.Sp(theme.Body), fg, e.action.Title())
 	o := op.Offset(image.Pt(px, (size.Y-tsz.Y)/2)).Push(gtx.Ops)
 	tc.Add(gtx.Ops)
 	o.Pop()

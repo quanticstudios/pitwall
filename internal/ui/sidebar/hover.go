@@ -19,13 +19,14 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 const (
 	hoverDelay = 500 * time.Millisecond // resting on a row before its card opens
 	hoverGrace = 150 * time.Millisecond // off every row before an open card closes
-	hoverFade  = 100 * time.Millisecond
 )
 
 // groupIndent moves a grouped tab's row right of its group header, about
@@ -267,7 +268,7 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 		lh := max(d.Size.Y, icon)
 		if ic != nil {
 			// The icon centers on the first line of text.
-			first := min(lh, gtx.Sp(13*1.5))
+			first := min(lh, gtx.Sp(th.Sp(theme.Body)*1.5))
 			o := op.Offset(image.Pt(padX, y+(first-icon)/2)).Push(gtx.Ops)
 			ig := gtx
 			ig.Constraints = layout.Exact(image.Pt(icon, icon))
@@ -292,15 +293,15 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				tw := gtx.Constraints.Max.X
 				if c.when != "" {
 					tm := op.Record(gtx.Ops)
-					d := label(gtx, th, th.UIFont, 11, muted, c.when)
+					d := label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, c.when)
 					call := tm.Stop()
-					o := op.Offset(image.Pt(tw-d.Size.X, (gtx.Sp(13*1.5)-d.Size.Y)/2)).Push(gtx.Ops)
+					o := op.Offset(image.Pt(tw-d.Size.X, (gtx.Sp(th.Sp(theme.Body)*1.5)-d.Size.Y)/2)).Push(gtx.Ops)
 					call.Add(gtx.Ops)
 					o.Pop()
 					tw -= d.Size.X + gtx.Dp(10)
 				}
 				gtx.Constraints.Max.X = tw
-				return wrapLabel(gtx, th, semibold(th.UIFont), 13, th.Fg, c.title, 3)
+				return wrapLabel(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), th.Fg, c.title, 3)
 			})
 		case 'f':
 			col := muted
@@ -313,19 +314,19 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				var rows []layout.FlexChild
 				if c.group != "" {
 					rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return hrowFit(gtx, gtx.Sp(13*1.5), 0, item{w: func(gtx layout.Context) layout.Dimensions {
-							return label(gtx, th, medium(th.UIFont), 12, th.Fg, c.group)
+						return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{w: func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Fg, c.group)
 						}})
 					}))
 				}
 				if c.path != "" {
 					rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if c.group == "" {
-							gtx.Constraints.Min.Y = gtx.Sp(13 * 1.5) // level with the icon
+							gtx.Constraints.Min.Y = gtx.Sp(th.Sp(theme.Body) * 1.5) // level with the icon
 						}
 						return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							gtx.Constraints.Min = image.Point{}
-							return widget.Label{MaxLines: 2, WrapPolicy: text.WrapGraphemes}.Layout(gtx, th.Shaper, th.MonoFont, 11, c.path, material(gtx, muted))
+							return widget.Label{MaxLines: 2, WrapPolicy: text.WrapGraphemes}.Layout(gtx, th.Shaper, th.MonoFont, th.Sp(theme.Caption), c.path, material(gtx, muted))
 						})
 					}))
 				}
@@ -334,21 +335,21 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 		case 'b':
 			line(iconOf(icGitBranch, th.Purple), func(gtx layout.Context) layout.Dimensions {
 				items := []item{{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.MonoFont, 11, theme.Mix(bg, th.Fg, 0.85), c.branch)
+					return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), theme.Mix(bg, th.Fg, 0.85), c.branch)
 				}}}
 				if c.add > 0 || c.del > 0 {
 					items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), 11, th.Green, fmt.Sprintf("+%d", c.add))
+						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Green, fmt.Sprintf("+%d", c.add))
 					}}, item{w: func(gtx layout.Context) layout.Dimensions {
-						return label(gtx, th, semibold(th.UIFont), 11, th.Red, fmt.Sprintf("-%d", c.del))
+						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Red, fmt.Sprintf("-%d", c.del))
 					}})
 				}
-				return hrowFit(gtx, gtx.Sp(13*1.5), gtx.Dp(6), items...)
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(6), items...)
 			})
 		case 'r':
 			line(iconOf(icGitPullRequest, PRColor(th, *c.pr)), func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, gtx.Sp(13*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, medium(th.UIFont), 12, theme.Mix(bg, th.Fg, 0.85), PRSummary(*c.pr))
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.85), PRSummary(*c.pr))
 				}})
 			})
 		case 'c':
@@ -367,19 +368,19 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 					return layout.Dimensions{Size: image.Pt(icon, icon)}
 				}
 				line(dot, func(gtx layout.Context) layout.Dimensions {
-					return hrow(gtx, gtx.Sp(12*1.4), gtx.Dp(8),
+					return hrow(gtx, gtx.Sp(th.Sp(theme.Small)*1.4), gtx.Dp(8),
 						item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-							return label(gtx, th, th.UIFont, 12, theme.Mix(bg, th.Fg, 0.8), ch.Name)
+							return label(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.8), ch.Name)
 						}},
 						item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-							return label(gtx, th, th.UIFont, 11, CheckColor(th, ch.State), checkText(ch.State))
+							return label(gtx, th, th.UIFont, th.Sp(theme.Caption), CheckColor(th, ch.State), checkText(ch.State))
 						}})
 				})
 			}
 			if n := len(c.pr.Checks) - len(checks); n > 0 {
 				y -= gap / 2
 				line(nil, func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.UIFont, 11, muted, fmt.Sprintf("and %d more", n))
+					return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, fmt.Sprintf("and %d more", n))
 				})
 			}
 		case 'x':
@@ -391,10 +392,10 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 			}
 		case 'o':
 			line(iconOf(icPlug, muted), func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, gtx.Sp(13*1.5), gtx.Dp(6), item{w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.UIFont, 12, muted, "Ports")
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(6), item{w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, th.UIFont, th.Sp(theme.Small), muted, "Ports")
 				}}, item{w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.MonoFont, 11, theme.Mix(bg, th.Fg, 0.85), c.ports)
+					return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), theme.Mix(bg, th.Fg, 0.85), c.ports)
 				}})
 			})
 		case 's':
@@ -407,8 +408,8 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				return layout.Dimensions{Size: image.Pt(icon, icon)}
 			}
 			line(dot, func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, gtx.Sp(13*1.5), 0, item{w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, semibold(th.UIFont), 12, col, stateText(c.state))
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), col, stateText(c.state))
 				}})
 			})
 		case 'd':
@@ -418,18 +419,18 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 			})
 		case 'u':
 			line(iconOf(icGauge, muted), func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, gtx.Sp(13*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.UIFont, 12, theme.Mix(bg, th.Fg, 0.8), c.usage)
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.8), c.usage)
 				}})
 			})
 		case 'j':
 			line(iconOf(icCircleCheck, muted), func(gtx layout.Context) layout.Dimensions {
-				return wrapLabel(gtx, th, th.UIFont, 12, muted, c.decision, 2)
+				return wrapLabel(gtx, th, th.UIFont, th.Sp(theme.Small), muted, c.decision, 2)
 			})
 		case 'p':
 			line(iconOf(projectIcon("layers"), muted), func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, gtx.Sp(13*1.5), 0, item{w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.UIFont, 12, muted, fmt.Sprintf("%d panes", c.panes))
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{w: func(gtx layout.Context) layout.Dimensions {
+					return label(gtx, th, th.UIFont, th.Sp(theme.Small), muted, fmt.Sprintf("%d panes", c.panes))
 				}})
 			})
 		}
@@ -439,11 +440,9 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 
 	fade := paint.PushOpacity(gtx.Ops, alpha)
 	rect := image.Rectangle{Max: size}
-	r := gtx.Dp(8)
-	shadow := rect.Add(image.Pt(0, gtx.Dp(3))).Inset(-gtx.Dp(2))
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 60}, clip.UniformRRect(shadow, r+gtx.Dp(2)).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Border, th.Fg, 0.08), clip.UniformRRect(rect.Inset(-1), r+1).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(rect, r).Op(gtx.Ops))
+	r := gtx.Dp(theme.RadiusPopover)
+	kit.Surface(gtx, rect.Inset(-1), r+1, kit.Raised, theme.Mix(th.Border, th.Fg, 0.08), bg)
+
 	body.Add(gtx.Ops)
 	fade.Pop()
 	return size
@@ -459,7 +458,7 @@ func wrapLabel(gtx layout.Context, th *theme.Theme, f font.Font, size unit.Sp, c
 // detailLabel is an agent's question or detail in the card: 12sp, at most
 // three lines.
 func detailLabel(gtx layout.Context, th *theme.Theme, c color.NRGBA, txt string) layout.Dimensions {
-	return wrapLabel(gtx, th, th.UIFont, 12, c, txt, 3)
+	return wrapLabel(gtx, th, th.UIFont, th.Sp(theme.Small), c, txt, 3)
 }
 
 // drawHover draws the open card beside the sidebar of width w, its top
@@ -478,11 +477,7 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 	if ws == nil {
 		return
 	}
-	alpha := min(1, float32(gtx.Now.Sub(s.hover.shownAt))/float32(hoverFade))
-	if alpha < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
-	alpha = 1 - (1-alpha)*(1-alpha)
+	alpha := anim.At(gtx, s.hover.shownAt, anim.Fade)
 	// Record once to learn the height, then place it.
 	m := op.Record(gtx.Ops)
 	c := cardFor(v, *ws)
@@ -503,9 +498,7 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 		pass.Pop()
 	}
 	call := m.Stop()
-	margin := gtx.Dp(8)
-	y := min(s.cardY, h-size.Y-margin)
-	y = max(y, margin)
-	defer op.Offset(image.Pt(w+gtx.Dp(6), y)).Push(gtx.Ops).Pop()
+	row := image.Rect(0, s.cardY, w, s.cardY+rowHeight(gtx))
+	defer op.Offset(kit.Place(row, size, s.bounds(), kit.Beside, gtx.Dp(6), gtx.Dp(8))).Push(gtx.Ops).Pop()
 	op.Defer(gtx.Ops, call)
 }

@@ -6,15 +6,14 @@ import (
 	"math"
 	"time"
 
-	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -24,9 +23,9 @@ import (
 
 // backdrop dims the window by t and reports whether it was pressed, which
 // closes the overlay.
-func backdrop(gtx gl.Context, t float32, tag *int) bool {
+func (u *ui) backdrop(gtx gl.Context, t float32, tag *int) bool {
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, color.NRGBA{A: uint8(0xa6 * t)}, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, scrim(u.th, t), clip.Rect{Max: size}.Op())
 	pressed := false
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: tag, Kinds: pointer.Press})
@@ -50,18 +49,9 @@ func (u *ui) overlayCard(gtx gl.Context, t float32, w, h int, tag *int) (end fun
 	th := u.th
 	card := image.Rectangle{Max: image.Pt(w, h)}
 	at := gtx.Constraints.Max.Sub(card.Size()).Div(2)
-	fade := paint.PushOpacity(gtx.Ops, t)
-	scale := 0.985 + 0.015*t
-	center := f32.Pt(float32(at.X)+float32(w)/2, float32(at.Y)+float32(h)/2)
-	move := op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale)).Offset(f32.Pt(float32(at.X), float32(at.Y)+float32(gtx.Dp(10))*(1-t)))).Push(gtx.Ops)
-
-	r := gtx.Dp(14)
-	for i, a := range []uint8{0x22, 0x1a, 0x12} {
-		g := gtx.Dp(unit.Dp(6 * (i + 1)))
-		paint.FillShape(gtx.Ops, color.NRGBA{A: a}, clip.UniformRRect(card.Add(image.Pt(0, gtx.Dp(8))).Inset(-g), r+g).Op(gtx.Ops))
-	}
-	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.1), clip.UniformRRect(card, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(card.Inset(1), r-1).Op(gtx.Ops))
+	pop := kit.PopIn(gtx, t, card.Add(at), 10)
+	move := op.Offset(at).Push(gtx.Ops)
+	kit.Surface(gtx, card, gtx.Dp(theme.RadiusCard), kit.Modal, th.BorderSubtle, th.Surface)
 	for {
 		if _, ok := gtx.Event(pointer.Filter{Target: tag, Kinds: pointer.Press}); !ok {
 			break
@@ -70,7 +60,14 @@ func (u *ui) overlayCard(gtx gl.Context, t float32, w, h int, tag *int) (end fun
 	area := clip.Rect(card).Push(gtx.Ops)
 	event.Op(gtx.Ops, tag)
 	area.Pop()
-	return func() { move.Pop(); fade.Pop() }
+	return func() { move.Pop(); pop() }
+}
+
+// scrim is the backdrop under a dialog or overlay, faded in by t.
+func scrim(th *theme.Theme, t float32) color.NRGBA {
+	c := th.Scrim
+	c.A = uint8(float32(c.A) * t)
+	return c
 }
 
 // listScroll scrolls a list of equal rows so the highlighted one shows,
@@ -113,7 +110,7 @@ func (l *listScroll) update(gtx gl.Context, sel, n, rowH, gap, top, viewH int) i
 func (u *ui) highlight(gtx gl.Context, r image.Rectangle, ring bool) {
 	th := u.th
 	if !ring {
-		paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.065), clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
 		return
 	}
 	p := clip.UniformRRect(r, gtx.Dp(8)).Path(gtx.Ops)
@@ -126,7 +123,7 @@ func (u *ui) highlight(gtx gl.Context, r image.Rectangle, ring bool) {
 func (u *ui) filterField(gtx gl.Context, rect image.Rectangle, text, hint, count string, active bool, since time.Time) {
 	th := u.th
 	rr := gtx.Dp(8)
-	border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
+	border := th.BorderSubtle
 	if active {
 		border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
 	}
@@ -137,7 +134,7 @@ func (u *ui) filterField(gtx gl.Context, rect image.Rectangle, text, hint, count
 	if text == "" {
 		shown, col = hint, theme.Mix(th.SurfaceSecondary, th.Muted, 0.75)
 	}
-	call, sz := textCall(gtx, th, th.UIFont, 13, col, shown)
+	call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), col, shown)
 	ty := rect.Min.Y + (rect.Dy()-sz.Y)/2
 	o := op.Offset(image.Pt(x, ty)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
@@ -151,7 +148,7 @@ func (u *ui) filterField(gtx gl.Context, rect image.Rectangle, text, hint, count
 	}
 	u.caret(gtx, image.Rect(cx, ty+gtx.Dp(1), cx+gtx.Dp(2), ty+sz.Y-gtx.Dp(1)), since)
 	if text != "" && count != "" {
-		c, csz := textCall(gtx, th, th.UIFont, 12, th.Muted, count)
+		c, csz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, count)
 		o := op.Offset(image.Pt(rect.Max.X-gtx.Dp(12)-csz.X, rect.Min.Y+(rect.Dy()-csz.Y)/2)).Push(gtx.Ops)
 		c.Add(gtx.Ops)
 		o.Pop()
@@ -179,7 +176,7 @@ func (u *ui) drawHints(gtx gl.Context, h int, hints [][2]string) {
 		kc.Add(gtx.Ops)
 		o.Pop()
 		x += ks.X + gtx.Dp(6)
-		tc, tsz := textCall(gtx, th, th.UIFont, 12, th.Muted, k[1])
+		tc, tsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, k[1])
 		o = op.Offset(image.Pt(x, (h-tsz.Y)/2)).Push(gtx.Ops)
 		tc.Add(gtx.Ops)
 		o.Pop()

@@ -229,13 +229,13 @@ func (d *drawer) tabs(gtx layout.Context, tabs []tab) layout.Dimensions {
 						}})
 					}
 					if t.count != "" {
-						ps = append(ps, part{gap: gtx.Dp(gapF(t.live, 4, 6)), w: pad(2, 0, 0, 0, d.text(d.th.MonoFont, 10.5, d.c.quiet, t.count, 1))})
+						ps = append(ps, part{gap: gtx.Dp(gapF(t.live, 4, 6)), w: pad(2, 0, 0, 0, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.quiet, t.count, 1))})
 					}
 					gtx.Constraints.Min = image.Point{}
 					return rowFit(gtx, ps...)
 				}, func(sz image.Point) {
 					if on {
-						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, color.NRGBA{})
+						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, theme.Transparent)
 					}
 				})
 			})
@@ -312,12 +312,12 @@ func (d *drawer) items() []layout.Widget {
 
 // note is an empty state's muted paragraph.
 func (d *drawer) note(s string) layout.Widget {
-	return pad(2, 2, 6, 2, d.text(d.th.UIFont, 12, d.c.muted, s, 0))
+	return pad(2, 2, 6, 2, d.text(d.th.UIFont, d.th.Sp(theme.Small), d.c.muted, s, 0))
 }
 
 // section is the mock's .dsec heading.
 func (d *drawer) section(s string) layout.Widget {
-	return pad(18, 0, 7, 0, d.text(d.th.UIFont, 10.5, d.c.quiet, strings.ToUpper(s), 1))
+	return pad(18, 0, 7, 0, d.text(d.th.UIFont, d.th.Sp(theme.Caption), d.c.quiet, strings.ToUpper(s), 1))
 }
 
 // --- Flow ---
@@ -373,11 +373,11 @@ func (d *drawer) banner(b banner) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		return boxed(gtx, layout.Inset{Top: 11, Bottom: 12, Left: 14, Right: 14}, func(gtx layout.Context) layout.Dimensions {
 			ws := []layout.FlexChild{
-				layout.Rigid(d.text(semibold(d.th.UIFont), 10.5, accent, strings.ToUpper(b.eyebrow), 1)),
-				layout.Rigid(pad(5, 0, 0, 0, d.text(semibold(d.th.UIFont), 15, d.c.fg, b.what, 2))),
+				layout.Rigid(d.text(semibold(d.th.UIFont), d.th.Sp(theme.Caption), accent, strings.ToUpper(b.eyebrow), 1)),
+				layout.Rigid(pad(5, 0, 0, 0, d.text(semibold(d.th.UIFont), d.th.Sp(theme.Title), d.c.fg, b.what, 2))),
 			}
 			if b.why != "" {
-				ws = append(ws, layout.Rigid(pad(4, 0, 0, 0, d.text(d.th.UIFont, 12, d.c.muted, b.why, 3))))
+				ws = append(ws, layout.Rigid(pad(4, 0, 0, 0, d.text(d.th.UIFont, d.th.Sp(theme.Small), d.c.muted, b.why, 3))))
 			}
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)
@@ -428,7 +428,7 @@ func (d *drawer) graph(nodes []node) layout.Widget {
 			bezier(gtx, f32.Pt(cx, y1), f32.Pt(cx, y2), float32(gtx.Dp(1.3)), col, !lit)
 			if e := nodes[i].edge; e != "" {
 				m := op.Record(gtx.Ops)
-				ld := label(gtx, d.th, d.th.UIFont, 10, d.c.quiet, e, 1)
+				ld := label(gtx, d.th, d.th.UIFont, d.th.Sp(theme.Caption), d.c.quiet, e, 1)
 				call := m.Stop()
 				lr := image.Rectangle{Max: ld.Size.Add(image.Pt(gtx.Dp(8), 0))}
 				lr = lr.Add(image.Pt(int(cx)-lr.Dx()/2, int((y1+y2)/2)-lr.Dy()/2))
@@ -466,7 +466,7 @@ func (d *drawer) node(gtx layout.Context, n node) layout.Dimensions {
 		top = theme.Mix(d.c.green, d.c.fg, 0.35)
 	case nodeRunning:
 		g := gtx.Dp(3)
-		rrect(gtx, r.Inset(-g), rad+g, theme.Mix(d.c.graph, d.c.blue, 0.12), color.NRGBA{})
+		rrect(gtx, r.Inset(-g), rad+g, theme.Mix(d.c.graph, d.c.blue, 0.12), theme.Transparent)
 		rrect(gtx, r, rad, theme.Mix(d.c.graph, d.c.blue, 0.08), theme.Mix(d.c.graph, d.c.blue, 0.7))
 		top = d.c.blue
 	case nodeWaiting:
@@ -476,12 +476,12 @@ func (d *drawer) node(gtx layout.Context, n node) layout.Dimensions {
 			top = d.c.red
 		}
 	default:
-		rrect(gtx, r, rad, d.c.node, color.NRGBA{})
+		rrect(gtx, r, rad, d.c.node, theme.Transparent)
 		dashedBorder(gtx, r, rad, d.c.border2)
 		title = d.c.muted
 	}
 	if n.subagents && d.p.subNode.Hovered() {
-		paint.FillShape(gtx.Ops, color.NRGBA{R: 255, G: 255, B: 255, A: 10}, clip.UniformRRect(r, rad).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, theme.Mix(d.c.node, d.th.Fg, 0.04), clip.UniformRRect(r, rad).Op(gtx.Ops))
 	}
 	icon := func(gtx layout.Context) layout.Dimensions {
 		s := gtx.Dp(10)
@@ -495,7 +495,7 @@ func (d *drawer) node(gtx layout.Context, n node) layout.Dimensions {
 			return spinner(gtx, s, d.c.graph, d.c.blue, d.t)
 		case nodeWaiting:
 			m := op.Record(gtx.Ops)
-			ld := label(gtx, d.th, semibold(d.th.UIFont), 10, top, "!", 1)
+			ld := label(gtx, d.th, semibold(d.th.UIFont), d.th.Sp(theme.Caption), top, "!", 1)
 			c := m.Stop()
 			o := op.Offset(image.Pt((s-ld.Size.X)/2, -gtx.Dp(2))).Push(gtx.Ops)
 			c.Add(gtx.Ops)
@@ -510,11 +510,11 @@ func (d *drawer) node(gtx layout.Context, n node) layout.Dimensions {
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return row(gtx,
 					part{w: icon},
-					part{gap: gtx.Dp(6), flex: true, w: d.text(semibold(d.th.UIFont), 9.5, top, strings.ToUpper(n.kind), 1)},
-					part{gap: gtx.Dp(6), w: d.text(semibold(d.th.UIFont), 9.5, top, strings.ToUpper(stateText), 1)},
+					part{gap: gtx.Dp(6), flex: true, w: d.text(semibold(d.th.UIFont), d.th.Sp(theme.Caption), top, strings.ToUpper(n.kind), 1)},
+					part{gap: gtx.Dp(6), w: d.text(semibold(d.th.UIFont), d.th.Sp(theme.Caption), top, strings.ToUpper(stateText), 1)},
 				)
 			}),
-			layout.Rigid(pad(3, 0, 0, 0, d.text(semibold(d.th.UIFont), 13, title, n.title, 2))),
+			layout.Rigid(pad(3, 0, 0, 0, d.text(semibold(d.th.UIFont), d.th.Sp(theme.Body), title, n.title, 2))),
 			layout.Rigid(pad(2, 0, 0, 0, d.ui(11.5, d.c.muted, n.detail))),
 		)
 	})
@@ -534,13 +534,13 @@ func (d *drawer) stats(stats []stat) layout.Widget {
 					v = func(gtx layout.Context) layout.Dimensions {
 						sb := semibold(d.th.UIFont)
 						return rowFit(gtx,
-							part{w: d.text(sb, 15, d.c.green, fmt.Sprintf("+%d", s.add), 1)},
-							part{gap: gtx.Dp(4), w: d.text(sb, 15, d.c.red, fmt.Sprintf("-%d", s.del), 1)},
-							part{gap: gtx.Dp(5), w: pad(3.5, 0, 0, 0, d.text(medium(d.th.UIFont), 11.5, d.c.muted, s.value, 1))},
+							part{w: d.text(sb, d.th.Sp(theme.Title), d.c.green, fmt.Sprintf("+%d", s.add), 1)},
+							part{gap: gtx.Dp(4), w: d.text(sb, d.th.Sp(theme.Title), d.c.red, fmt.Sprintf("-%d", s.del), 1)},
+							part{gap: gtx.Dp(5), w: pad(3.5, 0, 0, 0, d.text(medium(d.th.UIFont), d.th.Sp(theme.Small), d.c.muted, s.value, 1))},
 						)
 					}
 				} else {
-					v = d.text(semibold(d.th.UIFont), 15, d.c.fg, s.value, 1)
+					v = d.text(semibold(d.th.UIFont), d.th.Sp(theme.Title), d.c.fg, s.value, 1)
 				}
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(d.ui(10, d.c.quiet, strings.ToUpper(s.key))),
@@ -578,11 +578,11 @@ func (d *drawer) event(at, txt, note string, bad bool) layout.Widget {
 		}
 		dims := layout.Inset{Top: 5, Bottom: 5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return row(gtx,
-				part{w: fixed(gtx.Dp(44), pad(1.5, 0, 0, 0, d.text(d.th.MonoFont, 10.5, d.c.quiet, at, 1)))},
+				part{w: fixed(gtx.Dp(44), pad(1.5, 0, 0, 0, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.quiet, at, 1)))},
 				part{gap: gtx.Dp(10), flex: true, w: func(gtx layout.Context) layout.Dimensions {
-					ws := []layout.FlexChild{layout.Rigid(d.text(d.th.UIFont, 12, col, txt, 0))}
+					ws := []layout.FlexChild{layout.Rigid(d.text(d.th.UIFont, d.th.Sp(theme.Small), col, txt, 0))}
 					if note != "" {
-						ws = append(ws, layout.Rigid(d.text(d.th.UIFont, 12, d.c.purple, note, 0)))
+						ws = append(ws, layout.Rigid(d.text(d.th.UIFont, d.th.Sp(theme.Small), d.c.purple, note, 0)))
 					}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)
 				}},
@@ -645,7 +645,7 @@ func (d *drawer) subRow(i int, s flow.Subagent) layout.Widget {
 				return row(gtx,
 					part{w: pad(1, 0, 0, 0, func(gtx layout.Context) layout.Dimensions { return avatar(gtx, hue(s.ID), gtx.Dp(22), d.c.bg) })},
 					part{gap: gtx.Dp(12), flex: true, w: func(gtx layout.Context) layout.Dimensions {
-						ws := []layout.FlexChild{layout.Rigid(d.text(medium(d.th.UIFont), 13.5, d.c.fg, s.Name, 1))}
+						ws := []layout.FlexChild{layout.Rigid(d.text(medium(d.th.UIFont), d.th.Sp(theme.Large), d.c.fg, s.Name, 1))}
 						if s.Running() {
 							doing := "Thinking"
 							if n := len(s.Calls); n > 0 {
@@ -657,11 +657,11 @@ func (d *drawer) subRow(i int, s flow.Subagent) layout.Widget {
 						}
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)
 					}},
-					part{gap: gtx.Dp(12), w: pad(2, 0, 0, 0, d.text(d.th.MonoFont, 11.5, d.c.quiet, when, 1))},
+					part{gap: gtx.Dp(12), w: pad(2, 0, 0, 0, d.text(d.th.MonoFont, d.th.Sp(theme.Small), d.c.quiet, when, 1))},
 				)
 			}, func(sz image.Point) {
 				if btn.Hovered() {
-					rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.th.SurfaceSecondary, color.NRGBA{})
+					rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.th.SurfaceSecondary, theme.Transparent)
 				}
 			})
 		})
@@ -686,7 +686,7 @@ func (d *drawer) detail(s flow.Subagent) []layout.Widget {
 				}
 				return boxed(gtx, layout.Inset{Top: 4, Bottom: 4, Left: 6, Right: 6}, d.ui(12.5, col, "‹ Subagents"), func(sz image.Point) {
 					if d.p.back.Hovered() {
-						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, color.NRGBA{})
+						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, theme.Transparent)
 					}
 				})
 			})
@@ -698,7 +698,7 @@ func (d *drawer) detail(s flow.Subagent) []layout.Widget {
 					meta := func(gtx layout.Context) layout.Dimensions {
 						var ps []part
 						if s.Type != "" {
-							ps = append(ps, part{w: d.text(d.th.MonoFont, 12, d.c.purple, s.Type, 1)}, part{w: d.ui(12, d.c.muted, " · ")})
+							ps = append(ps, part{w: d.text(d.th.MonoFont, d.th.Sp(theme.Small), d.c.purple, s.Type, 1)}, part{w: d.ui(12, d.c.muted, " · ")})
 						}
 						ps = append(ps, part{w: d.ui(12, stCol, status)})
 						if !s.Running() {
@@ -707,7 +707,7 @@ func (d *drawer) detail(s flow.Subagent) []layout.Widget {
 						return rowFit(gtx, ps...)
 					}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(d.text(semibold(d.th.UIFont), 16, d.c.fg, s.Name, 2)),
+						layout.Rigid(d.text(semibold(d.th.UIFont), d.th.Sp(theme.Title), d.c.fg, s.Name, 2)),
 						layout.Rigid(pad(3, 0, 0, 0, meta)),
 					)
 				}},
@@ -717,11 +717,11 @@ func (d *drawer) detail(s flow.Subagent) []layout.Widget {
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return boxed(gtx, layout.Inset{Top: 10, Bottom: 10, Left: 14, Right: 12}, func(gtx layout.Context) layout.Dimensions {
-				dm := label(gtx, d.th, d.th.UIFont, 13, theme.Mix(d.c.muted, d.c.fg, 0.6), s.Prompt, 0)
+				dm := label(gtx, d.th, d.th.UIFont, d.th.Sp(theme.Body), theme.Mix(d.c.muted, d.c.fg, 0.6), s.Prompt, 0)
 				dm.Size.X = gtx.Constraints.Max.X
 				return dm
 			}, func(sz image.Point) {
-				rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.c.card2, color.NRGBA{})
+				rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(8), d.c.card2, theme.Transparent)
 				paint.FillShape(gtx.Ops, d.c.border2, clip.Rect{Max: image.Pt(gtx.Dp(2), sz.Y)}.Op())
 			})
 		},
@@ -734,7 +734,7 @@ func (d *drawer) detail(s flow.Subagent) []layout.Widget {
 	if latest == "" {
 		latest = "Nothing yet."
 	}
-	out = append(out, d.section(said), d.text(d.th.UIFont, 13.5, saidCol, latest, 0))
+	out = append(out, d.section(said), d.text(d.th.UIFont, d.th.Sp(theme.Large), saidCol, latest, 0))
 	out = append(out, d.section(fmt.Sprintf("Tool calls · %d", len(s.Calls))))
 	for _, c := range s.Calls {
 		out = append(out, d.callRow(clock(c.Time.Sub(s.Start)), c))
@@ -748,7 +748,7 @@ func (d *drawer) callRow(at string, c flow.Call) layout.Widget {
 		if c.Failed {
 			toolCol = d.c.red
 		}
-		tool := d.text(semibold(d.th.UIFont), 12, toolCol, c.Tool, 1)
+		tool := d.text(semibold(d.th.UIFont), d.th.Sp(theme.Small), toolCol, c.Tool, 1)
 		arg := c.Arg
 		if c.Running {
 			argCol = d.c.blue
@@ -762,9 +762,9 @@ func (d *drawer) callRow(at string, c flow.Call) layout.Widget {
 		}
 		dims := layout.Inset{Top: 5, Bottom: 5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return row(gtx,
-				part{w: fixed(gtx.Dp(36), pad(1.5, 0, 0, 0, d.text(d.th.MonoFont, 10.5, d.c.quiet, at, 1)))},
+				part{w: fixed(gtx.Dp(36), pad(1.5, 0, 0, 0, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.quiet, at, 1)))},
 				part{gap: gtx.Dp(8), w: fixed(gtx.Dp(64), tool)},
-				part{gap: gtx.Dp(8), flex: true, w: d.text(d.th.MonoFont, 11.5, argCol, arg, 1)},
+				part{gap: gtx.Dp(8), flex: true, w: d.text(d.th.MonoFont, d.th.Sp(theme.Small), argCol, arg, 1)},
 			)
 		})
 		paint.FillShape(gtx.Ops, d.c.soft, clip.Rect{Min: image.Pt(0, dims.Size.Y-gtx.Dp(1)), Max: dims.Size}.Op())
@@ -801,7 +801,7 @@ func (d *drawer) plan() []layout.Widget {
 			return layout.Dimensions{Size: image.Pt(len(plan)*(w+g)-g, gtx.Dp(16))}
 		}
 		return row(gtx,
-			part{w: d.text(semibold(d.th.UIFont), 12.5, d.c.fg, fmt.Sprint(done), 1)},
+			part{w: d.text(semibold(d.th.UIFont), d.th.Sp(theme.Small), d.c.fg, fmt.Sprint(done), 1)},
 			part{flex: true, w: d.ui(12.5, d.c.muted, fmt.Sprintf(" of %d done", total))},
 			part{w: segs},
 		)
@@ -828,7 +828,7 @@ func (d *drawer) step(i int, s flow.Step, last bool) layout.Widget {
 			return row(gtx,
 				part{w: fixed(dot, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: image.Pt(dot, dot)} })},
 				part{gap: gtx.Dp(12), flex: true, w: pad(2, 0, 0, 0, func(gtx layout.Context) layout.Dimensions {
-					ws := []layout.FlexChild{layout.Rigid(d.text(f, 13.5, txtCol, s.Text, 0))}
+					ws := []layout.FlexChild{layout.Rigid(d.text(f, d.th.Sp(theme.Large), txtCol, s.Text, 0))}
 					if s.State == flow.StepActive {
 						ws = append(ws, layout.Rigid(pad(3, 0, 0, 0, d.ui(11.5, d.c.blue, "In progress"))))
 					}
@@ -864,7 +864,7 @@ func (d *drawer) step(i int, s flow.Step, last bool) layout.Widget {
 			circle(gtx, image.Point{}, dot, d.c.bg)
 			ring(gtx, image.Point{}, dot, float32(gtx.Dp(1.5)), theme.Mix(d.c.bg, d.c.fg, 0.17))
 			mm := op.Record(gtx.Ops)
-			ld := label(gtx, d.th, semibold(d.th.MonoFont), 10.5, d.c.quiet, fmt.Sprint(i+1), 1)
+			ld := label(gtx, d.th, semibold(d.th.MonoFont), d.th.Sp(theme.Caption), d.c.quiet, fmt.Sprint(i+1), 1)
 			c := mm.Stop()
 			off := op.Offset(image.Pt((dot-ld.Size.X)/2, (dot-ld.Size.Y)/2)).Push(gtx.Ops)
 			c.Add(gtx.Ops)
@@ -894,14 +894,14 @@ func (d *drawer) changes() []layout.Widget {
 	out := []layout.Widget{pad(0, 2, 4, 2, func(gtx layout.Context) layout.Dimensions {
 		parts := []part{
 			{w: d.ui(12, d.c.quiet, "Worktree vs "+base+" · ")},
-			{w: d.text(sb, 12, d.c.green, fmt.Sprintf("+%d", add), 1)},
-			{gap: gtx.Dp(4), w: d.text(sb, 12, d.c.red, fmt.Sprintf("-%d", del), 1)},
+			{w: d.text(sb, d.th.Sp(theme.Small), d.c.green, fmt.Sprintf("+%d", add), 1)},
+			{gap: gtx.Dp(4), w: d.text(sb, d.th.Sp(theme.Small), d.c.red, fmt.Sprintf("-%d", del), 1)},
 		}
 		if p := in.Ports.First; p != 0 {
 			// A worktree tab's first port, at the right.
 			parts = append(parts, part{flex: true, gap: gtx.Dp(8), w: func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return layout.E.Layout(gtx, d.text(d.th.MonoFont, 11, d.c.quiet, fmt.Sprint("PORT ", p), 1))
+				return layout.E.Layout(gtx, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.quiet, fmt.Sprint("PORT ", p), 1))
 			}})
 			return row(gtx, parts...)
 		}
@@ -924,16 +924,16 @@ func (d *drawer) changes() []layout.Widget {
 			return clickable(gtx, btn, func(gtx layout.Context) layout.Dimensions {
 				return boxed(gtx, layout.Inset{Top: 4, Bottom: 4, Left: 4, Right: 4}, func(gtx layout.Context) layout.Dimensions {
 					return row(gtx,
-						part{w: fixed(gtx.Dp(14), d.text(mono, 11, stCol, string(f.Status), 1))},
+						part{w: fixed(gtx.Dp(14), d.text(mono, d.th.Sp(theme.Caption), stCol, string(f.Status), 1))},
 						part{gap: gtx.Dp(4), flex: true, w: func(gtx layout.Context) layout.Dimensions {
-							return row(gtx, part{w: d.text(mono, 12, d.c.quiet, dir, 1)}, part{flex: true, w: d.text(mono, 12, theme.Mix(d.c.muted, d.c.fg, 0.7), name, 1)})
+							return row(gtx, part{w: d.text(mono, d.th.Sp(theme.Small), d.c.quiet, dir, 1)}, part{flex: true, w: d.text(mono, d.th.Sp(theme.Small), theme.Mix(d.c.muted, d.c.fg, 0.7), name, 1)})
 						}},
-						part{gap: gtx.Dp(8), w: d.text(mono, 11, d.c.green, fmt.Sprintf("+%d", f.Add), 1)},
-						part{gap: gtx.Dp(6), w: d.text(mono, 11, d.c.red, fmt.Sprintf("-%d", f.Del), 1)},
+						part{gap: gtx.Dp(8), w: d.text(mono, d.th.Sp(theme.Caption), d.c.green, fmt.Sprintf("+%d", f.Add), 1)},
+						part{gap: gtx.Dp(6), w: d.text(mono, d.th.Sp(theme.Caption), d.c.red, fmt.Sprintf("-%d", f.Del), 1)},
 					)
 				}, func(sz image.Point) {
 					if btn.Hovered() {
-						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, color.NRGBA{})
+						rrect(gtx, image.Rectangle{Max: sz}, gtx.Dp(6), d.th.SurfaceSecondary, theme.Transparent)
 					}
 				})
 			})

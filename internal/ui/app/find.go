@@ -254,7 +254,7 @@ func (u *ui) drawFind(gtx gl.Context, area image.Rectangle, focus bool) {
 		if s == "No matches" {
 			col = th.Red
 		}
-		call, sz := textCall(gtx, th, th.UIFont, 12, col, s)
+		call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), col, s)
 		right -= sz.X
 		o := op.Offset(image.Pt(right, (h-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
@@ -267,14 +267,14 @@ func (u *ui) drawFind(gtx gl.Context, area image.Rectangle, focus bool) {
 	o = op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
 	if f.ed.Len() == 0 {
 		gl.W.Layout(eg, func(gtx gl.Context) gl.Dimensions {
-			call, sz := textCall(gtx, th, th.UIFont, 13, th.Muted, hint)
+			call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, hint)
 			call.Add(gtx.Ops)
 			return gl.Dimensions{Size: sz}
 		})
 	}
 	gl.W.Layout(eg, func(gtx gl.Context) gl.Dimensions {
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-		return f.ed.Layout(gtx, th.Shaper, th.UIFont, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceElevated, th.Primary, 0.35)))
+		return f.ed.Layout(gtx, th.Shaper, th.UIFont, th.Sp(theme.Body), colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceElevated, th.Primary, 0.35)))
 	})
 	o.Pop()
 }

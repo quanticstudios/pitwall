@@ -22,6 +22,30 @@ build. Either step takes `--dry-run`.
   and a pane shows its current screen as soon as you switch to it. With 32
   busy panes and four on screen, a window receives 0.2 MB/s instead of
   34.
+- Secondary text reads at 4.5:1 or better in every built-in theme:
+  tokyo-night, aide-light and catppuccin-mocha get a slightly stronger
+  muted color, and status chips darken or lighten their text where it
+  was faint, most visibly in aide-light.
+- `[appearance] reduce_motion`, also a switch under Settings, Appearance,
+  shows dialogs, menus, hover and focus changes at once instead of easing
+  them in.
+- The interface text size in Settings now scales the sidebar, menus,
+  hover cards, the command palette, the side panel and dialogs too, on one
+  scale of five sizes. The smallest labels, such as status chips and diff
+  counts, are 11px instead of 10px.
+- Dialogs fade and scale in over 150ms on one backdrop, the same as the
+  command palette's, and none of the window's shortcuts run behind an open
+  dialog: Ctrl+Shift+L no longer opens the agent panel under it.
+- The first run asks to install hooks once, on the welcome card, which now
+  dims the panes behind it. The pane notice shows after the card is gone.
+- A tab's menu near the bottom of the sidebar opens above its "…" button
+  instead of running off the window, and every menu, submenu, hover card
+  and the group icon picker stays inside the window. Menus fade in over
+  120ms.
+- The pane focus border crossfades over 120ms, a sidebar row's fill eases
+  over 80ms on hover and 160ms when its state changes, and a group's tabs
+  fade in as it opens. A focused pane that also wants attention keeps a
+  thin accent line inside the attention ring.
 
 ## v0.1.0-beta.3
 

@@ -396,7 +396,7 @@ func (p *Page) nav(gtx gl.Context, q string) gl.Dimensions {
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return gl.Inset{Left: 8, Top: 4, Bottom: 4}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, weight(th.UIFont, font.SemiBold), p.sp(14), th.Fg, "Settings")
+				return p.text(gtx, weight(th.UIFont, font.SemiBold), p.th.Sp(theme.Large), th.Fg, "Settings")
 			})
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
@@ -426,14 +426,14 @@ func (p *Page) nav(gtx gl.Context, q string) gl.Dimensions {
 					fg = theme.Mix(th.Bg, th.Muted, 0.5)
 				}
 				m := op.Record(gtx.Ops)
-				d := p.text(gtx, f, p.sp(13), fg, c.name)
+				d := p.text(gtx, f, p.th.Sp(theme.Body), fg, c.name)
 				call := m.Stop()
 				oo := op.Offset(image.Pt(gtx.Dp(10), (h-d.Size.Y)/2)).Push(gtx.Ops)
 				call.Add(gtx.Ops)
 				oo.Pop()
 				if q != "" && counts[i] > 0 {
 					m := op.Record(gtx.Ops)
-					d := p.text(gtx, th.UIFont, p.sp(12), th.Muted, fmt.Sprint(counts[i]))
+					d := p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, fmt.Sprint(counts[i]))
 					call := m.Stop()
 					oo := op.Offset(image.Pt(w-gtx.Dp(10)-d.Size.X, (h-d.Size.Y)/2)).Push(gtx.Ops)
 					call.Add(gtx.Ops)
@@ -474,12 +474,12 @@ func (p *Page) field(gtx gl.Context, e *widget.Editor, placeholder string, glyph
 	o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
 	if e.Len() == 0 {
 		gl.W.Layout(eg, func(gtx gl.Context) gl.Dimensions {
-			return p.text(gtx, th.UIFont, p.sp(13), th.Muted, placeholder)
+			return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, placeholder)
 		})
 	}
 	gl.W.Layout(eg, func(gtx gl.Context) gl.Dimensions {
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-		return e.Layout(gtx, th.Shaper, th.UIFont, p.sp(13), colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.SurfaceElevated, th.Primary, 0.35)))
+		return e.Layout(gtx, th.Shaper, th.UIFont, p.th.Sp(theme.Body), colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.SurfaceElevated, th.Primary, 0.35)))
 	})
 	o.Pop()
 	return gl.Dimensions{Size: image.Pt(w, h)}
@@ -537,14 +537,14 @@ func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
 				items = append(items, func(gtx gl.Context) gl.Dimensions {
 					return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 						gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-							return p.text(gtx, weight(th.UIFont, font.Medium), p.sp(13), th.Fg, sec.title)
+							return p.text(gtx, weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), th.Fg, sec.title)
 						}),
 						gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 							if sec.desc == "" {
 								return gl.Dimensions{}
 							}
 							return gl.Inset{Top: 2}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-								return p.para(gtx, th.UIFont, p.sp(12), th.Muted, sec.desc)
+								return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, sec.desc)
 							})
 						}),
 					)
@@ -582,7 +582,7 @@ func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
 		if !found {
 			space(24)
 			items = append(items, func(gtx gl.Context) gl.Dimensions {
-				return p.para(gtx, th.UIFont, p.sp(13), th.Muted, "No settings match. Search looks at names, descriptions and shortcuts.")
+				return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, "No settings match. Search looks at names, descriptions and shortcuts.")
 			})
 		}
 	}
@@ -616,7 +616,7 @@ func (p *Page) header(gtx gl.Context, title, desc string) gl.Dimensions {
 				}),
 				gl.Rigid(gl.Spacer{Height: 4}.Layout),
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-					return p.para(gtx, th.UIFont, p.sp(13), th.Muted, desc)
+					return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, desc)
 				}),
 			)
 		}),
@@ -651,20 +651,20 @@ func (p *Page) alert(gtx gl.Context) gl.Dimensions {
 			}))
 		}
 		if p.err != "" {
-			line(weight(th.UIFont, font.Medium), p.sp(13), "red", "Could not save: "+p.err)
+			line(weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), "red", "Could not save: "+p.err)
 		}
 		if len(p.probs) > 0 {
 			if p.err != "" {
 				kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout))
 			}
-			line(weight(th.UIFont, font.Medium), p.sp(13), "red", "config.toml has problems. These entries use their defaults until fixed; changes here still save.")
+			line(weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), "red", "config.toml has problems. These entries use their defaults until fixed; changes here still save.")
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 4}.Layout))
 			for i, pr := range p.probs {
 				if i == 8 {
-					line(th.UIFont, p.sp(12), "fg", fmt.Sprintf("and %d more (pitwall config check)", len(p.probs)-8))
+					line(th.UIFont, p.th.Sp(theme.Small), "fg", fmt.Sprintf("and %d more (pitwall config check)", len(p.probs)-8))
 					break
 				}
-				line(th.MonoFont, p.sp(12), "fg", pr)
+				line(th.MonoFont, p.th.Sp(theme.Small), "fg", pr)
 			}
 		}
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
@@ -715,14 +715,14 @@ func (p *Page) rowContent(gtx gl.Context, r row) gl.Dimensions {
 	labels := func(gtx gl.Context) gl.Dimensions {
 		return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-				return p.para(gtx, weight(th.UIFont, font.Medium), p.sp(13), th.Fg, r.label)
+				return p.para(gtx, weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), th.Fg, r.label)
 			}),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				if r.desc == "" {
 					return gl.Dimensions{}
 				}
 				return gl.Inset{Top: 2}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-					return p.para(gtx, th.UIFont, p.sp(12), th.Muted, r.desc)
+					return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, r.desc)
 				})
 			}),
 		)
@@ -800,6 +800,10 @@ func (p *Page) appearance() []section {
 			{label: "Pane margin", desc: "Space between the panes and the window edges and sidebar, in dp.", extra: "spacing padding",
 				control: p.stepper("layout", "pane_margin", p.s.PaneMargin, 0, 64, 1, config.DefaultPaneMargin)},
 		}},
+		{title: "Motion", rows: []row{
+			{label: "Reduce motion", desc: "Show dialogs, menus, hover and focus changes at once instead of easing them in.",
+				extra: "animation reduce_motion", control: p.toggle("appearance", "reduce_motion", p.s.ReduceMotion)},
+		}},
 	}
 }
 
@@ -835,7 +839,7 @@ func (p *Page) stepper(table, k string, v, lo, hi, step, def float64) gl.Widget 
 						func(gtx gl.Context) gl.Dimensions {
 							w := gtx.Dp(52)
 							m := op.Record(gtx.Ops)
-							d := p.text(gtx, th.UIFont, p.sp(13), th.Fg, config.Number(v))
+							d := p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Fg, config.Number(v))
 							call := m.Stop()
 							o := op.Offset(image.Pt((w-d.Size.X)/2, 0)).Push(gtx.Ops)
 							call.Add(gtx.Ops)
@@ -938,7 +942,7 @@ func (p *Page) segmented(id string, opts []string, cur string, pick func(string)
 						} else if c.Hovered() {
 							fg = th.Fg
 						}
-						d := p.text(gtx, f, p.sp(13), fg, label)
+						d := p.text(gtx, f, p.th.Sp(theme.Body), fg, label)
 						call := m.Stop()
 						sz := image.Pt(d.Size.X+2*gtx.Dp(10), gtx.Dp(24))
 						if o == cur {
@@ -1053,7 +1057,7 @@ func (p *Page) chords(a config.Action) gl.Widget {
 		}
 		if len(ws) == 0 {
 			ws = append(ws, func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, th.UIFont, p.sp(12), th.Muted, "Unbound")
+				return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, "Unbound")
 			})
 		}
 		add := p.btn(id + ":add")
@@ -1084,7 +1088,7 @@ func (p *Page) below(a config.Action) gl.Widget {
 	th := p.th
 	if p.rec.action == a.Name && p.rec.table == tableOf(a) {
 		return func(gtx gl.Context) gl.Dimensions {
-			return p.para(gtx, th.UIFont, p.sp(12), th.Primary, "Press the new shortcut. Esc cancels, Backspace removes this one.")
+			return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Primary, "Press the new shortcut. Esc cancels, Backspace removes this one.")
 		}
 	}
 	c := p.conflict
@@ -1110,7 +1114,7 @@ func (p *Page) below(a config.Action) gl.Widget {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return gl.Flex{Alignment: gl.Middle}.Layout(gtx,
 				gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
-					return p.para(gtx, th.UIFont, p.sp(12), th.Fg, msg)
+					return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Fg, msg)
 				}),
 				gl.Rigid(gl.Spacer{Width: 12}.Layout),
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -1191,7 +1195,7 @@ func (p *Page) agents() []section {
 						rrect(gtx, col, image.Rect(0, 0, d, d), d/2)
 						return gl.Dimensions{Size: image.Pt(d, d)}
 					},
-					func(gtx gl.Context) gl.Dimensions { return p.text(gtx, th.UIFont, p.sp(13), th.Fg, status) },
+					func(gtx gl.Context) gl.Dimensions { return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Fg, status) },
 				)
 			}})
 	}
@@ -1234,7 +1238,7 @@ func (p *Page) about() []section {
 	}
 	return []section{{rows: []row{
 		{label: "Version", extra: "release build", control: func(gtx gl.Context) gl.Dimensions {
-			return p.text(gtx, th.MonoFont, p.sp(13), th.Fg, p.ver)
+			return p.text(gtx, th.MonoFont, p.th.Sp(theme.Body), th.Fg, p.ver)
 		}},
 		{label: "Config file", desc: shortPath(path), extra: "config.toml path editor", control: func(gtx gl.Context) gl.Dimensions {
 			c := p.btn("copy-path")

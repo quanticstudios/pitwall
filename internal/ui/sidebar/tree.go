@@ -3,6 +3,7 @@ package sidebar
 import (
 	"fmt"
 	"image"
+	"time"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -10,6 +11,7 @@ import (
 	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -77,12 +79,29 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	return out, y + gtx.Dp(6) // pb-1.5
 }
 
+// noteExpands starts the entrance of a group's rows when it opens, after
+// the first frame.
+func (s *Sidebar) noteExpands(now time.Time, v *view) {
+	first := s.wasExpanded == nil
+	if first {
+		s.wasExpanded, s.expandAt = map[string]bool{}, map[string]time.Time{}
+	}
+	for _, p := range v.st.Projects {
+		on := s.isExpanded(p.ID)
+		if on && !s.wasExpanded[p.ID] && !first {
+			s.expandAt[p.ID] = now
+		}
+		s.wasExpanded[p.ID] = on
+	}
+}
+
 // tree draws the elements, each at its slide offset, the carried ones
 // under the pointer instead. It reports whether an agent animation runs
 // and whether rows or a drag are moving.
 func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bool) {
 	elems, total := s.place(gtx, v)
 	s.elems = elems
+	s.noteExpands(gtx.Now, v)
 	s.cardAt = ""
 	offs, moving := s.animate(gtx, elems, total)
 	animating := false
@@ -110,6 +129,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 					sy := y + gtx.Dp(6)
 					paint.FillShape(gtx.Ops, theme.Mix(v.th.Sidebar, v.th.Border, 0.6), clip.Rect{Min: image.Pt(0, sy), Max: image.Pt(w, sy+1)}.Op())
 				}
+				s.rowAt = image.Pt(gtx.Dp(listPad), gtx.Dp(56)+y+e.head-e.top-s.list.Position.Offset)
 				o := op.Offset(image.Pt(0, y+e.head-e.top)).Push(gtx.Ops)
 				for _, p := range v.st.Projects {
 					if p.ID == e.id {
@@ -119,10 +139,18 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 				o.Pop()
 				continue
 			}
-			o := op.Offset(image.Pt(e.x, y)).Push(gtx.Ops)
+			s.rowAt = image.Pt(gtx.Dp(listPad)+e.x, gtx.Dp(56)+y-s.list.Position.Offset)
+			// A group's rows fade in as it opens, from 4dp up.
+			t := float32(1)
+			if at, ok := s.expandAt[e.group]; ok {
+				t = anim.At(gtx, at, anim.Expand)
+			}
+			o := op.Offset(image.Pt(e.x, y-int(float32(gtx.Dp(4))*(1-t)))).Push(gtx.Ops)
+			fade := paint.PushOpacity(gtx.Ops, t)
 			rg := gtx
 			rg.Constraints.Max.X = w - e.x
 			_, a := s.workspaceRow(rg, v, byID[e.id], false, digit)
+			fade.Pop()
 			o.Pop()
 			if e.id == s.hover.shown {
 				s.cardAt, s.cardY = e.id, y

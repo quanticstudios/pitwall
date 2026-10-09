@@ -80,8 +80,8 @@ func ringWidth(since time.Duration) float32 {
 
 // attentionRing outlines frame in the state color of a, an unseen
 // activity: stronger than the focus border, with a short pulse when it
-// arrives.
-func (u *ui) attentionRing(gtx gl.Context, id string, a model.Activity, frame image.Rectangle, sole bool) {
+// arrives. A focused pane keeps a 1dp primary line inside the ring.
+func (u *ui) attentionRing(gtx gl.Context, id string, a model.Activity, frame image.Rectangle, sole, focused bool) {
 	if u.rings == nil {
 		u.rings = map[string]ring{}
 	}
@@ -104,6 +104,11 @@ func (u *ui) attentionRing(gtx gl.Context, id string, a model.Activity, frame im
 	defer clip.UniformRRect(frame, rr).Push(gtx.Ops).Pop()
 	path := clip.UniformRRect(frame, rr).Path(gtx.Ops)
 	paint.FillShape(gtx.Ops, sidebar.StateColor(u.th, a.State), clip.Stroke{Path: path, Width: 2 * w}.Op())
+	if focused {
+		in, line := int(w+0.5), gtx.Dp(1)
+		inner := clip.UniformRRect(frame.Inset(in), max(rr-in, 0)).Path(gtx.Ops)
+		paint.FillShape(gtx.Ops, u.th.Primary, clip.Stroke{Path: inner, Width: float32(2 * line)}.Op())
+	}
 }
 
 // drawAdvice shows a decision model's recommendation for the pane's

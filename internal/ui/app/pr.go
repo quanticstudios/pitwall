@@ -11,6 +11,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -133,20 +134,20 @@ func (u *ui) mergeBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl.
 	pr := st.PRs[ws.ID]
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, semibold(th.UIFont), 16, th.Fg, fmt.Sprintf("Merge #%d?", pr.Number))
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, fmt.Sprintf("Merge #%d?", pr.Number))
 		}),
 		gl.Rigid(gl.Spacer{Height: 12}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 14, th.Muted, "Merges "+ws.Branch+" on GitHub. The command runs in a new tab:")
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, "Merges "+ws.Branch+" on GitHub. The command runs in a new tab:")
 		}),
 		gl.Rigid(gl.Spacer{Height: 4}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.MonoFont, 12, th.Fg, fmt.Sprintf("gh pr merge %d --%s", pr.Number, u.mergeMethod()))
+			return para(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Fg, fmt.Sprintf("gh pr merge %d --%s", pr.Number, u.mergeMethod()))
 		}),
 	}
 	warn := func(col color.NRGBA, s string) {
 		kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, th, th.UIFont, 13, col, s)
+			return para(gtx, th, th.UIFont, th.Sp(theme.Body), col, s)
 		}))
 	}
 	switch failed := pr.Failed(); pr.CI() {
@@ -161,15 +162,14 @@ func (u *ui) mergeBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl.
 	if pr.Conflicts {
 		warn(th.Yellow, "GitHub reports merge conflicts.")
 	}
-	ok, bg := "Merge", th.Primary
-	fg := th.OnPrimary
+	ok, kind := "Merge", kit.Primary
 	if m.armed {
 		warn(th.Fg, "Merge with failing checks? Click again to merge.")
-		ok, bg, fg = "Merge anyway", th.Red, theme.Hex("#ffffff")
+		ok, kind = "Merge anyway", kit.Danger
 	}
 	kids = append(kids,
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "Cancel", ok, bg, fg) }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "Cancel", ok, kind) }),
 	)
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }

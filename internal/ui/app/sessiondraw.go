@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"strings"
-	"time"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -18,17 +17,15 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// The session switcher opens over 170ms; the highlight eases between rows
-// with a 60ms time constant, and the preview fades in over 140ms when the
-// highlight lands on another session.
-const (
-	switcherOpen = 170 * time.Millisecond
-	previewFade  = 140 * time.Millisecond
-)
+// The session switcher opens over anim.Overlay; the highlight eases between
+// rows with a 60ms time constant, and the preview fades in over anim.Slide
+// when the highlight lands on another session.
 
 // switcherDraw is the switcher's widgets: tags, clickables and one preview
 // sidebar per session, so each keeps its own expanded groups.
@@ -53,8 +50,6 @@ func (d *switcherDraw) row(id string) *switcherRow {
 	}
 	return r
 }
-
-func easeOut(t float32) float32 { t = min(max(t, 0), 1); return 1 - (1-t)*(1-t)*(1-t) }
 
 // sessionClicks applies the clicks from the last frame.
 func (u *ui) sessionClicks(gtx gl.Context, st *model.State) {
@@ -117,12 +112,9 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	}
 	s.fix(st, gtx.Now)
 	size := gtx.Constraints.Max
-	t := easeOut(float32(gtx.Now.Sub(s.openedAt)) / float32(switcherOpen))
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	t := anim.At(gtx, s.openedAt, anim.Overlay)
 
-	if backdrop(gtx, t, &d.backdrop) {
+	if u.backdrop(gtx, t, &d.backdrop) {
 		s.close()
 		return
 	}
@@ -143,11 +135,11 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	// Header: the title and the count, the switcher's key on the right.
 	y := pad
 	title := "Sessions"
-	tc, tsz := textCall(gtx, th, semibold(th.UIFont), 15, th.Fg, title)
+	tc, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, title)
 	o := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
 	tc.Add(gtx.Ops)
 	o.Pop()
-	cc, _ := textCall(gtx, th, th.UIFont, 13, th.Muted, fmt.Sprint(len(st.Sessions)))
+	cc, _ := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, fmt.Sprint(len(st.Sessions)))
 	o = op.Offset(image.Pt(pad+tsz.X+gtx.Dp(8), y+gtx.Dp(2))).Push(gtx.Ops)
 	cc.Add(gtx.Ops)
 	o.Pop()
@@ -212,7 +204,7 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 		u.highlight(gtx, hl, true)
 	}
 	if len(rows) == 0 && s.mode != modeNew {
-		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, 13, th.Muted, "No session matches \""+s.filter+"\".")
+		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+gtx.Dp(12)), th.UIFont, th.Sp(theme.Body), th.Muted, "No session matches \""+s.filter+"\".")
 	}
 	lc.Pop()
 
@@ -248,7 +240,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 	rr := gtx.Dp(8)
 	base := th.Surface
 	if sel {
-		base = theme.Mix(th.Surface, th.Fg, 0.065)
+		base = th.Hover
 	}
 
 	var unseen []model.Activity
@@ -257,7 +249,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 			unseen = append(unseen, a)
 		}
 	}
-	accent := color.NRGBA{}
+	accent := theme.Transparent
 	if a := model.Aggregate(unseen); a != nil {
 		accent = sidebar.StateColor(th, a.State)
 		paint.FillShape(gtx.Ops, theme.Mix(base, accent, 0.09), clip.UniformRRect(rect, rr).Op(gtx.Ops))
@@ -307,12 +299,12 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 	} else {
 		ng := gtx
 		ng.Constraints.Max.X = max(0, nameMax)
-		nc, nsz := textCall(ng, th, semibold(th.UIFont), 14, th.Fg, x.Name)
+		nc, nsz := textCall(ng, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, x.Name)
 		o := op.Offset(image.Pt(nx, l1)).Push(gtx.Ops)
 		nc.Add(gtx.Ops)
 		o.Pop()
 		if x.ID == u.nav.session && nameMax-nsz.X > gtx.Dp(60) {
-			tag, tsz := textCall(gtx, th, semibold(th.UIFont), 10.5, th.Primary, "current")
+			tag, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Primary, "current")
 			tp := image.Pt(gtx.Dp(5), gtx.Dp(1))
 			box := image.Rectangle{Max: tsz.Add(tp.Mul(2))}
 			o := op.Offset(image.Pt(nx+nsz.X+gtx.Dp(8), l1+(nsz.Y-box.Dy())/2)).Push(gtx.Ops)
@@ -343,19 +335,19 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 		}
 		mg := gtx
 		mg.Constraints.Max.X = max(0, bx-nx-gtx.Dp(6))
-		mc, _ := textCall(mg, th, th.UIFont, 12, th.Red, msg)
+		mc, _ := textCall(mg, th, th.UIFont, th.Sp(theme.Small), th.Red, msg)
 		o := op.Offset(image.Pt(nx, l2)).Push(gtx.Ops)
 		mc.Add(gtx.Ops)
 		o.Pop()
 	case renaming && s.err != "":
-		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, 12, th.Red, s.err)
+		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, th.Sp(theme.Small), th.Red, s.err)
 	case renaming:
-		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, 12, th.Muted, "Enter renames · Esc cancels")
+		drawText(gtx, th, image.Pt(nx, l2), th.UIFont, th.Sp(theme.Small), th.Muted, "Enter renames · Esc cancels")
 	default:
 		lx := nx
 		part := func(c color.NRGBA, dot bool, txt string) {
 			if lx > nx {
-				sc, ssz := textCall(gtx, th, th.UIFont, 12, theme.Mix(base, th.Muted, 0.6), "·")
+				sc, ssz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(base, th.Muted, 0.6), "·")
 				o := op.Offset(image.Pt(lx+gtx.Dp(5), l2)).Push(gtx.Ops)
 				sc.Add(gtx.Ops)
 				o.Pop()
@@ -366,7 +358,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 				paint.FillShape(gtx.Ops, c, clip.Ellipse{Min: image.Pt(lx, l2+gtx.Dp(6)), Max: image.Pt(lx+dd, l2+gtx.Dp(6)+dd)}.Op(gtx.Ops))
 				lx += dd + gtx.Dp(5)
 			}
-			tc, tsz := textCall(gtx, th, th.UIFont, 12, c, txt)
+			tc, tsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), c, txt)
 			o := op.Offset(image.Pt(lx, l2)).Push(gtx.Ops)
 			tc.Add(gtx.Ops)
 			o.Pop()
@@ -384,7 +376,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 			part(c, true, fmt.Sprintf("%d need%s you", sum.NeedsYou, map[bool]string{true: "s"}[sum.NeedsYou == 1]))
 		}
 		if rt := sidebar.RelTime(gtx.Now, sum.Active); rt != "" && right-lx > gtx.Dp(70) {
-			rc, rsz := textCall(gtx, th, th.UIFont, 11.5, theme.Mix(base, th.Muted, 0.55), rt)
+			rc, rsz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(base, th.Muted, 0.55), rt)
 			o := op.Offset(image.Pt(right-rsz.X, l2+gtx.Dp(1))).Push(gtx.Ops)
 			rc.Add(gtx.Ops)
 			o.Pop()
@@ -431,9 +423,9 @@ func (u *ui) newRow(gtx gl.Context, size image.Point) {
 	nx := px + gtx.Dp(20) + gtx.Dp(12)
 	u.nameField(gtx, image.Rect(nx-gtx.Dp(6), gtx.Dp(6), size.X-px, gtx.Dp(32)))
 	if s.err != "" {
-		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, 12, th.Red, s.err)
+		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, th.Sp(theme.Small), th.Red, s.err)
 	} else {
-		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, 12, th.Muted, "Enter makes it and switches · Esc cancels")
+		drawText(gtx, th, image.Pt(nx, gtx.Dp(36)), th.UIFont, th.Sp(theme.Small), th.Muted, "Enter makes it and switches · Esc cancels")
 	}
 }
 
@@ -444,7 +436,7 @@ func (u *ui) nameField(gtx gl.Context, rect image.Rectangle) {
 	rr := gtx.Dp(6)
 	paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Primary, 0.6), clip.UniformRRect(rect, rr).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), rr-1).Op(gtx.Ops))
-	call, sz := textCall(gtx, th, semibold(th.UIFont), 14, th.Fg, s.field)
+	call, sz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, s.field)
 	x, y := rect.Min.X+gtx.Dp(6), rect.Min.Y+(rect.Dy()-sz.Y)/2
 	if s.fresh && s.field != "" {
 		sel := image.Rect(x-gtx.Dp(2), y, x+sz.X+gtx.Dp(2), y+sz.Y)
@@ -463,7 +455,7 @@ func (u *ui) nameField(gtx gl.Context, rect image.Rectangle) {
 func (u *ui) newButton(gtx gl.Context) {
 	th, d := u.th, &u.sw.draw
 	h := gtx.Dp(34)
-	label, lsz := textCall(gtx, th, medium(th.UIFont), 13, th.Muted, "New session")
+	label, lsz := textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), th.Muted, "New session")
 	kc, ks := keycap(gtx, th, "N")
 	w := gtx.Dp(12) + gtx.Dp(14) + gtx.Dp(8) + lsz.X + gtx.Dp(10) + ks.X + gtx.Dp(10)
 	g := gtx
@@ -472,7 +464,7 @@ func (u *ui) newButton(gtx gl.Context) {
 		col := th.Muted
 		if d.newBtn.Hovered() {
 			col = th.Fg
-			paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.065), clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.Hover, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
 		}
 		pointer.CursorPointer.Add(gtx.Ops)
 		x := gtx.Dp(12)
@@ -481,7 +473,7 @@ func (u *ui) newButton(gtx gl.Context) {
 		o.Pop()
 		x += gtx.Dp(14) + gtx.Dp(8)
 		if col != th.Muted {
-			label, _ = textCall(gtx, th, medium(th.UIFont), 13, col, "New session")
+			label, _ = textCall(gtx, th, medium(th.UIFont), th.Sp(theme.Body), col, "New session")
 		}
 		o = op.Offset(image.Pt(x, (h-lsz.Y)/2)).Push(gtx.Ops)
 		label.Add(gtx.Ops)
@@ -497,29 +489,13 @@ func (u *ui) newButton(gtx gl.Context) {
 // smallButton records a 24dp button with 6dp corners: red for a danger
 // action, quiet otherwise.
 func (u *ui) smallButton(gtx gl.Context, c *widget.Clickable, label string, danger bool) (op.CallOp, image.Point) {
-	th := u.th
-	m := op.Record(gtx.Ops)
-	fg, bg := th.Fg, th.SurfaceSecondary
+	k := kit.Secondary
 	if danger {
-		fg, bg = theme.Hex("#ffffff"), th.Red
+		k = kit.Danger
 	}
-	call, sz := textCall(gtx, th, medium(th.UIFont), 12, fg, label)
-	box := image.Pt(sz.X+gtx.Dp(20), gtx.Dp(24))
-	g := gtx
-	g.Constraints = gl.Exact(box)
-	c.Layout(g, func(gtx gl.Context) gl.Dimensions {
-		b := bg
-		if c.Hovered() {
-			b = theme.Mix(bg, th.Fg, 0.1)
-		}
-		paint.FillShape(gtx.Ops, b, clip.UniformRRect(image.Rectangle{Max: box}, gtx.Dp(6)).Op(gtx.Ops))
-		pointer.CursorPointer.Add(gtx.Ops)
-		o := op.Offset(box.Sub(sz).Div(2)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
-		return gl.Dimensions{Size: box}
-	})
-	return m.Stop(), box
+	m := op.Record(gtx.Ops)
+	d := kit.Button(gtx, u.th, c, k, kit.Small, label)
+	return m.Stop(), d.Size
 }
 
 // preview draws the highlighted session's sidebar, live and scaled to fit
@@ -545,10 +521,7 @@ func (u *ui) preview(gtx gl.Context, st *model.State, rect image.Rectangle) {
 	if s.sel == u.nav.session {
 		active = u.nav.workspace
 	}
-	fade := easeOut(float32(gtx.Now.Sub(s.selAt)) / float32(previewFade))
-	if fade < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	fade := anim.At(gtx, s.selAt, anim.Slide)
 	defer clip.UniformRRect(inner, rr-1).Push(gtx.Ops).Pop()
 	sw := gtx.Dp(sidebar.Width)
 	scale := min(1, float32(inner.Dx())/float32(sw))

@@ -116,11 +116,11 @@ func (s *Sidebar) limitMeter(gtx layout.Context, th *theme.Theme, h int) {
 		hrow(g, h, gtx.Dp(6),
 			item{w: func(gtx layout.Context) layout.Dimensions { return AgentMark(gtx, l.Provider, gtx.Dp(12), th.Fg) }},
 			item{w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, 11, th.Muted, windowShort(w.Minutes))
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, windowShort(w.Minutes))
 			}},
 			item{shrink: true, w: bar},
 			item{w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), 11, col, fmt.Sprintf("%.0f%%", w.Used))
+				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Caption), col, fmt.Sprintf("%.0f%%", w.Used))
 			}},
 		)
 		off.Pop()
