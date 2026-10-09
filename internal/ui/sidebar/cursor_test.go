@@ -10,6 +10,7 @@ import (
 
 	pwlayout "github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // cursorState is u1, then tab m with three agents (p2 asking for
@@ -160,5 +161,22 @@ func TestCursorKeys(t *testing.T) {
 	s.Blur()
 	if s.Focused() {
 		t.Fatal("Blur left the sidebar focused")
+	}
+}
+
+// TestCursorStyle: the cursor's row never looks like the shown tab. Its
+// fill differs from the shown tab's, a step deeper when it is on the shown
+// tab, and its ring is heavier than the shown tab's 1dp border.
+func TestCursorStyle(t *testing.T) {
+	th := theme.Dark()
+	shown := rowBase(th, nil, true, false)
+	if cursorFill(th, th.Sidebar, false) == shown {
+		t.Error("the cursor on another row is filled like the shown tab")
+	}
+	if on := cursorFill(th, shown, true); on == shown || on == cursorFill(th, th.Sidebar, false) {
+		t.Errorf("the cursor on the shown tab is filled %v, the shown tab %v", on, shown)
+	}
+	if cursorRingW <= 1 {
+		t.Errorf("the cursor ring is %vdp, no heavier than the shown tab's 1dp border", cursorRingW)
 	}
 }

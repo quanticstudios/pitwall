@@ -185,13 +185,19 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, ap model.Age
 	case focused:
 		base = theme.Mix(th.Sidebar, th.Primary, 0.08)
 	}
+	cursor := !ghost && s.cursorOn('a', ap.Pane.ID)
+	if cursor {
+		base = cursorFill(th, base, focused)
+	}
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	if !ghost {
 		base = r.fill(gtx, base, hovered)
 		if base != th.Sidebar {
 			paint.FillShape(gtx.Ops, base, clip.UniformRRect(image.Rectangle{Max: size}, rr).Op(gtx.Ops))
 		}
-		if gtx.Focused(&r.click) || s.cursorOn('a', ap.Pane.ID) {
+		if cursor {
+			cursorRing(gtx, th, image.Rectangle{Max: size}, rr)
+		} else if gtx.Focused(&r.click) {
 			g := gtx.Dp(3)
 			kit.FocusRing(gtx, th, image.Rectangle{Max: size}.Inset(g), max(rr-g, 0))
 		}

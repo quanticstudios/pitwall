@@ -2,14 +2,20 @@ package sidebar
 
 import (
 	"cmp"
+	"image"
+	"image/color"
 	"slices"
 
 	"gioui.org/io/key"
 	"gioui.org/layout"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // The keyboard cursor: while the window gives the sidebar the keyboard
@@ -20,6 +26,26 @@ import (
 // MenuKey is the key on a PC keyboard that opens a context menu. Gio has
 // no name for it; the vendored Gio reports it as this.
 const MenuKey key.Name = "Menu"
+
+// cursorRingW is the cursor's ring, heavier than the shown tab's 1dp
+// border so the two never look alike.
+const cursorRingW unit.Dp = 2
+
+// cursorFill is the fill of the row the cursor is on: SelectedBg, or on
+// the shown tab, whose fill is already a primary tint, a step deeper.
+func cursorFill(th *theme.Theme, base color.NRGBA, active bool) color.NRGBA {
+	if active {
+		return theme.Mix(base, th.Primary, 0.14)
+	}
+	return th.SelectedBg
+}
+
+// cursorRing draws the cursor's ring in Primary just inside rect.
+func cursorRing(gtx layout.Context, th *theme.Theme, rect image.Rectangle, r int) {
+	w := gtx.Dp(cursorRingW)
+	path := clip.UniformRRect(rect.Inset(w/2), max(r-w/2, 0)).Path(gtx.Ops)
+	paint.FillShape(gtx.Ops, th.Primary, clip.Stroke{Path: path, Width: float32(w)}.Op())
+}
 
 // cursor is the keyboard's place in the sidebar and in an open menu.
 type cursor struct {
