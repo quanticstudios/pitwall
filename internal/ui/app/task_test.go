@@ -78,7 +78,7 @@ func TestTaskHelpers(t *testing.T) {
 func TestTaskDialog(t *testing.T) {
 	bin := t.TempDir()
 	for _, a := range []string{"claude", "codex"} {
-		if err := os.WriteFile(filepath.Join(bin, a), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(bin, exeName(a)), []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -110,7 +110,7 @@ func TestTaskDialog(t *testing.T) {
 	d.base.SetText("release/1.4")
 	u.submitTask(&st, true)
 	want := proto.NewTask{Queue: true, FromPane: u.nav.focused(), Task: model.Task{SessionID: "s1", GroupID: "g2", Dir: fakeHome + "/src/web-app",
-		Worktree: "fix-the-login-redirect", Base: "release/1.4", Cmd: []string{filepath.Join(bin, "codex"), "-s", "read-only", "Fix the login redirect\nand add a test"}}}
+		Worktree: "fix-the-login-redirect", Base: "release/1.4", Cmd: []string{filepath.Join(bin, exeName("codex")), "-s", "read-only", "Fix the login redirect\nand add a test"}}}
 	sent := b.Sent()
 	if got := sent[len(sent)-1]; !reflect.DeepEqual(got, want) || u.modal.kind != modalNone {
 		t.Fatalf("sent %#v\nwant %#v", got, want)

@@ -182,9 +182,16 @@ func TestCLINewCommand(t *testing.T) {
 	}
 }
 
-// tool is the file name exec.LookPath finds for a command "tool": Windows
+// exeName is the file name exec.LookPath finds for a command: Windows
 // looks for it with an extension from PATHEXT.
-var tool = map[bool]string{false: "tool", true: "tool.exe"}[runtime.GOOS == "windows"]
+func exeName(cmd string) string {
+	if runtime.GOOS == "windows" {
+		return cmd + ".exe"
+	}
+	return cmd
+}
+
+var tool = exeName("tool")
 
 // A relative command path is the caller's, not one in the tab's folder.
 func TestCLINewRelativeCommand(t *testing.T) {

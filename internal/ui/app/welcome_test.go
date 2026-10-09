@@ -50,13 +50,19 @@ func TestWelcome(t *testing.T) {
 	}
 }
 
-func TestFindAgents(t *testing.T) {
+// exeName is the file name exec.LookPath finds for a command: Windows
+// looks for it with an extension from PATHEXT.
+func exeName(cmd string) string {
 	if runtime.GOOS == "windows" {
-		t.Skip("fake agents are shell scripts")
+		return cmd + ".exe"
 	}
+	return cmd
+}
+
+func TestFindAgents(t *testing.T) {
 	bin, home := t.TempDir(), t.TempDir()
 	for _, name := range []string{"codex", "claude", "aider", "notanagent"} {
-		os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nsleep 1000\n"), 0o755)
+		os.WriteFile(filepath.Join(bin, exeName(name)), []byte("#!/bin/sh\nsleep 1000\n"), 0o755)
 	}
 	t.Setenv("PATH", bin)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

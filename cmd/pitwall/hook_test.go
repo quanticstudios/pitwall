@@ -150,3 +150,56 @@ func TestHookReachesOlderDaemon(t *testing.T) {
 		t.Fatal("the older daemon got no event")
 	}
 }
+
+// TestHookRefusalLostToReset: on Windows, a daemon that refuses and closes
+// with the event still unread resets the connection, and the reset can
+// drop the refusal. This older daemon sends none when input is left over,
+// as if it were dropped; a Hello alone still learns its Version.
+func TestHookRefusalLostToReset(t *testing.T) {
+	old := proto.Version - 1
+	sock := sockPath(t, "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan proto.AgentEvent, 4)
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				c := proto.NewConn(nc)
+				defer c.Close()
+				m, err := c.Recv()
+				if h, ok := m.(proto.Hello); err == nil && ok && h.Version == old {
+					for {
+						m, err := c.Recv()
+						if err != nil {
+							return
+						}
+						if ev, ok := m.(proto.AgentEvent); ok {
+							got <- ev
+						}
+					}
+				}
+				nc.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				if _, err := nc.Read(make([]byte, 1)); err == nil {
+					return // input left over: the close resets, and the refusal is lost
+				}
+				c.Send(proto.Error{Message: fmt.Sprintf("daemon speaks protocol version %d; send Hello{Version: %d} first", old, old)})
+			}()
+		}
+	}()
+	sendHook(sock, "p1", "claude", []byte(`{"hook_event_name":"Stop"}`))
+	select {
+	case ev := <-got:
+		if ev.Pane != "p1" {
+			t.Errorf("event %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the older daemon got no event")
+	}
+}

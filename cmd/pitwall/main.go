@@ -246,20 +246,28 @@ func runHook(args []string) {
 func sendHook(path, pane string, provider model.Provider, payload []byte) {
 	ev := proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload}
 	deadline := time.Now().Add(hookWait)
-	if v, refused := hookOnce(path, proto.Version, ev, deadline); refused {
-		hookOnce(path, v, ev, deadline)
+	v, refused, reset := hookOnce(path, proto.Version, &ev, deadline)
+	if reset {
+		// why: Windows resets a socket closed with input unread, and the
+		// reset can drop the refusal sent before it. A Hello alone leaves
+		// nothing unread.
+		v, refused, _ = hookOnce(path, proto.Version, nil, deadline)
+	}
+	if refused {
+		hookOnce(path, v, &ev, deadline)
 	}
 }
 
 // hookWait bounds sendHook. A daemon answers in a millisecond or two.
 const hookWait = 500 * time.Millisecond
 
-// hookOnce sends ev after Hello{Version: v} and reports the daemon's
-// Version when the daemon refused v.
-func hookOnce(path string, v int, ev proto.AgentEvent, deadline time.Time) (int, bool) {
+// hookOnce sends ev, when set, after Hello{Version: v}. It reports the
+// daemon's Version when the daemon refused v, and whether the connection
+// ended in a reset rather than a close.
+func hookOnce(path string, v int, ev *proto.AgentEvent, deadline time.Time) (dv int, refused, reset bool) {
 	nc, err := net.Dial("unix", path)
 	if err != nil {
-		return 0, false
+		return 0, false, false
 	}
 	defer nc.Close()
 	nc.SetDeadline(deadline)
@@ -267,18 +275,20 @@ func hookOnce(path string, v int, ev proto.AgentEvent, deadline time.Time) (int,
 	// would close the conn before the refusal is read.
 	conn := proto.NewConn(keepOpen{nc})
 	conn.Send(proto.Hello{Version: v, Level: proto.Level, Kind: "hook"})
-	conn.Send(ev)
+	if ev != nil {
+		conn.Send(*ev)
+	}
 	if cw, ok := nc.(interface{ CloseWrite() error }); ok {
 		cw.CloseWrite() // the daemon closes once it has read the event
 	}
 	for {
 		m, err := conn.Recv()
 		if err != nil {
-			return 0, false
+			return 0, false, !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrDeadlineExceeded)
 		}
 		if e, ok := m.(proto.Error); ok {
 			if dv, refused := proto.RefusedVersion(e); refused && dv != v {
-				return dv, true
+				return dv, true, false
 			}
 		}
 	}

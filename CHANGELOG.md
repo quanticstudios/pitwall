@@ -28,8 +28,9 @@ build. Either step takes `--dry-run`.
   ten-second start, and a tab's next toast replaces its last one.
 - On Windows, a tab's folder follows `cd` in PowerShell and cmd.
 - On Windows, git and gh run without a console window, a project's
-  folders resolve against the paths git prints, and the folder dialog
-  completes paths typed with `\`.
+  folders resolve against the paths git prints, the folder dialog
+  completes paths typed with `\`, and a hook still reaches a daemon of an
+  older version when Windows drops that daemon's refusal.
 
 - A sidebar row whose Claude Code or Codex asks permission has Allow and
   Deny buttons, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the

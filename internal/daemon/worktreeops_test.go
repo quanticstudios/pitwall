@@ -33,7 +33,12 @@ func TestWorktreeQueries(t *testing.T) {
 	o.AddWorktree, o.RemoveWorktree, o.Orphans = gitstat.AddWorktree, gitstat.RemoveWorktree, pruneOrphans
 	d := newDaemon(t, o)
 	ctx := context.Background()
-	repo := filepath.Join(t.TempDir(), "repo")
+	// The long name git prints: Windows' %TEMP% holds 8.3 short names.
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(tmp, "repo")
 	mkdir(t, repo)
 	gitIn(t, repo, "init", "--initial-branch=main")
 	gitIn(t, repo, "commit", "--allow-empty", "-m", "init")
