@@ -184,7 +184,11 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	u.panel.view.Layout(pgtx, u.th, in)
 	off.Pop()
 	if f, ok := u.panel.view.Diff(); ok && dir != "" && in.Base != "" {
-		u.nav.expectPane(st)
-		u.send(proto.OpenPane{WorkspaceID: u.nav.workspace, Dir: layout.Horizontal, Cmd: diffCmd(dir, in.Base, &f)})
+		if Host == "" {
+			u.openReview(st, u.nav.workspace, f.Path)
+		} else {
+			u.nav.expectPane(st)
+			u.send(proto.OpenPane{WorkspaceID: u.nav.workspace, Dir: layout.Horizontal, Cmd: diffCmd(dir, in.Base, &f)})
+		}
 	}
 }

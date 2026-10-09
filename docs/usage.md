@@ -233,20 +233,49 @@ is 432dp wide (scaled with the display), narrows to 320dp in a small window,
 then hides. Each window keeps its own open state until it closes. Ctrl+L still
 reaches the shell, to clear the screen.
 
-To review an agent's work, click a file under Changes: its diff opens in a
-new pane beside the tab's panes, from the merge base with the default branch
-to what is on disk now, committed or not. The tab's "…" menu and the command
-palette have View diff, the same for the whole branch, and Create pull
-request. The diff runs `git diff` in your pager: `$GIT_PAGER`, else
+To review an agent's work, press Ctrl+Shift+R (Cmd+Shift+R in mac), pick
+View diff from the tab's "…" menu or the command palette, or click a file
+under Changes. The review
+view takes the place of the tab's panes, as the settings page does, and Esc
+closes it. It shows the changes from the merge base with the default branch
+to what is on disk now: committed, staged, unstaged and untracked. The files
+are on the left with their status (M, A, D, R for a rename, ? for untracked)
+and line counts; the selected file's diff is on the right, with both line
+numbers and the unchanged lines between hunks folded into a row you click to
+unfold. j and k move between files, n and p between hunks, the arrows
+between lines, Shift+arrows select a range. A binary file, an untracked file
+over 1 MiB and a file with over 3,000 changed lines show a line about
+themselves instead; the last has a button to show its diff anyway.
+
+Click a line number, or press c on the selected lines, to comment;
+Shift+click a second line number to comment on the lines between. Enter
+saves the comment under its last line. "Send N comments to claude" types
+every pending comment into the tab's agent as one prompt: a line saying what
+it is, then each comment's file:line, the lines it is on quoted with their
+diff marks, and its text. It goes in as a bracketed paste followed by Enter,
+the way the phone's replies do. An agent that is working, asking permission
+or showing a plan gets it when it next waits for input; the comments read
+Queued until then, and Sent after. A sent comment goes away once the agent
+changes its lines.
+
+Mark reviewed checks a file off in the list. pitwall remembers the mark per
+worktree and per change, in `gui.json` in the state directory, so a file the
+agent changes again comes back unchecked. Discard changes, after a dialog,
+puts the file back as it is at the merge base with `git restore`, on disk
+and staged, or deletes an untracked file. The header shows the branch, its
+base and the totals, Create pull request, and Open in pager, which runs the
+same diff through `git diff` in your pager in a new pane: `$GIT_PAGER`, else
 `core.pager`, else delta when it is installed, else `less -R`. Press q to
-close it. Create pull request opens a tab in the tab's folder that runs
+close it. The palette's Open diff in pager does the same. With `pitwall
+--host`, the worktree is on the host, so View diff opens the pager there.
+Create pull request opens a tab in the tab's folder that runs
 `git push -u origin HEAD` when the branch has no upstream, then
 `gh pr create --fill`, so you see both commands and answer gh's questions
 there; the tab stays when gh exits, with the pull request's link. It never
 force-pushes. The menu greys the entry out and says why when gh is not
 installed, the tab is on the default branch, or the branch has no commits
-ahead of it. Neither action has a key by default; set `view_diff` or
-`create_pr` under `[keys]` to give them one.
+ahead of it. Create pull request and Open diff in pager have no key by
+default; set `create_pr` or `diff_pager` under `[keys]` to give them one.
 
 Once the branch has a pull request, its row shows a chip with the number,
 green while open, grey as a draft, purple once merged and red when closed.
