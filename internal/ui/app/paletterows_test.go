@@ -24,11 +24,16 @@ func TestPaletteRows(t *testing.T) {
 			t.Errorf("%q listed %d times", title, n)
 		}
 	}
-	if slices.ContainsFunc(es, func(e paletteEntry) bool { return e.action.Name != gotoAny && strings.HasPrefix(e.action.Name, "goto_") }) {
+	if slices.ContainsFunc(es, func(e paletteEntry) bool {
+		return e.action.Name != gotoAny && strings.HasPrefix(e.action.Name, "goto_")
+	}) {
 		t.Error("a goto row is listed beside Go to tab 1–9")
 	}
 	i := slices.IndexFunc(es, func(e paletteEntry) bool { return e.action.Name == gotoAny })
-	if i < 0 || !slices.Equal(es[i].keys, []string{"Alt+1…9", "Ctrl+T 1…9"}) {
+	if i < 0 {
+		t.Fatal("no Go to tab 1–9 row")
+	}
+	if !slices.Equal(es[i].keys, []string{"Alt+1…9", "Ctrl+T 1…9"}) {
 		t.Fatalf("Go to tab 1–9 has keys %v", es[i].keys)
 	}
 	i = slices.IndexFunc(es, func(e paletteEntry) bool { return e.action.Name == "split_down" })

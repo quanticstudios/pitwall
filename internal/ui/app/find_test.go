@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"image"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -127,6 +129,65 @@ func TestFindBar(t *testing.T) {
 	frame()
 	if s, _ := typed(); s != "q" {
 		t.Fatalf("after Escape the pane got %q", s)
+	}
+}
+
+// TestFindBarButtons: the up button steps as Enter does, down as
+// Shift+Enter, and close as Escape, after which the pane has its keys.
+func TestFindBarButtons(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
+	var r input.Router
+	var ops op.Ops
+	frame := func() {
+		ops.Reset()
+		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: gl.Exact(image.Pt(1280, 800)), Now: time.Now()}
+		u.layout(gtx)
+		r.Frame(&ops)
+	}
+	frame()
+	frame()
+	pane := u.nav.focused()
+	r.Queue(press("F", key.ModCtrl|key.ModShift))
+	frame()
+	frame()
+	r.Queue(key.EditEvent{Text: "e"})
+	frame()
+	frame()
+	n := len(u.find.res.Matches)
+	if n < 2 || u.find.label() != fmt.Sprintf("1 of %d", n) {
+		t.Fatalf("e: %q with %d matches", u.find.label(), n)
+	}
+	for _, s := range []struct {
+		c    *widget.Clickable
+		want int
+	}{{&u.find.up, 2}, {&u.find.up, 3}, {&u.find.down, 2}, {&u.find.down, 1}, {&u.find.down, n}} {
+		s.c.Click()
+		frame()
+		if want := fmt.Sprintf("%d of %d", s.want, n); u.find.label() != want {
+			t.Fatalf("after a click: %q, want %q", u.find.label(), want)
+		}
+	}
+	u.find.shut.Click()
+	frame()
+	if u.find.pane != "" {
+		t.Fatal("close left the bar open")
+	}
+	if last := b.Sent()[len(b.Sent())-1]; last != (proto.Scroll{Pane: pane, Lines: -1 << 30}) {
+		t.Fatalf("close sent %#v last", last)
+	}
+	frame()
+	r.Queue(press("Q", 0), key.EditEvent{Text: "q"})
+	frame()
+	var s string
+	for _, m := range b.Sent() {
+		if m, ok := m.(proto.Input); ok {
+			s += string(m.Data)
+		}
+	}
+	if s != "q" {
+		t.Fatalf("after close the pane got %q", s)
 	}
 }
 
