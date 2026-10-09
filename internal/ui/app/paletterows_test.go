@@ -111,6 +111,23 @@ func TestHitSpans(t *testing.T) {
 	}
 }
 
+// TestPaletteChordQuery: keys typed as a chord find the actions bound to
+// that chord only, however they are spelled, where fuzzy matching found
+// Copy and Previous tab too; "alt+1" still opens up the nine goto rows.
+func TestPaletteChordQuery(t *testing.T) {
+	for q, want := range map[string][]string{
+		"ctrl+shift+r": {"Review/view_diff"},
+		"shift ctrl r": {"Review/view_diff"},
+		"ctrl+shift+d": {"Agents/deny_prompt"},
+		"alt+1":        {"Tabs/goto_tab_1"},
+		"cmd+shift+p":  nil, // conventional has it on Ctrl
+	} {
+		if got := names(paletteRows(conventional, q, nil)); !slices.Equal(got, want) {
+			t.Errorf("%q: %v, want %v", q, got, want)
+		}
+	}
+}
+
 // TestPaletteHeight: the card fits its rows up to the most, and keeps one
 // row's room for the empty state.
 func TestPaletteHeight(t *testing.T) {

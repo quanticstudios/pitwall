@@ -29,10 +29,11 @@ func (e paletteEntry) id() string {
 // paletteRows is what the palette lists for query, best first. A tab- or
 // pane-mode action titled as a window action is that action, its keys
 // added to the window action's. goto_tab_1 to 9 are one row until a word
-// of query is a digit. With no query, recent, newest first, leads.
+// of query is a digit, words split as keys are, so "alt+1" has one. With no query, recent, newest first, leads.
 func paletteRows(b *config.Bindings, query string, recent []string) []paletteEntry {
 	es := foldModes(paletteEntries(b))
-	if !slices.ContainsFunc(strings.Fields(query), func(w string) bool { return len(w) == 1 && w[0] >= '1' && w[0] <= '9' }) {
+	words := strings.FieldsFunc(query, func(r rune) bool { return r == ' ' || r == '+' || r == '-' })
+	if !slices.ContainsFunc(words, func(w string) bool { return len(w) == 1 && w[0] >= '1' && w[0] <= '9' }) {
 		es = collapseGoto(es)
 	}
 	if strings.TrimSpace(query) != "" {
@@ -70,6 +71,7 @@ func foldModes(es []paletteEntry) []paletteEntry {
 			return false
 		}
 		out[i].keys = append(slices.Clip(out[i].keys), e.keys...)
+		out[i].chords = append(slices.Clip(out[i].chords), e.chords...)
 		return true
 	})
 }
