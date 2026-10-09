@@ -210,13 +210,13 @@ func (f *fakes) pane(i int) *fakePane {
 
 // run starts a daemon on a socket in a temp dir and returns the socket path
 // and a stop func that waits for Serve to return.
-func run(t *testing.T, f *fakes) (string, func()) {
+func run(t testing.TB, f *fakes) (string, func()) {
 	t.Helper()
 	return runWith(t, f, func(*Options) {})
 }
 
 // runWith is run with Options changed by edit.
-func runWith(t *testing.T, f *fakes, edit func(*Options)) (string, func()) {
+func runWith(t testing.TB, f *fakes, edit func(*Options)) (string, func()) {
 	t.Helper()
 	o := f.options()
 	edit(&o)
