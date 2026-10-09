@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"strings"
-	"time"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -18,18 +17,15 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// The session switcher opens over 170ms; the highlight eases between rows
-// with a 60ms time constant, and the preview fades in over 140ms when the
-// highlight lands on another session.
-const (
-	switcherOpen = 170 * time.Millisecond
-	previewFade  = 140 * time.Millisecond
-)
+// The session switcher opens over anim.Overlay; the highlight eases between
+// rows with a 60ms time constant, and the preview fades in over anim.Slide
+// when the highlight lands on another session.
 
 // switcherDraw is the switcher's widgets: tags, clickables and one preview
 // sidebar per session, so each keeps its own expanded groups.
@@ -54,8 +50,6 @@ func (d *switcherDraw) row(id string) *switcherRow {
 	}
 	return r
 }
-
-func easeOut(t float32) float32 { t = min(max(t, 0), 1); return 1 - (1-t)*(1-t)*(1-t) }
 
 // sessionClicks applies the clicks from the last frame.
 func (u *ui) sessionClicks(gtx gl.Context, st *model.State) {
@@ -118,10 +112,7 @@ func (u *ui) drawSessions(gtx gl.Context, st *model.State) {
 	}
 	s.fix(st, gtx.Now)
 	size := gtx.Constraints.Max
-	t := easeOut(float32(gtx.Now.Sub(s.openedAt)) / float32(switcherOpen))
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	t := anim.At(gtx, s.openedAt, anim.Overlay)
 
 	if backdrop(gtx, t, &d.backdrop) {
 		s.close()
@@ -530,10 +521,7 @@ func (u *ui) preview(gtx gl.Context, st *model.State, rect image.Rectangle) {
 	if s.sel == u.nav.session {
 		active = u.nav.workspace
 	}
-	fade := easeOut(float32(gtx.Now.Sub(s.selAt)) / float32(previewFade))
-	if fade < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	fade := anim.At(gtx, s.selAt, anim.Slide)
 	defer clip.UniformRRect(inner, rr-1).Push(gtx.Ops).Pop()
 	sw := gtx.Dp(sidebar.Width)
 	scale := min(1, float32(inner.Dx())/float32(sw))

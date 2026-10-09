@@ -16,6 +16,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -29,8 +30,9 @@ type (
 )
 
 const (
-	slideDur = 140 * time.Millisecond // rows sliding apart, back, or into place
-	liftDur  = 120 * time.Millisecond // the dragged row rising
+	slideDur = anim.Slide // rows sliding apart, back, or into place
+	liftDur  = anim.Menu  // the dragged row rising
+
 	dwellDur = 300 * time.Millisecond // over a group header before it takes the drop
 	landWait = 400 * time.Millisecond // how long a drop waits for the state to show it
 )
@@ -85,12 +87,14 @@ type slide struct {
 }
 
 func (sl slide) value(now time.Time) float32 {
-	t := min(1, float32(now.Sub(sl.at))/float32(slideDur))
-	e := 1 - (1-t)*(1-t)*(1-t) // ease-out cubic
-	return sl.from + (sl.to-sl.from)*e
+	v, _ := anim.Value{From: sl.from, To: sl.to, Start: sl.at, Dur: slideDur}.Eval(now)
+	return v
 }
 
-func (sl slide) done(now time.Time) bool { return now.Sub(sl.at) >= slideDur }
+func (sl slide) done(now time.Time) bool {
+	_, running := anim.Progress(sl.at, now, slideDur)
+	return !running
+}
 
 // Dragging reports whether a tab or group is being dragged.
 func (s *Sidebar) Dragging() bool { return s.drag.active && !s.drag.released }
@@ -545,10 +549,10 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 
 	// The lifted row: scaled up a little over a soft shadow, rising over
 	// liftDur and settling back while it glides into the gap.
-	lift := min(1, float32(now.Sub(s.drag.since))/float32(liftDur))
-	lift = 1 - (1-lift)*(1-lift)
+	lift, _ := anim.Progress(s.drag.since, now, liftDur)
 	if s.drag.released {
-		lift = 1 - min(1, float32(now.Sub(s.drag.relAt))/float32(slideDur))
+		down, _ := anim.Progress(s.drag.relAt, now, slideDur)
+		lift = 1 - down
 	}
 	y := int(s.ghostY(now)) - s.scroll
 	// A tab headed into a group takes the group's indent.

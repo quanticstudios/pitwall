@@ -31,6 +31,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
@@ -60,9 +61,6 @@ const (
 	slowFrame    = 250 * time.Millisecond
 	sidebarWidth = unit.Dp(288)
 	minRatio     = 0.05
-	// sessionFade is how long the panes take to fade in after the window
-	// switched sessions.
-	sessionFade = 260 * time.Millisecond
 )
 
 // Run opens the window and blocks until it closes.
@@ -597,10 +595,7 @@ func (u *ui) layout(gtx gl.Context) {
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
 	// Another session fades in, so the change of context shows.
-	fade := easeOut(float32(gtx.Now.Sub(u.switchAt)) / float32(sessionFade))
-	if fade < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	fade := anim.At(gtx, u.switchAt, anim.Long)
 	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
 	u.keepFind(&st)
 	if u.settings.Shown() {
@@ -1182,15 +1177,10 @@ func (u *ui) layoutDividers(gtx gl.Context, ws, tab string, root *layout.Node, a
 // subject, heading to open or closed: 0 is hidden, 1 fully shown. A zero at
 // means no slide. It asks for the next frame until the slide ends.
 func (u *ui) slide(gtx gl.Context, at time.Time, open bool) float32 {
-	t := float32(1)
-	if !at.IsZero() {
-		t = float32(gtx.Now.Sub(at)) / float32(200*time.Millisecond)
-	}
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	t := anim.At(gtx, at, anim.Long)
 	if open {
-		return easeOut(t)
+		return t
 	}
-	return 1 - easeOut(t)
+	return 1 - t
+
 }

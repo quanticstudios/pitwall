@@ -12,6 +12,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -42,10 +43,7 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		}
 	}
 	p.sel = min(p.sel, max(len(rows)-1, 0))
-	t := easeOut(float32(gtx.Now.Sub(p.openedAt)) / float32(switcherOpen))
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
+	t := anim.At(gtx, p.openedAt, anim.Overlay)
 	if backdrop(gtx, t, &d.backdrop) {
 		p.close()
 		return

@@ -19,13 +19,13 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 const (
 	hoverDelay = 500 * time.Millisecond // resting on a row before its card opens
 	hoverGrace = 150 * time.Millisecond // off every row before an open card closes
-	hoverFade  = 100 * time.Millisecond
 )
 
 // groupIndent moves a grouped tab's row right of its group header, about
@@ -478,11 +478,7 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 	if ws == nil {
 		return
 	}
-	alpha := min(1, float32(gtx.Now.Sub(s.hover.shownAt))/float32(hoverFade))
-	if alpha < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
-	alpha = 1 - (1-alpha)*(1-alpha)
+	alpha := anim.At(gtx, s.hover.shownAt, anim.Fade)
 	// Record once to learn the height, then place it.
 	m := op.Record(gtx.Ops)
 	c := cardFor(v, *ws)

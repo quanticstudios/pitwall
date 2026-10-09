@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"gioui.org/font"
 	gl "gioui.org/layout"
@@ -17,6 +16,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -24,7 +24,6 @@ import (
 // Ported from aide's WorkspaceSwitcherOverlay (workspace-switcher mode): a
 // 288dp floating card, 16dp from the right edge, vertically centred, fading
 // and sliding in over 120ms.
-const fadeIn = 120 * time.Millisecond
 
 // groupName is the name of w's group, "Tabs" for an ungrouped one.
 func groupName(st *model.State, w model.Workspace) string {
@@ -100,11 +99,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 	if len(ws) == 0 {
 		return
 	}
-	t := min(1, float32(gtx.Now.Sub(u.shownAt))/float32(fadeIn))
-	if t < 1 {
-		gtx.Execute(op.InvalidateCmd{})
-	}
-	ease := 1 - (1-t)*(1-t)*(1-t)
+	ease := anim.At(gtx, u.shownAt, anim.Menu)
 
 	activities := map[string][]model.Activity{}
 	for _, a := range st.Activities {
