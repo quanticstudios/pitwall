@@ -117,6 +117,12 @@ func lookOf(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind) lo
 // pressed one moves its label down 1dp, a disabled one draws at half
 // opacity and takes no input, and a focused one has a ring 2dp outside.
 func Button(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s Size, label string) layout.Dimensions {
+	return ButtonHint(gtx, th, c, k, s, label, "")
+}
+
+// ButtonHint is Button with hint, such as the key that does the same,
+// after the label in a quieter color.
+func ButtonHint(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s Size, label, hint string) layout.Dimensions {
 	h, pad, ts := s.metrics(th)
 	gtx.Constraints.Min = image.Point{}
 	l := lookOf(gtx, th, c, k)
@@ -124,6 +130,16 @@ func Button(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s 
 	f := th.UIFont
 	f.Weight = font.Medium
 	td := widget.Label{MaxLines: 1, WrapPolicy: text.WrapGraphemes}.Layout(gtx, th.Shaper, f, ts, label, colorOp(gtx, l.fg))
+	if hint != "" {
+		x, under := td.Size.X+gtx.Dp(theme.SpaceS), l.fill
+		if under.A == 0 { // a ghost button at rest
+			under = th.Surface
+		}
+		o := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
+		hd := widget.Label{MaxLines: 1}.Layout(gtx, th.Shaper, th.UIFont, ts, hint, colorOp(gtx, theme.Mix(under, l.fg, 0.55)))
+		o.Pop()
+		td.Size.X = x + hd.Size.X
+	}
 	call := m.Stop()
 	size := image.Pt(min(td.Size.X+2*gtx.Dp(pad), gtx.Constraints.Max.X), gtx.Dp(h))
 	draw := func(gtx layout.Context) layout.Dimensions {
