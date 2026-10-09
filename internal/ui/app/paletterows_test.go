@@ -126,6 +126,10 @@ func TestPaletteChordQuery(t *testing.T) {
 			t.Errorf("%q: %v, want %v", q, got, want)
 		}
 	}
+	// A modifier's name alone is a word.
+	if got := paletteRows(conventional, "command", nil); len(got) == 0 || got[0].action.Name != "command_palette" {
+		t.Errorf("command: %v", names(got))
+	}
 }
 
 // TestPaletteHeight: the card fits its rows up to the most, and keeps one

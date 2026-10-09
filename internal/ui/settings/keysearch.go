@@ -6,6 +6,7 @@ import (
 
 	"gioui.org/io/key"
 	gl "gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -43,10 +44,10 @@ func noMatch(q string, c config.Chord, what string) string {
 	if c.Name == "" {
 		c, _ = config.KeyQuery(q)
 	}
-	if c.Name != "" {
-		return "Nothing uses " + c.String() + "."
+	if c.Name == "" {
+		return what
 	}
-	return what
+	return "Nothing uses " + c.String() + "."
 }
 
 // keyResults is the shortcuts' sections the page's search shows, and
@@ -57,21 +58,23 @@ func (p *Page) keyResults() ([]section, string) {
 	return secs, noMatch(q, p.keyChord, "No shortcuts match. Search by name, by keys such as ctrl+shift+d, or with Record keys.")
 }
 
-// toggleKeyRec turns Record on or off.
+// toggleKeyRec turns Record on, with the search cleared for the chord, or
+// off, back to typing in the search.
 func (p *Page) toggleKeyRec() {
 	if p.keyRec {
-		p.keyRec = false
+		p.keyRec, p.focusKeys = false, true
 		return
 	}
 	p.startRecord(slot{})
-	p.keyRec = true
+	p.keyRec, p.keyChord = true, config.Chord{}
+	p.keySearch.SetText("")
 }
 
 // keyRecorded is a chord pressed while Record is on: it becomes the search.
 // Escape stops recording instead.
 func (p *Page) keyRecorded(c config.Chord) {
 	if c.Mods == 0 && c.Name == key.NameEscape {
-		p.keyRec = false
+		p.keyRec, p.focusKeys = false, true
 		return
 	}
 	p.keyChord = c
@@ -96,6 +99,7 @@ func (p *Page) keyBar(gtx gl.Context) gl.Dimensions {
 	rec := p.btn("key-record")
 	for rec.Clicked(gtx) {
 		p.toggleKeyRec()
+		gtx.Execute(op.InvalidateCmd{})
 	}
 	if p.focusKeys {
 		p.focusKeys = false
@@ -104,7 +108,11 @@ func (p *Page) keyBar(gtx gl.Context) gl.Dimensions {
 	bar := func(gtx gl.Context) gl.Dimensions {
 		return gl.Flex{Alignment: gl.Middle}.Layout(gtx,
 			gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
-				return p.field(gtx, &p.keySearch, "Search shortcuts, or type keys like ctrl+shift+d", true)
+				hint := "Search shortcuts, or type keys like ctrl+shift+d"
+				if p.keyRec {
+					hint = "Press a shortcut…"
+				}
+				return p.field(gtx, &p.keySearch, hint, true)
 			}),
 			gl.Rigid(gl.Spacer{Width: theme.SpaceS}.Layout),
 			gl.Rigid(func(gtx gl.Context) gl.Dimensions {

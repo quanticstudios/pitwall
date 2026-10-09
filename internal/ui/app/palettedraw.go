@@ -113,7 +113,7 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	if len(rows) == 0 {
 		msg := "Nothing matches \"" + p.query + "\". Try part of a name, a group like Panes, or a key like Ctrl+T."
-		if c, ok := config.KeyQuery(p.query); ok && c.Name != "" {
+		if c, ok := config.KeyQuery(p.query); ok {
 			msg = "Nothing uses " + c.String() + "."
 		}
 		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+(rowH-gtx.Dp(18))/2), th.UIFont, th.Sp(theme.Body), th.Muted, msg)

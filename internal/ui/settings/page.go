@@ -226,6 +226,7 @@ func (p *Page) Keys(gtx gl.Context) Result {
 			case key.Event:
 				if e.State == key.Press && !modifier(e.Name) && (p.rec.action != "" || p.keyRec) {
 					p.recorded(config.Unshift(config.Chord{Mods: e.Modifiers, Name: e.Name}))
+					gtx.Execute(op.InvalidateCmd{}) // X11 may send nothing more to draw it
 				}
 			}
 		}
@@ -470,7 +471,7 @@ func filterRows(rs []row, q string) []row {
 	c, chord := config.KeyQuery(q)
 	var out []row
 	for _, r := range rs {
-		if chord && slices.ContainsFunc(r.keys, c.Finds) || !chord && matches(q, r.label, r.desc, r.extra) {
+		if chord && slices.Contains(r.keys, c) || !chord && matches(q, r.label, r.desc, r.extra) {
 			out = append(out, r)
 		}
 	}

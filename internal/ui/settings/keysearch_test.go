@@ -141,8 +141,8 @@ func TestRecordSearch(t *testing.T) {
 	if press(key.NameEscape, 0) == Closed || p.keyRec {
 		t.Fatalf("Escape closed the page or kept recording: %v", p.keyRec)
 	}
-	if p.keySearch.Text() != "Ctrl+Shift+K" {
-		t.Errorf("stopping lost the search: %q", p.keySearch.Text())
+	if p.keySearch.Text() != "Ctrl+Shift+K" || !r.Source().Focused(&p.keySearch) {
+		t.Errorf("stopping lost the search %q, or left it without focus", p.keySearch.Text())
 	}
 	// Escape then clears the search, and only then closes the page.
 	if press(key.NameEscape, 0) == Closed || p.keySearch.Text() != "" {

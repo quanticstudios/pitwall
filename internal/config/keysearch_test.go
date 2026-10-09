@@ -45,8 +45,9 @@ func TestKeyQuery(t *testing.T) {
 		{"ctrl pgdown", Chord{key.ModCtrl, key.NamePageDown}, true},
 		{"ctrl tab", Chord{key.ModCtrl, key.NameTab}, true},
 		{"ctrl shift }", Chord{cs, "]"}, true}, // the symbol Shift types, as a preset writes it
-		{"ctrl shift", Chord{Mods: cs}, true},
-		{"ctrl+", Chord{Mods: key.ModCtrl}, true},
+		{"ctrl shift", Chord{}, false},
+		{"ctrl+", Chord{}, false},
+		{"command", Chord{}, false},
 		{"d", Chord{}, false},
 		{"tab", Chord{}, false},
 		{"ctrl d e", Chord{}, false},
@@ -58,13 +59,5 @@ func TestKeyQuery(t *testing.T) {
 		if got != tc.want || ok != tc.ok {
 			t.Errorf("KeyQuery(%q) = %v, %v; want %v, %v", tc.q, got, ok, tc.want, tc.ok)
 		}
-	}
-	q, _ := KeyQuery("ctrl shift")
-	if !q.Finds(Chord{cs | key.ModAlt, "X"}) || q.Finds(Chord{key.ModCtrl, "X"}) {
-		t.Error("modifiers alone find every chord holding them, and only those")
-	}
-	q, _ = KeyQuery("ctrl d")
-	if q.Finds(Chord{cs, "D"}) || !q.Finds(Chord{key.ModCtrl, "D"}) {
-		t.Error("a chord finds itself only")
 	}
 }

@@ -90,7 +90,7 @@ func paletteEntries(b *config.Bindings) []paletteEntry {
 // config.KeyQuery) find the actions bound to that chord instead.
 func rank(entries []paletteEntry, query string) []paletteEntry {
 	if c, ok := config.KeyQuery(query); ok {
-		return slices.DeleteFunc(slices.Clone(entries), func(e paletteEntry) bool { return !slices.ContainsFunc(e.chords, c.Finds) })
+		return slices.DeleteFunc(slices.Clone(entries), func(e paletteEntry) bool { return !slices.Contains(e.chords, c) })
 	}
 	words := strings.Fields(strings.ToLower(query))
 	if len(words) == 0 {

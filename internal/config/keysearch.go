@@ -45,8 +45,7 @@ func queryWords(q string) []string {
 // KeyQuery reads a search as a chord: "ctrl+shift+d", "shift ctrl d",
 // "⌘⇧R" and "opt-left" are chords, in any modifier order. ok is false
 // unless every word is a modifier or a key, one at least is a modifier,
-// and at most one is a key, so "tab" and "d" stay words. A query of
-// modifiers alone has no Name.
+// and one is a key, so "tab", "d" and "command" stay words.
 func KeyQuery(q string) (c Chord, ok bool) {
 	for _, w := range queryWords(q) {
 		if a, ok := queryAliases[w]; ok {
@@ -62,17 +61,8 @@ func KeyQuery(q string) (c Chord, ok bool) {
 		}
 		c.Name = n
 	}
-	if c.Mods == 0 {
+	if c.Mods == 0 || c.Name == "" {
 		return Chord{}, false
 	}
 	return Unshift(c), true
-}
-
-// Finds reports whether c is what the query chord q looks for: c itself,
-// or with no key in q, any chord that holds all of q's modifiers.
-func (q Chord) Finds(c Chord) bool {
-	if q.Name == "" {
-		return c.Mods&q.Mods == q.Mods
-	}
-	return c == q
 }
