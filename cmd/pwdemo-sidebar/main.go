@@ -10,6 +10,10 @@
 //	-expand-all    start every group expanded
 //	-unseen        mark every needs-you activity unseen
 //	-size WxH      window size in dp (default 900x860)
+//	-theme name    a built-in theme (default aide-dark)
+//	-ui-size n     [font] ui_size
+//	-answers       show Allow and Deny on approvals
+//	-pane id       the focused pane of the active tab
 package main
 
 import (
@@ -26,7 +30,9 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	pwlayout "github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -42,7 +48,19 @@ func main() {
 	unseen := flag.Bool("unseen", false, "mark every needs-you activity unseen")
 	size := flag.String("size", "900x860", "window size WxH in dp")
 	flag.BoolVar(&sb.ShowCost, "cost", false, "show token use in hover cards in dollars, as [usage] show_cost does")
+	themeName := flag.String("theme", "aide-dark", "built-in theme")
+	uiSize := flag.Float64("ui-size", 0, "[font] ui_size; 0 for the default")
+	flag.BoolVar(&sb.Answers, "answers", false, "show Allow and Deny on approvals")
+	flag.StringVar(&sb.Pane, "pane", "", "the focused pane of the active tab")
 	flag.Parse()
+	tc, ok := config.Builtin(*themeName)
+	if !ok {
+		log.Fatalf("-theme %q: no such built-in theme", *themeName)
+	}
+	th, err := theme.New(tc, config.Font{UISize: *uiSize})
+	if err != nil {
+		log.Print(err)
+	}
 	sb.Usage = fakeUsage
 	var width, height int
 	if _, err := fmt.Sscanf(*size, "%dx%d", &width, &height); err != nil {
@@ -60,7 +78,7 @@ func main() {
 	go func() {
 		w := new(app.Window)
 		w.Option(app.Title("pwdemo-sidebar"), app.Size(unit.Dp(width), unit.Dp(height)))
-		if err := run(w, &sb, st, *active); err != nil {
+		if err := run(w, th, &sb, st, *active); err != nil {
 			log.Fatal(err)
 		}
 		os.Exit(0)
@@ -84,8 +102,7 @@ func fakeUsage(ws string) *flow.Usage {
 	return nil
 }
 
-func run(w *app.Window, sb *sidebar.Sidebar, st model.State, active string) error {
-	th := theme.Dark()
+func run(w *app.Window, th *theme.Theme, sb *sidebar.Sidebar, st model.State, active string) error {
 	var ops op.Ops
 	for {
 		switch e := w.Event().(type) {
@@ -205,7 +222,25 @@ func fakeState(now time.Time) model.State {
 			st.Activities = append(st.Activities, model.Activity{PaneID: id + "-pane", WorkspaceID: id, Provider: provider, State: state, Detail: detail, UpdatedAt: ago(updated)})
 		}
 	}
-	add("ws-main", "", "home", "", 3*time.Hour, "", "")
+	add("ws-main", "", "~", "", 3*time.Hour, "", "")
+	if home, err := os.UserHomeDir(); err == nil {
+		st.Workspaces[0].Path = home
+	}
+	// A tab with three agents and a shell, one of them asking.
+	add("ws-trio", "", "Ship the billing API", "billing-api", 3*time.Minute, "", "")
+	st.Workspaces[len(st.Workspaces)-1].Tabs = []model.Tab{{Layout: &pwlayout.Node{Children: []*pwlayout.Node{
+		{Pane: "trio-1"}, {Pane: "trio-2"}, {Pane: "trio-sh"}, {Pane: "trio-3"}}}}}
+	st.Stats["ws-trio"] = model.BranchStats{Additions: 96, Deletions: 12}
+	st.Panes = append(st.Panes,
+		model.Pane{ID: "trio-1", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, Title: "Write the migration"},
+		model.Pane{ID: "trio-2", WorkspaceID: "ws-trio", Provider: model.ProviderCodex, Title: "Review the handlers"},
+		model.Pane{ID: "trio-sh", WorkspaceID: "ws-trio"},
+		model.Pane{ID: "trio-3", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, Prompt: "update the API docs"})
+	st.Activities = append(st.Activities,
+		model.Activity{PaneID: "trio-1", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: ago(time.Minute)},
+		model.Activity{PaneID: "trio-2", WorkspaceID: "ws-trio", Provider: model.ProviderCodex, State: model.StatePendingApproval,
+			Detail: "Bash: go test ./internal/billing/...", UpdatedAt: ago(3 * time.Minute)},
+		model.Activity{PaneID: "trio-3", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, State: model.StateCompleted, UpdatedAt: ago(8 * time.Minute)})
 	add("ws-sidebar", "p-api", "Add rate limiting to the public API", "rate-limit", 40*time.Second, model.ProviderClaude, model.StateWorking)
 	add("ws-term", "p-api", "Paginate the orders endpoint", "orders-pagination", 2*time.Minute, model.ProviderCodex, model.StateConnecting)
 	add("ws-daemon", "p-api", "Rotate the signing keys", "key-rotation", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)

@@ -36,12 +36,14 @@ const (
 	landWait = 400 * time.Millisecond // how long a drop waits for the state to show it
 )
 
-// elem is a tab row or a group header as laid out this frame, in content
-// pixels (0 is the top of the scrolled list). A header's top includes the
-// separator above it.
+// elem is a tab row, an agent's sub-row or a group header as laid out
+// this frame, in content pixels (0 is the top of the scrolled list). A
+// header's top includes the separator above it. A tab's sub-rows follow
+// it and move with it.
 type elem struct {
-	kind     byte // 's' tab, 'g' group header
-	id       string
+	kind     byte   // 's' tab, 'a' agent sub-row, 'g' group header
+	id       string // a sub-row's pane
+	parent   string // a sub-row's tab
 	group    string // a tab's group, a header's own id
 	x        int    // a grouped tab's indent
 	top, bot int
@@ -119,6 +121,15 @@ func (s *Sidebar) land(y float32) {
 	}
 	for _, id := range s.drag.ids {
 		s.landing["s"+id] = y
+		top := 0
+		for _, e := range s.elems {
+			switch {
+			case e.kind == 's' && e.id == id:
+				top = e.top
+			case e.kind == 'a' && e.parent == id:
+				s.landing[e.key()] = y + float32(e.top-top)
+			}
+		}
 	}
 }
 
@@ -144,7 +155,8 @@ func rowAt(rows []elem, y int) int {
 // dwelled on, the tabs go last into that group. Over the top half of an
 // expanded header they go to the top level before that group, over the
 // bottom half they start that group; the end of a group is the bottom
-// half of its last tab.
+// half of its last tab. A tab and its sub-rows are one block: the gap
+// opens above or below the whole of it.
 func tabDrop(flow []elem, y int, expanded func(string) bool, dwell string) drop {
 	i := rowAt(flow, y)
 	if i < 0 {
@@ -164,14 +176,22 @@ func tabDrop(flow []elem, y int, expanded func(string) bool, dwell string) drop 
 		}
 		return d
 	}
-	if y < e.mid() {
+	for e.kind == 'a' && i > 0 {
+		i--
+		e = flow[i]
+	}
+	end := i
+	for end+1 < len(flow) && flow[end+1].kind == 'a' {
+		end++
+	}
+	if y < (e.top+flow[end].bot)/2 {
 		return drop{group: e.group, before: e.id, at: i, ok: true}
 	}
-	d := drop{group: e.group, at: i + 1, ok: true}
-	if i+1 < len(flow) {
+	d := drop{group: e.group, at: end + 1, ok: true}
+	if end+1 < len(flow) {
 		// The next element in the same group, or at the top level the
 		// next top-level item: a header or an ungrouped tab.
-		if n := flow[i+1]; (n.kind == 's' && n.group == e.group) || (e.group == "" && n.kind == 'g') {
+		if n := flow[end+1]; (n.kind == 's' && n.group == e.group) || (e.group == "" && n.kind == 'g') {
 			d.before = n.id
 		}
 	}
@@ -190,6 +210,8 @@ func groupDrop(flow []elem, y int) drop {
 	var bs []block
 	for i, r := range flow {
 		switch {
+		case r.kind == 'a' && len(bs) > 0:
+			bs[len(bs)-1].bot = r.bot
 		case r.kind == 'g' || r.group == "":
 			bs = append(bs, block{r.id, i, r.top, r.bot})
 		case len(bs) > 0 && r.group == bs[len(bs)-1].id:
@@ -211,7 +233,7 @@ func groupDrop(flow []elem, y int) drop {
 func (s *Sidebar) carried(e elem) bool {
 	switch s.drag.kind {
 	case 's':
-		return e.kind == 's' && slices.Contains(s.drag.ids, e.id)
+		return e.kind == 's' && slices.Contains(s.drag.ids, e.id) || e.kind == 'a' && slices.Contains(s.drag.ids, e.parent)
 	case 'g':
 		return e.group == s.drag.id
 	}
@@ -240,13 +262,22 @@ func (s *Sidebar) flow(elems []elem, total int) (flow []elem, idx []int, carried
 	return flow, idx, carried
 }
 
-// gapSize is the height the gap opens to: one tab row and its spacing, or
-// the dragged group's whole block.
-func (s *Sidebar) gapSize(gtx layout.Context, carried int) int {
+// gapSize is the height the gap opens to: the dragged tab's row with its
+// sub-rows, and its spacing, or the dragged group's whole block.
+func (s *Sidebar) gapSize(gtx layout.Context, elems []elem, carried int) int {
 	if s.drag.kind == 'g' {
 		return carried
 	}
-	return rowHeight(gtx) + gtx.Dp(2)
+	top, bot := 0, 0
+	for _, e := range elems {
+		switch {
+		case e.kind == 's' && e.id == s.drag.id:
+			top, bot = e.top, e.bot
+		case e.kind == 'a' && e.parent == s.drag.id:
+			bot = e.bot
+		}
+	}
+	return bot - top + gtx.Dp(2)
 }
 
 // dragFrame updates the drop target from the pointer and returns the
@@ -284,7 +315,7 @@ func (s *Sidebar) dragFrame(gtx layout.Context, elems []elem, total int) (offset
 		}
 	}
 	d := s.drag.target
-	gap := s.gapSize(gtx, carried)
+	gap := s.gapSize(gtx, elems, carried)
 	for i, e := range elems {
 		if idx[i] < 0 {
 			continue
@@ -411,13 +442,20 @@ func (s *Sidebar) dragEvents(gtx layout.Context, v *view) bool {
 				continue
 			}
 			y := int(e.Position.Y) + s.scroll
+			tab := 0 // the top of the last tab row, a sub-row's tab
 			for _, el := range s.elems {
 				top := el.top
-				if el.kind == 'g' {
+				switch el.kind {
+				case 'g':
 					top = el.head
+				case 's':
+					tab = el.top
 				}
 				if y >= top && y < el.bot && int(e.Position.X) >= el.x {
 					s.drag = dragState{kind: el.kind, id: el.id, start: e.Position, pos: e.Position, grab: y - el.top}
+					if el.kind == 'a' { // a sub-row lifts its tab
+						s.drag.kind, s.drag.id, s.drag.grab = 's', el.parent, y-tab
+					}
 				}
 			}
 		case pointer.Drag:
@@ -572,9 +610,13 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 	} else {
 		for _, ws := range v.st.Workspaces {
 			if ws.ID == s.drag.id {
-				gg.Constraints = layout.Exact(image.Pt(size.X-gx, rowHeight(gtx)))
+				gg.Constraints = layout.Exact(image.Pt(size.X-gx, rowHeight(gtx, th)))
 				d, _ := s.workspaceRow(gg, v, ws, true, "")
 				h = d.Size.Y
+				o := op.Offset(image.Pt(0, h)).Push(gtx.Ops)
+				gg.Constraints = layout.Constraints{Max: image.Pt(size.X-gx, 1<<16)}
+				h += s.ghostSubs(gg, v, ws.ID)
+				o.Pop()
 			}
 		}
 	}

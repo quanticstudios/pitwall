@@ -171,13 +171,25 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	}
 	for _, ws := range v.st.Workspaces {
 		r := s.row(ws.ID)
+		// The agent count folds the sub-rows; the row under it takes the
+		// same click, which must not also open the tab.
+		folding := false
+		for r.fold.Clicked(gtx) {
+			if !dropped {
+				if s.folded == nil {
+					s.folded = map[string]bool{}
+				}
+				s.folded[ws.ID] = !s.folded[ws.ID]
+				folding = true
+			}
+		}
 		for {
 			c, ok := r.click.Update(gtx)
 			if !ok {
 				break
 			}
 			switch {
-			case dropped:
+			case dropped, folding:
 			case c.NumClicks >= 2 && c.Modifiers == 0:
 				s.startRename(ws.ID, "", Title(ws))
 			default:
@@ -319,6 +331,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		}
 	}
 	s.queueEvents(gtx, v.st)
+	s.subEvents(gtx, v, dropped)
 	for s.newTab.Clicked(gtx) {
 		s.events = append(s.events, NewTab{Loose: true})
 	}
@@ -375,6 +388,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		drain(&r.deny)
 		drain(&r.pr)
 		drain(&r.archive)
+		drain(&r.fold)
 	}
 	for i := range s.menuItem {
 		drain(&s.menuItem[i])
@@ -390,7 +404,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 // snapshot is the sidebar state input can change, to spot that it did.
 func (s *Sidebar) snapshot() [8]string {
 	return [8]string{s.menuWS, s.groupMenu, s.appearance, s.renaming, s.renamingGroup, s.anchor,
-		fmt.Sprint(s.detachedOpen, s.moveOpen, s.killArmed), fmt.Sprint(len(s.selected), s.expanded)}
+		fmt.Sprint(s.detachedOpen, s.moveOpen, s.killArmed), fmt.Sprint(len(s.selected), s.expanded, s.folded)}
 }
 
 func (s *Sidebar) closeMenus() {

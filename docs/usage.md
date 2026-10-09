@@ -46,9 +46,16 @@ A tab running an agent pitwall knows always shows it, idle or busy: the
 agent's logo replaces the row icon. The logo goes when the agent exits back
 to the shell.
 
+A tab with two or more agent panes keeps one row with its most urgent state
+and a count such as "3 agents · 1 approval". Under it, each agent pane gets
+a small row of its own with the agent's logo, the pane's title and its
+state. Click one to show the tab with that pane focused. Click the count to
+fold these rows away or bring them back. Plain shells and panes running a
+command get none.
+
 When an agent needs you (a question, an approval, a plan, an error, a
 finished turn) in a pane you are not looking at, that pane gets a ring in the
-state's color and its sidebar row gets an accent bar and a dot. Not looking
+state's color and its sidebar row gets an accent bar. Not looking
 means another tab, another pane of the same tab, or the window in the
 background. The mark stays until you focus that pane, and a group header
 counts its tabs that carry one. pitwall also sends a desktop notification
@@ -57,7 +64,8 @@ recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 
 A tab whose Claude Code or Codex asks permission shows Allow and Deny on
-its sidebar row, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
+its sidebar row, or on the asking pane's own row when the tab lists its
+agents, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
 focused pane, else for the shown tab. They press the same keys the
 [phone page](phone.md) does, and only while the pane still shows the prompt
 the row showed, so a click never lands on a newer question. With a decision

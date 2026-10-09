@@ -60,6 +60,9 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		off := op.Offset(image.Pt(gtx.Dp(6), 0)).Push(gtx.Ops)
 		items := []item{
 			{w: func(gtx layout.Context) layout.Dimensions {
+				return chevron(gtx, &ps.chev, s.isExpanded(p.ID), gtx.Dp(12), th.Muted)
+			}},
+			{w: func(gtx layout.Context) layout.Dimensions {
 				return drawIcon(gtx, projectIcon(p.Icon), gtx.Dp(14), th.ProjectColor(p.Color), 0)
 			}},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -132,6 +135,9 @@ func (s *Sidebar) projectHeaderGhost(gtx layout.Context, v *view, p model.Projec
 	gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X-gtx.Dp(28), h))
 	o := op.Offset(image.Pt(gtx.Dp(14), 0)).Push(gtx.Ops)
 	hrow(gtx, h, gtx.Dp(8),
+		item{w: func(gtx layout.Context) layout.Dimensions {
+			return chevron(gtx, &s.project(p.ID).chev, s.isExpanded(p.ID), gtx.Dp(12), th.Muted)
+		}},
 		item{w: func(gtx layout.Context) layout.Dimensions {
 			return drawIcon(gtx, projectIcon(p.Icon), gtx.Dp(14), th.ProjectColor(p.Color), 0)
 		}},

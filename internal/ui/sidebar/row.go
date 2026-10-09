@@ -16,6 +16,7 @@ import (
 	"gioui.org/op/paint"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -36,8 +37,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	title := Title(ws)
 
 	w := gtx.Constraints.Max.X
-	pad, l1, l2 := gtx.Dp(8), gtx.Dp(19.5), gtx.Dp(16.5)
-	h := rowHeight(gtx)
+	pad := gtx.Dp(8)
+	l1, l2 := rowLines(gtx, th)
+	h := rowHeight(gtx, th)
 	rect := image.Rect(0, 0, w, h)
 	rr := gtx.Dp(8)
 
@@ -52,7 +54,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if ghost {
 		unseen = nil
 	}
-	if unseen != nil {
+	if unseen != nil && !isActive { // the active row's fill keeps clear of state tints
 		base = theme.Mix(base, StateColor(th, unseen.State), 0.1)
 	}
 	if ghost {
@@ -66,8 +68,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if animating {
 		shimmer(gtx, rect, rr, base, v.t(s))
 	}
-	if selected {
+	if selected || isActive && !ghost {
 		paint.FillShape(gtx.Ops, theme.Mix(base, th.Primary, 0.55), clip.Stroke{Path: clip.UniformRRect(rect.Inset(1), rr-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	}
+	if !ghost && gtx.Focused(&r.click) {
+		g := gtx.Dp(3)
+		kit.FocusRing(gtx, th, rect.Inset(g), rr-g)
 	}
 	if unseen != nil {
 		// Something here wants the user: an accent bar down the left edge.
@@ -80,7 +86,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	showMore := !ghost && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
 	x := (btn-glyph)/2 + glyph/4 // the button's edge to the ×'s edge
-	answering := s.answering(ghost, a)
+	answering := s.answering(v, ws.ID, ghost, a)
 	answerW := 0
 	if answering {
 		answerW = answerSize(gtx, th, *a, base).X
@@ -109,15 +115,8 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), nameCol, title)
 			}},
 		}
-		if unseen != nil {
-			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				d := gtx.Dp(6)
-				paint.FillShape(gtx.Ops, StateColor(th, unseen.State), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
-				return layout.Dimensions{Size: image.Pt(d, d)}
-			}})
-		}
 		if a != nil {
-			items = append(items, item{right: unseen == nil, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
+			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
 		}
 		hrow(gtx, l1, gtx.Dp(8), items...)
 		off.Pop()
@@ -134,7 +133,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			where = model.ShortPath(v.st.LivePath(ws))
 		}
 		var line []item
-		if !answering { // Allow and Deny leave it a few letters at most
+		if v.agents[ws.ID] != nil {
+			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
+				return s.foldChip(gtx, v, ws.ID, muted, ghost, answering)
+			}})
+		}
+		// Allow and Deny or the agent count leave it a few letters at most,
+		// and the hover card has it; a title that says the same ("~" for
+		// home) needs no second word.
+		if !answering && v.agents[ws.ID] == nil && where != title {
 			line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})
@@ -162,6 +169,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		line = append(line, radarMark(v, ws.ID)...)
+		if inRepo && hasStats && stats.MergeStatus == model.MergeConflicts {
+			// The hover card says it in words.
+			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
+				return drawIcon(gtx, icGitMerge, gtx.Dp(11), th.Red, 0)
+			}})
+		}
 		switch {
 		case answering: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -178,10 +191,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		case inRepo && merged:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Purple, "Merged")
-			}})
-		case inRepo && hasStats && stats.MergeStatus == model.MergeConflicts:
-			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Red, "Merge conflicts")
 			}})
 		default:
 			if rt := relTime(v.now, ws.UpdatedAt); rt != "" {
@@ -212,8 +221,8 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// Left of where "…" and "×" show, hovered or not, so the buttons
 		// never move under the pointer.
 		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
-		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-gtx.Dp(answerH))/2)).Push(gtx.Ops)
-		answerButtons(gtx, th, r, *a, base)
+		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		answerButtons(gtx, th, &r.allow, &r.deny, *a, base)
 		off.Pop()
 	}
 	if showMore {
@@ -331,7 +340,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		soft = 0.15
 	}
 	bg := theme.Mix(base, col, soft)
-	h := gtx.Dp(16.5) // 10px * 1.25 + py-px + 1px transparent border
+	_, h := rowLines(gtx, th) // line 2's height: 16.5dp at the default size
 	m := op.Record(gtx.Ops)
 	gtx.Constraints.Min = image.Point{}
 	gtx.Constraints.Max.Y = h
@@ -482,9 +491,13 @@ func StateColor(th *theme.Theme, s model.AgentState) color.NRGBA {
 }
 
 // rowBase is a workspace row's opaque background: getWorkspaceBackground-
-// ClassName's state tint, the active row's primary/12 on top, or the hover
-// fill for rows with no activity.
+// ClassName's state tint, or the hover fill for rows with no activity. The
+// active row is primary/14 over the sidebar whatever its state, which its
+// pill and accent bar still show.
 func rowBase(th *theme.Theme, a *model.Activity, active, hovered bool) color.NRGBA {
+	if active {
+		return theme.Mix(th.Sidebar, th.Primary, 0.14)
+	}
 	base := th.Sidebar
 	if a != nil {
 		switch a.State {
@@ -497,8 +510,6 @@ func rowBase(th *theme.Theme, a *model.Activity, active, hovered bool) color.NRG
 		}
 	}
 	switch {
-	case active:
-		base = theme.Mix(base, th.Primary, 0.12)
 	case hovered:
 		// A state's tint shows through the hover fill, faintly.
 		base = theme.Mix(base, th.SurfaceSecondary, 0.85)

@@ -136,7 +136,7 @@ func hrowFit(gtx layout.Context, h, gap int, items ...item) layout.Dimensions {
 	for i := len(items) - 1; i >= 0; i-- {
 		if it := items[i]; it.opt {
 			pre := room(it)
-			measure(i, maxW-used-pre)
+			measure(i, maxW) // at full width: a label cut to fit would always fit
 			if drop[i] = used+pre+dims[i].Size.X > maxW; !drop[i] {
 				used += pre + dims[i].Size.X
 				kept++

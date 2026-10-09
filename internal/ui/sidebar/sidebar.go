@@ -51,6 +51,9 @@ type Sidebar struct {
 	// Answers shows Allow and Deny on a row whose permission prompt they
 	// answer (remote.Answerable): the daemon takes proto.Answer.
 	Answers bool
+	// Pane is the focused pane of the active tab, whose agent sub-row is
+	// marked.
+	Pane string
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -147,6 +150,11 @@ type Sidebar struct {
 	queue    []queueBlock
 	taskRows map[string]*taskRow
 
+	// Agent sub-rows: each agent pane's row state by pane id, and the tabs
+	// whose sub-rows are folded away.
+	subs   map[string]*subRow
+	folded map[string]bool
+
 	events []Event
 }
 
@@ -172,7 +180,8 @@ const (
 
 type projectState struct {
 	toggle, add, more widget.Clickable
-	ctx               int // tag for right-click
+	ctx               int        // tag for right-click
+	chev              anim.Value // the chevron's turn, 0 closed to 1 open
 }
 
 // projectColorIDs is aide's PROJECT_COLOR_OPTIONS order.
@@ -185,15 +194,21 @@ type rowState struct {
 	click, more, close widget.Clickable
 	allow, deny        widget.Clickable // a pending approval's answers
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
+	fold               widget.Clickable // the agent count, which folds the sub-rows
+	foldT              anim.Value       // its chevron's turn
 	ctx                int              // tag for right- and middle-click
-	// bg eases the row's fill to each new one: anim.Hover when only the
-	// hover changed it, anim.State otherwise.
+	easedFill
+}
+
+// easedFill eases a row's fill to each new one: anim.Hover when only the
+// hover changed it, anim.State otherwise.
+type easedFill struct {
 	bg       anim.Color
 	wasHover bool
 }
 
 // fill is the row's fill on its way to target, which hovered is part of.
-func (r *rowState) fill(gtx layout.Context, target color.NRGBA, hovered bool) color.NRGBA {
+func (r *easedFill) fill(gtx layout.Context, target color.NRGBA, hovered bool) color.NRGBA {
 	dur := anim.State
 	if hovered != r.wasHover {
 		r.wasHover, dur = hovered, anim.Hover
@@ -337,13 +352,15 @@ type view struct {
 	unseen        map[string]*model.Activity   // a live session's first unseen activity by priority
 	top           []string                     // groups and live ungrouped sessions, in order
 	groups        map[string]bool
-	agent         map[string]model.Provider // a live session's agent, idle or busy
-	queued        map[string][]model.Task   // the session's queued tasks by the group they show under, "" for none
+	agent         map[string]model.Provider    // a live session's agent, idle or busy
+	agents        map[string][]model.AgentPane // a live tab's agent panes, when it has two or more
+	queued        map[string][]model.Task      // the session's queued tasks by the group they show under, "" for none
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active,
-		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{}}
+		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{},
+		agents: map[string][]model.AgentPane{}}
 	if v.now.IsZero() {
 		v.now = time.Now()
 	}
@@ -377,6 +394,9 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 		}
 		if p := AgentOf(st, ws); p != "" {
 			v.agent[ws.ID] = p
+		}
+		if aps := st.AgentPanes(ws); len(aps) > 1 {
+			v.agents[ws.ID] = aps
 		}
 	}
 	for _, id := range st.TopOrder(session) {
@@ -466,7 +486,7 @@ func (s *Sidebar) project(id string) *projectState {
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
 	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() ||
-		r.pr.Hovered() || r.archive.Hovered()
+		r.pr.Hovered() || r.archive.Hovered() || r.fold.Hovered()
 }
 
 func (s *Sidebar) row(id string) *rowState {
