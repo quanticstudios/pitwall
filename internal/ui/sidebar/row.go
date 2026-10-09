@@ -130,11 +130,15 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			where = model.ShortPath(v.st.LivePath(ws))
 		}
 		var line []item
-		line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.MonoFont, 11, muted, where)
-		}})
+		if !answering { // Allow and Deny leave it a few letters at most
+			line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.MonoFont, 11, muted, where)
+			}})
+		}
+		// The stats, the PR chip and the radar mark give way, in that order,
+		// to Allow and Deny or a long time; the hover card has them all.
 		if inRepo && hasStats && (stats.Additions > 0 || stats.Deletions > 0) {
-			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
+			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
 				return hrowFit(gtx, l2, gtx.Dp(4),
 					item{w: func(gtx layout.Context) layout.Dimensions {
 						return label(gtx, th, semibold(th.UIFont), 10, th.Green, fmt.Sprintf("+%d", stats.Additions))
@@ -146,13 +150,14 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		if inRepo && hasPR {
-			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
+			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
 				if ghost {
 					return PRChip(gtx, th, pr, base)
 				}
 				return clickable(gtx, &r.pr, func(gtx layout.Context) layout.Dimensions { return PRChip(gtx, th, pr, base) })
 			}})
 		}
+		line = append(line, radarMark(v, ws.ID)...)
 		switch {
 		case answering: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {

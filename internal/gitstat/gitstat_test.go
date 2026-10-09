@@ -356,3 +356,44 @@ func TestFilesUntrackedLimits(t *testing.T) {
 		t.Fatalf("Files = %+v", files)
 	}
 }
+
+// TestChangedAndConflicts checks Changed splits a worktree's files into
+// committed and uncommitted, untracked included, and Conflicts tells two
+// branches touching one file apart from two that conflict in it.
+func TestChangedAndConflicts(t *testing.T) {
+	ctx := context.Background()
+	dir := repo(t)
+	runGit(t, dir, "checkout", "-b", "a")
+	writeFile(t, dir, "file.txt", "ONE\ntwo\nthree\n")
+	commit(t, dir)
+	writeFile(t, dir, "new.txt", "untracked\n")
+	writeFile(t, dir, ".gitignore", ".worktrees/\nignored\n")
+	c, err := Changed(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(c.Committed, ",") != "file.txt" || strings.Join(c.Uncommitted, ",") != ".gitignore,new.txt" {
+		t.Fatalf("Changed = %+v", c)
+	}
+	if c.Root == "" || c.Head != runGit(t, dir, "rev-parse", "HEAD") || !strings.HasSuffix(c.Common, ".git") {
+		t.Fatalf("Changed = %+v", c)
+	}
+	a := c.Head
+
+	runGit(t, dir, "checkout", "--quiet", "--force", "main")
+	runGit(t, dir, "checkout", "-b", "b")
+	writeFile(t, dir, "file.txt", "one\ntwo\nTHREE\n") // another line of the same file
+	commit(t, dir)
+	clean := runGit(t, dir, "rev-parse", "HEAD")
+	runGit(t, dir, "checkout", "-b", "c", "main")
+	writeFile(t, dir, "file.txt", "uno\ntwo\nthree\n") // a's line
+	commit(t, dir)
+	clash := runGit(t, dir, "rev-parse", "HEAD")
+
+	if files, err := Conflicts(ctx, dir, a, clean); err != nil || files != nil {
+		t.Fatalf("Conflicts(a, clean) = %q, %v", files, err)
+	}
+	if files, err := Conflicts(ctx, dir, a, clash); err != nil || strings.Join(files, ",") != "file.txt" {
+		t.Fatalf("Conflicts(a, clash) = %q, %v", files, err)
+	}
+}

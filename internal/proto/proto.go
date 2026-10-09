@@ -40,8 +40,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
-// Level 8 added Answer, Allow or Deny from a GUI.
+// Level 10 added State.Overlaps, the conflict radar.
 // Level 9 added State.PRs, the pull request of each tab's branch.
+// Level 8 added Answer, Allow or Deny from a GUI.
 // Level 7 added Pane.HooksMissing.
 // Level 6 added Workspace.Ports, the port block of a worktree tab.
 // Level 5 added Scroll.Prompts and State.Clipboard, and GUIs that send
@@ -84,7 +85,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 9
+const Level = 10
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.

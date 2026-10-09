@@ -116,6 +116,12 @@ type Sidebar struct {
 	hover  hoverState
 	cardY  int
 	cardAt string
+	// The card's conflict radar: the pointer on the card (cardTag), and
+	// its file buttons, by other tab and path, for tab fileFor.
+	cardTag   int
+	cardHover bool
+	fileBtn   map[string]*widget.Clickable
+	fileFor   string
 
 	events []Event
 }

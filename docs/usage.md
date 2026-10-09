@@ -271,6 +271,21 @@ add Archive, which closes the tab and, for a worktree pitwall made, removes
 the worktree and deletes the branch, as Delete does with its box ticked.
 Set `archive_on_merge = true` under `[git]` to archive a merged worktree
 tab without the click.
+Agents in worktrees of one repository can edit the same files without
+knowing it. When two tabs on different branches of the same repository
+change a file in common, committed or not, both rows get a warning
+triangle after their diff stats: amber when they only touch the same files,
+red when merging their commits would conflict (`git merge-tree`, which
+leaves the work trees alone). Uncommitted changes count as touching, never as
+a conflict. The hover card names the other tab, lists the files with the
+conflicting ones first in red, and suggests which branch to merge first: the
+one with fewer conflicting files, else the one not behind the default
+branch, else the smaller one. Click a file in the card to open its diff in
+that tab. The first time two tabs share a file, a notice says so, such as
+"billing and acme-api both edit src/server/router.ts"; it comes back only for
+a new file or a new conflict. pitwall checks when it refreshes the branch
+stats, at most every 30 seconds, and only while tabs sit on two or more
+branches. Set `conflict_radar = false` under `[git]` to turn it off.
 
 Under the tabs, a line shows the agent's model, the tokens its session used
 and how full its context window is, with a small meter that turns yellow at
