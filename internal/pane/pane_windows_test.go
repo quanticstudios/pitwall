@@ -1,6 +1,7 @@
 package pane
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,10 +15,16 @@ import (
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
-// TestMain doubles as the programs TestCloseKillsDescendants runs in a pane:
-// a parent that starts a stubborn child on its console and waits for it.
+// TestMain doubles as the programs the tests run in a pane: a parent that
+// starts a stubborn child on its console and waits for it, and an echoer.
 func TestMain(m *testing.M) {
 	switch os.Getenv("PITWALL_PANE_TEST") {
+	case "echo":
+		fmt.Println("echo ready")
+		for in := bufio.NewScanner(os.Stdin); in.Scan(); {
+			fmt.Println("got", in.Text())
+		}
+		os.Exit(0)
 	case "parent":
 		c := exec.Command(os.Args[0])
 		c.Env = append(os.Environ(), "PITWALL_PANE_TEST=stubborn")
@@ -47,17 +54,53 @@ func TestCloseKillsDescendants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(screen(p), "ready"); time.Sleep(50 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("no ready; screen:\n%s", screen(p))
-		}
-	}
+	waitScreen(t, p, "ready")
 	closed := make(chan struct{})
 	go func() { p.Close(); close(closed) }()
 	select {
 	case <-closed:
 	case <-time.After(4 * time.Second):
 		t.Fatal("Close did not kill the pane's descendants on the 2s path")
+	}
+}
+
+// TestInputAfterResize: a console program reads what is typed after its
+// pane resizes, and the resize ends nothing. The program is not Git's sh:
+// MSYS ends a waiting read on a resize, so its while-read loop exits.
+func TestInputAfterResize(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Start(Config{ID: "resize", Cmd: []string{exe}, Env: []string{"PITWALL_PANE_TEST=echo"}, Cols: 80, Rows: 24, NewVT: vt.New})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	waitScreen(t, p, "echo ready")
+	if _, err := p.Write([]byte("before\r")); err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, p, "got before")
+	if err := p.Resize(100, 30); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Write([]byte("after\r")); err != nil {
+		t.Fatal(err)
+	}
+	waitScreen(t, p, "got after")
+	if code := p.ExitCode(); code != -1 {
+		t.Fatalf("the resize ended the program: exit %d", code)
+	}
+}
+
+// waitScreen waits for text on p's screen.
+func waitScreen(t *testing.T, p *Pane, text string) {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(screen(p), text); time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no %q; screen:\n%s", text, screen(p))
+		}
 	}
 }
 

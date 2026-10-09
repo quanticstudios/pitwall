@@ -1,7 +1,9 @@
 package e2e_test
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -78,8 +80,22 @@ func sessionPane(s model.State, name string) string {
 
 // echoer prints "<name> ready", then "<name> got <line>" for each line it
 // reads, and is idle in between: a pane changes only when the test types.
+// It is this test binary (see TestMain), not a sh loop: on Windows MSYS
+// ends a waiting read when the console resizes, so the loop would exit.
 func echoer(name string) []string {
-	return []string{"sh", "-c", fmt.Sprintf(`echo %s ready; while read l; do echo %s got $l; done`, name, name)}
+	exe, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	return []string{exe, "echoer", name}
+}
+
+// runEchoer is echoer's program.
+func runEchoer(name string) {
+	fmt.Println(name, "ready")
+	for in := bufio.NewScanner(os.Stdin); in.Scan(); {
+		fmt.Println(name, "got", in.Text())
+	}
 }
 
 // TestTabSwitch shows one tab, then switches to another whose program
@@ -186,10 +202,8 @@ func TestSearchAndCopyPastScreen(t *testing.T) {
 }
 
 // TestResizeWholeFrame: a resize brings a shown pane a whole frame at the
-// new size, and the rows after it fit that size (apply checks). The pane
-// runs echoer, not an interactive shell, whose line editor redraws on the
-// resize in its own way: with Git's sh on Windows the typed line after it
-// at times never showed.
+// new size, and the rows after it fit that size (apply checks), and the
+// program still reads what is typed after the resize.
 func TestResizeWholeFrame(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
