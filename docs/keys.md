@@ -113,6 +113,8 @@ mac:
 | Cmd+B                                   | Show or hide the sidebar                                  |
 | Cmd+L                                   | Show or hide the agent panel                              |
 | Cmd+U                                   | Go to the tab that needs you, newest first, in any session |
+| Cmd+Shift+Y / Cmd+Shift+N               | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
+| Cmd+Shift+A                             | New task: an agent on a prompt, started now or queued     |
 | Cmd+S                                   | Session switcher                                          |
 | Cmd+] / Cmd+[                           | Next / previous session                                   |
 | Cmd+N                                   | New session                                               |

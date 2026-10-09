@@ -273,7 +273,8 @@ func TestMacPreset(t *testing.T) {
 		"copy": "Super+C", "paste": "Super+V", "new_tab": "Super+T", "close_pane": "Super+W",
 		"command_palette": "Shift+Super+P", "find": "Super+F", "open_settings": "Super+,",
 		"split_right": "Super+D", "copy_mode": "Shift+Super+X", "goto_tab_2": "Super+2",
-		"next_tab": "Ctrl+Tab Shift+Super+]",
+		"next_tab": "Ctrl+Tab Shift+Super+]", "allow_prompt": "Shift+Super+Y", "deny_prompt": "Shift+Super+N",
+		"new_task": "Shift+Super+A",
 	} {
 		if got := chords(mac, action); got != want {
 			t.Errorf("mac %s = %q, want %q", action, got, want)
