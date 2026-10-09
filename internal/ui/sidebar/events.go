@@ -4,8 +4,8 @@ package sidebar
 // DetachSession, AttachSession, KillSession, GroupByFolder, DeleteWorkspace,
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
-// RunUpdate, ViewDiff, CreatePR, Answer, OpenPR, MergePR, RerunChecks,
-// Archive.
+// RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
+// RerunChecks, Archive.
 type Event any
 
 // OpenSessions is a click on the session name in the header: show the
@@ -42,6 +42,11 @@ type OpenSettings struct{}
 
 // ViewDiff shows the tab's diff from its default branch.
 type ViewDiff struct{ WorkspaceID string }
+
+// ViewFileDiff shows one file's diff from the default branch, Path
+// relative to the repo root: a file in the conflict radar of the tab's
+// hover card.
+type ViewFileDiff struct{ WorkspaceID, Path string }
 
 // CreatePR opens a pull request for the tab's branch.
 type CreatePR struct{ WorkspaceID string }

@@ -89,9 +89,28 @@ func (n *nav) review(st *model.State, id, act string) any {
 	return nil
 }
 
-// reviewBlocked is why the palette's view_diff, create_pr, open_pr,
-// merge_pr or rerun_checks cannot run on the open tab, "" when it can or
-// for any other action.
+// fileDiff is the diff of path, relative to the repo root, in a pane
+// beside tab id's panes, as the side panel's Changes opens one, or nil when
+// sidebar.ReviewBlocked says the tab cannot show a diff.
+// ponytail: an untracked path diffs as tracked, so its pane shows nothing;
+// carry the file's status in model.Overlap if that matters.
+func (n *nav) fileDiff(st *model.State, id, path string) any {
+	ws := findWorkspace(st, id)
+	if ws == nil {
+		return nil
+	}
+	if diff, _ := sidebar.ReviewBlocked(st, *ws, false); diff != "" {
+		log.Printf("file diff on tab %s: %q", id, diff)
+		return nil
+	}
+	if id == n.workspace {
+		n.expectPane(st)
+	}
+	return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: diffCmd(st.LivePath(*ws), st.Stats[id].Base, &gitstat.FileStat{Path: path, Status: 'M'})}
+}
+
+// reviewBlocked is why the palette's view_diff or create_pr cannot run on
+// the open tab, "" when it can or for any other action.
 func (n *nav) reviewBlocked(st *model.State, act string) string {
 	if why, ok := n.prBlocked(st, act); ok {
 		return why

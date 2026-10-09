@@ -33,7 +33,7 @@ type Config struct {
 	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see docs/decisions.md for what each feature sends."`
 	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Notify    Notify    `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
-	Git       Git       `toml:"git" doc:"Pull requests: how Merge PR merges, and whether a merged worktree tab archives itself."`
+	Git       Git       `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
 	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Hosts     []Host    `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
 }
@@ -257,6 +257,8 @@ type Settings struct {
 	MergeMethod string
 	// ArchiveOnMerge archives a merged worktree tab without a click.
 	ArchiveOnMerge bool
+	// ConflictRadar marks tabs whose branches change the same files.
+	ConflictRadar bool
 	// Hosts is [[hosts]] as written.
 	Hosts []Host
 	// Notes are things that work but should change, like an action under

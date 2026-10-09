@@ -361,3 +361,86 @@ func countLines(path string) int {
 	}
 	return n
 }
+
+// Changes is what a worktree's branch changed since its merge base with the
+// default branch, by final path relative to the repo root, for the conflict
+// radar.
+type Changes struct {
+	Common      string   // the git directory the repository's worktrees share
+	Root        string   // the worktree's top level
+	Head        string   // HEAD's commit
+	Committed   []string // from the merge base to HEAD
+	Uncommitted []string // from HEAD to the work tree: staged, unstaged and untracked
+}
+
+// Changed returns worktree's Changes. A repository without a default
+// branch has Common, Root and Head but no files.
+func Changed(ctx context.Context, worktree string) (Changes, error) {
+	var c Changes
+	out, err := git(ctx, worktree, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel", "HEAD")
+	if err != nil {
+		return c, err
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) != 3 {
+		return c, fmt.Errorf("git rev-parse: unexpected output %q", out)
+	}
+	c.Common, c.Root, c.Head = lines[0], lines[1], lines[2]
+	base, err := defaultRef(ctx, c.Root)
+	if err != nil || base == "" {
+		return c, err
+	}
+	mb, err := mergeBase(ctx, c.Root, base)
+	if err != nil {
+		return c, err
+	}
+	if c.Committed, err = names(ctx, c.Root, "diff", "--name-only", "-z", mb, "HEAD", "--"); err != nil {
+		return c, err
+	}
+	if c.Uncommitted, err = names(ctx, c.Root, "diff", "--name-only", "-z", "HEAD", "--"); err != nil {
+		return c, err
+	}
+	untracked, err := names(ctx, c.Root, "ls-files", "--others", "--exclude-standard", "-z")
+	c.Uncommitted = append(c.Uncommitted, untracked...)
+	return c, err
+}
+
+// names is the NUL-separated paths git prints for args.
+func names(ctx context.Context, dir string, args ...string) ([]string, error) {
+	out, err := git(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths, nil
+}
+
+// Conflicts is the files that merging commits a and b of the repository at
+// dir would leave in conflict, none when they merge cleanly. Nothing is
+// written to the work tree or the index.
+func Conflicts(ctx context.Context, dir, a, b string) ([]string, error) {
+	out, err := git(ctx, dir, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", a, b)
+	switch {
+	case err == nil:
+		return nil, nil
+	case exitCode(err) != 1 || ctx.Err() != nil:
+		return nil, err
+	}
+	// The merged tree, then each conflicted path once, then an empty field.
+	fields := strings.Split(out, "\x00")
+	var files []string
+	for _, f := range fields[1:] {
+		if f == "" {
+			break
+		}
+		if !slices.Contains(files, f) {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}

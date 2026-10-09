@@ -107,6 +107,12 @@ type Options struct {
 	// Bell reports whether a BEL raises its pane's attention ([terminal]
 	// bell); nil means it does.
 	Bell func() bool
+	// Radar reports whether the conflict radar is on ([git]
+	// conflict_radar); it reads tabs' changes with Changes and merges their
+	// commits with Conflicts. Any of the three nil keeps it off.
+	Radar     func() bool
+	Changes   func(ctx context.Context, worktree string) (gitstat.Changes, error)
+	Conflicts func(ctx context.Context, dir, a, b string) ([]string, error)
 }
 
 type Daemon struct {
@@ -133,6 +139,7 @@ type Daemon struct {
 	olderNoticed bool
 	pushWake     chan struct{} // wakes pushLoop, nil when it is not running
 	prs          prPoll        // see pr.go
+	radar        radar         // see radar.go
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -170,6 +177,9 @@ func New() (*Daemon, error) {
 		RestoreCmd:     store.RestoreCmd,
 		Decisions:      loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
 		Bell:           bellSetting(config.Path()),
+		Radar:          radarSetting(config.Path()),
+		Changes:        gitstat.Changed,
+		Conflicts:      gitstat.Conflicts,
 		Remote:         func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
 		RemoteDir:      remote.Dir(),
 		Split:          layout.Split,
@@ -267,6 +277,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	context.AfterFunc(ctx, func() { ln.Close() })
+	d.radar.mu.Lock()
+	d.radar.ctx = ctx
+	d.radar.mu.Unlock()
 	go d.statsLoop(ctx)
 	go d.prLoop(ctx)
 	var wg sync.WaitGroup
@@ -1185,6 +1198,7 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 		return // git was cut short, not answering "not a repo"
 	}
 
+	defer d.kickRadar()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	changed := false
@@ -1489,7 +1503,8 @@ func (d *Daemon) snapshot() model.State {
 	s.Panes = slices.Clone(s.Panes)
 	s.Activities = d.attended()
 	s.Stats = maps.Clone(s.Stats)
-	s.PRs = maps.Clone(s.PRs) // entries are replaced, never changed in place
+	s.PRs = maps.Clone(s.PRs)           // entries are replaced, never changed in place
+	s.Overlaps = maps.Clone(s.Overlaps) // the radar replaces a tab's list whole
 	s.Decide = d.decideInfo()
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {

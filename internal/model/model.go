@@ -217,6 +217,23 @@ type State struct {
 	// Clipboard is the latest text a program put on the clipboard with OSC
 	// 52. The daemon fills it in; it is not saved.
 	Clipboard Clipboard `json:"-"`
+	// Overlaps is the conflict radar ([git] conflict_radar): per tab, the
+	// other tabs whose branches change some of the same files. The daemon
+	// fills it in; it is not saved.
+	Overlaps map[string][]Overlap `json:"-"`
+}
+
+// Overlap is another tab whose branch, in the same repository, changes
+// some of the same files as this tab's, committed or not.
+type Overlap struct {
+	WorkspaceID string // the other tab
+	Branch      string // its branch
+	// Files are the files both branches change, relative to the repo root:
+	// the Conflicts that conflict first, then the rest, each part sorted.
+	Files []string
+	// Conflicts counts the files that merging the two branches' commits
+	// would leave in conflict. Uncommitted changes are never counted.
+	Conflicts int
 }
 
 // Clipboard is an OSC 52 clipboard write. A GUI writes Text once per Seq;
@@ -332,6 +349,12 @@ func (s *State) View(session string) State {
 	for id, pr := range s.PRs {
 		if in[id] {
 			v.PRs[id] = pr
+		}
+	}
+	v.Overlaps = make(map[string][]Overlap, len(s.Overlaps))
+	for id, o := range s.Overlaps {
+		if in[id] {
+			v.Overlaps[id] = o
 		}
 	}
 	return v

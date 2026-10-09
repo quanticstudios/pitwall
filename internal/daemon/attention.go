@@ -125,6 +125,12 @@ func (d *Daemon) setClipboard(seq uint64, text string) {
 // bellSetting reads [terminal] bell from the config at path, again only
 // when the file changed.
 func bellSetting(path string) func() bool {
+	return setting(path, func(s config.Settings) bool { return s.Bell })
+}
+
+// setting reads one switch, pick, from the config at path, again only when
+// the file changed.
+func setting(path string, pick func(config.Settings) bool) func() bool {
 	var mu sync.Mutex
 	var stamp string
 	on := true
@@ -134,7 +140,7 @@ func bellSetting(path string) func() bool {
 		if st := fileStamp(path); st != stamp {
 			stamp = st
 			s, _ := config.LoadFile(path)
-			on = s.Bell
+			on = pick(s)
 		}
 		return on
 	}

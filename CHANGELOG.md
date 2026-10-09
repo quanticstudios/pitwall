@@ -73,6 +73,13 @@ build. Either step takes `--dry-run`.
   `write_todos`, and Settings > Usage counts Gemini's tokens.
 - OpenCode shows Plan when its experimental plan mode asks to switch to the
   build agent. Reinstall hooks to update the plugin.
+- Tabs on different branches of one repository that change the same files
+  get a warning mark on their rows: amber when they touch the same files,
+  red when merging their commits would conflict. The hover card lists the
+  files, conflicting ones first, opens a file's diff on a click, and
+  suggests which branch to merge first. A notice tells you the first time
+  two tabs start sharing a file. `conflict_radar = false` under `[git]`
+  turns it off.
 
 ## v0.1.0-beta.2
 

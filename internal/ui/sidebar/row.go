@@ -153,6 +153,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return clickable(gtx, &r.pr, func(gtx layout.Context) layout.Dimensions { return PRChip(gtx, th, pr, base) })
 			}})
 		}
+		line = append(line, radarMark(v, ws.ID)...)
 		switch {
 		case answering: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {

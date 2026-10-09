@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"gioui.org/font"
+	"gioui.org/io/event"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -100,6 +102,10 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 			over = e.id
 		}
 	}
+	s.radarInput(gtx)
+	if over == "" && s.cardHover {
+		over = s.hover.shown // on to the card, for its file buttons
+	}
 	if wake := s.hover.step(gtx.Now, over); !wake.IsZero() {
 		gtx.Execute(op.InvalidateCmd{At: wake})
 	}
@@ -107,8 +113,9 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 
 // card is what a tab's hover card shows. Lines lists which lines, in
 // order: 't' title, 'f' folder, 'b' branch, 'r' its pull request, 'c'
-// the PR's checks, 'o' the worktree's ports, 's' agent state, 'd' its
-// detail, 'u' token use, 'j' the decision model's advice, 'p' pane count.
+// the PR's checks, 'x' the conflict radar, 'o' the worktree's ports, 's'
+// agent state, 'd' its detail, 'u' token use, 'j' the decision model's
+// advice, 'p' pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -116,6 +123,8 @@ type card struct {
 	groupColor   string         // its aide color id
 	path, branch string
 	ports        string // the worktree's port block, "3010-3019"
+	radar        []radarEntry
+	fileBtn      func(other, path string) *widget.Clickable // a radar file's button; nil draws none
 	add, del     int
 	pr           *model.PR // the branch's pull request
 	state        model.AgentState
@@ -138,6 +147,9 @@ func (c card) lines() string {
 		if c.pr.State == model.PROpen && len(c.pr.Checks) > 0 {
 			out += "c"
 		}
+	}
+	if len(c.radar) > 0 {
+		out += "x"
 	}
 	if c.ports != "" {
 		out += "o"
@@ -181,6 +193,7 @@ func cardFor(v *view, ws model.Workspace) card {
 		c.state, c.detail = a.State, clampDetail(a.Detail)
 		c.decision = AdviceText(*a, v.st.Decide.Provider)
 	}
+	c.radar = radarEntries(v, ws)
 	for _, p := range v.st.Panes {
 		if p.WorkspaceID == ws.ID {
 			c.panes++
@@ -369,6 +382,13 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 					return label(gtx, th, th.UIFont, 11, muted, fmt.Sprintf("and %d more", n))
 				})
 			}
+		case 'x':
+			for _, e := range c.radar {
+				col, _ := radarColor(th, []model.Overlap{e.o})
+				line(iconOf(icTriangleAlert, col), func(gtx layout.Context) layout.Dimensions {
+					return radarBody(gtx, th, bg, e, c.fileBtn)
+				})
+			}
 		case 'o':
 			line(iconOf(icPlug, muted), func(gtx layout.Context) layout.Dimensions {
 				return hrowFit(gtx, gtx.Sp(13*1.5), gtx.Dp(6), item{w: func(gtx layout.Context) layout.Dimensions {
@@ -471,7 +491,17 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 			c.usage = UsageText(*u, s.ShowCost)
 		}
 	}
+	c.fileBtn = s.fileButton
 	size := drawCard(gtx, v.th, c, alpha)
+	if len(c.radar) > 0 {
+		// The pointer on the card keeps it open for its file buttons; the
+		// area passes presses on to them.
+		pass := pointer.PassOp{}.Push(gtx.Ops)
+		a := clip.Rect{Max: size}.Push(gtx.Ops)
+		event.Op(gtx.Ops, &s.cardTag)
+		a.Pop()
+		pass.Pop()
+	}
 	call := m.Stop()
 	margin := gtx.Dp(8)
 	y := min(s.cardY, h-size.Y-margin)
