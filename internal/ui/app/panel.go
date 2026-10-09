@@ -103,19 +103,21 @@ func (s *sidePanel) follow(p *model.Pane, dir string, invalidate func()) {
 		if dir != "" {
 			ctx, cancel := context.WithCancel(context.Background())
 			s.stopFiles = cancel
-			go s.listFiles(ctx, s.filesGen, dir, invalidate)
+			// why: read the swappable listFiles once here, so a test that swaps it
+			// never races this goroutine.
+			go s.listFiles(ctx, listFiles, s.filesGen, dir, invalidate)
 		}
 	}
 }
 
 // listFiles lists dir's changed files every filesEvery until ctx is done,
 // and invalidates when the list changed.
-func (s *sidePanel) listFiles(ctx context.Context, gen int, dir string, invalidate func()) {
+func (s *sidePanel) listFiles(ctx context.Context, list func(context.Context, string) (string, []gitstat.FileStat, error), gen int, dir string, invalidate func()) {
 	t := time.NewTicker(filesEvery)
 	defer t.Stop()
 	for {
 		c, cancel := context.WithTimeout(ctx, filesWait)
-		base, files, err := listFiles(c, dir)
+		base, files, err := list(c, dir)
 		cancel()
 		if ctx.Err() != nil {
 			return
