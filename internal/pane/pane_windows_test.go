@@ -1,14 +1,65 @@
 package pane
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
+	ossignal "os/signal"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
+
+// TestMain doubles as the programs TestCloseKillsDescendants runs in a pane:
+// a parent that starts a stubborn child on its console and waits for it.
+func TestMain(m *testing.M) {
+	switch os.Getenv("PITWALL_PANE_TEST") {
+	case "parent":
+		c := exec.Command(os.Args[0])
+		c.Env = append(os.Environ(), "PITWALL_PANE_TEST=stubborn")
+		c.Stdout = os.Stdout
+		c.Run()
+		os.Exit(0)
+	case "stubborn":
+		// The runtime holds the console's close event while SIGTERM is
+		// notified, until Windows times the process out.
+		ossignal.Notify(make(chan os.Signal, 1), syscall.SIGTERM)
+		fmt.Println("ready")
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// TestCloseKillsDescendants: a descendant that holds off the console's close
+// event keeps conhost, and with it the pane, alive past its parent. Close
+// kills it on the 2s path instead of waiting out Windows' close timeout.
+func TestCloseKillsDescendants(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Start(Config{ID: "tree", Cmd: []string{exe}, Env: []string{"PITWALL_PANE_TEST=parent"}, Cols: 80, Rows: 24, NewVT: vt.New})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(30 * time.Second); !strings.Contains(screen(p), "ready"); time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no ready; screen:\n%s", screen(p))
+		}
+	}
+	closed := make(chan struct{})
+	go func() { p.Close(); close(closed) }()
+	select {
+	case <-closed:
+	case <-time.After(4 * time.Second):
+		t.Fatal("Close did not kill the pane's descendants on the 2s path")
+	}
+}
 
 func TestReportCwdArgs(t *testing.T) {
 	argv, env := reportCwd([]string{`C:\Program Files\PowerShell\7\pwsh.exe`}, []string{"A=1"})

@@ -17,6 +17,10 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- On Windows, closing a pane or stopping the daemon ends the pane's
+  programs within 2 seconds, children included. A program that held off
+  the console's close event, or a paste stuck in a program that stopped
+  reading, could stall the daemon's shutdown for 10 seconds or more.
 - The command palette fits its results instead of keeping a fixed height,
   lists the actions you ran last first, and shows the letters you typed in
   bold. "Go to tab 1–9" with Alt+1…9 replaces nine Go to tab rows, and
