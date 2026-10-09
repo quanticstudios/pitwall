@@ -121,6 +121,34 @@ func TestScanCodex(t *testing.T) {
 	}
 }
 
+// TestScanGemini: a chat's message copies count once, under the session
+// id its first line names; a user line quoting "tokens" counts not at all.
+func TestScanGemini(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	stamp := func(s int) string { return now.Add(time.Duration(s-3600) * time.Second).UTC().Format(time.RFC3339Nano) }
+	msg := func(s int, id string, in, out, cached int64) string {
+		return fmt.Sprintf(`{"id":%q,"timestamp":%q,"type":"gemini","content":"ok","model":"gemini-3-pro","tokens":{"input":%d,"output":%d,"cached":%d,"thoughts":2,"tool":0,"total":0}}`+"\n",
+			id, stamp(s), in, out, cached)
+	}
+	writeFile(t, filepath.Join(dir, "demo", "chats", "session-2026-10-05T10-00-3f2a9c1e.jsonl"),
+		`{"sessionId":"s-1","projectHash":"9b","startTime":"`+stamp(0)+`"}`+"\n",
+		`{"id":"u1","timestamp":"`+stamp(1)+`","type":"user","content":[{"text":"count the \"tokens\""}]}`+"\n",
+		msg(2, "g1", 1000, 10, 600),
+		`{"$set":{"lastUpdated":"`+stamp(2)+`"}}`+"\n",
+		msg(2, "g1", 1000, 10, 600), // the same message, appended again
+		msg(5, "g2", 1200, 20, 1000),
+	)
+	var s Scanner
+	recs := s.Scan([]Source{{model.ProviderGemini, dir}}, now.Add(-24*time.Hour))
+	if got, want := sum(recs), map[string]Tokens{"gemini-3-pro": {Input: 400 + 200, Output: 12 + 22, CacheRead: 1600}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v\nwant %+v", got, want)
+	}
+	if len(recs) != 2 || recs[0].Session != "s-1" || recs[0].Provider != model.ProviderGemini {
+		t.Errorf("recs = %+v", recs)
+	}
+}
+
 // TestScanMtime: a file last written well before the window is not
 // opened, even though its lines claim times inside it; calls before the
 // window are left out of a file that is read.

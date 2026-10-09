@@ -35,9 +35,14 @@ type Source struct {
 	Dir      string
 }
 
-// Sources are where Claude Code, Codex and pi keep their sessions under
-// home. pi's moves with $PI_CODING_AGENT_DIR.
+// Sources are where Claude Code, Codex, pi and Gemini CLI keep their
+// sessions under home. pi's moves with $PI_CODING_AGENT_DIR, Gemini's with
+// $GEMINI_CLI_HOME.
 func Sources(home string) []Source {
+	gemini := home
+	if h := os.Getenv("GEMINI_CLI_HOME"); h != "" {
+		gemini = h
+	}
 	pi := os.Getenv("PI_CODING_AGENT_DIR")
 	switch {
 	case pi == "":
@@ -49,6 +54,7 @@ func Sources(home string) []Source {
 		{model.ProviderClaude, filepath.Join(home, ".claude", "projects")},
 		{model.ProviderCodex, filepath.Join(home, ".codex", "sessions")},
 		{model.ProviderPi, filepath.Join(pi, "sessions")},
+		{model.ProviderGemini, filepath.Join(gemini, ".gemini", "tmp")},
 	}
 }
 
@@ -75,7 +81,8 @@ type scanned struct {
 	limits   map[string]Limit // a Codex rollout's latest of each limit, by limit id
 }
 
-// codexScan carries what a Codex rollout's earlier lines set.
+// codexScan carries what a Codex rollout's earlier lines set, and the
+// session id a Gemini chat's first line sets.
 type codexScan struct {
 	model, session string
 	last           codexInfo // the latest token_count's, to drop a repeat
@@ -252,6 +259,8 @@ var (
 	hasTokenCount = []byte(`"token_count"`)
 	hasContext    = []byte(`"turn_context"`)
 	hasMeta       = []byte(`"session_meta"`)
+	hasTokens     = []byte(`"tokens"`)
+	hasSessionID  = []byte(`"sessionId"`)
 	keySeed       = maphash.MakeSeed()
 )
 
@@ -267,11 +276,48 @@ func (f *scanned) line(line []byte, session string) {
 		if bytes.Contains(line, hasTokenCount) || bytes.Contains(line, hasContext) || bytes.Contains(line, hasMeta) {
 			f.codexLine(line, session)
 		}
+	case model.ProviderGemini:
+		if bytes.Contains(line, hasTokens) || bytes.Contains(line, hasSessionID) {
+			f.gemini(line, session)
+		}
 	default:
 		if bytes.Contains(line, hasUsage) {
 			f.pi(line, session)
 		}
 	}
+}
+
+// gemini follows a chat's session id, from its first line, and adds a
+// gemini message's call. A message appended again with its tokens updated
+// replaces its call when no other came between, and Scan's key check drops
+// a later copy that does.
+func (f *scanned) gemini(line []byte, file string) {
+	var e struct {
+		SessionID string `json:"sessionId"`
+		geminiMessage
+	}
+	if json.Unmarshal(line, &e) != nil {
+		return
+	}
+	if e.SessionID != "" && e.ID == "" {
+		f.codex.session = e.SessionID
+		return
+	}
+	ts := parseTime(e.Timestamp)
+	if e.Type != "gemini" || e.Tokens == nil || e.Model == "" || ts.IsZero() {
+		return
+	}
+	session := f.codex.session
+	if session == "" {
+		session = file
+	}
+	r := Record{Time: ts, Provider: model.ProviderGemini, Model: e.Model, Session: session, Tokens: e.Tokens.tokens(),
+		key: maphash.String(keySeed, session+":"+e.ID) | 1}
+	if n := len(f.recs); n > 0 && f.recs[n-1].key == r.key {
+		f.recs[n-1].Tokens = r.Tokens
+		return
+	}
+	f.add(r)
 }
 
 type claudeUseLine struct {

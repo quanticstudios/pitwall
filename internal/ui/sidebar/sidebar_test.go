@@ -143,6 +143,20 @@ func TestParsePathArc(t *testing.T) {
 	}
 }
 
+// Every agent pitwall recognizes has a name and a mark the parser reads.
+func TestAgentMarks(t *testing.T) {
+	for _, d := range []string{icClaude, icOpenAI, icGemini, icCursor, icOpenCode, icAmp, icAider} {
+		if len(parsePath(d)) == 0 { // panics on a command the parser lacks
+			t.Errorf("empty path %.20s", d)
+		}
+	}
+	for _, p := range model.Agents {
+		if AgentName(p) == "" {
+			t.Errorf("%s has no name", p)
+		}
+	}
+}
+
 func TestProjectIcons(t *testing.T) {
 	var s Sidebar
 	if len(projectIcons) != len(s.iconBtn) {

@@ -68,12 +68,71 @@ func TestIdentify(t *testing.T) {
 		{"codex", "/home/u/.local/share/mise/installs/codex/0.160.0/bin/codex", model.ProviderCodex},
 		{"MainThread", "/usr/lib/codex/codex", model.ProviderCodex},
 		{"pi", "/home/u/.local/share/mise/installs/pi/latest/pi/pi", model.ProviderPi},
+		{"gemini", "/usr/bin/gemini", model.ProviderGemini},
+		{"opencode", "/home/u/.npm/lib/node_modules/opencode-ai/bin/opencode.exe", model.ProviderOpenCode},
+		{"cursor-agent", "", model.ProviderCursor},
+		{"aider", "/usr/bin/python3.14", model.ProviderAider}, // a python shebang keeps the script's name
 		{"node", "/usr/bin/node", ""},
 		{"zsh", "/usr/bin/zsh", ""},
 		{"", "", ""},
 	} {
 		if got := Identify(tc.comm, tc.exe); got != tc.want {
 			t.Errorf("Identify(%q, %q) = %q, want %q", tc.comm, tc.exe, got, tc.want)
+		}
+	}
+}
+
+// The gemini, opencode and aider fixtures are hand-written from the
+// strings in each agent's source: Gemini CLI's LoadingIndicator and
+// ToolConfirmationQueue, OpenCode's prompt, permission and question views,
+// and aider's io.py and its WaitingSpinner.
+func TestStateOf(t *testing.T) {
+	for _, tc := range []struct {
+		p    model.Provider
+		file string
+		want model.AgentState
+	}{
+		{model.ProviderGemini, "gemini-working.txt", model.StateWorking},
+		{model.ProviderGemini, "gemini-approval.txt", model.StatePendingApproval},
+		{model.ProviderGemini, "gemini-plan.txt", model.StatePlanReady},
+		{model.ProviderGemini, "gemini-question.txt", model.StateAwaitingInput},
+		{model.ProviderGemini, "gemini-idle.txt", ""},
+		{model.ProviderOpenCode, "opencode-working.txt", model.StateWorking},
+		{model.ProviderOpenCode, "opencode-permission.txt", model.StatePendingApproval},
+		{model.ProviderOpenCode, "opencode-plan.txt", model.StatePlanReady},
+		{model.ProviderOpenCode, "opencode-question.txt", model.StateAwaitingInput},
+		{model.ProviderOpenCode, "opencode-idle.txt", ""},
+		{model.ProviderAider, "aider-confirm.txt", model.StateAwaitingInput},
+		{model.ProviderAider, "aider-working.txt", model.StateWorking},
+		{model.ProviderAider, "aider-idle.txt", ""},
+		{model.ProviderClaude, "claude-spinner.txt", model.StateWorking},
+		{model.ProviderAmp, "claude-spinner.txt", ""}, // no rules: nothing is guessed
+	} {
+		if got := StateOf(tc.p, screenFixture(t, tc.file)); got != tc.want {
+			t.Errorf("%s %s: got %q, want %q", tc.p, tc.file, got, tc.want)
+		}
+	}
+}
+
+func TestScript(t *testing.T) {
+	for _, tc := range []struct {
+		argv []string
+		want model.Provider
+	}{
+		{[]string{"node", "/usr/bin/gemini"}, model.ProviderGemini},
+		{[]string{"/usr/bin/node", "--max-old-space-size=8192", "/usr/lib/node_modules/@google/gemini-cli/bundle/gemini.js", "--yolo"}, model.ProviderGemini},
+		{[]string{"node", "/home/u/.local/share/cursor-agent/versions/2026.10.01/index.js"}, model.ProviderCursor},
+		{[]string{"bun", "/home/u/.bun/bin/opencode"}, model.ProviderOpenCode},
+		{[]string{"deno", "run", "-A", "/home/u/bin/amp.ts"}, model.ProviderAmp},
+		{[]string{"python3", "/home/u/.local/bin/aider", "--model", "x"}, model.ProviderAider},
+		{[]string{"python3", "-m", "aider"}, model.ProviderAider},
+		{[]string{"claude"}, model.ProviderClaude},             // a process title
+		{[]string{"node", "server.js", "/usr/bin/gemini"}, ""}, // only the script counts
+		{[]string{"python3", "-c", "print(1)"}, ""},
+		{nil, ""},
+	} {
+		if got := Script(tc.argv); got != tc.want {
+			t.Errorf("Script(%q) = %q, want %q", tc.argv, got, tc.want)
 		}
 	}
 }

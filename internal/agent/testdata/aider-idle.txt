@@ -1,0 +1,5 @@
+Applied edit to main.go
+Commit 1a2b3c4 feat: Add --verbose flag
+────────────────────────────────────────────────────────────────────────────────
+main.go
+>

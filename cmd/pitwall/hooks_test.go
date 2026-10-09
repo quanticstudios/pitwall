@@ -534,6 +534,54 @@ func TestHooksGeminiAndOpenCode(t *testing.T) {
 	}
 }
 
+// Cursor's hooks.json lists commands per event: install keeps the user's
+// own hooks and version, uninstall leaves the file as it was.
+func TestHooksCursor(t *testing.T) {
+	home := hooksHome(t)
+	path := filepath.Join(home, ".cursor", "hooks.json")
+	original := `{"version":1,"hooks":{"afterFileEdit":[{"command":"./hooks/format.sh"}],"beforeShellExecution":[{"command":"./hooks/guard.sh"}]}}`
+	writeHooksTestFile(t, path, original)
+	var out bytes.Buffer
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Version int `json:"version"`
+		Hooks   map[string][]struct {
+			Command string `json:"command"`
+			Timeout int    `json:"timeout"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(readHooksTestFile(t, path), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	edit := cfg.Hooks["afterFileEdit"]
+	if cfg.Version != 1 || len(cfg.Hooks) != 10 || len(edit) != 2 || edit[0].Command != "./hooks/format.sh" ||
+		edit[1].Command != "'/opt/pitwall/bin/pitwall' hook cursor" || edit[1].Timeout != 5 || len(cfg.Hooks["beforeShellExecution"]) != 1 {
+		t.Fatalf("hooks.json: %s", readHooksTestFile(t, path))
+	}
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil || !strings.Contains(out.String(), path+": unchanged") {
+		t.Fatalf("second install: %v %s", err, out.String())
+	}
+	if err := runHooks([]string{"uninstall"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	equalHookJSON(t, readHooksTestFile(t, path), []byte(original))
+
+	// A new file gets the version Cursor requires.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Version = 0
+	if err := json.Unmarshal(readHooksTestFile(t, path), &cfg); err != nil || cfg.Version != 1 {
+		t.Fatalf("new hooks.json: %v %s", err, readHooksTestFile(t, path))
+	}
+}
+
 func TestHomebrewOpt(t *testing.T) {
 	for bin, want := range map[string]string{
 		"/opt/homebrew/Cellar/pitwall/0.1.0-alpha.24/bin/pitwall":              "/opt/homebrew/opt/pitwall/bin/pitwall",

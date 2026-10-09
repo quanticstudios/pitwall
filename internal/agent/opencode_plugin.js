@@ -24,6 +24,7 @@ export const PitwallPlugin = async () => {
 	const last = new Map(); // session: the text of its latest reply
 	const status = new Map(); // session: "busy" or "idle"
 	const ended = new Set(); // sessions whose run failed or was aborted: their idle is no completion
+	const plans = new Set(); // call ids of plan_exit, whose question asks to approve the plan
 
 	function run(payload) {
 		return new Promise((resolve) => {
@@ -103,7 +104,9 @@ export const PitwallPlugin = async () => {
 		},
 		"tool.execute.before": async (input) => {
 			try {
-				if (main(input?.sessionID)) send("PreToolUse", input.sessionID, { tool_name: String(input.tool ?? "") });
+				if (!main(input?.sessionID)) return;
+				if (input.tool === "plan_exit" && input.callID) plans.add(input.callID);
+				send("PreToolUse", input.sessionID, { tool_name: String(input.tool ?? "") });
 			} catch {}
 		},
 		event: async ({ event }) => {
@@ -144,6 +147,11 @@ export const PitwallPlugin = async () => {
 						send("Notification", session, { notification_type: "permission_prompt", message: String(p.permission ?? "") });
 						return;
 					case "question.asked":
+						// why: plan_exit asks whether to switch to the build agent; pitwall shows that as a plan to approve.
+						if (plans.delete(p.tool?.callID)) {
+							send("PreToolUse", session, { tool_name: "ExitPlanMode" });
+							return;
+						}
 						send("Notification", session, { notification_type: "elicitation_dialog", message: String(p.questions?.[0]?.question || "question") });
 						return;
 					case "permission.replied":

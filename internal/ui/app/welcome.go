@@ -14,6 +14,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -30,6 +31,9 @@ var welcomeAgents = []struct{ cmd, name, url string }{
 	{"gemini", "Gemini CLI", "https://github.com/google-gemini/gemini-cli"},
 	{"opencode", "OpenCode", "https://github.com/sst/opencode"},
 	{"pi", "pi", "https://github.com/badlogic/pi-mono"},
+	{"cursor-agent", "Cursor CLI", "https://cursor.com/cli"},
+	{"amp", "Amp", "https://ampcode.com"},
+	{"aider", "Aider", "https://aider.chat"},
 }
 
 // welcome is the first-run card: the agents on PATH with their hook
@@ -50,6 +54,7 @@ type welcome struct {
 type foundAgent struct {
 	cmd, name string
 	hooks     bool // every hook pitwall installs is in its config
+	hookless  bool // the agent has no hooks: pitwall reads its screen
 }
 
 // NoteFirstRun marks a first run, one with no daemon state, config or
@@ -93,7 +98,11 @@ func findAgents(home string) []foundAgent {
 	var out []foundAgent
 	for _, a := range welcomeAgents {
 		if _, err := exec.LookPath(a.cmd); err == nil {
-			out = append(out, foundAgent{cmd: a.cmd, name: a.name, hooks: hooked[a.cmd]})
+			p := model.ProviderCursor
+			if a.cmd != agent.Command(p) {
+				p = model.Provider(a.cmd)
+			}
+			out = append(out, foundAgent{cmd: a.cmd, name: a.name, hooks: hooked[a.cmd], hookless: !agent.HooksFor(p)})
 		}
 	}
 	return out
@@ -163,7 +172,7 @@ func (u *ui) welcomeBody(gtx gl.Context) gl.Dimensions {
 	}
 	missing := false
 	for i, a := range w.agents {
-		missing = missing || !a.hooks
+		missing = missing || !a.hooks && !a.hookless
 		if i > 0 {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout))
 		}
@@ -214,8 +223,11 @@ func (u *ui) welcomeAgent(gtx gl.Context, a foundAgent, start *widget.Clickable)
 	h := gtx.Dp(30)
 	name, ns := textCall(gtx, th, medium(th.UIFont), 14, th.Fg, a.name)
 	status, dot := "No hooks", th.Yellow
-	if a.hooks {
+	switch {
+	case a.hooks:
 		status, dot = "Hooks installed", th.Green
+	case a.hookless:
+		status, dot = "Read from its screen", th.Muted
 	}
 	sc, ss := textCall(gtx, th, th.UIFont, 12, th.Muted, status)
 	o := op.Offset(image.Pt(0, (h-ns.Y)/2)).Push(gtx.Ops)

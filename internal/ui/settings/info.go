@@ -39,6 +39,9 @@ func hookStatus(home string) []hookFile {
 	if dir := agent.GeminiDir(home); installed("gemini", dir) {
 		out = append(out, checkHooks("Gemini CLI", filepath.Join(dir, "settings.json"), agent.GeminiHooks("pitwall"), " hook gemini"))
 	}
+	if dir := agent.CursorDir(home); installed("cursor-agent", dir) {
+		out = append(out, checkCursorHooks(filepath.Join(dir, "hooks.json")))
+	}
 	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
 		out = append(out, checkPlugin("OpenCode", "opencode", filepath.Join(dir, "plugins", "pitwall.js"), agent.IsOpenCodePlugin))
 	}
@@ -82,11 +85,15 @@ func checkPlugin(name, cmd, path string, is func([]byte) bool) hookFile {
 	return h
 }
 
-type hookGroups map[string][]struct {
-	Hooks []struct {
-		Command string `json:"command"`
-	} `json:"hooks"`
+type command struct {
+	Command string `json:"command"`
 }
+
+type hookCommands struct {
+	Hooks []command `json:"hooks"`
+}
+
+type hookGroups map[string][]hookCommands
 
 // checkHooks counts the events in generated whose hooks in path include a
 // command that runs a pitwall binary with suffix, wherever it lives.
@@ -95,35 +102,65 @@ func checkHooks(name, path string, generated []byte, suffix string) hookFile {
 	var want hookGroups
 	json.Unmarshal(generated, &want)
 	h.Want = len(want)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			h.Err = err.Error()
-		}
-		return h
-	}
 	var root struct {
 		Hooks hookGroups `json:"hooks"`
 	}
-	if err := json.Unmarshal(data, &root); err != nil {
-		h.Err = "not valid JSON: " + err.Error()
+	if !readHooks(&h, &root) {
 		return h
 	}
 	for ev := range want {
-		found := false
-		for _, g := range root.Hooks[ev] {
-			for _, c := range g.Hooks {
-				cmd := strings.Trim(strings.TrimSuffix(c.Command, suffix), `'"`)
-				if strings.HasSuffix(c.Command, suffix) && filepath.Base(cmd) == "pitwall" {
-					found = true
-				}
-			}
-		}
-		if found {
+		if slices.ContainsFunc(root.Hooks[ev], func(g hookCommands) bool { return runsPitwall(g.Hooks, suffix) }) {
 			h.Have++
 		}
 	}
 	return h
+}
+
+// checkCursorHooks is checkHooks for Cursor's hooks.json, which lists
+// commands per event rather than matcher groups.
+func checkCursorHooks(path string) hookFile {
+	h := hookFile{Agent: "Cursor CLI", Cmd: "cursor-agent", Path: path}
+	var want map[string]json.RawMessage
+	json.Unmarshal(agent.CursorHooks("pitwall"), &want)
+	h.Want = len(want)
+	var root struct {
+		Hooks map[string][]command `json:"hooks"`
+	}
+	if !readHooks(&h, &root) {
+		return h
+	}
+	for ev := range want {
+		if runsPitwall(root.Hooks[ev], " hook cursor") {
+			h.Have++
+		}
+	}
+	return h
+}
+
+// readHooks decodes h's config into root, and reports false, with h.Err
+// set unless the file is missing, when it cannot.
+func readHooks(h *hookFile, root any) bool {
+	data, err := os.ReadFile(h.Path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			h.Err = err.Error()
+		}
+		return false
+	}
+	if err := json.Unmarshal(data, root); err != nil {
+		h.Err = "not valid JSON: " + err.Error()
+		return false
+	}
+	return true
+}
+
+// runsPitwall reports whether one of cmds runs a pitwall binary with
+// suffix, wherever it lives.
+func runsPitwall(cmds []command, suffix string) bool {
+	return slices.ContainsFunc(cmds, func(c command) bool {
+		cmd := strings.Trim(strings.TrimSuffix(c.Command, suffix), `'"`)
+		return strings.HasSuffix(c.Command, suffix) && filepath.Base(cmd) == "pitwall"
+	})
 }
 
 // version is pitwall's version: the -X main.version scripts/install.sh

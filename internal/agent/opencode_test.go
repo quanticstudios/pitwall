@@ -66,7 +66,7 @@ func TestOpenCodePlugin(t *testing.T) {
 	if err := os.WriteFile(plugin, OpenCodePlugin(fake), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	const want = 10
+	const want = 13
 	harness := filepath.Join(dir, "harness.mjs")
 	if err := os.WriteFile(harness, []byte(`import fs from "node:fs";
 const { PitwallPlugin } = await import(process.argv[2]);
@@ -79,6 +79,9 @@ await h["tool.execute.before"]({ tool: "read", sessionID: "s2", callID: "c2" }, 
 await ev("session.idle", { sessionID: "s2" });
 await ev("permission.asked", { id: "p1", sessionID: "s1", permission: "bash", patterns: [] });
 await ev("permission.replied", { sessionID: "s1", requestID: "p1", reply: "once" });
+await h["tool.execute.before"]({ tool: "plan_exit", sessionID: "s1", callID: "c3" }, { args: {} });
+await ev("question.asked", { id: "q1", sessionID: "s1", questions: [{ header: "Build Agent", question: "Plan at p.md is complete." }], tool: { messageID: "m0", callID: "c3" } });
+await ev("question.replied", { sessionID: "s1", requestID: "q1" });
 await ev("message.updated", { sessionID: "s1", info: { id: "u1", role: "user" } });
 await ev("message.part.updated", { sessionID: "s1", part: { type: "text", sessionID: "s1", messageID: "u1", text: "fix it" } });
 await ev("message.updated", { sessionID: "s1", info: { id: "m1", role: "assistant" } });
@@ -101,7 +104,7 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(node, harness, plugin, "10")
+	cmd := exec.Command(node, harness, plugin, "13")
 	cmd.Env = append(os.Environ(), "PITWALL_PANE=p1", "OUT="+out)
 	cmd.WaitDelay = 15 * time.Second
 	if b, err := cmd.CombinedOutput(); err != nil {
@@ -136,7 +139,8 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 		}
 		got = append(got, ev)
 	}
-	wantEvents := []string{"SessionStart", "UserPromptSubmit:fix it", "PreToolUse:bash", "Notification:permission_prompt", "PostToolUse", "Stop",
+	wantEvents := []string{"SessionStart", "UserPromptSubmit:fix it", "PreToolUse:bash", "Notification:permission_prompt", "PostToolUse",
+		"PreToolUse:plan_exit", "PreToolUse:ExitPlanMode", "PostToolUse", "Stop",
 		"UserPromptSubmit:", "Interrupt", "UserPromptSubmit:", "StopFailure"}
 	if len(wantEvents) != want || strings.Join(got, " ") != strings.Join(wantEvents, " ") {
 		t.Fatalf("events\n got %v\nwant %v", got, wantEvents)
@@ -145,7 +149,7 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 		t.Errorf("Stop %v, StopFailure %v", stop, failure)
 	}
 	// Derive reads them as Claude's hooks.
-	if next, ok := Derive(nil, model.ProviderOpenCode, []byte(strings.Split(string(b), "\n")[5]), time.Now()); !ok || next.State != model.StateCompleted || next.Detail != "All done." {
+	if next, ok := Derive(nil, model.ProviderOpenCode, []byte(strings.Split(string(b), "\n")[8]), time.Now()); !ok || next.State != model.StateCompleted || next.Detail != "All done." {
 		t.Errorf("Derive(Stop) = %+v, %v", next, ok)
 	}
 }

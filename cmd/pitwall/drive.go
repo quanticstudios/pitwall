@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -102,10 +103,7 @@ func agentOf(p model.Pane) string {
 		return string(p.Provider)
 	}
 	if len(p.Cmd) > 0 {
-		switch b := model.Provider(strings.TrimSuffix(filepath.Base(p.Cmd[0]), ".exe")); b {
-		case model.ProviderClaude, model.ProviderCodex, model.ProviderPi:
-			return string(b)
-		}
+		return string(agent.Identify(strings.TrimSuffix(filepath.Base(p.Cmd[0]), ".exe"), ""))
 	}
 	return ""
 }

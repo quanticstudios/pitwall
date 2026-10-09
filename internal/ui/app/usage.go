@@ -34,7 +34,7 @@ func (w *usageWatch) of(st *model.State, ws string, invalidate func()) *flow.Usa
 	}
 	var sum *flow.Usage
 	for _, p := range st.Panes {
-		if p.WorkspaceID != ws || p.Provider == "" || p.Transcript == "" {
+		if p.WorkspaceID != ws || !flow.Reads(p.Provider) || p.Transcript == "" {
 			continue
 		}
 		key := string(p.Provider) + "\x00" + p.Transcript

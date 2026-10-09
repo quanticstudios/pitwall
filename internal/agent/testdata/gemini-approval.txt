@@ -1,0 +1,12 @@
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Action Required                                                       1 of 1 │
+│                                                                              │
+│ ?  Shell  rm -rf build                                                       │
+│                                                                              │
+│ Allow execution of: 'rm'?                                                    │
+│                                                                              │
+│ ● 1. Allow once                                                              │
+│   2. Allow for this session                                                  │
+│   3. No, suggest changes (esc)                                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ⠏ Waiting for user confirmation... (esc to cancel, 12s)

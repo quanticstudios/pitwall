@@ -1,0 +1,6 @@
+  Thinking...
+
+  ┃
+  ┃  Build  claude-opus-5-5 Anthropic
+  ┃
+   ⬝⬝⬝■■■■  esc interrupt                                     ctrl+p commands

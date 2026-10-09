@@ -104,8 +104,19 @@ const (
 	ProviderPi       Provider = "pi"
 	ProviderGemini   Provider = "gemini"
 	ProviderOpenCode Provider = "opencode"
+	ProviderCursor   Provider = "cursor"
+	ProviderAmp      Provider = "amp"
+	ProviderAider    Provider = "aider"
 	ProviderTerminal Provider = "terminal"
 )
+
+// Agents are the coding agents pitwall recognizes, in the order lists of
+// them show.
+var Agents = []Provider{ProviderClaude, ProviderCodex, ProviderPi, ProviderGemini, ProviderOpenCode, ProviderCursor, ProviderAmp, ProviderAider}
+
+// IsAgent reports whether p is one of Agents: not a terminal command, and
+// not a program only a decision model reads.
+func IsAgent(p Provider) bool { return slices.Contains(Agents, p) }
 
 type Pane struct {
 	ID          string
@@ -459,7 +470,7 @@ type SessionSummary struct {
 	// question, an approval or an error, and finished turns and plans the
 	// user has not seen; Unseen counts the panes with Activity.Unseen.
 	Working, NeedsYou, Unseen int
-	Agents                    []Provider // the agents running in it, Claude before Codex
+	Agents                    []Provider // the agents running in it, in model.Agents order
 	Active                    time.Time  // the newest tab's UpdatedAt
 }
 
@@ -483,7 +494,7 @@ func (s *State) Summary(session string) SessionSummary {
 	}
 	agents := map[Provider]bool{}
 	for _, p := range s.Panes {
-		if in[p.WorkspaceID] && (p.Provider == ProviderClaude || p.Provider == ProviderCodex || p.Provider == ProviderPi) {
+		if in[p.WorkspaceID] && IsAgent(p.Provider) {
 			agents[p.Provider] = true
 		}
 	}
@@ -491,7 +502,7 @@ func (s *State) Summary(session string) SessionSummary {
 		if !in[a.WorkspaceID] {
 			continue
 		}
-		agent := a.Provider == ProviderClaude || a.Provider == ProviderCodex || a.Provider == ProviderPi
+		agent := IsAgent(a.Provider)
 		if agent {
 			agents[a.Provider] = true
 		}
@@ -505,7 +516,7 @@ func (s *State) Summary(session string) SessionSummary {
 			out.Unseen++
 		}
 	}
-	for _, p := range []Provider{ProviderClaude, ProviderCodex, ProviderPi} {
+	for _, p := range Agents {
 		if agents[p] {
 			out.Agents = append(out.Agents, p)
 		}
