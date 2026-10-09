@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -14,8 +15,16 @@ import (
 )
 
 type sys struct {
-	tty  *conpty.ConPty
+	tty *conpty.ConPty
+	h   *handles
+}
+
+// handles are the process and a job holding it and its descendants, so Close
+// can end every process attached to the console, not only the first.
+type handles struct {
+	mu   sync.Mutex // drain closes the handles while Close may be killing
 	proc windows.Handle
+	job  windows.Handle // 0 when the job could not be made, or once closed
 }
 
 func spawn(c Config, argv, env []string) (sys, error) {
@@ -35,13 +44,21 @@ func spawn(c Config, argv, env []string) (sys, error) {
 		tty.Close()
 		return sys{}, fmt.Errorf("start %s: %w", argv[0], err)
 	}
-	return sys{tty, windows.Handle(h)}, nil
+	// ponytail: the process runs before it joins the job, so a child it
+	// starts in that window escapes kill; CREATE_SUSPENDED would close the
+	// window, but conpty.Spawn closes the thread handle that would resume it.
+	job, err := windows.CreateJobObject(nil, nil)
+	if err == nil && windows.AssignProcessToJobObject(job, windows.Handle(h)) != nil {
+		windows.CloseHandle(job)
+		job = 0
+	}
+	return sys{tty, &handles{proc: windows.Handle(h), job: job}}, nil
 }
 
 func (p *Pane) reap() int {
-	windows.WaitForSingleObject(p.proc, windows.INFINITE)
+	windows.WaitForSingleObject(p.h.proc, windows.INFINITE)
 	var code uint32
-	if windows.GetExitCodeProcess(p.proc, &code) != nil {
+	if windows.GetExitCodeProcess(p.h.proc, &code) != nil {
 		return -1
 	}
 	return int(code)
@@ -52,7 +69,25 @@ func (p *Pane) reap() int {
 // attached to it end with it.
 func (p *Pane) drain() {
 	p.tty.Close()
-	windows.CloseHandle(p.proc)
+	p.h.mu.Lock()
+	defer p.h.mu.Unlock()
+	windows.CloseHandle(p.h.proc)
+	if p.h.job != 0 {
+		windows.CloseHandle(p.h.job)
+	}
+	p.h.proc, p.h.job = 0, 0
+}
+
+// kill terminates the process and every descendant in its job.
+func (p *Pane) kill() {
+	p.h.mu.Lock()
+	defer p.h.mu.Unlock()
+	if p.h.job != 0 {
+		windows.TerminateJobObject(p.h.job, 1)
+	}
+	if p.h.proc != 0 {
+		windows.TerminateProcess(p.h.proc, 1)
+	}
 }
 
 func (p *Pane) setSize(cols, rows int) error { return p.tty.Resize(cols, rows) }
@@ -107,19 +142,18 @@ func reportCwd(argv, env []string) ([]string, []string) {
 func (p *Pane) foreground() int { return 0 }
 
 // Close closes the pseudoconsole, which ends its processes, and terminates the
-// process if it is still running 2s later.
+// process and its descendants if the pane is not done 2s later.
 func (p *Pane) Close() error {
 	p.closeOnce.Do(func() {
+		// why: closing the pseudoconsole, and closing its input pipe while a
+		// write is stuck in it, wait for conhost, which waits for every
+		// attached process to handle its close event or time out. The kill
+		// must not wait behind that.
+		go p.tty.Close()
 		select {
-		case <-p.exited:
-			return
-		default:
-		}
-		p.tty.Close()
-		select {
-		case <-p.exited:
+		case <-p.done:
 		case <-time.After(2 * time.Second):
-			windows.TerminateProcess(p.proc, 1)
+			p.kill()
 		}
 	})
 	<-p.done

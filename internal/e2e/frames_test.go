@@ -1,7 +1,9 @@
 package e2e_test
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -55,9 +57,11 @@ func (w *window) apply(t *testing.T, msg any, pane string, not []string) bool {
 // until applies frames of pane until its screen contains text.
 func (w *window) until(t *testing.T, pane, text string, not ...string) {
 	t.Helper()
-	w.waitFor(t, timeout, func(msg any) bool {
+	if !w.waitUntil(timeout, func(msg any) bool {
 		return w.apply(t, msg, pane, not) && strings.Contains(gridText(w.frames[pane].Grid), text)
-	})
+	}) {
+		t.Fatalf("no %q within %s; screen:\n%s", text, timeout, gridText(w.frames[pane].Grid))
+	}
 }
 
 // sessionPane is the first pane of the first tab of the session named name.
@@ -76,8 +80,22 @@ func sessionPane(s model.State, name string) string {
 
 // echoer prints "<name> ready", then "<name> got <line>" for each line it
 // reads, and is idle in between: a pane changes only when the test types.
+// It is this test binary (see TestMain), not a sh loop: on Windows MSYS
+// ends a waiting read when the console resizes, so the loop would exit.
 func echoer(name string) []string {
-	return []string{"sh", "-c", fmt.Sprintf(`echo %s ready; while read l; do echo %s got $l; done`, name, name)}
+	exe, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	return []string{exe, "echoer", name}
+}
+
+// runEchoer is echoer's program.
+func runEchoer(name string) {
+	fmt.Println(name, "ready")
+	for in := bufio.NewScanner(os.Stdin); in.Scan(); {
+		fmt.Println(name, "got", in.Text())
+	}
 }
 
 // TestTabSwitch shows one tab, then switches to another whose program
@@ -184,21 +202,26 @@ func TestSearchAndCopyPastScreen(t *testing.T) {
 }
 
 // TestResizeWholeFrame: a resize brings a shown pane a whole frame at the
-// new size, and the rows after it fit that size (apply checks).
+// new size, and the rows after it fit that size (apply checks), and the
+// program still reads what is typed after the resize.
 func TestResizeWholeFrame(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
 	w := openWindow(t, "e2e")
 	s := waitState(t, w.client, func(s model.State) bool { return sessionPane(s, "e2e") != "" })
-	p := sessionPane(s, "e2e")
+	cmd := echoer("rs")
+	w.send(t, proto.NewSession{SessionID: s.SessionNamed("e2e").ID, Cmd: cmd})
+	s = waitState(t, w.client, func(s model.State) bool { return len(s.Panes) == 2 })
+	p := s.Panes[slices.IndexFunc(s.Panes, func(p model.Pane) bool { return slices.Equal(p.Cmd, cmd) })].ID
 	w.send(t, proto.View{Panes: []string{p}})
-	w.send(t, proto.Input{Pane: p, Data: []byte("echo before\r")})
-	w.until(t, p, "\nbefore\n")
+	w.until(t, p, "rs ready")
+	w.send(t, proto.Input{Pane: p, Data: []byte("before\r")})
+	w.until(t, p, "rs got before")
 	w.send(t, proto.Resize{Pane: p, Cols: 100, Rows: 30})
 	w.waitFor(t, timeout, func(msg any) bool {
 		f, ok := msg.(proto.Frame)
 		return w.apply(t, msg, p, nil) && ok && f.Grid.Cols == 100 && f.Grid.Rows == 30
 	})
-	w.send(t, proto.Input{Pane: p, Data: []byte("echo after\r")})
-	w.until(t, p, "\nafter\n")
+	w.send(t, proto.Input{Pane: p, Data: []byte("after\r")})
+	w.until(t, p, "rs got after")
 }

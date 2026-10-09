@@ -356,8 +356,10 @@ func TestReplyFloodIsCapped(t *testing.T) {
 	const queries = 1 << 17
 	_, _ = e.Write([]byte(strings.Repeat("\x1b[c", queries)))
 	total := uint64(queries * len("\x1b[?62;1;6;22c"))
-	// Kept: the one read the stuck writer took, plus at most replyCap pending.
-	for deadline := time.Now().Add(2 * time.Second); total-e.st.dropped.Load() > replyCap+4096; time.Sleep(time.Millisecond) {
+	// Kept: the batch the stuck writer took, which is whatever was pending
+	// when its goroutine first ran and so at most replyCap, plus at most
+	// replyCap pending behind it.
+	for deadline := time.Now().Add(2 * time.Second); total-e.st.dropped.Load() > 2*replyCap; time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("kept %d of %d reply bytes, cap %d", total-e.st.dropped.Load(), total, replyCap)
 		}
