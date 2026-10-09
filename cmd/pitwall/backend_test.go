@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -187,7 +186,7 @@ func TestFocusNeverBlocksState(t *testing.T) {
 // Version. A daemon of another Version ends the retries: an older one asks
 // to restart it, a newer one reopens the window.
 func TestBackendReconnects(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "d.sock")
+	path := sockPath(t, "d.sock")
 	t.Setenv("PITWALL_SOCKET", path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {

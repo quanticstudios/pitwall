@@ -43,6 +43,10 @@ func terminate(pid int) error {
 // console window.
 func hideConsole() {}
 
+// attachConsole is for Windows, where the release binary is a GUI program
+// that has no console of its own.
+func attachConsole(string) {}
+
 // startFailed reports a GUI start failure on the desktop.
 func startFailed(err error) {
 	if runtime.GOOS == "darwin" {

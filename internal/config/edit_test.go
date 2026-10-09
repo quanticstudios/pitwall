@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -91,7 +92,7 @@ func TestSetKeyDefaultFile(t *testing.T) {
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("config.toml is no longer a symlink")
 	}
-	if fi, _ := os.Stat(real); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(real); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
 	}
 	got, _ := os.ReadFile(real)

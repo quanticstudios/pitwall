@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -122,7 +123,7 @@ func TestPrepareWorktree(t *testing.T) {
 	if read(".env") != "SECRET=1" || read("apps/web/.env") != "WEB=1" || read("kept.env") != "MINE" {
 		t.Errorf("copied %q %q %q", read(".env"), read("apps/web/.env"), read("kept.env"))
 	}
-	if fi, err := os.Stat(filepath.Join(tree, ".env")); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(filepath.Join(tree, ".env")); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
 		t.Errorf("copied .env mode %v %v, want 0600", fi.Mode(), err)
 	}
 	for _, name := range []string{".env.local", "data", "missing"} {

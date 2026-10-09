@@ -3,6 +3,9 @@ package pane
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,6 +19,9 @@ type sys struct {
 }
 
 func spawn(c Config, argv, env []string) (sys, error) {
+	if len(c.Cmd) == 0 {
+		argv, env = reportCwd(argv, env)
+	}
 	name, err := exec.LookPath(argv[0])
 	if err != nil {
 		return sys{}, fmt.Errorf("start %s: %w", argv[0], err)
@@ -51,9 +57,50 @@ func (p *Pane) drain() {
 
 func (p *Pane) setSize(cols, rows int) error { return p.tty.Resize(cols, rows) }
 
-// Cwd is "" on Windows: another process's directory lives in its PEB, which
-// takes more than this is worth. Tabs keep the directory they opened in.
-func (p *Pane) Cwd() string { return "" }
+// Cwd is the folder the shell's prompt last reported with OSC 7 (see
+// reportCwd), "" before its first prompt or for a shell that reports none.
+// Another process's own directory lives in its PEB, which takes more than
+// this is worth.
+func (p *Pane) Cwd() string {
+	if c, ok := p.vt.(interface{ Cwd() string }); ok {
+		return c.Cwd()
+	}
+	return ""
+}
+
+// psPrompt wraps PowerShell's prompt function, after the profile set it,
+// to print OSC 7 with the folder before the prompt.
+const psPrompt = `$global:__pitwallPrompt = $function:prompt
+function global:prompt {
+	$p = & $global:__pitwallPrompt
+	$l = $executionContext.SessionState.Path.CurrentLocation
+	if ($l.Provider.Name -eq 'FileSystem') { "$([char]27)]7;$(([uri]$l.ProviderPath).AbsoluteUri)$([char]27)\" + $p } else { $p }
+}`
+
+// reportCwd has the shell a pane opens with print its folder at every
+// prompt: PowerShell through psPrompt, run with -NoExit after the profile,
+// cmd through PROMPT. Other shells, Git Bash among them, are left as they
+// are; they report a folder only if the user's prompt prints OSC 7.
+func reportCwd(argv, env []string) ([]string, []string) {
+	switch strings.ToLower(strings.TrimSuffix(filepath.Base(argv[0]), filepath.Ext(argv[0]))) {
+	case "pwsh", "powershell":
+		if len(argv) == 1 {
+			argv = append(argv, "-NoExit", "-Command", psPrompt)
+		}
+	case "cmd":
+		prompt := "$P$G" // cmd's default
+		env = slices.DeleteFunc(env, func(kv string) bool {
+			k, v, _ := strings.Cut(kv, "=")
+			if strings.EqualFold(k, "PROMPT") {
+				prompt = v
+				return true
+			}
+			return false
+		})
+		env = append(env, `PROMPT=$E]7;file://localhost/$P$E\`+prompt)
+	}
+	return argv, env
+}
 
 // foreground is 0 on Windows, which has no foreground process group: agent
 // status there comes from hooks only.

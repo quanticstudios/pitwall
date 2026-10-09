@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -83,7 +84,7 @@ func TestPairThenToken(t *testing.T) {
 			if strings.Contains(string(data), secret) || strings.Contains(string(data), code) {
 				t.Errorf("%s holds a secret", p)
 			}
-			if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
+			if fi, _ := os.Stat(p); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 				t.Errorf("%s mode %v", p, fi.Mode().Perm())
 			}
 		}
@@ -236,7 +237,7 @@ func TestCertAndURL(t *testing.T) {
 	if _, again, err := Cert(dir); err != nil || again != fp || len(fp) != 95 {
 		t.Fatalf("second load %q, %v; first %q", again, err, fp)
 	}
-	if fi, _ := os.Stat(filepath.Join(dir, "tls.pem")); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(filepath.Join(dir, "tls.pem")); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("tls.pem mode %v", fi.Mode().Perm())
 	}
 	for _, tc := range []struct {

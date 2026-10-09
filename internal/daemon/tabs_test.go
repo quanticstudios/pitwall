@@ -179,6 +179,10 @@ func TestTabTitle(t *testing.T) {
 	if user := loginName(); user != "" && !genericTitle(w, strings.ToUpper(user)) {
 		t.Errorf("login name %q is not generic", user)
 	}
+	// ConPTY's title before the program sets one.
+	if !genericTitle(w, `C:\Program Files\Git\usr\bin\sh.exe`) || genericTitle(w, "make test.exe") {
+		t.Error("a console's program path is not generic, or a title like one is")
+	}
 }
 
 func TestPromptTitle(t *testing.T) {
@@ -470,7 +474,7 @@ func TestGroupByFolder(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
 	other := t.TempDir()
 	o.RepoRoot = func(_ context.Context, path string) (string, bool) {
-		if path == repo || strings.HasPrefix(path, repo+"/") {
+		if path == repo || strings.HasPrefix(path, repo+string(filepath.Separator)) {
 			return repo, true
 		}
 		return path, false
@@ -527,13 +531,13 @@ func TestGroupByFolder(t *testing.T) {
 func TestProjectAt(t *testing.T) {
 	d := &Daemon{st: model.State{Projects: []model.Project{
 		{ID: "g", Kind: model.ProjectGroup},
-		{ID: "r", Root: "/src/repo"},
-		{ID: "n", Root: "/src/repo/nested"},
+		{ID: "r", Root: filepath.FromSlash("/src/repo")},
+		{ID: "n", Root: filepath.FromSlash("/src/repo/nested")},
 	}}}
 	for path, want := range map[string]string{
 		"/src/repo": "r", "/src/repo/a": "r", "/src/repo/nested/x": "n", "/src/repo2": "", "/src": "",
 	} {
-		if got := d.projectAt("", path); got != want {
+		if got := d.projectAt("", filepath.FromSlash(path)); got != want {
 			t.Errorf("projectAt(%s) = %q, want %q", path, got, want)
 		}
 	}

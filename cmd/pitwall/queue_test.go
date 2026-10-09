@@ -34,7 +34,7 @@ func TestCLIQueue(t *testing.T) {
 	})
 	t.Run("add", func(t *testing.T) {
 		bin := t.TempDir()
-		agent := filepath.Join(bin, "fake-agent")
+		agent := filepath.Join(bin, exeName("fake-agent"))
 		if err := os.WriteFile(agent, []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}

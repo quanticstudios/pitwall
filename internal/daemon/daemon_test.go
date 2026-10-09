@@ -224,7 +224,14 @@ func runWith(t *testing.T, f *fakes, edit func(*Options)) (string, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sock := filepath.Join(t.TempDir(), "d.sock")
+	// why: t.TempDir holds the subtest name, which can push the socket path
+	// past the 108 bytes sockaddr_un holds (Windows' %TEMP% is long).
+	dir, err := os.MkdirTemp("", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)

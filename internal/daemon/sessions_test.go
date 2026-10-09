@@ -40,6 +40,7 @@ func TestFirstSessionOnHello(t *testing.T) {
 func TestHelloCwdFallsBackToHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
 	defer stop()
 	st := dialIn(t, sock, "gui", filepath.Join(home, "missing")).waitState("first state", func(model.State) bool { return true })

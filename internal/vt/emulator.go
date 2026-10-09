@@ -61,6 +61,7 @@ type state struct {
 	dropped   atomic.Uint64 // reply bytes dropped at replyCap
 	bell      func()        // set by SetBellFunc
 	clip      func(string)  // set by SetClipboardFunc
+	cwd       string        // the local folder the last OSC 7 named
 }
 
 // New returns an Emulator backed by github.com/charmbracelet/x/vt.
@@ -172,6 +173,14 @@ func (t *emulator) SetClipboardFunc(f func(string)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.st.clip = f
+}
+
+// Cwd is the folder the shell last reported with OSC 7, "" before one or
+// when it named another host's. Panes find it through an interface check.
+func (t *emulator) Cwd() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.st.cwd
 }
 
 // Close stops the reply goroutines; the screen stays readable. Panes find it
@@ -495,8 +504,15 @@ func registerColorQueries(e *xvt.Emulator, st *state) {
 }
 
 // registerShell records OSC 133 shell integration marks on the cursor's
-// row and passes OSC 52 clipboard writes to st.clip.
+// row and OSC 7 folders, and passes OSC 52 clipboard writes to st.clip.
 func registerShell(e *xvt.Emulator, st *state) {
+	e.RegisterOscHandler(7, func(data []byte) bool {
+		_, uri, _ := strings.Cut(string(data), ";")
+		if dir, ok := parseCwd(uri); ok {
+			st.cwd = dir
+		}
+		return true
+	})
 	e.RegisterOscHandler(133, func(data []byte) bool {
 		_, args, _ := strings.Cut(string(data), ";")
 		mark, _, _ := strings.Cut(args, ";")

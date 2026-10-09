@@ -34,9 +34,24 @@ func commit(t *testing.T, dir string) {
 	runGit(t, dir, "-c", "user.name=Gitstat Test", "-c", "user.email=gitstat@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "Test change")
 }
 
-func repo(t *testing.T) string {
+// longTempDir is t.TempDir by the name git prints for it: on Windows the
+// long form of %TEMP%'s 8.3 short names (RUNNER~1).
+func longTempDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		long, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return long
+	}
+	return dir
+}
+
+func repo(t *testing.T) string {
+	t.Helper()
+	dir := longTempDir(t)
 	runGit(t, dir, "init", "--initial-branch=main")
 	writeFile(t, dir, "file.txt", "one\ntwo\nthree\n")
 	writeFile(t, dir, ".gitignore", ".worktrees/\n")
@@ -191,7 +206,11 @@ func TestWorktrees(t *testing.T) {
 func TestDetachedWorktreePath(t *testing.T) {
 	ctx := context.Background()
 	dir := repo(t)
-	path := filepath.Join(t.TempDir(), "with space\nwith newline")
+	name := "with space\nwith newline"
+	if runtime.GOOS == "windows" {
+		name = "with space" // Windows file names cannot hold a newline
+	}
+	path := filepath.Join(longTempDir(t), name)
 	runGit(t, dir, "worktree", "add", "--detach", path, "HEAD")
 	trees, err := ListWorktrees(ctx, dir)
 	if err != nil {
@@ -250,7 +269,15 @@ func TestRemoveKeepsUnmergedBranch(t *testing.T) {
 	}
 	writeFile(t, path, "unmerged.txt", "keep this commit\n")
 	commit(t, path)
-	if err := RemoveWorktree(ctx, dir, path, true, false); !errors.Is(err, ErrBranchKept) {
+	// Named another way than git names it, as a Windows 8.3 short name is.
+	other := path
+	if runtime.GOOS != "windows" {
+		other = filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(path, other); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := RemoveWorktree(ctx, dir, other, true, false); !errors.Is(err, ErrBranchKept) {
 		t.Fatalf("got %v, want ErrBranchKept", err)
 	}
 	runGit(t, dir, "show-ref", "--verify", "refs/heads/"+branch)

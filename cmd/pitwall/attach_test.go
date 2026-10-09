@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -88,7 +87,7 @@ func TestGUITarget(t *testing.T) {
 
 func TestBackendFocus(t *testing.T) {
 	t.Setenv("PITWALL_ATTACH", "startup")
-	path := filepath.Join(t.TempDir(), "gui.sock")
+	path := sockPath(t, "gui.sock")
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)

@@ -5,16 +5,16 @@ The install commands and the platform table are in the
 
 The script downloads the latest release for your system, checks it against
 the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
-Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin` and adds that
-folder to your user PATH. To pin a release, set `PITWALL_VERSION=v0.1.0-beta.1`; to
+Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin`, adds that
+folder to your user PATH, and adds pitwall to the Start menu. To pin a release, set `PITWALL_VERSION=v0.1.0-beta.1`; to
 install somewhere else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them
 first with `$env:PITWALL_VERSION = 'v0.1.0-beta.1'`.
 
 ## Platform notes
 
-The macOS and Windows builds compile and pass the platform-independent tests
-in CI, but nobody has used them yet. Expect rough edges, and please report
-what breaks.
+The macOS build compiles and passes the platform-independent tests in CI;
+the Windows build passes the whole test suite there. Nobody has used either
+much yet. Expect rough edges, and please report what breaks.
 
 Known gaps on macOS:
 
@@ -34,9 +34,21 @@ Known gaps on Windows:
 - Agent status comes from hooks only. Windows has no foreground process group
   to read, so an agent started without hooks, or a command running in a
   shell, shows nothing in the sidebar.
-- A tab's folder does not follow `cd`. It stays the folder the tab opened in.
-- There is no Start menu entry. Run `pitwall` from a terminal; started from
-  Explorer, a console window flashes before the window opens.
+- A tab's folder follows `cd` in PowerShell and cmd, whose prompt pitwall
+  sets up to report it (OSC 7). Git Bash, WSL and other shells report
+  nothing unless your own prompt prints OSC 7, so their tabs keep the folder
+  they opened in.
+- `pitwall.exe` is a GUI program, so the Start menu entry (from `get.ps1` or
+  Scoop) opens a window with no console behind it. Run from cmd or
+  PowerShell, a command such as `pitwall ls` prints to that terminal, but
+  the prompt comes back before it finishes, and `pitwall kill`'s question
+  races the shell for what you type. Pipe the output (`pitwall ls |
+  Out-Host`) to wait for it, and pass `-f` to kill without the question.
+  Git Bash waits as usual.
+- Notifications are Windows PowerShell toasts, so Windows lists them under
+  Windows PowerShell. pitwall starts that PowerShell when the window opens,
+  and the first toast waits for it, up to about ten seconds. A later toast
+  for the same tab replaces the one before it.
 - Claude Code runs hook commands through Git Bash. Other shells get a path
   with forward slashes, quoted only when it contains spaces.
 - When an upgrade replaces a running daemon, the old daemon is stopped without
@@ -48,7 +60,7 @@ holds them as `pitwall.desktop` and `pitwall.svg` next to the binary, and
 
 ## Updates
 
-On Linux and macOS, a release build checks GitHub for a newer release when a
+A release build checks GitHub for a newer release when a
 window opens, every hour after, and when the window regains focus half an hour
 or more after the last check. When there is one, an Update button
 shows at the bottom of the sidebar. It downloads the release's archive for
@@ -58,19 +70,23 @@ the download or the checksum fails, nothing is installed, the button reads
 "Update failed", and a click tries again. After an install, "Restart to
 finish" opens a new window on the same tab and closes this one.
 
+Windows will not replace a running program, so there the update renames
+`pitwall.exe` to `pitwall.exe.old` and puts the new one in its place. The
+next window deletes `pitwall.exe.old` once nothing runs it; while the daemon
+still does, the next update uses `pitwall.exe.old1`, and so on.
+
 The update leaves the daemon running, so tabs keep their processes. Most
 releases work with the daemon already running; when one cannot, the new
 window asks before restarting it, as after any upgrade (see
 [Upgrades](state.md#upgrades)).
 
 A build from source (`git describe` past a tag, or `-dirty`) never checks.
-Windows has no button; run the install command again to update. To stop the
-check, set `check = false` under `[updates]` in config.toml or use the switch
+To stop the check, set `check = false` under `[updates]` in config.toml or use the switch
 under About in the settings page.
 
-A Homebrew or distro package install has no button: pitwall sees that the
-package manager owns its binary, so update it with `brew upgrade` or the
-distro's package manager.
+A Homebrew, Scoop or distro package install has no button: pitwall sees that
+the package manager owns its binary, so update it with `brew upgrade`,
+`scoop update pitwall` or the distro's package manager.
 
 ## Build from source
 

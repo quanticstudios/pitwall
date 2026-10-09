@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
 
 type Worktree struct {
@@ -29,7 +30,7 @@ type Worktree struct {
 // RepoRoot returns the top-level of the repo containing path.
 func RepoRoot(ctx context.Context, path string) (string, bool) {
 	out, err := git(ctx, path, "rev-parse", "--show-toplevel")
-	return strings.TrimSuffix(out, "\n"), err == nil
+	return gitPath(strings.TrimSuffix(out, "\n")), err == nil
 }
 
 // Stats counts the lines changed from the merge base with the default
@@ -80,6 +81,10 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 	return stats, nil
 }
 
+// gitPath is a path git printed in this OS's form: Git for Windows prints
+// C:/x for C:\x.
+func gitPath(p string) string { return filepath.FromSlash(p) }
+
 func ListWorktrees(ctx context.Context, repoRoot string) ([]Worktree, error) {
 	out, err := git(ctx, repoRoot, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
@@ -90,7 +95,7 @@ func ListWorktrees(ctx context.Context, repoRoot string) ([]Worktree, error) {
 	for _, field := range strings.Split(out, "\x00") {
 		switch {
 		case strings.HasPrefix(field, "worktree "):
-			tree.Path = strings.TrimPrefix(field, "worktree ")
+			tree.Path = gitPath(strings.TrimPrefix(field, "worktree "))
 		case strings.HasPrefix(field, "HEAD "):
 			tree.Head = strings.TrimPrefix(field, "HEAD ")
 		case strings.HasPrefix(field, "branch "):
@@ -346,8 +351,10 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch, fo
 		if err != nil {
 			return err
 		}
+		at, _ := os.Stat(path)
 		for _, tree := range trees {
-			if filepath.Clean(tree.Path) == path {
+			// why: Git names a folder by its long name, path may hold an 8.3 short one.
+			if fi, err := os.Stat(tree.Path); err == nil && at != nil && os.SameFile(fi, at) {
 				branch = tree.Branch
 				break
 			}
@@ -419,6 +426,7 @@ func defaultRef(ctx context.Context, dir string) (string, error) {
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	nowindow.Set(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() != nil {

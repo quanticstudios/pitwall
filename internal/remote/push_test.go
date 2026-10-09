@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -126,7 +127,7 @@ func TestVAPIDJWT(t *testing.T) {
 	if again, err := VAPIDKey(dir); err != nil || !again.Equal(k) {
 		t.Fatalf("second load %v", err)
 	}
-	if fi, _ := os.Stat(filepath.Join(dir, "vapid.pem")); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(filepath.Join(dir, "vapid.pem")); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("vapid.pem mode %v", fi.Mode().Perm())
 	}
 	if pub := mustB64(t, VAPIDPublic(k)); len(pub) != 65 || pub[0] != 4 {

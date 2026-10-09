@@ -12,9 +12,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
+// gitRepo is a repo in a temp folder, by the name git prints for it: on
+// Windows the long form of %TEMP%'s 8.3 short names, on macOS /private/var.
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, args := range [][]string{{"init", "--initial-branch=main"}, {"commit", "--allow-empty", "-m", "init"}, {"branch", "side"}} {
 		args = append([]string{"-C", dir, "-c", "user.name=CLI Test", "-c", "user.email=cli@example.invalid", "-c", "commit.gpgsign=false"}, args...)
 		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {

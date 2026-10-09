@@ -141,10 +141,11 @@ func TestCompletePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	for in, want := range map[string]string{
-		dir + "/a":   dir + "/alp",   // common prefix of alpha and alps; files skipped
-		dir + "/b":   dir + "/beta/", // single match completes with a slash
-		dir + "/.h":  dir + "/.hidden/",
-		dir + "/zzz": dir + "/zzz", // no match leaves the text alone
+		dir + "/a":              dir + "/alp",   // common prefix of alpha and alps; files skipped
+		dir + "/b":              dir + "/beta/", // single match completes with a slash
+		dir + "/.h":             dir + "/.hidden/",
+		dir + "/zzz":            dir + "/zzz",                     // no match leaves the text alone
+		filepath.Join(dir, "b"): filepath.Join(dir, "beta") + "/", // C:\x\b on Windows
 	} {
 		if got, _ := completePath(in); got != want {
 			t.Errorf("completePath(%q) = %q, want %q", in, got, want)
@@ -158,7 +159,7 @@ func TestCompletePath(t *testing.T) {
 	if got := expandHome("~/x"); got != home+"/x" {
 		t.Errorf("expandHome = %q", got)
 	}
-	if got, err := resolveDir(dir + "/beta/"); err != nil || got != dir+"/beta" {
+	if got, err := resolveDir(dir + "/beta/"); err != nil || got != filepath.Join(dir, "beta") {
 		t.Errorf("resolveDir = %q, %v", got, err)
 	}
 	if _, err := resolveDir(dir + "/afile"); err == nil {

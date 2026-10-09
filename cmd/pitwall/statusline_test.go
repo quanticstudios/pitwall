@@ -51,7 +51,7 @@ func TestStatuslinePassthrough(t *testing.T) {
 // without one, uninstall drops the statusLine it added.
 func TestHooksStatusline(t *testing.T) {
 	home := hooksHome(t)
-	bin := "/opt/pitwall/bin/pitwall"
+	bin := testBin
 	path := filepath.Join(home, ".claude", "settings.json")
 	mine := `~/.claude/statusline.sh --say 'it'"'"'s'`
 	writeHooksTestFile(t, path, `{"statusLine":{"type":"command","command":`+quoteJSON(mine)+`,"padding":2}}`)

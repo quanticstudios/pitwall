@@ -56,10 +56,11 @@ jobs:
           CGO_ENABLED: ${{ matrix.goos == 'windows' && '0' || '1' }}
           TAG: ${{ github.ref_name }}
         run: |
-          exe=pitwall
-          if [ "$GOOS" = windows ]; then exe=pitwall.exe; fi
+          exe=pitwall ldflags="-X main.version=$TAG"
+          # why: a GUI program gets no console window; its commands attach to the terminal's (attachConsole).
+          if [ "$GOOS" = windows ]; then exe=pitwall.exe ldflags="$ldflags -H windowsgui"; fi
           mkdir -p stage dist
-          go build -trimpath -ldflags "-X main.version=$TAG" -o "stage/$exe" ./cmd/pitwall
+          go build -trimpath -ldflags "$ldflags" -o "stage/$exe" ./cmd/pitwall
           cp LICENSE THIRD_PARTY_NOTICES.md stage/
           set -- "$exe" LICENSE THIRD_PARTY_NOTICES.md
           case "$GOOS" in

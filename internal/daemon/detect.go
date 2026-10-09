@@ -109,6 +109,7 @@ func (d *Daemon) detect(ctx context.Context) {
 func (d *Daemon) lookAt(ctx context.Context, l look) {
 	fg := l.p.(foregrounder).Foreground()
 	if fg <= 0 {
+		d.followCwd(ctx, l)
 		return
 	}
 	if l.sid == 0 {

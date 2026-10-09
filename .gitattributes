@@ -1,3 +1,7 @@
 # why: go:embed copies the checkout byte for byte, so the pi extension and OpenCode plugin pitwall writes must not turn CRLF on Windows.
 *.ts text eol=lf
 *.js text eol=lf
+# why: Windows checkouts turn LF into CRLF, and golden files compare byte for byte.
+**/testdata/** -text
+# why: go:embed renders these into the Homebrew, Scoop and AUR files, which are LF like their goldens.
+scripts/pkgrender/tmpl/** text eol=lf

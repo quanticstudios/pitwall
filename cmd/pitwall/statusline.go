@@ -13,6 +13,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
 
 // runStatusline is Claude Code's statusLine command once `pitwall hooks
@@ -35,6 +36,7 @@ func runStatusline(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 		return 0
 	}
 	cmd := exec.Command("sh", "-c", args[0])
+	nowindow.Set(cmd)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(in), stdout, stderr
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError

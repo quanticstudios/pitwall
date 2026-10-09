@@ -428,6 +428,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			log.Printf("client refused: protocol version %d, want %d%s", hello.Version, proto.Version, heldNote(held))
 		}
 		conn.Send(proto.Refusal())
+		// why: Windows resets a socket closed with input unread, and the reset can drop the refusal.
+		nc.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		io.Copy(io.Discard, nc)
 		return
 	}
 	if foreign {

@@ -56,9 +56,6 @@ func TestUpdateButton(t *testing.T) {
 // TestUpdateRecheck: regaining focus checks again only once recheckAfter
 // has passed since the last check; it does not wait for the hourly timer.
 func TestUpdateRecheck(t *testing.T) {
-	if !update.Supported {
-		t.Skip("no update checks on this platform")
-	}
 	checks := make(chan struct{}, 8)
 	check, after := checkLatest, recheckAfter
 	checkLatest = func(context.Context) (update.Release, bool, error) {

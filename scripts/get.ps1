@@ -8,6 +8,17 @@ function Get-PitwallAsset([string]$Arch) {
     }
 }
 
+# Writes a shortcut at $Path that opens a pitwall window from $Exe, with the
+# icon built into it.
+function New-PitwallShortcut([string]$Exe, [string]$Path) {
+    $s = (New-Object -ComObject WScript.Shell).CreateShortcut($Path)
+    $s.TargetPath = $Exe
+    $s.IconLocation = "$Exe,0"
+    $s.WorkingDirectory = $env:USERPROFILE
+    $s.Description = 'Terminal multiplexer for coding agents'
+    $s.Save()
+}
+
 function Install-Pitwall {
     # why: iex runs this in the caller's session, so preferences stay local here.
     $ErrorActionPreference = 'Stop'
@@ -46,9 +57,14 @@ function Install-Pitwall {
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
         $exe = Join-Path $dir 'pitwall.exe'
         # why: Windows refuses to overwrite a running exe but lets it be renamed.
+        # An older one a daemon still runs keeps its name; pitwall deletes them all later.
         if (Test-Path $exe) {
-            Remove-Item -Force "$exe.old" -ErrorAction SilentlyContinue
-            Move-Item -Force $exe "$exe.old"
+            $old = "$exe.old"
+            for ($i = 1; (Test-Path $old) -and $i -lt 10; $i++) {
+                Remove-Item -Force $old -ErrorAction SilentlyContinue
+                if (Test-Path $old) { $old = "$exe.old$i" }
+            }
+            Move-Item -Force $exe $old
         }
         Copy-Item (Join-Path $tmp 'x\pitwall.exe') $exe
     } finally {
@@ -62,7 +78,8 @@ function Install-Pitwall {
         $env:Path = "$env:Path;$dir"
         Write-Host "Added $dir to your user PATH; new terminals pick it up."
     }
-    Write-Host "Installed $(& $exe --version) in $dir."
+    New-PitwallShortcut $exe (Join-Path ([Environment]::GetFolderPath('Programs')) 'pitwall.lnk')
+    Write-Host "Installed $(& $exe --version) in $dir, with pitwall in the Start menu."
     Write-Host 'Next: pitwall hooks install'
     Write-Host 'Then run pitwall and trust Codex hooks once with /hooks.'
 }

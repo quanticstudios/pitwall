@@ -68,14 +68,16 @@ $env:GOFLAGS = '-tags=novulkan'
 gofmt -w cmd internal third_party/x-vt
 go build ./cmd/pitwall
 go vet ./...
-go test -timeout 3m ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
+go test -timeout 5m ./...
 go -C third_party/x-vt test -timeout 3m ./...
 ```
 
+Some tests run commands through Git's `sh`, so run them from a shell that
+has Git for Windows' `usr\bin` on PATH, such as Git Bash.
+
 `third_party/x-vt` is a separate Go module. Root tests do not run its tests.
-On macOS and Windows, you can also run `go test -timeout 3m ./...` and report
-any platform failures. The full suites on those platforms remain advisory in
-CI. Run additional tests relevant to your change and report any skipped tests.
+On macOS, you can also run `go test -timeout 3m ./...` and report any
+platform failures. The full suite there remains advisory in CI. Run additional tests relevant to your change and report any skipped tests.
 
 Keep a change focused on one problem. Add a regression test for a behavior
 change. Use the standard library first; explain any new dependency. Keep
@@ -125,9 +127,9 @@ Maintainers squash merges and delete merged branches.
 
 External contributors' workflows need maintainer approval before GitHub runs
 them. CI builds and vets Linux, macOS and Windows. Linux runs the full suite
-with the race detector. The full macOS and Windows suites are advisory while
-those platforms remain experimental; their builds, vet checks, selected
-platform-independent tests and installer checks must pass.
+with the race detector, and Windows runs it without. The full macOS suite is
+advisory while that platform remains experimental; its build, vet check,
+selected platform-independent tests and installer check must pass.
 
 ## Working with others
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ import (
 func fakeWatch(t *testing.T, msgs ...any) {
 	t.Helper()
 	t.Setenv("PITWALL_PANE", "")
-	path := filepath.Join(t.TempDir(), "watch.sock")
+	path := sockPath(t, "watch.sock")
 	t.Setenv("PITWALL_SOCKET", path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -181,17 +182,28 @@ func TestCLINewCommand(t *testing.T) {
 	}
 }
 
+// exeName is the file name exec.LookPath finds for a command: Windows
+// looks for it with an extension from PATHEXT.
+func exeName(cmd string) string {
+	if runtime.GOOS == "windows" {
+		return cmd + ".exe"
+	}
+	return cmd
+}
+
+var tool = exeName("tool")
+
 // A relative command path is the caller's, not one in the tab's folder.
 func TestCLINewRelativeCommand(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "tool"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, tool), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	other := t.TempDir()
 	t.Chdir(dir)
 	before, after := cliState(), cliState()
 	after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", SessionID: "m"})
-	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: other, SessionID: "m", Cmd: []string{filepath.Join(dir, "tool"), "-v"}}, state: after})
+	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: other, SessionID: "m", Cmd: []string{filepath.Join(dir, tool), "-v"}}, state: after})
 	if code, out, stderr := cliOutput("new", other, "--", "./tool", "-v"); code != 0 || out != "#3\n" {
 		t.Fatalf("%d: %s %s", code, out, stderr)
 	}
@@ -203,14 +215,14 @@ func TestCLINewRelativePath(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "bin", "tool"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "bin", tool), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(dir)
 	t.Setenv("PATH", "bin")
 	before, after := cliState(), cliState()
 	after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", SessionID: "m"})
-	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: dir, SessionID: "m", Cmd: []string{filepath.Join(dir, "bin", "tool")}}, state: after})
+	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: dir, SessionID: "m", Cmd: []string{filepath.Join(dir, "bin", tool)}}, state: after})
 	if code, out, stderr := cliOutput("new", "--", "tool"); code != 0 || out != "#3\n" {
 		t.Fatalf("%d: %s %s", code, out, stderr)
 	}

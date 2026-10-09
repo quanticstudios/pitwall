@@ -70,7 +70,10 @@ func (up *updater) focused() {
 // watch checks at start, every updateEvery, and when the window regains
 // focus recheckAfter after the last check, until stop closes.
 func (up *updater) watch(stop <-chan struct{}, invalidate func()) {
-	if !update.Supported || managed() {
+	if exe, err := os.Executable(); err == nil {
+		update.RemoveOld(exe) // what an install on Windows set aside
+	}
+	if managed() {
 		return
 	}
 	poke := make(chan struct{}, 1)
