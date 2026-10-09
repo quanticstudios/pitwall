@@ -23,19 +23,20 @@ import (
 
 // Config is config.toml.
 type Config struct {
-	Keys      Keys      `toml:"keys" doc:"Keybindings: a preset, then single actions overriding it. A value is a chord (\"Ctrl+Shift+T\"), an array of chords, or [] to unbind."`
-	Theme     Theme     `toml:"theme" doc:"Colors."`
-	Font      Font      `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
-	Layout    Layout    `toml:"layout" doc:"Spacing around panes, in dp."`
-	Term      Term      `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
-	Updates   Updates   `toml:"updates" doc:"Release updates."`
-	Usage     Usage     `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
-	Decisions Decisions `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see docs/decisions.md for what each feature sends."`
-	Worktrees Worktrees `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
-	Notify    Notify    `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
-	Git       Git       `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
-	Remote    Remote    `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
-	Hosts     []Host    `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
+	Keys      Keys        `toml:"keys" doc:"Keybindings: a preset, then single actions overriding it. A value is a chord (\"Ctrl+Shift+T\"), an array of chords, or [] to unbind."`
+	Theme     Theme       `toml:"theme" doc:"Colors."`
+	Font      Font        `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
+	Layout    Layout      `toml:"layout" doc:"Spacing around panes, in dp."`
+	Term      Term        `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
+	Updates   Updates     `toml:"updates" doc:"Release updates."`
+	Usage     Usage       `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
+	Agents    AgentLimits `toml:"agents" doc:"Agents started from the task queue."`
+	Decisions Decisions   `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see docs/decisions.md for what each feature sends."`
+	Worktrees Worktrees   `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
+	Notify    Notify      `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
+	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
+	Remote    Remote      `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
+	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
 }
 
 // Host is one [[hosts]] entry.
@@ -66,6 +67,7 @@ type Keys struct {
 	JumpAttention   Binding `toml:"jump_attention" group:"Agents" doc:"Go to the tab that needs you, newest first"`
 	AllowPrompt     Binding `toml:"allow_prompt" group:"Agents" doc:"Allow the permission prompt of the focused pane, else of the shown tab, as its Allow button does"`
 	DenyPrompt      Binding `toml:"deny_prompt" group:"Agents" doc:"Deny the permission prompt of the focused pane, else of the shown tab, as its Deny button does"`
+	NewTask         Binding `toml:"new_task" group:"Agents" doc:"New task: start an agent on a prompt in a tab of its own, now or from the queue once a running agent finishes"`
 	NewTab          Binding `toml:"new_tab" group:"Tabs" doc:"New tab below this one, in its folder"`
 	CloseTab        Binding `toml:"close_tab" group:"Tabs" doc:"Close the tab and all its panes"`
 	NextPane        Binding `toml:"next_pane" group:"Panes" doc:"Next pane"`
@@ -248,6 +250,8 @@ type Settings struct {
 	LimitsInSidebar bool
 	// Decisions is [decisions] resolved.
 	Decisions DecideSettings
+	// MaxRunning is [agents] max_running: 0 for no limit.
+	MaxRunning int
 	// Worktrees is [worktrees] resolved.
 	Worktrees WorktreeSettings
 	// Remote is [remote] resolved.
@@ -437,6 +441,9 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.Notifications, ri = resolveNotifications(c.Notify)
 	fi = append(fi, ri...)
 	fi = append(fi, resolveGit(c.Git, &s)...)
+	var ai []issue
+	s.MaxRunning, ai = resolveAgents(c.Agents)
+	fi = append(fi, ai...)
 	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
 	var wi []issue
 	s.Worktrees, wi = resolveWorktrees(c.Worktrees, WorktreeSettings{PortBase: DefaultPortBase, PortStep: DefaultPortStep}, "worktrees.")

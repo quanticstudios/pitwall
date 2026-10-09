@@ -27,6 +27,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	var out []elem
 	rowH := rowHeight(gtx)
 	y := 0
+	s.queue = s.queue[:0]
 	run := false // inside a run of tab rows
 	row := func(id, g string) {
 		if run {
@@ -69,8 +70,10 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 			}
 			endRun()
 		}
+		y = s.placeQueue(gtx, v, id, len(out)-1, y)
 	}
 	endRun()
+	y = s.placeQueue(gtx, v, "", len(out)-1, y)
 	return out, y + gtx.Dp(6) // pb-1.5
 }
 
@@ -125,6 +128,18 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 				s.cardAt, s.cardY = e.id, y
 			}
 			animating = animating || a
+		}
+		for _, b := range s.queue {
+			if s.drag.active && s.drag.kind == 'g' && s.drag.id == b.group {
+				continue // the lifted group is drawn without it
+			}
+			y := b.top
+			if b.after >= 0 {
+				y += int(offs[b.after] + 0.5)
+			}
+			o := op.Offset(image.Pt(b.x, y)).Push(gtx.Ops)
+			s.drawQueue(gtx, v.th, b)
+			o.Pop()
 		}
 		return layout.Dimensions{Size: image.Pt(w, total)}
 	})

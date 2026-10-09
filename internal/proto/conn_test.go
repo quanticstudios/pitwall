@@ -43,6 +43,7 @@ func allMessages() []any {
 			Advice: "allow", AdviceP: 0.96, AdviceRule: "sudo", Urgency: "now"}},
 		Stats:  map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
 		Decide: model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}}},
+		Tasks:  []model.Task{{ID: "t", SessionID: "s", GroupID: "p", Dir: "/r", Branch: "fix", Cmd: []string{"claude", "fix it"}}},
 	}
 	return []any{
 		Hello{Version: Version, Level: Level, Kind: "gui", Session: "work"},
@@ -79,6 +80,8 @@ func allMessages() []any {
 		WorktreeInfo{Query: WorktreeQuery{WorkspaceID: "w"}, Default: "origin/main", Local: []string{"main"}, Remote: []string{"origin/fix"}, GitHub: true,
 			Changed: []string{"a.go"}, Unmerged: true, Orphans: []model.Orphan{{Root: "/r", Path: "/r/.worktrees/x", Branch: "x", Committed: now, Dirty: true}}},
 		DeleteWorktree{Root: "/r", Path: "/r/.worktrees/x", Force: true},
+		NewTask{Task: model.Task{ID: "t", SessionID: "s", Dir: "/tmp", Worktree: "fix", Base: "main", Cmd: []string{"codex", "fix it"}}, Queue: true, FromPane: "a"},
+		DropTask{ID: "t", Start: true},
 	}
 }
 

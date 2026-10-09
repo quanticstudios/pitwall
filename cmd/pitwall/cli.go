@@ -113,6 +113,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if command == "tab" {
 		return tabCommand(args[1:])
 	}
+	if command == "queue" {
+		return queueCommand(args[1:], out)
+	}
 	if command == "session" {
 		return sessionsCommand(args[1:], in, out, errOut)
 	}

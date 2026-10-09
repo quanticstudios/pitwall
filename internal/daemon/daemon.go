@@ -117,6 +117,8 @@ type Options struct {
 	Radar     func() bool
 	Changes   func(ctx context.Context, worktree string) (gitstat.Changes, error)
 	Conflicts func(ctx context.Context, dir, a, b string) ([]string, error)
+	// MaxRunning reads [agents] max_running; nil means 0, no limit.
+	MaxRunning func() int
 }
 
 type Daemon struct {
@@ -144,6 +146,7 @@ type Daemon struct {
 	pushWake     chan struct{} // wakes pushLoop, nil when it is not running
 	prs          prPoll        // see pr.go
 	radar        radar         // see radar.go
+	queue        taskQueue     // see task.go
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -185,6 +188,7 @@ func New() (*Daemon, error) {
 		Radar:          radarSetting(config.Path()),
 		Changes:        gitstat.Changed,
 		Conflicts:      gitstat.Conflicts,
+		MaxRunning:     setting(config.Path(), 0, func(s config.Settings) int { return s.MaxRunning }),
 		Remote:         func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
 		RemoteDir:      remote.Dir(),
 		Split:          layout.Split,
@@ -272,6 +276,7 @@ func NewWith(o Options) (*Daemon, error) {
 		return !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
 			!slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == s.ID })
 	})
+	d.st.Tasks = slices.DeleteFunc(d.st.Tasks, func(t model.Task) bool { return d.st.Session(t.SessionID) == nil })
 	d.retitle()
 	d.fixOrders()
 	return d, nil
@@ -689,6 +694,10 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.deleteGroup(m)
 	case proto.Unknown:
 		return fmt.Errorf("this pitwall daemon is older than the client and does not know %s", m.Name)
+	case proto.NewTask:
+		return d.newTask(ctx, m)
+	case proto.DropTask:
+		return d.dropTask(ctx, m)
 	case proto.DismissNotice:
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -755,27 +764,17 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		m.Name = cmp.Or(m.From.Name(), d.nextWorkspaceName(p.ID))
 	}
 
-	path, branch := p.Root, ""
-	if p.Kind == model.ProjectGit {
-		var err error
-		if path, branch, err = d.o.AddWorktree(ctx, p.Root, m.Name, m.From); err != nil {
-			return err
-		}
-	}
-	root := d.repoRoot(ctx, path)
-	owned := worktreeRoot(p, path)
+	path, branch, owned := p.Root, "", ""
 	var wt config.WorktreeSettings
 	var problems []error
-	if owned != "" && d.o.Worktrees != nil {
-		var probs []config.Problem
-		wt, probs = d.o.Worktrees(owned)
-		for _, pr := range probs {
-			problems = append(problems, errors.New(pr.String()))
+	if p.Kind == model.ProjectGit {
+		var err error
+		if path, branch, wt, problems, err = d.worktree(ctx, p.Root, m.Name, m.From); err != nil {
+			return err
 		}
-		if err := prepareWorktree(owned, path, wt); err != nil {
-			problems = append(problems, err)
-		}
+		owned = p.Root
 	}
+	root := d.repoRoot(ctx, path)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -1444,6 +1443,7 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 // and a save runs saveDelay after the first unsaved change, so a steady
 // stream of agent events cannot postpone it forever.
 func (d *Daemon) changed() {
+	d.pumpQueue()
 	d.pruneNotices()
 	d.retitle()
 	d.fixOrders()
@@ -1522,6 +1522,7 @@ func (d *Daemon) snapshot() model.State {
 	s.PRs = maps.Clone(s.PRs)           // entries are replaced, never changed in place
 	s.Overlaps = maps.Clone(s.Overlaps) // the radar replaces a tab's list whole
 	s.Decide = d.decideInfo()
+	s.Tasks = slices.Clone(s.Tasks)
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {
 		s.Clipboard.Text = ""
@@ -1549,13 +1550,4 @@ func newID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-// worktreeRoot is p.Root when path is a worktree AddWorktree made for p,
-// which puts them in <root>/.worktrees/<name>.
-func worktreeRoot(p model.Project, path string) string {
-	if p.Kind == model.ProjectGit && filepath.Dir(path) == filepath.Join(p.Root, ".worktrees") {
-		return p.Root
-	}
-	return ""
 }

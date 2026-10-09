@@ -129,7 +129,7 @@ func (d *Daemon) newTab(ctx context.Context, m proto.NewTab) error {
 	if w == nil {
 		return fmt.Errorf("no tab %s", cmp.Or(m.WorkspaceID, m.FromPane))
 	}
-	return d.addSession(ctx, proto.NewSession{Cwd: cwd, FromPane: m.FromPane}, id, nil)
+	return d.addSession(ctx, proto.NewSession{Cwd: cwd, FromPane: m.FromPane}, id, nil, nil)
 }
 
 // renameTab names the session of m.Pane or m.WorkspaceID: a tab and its

@@ -20,13 +20,14 @@ import (
 // group, it joins the session's project whose folder holds its directory;
 // ungrouped, it goes last.
 func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
-	return d.addSession(ctx, m, "", nil)
+	return d.addSession(ctx, m, "", nil, nil)
 }
 
 // addSession is newSession, placing the tab right after the tab after, in
 // its group or, when after is ungrouped, at the top level. With create set
-// the tab goes into a new session named *create (generated when "").
-func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string, create *string) error {
+// the tab goes into a new session named *create (generated when ""). prep,
+// when set, fills in the tab before its pane starts, under d.mu.
+func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string, create *string, prep func(*model.Workspace)) error {
 	home := homeDir()
 	path := m.Cwd
 	if m.FromPane != "" {
@@ -87,6 +88,9 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
 	w := model.Workspace{ID: newID(), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
+	if prep != nil {
+		prep(&w)
+	}
 	if err := d.addTab(&w, path, m.Cmd); err != nil {
 		d.st.Sessions = d.st.Sessions[:sessions] // drop one made for this tab
 		return err

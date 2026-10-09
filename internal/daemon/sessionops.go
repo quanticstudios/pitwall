@@ -81,7 +81,7 @@ func (d *Daemon) sessionNew(ctx context.Context, m proto.SessionNew) error {
 		}
 	}
 	d.mu.Unlock()
-	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &name)
+	return d.addSession(ctx, proto.NewSession{Cwd: m.Cwd, FromPane: m.FromPane}, "", &name, nil)
 }
 
 func (d *Daemon) sessionRename(m proto.SessionRename) error {
@@ -143,6 +143,7 @@ func (d *Daemon) endSession(session string) {
 	}
 	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool { return s.ID == session })
 	d.st.Projects = slices.DeleteFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == session })
+	d.st.Tasks = slices.DeleteFunc(d.st.Tasks, func(t model.Task) bool { return t.SessionID == session })
 }
 
 // adopt puts every tab and group whose session is unknown into the first
@@ -219,7 +220,7 @@ func (d *Daemon) firstSession(ctx context.Context, cwd, name string) error {
 	}
 	if s == nil {
 		d.mu.Unlock()
-		return d.addSession(ctx, proto.NewSession{Cwd: cwd}, "", &name)
+		return d.addSession(ctx, proto.NewSession{Cwd: cwd}, "", &name, nil)
 	}
 	id := s.ID
 	open := slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == id && !w.Detached })

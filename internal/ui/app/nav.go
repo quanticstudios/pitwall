@@ -29,6 +29,8 @@ type nav struct {
 	sessionUI string
 	// palette asks the window to open the command palette.
 	palette bool
+	// task asks the window to open the New task dialog.
+	task bool
 	// find asks the window to open the find bar on the focused pane.
 	find bool
 	// prAct asks the window to run open_pr, merge_pr or rerun_checks on
@@ -824,6 +826,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.tabMode, n.paneMode = true, false
 	case "pane_prefix":
 		n.paneMode, n.tabMode = true, false
+	case "new_task":
+		n.task = true
 	case "command_palette":
 		n.palette = true
 	case "next_group":

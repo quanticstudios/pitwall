@@ -118,6 +118,7 @@ type fakes struct {
 	panes      []*fakePane
 	saved      model.State
 	statsCalls map[string]int
+	worktrees  []string // AddWorktree calls, name@base
 }
 
 func (f *fakes) options() Options {
@@ -152,8 +153,12 @@ func (f *fakes) options() Options {
 			f.statsCalls[wt]++
 			return model.BranchStats{Additions: 5, Ahead: f.statsCalls[wt]}, nil
 		},
-		AddWorktree: func(_ context.Context, root, name string, _ model.WorktreeFrom) (string, string, error) {
-			return filepath.Join(root, ".worktrees", name), name, nil
+		AddWorktree: func(_ context.Context, root, name string, from model.WorktreeFrom) (string, string, error) {
+			f.mu.Lock()
+			f.worktrees = append(f.worktrees, fmt.Sprintf("%s %+v", name, from))
+			f.mu.Unlock()
+			path := filepath.Join(root, ".worktrees", name)
+			return path, name, os.MkdirAll(path, 0o755)
 		},
 		RemoveWorktree: func(context.Context, string, string, bool, bool) error { return nil },
 		Save: func(s model.State) error {

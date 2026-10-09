@@ -476,6 +476,37 @@ setup = "pnpm install"        # typed into the new tab's shell
 Keys in the repo's file win over `config.toml`. A mistake in it shows as an
 error when you make the tab, and the tab is made anyway.
 
+### Tasks and the queue
+
+**New task** (Ctrl+Shift+A, the command palette, or **New task…** in a
+group's menu) starts an agent on a prompt in a tab of its own, as
+`pitwall new -- codex "…"` does. Pick:
+
+- **Project**: a folder of this session's groups and tabs, the open tab's by
+  default. A worktree tab counts as its main checkout.
+- **Where**: the folder itself, a new worktree on a new branch (named from
+  the prompt, made off the default branch unless you name another), or a
+  new worktree on an existing branch. Worktrees get their ports and
+  `.pitwall/worktree.toml` setup as **New worktree tab** does; setup runs
+  in a shell under the agent.
+- **Agent**: the agent CLIs on your PATH. The dialog remembers the last one.
+- **Mode**: for Claude Code, Accept edits or Plan (`--permission-mode`);
+  for Codex, Read only or Auto (`-s` and `-a`).
+- **Prompt**: passed as the agent's first argument. Ctrl+Enter starts it.
+
+**Queue** puts the task in the session's queue instead, shown under its
+group in the sidebar (or at the bottom), with start-now and remove on hover.
+A queued task starts when a running agent of its session finishes: done,
+failed or closed. With `max_running` under `[agents]` in `config.toml` (or
+**Agents at once** in Settings), queued tasks start whenever fewer than that
+many agents run in the session. The queue survives a daemon restart.
+
+```sh
+pitwall queue add -- codex "fix the flaky login test"   # in the current folder
+pitwall queue ls
+pitwall queue rm 1
+```
+
 ### Detaching
 
 <img src="media/survive.webp" alt="The window closes, pitwall ls shows every tab still running, the window comes back, and after a reboot the agents resume" width="800">

@@ -163,6 +163,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 				s.events = append(s.events, NewWorktreeSession{GroupID: p.ID})
 				s.groupMenu = ""
 			}
+			if s.groupItem[4].Clicked(gtx) {
+				s.events = append(s.events, NewTaskIn{GroupID: p.ID})
+				s.groupMenu = ""
+			}
 		}
 	}
 	for _, ws := range v.st.Workspaces {
@@ -314,6 +318,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.cancelRename()
 		}
 	}
+	s.queueEvents(gtx, v.st)
 	for s.newTab.Clicked(gtx) {
 		s.events = append(s.events, NewTab{Loose: true})
 	}

@@ -135,22 +135,25 @@ func candidates(r proto.WorktreeInfo, kind model.WorktreeKind) []string {
 	return nil
 }
 
-// refMatches is the candidates containing text, ignoring case, at most
-// maxPicks; none once text is one of them.
+// refMatches is up to maxPicks of the candidates holding text, ignoring
+// case, the ones starting with it first; none once text names one. The
+// New worktree tab and New task dialogs both offer branches with it.
 func refMatches(cands []string, text string) []string {
-	if slices.Contains(cands, text) {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if slices.ContainsFunc(cands, func(c string) bool { return strings.ToLower(c) == text }) {
 		return nil
 	}
-	var out []string
-	low := strings.ToLower(text)
+	var first, rest []string
 	for _, c := range cands {
-		if strings.Contains(strings.ToLower(c), low) {
-			if out = append(out, c); len(out) == maxPicks {
-				break
-			}
+		switch l := strings.ToLower(c); {
+		case strings.HasPrefix(l, text):
+			first = append(first, c)
+		case strings.Contains(l, text):
+			rest = append(rest, c)
 		}
 	}
-	return out
+	out := append(first, rest...)
+	return out[:min(len(out), maxPicks)]
 }
 
 // worktreeEvents handles the New worktree tab dialog's fields and buttons
@@ -291,7 +294,7 @@ func (u *ui) newWorktreeBody(gtx gl.Context, st *model.State) gl.Dimensions {
 	switch f.kind {
 	case model.FromNew:
 		kids = append(kids, label("Name"), gl.Rigid(gl.Spacer{Height: 6}.Layout),
-			text(func(gtx gl.Context) gl.Dimensions { return u.field(gtx, &f.name) }),
+			text(func(gtx gl.Context) gl.Dimensions { return u.field(gtx, &f.name, th.MonoFont, gtx.Dp(36), "") }),
 			gl.Rigid(gl.Spacer{Height: 4}.Layout), note("Also the new branch's name. Empty picks one."),
 			gl.Rigid(gl.Spacer{Height: 12}.Layout))
 		refLabel, refNote = "Base", "A local or remote branch. Tab completes."
@@ -303,7 +306,7 @@ func (u *ui) newWorktreeBody(gtx gl.Context, st *model.State) gl.Dimensions {
 		refLabel, refNote = "Pull request number", "Fetched from origin into the branch pr-<number>."
 	}
 	kids = append(kids, label(refLabel), gl.Rigid(gl.Spacer{Height: 6}.Layout),
-		text(func(gtx gl.Context) gl.Dimensions { return u.field(gtx, &f.ref) }),
+		text(func(gtx gl.Context) gl.Dimensions { return u.field(gtx, &f.ref, th.MonoFont, gtx.Dp(36), "") }),
 		gl.Rigid(gl.Spacer{Height: 4}.Layout))
 	switch {
 	case f.err != "":

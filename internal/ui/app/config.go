@@ -140,6 +140,8 @@ type guiState struct {
 	// Welcome keeps the first-run card up, across restarts, until the user
 	// dismisses it or does anything else.
 	Welcome bool `json:"welcome,omitempty"`
+	// TaskAgent is the agent the New task dialog last started.
+	TaskAgent string `json:"task_agent,omitempty"`
 }
 
 func guiStatePath() string { return filepath.Join(config.StateDir(), "gui.json") }

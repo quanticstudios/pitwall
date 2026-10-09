@@ -38,6 +38,7 @@ const (
 	modalMerge // merge a tab's pull request, see pr.go
 	modalNewWorktree
 	modalCleanup
+	modalTask
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -80,6 +81,10 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		m.close() // deleted elsewhere
 	}
 	if m.kind == modalNone {
+		return
+	}
+	if m.kind == modalTask {
+		u.layoutTask(gtx, st)
 		return
 	}
 	for {
@@ -199,16 +204,19 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 
 // card draws content on a dialog card in the middle of the window; tag
 // takes the presses inside it.
-func (u *ui) card(gtx gl.Context, tag event.Tag, content gl.Widget) {
+func (u *ui) card(gtx gl.Context, tag event.Tag, content gl.Widget) { u.cardW(gtx, tag, 448, content) }
+
+// cardW is card width dp wide, narrower in a narrow window.
+func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, content gl.Widget) {
 	th, size := u.th, gtx.Constraints.Max
-	width := min(gtx.Dp(448), size.X-gtx.Dp(32))
+	w := min(gtx.Dp(width), size.X-gtx.Dp(32))
 	pad := gtx.Dp(24)
 	rec := op.Record(gtx.Ops)
 	cg := gtx
-	cg.Constraints = gl.Constraints{Max: image.Pt(width-2*pad, size.Y-2*pad)}
+	cg.Constraints = gl.Constraints{Max: image.Pt(w-2*pad, size.Y-2*pad)}
 	d := content(cg)
 	call := rec.Stop()
-	box := image.Pt(width, d.Size.Y+2*pad)
+	box := image.Pt(w, d.Size.Y+2*pad)
 	at := size.Sub(box).Div(2)
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 
@@ -322,7 +330,9 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 			return para(gtx, th, th.UIFont, 14, th.Muted, "Makes a group for the folder. A git repository also gets worktree tabs.")
 		}),
 		gl.Rigid(gl.Spacer{Height: 16}.Layout),
-		gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.field(gtx, &m.path) }),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.field(gtx, &m.path, th.MonoFont, gtx.Dp(36), "")
+		}),
 		gl.Rigid(gl.Spacer{Height: 6}.Layout),
 	}
 	if m.pathErr != "" {
@@ -357,25 +367,35 @@ func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
 
-// field draws a dialog's one-line text field: h-9, field-background,
-// field-border, focus ring primary.
-func (u *ui) field(gtx gl.Context, ed *widget.Editor) gl.Dimensions {
+// field is aide's field: h tall, field-background, field-border and a
+// primary focus ring, with e in f and placeholder while it is empty. A
+// single-line editor sits in its middle, a multi-line one at its top.
+func (u *ui) field(gtx gl.Context, e *widget.Editor, f font.Font, h int, placeholder string) gl.Dimensions {
 	th := u.th
-	w, h := gtx.Constraints.Max.X, gtx.Dp(36)
+	w := gtx.Constraints.Max.X
 	rect := image.Rect(0, 0, w, h)
 	r := gtx.Dp(8)
 	border := theme.Mix(th.SurfaceSecondary, th.Fg, 0.07)
-	if gtx.Focused(ed) {
+	if gtx.Focused(e) {
 		border = theme.Mix(th.SurfaceSecondary, th.Primary, 0.6)
 	}
 	paint.FillShape(gtx.Ops, border, clip.UniformRRect(rect, r).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
+	pad, dir := image.Pt(gtx.Dp(12), 0), gl.W
+	if !e.SingleLine {
+		pad.Y, dir = gtx.Dp(8), gl.NW
+	}
 	eg := gtx
-	eg.Constraints = gl.Exact(image.Pt(w-gtx.Dp(24), h))
-	o := op.Offset(image.Pt(gtx.Dp(12), 0)).Push(gtx.Ops)
-	gl.W.Layout(eg, func(gtx gl.Context) gl.Dimensions {
+	eg.Constraints = gl.Exact(image.Pt(w-2*pad.X, h-2*pad.Y))
+	o := op.Offset(pad).Push(gtx.Ops)
+	if e.Len() == 0 && placeholder != "" {
+		dir.Layout(eg, func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, th.UIFont, 13, th.Muted, placeholder)
+		})
+	}
+	dir.Layout(eg, func(gtx gl.Context) gl.Dimensions {
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-		return ed.Layout(gtx, th.Shaper, th.MonoFont, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
+		return e.Layout(gtx, th.Shaper, f, 13, colorCall(gtx, th.Fg), colorCall(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
 	})
 	o.Pop()
 	return gl.Dimensions{Size: rect.Size()}
@@ -389,6 +409,22 @@ func (u *ui) buttons(gtx gl.Context, cancel, ok string, okBg, okFg color.NRGBA) 
 
 // buttonPair is buttons with its own clickables.
 func (u *ui) buttonPair(gtx gl.Context, cancelC, okC *widget.Clickable, cancel, ok string, okBg, okFg color.NRGBA) gl.Dimensions {
+	bs := []dialogButton{{okC, ok, okBg, okFg}}
+	if cancel != "" {
+		bs = append(bs, dialogButton{cancelC, cancel, u.th.SurfaceSecondary, u.th.Fg})
+	}
+	return u.buttonRow(gtx, bs...)
+}
+
+// dialogButton is one button of a dialog footer.
+type dialogButton struct {
+	c      *widget.Clickable
+	text   string
+	bg, fg color.NRGBA
+}
+
+// buttonRow draws bs right-aligned, the first rightmost.
+func (u *ui) buttonRow(gtx gl.Context, bs ...dialogButton) gl.Dimensions {
 	th := u.th
 	h := gtx.Dp(36)
 	w := gtx.Constraints.Max.X
@@ -416,9 +452,8 @@ func (u *ui) buttonPair(gtx gl.Context, cancelC, okC *widget.Clickable, cancel, 
 		o.Pop()
 		x -= gtx.Dp(8)
 	}
-	draw(okC, ok, okBg, okFg)
-	if cancel != "" {
-		draw(cancelC, cancel, th.SurfaceSecondary, th.Fg)
+	for _, b := range bs {
+		draw(b.c, b.text, b.bg, b.fg)
 	}
 	return gl.Dimensions{Size: image.Pt(w, h)}
 }
