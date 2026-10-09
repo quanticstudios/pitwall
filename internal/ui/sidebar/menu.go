@@ -180,6 +180,10 @@ func (s *Sidebar) menuRow(gtx layout.Context, th *theme.Theme, c *widget.Clickab
 		if c.Hovered() && !off {
 			paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
 		}
+		if gtx.Focused(c) {
+			g := gtx.Dp(3)
+			kit.FocusRing(gtx, th, image.Rectangle{Max: size}.Inset(g), gtx.Dp(8)-g)
+		}
 		gtx.Constraints = layout.Exact(image.Pt(size.X-gtx.Dp(16), size.Y))
 		defer op.Offset(image.Pt(gtx.Dp(8), 0)).Push(gtx.Ops).Pop()
 		items := []item{

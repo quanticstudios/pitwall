@@ -118,8 +118,8 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 // card is what a tab's hover card shows. Lines lists which lines, in
 // order: 't' title, 'f' folder, 'b' branch, 'r' its pull request, 'c'
 // the PR's checks, 'x' the conflict radar, 'o' the worktree's ports, 's'
-// agent state, 'd' its detail, 'u' token use, 'j' the decision model's
-// advice, 'p' pane count.
+// agent state, 'd' its detail, 'a' each agent pane, 'u' token use, 'j'
+// the decision model's advice, 'p' pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -130,10 +130,12 @@ type card struct {
 	radar        []radarEntry
 	fileBtn      func(other, path string) *widget.Clickable // a radar file's button; nil draws none
 	add, del     int
+	conflicts    bool      // merging the branch would conflict
 	pr           *model.PR // the branch's pull request
 	state        model.AgentState
 	detail       string
-	usage        string // UsageText of the tab's agents
+	agents       []model.AgentPane // with two or more, each one
+	usage        string            // UsageText of the tab's agents
 	decision     string
 	panes        int
 }
@@ -164,6 +166,9 @@ func (c card) lines() string {
 			out += "d"
 		}
 	}
+	if len(c.agents) > 1 {
+		out += "a"
+	}
 	if c.usage != "" {
 		out += "u"
 	}
@@ -189,7 +194,9 @@ func cardFor(v *view, ws model.Workspace) card {
 	}
 	if st, ok := v.st.Stats[ws.ID]; ok && c.branch != "" {
 		c.add, c.del = st.Additions, st.Deletions
+		c.conflicts = st.MergeStatus == model.MergeConflicts
 	}
+	c.agents = v.agents[ws.ID]
 	if pr, ok := v.st.PRs[ws.ID]; ok && c.branch != "" {
 		c.pr = &pr
 	}
@@ -347,6 +354,11 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Red, fmt.Sprintf("-%d", c.del))
 					}})
 				}
+				if c.conflicts {
+					items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(th.Red, bg), "Merge conflicts")
+					}})
+				}
 				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(6), items...)
 			})
 		case 'r':
@@ -420,6 +432,21 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 			line(nil, func(gtx layout.Context) layout.Dimensions {
 				return detailLabel(gtx, th, theme.Mix(bg, th.Fg, 0.8), c.detail)
 			})
+		case 'a':
+			for _, ap := range c.agents {
+				mark := func(gtx layout.Context) layout.Dimensions { return AgentMark(gtx, paneAgent(ap), icon, th.Fg) }
+				line(mark, func(gtx layout.Context) layout.Dimensions {
+					items := []item{{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.85), paneTitle(ap))
+					}}}
+					if a := ap.Activity; a != nil {
+						items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(StateColor(th, a.State), bg), stateText(a.State))
+						}})
+					}
+					return hrow(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(8), items...)
+				})
+			}
 		case 'u':
 			line(iconOf(icGauge, muted), func(gtx layout.Context) layout.Dimensions {
 				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {

@@ -642,6 +642,7 @@ func (u *ui) layout(gtx gl.Context) {
 			u.sidebar.Limits = u.limits.get()
 		}
 		u.sidebar.Answers = u.canAnswer()
+		u.sidebar.Pane = u.nav.focused()
 		u.usage.prune(&st)
 		u.sidebar.Usage = func(ws string) *flow.Usage {
 			invalidate := u.invalidate
