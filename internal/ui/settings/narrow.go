@@ -218,7 +218,11 @@ func (p *Page) catRow(gtx gl.Context, i int, q string, counts []int) gl.Dimensio
 			rrect(gtx, th.SelectedBg, rect, r)
 			fg, f = th.Fg, weight(f, font.Medium)
 		case b.Hovered():
-			rrect(gtx, th.Hover, rect, r)
+			hover := th.Hover
+			if p.dd == catMenu { // Hover is the dropdown's own fill
+				hover = th.Pressed
+			}
+			rrect(gtx, hover, rect, r)
 			fg = th.Fg
 		case q != "" && counts[i] == 0:
 			fg = theme.Mix(th.Bg, th.Muted, 0.5)

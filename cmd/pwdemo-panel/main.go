@@ -24,8 +24,11 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// showCost is the -cost flag.
-var showCost bool
+// showCost and blank are the -cost and -blank flags.
+var (
+	showCost bool
+	blank    string
+)
 
 func main() {
 	agent := flag.String("agent", "claude", "claude, codex or pi")
@@ -34,6 +37,7 @@ func main() {
 	static := flag.Bool("static", false, "no simulated updates")
 	file := flag.String("file", "", "read this session file of -agent through flow.Watch instead of the fake feed")
 	flag.BoolVar(&showCost, "cost", false, "show token use in dollars, as [usage] show_cost does")
+	flag.StringVar(&blank, "blank", "", "loading: git and the session file not read yet; empty: read, with nothing in them")
 	flag.Parse()
 	go func() {
 		w := new(app.Window)
@@ -90,6 +94,12 @@ func run(w *app.Window, agent string, view panel.View, detail int, static bool, 
 			in := *inputs[agent]
 			in.Now = time.Now()
 			in.ShowCost = showCost
+			switch blank {
+			case "loading":
+				in.Feed, in.Git, in.Files, in.WaitGit, in.WaitFeed = nil, false, nil, true, true
+			case "empty":
+				in.Feed, in.Files = &flow.Feed{Provider: in.Pane.Provider}, nil
+			}
 			p.Layout(gtx, th, in)
 			mu.Unlock()
 			e.Frame(gtx.Ops)
