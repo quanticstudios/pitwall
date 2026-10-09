@@ -23,8 +23,12 @@ func TokenCount(n int64) string {
 		s = fmt.Sprintf("%.0fk", f/1e3)
 	case n < 100_000_000:
 		s = fmt.Sprintf("%.1fM", f/1e6)
-	default:
+	case n < 999_500_000:
 		s = fmt.Sprintf("%.0fM", f/1e6)
+	case n < 100_000_000_000:
+		s = fmt.Sprintf("%.1fB", f/1e9)
+	default:
+		s = fmt.Sprintf("%.0fB", f/1e9)
 	}
 	return strings.Replace(s, ".0", "", 1)
 }
@@ -54,7 +58,8 @@ func Dollars(c float64) string {
 
 // UsageText is a session's token use on one line: "1.2M tokens · 34%
 // context", then the cost when cost is set and every model has a price.
-// A count that misses the start of a long file reads "≥1.2M". "" when
+// A count that misses the start of a long file reads "1.2M+", since the
+// UI fonts have no "≥". "" when
 // there is no usage.
 func UsageText(u flow.Usage, cost bool) string {
 	t := u.Tokens().Total()
@@ -63,7 +68,7 @@ func UsageText(u flow.Usage, cost bool) string {
 	}
 	n := TokenCount(t)
 	if u.Partial {
-		n = "≥" + n
+		n += "+"
 	}
 	parts := []string{n + " tokens"}
 	if f, ok := u.Fill(); ok {
@@ -72,7 +77,7 @@ func UsageText(u flow.Usage, cost bool) string {
 	if c, ok := u.Cost(); cost && ok {
 		d := Dollars(c)
 		if u.Partial {
-			d = "≥" + d
+			d += "+"
 		}
 		parts = append(parts, d)
 	}

@@ -40,7 +40,7 @@ func usageStats(u flow.Usage) []stat {
 	t := u.Tokens()
 	n := func(v int64) string {
 		if u.Partial {
-			return "≥" + sidebar.TokenCount(v)
+			return sidebar.TokenCount(v) + "+"
 		}
 		return sidebar.TokenCount(v)
 	}

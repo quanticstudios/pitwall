@@ -566,9 +566,9 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 				bg = th.SurfaceElevated
 			}
 			paint.FillShape(gtx.Ops, bg, clip.Rect{Max: sz}.Op())
-			s := fmt.Sprintf("⋯  %d unchanged lines", row.N)
+			s := fmt.Sprintf("…  %d unchanged lines", row.N)
 			if row.N == 1 {
-				s = "⋯  1 unchanged line"
+				s = "…  1 unchanged line"
 			}
 			drawMid(gtx, th, image.Pt(gutter+m.mark, sz.Y), th.UIFont, th.Sp(theme.Small), th.Muted, s, w)
 			defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
