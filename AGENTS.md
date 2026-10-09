@@ -24,7 +24,9 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/remote`      | The phone page: pairing, device tokens, its HTTP server        |
 | `internal/qr`          | QR codes for pairing                                           |
 | `internal/input`       | Gio events to PTY bytes                                        |
-| `internal/ui/theme`    | Colors and fonts ported from aide                              |
+| `internal/ui/theme`    | Colors, derived tokens, type and spacing scales, from aide     |
+| `internal/ui/anim`     | Eased values, the durations, reduce_motion                     |
+| `internal/ui/kit`      | The button, popover placement and elevation                    |
 | `internal/ui/sidebar`  | The sidebar                                                    |
 | `internal/ui/term`     | Grid renderer and pane input                                   |
 | `internal/ui/app`      | Window, splits, Alt navigation, switcher                       |
