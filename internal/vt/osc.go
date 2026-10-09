@@ -3,7 +3,11 @@ package vt
 import (
 	"bytes"
 	"encoding/base64"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -108,6 +112,34 @@ func (f *oscFilter) end(out []byte, title func(string), notify func(Notification
 }
 
 func validUTF8(s string) string { return strings.ToValidUTF8(s, string(utf8.RuneError)) }
+
+// parseCwd reads the file URI of an OSC 7, file://host/path, as a local
+// folder. A folder on another host, from a shell over ssh, is not one. The
+// path may come percent-encoded, as PowerShell's [uri] writes it, or raw
+// with backslashes, as cmd's PROMPT does.
+func parseCwd(uri string) (string, bool) {
+	rest, ok := strings.CutPrefix(uri, "file://")
+	if !ok {
+		return "", false
+	}
+	host, p, ok := strings.Cut(rest, "/")
+	if !ok || host != "" && !strings.EqualFold(host, "localhost") && !strings.EqualFold(host, hostname()) {
+		return "", false
+	}
+	p = "/" + p
+	if u, err := url.PathUnescape(p); err == nil {
+		p = u
+	}
+	if len(p) >= 3 && p[2] == ':' {
+		p = p[1:] // /C:/x names a drive
+	}
+	return filepath.Clean(filepath.FromSlash(p)), true
+}
+
+var hostname = sync.OnceValue(func() string {
+	h, _ := os.Hostname()
+	return h
+})
 
 // clipboardMax caps the text one OSC 52 write may put on the clipboard.
 const clipboardMax = 1 << 20

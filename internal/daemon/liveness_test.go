@@ -148,6 +148,8 @@ func TestHookAfterInterruptWins(t *testing.T) {
 	d, _, id := liveDaemon(t, model.StateWorking)
 	ctx := context.Background()
 	must(t, d.handle(ctx, proto.Input{Pane: id, Data: []byte("\x1b")}))
+	// why: Windows' clock ticks every ~16ms, so a hook sent at once would carry the key's time.
+	time.Sleep(20 * time.Millisecond)
 	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderClaude, Payload: []byte("working")}))
 	settled()
 	if s := d.stateOf(id); s != model.StateWorking {

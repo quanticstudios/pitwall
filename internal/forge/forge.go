@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
 
 var (
@@ -36,6 +37,7 @@ func View(ctx context.Context, dir string) (*model.PR, error) {
 	}
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", "--json", Fields)
 	cmd.Dir = dir
+	nowindow.Set(cmd)
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

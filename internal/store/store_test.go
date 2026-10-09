@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,12 @@ func TestPath(t *testing.T) {
 	}
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("HOME", root)
-	if got, want := Path(), filepath.Join(root, ".local", "state", "pitwall", "state.json"); got != want {
+	want := filepath.Join(root, ".local", "state", "pitwall", "state.json")
+	if runtime.GOOS == "windows" {
+		cache, _ := os.UserCacheDir()
+		want = filepath.Join(cache, "pitwall", "state.json")
+	}
+	if got := Path(); got != want {
 		t.Fatalf("Path() = %q, want %q", got, want)
 	}
 }
@@ -80,7 +86,7 @@ func TestSaveLoad(t *testing.T) {
 	}
 	for path, mode := range map[string]os.FileMode{filepath.Dir(Path()): 0700, Path(): 0600} {
 		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != mode {
+		if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != mode) {
 			t.Fatalf("permissions for %s: %v, %v", path, info, err)
 		}
 	}
@@ -504,6 +510,7 @@ func badFiles(t *testing.T, path string) []string {
 func TestOpenSetsAside(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	path := filepath.Join(home, "state.json")
 	full := model.State{Sessions: []model.Session{{ID: "s", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}}}
 	if err := Save(path, full); err != nil {
@@ -536,7 +543,7 @@ func TestOpenSetsAside(t *testing.T) {
 		}
 		kept := ""
 		for _, b := range bad {
-			if strings.Contains(s.Notice, " ~/"+filepath.Base(b)+".") {
+			if strings.Contains(s.Notice, " ~"+string(filepath.Separator)+filepath.Base(b)+".") {
 				kept = b
 			}
 		}

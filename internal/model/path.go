@@ -2,6 +2,7 @@ package model
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,7 +18,7 @@ func shortPath(p, home string) string {
 		return p
 	case p == home:
 		return "~"
-	case strings.HasPrefix(p, home+"/"):
+	case strings.HasPrefix(p, home+"/"), strings.HasPrefix(p, home+string(filepath.Separator)):
 		return "~" + p[len(home):]
 	}
 	return p

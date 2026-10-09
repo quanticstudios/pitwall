@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -119,6 +120,9 @@ func TestResizeQuietPane(t *testing.T) {
 // A tab opened from a shell that cd'd starts there and is titled after that
 // directory, as is the shell's own tab; a shell's exit closes its tab.
 func TestNewTabFollowsCwd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the e2e shell is Git's sh, which reports no folder; PowerShell and cmd do (pane.reportCwd)")
+	}
 	isolate(t)
 	startDaemon(t)
 	gui := connect(t, "gui")
@@ -272,7 +276,7 @@ func TestPromptNamesSession(t *testing.T) {
 
 func TestBinaryHook(t *testing.T) {
 	isolate(t)
-	bin := filepath.Join(t.TempDir(), "pitwall")
+	bin := filepath.Join(t.TempDir(), "pitwall.exe") // Windows runs no file without .exe
 	run(t, time.Minute, filepath.Join("..", ".."), "go", "build", "-o", bin, "./cmd/pitwall")
 	startDaemon(t)
 	gui := connect(t, "gui")
@@ -310,7 +314,11 @@ func isolate(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // defaults, whatever the user's config.toml says
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	t.Setenv("SHELL", "/bin/sh") // the first session's shell, without the user's rc files
+	sh := "/bin/sh" // the first session's shell, without the user's rc files
+	if runtime.GOOS == "windows" {
+		sh, _ = exec.LookPath("sh") // Git's: the tests type POSIX commands
+	}
+	t.Setenv("SHELL", sh)
 	// why: run inside a pitwall pane, these point hooks and the CLI at the user's own daemon.
 	t.Setenv("PITWALL_SOCKET", "")
 	t.Setenv("PITWALL_PANE", "")
@@ -442,7 +450,11 @@ func (c *client) waitFor(t *testing.T, limit time.Duration, match func(any) bool
 // gitRepo is a new repository on main with one commit.
 func gitRepo(t *testing.T) string {
 	t.Helper()
-	repo := t.TempDir()
+	// why: git names a folder by its long name, and %TEMP% on Windows can hold 8.3 short ones.
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	run(t, timeout, repo, "git", "init", "-b", "main")
 	if err := os.WriteFile(filepath.Join(repo, "README"), []byte("e2e\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -523,7 +535,7 @@ func newWorkspace(t *testing.T, gui *client) model.Workspace {
 	if _, err := os.Stat(filepath.Join(w.Path, ".git")); err != nil {
 		t.Fatalf("worktree on disk: %v", err)
 	}
-	if got := strings.TrimSpace(run(t, timeout, w.Path, "git", "rev-parse", "--show-toplevel")); got != w.Path {
+	if got := filepath.FromSlash(strings.TrimSpace(run(t, timeout, w.Path, "git", "rev-parse", "--show-toplevel"))); got != w.Path {
 		t.Fatalf("worktree root: %q, want %q", got, w.Path)
 	}
 	return w
@@ -618,7 +630,7 @@ func run(t *testing.T, limit time.Duration, dir, name string, args ...string) st
 // through the pitwall binary: new -- cmd, wait and ls --json.
 func TestDriveTabs(t *testing.T) {
 	isolate(t)
-	bin := filepath.Join(t.TempDir(), "pitwall")
+	bin := filepath.Join(t.TempDir(), "pitwall.exe") // Windows runs no file without .exe
 	run(t, time.Minute, filepath.Join("..", ".."), "go", "build", "-o", bin, "./cmd/pitwall")
 	startDaemon(t)
 	pitwall := func(args ...string) (int, string, string) {

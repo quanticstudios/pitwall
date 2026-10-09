@@ -6,16 +6,28 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 )
 
+// testBin is the pitwall the hook tests install, an absolute path here, and
+// testCmd how a hook command names it: quoted for sh, or with forward
+// slashes for Git Bash on Windows.
+var testBin, testCmd = "/opt/pitwall/bin/pitwall", "'/opt/pitwall/bin/pitwall'"
+
+func init() {
+	if runtime.GOOS == "windows" {
+		testBin, testCmd = `C:\opt\pitwall\bin\pitwall`, "C:/opt/pitwall/bin/pitwall"
+	}
+}
+
 func hooksHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("XDG_STATE_HOME", "")
 	// why: pi is skipped unless on PATH or configured; tests opt in through its dir.
 	t.Setenv("PATH", "")
@@ -23,7 +35,7 @@ func hooksHome(t *testing.T) string {
 	t.Setenv("GEMINI_CLI_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	previous := hookExecutable
-	hookExecutable = func() (string, error) { return "/opt/pitwall/bin/pitwall", nil }
+	hookExecutable = func() (string, error) { return testBin, nil }
 	t.Cleanup(func() { hookExecutable = previous })
 	return home
 }
@@ -90,7 +102,7 @@ func TestHooksInstallUninstall(t *testing.T) {
 			t.Fatalf("existing hook lost: %s", events["Stop"])
 		}
 		info, _ := os.Stat(path)
-		if info.Mode().Perm() != 0o640 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 			t.Fatal("file mode changed")
 		}
 		backups, _ := filepath.Glob(path + ".pitwall-backup-*")
@@ -135,7 +147,7 @@ func TestHooksDryRunAndMissingFiles(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(out.String(), `"command": "'/opt/pitwall/bin/pitwall' hook codex"`) {
+	if !strings.Contains(out.String(), `"command": "`+testCmd+` hook codex"`) {
 		t.Fatal("dry-run omitted resulting JSON")
 	}
 	if err := runHooks([]string{"install"}, &out); err != nil {
@@ -174,8 +186,8 @@ func TestHooksRefuseTemporaryExecutable(t *testing.T) {
 }
 
 func TestHooksMergeMixedGroups(t *testing.T) {
-	bin := "/opt/pitwall/bin/pitwall"
-	original := []byte(`{"hooks":{"Stop":[{"matcher":"*","extra":true,"hooks":[{"command":"'/opt/pitwall/bin/pitwall' hook claude"},{"command":"'/opt/other/pitwall' hook claude"},{"command":"echo /opt/pitwall/bin/pitwall hook claude"}]}],"Empty":[]}}`)
+	bin := testBin
+	original := []byte(`{"hooks":{"Stop":[{"matcher":"*","extra":true,"hooks":[{"command":"` + testCmd + ` hook claude"},{"command":"'/opt/other/pitwall' hook claude"},{"command":"echo /opt/pitwall/bin/pitwall hook claude"}]}],"Empty":[]}}`)
 	installed, changes, err := mergeHooks(original, agent.ClaudeHooks(bin), true)
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +309,7 @@ func TestHooksConcurrentInvalidEdit(t *testing.T) {
 
 func TestHooksUninstallExactCommands(t *testing.T) {
 	home := hooksHome(t)
-	bin := "/opt/pitwall/bin/pitwall"
+	bin := testBin
 	for _, provider := range []string{"claude", "codex"} {
 		path := filepath.Join(home, ".claude", "settings.json")
 		other := "codex"
@@ -305,8 +317,8 @@ func TestHooksUninstallExactCommands(t *testing.T) {
 			path = filepath.Join(home, ".codex", "hooks.json")
 			other = "claude"
 		}
-		exact := "'" + bin + "' hook " + provider
-		commands := []string{exact, exact + " && ~/bin/audit-agent", exact + " --custom", "'" + bin + "' hook " + other, bin + " hook " + provider, `"` + bin + `" hook ` + provider}
+		exact := testCmd + " hook " + provider
+		commands := []string{exact, exact + " && ~/bin/audit-agent", exact + " --custom", testCmd + " hook " + other, bin + " hook " + provider, `"` + bin + `" hook ` + provider}
 		handlers := []hookObject{}
 		for _, command := range commands {
 			raw, _ := json.Marshal(command)
@@ -342,6 +354,9 @@ func TestHooksPreserveSymlinks(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := os.Symlink(relative, path); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip("symlinks need Developer Mode or admin rights on Windows:", err)
+			}
 			t.Fatal(err)
 		}
 	}
@@ -360,7 +375,7 @@ func TestHooksPreserveSymlinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			info, err = os.Stat(target)
-			if err != nil || info.Mode().Perm() != 0o640 {
+			if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 				t.Fatalf("target mode changed: %v", err)
 			}
 			data := readHooksTestFile(t, target)
@@ -401,7 +416,7 @@ func TestHooksPiExtension(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "extensions", "pitwall.ts")
-	want := agent.PiExtension("/opt/pitwall/bin/pitwall")
+	want := agent.PiExtension(testBin)
 	out.Reset()
 	if err := runHooks([]string{"install", "--dry-run"}, &out); err != nil {
 		t.Fatal(err)
@@ -506,7 +521,7 @@ func TestHooksGeminiAndOpenCode(t *testing.T) {
 	if string(root["theme"]) != `"Dracula"` || len(events) != 7 || !strings.Contains(string(events["BeforeTool"]), "lint.sh") || !strings.Contains(string(events["AfterAgent"]), `"timeout": 5000`) {
 		t.Fatalf("Gemini settings: %s", readHooksTestFile(t, gemini))
 	}
-	if !bytes.Equal(readHooksTestFile(t, plugin), agent.OpenCodePlugin("/opt/pitwall/bin/pitwall")) {
+	if !bytes.Equal(readHooksTestFile(t, plugin), agent.OpenCodePlugin(testBin)) {
 		t.Fatal("install wrote another plugin")
 	}
 	if err := runHooks([]string{"uninstall"}, &out); err != nil {
@@ -557,7 +572,7 @@ func TestHooksCursor(t *testing.T) {
 	}
 	edit := cfg.Hooks["afterFileEdit"]
 	if cfg.Version != 1 || len(cfg.Hooks) != 10 || len(edit) != 2 || edit[0].Command != "./hooks/format.sh" ||
-		edit[1].Command != "'/opt/pitwall/bin/pitwall' hook cursor" || edit[1].Timeout != 5 || len(cfg.Hooks["beforeShellExecution"]) != 1 {
+		edit[1].Command != testCmd+" hook cursor" || edit[1].Timeout != 5 || len(cfg.Hooks["beforeShellExecution"]) != 1 {
 		t.Fatalf("hooks.json: %s", readHooksTestFile(t, path))
 	}
 	out.Reset()

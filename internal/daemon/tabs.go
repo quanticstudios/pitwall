@@ -283,7 +283,7 @@ func (d *Daemon) groupByFolder(ctx context.Context, m proto.GroupByFolder) error
 func (d *Daemon) projectAt(session, path string) string {
 	id, best := "", ""
 	for _, p := range d.st.Projects {
-		if p.SessionID == session && p.Root != "" && len(p.Root) > len(best) && (path == p.Root || strings.HasPrefix(path, strings.TrimSuffix(p.Root, "/")+"/")) {
+		if p.SessionID == session && p.Root != "" && len(p.Root) > len(best) && (path == p.Root || strings.HasPrefix(path, strings.TrimSuffix(p.Root, string(filepath.Separator))+string(filepath.Separator))) {
 			id, best = p.ID, p.Root
 		}
 	}

@@ -3,6 +3,7 @@ package vt
 import (
 	"encoding/base64"
 	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -149,5 +150,25 @@ func TestEmulatorBell(t *testing.T) {
 	e.Write([]byte("a\x07b\x1b]0;title\x07\x1b]8;;http://x\x07c\x1b]8;;\x07\x07"))
 	if n != 2 {
 		t.Fatalf("%d bells, want 2: the BEL ending an OSC is none", n)
+	}
+}
+
+// TestCwd reads OSC 7 as PowerShell's [uri] and cmd's PROMPT write it,
+// with either terminator, and keeps the last local folder.
+func TestCwd(t *testing.T) {
+	e := New(40, 3, io.Discard)
+	cwd := func() string { return e.(interface{ Cwd() string }).Cwd() }
+	for _, c := range []struct{ in, want string }{
+		{"\x1b]7;file:///C:/Users/a%20b\x1b\\PS> ", filepath.FromSlash("C:/Users/a b")},
+		{"\x1b]7;file://localhost/C:\\Users\\a b\x1b\\C:\\Users\\a b>", `C:\Users\a b`},
+		{"\x1b]7;file:///home/u/100%\x07$ ", filepath.FromSlash("/home/u/100%")},
+		{"\x1b]7;file://" + hostname() + "/srv/x\x07", filepath.FromSlash("/srv/x")},
+		{"\x1b]7;file://elsewhere.example/srv/y\x07", filepath.FromSlash("/srv/x")}, // over ssh: kept
+		{"\x1b]7;http://x/z\x07", filepath.FromSlash("/srv/x")},
+	} {
+		e.Write([]byte(c.in))
+		if got := cwd(); got != c.want {
+			t.Errorf("after %q: Cwd = %q, want %q", c.in, got, c.want)
+		}
 	}
 }

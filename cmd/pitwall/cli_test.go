@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -25,13 +26,35 @@ type cliExchange struct {
 	error   string
 }
 
+// setHome makes dir the home folder, and on Windows the profile whose
+// AppData holds pitwall's state and config without XDG variables.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("APPDATA", filepath.Join(dir, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "AppData", "Local"))
+}
+
+// sockPath is a socket path in a short new directory: a subtest's
+// t.TempDir can pass the 104 bytes macOS and the 108 Windows allow.
+func sockPath(t *testing.T, name string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, name)
+}
+
 // fakeCLI checks request ordering over the same unix transport as the daemon.
 func fakeCLI(t *testing.T, exchanges ...cliExchange) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	setHome(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("PITWALL_PANE", "")
-	path := filepath.Join(t.TempDir(), "cli.sock")
+	path := sockPath(t, "cli.sock")
 	t.Setenv("PITWALL_SOCKET", path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -126,7 +149,7 @@ func TestCLIList(t *testing.T) {
 				lines := strings.Split(strings.TrimSpace(out), "\n")
 				// Numbered in sidebar order (group g above tab c), detached last.
 				if len(lines) != 4 || strings.Join(strings.Fields(lines[0]), " ") != "# NAME STATE FOLDER GROUP" ||
-					strings.Join(strings.Fields(lines[1]), " ") != "1 fix login Error ~/src agents" ||
+					strings.Join(strings.Fields(lines[1]), " ") != "1 fix login Error "+filepath.Join("~", "src")+" agents" ||
 					strings.Join(strings.Fields(lines[2]), " ") != "2 ~ idle /work/c -" ||
 					strings.Join(strings.Fields(lines[3]), " ") != "3 alpine idle /work/b - (detached)" {
 					t.Fatal(out)
@@ -308,6 +331,9 @@ func TestCLIDaemonErrorExit(t *testing.T) {
 }
 
 func TestCLIConfirmKill(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creack/pty has no pty on Windows")
+	}
 	for _, answer := range []string{"y\n", "\n", "n\n"} {
 		t.Run(fmt.Sprintf("%q", answer), func(t *testing.T) {
 			exchanges := []cliExchange{{state: cliState()}}

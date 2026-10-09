@@ -551,7 +551,7 @@ func expandHome(p string) string {
 // splitPath cuts what the user typed into the directory to list (expanded,
 // home for a bare name) and the name prefix after the last slash.
 func splitPath(in string) (dir, prefix string) {
-	i := strings.LastIndexByte(in, '/')
+	i := strings.LastIndexAny(in, `/`+string(filepath.Separator))
 	dir, prefix = in[:i+1], in[i+1:]
 	if in == "~" {
 		dir, prefix = "~/", ""
@@ -599,7 +599,7 @@ func completePath(in string) (string, []string) {
 	if len(matches) == 0 {
 		return in, nil
 	}
-	head := in[:strings.LastIndexByte(in, '/')+1]
+	head := in[:strings.LastIndexAny(in, `/`+string(filepath.Separator))+1]
 	if len(matches) == 1 {
 		done := head + matches[0] + "/"
 		return done, dirMatches(done)

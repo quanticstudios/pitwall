@@ -16,7 +16,7 @@ import (
 // answers.
 func silentDaemon(t *testing.T) (string, chan proto.AgentEvent) {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "d.sock")
+	sock := sockPath(t, "d.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestHookReportsAndExits(t *testing.T) {
 // proto.Version and closes at once; the event still reaches it.
 func TestHookReachesOlderDaemon(t *testing.T) {
 	old := proto.Version - 1
-	sock := filepath.Join(t.TempDir(), "d.sock")
+	sock := sockPath(t, "d.sock")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -199,6 +200,9 @@ func TestAgentIsNotTerminalRunning(t *testing.T) {
 }
 
 func TestProcReads(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no process sessions; proc_other.go reads nothing")
+	}
 	pid := os.Getpid()
 	if sessionOf(pid) <= 0 {
 		t.Error("no session for this process")

@@ -41,6 +41,10 @@ jobs:
       - run: go vet ./...
       - name: go vet for Windows
         run: GOOS=windows go vet ./...
+      - name: Link the Windows release binaries with their icon
+        run: |
+          GOOS=windows GOARCH=amd64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
+          GOOS=windows GOARCH=arm64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
       - run: go test -race -timeout 5m ./...
       - name: Check the vendored terminal module
         run: |
@@ -113,17 +117,12 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - name: Test the platform-independent packages
+        if: runner.os == 'macOS'
         run: go test ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
-      # why: these suites have never run on this OS; drop continue-on-error after the first green run.
+      # why: the macOS suite has never passed; drop continue-on-error after its first green run.
       - name: Test everything
-        continue-on-error: true
-        # why: cmd/pitwall's tests hang on Windows and leave a daemon running that locks files (#3).
-        run: |
-          if [ "$RUNNER_OS" = Windows ]; then
-            go list ./... | grep -v '/cmd/pitwall$' | xargs go test -timeout 3m
-          else
-            go test -timeout 3m ./...
-          fi
+        continue-on-error: ${{ runner.os == 'macOS' }}
+        run: go test -timeout 5m ./...
       - name: Stop leftover test processes
         if: always() && runner.os == 'Windows'
         shell: pwsh
@@ -141,3 +140,8 @@ jobs:
           $env:PITWALL_GET_TEST = '1'
           . ./scripts/get.ps1
           if ((Get-PitwallAsset AMD64) -ne 'pitwall_windows_amd64.zip' -or (Get-PitwallAsset ARM64) -ne 'pitwall_windows_arm64.zip') { exit 1 }
+          $exe = (Get-Command cmd.exe).Source
+          $lnk = Join-Path $env:RUNNER_TEMP 'pitwall.lnk'
+          New-PitwallShortcut $exe $lnk
+          $s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+          if ($s.TargetPath -ne $exe -or $s.IconLocation -ne "$exe,0") { "shortcut: $($s.TargetPath) $($s.IconLocation)"; exit 1 }

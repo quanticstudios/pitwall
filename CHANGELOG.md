@@ -17,6 +17,20 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- On Windows, `pitwall.exe` is a GUI program with pitwall's icon: it opens
+  no console window, and `get.ps1` and Scoop put it in the Start menu.
+  Commands run from cmd or PowerShell still print to that terminal, and
+  hooks run by an agent stay silent.
+- On Windows, the Update button works. It renames the running
+  `pitwall.exe` to `pitwall.exe.old`, puts the new one in its place, and a
+  later window deletes the old one.
+- On Windows, a toast shows within moments rather than after PowerShell's
+  ten-second start, and a tab's next toast replaces its last one.
+- On Windows, a tab's folder follows `cd` in PowerShell and cmd.
+- On Windows, git and gh run without a console window, a project's
+  folders resolve against the paths git prints, and the folder dialog
+  completes paths typed with `\`.
+
 - A sidebar row whose Claude Code or Codex asks permission has Allow and
   Deny buttons, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
   focused pane. They take the phone page's path: the key goes only to the

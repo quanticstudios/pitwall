@@ -55,8 +55,8 @@ does, and what to check around it.
 1. Merge the release changes and the matching `## v0.1.0-alpha.N` section in
    [CHANGELOG.md](../CHANGELOG.md) through a pull request.
 2. Check that all required CI jobs passed for the commit you intend to tag.
-   Run platform checks relevant to the release. The full macOS and Windows
-   suites remain advisory; a green build does not prove those suites passed.
+   Run platform checks relevant to the release. The full macOS suite
+   remains advisory; a green build does not prove it passed.
 3. Tag that commit on `main` with `v0.1.0-alpha.N` and push the tag on its
    own. The release workflow verifies that the tagged commit belongs to `main`
    before building and publishes the release as the latest one.

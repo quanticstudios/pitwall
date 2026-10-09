@@ -62,8 +62,16 @@ func TestFollow(t *testing.T) {
 	if err := os.WriteFile(next, []byte(strings.Repeat("n", size-1)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Rename(next, gui); err != nil {
-		t.Fatal(err)
+	// why: Windows refuses the rename while follow has gui open; it opens
+	// it only for a moment each poll.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		err := os.Rename(next, gui)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
 	}
 	wait(strings.Repeat("n", size-1) + "\n")
 	close(stop)

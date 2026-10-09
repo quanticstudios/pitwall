@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -47,24 +48,37 @@ func TestNewer(t *testing.T) {
 	}
 }
 
-// release serves a latest-release JSON, checksums.txt and a tar.gz for
-// this platform holding bin, with sums as checksums.txt when set.
-func release(t *testing.T, bin []byte, sums func(name, sum string) string) (*httptest.Server, *atomic.Int32) {
+// release serves a latest-release JSON, checksums.txt and goos's archive
+// for this GOARCH holding bin, with sums as checksums.txt when set.
+func release(t *testing.T, goos string, bin []byte, sums func(name, sum string) string) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(zw)
-	for _, f := range []struct {
-		name string
-		data []byte
-	}{{"LICENSE", []byte("MIT")}, {"pitwall", bin}} {
-		tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0o755, Size: int64(len(f.data)), Typeflag: tar.TypeReg})
-		tw.Write(f.data)
+	name := fmt.Sprintf("pitwall_%s_%s.tar.gz", goos, runtime.GOARCH)
+	if goos == "windows" {
+		name = fmt.Sprintf("pitwall_%s_%s.zip", goos, runtime.GOARCH)
+		zw := zip.NewWriter(&buf)
+		for _, f := range []struct {
+			name string
+			data []byte
+		}{{"LICENSE", []byte("MIT")}, {"pitwall.exe", bin}} {
+			w, _ := zw.Create(f.name)
+			w.Write(f.data)
+		}
+		zw.Close()
+	} else {
+		zw := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(zw)
+		for _, f := range []struct {
+			name string
+			data []byte
+		}{{"LICENSE", []byte("MIT")}, {"pitwall", bin}} {
+			tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0o755, Size: int64(len(f.data)), Typeflag: tar.TypeReg})
+			tw.Write(f.data)
+		}
+		tw.Close()
+		zw.Close()
 	}
-	tw.Close()
-	zw.Close()
 	arc := buf.Bytes()
-	name := fmt.Sprintf("pitwall_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 	sum := sha256.Sum256(arc)
 	var hits atomic.Int32
 	var srv *httptest.Server
@@ -88,59 +102,109 @@ func release(t *testing.T, bin []byte, sums func(name, sum string) string) (*htt
 	return srv, &hits
 }
 
+// TestInstall installs a release's tar.gz the Unix way, and its zip the
+// Windows way: the old binary set aside, then removed on the next start.
 func TestInstall(t *testing.T) {
-	if !Supported {
-		t.Skip("no updates on " + runtime.GOOS)
-	}
 	ok := func(name, sum string) string { return "abc  pitwall_other.zip\n" + sum + "  " + name + "\n" }
-	for _, c := range []struct {
-		name string
-		sums func(name, sum string) string
-		want string // the binary after Install
-	}{
-		{"verified", ok, "new"},
-		{"mismatch", func(name, _ string) string { return fmt.Sprintf("%064d  %s\n", 0, name) }, "old"},
-		{"missing", func(string, string) string { return "abc  pitwall_other.zip\n" }, "old"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			srv, _ := release(t, []byte("new"), c.sums)
-			ctx := context.Background()
-			rel, newer, err := Check(ctx, srv.Client(), srv.URL+"/latest", "v0.1.0-alpha.9")
-			if err != nil || !newer || rel.Tag != "v0.1.0-alpha.10" {
-				t.Fatalf("Check = %+v, %v, %v", rel, newer, err)
-			}
-			dir := t.TempDir()
-			exe := filepath.Join(dir, "pitwall")
-			if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			link := filepath.Join(dir, "link")
-			if err := os.Symlink(exe, link); err != nil {
-				t.Fatal(err)
-			}
-			err = Install(ctx, srv.Client(), rel, link)
-			if (err == nil) != (c.want == "new") {
-				t.Fatalf("Install: %v", err)
-			}
-			got, _ := os.ReadFile(exe)
-			if string(got) != c.want {
-				t.Fatalf("binary = %q, want %q", got, c.want)
-			}
-			if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
-				t.Fatal("the symlink was replaced instead of its target")
-			}
-			if fi, _ := os.Stat(exe); fi.Mode().Perm() != 0o755 {
-				t.Fatalf("mode = %v", fi.Mode())
-			}
-			if entries, _ := os.ReadDir(dir); len(entries) != 2 {
-				t.Fatalf("left behind: %v", entries)
-			}
-		})
+	for _, goos := range []string{"linux", "windows"} {
+		for _, c := range []struct {
+			name string
+			sums func(name, sum string) string
+			want string // the binary after Install
+		}{
+			{"verified", ok, "new"},
+			{"mismatch", func(name, _ string) string { return fmt.Sprintf("%064d  %s\n", 0, name) }, "old"},
+			{"missing", func(string, string) string { return "abc  pitwall_other.zip\n" }, "old"},
+		} {
+			t.Run(goos+"/"+c.name, func(t *testing.T) {
+				srv, _ := release(t, goos, []byte("new"), c.sums)
+				ctx := context.Background()
+				rel, newer, err := Check(ctx, srv.Client(), srv.URL+"/latest", "v0.1.0-alpha.9")
+				if err != nil || !newer || rel.Tag != "v0.1.0-alpha.10" {
+					t.Fatalf("Check = %+v, %v, %v", rel, newer, err)
+				}
+				dir := t.TempDir()
+				exe := filepath.Join(dir, "pitwall")
+				if err := os.WriteFile(exe, []byte("old"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				// Windows lets only some accounts make symlinks.
+				link, files := filepath.Join(dir, "link"), 2
+				if err := os.Symlink(exe, link); err != nil && runtime.GOOS == "windows" {
+					link, files = exe, 1
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				err = install(ctx, srv.Client(), rel, link, goos, runtime.GOARCH)
+				if (err == nil) != (c.want == "new") {
+					t.Fatalf("Install: %v", err)
+				}
+				got, _ := os.ReadFile(exe)
+				if string(got) != c.want {
+					t.Fatalf("binary = %q, want %q", got, c.want)
+				}
+				if fi, _ := os.Lstat(link); link != exe && fi.Mode()&os.ModeSymlink == 0 {
+					t.Fatal("the symlink was replaced instead of its target")
+				}
+				if fi, _ := os.Stat(exe); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755 {
+					t.Fatalf("mode = %v", fi.Mode())
+				}
+				if goos == "windows" && c.want == "new" {
+					if old, _ := os.ReadFile(exe + ".old"); string(old) != "old" {
+						t.Fatalf("set aside %q", old)
+					}
+					RemoveOld(link)
+				}
+				if entries, _ := os.ReadDir(dir); len(entries) != files {
+					t.Fatalf("left behind: %v", entries)
+				}
+			})
+		}
+	}
+}
+
+// TestSwapPastBusyOld: an older binary that cannot be removed, as one a
+// daemon still runs, gets the next aside name, and RemoveOld clears the
+// rest.
+func TestSwapPastBusyOld(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "pitwall.exe")
+	write := func(name, data string) {
+		t.Helper()
+		if err := os.WriteFile(name, []byte(data), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(exe, "v2")
+	// A directory stands for the running binary: Remove fails on it.
+	if err := os.MkdirAll(filepath.Join(exe+".old", "busy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(exe+".old1", "v0")
+	write(filepath.Join(dir, "next"), "v3")
+	if err := swap(exe, filepath.Join(dir, "next")); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{exe: "v3", exe + ".old1": "v2"} {
+		if got, _ := os.ReadFile(name); string(got) != want {
+			t.Errorf("%s = %q, want %q", filepath.Base(name), got, want)
+		}
+	}
+	RemoveOld(exe)
+	if entries, _ := os.ReadDir(dir); len(entries) != 2 {
+		t.Fatalf("after RemoveOld: %v", entries)
+	}
+	// next is gone, so the swap puts exe back.
+	if err := swap(exe, filepath.Join(dir, "next")); err == nil {
+		t.Fatal("swapped in a missing binary")
+	}
+	if got, _ := os.ReadFile(exe); string(got) != "v3" {
+		t.Fatalf("after a failed swap exe = %q", got)
 	}
 }
 
 func TestDevBuildNeverChecks(t *testing.T) {
-	srv, hits := release(t, []byte("new"), func(string, string) string { return "" })
+	srv, hits := release(t, runtime.GOOS, []byte("new"), func(string, string) string { return "" })
 	for _, v := range []string{"dev", "dev-0123456789ab-dirty", "v0.1.0-alpha.9-2-g0123abc", "v0.1.0-alpha.9-dirty"} {
 		if _, newer, err := Check(context.Background(), srv.Client(), srv.URL+"/latest", v); newer || err != nil {
 			t.Errorf("Check(%q) = %v, %v", v, newer, err)
@@ -159,6 +223,8 @@ func TestManaged(t *testing.T) {
 		"/home/u/.local/bin/pitwall": false,
 		"/Users/u/Applications/pitwall.app/Contents/MacOS/pitwall": false,
 		"/usr/local/bin/pitwall":                                   false,
+		`C:\Users\u\scoop\apps\pitwall\current\pitwall.exe`:        true,
+		`C:\Users\u\AppData\Local\pitwall\bin\pitwall.exe`:         false,
 	} {
 		if got := Managed(exe); got != want {
 			t.Errorf("Managed(%q) = %v, want %v", exe, got, want)

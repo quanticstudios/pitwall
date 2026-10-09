@@ -23,3 +23,9 @@ func desktopCommand(ctx context.Context, urgent bool, group, title, body string)
 	}
 	return exec.CommandContext(ctx, "notify-send", notifySendArgs(urgent, false, false, group, title, body)...)
 }
+
+// preloadToasts is for Windows, where a toast needs PowerShell started.
+func preloadToasts() {}
+
+// runDesktop runs a desktopCommand.
+func runDesktop(cmd *exec.Cmd) error { return cmd.Run() }

@@ -44,6 +44,7 @@ func notificationCommand(ctx context.Context, n notification, actions bool) *exe
 // disables delivery for this window and logs once. Where notify-send takes
 // actions, a notification with act waits for a click in the background.
 func desktopSender() func(context.Context, notification) {
+	preloadToasts()
 	disabled, soundFailed := false, false
 	var actions *bool
 	return func(ctx context.Context, n notification) {
@@ -73,7 +74,7 @@ func desktopSender() func(context.Context, notification) {
 			log.Printf("%q unavailable: %q", cmd.Args[0], cmd.Err)
 			return
 		}
-		if err := cmd.Run(); err != nil && ctx.Err() != context.Canceled {
+		if err := runDesktop(cmd); err != nil && ctx.Err() != context.Canceled {
 			log.Printf("%q: %q", cmd.Args[0], err)
 		}
 	}

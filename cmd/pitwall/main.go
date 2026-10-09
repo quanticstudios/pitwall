@@ -95,6 +95,7 @@ func main() {
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
 	}
+	attachConsole(cmd)
 	var err error
 	switch cmd {
 	case "--version", "-v", "version":

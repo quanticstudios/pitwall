@@ -4,6 +4,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -13,28 +14,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
 // LatestURL is GitHub's latest release, the one get.sh installs.
 const LatestURL = "https://api.github.com/repos/quanticstudios/pitwall/releases/latest"
 
-// Supported is whether Install can replace the binary here. Windows cannot
-// rename over a running executable and ships zip archives, so it has no
-// update button; get.ps1 updates it.
-const Supported = runtime.GOOS != "windows"
-
 // Managed is whether a package manager owns the binary at exe, a resolved
-// path: Homebrew's Cellar, or /usr/bin from pacman or a distro package.
-// Its package manager updates it, so the button stays hidden.
+// path: Homebrew's Cellar, /usr/bin from pacman or a distro package, or
+// Scoop's apps folder. Its package manager updates it, so the button stays
+// hidden.
 func Managed(exe string) bool {
-	return strings.Contains(exe, "/Cellar/") || strings.HasPrefix(exe, "/usr/bin/")
+	return strings.Contains(exe, "/Cellar/") || strings.HasPrefix(exe, "/usr/bin/") ||
+		strings.Contains(strings.ToLower(exe), `\scoop\apps\`)
 }
 
 // Release is a GitHub release: its tag and its assets' download URLs by
@@ -135,7 +135,15 @@ func Check(ctx context.Context, c *http.Client, url, current string) (Release, b
 // release's checksums.txt, and replaces exe (through symlinks) with the
 // pitwall binary inside. On any error exe is left as it was.
 func Install(ctx context.Context, c *http.Client, rel Release, exe string) error {
-	name := fmt.Sprintf("pitwall_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	return install(ctx, c, rel, exe, runtime.GOOS, runtime.GOARCH)
+}
+
+// install is Install for goos and goarch.
+func install(ctx context.Context, c *http.Client, rel Release, exe, goos, goarch string) error {
+	name, extract, bin := fmt.Sprintf("pitwall_%s_%s.tar.gz", goos, goarch), extractTar, "pitwall"
+	if goos == "windows" {
+		name, extract, bin = fmt.Sprintf("pitwall_%s_%s.zip", goos, goarch), extractZip, "pitwall.exe"
+	}
 	sums, err := get(ctx, c, rel.Assets["checksums.txt"], 1<<20)
 	if err != nil {
 		return fmt.Errorf("checksums.txt: %w", err)
@@ -147,11 +155,11 @@ func Install(ctx context.Context, c *http.Client, rel Release, exe string) error
 	if err := verify(sums, name, arc); err != nil {
 		return err
 	}
-	bin, err := extract(arc)
+	data, err := extract(arc, bin)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	return replace(exe, bin)
+	return replace(exe, data, goos == "windows")
 }
 
 // verify checks data against name's line in a sha256sum listing.
@@ -170,8 +178,8 @@ func verify(sums []byte, name string, data []byte) error {
 	return fmt.Errorf("checksums.txt has no %s", name)
 }
 
-// extract is the pitwall binary in a release tar.gz.
-func extract(arc []byte) ([]byte, error) {
+// extractTar is the file named bin in a release tar.gz.
+func extractTar(arc []byte, bin string) ([]byte, error) {
 	zr, err := gzip.NewReader(bytes.NewReader(arc))
 	if err != nil {
 		return nil, err
@@ -185,15 +193,35 @@ func extract(arc []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if h.Typeflag == tar.TypeReg && path.Clean(h.Name) == "pitwall" {
+		if h.Typeflag == tar.TypeReg && path.Clean(h.Name) == bin {
 			return readMax(tr, 512<<20)
 		}
 	}
 }
 
+// extractZip is the file named bin in a release zip.
+func extractZip(arc []byte, bin string) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(arc), int64(len(arc)))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range zr.File {
+		if f.Mode().IsRegular() && path.Clean(f.Name) == bin {
+			r, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			defer r.Close()
+			return readMax(r, 512<<20)
+		}
+	}
+	return nil, errors.New("no pitwall binary in the archive")
+}
+
 // replace writes bin next to exe and renames it over exe, so a crash
-// midway leaves the old binary. A running process keeps its old copy.
-func replace(exe string, bin []byte) error {
+// midway leaves the old binary. A running process keeps its old copy. With
+// aside, for Windows, it swaps the two instead.
+func replace(exe string, bin []byte, aside bool) error {
 	exe, err := filepath.EvalSymlinks(exe)
 	if err != nil {
 		return err
@@ -212,7 +240,61 @@ func replace(exe string, bin []byte) error {
 	if err != nil {
 		return err
 	}
+	if aside {
+		return swap(exe, f.Name())
+	}
 	return os.Rename(f.Name(), exe)
+}
+
+// oldMax bounds the binaries swap keeps aside at once.
+const oldMax = 10
+
+// swap moves exe aside and next into its place: Windows will not replace
+// or delete a running executable but lets it be renamed. The old binary
+// goes to exe.old, or exe.old1 and on while an older one still runs, say
+// in the daemon; RemoveOld deletes them on a later start. If next cannot
+// move in, exe moves back.
+func swap(exe, next string) error {
+	old, err := freeOld(exe)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(exe, old); err != nil {
+		return err
+	}
+	if err := os.Rename(next, exe); err != nil {
+		return errors.Join(err, os.Rename(old, exe))
+	}
+	return nil
+}
+
+// freeOld is the first aside name for exe that is free or can be freed.
+func freeOld(exe string) (string, error) {
+	var err error
+	for i := range oldMax {
+		old := oldName(exe, i)
+		if err = os.Remove(old); err == nil || errors.Is(err, fs.ErrNotExist) {
+			return old, nil
+		}
+	}
+	return "", fmt.Errorf("%d older binaries still run: %w", oldMax, err)
+}
+
+func oldName(exe string, i int) string {
+	if i == 0 {
+		return exe + ".old"
+	}
+	return exe + ".old" + strconv.Itoa(i)
+}
+
+// RemoveOld deletes the binaries swap set aside next to exe. One that a
+// process still runs stays for a later start.
+func RemoveOld(exe string) {
+	if exe, err := filepath.EvalSymlinks(exe); err == nil {
+		for i := range oldMax {
+			os.Remove(oldName(exe, i))
+		}
+	}
 }
 
 func get(ctx context.Context, c *http.Client, url string, limit int64) ([]byte, error) {
