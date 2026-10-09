@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"image"
 	"sync"
 	"testing"
@@ -209,5 +210,34 @@ func TestSlide(t *testing.T) {
 	}
 	if got := u.slide(gl.Context{Ops: new(op.Ops), Now: at}, time.Time{}, false); got != 0 {
 		t.Errorf("no slide, closed = %v, want 0", got)
+	}
+}
+
+// TestPanelListed: Changes says it is reading until git first answers for
+// the directory, also when the answer is that it is not a repository.
+func TestPanelListed(t *testing.T) {
+	old := listFiles
+	t.Cleanup(func() { listFiles = old })
+	answer := make(chan struct{})
+	listFiles = func(context.Context, string) (string, []gitstat.FileStat, error) {
+		<-answer
+		return "", nil, errors.New("not a git repository")
+	}
+	invalidated := make(chan struct{}, 4)
+	var s sidePanel
+	defer s.stop()
+	s.follow(nil, "/tmp/plain", func() { invalidated <- struct{}{} })
+	state := func() (listed, git bool) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.listed, s.git
+	}
+	if listed, _ := state(); listed {
+		t.Fatal("listed before git answered")
+	}
+	close(answer)
+	<-invalidated
+	if listed, git := state(); !listed || git {
+		t.Fatalf("after a failed listing: listed %v, git %v", listed, git)
 	}
 }

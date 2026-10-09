@@ -59,6 +59,7 @@ type sidePanel struct {
 	base      string
 	files     []gitstat.FileStat
 	git       bool
+	listed    bool // git has answered once for filesDir
 }
 
 // follow points the panel at pane, whose live directory is dir: a pane,
@@ -99,7 +100,7 @@ func (s *sidePanel) follow(p *model.Pane, dir string, invalidate func()) {
 			s.stopFiles = nil
 		}
 		s.filesGen++
-		s.filesDir, s.base, s.files, s.git = dir, "", nil, false
+		s.filesDir, s.base, s.files, s.git, s.listed = dir, "", nil, false, false
 		if dir != "" {
 			ctx, cancel := context.WithCancel(context.Background())
 			s.stopFiles = cancel
@@ -123,9 +124,9 @@ func (s *sidePanel) listFiles(ctx context.Context, list func(context.Context, st
 			return
 		}
 		s.mu.Lock()
-		changed := s.filesGen == gen && (s.base != base || s.git != (err == nil) || !slices.Equal(s.files, files))
+		changed := s.filesGen == gen && (!s.listed || s.base != base || s.git != (err == nil) || !slices.Equal(s.files, files))
 		if changed {
-			s.base, s.files, s.git = base, files, err == nil
+			s.base, s.files, s.git, s.listed = base, files, err == nil, true
 		}
 		s.mu.Unlock()
 		if changed {
@@ -176,6 +177,8 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	}
 	u.panel.mu.Lock()
 	in.Feed, in.Base, in.Files, in.Git = u.panel.feed, u.panel.base, u.panel.files, u.panel.git
+	in.WaitGit = u.panel.filesDir != "" && !u.panel.listed
+	in.WaitFeed = u.panel.watching != "" && u.panel.feed == nil
 	u.panel.mu.Unlock()
 
 	paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: r.Min, Max: image.Pt(r.Min.X+1, r.Max.Y)}.Op())

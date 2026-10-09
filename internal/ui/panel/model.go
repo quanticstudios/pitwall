@@ -31,6 +31,10 @@ type Input struct {
 	Now   time.Time
 	// ShowCost shows what the agent's tokens cost at list prices.
 	ShowCost bool
+	// WaitGit and WaitFeed are set while git, or the session file, has
+	// been asked and not answered yet: the views show a loading line
+	// instead of their empty state.
+	WaitGit, WaitFeed bool
 }
 
 // View is one of the panel's tabs.
