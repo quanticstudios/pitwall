@@ -24,7 +24,8 @@ optional name act on the pane's own tab.
 | `pitwall tab new`                     | Open a tab next to this pane's tab, in its folder             |
 | `pitwall tab rename [name...]`        | Name this pane's tab; no name goes back to the automatic one  |
 | `pitwall tab close`                   | Close this pane's tab                                         |
-| `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview)            |
+| `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
+| `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](troubleshooting.md#logs)) |
 | `pitwall remote pair` / `devices` / `revoke` | Pair a phone, list paired phones, unpair one (see [Phone](phone.md)) |

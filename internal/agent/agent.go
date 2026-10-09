@@ -604,6 +604,49 @@ func hooksJSON(bin, provider string, events []hookEvent, timeout int) []byte {
 	return b
 }
 
+// ClaudeStatusline is the statusLine command for ~/.claude/settings.json
+// that runs `<bin> statusline`, which records Claude Code's plan limits
+// and hands its JSON on to wrapped, the user's own statusline command,
+// when there is one. Claude Code runs it in sh, Git Bash on Windows.
+func ClaudeStatusline(bin, wrapped string) string {
+	cmd := commandPath(runtime.GOOS, bin) + " statusline"
+	if wrapped != "" {
+		cmd += " '" + strings.ReplaceAll(wrapped, "'", `'\''`) + "'"
+	}
+	return cmd
+}
+
+// StatuslineWrapped reports whether command is ClaudeStatusline(bin, w),
+// and returns w.
+func StatuslineWrapped(bin, command string) (wrapped string, ok bool) {
+	rest, ok := strings.CutPrefix(command, ClaudeStatusline(bin, ""))
+	if !ok {
+		return "", false
+	}
+	if rest == "" {
+		return "", true
+	}
+	if rest, ok = strings.CutPrefix(rest, " "); !ok || rest == "" {
+		return "", false
+	}
+	// Single-quoted runs with \' between them, as ClaudeStatusline writes.
+	var b strings.Builder
+	for rest != "" {
+		if after, ok := strings.CutPrefix(rest, `\'`); ok {
+			b.WriteByte('\'')
+			rest = after
+			continue
+		}
+		i := strings.IndexByte(rest[1:], '\'')
+		if rest[0] != '\'' || i < 0 {
+			return "", false
+		}
+		b.WriteString(rest[1 : 1+i])
+		rest = rest[i+2:]
+	}
+	return b.String(), true
+}
+
 // commandPath quotes bin for the shell an agent runs its hooks in: sh on
 // Unix. On Windows that is Git Bash for Claude Code and may be cmd or
 // PowerShell elsewhere, so the path gets forward slashes, which all three

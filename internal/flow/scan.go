@@ -6,6 +6,7 @@ import (
 	"hash/maphash"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,6 +72,7 @@ type scanned struct {
 	off      int64 // just past the last complete line read
 	recs     []Record
 	codex    codexScan
+	limits   map[string]Limit // a Codex rollout's latest of each limit, by limit id
 }
 
 // codexScan carries what a Codex rollout's earlier lines set.
@@ -169,7 +171,7 @@ func (s *Scanner) file(path string, p model.Provider, fi os.FileInfo, prev *scan
 	}
 	f := &scanned{provider: p, info: fi}
 	if prev != nil && prev.provider == p && os.SameFile(prev.info, fi) && fi.Size() > prev.info.Size() {
-		f.off, f.codex, f.recs = prev.off, prev.codex, prev.recs
+		f.off, f.codex, f.recs, f.limits = prev.off, prev.codex, prev.recs, maps.Clone(prev.limits)
 	}
 	fd, err := os.Open(path)
 	if err != nil {
@@ -325,6 +327,7 @@ type codexUseLine struct {
 		ID           string          `json:"id"`
 		ForkedFromID *string         `json:"forked_from_id"`
 		Source       json.RawMessage `json:"source"` // "cli", or an object for a subagent
+		RateLimits   *codexLimits    `json:"rate_limits"`
 	} `json:"payload"`
 }
 
@@ -341,7 +344,8 @@ func spawned(source json.RawMessage) bool {
 }
 
 // codexLine follows a rollout's session and model and adds a token_count's
-// call: its last_token_usage, unless the event repeats the one before.
+// call: its last_token_usage, unless the event repeats the one before. It
+// keeps the latest rate_limits of each limit too.
 func (f *scanned) codexLine(line []byte, file string) {
 	var e codexUseLine
 	if json.Unmarshal(line, &e) != nil {
@@ -365,6 +369,14 @@ func (f *scanned) codexLine(line []byte, file string) {
 			c.model = p.Model
 		}
 	case p.Type == "token_count":
+		if r := p.RateLimits; r != nil && !ts.IsZero() && (c.fork.IsZero() || ts.Sub(c.fork) >= time.Second) {
+			if l, ok := r.limit(ts); ok {
+				if f.limits == nil {
+					f.limits = map[string]Limit{}
+				}
+				f.limits[r.ID] = l
+			}
+		}
 		if p.Info == nil || c.model == "" || ts.IsZero() || *p.Info == c.last {
 			return
 		}

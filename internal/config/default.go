@@ -22,7 +22,7 @@ func defaults() Config {
 	c.Term.OSC52, c.Term.Bell = "write", "attention"
 	c.Updates.Check = &on
 	off := false
-	c.Usage.ShowCost = &off
+	c.Usage.ShowCost, c.Usage.LimitsInSidebar = &off, &off
 	c.Decisions = defaultDecisions()
 	c.Worktrees = defaultWorktrees()
 	c.Remote = defaultRemote()

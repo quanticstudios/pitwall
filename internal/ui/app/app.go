@@ -3,6 +3,7 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"image"
 	"log"
@@ -85,6 +86,7 @@ func Run(b Backend) error {
 	stop := make(chan struct{})
 	defer close(stop)
 	go u.updates.watch(stop, w.Invalidate)
+	go u.limits.watch(stop, w.Invalidate)
 	go watchConfig(stop, func() []string {
 		u.cfgMu.Lock()
 		defer u.cfgMu.Unlock()
@@ -265,8 +267,9 @@ type ui struct {
 	settingsWS string        // the tab it was opened over; leaving it closes the page
 	probs      []string      // the loaded config's problems, for the settings page
 
-	updates    updater // the sidebar's update button
-	relaunched bool    // a new window took over after an update; close this one
+	updates    updater    // the sidebar's update button
+	limits     limitWatch // plan limits for Settings, the sidebar's meter and their notice
+	relaunched bool       // a new window took over after an update; close this one
 
 	// The connection dialog, see layoutLink. epoch is the Link.Epoch the
 	// panes' sizes were sent for; quit is Later: close, leaving the daemon.
@@ -579,7 +582,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	fo.Pop()
 	u.drawNotice(pgtx)
-	u.drawStateNotice(pgtx, st.Notice)
+	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown()))
 	off.Pop()
 	pc.Pop()
 	u.layoutPanel(gtx, &st, side)
@@ -603,6 +606,10 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.Numbers = digits
 		u.sidebar.GH = ghInstalled()
 		u.sidebar.ShowCost = u.cfg.ShowCost
+		u.sidebar.Limits = nil
+		if u.cfg.LimitsInSidebar {
+			u.sidebar.Limits = u.limits.get()
+		}
 		u.usage.prune(&st)
 		u.sidebar.Usage = func(ws string) *flow.Usage {
 			invalidate := u.invalidate

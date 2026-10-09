@@ -24,6 +24,16 @@ build. Either step takes `--dry-run`.
   version sends again in the daemon's, and daemons serve hooks of any
   version. A daemon that gets hooks from a newer pitwall shows a notice
   once asking you to restart it, and logs a line a minute with a count.
+- Settings, Usage starts with Limits: how much of Claude Code's and
+  Codex's 5-hour and weekly plan limits you have used, when each window
+  resets, how old the report is, and when you hit 100% at the current pace.
+  Codex's come from its session files. Claude Code reports them only to its
+  status line, so `pitwall hooks install --statusline`, or a box in the
+  install dialog, runs your status line through `pitwall statusline`, which
+  saves them and prints your own status line unchanged. A window at 90%
+  shows a notice once, and `limits_in_sidebar = true` under `[usage]` adds
+  a meter to the bottom of the sidebar that turns yellow at 80% and red at
+  95%. pitwall never asks Anthropic or OpenAI for them.
 - The README and the site no longer list the AUR package. It is not on the
   AUR yet: new AUR accounts are closed for now.
 

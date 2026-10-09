@@ -211,6 +211,21 @@ only what the agents appended since. A call that Claude Code repeats in a
 subagent's or a resumed session's file counts once. Models without a list
 price show as Unpriced and add tokens but no cost.
 
+Above the costs, Limits shows how much of each plan limit Claude Code and
+Codex last reported using: a bar per window (5-hour and weekly), when it
+resets, how long ago the agent reported it, and, at the pace of the window
+so far, when it would reach 100% if that is before the reset. A window
+whose reset time has passed shows 0% until the agent reports again. Codex
+logs its limits in its session files; pitwall reads the last 8 days of them
+every minute. Claude Code reports its limits only to its status line, so
+the Set up button there opens the hooks dialog with pitwall's status line
+ticked (see [Hooks](hooks.md#plan-limits)). pitwall never asks Anthropic or
+OpenAI for them. When a window reaches 90%, a notice at the top of the
+panes says so once, such as "Claude 5-hour window at 90%, resets 16:40".
+Set `limits_in_sidebar = true` under `[usage]`, or use the switch under
+Limits, to show each agent's fullest window at the bottom of the sidebar,
+yellow from 80% and red from 95%.
+
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
 Drag to select, double-click a word, or hold Shift when a program owns the

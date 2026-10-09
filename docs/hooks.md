@@ -44,3 +44,18 @@ extension if you prefer to edit the files yourself.
 
 The hooks do nothing outside a pitwall pane, so they are safe to keep
 installed globally.
+
+## Plan limits
+
+Claude Code reports its 5-hour and weekly plan limits only to its status
+line, not to hooks or its transcript. `pitwall hooks install --statusline`,
+or the "Also show Claude Code's plan limits" box in the install dialog (off
+by default), sets the `statusLine` command in `~/.claude/settings.json` to
+`pitwall statusline`. If you already have a status line command, pitwall
+keeps it as an argument: `pitwall statusline '<your command>'`. Each time
+Claude Code redraws the status line, pitwall saves the `rate_limits` from
+its input to `claude-limits.json` in pitwall's state directory, then runs
+your command on the same input and passes its output and exit code through
+unchanged. Saving never fails the status line. `pitwall hooks uninstall`
+puts your command back, or removes the `statusLine` pitwall added. Codex
+logs its limits in its session files, so it needs nothing.

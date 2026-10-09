@@ -41,6 +41,8 @@ type Sidebar struct {
 	// when unknown. ShowCost adds what the tokens cost.
 	Usage    func(workspace string) *flow.Usage
 	ShowCost bool
+	// Limits are the plan limits the footer's meter shows; nil hides it.
+	Limits []flow.Limit
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"

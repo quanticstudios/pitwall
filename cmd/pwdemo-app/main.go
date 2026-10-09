@@ -14,10 +14,14 @@ import (
 func main() {
 	b := app.NewFakeBackend()
 	// A canned install: the demo never touches an agent's config.
-	app.InstallHooks = func(dry bool) (string, error) {
+	app.InstallHooks = func(dry, statusline bool) (string, error) {
 		time.Sleep(300 * time.Millisecond)
 		if dry {
-			return "/home/you/.claude/settings.json: added SessionStart: 'pitwall' hook claude\n" +
+			line := ""
+			if statusline {
+				line = "/home/you/.claude/settings.json: wrapped statusLine: ~/.claude/statusline.sh\n"
+			}
+			return line + "/home/you/.claude/settings.json: added SessionStart: 'pitwall' hook claude\n" +
 				"/home/you/.claude/settings.json: added Stop: 'pitwall' hook claude\n" +
 				"/home/you/.codex/hooks.json: unchanged\n" +
 				"/home/you/.gemini/settings.json: added BeforeAgent: 'pitwall' hook gemini\n" +
