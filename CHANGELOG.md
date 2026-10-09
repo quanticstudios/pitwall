@@ -28,6 +28,12 @@ build. Either step takes `--dry-run`.
   button: press a chord and see every action bound to it, in tab and pane
   mode too.
 - Token counts that miss the start of a long session file end in "+" (`2M+`) instead of a "≥" the UI font cannot draw, and counts of a billion or more read `1.1B` instead of `1076M`. The review view's folded lines start with "…".
+- The README and the site lead with what pitwall does for you, one short
+  section per outcome with a new screenshot: the sidebar, answering from
+  your phone, the review view, worktree conflict warnings, New task, plan
+  limits, the session switcher and the command palette. The first-run
+  walkthrough moved to `docs/usage.md` and the platform table to
+  `docs/install.md`.
 
 ## v0.1.0-beta.4
 

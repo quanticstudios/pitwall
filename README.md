@@ -1,143 +1,177 @@
 # pitwall
 <img src="packaging/pitwall.svg" alt="pitwall logo: a P whose stem is three status lights and whose bowl is a terminal pane" width="96" height="96">
 
-<img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs with live states, a pane that rings green when its agent finishes, and the jump key switching to the tab whose agent asks for approval" width="800">
+pitwall is a desktop terminal for running several coding agents at once,
+with a sidebar that shows what each one is doing right now.
 
-pitwall shows every coding agent's live state at a glance, and one key jumps
-to the agent that is waiting on you. Sessions survive closing the window and a
-reboot, with agents resumed where they left off, and you can approve or answer
-an agent from your phone.
+Run five agents in five tabs and one of them is always stuck on a question
+you have not seen. pitwall lights up that tab, notifies you, and takes you
+there with one key.
 
-It is a terminal multiplexer for running Claude Code, Codex, Gemini CLI,
-OpenCode and pi side by side. It is a native window: a sidebar lists every tab
-and what it is doing right now, whether that is a command running in a
-terminal or an agent working, waiting for your answer, asking for approval,
-done, or failed. Terminals are drawn with real fonts and pixels, not character
-cells.
+<img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs grouped by project, with Working, Approval, Input and Done states, pull request chips and Allow and Deny buttons; the open tab runs three agents in split panes" width="800">
 
-**pitwall is in beta.** It is used every day on Linux. Config and saved
-state carry over between releases, and a release that cannot keep them says
-so in the changelog. It is
-developed on Linux (Hyprland) and works on any Wayland or X11 desktop.
-macOS and Windows builds are new; see the
-[platform notes](docs/install.md#platform-notes). Releases are tagged
-`v0.1.0-beta.N`.
+pitwall is in beta. It runs every day on Linux; the macOS and Windows
+builds are newer. Your tabs and config carry over between releases.
 
 ## Install
 
-With Homebrew, on macOS or Linux:
-
 ```sh
-brew install quanticstudios/tap/pitwall
+brew install quanticstudios/tap/pitwall   # macOS or Linux, with Homebrew
+curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh   # or the script
 ```
-
-With Scoop, on Windows:
 
 ```powershell
 scoop bucket add quanticstudios https://github.com/quanticstudios/scoop-bucket
-scoop install pitwall
+scoop install pitwall                     # Windows, with Scoop
+irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps1 | iex   # or the script
 ```
 
-Or with the install script, on Linux or macOS:
+Then run `pitwall`. The first window lists the agents on your `PATH` and
+sets up their status reporting with one button. [docs/install.md](docs/install.md)
+covers platforms, pinning a version, updates and building from source.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.sh | sh
-```
+## What you get
 
-On Windows, in PowerShell:
+### See every agent at a glance
 
-```powershell
-irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps1 | iex
-```
+<img src="docs/media/sidebar.webp" alt="The sidebar: an acme-api group with tabs Working, Approval and a tab of three agents listed one per row, a queued task, and a web-app group with an Input tab and a merged Done tab" width="240" align="right">
 
-The script checks the download against the release's `checksums.txt` and
-installs `pitwall` in `~/.local/bin` (`%LOCALAPPDATA%\pitwall\bin` on
-Windows), and `pitwall.app` in `~/Applications` on macOS. [docs/install.md](docs/install.md) covers pinning a version, the
-known gaps on macOS and Windows, updates, and building from source.
+**Every tab's row says what its agent is doing: Working, Input, Approval,
+Plan, Done or Error.** A tab with three agents in split panes lists each on
+its own line. The row also shows the branch, the lines changed, and the pull
+request with its CI and review. Merge it from the tab's menu; once merged,
+Archive closes the tab and removes its worktree and branch.
 
-| Platform                       | Release builds | Status                     |
-| ------------------------------ | -------------- | -------------------------- |
-| Linux (glibc 2.35 or newer)    | x86_64, arm64  | beta, used every day       |
-| macOS                          | arm64, x86_64  | beta, new and not yet run  |
-| Windows 10 1809 or newer, 11   | x86_64, arm64  | beta, new and not yet run  |
+### Get to the one that needs you
 
-## Quick start
+**Ctrl+Shift+U jumps to the agent that started waiting most recently, in any
+session.** Its pane gets a ring in the state's color and you get a desktop
+notification. Press the key again for the next one. Any command can ask
+too: `npm test && pitwall notify "tests passed"`.
 
-```sh
-pitwall
-```
+<br clear="right">
 
-The first window shows a welcome card. It lists the agent CLIs it found on
-your `PATH` (Claude Code, Codex, Gemini CLI, OpenCode, pi, Cursor CLI, Amp,
-Aider) and whether each one's hooks are installed. Start opens an agent in a tab of its own, and
-Install hooks shows what it would change before it changes it. Dismiss the
-card, or do anything else, and it never shows again. With no agent on your
-`PATH`, you get a shell and a line with where to install one.
+### Answer without switching windows
 
-Hooks let agents report their state exactly. To install them from a terminal
-instead:
+<img src="docs/media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box" width="240" align="right">
 
-```sh
-pitwall hooks install --dry-run   # see what would change
-pitwall hooks install             # let your agents report their state
-```
+**Allow or Deny a permission prompt from the sidebar, the notification or
+your phone.** Ctrl+Shift+Y and Ctrl+Shift+D press the row's buttons. Pair
+your phone by QR code and it lists what needs you, takes typed answers and
+gets push notifications while locked. There is no account and no relay: the
+phone talks to your computer over your own network.
 
-The window opens on a shell in the folder you launched it from, in a session
-with a generated name such as `swift-otter`. Run `claude`, `codex`, `pi`, a dev
-server, anything. The tab's row in the sidebar shows what is happening: the
-name of a running command, or the agent's state.
+<br clear="right">
 
-Open more tabs with **+** in the sidebar header. Each tab can be split into
-panes. Typing `exit` closes a pane; an empty tab closes, and the session ends
-with its last tab. Closing the window only detaches it: every session keeps
-running, and `pitwall` opens the most recently used one again.
+### Review what the agent changed
+
+**Ctrl+Shift+R opens the tab's changes. Comment on any line, then send all
+the comments to the agent as one prompt.** Untracked files are included.
+Tick off the files you have read; one the agent touches again comes back
+unticked. Throw away a file's changes with one button.
+
+<img src="docs/media/review.webp" alt="The review view: three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and a Send 2 comments to claude button" width="800">
+
+### Run agents side by side without collisions
+
+**Give each agent its own git worktree, and pitwall warns you when two of
+them edit the same file.** Start one from any branch or a pull request
+number. Each gets its own ports (3010-3019, then 3020-3029), so two dev
+servers stop fighting over 3000, and can copy `.env` and run your setup
+command. Rows turn amber when two branches touch the same files and red
+when merging would conflict; the hover card says which to merge first.
+
+<img src="docs/media/conflict.webp" alt="The hover card of the Retry failed webhooks tab: its pull request with one check passed and one running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts, and its ports" width="600">
+
+### Line up the next task
+
+**New task (Ctrl+Shift+A) starts an agent on a prompt in a tab of its own,
+or queues it until a running agent finishes.** Pick the project, a fresh
+worktree or a branch, the agent and its permission mode. Cap how many
+agents run at once, and the queue starts the next task as one finishes.
+
+<img src="docs/media/new-task.webp" alt="The New task dialog: project acme-api, a new worktree on a branch named from the prompt, Claude Code in its default mode, and the prompt, with Queue and Start buttons" width="480">
+
+### Know what it costs
+
+**See how much of your Claude Code and Codex plan limits you have used, and
+when you will hit 100% at this pace.** Settings, Usage also adds up what
+the last 7, 30 or 90 days would cost at API prices, per agent and per day.
+The agent panel shows each session's tokens and how full its context is.
+
+<img src="docs/media/limits.webp" alt="Settings, Usage: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, and Codex's windows at 34% and 61%" width="640">
+
+### Never lose a session
+
+**Close the window, reboot or upgrade, and your tabs come back in their
+folders with the agents resumed where they left off.** Sessions work like
+tmux, and the switcher (Ctrl+Shift+S) shows every session's agents before
+you switch. `pitwall --host box` runs them on another machine over ssh, so
+they keep going when the laptop closes.
+
+<img src="docs/media/sessions.webp" alt="The session switcher: sessions acme, billing and docs with their working and needs-you counts, and the billing session's tabs on the right" width="640">
+
+### Drive it from the keyboard
+
+**Ctrl+Shift+P lists every action with its keys.** Ctrl+Shift+F searches
+the scrollback, copy mode (Ctrl+Shift+X) selects with vi keys, and a
+selection stays on its text while new output scrolls past. Pick one of four
+themes and your own fonts, and rebind any key in Settings or `config.toml`.
+
+<img src="docs/media/palette.webp" alt="The command palette filtered by pr: Open PR and Merge PR first, then tab and pane actions with their keys" width="560">
+
+## Works with
+
+| Agent       | What pitwall shows                                                   |
+| ----------- | -------------------------------------------------------------------- |
+| Claude Code | Every state, Allow and Deny, resume, side panel, cost, plan limits   |
+| Codex       | Its state, Allow and Deny, resume, side panel, cost, plan limits     |
+| Gemini CLI  | Every state but Error, resume, side panel, cost                      |
+| OpenCode    | Working, Input, Approval, Done and Error, resume                     |
+| pi          | Working, Done and Error, resume, side panel, cost                    |
+| Cursor CLI  | Working, Done and Error, resume                                      |
+| Aider, Amp  | Aider's state read from its screen; Amp's logo, and its bell rings   |
+
+Builds for Linux, macOS and Windows 10 and 11, on x86_64 and arm64.
 
 ## Keys
 
-The default preset follows Linux terminal conventions and leaves plain
-Ctrl+letters to the shell. The aide preset is the Alt-key layout. On macOS
-the default is the mac preset, which puts these keys on Cmd. Every
-binding is in [docs/keys.md](docs/keys.md), and Ctrl+Shift+P lists them all.
+| Linux, Windows              | macOS                     | Does                                       |
+| --------------------------- | ------------------------- | ------------------------------------------ |
+| Ctrl+Shift+U                | Cmd+U                     | Go to the agent that needs you             |
+| Ctrl+Shift+Y / Ctrl+Shift+D | Cmd+Shift+Y / Cmd+Shift+N | Allow / Deny the permission prompt         |
+| Ctrl+Shift+R                | Cmd+Shift+R               | Review the tab's changes                   |
+| Ctrl+Shift+A                | Cmd+Shift+A               | New task, now or queued                    |
+| Ctrl+Shift+P                | Cmd+Shift+P               | Command palette: every action and its keys |
+| Ctrl+Shift+T                | Cmd+T                     | New tab below this one, in its folder      |
+| Ctrl+Shift+O / Ctrl+Shift+E | Cmd+D / Cmd+Shift+D       | Split the pane to the right / below        |
+| Ctrl+Shift+S                | Cmd+S                     | Session switcher                           |
+| Ctrl+Shift+L                | Cmd+L                     | Agent panel: the turn, subagents, plan     |
 
-| conventional                | aide                | Does                                              |
-| --------------------------- | ------------------- | ------------------------------------------------- |
-| Ctrl+Shift+U                | Alt+U               | Go to the tab that needs you, newest first        |
-| Ctrl+Shift+P                | Ctrl+Shift+P        | Command palette: every action and its keys        |
-| Ctrl+Shift+T                | Alt+Shift+T         | New tab below this one, in its folder             |
-| Ctrl+Tab / Ctrl+Shift+Tab   | Alt+J / Alt+K       | Next / previous tab                               |
-| Alt+1-9                     | Alt+1-9             | Go to the Nth tab the sidebar shows               |
-| Ctrl+Shift+O / Ctrl+Shift+E | Alt+N / Alt+Shift+N | Split the pane to the right / below               |
-| Ctrl+Shift+W                | Alt+Shift+W         | Close the pane                                    |
-| Ctrl+Shift+S                | Alt+S               | Session switcher                                  |
-| Ctrl+Shift+L                | Ctrl+Shift+L        | Show or hide the agent panel                      |
-| Ctrl+Shift+F                | Ctrl+Shift+F        | Find in the pane's scrollback                     |
+The aide preset puts these on Alt instead. [docs/keys.md](docs/keys.md) has
+every binding, and all of them can be changed.
 
 ## Docs
 
-- [Using pitwall](docs/usage.md): concepts, watching agents, sessions, tabs
-  and panes, grouping, worktrees, detaching
-- [Keybindings](docs/keys.md): the presets, tab mode, pane mode, find, copy
-  mode
+- [Using pitwall](docs/usage.md): first run, watching agents, sessions, review, worktrees, tasks
+- [Keybindings](docs/keys.md): the presets, tab mode, pane mode, find, copy mode
 - [Command line](docs/cli.md): every command, and driving tabs from scripts
 - [Configuration](docs/config.md): config.toml, themes, fonts
 - [Hooks](docs/hooks.md): what `pitwall hooks install` changes for each agent
 - [Remote hosts](docs/remote.md): agents on another machine over ssh
-- [Phone](docs/phone.md): answer agents from your phone
-- [Decisions (Jev)](docs/decisions.md): approval recommendations, triage,
-  turn checks
+- [Phone](docs/phone.md): pairing, push notifications, what the page sends
+- [Decisions (Jev)](docs/decisions.md): approval advice, triage, turn checks, Decision stats
 - [Where things live](docs/state.md): files, saved tabs, reboots, upgrades
-- [Install](docs/install.md): platform notes, updates, building from source
+- [Install](docs/install.md): platforms, updates, building from source
 - [Troubleshooting](docs/troubleshooting.md): what to check, and the logs
-- [Agent skill](docs/agent-skill.md): a page to hand an agent that drives
-  pitwall
+- [Agent skill](docs/agent-skill.md): a page to hand an agent that drives pitwall
 - [Development](docs/development.md) and [credits](docs/credits.md)
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and the pull request
-process. Use the [issue templates](https://github.com/quanticstudios/pitwall/issues/new/choose)
-to report bugs or propose features. Report vulnerabilities privately as
-described in [SECURITY.md](SECURITY.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before you send a pull request. Report
+bugs with the [issue templates](https://github.com/quanticstudios/pitwall/issues/new/choose),
+and vulnerabilities privately as [SECURITY.md](SECURITY.md) describes.
 
 ## License
 

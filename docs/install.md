@@ -1,7 +1,17 @@
 # Install
 
-The install commands and the platform table are in the
-[README](../README.md#install).
+The install commands are in the [README](../README.md#install).
+
+| Platform                       | Release builds | Status                     |
+| ------------------------------ | -------------- | -------------------------- |
+| Linux (glibc 2.35 or newer)    | x86_64, arm64  | beta, used every day       |
+| macOS                          | arm64, x86_64  | beta, new and not yet run  |
+| Windows 10 1809 or newer, 11   | x86_64, arm64  | beta, new and not yet run  |
+
+pitwall is developed on Linux (Hyprland) and works on any Wayland or X11
+desktop. Releases are tagged `v0.1.0-beta.N`. Config and saved state carry
+over between releases, and a release that cannot keep them says so in the
+changelog.
 
 The script downloads the latest release for your system, checks it against
 the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
