@@ -110,6 +110,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 					sy := y + gtx.Dp(6)
 					paint.FillShape(gtx.Ops, theme.Mix(v.th.Sidebar, v.th.Border, 0.6), clip.Rect{Min: image.Pt(0, sy), Max: image.Pt(w, sy+1)}.Op())
 				}
+				s.rowAt = image.Pt(gtx.Dp(listPad), gtx.Dp(56)+y+e.head-e.top-s.list.Position.Offset)
 				o := op.Offset(image.Pt(0, y+e.head-e.top)).Push(gtx.Ops)
 				for _, p := range v.st.Projects {
 					if p.ID == e.id {
@@ -119,6 +120,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 				o.Pop()
 				continue
 			}
+			s.rowAt = image.Pt(gtx.Dp(listPad)+e.x, gtx.Dp(56)+y-s.list.Position.Offset)
 			o := op.Offset(image.Pt(e.x, y)).Push(gtx.Ops)
 			rg := gtx
 			rg.Constraints.Max.X = w - e.x

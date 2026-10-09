@@ -61,7 +61,8 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 		}
 		if b.c == &s.detached && s.detachedOpen {
 			m := op.Record(gtx.Ops)
-			s.detachedMenu(gtx, v, btn)
+			at := image.Pt(x+i*(btn+gap), s.height-h+top+1+px)
+			s.detachedMenu(gtx, v, image.Rectangle{Min: at, Max: at.Add(image.Pt(btn, btn))})
 			op.Defer(gtx.Ops, m.Stop())
 		}
 		off.Pop()
@@ -116,9 +117,10 @@ func (s *Sidebar) updateButton(gtx layout.Context, th *theme.Theme, x, h int) {
 	})
 }
 
-// detachedMenu lists the detached tabs above its trigger, each with its
-// agent state, Attach, and Kill behind a second click.
-func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
+// detachedMenu lists the detached tabs above anchor, its trigger's rect in
+// the sidebar, each with its agent state, Attach, and Kill behind a second
+// click.
+func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, anchor image.Rectangle) {
 	th := v.th
 	s.catcher(gtx)
 	var detached []model.Workspace
@@ -134,9 +136,11 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, trigger int) {
 	w, p, rowH, headH := gtx.Dp(300), gtx.Dp(4), gtx.Dp(44), gtx.Dp(30)
 	n := max(len(detached), 1)
 	size := image.Pt(w, 2*p+headH+n*rowH)
-	x := max(trigger/2-w/2, -gtx.Dp(120)) // placement "top", kept inside the sidebar
-	defer op.Offset(image.Pt(x, -size.Y-gtx.Dp(8))).Push(gtx.Ops).Pop()
+	at := kit.Place(anchor, size, s.bounds(), kit.Above, gtx.Dp(8), gtx.Dp(8)).Sub(anchor.Min)
+	defer op.Offset(at).Push(gtx.Ops).Pop()
+	defer s.popIn(gtx, s.menuAt, size)()
 	floatingSurface(gtx, th, size)
+
 	s.blockClicks(gtx, size)
 	inner := image.Pt(w-2*p-gtx.Dp(16), headH)
 	off := op.Offset(image.Pt(p+gtx.Dp(8), p)).Push(gtx.Ops)

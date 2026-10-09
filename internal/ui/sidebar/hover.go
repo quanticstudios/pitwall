@@ -20,6 +20,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -439,11 +440,9 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 
 	fade := paint.PushOpacity(gtx.Ops, alpha)
 	rect := image.Rectangle{Max: size}
-	r := gtx.Dp(8)
-	shadow := rect.Add(image.Pt(0, gtx.Dp(3))).Inset(-gtx.Dp(2))
-	paint.FillShape(gtx.Ops, color.NRGBA{A: 60}, clip.UniformRRect(shadow, r+gtx.Dp(2)).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Mix(th.Border, th.Fg, 0.08), clip.UniformRRect(rect.Inset(-1), r+1).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(rect, r).Op(gtx.Ops))
+	r := gtx.Dp(theme.RadiusPopover)
+	kit.Surface(gtx, rect.Inset(-1), r+1, kit.Raised, theme.Mix(th.Border, th.Fg, 0.08), bg)
+
 	body.Add(gtx.Ops)
 	fade.Pop()
 	return size
@@ -499,9 +498,7 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 		pass.Pop()
 	}
 	call := m.Stop()
-	margin := gtx.Dp(8)
-	y := min(s.cardY, h-size.Y-margin)
-	y = max(y, margin)
-	defer op.Offset(image.Pt(w+gtx.Dp(6), y)).Push(gtx.Ops).Pop()
+	row := image.Rect(0, s.cardY, w, s.cardY+rowHeight(gtx))
+	defer op.Offset(kit.Place(row, size, s.bounds(), kit.Beside, gtx.Dp(6), gtx.Dp(8))).Push(gtx.Ops).Pop()
 	op.Defer(gtx.Ops, call)
 }

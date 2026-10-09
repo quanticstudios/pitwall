@@ -623,6 +623,7 @@ func (u *ui) layout(gtx gl.Context) {
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
 		u.sidebar.Update, u.sidebar.Host = u.updates.label(), Host
+		u.sidebar.Window = gtx.Constraints.Max
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
 		if !on {

@@ -38,6 +38,10 @@ build. Either step takes `--dry-run`.
   dialog: Ctrl+Shift+L no longer opens the agent panel under it.
 - The first run asks to install hooks once, on the welcome card, which now
   dims the panes behind it. The pane notice shows after the card is gone.
+- A tab's menu near the bottom of the sidebar opens above its "…" button
+  instead of running off the window, and every menu, submenu, hover card
+  and the group icon picker stays inside the window. Menus fade in over
+  120ms.
 
 ## v0.1.0-beta.3
 

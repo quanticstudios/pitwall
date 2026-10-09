@@ -97,9 +97,11 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	mx := bx + btn + gap
 	off = op.Offset(image.Pt(mx, (h-btn)/2)).Push(gtx.Ops)
 	headerButton(gtx, th, &ps.more, icEllipsis, btn, gtx.Dp(16), showBtns)
+	anchor := image.Rectangle{Min: s.rowAt.Add(image.Pt(mx, (h-btn)/2))}
+	anchor.Max = anchor.Min.Add(image.Pt(btn, btn))
 	if s.appearance == p.ID {
 		m := op.Record(gtx.Ops)
-		s.appearanceMenu(gtx, th, p, mx, btn)
+		s.appearanceMenu(gtx, th, p, anchor)
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	if s.groupMenu == p.ID {
@@ -114,7 +116,8 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 		}
 		entries = append(entries, menuEntry{c: &s.groupItem[4], icon: icPlay, text: "New task…"})
 		entries = append(entries, menuEntry{c: &s.groupItem[2], icon: projectIcon("layers"), text: "Ungroup", sep: true})
-		s.menuList(gtx, th, btn, entries)
+		s.menuList(gtx, th, anchor, entries)
+
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	off.Pop()

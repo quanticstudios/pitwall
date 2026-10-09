@@ -230,7 +230,7 @@ func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, from time.Time,
 	call := rec.Stop()
 	box := image.Pt(w, d.Size.Y+2*pad)
 	at := size.Sub(box).Div(2)
-	defer popIn(gtx, anim.At(gtx, from, anim.Dialog), image.Rectangle{Min: at, Max: at.Add(box)})()
+	defer kit.PopIn(gtx, anim.At(gtx, from, anim.Dialog), image.Rectangle{Min: at, Max: at.Add(box)}, 10)()
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 
 	r := gtx.Dp(theme.RadiusCard)

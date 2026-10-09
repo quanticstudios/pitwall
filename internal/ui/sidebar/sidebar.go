@@ -67,7 +67,18 @@ type Sidebar struct {
 	selected map[string]bool
 	anchor   string
 
-	menuWS   string // workspace whose overflow menu is open
+	// Window is the window's size, which popovers keep inside; the
+	// sidebar's own height when zero.
+	Window image.Point
+	height int         // the sidebar's height this frame
+	rowAt  image.Point // the top left of the row or header being drawn, in the sidebar
+	// The open menu and its submenu's entrances: menuKey names the open
+	// menu, menuAt is when it opened, subAt when the submenu did.
+	menuKey  string
+	menuAt   time.Time
+	subAt    time.Time
+	footerAt image.Point // the footer's top left, in the sidebar
+	menuWS   string      // workspace whose overflow menu is open
 	menuItem [actCount]widget.Clickable
 	moveOpen bool                         // the "Move to group" flyout shows
 	moveBtn  map[string]*widget.Clickable // flyout entries by group id
@@ -234,6 +245,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	}
 	before := s.snapshot()
 	s.update(gtx, v)
+	s.noteMenus(gtx.Now)
 	s.hoverFrame(gtx)
 	if s.snapshot() != before || len(s.events) > 0 {
 		// The input landed this frame; draw its result now, and give the
@@ -243,6 +255,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 
 	w := min(gtx.Dp(Width), gtx.Constraints.Max.X)
 	h := gtx.Constraints.Max.Y
+	s.height = h
 	size := image.Pt(w, h)
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, th.Sidebar, clip.Rect{Max: size}.Op())

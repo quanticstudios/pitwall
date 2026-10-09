@@ -6,7 +6,6 @@ import (
 	"math"
 	"time"
 
-	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
 	gl "gioui.org/layout"
@@ -50,7 +49,7 @@ func (u *ui) overlayCard(gtx gl.Context, t float32, w, h int, tag *int) (end fun
 	th := u.th
 	card := image.Rectangle{Max: image.Pt(w, h)}
 	at := gtx.Constraints.Max.Sub(card.Size()).Div(2)
-	pop := popIn(gtx, t, card.Add(at))
+	pop := kit.PopIn(gtx, t, card.Add(at), 10)
 	move := op.Offset(at).Push(gtx.Ops)
 	kit.Surface(gtx, card, gtx.Dp(theme.RadiusCard), kit.Modal, th.BorderSubtle, th.Surface)
 	for {
@@ -62,16 +61,6 @@ func (u *ui) overlayCard(gtx gl.Context, t float32, w, h int, tag *int) (end fun
 	event.Op(gtx.Ops, tag)
 	area.Pop()
 	return func() { move.Pop(); pop() }
-}
-
-// popIn fades and scales in what is drawn at r, by t from 0 to 1: from 98.5%
-// and 10dp low. It returns the call that ends it.
-func popIn(gtx gl.Context, t float32, r image.Rectangle) func() {
-	fade := paint.PushOpacity(gtx.Ops, t)
-	scale := 0.985 + 0.015*t
-	center := f32.Pt(float32(r.Min.X+r.Max.X)/2, float32(r.Min.Y+r.Max.Y)/2)
-	move := op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale)).Offset(f32.Pt(0, float32(gtx.Dp(10))*(1-t)))).Push(gtx.Ops)
-	return func() { move.Pop(); fade.Pop() }
 }
 
 // scrim is the backdrop under a dialog or overlay, faded in by t.

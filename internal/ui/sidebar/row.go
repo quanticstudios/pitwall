@@ -229,7 +229,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	}
 	if s.menuWS == ws.ID {
 		m := op.Record(gtx.Ops)
-		s.menu(gtx, v, ws, btn)
+		s.menu(gtx, v, ws, image.Rectangle{Min: s.rowAt.Add(pos), Max: s.rowAt.Add(pos).Add(image.Pt(btn, btn))})
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	off.Pop()

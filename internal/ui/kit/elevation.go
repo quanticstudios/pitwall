@@ -4,7 +4,9 @@ import (
 	"image"
 	"image/color"
 
+	"gioui.org/f32"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
@@ -48,4 +50,14 @@ func Surface(gtx layout.Context, rect image.Rectangle, r, level int, ring, fill 
 	Shadow(gtx, rect, r, level)
 	paint.FillShape(gtx.Ops, ring, clip.UniformRRect(rect, r).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect.Inset(1), max(r-1, 0)).Op(gtx.Ops))
+}
+
+// PopIn fades and scales in what is drawn at r, by t from 0 to 1: from
+// 98.5% and rise lower than its place. It returns the call that ends it.
+func PopIn(gtx layout.Context, t float32, r image.Rectangle, rise unit.Dp) func() {
+	fade := paint.PushOpacity(gtx.Ops, t)
+	scale := 0.985 + 0.015*t
+	center := f32.Pt(float32(r.Min.X+r.Max.X)/2, float32(r.Min.Y+r.Max.Y)/2)
+	move := op.Affine(f32.AffineId().Scale(center, f32.Pt(scale, scale)).Offset(f32.Pt(0, float32(gtx.Dp(rise))*(1-t)))).Push(gtx.Ops)
+	return func() { move.Pop(); fade.Pop() }
 }
