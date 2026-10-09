@@ -55,9 +55,11 @@ func (w *window) apply(t *testing.T, msg any, pane string, not []string) bool {
 // until applies frames of pane until its screen contains text.
 func (w *window) until(t *testing.T, pane, text string, not ...string) {
 	t.Helper()
-	w.waitFor(t, timeout, func(msg any) bool {
+	if !w.waitUntil(timeout, func(msg any) bool {
 		return w.apply(t, msg, pane, not) && strings.Contains(gridText(w.frames[pane].Grid), text)
-	})
+	}) {
+		t.Fatalf("no %q within %s; screen:\n%s", text, timeout, gridText(w.frames[pane].Grid))
+	}
 }
 
 // sessionPane is the first pane of the first tab of the session named name.
@@ -184,21 +186,28 @@ func TestSearchAndCopyPastScreen(t *testing.T) {
 }
 
 // TestResizeWholeFrame: a resize brings a shown pane a whole frame at the
-// new size, and the rows after it fit that size (apply checks).
+// new size, and the rows after it fit that size (apply checks). The pane
+// runs echoer, not an interactive shell, whose line editor redraws on the
+// resize in its own way: with Git's sh on Windows the typed line after it
+// at times never showed.
 func TestResizeWholeFrame(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
 	w := openWindow(t, "e2e")
 	s := waitState(t, w.client, func(s model.State) bool { return sessionPane(s, "e2e") != "" })
-	p := sessionPane(s, "e2e")
+	cmd := echoer("rs")
+	w.send(t, proto.NewSession{SessionID: s.SessionNamed("e2e").ID, Cmd: cmd})
+	s = waitState(t, w.client, func(s model.State) bool { return len(s.Panes) == 2 })
+	p := s.Panes[slices.IndexFunc(s.Panes, func(p model.Pane) bool { return slices.Equal(p.Cmd, cmd) })].ID
 	w.send(t, proto.View{Panes: []string{p}})
-	w.send(t, proto.Input{Pane: p, Data: []byte("echo before\r")})
-	w.until(t, p, "\nbefore\n")
+	w.until(t, p, "rs ready")
+	w.send(t, proto.Input{Pane: p, Data: []byte("before\r")})
+	w.until(t, p, "rs got before")
 	w.send(t, proto.Resize{Pane: p, Cols: 100, Rows: 30})
 	w.waitFor(t, timeout, func(msg any) bool {
 		f, ok := msg.(proto.Frame)
 		return w.apply(t, msg, p, nil) && ok && f.Grid.Cols == 100 && f.Grid.Rows == 30
 	})
-	w.send(t, proto.Input{Pane: p, Data: []byte("echo after\r")})
-	w.until(t, p, "\nafter\n")
+	w.send(t, proto.Input{Pane: p, Data: []byte("after\r")})
+	w.until(t, p, "rs got after")
 }
