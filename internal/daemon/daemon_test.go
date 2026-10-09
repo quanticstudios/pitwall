@@ -437,6 +437,45 @@ func TestVersionMismatch(t *testing.T) {
 	}
 }
 
+// Hooks run the binary on PATH, which an upgrade the daemon was not
+// restarted for makes newer than the daemon, and a stale install older:
+// their events land either way, and nothing else they send does. A newer
+// one shows olderNotice, once.
+func TestHookOfOtherVersion(t *testing.T) {
+	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
+	defer stop()
+	gui := dial(t, sock, "gui")
+	st := gui.waitState("first session", func(s model.State) bool { return len(s.Panes) == 1 })
+	p, ws := st.Panes[0].ID, st.Workspaces[0].ID
+	state := func(s model.State) model.AgentState {
+		if len(s.Activities) == 0 {
+			return ""
+		}
+		return s.Activities[0].State
+	}
+	older := dialHello(t, sock, proto.Hello{Version: proto.Version - 1, Kind: "hook"})
+	older.send(proto.AgentEvent{Pane: p, Provider: model.ProviderClaude, Payload: []byte("older")})
+	st = gui.waitState("the older hook's event", func(s model.State) bool { return state(s) == "older" })
+	if st.Notice != "" {
+		t.Fatalf("notice for an older hook: %q", st.Notice)
+	}
+	newer := dialHello(t, sock, proto.Hello{Version: proto.Version + 1, Kind: "hook"})
+	newer.send(proto.KillSession{WorkspaceID: ws})
+	newer.send(proto.AgentEvent{Pane: p, Provider: model.ProviderClaude, Payload: []byte("newer")})
+	st = gui.waitState("the newer hook's event", func(s model.State) bool { return state(s) == "newer" })
+	if st.Notice != olderNotice || len(st.Workspaces) != 1 {
+		t.Fatalf("notice %q, workspaces %d", st.Notice, len(st.Workspaces))
+	}
+	gui.send(proto.DismissNotice{Notice: olderNotice})
+	gui.waitState("notice dismissed", func(s model.State) bool { return s.Notice == "" })
+	again := dialHello(t, sock, proto.Hello{Version: proto.Version + 1, Kind: "hook"})
+	again.send(proto.AgentEvent{Pane: p, Provider: model.ProviderClaude, Payload: []byte("again")})
+	st = gui.waitState("the next event", func(s model.State) bool { return state(s) == "again" })
+	if st.Notice != "" {
+		t.Fatalf("the notice came back: %q", st.Notice)
+	}
+}
+
 // Clients of the daemon's Version are served at any Level: one from before
 // levels (0), and a newer one whose request the daemon does not know gets
 // an Error and keeps its connection.

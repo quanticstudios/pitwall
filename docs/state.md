@@ -61,8 +61,9 @@ until you choose:
   `pitwall` again when you are ready to restart; it asks again.
 
 A window from before the upgrade whose daemon was restarted by a newer one
-reopens itself on the installed binary. CLI commands and agent hooks of the
-other major version get an error or, for hooks, nothing, until the restart.
+reopens itself on the installed binary. CLI commands of the other major
+version get an error until the restart. Agent hooks keep working across
+major versions; see [Hooks after an upgrade](troubleshooting.md#hooks-after-an-upgrade).
 
 When a window loses its daemon connection, for example because the daemon
 crashed, it keeps showing the last screen under "Disconnected from pitwall's
