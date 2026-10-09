@@ -73,6 +73,9 @@ func TestStatsPage(t *testing.T) {
 	if len(p.stats()) != 1 {
 		t.Error("the empty page has more than its first section")
 	}
+	if p.clicks["stats-window:"+week] != nil {
+		t.Error("an empty log shows the window picker")
+	}
 
 	now := time.Now()
 	l, err := decisionlog.Open(p.st.path)
@@ -108,6 +111,10 @@ func TestStatsPage(t *testing.T) {
 	}
 	if secs := p.stats(); len(secs) != 3 || secs[1].title != "Approvals" || secs[2].title != "Calls per day" {
 		t.Errorf("sections: %+v", secs)
+	}
+	draw()
+	if p.clicks["stats-window:"+week] == nil {
+		t.Error("a log with events hides the window picker")
 	}
 }
 

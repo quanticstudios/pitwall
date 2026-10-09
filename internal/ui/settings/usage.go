@@ -112,16 +112,8 @@ func (p *Page) overview(gtx gl.Context, r *flow.Report) gl.Dimensions {
 	th := p.th
 	p.scan(gtx)
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	if r == nil || r.Tokens.Total() == 0 {
-		msg := "Scanning…"
-		if r != nil {
-			msg = fmt.Sprintf("No Claude Code, Codex or pi sessions in the last %d days.", len(r.Days))
-		}
-		return gl.Inset{Top: 24, Bottom: 24}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			return gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, msg)
-			})
-		})
+	if wait, line, ok := usageBlank(r); ok {
+		return p.blank(gtx, wait, "zap", line, nil)
 	}
 	summary := func(gtx gl.Context) gl.Dimensions { return p.summary(gtx, r) }
 	chart := func(gtx gl.Context) gl.Dimensions {

@@ -135,6 +135,12 @@ func (p *Page) stats() []section {
 		if !p.st.read {
 			p.readStats()
 		}
+		if note == statsLoading || note == statsEmpty {
+			// Nothing logged at all: no window to pick.
+			d := p.blank(gtx, note == statsLoading, "brain", note, p.setUpDecisions())
+			p.pollStats(gtx)
+			return d
+		}
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		var kids []gl.FlexChild
 		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -167,12 +173,7 @@ func (p *Page) stats() []section {
 		}
 		d := gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 		// After the window picker, which may have started a read.
-		p.st.mu.Lock()
-		busy := p.st.loading
-		p.st.mu.Unlock()
-		if busy {
-			gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(100 * time.Millisecond)})
-		}
+		p.pollStats(gtx)
 		return d
 	}
 	secs := []section{{rows: []row{{bare: true, control: head}}}}
@@ -228,6 +229,31 @@ func (p *Page) stats() []section {
 			}}}})
 	}
 	return secs
+}
+
+// pollStats asks for frames while a read runs.
+func (p *Page) pollStats(gtx gl.Context) {
+	p.st.mu.Lock()
+	busy := p.st.loading
+	p.st.mu.Unlock()
+	if busy {
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(100 * time.Millisecond)})
+	}
+}
+
+// setUpDecisions is a button to the Decisions category while no
+// provider is connected, nil once one is.
+func (p *Page) setUpDecisions() gl.Widget {
+	if p.s.Decisions.On() {
+		return nil
+	}
+	return func(gtx gl.Context) gl.Dimensions {
+		c := p.btn("stats-setup")
+		for c.Clicked(gtx) {
+			p.cat, p.list.Position = catDecisions, gl.Position{}
+		}
+		return p.button(gtx, c, secondary, "Set up decisions")
+	}
 }
 
 // verdict is the headline: the finding on answer time, or how many
