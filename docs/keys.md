@@ -1,13 +1,18 @@
 # Keybindings
 
-Two presets ship. **conventional** is the default and follows Linux terminal
-defaults (Ghostty, kitty, GNOME Terminal); it leaves plain Ctrl+letters and
-readline's Alt+B/F/D/. to the shell. **aide** is the Alt-key layout pitwall
-started with. Pick one with `preset` in [config.toml](config.md) and
-override single actions there. The settings button in the sidebar footer
-shows the bindings in effect.
+Three presets ship. **conventional** is the default on Linux and Windows and
+follows Linux terminal defaults (Ghostty, kitty, GNOME Terminal); it leaves
+plain Ctrl+letters and readline's Alt+B/F/D/. to the shell. **aide** is the
+Alt-key layout pitwall started with. **mac** is the default on macOS: it puts
+the app's keys on Cmd, as macOS apps do, so every Ctrl key reaches the
+shell. Pick one with `preset` in [config.toml](config.md) and override single
+actions there; a config that names a preset keeps it on every platform. The
+settings button in the sidebar footer shows the bindings in effect.
 
-Ctrl+Shift+P, in both presets, opens the command palette: every
+In a config, `Super` and `Cmd` are the same modifier: the Command key on
+macOS, the logo key elsewhere.
+
+Ctrl+Shift+P (Cmd+Shift+P in mac) opens the command palette: every
 action, its group and the keys bound to it in your config, filtered as you
 type. Enter runs the highlighted one, the same as its key would; an action
 with no key, like the tab and pane mode ones while their prefix is unbound,
@@ -37,6 +42,7 @@ conventional:
 | Ctrl+Shift+N                            | New session                                               |
 | Ctrl+Shift+P                            | Command palette: every action and its keys                |
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste (also Ctrl+Insert / Shift+Insert)  |
+| Ctrl+Shift+X                            | Copy mode: select and copy with the keyboard              |
 | Ctrl+Backspace                          | Delete the word before the cursor (sends Ctrl+W)          |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Ctrl+Shift+F                            | Find in the pane's scrollback                             |
@@ -86,25 +92,71 @@ aide:
 | Ctrl+P then Esc or Enter          | Leave pane mode                                |
 | Ctrl+P twice                      | Send Ctrl+P to the terminal                    |
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy / paste (also Ctrl+Insert / Shift+Insert) |
+| Ctrl+Shift+X                      | Copy mode                                      |
 | Ctrl+Backspace                    | Delete the word before the cursor (sends Ctrl+W) |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
 | Ctrl+Shift+F                      | Find in the pane's scrollback                  |
 | Ctrl+Shift+Up / Ctrl+Shift+Down   | Scroll back / forward to the previous / next shell prompt |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 
+mac:
+
+| Keys                                    | Action                                                    |
+| --------------------------------------- | --------------------------------------------------------- |
+| Cmd+T                                   | New tab below this one, in its folder                     |
+| Cmd+W                                   | Close the pane (the tab with its last one)                |
+| Cmd+Shift+] / Cmd+Shift+[               | Next / previous tab (also Ctrl+Tab / Ctrl+Shift+Tab)      |
+| Cmd+Shift+PageDown / Cmd+Shift+PageUp   | First tab of the next / previous group                    |
+| Cmd+1-9                                 | Go to the Nth tab the sidebar shows                       |
+| Cmd+D / Cmd+Shift+D                     | Split the pane to the right / below                       |
+| Cmd+Option+Arrows                       | Next / previous pane                                      |
+| Cmd+B                                   | Show or hide the sidebar                                  |
+| Cmd+L                                   | Show or hide the agent panel                              |
+| Cmd+U                                   | Go to the tab that needs you, newest first, in any session |
+| Cmd+S                                   | Session switcher                                          |
+| Cmd+] / Cmd+[                           | Next / previous session                                   |
+| Cmd+N                                   | New session                                               |
+| Cmd+Shift+P                             | Command palette: every action and its keys                |
+| Cmd+,                                   | Settings                                                  |
+| Cmd+C / Cmd+V                           | Copy selection / paste                                    |
+| Cmd+Shift+X                             | Copy mode                                                 |
+| Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
+| Cmd+F                                   | Find in the pane's scrollback                             |
+| Cmd+Up / Cmd+Down                       | Scroll back / forward to the previous / next shell prompt |
+
+Like conventional, mac leaves tab mode and pane mode unbound.
+
 Tab mode runs one key and ends. Pane mode stays on, zellij style, so
 Ctrl+P d j x splits, moves down and closes in one go; it ends on Esc, Enter,
 Ctrl+P or any key it does not know. A pill at the bottom left shows the
 mode and its keys. A fullscreen pane ends when focus leaves it or it closes.
 
-Ctrl+Shift+F opens a find bar at the top right of the focused pane. It
-searches the pane's history (its last 10,000 lines) and screen as you type,
+Ctrl+Shift+F (Cmd+F in mac) opens a find bar at the top right of the focused pane. It
+searches the pane's history (10,000 lines unless `scrollback` says otherwise) and screen as you type,
 ignoring case unless the query has a capital letter. Enter or F3 goes to the
 next match up, Shift+Enter or Shift+F3 back down, and the bar shows "3 of 17".
 Escape closes it and returns to the live screen. A line that wrapped matches
 only within each of its rows. While the background service runs a pitwall
 from before find, the bar says "Search needs the background service
 restarted" and searches nothing; it searches once the service restarts.
+
+Copy mode (Ctrl+Shift+X, Cmd+Shift+X in mac) selects and copies with the
+keyboard, as in tmux. A block cursor starts on the terminal's cursor and a
+badge at the bottom right of the pane names the mode. While it is on, no key
+reaches the program.
+
+| Keys                          | Action                                                  |
+| ----------------------------- | ------------------------------------------------------- |
+| h j k l, Arrows               | Move a cell or a line                                   |
+| w / b                         | Next / previous word                                    |
+| 0 / $, Home / End             | Start / end of the line                                 |
+| g / G                         | Oldest line in history / the last line                  |
+| Ctrl+U / Ctrl+D               | Half a page up / down                                   |
+| PageUp / PageDown             | A page up / down                                        |
+| / or ?                        | Open the find bar; its current match moves the cursor   |
+| v / V / Ctrl+V                | Select characters / lines / a block from the cursor     |
+| y or Enter                    | Copy the selection and leave                            |
+| Esc or q                      | Leave without copying                                   |
 
 Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and

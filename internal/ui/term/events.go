@@ -108,6 +108,9 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			if e.Name == key.NameCtrl || e.Name == key.NameCommand {
 				ctrlDown = e.State == key.Press
 			}
+			if e.State == key.Press {
+				v.eatText = ""
+			}
 			// Both press and release of a bound key stay out of the program.
 			switch a := v.keys().Action(e); {
 			case config.PaneAction(a):
@@ -117,6 +120,14 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 				continue
 			case a != "":
 				continue // the window's; it reached the pane before the window polled
+			case v.cm.on:
+				if e.State == key.Press {
+					v.copyModeKey(e, g, rows)
+					if !v.cm.on && textKey(e) {
+						v.eatText = string(e.Name) // y or q left; its text event follows
+					}
+				}
+				continue // copy mode sends the program nothing
 			}
 			if textKey(e) && !kittyAll {
 				continue
@@ -130,6 +141,11 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			}
 			out = append(out, input.Key(e, m)...)
 		case key.EditEvent:
+			eat := v.eatText != "" && strings.EqualFold(e.Text, v.eatText)
+			v.eatText = ""
+			if v.cm.on || eat {
+				continue
+			}
 			// Report-all already encoded a plain key press; its text event
 			// follows it and is dropped. IME and compose commits have no
 			// such press and go through.
@@ -142,7 +158,9 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			r := e.Open()
 			b, _ := io.ReadAll(r)
 			r.Close()
-			out = append(out, input.Paste(string(b), m)...)
+			if !v.cm.on {
+				out = append(out, input.Paste(string(b), m)...)
+			}
 		case pointer.Event:
 			out = append(out, v.pointer(e, g, m, focused)...)
 		case key.FocusEvent:
@@ -156,7 +174,7 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 		v.action(gtx, g, a, rows)
 	}
 	if v.selDone && v.CopyOnSelect {
-		v.copy(gtx, g)
+		v.copy(g)
 	}
 	v.selDone = false
 	v.focusMode = m.FocusEvents
@@ -171,14 +189,19 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 // key would. The command palette runs them this way.
 func (v *View) Run(action string) { v.queued = action }
 
-// action runs a pane action: copy, paste, scroll a page of rows, or jump
-// to a shell prompt.
+// action runs a pane action: copy, copy mode, paste, scroll a page of
+// rows, or jump to a shell prompt.
 func (v *View) action(gtx layout.Context, g *vt.Grid, a string, rows int) {
 	switch a {
 	case "copy":
-		if v.sel.on {
-			v.copy(gtx, g)
+		if v.selOn {
+			v.copy(g)
 		}
+		if v.cm.on {
+			v.exitCopyMode()
+		}
+	case "copy_mode":
+		v.toggleCopyMode(g, rows)
 	case "paste":
 		gtx.Execute(clipboard.ReadCmd{Tag: v})
 	case "scroll_page_up":
@@ -190,17 +213,6 @@ func (v *View) action(gtx layout.Context, g *vt.Grid, a string, rows int) {
 	case "next_prompt":
 		v.prompts--
 	}
-}
-
-// copy puts the selection on the clipboard. Gio's X11 backend sets PRIMARY
-// along with CLIPBOARD; on Wayland it has no primary selection to set.
-func (v *View) copy(gtx layout.Context, g *vt.Grid) {
-	s := selectionText(g, v.sel)
-	if s == "" {
-		return
-	}
-	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(s))})
-	v.copied = s
 }
 
 func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []byte {
@@ -253,25 +265,34 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 		if e.Buttons != pointer.ButtonPrimary {
 			return nil
 		}
-		double := e.Time-v.lastPress.Time < 400*time.Millisecond && cell == v.lastCell
-		v.lastPress, v.lastCell = e, cell
-		if double {
-			x0, x1 := wordAt(g, cell.X, cell.Y)
-			v.sel = selection{a: image.Pt(x0, cell.Y), b: image.Pt(x1, cell.Y), on: true}
-			v.dragging, v.selDone = false, true
-			v.lastPress.Time = -time.Hour // a third click starts over
-			return nil
+		v.clicks++
+		if e.Time-v.lastPress.Time >= 400*time.Millisecond || cell != v.lastCell || v.clicks > 3 {
+			v.clicks = 1
 		}
-		v.sel = selection{a: cell, b: cell}
-		v.dragging = true
+		v.lastPress, v.lastCell = e, cell
+		at := v.pos(cell)
+		switch v.clicks {
+		case 2:
+			x0, x1 := wordAt(g, cell.X, cell.Y)
+			v.selectDone(vt.Selection{A: vt.Pos{Line: at.Line, Col: x0}, B: vt.Pos{Line: at.Line, Col: x1}}, g)
+		case 3:
+			v.selectDone(vt.Selection{A: at, B: at, Mode: vt.SelectLines}, g)
+		default:
+			mode := vt.SelectChars
+			if e.Modifiers&key.ModAlt != 0 {
+				mode = vt.SelectBlock
+			}
+			v.sel, v.selOn, v.selCols = vt.Selection{A: at, B: at, Mode: mode}, false, g.Cols
+			v.dragging, v.dragAt = true, e.Position
+		}
 	case pointer.Drag:
 		if v.dragging {
-			v.sel.b = cell
-			v.sel.on = v.sel.on || cell != v.sel.a
+			v.dragAt = e.Position
+			v.drag(g)
 		}
 	case pointer.Release, pointer.Cancel:
-		v.selDone = v.selDone || e.Kind == pointer.Release && v.dragging && v.sel.on
-		v.dragging = false
+		v.selDone = v.selDone || e.Kind == pointer.Release && v.dragging && v.selOn
+		v.dragging, v.auto = false, 0
 	}
 	return nil
 }
@@ -290,68 +311,10 @@ func (v *View) scroll(e pointer.Event) {
 	v.scrollLines += n
 }
 
-// selection runs from anchor a to head b in reading order, both ends
-// included, in grid cells.
-type selection struct {
-	a, b image.Point
-	on   bool
-}
-
-func (s selection) ordered() (image.Point, image.Point) {
-	if s.b.Y < s.a.Y || s.b.Y == s.a.Y && s.b.X < s.a.X {
-		return s.b, s.a
-	}
-	return s.a, s.b
-}
-
-// cols is the selected column range [s0,s1) of row y in a row n wide, or
-// (-1,-1) when the row has none.
-func (s selection) cols(y, n int) (int, int) {
-	if !s.on {
-		return -1, -1
-	}
-	p, q := s.ordered()
-	if y < p.Y || y > q.Y {
-		return -1, -1
-	}
-	s0, s1 := 0, n
-	if y == p.Y {
-		s0 = p.X
-	}
-	if y == q.Y {
-		s1 = q.X + 1
-	}
-	return min(s0, n), min(s1, n)
-}
-
-func selectionText(g *vt.Grid, s selection) string {
-	p, q := s.ordered()
-	var lines []string
-	for y := max(p.Y, 0); y <= min(q.Y, g.Rows-1); y++ {
-		s0, s1 := s.cols(y, g.Cols)
-		var b strings.Builder
-		for x := max(s0, 0); x < s1; x++ {
-			c := g.At(x, y)
-			switch {
-			case c.Width == 0 && c.Content == "":
-			case c.Content == "":
-				b.WriteByte(' ')
-			default:
-				b.WriteString(c.Content)
-			}
-		}
-		lines = append(lines, strings.TrimRight(b.String(), " "))
-	}
-	return strings.Join(lines, "\n")
-}
-
 // wordAt is the inclusive column range of the word under (x,y). Separators
 // follow Ghostty's defaults minus ':', so URLs and paths select whole.
 func wordAt(g *vt.Grid, x, y int) (int, int) {
-	word := func(x int) bool {
-		c := g.At(x, y).Content
-		return c != "" && !strings.ContainsAny(c, " \t'\"`|;,()[]{}<>$│")
-	}
+	word := func(x int) bool { return isWord(g.At(x, y).Content) }
 	if !word(x) {
 		return x, x
 	}
@@ -363,6 +326,11 @@ func wordAt(g *vt.Grid, x, y int) (int, int) {
 		x1++
 	}
 	return x0, x1
+}
+
+// isWord reports whether a cell's content is part of a word.
+func isWord(c string) bool {
+	return c != "" && !strings.ContainsAny(c, " \t'\"`|;,()[]{}<>$│")
 }
 
 // Blur reports focus loss for a pane that is no longer drawn, such as one on

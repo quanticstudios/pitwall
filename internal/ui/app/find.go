@@ -39,6 +39,7 @@ type findBar struct {
 	at   vt.Match // the current match, where the next query starts looking
 	atOK bool
 	jump bool // scroll the current match into view
+	keep bool // the pane is in copy mode: Esc leaves its view where it is
 }
 
 // current is the current match, if there is one.
@@ -163,7 +164,7 @@ func (u *ui) findFrame(gtx gl.Context, g *vt.Grid) (string, image.Point) {
 		switch e, _ := ev.(key.Event); {
 		case e.State != key.Press:
 		case e.Name == key.NameEscape:
-			u.closeFind(true)
+			u.closeFind(!f.keep)
 			gtx.Execute(op.InvalidateCmd{}) // this frame drew the pane without key focus
 			return "", image.Pt(0, -1)
 		case e.Modifiers&key.ModShift != 0:
@@ -203,7 +204,7 @@ func (u *ui) findFrame(gtx gl.Context, g *vt.Grid) (string, image.Point) {
 		f.jump = false
 		off, most := 0, 0
 		if s, ok := u.b.(Scroller); ok {
-			off, most = s.Scroll(f.pane)
+			off, most, _ = s.Scroll(f.pane)
 		}
 		if d := reveal(m.Line, top, off, most, g.Rows); d != 0 {
 			u.send(proto.Scroll{Pane: f.pane, Lines: d})

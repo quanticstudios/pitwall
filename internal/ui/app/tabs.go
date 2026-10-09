@@ -61,9 +61,15 @@ func modeKeys(b *config.Bindings, pane bool) (string, [][2]string) {
 // modePill is the mode indicator: a "TAB" or "PANE" chip and the keys the
 // mode takes.
 func modePill(gtx gl.Context, th *theme.Theme, b *config.Bindings, pane bool) (op.CallOp, image.Point) {
+	name, keys := modeKeys(b, pane)
+	return pill(gtx, th, name, keys)
+}
+
+// pill is a mode chip named name and the keys the mode takes, each a key
+// and what it does; keys without a key are left out.
+func pill(gtx gl.Context, th *theme.Theme, name string, keys [][2]string) (op.CallOp, image.Point) {
 	m := op.Record(gtx.Ops)
 	x, h := 0, gtx.Dp(28)
-	name, keys := modeKeys(b, pane)
 	tag, tsz := textCall(gtx, th, semibold(th.UIFont), 11, th.Primary, name)
 	cw := tsz.X + gtx.Dp(16)
 	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Primary, 0.16), clip.UniformRRect(image.Rect(0, 0, cw, h), h/2).Op(gtx.Ops))
@@ -95,7 +101,13 @@ func (u *ui) drawModePill(gtx gl.Context, area image.Rectangle) {
 	call, sz := modePill(gtx, u.th, u.nav.bind(), u.nav.paneMode)
 	pad := gtx.Dp(6)
 	box := image.Rectangle{Max: sz.Add(image.Pt(2*pad, 2*pad))}
-	at := image.Pt(area.Min.X+gtx.Dp(12), area.Max.Y-gtx.Dp(12)-box.Dy())
+	u.drawPill(gtx, call, box, image.Pt(area.Min.X+gtx.Dp(12), area.Max.Y-gtx.Dp(12)-box.Dy()))
+}
+
+// drawPill draws a pill's call in a box at at, on a surface so it reads
+// over terminal text.
+func (u *ui) drawPill(gtx gl.Context, call op.CallOp, box image.Rectangle, at image.Point) {
+	pad := gtx.Dp(6)
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 	r := box.Dy() / 2
 	paint.FillShape(gtx.Ops, theme.Mix(u.th.Surface, u.th.Fg, 0.14), clip.UniformRRect(box, r).Op(gtx.Ops))

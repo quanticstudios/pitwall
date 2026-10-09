@@ -70,6 +70,9 @@ func (d *Daemon) notifyingVT(id string) vt.NewFunc {
 				}
 			})
 		}
+		if s, ok := e.(interface{ SetScrollback(int) }); ok && d.o.Scrollback != nil {
+			s.SetScrollback(d.o.Scrollback())
+		}
 		if s, ok := e.(interface{ SetClipboardFunc(func(string)) }); ok {
 			s.SetClipboardFunc(func(text string) {
 				seq := d.clipSeq.Add(1) // the order they arrived in, whichever goroutine runs first
@@ -122,18 +125,12 @@ func (d *Daemon) setClipboard(seq uint64, text string) {
 	d.changed()
 }
 
-// bellSetting reads [terminal] bell from the config at path, again only
+// setting reads one value of the config at path with get, again only
 // when the file changed.
-func bellSetting(path string) func() bool {
-	return setting(path, true, func(s config.Settings) bool { return s.Bell })
-}
-
-// setting reads one value of the config at path with get, again only when
-// the file changed; it is def until the file exists.
-func setting[T any](path string, def T, get func(config.Settings) T) func() T {
+func setting[T any](path string, get func(config.Settings) T) func() T {
 	var mu sync.Mutex
-	var stamp string
-	v := def
+	stamp := "-" // no file stamps this way, so the first call reads
+	var v T
 	return func() T {
 		mu.Lock()
 		defer mu.Unlock()

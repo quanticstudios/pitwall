@@ -48,7 +48,7 @@ type Host struct {
 // Keys is [keys]. Every Binding field is an action; its group tag heads
 // it in the command palette.
 type Keys struct {
-	Preset           string  `toml:"preset" enum:"conventional,aide" doc:"conventional follows Linux terminals (Ghostty, kitty, GNOME Terminal); aide is aide's Alt-key layout."`
+	Preset           string  `toml:"preset" enum:"conventional,aide,mac" doc:"conventional follows Linux terminals (Ghostty, kitty, GNOME Terminal); aide is aide's Alt-key layout; mac puts the app's keys on Cmd (Super), as macOS apps do. The default is mac on macOS and conventional elsewhere."`
 	SwitcherModifier *string `toml:"switcher_modifier" enum:"Alt,Super,Ctrl," doc:"Holding this modifier shows the tab switcher; \"\" for none. aide uses Alt, conventional none."`
 
 	NextTab         Binding `toml:"next_tab" group:"Tabs" doc:"Next tab in sidebar order. With a switcher_modifier it stays in the tab's group until the switcher shows"`
@@ -83,6 +83,7 @@ type Keys struct {
 	SessionPrev     Binding `toml:"session_prev" group:"Sessions" doc:"Previous session in the switcher's order"`
 	SessionRename   Binding `toml:"session_rename" group:"Sessions" doc:"Rename this session in the session switcher"`
 	Copy            Binding `toml:"copy" group:"Terminal" doc:"Copy the selection"`
+	CopyMode        Binding `toml:"copy_mode" group:"Terminal" doc:"Copy mode: move a cursor through the scrollback with vi keys, select with v, V or Ctrl+V and copy with y. See docs/keys.md"`
 	Paste           Binding `toml:"paste" group:"Terminal" doc:"Paste"`
 	ScrollPageUp    Binding `toml:"scroll_page_up" group:"Terminal" doc:"Scroll back a page"`
 	ScrollPageDown  Binding `toml:"scroll_page_down" group:"Terminal" doc:"Scroll forward a page"`
@@ -197,10 +198,11 @@ type Layout struct {
 
 // Term is [terminal].
 type Term struct {
-	CopyOnSelect *bool  `toml:"copy_on_select" doc:"Copy text to the clipboard as soon as you select it with the mouse, as zellij and Warp do. The copy key works either way"`
-	Links        *bool  `toml:"links" doc:"Underline web and file links in panes, plain URLs and OSC 8 hyperlinks alike, and open them with Ctrl+click"`
-	OSC52        string `toml:"osc52" enum:"write,off" doc:"write lets programs (Neovim, tmux, anything over ssh) set the clipboard with OSC 52, up to 1 MB; off ignores them. Programs can never read the clipboard this way"`
-	Bell         string `toml:"bell" enum:"attention,off" doc:"attention: a bell (BEL) in a pane you are not looking at rings the pane and marks its tab, with a desktop notification, as an agent waiting for you does; off ignores bells"`
+	CopyOnSelect *bool    `toml:"copy_on_select" doc:"Copy text to the clipboard as soon as you select it with the mouse, as zellij and Warp do. The copy key works either way"`
+	Links        *bool    `toml:"links" doc:"Underline web and file links in panes, plain URLs and OSC 8 hyperlinks alike, and open them with Ctrl+click"`
+	OSC52        string   `toml:"osc52" enum:"write,off" doc:"write lets programs (Neovim, tmux, anything over ssh) set the clipboard with OSC 52, up to 1 MB; off ignores them. Programs can never read the clipboard this way"`
+	Bell         string   `toml:"bell" enum:"attention,off" doc:"attention: a bell (BEL) in a pane you are not looking at rings the pane and marks its tab, with a desktop notification, as an agent waiting for you does; off ignores bells"`
+	Scrollback   *float64 `toml:"scrollback" min:"1000" max:"200000" doc:"Lines of history each new pane keeps. Every 10,000 lines of agent output take about 2 MB per pane"`
 }
 
 // Updates is [updates].
@@ -222,6 +224,8 @@ const (
 	DefaultMonoSize   = 13
 	DefaultPaneGap    = 4
 	DefaultPaneMargin = 4
+	DefaultScrollback = 10000
+	MaxScrollback     = 200000
 )
 
 // Settings is a loaded config with every value filled in.
@@ -242,6 +246,8 @@ type Settings struct {
 	OSC52 bool
 	// Bell lets a bell raise its pane's attention.
 	Bell bool
+	// Scrollback is the lines of history a new pane keeps.
+	Scrollback int
 	// CheckUpdates looks for a newer release on GitHub.
 	CheckUpdates bool
 	// ShowCost shows token use in dollars next to the tokens.
@@ -425,6 +431,14 @@ func LoadFile(path string) (Settings, []Problem) {
 			*o.v = false
 		default:
 			fi = append(fi, issue{o.name, fmt.Sprintf("%q is not %s or off; using %s", o.val, o.on, o.on)})
+		}
+	}
+	s.Scrollback = DefaultScrollback
+	if p := c.Term.Scrollback; p != nil {
+		if *p < 1000 || *p > MaxScrollback || *p != float64(int(*p)) {
+			fi = append(fi, issue{"terminal.scrollback", fmt.Sprintf("%g is not a whole number from 1000 to %d", *p, MaxScrollback)})
+		} else {
+			s.Scrollback = int(*p)
 		}
 	}
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check

@@ -25,14 +25,6 @@ func drawTerm(gtx gl.Context, v *term.View, th *theme.Theme, g *vt.Grid, m vt.Mo
 	return input, cols, rows
 }
 
-// setScroll calls View.SetScroll(offset, max), which the term track adds;
-// until it lands in this branch the check fails and nothing happens.
-func setScroll(v *term.View, offset, max int) {
-	if s, ok := any(v).(interface{ SetScroll(offset, max int) }); ok {
-		s.SetScroll(offset, max)
-	}
-}
-
 func panesOf(root *layout.Node) []string {
 	if root == nil {
 		return nil

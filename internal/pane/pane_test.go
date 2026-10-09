@@ -48,6 +48,7 @@ func (f *fakeVT) SnapshotAt(int) vt.Grid                { return vt.Grid{} }
 func (f *fakeVT) ScrollbackLen() int                    { return 0 }
 func (f *fakeVT) ScrollbackPushed() uint64              { return 0 }
 func (f *fakeVT) Search(string, int) ([]vt.Match, bool) { return nil, false }
+func (f *fakeVT) Text(vt.Selection) string              { return "" }
 func (f *fakeVT) Modes() vt.Modes                       { return vt.Modes{} }
 func (f *fakeVT) String() string                        { f.mu.Lock(); defer f.mu.Unlock(); return f.buf.String() }
 

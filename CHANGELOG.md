@@ -110,6 +110,21 @@ build. Either step takes `--dry-run`.
   restart, and `pitwall queue ls`, `add` and `rm` manage it from a shell.
   Windows need a daemon of this release for tasks; an older one says so in
   the dialog.
+- A selection stays on its text while new output scrolls the pane. It used
+  to stay on the same screen cells, so the text under it changed. Dragging
+  past the top or bottom of a pane scrolls it, faster the further you drag,
+  so one selection can copy any amount of history.
+- Triple-click selects a whole line, across the rows it wrapped onto, and
+  Alt+drag selects a block.
+- Copy mode (Ctrl+Shift+X) selects and copies with the keyboard: vi motions,
+  `/` to find, v, V or Ctrl+V to select, y to copy. See docs/keys.md.
+- `[terminal] scrollback` sets how many lines of history new panes keep,
+  10,000 by default and up to 200,000. It is also under Terminal in the
+  settings page.
+- A mac key preset puts the app's keys on Cmd: Cmd+C and Cmd+V copy and
+  paste, Cmd+T opens a tab, Cmd+W closes a pane, Cmd+Shift+P opens the
+  palette. It is the default on macOS when the config names no preset.
+  `Cmd` is another name for `Super` in config chords.
 
 ## v0.1.0-beta.2
 

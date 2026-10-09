@@ -156,6 +156,15 @@ func (t *emulator) SetBellFunc(f func()) {
 	t.st.bell = f
 }
 
+// SetScrollback sets how many lines of history the emulator keeps, at
+// least 1; the default is 10,000. Call it before the first Write; callers
+// find it through an interface check, so NewFunc stays as it is.
+func (t *emulator) SetScrollback(n int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.st.hist.max = max(n, 1)
+}
+
 // SetClipboardFunc sets f to be called with the text of each OSC 52
 // clipboard write, under the same conditions as SetNotifyFunc. Reads are
 // never answered.
@@ -249,13 +258,16 @@ func (t *emulator) SnapshotAt(off int) Grid {
 		return g
 	}
 	out := g
-	out.Cells = make([]Cell, len(g.Cells))
+	out.Cells, out.Wrapped = make([]Cell, len(g.Cells)), make([]bool, g.Rows)
 	for y := range g.Rows {
 		row := out.Cells[y*g.Cols : (y+1)*g.Cols]
 		if src := y - off; src >= 0 {
 			copy(row, g.Cells[src*g.Cols:])
+			out.Wrapped[y] = g.Wrapped[src]
 		} else {
-			h.at(h.len() + src).fill(row)
+			l := h.at(h.len() + src)
+			l.fill(row)
+			out.Wrapped[y] = l.wrapped()
 		}
 	}
 	out.Cursor.Y += off
@@ -360,8 +372,9 @@ func (t *emulator) Modes() Modes {
 
 func snapshot(e *xvt.Emulator, st *state) Grid {
 	w, h := e.Width(), e.Height()
-	g := Grid{Cols: w, Rows: h, Cells: make([]Cell, w*h), Title: st.title, AltScreen: e.IsAltScreen()}
+	g := Grid{Cols: w, Rows: h, Cells: make([]Cell, w*h), Title: st.title, AltScreen: e.IsAltScreen(), Wrapped: make([]bool, h)}
 	for y := range h {
+		g.Wrapped[y] = e.LineFlags(y)&xvt.LineWrapped != 0
 		for x := range w {
 			c := e.CellAt(x, y)
 			if c == nil {

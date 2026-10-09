@@ -57,7 +57,8 @@ conflict_radar = true                   # mark tabs whose branches change the sa
 ```
 
 Chords are modifiers (`Ctrl`, `Alt`, `Shift`, `Super`) and a key joined by
-`+`, in any case. Keys are a printable character, `Space`, `Tab`, `Enter`,
+`+`, in any case. `Cmd` is another name for `Super`, which is the Command key
+on macOS. Keys are a printable character, `Space`, `Tab`, `Enter`,
 `Esc`, `Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, `Up`,
 `Down`, `Left`, `Right` or `F1`-`F12`. Two actions on one chord is an error
 naming both.

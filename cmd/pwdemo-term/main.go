@@ -69,7 +69,7 @@ func run(w *app.Window, th *theme.Theme) error {
 			t := time.Now()
 			// The grid stays put; only the scrollbar shows the offset.
 			off = min(max(off+v.ScrollDelta(), 0), 500)
-			v.SetScroll(off, 500)
+			v.SetScroll(off, 500, 500)
 			_, _, cols, rows := v.Layout(gtx, th, g, vt.Modes{}, true)
 			e.Frame(gtx.Ops)
 			cost += time.Since(t)

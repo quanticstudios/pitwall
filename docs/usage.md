@@ -327,8 +327,14 @@ yellow from 80% and red from 95%.
 
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
-Drag to select, double-click a word, or hold Shift when a program owns the
-mouse. To turn it off, set `copy_on_select = false` under `[terminal]` in
+Drag to select, double-click a word, triple-click a line (the whole line
+the program printed, across the rows it wrapped onto), Alt+drag a block, or
+hold Shift when a program owns the mouse. Drag past the top or bottom of the
+pane to scroll it, faster the further you go, so one selection can take any
+amount of history. A selection stays on its text while new output scrolls
+it, and goes when that text leaves the history or the pane is resized. Copy
+mode selects with the keyboard; see [keys](keys.md). To turn copying on
+select off, set `copy_on_select = false` under `[terminal]` in
 config.toml or use the switch under Terminal in the settings page; Ctrl+Shift+C
 still copies.
 

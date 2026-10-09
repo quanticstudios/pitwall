@@ -1,4 +1,4 @@
-16.12
+16.13
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -64,6 +64,8 @@ proto.SetProjectAppearance{ProjectID string; Icon string; Color string}
 proto.SetSessionGroup{WorkspaceID string; GroupID string}
 proto.StateMsg{State model.State; Level int}
 proto.Sync{}
+proto.Text{Pane string; Sel vt.Selection}
+proto.TextResult{Pane string; Sel vt.Selection; Text string}
 proto.WorktreeInfo{Query proto.WorktreeQuery; Err string; Default string; Local []string; Remote []string; GitHub bool; Changed []string; Unmerged bool; Orphans []model.Orphan}
 proto.WorktreeQuery{ProjectID string; WorkspaceID string; Orphans bool}
 time.Location{name string; zone []time.zone; tx []time.zoneTrans; extend string; cacheStart int64; cacheEnd int64; cacheZone *time.zone}
@@ -72,6 +74,8 @@ time.zone{name string; offset int; isDST bool}
 time.zoneTrans{when int64; index uint8; isstd bool; isutc bool}
 vt.Cell{Content string; Width uint8; FG vt.Color; BG vt.Color; Attrs vt.Attr; Link string}
 vt.Cursor{X int; Y int; Visible bool; Shape vt.CursorShape}
-vt.Grid{Cols int; Rows int; Cells []vt.Cell; Cursor vt.Cursor; Title string; AltScreen bool}
+vt.Grid{Cols int; Rows int; Cells []vt.Cell; Cursor vt.Cursor; Title string; AltScreen bool; Wrapped []bool}
 vt.Match{Line uint64; Col int; Cols int}
 vt.Modes{AppCursorKeys bool; AppKeypad bool; BracketedPaste bool; FocusEvents bool; Mouse vt.MouseMode; MouseSGR bool; KittyKeyboard uint8}
+vt.Pos{Line uint64; Col int}
+vt.Selection{A vt.Pos; B vt.Pos; Mode vt.SelectMode}

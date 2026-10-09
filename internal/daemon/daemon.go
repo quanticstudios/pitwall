@@ -119,6 +119,9 @@ type Options struct {
 	Conflicts func(ctx context.Context, dir, a, b string) ([]string, error)
 	// MaxRunning reads [agents] max_running; nil means 0, no limit.
 	MaxRunning func() int
+	// Scrollback is the lines of history a new pane keeps ([terminal]
+	// scrollback); nil leaves the emulator's default.
+	Scrollback func() int
 }
 
 type Daemon struct {
@@ -184,11 +187,12 @@ func New() (*Daemon, error) {
 		Load:           func() (model.State, error) { return store.Open(path) },
 		RestoreCmd:     store.RestoreCmd,
 		Decisions:      loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
-		Bell:           bellSetting(config.Path()),
-		Radar:          radarSetting(config.Path()),
+		Bell:           setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
+		Scrollback:     setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
+		Radar:          setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
 		Changes:        gitstat.Changed,
 		Conflicts:      gitstat.Conflicts,
-		MaxRunning:     setting(config.Path(), 0, func(s config.Settings) int { return s.MaxRunning }),
+		MaxRunning:     setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
 		Remote:         func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
 		RemoteDir:      remote.Dir(),
 		Split:          layout.Split,
@@ -502,6 +506,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if q, ok := m.(proto.WorktreeQuery); ok {
 			c.queue(d.worktreeQuery(ctx, q)) // a reply to this client alone
+			continue
+		}
+		if t, ok := m.(proto.Text); ok {
+			c.queue(d.text(t))
 			continue
 		}
 		if see, ok := m.(proto.SeePane); ok && hello.Kind == "gui" && hello.Level >= proto.SeeFocusLevel {

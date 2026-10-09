@@ -113,7 +113,7 @@ func TestCtrlClickLink(t *testing.T) {
 	}
 	mouse := vt.Modes{Mouse: vt.MouseNormal, MouseSGR: true}
 
-	if in := frame(vt.Modes{}, click(10, 0, key.ModCtrl)...); in != "" || v.OpenLink() != "https://example.com/docs" || v.sel.on || v.dragging {
+	if in := frame(vt.Modes{}, click(10, 0, key.ModCtrl)...); in != "" || v.OpenLink() != "https://example.com/docs" || v.selOn || v.dragging {
 		t.Errorf("Ctrl+click: input %q, selection %+v", in, v.sel)
 	}
 	if in := frame(mouse, click(10, 0, key.ModCtrl)...); in != "" || v.OpenLink() != "https://example.com/docs" {
@@ -129,7 +129,7 @@ func TestCtrlClickLink(t *testing.T) {
 		t.Errorf("Ctrl+click off a link with mouse reporting: input %q", in)
 	}
 	frame(vt.Modes{}, click(10, 0, 0)...)
-	if v.OpenLink() != "" || !v.sel.a.Eq(image.Pt(10, 0)) {
+	if v.OpenLink() != "" || v.sel.A != (vt.Pos{Col: 10}) {
 		t.Errorf("plain click opened or did not start a selection: %+v", v.sel)
 	}
 	v.Links = false
