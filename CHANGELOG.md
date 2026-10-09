@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## v0.1.0-beta.2
 
+<<<<<<< HEAD
 - Agent state stays current after an upgrade you chose to restart the
   daemon for later. Hooks run the new `pitwall` on your PATH, and the old
   daemon used to refuse every one of them until it restarted, so each
@@ -48,6 +49,18 @@ build. Either step takes `--dry-run`.
   hours (`quiet_hours = "22:00-08:00"`) that keep only approvals, errors
   and urgent questions, silently.
 >>>>>>> e7df7b6 (Answer approvals from the sidebar and notifications, add notification rules)
+=======
+- The phone page can push notifications to your phone when an agent
+  needs you, with the page closed or the phone locked. Tap Turn on in
+  the page; on an iPhone, add it to the Home Screen first. pitwall pushes
+  what the desktop notifies, by the same rules, even with every window
+  closed, and tapping one opens the page on that tab. Settings, Phone
+  shows which devices get pushes and sends a test. Push needs a
+  certificate the phone trusts, such as `tailscale serve` gives.
+- The phone page can be added to the Home Screen as an app, and pairs by
+  a typed code as well as by the QR code.
+
+>>>>>>> a27bd6d (Push notifications to paired phones)
 - The README and the site no longer list the AUR package. It is not on the
   AUR yet: new AUR accounts are closed for now.
 

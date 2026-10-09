@@ -125,6 +125,7 @@ type Daemon struct {
 	dec         decisions             // see decide.go
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed bool
+	pushWake     chan struct{} // wakes pushLoop, nil when it is not running
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -1404,6 +1405,10 @@ func (d *Daemon) changed() {
 	d.retitle()
 	d.fixOrders()
 	d.st.Version++
+	select {
+	case d.pushWake <- struct{}{}:
+	default:
+	}
 	for c := range d.clients {
 		c.push(func() { c.state = true })
 	}

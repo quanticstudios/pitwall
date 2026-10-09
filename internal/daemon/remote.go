@@ -51,8 +51,8 @@ func (d *Daemon) remoteLoop(ctx context.Context) {
 	}
 }
 
-// serveRemote starts the phone page on s.Listen and returns what stops
-// it. A failure is logged, and waits for the settings to change.
+// serveRemote starts the phone page on s.Listen, and the pushes to the
+// phones that turned them on, and returns what stops both. A failure is logged, and waits for the settings to change.
 func (d *Daemon) serveRemote(s config.RemoteSettings) (stop func()) {
 	ln, err := net.Listen("tcp", s.Listen)
 	if err != nil {
@@ -73,8 +73,11 @@ func (d *Daemon) serveRemote(s config.RemoteSettings) (stop func()) {
 	}
 	srv := &http.Server{Handler: d.remoteServer().Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
+	ctx, cancel := context.WithCancel(context.Background())
+	go d.pushLoop(ctx, &remote.Pusher{Dir: d.o.RemoteDir})
 	log.Printf("remote: serving %s://%s for paired devices", scheme, ln.Addr())
 	return func() {
+		cancel()
 		srv.Close()
 		log.Printf("remote: stopped serving %s", ln.Addr())
 	}

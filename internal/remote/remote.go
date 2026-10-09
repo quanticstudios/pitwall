@@ -3,8 +3,9 @@
 // The daemon serves it and supplies the state and the keys.
 //
 // Everything lives in Dir, mode 0700: pair.json holds the pending pairing
-// code's hash, devices/<id>.json each paired device's token hash, and
-// tls.pem the certificate for tls = true. The CLI and the settings page
+// code's hash, devices/<id>.json each paired device's token hash,
+// devices/<id>.push.json its push subscription, vapid.pem the key that
+// signs pushes, and tls.pem the certificate for tls = true. The CLI and the settings page
 // write pairings and revoke devices there; the daemon reads it on every
 // request, so a revoked device is refused at once.
 package remote
@@ -194,7 +195,7 @@ func Devices(dir string) ([]Device, error) {
 }
 
 // Revoke unpairs the device whose id or name is which; its token stops
-// working at once.
+// working at once, and its push subscription goes with it.
 func Revoke(dir, which string) (Device, error) {
 	devs, err := Devices(dir)
 	if err != nil {
@@ -204,7 +205,13 @@ func Revoke(dir, which string) (Device, error) {
 	if i < 0 {
 		return Device{}, fmt.Errorf("no paired device %q; pitwall remote devices lists them", which)
 	}
-	return devs[i], os.Remove(filepath.Join(dir, "devices", devs[i].ID+".json"))
+	if err := os.Remove(filepath.Join(dir, "devices", devs[i].ID+".json")); err != nil {
+		return devs[i], err
+	}
+	if err := os.Remove(pushPath(dir, devs[i].ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return devs[i], err
+	}
+	return devs[i], nil
 }
 
 func printable(r rune) rune {

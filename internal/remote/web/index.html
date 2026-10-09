@@ -6,6 +6,10 @@
 <meta name="color-scheme" content="dark light">
 <meta name="referrer" content="no-referrer">
 <title>pitwall</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#08090c">
 <style>
 :root {
   --bg: #08090c; --surface: #14161b; --field: #1c1f26; --line: #252932;
@@ -51,20 +55,25 @@ button {
 button.allow { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 button.send { flex: none; }
 button:disabled { opacity: 0.5; }
-textarea {
+textarea, input {
   font: inherit; width: 100%; min-height: 44px; max-height: 40vh; resize: vertical; padding: 10px 12px;
   border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--fg);
 }
-textarea:focus, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+input { min-height: 44px; }
+textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .note { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .note.bad { color: var(--red); }
 .empty { color: var(--muted); text-align: center; padding: 48px 16px; }
+.empty .row { max-width: 360px; margin: 16px auto 0; }
+#push .note { margin: 0 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.card.focus { border-color: var(--primary); }
 code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; background: var(--field); padding: 1px 5px; border-radius: 5px; }
 </style>
 </head>
 <body>
 <main>
   <header><h1>pitwall</h1><div id="status" aria-live="polite"></div></header>
+  <div id="push"></div>
   <div id="list"></div>
 </main>
 <script src="app.js"></script>

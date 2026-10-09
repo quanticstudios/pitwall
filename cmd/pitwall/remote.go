@@ -44,7 +44,7 @@ func runRemote(args []string, stdout, stderr io.Writer) int {
 			return fail(err)
 		}
 		fmt.Fprint(stdout, c)
-		fmt.Fprintf(stdout, "\nScan this with your phone, or open:\n  %s\n\nIt pairs %q once, within %.0f minutes.\n", url, remote.PairName(dir, time.Now()), remote.PairTTL.Minutes())
+		fmt.Fprintf(stdout, "\nScan this with your phone, or open:\n  %s\nor enter the code %s on the page.\n\nIt pairs %q once, within %.0f minutes.\n", url, code, remote.PairName(dir, time.Now()), remote.PairTTL.Minutes())
 		if s.Remote.TLS {
 			if _, fp, err := remote.Cert(dir); err == nil {
 				fmt.Fprintf(stdout, "The page's certificate is pitwall's own. Before you trust it, check its SHA-256 is\n  %s\n", fp)
