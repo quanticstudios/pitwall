@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.2
 
 - Agent state stays current after an upgrade you chose to restart the
   daemon for later. Hooks run the new `pitwall` on your PATH, and the old
