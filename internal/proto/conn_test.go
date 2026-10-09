@@ -69,6 +69,8 @@ func allMessages() []any {
 		SearchResult{Pane: "a", Query: "Error", Matches: []vt.Match{{Line: 1 << 40, Col: 3, Cols: 5}}, More: true},
 		Text{Pane: "a", Sel: vt.Selection{A: vt.Pos{Line: 1 << 40, Col: 2}, B: vt.Pos{Line: 1<<40 + 3}, Mode: vt.SelectBlock}},
 		TextResult{Pane: "a", Sel: vt.Selection{B: vt.Pos{Col: 4}}, Text: "hello\nworld"},
+		View{Panes: []string{"a", "b"}},
+		FrameRows{Pane: "a", Rows: []int{2}, Cells: []vt.Cell{{Content: "x", Width: 1}}, Wrapped: []bool{false, false, true}, Title: "t", ScrollPushed: 1 << 40},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},
 		AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(`{"x":1}`)},

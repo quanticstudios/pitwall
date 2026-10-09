@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 14 added View and FrameRows: a GUI of this Level gets frames of
+// the panes it shows alone, and of each one the rows that changed.
 // Level 13 added Text, TextResult and vt.Grid.Wrapped: a copy of a
 // selection that runs past the view.
 // Level 12 added State.Tasks, NewTask and DropTask: the task queue.
@@ -90,12 +92,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 13
+const Level = 14
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case View, FrameRows:
+		return 14
 	case Text, TextResult:
 		return 13
 	case NewTask, DropTask:
@@ -295,6 +299,14 @@ type Text struct {
 	Sel  vt.Selection
 }
 
+// View names the panes a GUI draws now. The daemon sends that GUI frames
+// of these panes alone, and a full Frame of each one it adds, so a pane
+// shows current once it is drawn again; the others keep running unseen. A
+// GUI of this Level gets no frames until its first View.
+type View struct {
+	Panes []string
+}
+
 type ClosePane struct {
 	Pane string
 }
@@ -332,6 +344,22 @@ type Frame struct {
 	// ScrollPushed counts lines that ever entered the pane's history: row y
 	// of Grid shows line ScrollPushed-ScrollOffset+y, as vt.Match numbers
 	// lines. 0 from daemons below Level 4.
+	ScrollPushed uint64
+}
+
+// FrameRows brings the client's last Frame of Pane up to date: row Rows[i]
+// of its Grid becomes Cells[i*Cols:(i+1)*Cols], and the other fields
+// replace the Frame's. A daemon sends it to GUIs of its Level in place of a
+// Frame of the same size, screen and scroll offset; see Diff.
+type FrameRows struct {
+	Pane         string
+	Rows         []int
+	Cells        []vt.Cell
+	Wrapped      []bool // the whole Grid's
+	Cursor       vt.Cursor
+	Title        string
+	Modes        vt.Modes
+	ScrollMax    int
 	ScrollPushed uint64
 }
 
@@ -535,4 +563,5 @@ var Messages = []any{
 	Answer{},
 	WorktreeQuery{}, WorktreeInfo{}, DeleteWorktree{},
 	Text{}, TextResult{},
+	View{}, FrameRows{},
 }

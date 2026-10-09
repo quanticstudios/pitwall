@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"slices"
 	"sync"
@@ -37,6 +38,10 @@ type backend struct {
 	texts   map[string]proto.TextResult   // per pane, a Text reply not yet taken
 	link    app.Link
 	dialing bool // a dial loop runs
+	// view is the panes the last proto.View named, and waits a channel
+	// per pane added to it, closed when its first frame comes.
+	view  map[string]bool
+	waits map[string]chan struct{}
 
 	// Send queues for sendLoop, so a daemon busy in a slow request never
 	// blocks the window: a few hundred small frames fill a unix socket.
@@ -65,7 +70,7 @@ var retryMin, retryMax = 500 * time.Millisecond, 30 * time.Second
 // tab $PITWALL_ATTACH names. With c nil it starts disconnected.
 func newBackend(c *proto.Conn, session string) *backend {
 	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), retry: make(chan struct{}, 1),
-		frames: map[string]proto.Frame{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
+		frames: map[string]proto.Frame{}, view: map[string]bool{}, waits: map[string]chan struct{}{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
 	if c == nil {
 		b.outErr = errNotConnected
 		close(b.done)
@@ -84,6 +89,7 @@ var (
 	_ app.Finder    = (*backend)(nil)
 	_ app.Worktreer = (*backend)(nil)
 	_ app.Texter    = (*backend)(nil)
+	_ app.Viewer    = (*backend)(nil)
 )
 
 func (b *backend) State() model.State {
@@ -92,11 +98,52 @@ func (b *backend) State() model.State {
 	return b.state
 }
 
+// Frame implements app.Backend. A daemon of proto.View's Level sends
+// frames of the panes the window draws alone, so a pane missing from the
+// last View is added to it, and Frame waits up to frameWait for its
+// current frame rather than draw a stale or empty one.
 func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.link.Level >= proto.Since(proto.View{}) && !b.view[pane] && slices.ContainsFunc(b.state.Panes, func(p model.Pane) bool { return p.ID == pane }) {
+		b.view[pane] = true
+		wait := make(chan struct{})
+		b.waits[pane] = wait
+		v := proto.View{Panes: slices.Sorted(maps.Keys(b.view))}
+		b.mu.Unlock()
+		b.Send(v)
+		select {
+		case <-wait:
+		case <-time.After(frameWait):
+		}
+		b.mu.Lock()
+	}
 	f, ok := b.frames[pane]
 	return f.Grid, f.Modes, ok
+}
+
+// frameWait bounds how long Frame holds the window for a pane's first
+// frame: a local daemon answers in well under a millisecond.
+const frameWait = 50 * time.Millisecond
+
+// Show implements app.Viewer: the daemon stops sending frames of the panes
+// in the view but not in panes. It adds none; Frame does.
+func (b *backend) Show(panes []string) {
+	b.mu.Lock()
+	view := map[string]bool{}
+	for _, id := range panes {
+		if b.view[id] {
+			view[id] = true
+		}
+	}
+	send := !maps.Equal(view, b.view)
+	if send {
+		b.view = view
+	}
+	b.mu.Unlock()
+	if send {
+		b.Send(proto.View{Panes: slices.Sorted(maps.Keys(view))})
+	}
 }
 
 // Send queues msg for sendLoop and returns at once; the error is the one
@@ -254,6 +301,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.outMu.Unlock()
 	b.mu.Lock()
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
+	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
 	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level}
 	first := b.session == ""
@@ -368,6 +416,7 @@ func (b *backend) recvLoop() {
 			continue
 		}
 		b.mu.Lock()
+		pane := "" // of a frame
 		switch m := msg.(type) {
 		case proto.StateMsg:
 			b.state, b.link.Level = m.State, m.Level
@@ -390,11 +439,22 @@ func (b *backend) recvLoop() {
 			b.texts[m.Pane] = m
 		case proto.Frame:
 			b.frames[m.Pane] = m
-			if !shown(&b.state, b.session, m.Pane) {
-				// Kept for when its tab is shown; no redraw for it now.
-				b.mu.Unlock()
-				continue
+			if w := b.waits[m.Pane]; w != nil {
+				close(w)
+				delete(b.waits, m.Pane)
 			}
+			pane = m.Pane
+		case proto.FrameRows:
+			// The daemon sends rows only after a whole frame of the pane.
+			if f, ok := m.Apply(b.frames[m.Pane]); ok {
+				b.frames[m.Pane] = f
+			}
+			pane = m.Pane
+		}
+		if pane != "" && !shown(&b.state, b.session, pane) {
+			// Kept for when its tab is shown; no redraw for it now.
+			b.mu.Unlock()
+			continue
 		}
 		b.mu.Unlock()
 		b.notify()

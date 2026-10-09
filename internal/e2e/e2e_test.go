@@ -393,6 +393,12 @@ func connect(t *testing.T, kind string) *client {
 // connectIn says Hello as if launched in cwd.
 func connectIn(t *testing.T, kind, cwd string) *client {
 	t.Helper()
+	return connectHello(t, proto.Hello{Version: proto.Version, Kind: kind, Cwd: cwd})
+}
+
+// connectHello connects and says hello.
+func connectHello(t *testing.T, hello proto.Hello) *client {
+	t.Helper()
 	path, err := proto.SocketPath()
 	if err != nil {
 		t.Fatal(err)
@@ -430,7 +436,7 @@ func connectIn(t *testing.T, kind, cwd string) *client {
 			t.Error("client receive loop did not stop")
 		}
 	})
-	c.send(t, proto.Hello{Version: proto.Version, Kind: kind, Cwd: cwd})
+	c.send(t, hello)
 	return c
 }
 
