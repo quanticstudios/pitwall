@@ -47,16 +47,6 @@ build. Either step takes `--dry-run`.
   shows a notice once, and `limits_in_sidebar = true` under `[usage]` adds
   a meter to the bottom of the sidebar that turns yellow at 80% and red at
   95%. pitwall never asks Anthropic or OpenAI for them.
-
-## v0.1.0-beta.2
-
-- Agent state stays current after an upgrade you chose to restart the
-  daemon for later. Hooks run the new `pitwall` on your PATH, and the old
-  daemon used to refuse every one of them until it restarted, so each
-  agent's sidebar row stopped changing. Now a hook refused for its protocol
-  version sends again in the daemon's, and daemons serve hooks of any
-  version. A daemon that gets hooks from a newer pitwall shows a notice
-  once asking you to restart it, and logs a line a minute with a count.
 - A tab whose branch has a pull request shows it on its row: the number in
   the PR's state color, a CI dot and the review, with each check by name
   in the hover card. Click it to open the PR. The tab's menu and the
@@ -67,6 +57,16 @@ build. Either step takes `--dry-run`.
   does that on its own. The daemon asks `gh` about each branch every minute
   or so, slower while no window has focus, and shows nothing without `gh`
   or a login.
+
+## v0.1.0-beta.2
+
+- Agent state stays current after an upgrade you chose to restart the
+  daemon for later. Hooks run the new `pitwall` on your PATH, and the old
+  daemon used to refuse every one of them until it restarted, so each
+  agent's sidebar row stopped changing. Now a hook refused for its protocol
+  version sends again in the daemon's, and daemons serve hooks of any
+  version. A daemon that gets hooks from a newer pitwall shows a notice
+  once asking you to restart it, and logs a line a minute with a count.
 - The README and the site no longer list the AUR package. It is not on the
   AUR yet: new AUR accounts are closed for now.
 
