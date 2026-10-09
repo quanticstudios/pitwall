@@ -11,7 +11,7 @@ var queryAliases = map[string]string{
 	"⌘": "cmd", "win": "super", "meta": "super",
 	"^": "ctrl", "⌃": "ctrl",
 	"option": "alt", "opt": "alt", "⌥": "alt",
-	"⇧": "shift",
+	"⇧":      "shift",
 	"pgdown": "pgdn",
 	"↑":      "up", "↓": "down", "←": "left", "→": "right",
 }
