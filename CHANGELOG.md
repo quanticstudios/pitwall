@@ -27,6 +27,20 @@ build. Either step takes `--dry-run`.
   when nothing matches.
 - The session switcher's preview shows the session's tabs and groups
   without the sidebar's header and footer buttons.
+- A tab running two or more agents lists them under its row: each agent
+  pane gets a small row with its logo, its own title and its state, and
+  the asking one gets Allow and Deny there. Clicking one focuses that pane.
+  The tab row keeps the most urgent state and counts them, "3 agents · 1
+  approval"; clicking the count folds the list. The hover card lists every
+  agent too.
+- The open tab's row is a plain primary tint with a thin outline, without
+  the yellow or red of its state, which stays in its pill and accent bar.
+  Group headers have a chevron that turns as they open. Rows drop the dot
+  beside the pill, show "Merge conflicts" as a red mark (the hover card
+  says it in words), and skip a second line that repeats the title, such
+  as "~" under "~". Row heights follow `[font] ui_size`, and keyboard
+  focus on a row or a menu entry shows a ring.
+
 - The daemon sends a window only the panes it draws, and of those only
   the rows that changed. Agents in other tabs and sessions keep running,
   and a pane shows its current screen as soon as you switch to it. With 32
