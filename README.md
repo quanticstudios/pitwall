@@ -55,11 +55,12 @@ too: `npm test && pitwall notify "tests passed"`.
 
 <img src="docs/media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box" width="240" align="right">
 
-**Allow or Deny a permission prompt from the sidebar, the notification or
-your phone.** Ctrl+Shift+Y and Ctrl+Shift+D press the row's buttons. Pair
-your phone by QR code and it lists what needs you, takes typed answers and
-gets push notifications while locked. There is no account and no relay: the
-phone talks to your computer over your own network.
+**Allow or Deny a permission prompt from the sidebar or your phone.**
+Ctrl+Shift+Y and Ctrl+Shift+D press the row's buttons, and on Linux the
+notification has them too. Pair your phone by QR code and it lists what
+needs you, takes typed answers and gets push notifications while locked.
+There is no account and no relay: the phone talks to your computer over
+your own network.
 
 <br clear="right">
 
