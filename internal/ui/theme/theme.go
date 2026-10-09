@@ -32,6 +32,7 @@ type Theme struct {
 	Bg, Sidebar, Surface, SurfaceSecondary, SurfaceElevated color.NRGBA
 	Border, Fg, Muted, Primary, OnPrimary                   color.NRGBA
 	Red, Yellow, Green, Blue, Purple                        color.NRGBA
+	Tokens
 
 	// Terminal colors: ANSI 0-15, and the default foreground, background
 	// and cursor.
@@ -123,6 +124,7 @@ func New(c config.Theme, f config.Font) (*Theme, error) {
 			t.ANSI[i] = col(a)
 		}
 	}
+	t.derive()
 	var err error
 	t.Shaper, t.UIFont, t.MonoFont, err = fonts(f.UIFamily, f.MonoFamily, f.MonoFallback)
 	return t, err

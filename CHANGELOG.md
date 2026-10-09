@@ -22,6 +22,10 @@ build. Either step takes `--dry-run`.
   and a pane shows its current screen as soon as you switch to it. With 32
   busy panes and four on screen, a window receives 0.2 MB/s instead of
   34.
+- Secondary text reads at 4.5:1 or better in every built-in theme:
+  tokyo-night, aide-light and catppuccin-mocha get a slightly stronger
+  muted color, and status chips darken or lighten their text where it
+  was faint, most visibly in aide-light.
 
 ## v0.1.0-beta.3
 
