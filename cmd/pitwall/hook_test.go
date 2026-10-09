@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -92,5 +93,60 @@ func TestHookReportsAndExits(t *testing.T) {
 	sendHook(filepath.Join(t.TempDir(), "none.sock"), "p1", "claude", []byte(req))
 	if d := time.Since(start); d > 300*time.Millisecond {
 		t.Errorf("no daemon: took %v", d)
+	}
+}
+
+// TestHookReachesOlderDaemon: after an upgrade the daemon was not restarted
+// for, a daemon from before hooks of any Version were served refuses this
+// proto.Version and closes at once; the event still reaches it.
+func TestHookReachesOlderDaemon(t *testing.T) {
+	old := proto.Version - 1
+	sock := filepath.Join(t.TempDir(), "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan proto.AgentEvent, 4)
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				c := proto.NewConn(nc)
+				defer c.Close()
+				m, err := c.Recv()
+				if h, ok := m.(proto.Hello); err != nil || !ok || h.Version != old {
+					// the refusal every daemon since Version 2 sends
+					c.Send(proto.Error{Message: fmt.Sprintf("daemon speaks protocol version %d; send Hello{Version: %d} first", old, old)})
+					return
+				}
+				for {
+					m, err := c.Recv()
+					if err != nil {
+						return
+					}
+					if ev, ok := m.(proto.AgentEvent); ok {
+						got <- ev
+					}
+				}
+			}()
+		}
+	}()
+	req := `{"hook_event_name":"Stop"}`
+	start := time.Now()
+	sendHook(sock, "p1", "claude", []byte(req))
+	if d := time.Since(start); d > 300*time.Millisecond {
+		t.Errorf("the hook took %v", d)
+	}
+	select {
+	case ev := <-got:
+		if ev.Pane != "p1" || string(ev.Payload) != req {
+			t.Errorf("event %+v", ev)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the older daemon got no event")
 	}
 }

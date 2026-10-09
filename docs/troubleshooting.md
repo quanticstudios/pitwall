@@ -12,6 +12,21 @@
   frames slower than 250 ms, split into layout and rendering time.
 - **Something else.** Look at the logs (below).
 
+## Hooks after an upgrade
+
+Agent hooks run the `pitwall` on your PATH, not the daemon's binary. After an
+upgrade that changes the protocol's major version, if you picked **Later**,
+the hooks are newer than the daemon still running. They keep working: a
+daemon serves hooks of any protocol version, and a hook refused by a daemon
+from v0.1.0-beta.1 or earlier sends its event again in that daemon's version.
+An old pitwall left on PATH works the same way against a newer daemon.
+
+A daemon that gets a hook newer than itself shows "The daemon is older than
+pitwall; restart it to finish the upgrade" once, and `daemon.log` gets a
+line a minute per version, such as `hook of protocol version 17 served by a
+daemon of 16 (212 more since the last line)`. Run `pitwall` and choose
+**Restart now** when you are ready; programs running in panes stop.
+
 ## Logs
 
 `pitwall logs` prints the paths of the three log files, and `pitwall logs -f`

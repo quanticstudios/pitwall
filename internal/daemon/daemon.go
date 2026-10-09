@@ -123,6 +123,8 @@ type Daemon struct {
 	clipAt      time.Time             // when it came
 	clipSeq     atomic.Uint64         // numbers OSC 52 writes as they arrive
 	dec         decisions             // see decide.go
+	// olderNoticed is set once olderNotice was shown; see foreignHook.
+	olderNoticed bool
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -365,7 +367,8 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 // serveConn requires Hello first. Only Kind "gui" receives StateMsg, Frame
 // and PaneExited pushes, and "watch" the first and last of those; every kind
 // gets Error replies to failed requests. Any Hello.Level of proto.Version is
-// served; see proto.Version for what that asks of a new message type.
+// served; see proto.Version for what that asks of a new message type. A hook
+// of any Version is served too, its AgentEvents alone.
 func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	conn := proto.NewConn(nc)
 	defer conn.Close()
@@ -377,12 +380,17 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		return
 	}
 	hello, ok := m.(proto.Hello)
-	if !ok || hello.Version != proto.Version {
+	// A hook of another Version is served: its AgentEvent never changes.
+	foreign := ok && hello.Version != proto.Version
+	if !ok || foreign && hello.Kind != "hook" {
 		if ok, held := refusals.Allow(fmt.Sprint(hello.Version), time.Now()); ok {
 			log.Printf("client refused: protocol version %d, want %d%s", hello.Version, proto.Version, heldNote(held))
 		}
 		conn.Send(proto.Refusal())
 		return
+	}
+	if foreign {
+		d.foreignHook(hello.Version)
 	}
 
 	c := &client{conn: conn, nc: nc, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
@@ -439,6 +447,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if err != nil {
 			return
 		}
+		if _, ok := m.(proto.AgentEvent); foreign && !ok {
+			continue
+		}
 		if _, ok := m.(proto.Sync); ok {
 			// Every earlier request on this connection is handled: replies
 			// are synchronous.
@@ -490,9 +501,32 @@ func clientKind(k string) string {
 // slowHandler is how long one request may take before the log notes it.
 const slowHandler = 500 * time.Millisecond
 
-// refusals keeps hook processes from a newer or older binary, one
-// connection per agent event, to a log line a minute per version.
+// refusals keeps clients of another Version, and hooks of one, to a log
+// line a minute per version: a hook is one connection per agent event.
 var refusals = logs.Limiter{Every: time.Minute}
+
+// olderNotice is State.Notice once a hook of a newer Version reaches this
+// daemon: the binary on PATH was upgraded and the daemon kept running.
+const olderNotice = "The daemon is older than pitwall; restart it to finish the upgrade. Run pitwall and choose Restart now."
+
+// foreignHook notes a hook of protocol Version v, which this daemon serves
+// anyway: a log line a minute per version, with a count, and for a newer
+// v olderNotice, once per daemon.
+func (d *Daemon) foreignHook(v int) {
+	if ok, held := refusals.Allow(fmt.Sprint("hook ", v), time.Now()); ok {
+		log.Printf("hook of protocol version %d served by a daemon of %d%s", v, proto.Version, heldNote(held))
+	}
+	if v < proto.Version {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.olderNoticed && d.st.Notice == "" {
+		d.olderNoticed = true
+		d.st.Notice = olderNotice
+		d.changed()
+	}
+}
 
 // resizes keeps a window drag to a log line a second per pane.
 var resizes = logs.Limiter{Every: time.Second}

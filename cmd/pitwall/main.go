@@ -221,18 +221,57 @@ func runHook(args []string) {
 	sendHook(path, pane, provider, payload)
 }
 
-// sendHook forwards one hook event and returns at once. It never waits
-// for an answer and prints nothing, so a hook never delays or decides an
-// agent's permission prompt: recommendations show in pitwall only.
+// sendHook forwards one hook event. It waits at most hookWait, for the
+// daemon to read the event or refuse this proto.Version, and prints
+// nothing, so a hook never stalls or decides an agent's permission prompt:
+// recommendations show in pitwall only. A daemon from before hooks of any
+// Version were served refuses one after an upgrade it was not restarted
+// for; the event goes again at the Version it names.
 func sendHook(path, pane string, provider model.Provider, payload []byte) {
-	conn, err := proto.Dial(path)
-	if err != nil {
-		return
+	ev := proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload}
+	deadline := time.Now().Add(hookWait)
+	if v, refused := hookOnce(path, proto.Version, ev, deadline); refused {
+		hookOnce(path, v, ev, deadline)
 	}
-	defer conn.Close()
-	conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "hook"})
-	conn.Send(proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload})
 }
+
+// hookWait bounds sendHook. A daemon answers in a millisecond or two.
+const hookWait = 500 * time.Millisecond
+
+// hookOnce sends ev after Hello{Version: v} and reports the daemon's
+// Version when the daemon refused v.
+func hookOnce(path string, v int, ev proto.AgentEvent, deadline time.Time) (int, bool) {
+	nc, err := net.Dial("unix", path)
+	if err != nil {
+		return 0, false
+	}
+	defer nc.Close()
+	nc.SetDeadline(deadline)
+	// why: a daemon closes as it refuses, and a Send that fails then
+	// would close the conn before the refusal is read.
+	conn := proto.NewConn(keepOpen{nc})
+	conn.Send(proto.Hello{Version: v, Level: proto.Level, Kind: "hook"})
+	conn.Send(ev)
+	if cw, ok := nc.(interface{ CloseWrite() error }); ok {
+		cw.CloseWrite() // the daemon closes once it has read the event
+	}
+	for {
+		m, err := conn.Recv()
+		if err != nil {
+			return 0, false
+		}
+		if e, ok := m.(proto.Error); ok {
+			if dv, refused := proto.RefusedVersion(e); refused && dv != v {
+				return dv, true
+			}
+		}
+	}
+}
+
+// keepOpen is a net.Conn whose Close does nothing.
+type keepOpen struct{ net.Conn }
+
+func (keepOpen) Close() error { return nil }
 
 func printHooks() error {
 	bin, err := os.Executable()

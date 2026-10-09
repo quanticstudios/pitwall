@@ -32,6 +32,11 @@ import (
 //     Running daemons then refuse the new clients, and the GUI asks to
 //     restart the daemon, which stops every program running in a pane.
 //
+// Hello and AgentEvent never change, and neither does the refusal: agents'
+// hooks run whatever binary is on PATH, so daemons serve a Hello{Kind:
+// "hook"} of any Version, and a hook that an older daemon refuses says
+// Hello again at the Version the refusal names.
+//
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
@@ -229,7 +234,8 @@ type SetLayout struct {
 }
 
 // AgentEvent comes from `pitwall hook <provider>`, run by an agent's hook or
-// notify config inside a pane. Pane comes from $PITWALL_PANE.
+// notify config inside a pane. Pane comes from $PITWALL_PANE. Its fields
+// never change; see Version.
 type AgentEvent struct {
 	Pane     string
 	Provider model.Provider

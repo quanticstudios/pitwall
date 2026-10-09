@@ -17,6 +17,13 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Agent state stays current after an upgrade you chose to restart the
+  daemon for later. Hooks run the new `pitwall` on your PATH, and the old
+  daemon used to refuse every one of them until it restarted, so each
+  agent's sidebar row stopped changing. Now a hook refused for its protocol
+  version sends again in the daemon's, and daemons serve hooks of any
+  version. A daemon that gets hooks from a newer pitwall shows a notice
+  once asking you to restart it, and logs a line a minute with a count.
 - The README and the site no longer list the AUR package. It is not on the
   AUR yet: new AUR accounts are closed for now.
 
