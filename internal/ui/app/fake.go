@@ -49,10 +49,10 @@ var fakeHome = func() string {
 // worktree tab's approval carries its advice, the rounding question is
 // triaged now, and the handbook turn needs a check. swift-otter, the most recently
 // used, has five ungrouped tabs (a terminal running `go test` split three
-// ways, an idle Claude, a named log tail, an idle shell, a working Claude),
-// two groups (one with a working Codex), and two detached tabs; pane c of
-// the first tab and the log tail carry OSC notifications nobody has seen
-// yet. calm-heron has a "ledger" group with a Claude walking the states and
+// ways, an idle Claude, a named log tail, an idle shell, a Claude and a
+// Codex working side by side), two groups (one with a working Codex), and
+// two detached tabs; pane c of the first tab and the log tail carry OSC
+// notifications nobody has seen yet. calm-heron has a "ledger" group with a Claude walking the states and
 // a Codex waiting for an answer, and a psql tab. brave-lynx has a Claude
 // writing docs and a shell.
 func NewFakeBackend() *FakeBackend {
@@ -135,7 +135,7 @@ func NewFakeBackend() *FakeBackend {
 		"w6": {Additions: 6, Deletions: 6},
 		"w9": {Additions: 231, Deletions: 57}, "w10": {Additions: 4, Deletions: 2},
 	}
-	agents := map[string]model.Provider{"a": model.ProviderTerminal, "e": model.ProviderClaude, "g": model.ProviderClaude,
+	agents := map[string]model.Provider{"a": model.ProviderTerminal, "e": model.ProviderClaude, "f": model.ProviderCodex, "g": model.ProviderClaude,
 		"h": model.ProviderCodex, "i": model.ProviderClaude, "k": model.ProviderClaude,
 		"m": model.ProviderClaude, "n": model.ProviderCodex, "o": model.ProviderTerminal, "p": model.ProviderClaude}
 	for _, w := range f.st.Workspaces {
@@ -168,7 +168,7 @@ var fakeCycle = []model.AgentState{
 var fakeNotices = map[string]string{"c": "Gemini CLI: waiting for your reply", "j": "server restarted"}
 
 // setActivities gives each agent pane its state for this tick. The
-// terminal keeps running `go test` and the Claude in w3 keeps working; the
+// terminal keeps running `go test` and the agents in w3 keep working; the
 // grouped agents walk fakeCycle. An activity keeps its UpdatedAt while its
 // state holds, and is Unseen like the daemon's.
 func (f *FakeBackend) setActivities() {
