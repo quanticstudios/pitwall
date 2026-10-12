@@ -15,6 +15,12 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- A slash command such as /compact or /model no longer leaves the tab on
+  Working. Claude Code ends those without a Stop, so pitwall now waits for
+  the first tool call before it shows a command as working.
+
 ## v0.1.0-beta.5
 
 - The sidebar works from the keyboard. Ctrl+Shift+H (Ctrl+Shift+B in

@@ -89,6 +89,7 @@ type payload struct {
 //
 //	UserPromptSubmit, PreToolUse, PostToolUse,
 //	PostToolUseFailure (Claude)             working
+//	UserPromptSubmit of a /command          no change: /compact and /model end with no Stop
 //	PreToolUse/PermissionRequest of
 //	  AskUserQuestion                       awaiting-input, Detail = first question
 //	  ExitPlanMode                          plan-ready
@@ -214,7 +215,15 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		return state, "", remove, true
 	}
 	switch p.Event {
-	case "UserPromptSubmit", "PostToolUse", "PostToolUseFailure":
+	case "UserPromptSubmit":
+		// why: built-in commands (/compact, /model) fire this but no Stop, so
+		// working would never end. A command that runs a turn reports working
+		// at its first tool call.
+		if slashCommand(p) {
+			return "", "", false, false
+		}
+		return model.StateWorking, "", false, true
+	case "PostToolUse", "PostToolUseFailure":
 		return model.StateWorking, "", false, true
 	case "PreToolUse", "PermissionRequest":
 		switch p.ToolName {
@@ -454,11 +463,13 @@ func Prompt(provider model.Provider, payload []byte) string {
 	}
 	// why: a slash command (/clear, /model) says nothing about the work, so
 	// the first real prompt names the tab instead.
-	if strings.HasPrefix(strings.TrimSpace(p.Prompt), "/") {
+	if slashCommand(p) {
 		return ""
 	}
 	return p.Prompt
 }
+
+func slashCommand(p payload) bool { return strings.HasPrefix(strings.TrimSpace(p.Prompt), "/") }
 
 // claudeEvents are the Claude Code events Derive acts on. Notification is
 // limited to the types that change state, so idle reminders never spawn the

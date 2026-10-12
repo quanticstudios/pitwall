@@ -212,6 +212,12 @@ func TestPrompt(t *testing.T) {
 	if got := Prompt(model.ProviderClaude, []byte(slash)); got != "" {
 		t.Errorf("slash command: %q", got)
 	}
+	// /compact fires no Stop, so it must not start working.
+	done := &model.Activity{State: model.StateCompleted, SessionID: "s"}
+	compact := `{"session_id":"s","hook_event_name":"UserPromptSubmit","prompt":"/compact"}`
+	if _, ok := Derive(done, model.ProviderClaude, []byte(compact), time.Now()); ok {
+		t.Error("slash command changed the activity")
+	}
 }
 
 func TestClaudeHooks(t *testing.T) {
