@@ -11,7 +11,8 @@ there with one key.
 <img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs grouped by project, with Working, Approval, Input and Done states, pull request chips and Allow and Deny buttons; the open tab runs three agents in split panes" width="800">
 
 pitwall is in beta. It runs every day on Linux; the macOS and Windows
-builds are newer. Your tabs and config carry over between releases.
+builds are newer. When a release is out, an Update button installs it,
+and your tabs and config carry over.
 
 ## Install
 
@@ -93,6 +94,21 @@ agents run at once, and the queue starts the next task as one finishes.
 
 <img src="docs/media/new-task.webp" alt="The New task dialog: project acme-api, a new worktree on a branch named from the prompt, Claude Code in its default mode, and the prompt, with Queue and Start buttons" width="480">
 
+### Let one agent hand work to another
+
+**An agent can open a tab with `pitwall new`, start Codex or Claude Code
+in it on a prompt, and wait for the result with `pitwall wait`.** The tab
+shows up in your sidebar, so you can watch the work and type into it. When
+the new agent asks permission, `wait` stops and reports the question, and
+you answer it in the tab. pitwall never answers for an agent. Hand
+[the agent skill page](docs/agent-skill.md) to your agent and it knows the
+commands.
+
+```sh
+tab=$(pitwall new -n "review auth" -- codex "review origin/main..HEAD")
+pitwall wait "$tab" --until done --timeout 20m
+```
+
 ### Know what it costs
 
 **See how much of your Claude Code and Codex plan limits you have used, and
@@ -116,8 +132,11 @@ they keep going when the laptop closes.
 
 **Ctrl+Shift+P lists every action with its keys.** Ctrl+Shift+F searches
 the scrollback, copy mode (Ctrl+Shift+X) selects with vi keys, and a
-selection stays on its text while new output scrolls past. Pick one of four
-themes and your own fonts, and rebind any key in Settings or `config.toml`.
+selection stays on its text while new output scrolls past. Ctrl+Shift+H
+moves focus to the sidebar, where the arrow keys walk the tabs and Enter
+opens one. Search shortcuts by name or by the keys themselves, pick one of
+four themes and your own fonts, and rebind any key in Settings or
+`config.toml`.
 
 <img src="docs/media/palette.webp" alt="The command palette filtered by pr: Open PR and Merge PR first, then tab and pane actions with their keys" width="560">
 

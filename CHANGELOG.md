@@ -20,6 +20,10 @@ build. Either step takes `--dry-run`.
 - A slash command such as /compact or /model no longer leaves the tab on
   Working. Claude Code ends those without a Stop, so pitwall now waits for
   the first tool call before it shows a command as working.
+- The README and the site cover features they left out: an agent starting
+  and waiting on another agent's tab with `pitwall new` and `pitwall wait`,
+  the sidebar's keyboard focus, shortcut search by keys, and the Update
+  button.
 
 ## v0.1.0-beta.5
 

@@ -95,6 +95,11 @@ kbd {
 .feature .media { display: flex; justify-content: center; }
 .feature .text > div + div { margin-top: 28px; }
 .feature .tall img { max-width: 280px; }
+.feature pre.term {
+  margin: 0; padding: 16px 18px; width: 100%; overflow-x: auto; color: var(--fg); line-height: 1.7;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+}
+.term .c { color: var(--muted); }
 
 .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-top: 8px; }
 .install-grid > div, .feature > div { min-width: 0; }
@@ -190,7 +195,7 @@ footer a { color: var(--muted); }
   <section id="install" class="install">
     <div class="wrap">
       <h2>Install</h2>
-      <p>pitwall is in beta. It runs every day on Linux; the macOS and Windows builds are newer. Your tabs and config carry over between releases.</p>
+      <p>pitwall is in beta. It runs every day on Linux; the macOS and Windows builds are newer. When a release is out, an Update button installs it, and your tabs and config carry over.</p>
       <div class="install-grid">
         <div>
           <p class="label">Homebrew, on macOS or Linux</p>
@@ -276,6 +281,24 @@ scoop install pitwall</code></pre>
 
       <div class="feature">
         <div class="text">
+          <h3>Let one agent hand work to another</h3>
+          <p><strong>An agent can open a tab with <code>pitwall new</code>, start Codex or Claude Code in it on a prompt, and wait for the result with <code>pitwall wait</code>.</strong> The tab shows up in your sidebar, so you can watch the work and type into it.</p>
+          <p>When the new agent asks permission, <code>wait</code> stops and reports the question, and you answer it in the tab. pitwall never answers for an agent. Hand <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">the agent skill page</a> to your agent and it knows the commands.</p>
+        </div>
+        <div class="media">
+          <pre class="term"><code><span class="c"># a second opinion from Codex, in a tab you can watch</span>
+tab=$(pitwall new -n "review auth" -- \
+  codex "review origin/main..HEAD")
+pitwall wait "$tab" --until done --timeout 20m
+
+<span class="c"># run the tests in a tab, go on when they pass</span>
+tab=$(pitwall new -n tests -- go test ./...)
+pitwall wait "$tab" --until exit</code></pre>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
           <h3>Know what it costs</h3>
           <p><strong>See how much of your Claude Code and Codex plan limits you have used, and when you will hit 100% at this pace.</strong></p>
           <p>Settings, Usage also adds up what the last 7, 30 or 90 days would cost at API prices, per agent and per day. The agent panel shows each session's tokens and how full its context is.</p>
@@ -300,7 +323,7 @@ scoop install pitwall</code></pre>
         <div class="text">
           <h3>Drive it from the keyboard</h3>
           <p><strong><kbd>Ctrl+Shift+P</kbd> lists every action with its keys.</strong> <kbd>Ctrl+Shift+F</kbd> searches the scrollback, copy mode (<kbd>Ctrl+Shift+X</kbd>) selects with vi keys, and a selection stays on its text while new output scrolls past.</p>
-          <p>Pick one of four themes and your own fonts, and rebind any key in Settings or <code>config.toml</code>. On macOS the keys sit on Cmd.</p>
+          <p><kbd>Ctrl+Shift+H</kbd> moves focus to the sidebar, where the arrow keys walk the tabs and Enter opens one. Search shortcuts by name or by the keys themselves, pick one of four themes and your own fonts, and rebind any key in Settings or <code>config.toml</code>. On macOS the keys sit on Cmd.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/palette.webp" width="602" height="422" loading="lazy" alt="The command palette filtered by pr: Open PR and Merge PR first, then tab and pane actions with their keys"></div>
@@ -335,6 +358,7 @@ scoop install pitwall</code></pre>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/usage.md">Using pitwall</a><span>First run, watching agents, sessions, review, worktrees, tasks</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/keys.md">Keybindings</a><span>The presets, tab mode, pane mode, find, copy mode</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/cli.md">Command line</a><span>Every command, and driving tabs from scripts</span></li>
+        <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">Agent skill</a><span>A page to hand an agent that starts and waits on tabs</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/config.md">Configuration</a><span>config.toml, themes, fonts</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/hooks.md">Hooks</a><span>What the installer changes for each agent</span></li>
         <li><a href="https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md">Phone</a><span>Pairing, push notifications, what the page sends</span></li>
