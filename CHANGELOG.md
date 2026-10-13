@@ -15,6 +15,27 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- Agents in pitwall panes can message each other in both directions.
+  `pitwall send #3.2 -- "critique plan.md"` returns at once; pitwall types
+  the message into that pane's agent the next time it sits at its prompt
+  and you are not typing there, one message per turn, under a line that
+  names the sender and the command to reply with, such as `pitwall send
+  @8c1f3a90d2e4b7a1 "..."`. An agent that waited on another with
+  `prompt --wait` while that one prompted it back would wait forever;
+  messages wait in a queue instead. After 20 messages from agents into
+  one pane, pitwall refuses more until you type in that pane, so two
+  agents cannot talk on your quota forever. A pane address can now be
+  `@` and the pane's id, which stays valid while tabs move, and
+  `ls --json` counts each pane's `queued` messages. Restart the daemon to
+  use send.
+- `pitwall hooks install` adds a pitwall skill for Claude Code and Codex,
+  `skills/pitwall/SKILL.md`, that tells them how to ask or message another
+  agent in a pane, and that a message from one carries none of your
+  authority. Run `pitwall hooks install` again, or press Install in
+  Settings, to get it.
+
 ## v0.1.0-beta.6
 
 - One agent can talk with another in a split pane of its tab while you
