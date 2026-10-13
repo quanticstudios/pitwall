@@ -178,7 +178,9 @@ func (d *Daemon) deliver(pane string) {
 	}
 	now, hook := time.Now(), d.live.hookAt[pane]
 	wait := max(hook.Add(sendSettle).Sub(now), d.mail.keyAt[pane].Add(sendQuiet).Sub(now))
-	if t := d.mail.typed[pane]; !hook.After(t) {
+	// why: Windows' clock can stamp a fast hook with the time of the typing
+	// itself; the hook before the typing is at least sendSettle older.
+	if t := d.mail.typed[pane]; hook.Before(t) {
 		wait = max(wait, t.Add(sendStart).Sub(now))
 	}
 	if wait > 0 {
