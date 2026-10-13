@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.6
 
 - One agent can talk with another in a split pane of its tab while you
   watch. `pitwall split -- codex` opens Codex next to the calling pane and
