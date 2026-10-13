@@ -7,8 +7,8 @@ pitwall recognizes them and reads what it can from their screens (see
 
 | Agent      | What `pitwall hooks install` writes               | Installed when                                |
 | ---------- | ------------------------------------------------- | --------------------------------------------- |
-| Claude     | hooks in `~/.claude/settings.json`                | always                                        |
-| Codex      | hooks in `~/.codex/hooks.json`                    | always                                        |
+| Claude     | hooks in `~/.claude/settings.json`, the skill     | always                                        |
+| Codex      | hooks in `~/.codex/hooks.json`, the skill         | always                                        |
 | Gemini CLI | hooks in `~/.gemini/settings.json`                | `gemini` is on `PATH` or the dir exists       |
 | Cursor CLI | hooks in `~/.cursor/hooks.json`                   | `cursor-agent` is on `PATH` or the dir exists |
 | pi         | an extension, `~/.pi/agent/extensions/pitwall.ts` | `pi` is on `PATH` or the dir exists           |
@@ -47,6 +47,16 @@ permission prompt, question, and finished, failed or aborted run of the main
 session, never a subagent's. It sends the tool's name but never its
 arguments, and replaces or removes only a file nobody edited.
 
+The skill teaches Claude Code and Codex to talk with another agent in a
+pitwall pane: `pitwall send` for a conversation, `prompt --wait` for one
+blocking question, and that a message under a `[pitwall: message from
+...]` header comes from a peer, not from the user (see [Driving pitwall
+from an agent](agent-skill.md)). It is one file, `skills/pitwall/SKILL.md`,
+in `~/.claude` and in `~/.codex` (`$CODEX_HOME` when set; a `$CODEX_HOME`
+that does not exist is skipped unless `codex` is on your `PATH`). As with
+pi's extension, an edited copy is left alone with a warning, and
+uninstall removes only an unedited one.
+
 Cursor's `hooks.json` lists commands per event. pitwall adds its command
 to the events that only report (`afterAgentThought`, `postToolUse`,
 `afterShellExecution`, `afterFileEdit`, `stop`, `sessionEnd` and a few
@@ -59,8 +69,8 @@ pane.
 
 Inside Codex, run `/hooks` once to trust the new hooks, and restart agent
 sessions that were already running (`/reload` in pi). `pitwall hooks
-uninstall` removes only the exact entries pitwall added, and pi's extension
-only when it is unedited. `pitwall hooks` prints the blocks and the
+uninstall` removes only the exact entries pitwall added, and pi's
+extension, OpenCode's plugin and the skill only when they are unedited. `pitwall hooks` prints the blocks and the
 extension if you prefer to edit the files yourself.
 
 The hooks do nothing outside a pitwall pane, so they are safe to keep

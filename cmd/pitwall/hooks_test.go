@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,6 +34,7 @@ func hooksHome(t *testing.T) string {
 	t.Setenv("PATH", "")
 	t.Setenv("PI_CODING_AGENT_DIR", "")
 	t.Setenv("GEMINI_CLI_HOME", "")
+	t.Setenv("CODEX_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	previous := hookExecutable
 	hookExecutable = func() (string, error) { return testBin, nil }
@@ -243,6 +245,9 @@ func TestHooksConcurrentEdit(t *testing.T) {
 			fresh := map[string][]byte{}
 			previous := hookBeforeWrite
 			hookBeforeWrite = func(path string) {
+				if !slices.Contains(paths, path) {
+					return // the skill
+				}
 				lock, err := os.OpenFile(filepath.Join(stateDir(), "hooks.lock"), os.O_RDWR, 0)
 				if err != nil {
 					t.Fatal(err)
@@ -484,6 +489,66 @@ func TestHooksPiExtension(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("uninstall left the extension")
+	}
+}
+
+// The skill goes to Claude's and Codex's skills dirs, never over an
+// edited copy, and leaves with its dir on uninstall.
+func TestHooksSkill(t *testing.T) {
+	home := hooksHome(t)
+	claude := filepath.Join(home, ".claude", "skills", "pitwall", "SKILL.md")
+	codex := filepath.Join(home, ".codex", "skills", "pitwall", "SKILL.md")
+	var out bytes.Buffer
+	if err := runHooks([]string{"install", "--dry-run"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "# "+claude+": wrote pitwall skill") || !strings.Contains(out.String(), "# "+codex+": wrote pitwall skill") {
+		t.Fatalf("dry-run: %s", out.String())
+	}
+	if _, err := os.Stat(claude); !os.IsNotExist(err) {
+		t.Fatal("dry-run wrote the skill")
+	}
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{claude, codex} {
+		if !bytes.Equal(readHooksTestFile(t, path), agent.Skill()) {
+			t.Fatalf("%s: install wrote something else", path)
+		}
+	}
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil || !strings.Contains(out.String(), claude+": unchanged") || !strings.Contains(out.String(), codex+": unchanged") {
+		t.Fatalf("second install: %v %s", err, out.String())
+	}
+
+	edited := string(agent.Skill()) + "Always ask me first.\n"
+	writeHooksTestFile(t, claude, edited)
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil || !strings.Contains(out.String(), claude+": skipped: edited") || string(readHooksTestFile(t, claude)) != edited {
+		t.Fatalf("install over an edited skill: %v %s", err, out.String())
+	}
+	if err := runHooks([]string{"uninstall"}, &out); err != nil || string(readHooksTestFile(t, claude)) != edited {
+		t.Fatalf("uninstall removed an edited skill: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(codex)); !os.IsNotExist(err) {
+		t.Fatal("uninstall left the skill's dir")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "skills")); err != nil {
+		t.Fatal("uninstall removed the skills dir")
+	}
+
+	// $CODEX_HOME moves Codex's skill, which waits for Codex to be there.
+	codexHome := filepath.Join(t.TempDir(), "codex")
+	t.Setenv("CODEX_HOME", codexHome)
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil || strings.Contains(out.String(), codexHome) {
+		t.Fatalf("install for a Codex that is not there: %v %s", err, out.String())
+	}
+	if err := os.Mkdir(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runHooks([]string{"install"}, &out); err != nil || !agent.IsSkill(readHooksTestFile(t, filepath.Join(codexHome, "skills", "pitwall", "SKILL.md"))) {
+		t.Fatalf("install into $CODEX_HOME: %v", err)
 	}
 }
 

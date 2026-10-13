@@ -98,6 +98,7 @@ func runHooks(args []string, out io.Writer) error {
 		mode           os.FileMode
 		changes        []string
 		skip           string // why the file is left alone, as a warning
+		ownDir         bool   // its directory is pitwall's too: removed with it when empty
 	}
 	merge := func(f *config, original []byte) error {
 		var err error
@@ -110,6 +111,12 @@ func runHooks(args []string, out io.Writer) error {
 	jsonHooks := func(generated []byte) func([]byte) ([]byte, []string, error) {
 		return func(original []byte) ([]byte, []string, error) { return mergeHooks(original, generated, install) }
 	}
+	// skill is pitwall's skill in an agent's home dir.
+	skill := func(dir string) config {
+		return config{path: filepath.Join(dir, "skills", "pitwall", "SKILL.md"), ownDir: true, merge: func(original []byte) ([]byte, []string, error) {
+			return mergeGenerated(original, agent.Skill(), install, agent.IsSkill, "pitwall skill")
+		}}
+	}
 	files := []config{
 		{path: filepath.Join(home, ".claude", "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
 			data, changes, err := jsonHooks(agent.ClaudeHooks(bin))(original)
@@ -120,6 +127,12 @@ func runHooks(args []string, out io.Writer) error {
 			return data, append(changes, more...), err
 		}},
 		{path: filepath.Join(home, ".codex", "hooks.json"), merge: jsonHooks(agent.CodexHooks(bin))},
+		skill(filepath.Join(home, ".claude")),
+	}
+	// why: ~/.codex gets hooks.json above whatever is installed, so a skill
+	// there only when the dir existed would arrive on the second install.
+	if dir := agent.CodexDir(home); dir == filepath.Join(home, ".codex") || installed("codex", dir) {
+		files = append(files, skill(dir))
 	}
 	if dir := piAgentDir(home); dir != "" {
 		files = append(files, config{path: filepath.Join(dir, "extensions", "pitwall.ts"), merge: func(original []byte) ([]byte, []string, error) {
@@ -206,6 +219,9 @@ func runHooks(args []string, out io.Writer) error {
 		if f.data == nil {
 			if err := os.Remove(f.path); err != nil {
 				return err
+			}
+			if f.ownDir {
+				os.Remove(filepath.Dir(f.path)) // fails, harmlessly, when the user put more there
 			}
 			for _, change := range f.changes {
 				fmt.Fprintf(out, "%s: %s\n", f.path, change)

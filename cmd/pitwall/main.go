@@ -44,7 +44,8 @@ const usage = `usage:
   pitwall daemon             run the daemon in the foreground
   pitwall hook <provider>    forward an agent hook event (claude, codex, pi, gemini, opencode)
   pitwall hooks              print the hook config for every agent
-  pitwall hooks install      add hooks, pi's extension and OpenCode's plugin (--dry-run;
+  pitwall hooks install      add hooks, pi's extension, OpenCode's plugin and the
+                             pitwall skill for Claude Code and Codex (--dry-run;
                              --statusline also runs Claude Code's status line through
                              pitwall statusline, to show its plan limits)
   pitwall hooks uninstall    remove this binary's hooks and status line (--dry-run)
@@ -330,7 +331,8 @@ func printHooks() error {
 	fmt.Printf("# ~/.pi/agent/extensions/pitwall.ts ($PI_CODING_AGENT_DIR/extensions/pitwall.ts when set):\n%s\n", agent.PiExtension(bin))
 	fmt.Printf("# ~/.gemini/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.GeminiHooks(bin))
 	fmt.Printf("# ~/.cursor/hooks.json, merge into the top-level object:\n{\"version\": 1, \"hooks\": %s}\n\n", agent.CursorHooks(bin))
-	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js ($XDG_CONFIG_HOME/opencode/plugins/pitwall.js when set):\n%s", agent.OpenCodePlugin(bin))
+	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js ($XDG_CONFIG_HOME/opencode/plugins/pitwall.js when set):\n%s\n", agent.OpenCodePlugin(bin))
+	fmt.Printf("# ~/.claude/skills/pitwall/SKILL.md, and ~/.codex/skills/pitwall/SKILL.md ($CODEX_HOME/skills/pitwall/SKILL.md when set):\n%s", agent.Skill())
 	return nil
 }
 

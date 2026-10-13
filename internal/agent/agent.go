@@ -651,6 +651,34 @@ var openCodeReleased = []string{
 	"5e48c0f9ff7ae39bf0153001d3f7df57b4f5f9e0a6b9726b5fea39186a9d62c6", // v0.1.0-alpha.23
 }
 
+//go:embed pitwall_skill.md
+var skill string
+
+// Skill returns the SKILL.md pitwall installs for Claude Code, at
+// ~/.claude/skills/pitwall/SKILL.md, and Codex, at
+// <CodexDir>/skills/pitwall/SKILL.md: how to message another agent in a
+// pane with pitwall send and prompt.
+func Skill() []byte { return []byte(skill) }
+
+// skillReleased are the SHA-256 sums of pitwall_skill.md as earlier
+// releases shipped it, so an install replaces those files as unedited.
+var skillReleased = []string{}
+
+// IsSkill reports whether b is what Skill returns, now or in an earlier
+// release: a file pitwall wrote and nobody edited since.
+func IsSkill(b []byte) bool {
+	sum := sha256.Sum256(b)
+	return string(b) == skill || slices.Contains(skillReleased, hex.EncodeToString(sum[:]))
+}
+
+// CodexDir is Codex's home directory, $CODEX_HOME or ~/.codex.
+func CodexDir(home string) string {
+	if h := os.Getenv("CODEX_HOME"); h != "" {
+		return h
+	}
+	return filepath.Join(home, ".codex")
+}
+
 // OpenCodeDir is OpenCode's global config directory,
 // $XDG_CONFIG_HOME/opencode or ~/.config/opencode on every system.
 func OpenCodeDir(home string) string {
