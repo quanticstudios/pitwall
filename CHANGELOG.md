@@ -17,6 +17,16 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- One agent can talk with another in a split pane of its tab while you
+  watch. `pitwall split -- codex` opens Codex next to the calling pane and
+  prints its address, as `#3.2`. `pitwall prompt #3.2 --wait -- "critique
+  plan.md"` waits until Codex is idle, types the prompt, waits for that
+  turn and prints Codex's reply; `pitwall read #3.2` prints it again, and
+  `--screen` prints the pane's screen. pitwall types only into an agent
+  that reports through hooks and sits at its prompt, and still never
+  answers a permission prompt. `wait` takes a pane address too, and
+  `ls --json` lists each tab's panes in `pane_list`. Restart the daemon
+  to use prompt and read.
 - A slash command such as /compact or /model no longer leaves the tab on
   Working. Claude Code ends those without a Stop, so pitwall now waits for
   the first tool call before it shows a command as working.

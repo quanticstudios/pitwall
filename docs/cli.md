@@ -17,6 +17,9 @@ optional name act on the pane's own tab.
 | `pitwall ls [--json]`                 | List the session's tabs in sidebar order: #, name, state, folder, group |
 | `pitwall new [-n name] [-d] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell |
 | `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up) |
+| `pitwall split [--down] [tab] [-- cmd...]` | Open a pane right of the tab's last pane, or below with `--down`, and print its address, as `#3.2` |
+| `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
+| `pitwall read <pane> [--screen]`      | Print the last reply of the pane's agent, or with `--screen` the text on its screen |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
 | `pitwall rename [old] <new>`          | Rename a tab                                                  |
@@ -42,7 +45,9 @@ A name is a tab's `#` from `pitwall ls` (`3` or `#3`), its `id` from
 title matches exactly first, then by a unique prefix, so
 `pitwall attach fix` finds the tab titled `fix login redirects`. Numbers
 count within the session, and detached tabs come after the ones the sidebar
-shows. A session is named in full or by a unique prefix.
+shows. A session is named in full or by a unique prefix. A pane is
+`TAB.N`, the tab's Nth pane in layout order (`3.2`, `#3.2`,
+`review.2`); a tab alone is its main pane.
 
 ```sh
 pitwall session new billing -d ~/src/billing   # a background session
@@ -55,6 +60,8 @@ pitwall session attach billing                 # open a window on it
 
 `new -- cmd`, `wait` and `ls --json` let an agent or a shell script start an
 agent or a command in a tab you can watch and take over, then wait for it.
+`split`, `prompt` and `read` let one agent open another next to it and
+discuss a plan in turns.
 [docs/agent-skill.md](agent-skill.md) is a page to hand an agent: the
 states, exit codes and recipes.
 
@@ -64,9 +71,9 @@ pitwall wait "$tab" --until done --timeout 20m   # 0 done, 2 blocked, 3 exited, 
 pitwall ls --json | jq '.[] | {n, title, state, question}'
 ```
 
-Give the agent its whole task as the prompt argument. Typing into a running
-agent is not offered, because pitwall can't reliably tell when an agent is
-ready to take input. A command tab's pane, and its exit code, last until you
+Give the agent its whole task as the prompt argument, or prompt it once it
+runs: `prompt` types only into an agent that reports through hooks and is
+idle or done, and never answers a permission prompt. A command tab's pane, and its exit code, last until you
 close it, across daemon restarts too. A restart keeps the exit code but not
 the output, resumes an agent with a known session, and does not run any
 other unfinished command again: its exit code shows as unknown. Any process running as you can reach the
