@@ -1,4 +1,4 @@
-16.15
+16.16
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -13,7 +13,7 @@ model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string
 model.PortBlock{First int; Last int}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string}
 model.Workspace{ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string}
@@ -59,6 +59,7 @@ proto.Search{Pane string; Query string}
 proto.SearchResult{Pane string; Query string; Matches []vt.Match; More bool}
 proto.SeePane{Pane string}
 proto.SelectTab{WorkspaceID string; TabID string}
+proto.Send{Pane string; From string; Text string}
 proto.SessionKill{SessionID string}
 proto.SessionNew{Name string; Cwd string; FromPane string}
 proto.SessionRename{SessionID string; Name string}

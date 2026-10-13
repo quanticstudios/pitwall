@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 16 added Send and State.Queued: a message to another agent that
+// the daemon types at its next prompt.
 // Level 15 added Prompt, Read and ReadResult: an agent types into another
 // agent's pane and reads its reply.
 // Level 14 added View and FrameRows: a GUI of this Level gets frames of
@@ -94,12 +96,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 15
+const Level = 16
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Send:
+		return 16
 	case Prompt, Read, ReadResult:
 		return 15
 	case View, FrameRows:
@@ -579,6 +583,19 @@ type ReadResult struct {
 	Err  string
 }
 
+// Send queues Text for Pane's agent, from `pitwall send`: the daemon
+// types it, after a header naming From, the next time that agent sits at
+// its prompt with the user not typing, one message per turn. From is the
+// sending pane, "" for a script outside pitwall. The daemon answers Error
+// when Pane runs no agent that reports through hooks, when From is Pane,
+// and when agents have sent Pane too many messages since the user last
+// typed in it.
+type Send struct {
+	Pane string
+	From string
+	Text string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
@@ -595,4 +612,5 @@ var Messages = []any{
 	Text{}, TextResult{},
 	View{}, FrameRows{},
 	Prompt{}, Read{}, ReadResult{},
+	Send{},
 }

@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/decide"
@@ -141,4 +143,157 @@ func TestRead(t *testing.T) {
 	if kept || read("a").Err == "" {
 		t.Fatal("a closed pane's reply is kept")
 	}
+}
+
+// TestSend queues messages per pane and types each, under a header naming
+// its sender, when the agent sits at its prompt and the user is not
+// typing, one per turn.
+func TestSend(t *testing.T) {
+	d, f := talkDaemon(t)
+	for v, to := range map[*time.Duration]time.Duration{&sendSettle: 250 * time.Millisecond, &sendQuiet: 300 * time.Millisecond} {
+		old := *v
+		*v = to
+		t.Cleanup(func() { *v = old })
+	}
+	a := f.pane(0)
+	send := func(from, text string) error {
+		t.Helper()
+		return d.send(proto.Send{Pane: "a", From: from, Text: text})
+	}
+	// typed waits for the next message after n bytes of a's input.
+	typed := func(n int, text string) {
+		t.Helper()
+		want := `[pitwall: message from claude in #1.2; reply with: pitwall send @b "..."] ` + text + "\r"
+		if got := gotAfter(t, a, n, len(want)); got != want {
+			t.Fatalf("typed %q, want %q", got, want)
+		}
+	}
+	// quiet checks that nothing past n bytes reached a.
+	quiet := func(n int) {
+		t.Helper()
+		time.Sleep(150 * time.Millisecond)
+		if got := a.got(); len(got) != n {
+			t.Fatalf("typed %q too soon", got[n:])
+		}
+	}
+	d.mu.Lock()
+	d.setProvider("b", model.ProviderClaude)
+	d.mu.Unlock()
+
+	if err := d.send(proto.Send{Pane: "a", From: "a", Text: "me"}); err == nil || !strings.Contains(err.Error(), "sending pane") {
+		t.Fatalf("a send to its own pane: %v", err)
+	}
+	if err := send("b", "hi"); err == nil || !strings.Contains(err.Error(), "runs no agent") {
+		t.Fatalf("a send to a shell: %v", err)
+	}
+
+	// Idle: typed at once, after the header.
+	claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"startup"}`)
+	if err := send("b", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	typed(0, "hi")
+	n := len(a.got())
+
+	// Working: typed sendSettle after the Stop, two in order, one per turn.
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"hi"}`)
+	if err := send("b", "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := send("b", "two"); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	queued := d.snapshot().Queued["a"]
+	d.mu.Unlock()
+	if queued != 2 {
+		t.Fatalf("queued %d, want 2", queued)
+	}
+	quiet(n)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	quiet(n) // sendSettle
+	typed(n, "one")
+	n = len(a.got())
+	if err := send("b", "three"); err != nil { // a wake before the turn "one" started reports
+		t.Fatal(err)
+	}
+	quiet(n)
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"one"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	typed(n, "two")
+	n = len(a.got())
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"two"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	typed(n, "three")
+	n = len(a.got())
+
+	// Blocked: held until the prompt is answered and the turn ends.
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"three"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"description":"Run make"}}`)
+	if err := send("b", "held"); err != nil {
+		t.Fatal(err)
+	}
+	quiet(n)
+	claudeHook(t, d, "a", `{"hook_event_name":"PostToolUse","tool_name":"Bash"}`)
+	quiet(n)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	typed(n, "held")
+	n = len(a.got())
+
+	// A key of the user's holds the next message for sendQuiet; a focus
+	// report is no key.
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"held"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	d.noteUserKey("a", []byte("x"))
+	if err := send("b", "four"); err != nil {
+		t.Fatal(err)
+	}
+	quiet(n)
+	typed(n, "four")
+	n = len(a.got())
+	d.mu.Lock()
+	key := d.mail.keyAt["a"]
+	d.mu.Unlock()
+	d.noteUserKey("a", []byte("\x1b[I"))
+	d.mu.Lock()
+	focused := d.mail.keyAt["a"]
+	d.mu.Unlock()
+	if focused != key {
+		t.Fatal("a focus report counts as a key")
+	}
+
+	// The loop guard: agents get sendLimit messages to a pane between two
+	// of the user's keys; a script is not counted.
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"four"}`)
+	d.noteUserKey("a", []byte("y"))
+	for i := range sendLimit {
+		if err := send("b", fmt.Sprint(i)); err != nil {
+			t.Fatalf("message %d: %v", i+1, err)
+		}
+	}
+	if err := send("b", "more"); err == nil || !strings.Contains(err.Error(), "ask the user") {
+		t.Fatalf("message %d: %v", sendLimit+1, err)
+	}
+	if err := send("", "from cron"); err != nil {
+		t.Fatalf("a script past the limit: %v", err)
+	}
+	d.noteUserKey("a", []byte("z"))
+	if err := send("b", "more"); err != nil {
+		t.Fatalf("after a key: %v", err)
+	}
+
+	// Closing the pane drops its queue; a send to it then fails.
+	if err := d.closePane("a"); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	left, st := len(d.mail.queue), d.snapshot()
+	d.mu.Unlock()
+	if left != 0 || st.Queued != nil {
+		t.Fatalf("a closed pane keeps %d queues, %v", left, st.Queued)
+	}
+	if err := send("b", "hello?"); err == nil || !strings.Contains(err.Error(), "no running pane") {
+		t.Fatalf("a send to a closed pane: %v", err)
+	}
+	quiet(n)
 }

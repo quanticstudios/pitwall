@@ -44,6 +44,7 @@ func allMessages() []any {
 		Stats:  map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
 		Decide: model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}}},
 		Tasks:  []model.Task{{ID: "t", SessionID: "s", GroupID: "p", Dir: "/r", Branch: "fix", Cmd: []string{"claude", "fix it"}}},
+		Queued: map[string]int{"a": 2},
 	}
 	return []any{
 		Hello{Version: Version, Level: Level, Kind: "gui", Session: "work"},
@@ -71,6 +72,7 @@ func allMessages() []any {
 		TextResult{Pane: "a", Sel: vt.Selection{B: vt.Pos{Col: 4}}, Text: "hello\nworld"},
 		View{Panes: []string{"a", "b"}},
 		Prompt{Pane: "a", Text: "review the plan\nin plan.md"}, Read{Pane: "a", Screen: true}, ReadResult{Pane: "a", Text: "SHIP", Err: "none"},
+		Send{Pane: "a", From: "b", Text: "AGREE"},
 		FrameRows{Pane: "a", Rows: []int{2}, Cells: []vt.Cell{{Content: "x", Width: 1}}, Wrapped: []bool{false, false, true}, Title: "t", ScrollPushed: 1 << 40},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},

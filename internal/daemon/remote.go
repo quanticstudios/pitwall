@@ -128,6 +128,7 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	if agent.ReadScreen(p.Snapshot()) != agent.ScreenForm {
 		return errors.New("the pane shows no prompt to answer")
 	}
+	d.noteUserKey(pane, nil)
 	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())})
 }
 
@@ -145,6 +146,7 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 	if !remote.Replies(a.State) {
 		return errors.New("that pane is not waiting for a reply")
 	}
+	d.noteUserKey(pane, nil)
 	return d.typeLine(pane, p, text, "the reply is empty")
 }
 

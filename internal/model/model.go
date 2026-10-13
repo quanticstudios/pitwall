@@ -225,6 +225,9 @@ type State struct {
 	Overlaps map[string][]Overlap `json:"-"`
 	// Tasks are the queued tasks of every session, first to start first.
 	Tasks []Task
+	// Queued counts, per pane, the messages from pitwall send that wait to
+	// be typed into it. The daemon fills it in; it is not saved.
+	Queued map[string]int `json:"-"`
 }
 
 // Overlap is another tab whose branch, in the same repository, changes
@@ -474,6 +477,14 @@ func (s *State) Ordered(session string) []Workspace {
 		}
 	}
 	return out
+}
+
+// Numbered is session's tabs as pitwall ls numbers them, from 1: the
+// sidebar's order, then the detached tabs.
+func (s *State) Numbered(session string) []Workspace {
+	all := s.Ordered(session)
+	shown := slices.DeleteFunc(slices.Clone(all), func(w Workspace) bool { return w.Detached })
+	return append(shown, slices.DeleteFunc(all, func(w Workspace) bool { return !w.Detached })...)
 }
 
 // setOrder stores order as the Order of id's session.

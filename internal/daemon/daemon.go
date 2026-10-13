@@ -154,6 +154,8 @@ type Daemon struct {
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
 	replies map[string]string
+	mail    mail       // see talk.go
+	sendMu  sync.Mutex // one deliver types at a time
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -237,6 +239,7 @@ func NewWith(o Options) (*Daemon, error) {
 		d.dec.cur = o.Decisions()
 	}
 	d.prs = prPoll{seen: map[string]*prSeen{}, wake: make(chan struct{}, 1)}
+	d.mail = newMail()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	for i := range d.st.Workspaces {
 		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
@@ -572,6 +575,9 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		start := time.Now()
 		herr := d.handle(ctx, m)
+		if in, ok := m.(proto.Input); ok && herr == nil {
+			d.noteUserKey(in.Pane, in.Data) // why: here, not in handle, which the daemon's own typing calls
+		}
 		if took := time.Since(start); took > slowHandler {
 			log.Printf("client %s: %T took %v", cid, m, took.Round(time.Millisecond))
 		}
@@ -727,6 +733,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.remoteAnswer(m.Pane, m.At, m.Allow)
 	case proto.Prompt:
 		return d.prompt(m)
+	case proto.Send:
+		return d.send(m)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:
@@ -1052,6 +1060,14 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.piRetired, id)
 	delete(d.attn, id)
 	delete(d.replies, id)
+	if t := d.mail.wake[id]; t != nil {
+		t.Stop()
+	}
+	delete(d.mail.wake, id)
+	delete(d.mail.queue, id)
+	delete(d.mail.typed, id)
+	delete(d.mail.keyAt, id)
+	delete(d.mail.sent, id)
 	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
@@ -1201,6 +1217,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		}
 	}
 	d.noteOutcomes(p.ID, m.Payload, now)
+	if len(d.mail.queue[p.ID]) > 0 {
+		d.wake(p.ID, 0) // a turn may have ended
+	}
 	job := d.planDecisions(*p, m, now)
 	if changed {
 		if w := d.workspace(p.WorkspaceID); w != nil {
@@ -1627,6 +1646,13 @@ func (d *Daemon) snapshot() model.State {
 	s.Overlaps = maps.Clone(s.Overlaps) // the radar replaces a tab's list whole
 	s.Decide = d.decideInfo()
 	s.Tasks = slices.Clone(s.Tasks)
+	s.Queued = nil
+	for id, q := range d.mail.queue {
+		if s.Queued == nil {
+			s.Queued = map[string]int{}
+		}
+		s.Queued[id] = len(q)
+	}
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {
 		s.Clipboard.Text = ""
