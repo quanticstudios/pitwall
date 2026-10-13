@@ -67,6 +67,18 @@ const usage = `usage:
                              2 blocked instead, 3 the process exited, 124
                              timed out, 1 error; for exit, the process's code,
                              or 3 when a daemon restart lost it
+  pitwall split [--down] [tab] [-- cmd args...]
+                             open a pane running cmd, else a shell, right of
+                             the tab's last pane (--down: below it); prints
+                             its address, as #3.2
+  pitwall prompt <pane> [--wait] [--timeout 10m] [-- text]
+                             type text (- or none: stdin) into the pane's
+                             agent once it is idle or done, and press Enter.
+                             --wait waits for that turn and prints the
+                             agent's reply. Exit codes as wait's
+  pitwall read <pane> [--screen]
+                             print the last reply of the pane's agent
+                             (--screen: the text on its screen)
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
@@ -79,7 +91,9 @@ const usage = `usage:
   A tab is named by its # in pitwall ls, its id, its title, or a unique prefix
   of the title. Outside a pane, name it; inside, it defaults to the
   pane's own tab. Tab commands act on the calling pane's session, else
-  the most recently used one; -s <session> picks another.
+  the most recently used one; -s <session> picks another. A pane is
+  TAB.N, the Nth pane of the tab in layout order (3.2, #3.2, review.2);
+  wait, prompt and read take one, and a tab alone is its main pane.
   pitwall worktree <cmd>     ls, new, rm, prune: this repo's git worktrees (see pitwall worktree)
   pitwall completion <shell>  bash, zsh, fish: print the shell's completion script, e.g.
                              source <(pitwall completion bash)
@@ -143,7 +157,7 @@ func main() {
 		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
 	case "completion":
 		err = runCompletion(os.Args[2:], os.Stdout)
-	case "ls", "new", "wait", "attach", "detach", "kill", "rename", "tab", "session", "queue":
+	case "ls", "new", "wait", "split", "prompt", "read", "attach", "detach", "kill", "rename", "tab", "session", "queue":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

@@ -67,13 +67,19 @@ func dialKind(kind string) (*cliConn, error) {
 
 // syncCLI acknowledges all requests before Sync, including daemon errors.
 func syncCLI(conn *cliConn, requests ...any) (model.State, error) {
+	m, err := syncMsg(conn, requests...)
+	return m.State, err
+}
+
+// syncMsg is syncCLI with the daemon's whole StateMsg, its Level too.
+func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 	// Confirmation can take longer than the socket timeout.
 	if err := conn.socket.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		return model.State{}, err
+		return proto.StateMsg{}, err
 	}
 	for _, request := range append(requests, proto.Sync{}) {
 		if err := conn.Send(request); err != nil {
-			return model.State{}, err
+			return proto.StateMsg{}, err
 		}
 	}
 	var daemonErr error
@@ -81,24 +87,38 @@ func syncCLI(conn *cliConn, requests ...any) (model.State, error) {
 		msg, err := conn.Recv()
 		if err != nil {
 			if daemonErr != nil {
-				return model.State{}, daemonErr
+				return proto.StateMsg{}, daemonErr
 			}
-			return model.State{}, err
+			return proto.StateMsg{}, err
 		}
 		switch m := msg.(type) {
 		case proto.Error:
 			daemonErr = errors.Join(daemonErr, errors.New(m.Message))
 		case proto.StateMsg:
-			return m.State, daemonErr
+			return m, daemonErr
 		}
 	}
 }
 
 func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
-	if len(args) > 0 && args[0] == "wait" {
+	var err error
+	switch {
+	case len(args) > 0 && args[0] == "wait":
 		return waitCommand(args[1:], out, errOut)
+	case len(args) > 0 && args[0] == "prompt":
+		var stdin io.Reader
+		if in != nil {
+			stdin = in // why: a nil *os.File in an io.Reader is not nil
+		}
+		return promptCommand(args[1:], stdin, out, errOut)
+	case len(args) > 0 && args[0] == "split":
+		err = splitCommand(args[1:], out)
+	case len(args) > 0 && args[0] == "read":
+		err = readCommand(args[1:], out)
+	default:
+		err = sessionCommand(args, in, out, errOut)
 	}
-	if err := sessionCommand(args, in, out, errOut); err != nil {
+	if err != nil {
 		fmt.Fprintln(errOut, "pitwall:", err)
 		return 1
 	}

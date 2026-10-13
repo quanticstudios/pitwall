@@ -126,9 +126,13 @@ func noticeBeforeAgent() proto.StateMsg {
 
 func TestCLIListJSON(t *testing.T) {
 	st := driveState(model.ProviderCodex, model.StatePendingApproval, false, 0).State
+	// A shell that exited, right of the agent.
+	st.Workspaces[0].Tabs[0].Layout = &layout.Node{Children: []*layout.Node{{Pane: "p"}, {Pane: "q"}}}
+	st.Panes = append(st.Panes, model.Pane{ID: "q", WorkspaceID: "w", Exited: true, ExitCode: 4})
 	fakeCLI(t, cliExchange{state: st})
 	code, out, stderr := cliOutput("ls", "--json")
-	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"panes":1,"detached":false}]` + "\n"
+	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"panes":2,"detached":false,` +
+		`"pane_list":[{"n":1,"id":"p","agent":"codex","state":"blocked","question":"Run make?","exit_code":null},{"n":2,"id":"q","agent":"","state":"exited","question":"","exit_code":4}]}]` + "\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
 	}
@@ -225,6 +229,43 @@ func TestCLINewRelativePath(t *testing.T) {
 	fakeCLI(t, cliExchange{state: before}, cliExchange{request: proto.NewSession{Cwd: dir, SessionID: "m", Cmd: []string{filepath.Join(dir, "bin", tool)}}, state: after})
 	if code, out, stderr := cliOutput("new", "--", "tool"); code != 0 || out != "#3\n" {
 		t.Fatalf("%d: %s %s", code, out, stderr)
+	}
+}
+
+func TestResolvePane(t *testing.T) {
+	st := driveState(model.ProviderCodex, "", false, 0).State
+	st.Workspaces[0].Tabs[0].Layout = &layout.Node{Children: []*layout.Node{{Pane: "shell"}, {Pane: "p"}, {Pane: "q"}}}
+	st.Panes = append(st.Panes, model.Pane{ID: "shell", WorkspaceID: "w"}, model.Pane{ID: "q", WorkspaceID: "w"})
+	// A tab whose title ends in .N is that tab, not a pane of tab "v1".
+	st.Workspaces = append(st.Workspaces, model.Workspace{ID: "v", SessionID: "m", Name: "v1.2", NameSet: true, Tabs: []model.Tab{{ID: "tv", Layout: &layout.Node{Pane: "vp"}}}})
+	st.Sessions[0].Order = []string{"g", "v"}
+	st.Panes = append(st.Panes, model.Pane{ID: "vp", WorkspaceID: "v"})
+	for _, tc := range []struct{ addr, want, err string }{
+		{"build", "p", ""}, // the main pane: the agent, not the first pane
+		{"1", "p", ""},
+		{"#1", "p", ""},
+		{"#1.1", "shell", ""},
+		{"1.3", "q", ""},
+		{"bui.2", "p", ""},
+		{"build.3", "q", ""},
+		{"v1.2", "vp", ""},
+		{"v1.2.1", "vp", ""},
+		{"#2.1", "vp", ""},
+		{"1.4", "", "no pane 4; it has 3"},
+		{"1.0", "", "no pane 0"},
+		{"#3.1", "", "no tab #3"},
+		{"nope.1", "", "no tab matches"},
+	} {
+		_, p, err := resolvePane(st, "m", tc.addr)
+		if tc.err != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.err) {
+				t.Errorf("%s: %v %v, want an error with %q", tc.addr, p.ID, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || p.ID != tc.want {
+			t.Errorf("%s: %q %v, want %q", tc.addr, p.ID, err, tc.want)
+		}
 	}
 }
 

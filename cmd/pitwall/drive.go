@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -17,7 +18,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// Commands for agents and scripts that drive pitwall: ls --json and wait.
+// Commands for agents and scripts that drive pitwall: ls --json and wait,
+// and in talk.go split, prompt and read.
 // docs/agent-skill.md documents them; keep the two in step.
 
 // tabJSON is one tab in pitwall ls --json. The shape is a contract: fields
@@ -35,6 +37,28 @@ type tabJSON struct {
 	ExitCode *int   `json:"exit_code"` // null until the process exits, and when its code was lost
 	Panes    int    `json:"panes"`
 	Detached bool   `json:"detached"`
+	// PaneList is every pane of the tab in layout order: N is the N of
+	// its address, TAB.N.
+	PaneList []paneJSON `json:"pane_list"`
+}
+
+// paneJSON is one pane in tabJSON.PaneList, a contract like it.
+type paneJSON struct {
+	N        int    `json:"n"`
+	ID       string `json:"id"`
+	Agent    string `json:"agent"`
+	State    string `json:"state"`
+	Question string `json:"question"`
+	ExitCode *int   `json:"exit_code"`
+}
+
+func paneOf(state model.State, n int, p model.Pane) paneJSON {
+	j := paneJSON{N: n, ID: p.ID}
+	j.Agent, j.State, j.Question = paneState(state, p)
+	if p.Exited && !p.ExitUnknown {
+		j.ExitCode = &p.ExitCode
+	}
+	return j
 }
 
 func tabsJSON(state model.State, session string) []tabJSON {
@@ -49,10 +73,12 @@ func tabsJSON(state model.State, session string) []tabJSON {
 		panes := tabPanes(state, w)
 		t.Panes = len(panes)
 		if p := mainPane(panes); p != nil {
-			t.Agent, t.State, t.Question = paneState(state, *p)
-			if p.Exited && !p.ExitUnknown {
-				t.ExitCode = &p.ExitCode
-			}
+			main := paneOf(state, 0, *p)
+			t.Agent, t.State, t.Question, t.ExitCode = main.Agent, main.State, main.Question, main.ExitCode
+		}
+		t.PaneList = []paneJSON{}
+		for i, p := range panes {
+			t.PaneList = append(t.PaneList, paneOf(state, i+1, p))
 		}
 		out = append(out, t)
 	}
@@ -70,6 +96,35 @@ func tabPanes(state model.State, w model.Workspace) []model.Pane {
 		}
 	}
 	return out
+}
+
+// resolvePane finds a pane by address: a tab, as resolveTab names it, for
+// its main pane, or TAB.N for its Nth pane in layout order, as in "3.2",
+// "#3.2" or "review.2". A tab whose whole title is the address wins over
+// reading N off its end.
+func resolvePane(state model.State, session, addr string) (model.Workspace, model.Pane, error) {
+	tab, n := addr, -1
+	if i := strings.LastIndexByte(addr, '.'); i > 0 && !slices.ContainsFunc(numbered(state, session), func(w model.Workspace) bool { return tabTitle(w) == addr }) {
+		if k, err := strconv.Atoi(addr[i+1:]); err == nil {
+			tab, n = addr[:i], k
+		}
+	}
+	w, err := resolveTab(state, session, tab)
+	if err != nil {
+		return w, model.Pane{}, err
+	}
+	panes := tabPanes(state, w)
+	if n < 0 {
+		p := mainPane(panes)
+		if p == nil {
+			return w, model.Pane{}, fmt.Errorf("tab %s has no pane", tabTitle(w))
+		}
+		return w, *p, nil
+	}
+	if n < 1 || n > len(panes) {
+		return w, model.Pane{}, fmt.Errorf("tab %s has no pane %d; it has %d (see pitwall ls --json)", tabTitle(w), n, len(panes))
+	}
+	return w, panes[n-1], nil
 }
 
 // mainPane is the pane wait watches and ls --json reports: the first live
@@ -172,6 +227,7 @@ func parseFlags(flags *flag.FlagSet, args []string) ([]string, error) {
 type watcher struct {
 	*cliConn
 	exits map[string]int // pane: exit code, from PaneExited
+	level int            // the daemon's proto.Level, from its latest StateMsg
 }
 
 func dialWatch() (*watcher, error) {
@@ -199,6 +255,7 @@ func (w *watcher) next() (model.State, error) {
 		case proto.PaneExited:
 			w.exits[m.Pane] = m.ExitCode
 		case proto.StateMsg:
+			w.level = m.Level
 			return m.State, nil
 		}
 	}
@@ -259,7 +316,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		return waitError, err
 	}
 	if len(args) > 1 || !slices.Contains([]string{"done", "idle", "blocked", "exit"}, *until) {
-		return waitError, errors.New("usage: pitwall wait [-s session] [tab] --until done|idle|blocked|exit [--timeout 10m]")
+		return waitError, errors.New("usage: pitwall wait [-s session] [tab[.N]] --until done|idle|blocked|exit [--timeout 10m]")
 	}
 	name := ""
 	if len(args) == 1 {
@@ -286,13 +343,9 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	if err != nil {
 		return waitError, err
 	}
-	w, err := resolveTab(state, session.ID, name)
+	w, p, err := resolvePane(state, session.ID, name)
 	if err != nil {
 		return waitError, err
-	}
-	p := mainPane(tabPanes(state, w))
-	if p == nil {
-		return waitError, fmt.Errorf("tab %s has no pane", tabTitle(w))
 	}
 	// saw: a turn ran during this wait; hadAgent: the pane ran an agent.
 	pane, saw, hadAgent := p.ID, false, false
