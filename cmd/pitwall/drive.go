@@ -19,7 +19,7 @@ import (
 )
 
 // Commands for agents and scripts that drive pitwall: ls --json and wait,
-// and in talk.go split, prompt and read.
+// and in talk.go split, prompt, send and read.
 // docs/agent-skill.md documents them; keep the two in step.
 
 // tabJSON is one tab in pitwall ls --json. The shape is a contract: fields
@@ -50,10 +50,11 @@ type paneJSON struct {
 	State    string `json:"state"`
 	Question string `json:"question"`
 	ExitCode *int   `json:"exit_code"`
+	Queued   int    `json:"queued"` // messages from pitwall send not yet typed
 }
 
 func paneOf(state model.State, n int, p model.Pane) paneJSON {
-	j := paneJSON{N: n, ID: p.ID}
+	j := paneJSON{N: n, ID: p.ID, Queued: state.Queued[p.ID]}
 	j.Agent, j.State, j.Question = paneState(state, p)
 	if p.Exited && !p.ExitUnknown {
 		j.ExitCode = &p.ExitCode
@@ -99,10 +100,23 @@ func tabPanes(state model.State, w model.Workspace) []model.Pane {
 }
 
 // resolvePane finds a pane by address: a tab, as resolveTab names it, for
-// its main pane, or TAB.N for its Nth pane in layout order, as in "3.2",
-// "#3.2" or "review.2". A tab whose whole title is the address wins over
+// its main pane, TAB.N for its Nth pane in layout order, as in "3.2",
+// "#3.2" or "review.2", or @ and its id in any session, which stays valid
+// while tabs move. A tab whose whole title is the address wins over
 // reading N off its end.
 func resolvePane(state model.State, session, addr string) (model.Workspace, model.Pane, error) {
+	if id, ok := strings.CutPrefix(addr, "@"); ok {
+		i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == id })
+		if i < 0 {
+			return model.Workspace{}, model.Pane{}, fmt.Errorf("no pane %s: it closed (see pitwall ls --json)", addr)
+		}
+		p := state.Panes[i]
+		w := slices.IndexFunc(state.Workspaces, func(w model.Workspace) bool { return w.ID == p.WorkspaceID })
+		if w < 0 {
+			return model.Workspace{}, model.Pane{}, fmt.Errorf("pane %s has no tab", addr)
+		}
+		return state.Workspaces[w], p, nil
+	}
 	tab, n := addr, -1
 	if i := strings.LastIndexByte(addr, '.'); i > 0 && !slices.ContainsFunc(numbered(state, session), func(w model.Workspace) bool { return tabTitle(w) == addr }) {
 		if k, err := strconv.Atoi(addr[i+1:]); err == nil {

@@ -76,6 +76,11 @@ const usage = `usage:
                              agent once it is idle or done, and press Enter.
                              --wait waits for that turn and prints the
                              agent's reply. Exit codes as wait's
+  pitwall send <pane> [-- text]
+                             queue text (- or none: stdin) for the pane's
+                             agent and return; pitwall types it, under a
+                             header naming this pane, at the agent's next
+                             prompt
   pitwall read <pane> [--screen]
                              print the last reply of the pane's agent
                              (--screen: the text on its screen)
@@ -92,8 +97,9 @@ const usage = `usage:
   of the title. Outside a pane, name it; inside, it defaults to the
   pane's own tab. Tab commands act on the calling pane's session, else
   the most recently used one; -s <session> picks another. A pane is
-  TAB.N, the Nth pane of the tab in layout order (3.2, #3.2, review.2);
-  wait, prompt and read take one, and a tab alone is its main pane.
+  TAB.N, the Nth pane of the tab in layout order (3.2, #3.2, review.2),
+  or @ and its id from ls --json; wait, prompt, send and read take one,
+  and a tab alone is its main pane.
   pitwall worktree <cmd>     ls, new, rm, prune: this repo's git worktrees (see pitwall worktree)
   pitwall completion <shell>  bash, zsh, fish: print the shell's completion script, e.g.
                              source <(pitwall completion bash)
@@ -157,7 +163,7 @@ func main() {
 		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
 	case "completion":
 		err = runCompletion(os.Args[2:], os.Stdout)
-	case "ls", "new", "wait", "split", "prompt", "read", "attach", "detach", "kill", "rename", "tab", "session", "queue":
+	case "ls", "new", "wait", "split", "prompt", "send", "read", "attach", "detach", "kill", "rename", "tab", "session", "queue":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

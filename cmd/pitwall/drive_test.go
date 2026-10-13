@@ -132,7 +132,7 @@ func TestCLIListJSON(t *testing.T) {
 	fakeCLI(t, cliExchange{state: st})
 	code, out, stderr := cliOutput("ls", "--json")
 	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"panes":2,"detached":false,` +
-		`"pane_list":[{"n":1,"id":"p","agent":"codex","state":"blocked","question":"Run make?","exit_code":null},{"n":2,"id":"q","agent":"","state":"exited","question":"","exit_code":4}]}]` + "\n"
+		`"pane_list":[{"n":1,"id":"p","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"queued":0},{"n":2,"id":"q","agent":"","state":"exited","question":"","exit_code":4,"queued":0}]}]` + "\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
 	}

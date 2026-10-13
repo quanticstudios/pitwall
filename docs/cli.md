@@ -19,6 +19,7 @@ optional name act on the pane's own tab.
 | `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up) |
 | `pitwall split [--down] [tab] [-- cmd...]` | Open a pane right of the tab's last pane, or below with `--down`, and print its address, as `#3.2` |
 | `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
+| `pitwall send <pane> -- text`         | Queue a message for the pane's agent and return; pitwall types it, under a header naming the sender, at the agent's next prompt |
 | `pitwall read <pane> [--screen]`      | Print the last reply of the pane's agent, or with `--screen` the text on its screen |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
@@ -47,7 +48,8 @@ title matches exactly first, then by a unique prefix, so
 count within the session, and detached tabs come after the ones the sidebar
 shows. A session is named in full or by a unique prefix. A pane is
 `TAB.N`, the tab's Nth pane in layout order (`3.2`, `#3.2`,
-`review.2`); a tab alone is its main pane.
+`review.2`), or `@` and its `id` from `pitwall ls --json`, which stays
+valid while tabs move; a tab alone is its main pane.
 
 ```sh
 pitwall session new billing -d ~/src/billing   # a background session
@@ -60,8 +62,8 @@ pitwall session attach billing                 # open a window on it
 
 `new -- cmd`, `wait` and `ls --json` let an agent or a shell script start an
 agent or a command in a tab you can watch and take over, then wait for it.
-`split`, `prompt` and `read` let one agent open another next to it and
-discuss a plan in turns.
+`split`, `prompt`, `send` and `read` let one agent open another next to
+it and discuss a plan, in turns it drives or with messages both ways.
 [docs/agent-skill.md](agent-skill.md) is a page to hand an agent: the
 states, exit codes and recipes.
 

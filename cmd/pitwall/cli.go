@@ -115,6 +115,12 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 		err = splitCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "read":
 		err = readCommand(args[1:], out)
+	case len(args) > 0 && args[0] == "send":
+		var stdin io.Reader
+		if in != nil {
+			stdin = in
+		}
+		err = sendCommand(args[1:], stdin)
 	default:
 		err = sessionCommand(args, in, out, errOut)
 	}

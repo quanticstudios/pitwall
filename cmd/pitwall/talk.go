@@ -16,11 +16,11 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
-// split, prompt and read let one agent open another in a pane of its tab,
-// type a prompt into it and read its reply. docs/agent-skill.md documents
-// them.
+// split, prompt, send and read let one agent open another in a pane of
+// its tab, type a prompt into it or queue a message for it, and read its
+// reply. docs/agent-skill.md documents them.
 
-var errOlder = errors.New("the daemon is older than this pitwall; restart it to use prompt/read")
+var errOlder = errors.New("the daemon is older than this pitwall; restart it to use prompt, send and read")
 
 // splitCommand opens a pane running cmd next to the last pane of a tab,
 // and prints its address.
@@ -155,6 +155,79 @@ func readPane(conn *cliConn, r proto.Read) (string, error) {
 	}
 }
 
+// textArg is the text of a prompt or message: the words of text, or with
+// none or "-" all of in.
+func textArg(text []string, in io.Reader, what string) (string, error) {
+	msg := strings.Join(text, " ")
+	if msg == "" || msg == "-" {
+		if in == nil {
+			return "", fmt.Errorf("no %s: give it as an argument or on stdin", what)
+		}
+		b, err := io.ReadAll(in)
+		if err != nil {
+			return "", err
+		}
+		msg = string(b)
+	}
+	if strings.TrimSpace(msg) == "" {
+		return "", fmt.Errorf("the %s is empty", what)
+	}
+	return msg, nil
+}
+
+// sendCommand queues a message for a pane's agent and returns: the
+// daemon types it, under a header naming this pane, when that agent next
+// sits at its prompt.
+func sendCommand(args []string, in io.Reader) error {
+	var text []string
+	if i := slices.Index(args, "--"); i >= 0 {
+		args, text = args[:i], args[i+1:]
+	}
+	flags := flag.NewFlagSet("send", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	sessionName := flags.String("s", "", "")
+	args, err := parseFlags(flags, args)
+	if len(args) == 2 && text == nil {
+		args, text = args[:1], args[1:]
+	}
+	if err != nil || len(args) != 1 {
+		return errors.New("usage: pitwall send [-s session] <pane> [-- text | text | -]")
+	}
+	msg, err := textArg(text, in, "message")
+	if err != nil {
+		return err
+	}
+	conn, err := dialCLI()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	m, err := syncMsg(conn)
+	if err != nil {
+		return err
+	}
+	if m.Level < proto.Since(proto.Send{}) {
+		return errOlder
+	}
+	session, err := currentSession(m.State, *sessionName)
+	if err != nil {
+		return err
+	}
+	_, p, err := resolvePane(m.State, session.ID, args[0])
+	if err != nil {
+		return err
+	}
+	from := os.Getenv("PITWALL_PANE")
+	if !slices.ContainsFunc(m.State.Panes, func(sp model.Pane) bool { return sp.ID == from }) {
+		from = "" // a script, or a pane of another daemon
+	}
+	if p.ID == from {
+		return errors.New("that is this pane: send to another agent's pane")
+	}
+	_, err = syncCLI(conn, proto.Send{Pane: p.ID, From: from, Text: msg})
+	return err
+}
+
 func promptCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	code, err := promptPane(args, in, out)
 	if err != nil {
@@ -187,19 +260,9 @@ func promptPane(args []string, in io.Reader, out io.Writer) (int, error) {
 	if err != nil || len(args) != 1 {
 		return waitError, errors.New("usage: pitwall prompt [-s session] <pane> [--wait] [--timeout 10m] [-- text | text | -]")
 	}
-	msg := strings.Join(text, " ")
-	if msg == "" || msg == "-" {
-		if in == nil {
-			return waitError, errors.New("no prompt: give it as an argument or on stdin")
-		}
-		b, err := io.ReadAll(in)
-		if err != nil {
-			return waitError, err
-		}
-		msg = string(b)
-	}
-	if strings.TrimSpace(msg) == "" {
-		return waitError, errors.New("the prompt is empty")
+	msg, err := textArg(text, in, "prompt")
+	if err != nil {
+		return waitError, err
 	}
 
 	watch, err := dialWatch()
