@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.7
 
 - Agents in pitwall panes can message each other in both directions.
   `pitwall send #3.2 -- "critique plan.md"` returns at once; pitwall types
