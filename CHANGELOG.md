@@ -15,6 +15,12 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- On Windows, a second message `pitwall send` queued for an agent no
+  longer waits 30 seconds when the agent's turn starts within the same
+  clock tick as the typing.
+
 ## v0.1.0-beta.7
 
 - Agents in pitwall panes can message each other in both directions.
