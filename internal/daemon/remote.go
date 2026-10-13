@@ -145,13 +145,19 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 	if !remote.Replies(a.State) {
 		return errors.New("that pane is not waiting for a reply")
 	}
+	return d.typeLine(pane, p, text, "the reply is empty")
+}
+
+// typeLine pastes text into pane p, cleaned of control characters, and
+// presses Enter; empty is the error for text that cleans to nothing.
+func (d *Daemon) typeLine(pane string, p Pane, text, empty string) error {
 	m := p.Modes()
 	text = remote.Clean(text)
 	if !m.BracketedPaste {
 		text = strings.ReplaceAll(text, "\n", " ") // a bare newline would send the first line alone
 	}
 	if text == "" {
-		return errors.New("the reply is empty")
+		return errors.New(empty)
 	}
 	ctx := context.Background()
 	if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.Paste(text, m)}); err != nil {

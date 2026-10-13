@@ -150,6 +150,10 @@ type Daemon struct {
 	prs          prPoll        // see pr.go
 	radar        radar         // see radar.go
 	queue        taskQueue     // see task.go
+	// replies is, per pane, the last message of its agent's latest
+	// finished turn, for proto.Read; see talk.go. Not in st: it would
+	// ride on every StateMsg.
+	replies map[string]string
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -545,6 +549,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(d.text(t))
 			continue
 		}
+		if r, ok := m.(proto.Read); ok {
+			c.queue(d.read(r)) // a reply to this client alone
+			continue
+		}
 		if v, ok := m.(proto.View); ok {
 			if hello.Kind == "gui" {
 				d.setView(c, v.Panes)
@@ -717,6 +725,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.seePane(m.Pane)
 	case proto.Answer:
 		return d.remoteAnswer(m.Pane, m.At, m.Allow)
+	case proto.Prompt:
+		return d.prompt(m)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:
@@ -1041,6 +1051,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.piRuntime, id)
 	delete(d.live.piRetired, id)
 	delete(d.attn, id)
+	delete(d.replies, id)
 	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
@@ -1127,6 +1138,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok && !keep {
 		changed = true
 		clearDecisions(&next) // a new state needs new answers
+		if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {
+			d.keepReply(p.ID, msg)
+		}
 		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
 			// The known keys, from the whole message before it is cut.
 			if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {

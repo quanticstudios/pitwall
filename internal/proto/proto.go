@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 15 added Prompt, Read and ReadResult: an agent types into another
+// agent's pane and reads its reply.
 // Level 14 added View and FrameRows: a GUI of this Level gets frames of
 // the panes it shows alone, and of each one the rows that changed.
 // Level 13 added Text, TextResult and vt.Grid.Wrapped: a copy of a
@@ -92,12 +94,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 14
+const Level = 15
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Prompt, Read, ReadResult:
+		return 15
 	case View, FrameRows:
 		return 14
 	case Text, TextResult:
@@ -549,6 +553,32 @@ type Answer struct {
 	Allow bool
 }
 
+// Prompt types Text into Pane and presses Enter, as the phone page's reply
+// does, from `pitwall prompt`. The daemon does it only when Pane's agent
+// reports its turns through hooks, has no turn running and waits on
+// nothing, and its screen shows no prompt; else it answers Error with why.
+type Prompt struct {
+	Pane string
+	Text string
+}
+
+// Read asks for the full last message of the latest turn Pane's agent
+// finished, or with Screen the text of its screen. The daemon answers this
+// client alone with a ReadResult.
+type Read struct {
+	Pane   string
+	Screen bool
+}
+
+// ReadResult answers a Read. Err is why there is no Text, such as no turn
+// having finished since the daemon started: it keeps last messages in
+// memory only.
+type ReadResult struct {
+	Pane string
+	Text string
+	Err  string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
@@ -564,4 +594,5 @@ var Messages = []any{
 	WorktreeQuery{}, WorktreeInfo{}, DeleteWorktree{},
 	Text{}, TextResult{},
 	View{}, FrameRows{},
+	Prompt{}, Read{}, ReadResult{},
 }

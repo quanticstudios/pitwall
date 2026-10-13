@@ -1,4 +1,4 @@
-16.14
+16.15
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -47,6 +47,9 @@ proto.NewTask{Task model.Task; Queue bool; FromPane string}
 proto.NewWorkspace{ProjectID string; Name string; From model.WorktreeFrom; Cmd []string}
 proto.OpenPane{WorkspaceID string; TabID string; Target string; Dir layout.Dir; Cmd []string}
 proto.PaneExited{Pane string; ExitCode int}
+proto.Prompt{Pane string; Text string}
+proto.Read{Pane string; Screen bool}
+proto.ReadResult{Pane string; Text string; Err string}
 proto.RenameGroup{GroupID string; Name string}
 proto.RenameTab{WorkspaceID string; TabID string; Pane string; Name string}
 proto.RenameWorkspace{WorkspaceID string; Name string}
