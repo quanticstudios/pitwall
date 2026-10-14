@@ -42,6 +42,7 @@ type sub struct {
 	Subagent
 	key    string // what the provider's later events name it by
 	thread string // Codex: the child's thread id, which names its rollout
+	flow   *sub   // Claude: the workflow that started it, or nil
 	file   string // the child's own session file, "" until known
 	final  bool   // the parent recorded its result: End, Failed and Latest stay
 	kid    *session
@@ -165,6 +166,21 @@ func (b *builder) spawn(ts time.Time, id, name, typ, prompt string) *sub {
 	return s
 }
 
+// spawnIn adds an agent that workflow w started, in w's turn, which may
+// have ended: a workflow runs in the background.
+func (b *builder) spawnIn(w *sub, id, name, typ string) *sub {
+	s := &sub{Subagent: Subagent{ID: id, Name: cut(firstLine(name), 200), Type: typ, Start: w.Start}, key: id, flow: w}
+	b.subs = append(b.subs, s)
+	wi := slices.Index(b.subs, w)
+	for i := range b.turns {
+		if slices.Contains(b.turns[i].Subagents, wi) {
+			b.turns[i].Subagents = append(b.turns[i].Subagents, len(b.subs)-1)
+			break
+		}
+	}
+	return s
+}
+
 // subBy returns the subagent whose call id or key is id, or nil.
 func (b *builder) subBy(id string) *sub {
 	if id == "" {
@@ -231,6 +247,9 @@ func (s *sub) view() Subagent {
 			last = &kb.turns[i]
 		}
 	}
+	if s.flow != nil && len(kb.turns) > 0 {
+		v.Start = kb.turns[0].Start // the workflow's start until its file says
+	}
 	if !s.final {
 		if kb.last != "" {
 			v.Latest = kb.last
@@ -242,6 +261,9 @@ func (s *sub) view() Subagent {
 		case last != nil:
 			v.End = last.End
 		}
+	}
+	if s.flow != nil && v.End.IsZero() && s.flow.final {
+		v.End = s.flow.End // a stopped workflow's agents never end their turn
 	}
 	return v
 }

@@ -516,3 +516,51 @@ func TestForkedChild(t *testing.T) {
 		t.Errorf("subagent = %+v", v)
 	}
 }
+
+// A Workflow call is a row for its run, and each agent it starts, found by
+// the meta.json under subagents/workflows/<run id>/, a row after it. An
+// agent still running when the run stops ends with it.
+func TestClaudeWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "s.jsonl")
+	write(t, path, `{"type":"user","timestamp":"2026-10-05T10:00:00Z","message":{"content":"scope it"}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:01Z","message":{"content":[{"type":"tool_use","id":"wf","name":"Workflow","input":{"script":"export const meta = {}"}}],"stop_reason":"tool_use"}}
+{"type":"user","timestamp":"2026-10-05T10:00:02Z","message":{"content":[{"type":"tool_result","tool_use_id":"wf","content":"started"}]},"toolUseResult":{"status":"async_launched","taskId":"w1","taskType":"local_workflow","workflowName":"one-build-design","runId":"wf_1"}}
+{"type":"assistant","timestamp":"2026-10-05T10:00:03Z","message":{"content":[{"type":"text","text":"Running."}],"stop_reason":"end_turn"}}
+{"type":"user","timestamp":"2026-10-05T10:05:00Z","message":{"content":"<task-notification>\n<task-id>w1</task-id>\n<status>killed</status>\n</task-notification>"},"origin":{"kind":"task-notification"}}
+`)
+	run := filepath.Join(dir, "s", "subagents", "workflows", "wf_1")
+	if err := os.MkdirAll(run, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	agent := func(id, label, ts, stop string) {
+		write(t, filepath.Join(run, "agent-"+id+".meta.json"), `{"agentType":"general-purpose","description":"`+label+`","toolUseId":"wf","workflowPhase":"Investigate"}`)
+		write(t, filepath.Join(run, "agent-"+id+".jsonl"), `{"type":"user","timestamp":"2026-10-05T10:0`+ts+`Z","isSidechain":true,"message":{"content":"look"}}
+{"type":"assistant","timestamp":"2026-10-05T10:0`+ts+`Z","isSidechain":true,"message":{"content":[{"type":"tool_use","id":"g`+id+`","name":"Grep","input":{"pattern":"x"}}],"stop_reason":"tool_use"}}
+{"type":"user","timestamp":"2026-10-05T10:0`+ts+`Z","isSidechain":true,"message":{"content":[{"type":"tool_result","tool_use_id":"g`+id+`","content":"ok"}]}}
+{"type":"assistant","timestamp":"2026-10-05T10:0`+ts+`Z","isSidechain":true,"message":{"content":[{"type":"text","text":"done `+id+`"}],"stop_reason":"`+stop+`"}}
+`)
+	}
+	agent("a1", "research:wallets@opus-5-5", "1:00", "end_turn")
+	agent("a2", "research:routes@opus-5-5", "2:00", "tool_use")
+	s := newSession(model.ProviderClaude, path, false, time.Time{})
+	s.poll()
+	f := s.b.feed()
+	if len(f.Subagents) != 3 {
+		t.Fatalf("subagents = %+v", f.Subagents)
+	}
+	w, a1, a2 := f.Subagents[0], f.Subagents[1], f.Subagents[2]
+	if w.Name != "one-build-design" || w.Type != "workflow" || !w.End.Equal(at(5, 0)) {
+		t.Errorf("workflow = %+v", w)
+	}
+	if a1.Name != "research:wallets@opus-5-5" || a1.Type != "general-purpose" || !a1.Start.Equal(at(1, 0)) || !a1.End.Equal(at(1, 0)) || a1.Latest != "done a1" {
+		t.Errorf("finished agent = %+v", a1)
+	}
+	checkCalls(t, "finished agent", a1.Calls, []Call{{Tool: "Grep", Arg: "x"}})
+	if !a2.Start.Equal(at(2, 0)) || !a2.End.Equal(at(5, 0)) {
+		t.Errorf("stopped agent = %+v", a2)
+	}
+	if got := f.Turns[0].Subagents; !reflect.DeepEqual(got, []int{0, 1, 2}) {
+		t.Errorf("turn subagents = %v", got)
+	}
+}

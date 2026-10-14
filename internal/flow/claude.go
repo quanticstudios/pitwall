@@ -16,7 +16,9 @@ import (
 // entries carry a message whose content is a
 // string or a list of blocks. A subagent writes its own transcript under
 // <transcript without .jsonl>/subagents/, with a meta.json naming the
-// toolUseId of the Agent call that spawned it.
+// toolUseId of the Agent call that spawned it. A workflow's agents write
+// theirs under subagents/workflows/<run id>/, each meta.json naming the
+// Workflow call.
 type claude struct {
 	path    string
 	child   bool                  // a subagent's file, whose entries are all sidechain
@@ -28,8 +30,9 @@ type claude struct {
 }
 
 type claudeMeta struct {
-	ToolUseID string `json:"toolUseId"`
-	AgentType string `json:"agentType"`
+	ToolUseID   string `json:"toolUseId"`
+	AgentType   string `json:"agentType"`
+	Description string `json:"description"`
 }
 
 type claudeEntry struct {
@@ -190,6 +193,13 @@ func (c *claude) toolUse(b *builder, e claudeEntry, bl claudeBlock) {
 		}
 		_ = json.Unmarshal(bl.Input, &in)
 		b.spawn(ts, bl.ID, in.Description, in.Type, in.Prompt)
+	case "Workflow":
+		// The run's own row; resolve adds its agents.
+		var in struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(bl.Input, &in)
+		b.spawn(ts, bl.ID, in.Name, "workflow", "")
 	case "TodoWrite":
 		var in struct {
 			Todos []struct {
@@ -275,11 +285,19 @@ func (c *claude) toolResult(b *builder, e claudeEntry, bl claudeBlock) {
 		return
 	}
 	var r struct {
-		AgentID string        `json:"agentId"`
-		Status  string        `json:"status"`
-		Content []claudeBlock `json:"content"`
+		AgentID      string        `json:"agentId"`
+		Status       string        `json:"status"`
+		Content      []claudeBlock `json:"content"`
+		TaskID       string        `json:"taskId"`
+		WorkflowName string        `json:"workflowName"`
 	}
 	_ = json.Unmarshal(e.ToolUseResult, &r)
+	if s.Type == "workflow" && r.TaskID != "" {
+		s.key = r.TaskID // its task notification names the task, not the call
+		if r.WorkflowName != "" {
+			s.Name = cut(firstLine(r.WorkflowName), 200)
+		}
+	}
 	if r.AgentID != "" {
 		s.key = r.AgentID
 		s.file = filepath.Join(strings.TrimSuffix(c.path, ".jsonl"), "subagents", "agent-"+r.AgentID+".jsonl")
@@ -329,37 +347,64 @@ func (c *claude) notification(b *builder, ts time.Time, text string) {
 
 // resolve finds a running foreground subagent's file by the toolUseId in
 // its meta.json; the Agent call's result, which names it too, comes only
-// when it is done.
+// when it is done. It adds a workflow's agents as they start.
 func (c *claude) resolve(b *builder) {
 	dir := filepath.Join(strings.TrimSuffix(c.path, ".jsonl"), "subagents")
 	names, _ := filepath.Glob(filepath.Join(dir, "agent-*.meta.json"))
-	if c.metas == nil {
-		c.metas = map[string]claudeMeta{}
-	}
 	for _, name := range names {
-		m, ok := c.metas[name]
+		m, ok := c.meta(name)
 		if !ok {
-			f, _, err := openRegular(name)
-			if err != nil {
-				continue
-			}
-			data, err := io.ReadAll(io.LimitReader(f, 64<<10))
-			f.Close()
-			if err != nil || json.Unmarshal(data, &m) != nil {
-				continue
-			}
-			c.metas[name] = m
+			continue
 		}
 		s := b.subBy(m.ToolUseID)
 		if s == nil || s.file != "" {
 			continue
 		}
-		id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(name), "agent-"), ".meta.json")
+		id := agentID(name)
 		s.key, s.file = id, filepath.Join(dir, "agent-"+id+".jsonl")
 		if s.Type == "" {
 			s.Type = m.AgentType
 		}
 	}
+	names, _ = filepath.Glob(filepath.Join(dir, "workflows", "*", "agent-*.meta.json"))
+	for _, name := range names {
+		m, ok := c.meta(name)
+		id := agentID(name)
+		if !ok || b.subBy(id) != nil {
+			continue
+		}
+		if w := b.subBy(m.ToolUseID); w != nil && w.Type == "workflow" {
+			s := b.spawnIn(w, id, m.Description, m.AgentType)
+			s.file = filepath.Join(filepath.Dir(name), "agent-"+id+".jsonl")
+		}
+	}
+}
+
+// meta reads and keeps the meta.json at name.
+func (c *claude) meta(name string) (claudeMeta, bool) {
+	if m, ok := c.metas[name]; ok {
+		return m, true
+	}
+	var m claudeMeta
+	f, _, err := openRegular(name)
+	if err != nil {
+		return m, false
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 64<<10))
+	f.Close()
+	if err != nil || json.Unmarshal(data, &m) != nil {
+		return m, false
+	}
+	if c.metas == nil {
+		c.metas = map[string]claudeMeta{}
+	}
+	c.metas[name] = m
+	return m, true
+}
+
+// agentID is the agent id in a meta.json's file name.
+func agentID(name string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(name), "agent-"), ".meta.json")
 }
 
 func blocksText(blocks []claudeBlock) string {

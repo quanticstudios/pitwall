@@ -20,6 +20,10 @@ build. Either step takes `--dry-run`.
 - On Windows, a second message `pitwall send` queued for an agent no
   longer waits 30 seconds when the agent's turn starts within the same
   clock tick as the typing.
+- The Subagents tab shows Claude Code workflows: a row for the run and one
+  for each agent it starts, with their calls and replies. Claude Code
+  2.1.299 writes workflow agents' transcripts a folder below the others,
+  so pitwall did not see them.
 
 ## v0.1.0-beta.7
 
