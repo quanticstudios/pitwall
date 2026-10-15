@@ -110,7 +110,9 @@ command palette and dialogs as well as the settings page.
 
 `[appearance]` has `reduce_motion` (default `false`). On, dialogs, menus,
 hover cards, hover fills and the pane focus border change at once instead
-of easing in over 80 to 200 ms.
+of easing in over 80 to 200 ms. `remote_control` (default `true`) marks a
+tab under its agent's icon while Claude Code's `/remote-control` is on for
+it; off, pitwall stops reading Claude Code's session files.
 
 The muted text color of every built-in theme reads at 4.5:1 or better on
 its backgrounds. Status chips darken or lighten their text until it does,

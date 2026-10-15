@@ -148,6 +148,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		d.checkForeground()
 		d.refreshDecisions()
 		d.detect(ctx)
+		d.checkRemoteControl()
 	}
 }
 

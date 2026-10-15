@@ -40,6 +40,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 17 added Pane.RemoteControl: Claude Code's /remote-control is on.
 // Level 16 added Send and State.Queued: a message to another agent that
 // the daemon types at its next prompt.
 // Level 15 added Prompt, Read and ReadResult: an agent types into another
@@ -96,7 +97,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 16
+const Level = 17
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.

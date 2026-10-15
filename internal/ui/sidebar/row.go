@@ -131,6 +131,13 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// at 4.5:1 on the row.
 		muted := th.Readable(th.Muted, base)
 		quiet := th.Readable(th.TextQuiet, base)
+		if v.remote[ws.ID] {
+			// Under the agent's mark, soft so it never outshouts the pill.
+			sz := gtx.Dp(12)
+			off = op.Offset(image.Pt(left, pad+l1+gtx.Dp(4)+(l2-sz)/2)).Push(gtx.Ops)
+			drawIcon(gtx, icRadio, sz, theme.Mix(base, th.Green, 0.6), 0)
+			off.Pop()
+		}
 		gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
 		off = op.Offset(image.Pt(left+gtx.Dp(20), pad+l1+gtx.Dp(4))).Push(gtx.Ops)
 		inRepo := ws.Branch != ""

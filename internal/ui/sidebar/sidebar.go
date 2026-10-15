@@ -360,6 +360,7 @@ type view struct {
 	agent         map[string]model.Provider    // a live session's agent, idle or busy
 	agents        map[string][]model.AgentPane // a live tab's agent panes, when it has two or more
 	queued        map[string][]model.Task      // the session's queued tasks by the group they show under, "" for none
+	remote        map[string]bool              // a tab with an agent under remote control
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
@@ -381,6 +382,12 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 		groups[p.ID] = true
 	}
 	v.groups = groups
+	v.remote = map[string]bool{}
+	for _, p := range st.Panes {
+		if p.RemoteControl {
+			v.remote[p.WorkspaceID] = true
+		}
+	}
 	for _, ws := range st.Workspaces {
 		g := ws.ProjectID
 		if !groups[g] {

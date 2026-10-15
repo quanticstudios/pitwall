@@ -156,6 +156,10 @@ type Pane struct {
 	// turn on its screen, or has run for a while, without one. The daemon
 	// fills it in; it is not saved.
 	HooksMissing bool `json:"-"`
+	// RemoteControl marks a pane whose agent can be driven from another
+	// device: Claude Code with /remote-control on. The daemon fills it in;
+	// it is not saved.
+	RemoteControl bool `json:"-"`
 }
 
 type MergeStatus string

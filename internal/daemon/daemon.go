@@ -119,6 +119,9 @@ type Options struct {
 	Conflicts func(ctx context.Context, dir, a, b string) ([]string, error)
 	// MaxRunning reads [agents] max_running; nil means 0, no limit.
 	MaxRunning func() int
+	// RemoteControl reports whether panes show Claude Code's Remote
+	// Control ([appearance] remote_control); nil means off.
+	RemoteControl func() bool
 	// Scrollback is the lines of history a new pane keeps ([terminal]
 	// scrollback); nil leaves the emulator's default.
 	Scrollback func() int
@@ -199,6 +202,7 @@ func New() (*Daemon, error) {
 		Changes:        gitstat.Changed,
 		Conflicts:      gitstat.Conflicts,
 		MaxRunning:     setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
+		RemoteControl:  setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
 		Remote:         func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
 		RemoteDir:      remote.Dir(),
 		Split:          layout.Split,

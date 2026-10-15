@@ -360,6 +360,13 @@ a new file or a new conflict. pitwall checks when it refreshes the branch
 stats, at most every 30 seconds, and only while tabs sit on two or more
 branches. Set `conflict_radar = false` under `[git]` to turn it off.
 
+A soft green broadcast mark under a tab's agent icon means you can drive
+that agent from another device: Claude Code with `/remote-control` on.
+pitwall reads it from Claude Code's own session files
+(`~/.claude/sessions/<pid>.json`) about once a second. Turn it off under
+Appearance in Settings, or with `remote_control = false` under
+`[appearance]`.
+
 Under the tabs, a line shows the agent's model, the tokens its session used
 and how full its context window is, with a small meter that turns yellow at
 80% and red at 95%. Flow's Session section splits the tokens into input,

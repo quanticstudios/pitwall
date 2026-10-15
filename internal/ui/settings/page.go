@@ -769,6 +769,10 @@ func (p *Page) appearance() []section {
 			{label: "Reduce motion", desc: "Show dialogs, menus, hover and focus changes at once instead of easing them in.",
 				extra: "animation reduce_motion", control: p.toggle("appearance", "reduce_motion", p.s.ReduceMotion)},
 		}},
+		{title: "Sidebar", rows: []row{
+			{label: "Remote control", desc: "Mark a tab under its agent's icon while you can drive the agent from another device: Claude Code with /remote-control on.",
+				extra: "remote_control rc phone claude.ai", control: p.toggle("appearance", "remote_control", p.s.RemoteControl)},
+		}},
 	}
 }
 

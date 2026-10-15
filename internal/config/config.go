@@ -195,7 +195,8 @@ type Font struct {
 
 // Appearance is [appearance].
 type Appearance struct {
-	ReduceMotion *bool `toml:"reduce_motion" doc:"Show dialogs, menus, hover and focus changes at once instead of easing them in"`
+	ReduceMotion  *bool `toml:"reduce_motion" doc:"Show dialogs, menus, hover and focus changes at once instead of easing them in"`
+	RemoteControl *bool `toml:"remote_control" doc:"Mark a tab in the sidebar, under its agent's icon, while its agent can be driven from another device: Claude Code with /remote-control on"`
 }
 
 // Layout is [layout].
@@ -264,6 +265,8 @@ type Settings struct {
 	ReduceMotion bool
 	// LimitsInSidebar shows the plan limits' meter in the sidebar.
 	LimitsInSidebar bool
+	// RemoteControl marks tabs whose agent is under remote control.
+	RemoteControl bool
 	// Decisions is [decisions] resolved.
 	Decisions DecideSettings
 	// MaxRunning is [agents] max_running: 0 for no limit.
@@ -454,6 +457,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
 	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
 	s.ReduceMotion = c.Appear.ReduceMotion != nil && *c.Appear.ReduceMotion
+	s.RemoteControl = c.Appear.RemoteControl == nil || *c.Appear.RemoteControl
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts
 	var di []issue
