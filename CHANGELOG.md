@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.11
 
 - After an update, when the daemon still runs the older pitwall, the
   sidebar's update button reads Restart to finish and restarts it for
