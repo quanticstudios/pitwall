@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.9
 
 - A soft green mark under a tab's agent icon shows when Claude Code's
   `/remote-control` is on for it. Turn it off under Appearance in
