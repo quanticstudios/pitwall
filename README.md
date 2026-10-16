@@ -122,6 +122,8 @@ Agents can also talk to each other. `pitwall send` types a message into
 another agent at its next prompt, with a header saying who sent it and how
 to reply, so Claude Code and Codex can argue over a plan until they agree.
 
+<img src="docs/media/agents-talk.webp" alt="Claude Code and Codex in split panes of one pinned tab. Claude Code wrote plan.md and asked Codex to critique it with pitwall send; Codex's reply arrives under a pitwall header naming the sender and how to reply, raising three points. Claude Code accepts two, revises the plan, and Codex answers AGREE." width="800">
+
 ```sh
 tab=$(pitwall new -n "review auth" -- codex "review origin/main..HEAD")
 pitwall wait "$tab" --until done --timeout 20m
@@ -133,13 +135,14 @@ pitwall send "$pane" -- "Critique plan.md"
 ### Know what it costs
 
 **See how much of your Claude Code and Codex plan limits you have used, and
-when you will hit 100% at this pace.** Settings, Usage also adds up what
+when you will hit 100% at this pace.** The sidebar's footer keeps each
+agent's fullest window in view. Settings, Usage also adds up what
 the last 7, 30 or 90 days would cost at API prices, per agent and per day.
 The agent panel shows each session's tokens and how full its context is,
 and lists every subagent, Claude Code workflow runs included, with what it
 was asked.
 
-<img src="docs/media/limits.webp" alt="Settings, Usage: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, and Codex's windows at 34% and 61%" width="640">
+<img src="docs/media/usage.webp" alt="Settings, Usage beside the sidebar: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, Codex's windows at 34% and 61%, and $944.63 over 30 days split between Claude Code and Codex with a daily cost chart. The sidebar's footer shows each agent's fullest window, 5h at 72% and 7d at 61%." width="800">
 
 ### Never lose a session
 
