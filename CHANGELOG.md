@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.10
 
 - Pin a tab from its menu so it cannot close by accident: closing it asks
   you to unpin it first, and `pitwall kill` refuses it.
