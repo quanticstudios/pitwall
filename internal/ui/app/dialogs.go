@@ -43,6 +43,7 @@ const (
 	modalCleanup
 	modalTask
 	modalDiscard
+	modalPinned // closing a pinned tab, see pinned.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -53,6 +54,7 @@ type modal struct {
 	removeBranch bool
 	archive      bool // the delete dialog archives a tab whose PR merged
 	armed        bool // the merge dialog was confirmed once with checks failing
+	then         any  // what the pinned dialog sends once the tab is unpinned
 	focus        bool // move key focus into the dialog this frame
 
 	check, cancel, ok widget.Clickable
@@ -85,7 +87,7 @@ func (m *modal) close() { m.kind = modalNone }
 func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	m := &u.modal
 	ws := findWorkspace(st, m.ws)
-	if (m.kind == modalDelete || m.kind == modalMerge) && ws == nil {
+	if (m.kind == modalDelete || m.kind == modalMerge || m.kind == modalPinned) && ws == nil {
 		m.close() // deleted elsewhere
 	}
 	if m.kind == modalNone {
@@ -208,6 +210,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = func(gtx gl.Context) gl.Dimensions { return u.cleanupBody(gtx, st) }
 	case modalDiscard:
 		content = u.discardBody
+	case modalPinned:
+		content = func(gtx gl.Context) gl.Dimensions { return u.pinnedBody(gtx, ws) }
 	}
 	u.card(gtx, &m.body, m.openedAt, content)
 }
@@ -269,6 +273,8 @@ func (u *ui) confirmModal(st *model.State) {
 	case modalDiscard:
 		u.discardFile()
 		m.close()
+	case modalPinned:
+		u.confirmPinned(st)
 	}
 }
 

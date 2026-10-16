@@ -655,6 +655,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.renameWorkspace(m)
 	case proto.SetProjectAppearance:
 		return d.setAppearance(m)
+	case proto.SetTabOptions:
+		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Pinned, w.Color = m.Pinned, m.Color; return nil })
 	case proto.DetachSession:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Detached = m.Detached; return nil })
 	case proto.KillSession:
@@ -1034,9 +1036,14 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 // closePane closes a pane, and its tab and session when it was their last.
 func (d *Daemon) closePane(id string) error {
 	d.mu.Lock()
-	if !slices.ContainsFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }) {
+	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
+	if i < 0 {
 		d.mu.Unlock()
 		return fmt.Errorf("no pane %s", id)
+	}
+	if w := d.workspace(d.st.Panes[i].WorkspaceID); w != nil && w.Pinned && d.st.PaneCount(w.ID) == 1 {
+		d.mu.Unlock()
+		return fmt.Errorf("tab %q is pinned; unpin it to close its last pane", w.Name)
 	}
 	closing := d.removePane(id)
 	d.changed()

@@ -15,6 +15,12 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- Pin a tab from its menu so it cannot close by accident: closing it asks
+  you to unpin it first, and `pitwall kill` refuses it.
+- Color a tab from its menu: a row of eight colors tints its row.
+
 ## v0.1.0-beta.9
 
 - A soft green mark under a tab's agent icon shows when Claude Code's

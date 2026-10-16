@@ -163,9 +163,14 @@ func (d *Daemon) renameTab(m proto.RenameTab) error {
 
 func (d *Daemon) killSession(m proto.KillSession) error {
 	d.mu.Lock()
-	if d.workspace(m.WorkspaceID) == nil {
+	w := d.workspace(m.WorkspaceID)
+	if w == nil {
 		d.mu.Unlock()
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	if w.Pinned {
+		d.mu.Unlock()
+		return fmt.Errorf("tab %q is pinned; unpin it to close it", w.Name)
 	}
 	closing := d.removeWorkspace(m.WorkspaceID)
 	d.changed()

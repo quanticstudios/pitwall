@@ -57,6 +57,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	if unseen != nil && !isActive { // the active row's fill keeps clear of state tints
 		base = theme.Mix(base, StateColor(th, unseen.State), 0.1)
 	}
+	if ws.Color != "" {
+		base = theme.Mix(base, th.ProjectColor(ws.Color), 0.1)
+	}
 	cursor := !ghost && s.cursorOn('s', ws.ID)
 	if cursor {
 		base = cursorFill(th, base, isActive)
@@ -120,6 +123,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				}
 				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), nameCol, title)
 			}},
+		}
+		if ws.Pinned {
+			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+				return drawIcon(gtx, icPin, gtx.Dp(11), th.Readable(th.Muted, base), 0)
+			}})
 		}
 		if a != nil {
 			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})

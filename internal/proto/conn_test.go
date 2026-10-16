@@ -83,6 +83,7 @@ func allMessages() []any {
 		PaneExited{Pane: "a", ExitCode: 1},
 		Error{Message: "boom"},
 		SetProjectAppearance{ProjectID: "p", Icon: "code", Color: "sky"},
+		SetTabOptions{WorkspaceID: "w", Pinned: true, Color: "teal"},
 		WorktreeQuery{ProjectID: "p", Orphans: true},
 		WorktreeInfo{Query: WorktreeQuery{WorkspaceID: "w"}, Default: "origin/main", Local: []string{"main"}, Remote: []string{"origin/fix"}, GitHub: true,
 			Changed: []string{"a.go"}, Unmerged: true, Orphans: []model.Orphan{{Root: "/r", Path: "/r/.worktrees/x", Branch: "x", Committed: now, Dirty: true}}},

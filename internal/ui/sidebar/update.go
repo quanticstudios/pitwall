@@ -250,6 +250,16 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.events = append(s.events, CloseTab{WorkspaceID: id})
 			s.closeMenus()
 		}
+		if ws := v.st.Workspace(id); ws != nil {
+			if s.menuItem[actPin].Clicked(gtx) {
+				s.tabOptions(v, id, func(o *SetTabOptions) { o.Pinned = !ws.Pinned })
+			}
+			for i := range s.tabColor {
+				if s.tabColor[i].Clicked(gtx) {
+					s.tabOptions(v, id, func(o *SetTabOptions) { o.Color = tabColorIDs[i] })
+				}
+			}
+		}
 		if s.menuItem[actMove].Clicked(gtx) {
 			s.moveOpen = true
 		}
@@ -425,4 +435,18 @@ func (s *Sidebar) toggleGroupMenu(id string) {
 	if open {
 		s.groupMenu = id
 	}
+}
+
+// tabOptions applies set to the options of tab id, or of the whole
+// selection when id is part of it, and closes the menu.
+func (s *Sidebar) tabOptions(v *view, id string, set func(*SetTabOptions)) {
+	for _, t := range s.targets(v, id) {
+		if ws := v.st.Workspace(t); ws != nil {
+			o := SetTabOptions{WorkspaceID: t, Pinned: ws.Pinned, Color: ws.Color}
+			set(&o)
+			s.events = append(s.events, o)
+		}
+	}
+	s.closeMenus()
+	clear(s.selected)
 }

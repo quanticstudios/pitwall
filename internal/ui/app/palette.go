@@ -285,6 +285,6 @@ func (u *ui) runAction(st *model.State, a config.Action) {
 		msg = u.nav.globalOp(st, a.Name)
 	}
 	if msg != nil {
-		u.send(msg)
+		u.sendOrAsk(st, msg)
 	}
 }

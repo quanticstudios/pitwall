@@ -80,8 +80,15 @@ type Workspace struct {
 	Ports PortBlock
 	// RepoRoot is the git toplevel of Path, or Path outside a repo. Group by
 	// folder uses it.
-	RepoRoot  string
-	Detached  bool // running but hidden from the sidebar until attached
+	RepoRoot string
+	Detached bool // running but hidden from the sidebar until attached
+	// Pinned keeps the tab from closing: the daemon refuses CloseTab and
+	// KillSession for it, and an automatic archive skips it, until it is
+	// unpinned.
+	Pinned bool
+	// Color is the tab's color id ("red", "sky", see theme.ProjectColor),
+	// "" for none.
+	Color     string
 	UpdatedAt time.Time
 	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
 	ActiveTab string // the id of Tabs[0]
@@ -599,4 +606,25 @@ func (s *State) Summary(session string) SessionSummary {
 		}
 	}
 	return out
+}
+
+// Workspace is the tab with id, nil when there is none.
+func (s *State) Workspace(id string) *Workspace {
+	for i := range s.Workspaces {
+		if s.Workspaces[i].ID == id {
+			return &s.Workspaces[i]
+		}
+	}
+	return nil
+}
+
+// PaneCount is how many panes tab id has.
+func (s *State) PaneCount(id string) int {
+	n := 0
+	for _, p := range s.Panes {
+		if p.WorkspaceID == id {
+			n++
+		}
+	}
+	return n
 }

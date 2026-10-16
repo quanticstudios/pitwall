@@ -26,6 +26,13 @@ type NewTab struct {
 // CloseTab closes a tab and all its panes.
 type CloseTab struct{ WorkspaceID string }
 
+// SetTabOptions pins or unpins a tab and sets its color id, "" for none.
+type SetTabOptions struct {
+	WorkspaceID string
+	Pinned      bool
+	Color       string
+}
+
 // RenameTab names a tab; "" goes back to the automatic title.
 type RenameTab struct{ WorkspaceID, Name string }
 type AddProject struct{}

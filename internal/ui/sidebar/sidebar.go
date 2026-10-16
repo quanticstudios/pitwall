@@ -111,6 +111,7 @@ type Sidebar struct {
 	appearance string               // project whose icon and color popover is open
 	iconBtn    [35]widget.Clickable // one per projectIcons entry
 	colorBtn   [len(projectColorIDs)]widget.Clickable
+	tabColor   [len(tabColorIDs)]widget.Clickable
 	popover    int // tag that keeps clicks on a popover's body from closing it
 
 	renaming      string // tab whose name is being edited
@@ -180,6 +181,7 @@ const (
 	actMergePR
 	actRerun
 	actArchive
+	actPin
 	actCount
 )
 
@@ -188,6 +190,10 @@ type projectState struct {
 	ctx               int        // tag for right-click
 	chev              anim.Value // the chevron's turn, 0 closed to 1 open
 }
+
+// tabColorIDs are the colors a tab can take, "" for none: eight of the
+// group colors, a hue apart, so two tabs never look alike.
+var tabColorIDs = [...]string{"", "red", "orange", "amber", "green", "teal", "sky", "violet", "pink"}
 
 // projectColorIDs is aide's PROJECT_COLOR_OPTIONS order.
 var projectColorIDs = [...]string{

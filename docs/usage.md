@@ -247,6 +247,13 @@ tab**, **Close tab**, grouping, and more. The "+" in the sidebar header or on
 a group header opens a new tab right below the one you were in, in the same
 group and folder.
 
+The same menu pins a tab and colors it. A pinned tab shows a pin after its
+title and does not close: middle-click, "×", Close tab, the close key and
+closing its last pane ask you to unpin it first, and `pitwall kill` and
+`pitwall tab close` refuse it. Archive on merge leaves it alone. Ending its
+whole session still closes it. The row of dots under Pin tab tints the tab
+in one of eight colors, or none.
+
 Rest the pointer on a tab for half a second and a card opens beside the
 sidebar with what the row cuts off: the full title, the group and folder, the
 branch with its diff stats, the agent's state and question, and the pane

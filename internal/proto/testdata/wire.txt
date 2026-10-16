@@ -1,4 +1,4 @@
-16.17
+16.18
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -16,7 +16,7 @@ model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows 
 model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string}
-model.Workspace{ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string}
+model.Workspace{ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Color string; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string}
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
 proto.AddProject{Path string; SessionID string}
 proto.AgentEvent{Pane string; Provider model.Provider; Payload []uint8}
@@ -67,6 +67,7 @@ proto.SessionShow{SessionID string}
 proto.SetLayout{WorkspaceID string; TabID string; Layout *layout.Node}
 proto.SetProjectAppearance{ProjectID string; Icon string; Color string}
 proto.SetSessionGroup{WorkspaceID string; GroupID string}
+proto.SetTabOptions{WorkspaceID string; Pinned bool; Color string}
 proto.StateMsg{State model.State; Level int}
 proto.Sync{}
 proto.Text{Pane string; Sel vt.Selection}

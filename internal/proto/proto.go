@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 18 added SetTabOptions and Workspace.Pinned and Color: a pinned
+// tab refuses CloseTab and KillSession.
 // Level 17 added Pane.RemoteControl: Claude Code's /remote-control is on.
 // Level 16 added Send and State.Queued: a message to another agent that
 // the daemon types at its next prompt.
@@ -97,12 +99,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 17
+const Level = 18
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case SetTabOptions:
+		return 18
 	case Send:
 		return 16
 	case Prompt, Read, ReadResult:

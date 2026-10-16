@@ -698,6 +698,10 @@ func (f *FakeBackend) Send(msg any) error {
 	case proto.AddProject:
 		f.nextID++
 		f.st.Projects = append(f.st.Projects, model.Project{ID: fmt.Sprintf("np%d", f.nextID), SessionID: f.sessionFor(m.SessionID, ""), Name: filepath.Base(m.Path), Root: m.Path, Kind: model.ProjectFolder})
+	case proto.SetTabOptions:
+		if w := f.st.Workspace(m.WorkspaceID); w != nil {
+			w.Pinned, w.Color = m.Pinned, m.Color
+		}
 	case proto.SetProjectAppearance:
 		for i := range f.st.Projects {
 			if f.st.Projects[i].ID == m.ProjectID {

@@ -283,7 +283,7 @@ func (s *Sidebar) noteMenu(entries []menuEntry) {
 	}
 	s.cur.items, s.cur.move = s.cur.items[:0], nil
 	for _, e := range entries {
-		if !e.off {
+		if !e.off && e.c != nil {
 			s.cur.items = append(s.cur.items, e.c)
 		}
 		if e.sub {

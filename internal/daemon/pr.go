@@ -172,7 +172,7 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 			delete(d.st.PRs, w.ID)
 			changed = true
 		case pr != nil && (!had || !reflect.DeepEqual(old, *pr)):
-			if had && old.Number == pr.Number && old.State == model.PROpen && pr.State == model.PRMerged && w.WorktreeRoot != "" {
+			if had && old.Number == pr.Number && old.State == model.PROpen && pr.State == model.PRMerged && w.WorktreeRoot != "" && !w.Pinned {
 				archive = append(archive, w.ID)
 			}
 			d.st.PRs[w.ID] = *pr

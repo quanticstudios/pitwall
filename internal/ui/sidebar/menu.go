@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/f32"
 	"gioui.org/io/event"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -29,6 +30,7 @@ type menuEntry struct {
 	off        bool   // muted and inert; hint says why
 	sep        bool   // a divider above it
 	sub        bool   // a chevron: hovering it opens a submenu
+	swatches   string // the tab color row in place of an entry, with this color selected
 	hint       string // muted text at the right edge
 }
 
@@ -56,6 +58,11 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 		newText = fmt.Sprintf("New group from %d tabs", len(targets))
 	}
 	entries := []menuEntry{{c: &s.menuItem[actNewBelow], icon: icPlus, text: "New tab below"}, {c: &s.menuItem[actRename], icon: icPencil, text: "Rename tab"}}
+	pin := menuEntry{c: &s.menuItem[actPin], icon: icPin, text: "Pin tab"}
+	if ws.Pinned {
+		pin.icon, pin.text = icPinOff, "Unpin tab"
+	}
+	entries = append(entries, pin, menuEntry{swatches: "color:" + ws.Color})
 	move := -1
 	if len(groups) > 0 {
 		move = len(entries)
@@ -88,7 +95,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 	// closes it.
 	was := s.moveOpen
 	for i, e := range entries {
-		if e.c.Hovered() {
+		if e.c != nil && e.c.Hovered() {
 			s.moveOpen = i == move
 		}
 	}
@@ -165,6 +172,10 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, anchor image.Rec
 		case e.off:
 			col, iconCol = th.Muted, theme.Mix(th.SurfaceSecondary, th.Muted, 0.6)
 		}
+		if e.swatches != "" {
+			s.swatchRow(gtx, th, image.Pt(p, tops[i]), image.Pt(w-2*p, itemH), strings.TrimPrefix(e.swatches, "color:"))
+			continue
+		}
 		s.menuRow(gtx, th, e.c, image.Pt(p, tops[i]), image.Pt(w-2*p, itemH), e.icon, iconCol, e.text, col, e.hint, e.off)
 		if e.sub {
 			off := op.Offset(image.Pt(w-gtx.Dp(28), tops[i]+(itemH-gtx.Dp(14))/2)).Push(gtx.Ops)
@@ -174,6 +185,43 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, anchor image.Rec
 
 	}
 	return at, tops
+}
+
+// swatchRow is the tab menu's color row: none, then tabColorIDs, with cur
+// ringed.
+func (s *Sidebar) swatchRow(gtx layout.Context, th *theme.Theme, at, size image.Point, cur string) {
+	defer op.Offset(at).Push(gtx.Ops).Pop()
+	sw, d := gtx.Dp(20), gtx.Dp(14)
+	gap := (size.X - gtx.Dp(16) - len(tabColorIDs)*sw) / (len(tabColorIDs) - 1)
+	for i, id := range tabColorIDs {
+		c := &s.tabColor[i]
+		off := op.Offset(image.Pt(gtx.Dp(8)+i*(sw+gap), (size.Y-sw)/2)).Push(gtx.Ops)
+		g := gtx
+		g.Constraints = layout.Exact(image.Pt(sw, sw))
+		clickable(g, c, func(gtx layout.Context) layout.Dimensions {
+			r := image.Rect(0, 0, sw, sw)
+			if c.Hovered() {
+				paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.Ellipse(r).Op(gtx.Ops))
+			}
+			if id == cur {
+				paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.7), clip.Stroke{Path: clip.Ellipse(r).Path(gtx.Ops), Width: 1}.Op())
+			}
+			o := (sw - d) / 2
+			dot := image.Rect(o, o, o+d, o+d)
+			if id == "" { // none: an empty ring with a slash
+				paint.FillShape(gtx.Ops, th.Muted, clip.Stroke{Path: clip.Ellipse(dot).Path(gtx.Ops), Width: 1}.Op())
+				var p clip.Path
+				p.Begin(gtx.Ops)
+				p.MoveTo(f32.Pt(float32(o+d)-2, float32(o)+2))
+				p.LineTo(f32.Pt(float32(o)+2, float32(o+d)-2))
+				paint.FillShape(gtx.Ops, th.Muted, clip.Stroke{Path: p.End(), Width: 1}.Op())
+			} else {
+				paint.FillShape(gtx.Ops, th.ProjectColor(id), clip.Ellipse(dot).Op(gtx.Ops))
+			}
+			return layout.Dimensions{Size: r.Size()}
+		})
+		off.Pop()
+	}
 }
 
 // menuRow draws one entry; an off one has no hover fill.

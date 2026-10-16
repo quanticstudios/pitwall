@@ -523,7 +523,7 @@ func (u *ui) layout(gtx gl.Context) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
-			u.send(msg)
+			u.sendOrAsk(&st, msg)
 			// Keys queued behind this one act on the state it produced.
 			st = u.b.State()
 			u.nav.sync(&st)
@@ -732,7 +732,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.DetachSession{WorkspaceID: e.WorkspaceID, Detached: false})
 		u.nav.attachSession(st, e.WorkspaceID)
 	case sidebar.KillSession:
-		u.send(proto.KillSession{WorkspaceID: e.WorkspaceID})
+		u.sendOrAsk(st, proto.KillSession{WorkspaceID: e.WorkspaceID})
 	case sidebar.GroupByFolder:
 		u.send(proto.GroupByFolder{WorkspaceID: e.WorkspaceID})
 	case sidebar.DeleteWorkspace:
@@ -769,7 +769,9 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.MoveGroup:
 		u.send(proto.MoveGroup{GroupID: e.GroupID, Before: e.Before})
 	case sidebar.CloseTab:
-		u.send(proto.CloseTab{WorkspaceID: e.WorkspaceID})
+		u.sendOrAsk(st, proto.CloseTab{WorkspaceID: e.WorkspaceID})
+	case sidebar.SetTabOptions:
+		u.send(proto.SetTabOptions{WorkspaceID: e.WorkspaceID, Pinned: e.Pinned, Color: e.Color})
 	case sidebar.RenameTab:
 		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, Name: e.Name})
 	case sidebar.ViewDiff:
