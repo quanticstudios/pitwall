@@ -52,6 +52,20 @@ too: `npm test && pitwall notify "tests passed"`.
 
 <br clear="right">
 
+### Pin and color the tabs you keep
+
+<img src="docs/media/tabs.webp" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working" width="240" align="right">
+
+**Pin a tab and it stays open.** Closing it from the window asks you to
+unpin it first, and `pitwall kill` from a script or another agent is
+refused. Give a tab one of eight colors from its menu and its row takes a
+faint tint, so the billing work and the webhook fix stop looking alike. A
+soft green mark under the agent's icon shows which Claude Code sessions
+have `/remote-control` on, so you know which ones you can pick up from your
+phone.
+
+<br clear="right">
+
 ### Answer without switching windows
 
 <img src="docs/media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box" width="240" align="right">
@@ -104,9 +118,16 @@ you answer it in the tab. pitwall never answers for an agent. Hand
 [the agent skill page](docs/agent-skill.md) to your agent and it knows the
 commands.
 
+Agents can also talk to each other. `pitwall send` types a message into
+another agent at its next prompt, with a header saying who sent it and how
+to reply, so Claude Code and Codex can argue over a plan until they agree.
+
 ```sh
 tab=$(pitwall new -n "review auth" -- codex "review origin/main..HEAD")
 pitwall wait "$tab" --until done --timeout 20m
+
+pane=$(pitwall split -- codex)
+pitwall send "$pane" -- "Critique plan.md"
 ```
 
 ### Know what it costs
@@ -114,7 +135,9 @@ pitwall wait "$tab" --until done --timeout 20m
 **See how much of your Claude Code and Codex plan limits you have used, and
 when you will hit 100% at this pace.** Settings, Usage also adds up what
 the last 7, 30 or 90 days would cost at API prices, per agent and per day.
-The agent panel shows each session's tokens and how full its context is.
+The agent panel shows each session's tokens and how full its context is,
+and lists every subagent, Claude Code workflow runs included, with what it
+was asked.
 
 <img src="docs/media/limits.webp" alt="Settings, Usage: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, and Codex's windows at 34% and 61%" width="640">
 

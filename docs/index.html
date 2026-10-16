@@ -237,6 +237,17 @@ scoop install pitwall</code></pre>
 
       <div class="feature">
         <div class="text">
+          <h3>Pin and color the tabs you keep</h3>
+          <p><strong>Pin a tab and it stays open. Closing it from the window asks you to unpin it first, and <code>pitwall kill</code> from a script or another agent is refused.</strong></p>
+          <p>Give a tab one of eight colors from its menu and its row takes a faint tint, so the billing work and the webhook fix stop looking alike. A soft green mark under the agent's icon shows which Claude Code sessions have <code>/remote-control</code> on, so you know which ones you can pick up from your phone.</p>
+        </div>
+        <div class="media">
+          <div class="shot tall"><img src="media/tabs.webp" width="288" height="460" loading="lazy" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
           <h3>Answer without switching windows</h3>
           <p><strong>Allow or Deny a permission prompt from the sidebar or your phone.</strong> <kbd>Ctrl+Shift+Y</kbd> and <kbd>Ctrl+Shift+D</kbd> press the row's buttons, and on Linux the notification has them too.</p>
           <p>Pair your phone by QR code and it lists what needs you, takes typed answers and gets push notifications while locked. There is no account and no relay: the phone talks to your computer over your own network.</p>
@@ -283,6 +294,7 @@ scoop install pitwall</code></pre>
         <div class="text">
           <h3>Let one agent hand work to another</h3>
           <p><strong>An agent can open a tab with <code>pitwall new</code>, start Codex or Claude Code in it on a prompt, and wait for the result with <code>pitwall wait</code>.</strong> The tab shows up in your sidebar, so you can watch the work and type into it.</p>
+          <p>Agents can also talk to each other. <code>pitwall send</code> types a message into another agent at its next prompt, with a header saying who sent it and how to reply, so Claude Code and Codex can argue over a plan until they agree.</p>
           <p>When the new agent asks permission, <code>wait</code> stops and reports the question, and you answer it in the tab. pitwall never answers for an agent. Hand <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">the agent skill page</a> to your agent and it knows the commands.</p>
         </div>
         <div class="media">
@@ -293,7 +305,11 @@ pitwall wait "$tab" --until done --timeout 20m
 
 <span class="c"># run the tests in a tab, go on when they pass</span>
 tab=$(pitwall new -n tests -- go test ./...)
-pitwall wait "$tab" --until exit</code></pre>
+pitwall wait "$tab" --until exit
+
+<span class="c"># ask Codex in a split to critique the plan</span>
+pane=$(pitwall split -- codex)
+pitwall send "$pane" -- "Critique plan.md"</code></pre>
         </div>
       </div>
 
@@ -301,7 +317,7 @@ pitwall wait "$tab" --until exit</code></pre>
         <div class="text">
           <h3>Know what it costs</h3>
           <p><strong>See how much of your Claude Code and Codex plan limits you have used, and when you will hit 100% at this pace.</strong></p>
-          <p>Settings, Usage also adds up what the last 7, 30 or 90 days would cost at API prices, per agent and per day. The agent panel shows each session's tokens and how full its context is.</p>
+          <p>Settings, Usage also adds up what the last 7, 30 or 90 days would cost at API prices, per agent and per day. The agent panel shows each session's tokens and how full its context is, and lists every subagent, Claude Code workflow runs included, with what it was asked.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/limits.webp" width="767" height="620" loading="lazy" alt="Settings, Usage: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, and Codex's windows at 34% and 61%"></div>
