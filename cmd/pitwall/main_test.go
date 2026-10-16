@@ -126,6 +126,11 @@ func fakeOldDaemon(mode string) error {
 				conn.Close()
 				continue
 			}
+			if mode == "behind" { // this Version, the Level before this one
+				conn.Send(proto.StateMsg{Level: proto.Level - 1})
+				conn.Close()
+				continue
+			}
 			if err := conn.Send(proto.Frame{}); err != nil {
 				conn.Close()
 				return err
@@ -353,5 +358,68 @@ func TestShownOnlyActiveTabs(t *testing.T) {
 		if got := shown(&st, "s", pane); got != want {
 			t.Errorf("shown(%s) = %v, want %v", pane, got, want)
 		}
+	}
+}
+
+// A daemon of this Version at an older Level serves the window as it is,
+// and is replaced only when the user asks to restart it.
+func TestDialOrStartRestartsOlderLevel(t *testing.T) {
+	t.Setenv("PITWALL_SOCKET", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("PITWALL_TEST_MAIN", "1")
+	t.Chdir(home)
+	path, err := proto.SocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "PITWALL_TEST_OLD=behind")
+	ready, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		if data, err := os.ReadFile(path + ".lock"); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid != cmd.Process.Pid && pid > 1 {
+				stopIncompatibleDaemon(path)
+			}
+		}
+	})
+	var line [6]byte
+	if _, err := io.ReadFull(ready, line[:]); err != nil {
+		t.Fatalf("start old daemon: %v", err)
+	}
+	conn, initial, err := dialOrStart("", false)
+	if err != nil || initial.Level != proto.Level-1 {
+		t.Fatalf("without restart: level %d, %v", initial.Level, err)
+	}
+	conn.Close()
+	select {
+	case err := <-exited:
+		t.Fatalf("the old daemon stopped before anyone asked: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	conn, initial, err = dialOrStart("", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if len(initial.State.Workspaces) != 1 || initial.State.Workspaces[0].ID != "fake" {
+		t.Fatalf("not the replacement daemon: %+v", initial.State)
+	}
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the old daemon still runs")
 	}
 }

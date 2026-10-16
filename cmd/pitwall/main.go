@@ -405,16 +405,20 @@ func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, err
 		}
 	}
 	conn, initial, err := guiHandshake(nc, session)
-	if err == nil {
+	switch {
+	case err == nil && restart && initial.Level < proto.Level:
+		// Same Version, older Level: the user asked to finish an upgrade.
+		conn.Close()
+		err = fmt.Errorf("the daemon is at protocol level %d and this pitwall %d", initial.Level, proto.Level)
+	case err == nil:
 		return conn, initial, nil
-	}
-	if !errors.As(err, new(incompatible)) {
+	case !errors.As(err, new(incompatible)):
 		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %w; see daemon.log (pitwall logs)", err)
 	}
 	if !restart {
 		return nil, proto.StateMsg{}, err
 	}
-	log.Printf("restarting incompatible daemon: %q", err)
+	log.Printf("restarting the daemon: %q", err)
 	if stopErr := stopIncompatibleDaemon(path); stopErr != nil {
 		return nil, proto.StateMsg{}, fmt.Errorf("daemon handshake failed: %v; %w", err, stopErr)
 	}

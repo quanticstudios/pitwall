@@ -43,7 +43,8 @@ const (
 	modalCleanup
 	modalTask
 	modalDiscard
-	modalPinned // closing a pinned tab, see pinned.go
+	modalPinned  // closing a pinned tab, see pinned.go
+	modalRestart // restarting a daemon older than the window, see restart.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -212,6 +213,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = u.discardBody
 	case modalPinned:
 		content = func(gtx gl.Context) gl.Dimensions { return u.pinnedBody(gtx, ws) }
+	case modalRestart:
+		content = u.restartBody
 	}
 	u.card(gtx, &m.body, m.openedAt, content)
 }
@@ -275,6 +278,8 @@ func (u *ui) confirmModal(st *model.State) {
 		m.close()
 	case modalPinned:
 		u.confirmPinned(st)
+	case modalRestart:
+		u.confirmRestart()
 	}
 }
 

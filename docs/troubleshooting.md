@@ -27,6 +27,13 @@ line a minute per version, such as `hook of protocol version 17 served by a
 daemon of 16 (212 more since the last line)`. Run `pitwall` and choose
 **Restart now** when you are ready; programs running in panes stop.
 
+An update that only adds to the protocol keeps the old daemon serving the
+new window, but what the update added that needs the daemon, such as
+pinned tabs, does nothing until it restarts. The sidebar's update button
+then reads **Restart to finish**: click it, confirm, and the daemon
+restarts with your tabs and agents resumed. On a `--host` window, restart
+from a window on that machine instead.
+
 ## Logs
 
 `pitwall logs` prints the paths of the three log files, and `pitwall logs -f`

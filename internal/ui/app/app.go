@@ -631,7 +631,7 @@ func (u *ui) layout(gtx gl.Context) {
 		so := op.Offset(image.Pt(edge-sw-1, 0)).Push(gtx.Ops)
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
-		u.sidebar.Update, u.sidebar.Host = u.updates.label(), Host
+		u.sidebar.Update, u.sidebar.Host = u.updateLabel(), Host
 		u.sidebar.Window = gtx.Constraints.Max
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
@@ -742,6 +742,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.OpenSettings:
 		u.openSettings()
 	case sidebar.RunUpdate:
+		if u.updates.label() == "" && u.daemonBehind() {
+			u.modal.open(modalRestart, "")
+			break
+		}
 		name := ""
 		if s := st.Session(u.nav.session); s != nil {
 			name = s.Name
