@@ -49,7 +49,7 @@ func keyFilters(v *View) []event.Filter {
 		key.Filter{Focus: v, Name: key.NameTab, Optional: otherMods},
 	}
 	alt := func(n key.Name) {
-		if a := b.Action(key.Event{Name: n, Modifiers: key.ModAlt}); a == "" || config.PaneAction(a) {
+		if a := b.Action(key.Event{Name: n, Modifiers: key.ModAlt}); a == "" || config.PaneAction(a) || config.Navigate(a) {
 			fs = append(fs, key.Filter{Focus: v, Name: n, Required: key.ModAlt, Optional: otherMods})
 		}
 	}
@@ -118,7 +118,7 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 					v.action(gtx, g, a, rows)
 				}
 				continue
-			case a != "":
+			case a != "" && !config.Navigate(a):
 				continue // the window's; it reached the pane before the window polled
 			case v.cm.on:
 				if e.State == key.Press {

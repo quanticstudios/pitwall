@@ -51,6 +51,12 @@ type Backend interface {
 	Changed() <-chan struct{}
 }
 
+// Mover is optionally implemented by a Backend: the proto.FocusDir requests
+// of pitwall focus, each returned once.
+type Mover interface {
+	TakeMoves() []proto.FocusDir
+}
+
 // Focuser is optionally implemented by a Backend: proto.FocusSession
 // requests from `pitwall attach`, including one queued at startup.
 type Focuser interface {
@@ -476,6 +482,11 @@ func (u *ui) layout(gtx gl.Context) {
 	u.offline = link.State != LinkUp
 	u.nav.sync(&st)
 	u.applyFocus(&st)
+	if m, ok := u.b.(Mover); ok {
+		for _, f := range m.TakeMoves() {
+			u.nav.focusDir(&st, f.Pane, f.Dir)
+		}
+	}
 	u.applyJump(&st)
 	u.openRequested(&st, gtx.Now)
 	u.keepSidebarKeys()
@@ -494,7 +505,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.reviewKeys(gtx, &st)
 	}
 	for u.modal.kind == modalNone {
-		filters := u.nav.keyFilters()
+		filters := u.nav.keyFilters(&st)
 		if u.sw.open || u.pal.open || u.sidebar.Focused() && !u.sidebar.Editing() {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 			filters = append(filters, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})

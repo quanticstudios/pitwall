@@ -36,6 +36,7 @@ type backend struct {
 	found   map[string]proto.SearchResult // per pane, the reply to its last Search
 	tree    proto.WorktreeInfo            // the reply to the last WorktreeQuery, cleared when one is sent
 	texts   map[string]proto.TextResult   // per pane, a Text reply not yet taken
+	moves   []proto.FocusDir              // not yet taken by the window
 	link    app.Link
 	dialing bool // a dial loop runs
 	// view is the panes the last proto.View named, and waits a channel
@@ -431,6 +432,8 @@ func (b *backend) recvLoop() {
 					delete(b.texts, id)
 				}
 			}
+		case proto.FocusDir:
+			b.moves = append(b.moves, m)
 		case proto.SearchResult:
 			b.found[m.Pane] = m
 		case proto.WorktreeInfo:
@@ -476,6 +479,15 @@ func (b *backend) TakeText(pane string) (proto.TextResult, bool) {
 	r, ok := b.texts[pane]
 	delete(b.texts, pane)
 	return r, ok
+}
+
+// TakeMoves implements app.Mover.
+func (b *backend) TakeMoves() []proto.FocusDir {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	m := b.moves
+	b.moves = nil
+	return m
 }
 
 // Worktree implements app.Worktreer.

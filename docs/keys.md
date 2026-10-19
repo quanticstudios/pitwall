@@ -217,3 +217,65 @@ Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and
 `jump_session_1`-`9` still work as `next_tab`, `prev_tab`, `new_tab` and
 `goto_tab_1`-`9`; `pitwall config check` notes each one to rename.
+
+## Moving between vim and panes
+
+Bind the four navigate actions and Ctrl+H, J, K and L move between pitwall's
+panes the way [vim-tmux-navigator](https://github.com/christoomey/vim-tmux-navigator)
+moves between tmux panes:
+
+```toml
+[keys]
+navigate_left = "Ctrl+H"
+navigate_down = "Ctrl+J"
+navigate_up = "Ctrl+K"
+navigate_right = "Ctrl+L"
+```
+
+Every preset leaves them unbound, because shells use those keys: Ctrl+L
+clears the screen and Ctrl+H deletes a character. Bound, a key still goes to
+the pane when the pane has no neighbour that way (focus never wraps around),
+fills the tab, or runs vim, Neovim, vi, view, vimdiff or fzf. So Ctrl+L
+still clears a shell in a lone pane or at the right edge.
+
+Inside vim the keys move between vim's windows. To carry on into the next
+pitwall pane at the edge of vim's windows, put this in Neovim's `init.lua`:
+
+```lua
+if vim.env.PITWALL_PANE then
+  for key, dir in pairs({ h = "left", j = "down", k = "up", l = "right" }) do
+    vim.keymap.set("n", "<C-" .. key .. ">", function()
+      local win = vim.api.nvim_get_current_win()
+      vim.cmd.wincmd(key)
+      if vim.api.nvim_get_current_win() == win then
+        vim.fn.jobstart({ "pitwall", "focus", dir })
+      end
+    end)
+  end
+end
+```
+
+Or in Vim's `.vimrc`:
+
+```vim
+if !empty($PITWALL_PANE)
+  function! s:PitwallNavigate(key, dir) abort
+    let l:win = winnr()
+    execute 'wincmd ' . a:key
+    if winnr() == l:win
+      call system('pitwall focus ' . a:dir)
+    endif
+  endfunction
+  nnoremap <silent> <C-h> :call <SID>PitwallNavigate('h', 'left')<CR>
+  nnoremap <silent> <C-j> :call <SID>PitwallNavigate('j', 'down')<CR>
+  nnoremap <silent> <C-k> :call <SID>PitwallNavigate('k', 'up')<CR>
+  nnoremap <silent> <C-l> :call <SID>PitwallNavigate('l', 'right')<CR>
+endif
+```
+
+`pitwall focus left|right|up|down` focuses the pane next to the one it runs
+in, in the windows that show that pane focused. The background service
+checks what each pane runs once a second, so a key pressed in the first
+second after vim starts can move focus instead of reaching vim. While the
+background service runs a pitwall from before `pitwall focus`, the command
+fails and focus stays in vim until the service restarts.

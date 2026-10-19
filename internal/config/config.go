@@ -73,6 +73,10 @@ type Keys struct {
 	CloseTab        Binding `toml:"close_tab" group:"Tabs" doc:"Close the tab and all its panes"`
 	NextPane        Binding `toml:"next_pane" group:"Panes" doc:"Next pane"`
 	PrevPane        Binding `toml:"prev_pane" group:"Panes" doc:"Previous pane"`
+	NavigateLeft    Binding `toml:"navigate_left" group:"Panes" doc:"Navigate left: focus the pane to the left. The key goes to the pane instead when it runs vim or fzf, or has no pane that way, so Ctrl+H, J, K and L can move between vim's windows and pitwall's panes as in vim-tmux-navigator. See docs/keys.md"`
+	NavigateDown    Binding `toml:"navigate_down" group:"Panes" doc:"Navigate down: focus the pane below, as navigate_left does"`
+	NavigateUp      Binding `toml:"navigate_up" group:"Panes" doc:"Navigate up: focus the pane above, as navigate_left does"`
+	NavigateRight   Binding `toml:"navigate_right" group:"Panes" doc:"Navigate right: focus the pane to the right, as navigate_left does"`
 	SplitRight      Binding `toml:"split_right" group:"Panes" doc:"Split the pane to the right"`
 	SplitDown       Binding `toml:"split_down" group:"Panes" doc:"Split the pane below"`
 	ClosePane       Binding `toml:"close_pane" group:"Panes" doc:"Close the pane (the tab with its last pane)"`

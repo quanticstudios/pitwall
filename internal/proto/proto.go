@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 19 added FocusDir, from `pitwall focus`: vim at the edge of its
+// windows moves the GUI's focus to the next pane.
 // Level 18 added SetTabOptions and Workspace.Pinned and Color: a pinned
 // tab refuses CloseTab and KillSession.
 // Level 17 added Pane.RemoteControl: Claude Code's /remote-control is on.
@@ -99,12 +101,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 18
+const Level = 19
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case FocusDir:
+		return 19
 	case SetTabOptions:
 		return 18
 	case Send:
@@ -508,6 +512,13 @@ type FocusSession struct {
 	SessionID   string
 }
 
+// FocusDir asks the GUIs that show Pane focused to focus the pane next to
+// it in direction Dir, if there is one, without wrapping around.
+type FocusDir struct {
+	Pane string
+	Dir  layout.Direction
+}
+
 // SessionNew makes a session with one tab, a shell in FromPane's current
 // directory when set, else Cwd, else $HOME. Name "" gets a generated name.
 type SessionNew struct {
@@ -618,4 +629,5 @@ var Messages = []any{
 	View{}, FrameRows{},
 	Prompt{}, Read{}, ReadResult{},
 	Send{},
+	FocusDir{},
 }

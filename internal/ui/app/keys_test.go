@@ -15,6 +15,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -218,5 +219,25 @@ func TestSettingsKeys(t *testing.T) {
 		if got := keys(press(key.NameEscape, 0)); got != "" || u.settings.Shown() {
 			t.Fatalf("%s: Escape: shown %v, pane got %q", b.Preset, u.settings.Shown(), got)
 		}
+	}
+}
+
+// TestNavigateKeys: through the real window, a navigate key that moves
+// focus reaches no pane, and one at the edge or in vim reaches the pane.
+func TestNavigateKeys(t *testing.T) {
+	u, typed := keyWindow(t, navigateKeys(t))
+	ctrl := key.ModCtrl
+	if got := typed(press("L", ctrl)); got != "" || u.nav.focused() != "b" {
+		t.Fatalf("Ctrl+L from a: focus %s, pane got %q; want b and nothing", u.nav.focused(), got)
+	}
+	if got := typed(press("L", ctrl)); got != "\x0c" || u.nav.focused() != "b" {
+		t.Fatalf("Ctrl+L at the edge: focus %s, pane got %q; want b and Ctrl+L", u.nav.focused(), got)
+	}
+	f := u.b.(*FakeBackend)
+	f.mu.Lock()
+	f.st.Activities = append(f.st.Activities, model.Activity{PaneID: "b", WorkspaceID: "w1", Provider: model.ProviderTerminal, State: model.StateTerminalRunning, Detail: "nvim"})
+	f.mu.Unlock()
+	if got := typed(press("J", ctrl)); got != "\x0c\n" || u.nav.focused() != "b" {
+		t.Fatalf("Ctrl+J in vim: focus %s, panes got %q; want b and Ctrl+J", u.nav.focused(), got)
 	}
 }

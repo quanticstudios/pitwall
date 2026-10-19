@@ -200,7 +200,7 @@ every binding, and all of them can be changed.
 ## Docs
 
 - [Using pitwall](docs/usage.md): first run, watching agents, sessions, review, worktrees, tasks
-- [Keybindings](docs/keys.md): the presets, tab mode, pane mode, find, copy mode
+- [Keybindings](docs/keys.md): the presets, tab mode, pane mode, find, copy mode, moving between vim and panes
 - [Command line](docs/cli.md): every command, and driving tabs from scripts
 - [Configuration](docs/config.md): config.toml, themes, fonts
 - [Hooks](docs/hooks.md): what `pitwall hooks install` changes for each agent

@@ -603,3 +603,39 @@ func TestStatsFollowCwd(t *testing.T) {
 		t.Fatalf("LivePath %q, want %q", got, repo)
 	}
 }
+
+// TestFocusDir checks `pitwall focus` reaches the GUIs that show the pane
+// focused and take FocusDir, and no other.
+func TestFocusDir(t *testing.T) {
+	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
+	defer stop()
+	cwd := t.TempDir()
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: cwd})
+	st := gui.waitState("first session", func(s model.State) bool { return len(s.Panes) == 1 })
+	pane := st.Panes[0].ID
+	old := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Since(proto.FocusDir{}) - 1, Kind: "gui", Cwd: cwd})
+	other := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: cwd})
+	for _, c := range []*testClient{gui, old} {
+		c.request(proto.SeePane{Pane: pane})
+	}
+	if e := dial(t, sock, "cli").request(proto.FocusDir{Pane: pane, Dir: layout.Right}); e != "" {
+		t.Fatal(e)
+	}
+	gui.waitFor("FocusDir", func(m any) bool {
+		f, ok := m.(proto.FocusDir)
+		return ok && f.Pane == pane && f.Dir == layout.Right
+	})
+	for _, c := range []*testClient{old, other} {
+		for quiet := time.After(200 * time.Millisecond); ; {
+			select {
+			case m := <-c.in:
+				if _, ok := m.(proto.FocusDir); ok {
+					t.Fatal("FocusDir reached a GUI that does not show the pane focused, or one too old for it")
+				}
+				continue
+			case <-quiet:
+			}
+			break
+		}
+	}
+}

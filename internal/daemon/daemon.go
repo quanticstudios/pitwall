@@ -363,6 +363,7 @@ type client struct {
 	// that Level, which gets every pane's frames; guarded by Daemon.mu.
 	view   map[string]bool
 	diffs  bool // the GUI takes FrameRows
+	moves  bool // the GUI takes FocusDir
 	wake   chan struct{}
 	mu     sync.Mutex
 	state  bool
@@ -496,6 +497,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.view = map[string]bool{}
 		}
 		c.diffs = hello.Level >= proto.Since(proto.FrameRows{})
+		c.moves = hello.Level >= proto.Since(proto.FocusDir{})
 		c.push(func() {
 			c.state = true
 			for id, p := range d.panes {
@@ -663,6 +665,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.killSession(m)
 	case proto.FocusSession:
 		return d.focusSession(m)
+	case proto.FocusDir:
+		return d.focusDir(m)
 	case proto.NewTab:
 		return d.newTab(ctx, m)
 	case proto.CloseTab:

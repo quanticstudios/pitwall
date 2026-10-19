@@ -1,11 +1,15 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"gioui.org/io/key"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -140,7 +144,7 @@ func TestNavSync(t *testing.T) {
 func TestKeyFiltersSwallowAlt(t *testing.T) {
 	n := nav{keys: aide}
 	has := func(name key.Name) bool {
-		for _, f := range n.keyFilters() {
+		for _, f := range n.keyFilters(&model.State{}) {
 			if f.Name == name {
 				return true
 			}
@@ -323,4 +327,67 @@ func TestLooseTab(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("looseTab = %+v, want %+v", got, want)
 	}
+}
+
+// TestNavigate walks navigate keys bound to Ctrl+H, J, K and L over the
+// fake's first tab, a left pane a and a right column of b over c: the
+// window takes a key only when it moves focus, and leaves it to vim and to
+// a pane at the edge. pitwall focus moves on from vim's pane.
+func TestNavigate(t *testing.T) {
+	b := NewFakeBackend()
+	st := b.State()
+	st.Activities = nil
+	n := nav{keys: navigateKeys(t)}
+	n.sync(&st)
+	takes := func(k key.Name) bool {
+		return slices.Contains(n.keyFilters(&st), key.Filter{Name: k, Required: key.ModCtrl})
+	}
+	step := func(k key.Name, want string, taken bool) {
+		t.Helper()
+		if takes(k) != taken {
+			t.Fatalf("at %s, window takes Ctrl+%s: %v, want %v", n.focused(), k, !taken, taken)
+		}
+		if taken {
+			n.key(&st, press(k, key.ModCtrl))
+		}
+		if n.focused() != want {
+			t.Fatalf("Ctrl+%s: focus %s, want %s", k, n.focused(), want)
+		}
+	}
+	step("H", "a", false) // the edge: no wrapping, the shell gets Ctrl+H
+	step("L", "b", true)
+	step("J", "c", true)
+	step("L", "c", false)
+
+	st.Activities = []model.Activity{{PaneID: "c", Provider: model.ProviderTerminal, State: model.StateTerminalRunning, Detail: "nvim"}}
+	step("K", "c", false) // vim's
+	n.globalOp(&st, "navigate_up")
+	if n.focused() != "c" {
+		t.Fatalf("navigate_up from vim's pane moved to %s", n.focused())
+	}
+	n.focusDir(&st, "c", layout.Right) // vim at its right edge, the tab's too
+	n.focusDir(&st, "c", layout.Up)
+	if n.focused() != "b" {
+		t.Fatalf("pitwall focus up from c: focus %s, want b", n.focused())
+	}
+	n.focusDir(&st, "c", layout.Left) // late: focus already left c
+	if n.focused() != "b" {
+		t.Fatalf("pitwall focus from a pane no longer focused moved to %s", n.focused())
+	}
+}
+
+// navigateKeys is the default preset with the navigate actions on Ctrl+H,
+// J, K and L, as docs/keys.md suggests.
+func navigateKeys(t *testing.T) *config.Bindings {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "config.toml")
+	toml := "[keys]\nnavigate_left = \"Ctrl+H\"\nnavigate_down = \"Ctrl+J\"\nnavigate_up = \"Ctrl+K\"\nnavigate_right = \"Ctrl+L\"\n"
+	if err := os.WriteFile(p, []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, probs := config.LoadFile(p)
+	if len(probs) > 0 {
+		t.Fatal(probs)
+	}
+	return s.Keys
 }

@@ -28,6 +28,7 @@ optional name act on the pane's own tab.
 | `pitwall tab new`                     | Open a tab next to this pane's tab, in its folder             |
 | `pitwall tab rename [name...]`        | Name this pane's tab; no name goes back to the automatic one  |
 | `pitwall tab close`                   | Close this pane's tab                                         |
+| `pitwall focus left\|right\|up\|down` | Focus the pane next to this one, in the windows that show this pane focused; vim runs it at its edge (see [Moving between vim and panes](keys.md#moving-between-vim-and-panes)) |
 | `pitwall worktree ls [--all]`         | List this repo's worktrees: tab, branch, changed files, commits ahead of and behind the default branch; `--all` covers every repo pitwall has a group for |
 | `pitwall worktree new <name> [--from <ref> \| --branch <branch> \| --pr <n>] [-- cmd...]` | Open a tab in a new worktree, `<repo>/.worktrees/<name>`, and print its #: a new branch off ref (the default branch without `--from`), an existing local or remote branch, or a GitHub pull request; with `-- cmd` the tab runs cmd |
 | `pitwall worktree rm <name> [--force]` | Remove a worktree and close its tab; with changes it lists them and stops unless `--force`. The branch stays |

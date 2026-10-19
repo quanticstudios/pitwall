@@ -342,6 +342,10 @@ func (b *Bindings) HoldKey() key.Name {
 // PaneAction reports whether action is one the terminal view handles.
 func PaneAction(action string) bool { return slices.Contains(paneActions, action) }
 
+// Navigate reports whether action is a navigate_ one, which the window
+// takes only when it moves focus and otherwise leaves to the pane.
+func Navigate(action string) bool { return strings.HasPrefix(action, "navigate_") }
+
 // Unshift is c with a shifted symbol key named by the key, as a preset
 // writes it: Ctrl+Shift+} becomes Ctrl+Shift+].
 func Unshift(c Chord) Chord {

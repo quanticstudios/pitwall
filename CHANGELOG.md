@@ -15,6 +15,14 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- Ctrl+H, J, K and L can move between vim's windows and pitwall's panes, as
+  vim-tmux-navigator does in tmux. Bind `navigate_left`, `navigate_down`,
+  `navigate_up` and `navigate_right`, and add the few lines for Neovim or
+  Vim from docs/keys.md, which call the new `pitwall focus` at vim's edge.
+  The keys still reach vim, and a pane with no neighbour that way.
+
 ## v0.1.0-beta.12
 
 - On macOS, the window opens. pitwall never started AppKit's event loop on

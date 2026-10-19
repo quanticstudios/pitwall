@@ -107,6 +107,9 @@ const usage = `usage:
   pitwall completion <shell>  bash, zsh, fish: print the shell's completion script, e.g.
                              source <(pitwall completion bash)
   pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"
+  pitwall focus left|right|up|down
+                             focus the pane next to the calling one, for
+                             vim at the edge of its windows (see docs/keys.md)
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
@@ -159,6 +162,8 @@ func main() {
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
 	case "notify":
 		err = runNotify(os.Args[2:])
+	case "focus":
+		err = runFocus(os.Args[2:])
 	case "jev":
 		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "logs":

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -542,7 +543,7 @@ func (n *nav) bind() *config.Bindings {
 // keyFilters are the filters the window polls before any pane sees input,
 // so bound chords and the hold modifier never reach a PTY. Copy, paste and
 // scrolling are the terminal view's own.
-func (n *nav) keyFilters() []key.Filter {
+func (n *nav) keyFilters(st *model.State) []key.Filter {
 	b := n.bind()
 	all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 	var fs []key.Filter
@@ -557,6 +558,9 @@ func (n *nav) keyFilters() []key.Filter {
 		}
 	}
 	for _, c := range b.WindowChords() {
+		if a := b.Action(key.Event{Name: c.Name, Modifiers: c.Mods}); config.Navigate(a) && n.navTarget(st, navDirs[a]) == "" {
+			continue // the pane's
+		}
 		fs = append(fs, key.Filter{Name: c.Name, Required: c.Mods})
 	}
 	if n.switcherVisible() {
@@ -629,10 +633,7 @@ func (n *nav) paneKey(st *model.State, e key.Event) (any, bool) {
 // paneOp runs a [keys.pane] action.
 func (n *nav) paneOp(st *model.State, a string) any {
 	root := n.root(st)
-	area := n.area
-	if area.W <= 0 || area.H <= 0 {
-		area = layout.Rect{W: 1600, H: 900}
-	}
+	area := n.layoutArea()
 	switch a {
 	case "new", "split_down", "split_right":
 		if n.workspace == "" {
@@ -667,6 +668,49 @@ func (n *nav) paneOp(st *model.State, a string) any {
 		n.zoom = ""
 	}
 	return nil
+}
+
+// layoutArea is the panes' area, or a stand-in before the first frame.
+func (n *nav) layoutArea() layout.Rect {
+	if n.area.W <= 0 || n.area.H <= 0 {
+		return layout.Rect{W: 1600, H: 900}
+	}
+	return n.area
+}
+
+var navDirs = map[string]layout.Direction{"navigate_left": layout.Left, "navigate_right": layout.Right, "navigate_up": layout.Up, "navigate_down": layout.Down}
+
+// vimLike matches the programs that take navigate keys themselves, as
+// vim-tmux-navigator's is_vim does: vim at its own edge runs pitwall focus.
+var vimLike = regexp.MustCompile(`^g?(view|l?n?vim?x?|fzf)(diff)?$`)
+
+// navTarget is the pane a navigate key in direction d focuses, or "" when
+// the key goes to the focused pane instead: it runs vim, it fills the tab,
+// or it has no pane that way, so Ctrl+L still clears a shell at the edge.
+func (n *nav) navTarget(st *model.State, d layout.Direction) string {
+	p := n.focused()
+	if p == "" || n.zoomed() != "" {
+		return ""
+	}
+	for _, a := range st.Activities {
+		if a.PaneID == p && a.Provider == model.ProviderTerminal && vimLike.MatchString(a.Detail) {
+			return ""
+		}
+	}
+	t, _ := layout.Adjacent(n.root(st), n.layoutArea(), p, d)
+	return t
+}
+
+// focusDir focuses the pane next to pane in direction d, for pitwall focus,
+// which vim runs at the edge of its windows. It does nothing once the
+// window's focus has left pane.
+func (n *nav) focusDir(st *model.State, pane string, d layout.Direction) {
+	if pane != n.focused() || n.zoomed() != "" {
+		return
+	}
+	if t, ok := layout.Adjacent(n.root(st), n.layoutArea(), pane, d); ok {
+		n.setFocus(t)
+	}
 }
 
 // root is the shown tab's split tree, or nil.
@@ -843,6 +887,10 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.cyclePane(st, -1)
 	case "next_pane":
 		n.cyclePane(st, 1)
+	case "navigate_left", "navigate_right", "navigate_up", "navigate_down":
+		if t := n.navTarget(st, navDirs[act]); t != "" {
+			n.setFocus(t)
+		}
 	case "pin_switcher":
 		n.pinned = !n.pinned
 	case "toggle_sidebar":

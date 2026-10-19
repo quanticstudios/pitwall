@@ -147,8 +147,18 @@ func Rects(root *Node, area Rect, gap int) map[string]Rect {
 	return result
 }
 
-// Neighbor is the pane in direction d from pane from, by geometry.
+// Neighbor is the pane in direction d from pane from, by geometry, or at
+// the edge the one on the far side.
 func Neighbor(root *Node, area Rect, from string, d Direction) (string, bool) {
+	return neighbor(root, area, from, d, []bool{false, true})
+}
+
+// Adjacent is Neighbor without wrapping around: none at the edge.
+func Adjacent(root *Node, area Rect, from string, d Direction) (string, bool) {
+	return neighbor(root, area, from, d, []bool{false})
+}
+
+func neighbor(root *Node, area Rect, from string, d Direction, wraps []bool) (string, bool) {
 	if d < Left || d > Down {
 		return "", false
 	}
@@ -167,7 +177,7 @@ func Neighbor(root *Node, area Rect, from string, d Direction) (string, bool) {
 	}
 	active, bounds := project(active), project(area)
 	panes := Panes(root)
-	for _, wrap := range []bool{false, true} {
+	for _, wrap := range wraps {
 		best := ""
 		bestGap, bestOverlap, bestCenter := 0, 0, 0
 		for _, pane := range panes {

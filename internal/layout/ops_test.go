@@ -130,6 +130,12 @@ func TestNeighbor(t *testing.T) {
 	if _, ok := Neighbor(Leaf("a"), Rect{W: 1, H: 1}, "a", Right); ok {
 		t.Fatal("single pane has neighbor")
 	}
+	if got, _ := Adjacent(root, Rect{5, 7, 100, 100}, "a", Right); got != "c" {
+		t.Fatalf("adjacent right of a: %q", got)
+	}
+	if got, ok := Adjacent(root, Rect{5, 7, 100, 100}, "a", Left); ok {
+		t.Fatalf("adjacent left of a wrapped to %q", got)
+	}
 }
 
 func TestPanes(t *testing.T) {

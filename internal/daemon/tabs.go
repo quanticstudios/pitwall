@@ -209,6 +209,22 @@ func (d *Daemon) focusSession(m proto.FocusSession) error {
 	return nil
 }
 
+// focusDir passes m to the GUIs that show m.Pane focused in a focused
+// window; the window knows the layout's geometry.
+func (d *Daemon) focusDir(m proto.FocusDir) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.panes[m.Pane] == nil {
+		return fmt.Errorf("no pane %s", m.Pane)
+	}
+	for c := range d.clients {
+		if c.moves && c.focus == m.Pane {
+			c.queue(m)
+		}
+	}
+	return nil
+}
+
 // forward queues m to every GUI that shows session. Callers hold d.mu.
 func (d *Daemon) forward(session string, m any) {
 	for c := range d.clients {
