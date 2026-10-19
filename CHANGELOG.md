@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.13
 
 - Tabs an agent opens hang under the agent's tab in the sidebar. An
   orchestrator that starts ten workers with `pitwall worktree new` or
