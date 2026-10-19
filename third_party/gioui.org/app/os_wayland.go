@@ -1609,7 +1609,10 @@ func gio_onKeyboardModifiers(data unsafe.Pointer, keyboard *C.struct_wl_keyboard
 	if d.xkb == nil {
 		return
 	}
-	d.xkb.UpdateMask(uint32(depressed), uint32(latched), uint32(locked), uint32(group), uint32(group), uint32(group))
+	// pitwall: group is the effective layout; as the locked layout alone it
+	// stays one. Upstream passed it as all three, which xkb adds up, so with
+	// three layouts or more the second typed the first's letters.
+	d.xkb.UpdateMask(uint32(depressed), uint32(latched), uint32(locked), 0, 0, uint32(group))
 }
 
 //export gio_onKeyboardRepeatInfo

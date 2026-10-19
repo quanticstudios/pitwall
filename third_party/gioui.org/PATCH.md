@@ -26,6 +26,13 @@ Each change is marked `pitwall` in a comment:
 - `app/internal/xkb/xkb_unix.go`, `convertKeysym`, and `app/os_windows.go`,
   `convertKeyCode`: the Menu key (`XKB_KEY_Menu`, `VK_APPS`) arrives as
   `key.Name("Menu")`; upstream drops it. It opens the sidebar row's menu.
+- `app/os_wayland.go`, `gio_onKeyboardModifiers`: the compositor's group is
+  the effective layout and goes to `xkb_state_update_mask` as the locked
+  layout only, as GTK and weston pass it. Upstream passed it as the
+  depressed, latched and locked layout at once, which xkb adds up: with
+  three layouts, layout 1 became 3, wrapped to 0, and the pane typed the
+  first layout's letters. GNOME appends the locale's layout to every keymap
+  it builds, so us and ru on en_US is `us,ru,us` and hit this.
 
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would

@@ -15,6 +15,13 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- On Wayland, a pane types the active keyboard layout's letters with three
+  layouts or more, and on GNOME with two: GNOME adds the locale's layout to
+  the keymap, so us and ru typed Latin letters after switching to Russian
+  (#127).
+
 ## v0.1.0-beta.11
 
 - After an update, when the daemon still runs the older pitwall, the
