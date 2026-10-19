@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## v0.1.0-beta.12
 
+- On macOS, the window opens again: pitwall now runs AppKit's event loop
+  on the main thread, without which the window never appeared (#122).
 - On Wayland, a pane types the active keyboard layout's letters with three
   layouts or more, and on GNOME with two: GNOME adds the locale's layout to
   the keymap, so us and ru typed Latin letters after switching to Russian
