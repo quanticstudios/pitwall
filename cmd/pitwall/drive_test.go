@@ -335,3 +335,66 @@ func TestCLIRestoredHeld(t *testing.T) {
 		})
 	}
 }
+
+// fleetState is tab orch (pane o) with workers w1 and w2 it opened, their
+// agents in s1 and s2, and tab x that nobody opened.
+func fleetState(s1, s2 model.AgentState) proto.StateMsg {
+	tab := func(id, name, parent string) model.Workspace {
+		return model.Workspace{ID: id, SessionID: "m", ProjectID: "g", Name: name, NameSet: true, Parent: parent, Tabs: []model.Tab{{ID: "t" + id, Layout: &layout.Node{Pane: "p" + id}}}, ActiveTab: "t" + id}
+	}
+	s := model.State{
+		Sessions:   []model.Session{{ID: "m", Name: "main", Order: []string{"g"}}},
+		Projects:   []model.Project{{ID: "g", SessionID: "m", Name: "agents"}},
+		Workspaces: []model.Workspace{tab("o", "orch", ""), tab("x", "x", ""), tab("w1", "w1", "o"), tab("w2", "w2", "o")},
+	}
+	for _, w := range s.Workspaces {
+		s.Panes = append(s.Panes, model.Pane{ID: "p" + w.ID, WorkspaceID: w.ID, Provider: model.ProviderClaude})
+	}
+	for i, st := range []model.AgentState{s1, s2} {
+		if st != "" {
+			id := s.Workspaces[2+i].ID
+			s.Activities = append(s.Activities, model.Activity{PaneID: "p" + id, WorkspaceID: id, Provider: model.ProviderClaude, State: st, Detail: "Run make?"})
+		}
+	}
+	return proto.StateMsg{State: s}
+}
+
+func TestCLIWaitChildren(t *testing.T) {
+	work, done, ask := model.StateWorking, model.StateCompleted, model.StatePendingApproval
+	for _, tc := range []struct {
+		name string
+		pane string
+		args []string
+		msgs []any
+		code int
+		out  string
+	}{
+		{"all done", "po", []string{"--until", "done"}, []any{fleetState(work, work), fleetState(done, work), fleetState(done, done)}, 0, "#2 w1 done\n#3 w2 done\n"},
+		{"one blocks", "po", []string{"--until", "done"}, []any{fleetState(work, work), fleetState(done, ask)}, 2, "#3 w2 blocked: Run make?\n"},
+		{"not started", "po", []string{"--until", "done", "--timeout", "50ms"}, []any{fleetState("", "")}, 124, ""},
+		{"no workers", "px", []string{"--until", "done"}, []any{fleetState(work, work)}, 1, ""},
+		{"outside a pane", "", []string{"--until", "done"}, []any{fleetState(work, work)}, 1, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeWatch(t, tc.msgs...)
+			t.Setenv("PITWALL_PANE", tc.pane)
+			code, out, stderr := cliOutput(append([]string{"wait", "--children"}, tc.args...)...)
+			if code != tc.code || out != tc.out {
+				t.Fatalf("code %d out %q stderr %q; want %d %q", code, out, stderr, tc.code, tc.out)
+			}
+		})
+	}
+}
+
+func TestCLIListChildren(t *testing.T) {
+	fakeCLI(t, cliExchange{state: fleetState(model.StateWorking, "").State})
+	t.Setenv("PITWALL_PANE", "po")
+	code, out, stderr := cliOutput("ls", "--children")
+	var names []string
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n")[1:] {
+		names = append(names, strings.Fields(l)[0]+" "+strings.Fields(l)[1])
+	}
+	if code != 0 || strings.Join(names, ",") != "2 w1,3 w2" {
+		t.Fatalf("%d %q %s", code, out, stderr)
+	}
+}

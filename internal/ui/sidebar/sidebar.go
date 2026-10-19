@@ -155,6 +155,8 @@ type Sidebar struct {
 	// whose sub-rows are folded away.
 	subs   map[string]*subRow
 	folded map[string]bool
+	// The fleets whose workers are folded into their strip (fleet.go).
+	kidsFolded map[string]bool
 
 	// Hints draws the keys the sidebar takes above the footer's buttons
 	// while it has the keyboard; nil hides them.
@@ -207,6 +209,8 @@ type rowState struct {
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	fold               widget.Clickable // the agent count, which folds the sub-rows
 	foldT              anim.Value       // its chevron's turn
+	kids               widget.Clickable // a fleet's strip, which folds its workers
+	kidsT              anim.Value       // its chevron's turn
 	ctx                int              // tag for right- and middle-click
 	easedFill
 }
@@ -367,12 +371,14 @@ type view struct {
 	agents        map[string][]model.AgentPane // a live tab's agent panes, when it has two or more
 	queued        map[string][]model.Task      // the session's queued tasks by the group they show under, "" for none
 	remote        map[string]bool              // a tab with an agent under remote control
+	kids          map[string][]model.Workspace // a live tab's workers, which hang under it (model.State.Root)
+	rootOf        map[string]string            // a live worker's root, the tab it hangs under
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active,
 		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{},
-		agents: map[string][]model.AgentPane{}}
+		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}}
 	if v.now.IsZero() {
 		v.now = time.Now()
 	}
@@ -394,6 +400,10 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 			v.remote[p.WorkspaceID] = true
 		}
 	}
+	detached := map[string]bool{}
+	for _, ws := range st.Workspaces {
+		detached[ws.ID] = ws.Detached
+	}
 	for _, ws := range st.Workspaces {
 		g := ws.ProjectID
 		if !groups[g] {
@@ -405,7 +415,12 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 		if ws.Detached {
 			continue
 		}
-		v.byProject[g] = append(v.byProject[g], ws)
+		if r := st.Root(ws); r != "" && !detached[r] {
+			v.kids[r] = append(v.kids[r], ws)
+			v.rootOf[ws.ID] = r
+		} else {
+			v.byProject[g] = append(v.byProject[g], ws)
+		}
 		v.activity[ws.ID] = model.Aggregate(acts[ws.ID])
 		if u := model.Aggregate(unseen[ws.ID]); u != nil {
 			v.unseen[ws.ID] = u
@@ -418,7 +433,7 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 		}
 	}
 	for _, id := range st.TopOrder(session) {
-		if _, live := v.activity[id]; live || groups[id] {
+		if _, live := v.activity[id]; live && v.rootOf[id] == "" || groups[id] {
 			v.top = append(v.top, id)
 		}
 	}
@@ -437,6 +452,9 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 
 // groupOf is the group a live session shows under, "" when ungrouped.
 func (v *view) groupOf(id string) string {
+	if r := v.rootOf[id]; r != "" {
+		id = r
+	}
 	for g, wss := range v.byProject {
 		for _, ws := range wss {
 			if ws.ID == id {
@@ -451,13 +469,19 @@ func (v *view) groupOf(id string) string {
 // order, an expanded group's sessions at its place.
 func (s *Sidebar) order(v *view) []string {
 	var out []string
+	add := func(id string) {
+		out = append(out, id)
+		for _, k := range s.kidsShown(v, id) {
+			out = append(out, k.ID)
+		}
+	}
 	for _, id := range v.top {
 		switch {
 		case !v.groups[id]:
-			out = append(out, id)
+			add(id)
 		case s.isExpanded(id):
 			for _, ws := range v.byProject[id] {
-				out = append(out, ws.ID)
+				add(ws.ID)
 			}
 		}
 	}
@@ -504,7 +528,7 @@ func (s *Sidebar) project(id string) *projectState {
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
 	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() ||
-		r.pr.Hovered() || r.archive.Hovered() || r.fold.Hovered()
+		r.pr.Hovered() || r.archive.Hovered() || r.fold.Hovered() || r.kids.Hovered()
 }
 
 func (s *Sidebar) row(id string) *rowState {

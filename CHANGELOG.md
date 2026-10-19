@@ -17,6 +17,15 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Tabs an agent opens hang under the agent's tab in the sidebar. An
+  orchestrator that starts ten workers with `pitwall worktree new` or
+  `pitwall new` gets one row with a bar of their states and a count of how
+  many need you, failed, work and are done; click it to fold the workers
+  away. `pitwall ls --children` lists them and `pitwall wait --children`
+  waits for all of them, stopping at the first one that needs you. The
+  pitwall skill for Claude Code and Codex now tells them how, and the
+  daemon updates a skill an earlier release installed.
+
 - Ctrl+H, J, K and L can move between vim's windows and pitwall's panes, as
   vim-tmux-navigator does in tmux. Bind `navigate_left`, `navigate_down`,
   `navigate_up` and `navigate_right`, and add the few lines for Neovim or

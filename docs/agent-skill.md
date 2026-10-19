@@ -154,6 +154,38 @@ its exit code. `pane_list` has the same keys for every pane of the tab, in
 layout order; its `n` is the N of the pane's address, and `queued` counts
 the pane's messages from `send` not yet typed.
 
+`pitwall wait --children --until ...` waits on every tab your tab opened
+(see Workers below) in place of one tab. It prints a line per tab, as `#14
+invoice-pdf done` or `#15 retry exit 1`, once every one got there, and
+exits 0, or 3 when one exited with an error. A tab that blocks ends it at
+once with 2, printing `#N <name> blocked: <question>` for each blocked one.
+Tabs opened while it waits count too.
+
+## Workers
+
+A tab you open from your pane with `pitwall new` or `pitwall worktree new`
+is your worker: it hangs under your tab in the user's sidebar. Your row
+grows a bar with a segment per worker in its state's color and counts of
+how many need the user, failed, work and are done; the user can fold the
+workers into that row. A worker's own workers hang under the same row.
+
+```sh
+for t in invoice-pdf webhook-retry rate-limit; do
+  pitwall worktree new "$t" -- claude "$(cat "tasks/$t.md")"
+done
+pitwall wait --children --until done --timeout 45m
+case $? in
+  0) pitwall ls --children ;;                # every worker finished
+  2) echo "a worker waits on you; answer it in its tab" ;;
+  3) echo "a worker exited with an error" ;;
+esac
+```
+
+`pitwall ls --children` (and `--json`) lists only your workers. Each
+worktree has its own branch and ports, and the sidebar warns when two
+workers edit the same file. Give every worker one self-contained task:
+the goal, the files, how to check it, and to commit on its branch.
+
 ## Recipes
 
 Hand a review to Codex in a tab the user can watch, and read the verdict

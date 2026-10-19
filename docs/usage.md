@@ -254,6 +254,15 @@ closing its last pane ask you to unpin it first, and `pitwall kill` and
 whole session still closes it. The row of dots under Pin tab tints the tab
 in one of eight colors, or none.
 
+A tab an agent opens from its pane, with `pitwall new` or `pitwall
+worktree new`, hangs under the agent's tab, a step further in. The
+agent's row grows a bar with one segment per worker in its state's color
+and, under it, a count each of the workers that need you, failed, work
+and are done. Click the bar to fold the workers into that row and again
+to bring them back. Ctrl+Shift+U still jumps to a folded worker that
+needs you. [The agent skill page](agent-skill.md#workers) has the
+commands an orchestrator runs.
+
 Rest the pointer on a tab for half a second and a card opens beside the
 sidebar with what the row cuts off: the full title, the group and folder, the
 branch with its diff stats, the agent's state and question, and the pane

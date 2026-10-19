@@ -53,14 +53,17 @@ const usage = `usage:
   pitwall hooks uninstall    remove this binary's hooks and status line (--dry-run)
   pitwall statusline [cmd]   Claude Code's status line: save its plan limits for
                              Settings, Usage, then run cmd, your own status line
-  pitwall ls [--json]        list the current session's tabs, numbered in sidebar order
-                             (--json: one object per tab, see docs/agent-skill.md)
+  pitwall ls [--json] [--children]
+                             list the current session's tabs, numbered in sidebar order
+                             (--json: one object per tab, see docs/agent-skill.md;
+                             --children: only the tabs this pane's tab opened)
   pitwall new [-n name] [-d] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. A cmd's pane stays after it
                              exits, showing its output, until closed. After a
                              daemon restart it shows a notice instead; a cmd
-                             still running then is not run again (exit unknown)
+                             still running then is not run again (exit unknown).
+                             Run inside a pane, the tab hangs under the pane's tab
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there (its first
                              live agent pane, else live pane). done: it
@@ -69,7 +72,9 @@ const usage = `usage:
                              question; exit: its process ended. Without an agent, done means exit. Exit codes: 0 reached,
                              2 blocked instead, 3 the process exited, 124
                              timed out, 1 error; for exit, the process's code,
-                             or 3 when a daemon restart lost it
+                             or 3 when a daemon restart lost it. --children in
+                             place of <tab> waits on every tab this pane's tab
+                             opened, printing one line each; one blocked ends it
   pitwall split [--down] [tab] [-- cmd args...]
                              open a pane running cmd, else a shell, right of
                              the tab's last pane (--down: below it); prints
@@ -252,6 +257,11 @@ func runDaemon() (err error) {
 	// shell inside changes XDG_RUNTIME_DIR.
 	os.Setenv("PITWALL_SOCKET", path)
 	vt.DefaultPalette = config.Palette() // color queries answer with the theme the GUI draws
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, p := range agent.RefreshSkill(home) {
+			log.Printf("updated the pitwall skill at %s", p)
+		}
+	}
 	d, err := daemon.New()
 	if err != nil {
 		ln.Close()

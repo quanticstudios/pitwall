@@ -88,7 +88,11 @@ type Workspace struct {
 	Pinned bool
 	// Color is the tab's color id ("red", "sky", see theme.ProjectColor),
 	// "" for none.
-	Color     string
+	Color string
+	// Parent is the tab whose pane opened this one with `pitwall new` or
+	// `pitwall worktree new` (proto.NewSession.ParentPane), "" for a tab the
+	// user opened. The sidebar hangs a tab under its parent's top ancestor.
+	Parent    string
 	UpdatedAt time.Time
 	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
 	ActiveTab string // the id of Tabs[0]
@@ -460,7 +464,7 @@ func (s *State) TopOrder(session string) []string {
 
 // Ordered is every tab of session, detached ones included, in sidebar
 // order: the top-level items in TopOrder, each group's tabs at the group's
-// place.
+// place, and each tab's workers (see Root) right after it.
 func (s *State) Ordered(session string) []Workspace {
 	groups := make(map[string]bool, len(s.Projects))
 	for _, p := range s.Projects {
@@ -470,9 +474,10 @@ func (s *State) Ordered(session string) []Workspace {
 	}
 	inGroup := map[string][]Workspace{}
 	loose := map[string]Workspace{}
+	kids := s.Workers(session)
 	for _, w := range s.Workspaces {
 		switch {
-		case w.SessionID != session:
+		case w.SessionID != session, s.Root(w) != "":
 		case groups[w.ProjectID]:
 			inGroup[w.ProjectID] = append(inGroup[w.ProjectID], w)
 		default:
@@ -481,10 +486,42 @@ func (s *State) Ordered(session string) []Workspace {
 	}
 	var out []Workspace
 	for _, id := range s.TopOrder(session) {
+		tops := inGroup[id]
 		if w, ok := loose[id]; ok {
-			out = append(out, w)
-		} else {
-			out = append(out, inGroup[id]...)
+			tops = []Workspace{w}
+		}
+		for _, w := range tops {
+			out = append(append(out, w), kids[w.ID]...)
+		}
+	}
+	return out
+}
+
+// Root is the tab w hangs under in the sidebar: its Parent's top ancestor,
+// following parents that still exist in w's session and group. "" when w
+// hangs under nothing.
+func (s *State) Root(w Workspace) string {
+	root := ""
+	for range 16 { // ponytail: depth cap instead of cycle detection; parents only ever point at older tabs
+		i := slices.IndexFunc(s.Workspaces, func(p Workspace) bool { return p.ID == w.Parent })
+		if w.Parent == "" || i < 0 || s.Workspaces[i].SessionID != w.SessionID || s.Workspaces[i].ProjectID != w.ProjectID {
+			break
+		}
+		w = s.Workspaces[i]
+		root = w.ID
+	}
+	return root
+}
+
+// Workers is session's tabs that hang under another (see Root), by that
+// tab, in the order they opened.
+func (s *State) Workers(session string) map[string][]Workspace {
+	out := map[string][]Workspace{}
+	for _, w := range s.Workspaces {
+		if w.SessionID == session {
+			if r := s.Root(w); r != "" {
+				out[r] = append(out[r], w)
+			}
 		}
 	}
 	return out

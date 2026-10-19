@@ -62,9 +62,12 @@ func paneOf(state model.State, n int, p model.Pane) paneJSON {
 	return j
 }
 
-func tabsJSON(state model.State, session string) []tabJSON {
+func tabsJSON(state model.State, session string, only map[string]bool) []tabJSON {
 	out := []tabJSON{}
 	for i, w := range numbered(state, session) {
+		if only != nil && !only[w.ID] {
+			continue
+		}
 		t := tabJSON{N: i + 1, ID: w.ID, Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached}
 		for _, p := range state.Projects {
 			if p.ID == w.ProjectID {
@@ -325,12 +328,13 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	sessionName := flags.String("s", "", "")
 	until := flags.String("until", "", "")
 	timeout := flags.Duration("timeout", 0, "")
+	children := flags.Bool("children", false, "")
 	args, err := parseFlags(flags, args)
 	if err != nil {
 		return waitError, err
 	}
-	if len(args) > 1 || !slices.Contains([]string{"done", "idle", "blocked", "exit"}, *until) {
-		return waitError, errors.New("usage: pitwall wait [-s session] [tab[.N]] --until done|idle|blocked|exit [--timeout 10m]")
+	if len(args) > 1 || *children && len(args) == 1 || !slices.Contains([]string{"done", "idle", "blocked", "exit"}, *until) {
+		return waitError, errors.New("usage: pitwall wait [-s session] [tab[.N] | --children] --until done|idle|blocked|exit [--timeout 10m]")
 	}
 	name := ""
 	if len(args) == 1 {
@@ -356,6 +360,13 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	session, err := currentSession(state, *sessionName)
 	if err != nil {
 		return waitError, err
+	}
+	if *children {
+		code, err := waitChildren(watch, state, session.ID, *until, out)
+		if err != nil && timedOut.Load() {
+			return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
+		}
+		return code, err
 	}
 	w, p, err := resolvePane(state, session.ID, name)
 	if err != nil {
@@ -406,6 +417,71 @@ func waitTab(args []string, out io.Writer) (int, error) {
 			if timedOut.Load() {
 				return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
 			}
+			return waitError, err
+		}
+	}
+}
+
+// waitChildren is wait --children: it waits on every tab the calling
+// pane's tab opened until each one got to until, then prints a line per
+// tab. A tab that blocks ends the wait at once, printing the blocked ones.
+// Tabs opened during the wait count too.
+func waitChildren(watch *watcher, state model.State, session, until string, out io.Writer) (int, error) {
+	saw := map[string]bool{} // a turn ran in the tab during this wait
+	for {
+		only, err := childTabs(state)
+		if err != nil {
+			return waitError, err
+		}
+		if len(only) == 0 {
+			return waitError, errors.New("this tab opened no tabs; open them with pitwall new or pitwall worktree new")
+		}
+		var lines, blocked []string
+		reached, failed := 0, false
+		for i, w := range numbered(state, session) {
+			if !only[w.ID] {
+				continue
+			}
+			st, question, code := "exited", "", (*int)(nil)
+			if p := mainPane(tabPanes(state, w)); p != nil {
+				j := paneOf(state, 0, *p)
+				st, question, code = j.State, j.Question, j.ExitCode
+			}
+			saw[w.ID] = saw[w.ID] || st == "working" || st == "blocked"
+			head := fmt.Sprintf("#%d %s", i+1, tabTitle(w))
+			switch {
+			case st == "blocked":
+				blocked = append(blocked, fmt.Sprintf("%s blocked: %s", head, question))
+			case st == "exited":
+				reached++
+				switch {
+				case code == nil:
+					lines = append(lines, head+" exit unknown")
+				default:
+					lines = append(lines, fmt.Sprintf("%s exit %d", head, *code))
+					failed = failed || *code != 0
+				}
+			case until == "done" && (st == "done" || st == "idle" && saw[w.ID]),
+				until == "idle" && (st == "idle" || st == "done"):
+				reached++
+				lines = append(lines, head+" "+st)
+			}
+		}
+		switch {
+		case len(blocked) > 0:
+			fmt.Fprintln(out, strings.Join(blocked, "\n"))
+			if until == "blocked" {
+				return waitReached, nil
+			}
+			return waitBlocked, nil
+		case reached == len(only):
+			fmt.Fprintln(out, strings.Join(lines, "\n"))
+			if failed && until != "exit" || until == "blocked" {
+				return waitExited, nil
+			}
+			return waitReached, nil
+		}
+		if state, err = watch.next(); err != nil {
 			return waitError, err
 		}
 	}

@@ -657,18 +657,37 @@ var skill string
 // Skill returns the SKILL.md pitwall installs for Claude Code, at
 // ~/.claude/skills/pitwall/SKILL.md, and Codex, at
 // <CodexDir>/skills/pitwall/SKILL.md: how to message another agent in a
-// pane with pitwall send and prompt.
+// pane with pitwall send and prompt, and start workers and wait on them.
 func Skill() []byte { return []byte(skill) }
 
 // skillReleased are the SHA-256 sums of pitwall_skill.md as earlier
 // releases shipped it, so an install replaces those files as unedited.
-var skillReleased = []string{}
+var skillReleased = []string{
+	"6cec294845de6ae3ad05aca4bd70a1f9a847ac7edbfc4266862286d3393bccf8", // v0.1.0-beta.7 to beta.12
+}
 
 // IsSkill reports whether b is what Skill returns, now or in an earlier
 // release: a file pitwall wrote and nobody edited since.
 func IsSkill(b []byte) bool {
 	sum := sha256.Sum256(b)
 	return string(b) == skill || slices.Contains(skillReleased, hex.EncodeToString(sum[:]))
+}
+
+// RefreshSkill brings pitwall's skill for Claude Code and Codex under home
+// up to date where an earlier release installed it and nobody edited it
+// since, so an upgrade reaches the agents without pitwall hooks install. It
+// returns the files it rewrote.
+func RefreshSkill(home string) []string {
+	var out []string
+	for _, dir := range []string{filepath.Join(home, ".claude"), CodexDir(home)} {
+		path := filepath.Join(dir, "skills", "pitwall", "SKILL.md")
+		if b, err := os.ReadFile(path); err == nil && IsSkill(b) && string(b) != skill {
+			if os.WriteFile(path, Skill(), 0o644) == nil {
+				out = append(out, path)
+			}
+		}
+	}
+	return out
 }
 
 // CodexDir is Codex's home directory, $CODEX_HOME or ~/.codex.

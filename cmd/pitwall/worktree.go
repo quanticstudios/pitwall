@@ -266,7 +266,7 @@ func newWorktree(conn *cliConn, out io.Writer, state model.State, root, name str
 	}
 	pid := p.ID
 	session.ID = p.SessionID
-	after, err := syncCLI(conn, proto.NewWorkspace{ProjectID: pid, Name: name, From: from, Cmd: cmd})
+	after, err := syncCLI(conn, proto.NewWorkspace{ProjectID: pid, Name: name, From: from, Cmd: cmd, ParentPane: os.Getenv("PITWALL_PANE")})
 	var added *model.Workspace
 	for i, w := range after.Workspaces {
 		if !slices.ContainsFunc(state.Workspaces, func(old model.Workspace) bool { return old.ID == w.ID }) {

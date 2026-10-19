@@ -40,6 +40,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	pad := gtx.Dp(8)
 	l1, l2 := rowLines(gtx, th)
 	h := rowHeight(gtx, th)
+	fleet := len(v.kids[ws.ID]) > 0
+	if fleet {
+		h += fleetHeight(gtx, th)
+	}
 	rect := image.Rect(0, 0, w, h)
 	rr := gtx.Dp(8)
 
@@ -222,6 +226,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		}
 		hrow(gtx, l2, gtx.Dp(6), line...)
 		off.Pop()
+		if fleet {
+			off = op.Offset(image.Pt(left, pad+l1+gtx.Dp(4)+l2)).Push(gtx.Ops)
+			gtx.Constraints = layout.Exact(image.Pt(inner, fleetHeight(gtx, th)))
+			s.fleetStrip(gtx, v, ws.ID, base, ghost)
+			off.Pop()
+		}
 		return layout.Dimensions{Size: rect.Size()}
 	}
 	cg := gtx

@@ -158,12 +158,13 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var asJSON, detached, force bool
+	var asJSON, detached, force, children bool
 	var name, sessionName string
 	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
 	case "ls":
 		flags.BoolVar(&asJSON, "json", false, "")
+		flags.BoolVar(&children, "children", false, "")
 	case "new":
 		flags.StringVar(&name, "n", "", "")
 		flags.BoolVar(&detached, "d", false, "")
@@ -205,10 +206,16 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	switch command {
 	case "ls":
-		if asJSON {
-			return json.NewEncoder(out).Encode(tabsJSON(state, session.ID))
+		var only map[string]bool
+		if children {
+			if only, err = childTabs(state); err != nil {
+				return err
+			}
 		}
-		return listTabs(out, state, session.ID)
+		if asJSON {
+			return json.NewEncoder(out).Encode(tabsJSON(state, session.ID, only))
+		}
+		return listTabs(out, state, session.ID, only)
 	case "new":
 		dir := "."
 		if len(args) == 1 {
@@ -218,7 +225,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
-		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd})
+		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd, ParentPane: os.Getenv("PITWALL_PANE")})
 		if err != nil {
 			return err
 		}
@@ -404,15 +411,35 @@ func tabTitle(w model.Workspace) string {
 	return cmp.Or(w.Label, w.Name)
 }
 
-// listTabs prints one row per tab of session: its number, title, state,
-// folder and group.
-func listTabs(out io.Writer, state model.State, session string) error {
+// childTabs is the set of tabs the calling pane's tab opened (their
+// Parent), for --children.
+func childTabs(state model.State) (map[string]bool, error) {
+	pane := os.Getenv("PITWALL_PANE")
+	i := slices.IndexFunc(state.Panes, func(p model.Pane) bool { return p.ID == pane })
+	if pane == "" || i < 0 {
+		return nil, errors.New("--children must run inside a pitwall pane (PITWALL_PANE is not set)")
+	}
+	out := map[string]bool{}
+	for _, w := range state.Workspaces {
+		if w.Parent != "" && w.Parent == state.Panes[i].WorkspaceID {
+			out[w.ID] = true
+		}
+	}
+	return out, nil
+}
+
+// listTabs prints one row per tab of session, or of only when it is not
+// nil: its number, title, state, folder and group.
+func listTabs(out io.Writer, state model.State, session string, only map[string]bool) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	home, _ := os.UserHomeDir()
 	if _, err := fmt.Fprintln(w, "#\tNAME\tSTATE\tFOLDER\tGROUP"); err != nil {
 		return err
 	}
 	for i, tab := range numbered(state, session) {
+		if only != nil && !only[tab.ID] {
+			continue
+		}
 		label := "idle"
 		var activities []model.Activity
 		for _, a := range state.Activities {

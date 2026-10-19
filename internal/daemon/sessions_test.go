@@ -187,6 +187,35 @@ func TestNewSessionFromPaneCwd(t *testing.T) {
 	}
 }
 
+// A tab an agent opens from its pane, a plain one or a worktree, records
+// the agent's tab as its parent; one in another session records none.
+func TestParentPane(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), "repo")
+	mkdir(t, repo)
+	must(t, d.handle(ctx, proto.NewSession{Cwd: repo}))
+	orch, pane := d.st.Workspaces[0].ID, d.st.Panes[0].ID
+	must(t, d.handle(ctx, proto.NewSession{Cwd: repo, ParentPane: pane}))
+	must(t, d.handle(ctx, proto.NewSession{Cwd: repo}))
+	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
+	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: d.st.Projects[0].ID, Name: "w1", ParentPane: pane}))
+	must(t, d.handle(ctx, proto.SessionNew{Name: "other", Cwd: repo}))
+	other := d.st.Workspaces[len(d.st.Workspaces)-1].SessionID
+	must(t, d.handle(ctx, proto.NewSession{Cwd: repo, SessionID: other, ParentPane: pane}))
+	var got []string
+	for _, w := range d.st.Workspaces {
+		got = append(got, w.Parent)
+	}
+	if want := []string{"", orch, "", orch, "", ""}; !slices.Equal(got, want) {
+		t.Fatalf("parents %q, want %q", got, want)
+	}
+}
+
 // A hand-made worktree grouped into its repo must stay the user's across a
 // restart: ownership is recorded, never re-inferred from the path.
 func TestHandmadeWorktreeSurvivesRestart(t *testing.T) {

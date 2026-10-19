@@ -46,3 +46,28 @@ func TestTopOrder(t *testing.T) {
 		t.Fatalf("view: %+v", v)
 	}
 }
+
+// A worker follows its top ancestor in its group, a worker's worker too;
+// one whose parent is gone or in another group stands on its own.
+func TestOrderedWorkers(t *testing.T) {
+	s := State{
+		Sessions: []Session{{ID: "s"}},
+		Projects: []Project{{ID: "g", SessionID: "s"}},
+		Workspaces: []Workspace{
+			{ID: "orch", SessionID: "s", ProjectID: "g"}, {ID: "other", SessionID: "s", ProjectID: "g"},
+			{ID: "w1", SessionID: "s", ProjectID: "g", Parent: "orch"}, {ID: "w1a", SessionID: "s", ProjectID: "g", Parent: "w1"},
+			{ID: "lost", SessionID: "s", ProjectID: "g", Parent: "closed"}, {ID: "away", SessionID: "s", Parent: "orch"},
+			{ID: "w2", SessionID: "s", ProjectID: "g", Parent: "orch"},
+		},
+	}
+	var ids []string
+	for _, w := range s.Ordered("s") {
+		ids = append(ids, w.ID)
+	}
+	if want := []string{"away", "orch", "w1", "w1a", "w2", "other", "lost"}; !slices.Equal(ids, want) {
+		t.Fatalf("Ordered: %v, want %v", ids, want)
+	}
+	if r := s.Root(s.Workspaces[3]); r != "orch" {
+		t.Fatalf("Root of a worker's worker: %q, want orch", r)
+	}
+}

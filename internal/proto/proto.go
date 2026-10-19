@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 20 added Workspace.Parent and ParentPane on NewSession and
+// NewWorkspace: a tab an agent opens hangs under the agent's tab.
 // Level 19 added FocusDir, from `pitwall focus`: vim at the edge of its
 // windows moves the GUI's focus to the next pane.
 // Level 18 added SetTabOptions and Workspace.Pinned and Color: a pinned
@@ -101,7 +103,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 19
+const Level = 20
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
@@ -172,6 +174,10 @@ type NewSession struct {
 	FromPane string
 	// Loose keeps the tab out of every group, even one for its folder.
 	Loose bool
+	// ParentPane, when set, is the pane whose agent asked for the tab (the
+	// CLI's PITWALL_PANE): its tab becomes the new tab's Parent when both
+	// are in one session.
+	ParentPane string
 }
 
 // SetSessionGroup moves a session into a group; "" ungroups it right after
@@ -223,6 +229,8 @@ type NewWorkspace struct {
 	// Cmd, when set, runs in the tab's first pane, held as NewSession.Cmd
 	// is; else the tab starts with no pane.
 	Cmd []string
+	// ParentPane is NewSession.ParentPane.
+	ParentPane string
 }
 
 type RenameWorkspace struct {

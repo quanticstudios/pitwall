@@ -295,6 +295,7 @@ scoop install pitwall</code></pre>
         <div class="text">
           <h3>Let one agent hand work to another</h3>
           <p><strong>An agent can open a tab with <code>pitwall new</code>, start Codex or Claude Code in it on a prompt, and wait for the result with <code>pitwall wait</code>.</strong> The tab shows up in your sidebar, so you can watch the work and type into it.</p>
+          <p>Tabs an agent opens hang under its tab. An orchestrator with ten workers in their own worktrees is one row with a bar of their states and how many need you; fold it, or open it to watch each one. <code>pitwall wait --children</code> waits for all of them.</p>
           <p>Agents can also talk to each other. <code>pitwall send</code> types a message into another agent at its next prompt, with a header saying who sent it and how to reply, so Claude Code and Codex can argue over a plan until they agree.</p>
           <p>When the new agent asks permission, <code>wait</code> stops and reports the question, and you answer it in the tab. pitwall never answers for an agent. Hand <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">the agent skill page</a> to your agent and it knows the commands.</p>
         </div>

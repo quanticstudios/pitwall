@@ -89,6 +89,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		return fmt.Errorf("a tab is already named %s", m.Name)
 	}
 	w := model.Workspace{ID: newID(), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
+	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
 	if prep != nil {
 		prep(&w)
 	}
@@ -105,6 +106,19 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		go d.refreshStats(ctx, w.ID)
 	}
 	return nil
+}
+
+// parentTab is the tab of pane when it is in session, else "". The caller
+// holds d.mu.
+func (d *Daemon) parentTab(pane, session string) string {
+	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane })
+	if pane == "" || i < 0 {
+		return ""
+	}
+	if w := d.workspace(d.st.Panes[i].WorkspaceID); w != nil && w.SessionID == session {
+		return w.ID
+	}
+	return ""
 }
 
 func (d *Daemon) newGroup(m proto.NewGroup) error {

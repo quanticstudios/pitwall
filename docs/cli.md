@@ -14,9 +14,9 @@ optional name act on the pane's own tab.
 | `pitwall session attach <name>`       | Open a window on a session, or raise the one showing it       |
 | `pitwall session rename [old] <new>`  | Rename a session, the current one without old                 |
 | `pitwall session kill [-f] <name>`    | End a session and close its processes                         |
-| `pitwall ls [--json]`                 | List the session's tabs in sidebar order: #, name, state, folder, group |
-| `pitwall new [-n name] [-d] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell |
-| `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up) |
+| `pitwall ls [--json] [--children]`    | List the session's tabs in sidebar order: #, name, state, folder, group; `--children` lists only the tabs this pane's tab opened |
+| `pitwall new [-n name] [-d] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell. Run in a pane, the tab hangs under that pane's tab |
+| `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up); `--children` in place of the tab waits for every tab this pane's tab opened |
 | `pitwall split [--down] [tab] [-- cmd...]` | Open a pane right of the tab's last pane, or below with `--down`, and print its address, as `#3.2` |
 | `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
 | `pitwall send <pane> -- text`         | Queue a message for the pane's agent and return; pitwall types it, under a header naming the sender, at the agent's next prompt |

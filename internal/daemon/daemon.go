@@ -857,6 +857,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		ID: newID(), SessionID: p.SessionID, ProjectID: p.ID, Name: m.Name, NameSet: named, Branch: branch, Path: path, UpdatedAt: time.Now(),
 		WorktreeRoot: owned, RepoRoot: root,
 	}
+	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
 	if owned != "" {
 		w.Ports = portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
 	}

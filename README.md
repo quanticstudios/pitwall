@@ -118,6 +118,11 @@ you answer it in the tab. pitwall never answers for an agent. Hand
 [the agent skill page](docs/agent-skill.md) to your agent and it knows the
 commands.
 
+Tabs an agent opens hang under its tab. An orchestrator with ten workers
+in their own worktrees is one row with a bar of their states and how many
+need you; fold it, or open it to watch each one. `pitwall wait --children`
+waits for all of them and stops at the first that needs you.
+
 Agents can also talk to each other. `pitwall send` types a message into
 another agent at its next prompt, with a header saying who sent it and how
 to reply, so Claude Code and Codex can argue over a plan until they agree.

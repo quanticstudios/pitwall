@@ -37,7 +37,8 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	y := 0
 	s.queue = s.queue[:0]
 	run := false // inside a run of tab rows
-	row := func(id, g string) {
+	var row func(id, g, root string)
+	row = func(id, g, root string) {
 		if run {
 			y += gtx.Dp(2)
 		} else {
@@ -47,8 +48,15 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		if g != "" {
 			x = gtx.Dp(groupIndent)
 		}
-		out = append(out, elem{kind: 's', id: id, group: g, x: x, top: y, bot: y + rowH})
-		y, run = y+rowH, true
+		if root != "" {
+			x += gtx.Dp(kidIndent)
+		}
+		h := rowH
+		if len(v.kids[id]) > 0 {
+			h += fleetHeight(gtx, v.th)
+		}
+		out = append(out, elem{kind: 's', id: id, parent: root, group: g, x: x, top: y, bot: y + h})
+		y, run = y+h, true
 		// Its agents' sub-rows hang under it, 2dp of air after the last.
 		subs := s.shownSubs(v, id)
 		for _, ap := range subs {
@@ -59,6 +67,9 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		if len(subs) > 0 {
 			y += gtx.Dp(2)
 		}
+		for _, k := range s.kidsShown(v, id) {
+			row(k.ID, g, id)
+		}
 	}
 	endRun := func() {
 		if run {
@@ -67,7 +78,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	}
 	for i, id := range v.top {
 		if !v.groups[id] {
-			row(id, "")
+			row(id, "", "")
 			continue
 		}
 		endRun()
@@ -81,7 +92,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		out = append(out, elem{kind: 'g', id: id, group: id, top: top, bot: y, head: head})
 		if s.isExpanded(id) {
 			for _, ws := range v.byProject[id] {
-				row(ws.ID, id)
+				row(ws.ID, id, "")
 			}
 			if len(v.byProject[id]) == 0 {
 				y += gtx.Dp(8) // an empty group keeps its pt-1 pb-1
@@ -174,6 +185,9 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 					_, a = s.subRowAt(rg, v, e.parent, ap, false)
 				}
 			} else {
+				if e.parent != "" {
+					workerGuide(rg, v.th, e.bot-e.top)
+				}
 				_, a = s.workspaceRow(rg, v, byID[e.id], false, digit)
 			}
 			fade.Pop()
