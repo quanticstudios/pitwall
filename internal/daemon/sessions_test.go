@@ -198,19 +198,27 @@ func TestParentPane(t *testing.T) {
 	ctx := context.Background()
 	repo := filepath.Join(t.TempDir(), "repo")
 	mkdir(t, repo)
+	// why: addSession's stats refresh retitles tabs in the background.
+	locked := func(f func()) { d.mu.Lock(); defer d.mu.Unlock(); f() }
 	must(t, d.handle(ctx, proto.NewSession{Cwd: repo}))
-	orch, pane := d.st.Workspaces[0].ID, d.st.Panes[0].ID
+	var orch, pane string
+	locked(func() { orch, pane = d.st.Workspaces[0].ID, d.st.Panes[0].ID })
 	must(t, d.handle(ctx, proto.NewSession{Cwd: repo, ParentPane: pane}))
 	must(t, d.handle(ctx, proto.NewSession{Cwd: repo}))
 	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
-	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: d.st.Projects[0].ID, Name: "w1", ParentPane: pane}))
+	var project string
+	locked(func() { project = d.st.Projects[0].ID })
+	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: project, Name: "w1", ParentPane: pane}))
 	must(t, d.handle(ctx, proto.SessionNew{Name: "other", Cwd: repo}))
-	other := d.st.Workspaces[len(d.st.Workspaces)-1].SessionID
+	var other string
+	locked(func() { other = d.st.Workspaces[len(d.st.Workspaces)-1].SessionID })
 	must(t, d.handle(ctx, proto.NewSession{Cwd: repo, SessionID: other, ParentPane: pane}))
 	var got []string
-	for _, w := range d.st.Workspaces {
-		got = append(got, w.Parent)
-	}
+	locked(func() {
+		for _, w := range d.st.Workspaces {
+			got = append(got, w.Parent)
+		}
+	})
 	if want := []string{"", orch, "", orch, "", ""}; !slices.Equal(got, want) {
 		t.Fatalf("parents %q, want %q", got, want)
 	}
