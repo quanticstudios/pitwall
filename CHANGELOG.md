@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- An SVG icon whose viewBox doesn't start at 0,0 draws in place, where oksvg drew it shifted and clipped. pitwall's own icon is its mark without the dark tile, which read as a black square on the sidebar.
+
 ## v0.1.0-beta.16
 
 - A shell tab in a repo shows the repo's icon too, and a tab's icon follows the folder its first pane is in now, so `cd` into a repo picks up its icon. SVG icons that use `scale()` with one number draw again; oksvg read them as flattened to nothing. pitwall's own repo has `.pitwall/icon.svg`.

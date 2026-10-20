@@ -114,6 +114,14 @@ func TestFavicon(t *testing.T) {
 	if scaled == nil || at(scaled) != blue {
 		t.Fatalf("scale(0.5) drew nothing: %v", scaled)
 	}
+	// And a viewBox that does not start at 0,0 fills the square, unshifted.
+	offset := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 40 10 10"><rect width="100" height="100" fill="#ff0000"/><rect x="40" y="40" width="10" height="10" fill="#0000ff"/></svg>`))
+	if offset == nil {
+		t.Fatal("an offset viewBox drew nothing")
+	}
+	if a, z := at(offset), color.NRGBAModel.Convert(offset.At(svgPx-1, svgPx-1)); a != blue || z != blue {
+		t.Fatalf("an offset viewBox drew shifted: corners %v and %v, want blue", a, z)
+	}
 	if decodeSVG([]byte("<<<")) != nil {
 		t.Fatal("a broken SVG decoded")
 	}

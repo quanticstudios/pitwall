@@ -103,7 +103,11 @@ func decodeSVG(b []byte) (img image.Image) {
 	if err != nil || icon.ViewBox.W <= 0 || icon.ViewBox.H <= 0 {
 		return nil
 	}
-	icon.SetTarget(0, 0, svgPx, svgPx)
+	// workaround(oksvg be6e8873101c): SetTarget moves by the viewBox's
+	// origin in pixels, not in its own units, so an offset viewBox drew
+	// shifted; scale after moving instead.
+	vb := icon.ViewBox
+	icon.Transform = rasterx.Identity.Scale(svgPx/vb.W, svgPx/vb.H).Translate(-vb.X, -vb.Y)
 	dst := image.NewRGBA(image.Rect(0, 0, svgPx, svgPx))
 	icon.Draw(rasterx.NewDasher(svgPx, svgPx, rasterx.NewScannerGV(svgPx, svgPx, dst, dst.Bounds())), 1)
 	return dst
