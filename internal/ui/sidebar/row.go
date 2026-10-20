@@ -302,7 +302,7 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 	th := v.th
 	sz := gtx.Dp(12)
 	if ag := v.agent[ws.ID]; ag != "" {
-		if f := s.tabFavicon(ws); f != nil {
+		if f := s.tabFavicon(v, ws); f != nil {
 			return badged(gtx, f, func(gtx layout.Context, size int) { AgentMark(gtx, ag, size, th.Fg) }, base)
 		}
 		// The mark draws at 14dp, centred on the 12dp slot the titles align to.

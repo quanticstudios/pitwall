@@ -4,36 +4,46 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/binary"
+	"hash/fnv"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
+	"github.com/srwiley/oksvg"
+	"github.com/srwiley/rasterx"
 	xdraw "golang.org/x/image/draw"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // A repo's own icon, its favicon or logo, stands in for the folder glyph on
 // its group's header and leads its tabs' rows, with the agent's mark as a
-// badge on its corner. Only PNG and ICO files count: an SVG needs a
-// rasterizer pitwall does not have.
+// badge on its corner. It reads SVG, PNG and ICO files. A repo with none
+// gets a tile with its name's first letter.
 
-// faviconPaths are where a repo keeps its icon, best first; apps/* covers
-// a monorepo's web apps.
+// faviconPaths are where a repo keeps its icon, best first, an SVG before
+// a bitmap: .pitwall/icon.* is one the user put there to pick it, apps/*
+// covers a monorepo's web apps.
 var faviconPaths = []string{
-	"favicon.ico", "favicon.png",
-	"public/favicon.ico", "public/favicon.png", "public/icon.png", "public/apple-touch-icon.png", "public/logo.png",
-	"static/favicon.ico", "static/favicon.png",
-	"app/favicon.ico", "app/icon.png", "src/app/favicon.ico", "src/app/icon.png",
-	"assets/favicon.ico", "assets/favicon.png", "assets/icon.png", "assets/logo.png",
-	"build/icon.png", "logo.png", "icon.png", ".github/logo.png",
-	"apps/*/public/favicon.ico", "apps/*/public/favicon.png", "apps/*/app/favicon.ico",
+	".pitwall/icon.svg", ".pitwall/icon.png", ".pitwall/icon.ico",
+	"favicon.svg", "favicon.ico", "favicon.png",
+	"public/favicon.svg", "public/favicon.ico", "public/favicon.png", "public/icon.svg", "public/icon.png", "public/apple-touch-icon.png", "public/logo.svg", "public/logo.png",
+	"static/favicon.svg", "static/favicon.ico", "static/favicon.png",
+	"app/icon.svg", "app/favicon.ico", "app/icon.png", "src/app/icon.svg", "src/app/favicon.ico", "src/app/icon.png",
+	"assets/favicon.svg", "assets/favicon.ico", "assets/favicon.png", "assets/icon.svg", "assets/icon.png", "assets/logo.svg", "assets/logo.png",
+	"build/icon.png", "logo.svg", "logo.png", "icon.svg", "icon.png", ".github/logo.svg", ".github/logo.png",
+	"apps/*/public/favicon.svg", "apps/*/public/favicon.ico", "apps/*/public/favicon.png", "apps/*/app/icon.svg", "apps/*/app/favicon.ico",
 }
 
 // maxFavicon caps the file read: a favicon is kilobytes.
@@ -61,11 +71,36 @@ func readFavicon(path string) image.Image {
 	if err != nil {
 		return nil
 	}
-	if bytes.HasPrefix(b, pngMagic) {
+	switch {
+	case bytes.HasPrefix(b, pngMagic):
 		img, _ := png.Decode(bytes.NewReader(b))
 		return img
+	case strings.EqualFold(filepath.Ext(path), ".svg"):
+		return decodeSVG(b)
 	}
 	return decodeICO(b)
+}
+
+// svgPx is the size an SVG is drawn at before it is scaled to the row's.
+const svgPx = 96
+
+// decodeSVG draws an SVG icon in a svgPx square. Elements oksvg does not
+// know are skipped; a file it cannot read, or one that makes it panic,
+// gives nil, since any repo can hold one.
+func decodeSVG(b []byte) (img image.Image) {
+	defer func() {
+		if recover() != nil {
+			img = nil
+		}
+	}()
+	icon, err := oksvg.ReadIconStream(bytes.NewReader(b), oksvg.IgnoreErrorMode)
+	if err != nil || icon.ViewBox.W <= 0 || icon.ViewBox.H <= 0 {
+		return nil
+	}
+	icon.SetTarget(0, 0, svgPx, svgPx)
+	dst := image.NewRGBA(image.Rect(0, 0, svgPx, svgPx))
+	icon.Draw(rasterx.NewDasher(svgPx, svgPx, rasterx.NewScannerGV(svgPx, svgPx, dst, dst.Bounds())), 1)
+	return dst
 }
 
 var pngMagic = []byte("\x89PNG\r\n\x1a\n")
@@ -134,6 +169,11 @@ type favicon struct {
 	src image.Image
 	px  int
 	op  paint.ImageOp
+
+	// With no src: a tile of col with letter on it.
+	letter string
+	col    color.NRGBA
+	th     *theme.Theme
 }
 
 // favicon is root's icon, looked up the first time root shows and kept
@@ -159,6 +199,9 @@ func (s *Sidebar) favicon(root string) *favicon {
 
 // draw paints the icon in a size-pixel square with rounded corners.
 func (f *favicon) draw(gtx layout.Context, size int) layout.Dimensions {
+	if f.src == nil {
+		return f.tile(gtx, size)
+	}
 	if f.px != size {
 		dst := image.NewNRGBA(image.Rect(0, 0, size, size))
 		xdraw.CatmullRom.Scale(dst, dst.Bounds(), f.src, f.src.Bounds(), xdraw.Over, nil)
@@ -187,20 +230,66 @@ func badged(gtx layout.Context, f *favicon, mark func(gtx layout.Context, size i
 	return layout.Dimensions{Size: image.Pt(sz, sz)}
 }
 
-// tabFavicon is the icon of the repo ws is in; a folder outside a repo has
-// none, so a home folder's stray icon.png never shows.
-func (s *Sidebar) tabFavicon(ws model.Workspace) *favicon {
+// tabFavicon is the icon of the repo ws is in, or its letter tile; a folder
+// outside a repo has none, so a home folder's stray icon.png never shows.
+func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
 	if ws.Branch == "" {
 		return nil
 	}
-	return s.favicon(cmp.Or(ws.RepoRoot, ws.Path))
+	if f := s.favicon(cmp.Or(ws.RepoRoot, ws.Path)); f != nil {
+		return f
+	}
+	// The tile is the repo's, named as its group or its main checkout, not
+	// the worktree's folder.
+	name, colorID := filepath.Base(cmp.Or(ws.WorktreeRoot, ws.RepoRoot, ws.Path)), ""
+	for _, p := range v.st.Projects {
+		if p.ID == ws.ProjectID {
+			name, colorID = p.Name, p.Color
+		}
+	}
+	return letterFavicon(v.th, name, colorID)
 }
 
-// groupFavicon is a git group's repo icon, unless the user picked an icon
-// for the group.
-func (s *Sidebar) groupFavicon(p model.Project) *favicon {
+// groupFavicon is a git group's repo icon, or its letter tile, unless the
+// user picked an icon for the group.
+func (s *Sidebar) groupFavicon(th *theme.Theme, p model.Project) *favicon {
 	if p.Icon != "" || p.Kind != model.ProjectGit {
 		return nil
 	}
-	return s.favicon(p.Root)
+	if f := s.favicon(p.Root); f != nil {
+		return f
+	}
+	return letterFavicon(th, p.Name, p.Color)
+}
+
+// letterFavicon is a tile with name's first letter or digit, in the color
+// colorID names, else one picked from name so a repo keeps its color.
+func letterFavicon(th *theme.Theme, name, colorID string) *favicon {
+	i := strings.IndexFunc(name, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) })
+	if i < 0 {
+		return nil
+	}
+	if colorID == "" {
+		h := fnv.New32a()
+		h.Write([]byte(name))
+		colorID = tabColorIDs[1+int(h.Sum32()%uint32(len(tabColorIDs)-1))]
+	}
+	r, _ := utf8.DecodeRuneInString(name[i:])
+	return &favicon{letter: string(unicode.ToUpper(r)), col: th.ProjectColor(colorID), th: th}
+}
+
+// tile draws f's letter on its color, dark on a light color.
+func (f *favicon) tile(gtx layout.Context, size int) layout.Dimensions {
+	rect := image.Rectangle{Max: image.Pt(size, size)}
+	paint.FillShape(gtx.Ops, f.col, clip.UniformRRect(rect, size/5).Op(gtx.Ops))
+	fg := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	if int(f.col.R)*299+int(f.col.G)*587+int(f.col.B)*114 > 160*1000 {
+		fg = color.NRGBA{R: 20, G: 22, B: 26, A: 255}
+	}
+	m := op.Record(gtx.Ops)
+	d := label(gtx, f.th, semibold(f.th.UIFont), unit.Sp(float32(size)*0.68/gtx.Metric.PxPerSp), fg, f.letter)
+	call := m.Stop()
+	defer op.Offset(image.Pt((size-d.Size.X)/2, (size-d.Size.Y)/2)).Push(gtx.Ops).Pop()
+	call.Add(gtx.Ops)
+	return layout.Dimensions{Size: rect.Max}
 }

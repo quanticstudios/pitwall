@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // ico wraps entries, each a PNG or a bitmap of width w, in an ICO file.
@@ -94,14 +95,58 @@ func TestFavicon(t *testing.T) {
 		t.Fatalf("the repo's own favicon comes first: %v", img)
 	}
 
+	// An SVG draws, the repo's own logo with its gradients and strokes
+	// too, and comes before a bitmap in the same folder.
+	svg := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#0000ff"/></svg>`))
+	if svg == nil || at(svg) != blue {
+		t.Fatalf("SVG: %v", svg)
+	}
+	logo, err := os.ReadFile("../../../packaging/pitwall.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img := decodeSVG(logo); img == nil || color.NRGBAModel.Convert(img.At(svgPx/2, svgPx/2)).(color.NRGBA).A == 0 {
+		t.Fatal("pitwall's logo did not draw")
+	}
+	if decodeSVG([]byte("<<<")) != nil {
+		t.Fatal("a broken SVG decoded")
+	}
+	write(repo, "public/favicon.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><rect width="4" height="4" fill="#00ff00"/></svg>`))
+	if img := findFavicon(repo); img == nil || at(img) != (color.NRGBA{G: 255, A: 255}) {
+		t.Fatalf("public/favicon.svg should beat public/favicon.png: %v", img)
+	}
+
+	// .pitwall/icon.* is the user's pick and beats the rest.
+	write(repo, ".pitwall/icon.png", pngOf(t, 16, color.NRGBA{R: 9, G: 9, B: 9, A: 255}))
+	if img := findFavicon(repo); img == nil || at(img).R != 9 {
+		t.Fatalf(".pitwall/icon.png should win: %v", img)
+	}
+
+	th := theme.Dark()
+	v := &view{th: th, st: &model.State{Projects: []model.Project{{ID: "g", Name: "billing", Color: "violet"}}}}
 	var s Sidebar
-	if s.tabFavicon(model.Workspace{Path: repo, RepoRoot: repo}) != nil {
+	if s.tabFavicon(v, model.Workspace{Path: repo, RepoRoot: repo}) != nil {
 		t.Fatal("a tab outside a repo got an icon")
 	}
-	if s.tabFavicon(model.Workspace{Path: repo, RepoRoot: repo, Branch: "main"}) == nil {
-		t.Fatal("a tab in the repo got none")
+	if f := s.tabFavicon(v, model.Workspace{Path: repo, RepoRoot: repo, Branch: "main"}); f == nil || f.src == nil {
+		t.Fatal("a tab in the repo got no image")
 	}
-	if s.groupFavicon(model.Project{Root: repo, Kind: model.ProjectGit, Icon: "rocket"}) != nil {
+
+	// A repo with no icon gets its letter: its group's name and color, else
+	// its main checkout's name and a color picked from it.
+	bare := filepath.Join(t.TempDir(), "acme-api")
+	if f := s.tabFavicon(v, model.Workspace{Path: bare, RepoRoot: bare, Branch: "x", ProjectID: "g"}); f == nil || f.letter != "B" || f.col != th.ProjectColor("violet") {
+		t.Fatalf("grouped tile: %+v", f)
+	}
+	wt := filepath.Join(bare, ".worktrees", "fix-it")
+	f := s.tabFavicon(v, model.Workspace{Path: wt, RepoRoot: wt, WorktreeRoot: bare, Branch: "fix-it"})
+	if f == nil || f.letter != "A" || f.col != letterFavicon(th, "acme-api", "").col {
+		t.Fatalf("a worktree's tile is the repo's: %+v", f)
+	}
+	if letterFavicon(th, "--", "") != nil {
+		t.Fatal("a name with no letter got a tile")
+	}
+	if s.groupFavicon(theme.Dark(), model.Project{Root: repo, Kind: model.ProjectGit, Icon: "rocket"}) != nil {
 		t.Fatal("a group's own icon lost to the favicon")
 	}
 }
