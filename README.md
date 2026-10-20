@@ -8,6 +8,9 @@ Run five agents in five tabs and one of them is always stuck on a question
 you have not seen. pitwall lights up that tab, notifies you, and takes you
 there with one key.
 
+Or hand the job to one agent and let it run ten workers, each in its own
+worktree. They hang under its tab, and one bar shows which of them need you.
+
 <img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs grouped by project, with Working, Approval, Input and Done states, pull request chips and Allow and Deny buttons; the open tab runs three agents in split panes" width="800">
 
 pitwall is in beta. It runs every day on Linux; the macOS and Windows
@@ -108,6 +111,31 @@ agents run at once, and the queue starts the next task as one finishes.
 
 <img src="docs/media/new-task.webp" alt="The New task dialog: project acme-api, a new worktree on a branch named from the prompt, Claude Code in its default mode, and the prompt, with Queue and Start buttons" width="480">
 
+### Run a fleet of workers
+
+<img src="docs/media/workers.webp" alt="The sidebar: a Billing epic tab running Claude Code with a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, and its ten workers indented under it, each on its own branch, among them Retry failed webhooks waiting for input, Refund flow waiting for approval and Mid-cycle plan change with an error" width="240" align="right">
+
+**Ask Claude Code or Codex to split a job and it starts one worker per
+task, each in its own worktree, under its own tab.** The orchestrator's row
+gets a bar with a segment per worker in its state's color, and counts of
+how many need you, failed, are working and are done. Fold the workers away,
+or open the tree to watch and type into any of them.
+
+The orchestrator waits with `pitwall wait --children`. It stops at the
+first worker that asks a question, and Ctrl+Shift+U takes you to it. When a
+worker's pull request merges, Archive removes its tab, worktree and branch.
+
+```sh
+pitwall worktree new invoice-pdf -- claude "Render invoices as PDFs"
+pitwall worktree new webhook-retry -- codex "Retry failed webhooks"
+pitwall wait --children --until done --timeout 30m
+```
+
+`pitwall hooks install` teaches both agents these commands, so "split this
+across three workers" is all you have to say.
+
+<br clear="right">
+
 ### Let one agent hand work to another
 
 **An agent can open a tab with `pitwall new`, start Codex or Claude Code
@@ -117,11 +145,6 @@ the new agent asks permission, `wait` stops and reports the question, and
 you answer it in the tab. pitwall never answers for an agent. Hand
 [the agent skill page](docs/agent-skill.md) to your agent and it knows the
 commands.
-
-Tabs an agent opens hang under its tab. An orchestrator with ten workers
-in their own worktrees is one row with a bar of their states and how many
-need you; fold it, or open it to watch each one. `pitwall wait --children`
-waits for all of them and stops at the first that needs you.
 
 Agents can also talk to each other. `pitwall send` types a message into
 another agent at its next prompt, with a header saying who sent it and how

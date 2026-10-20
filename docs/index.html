@@ -172,7 +172,7 @@ footer a { color: var(--muted); }
 
   <div class="hero">
     <h1>A desktop terminal for running several coding agents at once.</h1>
-    <p class="lede">Run five agents in five tabs and one of them is always stuck on a question you have not seen. pitwall lights up that tab, notifies you, and takes you there with one key.</p>
+    <p class="lede">Run five agents in five tabs and one of them is always stuck on a question you have not seen. pitwall lights up that tab, notifies you, and takes you there with one key. Or let one agent run ten workers in their own worktrees, and watch them as one row.</p>
     <ul class="states" aria-label="Agent states the sidebar shows">
       <li class="working">Working</li>
       <li class="input">Input</li>
@@ -293,9 +293,26 @@ scoop install pitwall</code></pre>
 
       <div class="feature">
         <div class="text">
+          <h3>Run a fleet of workers</h3>
+          <p><strong>Ask Claude Code or Codex to split a job and it starts one worker per task, each in its own worktree, under its own tab.</strong> The orchestrator's row gets a bar with a segment per worker in its state's color, and counts of how many need you, failed, are working and are done. Fold the workers away, or open the tree to watch and type into any of them.</p>
+          <p>The orchestrator waits with <code>pitwall wait --children</code>. It stops at the first worker that asks a question, and <kbd>Ctrl+Shift+U</kbd> takes you to it. When a worker's pull request merges, Archive removes its tab, worktree and branch.</p>
+          <p><code>pitwall hooks install</code> teaches both agents these commands, so "split this across three workers" is all you have to say.</p>
+          <pre class="term"><code>pitwall worktree new invoice-pdf -- \
+  claude "Render invoices as PDFs"
+pitwall worktree new webhook-retry -- \
+  codex "Retry failed webhooks"
+pitwall wait --children \
+  --until done --timeout 30m</code></pre>
+        </div>
+        <div class="media">
+          <div class="shot tall"><img src="media/workers.webp" width="288" height="880" loading="lazy" alt="The sidebar: a Billing epic tab running Claude Code with a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, and its ten workers indented under it, each on its own branch, among them Retry failed webhooks waiting for input, Refund flow waiting for approval and Mid-cycle plan change with an error"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
           <h3>Let one agent hand work to another</h3>
           <p><strong>An agent can open a tab with <code>pitwall new</code>, start Codex or Claude Code in it on a prompt, and wait for the result with <code>pitwall wait</code>.</strong> The tab shows up in your sidebar, so you can watch the work and type into it.</p>
-          <p>Tabs an agent opens hang under its tab. An orchestrator with ten workers in their own worktrees is one row with a bar of their states and how many need you; fold it, or open it to watch each one. <code>pitwall wait --children</code> waits for all of them.</p>
           <p>Agents can also talk to each other. <code>pitwall send</code> types a message into another agent at its next prompt, with a header saying who sent it and how to reply, so Claude Code and Codex can argue over a plan until they agree.</p>
           <p>When the new agent asks permission, <code>wait</code> stops and reports the question, and you answer it in the tab. pitwall never answers for an agent. Hand <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">the agent skill page</a> to your agent and it knows the commands.</p>
         </div>
