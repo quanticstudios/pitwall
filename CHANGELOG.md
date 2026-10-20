@@ -18,6 +18,7 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - The working count under an orchestrator's tab spins its loader, so it no longer looks stuck. It stays still with reduce_motion on.
+- The pitwall skill now covers requests for subagents: Claude Code and Codex start them as worker tabs. It also tells them never to open a window or session for a worker. The daemon updates an unedited beta.13 skill when it restarts.
 
 ## v0.1.0-beta.13
 

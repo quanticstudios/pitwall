@@ -1,6 +1,6 @@
 ---
 name: pitwall
-description: Talk to another coding agent running in a pitwall pane, or start worker agents in their own tabs and worktrees and wait for them. Use when asked to ask, ping or message another agent, get a second opinion from Codex or Claude, discuss or review a plan with another agent, split work across several agents, run agents in parallel or orchestrate workers, and when a prompt starts with "[pitwall: message from".
+description: Talk to another coding agent running in a pitwall pane, or start worker agents in their own tabs and worktrees and wait for them. Use when asked to ask, ping or message another agent, get a second opinion from Codex or Claude, discuss or review a plan with another agent, split work across several agents, start subagents or workers, run agents in parallel or orchestrate them, and when a prompt starts with "[pitwall: message from".
 ---
 
 # Working with other agents in pitwall
@@ -35,7 +35,10 @@ Etiquette:
 
 ## Starting workers
 
-To split work across agents, give each one its own tab:
+Workers are pitwall's subagents: tabs the user can watch. When the user
+asks for subagents or workers while you run in pitwall, start them as
+tabs; use your built-in subagents only when the user asks for those. Give
+each worker its own tab, in this session:
 
 - `pitwall worktree new <name> -- claude "<task>"` (or `-- codex`) opens a
   tab in a new git worktree on branch `<name>`, starts the agent on the
@@ -49,6 +52,9 @@ To split work across agents, give each one its own tab:
   the lines say `#N name blocked: <question>`. Tell the user which tab
   needs them and wait; never answer for it. Exit 3: one exited with an
   error. Exit 124: timed out; wait again or check `pitwall ls --children`.
+
+Never run `pitwall` on its own, `pitwall -s` or `pitwall session new` to
+start a worker: those open another window or session.
 
 Give each worker one self-contained task: the goal, the files, how to
 check it, and to commit on its branch. Start them all, then wait once.
