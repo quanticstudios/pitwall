@@ -257,8 +257,9 @@ in one of eight colors, or none.
 A tab an agent opens from its pane, with `pitwall new` or `pitwall
 worktree new`, hangs under the agent's tab, a step further in. The
 agent's row grows a bar with one segment per worker in its state's color
-and, under it, a count each of the workers that need you, failed, work
-and are done. Click the bar to fold the workers into that row and again
+and, under it, a count each of the workers that need you, failed, work,
+are done and stopped. A stopped worker, grey in the bar, has no agent
+running in its tab: the agent exited or never started. Click the bar to fold the workers into that row and again
 to bring them back. Ctrl+Shift+U still jumps to a folded worker that
 needs you. [The agent skill page](agent-skill.md#workers) has the
 commands an orchestrator runs.

@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- The bar under an orchestrator's tab counts its stopped workers, the grey segments, in a muted chip with a power icon. A stopped worker's tab has no agent running: the agent exited or never started.
 - `pitwall worktree new` works from a worktree of a bare repo, as in a `repo.git` beside `main/` layout. pitwall used to take the bare repo for the main checkout and refuse to group it.
 - An orchestrator whose own turn ended shows Working while any of its workers work, instead of a green Done above blue workers.
 - The working count under an orchestrator's tab spins its loader, so it no longer looks stuck. It stays still with reduce_motion on.

@@ -32,7 +32,7 @@ const (
 	fleetError
 	fleetWorking
 	fleetDone
-	fleetIdle // no agent turn yet; a bar segment, no chip
+	fleetIdle // no agent running: not started yet, or exited
 	fleetStates
 )
 
@@ -64,7 +64,7 @@ func fleetColor(th *theme.Theme, state int, base color.NRGBA) color.NRGBA {
 	return theme.Mix(base, th.Muted, 0.45)
 }
 
-var fleetIcons = [...]string{fleetNeed: icCircleAlert, fleetError: icX, fleetWorking: icLoader, fleetDone: icCheck}
+var fleetIcons = [...]string{fleetNeed: icCircleAlert, fleetError: icX, fleetWorking: icLoader, fleetDone: icCheck, fleetIdle: icPower}
 
 // fleetHeight is the strip's height: 6dp, the 4dp bar, 5dp, the chips.
 func fleetHeight(gtx layout.Context, th *theme.Theme) int {
@@ -115,7 +115,7 @@ func (s *Sidebar) fleetStrip(gtx layout.Context, v *view, id string, base color.
 		}
 
 		var chips []item
-		for st := range fleetIdle {
+		for st := range fleetStates {
 			if count[st] == 0 {
 				continue
 			}
