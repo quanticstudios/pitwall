@@ -174,6 +174,19 @@ workers, start them as tabs so the user can watch them. Never run
 `pitwall` on its own, `pitwall -s` or `pitwall session new` for a worker;
 those open another window or session.
 
+Open the tabs before any slow setup. `worktree new` and `new` return once
+the tab exists, so an install or an environment goes in the worker's
+command and runs in view, then the agent starts:
+
+```sh
+pitwall new -n billing ../billing -- sh -c 'pnpm install && exec claude "$0"' "Add the refund flow"
+```
+
+A worker still in setup has no agent state yet, and `wait --children`
+waits for it like the rest. Until you wait, you are still orchestrating:
+`pitwall read #N` prints a worker's last reply and `pitwall send #N --
+"..."` gives it more.
+
 ```sh
 for t in invoice-pdf webhook-retry rate-limit; do
   pitwall worktree new "$t" -- claude "$(cat "tasks/$t.md")"
