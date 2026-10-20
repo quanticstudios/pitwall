@@ -79,7 +79,9 @@ agent's logo replaces the row icon. The logo goes when the agent exits back
 to the shell.
 
 In a repo, the tab shows the repo's icon with the agent's logo as a badge
-on its corner, and the repo's group shows it in place of the folder.
+on its corner, or the icon alone for a shell, and the repo's group shows it
+in place of the folder. The icon follows the folder the tab's first pane is
+in now, so a shell that changes into a repo shows that repo's icon.
 pitwall looks for `.pitwall/icon.svg`, `.png` or `.ico` first, so you can
 pick one by putting it there. Then it looks for `favicon.svg`,
 `favicon.ico` or `favicon.png` at the top, then in `public/`, `static/`,

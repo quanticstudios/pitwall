@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- A shell tab in a repo shows the repo's icon too, and a tab's icon follows the folder its first pane is in now, so `cd` into a repo picks up its icon. SVG icons that use `scale()` with one number draw again; oksvg read them as flattened to nothing. pitwall's own repo has `.pitwall/icon.svg`.
+
 ## v0.1.0-beta.15
 
 - A tab in a repo shows the repo's icon, its favicon or logo (SVG, PNG or ICO, or `.pitwall/icon.*` to pick one), with the agent's logo as a badge on its corner, and the repo's group shows it in place of the folder. A repo with no icon gets a tile with its name's first letter.

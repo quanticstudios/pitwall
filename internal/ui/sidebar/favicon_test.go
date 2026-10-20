@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -108,6 +109,11 @@ func TestFavicon(t *testing.T) {
 	if img := decodeSVG(logo); img == nil || color.NRGBAModel.Convert(img.At(svgPx/2, svgPx/2)).(color.NRGBA).A == 0 {
 		t.Fatal("pitwall's logo did not draw")
 	}
+	// oksvg reads scale(s) as scale(s, 0); a one-factor scale must still draw.
+	scaled := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g transform="translate(0 0) scale(0.5)"><rect width="20" height="20" fill="#0000ff"/></g></svg>`))
+	if scaled == nil || at(scaled) != blue {
+		t.Fatalf("scale(0.5) drew nothing: %v", scaled)
+	}
 	if decodeSVG([]byte("<<<")) != nil {
 		t.Fatal("a broken SVG decoded")
 	}
@@ -125,23 +131,35 @@ func TestFavicon(t *testing.T) {
 	th := theme.Dark()
 	v := &view{th: th, st: &model.State{Projects: []model.Project{{ID: "g", Name: "billing", Color: "violet"}}}}
 	var s Sidebar
-	if s.tabFavicon(v, model.Workspace{Path: repo, RepoRoot: repo}) != nil {
-		t.Fatal("a tab outside a repo got an icon")
+	if s.tabFavicon(v, model.Workspace{Path: repo}) != nil {
+		t.Fatal("a folder with no .git got an icon")
 	}
-	if f := s.tabFavicon(v, model.Workspace{Path: repo, RepoRoot: repo, Branch: "main"}); f == nil || f.src == nil {
-		t.Fatal("a tab in the repo got no image")
+	write(repo, ".git/HEAD", []byte("ref: refs/heads/main\n"))
+	if f := s.tabFavicon(v, model.Workspace{Path: filepath.Join(repo, "public")}); f == nil || f.src == nil {
+		t.Fatal("a tab in a subfolder of the repo got no image")
 	}
 
 	// A repo with no icon gets its letter: its group's name and color, else
 	// its main checkout's name and a color picked from it.
 	bare := filepath.Join(t.TempDir(), "acme-api")
-	if f := s.tabFavicon(v, model.Workspace{Path: bare, RepoRoot: bare, Branch: "x", ProjectID: "g"}); f == nil || f.letter != "B" || f.col != th.ProjectColor("violet") {
+	write(bare, ".git/HEAD", []byte("ref: refs/heads/main\n"))
+	if f := s.tabFavicon(v, model.Workspace{Path: bare, RepoRoot: bare, ProjectID: "g"}); f == nil || f.letter != "B" || f.col != th.ProjectColor("violet") {
 		t.Fatalf("grouped tile: %+v", f)
 	}
 	wt := filepath.Join(bare, ".worktrees", "fix-it")
-	f := s.tabFavicon(v, model.Workspace{Path: wt, RepoRoot: wt, WorktreeRoot: bare, Branch: "fix-it"})
+	write(wt, ".git", []byte("gitdir: ../../.git/worktrees/fix-it\n"))
+	f := s.tabFavicon(v, model.Workspace{Path: wt, RepoRoot: wt, WorktreeRoot: bare})
 	if f == nil || f.letter != "A" || f.col != letterFavicon(th, "acme-api", "").col {
 		t.Fatalf("a worktree's tile is the repo's: %+v", f)
+	}
+
+	// A shell that moved into another repo shows that repo's icon.
+	pane := model.Pane{ID: "p", WorkspaceID: "w", Cwd: repo}
+	moved := model.Workspace{ID: "w", Path: bare, RepoRoot: bare, ProjectID: "g", ActiveTab: "t", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "p"}}}}
+	v.st.Panes = []model.Pane{pane}
+	var fresh Sidebar // s saw repo before it had .git, and keeps that
+	if f := fresh.tabFavicon(v, moved); f == nil || f.src == nil {
+		t.Fatalf("a shell that cd'd into a repo with an icon: %+v", f)
 	}
 	if letterFavicon(th, "--", "") != nil {
 		t.Fatal("a name with no letter got a tile")

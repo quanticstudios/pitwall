@@ -158,6 +158,7 @@ type Sidebar struct {
 	// The fleets whose workers are folded into their strip (fleet.go).
 	kidsFolded map[string]bool
 	favicons   map[string]*favicon // repo root: its icon, nil when it has none
+	roots      map[string]string   // folder: the repo root above it, "" outside one
 
 	// Hints draws the keys the sidebar takes above the footer's buttons
 	// while it has the keyboard; nil hides them.

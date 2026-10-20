@@ -312,6 +312,13 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 		return layout.Dimensions{Size: image.Pt(sz, sz)}
 	}
 	if a == nil {
+		if f := s.tabFavicon(v, ws); f != nil {
+			// A shell in a repo: the repo's icon, at the agent mark's size.
+			off := op.Offset(image.Pt(-gtx.Dp(1), -gtx.Dp(1))).Push(gtx.Ops)
+			f.draw(gtx, gtx.Dp(14))
+			off.Pop()
+			return layout.Dimensions{Size: image.Pt(sz, sz)}
+		}
 		col := th.Muted
 		if isActive {
 			col = th.Primary

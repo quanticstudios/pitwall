@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -84,6 +85,8 @@ func readFavicon(path string) image.Image {
 // svgPx is the size an SVG is drawn at before it is scaled to the row's.
 const svgPx = 96
 
+var oneScale = regexp.MustCompile(`scale\(\s*([-+]?[0-9.]+(?:[eE][-+]?[0-9]+)?)\s*\)`)
+
 // decodeSVG draws an SVG icon in a svgPx square. Elements oksvg does not
 // know are skipped; a file it cannot read, or one that makes it panic,
 // gives nil, since any repo can hold one.
@@ -93,6 +96,9 @@ func decodeSVG(b []byte) (img image.Image) {
 			img = nil
 		}
 	}()
+	// workaround(oksvg be6e8873101c): it reads scale(s) as scale(s, 0),
+	// which flattens the drawing to nothing; spell out the second factor.
+	b = oneScale.ReplaceAll(b, []byte("scale(${1} ${1})"))
 	icon, err := oksvg.ReadIconStream(bytes.NewReader(b), oksvg.IgnoreErrorMode)
 	if err != nil || icon.ViewBox.W <= 0 || icon.ViewBox.H <= 0 {
 		return nil
@@ -230,24 +236,55 @@ func badged(gtx layout.Context, f *favicon, mark func(gtx layout.Context, size i
 	return layout.Dimensions{Size: image.Pt(sz, sz)}
 }
 
-// tabFavicon is the icon of the repo ws is in, or its letter tile; a folder
-// outside a repo has none, so a home folder's stray icon.png never shows.
+// tabFavicon is the icon of the repo the tab's shell or agent is in now,
+// or its letter tile; a folder outside a repo has none, so a home
+// folder's stray icon.png never shows.
 func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
-	if ws.Branch == "" {
+	root := s.repoRoot(v.st.LivePath(ws))
+	if root == "" {
 		return nil
 	}
-	if f := s.favicon(cmp.Or(ws.RepoRoot, ws.Path)); f != nil {
+	if f := s.favicon(root); f != nil {
 		return f
 	}
-	// The tile is the repo's, named as its group or its main checkout, not
-	// the worktree's folder.
-	name, colorID := filepath.Base(cmp.Or(ws.WorktreeRoot, ws.RepoRoot, ws.Path)), ""
-	for _, p := range v.st.Projects {
-		if p.ID == ws.ProjectID {
-			name, colorID = p.Name, p.Color
+	// In its own repo the tile is its group's, or its main checkout's for
+	// a worktree, not the worktree folder's.
+	name, colorID := filepath.Base(root), ""
+	if root == ws.RepoRoot {
+		name = filepath.Base(cmp.Or(ws.WorktreeRoot, root))
+		for _, p := range v.st.Projects {
+			if p.ID == ws.ProjectID {
+				name, colorID = p.Name, p.Color
+			}
 		}
 	}
 	return letterFavicon(v.th, name, colorID)
+}
+
+// repoRoot is the folder at or above dir that holds .git, a worktree's
+// own included, or "" outside a repo; kept per dir for the window's life.
+func (s *Sidebar) repoRoot(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	if root, ok := s.roots[dir]; ok {
+		return root
+	}
+	if s.roots == nil {
+		s.roots = map[string]string{}
+	}
+	root := ""
+	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			root = d
+			break
+		}
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
+	s.roots[dir] = root
+	return root
 }
 
 // groupFavicon is a git group's repo icon, or its letter tile, unless the
