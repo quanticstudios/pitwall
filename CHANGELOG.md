@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- A tab in a repo with its own icon, a PNG or ICO favicon or logo, shows that icon with the agent's logo as a badge on its corner, and the repo's group shows it in place of the folder.
+
 ## v0.1.0-beta.14
 
 - The bar under an orchestrator's tab counts its stopped workers, the grey segments, in a muted chip with a power icon. A stopped worker's tab has no agent running: the agent exited or never started.

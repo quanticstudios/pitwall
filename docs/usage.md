@@ -78,6 +78,15 @@ A tab running an agent pitwall knows always shows it, idle or busy: the
 agent's logo replaces the row icon. The logo goes when the agent exits back
 to the shell.
 
+In a repo with its own icon, its favicon or logo, the tab shows that icon
+with the agent's logo as a badge on its corner, and the repo's group shows
+it in place of the folder. pitwall looks in the repo for `favicon.ico` or
+`favicon.png` at the top, then in `public/`, `static/`, `app/`,
+`src/app/`, `assets/` and `apps/*/public/`, then `logo.png` and
+`icon.png`. It reads PNG and ICO files, not SVG, and looks once per repo
+while the window is open. An icon you pick for a group in **Icon and
+color** wins over the repo's.
+
 A tab with two or more agent panes keeps one row with its most urgent state
 and a count such as "3 agents · 1 approval". Under it, each agent pane gets
 a small row of its own with the agent's logo, the pane's title and its

@@ -71,6 +71,9 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 				return chevron(gtx, &ps.chev, s.isExpanded(p.ID), gtx.Dp(12), th.Muted)
 			}},
 			{w: func(gtx layout.Context) layout.Dimensions {
+				if f := s.groupFavicon(p); f != nil {
+					return f.draw(gtx, gtx.Dp(14))
+				}
 				return drawIcon(gtx, projectIcon(p.Icon), gtx.Dp(14), th.ProjectColor(p.Color), 0)
 			}},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
