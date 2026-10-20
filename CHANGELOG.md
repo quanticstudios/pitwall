@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.14
 
 - The bar under an orchestrator's tab counts its stopped workers, the grey segments, in a muted chip with a power icon. A stopped worker's tab has no agent running: the agent exited or never started.
 - The pitwall skill tells agents to close a finished worker with `pitwall kill`. They used to type `/exit` into it, which pitwall pastes and the agent may not run.
