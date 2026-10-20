@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
+	"time"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -12,6 +14,7 @@ import (
 	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -117,8 +120,17 @@ func (s *Sidebar) fleetStrip(gtx layout.Context, v *view, id string, base color.
 				continue
 			}
 			c := fleetColor(th, st, base)
+			var rot float32
+			if st == fleetWorking && !ghost && !anim.Reduced() {
+				// animate-spin, as the connecting loader: 1s linear. The
+				// row may not pulse (a done root, folded workers), so the
+				// strip asks for its own frames.
+				_, frac := math.Modf(v.t(s))
+				rot = float32(frac * 2 * math.Pi)
+				gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
+			}
 			chips = append(chips, item{w: func(gtx layout.Context) layout.Dimensions {
-				return fleetChip(gtx, th, fleetIcons[st], count[st], c, base, l2)
+				return fleetChip(gtx, th, fleetIcons[st], rot, count[st], c, base, l2)
 			}})
 		}
 		o = op.Offset(image.Pt(x0, gtx.Dp(15))).Push(gtx.Ops)
@@ -134,13 +146,14 @@ func (s *Sidebar) fleetStrip(gtx layout.Context, v *view, id string, base color.
 	return clickable(gtx, &r.kids, draw)
 }
 
-// fleetChip is one state's chip: its icon and count in col on a col tint.
-func fleetChip(gtx layout.Context, th *theme.Theme, icon string, n int, col, base color.NRGBA, h int) layout.Dimensions {
+// fleetChip is one state's chip: its icon, turned rot radians, and count
+// in col on a col tint.
+func fleetChip(gtx layout.Context, th *theme.Theme, icon string, rot float32, n int, col, base color.NRGBA, h int) layout.Dimensions {
 	px := gtx.Dp(6)
 	gtx.Constraints = layout.Constraints{Max: image.Pt(1<<16, h)}
 	m := op.Record(gtx.Ops)
 	d := hrowFit(gtx, h, gtx.Dp(3),
-		item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icon, gtx.Dp(11), col, 0) }},
+		item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icon, gtx.Dp(11), col, rot) }},
 		item{w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, semibold(th.MonoFont), th.Sp(theme.Caption), col, fmt.Sprint(n))
 		}})
