@@ -18,6 +18,7 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - `pitwall worktree new` works from a worktree of a bare repo, as in a `repo.git` beside `main/` layout. pitwall used to take the bare repo for the main checkout and refuse to group it.
+- An orchestrator whose own turn ended shows Working while any of its workers work, instead of a green Done above blue workers.
 - The working count under an orchestrator's tab spins its loader, so it no longer looks stuck. It stays still with reduce_motion on.
 - The pitwall skill now covers requests for subagents: Claude Code and Codex start them as worker tabs. It also tells them never to open a window or session for a worker. The daemon updates an unedited beta.13 skill when it restarts.
 

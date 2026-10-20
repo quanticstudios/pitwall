@@ -432,6 +432,18 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 			v.agents[ws.ID] = aps
 		}
 	}
+	for r, kids := range v.kids {
+		// An orchestrator whose own turn ended reads as Working while a
+		// worker works, not as a green Done above blue workers.
+		a := v.activity[r]
+		if a == nil || a.State != model.StateCompleted || !slices.ContainsFunc(kids, func(k model.Workspace) bool { return model.Pulses(v.activity[k.ID]) }) {
+			continue
+		}
+		w := *a
+		w.State, w.Review = model.StateWorking, false
+		v.activity[r] = &w
+		delete(v.unseen, r)
+	}
 	for _, id := range st.TopOrder(session) {
 		if _, live := v.activity[id]; live && v.rootOf[id] == "" || groups[id] {
 			v.top = append(v.top, id)

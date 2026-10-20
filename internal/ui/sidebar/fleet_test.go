@@ -70,3 +70,22 @@ func TestFleetState(t *testing.T) {
 		t.Error("no activity is not idle")
 	}
 }
+
+func TestFleetRootWorking(t *testing.T) {
+	st := model.State{
+		Workspaces: []model.Workspace{{ID: "o", Name: "orch"}, {ID: "w", Name: "w", Parent: "o"}},
+		Activities: []model.Activity{
+			{WorkspaceID: "o", Provider: model.ProviderClaude, State: model.StateCompleted, Unseen: true},
+			{WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StateWorking},
+		},
+	}
+	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Now: time.Unix(1e9, 0)}
+	v := newView(gtx, theme.Dark(), &st, "", "")
+	if a := v.activity["o"]; a == nil || a.State != model.StateWorking || v.unseen["o"] != nil {
+		t.Fatalf("a done orchestrator over a working worker shows %+v, unseen %v", a, v.unseen["o"])
+	}
+	st.Activities[1].State = model.StateCompleted
+	if a := newView(gtx, theme.Dark(), &st, "", "").activity["o"]; a.State != model.StateCompleted {
+		t.Fatalf("with every worker done the orchestrator shows %s", a.State)
+	}
+}
