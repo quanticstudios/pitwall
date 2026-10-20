@@ -67,6 +67,11 @@ open more workers. Wait once you have nothing else to do.
 Never run `pitwall` on its own, `pitwall -s` or `pitwall session new` to
 start a worker: those open another window or session.
 
+Close a worker once you have its result: `pitwall kill -f #N` ends its agent
+and closes its tab, and its worktree and branch stay. Never type `/exit`
+or another slash command into a worker with `prompt` or `send`: pitwall
+pastes the text, and the agent may not run a pasted command.
+
 Give each worker one self-contained task: the goal, the files, how to
 check it, and to commit on its branch. Start them all before you wait.
 

@@ -187,6 +187,12 @@ waits for it like the rest. Until you wait, you are still orchestrating:
 `pitwall read #N` prints a worker's last reply and `pitwall send #N --
 "..."` gives it more.
 
+Close a worker once you have its result with `pitwall kill -f #N`: it ends
+the agent and closes the tab, and the worktree and branch stay for the
+user to review or archive. Don't type `/exit` or another slash command
+into a worker with `prompt` or `send`. pitwall pastes the text, and an
+agent may not run a pasted command.
+
 ```sh
 for t in invoice-pdf webhook-retry rate-limit; do
   pitwall worktree new "$t" -- claude "$(cat "tasks/$t.md")"
