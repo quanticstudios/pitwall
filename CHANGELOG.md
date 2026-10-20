@@ -19,6 +19,7 @@ build. Either step takes `--dry-run`.
 
 - The bar under an orchestrator's tab counts its stopped workers, the grey segments, in a muted chip with a power icon. A stopped worker's tab has no agent running: the agent exited or never started.
 - The pitwall skill tells agents to close a finished worker with `pitwall kill`. They used to type `/exit` into it, which pitwall pastes and the agent may not run.
+- Next and previous tab (Alt+J and Alt+K in the aide preset) skip the workers of an orchestrator whose workers are folded, and go to the next row you can see.
 - `pitwall worktree new` works from a worktree of a bare repo, as in a `repo.git` beside `main/` layout. pitwall used to take the bare repo for the main checkout and refuse to group it.
 - An orchestrator whose own turn ended shows Working while any of its workers work, instead of a green Done above blue workers.
 - The working count under an orchestrator's tab spins its loader, so it no longer looks stuck. It stays still with reduce_motion on.

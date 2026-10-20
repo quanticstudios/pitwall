@@ -391,3 +391,32 @@ func navigateKeys(t *testing.T) *config.Bindings {
 	}
 	return s.Keys
 }
+
+// TestNavSkipsFoldedWorkers: next and prev pass the workers of a tab
+// whose workers the sidebar folds, unless one of them is open.
+func TestNavSkipsFoldedWorkers(t *testing.T) {
+	st := model.State{
+		Sessions:   []model.Session{{ID: "s"}},
+		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}, {ID: "x", SessionID: "s"}},
+	}
+	folded := true
+	n := nav{session: "s", workspace: "o", folded: func(id string) bool { return id == "o" && folded }}
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "x" {
+		t.Fatalf("next from o with its worker folded went to %s, want x", n.workspace)
+	}
+	n.cycleWorkspace(&st, -1)
+	if n.workspace != "o" {
+		t.Fatalf("prev from x went to %s, want o", n.workspace)
+	}
+	folded = false
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "w" {
+		t.Fatalf("next from o with its worker shown went to %s, want w", n.workspace)
+	}
+	folded = true
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "x" {
+		t.Fatalf("next from a folded worker that is open went to %s, want x", n.workspace)
+	}
+}

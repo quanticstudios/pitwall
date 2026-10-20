@@ -55,6 +55,9 @@ type nav struct {
 	// rows are the tab ids the sidebar lists in st, top to bottom, which
 	// goto_N counts; nil counts every tab (n.ordered).
 	rows func(st *model.State) []string
+	// folded reports whether the sidebar folds the workers of the tab with
+	// that id away; next and prev skip them. nil folds none.
+	folded func(id string) bool
 
 	sidebarHidden bool // toggle_sidebar flips it; the window slides the sidebar
 	panelOpen     bool // toggle_panel flips it; kept for the window's life only
@@ -382,11 +385,15 @@ func (n *nav) selectWorkspace(st *model.State, id, pane string) {
 	n.sync(st)
 }
 
-// cycleWorkspace moves d tabs in sidebar order, wrapping. With a hold
+// cycleWorkspace moves d tabs in sidebar order, wrapping, past the workers
+// of a tab whose workers the sidebar folds. With a hold
 // modifier and the switcher hidden it stays in the tab's group, as aide's
 // Alt+J/K do; otherwise it crosses groups.
 func (n *nav) cycleWorkspace(st *model.State, d int) {
-	ws := n.ordered(st)
+	ws := slices.DeleteFunc(n.ordered(st), func(w model.Workspace) bool {
+		r := st.Root(w)
+		return r != "" && w.ID != n.workspace && n.folded != nil && n.folded(r)
+	})
 	if n.bind().Hold != 0 && !n.switcherVisible() {
 		cur := findWorkspace(st, n.workspace)
 		var local []model.Workspace

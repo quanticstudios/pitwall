@@ -72,6 +72,9 @@ func fleetHeight(gtx layout.Context, th *theme.Theme) int {
 	return gtx.Dp(15) + l2
 }
 
+// KidsFolded reports whether tab id's workers are folded into its row.
+func (s *Sidebar) KidsFolded(id string) bool { return s.kidsFolded[id] }
+
 // kidsShown is tab id's workers as the sidebar lists them under it: none
 // while its strip is folded.
 func (s *Sidebar) kidsShown(v *view, id string) []model.Workspace {

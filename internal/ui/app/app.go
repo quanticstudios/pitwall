@@ -476,6 +476,9 @@ func (u *ui) layout(gtx gl.Context) {
 	if u.nav.rows == nil {
 		u.nav.rows = func(st *model.State) []string { return u.sidebar.Rows(st, u.nav.session, u.nav.workspace) }
 	}
+	if u.nav.folded == nil {
+		u.nav.folded = u.sidebar.KidsFolded
+	}
 	st := u.b.State()
 	link := u.link()
 	u.syncLink(link)
