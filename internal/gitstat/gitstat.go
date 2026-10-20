@@ -85,6 +85,9 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 // C:/x for C:\x.
 func gitPath(p string) string { return filepath.FromSlash(p) }
 
+// ListWorktrees lists the repo's worktrees, its main one first. A bare
+// repo's own entry, which has no files to open, is left out, so with
+// repo.git beside main/ and other trees, main/ comes first.
 func ListWorktrees(ctx context.Context, repoRoot string) ([]Worktree, error) {
 	out, err := git(ctx, repoRoot, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
@@ -92,6 +95,7 @@ func ListWorktrees(ctx context.Context, repoRoot string) ([]Worktree, error) {
 	}
 	var trees []Worktree
 	var tree Worktree
+	bare := false
 	for _, field := range strings.Split(out, "\x00") {
 		switch {
 		case strings.HasPrefix(field, "worktree "):
@@ -100,9 +104,13 @@ func ListWorktrees(ctx context.Context, repoRoot string) ([]Worktree, error) {
 			tree.Head = strings.TrimPrefix(field, "HEAD ")
 		case strings.HasPrefix(field, "branch "):
 			tree.Branch = strings.TrimPrefix(strings.TrimPrefix(field, "branch "), "refs/heads/")
+		case field == "bare":
+			bare = true
 		case field == "" && tree.Path != "":
-			trees = append(trees, tree)
-			tree = Worktree{}
+			if !bare {
+				trees = append(trees, tree)
+			}
+			tree, bare = Worktree{}, false
 		}
 	}
 	return trees, nil

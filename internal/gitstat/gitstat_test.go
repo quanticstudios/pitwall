@@ -227,6 +227,22 @@ func TestDetachedWorktreePath(t *testing.T) {
 	}
 }
 
+func TestBareRepoWorktrees(t *testing.T) {
+	ctx := context.Background()
+	src := repo(t)
+	dir := longTempDir(t)
+	bare, main := filepath.Join(dir, "repo.git"), filepath.Join(dir, "main")
+	runGit(t, dir, "clone", "--bare", src, bare)
+	runGit(t, bare, "worktree", "add", main)
+	trees, err := ListWorktrees(ctx, main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trees) != 1 || trees[0].Path != main {
+		t.Fatalf("ListWorktrees = %+v, want only %s", trees, main)
+	}
+}
+
 func TestRepoRootAndErrors(t *testing.T) {
 	ctx := context.Background()
 	dir := repo(t)
