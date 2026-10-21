@@ -74,9 +74,6 @@ type look struct {
 	hooked bool   // a hook has reported from the pane: hooks own its agent
 	hookFg int    // the foreground group of the last hook
 	sid    int
-	// screens lists the agent CLIs without hooks whose screen a decision
-	// model reads; nil while that feature is off.
-	screens []string
 }
 
 // detect polls every live pane. A pane whose foreground is its own shell
@@ -85,16 +82,12 @@ type look struct {
 func (d *Daemon) detect(ctx context.Context) {
 	d.mu.Lock()
 	var looks []look
-	var screens []string
-	if x := d.dec.cur; x.on() && x.Settings.Agents {
-		screens = x.Settings.Programs
-	}
 	for _, sp := range d.st.Panes {
 		p := d.panes[sp.ID]
 		if _, ok := p.(foregrounder); !ok || sp.Exited {
 			continue
 		}
-		l := look{id: sp.ID, p: p, shell: paneShell(sp.Cmd), hooked: !d.live.hookAt[sp.ID].IsZero(), hookFg: d.live.fg[sp.ID], screens: screens}
+		l := look{id: sp.ID, p: p, shell: paneShell(sp.Cmd), hooked: !d.live.hookAt[sp.ID].IsZero(), hookFg: d.live.fg[sp.ID]}
 		if det := d.live.det[sp.ID]; det != nil {
 			l.sid = det.sid
 		}
@@ -116,8 +109,8 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		l.sid = sessionOf(fg) // every process on the terminal shares it
 	}
 	own := fg == l.sid
-	var prov, seen model.Provider // seen is the agent even when the decision model reads it
-	var comm, name string         // name is what the decision model's programs call it
+	var prov model.Provider
+	var comm string
 	var g vt.Grid
 	var screen model.AgentState // an agent's state read from its screen, without hooks
 	switch {
@@ -126,27 +119,9 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		return // the hooked agent: hooks own it
 	default:
 		prov, comm = identify(fg)
-		seen, name = prov, comm
-		// why: a decision model the user turned on for an agent reads more than its text rules do.
-		if c := agent.Command(prov); agent.ScreenRules(prov) && slices.Contains(l.screens, c) {
-			prov, name = "", c
-		}
-		if prov != "" && !l.hooked || prov == "" && slices.Contains(l.screens, name) {
-			g = l.p.Snapshot()
-		}
 		if prov != "" && !l.hooked {
+			g = l.p.Snapshot()
 			screen = agent.StateOf(prov, g)
-		}
-	}
-	// An agent CLI without hooks, read by the decision model. Only these
-	// programs: an ordinary shell's output is never sent. The foreground
-	// is read again after the capture, so a program that exited in
-	// between cannot get the shell's screen sent under its name.
-	reader := ""
-	if prov == "" && (!own || l.shell == "") && slices.Contains(l.screens, name) {
-		reader = name
-		if fg2 := l.p.(foregrounder).Foreground(); fg2 != fg || commOf(fg) != comm {
-			return
 		}
 	}
 	var cwd string
@@ -169,7 +144,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		d.live.det[l.id] = det
 	}
 	det.sid = l.sid
-	d.noteHooks(l.id, det, seen, screen, l.hooked, fresh)
+	d.noteHooks(l.id, det, prov, screen, l.hooked, fresh)
 	var prev model.AgentState
 	if i := d.activityIndex(l.id); i >= 0 {
 		a := d.st.Activities[i]
@@ -178,16 +153,8 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		}
 		prev = a.State
 	}
-	if reader != "" {
-		d.setProvider(l.id, model.Provider(reader))
-	} else {
-		d.setProvider(l.id, prov) // the foreground's agent, idle or busy; "" for a shell or a command
-		delete(d.dec.screens, l.id)
-	}
+	d.setProvider(l.id, prov) // the foreground's agent, idle or busy; "" for a shell or a command
 	switch {
-	case reader != "":
-		det.cells = nil
-		d.readScreen(ctx, l.id, reader, g)
 	case prov != "" && l.hooked:
 		// Another agent took the foreground after this poll's exit check:
 		// never a terminal command, and the next poll reads its screen.

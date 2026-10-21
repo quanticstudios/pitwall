@@ -17,6 +17,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/decisionlog"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
@@ -60,32 +61,8 @@ func (f *fakeModel) questions() []string {
 	return out
 }
 
-func verdict(allow, ask, deny float64) decide.Answer {
-	c := decide.Allow
-	if ask > allow && ask > deny {
-		c = decide.Ask
-	} else if deny > allow {
-		c = decide.Deny
-	}
-	return decide.Answer{Type: decide.Choice, Choice: c, Confidence: 0.9, Probabilities: map[string]float64{decide.Allow: allow, decide.Ask: ask, decide.Deny: deny}}
-}
-
-// urgency is a triage answer of level n with a full distribution.
-func urgency(n int) decide.Answer {
-	p := map[string]float64{"0": 0, "1": 0, "2": 0, "3": 0}
-	p[fmt.Sprint(n)] = 1
-	return decide.Answer{Type: decide.Score, Score: float64(n), Confidence: 0.9, Probabilities: p}
-}
-
-// status is a screen answer with confidence conf on choice.
-func status(choice string, conf float64) decide.Answer {
-	p := map[string]float64{}
-	for _, o := range []string{decide.ScreenWorking, decide.ScreenWaiting, decide.ScreenApproval, decide.ScreenDone, decide.ScreenIdle} {
-		p[o] = 0
-	}
-	p[choice] = 1
-	return decide.Answer{Type: decide.Choice, Choice: choice, Confidence: conf, Probabilities: p}
-}
+// yes is a yes/no answer with probability p of yes.
+func yes(p float64) decide.Answer { return decide.Answer{Type: decide.Noul, Noul: p} }
 
 func hookFixture(t *testing.T, name string) []byte {
 	t.Helper()
@@ -109,7 +86,7 @@ func decisionDaemon(t *testing.T, m *fakeModel, mode string) *Daemon {
 	o := f.options()
 	o.Derive, o.SessionID = agent.Derive, agent.SessionID
 	s := config.DecideSettings{Provider: "jev", Approvals: mode, Triage: true,
-		TurnCheck: true, TurnThreshold: 0.8, Timeout: time.Second}
+		TurnCheck: true, TurnThreshold: 0.8, Check: true, Timeout: time.Second}
 	o.Decisions = func() Decisions { return Decisions{Settings: s, Provider: m} }
 	d, err := NewWith(o)
 	if err != nil {
@@ -143,8 +120,8 @@ func hookJSON(t *testing.T, d *Daemon, payload string) {
 
 func TestSuggestShowsAdvice(t *testing.T) {
 	m := &fakeModel{answers: map[string]decide.Answer{
-		"verdict": verdict(0.96, 0.03, 0.01),
-		"urgency": urgency(2),
+		"requested": yes(0.96), "irreversible": yes(0),
+		"blocked": yes(0.2), "nothing": yes(0.1),
 	}}
 	d := decisionDaemon(t, m, config.ModeSuggest)
 	hookJSON(t, d, gitPushRequest)
@@ -189,19 +166,19 @@ func TestDecisionErrorsFallThrough(t *testing.T) {
 }
 
 func TestQuestionsAreNeverAnswered(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"verdict": verdict(0.99, 0.01, 0)}}
+	m := &fakeModel{answers: map[string]decide.Answer{"requested": yes(0.99)}}
 	d := decisionDaemon(t, m, config.ModeSuggest)
 	hook(t, d, "claude_permission_request_ask")
 	time.Sleep(50 * time.Millisecond)
 	for _, q := range m.questions() {
-		if q == "verdict" {
+		if q == "requested" {
 			t.Error("asked a model to approve AskUserQuestion")
 		}
 	}
 }
 
 func TestTurnCheck(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"review": {Type: decide.Noul, Noul: 0.9}, "urgency": urgency(3)}}
+	m := &fakeModel{answers: map[string]decide.Answer{"review": yes(0.9), "blocked": yes(0.9), "nothing": yes(0.1)}}
 	d := decisionDaemon(t, m, config.ModeSuggest)
 	hook(t, d, "claude_user_prompt_submit")
 	hook(t, d, "claude_stop")
@@ -210,14 +187,14 @@ func TestTurnCheck(t *testing.T) {
 		t.Errorf("activity %+v, pill %q", a, model.PillLabel(a))
 	}
 	// The approval question carries the latest prompt.
-	m.answers["verdict"] = verdict(0.5, 0.4, 0.1)
+	m.answers["requested"], m.answers["irreversible"] = yes(0.9), yes(0.1)
 	hookJSON(t, d, gitPushRequest)
 	waitActivity(t, d, "advice", func(a model.Activity) bool { return a.Advice != "" })
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	last := m.asked[len(m.asked)-1]
 	for _, r := range m.asked {
-		if _, ok := r.Questions["verdict"]; ok {
+		if _, ok := r.Questions["requested"]; ok {
 			last = r
 		}
 	}
@@ -251,190 +228,29 @@ func TestNoProviderAsksNothing(t *testing.T) {
 	}
 }
 
-func TestScreenReadDue(t *testing.T) {
-	defer func(d time.Duration) { screenEvery = d }(screenEvery)
-	screenEvery = 2 * time.Second
-	a := []vt.Cell{{Content: "a"}}
-	b := []vt.Cell{{Content: "b"}}
-	t0 := time.Unix(1000, 0)
-	r, p := &screenRead{}, &screenPace{}
-	if !r.due(p, a, t0) {
-		t.Fatal("first screen not due")
-	}
-	p.last, r.cells = t0, a
-	if r.due(p, b, t0.Add(time.Second)) {
-		t.Error("due again within 2 s")
-	}
-	if r.due(p, a, t0.Add(3*time.Second)) {
-		t.Error("an unchanged screen is due")
-	}
-	if !r.due(p, b, t0.Add(2*time.Second)) {
-		t.Error("a changed screen after 2 s is not due")
-	}
-	// Another program in the same pane starts a new record but keeps the
-	// pane's pace: still not due within 2 s of the last send.
-	if (&screenRead{agent: "other"}).due(p, b, t0.Add(time.Second)) {
-		t.Error("a program change reset the pane's pace")
-	}
-	p.busy = true
-	if r.due(p, b, t0.Add(5*time.Second)) {
-		t.Error("due while a read is on its way")
-	}
-}
-
-// TestScreenReading runs the agents feature on the liveness poll: only a
-// listed program is read, at most once per screenEvery while its screen
-// changes, and a sure answer sets the activity.
-func TestScreenReading(t *testing.T) {
-	old := screenEvery
-	t.Cleanup(func() { screenEvery = old }) // after openLive's cleanup stops the poll
-	screenEvery = 100 * time.Millisecond
-	d, lp, id := openLive(t, 500) // "sleep", not listed
-	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWaiting, 0.9)}}
-	d.mu.Lock()
-	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
-		Programs: config.HooklessAgents, Timeout: time.Second}}
-	d.mu.Unlock()
-	lp.show("some build output", false)
-	polls()
-	if q := m.questions(); len(q) > 0 {
-		t.Fatalf("read the screen of an unlisted program: %v", q)
-	}
-	if s := d.stateOf(id); s != model.StateTerminalRunning {
-		t.Fatalf("unlisted program: %q", s)
-	}
-
-	lp.fgGroup.Store(700) // gemini
-	waitUntil(t, "awaiting input", func() bool { return d.stateOf(id) == model.StateAwaitingInput })
-	if a := d.activityOf(id); a.Provider != "gemini" {
-		t.Errorf("activity %+v", a)
-	}
-	// A screen that keeps changing is read at most once per screenEvery.
-	n0 := len(m.questions())
-	stop := time.Now().Add(500 * time.Millisecond)
-	for i := 0; time.Now().Before(stop); i++ {
-		lp.show(fmt.Sprintf("Gemini thinking %d", i), false)
-		time.Sleep(5 * time.Millisecond)
-	}
-	if n := len(m.questions()) - n0; n < 2 || n > 7 {
-		t.Errorf("%d reads in 500 ms of changes, want 2 to 7", n)
-	}
-	// A still screen is not read again.
-	polls()
-	n1 := len(m.questions())
-	polls()
-	polls()
-	if n := len(m.questions()); n != n1 {
-		t.Errorf("a still screen was read %d more times", n-n1)
-	}
-	// An unsure answer changes nothing.
-	m.mu.Lock()
-	m.answers["status"] = status(decide.ScreenWorking, 0.5)
-	m.mu.Unlock()
-	lp.show("Gemini maybe working", false)
-	time.Sleep(3 * screenEvery)
-	if s := d.stateOf(id); s != model.StateAwaitingInput {
-		t.Errorf("an unsure answer changed the state to %q", s)
-	}
-	// Back at the shell, the activity and the record go.
-	lp.fgGroup.Store(200)
-	waitUntil(t, "cleared", func() bool { return d.stateOf(id) == "" })
-	d.mu.Lock()
-	_, kept := d.dec.screens[id]
-	d.mu.Unlock()
-	if kept {
-		t.Error("screen record kept after the program left")
-	}
-}
-
-// pi is a hooked agent, not one read by the decision model: its screen is
-// never sent, even when "pi" is listed, and once its extension reports,
-// the hook's state stands.
-func TestPiIsNotReadAsHookless(t *testing.T) {
-	old := screenEvery
-	t.Cleanup(func() { screenEvery = old })
-	screenEvery = 100 * time.Millisecond
-	d, lp, id := openLive(t, 800)
-	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWaiting, 0.9)}}
-	d.mu.Lock()
-	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
-		Programs: append(slices.Clone(config.HooklessAgents), "pi"), Timeout: time.Second}}
-	d.mu.Unlock()
-	lp.show("Working... (esc to interrupt)", false)
-	waitUntil(t, "pi working", func() bool { return d.stateOf(id) == model.StateWorking })
-	must(t, d.handle(context.Background(), proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: []byte("completed")}))
-	lp.show("Working... (esc to interrupt)", false)
-	polls()
-	polls()
-	if a := d.activityOf(id); a.Provider != model.ProviderPi || a.State != model.StateCompleted {
-		t.Errorf("detection overrode pi's hook: %+v", a)
-	}
-	if q := m.questions(); slices.Contains(q, "status") {
-		t.Fatalf("pi's screen went to the model: %v", q)
-	}
-}
-
-// A screen captured while its program exits is not sent under its name.
-func TestScreenRecheckedAfterCapture(t *testing.T) {
-	old := screenEvery
-	t.Cleanup(func() { screenEvery = old; commGone.Store(false) })
-	screenEvery = 50 * time.Millisecond
-	commGone.Store(true)
-	d, lp, _ := openLive(t, 700)
-	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWaiting, 0.9)}}
-	d.mu.Lock()
-	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
-		Programs: config.HooklessAgents, Timeout: time.Second}}
-	d.mu.Unlock()
-	lp.show("$ cat secrets.txt", false)
-	polls()
-	if q := m.questions(); len(q) > 0 {
-		t.Errorf("sent a screen after the program left: %v", q)
-	}
-}
-
-// Switching between agent CLIs in a pane does not send more often.
-func TestScreenPaceAcrossPrograms(t *testing.T) {
-	old := screenEvery
-	t.Cleanup(func() { screenEvery = old })
-	screenEvery = 200 * time.Millisecond
-	d, lp, _ := openLive(t, 700)
-	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWorking, 0.9)}}
-	d.mu.Lock()
-	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Agents: true, AgentThreshold: 0.8,
-		Programs: config.HooklessAgents, Timeout: time.Second}}
-	d.mu.Unlock()
-	start := time.Now()
-	for i := 0; time.Since(start) < 600*time.Millisecond; i++ {
-		lp.fgGroup.Store(int64(700 + i%2))
-		lp.show(fmt.Sprint("screen ", i), false)
-		time.Sleep(15 * time.Millisecond)
-	}
-	if n := len(m.questions()); n > 4 {
-		t.Errorf("%d reads in 600 ms at one per 200 ms", n)
-	}
-}
-
-// A risky call keeps its flag next to the recommendation, even when the
-// model says allow, and nothing is decided.
+// A call pitwall sees a risk in shows the risk at once, and the model is
+// not asked about it.
 func TestAdviceFlagsRisk(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"verdict": verdict(0.99, 0.01, 0)}}
+	m := &fakeModel{answers: map[string]decide.Answer{"requested": yes(0.99), "irreversible": yes(0)}}
 	d := decisionDaemon(t, m, config.ModeSuggest)
 	hook(t, d, "claude_permission_request") // rm -rf node_modules
-	a := waitActivity(t, d, "advice", func(a model.Activity) bool { return a.Advice != "" })
-	if a.Advice != decide.Allow || a.AdviceRule != decide.RuleRmRf || a.State != model.StatePendingApproval {
+	if a := d.activityOf("a"); a.Advice != "" || a.AdviceRule != decide.RuleRmRf || a.State != model.StatePendingApproval {
 		t.Errorf("activity %+v", a)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if slices.Contains(m.questions(), "requested") {
+		t.Error("asked the model about a call the rules answered")
 	}
 }
 
 // Approvals off asks nothing about permission requests.
 func TestApprovalsOff(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"verdict": verdict(0.99, 0.01, 0), "urgency": urgency(1)}}
+	m := &fakeModel{answers: map[string]decide.Answer{"requested": yes(0.99), "blocked": yes(0.1)}}
 	d := decisionDaemon(t, m, config.ModeOff)
 	hookJSON(t, d, gitPushRequest)
 	time.Sleep(50 * time.Millisecond)
 	for _, q := range m.questions() {
-		if q == "verdict" {
+		if q == "requested" {
 			t.Error("asked for a recommendation with approvals off")
 		}
 	}
@@ -456,9 +272,9 @@ func TestLoadDecisionsScrubsKeyForCommand(t *testing.T) {
 	if _, ok := x.Provider.(decide.Command); !ok || !slices.Contains(x.Secrets, key) {
 		t.Fatalf("command provider: %T, key scrubbed %v", x.Provider, slices.Contains(x.Secrets, key))
 	}
-	m := &fakeModel{answers: map[string]decide.Answer{"status": status(decide.ScreenWorking, 0.9)}}
+	m := &fakeModel{answers: map[string]decide.Answer{"blocked": yes(0.9), "nothing": yes(0.1)}}
 	c := &decide.Client{P: m, Secrets: x.Secrets, Timeout: time.Second}
-	if _, err := c.Ask(context.Background(), decide.FeatureAgents, "", decide.ScreenState("gemini", "$ echo "+key), decide.ScreenQuestions()); err != nil {
+	if _, err := c.Ask(context.Background(), decide.FeatureTriage, "", decide.TriageState("gemini", "awaiting-input", "$ echo "+key), decide.TriageQuestions()); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(m.asked)
@@ -622,5 +438,123 @@ func TestNoticeScrubsKnownKey(t *testing.T) {
 		if time.Since(start) > 2*time.Second {
 			t.Fatal("no notice")
 		}
+	}
+}
+
+const goTestRan = `{"session_id":"s1","transcript_path":"/t.jsonl","cwd":"/home/u/repo","hook_event_name":"PostToolUse","tool_name":"Bash",` +
+	`"tool_input":{"command":"go test ./..."},"tool_response":{"stdout":"ok  \tx\t0.1s [no tests to run]","stderr":""}}`
+
+// failedCheck reports whether pane a's latest check counts as failed.
+func failedCheck(d *Daemon) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	c := d.dec.checks["a"]
+	return c != nil && c.failed
+}
+
+// A check that exits 0 goes to the model, one that failed does not, and a
+// turn that ends on a failed check reads Check whatever the turn check
+// says. A new prompt starts the checks over.
+func TestCheckMarksTurn(t *testing.T) {
+	m := &fakeModel{answers: map[string]decide.Answer{"failed": yes(0.9), "review": yes(0.1)}}
+	d := decisionDaemon(t, m, config.ModeOff)
+	hook(t, d, "claude_user_prompt_submit")
+	hookJSON(t, d, goTestRan)
+	waitUntil(t, "check read", func() bool { return failedCheck(d) })
+	m.mu.Lock()
+	st, _ := m.asked[len(m.asked)-1].State.(map[string]any)
+	m.mu.Unlock()
+	if st["command"] != "go test ./..." || !strings.Contains(fmt.Sprint(st["output"]), "no tests to run") {
+		t.Errorf("check state %v", st)
+	}
+	hook(t, d, "claude_stop")
+	if a := d.activityOf("a"); !a.Review {
+		t.Errorf("a turn ending on a failed check: %+v", a)
+	}
+
+	hook(t, d, "claude_user_prompt_submit")
+	if failedCheck(d) {
+		t.Fatal("a new turn kept the old check")
+	}
+	n := len(m.questions())
+	hook(t, d, "claude_post_tool_use_failure") // npm test, exit 1
+	hook(t, d, "claude_stop")
+	if a := d.activityOf("a"); !a.Review {
+		t.Errorf("a turn ending on a failing npm test: %+v", a)
+	}
+	if q := m.questions()[n:]; slices.Contains(q, "failed") {
+		t.Errorf("asked about a check its exit code answered: %v", q)
+	}
+
+	m.mu.Lock()
+	m.answers["failed"] = yes(0.1)
+	m.mu.Unlock()
+	hook(t, d, "claude_user_prompt_submit")
+	hookJSON(t, d, goTestRan)
+	waitUntil(t, "check read", func() bool { return slices.Contains(m.questions()[n:], "failed") })
+	time.Sleep(20 * time.Millisecond)
+	hook(t, d, "claude_stop")
+	time.Sleep(50 * time.Millisecond)
+	if a := d.activityOf("a"); a.Review {
+		t.Errorf("a turn ending on a passing check: %+v", a)
+	}
+}
+
+// An agent working 10 minutes without a state change is asked about,
+// once per 10 minutes, from its own screen only, and Esc logs the outcome.
+func TestStuck(t *testing.T) {
+	d, lp, id := liveDaemon(t, model.StateWorking)
+	path := filepath.Join(t.TempDir(), "decisions.jsonl")
+	j, err := decisionlog.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &fakeModel{answers: map[string]decide.Answer{"stuck": yes(0.9)}}
+	d.mu.Lock()
+	d.o.Journal = j
+	d.dec.cur = Decisions{Provider: m, Settings: config.DecideSettings{Provider: "command", Stuck: true, StuckThreshold: 0.8, Timeout: time.Second}}
+	d.mu.Unlock()
+	lp.show("npm install: ETIMEDOUT, retrying (attempt 14)", false)
+	polls()
+	if q := m.questions(); len(q) > 0 {
+		t.Fatalf("asked about an agent working for seconds: %v", q)
+	}
+	d.mu.Lock()
+	i := d.activityIndex(id)
+	d.st.Activities[i].UpdatedAt = time.Now().Add(-11 * time.Minute)
+	since := d.st.Activities[i].UpdatedAt
+	d.mu.Unlock()
+	waitUntil(t, "stuck", func() bool { return d.activityOf(id).Stuck })
+	polls()
+	if n := len(m.questions()); n != 1 {
+		t.Errorf("asked %d times within 10 minutes", n)
+	}
+	m.mu.Lock()
+	st, _ := m.asked[0].State.(map[string]any)
+	m.mu.Unlock()
+	if !strings.Contains(fmt.Sprint(st["screen"]), "ETIMEDOUT") || fmt.Sprint(st["minutes"]) != "11" {
+		t.Errorf("stuck state %v", st)
+	}
+	d.noteInput(id, []byte{0x03})
+	// Another program in the foreground: its screen is never sent.
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex(id)].UpdatedAt = since
+	d.dec.stuck[id].asked = time.Time{}
+	d.mu.Unlock()
+	lp.fgGroup.Store(300)
+	polls()
+	if n := len(m.questions()); n != 1 {
+		t.Errorf("asked about another program's screen: %d asks", n)
+	}
+	j.Close(time.Second)
+	evs, _ := decisionlog.Read(path, time.Time{})
+	var users []string
+	for _, e := range evs {
+		if e.Feature == decide.FeatureStuck && e.Kind == decisionlog.Outcome {
+			users = append(users, e.User)
+		}
+	}
+	if !slices.Equal(users, []string{decisionlog.Interrupted}) {
+		t.Errorf("stuck outcomes %v", users)
 	}
 }

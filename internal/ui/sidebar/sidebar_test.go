@@ -196,6 +196,7 @@ func TestPillText(t *testing.T) {
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "now"}, "jev", "Input · now"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "later"}, "jev", "Input"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateCompleted, Review: true}, "jev", "Check"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StateWorking, Stuck: true}, "jev", "Working · stuck"},
 	} {
 		if got := PillText(tc.a, tc.by); got != tc.want {
 			t.Errorf("PillText(%+v) = %q, want %q", tc.a, got, tc.want)

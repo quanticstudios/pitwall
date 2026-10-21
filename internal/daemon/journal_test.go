@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,9 +42,9 @@ func journalDaemon(t *testing.T, m *fakeModel, holdout float64) (d *Daemon, done
 
 func allAnswers() *fakeModel {
 	return &fakeModel{answers: map[string]decide.Answer{
-		"verdict": verdict(0.96, 0.03, 0.01),
-		"urgency": urgency(3),
-		"review":  {Type: decide.Noul, Noul: 0.9},
+		"requested": yes(0.96), "irreversible": yes(0),
+		"blocked": yes(0.9), "nothing": yes(0),
+		"review": yes(0.9),
 	}}
 }
 
@@ -78,25 +79,66 @@ func TestJournalHoldsNoText(t *testing.T) {
 	}
 }
 
-// TestHoldoutHidesVerdict: a held-out prompt shows pitwall's risk flag but
-// not the model's verdict, which the log still records with the arm.
+// TestHoldoutHidesVerdict: a held-out prompt shows nothing of the model's
+// verdict, which the log still records with the arm and both answers. A
+// prompt pitwall's rules answer is logged as theirs.
 func TestHoldoutHidesVerdict(t *testing.T) {
-	d, done := journalDaemon(t, allAnswers(), 1)
-	hook(t, d, "claude_permission_request") // rm -rf node_modules
-	a := waitActivity(t, d, "risk flag", func(a model.Activity) bool { return a.AdviceRule != "" })
-	if a.Advice != "" || a.AdviceP != 0 || a.AdviceRule != decide.RuleRmRf {
+	m := allAnswers()
+	d, done := journalDaemon(t, m, 1)
+	hookJSON(t, d, gitPushRequest)
+	waitUntil(t, "asked", func() bool { return slices.Contains(m.questions(), "requested") })
+	time.Sleep(20 * time.Millisecond)
+	if a := d.activityOf("a"); a.Advice != "" || a.AdviceP != 0 || a.AdviceRule != "" {
 		t.Errorf("held out shows %+v", a)
 	}
+	hook(t, d, "claude_permission_request") // rm -rf node_modules
 	evs, _ := done()
+	var got []decisionlog.Event
 	for _, e := range evs {
 		if e.Feature == decide.FeatureApprovals && e.Kind == decisionlog.Call {
-			if !e.Held || !e.Risk || e.Answer != decide.Allow || e.P != 0.96 {
-				t.Errorf("call %+v", e)
-			}
-			return
+			got = append(got, e)
 		}
 	}
-	t.Errorf("no approval call in %+v", evs)
+	if len(got) != 2 {
+		t.Fatalf("approval calls %+v", got)
+	}
+	if e := got[0]; !e.Held || e.Risk || e.Answer != decide.Allow || e.P != 0.96 || e.Probs["requested"] != 0.96 || e.Base != "" {
+		t.Errorf("model call %+v", e)
+	}
+	if e := got[1]; e.Held || !e.Risk || e.Answer != decide.Ask || e.Base != "rule" {
+		t.Errorf("rule call %+v", e)
+	}
+}
+
+// TestTriageHoldout: a held-out pane stays untriaged, and its call and
+// focus are logged with the arm.
+func TestTriageHoldout(t *testing.T) {
+	d, done := journalDaemon(t, allAnswers(), 0)
+	d.mu.Lock()
+	d.dec.cur.Settings.TriageHoldout = 1
+	d.mu.Unlock()
+	hookJSON(t, d, gitPushRequest)
+	a := waitActivity(t, d, "triage answered", func(a model.Activity) bool { return a.Urgency != model.UrgencyPending })
+	if a.Urgency != "" {
+		t.Errorf("held out triaged %+v", a)
+	}
+	must(t, d.seePane("a"))
+	evs, raw := done()
+	held := 0
+	for _, e := range evs {
+		if e.Feature == decide.FeatureTriage {
+			if !e.Held {
+				t.Errorf("not held: %+v", e)
+			}
+			if e.Kind == decisionlog.Call && (e.Answer != "now" || e.Probs["blocked"] != 0.9) {
+				t.Errorf("call %+v", e)
+			}
+			held++
+		}
+	}
+	if held != 2 {
+		t.Errorf("%d triage events:\n%s", held, raw)
+	}
 }
 
 const bashRan = `{"session_id":"s1","transcript_path":"/t.jsonl","cwd":"/home/u/repo","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{},"tool_use_id":"x"}`

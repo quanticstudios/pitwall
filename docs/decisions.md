@@ -5,9 +5,14 @@ doing. [TypeSafe's Jev](https://docs.typesafe.ai) is built for this: it
 answers yes/no, multiple-choice and rating questions with calibrated
 probabilities in roughly 70 to 500 ms and writes no text. pitwall uses it to
 recommend an answer to approval prompts, to sort what needs you by urgency,
-to see what agents without hooks are doing, and to flag finished turns that
-need a look. It only ever suggests: every permission prompt is still yours
-to answer.
+to flag finished turns that need a look, to catch a check that passed on
+its exit code but not in its output, and to spot an agent that is stuck.
+It only ever suggests: every permission prompt is still yours to answer.
+
+Each question is one narrow yes/no, as TypeSafe advises, and pitwall's own
+rules answer first where they can. Every feature logs what it would have
+done and what you did next, so `pitwall jev report` can say whether it
+beats doing without it; see [Is it worth it?](#is-it-worth-it).
 
 Nothing is sent anywhere until you connect a provider. Each call times out,
 after 1.5 s by default (`timeout` under `[decisions]`, 0.2 to 10 s), and a
@@ -39,17 +44,19 @@ for TypeSafe's own SDKs.
 
 Connecting sets `provider = "jev"` under `[decisions]` and keeps every
 other setting you have there. With none set, triage is on and approvals
-suggest; screen reading and turn checks stay off until you turn them on.
+suggest; turn checks, check runs and stuck agents stay off until you turn
+them on.
 `pitwall jev status` prints what is on.
 
 ## Features
 
 | Feature | What it does | What it sends, and when |
 | ------- | ------------ | ----------------------- |
-| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, asks whether the call is safe. `suggest` (the default) shows the answer on the tab's pill, in the switcher, in the hover card and in the pane's corner ("Jev: allow 96%"), with any risk pitwall sees in the call ("Jev: allow 96% · sudo"). It is only a suggestion: the agent's prompt shows at once, as without pitwall, and you answer it. While measuring, `holdout` of the prompts show only the risk; see [Is it worth it?](#is-it-worth-it). `off` asks nothing. | On each permission request: the tool, its input, the working directory, the repo root and your latest prompt. |
-| Attention triage (`[decisions.triage]`) | Rates a pane that needs you as fyi, later, soon or now. The jump-to-attention key goes to the most urgent first, desktop notifications go out most urgent first (now is marked urgent), and fyi sends no notification. The pill reads "Input · now" for now. | When an agent pane starts needing you: its state and its question, approval detail, error or turn summary. |
-| Agents without hooks (`[decisions.agents]`) | For Aider, Amp, Cursor agent, Goose and Crush, and Gemini CLI and OpenCode while their hooks are not installed (add more with `programs`), reads the screen and sets the pane's state when the answer's confidence reaches `threshold` (default 0.8). Programs are matched by process name, or, for one an interpreter such as `node` runs, by its script. | The visible screen of those programs only, at most once per pane every 2 seconds and only while it changes. A shell or any other program's screen is never sent. |
+| Approvals (`[decisions.approvals]`) | When Claude Code or Codex asks permission, a call pitwall sees a risk in shows that risk ("Risk: sudo", see below) and the model is not asked. For any other call it asks two questions, whether you asked for it and whether it is hard to undo, and recommends allow when the first is likely and the second is not. `suggest` (the default) shows the answer on the tab's pill, in the switcher, in the hover card and in the pane's corner ("Jev: allow 81%"). It is only a suggestion: the agent's prompt shows at once, as without pitwall, and you answer it. While measuring, `holdout` of the prompts show nothing; see [Is it worth it?](#is-it-worth-it). `off` asks nothing. | On each permission request pitwall sees no risk in: the tool, its input, the working directory, the repo root and your latest prompt. |
+| Attention triage (`[decisions.triage]`) | Asks whether a pane that needs you is blocked on you (now) or has nothing for you to do (fyi); neither is soon. The jump-to-attention key goes to now first, desktop notifications go out most urgent first (now is marked urgent), and fyi sends no notification. The pill reads "Input · now" for now. `holdout` (default 0.2) leaves that share of panes untriaged, to measure it. | When an agent pane starts needing you: its state and its question, approval detail, error or turn summary. |
 | Turn check (`[decisions.turn_check]`) | When an agent finishes a turn, asks whether it needs your review: failed tests, errors left, unfinished work. The Done pill reads Check when the answer reaches `threshold` (default 0.8). | When a turn ends: the agent's last message only, never the screen. |
+| Check runs (`[decisions.check]`) | When an agent runs a check (pre-commit, tests, a linter, a type check, a build, `git commit`), one that exits non-zero fails at once. For one that exits 0, asks whether the output still shows a problem: failures, tests skipped or none found, hooks bypassed (`--no-verify`, `SKIP=`), errors hidden (`\|\| true`). A turn that ends on a failed check reads Check. | After a check that exited 0: the command and the end of its output. |
+| Stuck agents (`[decisions.stuck]`) | When an agent has worked 10 minutes without stopping, asks whether it is stuck: repeating an action or an error, retrying a failing command, waiting on something that will not finish. It asks again every 10 minutes while the agent works. The pill reads "Working · stuck" when the answer reaches `threshold` (default 0.8). | The visible screen of that agent's pane, and only while the agent whose hooks reported is in the foreground. |
 
 Before anything leaves your machine, pitwall removes what looks secret:
 private keys, `Authorization` and cookie headers, bearer tokens, values
@@ -71,8 +78,9 @@ can resolve to anything on `PATH`), so it needs sandboxed execution.
 
 The `PermissionRequest` hook that `pitwall hooks install` registers reports
 the request and exits at once, so the agent's prompt is never delayed. The
-recommendation arrives a moment later. Next to it pitwall shows the first
-risk it reads in the call's text, whatever the model said: `sudo`,
+recommendation arrives a moment later. Before asking, pitwall reads the
+call's text for a risk, and when it finds one it shows the first ("Risk:
+sudo") and asks the model nothing: `sudo`,
 `rm -rf` (long options by any prefix, such as `--rec --fo`), a force push,
 `git reset --hard`, a download piped into a shell, a secrets path
 (`~/.ssh`, `~/.aws`, `.env*`, ...), a write into `.git`, `.claude`,
@@ -95,9 +103,14 @@ next to `daemon.log` (`~/.local/state/pitwall/` on Linux). Each call gets a
 line with its feature, the pane id, the latency, the failure kind (timeout,
 http, bad_reply, ...), the answer with its probability and confidence, and
 the input tokens. Each outcome gets a line joined to its call by a random
-id: how you answered a permission prompt and how long that took, whether
-you prompted the agent again after a turn check, and how long a triaged
-pane waited for you to focus it. The log never holds prompt text,
+id: how you answered a permission prompt and how long that took, how long
+a triaged pane waited for you to focus it, whether your next prompt after
+a turn check or a check run read as a correction ("still fails", "that's
+wrong", "fix ..."; pitwall reads the prompt and logs only yes or no), and
+whether you pressed Esc or Ctrl+C on an agent asked about being stuck. A
+turn check also logs what a plain rule says about the same message (it
+names a failure, an error, a skip or work left, or ends on a question), so
+the report can show whether the model beats the rule. The log never holds prompt text,
 commands, tool input, file paths, screen text or error messages. It is
 mode 0600 in a 0700 folder; at 10 MB it moves to `decisions.jsonl.1`,
 replacing the one before. Token counts come from Jev's reply
@@ -120,18 +133,21 @@ To tell whether the recommendation helps, `holdout` under
 `[decisions.approvals]` hides it on that share of permission prompts,
 picked at random per prompt and recorded in the log. Jev is still asked and
 its answer logged, but no pill, switcher, hover card or pane corner shows
-it. pitwall's own risk flags still show ("Risk: sudo"). The default, 0.5,
-fills both halves fastest, so a normal week gives an answer; set
-`holdout = 0` to show every recommendation again.
+it. The default, 0.5, fills both halves fastest; set `holdout = 0` to
+show every recommendation again. `holdout` under `[decisions.triage]`
+does the same for triage: that share of panes, 0.2 by default, stays
+untriaged, so the report can tell whether "now" gets you there sooner.
 
 `pitwall jev report [--days N]` reads the log for the last N days (7 by
 default) and prints calls, failures and latency per feature, an estimated
 cost at $0.04 per million input tokens, approval answer times with and
-without the recommendation, how often Jev agreed with you, how often a
-Check turn was followed by another prompt within 5 minutes against a Done
-turn, and time to focus per triage level. It gives a one-line verdict once
-each half has 30 answered prompts, with a bootstrap interval on the
-difference in median answer time; until then it says how many it has.
+without the recommendation and how often Jev agreed with you, time to
+focus per triage level with the answer used and held out, and for turn
+checks, check runs and stuck agents how often a flag was followed by a
+correction or an interrupt, against the rest (the lift). Each feature gets
+a line once both sides have 30 outcomes; until then it says how many it
+has. The approval verdict adds a bootstrap interval on the difference in
+median answer time.
 `pitwall jev status` shows how many events the log holds. Settings,
 Decision stats draws the same numbers over the last 7 days, 30 days or all
 time, with calls per day as a chart.
@@ -144,13 +160,13 @@ request on its stdin and reads the reply from its stdout, in Jev's shapes:
 
 ```json
 {"state": {"tool": "Bash", "input": {"command": "go test ./..."}},
- "questions": {"verdict": {"type": "choice", "instructions": "...",
-   "criteria": {"allow": "...", "ask": "...", "deny": "..."}}}}
+ "questions": {"requested": {"type": "noul", "instructions": "..."},
+   "irreversible": {"type": "noul", "instructions": "..."}}}
 ```
 
 ```json
-{"answers": {"verdict": {"type": "choice", "choice": "allow",
-   "probabilities": {"allow": 0.96, "ask": 0.03, "deny": 0.01}, "confidence": 0.9}}}
+{"answers": {"requested": {"type": "noul", "noul": 0.96},
+   "irreversible": {"type": "noul", "noul": 0.02}}}
 ```
 
 A choice answer needs a probability for every option, summing to 1, with

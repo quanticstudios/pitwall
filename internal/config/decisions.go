@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -14,10 +13,17 @@ type Decisions struct {
 	Command   []string  `toml:"command" doc:"With the command provider: the program and its arguments. It gets the request JSON on stdin and prints the reply JSON, in Jev's shape, on stdout."`
 	Model     string    `toml:"model" doc:"The Jev model or alias, such as jev-latest or a pinned jev-1.13.0."`
 	Timeout   *float64  `toml:"timeout" min:"0.2" max:"10" doc:"Seconds a question may take, 0.2 to 10. pitwall goes on without the answer after that."`
-	Approvals Approvals `toml:"approvals" doc:"Permission requests from Claude Code and Codex. Sends the tool, its input, the working directory, the repo root and your latest prompt, with secrets removed."`
-	Triage    Toggle    `toml:"triage" doc:"Rates how soon a pane that needs you wants you (fyi, later, soon, now), to order the jump-to-attention key and desktop notifications; fyi sends no notification. Sends the state and the agent's question, approval detail, error or summary."`
-	Agents    Agents    `toml:"agents" doc:"Agent status for CLIs without pitwall hooks, read from their screen. Sends the visible screen of those programs only, at most once per pane every 2 seconds while it changes."`
+	Approvals Approvals `toml:"approvals" doc:"Permission requests from Claude Code and Codex. A call pitwall sees a risk in shows the risk without asking; any other asks whether you asked for it and whether it is hard to undo. Sends the tool, its input, the working directory, the repo root and your latest prompt, with secrets removed."`
+	Triage    Triage    `toml:"triage" doc:"Asks whether a pane that needs you is blocked on you (now) or has nothing for you to do (fyi), to order the jump-to-attention key and desktop notifications; fyi sends no notification. Sends the state and the agent's question, approval detail, error or summary."`
 	TurnCheck Feature   `toml:"turn_check" doc:"When an agent finishes a turn, asks whether it needs your review (failed tests, errors, unfinished work); the Done pill then reads Check. Sends the agent's last message only, never the screen."`
+	Check     Toggle    `toml:"check" doc:"When an agent's check (pre-commit, tests, lint, a type check, a build, git commit) exits 0, asks whether its output still shows a failure, a skip or a bypass. A check that failed, by its exit code or the answer, marks the turn Check when it ends. Sends the command and the end of its output."`
+	Stuck     Feature   `toml:"stuck" doc:"Asks whether an agent that has worked 10 minutes or more without stopping is stuck, from its screen, and again every 10 minutes; the pill then reads Working · stuck. Sends the visible screen of that agent's pane only."`
+}
+
+// Triage is [decisions.triage].
+type Triage struct {
+	Enabled *bool    `toml:"enabled" doc:"Turn the feature on or off."`
+	Holdout *float64 `toml:"holdout" min:"0" max:"1" doc:"Share of triaged panes, 0 to 1, picked at random, whose answer is asked and logged but not used, so pitwall jev report can compare how fast you get to them with and without it. 0 uses every answer."`
 }
 
 // Approvals is [decisions.approvals].
@@ -43,16 +49,6 @@ type Toggle struct {
 	Enabled *bool `toml:"enabled" doc:"Turn the feature on or off."`
 }
 
-// Agents is [decisions.agents].
-type Agents struct {
-	Enabled   *bool    `toml:"enabled" doc:"Turn the feature on or off."`
-	Threshold *float64 `toml:"threshold" min:"0.5" max:"1" doc:"How sure the model must be before the pane's status changes."`
-	Programs  []string `toml:"programs" doc:"More program names to read, besides gemini, opencode, aider, amp, cursor-agent, goose and crush."`
-}
-
-// HooklessAgents are the agent CLIs read from their screen by default.
-var HooklessAgents = []string{"gemini", "opencode", "aider", "amp", "cursor-agent", "goose", "crush"}
-
 // Approval modes.
 const (
 	ModeOff     = "off"
@@ -62,11 +58,14 @@ const (
 // Decision defaults.
 const (
 	DefaultDecideTimeout  = 1.5
-	DefaultAgentThreshold = 0.8
 	DefaultTurnThreshold  = 0.8
+	DefaultStuckThreshold = 0.8
 	// DefaultHoldout hides half the recommendations: the even split gets
 	// both arms of pitwall jev report to a verdict soonest.
 	DefaultHoldout = 0.5
+	// DefaultTriageHoldout leaves a fifth of triaged panes untriaged:
+	// triage runs many times a day, so a fifth fills the held arm soon.
+	DefaultTriageHoldout = 0.2
 )
 
 // DecideSettings is [decisions] with every value filled in.
@@ -79,25 +78,27 @@ type DecideSettings struct {
 	NeverAllow     []string
 	Holdout        float64 // share of approvals whose recommendation is hidden
 	Triage         bool
-	Agents         bool
-	AgentThreshold float64
-	Programs       []string // HooklessAgents and the configured ones
+	TriageHoldout  float64 // share of triaged panes whose answer is not used
 	TurnCheck      bool
 	TurnThreshold  float64
+	Check          bool
+	Stuck          bool
+	StuckThreshold float64
 }
 
 // On reports whether a provider is set, without which no feature runs.
 func (d DecideSettings) On() bool { return d.Provider != "" }
 
 func defaultDecisions() Decisions {
-	t, at, tt, ho := DefaultDecideTimeout, DefaultAgentThreshold, DefaultTurnThreshold, DefaultHoldout
+	t, tt, st, ho, th := DefaultDecideTimeout, DefaultTurnThreshold, DefaultStuckThreshold, DefaultHoldout, DefaultTriageHoldout
 	on, off := true, false
 	return Decisions{
 		Command: []string{}, Model: "jev-latest", Timeout: &t,
 		Approvals: Approvals{Mode: ModeSuggest, NeverAllow: []string{}, Holdout: &ho},
-		Triage:    Toggle{Enabled: &on},
-		Agents:    Agents{Enabled: &off, Threshold: &at, Programs: []string{}},
+		Triage:    Triage{Enabled: &on, Holdout: &th},
 		TurnCheck: Feature{Enabled: &off, Threshold: &tt},
+		Check:     Toggle{Enabled: &off},
+		Stuck:     Feature{Enabled: &off, Threshold: &st},
 	}
 }
 
@@ -142,18 +143,14 @@ func resolveDecisions(c Decisions) (_ DecideSettings, issues, notes []issue) {
 		return *p
 	}
 	d.Timeout = time.Duration(num(c.Timeout, "decisions.timeout", DefaultDecideTimeout, 0.2, 10) * float64(time.Second))
-	d.AgentThreshold = num(c.Agents.Threshold, "decisions.agents.threshold", DefaultAgentThreshold, 0.5, 1)
 	d.TurnThreshold = num(c.TurnCheck.Threshold, "decisions.turn_check.threshold", DefaultTurnThreshold, 0.5, 1)
+	d.StuckThreshold = num(c.Stuck.Threshold, "decisions.stuck.threshold", DefaultStuckThreshold, 0.5, 1)
 	d.Holdout = num(c.Approvals.Holdout, "decisions.approvals.holdout", DefaultHoldout, 0, 1)
+	d.TriageHoldout = num(c.Triage.Holdout, "decisions.triage.holdout", DefaultTriageHoldout, 0, 1)
 	d.Triage = c.Triage.Enabled == nil || *c.Triage.Enabled
-	d.Agents = c.Agents.Enabled != nil && *c.Agents.Enabled
 	d.TurnCheck = c.TurnCheck.Enabled != nil && *c.TurnCheck.Enabled
-	d.Programs = slices.Clone(HooklessAgents)
-	for _, p := range c.Agents.Programs {
-		if p != "" && !slices.Contains(d.Programs, p) {
-			d.Programs = append(d.Programs, p)
-		}
-	}
+	d.Check = c.Check.Enabled != nil && *c.Check.Enabled
+	d.Stuck = c.Stuck.Enabled != nil && *c.Stuck.Enabled
 	return d, issues, notes
 }
 

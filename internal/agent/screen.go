@@ -137,13 +137,6 @@ func StateOf(p model.Provider, g vt.Grid) model.AgentState {
 	return ""
 }
 
-// ScreenRules reports whether StateOf reads agent p by the text in
-// screens, which a decision model reading p's screen replaces.
-func ScreenRules(p model.Provider) bool {
-	_, ok := screens[p]
-	return ok
-}
-
 // bottomLines returns up to n non-empty rows of g, bottom row first.
 func bottomLines(g vt.Grid, n int) []string {
 	var out []string

@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 21 added Activity.Stuck, a long-working agent the decision
+// model says is stuck.
 // Level 20 added Workspace.Parent and ParentPane on NewSession and
 // NewWorkspace: a tab an agent opens hangs under the agent's tab.
 // Level 19 added FocusDir, from `pitwall focus`: vim at the edge of its
@@ -103,7 +105,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 20
+const Level = 21
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.

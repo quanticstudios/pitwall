@@ -63,8 +63,9 @@ type Provider interface {
 const (
 	FeatureApprovals = "approvals"
 	FeatureTriage    = "triage"
-	FeatureAgents    = "agents"
 	FeatureTurnCheck = "turn_check"
+	FeatureCheck     = "check"
+	FeatureStuck     = "stuck"
 	FeatureTest      = "test"
 )
 

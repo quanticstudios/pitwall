@@ -167,7 +167,7 @@ func jevStatus(stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "connection: ok, %d ms (one test call to api.typesafe.ai with the key)\n", d.Milliseconds())
 	if s.On() {
 		onOff := map[bool]string{true: "on", false: "off"}
-		fmt.Fprintf(stdout, "features:   approvals %s, triage %s, agents %s, turn check %s\n", s.Approvals, onOff[s.Triage], onOff[s.Agents], onOff[s.TurnCheck])
+		fmt.Fprintf(stdout, "features:   approvals %s, triage %s, turn check %s, check runs %s, stuck %s\n", s.Approvals, onOff[s.Triage], onOff[s.TurnCheck], onOff[s.Check], onOff[s.Stuck])
 	}
 	return 0
 }

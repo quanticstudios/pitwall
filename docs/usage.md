@@ -195,8 +195,6 @@ Some states are out of reach:
   (`amp.notifications.enabled`, with `AMP_FORCE_BEL=1`) and its bell rings
   the pane. Aider shows Working while it waits for the model, Input at a
   yes/no question, and Done at its prompt.
-- With [`[decisions.agents]`](decisions.md#features) on, a decision model
-  reads the screens of the agents it lists instead of these rules.
 
 OpenCode keeps its sessions in SQLite, which pitwall does not read, so its
 side panel shows only its state.

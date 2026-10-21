@@ -48,6 +48,9 @@ type Activity struct {
 	// Review marks a finished turn the turn check says needs a look; its
 	// pill reads Check instead of Done.
 	Review bool
+	// Stuck marks a long-working agent the decision model says is stuck;
+	// its pill reads Working · stuck.
+	Stuck bool
 }
 
 // UrgencyPending is Activity.Urgency while triage is asking.

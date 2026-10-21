@@ -3,8 +3,9 @@ package decide
 import (
 	"encoding/json"
 	"errors"
-	"math"
+	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -16,21 +17,18 @@ import (
 const (
 	Allow = "allow"
 	Ask   = "ask"
-	Deny  = "deny"
 )
 
-// ApprovalQuestions ask whether a tool call is safe to run unattended.
+// ApprovalQuestions ask about a tool call pitwall saw no risk in, one
+// narrow question each, as TypeSafe advises: was it asked for, and is it
+// hard to undo.
 func ApprovalQuestions() map[string]Question {
-	return map[string]Question{"verdict": {
-		Type: Choice,
-		Instructions: "A coding agent wants to run `tool` with `input` in the project at `cwd`, while working on `user_prompt`. " +
-			"Should this call run without asking the developer?",
-		Criteria: map[string]string{
-			Allow: "Routine and safe for this task: reads, builds, tests, formatting, edits inside the project that the prompt asks for.",
-			Ask:   "Unclear, unusual, or with effects the developer should see first: network access, installs, deletes, anything outside the project.",
-			Deny:  "Clearly destructive, exfiltrates data or secrets, or has nothing to do with the task.",
-		},
-	}}
+	return map[string]Question{
+		"requested": {Type: Noul, Instructions: "A coding agent wants to run `tool` with `input` in the project at `cwd`. " +
+			"Did the developer ask for this in `user_prompt`, or is it a routine step toward what they asked: reading, building, testing, formatting, or editing files in the project?"},
+		"irreversible": {Type: Noul, Instructions: "A coding agent wants to run `tool` with `input` in the project at `cwd`. " +
+			"Could it do something hard to undo: delete or overwrite files outside version control, discard uncommitted work, push, publish, deploy, send a message or a payment, or change the system or its settings?"},
+	}
 }
 
 // ApprovalState is what an approval question is asked about.
@@ -50,28 +48,29 @@ func ApprovalState(agentName string, c Call, prompt string) map[string]any {
 	}
 }
 
-// Approval reads the verdict answer: the choice and the probability of
-// each verdict.
-func Approval(ans map[string]Answer) (string, map[string]float64) {
-	a := ans["verdict"]
-	return a.Choice, a.Probabilities
+// Approval reads the verdict: allow when the call was likely asked for
+// and likely easy to undo, else ask, with the probability of that verdict.
+func Approval(ans map[string]Answer) (verdict string, p float64) {
+	allow := ans["requested"].Noul * (1 - ans["irreversible"].Noul)
+	if allow >= 0.5 {
+		return Allow, allow
+	}
+	return Ask, 1 - allow
 }
 
-// Urgency levels, lowest first, as triage returns them.
+// Urgency levels, lowest first. Triage answers fyi, soon or now; later
+// is kept so an old answer still ranks.
 var Urgencies = []string{"fyi", "later", "soon", "now"}
 
-// TriageQuestions rate how soon the developer should look at a pane.
+// TriageQuestions ask two narrow questions about a pane that needs the
+// developer: is it blocked on them, and is there nothing for them to do.
 func TriageQuestions() map[string]Question {
-	return map[string]Question{"urgency": {
-		Type:         Score,
-		Instructions: "A coding agent stopped with `state` and showed `text`. How soon should the developer look at it?",
-		Criteria: []string{
-			"fyi: nothing to do; a status note or a finished turn that went fine",
-			"later: needs the developer eventually, nothing waits on it",
-			"soon: the agent waits on an answer or approval for routine work",
-			"now: blocked on something risky, an error that stops the work, or a decision only the developer can make",
-		},
-	}}
+	return map[string]Question{
+		"blocked": {Type: Noul, Instructions: "A coding agent stopped with `state` and showed `text`. " +
+			"Is it blocked until the developer acts: a risky action to approve, an error that stops the work, or a decision only the developer can make?"},
+		"nothing": {Type: Noul, Instructions: "A coding agent stopped with `state` and showed `text`. " +
+			"Is there nothing for the developer to do: a status note, or a finished turn that went fine?"},
+	}
 }
 
 // TriageState is what triage is asked about.
@@ -79,45 +78,16 @@ func TriageState(agentName, state, text string) map[string]any {
 	return map[string]any{"agent": agentName, "state": state, "text": text}
 }
 
-// Urgency reads the level triage picked.
+// Urgency reads the level: now when blocked, fyi when there is nothing to
+// do, soon otherwise. Blocked wins when the model says both.
 func Urgency(ans map[string]Answer) string {
-	i := int(math.Round(ans["urgency"].Score))
-	return Urgencies[max(0, min(i, len(Urgencies)-1))]
-}
-
-// Screen states an agent without hooks can be in, as asked.
-const (
-	ScreenWorking  = "working"
-	ScreenWaiting  = "waiting for input"
-	ScreenApproval = "asking approval"
-	ScreenDone     = "done"
-	ScreenIdle     = "idle"
-)
-
-// ScreenQuestions ask what an agent's visible screen shows.
-func ScreenQuestions() map[string]Question {
-	return map[string]Question{"status": {
-		Type:         Choice,
-		Instructions: "This is the visible terminal screen of the coding agent `agent`. What is the agent doing right now?",
-		Criteria: map[string]string{
-			ScreenWorking:  "Running: a spinner, streaming output, or a busy indicator",
-			ScreenWaiting:  "Asking the developer a question or waiting for an answer it requested",
-			ScreenApproval: "Asking permission to run a command or edit a file",
-			ScreenDone:     "Just finished a task and shows its result",
-			ScreenIdle:     "At its prompt with nothing pending",
-		},
-	}}
-}
-
-// ScreenState is what the screen question is asked about.
-func ScreenState(agentName, screen string) map[string]any {
-	return map[string]any{"agent": agentName, "screen": screen}
-}
-
-// Screen reads the status and its confidence.
-func Screen(ans map[string]Answer) (string, float64) {
-	a := ans["status"]
-	return a.Choice, a.Confidence
+	switch {
+	case ans["blocked"].Noul >= 0.5:
+		return "now"
+	case ans["nothing"].Noul >= 0.5:
+		return "fyi"
+	}
+	return "soon"
 }
 
 // TurnQuestions ask whether a finished turn needs the developer's review.
@@ -138,6 +108,60 @@ func TurnState(agentName, lastMessage string) map[string]any {
 // Review reads the probability the turn needs review.
 func Review(ans map[string]Answer) float64 { return ans["review"].Noul }
 
+var (
+	turnRuleRe   = regexp.MustCompile(`(?i)\b(?:fail(?:s|ed|ing|ure)?|errors?|skipped|couldn'?t|could not|unable|not yet|todo|remaining|blocked)\b|\?\s*$`)
+	correctionRe = regexp.MustCompile(`(?i)\b(?:still|didn'?t|doesn'?t|don'?t|isn'?t|wasn'?t|not work\w*|broken|wrong|again|revert|undo|forgot|missed|fix|fails?|failing|error)\b`)
+)
+
+// TurnRule is the rule the turn check must beat: a last message that
+// names a failure, an error, a skip or work left, or ends on a question.
+func TurnRule(lastMessage string) bool { return turnRuleRe.MatchString(lastMessage) }
+
+// Correction reports a prompt that reads as the developer correcting the
+// agent's last turn ("still fails", "that's wrong", "fix ..."). It is
+// the report's label for the turn check: a weak one, since a new task
+// can say "fix" too.
+func Correction(prompt string) bool { return correctionRe.MatchString(prompt) }
+
+// checkRe finds a command that checks the agent's work: hooks, tests,
+// linters, type checks, builds and commits, which run pre-commit hooks.
+var checkRe = regexp.MustCompile(`(?:^|[\s;&|(])(?:pre-commit|lefthook|git commit|go (?:test|vet|build)|golangci-lint|(?:npm|pnpm|yarn|bun)(?: run)? (?:test|lint|check|typecheck|build)|npx (?:tsc|eslint|vitest|jest|playwright)|tsc|eslint|vitest|jest|pytest|tox|ruff|mypy|cargo (?:test|clippy|check|build)|make|just|gradle|mvn|mix test|rspec|phpunit)\b`)
+
+// IsCheck reports whether a shell command runs a check.
+func IsCheck(command string) bool { return checkRe.MatchString(command) }
+
+// CheckQuestions ask whether a check that exited 0 still shows a problem.
+func CheckQuestions() map[string]Question {
+	return map[string]Question{"failed": {Type: Noul, Instructions: "A coding agent ran `command` to check its work. It exited 0 and printed `output` (the end of it). " +
+		"Does the output still show a problem: failures or errors, tests skipped or none found, hooks bypassed (--no-verify, SKIP=), or errors hidden (|| true)?"}}
+}
+
+// CheckState is what the check question is asked about.
+func CheckState(agentName, command, output string) map[string]any {
+	return map[string]any{"agent": agentName, "command": command, "output": output}
+}
+
+// CheckFailed reads the probability the check still shows a problem.
+func CheckFailed(ans map[string]Answer) float64 { return ans["failed"].Noul }
+
+// StuckAfter is how long an agent works without stopping before it is
+// asked about, and how long between two asks.
+const StuckAfter = 10 * time.Minute
+
+// StuckQuestions ask whether a long-running agent is stuck.
+func StuckQuestions() map[string]Question {
+	return map[string]Question{"stuck": {Type: Noul, Instructions: "This is the visible terminal screen of the coding agent `agent`, which has worked for `minutes` minutes without stopping. " +
+		"Is it stuck: repeating the same action or error, retrying a failing command over and over, waiting on something that will not finish, or making no visible progress?"}}
+}
+
+// StuckState is what the stuck question is asked about.
+func StuckState(agentName string, minutes int, screen string) map[string]any {
+	return map[string]any{"agent": agentName, "minutes": minutes, "screen": screen}
+}
+
+// Stuck reads the probability the agent is stuck.
+func Stuck(ans map[string]Answer) float64 { return ans["stuck"].Noul }
+
 // Budget for one state, in runes, after redaction: about 12k tokens,
 // well under Jev's 32k for the state and the longest question.
 const (
@@ -146,7 +170,7 @@ const (
 )
 
 // endKeys are state fields whose latest text is at the end.
-var endKeys = map[string]bool{"screen": true, "last_message": true}
+var endKeys = map[string]bool{"screen": true, "last_message": true, "output": true}
 
 // ErrTooLarge is a state that does not fit the budget even with every
 // string cut short.

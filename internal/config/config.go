@@ -32,7 +32,7 @@ type Config struct {
 	Updates   Updates     `toml:"updates" doc:"Release updates."`
 	Usage     Usage       `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Agents    AgentLimits `toml:"agents" doc:"Agents started from the task queue."`
-	Decisions Decisions   `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, status for agents without hooks, turn checks. Off until provider is set; see docs/decisions.md for what each feature sends."`
+	Decisions Decisions   `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, turn checks, check runs, stuck agents. Off until provider is set; see docs/decisions.md for what each feature sends."`
 	Worktrees Worktrees   `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Notify    Notify      `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
 	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
@@ -615,6 +615,10 @@ func parse(file string, data []byte, v any, renamed *[]issue) []Problem {
 		return []Problem{{File: file, Msg: err.Error()}}
 	}
 	if d, ok := m["decisions"].(map[string]any); ok && renamed != nil {
+		if _, ok := d["agents"]; ok {
+			delete(d, "agents")
+			*renamed = append(*renamed, issue{"decisions.agents", "no longer supported: reading agent screens was removed; this table is ignored"})
+		}
 		if a, ok := d["approvals"].(map[string]any); ok {
 			for _, k := range RemovedApprovals {
 				if _, set := a[k]; set {

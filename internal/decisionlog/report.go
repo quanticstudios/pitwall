@@ -15,12 +15,8 @@ import (
 // output is free. The report's cost is an estimate from it.
 const CostPerMTok = 0.04
 
-// FollowUp is how soon a prompt after a finished turn counts as the turn
-// having needed more work.
-const FollowUp = 5 * time.Minute
-
-// MinPerArm is how many answered approvals each holdout arm needs before
-// the report gives a verdict.
+// MinPerArm is how many answers each side of a comparison needs before
+// the report gives a verdict on it.
 const MinPerArm = 30
 
 // Features as decide names them.
@@ -28,6 +24,8 @@ const (
 	approvals = "approvals"
 	triage    = "triage"
 	turnCheck = "turn_check"
+	check     = "check"
+	stuck     = "stuck"
 )
 
 // Stats is what the log says about the events from From to To: what
@@ -44,7 +42,10 @@ type Stats struct {
 	Days              []Day          // each local day from From to To
 
 	Approvals Approvals
-	Turns     Turns
+	Turns     Split // turn check: the model's Check and Done turns, corrected
+	TurnRule  Split // the same turns by decide.TurnRule's answer
+	Checks    Split // checks the model failed and passed, corrected
+	Stuck     Split // asks the model said stuck and working, interrupted
 	Triage    Triage
 }
 
@@ -73,6 +74,7 @@ type Approvals struct {
 	AllowDenied        int       // Jev said allow; the user denied
 	Denied, Caught     int       // the user denied; of those, Jev said ask or deny
 	Unknown, Unmatched int
+	Ruled              int // prompts pitwall's risk flags answered, left out of the rest
 
 	// Once Ready: median(Shown) - median(Held) in seconds and its 95%
 	// bootstrap interval.
@@ -83,21 +85,29 @@ type Approvals struct {
 // verdict.
 func (a Approvals) Ready() bool { return len(a.Shown) >= MinPerArm && len(a.Held) >= MinPerArm }
 
-// Turns is the turn check: turns prompted again within FollowUp, by
-// answer.
-type Turns struct{ Check, CheckN, Done, DoneN int }
+// Split is how often what the user did next followed a flag: a turn or
+// check corrected in the next prompt, a stuck agent interrupted. Check
+// counts the flagged (Check, failed, stuck), Done the rest; CheckN and
+// DoneN are all of each that have an outcome.
+type Split struct{ Check, CheckN, Done, DoneN int }
 
-// Triage is the time until the user focused a pane, per urgency.
+// Ready reports whether both sides have MinPerArm, enough for a verdict.
+func (t Split) Ready() bool { return t.CheckN >= MinPerArm && t.DoneN >= MinPerArm }
+
+// Triage is the time until the user focused a pane, per urgency, with the
+// answer used and held out.
 type Triage struct {
 	Levels    []Level // now, soon, later, fyi; those with a focus
 	Unfocused int     // calls with no focus before the pane moved on
 }
 
-// Level is one urgency's focus times.
+// Level is one urgency's focus times, used and held out.
 type Level struct {
-	Name   string
-	N      int
-	Median float64 // seconds
+	Name       string
+	N          int
+	Median     float64 // seconds
+	HeldN      int
+	HeldMedian float64
 }
 
 // Compute works out the stats of evs, the events logged from from to to.
@@ -116,7 +126,10 @@ func Compute(evs []Event, from, to time.Time) Stats {
 	s.Calls, s.Outcomes = len(calls), len(outs)
 	s.calls(evs)
 	s.approvals(evs, calls)
-	s.turns(evs, outs)
+	s.Turns = split(evs, outs, turnCheck, func(c Event) string { return c.Answer }, "check", Corrected)
+	s.TurnRule = split(evs, outs, turnCheck, func(c Event) string { return c.Base }, "check", Corrected)
+	s.Checks = split(evs, outs, check, func(c Event) string { return c.Answer }, "failed", Corrected)
+	s.Stuck = split(evs, outs, stuck, func(c Event) string { return c.Answer }, "stuck", Interrupted)
 	s.triage(evs, calls, outs)
 	return s
 }
@@ -153,6 +166,9 @@ func (s *Stats) calls(evs []Event) {
 			s.Failures[e.Err]++
 			continue
 		}
+		if e.Base == "rule" {
+			continue // no model was asked: no latency
+		}
 		ms[e.Feature] = append(ms[e.Feature], float64(e.Ms))
 		all = append(all, float64(e.Ms))
 	}
@@ -174,6 +190,10 @@ func (s *Stats) approvals(evs []Event, calls map[string]Event) {
 	a := &s.Approvals
 	for _, o := range evs {
 		if o.Kind != Outcome || o.Feature != approvals {
+			continue
+		}
+		if c, ok := calls[o.ID]; ok && c.Base == "rule" {
+			a.Ruled++ // never held out, so it would skew the shown arm
 			continue
 		}
 		if o.User != Allowed && o.User != Denied {
@@ -228,31 +248,33 @@ func (s *Stats) approvals(evs []Event, calls map[string]Event) {
 	}
 }
 
-func (s *Stats) turns(evs []Event, outs map[string]Event) {
-	t := &s.Turns
+// split counts the answered calls of feature that have an outcome, by
+// whether answer(c) is flagged, and how many of each got hit.
+func split(evs []Event, outs map[string]Event, feature string, answer func(Event) string, flagged, hit string) Split {
+	var t Split
 	for _, c := range evs {
-		if c.Kind != Call || c.Feature != turnCheck || c.Err != "" || c.T.After(s.To.Add(-FollowUp)) {
-			continue // a turn under FollowUp old may still get its prompt
+		if c.Kind != Call || c.Feature != feature || c.Err != "" || answer(c) == "" {
+			continue
 		}
 		o, ok := outs[c.ID]
-		followed := ok && o.User == Prompted && o.WaitMs <= FollowUp.Milliseconds()
-		switch c.Answer {
-		case "check":
-			t.CheckN++
-			if followed {
-				t.Check++
-			}
-		case "done":
-			t.DoneN++
-			if followed {
-				t.Done++
-			}
+		if !ok {
+			continue
+		}
+		h := 0
+		if o.User == hit {
+			h = 1
+		}
+		if answer(c) == flagged {
+			t.CheckN, t.Check = t.CheckN+1, t.Check+h
+		} else {
+			t.DoneN, t.Done = t.DoneN+1, t.Done+h
 		}
 	}
+	return t
 }
 
 func (s *Stats) triage(evs []Event, calls, outs map[string]Event) {
-	waits := map[string][]float64{}
+	waits, held := map[string][]float64{}, map[string][]float64{}
 	for _, e := range evs {
 		if e.Feature != triage {
 			continue
@@ -260,7 +282,11 @@ func (s *Stats) triage(evs []Event, calls, outs map[string]Event) {
 		switch {
 		case e.Kind == Outcome && e.User == Focused:
 			if c, ok := calls[e.ID]; ok && c.Err == "" {
-				waits[c.Answer] = append(waits[c.Answer], float64(e.WaitMs)/1000)
+				if e.Held {
+					held[c.Answer] = append(held[c.Answer], float64(e.WaitMs)/1000)
+				} else {
+					waits[c.Answer] = append(waits[c.Answer], float64(e.WaitMs)/1000)
+				}
 			}
 		case e.Kind == Call && e.Err == "":
 			if _, ok := outs[e.ID]; !ok {
@@ -269,8 +295,8 @@ func (s *Stats) triage(evs []Event, calls, outs map[string]Event) {
 		}
 	}
 	for _, u := range []string{"now", "soon", "later", "fyi"} {
-		if xs := waits[u]; len(xs) > 0 {
-			s.Triage.Levels = append(s.Triage.Levels, Level{Name: u, N: len(xs), Median: quantile(xs, .5)})
+		if xs, hs := waits[u], held[u]; len(xs)+len(hs) > 0 {
+			s.Triage.Levels = append(s.Triage.Levels, Level{Name: u, N: len(xs), Median: quantile(xs, .5), HeldN: len(hs), HeldMedian: quantile(hs, .5)})
 		}
 	}
 }
@@ -288,9 +314,17 @@ func (s Stats) Write(w io.Writer) {
 	}
 	s.writeCalls(w)
 	s.writeApprovals(w)
-	s.writeTurns(w)
 	s.writeTriage(w)
+	s.writeSplit(w, "Turn check: your next prompt read as a correction", "marked Check", "marked Done", s.Turns)
+	if t := s.TurnRule; t.CheckN+t.DoneN > 0 {
+		writeSplitRow(w, "the rule's Check", "the rule's Done", t)
+	}
+	s.writeSplit(w, "Check runs: your next prompt read as a correction", "after a failed check", "after a passed one", s.Checks)
+	s.writeSplit(w, "Stuck: you pressed Esc or Ctrl+C before the next ask or the turn's end", "said stuck", "said working", s.Stuck)
 	fmt.Fprintln(w)
+	for _, v := range s.Findings() {
+		fmt.Fprintln(w, v)
+	}
 	fmt.Fprintln(w, s.Verdict())
 }
 
@@ -321,10 +355,13 @@ func (s Stats) writeCalls(w io.Writer) {
 
 func (s Stats) writeApprovals(w io.Writer) {
 	a := s.Approvals
-	if len(a.Shown)+len(a.Held)+a.Unknown == 0 {
+	if len(a.Shown)+len(a.Held)+a.Unknown+a.Ruled == 0 {
 		return
 	}
 	fmt.Fprintln(w, "\nApprovals")
+	if a.Ruled > 0 {
+		fmt.Fprintf(w, "  answered by pitwall's risk flags, without Jev: %d\n", a.Ruled)
+	}
 	fmt.Fprintf(w, "  time to answer, suggestion shown:  %s\n", spread(a.Shown))
 	fmt.Fprintf(w, "  time to answer, held out:          %s\n", spread(a.Held))
 	if a.Unknown > 0 {
@@ -338,22 +375,25 @@ func (s Stats) writeApprovals(w io.Writer) {
 	}
 }
 
-func (s Stats) writeTurns(w io.Writer) {
-	t := s.Turns
+func (s Stats) writeSplit(w io.Writer, title, flagged, rest string, t Split) {
 	if t.CheckN+t.DoneN == 0 {
 		return
 	}
-	fmt.Fprintf(w, "\nTurn check: turns you prompted again within %d minutes\n", int(FollowUp.Minutes()))
-	fmt.Fprintf(w, "  marked Check: %d of %d (%s); marked Done: %d of %d (%s)", t.Check, t.CheckN, Pct(t.Check, t.CheckN), t.Done, t.DoneN, Pct(t.Done, t.DoneN))
+	fmt.Fprintf(w, "\n%s\n", title)
+	writeSplitRow(w, flagged, rest, t)
+}
+
+func writeSplitRow(w io.Writer, flagged, rest string, t Split) {
+	fmt.Fprintf(w, "  %s: %d of %d (%s); %s: %d of %d (%s)", flagged, t.Check, t.CheckN, Pct(t.Check, t.CheckN), rest, t.Done, t.DoneN, Pct(t.Done, t.DoneN))
 	if t.CheckN > 0 && t.DoneN > 0 {
 		fmt.Fprintf(w, "; lift %+.0f points", t.Lift())
 	}
 	fmt.Fprintln(w)
 }
 
-// Lift is how many points more often a Check turn than a Done turn was
-// prompted again.
-func (t Turns) Lift() float64 {
+// Lift is how many points more often a flagged answer than the rest was
+// followed by the hit.
+func (t Split) Lift() float64 {
 	return 100 * (float64(t.Check)/float64(t.CheckN) - float64(t.Done)/float64(t.DoneN))
 }
 
@@ -362,13 +402,55 @@ func (s Stats) writeTriage(w io.Writer) {
 	if len(t.Levels) == 0 && t.Unfocused == 0 {
 		return
 	}
-	fmt.Fprintln(w, "\nTriage: time until you focused the pane")
+	fmt.Fprintln(w, "\nTriage: time until you focused the pane, answer used and held out")
 	for _, l := range t.Levels {
-		fmt.Fprintf(w, "  %-6s median %s (n=%d)\n", l.Name, Secs(l.Median), l.N)
+		fmt.Fprintf(w, "  %-6s %s; held out %s\n", l.Name, medianN(l.Median, l.N), medianN(l.HeldMedian, l.HeldN))
 	}
 	if t.Unfocused > 0 {
 		fmt.Fprintf(w, "  not focused before the pane moved on: %d\n", t.Unfocused)
 	}
+}
+
+func medianN(m float64, n int) string {
+	if n == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("median %s (n=%d)", Secs(m), n)
+}
+
+// Findings is one line per measured feature but approvals: what it shows
+// so far, or how much more data it needs.
+func (s Stats) Findings() []string {
+	var out []string
+	var now Level
+	for _, l := range s.Triage.Levels {
+		if l.Name == "now" {
+			now = l
+		}
+	}
+	if now.N+now.HeldN > 0 {
+		if now.N >= MinPerArm && now.HeldN >= MinPerArm {
+			out = append(out, fmt.Sprintf("Triage: panes it called now got your focus in %s with the answer used and %s held out; it helps if the first is shorter.",
+				Secs(now.Median), Secs(now.HeldMedian)))
+		} else {
+			out = append(out, fmt.Sprintf("Triage: not enough data yet; now panes need %d focused in each arm, there are %d used and %d held out.", MinPerArm, now.N, now.HeldN))
+		}
+	}
+	split := func(name string, t Split, rule *Split) {
+		switch {
+		case t.CheckN+t.DoneN == 0:
+		case !t.Ready():
+			out = append(out, fmt.Sprintf("%s: not enough data yet; it needs %d of each answer with an outcome, there are %d and %d.", name, MinPerArm, t.CheckN, t.DoneN))
+		case rule != nil && rule.Ready():
+			out = append(out, fmt.Sprintf("%s: lift %+.0f points, against %+.0f for the rule; it earns its place only above the rule.", name, t.Lift(), rule.Lift()))
+		default:
+			out = append(out, fmt.Sprintf("%s: lift %+.0f points; it earns its place only if that is clearly above 0.", name, t.Lift()))
+		}
+	}
+	split("Turn check", s.Turns, &s.TurnRule)
+	split("Check runs", s.Checks, nil)
+	split("Stuck", s.Stuck, nil)
+	return out
 }
 
 // Speed is the verdict on answer time without its numbers, "" until the

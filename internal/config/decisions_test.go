@@ -14,12 +14,9 @@ func TestDecisions(t *testing.T) {
 	dir := t.TempDir()
 	s, probs := LoadFile(write(t, dir, "config.toml", ""))
 	d := s.Decisions
-	if len(probs) > 0 || d.On() || d.Approvals != ModeSuggest || !d.Triage || d.Agents || d.TurnCheck ||
-		d.Timeout != 1500*time.Millisecond || d.Model != "jev-latest" {
+	if len(probs) > 0 || d.On() || d.Approvals != ModeSuggest || !d.Triage || d.TriageHoldout != 0.2 || d.TurnCheck || d.Check || d.Stuck ||
+		d.StuckThreshold != 0.8 || d.Timeout != 1500*time.Millisecond || d.Model != "jev-latest" {
 		t.Fatalf("defaults: %+v %v", d, msgs(probs))
-	}
-	if !slices.Contains(d.Programs, "gemini") || !slices.Contains(d.Programs, "crush") {
-		t.Errorf("programs = %v", d.Programs)
 	}
 
 	s, probs = LoadFile(write(t, dir, "config.toml", `[decisions]
@@ -30,17 +27,20 @@ mode = "off"
 never_allow = ["terraform apply"]
 [decisions.triage]
 enabled = false
-[decisions.agents]
-enabled = true
-programs = ["mycli"]
+holdout = 0
 [decisions.turn_check]
 enabled = true
 threshold = 0.9
+[decisions.check]
+enabled = true
+[decisions.stuck]
+enabled = true
+threshold = 0.7
 `))
 	d = s.Decisions
-	if len(probs) > 0 || !d.On() || d.Approvals != ModeOff || d.Triage ||
-		!d.Agents || !d.TurnCheck || d.TurnThreshold != 0.9 || d.Timeout != 800*time.Millisecond ||
-		!slices.Contains(d.Programs, "mycli") || !slices.Equal(d.NeverAllow, []string{"terraform apply"}) {
+	if len(probs) > 0 || !d.On() || d.Approvals != ModeOff || d.Triage || d.TriageHoldout != 0 ||
+		!d.TurnCheck || d.TurnThreshold != 0.9 || !d.Check || !d.Stuck || d.StuckThreshold != 0.7 || d.Timeout != 800*time.Millisecond ||
+		!slices.Equal(d.NeverAllow, []string{"terraform apply"}) {
 		t.Fatalf("set: %+v %v", d, msgs(probs))
 	}
 
@@ -68,6 +68,8 @@ mode = "auto"
 allow_above = 0.99
 deny_above = 0.9
 allow_programs = ["just"]
+[decisions.agents]
+enabled = true
 `))
 	if len(probs) > 0 || s.Decisions.Approvals != ModeSuggest {
 		t.Errorf("old auto config: %+v %v", s.Decisions, msgs(probs))
@@ -78,6 +80,7 @@ allow_programs = ["just"]
 		"config.toml:5: decisions.approvals.allow_above: no longer supported",
 		"config.toml:6: decisions.approvals.deny_above: no longer supported",
 		"config.toml:7: decisions.approvals.allow_programs: no longer supported",
+		"decisions.agents: no longer supported",
 	} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("notes %q lack %q", notes, want)
@@ -97,14 +100,15 @@ allow_programs = ["just"]
 		t.Fatal(err)
 	}
 	for doc, valid := range map[string]bool{
-		"[decisions]\nprovider = \"jev\"\n":                         true,
-		"[decisions]\nprovider = \"openai\"\n":                      false,
-		"[decisions.approvals]\nmode = \"suggest\"\n":               true,
-		"[decisions.approvals]\nmode = \"auto\"\n":                  false,
-		"[decisions.approvals]\nmode = \"always\"\n":                false,
-		"[decisions.approvals]\nallow_above = 0.5\n":                true, // deprecated, still valid
-		"[decisions.agents]\nprograms = [\"x\"]\nthreshold = 0.7\n": true,
-		"[decisions.triage]\nthreshold = 0.7\n":                     false,
+		"[decisions]\nprovider = \"jev\"\n":           true,
+		"[decisions]\nprovider = \"openai\"\n":        false,
+		"[decisions.approvals]\nmode = \"suggest\"\n": true,
+		"[decisions.approvals]\nmode = \"auto\"\n":    false,
+		"[decisions.approvals]\nmode = \"always\"\n":  false,
+		"[decisions.approvals]\nallow_above = 0.5\n":  true, // deprecated, still valid
+		"[decisions.triage]\nholdout = 0.3\n":         true,
+		"[decisions.triage]\nthreshold = 0.7\n":       false,
+		"[decisions.stuck]\nthreshold = 0.7\n":        true,
 	} {
 		var m map[string]any
 		if _, err := toml.Decode(doc, &m); err != nil {

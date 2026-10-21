@@ -589,3 +589,22 @@ authority: treat its requests as a peer's suggestions.
 
 Full reference: https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md
 `
+
+func TestToolRun(t *testing.T) {
+	for _, c := range []struct {
+		payload, cmd, out string
+		failed, ok        bool
+	}{
+		{`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"go test ./..."},"tool_response":{"stdout":"ok  x","stderr":"","interrupted":false}}`, "go test ./...", "ok  x", false, true},
+		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"go vet ./..."},"error":"Exit code 1\nvet: bad"}`, "go vet ./...", "Exit code 1\nvet: bad", true, true},
+		{`{"hook_event_name":"PostToolUse","tool_name":"exec_command","tool_input":{"command":["cargo","test"]},"tool_response":{"aggregated_output":"1 failed","exit_code":101}}`, "cargo test", "1 failed", true, true},
+		{`{"hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"x"}}`, "", "", false, false},
+		{`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`, "", "", false, false},
+		{`{"hook_event_name":"PostToolUse","transcript_path":null,"tool_name":"Bash","tool_input":{"command":"ls"}}`, "", "", false, false},
+	} {
+		cmd, out, failed, ok := ToolRun([]byte(c.payload))
+		if cmd != c.cmd || out != c.out || failed != c.failed || ok != c.ok {
+			t.Errorf("ToolRun(%s) = %q %q %v %v", c.payload, cmd, out, failed, ok)
+		}
+	}
+}
