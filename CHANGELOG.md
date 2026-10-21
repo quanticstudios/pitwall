@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.17
 
 - Decisions get a measured rework. Triage asks two yes/no questions (blocked on you: now; nothing to do: fyi) in place of a rounded score that turned most split answers into "later", and holds out 20% of panes so `pitwall jev report` can tell whether it helps. Approvals with a risk pitwall sees show it without asking the model; the rest ask whether you asked for the call and whether it is hard to undo. New: check runs (`[decisions.check]`) catch a check that exits 0 but still shows a failure, skip or bypass, and mark the turn Check; stuck agents (`[decisions.stuck]`) flag an agent working 10 minutes on a loop as Working · stuck. The turn check is now measured by whether your next prompt reads as a correction, against a plain rule. Reading the screens of agents without hooks (`[decisions.agents]`) is removed: a config that sets it gets a note.
 - An orchestrator whose turn ended while its workers still run shows Watching, a blue outline with an eye, instead of a Working pill that looked like its workers'.
