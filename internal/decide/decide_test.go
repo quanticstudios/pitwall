@@ -262,24 +262,28 @@ func TestCommandProvider(t *testing.T) {
 	}
 	c := &Client{P: Command{Argv: []string{os.Args[0], "-test.run=TestHelperCommand"}}, Timeout: 5 * time.Second}
 	t.Setenv("DECIDE_HELPER", "answer")
-	ans, err := c.Ask(context.Background(), FeatureAgents, "", "screen text API_KEY=abcd1234secret", ScreenQuestions())
+	ans, err := c.Ask(context.Background(), FeatureTest, "", "screen text API_KEY=abcd1234secret", statusQuestions)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s, conf := Screen(ans); s != ScreenWaiting || conf != 0.9 {
-		t.Errorf("screen = %q %v", s, conf)
+	if a := ans["status"]; a.Choice != "waiting" || a.Confidence != 0.9 {
+		t.Errorf("status = %q %v", a.Choice, a.Confidence)
 	}
 	t.Setenv("DECIDE_HELPER", "sleep")
 	c.Timeout = 100 * time.Millisecond
-	if _, err := c.Ask(context.Background(), FeatureAgents, "", "s", ScreenQuestions()); err == nil || !strings.Contains(err.Error(), "timeout") {
+	if _, err := c.Ask(context.Background(), FeatureTest, "", "s", statusQuestions); err == nil || !strings.Contains(err.Error(), "timeout") {
 		t.Errorf("slow command: err = %v", err)
 	}
 	t.Setenv("DECIDE_HELPER", "fail")
 	c.Timeout = 5 * time.Second
-	if _, err := c.Ask(context.Background(), FeatureAgents, "", "s", ScreenQuestions()); err == nil || !strings.Contains(err.Error(), "model offline") {
+	if _, err := c.Ask(context.Background(), FeatureTest, "", "s", statusQuestions); err == nil || !strings.Contains(err.Error(), "model offline") {
 		t.Errorf("failing command: err = %v", err)
 	}
 }
+
+// statusQuestions is one choice question, as a local classifier answers it.
+var statusQuestions = map[string]Question{"status": {Type: Choice, Instructions: "What is the agent doing?",
+	Criteria: map[string]string{"waiting": "Waits for an answer", "working": "Runs"}}}
 
 // TestHelperCommand is the command TestCommandProvider runs: it reads the
 // request and answers like a local classifier.
@@ -293,7 +297,7 @@ func TestHelperCommand(t *testing.T) {
 		if s, _ := r.State.(string); strings.Contains(s, "abcd1234secret") || r.Questions["status"].Type != Choice {
 			os.Exit(4) // the secret must have been redacted
 		}
-		fmt.Print(`{"answers":{"status":{"type":"choice","choice":"waiting for input","probabilities":{"waiting for input":0.95,"working":0.05,"asking approval":0,"done":0,"idle":0},"confidence":0.9}}}`)
+		fmt.Print(`{"answers":{"status":{"type":"choice","choice":"waiting","probabilities":{"waiting":0.95,"working":0.05},"confidence":0.9}}}`)
 		os.Exit(0)
 	case "sleep":
 		time.Sleep(10 * time.Second)
@@ -466,10 +470,65 @@ func contains(s []string, v string) bool {
 	return false
 }
 
-func TestUrgencyRounds(t *testing.T) {
-	for score, want := range map[float64]string{0: "fyi", 0.4: "fyi", 1.2: "later", 2.5: "now", 2.49: "soon", 3: "now"} {
-		if got := Urgency(map[string]Answer{"urgency": {Type: Score, Score: score}}); got != want {
-			t.Errorf("Urgency(%v) = %q, want %q", score, got, want)
+func TestUrgency(t *testing.T) {
+	for _, c := range []struct {
+		blocked, nothing float64
+		want             string
+	}{{0.9, 0.1, "now"}, {0.1, 0.9, "fyi"}, {0.3, 0.3, "soon"}, {0.6, 0.7, "now"}} {
+		if got := Urgency(map[string]Answer{"blocked": {Noul: c.blocked}, "nothing": {Noul: c.nothing}}); got != c.want {
+			t.Errorf("Urgency(blocked %v, nothing %v) = %q, want %q", c.blocked, c.nothing, got, c.want)
+		}
+	}
+}
+
+func TestApproval(t *testing.T) {
+	for _, c := range []struct {
+		requested, irreversible float64
+		want                    string
+		p                       float64
+	}{{0.9, 0.1, Allow, 0.81}, {0.9, 0.6, Ask, 0.64}, {0.4, 0, Ask, 0.6}} {
+		v, p := Approval(map[string]Answer{"requested": {Noul: c.requested}, "irreversible": {Noul: c.irreversible}})
+		if v != c.want || math.Abs(p-c.p) > 1e-9 {
+			t.Errorf("Approval(%v, %v) = %s %.2f, want %s %.2f", c.requested, c.irreversible, v, p, c.want, c.p)
+		}
+	}
+}
+
+func TestTurnRules(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"All tests pass; the PR is open.":            false,
+		"Two tests still fail on Windows.":           true,
+		"I skipped the e2e suite.":                   true,
+		"Should I also update the docs?":             true,
+		"Done. Merged and released as beta.12.":      false,
+		"I couldn't reproduce it, so nothing moved.": true,
+	} {
+		if TurnRule(msg) != want {
+			t.Errorf("TurnRule(%q) = %v", msg, !want)
+		}
+	}
+	for prompt, want := range map[string]bool{
+		"it still crashes":          true,
+		"that's wrong, revert it":   true,
+		"now add a dark mode":       false,
+		"release it once it merges": false,
+	} {
+		if Correction(prompt) != want {
+			t.Errorf("Correction(%q) = %v", prompt, !want)
+		}
+	}
+	for cmd, want := range map[string]bool{
+		"go test ./...":                   true,
+		"cd x && pnpm run lint":           true,
+		"git commit -m 'x'":               true,
+		"pre-commit run --all-files":      true,
+		"git status":                      false,
+		"ls internal/":                    false,
+		"cat Makefile":                    false,
+		"env -u A GOFLAGS=x go vet ./...": true,
+	} {
+		if IsCheck(cmd) != want {
+			t.Errorf("IsCheck(%q) = %v", cmd, !want)
 		}
 	}
 }
@@ -630,11 +689,12 @@ func TestProbabilitiesNormalized(t *testing.T) {
 	f := &fakeJev{reply: `{"answers":{"verdict":{"type":"choice","choice":"allow","probabilities":{"allow":0.955,"ask":0.055,"deny":0},"confidence":0.9}}}`}
 	_, j := f.start(t)
 	c := &Client{P: j}
-	ans, err := c.Ask(context.Background(), FeatureApprovals, "", "s", ApprovalQuestions())
+	ans, err := c.Ask(context.Background(), FeatureApprovals, "", "s", map[string]Question{"verdict": {Type: Choice, Instructions: "?",
+		Criteria: map[string]string{Allow: "a", Ask: "b", "deny": "c"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, probs := Approval(ans)
+	probs := ans["verdict"].Probabilities
 	sum := 0.0
 	for _, p := range probs {
 		sum += p
@@ -726,7 +786,7 @@ func TestCommandKillsProcessGroup(t *testing.T) {
 	t.Setenv("DECIDE_PIDFILE", pidfile)
 	c := &Client{P: Command{Argv: []string{os.Args[0], "-test.run=TestHelperCommand"}}, Timeout: 300 * time.Millisecond}
 	start := time.Now()
-	if _, err := c.Ask(context.Background(), FeatureAgents, "", "s", ScreenQuestions()); err == nil {
+	if _, err := c.Ask(context.Background(), FeatureTest, "", "s", statusQuestions); err == nil {
 		t.Fatal("no timeout")
 	}
 	if d := time.Since(start); d > 3*time.Second {

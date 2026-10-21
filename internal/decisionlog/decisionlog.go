@@ -31,11 +31,14 @@ const (
 
 // User outcomes.
 const (
-	Allowed  = "allowed"  // approvals: the tool ran
-	Denied   = "denied"   // approvals: the turn went on or ended without it
-	Unknown  = "unknown"  // approvals: no event said which
-	Focused  = "focused"  // triage: the pane was shown focused
-	Prompted = "prompted" // turn check: the user sent the agent another prompt
+	Allowed     = "allowed"     // approvals: the tool ran
+	Denied      = "denied"      // approvals: the turn went on or ended without it
+	Unknown     = "unknown"     // approvals: no event said which
+	Focused     = "focused"     // triage: the pane was shown focused
+	Prompted    = "prompted"    // turn check, check: the user sent the agent another prompt
+	Corrected   = "corrected"   // turn check, check: that prompt reads as a correction (decide.Correction)
+	Interrupted = "interrupted" // stuck: the user pressed Esc or Ctrl+C before the next ask or the turn's end
+	Continued   = "continued"   // stuck: the agent went on, or its turn ended, without that
 )
 
 // Event is one line.
@@ -58,9 +61,16 @@ type Event struct {
 	Answer    string  `json:"answer,omitempty"`
 	P         float64 `json:"p,omitempty"`
 	Conf      float64 `json:"conf,omitempty"`
+	// Probs is each yes/no question's probability of yes, for a call that
+	// asked several.
+	Probs map[string]float64 `json:"probs,omitempty"`
+	// Base is the rule a call is measured against: for a turn, "check" or
+	// "done" by decide.TurnRule; for an approval, "rule" when pitwall's
+	// own risk flags answered and the model was not asked.
+	Base string `json:"base,omitempty"`
 
-	// Approvals, on both kinds: the verdict was hidden (holdout), and
-	// pitwall saw a risk in the call.
+	// Approvals and triage, on both kinds: the answer was hidden
+	// (holdout); approvals: pitwall saw a risk in the call.
 	Held bool `json:"held,omitempty"`
 	Risk bool `json:"risk,omitempty"`
 

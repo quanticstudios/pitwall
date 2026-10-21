@@ -206,7 +206,7 @@ func (p *Page) stats() []section {
 			rows = append(rows, []string{"Lift", "", fmt.Sprintf("%+.0f points", t.Lift())})
 		}
 		secs = append(secs, section{title: "Turn check",
-			desc: fmt.Sprintf("Finished turns you prompted again within %d minutes, by what the model said. Check should be higher.", int(decisionlog.FollowUp.Minutes())),
+			desc: "Finished turns whose next prompt read as a correction, by what the model said. Check should be higher.",
 			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.table(gtx, nil, rows) }}}})
 	}
 
@@ -217,15 +217,15 @@ func (p *Page) stats() []section {
 			if l.Name == "fyi" {
 				name = "FYI"
 			}
-			rows = append(rows, []string{name, count(l.N), decisionlog.Secs(l.Median)})
+			rows = append(rows, []string{name, count(l.N), decisionlog.Secs(l.Median), count(l.HeldN), decisionlog.Secs(l.HeldMedian)})
 		}
 		if t.Unfocused > 0 {
-			rows = append(rows, []string{"Not focused before the pane moved on", count(t.Unfocused), ""})
+			rows = append(rows, []string{"Not focused before the pane moved on", count(t.Unfocused), "", "", ""})
 		}
 		secs = append(secs, section{title: "Triage",
-			desc: "How soon you focused a pane, by the urgency the model gave it. Now should be fastest.",
+			desc: "How soon you focused a pane, by the urgency the model gave it, with the answer used and held out. Now should be fastest when used.",
 			rows: []row{{bare: true, control: func(gtx gl.Context) gl.Dimensions {
-				return p.table(gtx, []string{"Urgency", "Panes", "Median to focus"}, rows)
+				return p.table(gtx, []string{"Urgency", "Panes", "Median to focus", "Held out", "Median held out"}, rows)
 			}}}})
 	}
 	return secs

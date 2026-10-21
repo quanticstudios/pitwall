@@ -86,12 +86,18 @@ func fixture(to time.Time) []Event {
 		add(c, Event{User: user, WaitMs: int64(i+11) * 1000, Held: true})
 	}
 	add(Event{Feature: approvals, Err: "timeout", Tokens: 500, Estimated: true}, Event{User: Unknown})
-	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "check"}, Event{User: Prompted, WaitMs: 60_000})
-	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "check"}, Event{User: Prompted, WaitMs: 600_000})
-	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "done"}, Event{})
-	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "done"}, Event{})
+	add(Event{Feature: approvals, Answer: "ask", Base: "rule", Risk: true}, Event{User: Denied, WaitMs: 90_000, Risk: true})
+	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "check", Base: "check"}, Event{User: Corrected, WaitMs: 60_000})
+	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "check", Base: "done"}, Event{User: Prompted, WaitMs: 600_000})
+	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "done", Base: "done"}, Event{User: Prompted, WaitMs: 60_000})
+	add(Event{Feature: turnCheck, Ms: 100, Tokens: 700, Answer: "done", Base: "check"}, Event{})
 	add(Event{Feature: triage, Ms: 100, Tokens: 800, Answer: "now"}, Event{User: Focused, WaitMs: 3000})
+	add(Event{Feature: triage, Ms: 100, Tokens: 800, Answer: "now", Held: true}, Event{User: Focused, WaitMs: 9000, Held: true})
 	add(Event{Feature: triage, Ms: 100, Tokens: 800, Answer: "fyi"}, Event{})
+	add(Event{Feature: check, Ms: 100, Tokens: 900, Answer: "failed"}, Event{User: Corrected})
+	add(Event{Feature: check, Ms: 100, Tokens: 900, Answer: "passed"}, Event{User: Prompted})
+	add(Event{Feature: stuck, Ms: 100, Tokens: 900, Answer: "stuck"}, Event{User: Interrupted})
+	add(Event{Feature: stuck, Ms: 100, Tokens: 900, Answer: "working"}, Event{User: Continued})
 	return evs
 }
 
@@ -104,22 +110,28 @@ func TestReport(t *testing.T) {
 	out := b.String()
 	t.Log("\n" + out) // go test -v shows a sample
 	for _, want := range []string{
-		"67 calls, 64 outcomes",
-		"  approvals        61      2%   200 ms   400 ms",
+		"73 calls, 71 outcomes",
+		"  approvals        62      2%   200 ms   400 ms",
 		"failures: timeout 1",
-		"about $0.0026 for 64900 input tokens at $0.04 per million",
+		"about $0.0028 for 69300 input tokens at $0.04 per million",
 		"1% of the tokens are guessed",
 		"suggestion shown:  median 15.0s, p75 23.0s (n=30)",
 		"held out:          median 25.0s, p75 33.0s (n=30)",
 		"left out, no event showed the answer: 1",
+		"answered by pitwall's risk flags, without Jev: 1",
 		"Jev agreed with you on 92% (n=60); held out only 93% (n=30); at confidence 0.9 or more 95% (n=58)",
 		"Jev said ask or deny and you allowed: 2; Jev said allow and you denied: 3",
 		"of the 8 you denied, Jev said ask or deny on 5",
-		"marked Check: 1 of 2 (50%); marked Done: 0 of 2 (0%); lift +50 points",
-		"now    median 3.0s (n=1)",
+		"marked Check: 1 of 2 (50%); marked Done: 0 of 1 (0%); lift +50 points",
+		"the rule's Check: 1 of 1 (100%); the rule's Done: 0 of 2 (0%); lift +100 points",
+		"after a failed check: 1 of 1 (100%); after a passed one: 0 of 1 (0%)",
+		"said stuck: 1 of 1 (100%); said working: 0 of 1 (0%)",
+		"now    median 3.0s (n=1); held out median 9.0s (n=1)",
+		"Triage: not enough data yet; now panes need 30 focused in each arm, there are 1 used and 1 held out.",
+		"Turn check: not enough data yet",
 		"not focused before the pane moved on: 1",
 		"Verdict: you answer faster with the suggestion shown (median 15.0s shown vs 25.0s held out",
-		"About $0.0026 over 7 days.",
+		"About $0.0028 over 7 days.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report lacks %q:\n%s", want, out)
@@ -174,16 +186,19 @@ func TestStats(t *testing.T) {
 	if a.N-a.HeldN != 30 || a.Agree-a.HeldAgree != 27 || a.HeldAgree != 28 {
 		t.Errorf("agreement: shown %d of %d, held %d of %d", a.Agree-a.HeldAgree, a.N-a.HeldN, a.HeldAgree, a.HeldN)
 	}
-	if s.Speed() != "you answer faster with the suggestion shown" || s.Calls != 67 || s.P50 != 200 || s.SpanDays() != 7 {
+	if s.Speed() != "you answer faster with the suggestion shown" || s.Calls != 73 || s.P50 != 200 || s.SpanDays() != 7 {
 		t.Errorf("speed %q, %d calls, p50 %v, %d days", s.Speed(), s.Calls, s.P50, s.SpanDays())
 	}
-	if len(s.Days) != 8 || s.Days[5].Calls != 67 || s.Days[5].Date.Day() != 6 || math.Abs(s.Days[5].Dollars-s.Dollars) > 1e-12 {
+	if len(s.Days) != 8 || s.Days[5].Calls != 73 || s.Days[5].Date.Day() != 6 || math.Abs(s.Days[5].Dollars-s.Dollars) > 1e-12 {
 		t.Errorf("days: %+v", s.Days)
 	}
-	if s.Turns != (Turns{Check: 1, CheckN: 2, DoneN: 2}) || s.Turns.Lift() != 50 {
-		t.Errorf("turns: %+v", s.Turns)
+	if s.Turns != (Split{Check: 1, CheckN: 2, DoneN: 1}) || s.Turns.Lift() != 50 || s.TurnRule != (Split{Check: 1, CheckN: 1, DoneN: 2}) {
+		t.Errorf("turns: %+v, rule %+v", s.Turns, s.TurnRule)
 	}
-	if len(s.Triage.Levels) != 1 || s.Triage.Levels[0] != (Level{"now", 1, 3}) || s.Triage.Unfocused != 1 {
+	if s.Checks != (Split{Check: 1, CheckN: 1, DoneN: 1}) || s.Stuck != (Split{Check: 1, CheckN: 1, DoneN: 1}) {
+		t.Errorf("checks %+v, stuck %+v", s.Checks, s.Stuck)
+	}
+	if len(s.Triage.Levels) != 1 || s.Triage.Levels[0] != (Level{"now", 1, 3, 1, 9}) || s.Triage.Unfocused != 1 {
 		t.Errorf("triage: %+v", s.Triage)
 	}
 

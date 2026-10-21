@@ -75,6 +75,9 @@ func (d *Daemon) noteInput(id string, b []byte) {
 		s = d.st.Activities[i].State
 	}
 	d.noteKey(id, s, time.Now())
+	if s == model.StateWorking && isInterrupt(b) {
+		d.noteInterrupt(id, time.Now())
+	}
 	d.mu.Unlock()
 	switch {
 	case s == model.StateWorking && isInterrupt(b):
@@ -148,6 +151,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		d.checkForeground()
 		d.refreshDecisions()
 		d.detect(ctx)
+		d.checkStuck(ctx)
 		d.checkRemoteControl()
 	}
 }

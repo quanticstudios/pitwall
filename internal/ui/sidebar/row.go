@@ -465,6 +465,9 @@ func PillText(a model.Activity, by string) string {
 	if a.Urgency == "now" && model.NeedsYou(a.State) {
 		return model.PillLabel(a) + " · now"
 	}
+	if a.Stuck && a.State == model.StateWorking {
+		return model.PillLabel(a) + " · stuck"
+	}
 	return model.PillLabel(a)
 }
 

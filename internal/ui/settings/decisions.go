@@ -268,34 +268,36 @@ func (p *Page) decisions() []section {
 		featDesc = "Each feature asks only when it has something to ask. A failed or slow answer changes nothing: pitwall goes on as it would without one."
 	}
 	rows := []row{
-		{label: "Approvals", desc: "When Claude Code or Codex asks permission, shows the model's recommendation on the approval, with any risk pitwall sees in the call: \"Jev: allow 96% · sudo\". " +
+		{label: "Approvals", desc: "When Claude Code or Codex asks permission, a call pitwall sees a risk in shows the risk (\"Risk: sudo\") and the model is not asked. " +
+			"For any other call it asks whether you asked for it and whether it is hard to undo, and shows the answer on the approval: \"Jev: allow 81%\". " +
 			"It is only a suggestion; you still answer every prompt. Automatic approval is left out because a command's text cannot show what it will run; that needs sandboxed execution. " +
-			holdoutNote(d.Holdout) + p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
-			extra: "approval permission suggest allow deny mode recommendation",
+			holdoutNote(d.Holdout, "prompts at random show nothing") + p.sends("the tool, its input, the folder and your latest prompt") + p.counted(decide.FeatureApprovals),
+			extra: "approval permission suggest allow ask mode recommendation risk",
 			control: p.labeled("dmode", []string{config.ModeOff, config.ModeSuggest}, []string{"Off", "Suggest"}, d.Approvals, func(o string) {
 				p.saveValue("decisions.approvals", "mode", config.Quote(o))
 			})},
-	}
-	rows = append(rows,
-		row{label: "Attention triage", desc: "Rates how soon a pane that needs you wants you: fyi, later, soon or now. The jump-to-attention key goes to the most urgent first; fyi sends no desktop notification. " +
-			p.sends("the agent's question, approval, error or summary") + p.counted(decide.FeatureTriage),
-			extra: "triage urgency notification attention", control: p.toggle("decisions.triage", "enabled", d.Triage)},
-		row{label: "Agents without hooks", desc: "Status for Gemini CLI, OpenCode, Aider, Amp, Cursor agent, Goose and Crush, read from their screen at most every 2 seconds while it changes. No other program's screen is ever sent. " +
-			p.sends("the visible screen of those programs") + p.counted(decide.FeatureAgents),
-			extra: "gemini opencode aider amp cursor goose crush hookless screen", control: p.toggle("decisions.agents", "enabled", d.Agents)},
-		row{label: "Turn check", desc: "When an agent finishes, asks whether the turn needs your review: failed tests, errors left, unfinished work. The Done pill then reads Check. " +
+		{label: "Attention triage", desc: "Asks whether a pane that needs you is blocked on you (now) or has nothing for you to do (fyi). The jump-to-attention key goes to now first; fyi sends no desktop notification. " +
+			holdoutNote(d.TriageHoldout, "panes at random stay untriaged") + p.sends("the agent's question, approval, error or summary") + p.counted(decide.FeatureTriage),
+			extra: "triage urgency notification attention now fyi", control: p.toggle("decisions.triage", "enabled", d.Triage)},
+		{label: "Turn check", desc: "When an agent finishes, asks whether the turn needs your review: failed tests, errors left, unfinished work. The Done pill then reads Check. " +
 			p.sends("the agent's last message only, never the screen") + p.counted(decide.FeatureTurnCheck),
 			extra: "review done check finished turn", control: p.toggle("decisions.turn_check", "enabled", d.TurnCheck)},
-	)
+		{label: "Check runs", desc: "When an agent's pre-commit, tests, lint, type check, build or commit exits 0, asks whether the output still shows a failure, a skip or a bypass (--no-verify, || true). A turn that ends on a failed check reads Check. " +
+			p.sends("the command and the end of its output") + p.counted(decide.FeatureCheck),
+			extra: "check pre-commit test lint build verify commit", control: p.toggle("decisions.check", "enabled", d.Check)},
+		{label: "Stuck agents", desc: "Asks whether an agent that has worked 10 minutes or more without stopping is stuck, and again every 10 minutes; the pill then reads Working · stuck. " +
+			p.sends("the visible screen of that agent's pane") + p.counted(decide.FeatureStuck),
+			extra: "stuck loop hang long running", control: p.toggle("decisions.stuck", "enabled", d.Stuck)},
+	}
 
 	return []section{{rows: []row{conn}}, {title: "Features", desc: featDesc, rows: rows}}
 }
 
-// holdoutNote says what share of recommendations is held out to measure
-// them.
-func holdoutNote(h float64) string {
+// holdoutNote says what share of answers is held out to measure them:
+// "To measure it, 20% of " + what.
+func holdoutNote(h float64, what string) string {
 	if h <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("To measure it, %.0f%% of prompts at random show only the risk (holdout in config.toml); pitwall jev report compares them. ", h*100)
+	return fmt.Sprintf("To measure it, %.0f%% of %s (holdout in config.toml); pitwall jev report compares them. ", h*100, what)
 }

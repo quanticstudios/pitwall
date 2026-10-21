@@ -73,7 +73,7 @@ func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 	sp := d.st.Panes[i]
 	// why: Codex sends its first hook with its first prompt, so an agent
 	// pitwall has hooks for, seen running and not missing them, counts.
-	hooked := !d.live.hookAt[pane].IsZero() || agent.HooksFor(sp.Provider) && !sp.HooksMissing && d.dec.screens[pane] == nil
+	hooked := !d.live.hookAt[pane].IsZero() || agent.HooksFor(sp.Provider) && !sp.HooksMissing
 	var a model.Activity
 	if ai := d.activityIndex(pane); ai >= 0 {
 		a = d.st.Activities[ai]

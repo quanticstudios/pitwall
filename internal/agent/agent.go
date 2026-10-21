@@ -826,6 +826,46 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
 }
 
+// ToolRun is the shell command a PostToolUse or PostToolUseFailure hook
+// reports, with its output (stdout then stderr, or the failure's error)
+// and whether it failed: a failure event or a non-zero exit code. ok is
+// false for other payloads, other tools and a /side fork.
+func ToolRun(payload []byte) (command, output string, failed, ok bool) {
+	var p struct {
+		Event          string          `json:"hook_event_name"`
+		TranscriptPath json.RawMessage `json:"transcript_path"`
+		ToolName       string          `json:"tool_name"`
+		ToolInput      struct {
+			Command json.RawMessage `json:"command"`
+		} `json:"tool_input"`
+		ToolResponse json.RawMessage `json:"tool_response"`
+		Error        string          `json:"error"`
+	}
+	if json.Unmarshal(payload, &p) != nil || string(p.TranscriptPath) == "null" || (p.Event != "PostToolUse" && p.Event != "PostToolUseFailure") {
+		return "", "", false, false
+	}
+	var argv []string
+	if json.Unmarshal(p.ToolInput.Command, &command) != nil && json.Unmarshal(p.ToolInput.Command, &argv) == nil {
+		command = strings.Join(argv, " ") // Codex sends argv
+	}
+	if command == "" {
+		return "", "", false, false
+	}
+	var r struct {
+		Stdout, Stderr, Output string
+		Aggregated             string `json:"aggregated_output"`
+		ExitCode               *int   `json:"exit_code"`
+	}
+	if json.Unmarshal(p.ToolResponse, &output) != nil && json.Unmarshal(p.ToolResponse, &r) == nil {
+		output = strings.TrimSpace(firstNonEmpty(r.Aggregated, r.Output, strings.TrimSpace(r.Stdout+"\n"+r.Stderr)))
+	}
+	if p.Error != "" {
+		output = strings.TrimSpace(output + "\n" + p.Error)
+	}
+	failed = p.Event == "PostToolUseFailure" || r.ExitCode != nil && *r.ExitCode != 0
+	return command, output, failed, true
+}
+
 // HookEvent returns a Claude Code or Codex hook's event name and tool
 // name, "" for other payloads and for a /side fork.
 func HookEvent(payload []byte) (event, tool string) {

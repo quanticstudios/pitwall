@@ -1,14 +1,17 @@
-Decisions 2026-10-01 to 2026-10-08: 67 calls, 64 outcomes.
+Decisions 2026-10-01 to 2026-10-08: 73 calls, 71 outcomes.
 
 Calls
   feature       calls  failed      p50      p95
-  approvals        61      2%   200 ms   400 ms
-  triage            2      0%   100 ms   100 ms
+  approvals        62      2%   200 ms   400 ms
+  check             2      0%   100 ms   100 ms
+  stuck             2      0%   100 ms   100 ms
+  triage            3      0%   100 ms   100 ms
   turn_check        4      0%   100 ms   100 ms
   failures: timeout 1
-  cost: about $0.0026 for 64900 input tokens at $0.04 per million (an estimate; 1% of the tokens are guessed from request size, where the reply gave no count)
+  cost: about $0.0028 for 69300 input tokens at $0.04 per million (an estimate; 1% of the tokens are guessed from request size, where the reply gave no count)
 
 Approvals
+  answered by pitwall's risk flags, without Jev: 1
   time to answer, suggestion shown:  median 15.0s, p75 23.0s (n=30)
   time to answer, held out:          median 25.0s, p75 33.0s (n=30)
   left out, no event showed the answer: 1
@@ -16,14 +19,25 @@ Approvals
   Jev said ask or deny and you allowed: 2; Jev said allow and you denied: 3
   of the 8 you denied, Jev said ask or deny on 5
 
-Turn check: turns you prompted again within 5 minutes
-  marked Check: 1 of 2 (50%); marked Done: 0 of 2 (0%); lift +50 points
-
-Triage: time until you focused the pane
-  now    median 3.0s (n=1)
+Triage: time until you focused the pane, answer used and held out
+  now    median 3.0s (n=1); held out median 9.0s (n=1)
   not focused before the pane moved on: 1
 
-Verdict: you answer faster with the suggestion shown (median 15.0s shown vs 25.0s held out; 95% interval of the difference -17.0s to -2.0s). Jev agreed with you on 92% of approvals and said ask or deny on 5 of the 8 you denied. About $0.0026 over 7 days.
+Turn check: your next prompt read as a correction
+  marked Check: 1 of 2 (50%); marked Done: 0 of 1 (0%); lift +50 points
+  the rule's Check: 1 of 1 (100%); the rule's Done: 0 of 2 (0%); lift +100 points
+
+Check runs: your next prompt read as a correction
+  after a failed check: 1 of 1 (100%); after a passed one: 0 of 1 (0%); lift +100 points
+
+Stuck: you pressed Esc or Ctrl+C before the next ask or the turn's end
+  said stuck: 1 of 1 (100%); said working: 0 of 1 (0%); lift +100 points
+
+Triage: not enough data yet; now panes need 30 focused in each arm, there are 1 used and 1 held out.
+Turn check: not enough data yet; it needs 30 of each answer with an outcome, there are 2 and 1.
+Check runs: not enough data yet; it needs 30 of each answer with an outcome, there are 1 and 1.
+Stuck: not enough data yet; it needs 30 of each answer with an outcome, there are 1 and 1.
+Verdict: you answer faster with the suggestion shown (median 15.0s shown vs 25.0s held out; 95% interval of the difference -17.0s to -2.0s). Jev agreed with you on 92% of approvals and said ask or deny on 5 of the 8 you denied. About $0.0028 over 7 days.
 =====
 Decisions 2026-10-01 to 2026-10-08: 10 calls, 10 outcomes.
 

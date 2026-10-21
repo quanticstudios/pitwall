@@ -312,8 +312,7 @@ func TestHooksMissing(t *testing.T) {
 	waitUntil(t, "gemini marked", func() bool { return d.hooksMissing(id) })
 }
 
-// Without hooks or a decision model, Gemini CLI's state comes from its
-// screen's text, and its finished turn from the screen going quiet.
+// Without hooks, Gemini CLI's state comes from its screen's text, and its finished turn from the screen going quiet.
 func TestGeminiScreenRules(t *testing.T) {
 	d, lp, id := openLive(t, 200)
 	lp.show("$ ", false)
