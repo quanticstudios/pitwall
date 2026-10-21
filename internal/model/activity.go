@@ -17,6 +17,9 @@ const (
 	StateCompleted       AgentState = "completed"
 	StateError           AgentState = "error"
 	StateTerminalRunning AgentState = "terminal-running"
+	// StateWatching is the sidebar's, never an agent's: an orchestrator
+	// whose own turn ended while a worker of its works.
+	StateWatching AgentState = "watching"
 )
 
 type Activity struct {
@@ -83,6 +86,7 @@ var statePriority = map[AgentState]int{
 	StateAwaitingInput:   5,
 	StateWorking:         4,
 	StateConnecting:      4,
+	StateWatching:        4,
 	StatePlanReady:       3,
 	StateCompleted:       2,
 	StateTerminalRunning: 1,
@@ -97,6 +101,7 @@ var shortLabels = map[AgentState]string{
 	StatePlanReady:       "Plan Ready",
 	StateTerminalRunning: "Running",
 	StateWorking:         "Working",
+	StateWatching:        "Watching",
 }
 
 // SortActivities orders by state priority, then most recent first.
@@ -135,7 +140,7 @@ func Tier(a *Activity) AttentionTier {
 	switch a.State {
 	case StateError, StatePendingApproval, StateAwaitingInput:
 		return TierAttention
-	case StateWorking, StateConnecting, StateTerminalRunning:
+	case StateWorking, StateConnecting, StateTerminalRunning, StateWatching:
 		return TierActive
 	}
 	return TierIdle

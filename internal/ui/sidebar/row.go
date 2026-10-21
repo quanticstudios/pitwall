@@ -344,6 +344,8 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 	case model.StateConnecting:
 		_, frac := math.Modf(v.t(s)) // animate-spin: 1s linear
 		return drawIcon(gtx, icLoader, sz, th.Blue, float32(frac*2*math.Pi))
+	case model.StateWatching:
+		return drawIcon(gtx, icEye, sz, th.Blue, 0)
 	case model.StateCompleted:
 		return drawIcon(gtx, icCircleCheck, sz, th.Green, 0)
 	case model.StatePlanReady:
@@ -372,7 +374,8 @@ func gotoDigit(gtx layout.Context, th *theme.Theme, digit string, isActive bool,
 }
 
 // pill is ActivityPill: rounded-full, px-1.5 py-px, 10px semibold, a pulsing
-// dot while the agent works.
+// dot while the agent works. Watching is an outline with an eye, so it
+// reads apart from Working without a color of its own.
 func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.NRGBA) layout.Dimensions {
 	th := v.th
 	col := StateColor(th, a.State)
@@ -381,6 +384,10 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		soft = 0.15
 	}
 	bg := theme.Mix(base, col, soft)
+	watching := a.State == model.StateWatching
+	if watching {
+		bg = base
+	}
 	_, h := rowLines(gtx, th) // line 2's height: 16.5dp at the default size
 	m := op.Record(gtx.Ops)
 	gtx.Constraints.Min = image.Point{}
@@ -394,6 +401,11 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 			return layout.Dimensions{Size: image.Pt(d, d)}
 		}})
 	}
+	if watching {
+		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+			return drawIcon(gtx, icEye, gtx.Dp(10), col, 0)
+		}})
+	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
 		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), PillText(a, v.st.Decide.Provider))
 	}})
@@ -401,7 +413,11 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 	off.Pop()
 	call := m.Stop()
 	size := image.Pt(d.Size.X+gtx.Dp(14), h)
-	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, h/2).Op(gtx.Ops))
+	rr := clip.UniformRRect(image.Rectangle{Max: size}, h/2)
+	paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
+	if watching {
+		paint.FillShape(gtx.Ops, theme.Mix(base, col, 0.45), clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	}
 	call.Add(gtx.Ops)
 	return layout.Dimensions{Size: size}
 }
@@ -523,7 +539,7 @@ func StateColor(th *theme.Theme, s model.AgentState) color.NRGBA {
 		return th.Red
 	case model.StatePendingApproval, model.StateAwaitingInput:
 		return th.Yellow
-	case model.StateWorking, model.StateConnecting:
+	case model.StateWorking, model.StateConnecting, model.StateWatching:
 		return th.Blue
 	case model.StatePlanReady:
 		return th.Purple

@@ -435,14 +435,14 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 		}
 	}
 	for r, kids := range v.kids {
-		// An orchestrator whose own turn ended reads as Working while a
+		// An orchestrator whose own turn ended reads as Watching while a
 		// worker works, not as a green Done above blue workers.
 		a := v.activity[r]
 		if a == nil || a.State != model.StateCompleted || !slices.ContainsFunc(kids, func(k model.Workspace) bool { return model.Pulses(v.activity[k.ID]) }) {
 			continue
 		}
 		w := *a
-		w.State, w.Review = model.StateWorking, false
+		w.State, w.Review = model.StateWatching, false
 		v.activity[r] = &w
 		delete(v.unseen, r)
 	}

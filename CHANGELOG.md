@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- An orchestrator whose turn ended while its workers still run shows Watching, a blue outline with an eye, instead of a Working pill that looked like its workers'.
 - An SVG icon whose viewBox doesn't start at 0,0 draws in place, where oksvg drew it shifted and clipped. pitwall's own icon is its mark without the dark tile, which read as a black square on the sidebar.
 
 ## v0.1.0-beta.16
