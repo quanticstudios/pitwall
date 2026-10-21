@@ -658,7 +658,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.SetProjectAppearance:
 		return d.setAppearance(m)
 	case proto.SetTabOptions:
-		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Pinned, w.Color = m.Pinned, m.Color; return nil })
+		return d.setTabOptions(m)
 	case proto.DetachSession:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Detached = m.Detached; return nil })
 	case proto.KillSession:

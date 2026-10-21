@@ -89,3 +89,48 @@ func (d *Daemon) firstTop(ids []string) string {
 	}
 	return ""
 }
+
+// setTabOptions pins or colors a tab. Pinning or unpinning moves it to
+// the end of the pinned tabs at the top of its level, as a browser does:
+// the session's top level for an ungrouped tab, its group for a grouped
+// one. A worker stays under the tab that started it.
+func (d *Daemon) setTabOptions(m proto.SetTabOptions) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	w := d.workspace(m.WorkspaceID)
+	if w == nil {
+		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	moved := w.Pinned != m.Pinned && w.Parent == ""
+	w.Pinned, w.Color = m.Pinned, m.Color
+	if moved {
+		d.placePinned(*w)
+	}
+	d.changed()
+	return nil
+}
+
+// placePinned moves w before the first tab of its level, other than
+// itself, that is not pinned. Callers hold d.mu.
+func (d *Daemon) placePinned(w model.Workspace) {
+	pinned := func(x *model.Workspace) bool { return x != nil && x.ID != w.ID && x.Pinned }
+	if d.topLevel(w.SessionID, w.ID) {
+		before := ""
+		for _, id := range d.st.TopOrder(w.SessionID) {
+			if id != w.ID && !pinned(d.workspace(id)) {
+				before = id
+				break
+			}
+		}
+		d.st.PlaceTop(w.ID, before)
+		return
+	}
+	rest := slices.DeleteFunc(slices.Clone(d.st.Workspaces), func(x model.Workspace) bool { return x.ID == w.ID })
+	at := slices.IndexFunc(rest, func(x model.Workspace) bool {
+		return x.ProjectID == w.ProjectID && x.Parent == "" && !pinned(&x)
+	})
+	if at < 0 {
+		at = len(rest)
+	}
+	d.st.Workspaces = slices.Insert(rest, at, w)
+}
