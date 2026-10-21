@@ -101,7 +101,7 @@ func TestStateColors(t *testing.T) {
 		Primary: theme.Hex("#2997ff"), SurfaceSecondary: theme.Hex("#1c1f26")}
 	for s, want := range map[model.AgentState]any{
 		model.StateError: th.Red, model.StatePendingApproval: th.Yellow, model.StateAwaitingInput: th.Yellow,
-		model.StateWorking: th.Blue, model.StateConnecting: th.Blue, model.StatePlanReady: th.Purple,
+		model.StateWorking: th.Blue, model.StateConnecting: th.Blue, model.StateWatching: th.Blue, model.StatePlanReady: th.Purple,
 		model.StateCompleted: th.Green, model.StateTerminalRunning: th.Green,
 	} {
 		if got := StateColor(th, s); got != want {
