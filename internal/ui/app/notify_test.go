@@ -170,24 +170,25 @@ func TestNotifiesOnce(t *testing.T) {
 	}
 }
 
-// A resume that leaves at its time notifies once; one cancelled sooner
-// does not.
+// Only the daemon's resumed activity notifies, once.
 func TestResumedAt(t *testing.T) {
 	at := time.Date(2026, 10, 22, 15, 1, 0, 0, time.UTC)
-	a := notifyActivity(model.StateError, at.Add(-2*time.Hour))
-	a.Resumes = at
-	b := a
-	b.PaneID = "other"
-	was := resumesOf([]model.Activity{a, b})
-	if got := resumedAt(was, []model.Activity{a, b}, at); len(got) != 0 {
-		t.Fatalf("pending resumes notified: %+v", got)
+	stopped := notifyActivity(model.StateError, at.Add(-2*time.Hour))
+	stopped.Resumes = at
+	seen := map[string]time.Time{}
+	if got := resumedAt(seen, []model.Activity{stopped}); len(got) != 0 {
+		t.Fatalf("a pending resume notified: %+v", got)
 	}
-	a.Resumes = time.Time{}
-	if got := resumedAt(was, []model.Activity{a, b}, at.Add(-time.Minute)); len(got) != 0 {
+	cancelled := notifyActivity(model.StateError, at.Add(-2*time.Hour)) // its Resumes gone at the deadline
+	if got := resumedAt(seen, []model.Activity{cancelled}); len(got) != 0 {
 		t.Fatalf("a cancelled resume notified: %+v", got)
 	}
-	got := resumedAt(was, []model.Activity{a, b}, at.Add(time.Second))
-	if len(got) != 1 || got[0].PaneID != "pane" || got[0].State != model.StateWorking || got[0].Detail != "Resumed after the usage limit" {
+	done := notifyActivity(model.StateWorking, at)
+	done.Detail = model.ResumedDetail
+	if got := resumedAt(seen, []model.Activity{done}); len(got) != 1 || got[0].PaneID != "pane" {
 		t.Fatalf("got %+v", got)
+	}
+	if got := resumedAt(seen, []model.Activity{done}); len(got) != 0 {
+		t.Fatalf("notified twice: %+v", got)
 	}
 }

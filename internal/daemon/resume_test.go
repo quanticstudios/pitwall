@@ -67,6 +67,12 @@ func TestResumeAfterLimit(t *testing.T) {
 	if got := resumes(d, "a"); !got.IsZero() {
 		t.Fatalf("Resumes after it fired = %v", got)
 	}
+	d.mu.Lock()
+	a := d.st.Activities[d.activityIndex("a")]
+	d.mu.Unlock()
+	if a.State != model.StateWorking || a.Detail != model.ResumedDetail {
+		t.Fatalf("after the resume %+v, want working with ResumedDetail", a)
+	}
 
 	// Off, nothing is set.
 	d.o.ResumeAfterLimit = func() bool { return false }
@@ -89,6 +95,7 @@ func TestResumeGuards(t *testing.T) {
 		}},
 		{"agent changed", func(d *Daemon) { d.mu.Lock(); d.setProvider("a", model.ProviderCodex); d.mu.Unlock() }},
 		{"cancelled", func(d *Daemon) { d.handle(t.Context(), proto.CancelResume{Pane: "a"}) }},
+		{"setting off", func(d *Daemon) { d.o.ResumeAfterLimit = func() bool { return false } }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := useFakeClock(t, time.Date(2026, 10, 22, 13, 20, 0, 0, time.UTC))
@@ -101,7 +108,7 @@ func TestResumeGuards(t *testing.T) {
 			}
 			// A timer that still fires types nothing.
 			clock.fire()
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond) // typing reaches the pane asynchronously
 			if got := f.pane(0).got(); got != "" {
 				t.Errorf("typed %q", got)
 			}
@@ -161,5 +168,75 @@ func TestResumeFromScreen(t *testing.T) {
 	clock.fire()
 	if got := gotAfter(t, p, 0, 9); got != "continue\r" {
 		t.Fatalf("typed %q", got)
+	}
+}
+
+// A cancel that comes while another typing holds the pane still drops
+// the resume waiting behind it.
+func TestResumeCancelWhileTyping(t *testing.T) {
+	clock := useFakeClock(t, time.Date(2026, 10, 22, 13, 20, 0, 0, time.UTC))
+	d, f := talkDaemon(t)
+	d.o.ResumeAfterLimit = func() bool { return true }
+	claudeHook(t, d, "a", claudeLimit)
+	d.sendMu.Lock()
+	done := make(chan struct{})
+	go func() { clock.fire(); close(done) }()
+	time.Sleep(10 * time.Millisecond)
+	d.handle(t.Context(), proto.CancelResume{Pane: "a"})
+	d.sendMu.Unlock()
+	<-done
+	time.Sleep(50 * time.Millisecond) // typing reaches the pane asynchronously
+	if got := f.pane(0).got(); got != "" {
+		t.Fatalf("typed %q", got)
+	}
+}
+
+// A key typed after the turn stopped, such as a draft, and a reset
+// already past set no resume. A limit message replaces an earlier
+// error's Detail.
+func TestResumeNotSet(t *testing.T) {
+	defer func(l *time.Location) { time.Local = l }(time.Local)
+	time.Local = time.UTC
+	clock := useFakeClock(t, time.Date(2026, 10, 22, 13, 20, 0, 0, time.UTC))
+	d, f := talkDaemon(t)
+	d.o.ResumeAfterLimit = func() bool { return true }
+	d.mu.Lock()
+	d.setProvider("b", model.ProviderCodex)
+	d.mu.Unlock()
+	show := func(rows ...string) {
+		p := f.pane(1)
+		p.mu.Lock()
+		p.screen = rows
+		p.mu.Unlock()
+		d.checkLimits()
+	}
+	d.agentEvent(t.Context(), proto.AgentEvent{Pane: "b", Provider: model.ProviderCodex, Payload: []byte(`{"hook_event_name":"Stop","last_assistant_message":"ok"}`)})
+	time.Sleep(time.Millisecond) // why: the key must come after the stop on a coarse clock
+	d.noteUserKey("b", []byte("d"))
+	show("■ You’ve hit your usage limit. Try again at 3:04 PM.")
+	if len(clock.fns) != 0 {
+		t.Fatal("a resume was set over a draft")
+	}
+
+	d.agentEvent(t.Context(), proto.AgentEvent{Pane: "b", Provider: model.ProviderCodex, Payload: []byte(`{"hook_event_name":"Stop","last_assistant_message":"later"}`)})
+	show("■ You’ve hit your usage limit. Try again at 1:10 PM.") // ten minutes ago
+	if len(clock.fns) != 0 {
+		t.Fatal("a resume was set for a past reset")
+	}
+
+	claudeHook(t, d, "a", `{"hook_event_name":"StopFailure","error":"server_error","last_assistant_message":"API Error: 500"}`)
+	d.mu.Lock()
+	d.setProvider("a", model.ProviderClaude)
+	d.mu.Unlock()
+	p := f.pane(0)
+	p.mu.Lock()
+	p.screen = []string{"  ⎿  You've hit your session limit · resets 3pm (UTC)"}
+	p.mu.Unlock()
+	d.checkLimits()
+	d.mu.Lock()
+	a := d.st.Activities[d.activityIndex("a")]
+	d.mu.Unlock()
+	if a.Detail != "You've hit your session limit · resets 3pm (UTC)" || resumes(d, "a").IsZero() {
+		t.Fatalf("activity %+v, want the limit message and a resume", a)
 	}
 }

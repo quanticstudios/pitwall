@@ -56,6 +56,10 @@ type Activity struct {
 	Resumes time.Time
 }
 
+// ResumedDetail is the Detail of a working activity whose agent the
+// daemon resumed after its usage limit reset, until the agent reports.
+const ResumedDetail = "Resumed after the usage limit"
+
 // UrgencyPending is Activity.Urgency while triage is asking.
 const UrgencyPending = "pending"
 

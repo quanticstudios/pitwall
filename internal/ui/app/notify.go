@@ -129,7 +129,8 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 	timer.Stop()
 	defer timer.Stop()
 	var h model.Notifications
-	resuming := resumesOf(initial.Activities)
+	resumed := map[string]time.Time{}
+	resumedAt(resumed, initial.Activities) // seen before this window opened
 	version := initial.Version
 	ready := initial.Version != 0 || len(initial.Projects) > 0 || len(initial.Activities) > 0
 	if ready {
@@ -166,8 +167,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 		now := time.Now()
 		var deliveries []model.Activity
 		h, deliveries = model.DecideNotifications(h, st.Activities, focused, active, now)
-		deliveries = append(deliveries, resumedAt(resuming, st.Activities, now)...)
-		resuming = resumesOf(st.Activities)
+		deliveries = append(deliveries, resumedAt(resumed, st.Activities)...)
 		for _, a := range deliveries {
 			n.mu.Lock()
 			viewing := n.focused && n.active == a.WorkspaceID
@@ -192,27 +192,14 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 	}
 }
 
-// resumesOf is the activities in as that resume after a usage limit, by
-// pane.
-func resumesOf(as []model.Activity) map[string]model.Activity {
-	out := map[string]model.Activity{}
-	for _, a := range as {
-		if !a.Resumes.IsZero() {
-			out[a.PaneID] = a
-		}
-	}
-	return out
-}
-
-// resumedAt is a notification for each activity in was whose resume
-// left as at its time, which the daemon typed: as working, "Resumed after
-// the usage limit". One that left sooner was cancelled.
-func resumedAt(was map[string]model.Activity, as []model.Activity, now time.Time) []model.Activity {
+// resumedAt is each activity in as that the daemon resumed after a usage
+// limit (model.ResumedDetail) and seen does not hold yet, by pane and
+// UpdatedAt, which it then holds.
+func resumedAt(seen map[string]time.Time, as []model.Activity) []model.Activity {
 	var out []model.Activity
-	for id, a := range was {
-		still := slices.ContainsFunc(as, func(x model.Activity) bool { return x.PaneID == id && x.Resumes.Equal(a.Resumes) })
-		if !still && !now.Before(a.Resumes.Add(-5*time.Second)) {
-			a.State, a.Detail, a.Resumes, a.UpdatedAt = model.StateWorking, "Resumed after the usage limit", time.Time{}, now
+	for _, a := range as {
+		if a.State == model.StateWorking && a.Detail == model.ResumedDetail && !seen[a.PaneID].Equal(a.UpdatedAt) {
+			seen[a.PaneID] = a.UpdatedAt
 			out = append(out, a)
 		}
 	}

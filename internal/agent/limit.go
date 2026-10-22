@@ -5,8 +5,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 )
+
+// limitLead is what may stand before a limit message on its line.
+const limitLead = " \t⎿⏺●■│"
 
 // limitWhen is the reset time in a usage-limit message: Claude Code's
 // "3pm", "3:30pm", "Oct 25, 3pm" or "Jan 2, 2027, 3pm", each followed by
@@ -33,16 +35,15 @@ var limitRules = []*regexp.Regexp{
 // UsageLimit finds the message in text, a hook's last message or the
 // bottom of a screen, that says the agent stopped on its plan's usage
 // limit. msg is the message, its spaces collapsed; resets is the time it
-// names, zero when it names none. A time without a date is its first
-// occurrence after an hour before now, so a message read just after its
-// reset still means that reset.
+// names, zero when it names none. A time without a date, or a date
+// without a year, is its first occurrence after an hour before now, so a
+// message read just after its reset still means that reset.
 func UsageLimit(text string, now time.Time) (msg string, resets time.Time, ok bool) {
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
-		// why: the message follows a glyph such as Claude's ⎿ or Codex's ■.
-		l = strings.TrimLeftFunc(l, func(r rune) bool {
-			return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("\"'`‘“", r)
-		})
+		// why: the message follows only spaces and a glyph such as Claude's
+		// ⎿ or ⏺ or Codex's ■; a quote or a list mark means a reply quoting it.
+		l = strings.TrimLeft(l, limitLead)
 		if !strings.HasPrefix(strings.ToLower(l), "you") && !strings.HasPrefix(strings.ToLower(l), "claude") {
 			continue
 		}
@@ -86,18 +87,24 @@ func limitTime(re *regexp.Regexp, m []string, now time.Time) time.Time {
 	if mon := g("mon"); mon != "" {
 		month := strings.Index("janfebmaraprmayjunjulaugsepoctnovdec", strings.ToLower(mon))
 		day, _ := strconv.Atoi(g("day"))
-		year := n.Year()
-		if y := g("year"); y != "" {
-			year, _ = strconv.Atoi(y)
-		}
 		if month < 0 || month%3 != 0 || day < 1 || day > 31 {
 			return time.Time{}
 		}
-		return time.Date(year, time.Month(month/3+1), day, h, mins, 0, 0, loc)
+		if y := g("year"); y != "" {
+			year, _ := strconv.Atoi(y)
+			return time.Date(year, time.Month(month/3+1), day, h, mins, 0, 0, loc)
+		}
+		return first(now, func(i int) time.Time { return time.Date(n.Year()+i, time.Month(month/3+1), day, h, mins, 0, 0, loc) })
 	}
-	t := time.Date(n.Year(), n.Month(), n.Day(), h, mins, 0, 0, loc)
-	if t.Before(now.Add(-time.Hour)) {
-		t = time.Date(n.Year(), n.Month(), n.Day()+1, h, mins, 0, 0, loc)
+	return first(now, func(i int) time.Time { return time.Date(n.Year(), n.Month(), n.Day()+i, h, mins, 0, 0, loc) })
+}
+
+// first is the earliest of at(-1), at(0) and at(1) that is no more than an
+// hour before now.
+func first(now time.Time, at func(int) time.Time) time.Time {
+	for i := -1; ; i++ {
+		if t := at(i); i == 1 || !t.Before(now.Add(-time.Hour)) {
+			return t
+		}
 	}
-	return t
 }
