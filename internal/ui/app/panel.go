@@ -153,7 +153,7 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	dir := ""
 	if ws := findWorkspace(st, u.nav.workspace); ws != nil {
 		in.Branch = st.Stats[ws.ID]
-		in.Ports = ws.Ports
+		in.Ports, in.Listening = ws.Ports, st.Listening[ws.ID]
 		dir = ws.Path
 	}
 	if in.Pane != nil {

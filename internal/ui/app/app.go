@@ -810,6 +810,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		}
 	case sidebar.OpenPR:
 		u.prAction(st, e.WorkspaceID, "open_pr")
+	case sidebar.OpenPort:
+		openLink(fmt.Sprintf("http://localhost:%d", e.Port))
 	case sidebar.MergePR:
 		u.prAction(st, e.WorkspaceID, "merge_pr")
 	case sidebar.RerunChecks:

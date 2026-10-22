@@ -85,7 +85,8 @@ func cardState() *model.State {
 		},
 		Activities: []model.Activity{{PaneID: "p1", WorkspaceID: "agent", Provider: model.ProviderClaude,
 			State: model.StateAwaitingInput, Detail: "Which database\n\nshould the  tests use?"}},
-		Stats: map[string]model.BranchStats{"agent": {Additions: 12, Deletions: 3}},
+		Stats:     map[string]model.BranchStats{"agent": {Additions: 12, Deletions: 3}},
+		Listening: map[string][]int{"agent": {3010, 3012}},
 	}
 }
 
@@ -96,7 +97,7 @@ func TestCardLines(t *testing.T) {
 	if got := c.lines(); got != "tfbosdp" {
 		t.Errorf("agent tab lines %q, want tfbosdp", got)
 	}
-	if c.group != "web-app" || c.ports != "3010-3019" || c.agent != model.ProviderClaude || c.add != 12 || c.del != 3 || c.panes != 2 ||
+	if c.group != "web-app" || c.ports != "3010-3019" || c.open != "3010 3012" || c.agent != model.ProviderClaude || c.add != 12 || c.del != 3 || c.panes != 2 ||
 		c.detail != "Which database should the tests use?" || stateText(c.state) != "Waiting for input" {
 		t.Errorf("agent card %+v", c)
 	}

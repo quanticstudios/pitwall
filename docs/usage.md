@@ -557,6 +557,15 @@ block, and the agent panel's Changes view shows `PORT 3010`. When a shell
 or command in the tab prints `EADDRINUSE` or "address already in use", the
 tab asks for you with "Port in use: this worktree's ports are 3010-3019".
 
+Every 3 seconds the daemon checks which ports of each block accept a
+connection on localhost. When one does, the tab's row shows a chip with the
+first such port, `:3010`, before the PR chip. Click it to open
+`http://localhost:3010` in your browser. The hover card and the Changes
+view list every open port of the block. With `pitwall --host` the daemon
+checks the host's ports, so the hover card and Changes view still list
+them, but the row shows no chip: localhost on your machine is not the
+host.
+
 Next.js, Create React App, Rails with Puma's default config and any app that
 reads `process.env.PORT` pick up `PORT` on their own. Others need it passed:
 

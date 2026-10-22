@@ -127,6 +127,7 @@ type card struct {
 	groupColor   string         // its aide color id
 	path, branch string
 	ports        string // the worktree's port block, "3010-3019"
+	open         string // the block's ports that accept a connection, "3010 3012"
 	radar        []radarEntry
 	fileBtn      func(other, path string) *widget.Clickable // a radar file's button; nil draws none
 	add, del     int
@@ -184,7 +185,7 @@ func (c card) lines() string {
 // cardFor collects tab ws's card from the frame's view.
 func cardFor(v *view, ws model.Workspace) card {
 	c := card{title: Title(ws), when: relTime(v.now, ws.UpdatedAt), agent: v.agent[ws.ID],
-		path: model.ShortPath(v.st.LivePath(ws)), branch: ws.Branch, ports: ws.Ports.String()}
+		path: model.ShortPath(v.st.LivePath(ws)), branch: ws.Branch, ports: ws.Ports.String(), open: strings.Trim(fmt.Sprint(v.st.Listening[ws.ID]), "[]")}
 	if g := v.groupOf(ws.ID); g != "" {
 		for _, p := range v.st.Projects {
 			if p.ID == g {
@@ -409,11 +410,17 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 			}
 		case 'o':
 			line(iconOf(icPlug, muted), func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(6), item{w: func(gtx layout.Context) layout.Dimensions {
+				items := []item{{w: func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, th, th.UIFont, th.Sp(theme.Small), muted, "Ports")
-				}}, item{w: func(gtx layout.Context) layout.Dimensions {
+				}}, {w: func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), theme.Mix(bg, th.Fg, 0.85), c.ports)
-				}})
+				}}}
+				if c.open != "" {
+					items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), th.Readable(th.Green, bg), "open "+c.open)
+					}})
+				}
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(6), items...)
 			})
 		case 's':
 			col := StateColor(th, c.state)

@@ -178,13 +178,18 @@ func (s *Sidebar) prEntries(v *view, ws model.Workspace, pr model.PR) []menuEntr
 	return out
 }
 
-// prClicks turns this frame's clicks on tab ws's PR chip, Archive button
-// and PR menu entries into events. An off entry stays open and does
+// prClicks turns this frame's clicks on tab ws's PR chip, port chip,
+// Archive button and PR menu entries into events. An off entry stays open and does
 // nothing.
 func (s *Sidebar) prClicks(gtx layout.Context, v *view, ws model.Workspace) {
 	r := s.row(ws.ID)
 	for r.pr.Clicked(gtx) {
 		s.events = append(s.events, OpenPR{WorkspaceID: ws.ID})
+	}
+	for r.port.Clicked(gtx) {
+		if l := v.st.Listening[ws.ID]; len(l) > 0 {
+			s.events = append(s.events, OpenPort{Port: l[0]})
+		}
 	}
 	for r.archive.Clicked(gtx) {
 		s.events = append(s.events, Archive{WorkspaceID: ws.ID})

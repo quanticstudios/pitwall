@@ -5,7 +5,7 @@ package sidebar
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
-// RerunChecks, Archive, NewTaskIn, DropTask.
+// RerunChecks, Archive, NewTaskIn, DropTask, OpenPort.
 type Event any
 
 // OpenSessions is a click on the session name in the header: show the
@@ -68,6 +68,9 @@ type Answer struct {
 
 // OpenPR opens the tab's pull request in the browser.
 type OpenPR struct{ WorkspaceID string }
+
+// OpenPort opens http://localhost:<Port>, a tab's dev server, in the browser.
+type OpenPort struct{ Port int }
 
 // MergePR asks to merge the tab's pull request, after a confirm.
 type MergePR struct{ WorkspaceID string }
