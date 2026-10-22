@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"errors"
 	"net"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -65,4 +67,27 @@ func TestCheckPorts(t *testing.T) {
 	ln.Close()
 	check(nil, true)
 	check(nil, false)
+}
+
+// TestCheckPortsConcurrent: with every dial hanging until its timeout, a
+// round over many tabs takes about one timeout, not one per port.
+func TestCheckPortsConcurrent(t *testing.T) {
+	old := probeDial
+	t.Cleanup(func() { probeDial = old })
+	probeDial = func(_, _ string, timeout time.Duration) (net.Conn, error) {
+		time.Sleep(timeout)
+		return nil, errors.New("timed out")
+	}
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	d.mu.Lock()
+	for i := range 5 {
+		d.st.Workspaces = append(d.st.Workspaces, model.Workspace{ID: string(rune('a' + i)), Ports: model.PortBlock{First: 3010 + 10*i, Last: 3019 + 10*i}})
+	}
+	d.mu.Unlock()
+	start := time.Now()
+	d.checkPorts()
+	if el := time.Since(start); el > time.Second {
+		t.Fatalf("a round of 5 tabs took %v", el)
+	}
 }
