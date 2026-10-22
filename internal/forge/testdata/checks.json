@@ -1,0 +1,8 @@
+[
+  {"bucket": "pass", "link": "https://github.com/example/widgets/actions/runs/1001/job/2001", "name": "build"},
+  {"bucket": "fail", "link": "https://github.com/example/widgets/actions/runs/1001/job/2002", "name": "test (ubuntu-latest)"},
+  {"bucket": "pending", "link": "https://github.com/example/widgets/actions/runs/1001/job/2003", "name": "lint"},
+  {"bucket": "skipping", "link": "https://github.com/example/widgets/actions/runs/1001/job/2004", "name": "deploy-preview"},
+  {"bucket": "cancel", "link": "https://github.com/example/widgets/actions/runs/1002/job/2010", "name": "e2e"},
+  {"bucket": "fail", "link": "https://ci.example.com/job/widgets/77", "name": "ci/jenkins"}
+]

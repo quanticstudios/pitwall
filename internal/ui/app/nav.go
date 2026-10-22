@@ -34,8 +34,9 @@ type nav struct {
 	task bool
 	// find asks the window to open the find bar on the focused pane.
 	find bool
-	// prAct asks the window to run open_pr, merge_pr or rerun_checks on
-	// the open tab: a browser or a dialog, which nav has no hold of.
+	// prAct asks the window to run open_pr, merge_pr, rerun_checks,
+	// send_failures or send_review on the open tab: a browser, a dialog or
+	// a fetch, which nav has no hold of.
 	prAct string
 	// cleanup asks the window to open the Clean up worktrees dialog.
 	cleanup bool
@@ -950,7 +951,7 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.diff = true
 	case "diff_pager", "create_pr":
 		return n.review(st, ws, act)
-	case "open_pr", "merge_pr", "rerun_checks":
+	case "open_pr", "merge_pr", "rerun_checks", "send_failures", "send_review":
 		n.prAct = act
 	case "close_tab", "next_tab", "prev_tab":
 		return n.tabOp(st, strings.TrimSuffix(act, "_tab"))

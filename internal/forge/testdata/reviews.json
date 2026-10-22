@@ -1,0 +1,50 @@
+[
+  {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "reviewThreads": {
+            "pageInfo": {"hasNextPage": true, "endCursor": "Y3Vyc29yOjEwMA=="},
+            "nodes": [
+              {"isResolved": false, "path": "internal/widget/widget.go", "line": 42, "originalLine": 40,
+               "comments": {"totalCount": 2, "nodes": [
+                 {"author": {"login": "alice"}, "body": "This leaks the file handle."},
+                 {"author": {"login": "bob"}, "body": "Agreed, close it in a defer.\n"}
+               ]}},
+              {"isResolved": true, "path": "README.md", "line": 3, "originalLine": 3,
+               "comments": {"totalCount": 1, "nodes": [{"author": {"login": "alice"}, "body": "Typo."}]}}
+            ]
+          },
+          "reviews": {
+            "nodes": [
+              {"author": {"login": "alice"}, "state": "CHANGES_REQUESTED", "body": "Please handle errors before merging."},
+              {"author": {"login": "bob"}, "state": "CHANGES_REQUESTED", "body": "Needs tests."},
+              {"author": {"login": "bob"}, "state": "APPROVED", "body": "LGTM"},
+              {"author": {"login": "carol"}, "state": "CHANGES_REQUESTED", "body": ""}
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "reviewThreads": {
+            "pageInfo": {"hasNextPage": false, "endCursor": null},
+            "nodes": [
+              {"isResolved": false, "path": "internal/widget/old.go", "line": null, "originalLine": 17,
+               "comments": {"totalCount": 52, "nodes": [{"author": {"login": "carol"}, "body": "Why is this still here?"}]}}
+            ]
+          },
+          "reviews": {
+            "nodes": [
+              {"author": {"login": "alice"}, "state": "CHANGES_REQUESTED", "body": "Please handle errors before merging."}
+            ]
+          }
+        }
+      }
+    }
+  }
+]

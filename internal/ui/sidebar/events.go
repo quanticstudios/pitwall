@@ -5,7 +5,8 @@ package sidebar
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
-// RerunChecks, Archive, NewTaskIn, DropTask, OpenPort, CancelResume.
+// RerunChecks, SendFailures, SendReview, Archive, NewTaskIn, DropTask,
+// OpenPort, CancelResume.
 type Event any
 
 // CancelResume drops the resume after a usage limit of the tab's agents.
@@ -80,6 +81,14 @@ type MergePR struct{ WorkspaceID string }
 
 // RerunChecks re-runs the failed checks of the tab's pull request.
 type RerunChecks struct{ WorkspaceID string }
+
+// SendFailures sends the failed checks of the tab's pull request, with
+// their logs, to its agent.
+type SendFailures struct{ WorkspaceID string }
+
+// SendReview sends the unresolved review comments of the tab's pull
+// request to its agent.
+type SendReview struct{ WorkspaceID string }
 
 // Archive asks to archive a tab whose pull request merged: close its
 // panes, remove its worktree and delete its branch, after a confirm.

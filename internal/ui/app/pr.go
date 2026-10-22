@@ -47,10 +47,11 @@ func rerunCmd(dir, branch string) []string {
 }
 
 // prActs are the [keys] actions on the open tab's pull request.
-var prActs = map[string]bool{"open_pr": true, "merge_pr": true, "rerun_checks": true}
+var prActs = map[string]bool{"open_pr": true, "merge_pr": true, "rerun_checks": true, "send_failures": true, "send_review": true}
 
-// prBlocked is why the palette's open_pr, merge_pr or rerun_checks cannot
-// run on the open tab; ok is false for any other action.
+// prBlocked is why the palette's open_pr, merge_pr, rerun_checks,
+// send_failures or send_review cannot run on the open tab; ok is false for
+// any other action.
 func (n *nav) prBlocked(st *model.State, act string) (why string, ok bool) {
 	if !prActs[act] {
 		return "", false
@@ -60,25 +61,41 @@ func (n *nav) prBlocked(st *model.State, act string) (why string, ok bool) {
 		return "no tab", true
 	}
 	open, merge, rerun := sidebar.PRBlocked(st, *ws, ghInstalled())
+	failures, review := sendBlocked(st, *ws)
 	switch act {
 	case "open_pr":
 		return open, true
 	case "merge_pr":
 		return merge, true
+	case "send_failures":
+		return failures, true
+	case "send_review":
+		return review, true
 	}
 	return rerun, true
 }
 
-// prAction runs act, "open_pr", "merge_pr" or "rerun_checks", on tab id's
-// pull request: the browser on its URL, the merge dialog, or gh run rerun
-// in a tab of its own in id's group, as create_pr opens one. A blocked act
-// does nothing.
+// sendBlocked is sidebar.SendBlocked, and on a Host "on a host" for both:
+// gh would run here, away from the tab's folder.
+func sendBlocked(st *model.State, ws model.Workspace) (failures, review string) {
+	if Host != "" {
+		return "on a host", "on a host"
+	}
+	return sidebar.SendBlocked(st, ws, ghInstalled())
+}
+
+// prAction runs act, "open_pr", "merge_pr", "rerun_checks",
+// "send_failures" or "send_review", on tab id's pull request: the browser
+// on its URL, the merge dialog, gh run rerun in a tab of its own in id's
+// group, as create_pr opens one, or a fetch whose message goes to the
+// tab's agent. A blocked act does nothing.
 func (u *ui) prAction(st *model.State, id, act string) {
 	ws := findWorkspace(st, id)
 	if ws == nil {
 		return
 	}
 	open, merge, rerun := sidebar.PRBlocked(st, *ws, ghInstalled())
+	failures, review := sendBlocked(st, *ws)
 	pr := st.PRs[id]
 	switch {
 	case act == "open_pr" && open == "":
@@ -89,6 +106,8 @@ func (u *ui) prAction(st *model.State, id, act string) {
 		dir := st.LivePath(*ws)
 		u.nav.expectSession(st)
 		u.send(proto.NewSession{Name: fmt.Sprintf("Checks #%d", pr.Number), Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: rerunCmd(dir, ws.Branch)})
+	case act == "send_failures" && failures == "", act == "send_review" && review == "":
+		u.startSend(st, ws, act)
 	default:
 		log.Printf("%s on tab %s: %q %q %q", act, id, open, merge, rerun)
 	}

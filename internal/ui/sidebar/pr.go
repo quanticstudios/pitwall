@@ -159,12 +159,33 @@ func PRBlocked(st *model.State, ws model.Workspace, gh bool) (open, merge, rerun
 	return open, merge, rerun
 }
 
+// SendBlocked says why tab ws cannot send its pull request's failed checks
+// or review comments to its agent, "" when it can, in a few words for the
+// menu's right edge. gh is whether the gh CLI is installed.
+func SendBlocked(st *model.State, ws model.Workspace, gh bool) (failures, review string) {
+	pr, ok := st.PRs[ws.ID]
+	switch {
+	case !ok:
+		return "no PR", "no PR"
+	case !gh:
+		return "no gh CLI", "no gh CLI"
+	case pr.State != model.PROpen:
+		return string(pr.State), string(pr.State)
+	case AgentOf(st, ws) == "":
+		return "no agent", "no agent"
+	case pr.CI() != model.CheckFail:
+		return "none failed", ""
+	}
+	return "", ""
+}
+
 // maxChecks is how many checks the hover card lists.
 const maxChecks = 8
 
 // prEntries are tab ws's menu entries for its pull request pr, in place of
-// Create pull request: Open PR, then Merge PR and, when checks failed,
-// Re-run failed checks while it is open, or Archive once it merged.
+// Create pull request: Open PR, then Merge PR, Send review comments to
+// agent and, when checks failed, Re-run failed checks and Send failures to
+// agent while it is open, or Archive once it merged.
 func (s *Sidebar) prEntries(v *view, ws model.Workspace, pr model.PR) []menuEntry {
 	open, merge, rerun := PRBlocked(v.st, ws, s.GH)
 	out := []menuEntry{{c: &s.menuItem[actOpenPR], icon: icExternal, text: fmt.Sprintf("Open PR #%d", pr.Number), off: open != "", hint: open}}
@@ -172,10 +193,12 @@ func (s *Sidebar) prEntries(v *view, ws model.Workspace, pr model.PR) []menuEntr
 		return append(out, menuEntry{c: &s.menuItem[actArchive], icon: icArchive, text: "Archive…"})
 	}
 	out = append(out, menuEntry{c: &s.menuItem[actMergePR], icon: icGitMerge, text: "Merge PR…", off: merge != "", hint: merge})
+	failures, review := SendBlocked(v.st, ws, s.GH)
 	if pr.CI() == model.CheckFail {
-		out = append(out, menuEntry{c: &s.menuItem[actRerun], icon: icRerun, text: "Re-run failed checks", off: rerun != "", hint: rerun})
+		out = append(out, menuEntry{c: &s.menuItem[actRerun], icon: icRerun, text: "Re-run failed checks", off: rerun != "", hint: rerun},
+			menuEntry{c: &s.menuItem[actSendFailures], icon: icCircleAlert, text: "Send failures to agent", off: failures != "", hint: failures})
 	}
-	return out
+	return append(out, menuEntry{c: &s.menuItem[actSendReview], icon: icMessage, text: "Send review comments to agent", off: review != "", hint: review})
 }
 
 // prClicks turns this frame's clicks on tab ws's PR chip, port chip,
@@ -198,6 +221,7 @@ func (s *Sidebar) prClicks(gtx layout.Context, v *view, ws model.Workspace) {
 		return
 	}
 	open, merge, rerun := PRBlocked(v.st, ws, s.GH)
+	failures, review := SendBlocked(v.st, ws, s.GH)
 	var e Event
 	switch {
 	case s.menuItem[actOpenPR].Clicked(gtx) && open == "":
@@ -206,6 +230,10 @@ func (s *Sidebar) prClicks(gtx layout.Context, v *view, ws model.Workspace) {
 		e = MergePR{WorkspaceID: ws.ID}
 	case s.menuItem[actRerun].Clicked(gtx) && rerun == "":
 		e = RerunChecks{WorkspaceID: ws.ID}
+	case s.menuItem[actSendFailures].Clicked(gtx) && failures == "":
+		e = SendFailures{WorkspaceID: ws.ID}
+	case s.menuItem[actSendReview].Clicked(gtx) && review == "":
+		e = SendReview{WorkspaceID: ws.ID}
 	case s.menuItem[actArchive].Clicked(gtx):
 		e = Archive{WorkspaceID: ws.ID}
 	}

@@ -161,9 +161,10 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// radarInput reads the card's pointer and its file buttons before a frame
-// draws it: the pointer on a card with a radar keeps it open, and a click
-// on a file asks for its diff in the card's tab and closes the card.
+// radarInput reads the card's pointer and its buttons before a frame draws
+// it: the pointer on a card with buttons keeps it open, a click on a file
+// asks for its diff in the card's tab, a click on Send failures or Send
+// review comments sends them, and each closes the card.
 func (s *Sidebar) radarInput(gtx layout.Context) {
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &s.cardTag, Kinds: pointer.Enter | pointer.Leave | pointer.Cancel})
@@ -179,6 +180,18 @@ func (s *Sidebar) radarInput(gtx layout.Context) {
 	}
 	if s.fileFor != s.hover.shown {
 		s.fileBtn, s.fileFor = nil, s.hover.shown
+	}
+	var send Event
+	if s.cardFails.Clicked(gtx) {
+		send = SendFailures{WorkspaceID: s.hover.shown}
+	}
+	if s.cardNotes.Clicked(gtx) {
+		send = SendReview{WorkspaceID: s.hover.shown}
+	}
+	if send != nil && s.hover.shown != "" {
+		s.events = append(s.events, send)
+		s.hover.dismiss()
+		s.cardHover = false
 	}
 	for k, c := range s.fileBtn {
 		if c.Clicked(gtx) {
