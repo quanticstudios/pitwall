@@ -243,6 +243,11 @@ type State struct {
 	// Queued counts, per pane, the messages from pitwall send that wait to
 	// be typed into it. The daemon fills it in; it is not saved.
 	Queued map[string]int `json:"-"`
+	// Listening is, per tab with Ports, the ports of its block that accept
+	// a connection on the daemon's machine, ascending; a tab with none is
+	// missing. The daemon fills it in and replaces it whole; it is not
+	// saved.
+	Listening map[string][]int `json:"-"`
 }
 
 // Overlap is another tab whose branch, in the same repository, changes
@@ -385,7 +390,7 @@ func (s *State) SessionOf(id string) string {
 }
 
 // View is the state with only session's groups, tabs, panes, activities,
-// stats and PRs; Sessions stays whole.
+// stats, PRs, overlaps and listening ports; Sessions stays whole.
 func (s *State) View(session string) State {
 	v := *s
 	v.Projects = slices.DeleteFunc(slices.Clone(s.Projects), func(p Project) bool { return p.SessionID != session })
@@ -412,6 +417,12 @@ func (s *State) View(session string) State {
 	for id, o := range s.Overlaps {
 		if in[id] {
 			v.Overlaps[id] = o
+		}
+	}
+	v.Listening = make(map[string][]int, len(s.Listening))
+	for id, l := range s.Listening {
+		if in[id] {
+			v.Listening[id] = l
 		}
 	}
 	return v

@@ -209,6 +209,7 @@ type rowState struct {
 	click, more, close widget.Clickable
 	allow, deny        widget.Clickable // a pending approval's answers
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
+	port               widget.Clickable // the port chip: opens the dev server
 	fold               widget.Clickable // the agent count, which folds the sub-rows
 	foldT              anim.Value       // its chevron's turn
 	kids               widget.Clickable // a fleet's strip, which folds its workers

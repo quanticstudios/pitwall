@@ -40,6 +40,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 23 added State.Listening, the open ports of each tab's block.
 // Level 22 added NewWorkspace.Root: an agent's worktree tab joins the
 // agent's group, not the repo's.
 // Level 21 added Activity.Stuck, a long-working agent the decision
@@ -107,7 +108,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 22
+const Level = 23
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.

@@ -21,9 +21,9 @@ import (
 )
 
 // workspaceRow draws tab ws's row: its agent's mark or its state icon,
-// title and pill, then the branch with its diff stats and PR chip (or the
-// folder) and the time, or "Merged", which the "…" menu trigger and "×",
-// after Archive once merged, cover on hover. A ghost row is the
+// title and pill, then the branch with its diff stats, port and PR chips
+// (or the folder) and the time, or "Merged", which the "…" menu trigger and
+// "×", after Archive once merged, cover on hover. A ghost row is the
 // lifted copy under the pointer: no input, no hover buttons, its fill left
 // to the caller. A digit other than "" takes the place of the mark or icon.
 func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, ghost bool, digit string) (layout.Dimensions, bool) {
@@ -171,8 +171,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})
 		}
-		// The stats, the PR chip and the radar mark give way, in that order,
-		// to Allow and Deny or a long time; the hover card has them all.
+		// The stats, the port chip, the PR chip and the radar mark give way,
+		// in that order, to Allow and Deny or a long time; the hover card has
+		// them all.
 		if inRepo && hasStats && (stats.Additions > 0 || stats.Deletions > 0) {
 			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
 				return hrowFit(gtx, l2, gtx.Dp(4),
@@ -183,6 +184,16 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 						return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Red, fmt.Sprintf("-%d", stats.Deletions))
 					}},
 				)
+			}})
+		}
+		// The first open port of the tab's block, a dev server. On a Host it
+		// listens there, and localhost here would not reach it.
+		if l := v.st.Listening[ws.ID]; len(l) > 0 && s.Host == "" {
+			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
+				if ghost {
+					return PortChip(gtx, th, l[0], base)
+				}
+				return clickable(gtx, &r.port, func(gtx layout.Context) layout.Dimensions { return PortChip(gtx, th, l[0], base) })
 			}})
 		}
 		if inRepo && hasPR {

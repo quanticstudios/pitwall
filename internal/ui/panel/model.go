@@ -26,9 +26,11 @@ type Input struct {
 	Files  []gitstat.FileStat
 	Git    bool
 	Decide string // model.State.Decide.Provider
-	// Ports is the tab's port block; Changes shows its first port.
-	Ports model.PortBlock
-	Now   time.Time
+	// Ports is the tab's port block; Changes shows its first port, and
+	// Listening the ones of it that accept a connection.
+	Ports     model.PortBlock
+	Listening []int
+	Now       time.Time
 	// ShowCost shows what the agent's tokens cost at list prices.
 	ShowCost bool
 	// WaitGit and WaitFeed are set while git, or the session file, has

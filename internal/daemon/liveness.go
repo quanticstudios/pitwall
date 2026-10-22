@@ -139,9 +139,11 @@ func isInterrupt(b []byte) bool {
 // livenessLoop drops the activity of a pane whose foreground group is no
 // longer the one its agent's hooks came from: the agent exited to the shell,
 // crashed, was killed or was suspended. SessionEnd covers only clean exits.
+// Every portPoll it also probes the tabs' port blocks.
 func (d *Daemon) livenessLoop(ctx context.Context) {
 	t := time.NewTicker(livePoll)
 	defer t.Stop()
+	var portsAt time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -153,6 +155,10 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		d.detect(ctx)
 		d.checkStuck(ctx)
 		d.checkRemoteControl()
+		if time.Since(portsAt) >= portPoll {
+			portsAt = time.Now()
+			d.checkPorts()
+		}
 	}
 }
 

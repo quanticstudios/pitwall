@@ -891,10 +891,14 @@ func (d *drawer) changes() []layout.Widget {
 			{gap: gtx.Dp(4), w: d.text(sb, d.th.Sp(theme.Small), d.c.red, fmt.Sprintf("-%d", del), 1)},
 		}
 		if p := in.Ports.First; p != 0 {
-			// A worktree tab's first port, at the right.
+			// A worktree tab's first port, at the right, then the open ones.
+			right := []part{{w: d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.quiet, fmt.Sprint("PORT ", p), 1)}}
+			if len(in.Listening) > 0 {
+				right = append(right, part{gap: gtx.Dp(6), w: d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.green, "open "+strings.Trim(fmt.Sprint(in.Listening), "[]"), 1)})
+			}
 			parts = append(parts, part{flex: true, gap: gtx.Dp(8), w: func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return layout.E.Layout(gtx, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.quiet, fmt.Sprint("PORT ", p), 1))
+				return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return rowFit(gtx, right...) })
 			}})
 			return row(gtx, parts...)
 		}
