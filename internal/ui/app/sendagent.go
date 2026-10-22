@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"image"
+	"slices"
 	"sync"
 	"time"
 
@@ -80,8 +81,9 @@ func (u *ui) startSend(st *model.State, ws *model.Workspace, act string) {
 }
 
 // takeSends queues each finished fetch's message for its tab's agent, as
-// the review view queues comments, and says how it went: a notice at the
-// bottom of the pane area gtx fills, or the error in the notice box.
+// the review view queues comments, unless one already waits for that
+// agent, and says how it went: a notice at the bottom of the pane area gtx
+// fills, or the error in the notice box.
 func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 	s := &u.sends
 	s.mu.Lock()
@@ -94,23 +96,35 @@ func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 			what = "Send review comments to agent"
 		}
 		p := agentPane(st, findWorkspace(st, res.ws))
+		area := image.Rectangle{Max: gtx.Constraints.Max}
 		switch {
 		case res.err != nil:
-			s.err = what + ": " + res.err.Error()
+			u.sendFailed(what + ": " + res.err.Error())
 		case res.text == "" && res.act == "send_review":
-			u.showNotice(gtx, "No unresolved review comments", image.Rectangle{Max: gtx.Constraints.Max})
+			u.showNotice(gtx, "No unresolved review comments", area)
 		case res.text == "":
-			u.showNotice(gtx, "No failed checks", image.Rectangle{Max: gtx.Constraints.Max})
+			u.showNotice(gtx, "No failed checks", area)
 		case p == nil:
-			s.err = what + ": the tab has no agent to send to"
+			u.sendFailed(what + ": the tab has no agent to send to")
+		case slices.ContainsFunc(u.review.queue, func(d delivery) bool { return d.pane == p.ID && d.send }):
+			// why: queued sends would add up to one paste of any size.
+			u.showNotice(gtx, "A message already waits for "+agentName(p)+"; this one was dropped", area)
 		default:
-			u.review.enqueue(p.ID, res.text, nil)
+			u.review.enqueue(p.ID, res.text, nil).send = true
 			msg := "Queued until " + agentName(p) + " waits for input"
 			if agentReady(st, p.ID) {
 				msg = "Sent to " + agentName(p)
 			}
-			u.showNotice(gtx, msg, image.Rectangle{Max: gtx.Constraints.Max})
+			u.showNotice(gtx, msg, area)
 			u.deliver(st, gtx.Now)
 		}
+	}
+}
+
+// sendFailed puts msg in the notice box, again if it was closed before.
+func (u *ui) sendFailed(msg string) {
+	u.sends.err = msg
+	if u.dismissed == msg {
+		u.dismissed = ""
 	}
 }

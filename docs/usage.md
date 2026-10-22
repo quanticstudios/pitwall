@@ -406,18 +406,23 @@ Send failures to agent shows when a check failed. It asks `gh pr checks`
 which checks failed, reads the last 150 lines of each GitHub Actions job's
 failed steps with `gh run view --job <id> --log-failed`, and sends one
 prompt: each failed check with its link, the end of each log, and "Fix
-these and push." A check from another CI, such as Jenkins, goes in by name
-and link only. Logs are cut from the top to keep the prompt under 30 KB.
-Send review comments to agent asks GitHub for the unresolved review
-threads and sends each one's file, line and comments, plus the text of
-each review that requests changes. It is in the menu for any open pull
+these and push." It names the first 20 failed checks and counts the rest.
+A check from another CI, such as Jenkins, goes in by name and link only,
+and a job whose log `gh` cannot read says "log unavailable" with the
+reason. Logs are cut from the top, and the prompt never passes 30 KB.
+Send review comments to agent asks GitHub for every unresolved review
+thread and sends each one's file, line and comments, plus the text of
+each reviewer's change request that still stands: a later approval lifts
+it, a comment does not. It is in the menu for any open pull
 request, since pitwall only learns about unresolved threads when you ask.
 The hover card also shows Send failures to agent when a check failed, and
 Send review comments to agent when a reviewer requested changes. Both
 fetch in the background, then type the prompt into the tab's agent as the
 review view sends comments: at once when the agent waits for input, else
-when it next does. A notice says whether it went or waits, and an error
-from `gh` shows at the top of the panes until you close it. They need
+when it next does. An agent holds one such prompt at a time: while one
+waits, another is dropped and a notice says so. A notice says whether it
+went or waits, and when `gh` cannot list the checks or the review, its
+error shows at the top of the panes until you close it. They need
 `gh` and an agent in the tab, and are off in a window opened with
 `--host`. Neither has a key by default; set `send_failures` or
 `send_review` under `[keys]` to give them one.

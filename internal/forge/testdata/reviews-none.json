@@ -1,4 +1,4 @@
-{"data": {"repository": {"pullRequest": {
-  "reviewThreads": {"nodes": [{"isResolved": true, "path": "a.go", "line": 1, "originalLine": 1, "comments": {"nodes": [{"author": {"login": "alice"}, "body": "ok"}]}}]},
-  "latestReviews": {"nodes": [{"author": {"login": "alice"}, "state": "APPROVED", "body": ""}]}
-}}}}
+[{"data": {"repository": {"pullRequest": {
+  "reviewThreads": {"pageInfo": {"hasNextPage": false, "endCursor": null}, "nodes": [{"isResolved": true, "path": "a.go", "line": 1, "originalLine": 1, "comments": {"totalCount": 1, "nodes": [{"author": {"login": "alice"}, "body": "ok"}]}}]},
+  "reviews": {"nodes": [{"author": {"login": "alice"}, "state": "CHANGES_REQUESTED", "body": "Fix it."}, {"author": {"login": "alice"}, "state": "APPROVED", "body": ""}]}
+}}}}]

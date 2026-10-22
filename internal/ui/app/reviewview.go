@@ -59,10 +59,13 @@ type note struct {
 }
 
 // delivery is comments typed into pane once its agent waits for input.
+// send is whether it carries a Send failures or Send review comments
+// message, of which a pane waits for one at most.
 type delivery struct {
 	pane  string
 	text  string
 	notes []*note
+	send  bool
 }
 
 // reviewView is the review view: one tab's changes from the merge base
@@ -533,14 +536,19 @@ func (u *ui) sendNotes(st *model.State, root string, now time.Time) {
 	u.deliver(st, now)
 }
 
-// enqueue adds text, carrying notes, to pane's delivery, or starts one.
-func (r *reviewView) enqueue(pane, text string, notes []*note) {
-	if i := slices.IndexFunc(r.queue, func(d delivery) bool { return d.pane == pane }); i >= 0 {
-		r.queue[i].text += "\n\n" + text
-		r.queue[i].notes = append(r.queue[i].notes, notes...)
+// enqueue adds text, carrying notes, to pane's delivery, or starts one,
+// and returns the delivery.
+func (r *reviewView) enqueue(pane, text string, notes []*note) *delivery {
+	i := slices.IndexFunc(r.queue, func(d delivery) bool { return d.pane == pane })
+	if i < 0 {
+		r.queue = append(r.queue, delivery{pane: pane})
+		i = len(r.queue) - 1
 	} else {
-		r.queue = append(r.queue, delivery{pane: pane, text: text, notes: notes})
+		text = "\n\n" + text
 	}
+	r.queue[i].text += text
+	r.queue[i].notes = append(r.queue[i].notes, notes...)
+	return &r.queue[i]
 }
 
 func agentName(p *model.Pane) string {

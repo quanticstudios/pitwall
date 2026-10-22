@@ -45,31 +45,47 @@ func TestParseChecks(t *testing.T) {
 // TestLogTail keeps the last lines of gh run view --log-failed without
 // the job, step and timestamp before each.
 func TestLogTail(t *testing.T) {
-	lines := strings.Split(logTail(string(fixture(t, "job.log")), LogLines), "\n")
+	tail := func(s string, n int) string {
+		t.Helper()
+		out, err := logTail(strings.NewReader(s), n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	lines := strings.Split(tail(string(fixture(t, "job.log")), LogLines), "\n")
 	if len(lines) != LogLines {
 		t.Fatalf("%d lines", len(lines))
 	}
 	if lines[0] != "line 53" || lines[LogLines-1] != "##[error]Process completed with exit code 1." {
 		t.Errorf("first %q, last %q", lines[0], lines[LogLines-1])
 	}
-	if got := logTail(string(fixture(t, "job.log")), 1000); !strings.HasPrefix(got, "Current runner version: 2.337.0\nline 1\n") {
+	if got := tail(string(fixture(t, "job.log")), 1000); !strings.HasPrefix(got, "Current runner version: 2.337.0\nline 1\n") {
 		t.Errorf("the head with its byte order mark: %q", got[:60])
 	}
-	if got := logTail("not gh's shape\n", 5); got != "not gh's shape" {
+	if got := tail("not gh's shape", 5); got != "not gh's shape" {
 		t.Errorf("a plain line: %q", got)
+	}
+	if got := tail(strings.Repeat("x", 10000)+"\nend\n", 5); len(got) != 4096+len("\nend") || !strings.HasSuffix(got, "\nend") {
+		t.Errorf("a 10 KB line kept %d bytes", len(got))
 	}
 }
 
 // TestFailuresPrompt lists every failed check, says which have no log,
 // and cuts the logs from the top to stay under MaxPrompt.
 func TestFailuresPrompt(t *testing.T) {
-	log := logTail(string(fixture(t, "job.log")), LogLines)
+	log, err := logTail(strings.NewReader(string(fixture(t, "job.log"))), LogLines)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := FailuresPrompt(123, []FailedCheck{
 		{Name: "test (ubuntu-latest)", URL: "https://github.com/example/widgets/actions/runs/1001/job/2002", Log: log},
+		{Name: "e2e", URL: "https://github.com/example/widgets/actions/runs/1002/job/2010", NoLog: "log not found"},
 		{Name: "ci/jenkins", URL: "https://ci.example.com/job/widgets/77"},
 	})
 	want := "These checks failed on pull request #123:\n" +
 		"- test (ubuntu-latest): https://github.com/example/widgets/actions/runs/1001/job/2002\n" +
+		"- e2e: https://github.com/example/widgets/actions/runs/1002/job/2010 (log unavailable: log not found)\n" +
 		"- ci/jenkins: https://ci.example.com/job/widgets/77 (no log)\n" +
 		"\nThe end of test (ubuntu-latest)'s log:\n```\n" + log + "\n```\n" +
 		"\nFix these and push."
@@ -95,6 +111,25 @@ func TestFailuresPrompt(t *testing.T) {
 	if strings.Contains(got, "```\nline 0 ") || strings.Contains(got, "```\nne ") {
 		t.Error("a cut log starts at its head or mid-line")
 	}
+
+	// 400 checks with long links and logs: 20 named, the rest counted,
+	// and the whole message under the cap.
+	many := make([]FailedCheck, 400)
+	for i := range many {
+		many[i] = FailedCheck{Name: fmt.Sprintf("job %d", i), URL: "https://github.com/example/widgets/actions/runs/1/job/" + strings.Repeat("9", 100), Log: huge}
+	}
+	got = FailuresPrompt(9, many)
+	if len(got) > MaxPrompt || !strings.Contains(got, "- job 19: ") || strings.Contains(got, "job 20") ||
+		!strings.Contains(got, "- and 380 more\n") || !strings.HasSuffix(got, "the last line\n```\n\nFix these and push.") {
+		t.Errorf("400 checks: %d bytes, ends %q", len(got), got[max(len(got)-80, 0):])
+	}
+	// Names too long for any budget still meet the hard cap.
+	for i := range many {
+		many[i].Name = strings.Repeat("n", 4000)
+	}
+	if got = FailuresPrompt(9, many); len(got) > MaxPrompt || !strings.HasSuffix(got, "[the rest is cut]\n\nFix these and push.") {
+		t.Errorf("long names: %d bytes", len(got))
+	}
 }
 
 // TestReviews keeps unresolved threads, an outdated one at its old line,
@@ -105,10 +140,12 @@ func TestReviews(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := ReviewPrompt(123, threads, changes)
+	// bob approved after asking for changes; carol's request says nothing;
+	// the thread on old.go is on the second page.
 	want := "Reviewers asked for changes on pull request #123.\n" +
 		"\nalice requested changes:\nPlease handle errors before merging.\n" +
 		"\ninternal/widget/widget.go:42\nalice: This leaks the file handle.\nbob: Agreed, close it in a defer.\n" +
-		"\ninternal/widget/old.go:17\ncarol: Why is this still here?\n" +
+		"\ninternal/widget/old.go:17\ncarol: Why is this still here?\n(51 more comments on GitHub)\n" +
 		"\nFix these and push."
 	if got != want {
 		t.Errorf("got\n%s", got)
@@ -127,7 +164,7 @@ func TestReviews(t *testing.T) {
 		many[i] = Thread{Path: "a.go", Line: i + 1, Comments: []Comment{{Author: "alice", Body: "Rename this, please. É"}}}
 	}
 	got = ReviewPrompt(5, many, nil)
-	if len(got) > MaxPrompt || !strings.HasSuffix(got, "[more comments cut]\n\nFix these and push.") {
+	if len(got) > MaxPrompt || !strings.HasSuffix(got, "[the rest is cut]\n\nFix these and push.") {
 		t.Errorf("%d bytes, ends %q", len(got), got[len(got)-60:])
 	}
 }
@@ -154,7 +191,8 @@ esac
 	if err != nil || len(got) != 3 {
 		t.Fatalf("Failures = %+v, %v", got, err)
 	}
-	if !strings.HasSuffix(got[0].Log, "exit code 1.") || got[1].Log != "" || got[2].Log != "" {
-		t.Errorf("logs %q %q %q", got[0].Log[len(got[0].Log)-20:], got[1].Log, got[2].Log)
+	if !strings.HasSuffix(got[0].Log, "exit code 1.") || got[0].NoLog != "" || got[1].Log != "" || got[2].Log != "" || got[2].NoLog != "" ||
+		got[1].NoLog != "no log for run view --job 2010 --log-failed: exit status 1" {
+		t.Errorf("logs %+v", got)
 	}
 }

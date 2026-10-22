@@ -85,6 +85,28 @@ func TestSendToAgent(t *testing.T) {
 		t.Errorf("error %q", u.sends.err)
 	}
 
+	// Closed, the same failure shows again the next time.
+	u.dismissed = u.sends.err
+	u.sends.err = ""
+	u.sidebarEvent(&st, sidebar.SendReview{WorkspaceID: "w"})
+	waitSends(t, u, &st)
+	if u.sends.err == "" || u.dismissed == u.sends.err {
+		t.Errorf("a repeated error stays hidden: err %q, dismissed %q", u.sends.err, u.dismissed)
+	}
+
+	// A busy agent holds one send; another waits for none of its own.
+	b.st.Activities[0].State = model.StateWorking
+	st = b.State()
+	sent := len(b.sent)
+	for range 2 {
+		u.sidebarEvent(&st, sidebar.SendFailures{WorkspaceID: "w"})
+		waitSends(t, u, &st)
+	}
+	if len(u.review.queue) != 1 || strings.Count(u.review.queue[0].text, "These checks failed") != 1 || len(b.sent) != sent ||
+		!strings.HasSuffix(u.notice, "this one was dropped") {
+		t.Errorf("busy agent: queue %d, notice %q", len(u.review.queue), u.notice)
+	}
+
 	b.st.Panes[0].Provider = model.ProviderTerminal
 	b.st.Activities = nil
 	st = b.State()
