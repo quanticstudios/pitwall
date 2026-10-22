@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -44,6 +45,28 @@ func TestCLIQueue(t *testing.T) {
 		want := proto.NewTask{Task: model.Task{SessionID: "m", Dir: dir, Cmd: []string{agent, "fix it"}}, Queue: true}
 		fakeCLI(t, cliExchange{state: queueState()}, cliExchange{request: want, state: queueState()})
 		if code, out, stderr := cliOutput("queue", "add", "--", "fake-agent", "fix it"); code != 0 || out != "" || stderr != "" {
+			t.Fatalf("%d: %s %s", code, out, stderr)
+		}
+	})
+	t.Run("add an issue", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("fake gh is a shell script")
+		}
+		bin := t.TempDir()
+		agent := filepath.Join(bin, "fake-agent")
+		gh := "#!/bin/sh\n[ \"$*\" = 'issue view 12 --json number,title,url,body' ] || exit 2\necho '{\"number\":12,\"title\":\"Fix login\",\"url\":\"https://github.com/o/r/issues/12\",\"body\":\"It loops.\"}'\n"
+		for f, script := range map[string]string{agent: "#!/bin/sh\n", filepath.Join(bin, "gh"): gh} {
+			if err := os.WriteFile(f, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Setenv("PATH", bin)
+		dir := t.TempDir()
+		t.Chdir(dir)
+		prompt := "GitHub issue #12: Fix login\nhttps://github.com/o/r/issues/12\n\nIt loops."
+		want := proto.NewTask{Task: model.Task{SessionID: "m", Dir: dir, Cmd: []string{agent, "-s", "read-only", prompt}}, Queue: true}
+		fakeCLI(t, cliExchange{state: queueState()}, cliExchange{request: want, state: queueState()})
+		if code, out, stderr := cliOutput("queue", "add", "--issue", "12", "--", "fake-agent", "-s", "read-only"); code != 0 || out != "" || stderr != "" {
 			t.Fatalf("%d: %s %s", code, out, stderr)
 		}
 	})

@@ -1,5 +1,5 @@
 // Package forge asks the gh CLI for the pull request of a branch, and
-// decides how soon to ask again.
+// decides how soon to ask again, and for a repository's open issues.
 package forge
 
 import (
@@ -29,13 +29,27 @@ var (
 const Fields = "number,state,isDraft,url,reviewDecision,mergeable,statusCheckRollup"
 
 // View is the pull request of the branch checked out at dir, nil when it
-// has none. gh never prompts: it runs without a terminal and with prompts
-// disabled.
+// has none.
 func View(ctx context.Context, dir string) (*model.PR, error) {
+	out, err := gh(ctx, dir, "pr", "view", "--json", Fields)
+	if err != nil || out == nil {
+		return nil, err
+	}
+	pr, err := Parse(out)
+	if err != nil {
+		return nil, err
+	}
+	return &pr, nil
+}
+
+// gh runs gh with args in dir and returns its stdout, nil when gh found
+// nothing. gh never prompts: it runs without a terminal and with prompts
+// disabled.
+func gh(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		return nil, ErrNoGH
 	}
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", "--json", Fields)
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = dir
 	nowindow.Set(cmd)
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
@@ -45,33 +59,30 @@ func View(ctx context.Context, dir string) (*model.PR, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	return answer(out, stderr.Bytes(), err)
+	if err != nil {
+		return nil, failed(args, stderr.Bytes(), err)
+	}
+	return out, nil
 }
 
-// answer reads gh pr view's output: the PR on stdout when gh succeeded,
-// else what its stderr and exit code mean.
-func answer(stdout, stderr []byte, err error) (*model.PR, error) {
-	if err == nil {
-		pr, err := Parse(stdout)
-		if err != nil {
-			return nil, err
-		}
-		return &pr, nil
-	}
+// failed is what gh args failing with stderr and err means: nil when it
+// found nothing.
+func failed(args []string, stderr []byte, err error) error {
 	msg := strings.ToLower(string(stderr))
 	var exit *exec.ExitError
 	switch {
 	case strings.Contains(msg, "no pull requests found"):
-		return nil, nil
+		return nil
 	case strings.Contains(msg, "rate limit"):
-		return nil, ErrRateLimited
+		return ErrRateLimited
 	case errors.As(err, &exit) && exit.ExitCode() == 4, // gh's "authentication required"
 		strings.Contains(msg, "gh auth login"),
 		strings.Contains(msg, "none of the git remotes"),
-		strings.Contains(msg, "not a git repository"):
-		return nil, ErrNoGH
+		strings.Contains(msg, "not a git repository"),
+		strings.Contains(msg, "has disabled issues"):
+		return ErrNoGH
 	}
-	return nil, fmt.Errorf("gh pr view: %s: %w", strings.TrimSpace(string(stderr)), err)
+	return fmt.Errorf("gh %s: %s: %w", strings.Join(args[:min(2, len(args))], " "), strings.TrimSpace(string(stderr)), err)
 }
 
 // ghPR is gh pr view --json Fields.
