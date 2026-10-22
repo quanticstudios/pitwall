@@ -251,12 +251,18 @@ func (d *Daemon) resumeBlocked(id string, r *resume) string {
 		return "the pane closed or restarted"
 	case d.st.Panes[pi].Provider != r.prov:
 		return "another agent runs there"
-	case i < 0 || !d.st.Activities[i].UpdatedAt.Equal(r.turn):
+	case i < 0 || !d.st.Activities[i].UpdatedAt.Equal(r.turn) || !stoppedState(d.st.Activities[i].State):
+		// why: Windows clocks can give a new turn the stopped one's UpdatedAt, so the state counts too.
 		return "the turn changed"
 	case d.mail.keyAt[id].After(r.since):
 		return "the user typed in it"
 	}
 	return ""
+}
+
+// stoppedState reports a state a usage limit leaves a turn in.
+func stoppedState(s model.AgentState) bool {
+	return s == model.StateError || s == model.StateCompleted
 }
 
 // dropResume drops pane id's resume, reporting whether it had one.
