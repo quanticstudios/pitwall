@@ -74,6 +74,7 @@ func allMessages() []any {
 		Prompt{Pane: "a", Text: "review the plan\nin plan.md"}, Read{Pane: "a", Screen: true}, ReadResult{Pane: "a", Text: "SHIP", Err: "none"},
 		Send{Pane: "a", From: "b", Text: "AGREE"},
 		FocusDir{Pane: "a", Dir: layout.Down},
+		CancelResume{Pane: "a"},
 		FrameRows{Pane: "a", Rows: []int{2}, Cells: []vt.Cell{{Content: "x", Width: 1}}, Wrapped: []bool{false, false, true}, Title: "t", ScrollPushed: 1 << 40},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},

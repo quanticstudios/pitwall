@@ -1,6 +1,6 @@
-16.23
+16.24
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
-model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool}
+model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
 model.Check{Name string; State model.CheckState}
 model.Clipboard{Seq uint64; Text string}
@@ -22,6 +22,7 @@ proto.AddProject{Path string; SessionID string}
 proto.AgentEvent{Pane string; Provider model.Provider; Payload []uint8}
 proto.Answer{Pane string; At int64; Allow bool}
 proto.ArchiveWorkspace{WorkspaceID string; Archived bool}
+proto.CancelResume{Pane string}
 proto.ClosePane{Pane string}
 proto.CloseTab{WorkspaceID string; TabID string}
 proto.DeleteGroup{GroupID string}

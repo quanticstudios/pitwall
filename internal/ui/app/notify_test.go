@@ -169,3 +169,25 @@ func TestNotifiesOnce(t *testing.T) {
 		t.Error("lone window stays quiet")
 	}
 }
+
+// A resume that leaves at its time notifies once; one cancelled sooner
+// does not.
+func TestResumedAt(t *testing.T) {
+	at := time.Date(2026, 10, 22, 15, 1, 0, 0, time.UTC)
+	a := notifyActivity(model.StateError, at.Add(-2*time.Hour))
+	a.Resumes = at
+	b := a
+	b.PaneID = "other"
+	was := resumesOf([]model.Activity{a, b})
+	if got := resumedAt(was, []model.Activity{a, b}, at); len(got) != 0 {
+		t.Fatalf("pending resumes notified: %+v", got)
+	}
+	a.Resumes = time.Time{}
+	if got := resumedAt(was, []model.Activity{a, b}, at.Add(-time.Minute)); len(got) != 0 {
+		t.Fatalf("a cancelled resume notified: %+v", got)
+	}
+	got := resumedAt(was, []model.Activity{a, b}, at.Add(time.Second))
+	if len(got) != 1 || got[0].PaneID != "pane" || got[0].State != model.StateWorking || got[0].Detail != "Resumed after the usage limit" {
+		t.Fatalf("got %+v", got)
+	}
+}

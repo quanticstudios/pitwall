@@ -216,8 +216,8 @@ func (d *Daemon) deliver(pane string) {
 }
 
 // noteUserKey records the user's input into pane: it holds messages for
-// sendQuiet and resets the loop guard. Focus and mouse reports are no
-// keys.
+// sendQuiet, resets the loop guard and drops a resume after a usage
+// limit. Focus and mouse reports are no keys.
 func (d *Daemon) noteUserKey(pane string, b []byte) {
 	if s := string(b); s == "\x1b[I" || s == "\x1b[O" || strings.HasPrefix(s, "\x1b[<") || strings.HasPrefix(s, "\x1b[M") {
 		return
@@ -226,6 +226,9 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	defer d.mu.Unlock()
 	d.mail.keyAt[pane] = time.Now()
 	delete(d.mail.sent, pane)
+	if d.dropResume(pane) {
+		d.changed()
+	}
 	if len(d.mail.queue[pane]) > 0 {
 		d.wake(pane, 0)
 	}

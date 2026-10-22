@@ -4,7 +4,8 @@ import "fmt"
 
 // AgentLimits is [agents].
 type AgentLimits struct {
-	MaxRunning *float64 `toml:"max_running" min:"0" max:"100" doc:"How many agents may run at once in a session before its queued tasks wait; a queued task starts when one of them finishes (done, failed or closed). 0 sets no limit: a queued task then waits for an agent of its session to finish, or starts at once when none runs"`
+	MaxRunning       *float64 `toml:"max_running" min:"0" max:"100" doc:"How many agents may run at once in a session before its queued tasks wait; a queued task starts when one of them finishes (done, failed or closed). 0 sets no limit: a queued task then waits for an agent of its session to finish, or starts at once when none runs"`
+	ResumeAfterLimit *bool    `toml:"resume_after_limit" doc:"Type continue into a Claude Code or Codex agent that stopped on its plan's usage limit, a minute after the limit resets, unless you typed in its pane since"`
 }
 
 // resolveAgents is c's max_running, 0 when unset or bad, which is reported.

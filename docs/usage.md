@@ -684,6 +684,25 @@ pitwall queue ls
 pitwall queue rm 1
 ```
 
+### Resume after a usage limit
+
+When Claude Code or Codex stops because your plan's usage limit is hit,
+pitwall reads the reset time from the message the agent printed ("resets
+3pm" or "try again at 3:04 PM"). When the message names no time, it takes
+the reset of the fullest limit window it tracks for that agent. A minute
+after the reset, pitwall types `continue` and Enter into the pane, and a
+desktop notification says so. Until then the tab's pill reads
+**Resumes 15:04**.
+
+pitwall types it only when the pane still runs the same agent and still
+sits at the turn the limit stopped. Typing anything in the pane cancels it,
+and so does **Cancel resume** in the tab's right-click menu. The schedule
+lives in the daemon's memory only, so a daemon restart drops
+every pending resume.
+
+Turn it off with `resume_after_limit = false` under `[agents]` in
+`config.toml`, or **Resume after limit** in Settings.
+
 ### Detaching
 
 <img src="media/survive.webp" alt="The window closes, pitwall ls shows every tab still running, the window comes back, and after a reboot the agents resume" width="800">

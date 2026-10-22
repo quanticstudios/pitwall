@@ -797,6 +797,12 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.openReview(st, e.WorkspaceID, "")
 	case sidebar.Answer:
 		u.send(proto.Answer{Pane: e.PaneID, At: e.At, Allow: e.Allow})
+	case sidebar.CancelResume:
+		for _, a := range st.Activities {
+			if a.WorkspaceID == e.WorkspaceID && !a.Resumes.IsZero() {
+				u.send(proto.CancelResume{Pane: a.PaneID})
+			}
+		}
 	case sidebar.ViewFileDiff:
 		u.nav.selectWorkspace(st, e.WorkspaceID, "")
 		if Host == "" {

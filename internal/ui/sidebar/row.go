@@ -462,13 +462,21 @@ func (s *Sidebar) renameField(gtx layout.Context, th *theme.Theme) layout.Dimens
 	return layout.Dimensions{Size: rect.Size()}
 }
 
-// PillText is a tab pill's label: the command a busy terminal runs, a
-// decision model's recommendation on an approval ("Jev: allow 96%"),
-// else aide's label for the state, with " · now" when triage says the
-// user is needed now. by is State.Decide.Provider.
+// PillText is a tab pill's label: the command a busy terminal runs, when
+// an agent a usage limit stopped resumes ("Resumes 15:04", with the
+// weekday on another day), a decision model's recommendation on an
+// approval ("Jev: allow 96%"), else aide's label for the state, with
+// " · now" when triage says the user is needed now. by is
+// State.Decide.Provider.
 func PillText(a model.Activity, by string) string {
 	if a.State == model.StateTerminalRunning && a.Detail != "" {
 		return a.Detail
+	}
+	if r := a.Resumes.Local(); !a.Resumes.IsZero() {
+		if y, m, d := time.Now().Date(); r.Year() != y || r.Month() != m || r.Day() != d {
+			return r.Format("Resumes Mon 15:04")
+		}
+		return r.Format("Resumes 15:04")
 	}
 	if s := AdviceText(a, by); s != "" {
 		return s

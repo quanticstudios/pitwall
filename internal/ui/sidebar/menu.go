@@ -57,7 +57,11 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 	if len(targets) > 1 {
 		newText = fmt.Sprintf("New group from %d tabs", len(targets))
 	}
-	entries := []menuEntry{{c: &s.menuItem[actNewBelow], icon: icPlus, text: "New tab below"}, {c: &s.menuItem[actRename], icon: icPencil, text: "Rename tab"}}
+	var entries []menuEntry
+	if resuming(v.st, ws.ID) {
+		entries = append(entries, menuEntry{c: &s.menuItem[actCancelResume], icon: icX, text: "Cancel resume"})
+	}
+	entries = append(entries, menuEntry{c: &s.menuItem[actNewBelow], icon: icPlus, text: "New tab below"}, menuEntry{c: &s.menuItem[actRename], icon: icPencil, text: "Rename tab"})
 	pin := menuEntry{c: &s.menuItem[actPin], icon: icPin, text: "Pin tab"}
 	if ws.Pinned {
 		pin.icon, pin.text = icPinOff, "Unpin tab"
@@ -135,6 +139,11 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 		fly[i] = c
 		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(sw-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "", false)
 	}
+}
+
+// resuming reports whether an agent of tab ws resumes after a usage limit.
+func resuming(st *model.State, ws string) bool {
+	return slices.ContainsFunc(st.Activities, func(a model.Activity) bool { return a.WorkspaceID == ws && !a.Resumes.IsZero() })
 }
 
 // menuList draws entries as a menu placed "bottom end" under anchor, the

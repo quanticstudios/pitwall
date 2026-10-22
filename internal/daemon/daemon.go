@@ -26,6 +26,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/decisionlog"
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -119,6 +120,11 @@ type Options struct {
 	Conflicts func(ctx context.Context, dir, a, b string) ([]string, error)
 	// MaxRunning reads [agents] max_running; nil means 0, no limit.
 	MaxRunning func() int
+	// ResumeAfterLimit reads [agents] resume_after_limit; nil means off.
+	// Limits are the plan limits pitwall tracks, for a limit message
+	// that names no reset; nil knows none.
+	ResumeAfterLimit func() bool
+	Limits           func() []flow.Limit
 	// RemoteControl reports whether panes show Claude Code's Remote
 	// Control ([appearance] remote_control); nil means off.
 	RemoteControl func() bool
@@ -162,9 +168,10 @@ type Daemon struct {
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
 	replies map[string]string
-	mail    mail       // see talk.go
-	sendMu  sync.Mutex // one deliver types at a time
-	turnMu  sync.Mutex // one checkpoint at a time, so each gets its own number
+	mail    mail         // see talk.go
+	lim     limitResumes // see resume.go
+	sendMu  sync.Mutex   // one deliver types at a time
+	turnMu  sync.Mutex   // one checkpoint at a time, so each gets its own number
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -187,34 +194,36 @@ func New() (*Daemon, error) {
 			}
 			return p, nil
 		},
-		NewVT:          vt.New,
-		Derive:         agent.Derive,
-		SessionID:      agent.SessionID,
-		RepoRoot:       gitstat.RepoRoot,
-		Branch:         gitBranch,
-		Stats:          gitstat.Stats,
-		AddWorktree:    gitstat.AddWorktree,
-		RemoveWorktree: gitstat.RemoveWorktree,
-		PR:             forge.View,
-		ArchiveOnMerge: func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
-		Orphans:        pruneOrphans,
-		Save:           func(s model.State) error { return store.Save(path, s) },
-		Load:           func() (model.State, error) { return store.Open(path) },
-		RestoreCmd:     store.RestoreCmd,
-		Decisions:      loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
-		Bell:           setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
-		Scrollback:     setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
-		Radar:          setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
-		Changes:        gitstat.Changed,
-		Checkpoint:     gitstat.Checkpoint,
-		DropTurns:      gitstat.DropTurns,
-		Conflicts:      gitstat.Conflicts,
-		MaxRunning:     setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
-		RemoteControl:  setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
-		Remote:         func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
-		RemoteDir:      remote.Dir(),
-		Split:          layout.Split,
-		Remove:         layout.Remove,
+		NewVT:            vt.New,
+		Derive:           agent.Derive,
+		SessionID:        agent.SessionID,
+		RepoRoot:         gitstat.RepoRoot,
+		Branch:           gitBranch,
+		Stats:            gitstat.Stats,
+		AddWorktree:      gitstat.AddWorktree,
+		RemoveWorktree:   gitstat.RemoveWorktree,
+		PR:               forge.View,
+		ArchiveOnMerge:   func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
+		Orphans:          pruneOrphans,
+		Save:             func(s model.State) error { return store.Save(path, s) },
+		Load:             func() (model.State, error) { return store.Open(path) },
+		RestoreCmd:       store.RestoreCmd,
+		Decisions:        loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
+		Bell:             setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
+		Scrollback:       setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
+		Radar:            setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
+		Changes:          gitstat.Changed,
+		Conflicts:        gitstat.Conflicts,
+		MaxRunning:       setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
+		ResumeAfterLimit: setting(config.Path(), func(s config.Settings) bool { return s.ResumeAfterLimit }),
+		Limits:           trackedLimits(),
+		RemoteControl:    setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
+		Remote:           func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
+		RemoteDir:        remote.Dir(),
+		Split:            layout.Split,
+		Remove:           layout.Remove,
+		Checkpoint:       gitstat.Checkpoint,
+		DropTurns:        gitstat.DropTurns,
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)
 		},
@@ -753,6 +762,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.prompt(m)
 	case proto.Send:
 		return d.send(m)
+	case proto.CancelResume:
+		return d.cancelResume(m)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:
@@ -1098,6 +1109,8 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.typed, id)
 	delete(d.mail.keyAt, id)
 	delete(d.mail.sent, id)
+	d.dropResume(id)
+	delete(d.lim.seen, id)
 	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
@@ -1175,6 +1188,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	now := time.Now()
 	changed := false
+	limit := func() {} // a turn that ended on a usage limit schedules its resume
 	// why: a held `pi -p` pane shuts down right after its result; the tab keeps showing it.
 	keep := p.Held && piEvent == "session_shutdown" && prev != nil && ended(prev.State)
 	if keep {
@@ -1211,6 +1225,13 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			}
 			if next.State == model.StateCompleted && (prev == nil || prev.State != model.StateCompleted) {
 				go d.refreshStats(ctx, p.WorkspaceID)
+			}
+			if next.State == model.StateCompleted || next.State == model.StateError {
+				if msg, resets, ok := agent.UsageLimit(agent.LastMessage(m.Payload), resumeNow()); ok && d.resumeOn() {
+					id, turn := p.ID, next.UpdatedAt
+					d.lim.seenMsg(id, msg)
+					limit = func() { d.limitStopped(id, turn, msg, resets) }
+				}
 			}
 		}
 	}
@@ -1264,6 +1285,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		d.changed()
 	}
 	d.mu.Unlock()
+	limit()
 	d.runDecisions(ctx, job)
 	if turnWS != "" {
 		// The hook is answered once the snapshot is taken, so the turn's

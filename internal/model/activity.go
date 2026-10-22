@@ -51,6 +51,9 @@ type Activity struct {
 	// Stuck marks a long-working agent the decision model says is stuck;
 	// its pill reads Working · stuck.
 	Stuck bool
+	// Resumes is when the daemon types continue into an agent its plan's
+	// usage limit stopped; zero for no resume set.
+	Resumes time.Time
 }
 
 // UrgencyPending is Activity.Urgency while triage is asking.

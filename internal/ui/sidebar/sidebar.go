@@ -186,6 +186,7 @@ const (
 	actRerun
 	actArchive
 	actPin
+	actCancelResume
 	actCount
 )
 
