@@ -193,17 +193,20 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	// brings them again. A commit since the turn started hides both.
 	if inTurn && loaded && !turn.Moved {
 		for r.undo.Clicked(gtx) {
-			r.undoFiles = len(files)
-			u.modal.open(modalUndoTurn, r.ws)
+			if !r.restoring() {
+				r.undoFiles = len(files)
+				u.modal.open(modalUndoTurn, r.ws)
+			}
 		}
 		for r.redo.Clicked(gtx) {
 			u.undoTurnFiles(true)
 		}
+		idle := !r.restoring()
 		switch {
 		case len(files) > 0:
-			place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.undo, "Undo turn", true, false) })
+			place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.undo, "Undo turn", idle, false) })
 		case turn.Redo != "":
-			place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.redo, "Redo turn", true, false) })
+			place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.redo, "Redo turn", idle, false) })
 		}
 	}
 	// The pull request's status goes here, left of the buttons.

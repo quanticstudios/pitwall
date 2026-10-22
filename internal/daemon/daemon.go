@@ -1247,9 +1247,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		}
 	}
 	d.noteOutcomes(p.ID, m.Payload, now)
+	var turnDir, turnWS string // a tab to checkpoint once d.mu is free
 	if d.o.Checkpoint != nil && agent.Prompt(m.Provider, m.Payload) != "" {
 		if w := d.workspace(p.WorkspaceID); w != nil {
-			go d.checkpoint(d.st.LivePath(*w), w.ID)
+			turnDir, turnWS = d.st.LivePath(*w), w.ID
 		}
 	}
 	if len(d.mail.queue[p.ID]) > 0 {
@@ -1264,14 +1265,38 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	d.mu.Unlock()
 	d.runDecisions(ctx, job)
+	if turnWS != "" {
+		// The hook is answered once the snapshot is taken, so the turn's
+		// first edits stay out of it; past turnWait it goes on without the
+		// hook. pitwall hook waits a little longer for a prompt.
+		done := make(chan struct{})
+		go func() {
+			d.checkpoint(turnDir, turnWS)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(turnWait):
+		}
+	}
 	return nil
 }
 
-// checkpoint snapshots tab ws's work tree at dir, off the hook's path so a
-// big repository never holds the hook up.
+// turnWait is how long a prompt's hook waits for its checkpoint.
+const turnWait = 2 * time.Second
+
+// checkpoint snapshots tab ws's work tree at dir, unless the tab closed
+// while it waited: its refs are dropped then, and a checkpoint would make
+// them again.
 func (d *Daemon) checkpoint(dir, ws string) {
 	d.turnMu.Lock()
 	defer d.turnMu.Unlock()
+	d.mu.Lock()
+	open := d.workspace(ws) != nil
+	d.mu.Unlock()
+	if !open {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	if err := d.o.Checkpoint(ctx, dir, ws); err != nil {

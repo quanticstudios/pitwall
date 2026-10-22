@@ -175,3 +175,95 @@ func TestUndoTurn(t *testing.T) {
 		t.Errorf("a refused undo changed added.txt to %q", got)
 	}
 }
+
+// TestUndoRefuses: undo and redo refuse, changing nothing, where they
+// could lose a file no snapshot has or overwrite one: an ignored file in a
+// folder the turn put where a file was, a file a .gitignore change shows
+// as new, files changed since the undo, and a second undo. A file marked
+// assume-unchanged is still snapshotted as it is on disk.
+func TestUndoRefuses(t *testing.T) {
+	ctx := context.Background()
+	read := func(dir, name string) string {
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return "missing"
+		}
+		return string(b)
+	}
+	setup := func() string {
+		dir := repo(t)
+		writeFile(t, dir, ".gitignore", ".worktrees/\n*.log\n")
+		writeFile(t, dir, "f", "a file\n")
+		commit(t, dir)
+		return dir
+	}
+
+	// A folder where a file was, holding an ignored file.
+	dir := setup()
+	if err := Checkpoint(ctx, dir, "w"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "f")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "f"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "f/new.txt", "n\n")
+	writeFile(t, dir, "f/private.log", "secret\n")
+	if err := UndoTurn(ctx, dir, "w"); err == nil || !strings.Contains(err.Error(), "f/private.log") {
+		t.Errorf("undo over a folder with an ignored file: %v", err)
+	}
+	if read(dir, "f/private.log") != "secret\n" || read(dir, "f/new.txt") != "n\n" {
+		t.Error("a refused undo changed files")
+	}
+
+	// A .gitignore change that makes an old ignored file look added.
+	dir = setup()
+	writeFile(t, dir, "old.log", "kept\n")
+	if err := Checkpoint(ctx, dir, "w"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, ".gitignore", ".worktrees/\n")
+	if err := UndoTurn(ctx, dir, "w"); err == nil || !strings.Contains(err.Error(), ".gitignore") {
+		t.Errorf("undo after a .gitignore change: %v", err)
+	}
+	if read(dir, "old.log") != "kept\n" {
+		t.Error("undo deleted a file the turn did not make")
+	}
+
+	// A second undo, then a redo over files changed since the undo.
+	dir = setup()
+	if err := Checkpoint(ctx, dir, "w"); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "f", "the turn\n")
+	if err := UndoTurn(ctx, dir, "w"); err != nil {
+		t.Fatal(err)
+	}
+	redo := runGit(t, dir, "rev-parse", "refs/pitwall/turns/w/redo")
+	if err := UndoTurn(ctx, dir, "w"); err == nil {
+		t.Error("a second undo ran")
+	}
+	if got := runGit(t, dir, "rev-parse", "refs/pitwall/turns/w/redo"); got != redo {
+		t.Error("a second undo replaced the redo snapshot")
+	}
+	writeFile(t, dir, "f", "edited after the undo\n")
+	if err := RedoTurn(ctx, dir, "w"); err == nil {
+		t.Error("redo overwrote an edit made after the undo")
+	}
+	if read(dir, "f") != "edited after the undo\n" {
+		t.Error("a refused redo changed f")
+	}
+
+	// assume-unchanged.
+	dir = setup()
+	runGit(t, dir, "update-index", "--assume-unchanged", "f")
+	writeFile(t, dir, "f", "changed\n")
+	if err := Checkpoint(ctx, dir, "w"); err != nil {
+		t.Fatal(err)
+	}
+	if got := runGit(t, dir, "show", "refs/pitwall/turns/w/1:f"); got != "changed" {
+		t.Errorf("an assume-unchanged file snapshotted as %q", got)
+	}
+}

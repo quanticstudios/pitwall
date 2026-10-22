@@ -256,8 +256,8 @@ func TestReviewPRStatus(t *testing.T) {
 
 // TestReviewTurnScope: a tab whose agent finished opens on This turn, the
 // latest checkpoint's diff; Branch reads the branch's again; one that is
-// working opens on Branch. Undo runs on the tab's folder, and its error
-// stays shown after the next read.
+// working opens on Branch. Undo runs on the tab's folder, once while it
+// runs, and its error stays shown after the next read.
 func TestReviewTurnScope(t *testing.T) {
 	oldDiff, oldTurn, oldTurnDiff, oldUndo := readDiff, readTurn, readTurnDiff, undoTurn
 	t.Cleanup(func() { readDiff, readTurn, readTurnDiff, undoTurn = oldDiff, oldTurn, oldTurnDiff, oldUndo })
@@ -276,6 +276,7 @@ func TestReviewTurnScope(t *testing.T) {
 	var mu sync.Mutex
 	var undone []string
 	undoTurn = func(_ context.Context, dir, ws string) error {
+		time.Sleep(50 * time.Millisecond)
 		mu.Lock()
 		defer mu.Unlock()
 		undone = append(undone, dir+" "+ws)
@@ -313,6 +314,7 @@ func TestReviewTurnScope(t *testing.T) {
 	}
 
 	u.undoTurnFiles(false)
+	u.undoTurnFiles(false) // while the first runs: ignored
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, _, failed := u.review.turnState(); failed != "" || time.Now().After(deadline) {

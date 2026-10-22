@@ -88,7 +88,9 @@ type reviewView struct {
 	// latest checkpoint, a zero one for none.
 	turnScope, inTurn bool
 	turn              gitstat.Turn
-	failed            string // the last undo or redo's error, which a read does not clear
+	failed            string           // the last undo or redo's error, which a read does not clear
+	busy              bool             // an undo or redo runs
+	agentState        model.AgentState // the tab's agent's, which rereads This turn when it changes
 
 	sel         int    // the selected file
 	selPath     string // its path, which keeps the selection across reads
@@ -164,6 +166,13 @@ func (r *reviewView) turnState() (turn gitstat.Turn, in bool, failed string) {
 	return r.turn, r.inTurn, r.failed
 }
 
+// restoring reports whether an undo or redo runs.
+func (r *reviewView) restoring() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.busy
+}
+
 // markRoot is what marks are kept under: a turn's diff has hashes of its
 // own, so its marks must not replace the branch's.
 func (r *reviewView) markRoot(root string) string {
@@ -206,6 +215,11 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 	defer t.Stop()
 	var last []byte
 	var parsed []review.File // last's files: an unchanged diff is not parsed again
+	var p gitstat.Patch
+	var files []review.File
+	var errText string
+	read := ""     // the checkpoint files are the turn diff against, "" for none
+	kicked := true // the first read, or a kick
 	for {
 		c, cancel := context.WithTimeout(ctx, filesWait)
 		r.mu.Lock()
@@ -215,35 +229,46 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 		if err != nil {
 			turn = gitstat.Turn{} // no checkpoint to show
 		}
-		var p gitstat.Patch
 		in := want && turn.Rev != ""
-		if in {
-			p, err = readTurnDiff(c, dir, turn.Rev)
-		} else {
-			p, err = readDiff(c, dir)
+		// why: a turn's diff hashes every file again, so a tick reads it
+		// only for a new turn; a kick, such as the agent changing state,
+		// reads it always.
+		if !in || kicked || turn.Rev != read {
+			read = ""
+			if in {
+				p, err = readTurnDiff(c, dir, turn.Rev)
+			} else {
+				p, err = readDiff(c, dir)
+			}
+			files, errText = nil, ""
+			if err != nil {
+				errText = err.Error()
+			} else {
+				if in {
+					read = turn.Rev
+				}
+				if parsed == nil || !bytes.Equal(last, p.Diff) {
+					parsed, last = review.Parse(p.Diff), p.Diff
+				}
+				files = slices.Clip(parsed)
+				for _, path := range p.Untracked {
+					b, ok := gitstat.ReadUntracked(p.Root, path)
+					files = append(files, review.Untracked(path, b, !ok))
+				}
+			}
 		}
 		cancel()
 		if ctx.Err() != nil {
 			return
 		}
-		if err != nil {
-			r.update(gen, p, nil, err.Error(), turn, in, invalidate)
-		} else {
-			if parsed == nil || !bytes.Equal(last, p.Diff) {
-				parsed, last = review.Parse(p.Diff), p.Diff
-			}
-			files := slices.Clip(parsed)
-			for _, path := range p.Untracked {
-				b, ok := gitstat.ReadUntracked(p.Root, path)
-				files = append(files, review.Untracked(path, b, !ok))
-			}
-			r.update(gen, p, files, "", turn, in, invalidate)
-		}
+		r.update(gen, p, files, errText, turn, in, invalidate)
+		kicked = false
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		case <-kick:
+			kicked = true
 		}
 	}
 }
@@ -608,12 +633,19 @@ func (u *ui) openReview(st *model.State, id, file string) {
 		invalidate = func() {}
 	}
 	// A finished turn opens on what it changed.
-	done := false
-	if p := agentPane(st, ws); p != nil {
-		done = slices.ContainsFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID && a.State == model.StateCompleted })
-	}
+	done := agentStateOf(st, ws) == model.StateCompleted
 	u.review.show(id, st.LivePath(*ws), done, invalidate)
-	u.review.selPath = file
+	u.review.selPath, u.review.agentState = file, agentStateOf(st, ws)
+}
+
+// agentStateOf is the state of tab ws's agent, "" for none.
+func agentStateOf(st *model.State, ws *model.Workspace) model.AgentState {
+	if p := agentPane(st, ws); p != nil {
+		if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID }); i >= 0 {
+			return st.Activities[i].State
+		}
+	}
+	return ""
 }
 
 // reviewed reports whether f is marked reviewed in root at its current
@@ -694,20 +726,27 @@ func (u *ui) undoTurnFiles(redo bool) {
 	if redo {
 		run, name, done = redoTurn, "Redo", "Redid the turn"
 	}
-	r.status = done
 	r.mu.Lock()
-	r.failed = ""
+	if r.busy {
+		r.mu.Unlock()
+		return
+	}
+	r.busy, r.failed = true, ""
 	r.mu.Unlock()
+	r.status = done
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), filesWait)
 		defer cancel()
 		err := run(ctx, dir, ws)
 		if err != nil {
 			log.Printf("review: %s on tab %s: %q", strings.ToLower(name), ws, err)
-			r.mu.Lock()
-			r.failed = name + " failed: " + err.Error()
-			r.mu.Unlock()
 		}
+		r.mu.Lock()
+		r.busy = false
+		if err != nil {
+			r.failed = name + " failed: " + err.Error()
+		}
+		r.mu.Unlock()
 		r.reload()
 		invalidate()
 	}()
@@ -801,6 +840,10 @@ func (u *ui) layoutReview(gtx gl.Context, st *model.State) {
 		u.review.hide()
 		u.layoutPanes(gtx, st)
 		return
+	}
+	if s := agentStateOf(st, findWorkspace(st, u.review.ws)); s != u.review.agentState {
+		u.review.agentState = s
+		u.review.reload()
 	}
 	u.drawReview(gtx, st)
 	if r := &u.review; r.focus {

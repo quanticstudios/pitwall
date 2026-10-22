@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // A checkpoint is a tab's work tree as a commit object on HEAD, taken when
@@ -24,6 +26,10 @@ const KeepTurns = 20
 // the commit the snapshot was taken on: putting files back then would undo
 // part of a commit.
 var ErrHeadMoved = errors.New("HEAD moved since the turn started")
+
+// restoring lets one UndoTurn or RedoTurn run at a time: a second one's
+// snapshot could catch the first one's files half written.
+var restoring sync.Mutex
 
 // Turn is a tab's latest checkpoint.
 type Turn struct {
@@ -44,23 +50,23 @@ func turnsRef(ws string) (string, error) {
 }
 
 type turnRef struct {
-	name, rev, parent string
-	n                 int
+	name, rev, tree, parent string
+	n                       int
 }
 
 // turns is the checkpoints under prefix in number order, and the redo
 // snapshot.
 func turns(ctx context.Context, root, prefix string) (list []turnRef, redo turnRef, err error) {
-	out, err := git(ctx, root, "for-each-ref", "--format=%(refname) %(objectname) %(parent)", prefix)
+	out, err := git(ctx, root, "for-each-ref", "--format=%(refname) %(objectname) %(tree) %(parent)", prefix)
 	if err != nil {
 		return nil, redo, err
 	}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) != 3 {
+		if len(f) != 4 {
 			continue
 		}
-		t := turnRef{name: f[0], rev: f[1], parent: f[2]}
+		t := turnRef{name: f[0], rev: f[1], tree: f[2], parent: f[3]}
 		tail := strings.TrimPrefix(t.name, prefix)
 		if tail == "redo" {
 			redo = t
@@ -76,41 +82,37 @@ func turns(ctx context.Context, root, prefix string) (list []turnRef, redo turnR
 }
 
 // snapshot writes root's work tree as a tree object, untracked files
-// included and ignored ones left out, through an index of its own.
+// included and ignored ones left out, through an index of its own read
+// from HEAD. why: not a copy of the repository's index, whose
+// assume-unchanged and skip-worktree flags would leave changed files out.
 func snapshot(ctx context.Context, root string) (string, error) {
 	tmp, err := os.MkdirTemp("", "pitwall-turn-")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(tmp)
-	index := filepath.Join(tmp, "index")
-	env := []string{"GIT_INDEX_FILE=" + index}
-	// why: a copy of the repository's index keeps its stat data, so add -A
-	// hashes only the files that changed instead of every file in HEAD.
-	seeded := false
-	if p, err := git(ctx, root, "rev-parse", "--path-format=absolute", "--git-path", "index"); err == nil {
-		if b, err := os.ReadFile(strings.TrimSpace(p)); err == nil {
-			seeded = os.WriteFile(index, b, 0o600) == nil
-		}
-	}
-	if !seeded {
-		if _, err := gitWith(ctx, root, env, "", "read-tree", "HEAD"); err != nil {
+	env := []string{"GIT_INDEX_FILE=" + filepath.Join(tmp, "index")}
+	for _, args := range [][]string{{"read-tree", "HEAD"}, {"add", "-A"}} {
+		if _, err := gitWith(ctx, root, env, "", args...); err != nil {
 			return "", err
 		}
-	}
-	if _, err := gitWith(ctx, root, env, "", "add", "-A"); err != nil {
-		return "", err
 	}
 	out, err := gitWith(ctx, root, env, "", "write-tree")
 	return strings.TrimSpace(out), err
 }
 
-// commitTree makes an unsigned commit of tree on HEAD, under pitwall's
+// head is root's HEAD commit.
+func head(ctx context.Context, root string) (string, error) {
+	out, err := git(ctx, root, "rev-parse", "--verify", "HEAD")
+	return strings.TrimSpace(out), err
+}
+
+// commitTree makes an unsigned commit of tree on parent, under pitwall's
 // name whatever the user's config says.
-func commitTree(ctx context.Context, root, tree, msg string) (string, error) {
+func commitTree(ctx context.Context, root, parent, tree, msg string) (string, error) {
 	env := []string{"GIT_AUTHOR_NAME=pitwall", "GIT_AUTHOR_EMAIL=pitwall@localhost",
 		"GIT_COMMITTER_NAME=pitwall", "GIT_COMMITTER_EMAIL=pitwall@localhost"}
-	out, err := gitWith(ctx, root, env, "", "commit-tree", "--no-gpg-sign", "-p", "HEAD", "-m", msg, tree)
+	out, err := gitWith(ctx, root, env, "", "commit-tree", "--no-gpg-sign", "-p", parent, "-m", msg, tree)
 	return strings.TrimSpace(out), err
 }
 
@@ -130,6 +132,12 @@ func Checkpoint(ctx context.Context, worktree, ws string) error {
 	if err != nil {
 		return err
 	}
+	// HEAD before the files: a commit made while they are read must not
+	// pass for the one they were taken on.
+	parent, err := head(ctx, root)
+	if err != nil {
+		return err
+	}
 	tree, err := snapshot(ctx, root)
 	if err != nil {
 		return err
@@ -138,7 +146,7 @@ func Checkpoint(ctx context.Context, worktree, ws string) error {
 	if len(list) > 0 {
 		n = list[len(list)-1].n + 1
 	}
-	rev, err := commitTree(ctx, root, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn %d", ws, n))
+	rev, err := commitTree(ctx, root, parent, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn %d", ws, n))
 	if err != nil {
 		return err
 	}
@@ -168,11 +176,11 @@ func LatestTurn(ctx context.Context, worktree, ws string) (Turn, error) {
 		return Turn{}, err
 	}
 	last := list[len(list)-1]
-	head, err := git(ctx, worktree, "rev-parse", "HEAD")
+	h, err := head(ctx, worktree)
 	if err != nil {
 		return Turn{}, err
 	}
-	return Turn{Rev: last.rev, N: last.n, Redo: redo.rev, Moved: strings.TrimSpace(head) != last.parent}, nil
+	return Turn{Rev: last.rev, N: last.n, Redo: redo.rev, Moved: h != last.parent}, nil
 }
 
 // TurnDiff is the change from checkpoint rev to worktree's files now, in
@@ -198,8 +206,11 @@ func TurnDiff(ctx context.Context, worktree, rev string) (Patch, error) {
 // checkpoint: files the turn added are removed, ones it changed or deleted
 // written back. It snapshots them first as the redo snapshot RedoTurn puts
 // back. It refuses with ErrHeadMoved once HEAD is not the checkpoint's
-// parent, and never touches HEAD, the index or a commit.
+// parent, when the files already match the checkpoint, and as restore
+// does; it never touches HEAD, the index or a commit.
 func UndoTurn(ctx context.Context, worktree, ws string) error {
+	restoring.Lock()
+	defer restoring.Unlock()
 	prefix, err := turnsRef(ws)
 	if err != nil {
 		return err
@@ -223,7 +234,14 @@ func UndoTurn(ctx context.Context, worktree, ws string) error {
 	if err != nil {
 		return err
 	}
-	redo, err := commitTree(ctx, root, now, fmt.Sprintf("pitwall checkpoint: tab %s, before undoing turn %d", ws, last.n))
+	if now == last.tree {
+		// why: a second undo would replace the redo snapshot with these.
+		return errors.New("the files are already as the turn started")
+	}
+	if err := check(ctx, root, now, last.rev); err != nil {
+		return err
+	}
+	redo, err := commitTree(ctx, root, last.parent, now, fmt.Sprintf("pitwall checkpoint: tab %s, before undoing turn %d", ws, last.n))
 	if err != nil {
 		return err
 	}
@@ -234,8 +252,11 @@ func UndoTurn(ctx context.Context, worktree, ws string) error {
 }
 
 // RedoTurn puts back the files UndoTurn replaced, and drops the redo
-// snapshot. Like UndoTurn, it refuses with ErrHeadMoved.
+// snapshot. It refuses when the files changed since the undo, which it
+// would overwrite, and like UndoTurn with ErrHeadMoved.
 func RedoTurn(ctx context.Context, worktree, ws string) error {
+	restoring.Lock()
+	defer restoring.Unlock()
 	prefix, err := turnsRef(ws)
 	if err != nil {
 		return err
@@ -244,11 +265,11 @@ func RedoTurn(ctx context.Context, worktree, ws string) error {
 	if !ok {
 		return fmt.Errorf("%s is not in a git repository", worktree)
 	}
-	_, redo, err := turns(ctx, root, prefix)
+	list, redo, err := turns(ctx, root, prefix)
 	if err != nil {
 		return err
 	}
-	if redo.name == "" {
+	if redo.name == "" || len(list) == 0 {
 		return errors.New("nothing to redo")
 	}
 	if err := onHead(ctx, root, redo.parent); err != nil {
@@ -256,6 +277,12 @@ func RedoTurn(ctx context.Context, worktree, ws string) error {
 	}
 	now, err := snapshot(ctx, root)
 	if err != nil {
+		return err
+	}
+	if now != list[len(list)-1].tree {
+		return errors.New("files changed since the undo; redo would overwrite them")
+	}
+	if err := check(ctx, root, now, redo.rev); err != nil {
 		return err
 	}
 	if err := restore(ctx, root, now, redo.rev); err != nil {
@@ -289,12 +316,78 @@ func DropTurns(ctx context.Context, dir, ws string) error {
 }
 
 func onHead(ctx context.Context, root, rev string) error {
-	head, err := git(ctx, root, "rev-parse", "HEAD")
+	h, err := head(ctx, root)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(head) != rev {
+	if h != rev {
 		return ErrHeadMoved
+	}
+	return nil
+}
+
+// changes is what restore does to make tree now commit rev: the paths to
+// remove and the paths to write from rev.
+func changes(ctx context.Context, root, now, rev string) (remove, write []string, err error) {
+	out, err := git(ctx, root, "diff-tree", "-r", "--no-renames", "--name-status", "-z", now, rev)
+	if err != nil {
+		return nil, nil, err
+	}
+	f := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+	for i := 0; i+1 < len(f); i += 2 {
+		if f[i] == "D" {
+			remove = append(remove, f[i+1])
+		} else {
+			write = append(write, f[i+1])
+		}
+	}
+	return remove, write, nil
+}
+
+// check refuses a restore that could lose a file no snapshot has:
+//   - a .gitignore changed while files are to be removed, since a file
+//     ignored before may then look added though nothing made it;
+//   - a path to write is a folder holding a file not being removed, or
+//     sits under a file not being removed, which git restore would delete
+//     though it may be ignored.
+func check(ctx context.Context, root, now, rev string) error {
+	remove, write, err := changes(ctx, root, now, rev)
+	if err != nil {
+		return err
+	}
+	gone := map[string]bool{}
+	for _, p := range remove {
+		gone[p] = true
+	}
+	if len(remove) > 0 {
+		for _, p := range append(remove, write...) {
+			if path.Base(p) == ".gitignore" {
+				return fmt.Errorf("%s changed, so files it ignored before may look new; nothing was changed", p)
+			}
+		}
+	}
+	for _, p := range write {
+		full := filepath.Join(root, filepath.FromSlash(p))
+		if fi, err := os.Lstat(full); err == nil && fi.IsDir() {
+			err := filepath.WalkDir(full, func(q string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				rel, _ := filepath.Rel(root, q)
+				if !d.IsDir() && !gone[filepath.ToSlash(rel)] {
+					return fmt.Errorf("%s is in the way of %s, and no snapshot has it; nothing was changed", filepath.ToSlash(rel), p)
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		for d := path.Dir(p); d != "."; d = path.Dir(d) {
+			if fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(d))); err == nil && !fi.IsDir() && !gone[d] {
+				return fmt.Errorf("%s is in the way of %s, and no snapshot has it; nothing was changed", d, p)
+			}
+		}
 	}
 	return nil
 }
@@ -302,25 +395,18 @@ func onHead(ctx context.Context, root, rev string) error {
 // restore makes root's files those of commit rev, where tree now is a
 // snapshot of them: a file rev lacks is removed, with the folders that
 // leaves empty, and the others are written from rev by git restore, which
-// leaves the index alone. Ignored files stay as they are.
+// leaves the index alone. check runs first.
 func restore(ctx context.Context, root, now, rev string) error {
-	out, err := git(ctx, root, "diff-tree", "-r", "--no-renames", "--name-status", "-z", now, rev)
+	remove, write, err := changes(ctx, root, now, rev)
 	if err != nil {
 		return err
 	}
-	f := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
-	var write []string
-	for i := 0; i+1 < len(f); i += 2 {
-		status, p := f[i], f[i+1]
-		if status != "D" {
-			write = append(write, p)
-			continue
-		}
-		if err := os.Remove(filepath.Join(root, p)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	for _, p := range remove {
+		if err := os.Remove(filepath.Join(root, filepath.FromSlash(p))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		for d := filepath.Dir(p); d != "." && d != "/"; d = filepath.Dir(d) {
-			if os.Remove(filepath.Join(root, d)) != nil {
+		for d := path.Dir(p); d != "."; d = path.Dir(d) {
+			if os.Remove(filepath.Join(root, filepath.FromSlash(d))) != nil {
 				break // not empty
 			}
 		}
