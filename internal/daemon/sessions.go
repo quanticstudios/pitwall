@@ -78,7 +78,9 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		if m.SessionID, err = d.targetSession(m.SessionID, m.FromPane); err != nil {
 			return err
 		}
-		if m.GroupID == "" && !m.Loose {
+		if parent := d.workspace(d.parentTab(m.ParentPane, m.SessionID)); parent != nil && m.GroupID == "" {
+			m.GroupID = parent.ProjectID // hang under the parent, in its group or none
+		} else if m.GroupID == "" && !m.Loose {
 			m.GroupID = d.projectAt(m.SessionID, path)
 		}
 	}
@@ -111,14 +113,19 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 // parentTab is the tab of pane when it is in session, else "". The caller
 // holds d.mu.
 func (d *Daemon) parentTab(pane, session string) string {
-	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane })
-	if pane == "" || i < 0 {
-		return ""
-	}
-	if w := d.workspace(d.st.Panes[i].WorkspaceID); w != nil && w.SessionID == session {
+	if w := d.paneTab(pane); w != nil && w.SessionID == session {
 		return w.ID
 	}
 	return ""
+}
+
+// paneTab is the tab holding pane, or nil. The caller holds d.mu.
+func (d *Daemon) paneTab(pane string) *model.Workspace {
+	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane })
+	if pane == "" || i < 0 {
+		return nil
+	}
+	return d.workspace(d.st.Panes[i].WorkspaceID)
 }
 
 func (d *Daemon) newGroup(m proto.NewGroup) error {

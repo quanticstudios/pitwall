@@ -268,7 +268,9 @@ whole session still closes it. The row of dots under Pin tab tints the tab
 in one of eight colors, or none.
 
 A tab an agent opens from its pane, with `pitwall new` or `pitwall
-worktree new`, hangs under the agent's tab, a step further in. The
+worktree new`, hangs under the agent's tab, a step further in. It joins
+the agent's group, or stays out of groups with an ungrouped agent, even
+when its folder has a group of its own. The
 agent's row grows a bar with one segment per worker in its state's color
 and, under it, a count each of the workers that need you, failed, work,
 are done and stopped. A stopped worker, grey in the bar, has no agent

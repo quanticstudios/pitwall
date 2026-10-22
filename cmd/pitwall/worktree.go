@@ -92,15 +92,18 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	// The daemon knows the tabs; without it every worktree has none.
 	conn, err := dialCLI()
 	var state model.State
+	level := 0
 	switch {
 	case errors.Is(err, errNotRunning) && command != "new" && !all:
 	case err != nil:
 		return err
 	default:
 		defer conn.Close()
-		if state, err = syncCLI(conn); err != nil {
+		m, err := syncMsg(conn)
+		if err != nil {
 			return err
 		}
+		state, level = m.State, m.Level
 	}
 	switch command {
 	case "ls":
@@ -119,7 +122,7 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		if err != nil {
 			return err
 		}
-		return newWorktree(conn, out, state, root, args[0], f, cmd)
+		return newWorktree(conn, out, state, level, root, args[0], f, cmd)
 	case "rm":
 		return removeWorktree(ctx, conn, errOut, state, root, args[0], force)
 	}
@@ -243,30 +246,36 @@ func listWorktrees(ctx context.Context, out io.Writer, state model.State, roots 
 
 // newWorktree opens a tab in a new worktree of root, in the repo's group
 // of the current session, which it makes when missing, and prints its #.
-// With no session the daemon makes one, as pitwall new does.
-func newWorktree(conn *cliConn, out io.Writer, state model.State, root, name string, from model.WorktreeFrom, cmd []string) error {
+// Run from an agent's pane, the tab joins the agent's group instead, and
+// no group is made. With no session the daemon makes one, as pitwall new
+// does.
+func newWorktree(conn *cliConn, out io.Writer, state model.State, level int, root, name string, from model.WorktreeFrom, cmd []string) error {
 	session, _ := currentSession(state, "")
-	group := func(st model.State) *model.Project {
-		for i, p := range st.Projects {
-			if (session.ID == "" || p.SessionID == session.ID) && p.Kind == model.ProjectGit && p.Root == root {
-				return &st.Projects[i]
+	msg := proto.NewWorkspace{Name: name, From: from, Cmd: cmd, ParentPane: os.Getenv("PITWALL_PANE")}
+	if parent, err := resolveTab(state, "", ""); err == nil && level >= proto.WorkspaceRootLevel {
+		session.ID, msg.Root = parent.SessionID, root
+	} else {
+		group := func(st model.State) *model.Project {
+			for i, p := range st.Projects {
+				if (session.ID == "" || p.SessionID == session.ID) && p.Kind == model.ProjectGit && p.Root == root {
+					return &st.Projects[i]
+				}
+			}
+			return nil
+		}
+		p := group(state)
+		if p == nil {
+			var err error
+			if state, err = syncCLI(conn, proto.AddProject{Path: root, SessionID: session.ID}); err != nil {
+				return err
+			}
+			if p = group(state); p == nil {
+				return fmt.Errorf("pitwall did not group %s as a git repository", root)
 			}
 		}
-		return nil
+		session.ID, msg.ProjectID = p.SessionID, p.ID
 	}
-	p := group(state)
-	if p == nil {
-		var err error
-		if state, err = syncCLI(conn, proto.AddProject{Path: root, SessionID: session.ID}); err != nil {
-			return err
-		}
-		if p = group(state); p == nil {
-			return fmt.Errorf("pitwall did not group %s as a git repository", root)
-		}
-	}
-	pid := p.ID
-	session.ID = p.SessionID
-	after, err := syncCLI(conn, proto.NewWorkspace{ProjectID: pid, Name: name, From: from, Cmd: cmd, ParentPane: os.Getenv("PITWALL_PANE")})
+	after, err := syncCLI(conn, msg)
 	var added *model.Workspace
 	for i, w := range after.Workspaces {
 		if !slices.ContainsFunc(state.Workspaces, func(old model.Workspace) bool { return old.ID == w.ID }) {

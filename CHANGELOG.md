@@ -18,6 +18,7 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - Pinning a tab moves it to the top, after the tabs already pinned, as in a browser; unpinning puts it right after them. A grouped tab moves within its group.
+- A tab an agent opens with `pitwall new` or `pitwall worktree new` joins the agent's group, so it hangs under the agent's tab even when the agent's tab is ungrouped and the repo has a group. `pitwall worktree new` no longer makes a group for the repo when run from an agent's pane.
 
 ## v0.1.0-beta.17
 

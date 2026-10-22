@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 22 added NewWorkspace.Root: an agent's worktree tab joins the
+// agent's group, not the repo's.
 // Level 21 added Activity.Stuck, a long-working agent the decision
 // model says is stuck.
 // Level 20 added Workspace.Parent and ParentPane on NewSession and
@@ -105,7 +107,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 21
+const Level = 22
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
@@ -231,8 +233,13 @@ type NewWorkspace struct {
 	// Cmd, when set, runs in the tab's first pane, held as NewSession.Cmd
 	// is; else the tab starts with no pane.
 	Cmd []string
-	// ParentPane is NewSession.ParentPane.
+	// ParentPane is NewSession.ParentPane. With it the tab joins its
+	// parent's group, whatever ProjectID names.
 	ParentPane string
+	// Root, with ProjectID "" and a ParentPane, is the repository the
+	// worktree comes from, so a parent outside the repo's group needs no
+	// group made for it.
+	Root string
 }
 
 type RenameWorkspace struct {
@@ -562,6 +569,9 @@ type SessionShow struct {
 type SeePane struct {
 	Pane string
 }
+
+// WorkspaceRootLevel is the Level of daemons that take NewWorkspace.Root.
+const WorkspaceRootLevel = 22
 
 // SeeFocusLevel is the Level of GUIs whose SeePane follows their focus.
 // Older ones send it only for a pane whose activity is unseen, so the
