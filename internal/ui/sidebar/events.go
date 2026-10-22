@@ -5,8 +5,11 @@ package sidebar
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
-// RerunChecks, Archive, NewTaskIn, DropTask, OpenPort.
+// RerunChecks, Archive, NewTaskIn, DropTask, OpenPort, CancelResume.
 type Event any
+
+// CancelResume drops the resume after a usage limit of the tab's agents.
+type CancelResume struct{ WorkspaceID string }
 
 // OpenSessions is a click on the session name in the header: show the
 // session switcher.

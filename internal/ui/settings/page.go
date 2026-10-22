@@ -1196,6 +1196,8 @@ func (p *Page) agents() []section {
 		}})
 	rows = append(rows, row{label: "Agents at once", desc: "How many agents may run in a session before queued tasks wait for one to finish. 0 sets no limit: a queued task then waits for any agent of its session to finish.",
 		extra: "queue tasks max_running limit", control: p.stepper("agents", "max_running", float64(p.s.MaxRunning), 0, 100, 1, 0)})
+	rows = append(rows, row{label: "Resume after limit", desc: "When Claude Code or Codex stops on its plan's usage limit, types continue into it a minute after the limit resets. The tab's pill shows when; typing in the pane or Cancel resume in the tab's menu drops it. A daemon restart drops it too.",
+		extra: "usage limit reset continue resume_after_limit", control: p.toggle("agents", "resume_after_limit", p.s.ResumeAfterLimit)})
 	rows = append(rows, row{label: "Show cost", desc: "Next to each agent's tokens, what they would cost at the API's list prices. A subscription does not bill per token, so this is off by default.",
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
 	return []section{{rows: rows}}

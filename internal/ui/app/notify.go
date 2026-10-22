@@ -129,6 +129,8 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 	timer.Stop()
 	defer timer.Stop()
 	var h model.Notifications
+	resumed := map[string]time.Time{}
+	resumedAt(resumed, initial.Activities) // seen before this window opened
 	version := initial.Version
 	ready := initial.Version != 0 || len(initial.Projects) > 0 || len(initial.Activities) > 0
 	if ready {
@@ -165,6 +167,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 		now := time.Now()
 		var deliveries []model.Activity
 		h, deliveries = model.DecideNotifications(h, st.Activities, focused, active, now)
+		deliveries = append(deliveries, resumedAt(resumed, st.Activities)...)
 		for _, a := range deliveries {
 			n.mu.Lock()
 			viewing := n.focused && n.active == a.WorkspaceID
@@ -187,6 +190,20 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			timer.Reset(time.Until(due))
 		}
 	}
+}
+
+// resumedAt is each activity in as that the daemon resumed after a usage
+// limit (model.ResumedDetail) and seen does not hold yet, by pane and
+// UpdatedAt, which it then holds.
+func resumedAt(seen map[string]time.Time, as []model.Activity) []model.Activity {
+	var out []model.Activity
+	for _, a := range as {
+		if a.State == model.StateWorking && a.Detail == model.ResumedDetail && !seen[a.PaneID].Equal(a.UpdatedAt) {
+			seen[a.PaneID] = a.UpdatedAt
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // notifies reports whether the window showing session mine notifies about

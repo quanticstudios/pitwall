@@ -259,6 +259,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.events = append(s.events, CloseTab{WorkspaceID: id})
 			s.closeMenus()
 		}
+		if s.menuItem[actCancelResume].Clicked(gtx) {
+			s.events = append(s.events, CancelResume{WorkspaceID: id})
+			s.closeMenus()
+		}
 		if ws := v.st.Workspace(id); ws != nil {
 			if s.menuItem[actPin].Clicked(gtx) {
 				s.tabOptions(v, id, func(o *SetTabOptions) { o.Pinned = !ws.Pinned })

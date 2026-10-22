@@ -32,7 +32,7 @@ func defaults() Config {
 	c.Remote = defaultRemote()
 	c.Notify = defaultNotifications()
 	none := 0.0
-	c.Agents.MaxRunning = &none
+	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit = &none, &on
 	return c
 }
 

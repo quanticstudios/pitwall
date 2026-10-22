@@ -169,3 +169,26 @@ func TestNotifiesOnce(t *testing.T) {
 		t.Error("lone window stays quiet")
 	}
 }
+
+// Only the daemon's resumed activity notifies, once.
+func TestResumedAt(t *testing.T) {
+	at := time.Date(2026, 10, 22, 15, 1, 0, 0, time.UTC)
+	stopped := notifyActivity(model.StateError, at.Add(-2*time.Hour))
+	stopped.Resumes = at
+	seen := map[string]time.Time{}
+	if got := resumedAt(seen, []model.Activity{stopped}); len(got) != 0 {
+		t.Fatalf("a pending resume notified: %+v", got)
+	}
+	cancelled := notifyActivity(model.StateError, at.Add(-2*time.Hour)) // its Resumes gone at the deadline
+	if got := resumedAt(seen, []model.Activity{cancelled}); len(got) != 0 {
+		t.Fatalf("a cancelled resume notified: %+v", got)
+	}
+	done := notifyActivity(model.StateWorking, at)
+	done.Detail = model.ResumedDetail
+	if got := resumedAt(seen, []model.Activity{done}); len(got) != 1 || got[0].PaneID != "pane" {
+		t.Fatalf("got %+v", got)
+	}
+	if got := resumedAt(seen, []model.Activity{done}); len(got) != 0 {
+		t.Fatalf("notified twice: %+v", got)
+	}
+}

@@ -182,6 +182,8 @@ func TestPillText(t *testing.T) {
 		t.Errorf("no command = %q", PillText(run, ""))
 	}
 	ask := model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "allow", AdviceP: 0.962}
+	y, m, d := time.Now().Date()
+	today := time.Date(y, m, d, 15, 4, 0, 0, time.Local)
 	for _, tc := range []struct {
 		a    model.Activity
 		by   string
@@ -197,6 +199,8 @@ func TestPillText(t *testing.T) {
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "later"}, "jev", "Input"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateCompleted, Review: true}, "jev", "Check"},
 		{model.Activity{Provider: model.ProviderClaude, State: model.StateWorking, Stuck: true}, "jev", "Working · stuck"},
+		{model.Activity{Provider: model.ProviderCodex, State: model.StateError, Resumes: today}, "", "Resumes 15:04"},
+		{model.Activity{Provider: model.ProviderCodex, State: model.StateError, Resumes: today.AddDate(0, 0, 2)}, "", today.AddDate(0, 0, 2).Format("Resumes Mon 15:04")},
 	} {
 		if got := PillText(tc.a, tc.by); got != tc.want {
 			t.Errorf("PillText(%+v) = %q, want %q", tc.a, got, tc.want)

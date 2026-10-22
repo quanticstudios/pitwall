@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 24 added Activity.Resumes and CancelResume: the daemon types
+// continue into an agent a usage limit stopped, once the limit resets.
 // Level 23 added State.Listening, the open ports of each tab's block.
 // Level 22 added NewWorkspace.Root: an agent's worktree tab joins the
 // agent's group, not the repo's.
@@ -108,12 +110,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 23
+const Level = 24
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case CancelResume:
+		return 22
 	case FocusDir:
 		return 19
 	case SetTabOptions:
@@ -633,6 +637,12 @@ type Send struct {
 	Text string
 }
 
+// CancelResume drops the continue the daemon would type into Pane when
+// its usage limit resets (Activity.Resumes).
+type CancelResume struct {
+	Pane string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
@@ -651,4 +661,5 @@ var Messages = []any{
 	Prompt{}, Read{}, ReadResult{},
 	Send{},
 	FocusDir{},
+	CancelResume{},
 }
