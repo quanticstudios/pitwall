@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestCheckpoint snapshots a work tree with staged, unstaged, untracked
@@ -273,5 +274,38 @@ func TestUndoRefuses(t *testing.T) {
 	}
 	if got := runGit(t, dir, "ls-files", "-v", "f", "file.txt"); got != "h f\nS file.txt" {
 		t.Errorf("the real index's flags: %q", got)
+	}
+}
+
+// A same-size edit in the second git recorded, which git status catches
+// because the index is no older than the entry, is in the snapshot too.
+// checkStat=minimal compares whole seconds and sizes, as git does on Windows.
+func TestSnapshotRacyEdit(t *testing.T) {
+	dir := repo(t)
+	ctx := context.Background()
+	runGit(t, dir, "config", "core.checkStat", "minimal")
+	f, index := filepath.Join(dir, "file.txt"), filepath.Join(dir, ".git", "index")
+	past := time.Now().Add(-time.Hour).Truncate(time.Second)
+	touch := func(paths ...string) {
+		for _, p := range paths {
+			if err := os.Chtimes(p, past, past); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	touch(f)
+	runGit(t, dir, "update-index", "--refresh")
+	writeFile(t, dir, "file.txt", "ONE\ntwo\nthree\n")
+	touch(f, index)
+	tree, err := snapshot(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runGit(t, dir, "show", tree+":file.txt"); !strings.HasPrefix(got, "ONE") {
+		t.Fatalf("snapshot has %q, want the edit", got)
+	}
+	// After the snapshot: status rewrites the index, which hides the race.
+	if got := runGit(t, dir, "status", "--porcelain"); !strings.Contains(got, "file.txt") {
+		t.Fatalf("git status missed the edit too: %q", got)
 	}
 }

@@ -95,8 +95,13 @@ func snapshot(ctx context.Context, root string) (string, error) {
 	// hashes only the files that changed; a new repository has none yet.
 	seeded := false
 	if p, err := git(ctx, root, "rev-parse", "--path-format=absolute", "--git-path", "index"); err == nil {
-		if b, err := os.ReadFile(strings.TrimSpace(p)); err == nil {
+		src := strings.TrimSpace(p)
+		if b, err := os.ReadFile(src); err == nil {
 			seeded = os.WriteFile(index, b, 0o600) == nil
+			// why: git rechecks an entry only when the index is no older than it; a fresh copy would hide a same-size edit.
+			if fi, err := os.Stat(src); seeded && err == nil {
+				seeded = os.Chtimes(index, fi.ModTime(), fi.ModTime()) == nil
+			}
 		}
 	}
 	if seeded {
