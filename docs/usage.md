@@ -362,7 +362,7 @@ deletes them. Once a tab has one, the review view's header has Branch and
 This turn. Branch is the diff above. This turn is what changed on disk since
 the latest turn started, and the file list and totals follow it. It is read
 again when you switch to it, when the agent changes state and when a new
-turn starts, not every few seconds, since each read hashes every file. The
+turn starts, not every few seconds, since each read snapshots the files. The
 view opens on This turn when the agent finished its turn. The prompt's hook
 waits up to 2 seconds for the snapshot, so the turn's first edits stay out
 of it. Agents without hooks get no snapshots, so their tabs have no This

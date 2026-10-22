@@ -230,7 +230,7 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 			turn = gitstat.Turn{} // no checkpoint to show
 		}
 		in := want && turn.Rev != ""
-		// why: a turn's diff hashes every file again, so a tick reads it
+		// why: a turn's diff snapshots the files again, so a tick reads it
 		// only for a new turn; a kick, such as the agent changing state,
 		// reads it always.
 		if !in || kicked || turn.Rev != read {

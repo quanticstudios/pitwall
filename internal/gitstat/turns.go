@@ -82,23 +82,62 @@ func turns(ctx context.Context, root, prefix string) (list []turnRef, redo turnR
 }
 
 // snapshot writes root's work tree as a tree object, untracked files
-// included and ignored ones left out, through an index of its own read
-// from HEAD. why: not a copy of the repository's index, whose
-// assume-unchanged and skip-worktree flags would leave changed files out.
+// included and ignored ones left out, through an index of its own.
 func snapshot(ctx context.Context, root string) (string, error) {
 	tmp, err := os.MkdirTemp("", "pitwall-turn-")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(tmp)
-	env := []string{"GIT_INDEX_FILE=" + filepath.Join(tmp, "index")}
-	for _, args := range [][]string{{"read-tree", "HEAD"}, {"add", "-A"}} {
-		if _, err := gitWith(ctx, root, env, "", args...); err != nil {
+	index := filepath.Join(tmp, "index")
+	env := []string{"GIT_INDEX_FILE=" + index}
+	// why: a copy of the repository's index keeps its stat data, so add -A
+	// hashes only the files that changed; a new repository has none yet.
+	seeded := false
+	if p, err := git(ctx, root, "rev-parse", "--path-format=absolute", "--git-path", "index"); err == nil {
+		if b, err := os.ReadFile(strings.TrimSpace(p)); err == nil {
+			seeded = os.WriteFile(index, b, 0o600) == nil
+		}
+	}
+	if seeded {
+		if err := unflag(ctx, root, env); err != nil {
 			return "", err
 		}
+	} else if _, err := gitWith(ctx, root, env, "", "read-tree", "HEAD"); err != nil {
+		return "", err
+	}
+	if _, err := gitWith(ctx, root, env, "", "add", "-A"); err != nil {
+		return "", err
 	}
 	out, err := gitWith(ctx, root, env, "", "write-tree")
 	return strings.TrimSpace(out), err
+}
+
+// unflag clears the assume-unchanged and skip-worktree flags in the index
+// env names, which would keep add -A from reading those files.
+func unflag(ctx context.Context, root string, env []string) error {
+	out, err := gitWith(ctx, root, env, "", "ls-files", "-v", "-z")
+	if err != nil {
+		return err
+	}
+	var paths []string
+	for _, e := range strings.Split(out, "\x00") {
+		// A lowercase tag is assume-unchanged, S or s skip-worktree.
+		if len(e) > 2 && (e[0] >= 'a' && e[0] <= 'z' || e[0] == 'S') {
+			paths = append(paths, e[2:])
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	list := strings.Join(paths, "\x00") + "\x00"
+	// why: given both flags in one run, git 2.56 clears only the first.
+	for _, flag := range []string{"--no-assume-unchanged", "--no-skip-worktree"} {
+		if _, err := gitWith(ctx, root, env, list, "update-index", flag, "-z", "--stdin"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // head is root's HEAD commit.

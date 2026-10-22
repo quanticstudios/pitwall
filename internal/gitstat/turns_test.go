@@ -256,14 +256,22 @@ func TestUndoRefuses(t *testing.T) {
 		t.Error("a refused redo changed f")
 	}
 
-	// assume-unchanged.
+	// assume-unchanged and skip-worktree, which stay set in the real index.
 	dir = setup()
 	runGit(t, dir, "update-index", "--assume-unchanged", "f")
+	runGit(t, dir, "update-index", "--skip-worktree", "file.txt")
 	writeFile(t, dir, "f", "changed\n")
+	writeFile(t, dir, "file.txt", "skipped\n")
 	if err := Checkpoint(ctx, dir, "w"); err != nil {
 		t.Fatal(err)
 	}
 	if got := runGit(t, dir, "show", "refs/pitwall/turns/w/1:f"); got != "changed" {
 		t.Errorf("an assume-unchanged file snapshotted as %q", got)
+	}
+	if got := runGit(t, dir, "show", "refs/pitwall/turns/w/1:file.txt"); got != "skipped" {
+		t.Errorf("a skip-worktree file snapshotted as %q", got)
+	}
+	if got := runGit(t, dir, "ls-files", "-v", "f", "file.txt"); got != "h f\nS file.txt" {
+		t.Errorf("the real index's flags: %q", got)
 	}
 }
