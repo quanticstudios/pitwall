@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.0-beta.18
 
 - A tab's cost reads `~$3.20` and says it is an estimate at API prices. The price table is checked again: Claude Sonnet 5.5's cache reads drop to $0.10, and Claude's fast mode, Opus 4.5, Sonnet 4.5 and GPT-5.6 Terra get prices.
 - A worktree tab whose port block has a dev server listening shows its port as a chip, `:3010`, that opens `http://localhost:3010` in the browser. The hover card and the agent panel's Changes view list every open port of the block.
