@@ -49,10 +49,7 @@ func gh(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		return nil, ErrNoGH
 	}
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	cmd.Dir = dir
-	nowindow.Set(cmd)
-	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
+	cmd := ghCmd(ctx, dir, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -63,6 +60,15 @@ func gh(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		return nil, failed(args, stderr.Bytes(), err)
 	}
 	return out, nil
+}
+
+// ghCmd is gh with args in dir, with no terminal, prompt or color.
+func ghCmd(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Dir = dir
+	nowindow.Set(cmd)
+	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1", "GIT_TERMINAL_PROMPT=0", "NO_COLOR=1")
+	return cmd
 }
 
 // failed is what gh args failing with stderr and err means: nil when it

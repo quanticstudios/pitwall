@@ -96,6 +96,9 @@ func (u *ui) drawStateNotice(gtx gl.Context, text string) {
 	}
 	if u.dismiss.Clicked(gtx) {
 		u.dismissed = text
+		if text == u.sends.err {
+			u.sends.err = ""
+		}
 		u.send(proto.DismissNotice{Notice: text})
 		return
 	}

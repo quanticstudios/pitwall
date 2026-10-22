@@ -400,6 +400,27 @@ Merge PR asks first and, with failed checks, asks again; it runs
 `gh pr merge --squash` in a new tab, or `--merge` or `--rebase` per
 `merge_method` under `[git]`. Re-run failed checks runs
 `gh run rerun --failed` on the branch's latest failed run, in a tab too.
+
+Two more entries hand the pull request's problems to the tab's agent.
+Send failures to agent shows when a check failed. It asks `gh pr checks`
+which checks failed, reads the last 150 lines of each GitHub Actions job's
+failed steps with `gh run view --job <id> --log-failed`, and sends one
+prompt: each failed check with its link, the end of each log, and "Fix
+these and push." A check from another CI, such as Jenkins, goes in by name
+and link only. Logs are cut from the top to keep the prompt under 30 KB.
+Send review comments to agent asks GitHub for the unresolved review
+threads and sends each one's file, line and comments, plus the text of
+each review that requests changes. It is in the menu for any open pull
+request, since pitwall only learns about unresolved threads when you ask.
+The hover card also shows Send failures to agent when a check failed, and
+Send review comments to agent when a reviewer requested changes. Both
+fetch in the background, then type the prompt into the tab's agent as the
+review view sends comments: at once when the agent waits for input, else
+when it next does. A notice says whether it went or waits, and an error
+from `gh` shows at the top of the panes until you close it. They need
+`gh` and an agent in the tab, and are off in a window opened with
+`--host`. Neither has a key by default; set `send_failures` or
+`send_review` under `[keys]` to give them one.
 When the pull request has merged, the row says Merged and its hover buttons
 add Archive, which closes the tab and, for a worktree pitwall made, removes
 the worktree and deletes the branch, as Delete does with its box ticked.

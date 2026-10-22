@@ -1,0 +1,4 @@
+{"data": {"repository": {"pullRequest": {
+  "reviewThreads": {"nodes": [{"isResolved": true, "path": "a.go", "line": 1, "originalLine": 1, "comments": {"nodes": [{"author": {"login": "alice"}, "body": "ok"}]}}]},
+  "latestReviews": {"nodes": [{"author": {"login": "alice"}, "state": "APPROVED", "body": ""}]}
+}}}}

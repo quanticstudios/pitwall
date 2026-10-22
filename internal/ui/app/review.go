@@ -110,8 +110,8 @@ func (n *nav) fileDiff(st *model.State, id, path string) any {
 }
 
 // reviewBlocked is why the palette's view_diff, diff_pager, create_pr,
-// open_pr, merge_pr or rerun_checks cannot run on the open tab, "" when it
-// can or for any other action.
+// open_pr, merge_pr, rerun_checks, send_failures or send_review cannot run
+// on the open tab, "" when it can or for any other action.
 func (n *nav) reviewBlocked(st *model.State, act string) string {
 	if why, ok := n.prBlocked(st, act); ok {
 		return why

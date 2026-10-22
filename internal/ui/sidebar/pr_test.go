@@ -43,3 +43,34 @@ func TestPRState(t *testing.T) {
 		t.Errorf("no PR: %q %q %q", open, merge, rerun)
 	}
 }
+
+// TestSendBlocked: sending failures needs a failed check, and either send
+// an open PR, gh and an agent in the tab.
+func TestSendBlocked(t *testing.T) {
+	failing := []model.Check{{Name: "test", State: model.CheckFail}}
+	ws := model.Workspace{ID: "w"}
+	claude := []model.Pane{{ID: "p", WorkspaceID: "w", Provider: model.ProviderClaude}}
+	shell := []model.Pane{{ID: "p", WorkspaceID: "w", Provider: model.ProviderTerminal}}
+	for _, tc := range []struct {
+		name             string
+		pr               *model.PR
+		panes            []model.Pane
+		gh               bool
+		failures, review string
+	}{
+		{"failing", &model.PR{State: model.PROpen, Checks: failing}, claude, true, "", ""},
+		{"passing", &model.PR{State: model.PROpen}, claude, true, "none failed", ""},
+		{"no agent", &model.PR{State: model.PROpen, Checks: failing}, shell, true, "no agent", "no agent"},
+		{"no gh", &model.PR{State: model.PROpen, Checks: failing}, claude, false, "no gh CLI", "no gh CLI"},
+		{"merged", &model.PR{State: model.PRMerged, Checks: failing}, claude, true, "merged", "merged"},
+		{"no PR", nil, claude, true, "no PR", "no PR"},
+	} {
+		st := &model.State{Panes: tc.panes}
+		if tc.pr != nil {
+			st.PRs = map[string]model.PR{"w": *tc.pr}
+		}
+		if f, r := SendBlocked(st, ws, tc.gh); f != tc.failures || r != tc.review {
+			t.Errorf("%s: %q %q, want %q %q", tc.name, f, r, tc.failures, tc.review)
+		}
+	}
+}

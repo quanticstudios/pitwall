@@ -141,11 +141,13 @@ type Sidebar struct {
 	cardY  int
 	cardAt string
 	// The card's conflict radar: the pointer on the card (cardTag), and
-	// its file buttons, by other tab and path, for tab fileFor.
-	cardTag   int
-	cardHover bool
-	fileBtn   map[string]*widget.Clickable
-	fileFor   string
+	// its file buttons, by other tab and path, for tab fileFor. Its PR's
+	// Send failures and Send review comments buttons.
+	cardTag              int
+	cardHover            bool
+	fileBtn              map[string]*widget.Clickable
+	fileFor              string
+	cardFails, cardNotes widget.Clickable
 
 	// The queued tasks: this frame's blocks, and each task's row state.
 	queue    []queueBlock
@@ -184,6 +186,8 @@ const (
 	actOpenPR
 	actMergePR
 	actRerun
+	actSendFailures
+	actSendReview
 	actArchive
 	actPin
 	actCancelResume

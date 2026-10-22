@@ -117,9 +117,10 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 
 // card is what a tab's hover card shows. Lines lists which lines, in
 // order: 't' title, 'f' folder, 'b' branch, 'r' its pull request, 'c'
-// the PR's checks, 'x' the conflict radar, 'o' the worktree's ports, 's'
-// agent state, 'd' its detail, 'a' each agent pane, 'u' token use, 'j'
-// the decision model's advice, 'p' pane count.
+// the PR's checks, 'g' its buttons to the agent, 'x' the conflict radar,
+// 'o' the worktree's ports, 's' agent state, 'd' its detail, 'a' each
+// agent pane, 'u' token use, 'j' the decision model's advice, 'p' pane
+// count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -131,8 +132,10 @@ type card struct {
 	radar        []radarEntry
 	fileBtn      func(other, path string) *widget.Clickable // a radar file's button; nil draws none
 	add, del     int
-	conflicts    bool      // merging the branch would conflict
-	pr           *model.PR // the branch's pull request
+	conflicts    bool              // merging the branch would conflict
+	pr           *model.PR         // the branch's pull request
+	sendFails    *widget.Clickable // Send failures to agent; nil draws none
+	sendNotes    *widget.Clickable // Send review comments to agent; nil draws none
 	state        model.AgentState
 	detail       string
 	agents       []model.AgentPane // with two or more, each one
@@ -153,6 +156,9 @@ func (c card) lines() string {
 		out += "r"
 		if c.pr.State == model.PROpen && len(c.pr.Checks) > 0 {
 			out += "c"
+		}
+		if c.sendFails != nil || c.sendNotes != nil {
+			out += "g"
 		}
 	}
 	if len(c.radar) > 0 {
@@ -401,6 +407,26 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 					return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, fmt.Sprintf("and %d more", n))
 				})
 			}
+		case 'g':
+			for _, b := range []struct {
+				c          *widget.Clickable
+				icon, text string
+			}{{c.sendFails, icCircleAlert, "Send failures to agent"}, {c.sendNotes, icMessage, "Send review comments to agent"}} {
+				if b.c == nil {
+					continue
+				}
+				col := theme.Mix(bg, th.Fg, 0.85)
+				if b.c.Hovered() {
+					col = th.Fg
+				}
+				line(iconOf(b.icon, muted), func(gtx layout.Context) layout.Dimensions {
+					return clickable(gtx, b.c, func(gtx layout.Context) layout.Dimensions {
+						return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+							return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, b.text)
+						}})
+					})
+				})
+			}
 		case 'x':
 			for _, e := range c.radar {
 				col, _ := radarColor(th, []model.Overlap{e.o})
@@ -526,10 +552,18 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 		}
 	}
 	c.fileBtn = s.fileButton
+	if failures, review := SendBlocked(v.st, *ws, s.GH); c.pr != nil {
+		if failures == "" {
+			c.sendFails = &s.cardFails
+		}
+		if review == "" && c.pr.Review == model.ReviewChanges {
+			c.sendNotes = &s.cardNotes
+		}
+	}
 	size := drawCard(gtx, v.th, c, alpha)
-	if len(c.radar) > 0 {
-		// The pointer on the card keeps it open for its file buttons; the
-		// area passes presses on to them.
+	if len(c.radar) > 0 || c.sendFails != nil || c.sendNotes != nil {
+		// The pointer on the card keeps it open for its buttons; the area
+		// passes presses on to them.
 		pass := pointer.PassOp{}.Push(gtx.Ops)
 		a := clip.Rect{Max: size}.Push(gtx.Ops)
 		event.Op(gtx.Ops, &s.cardTag)

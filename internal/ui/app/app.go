@@ -305,6 +305,7 @@ type ui struct {
 	task    taskDialog // the New task dialog, shown as modalTask
 
 	review reviewView // the review view, shown in place of the panes
+	sends  agentSends // Send failures and Send review comments, fetching
 
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
@@ -632,8 +633,9 @@ func (u *ui) layout(gtx gl.Context) {
 		u.drawWelcome(pgtx, &st)
 	}
 	fo.Pop()
+	u.takeSends(pgtx, &st)
 	u.drawNotice(pgtx)
-	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown()))
+	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown(), u.sends.err))
 	off.Pop()
 	pc.Pop()
 	u.layoutPanel(gtx, &st, side)
@@ -822,6 +824,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.prAction(st, e.WorkspaceID, "merge_pr")
 	case sidebar.RerunChecks:
 		u.prAction(st, e.WorkspaceID, "rerun_checks")
+	case sidebar.SendFailures:
+		u.prAction(st, e.WorkspaceID, "send_failures")
+	case sidebar.SendReview:
+		u.prAction(st, e.WorkspaceID, "send_review")
 	case sidebar.Archive:
 		u.modal.open(modalDelete, e.WorkspaceID)
 		u.modal.archive, u.modal.removeBranch = true, true

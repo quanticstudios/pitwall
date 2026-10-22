@@ -528,15 +528,19 @@ func (u *ui) sendNotes(st *model.State, root string, now time.Time) {
 	for i, n := range notes {
 		cs[i], n.state = n.Comment, noteQueued
 	}
-	text := review.Prompt(cs)
-	if i := slices.IndexFunc(r.queue, func(d delivery) bool { return d.pane == p.ID }); i >= 0 {
+	r.enqueue(p.ID, review.Prompt(cs), notes)
+	r.status = "Queued until " + agentName(p) + " waits for input"
+	u.deliver(st, now)
+}
+
+// enqueue adds text, carrying notes, to pane's delivery, or starts one.
+func (r *reviewView) enqueue(pane, text string, notes []*note) {
+	if i := slices.IndexFunc(r.queue, func(d delivery) bool { return d.pane == pane }); i >= 0 {
 		r.queue[i].text += "\n\n" + text
 		r.queue[i].notes = append(r.queue[i].notes, notes...)
 	} else {
-		r.queue = append(r.queue, delivery{pane: p.ID, text: text, notes: notes})
+		r.queue = append(r.queue, delivery{pane: pane, text: text, notes: notes})
 	}
-	r.status = "Queued until " + agentName(p) + " waits for input"
-	u.deliver(st, now)
 }
 
 func agentName(p *model.Pane) string {
@@ -587,7 +591,7 @@ func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 		if !u.send(proto.Input{Pane: d.pane, Data: input.Paste(text, m)}) {
 			return time.Time{}
 		}
-		log.Printf("review: sent %d comments to pane %s", len(d.notes), d.pane)
+		log.Printf("review: sent %d comments, %d bytes, to pane %s", len(d.notes), len(text), d.pane)
 		for _, n := range d.notes {
 			n.state = noteSent
 		}
