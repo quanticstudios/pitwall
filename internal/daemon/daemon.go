@@ -827,11 +827,14 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Projects, func(p model.Project) bool { return p.ID == m.ProjectID })
 	var p model.Project
-	if pi >= 0 {
+	ok := pi >= 0
+	if ok {
 		p = d.st.Projects[pi]
+	} else if parent := d.paneTab(m.ParentPane); m.ProjectID == "" && m.Root != "" && parent != nil {
+		p, ok = model.Project{SessionID: parent.SessionID, Root: m.Root, Kind: model.ProjectGit}, true
 	}
 	d.mu.Unlock()
-	if pi < 0 {
+	if !ok {
 		return fmt.Errorf("no project %s", m.ProjectID)
 	}
 	named := m.Name != ""
@@ -858,6 +861,9 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		WorktreeRoot: owned, RepoRoot: root,
 	}
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
+	if parent := d.workspace(w.Parent); parent != nil {
+		w.ProjectID = parent.ProjectID // hang under the parent, in its group or none
+	}
 	if owned != "" {
 		w.Ports = portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
 	}

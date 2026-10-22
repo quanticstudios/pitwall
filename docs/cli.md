@@ -30,7 +30,7 @@ optional name act on the pane's own tab.
 | `pitwall tab close`                   | Close this pane's tab                                         |
 | `pitwall focus left\|right\|up\|down` | Focus the pane next to this one, in the windows that show this pane focused; vim runs it at its edge (see [Moving between vim and panes](keys.md#moving-between-vim-and-panes)) |
 | `pitwall worktree ls [--all]`         | List this repo's worktrees: tab, branch, changed files, commits ahead of and behind the default branch; `--all` covers every repo pitwall has a group for |
-| `pitwall worktree new <name> [--from <ref> \| --branch <branch> \| --pr <n>] [-- cmd...]` | Open a tab in a new worktree, `<repo>/.worktrees/<name>`, and print its #: a new branch off ref (the default branch without `--from`), an existing local or remote branch, or a GitHub pull request; with `-- cmd` the tab runs cmd |
+| `pitwall worktree new <name> [--from <ref> \| --branch <branch> \| --pr <n>] [-- cmd...]` | Open a tab in a new worktree, `<repo>/.worktrees/<name>`, and print its #: a new branch off ref (the default branch without `--from`), an existing local or remote branch, or a GitHub pull request; with `-- cmd` the tab runs cmd. Run in a pane, the tab hangs under that pane's tab, in its group |
 | `pitwall worktree rm <name> [--force]` | Remove a worktree and close its tab; with changes it lists them and stops unless `--force`. The branch stays |
 | `pitwall worktree prune`              | Forget worktrees whose folder is gone, and list the ones under `.worktrees` that no tab uses |
 | `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |

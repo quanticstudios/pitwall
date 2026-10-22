@@ -253,3 +253,44 @@ func TestHandmadeWorktreeSurvivesRestart(t *testing.T) {
 		t.Fatal("restart made pitwall own a worktree the user created")
 	}
 }
+
+// A tab an agent opens joins the agent's group, here none, even when the
+// repo has a group of its own, so the sidebar hangs it under the agent.
+func TestChildJoinsParentGroup(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), "repo")
+	mkdir(t, repo)
+	locked := func(f func()) { d.mu.Lock(); defer d.mu.Unlock(); f() }
+	must(t, d.handle(ctx, proto.NewSession{Cwd: repo, Loose: true}))
+	var pane string
+	locked(func() { pane = d.st.Panes[0].ID })
+	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
+	var project string
+	locked(func() { project = d.st.Projects[0].ID })
+	must(t, d.handle(ctx, proto.NewSession{Cwd: repo, ParentPane: pane}))
+	must(t, d.handle(ctx, proto.NewWorkspace{ProjectID: project, Name: "w1", ParentPane: pane}))
+	must(t, d.handle(ctx, proto.NewWorkspace{Root: repo, Name: "w2", ParentPane: pane}))
+	must(t, d.handle(ctx, proto.NewSession{Cwd: repo}))
+	var groups []string
+	var workers int
+	locked(func() {
+		for _, w := range d.st.Workspaces {
+			groups = append(groups, w.ProjectID)
+		}
+		workers = len(d.st.Workers(d.st.Workspaces[0].SessionID)[d.st.Workspaces[0].ID])
+	})
+	if want := []string{"", "", "", "", project}; !slices.Equal(groups, want) {
+		t.Fatalf("groups %q, want %q", groups, want)
+	}
+	if workers != 3 {
+		t.Fatalf("%d tabs hang under the agent, want 3", workers)
+	}
+	if err := d.handle(ctx, proto.NewWorkspace{Root: repo, Name: "w3"}); err == nil {
+		t.Fatal("Root without a parent made a tab")
+	}
+}
