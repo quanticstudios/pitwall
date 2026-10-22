@@ -70,8 +70,8 @@ func TestPiUsage(t *testing.T) {
 	}
 }
 
-// TestCost: a model without a price, fast mode included, leaves the whole
-// cost unknown; one with no tokens does not count.
+// TestCost: a model without a price leaves the whole cost unknown; one
+// with no tokens does not count. Fast mode doubles the price.
 func TestCost(t *testing.T) {
 	known := Tokens{Input: 1_000_000}
 	for _, c := range []struct {
@@ -84,7 +84,9 @@ func TestCost(t *testing.T) {
 		{map[string]Tokens{"claude-opus-5-5-20260922": known}, 4, true},
 		{map[string]Tokens{"claude-opus-5-5": known, "local-llama": {}}, 4, true},
 		{map[string]Tokens{"claude-opus-5-5": known, "local-llama": {Output: 1}}, 0, false},
-		{map[string]Tokens{"claude-opus-5-5 (fast)": known}, 0, false},
+		{map[string]Tokens{"claude-opus-5-5 (fast)": known}, 8, true},
+		{map[string]Tokens{"claude-sonnet-4-6 (fast)": known}, 0, false},
+		{map[string]Tokens{"claude-sonnet-5-5": {CacheRead: 1_000_000}}, 0.10, true},
 		{map[string]Tokens{"gpt-6-luna": {CacheRead: 2_000_000}}, 0.02, true},
 	} {
 		got, ok := Usage{Models: c.models}.Cost()

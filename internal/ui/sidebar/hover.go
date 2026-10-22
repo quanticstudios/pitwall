@@ -515,7 +515,7 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 	c := cardFor(v, *ws)
 	if s.Usage != nil {
 		if u := s.Usage(ws.ID); u != nil {
-			c.usage = UsageText(*u, s.ShowCost)
+			c.usage = cardUsage(*u, s.ShowCost)
 		}
 	}
 	c.fileBtn = s.fileButton

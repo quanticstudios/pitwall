@@ -57,10 +57,9 @@ func Dollars(c float64) string {
 }
 
 // UsageText is a session's token use on one line: "1.2M tokens · 34%
-// context", then the cost when cost is set and every model has a price.
-// A count that misses the start of a long file reads "1.2M+", since the
-// UI fonts have no "≥". "" when
-// there is no usage.
+// context", then the estimated cost, "~$3.20", when cost is set and every
+// model has a price. A count that misses the start of a long file reads
+// "1.2M+", since the UI fonts have no "≥". "" when there is no usage.
 func UsageText(u flow.Usage, cost bool) string {
 	t := u.Tokens().Total()
 	if t == 0 {
@@ -75,11 +74,21 @@ func UsageText(u flow.Usage, cost bool) string {
 		parts = append(parts, FillText(f)+" context")
 	}
 	if c, ok := u.Cost(); cost && ok {
-		d := Dollars(c)
+		d := "~" + Dollars(c)
 		if u.Partial {
 			d += "+"
 		}
 		parts = append(parts, d)
 	}
 	return strings.Join(parts, " · ")
+}
+
+// cardUsage is UsageText for the hover card, which says where a cost comes
+// from: "412k tokens · ~$3.20 at API prices".
+func cardUsage(u flow.Usage, cost bool) string {
+	s := UsageText(u, cost)
+	if _, ok := u.Cost(); cost && ok {
+		s += " at API prices"
+	}
+	return s
 }

@@ -27,6 +27,20 @@ func TestUsageFormat(t *testing.T) {
 	if got := UsageText(flow.Usage{}, true); got != "" {
 		t.Errorf("no usage reads %q", got)
 	}
+	opus := flow.Usage{Model: "claude-opus-5-5", Models: map[string]flow.Tokens{"claude-opus-5-5": {Input: 400_000, Output: 80_000}}}
+	for _, c := range []struct {
+		u    flow.Usage
+		cost bool
+		want string
+	}{
+		{opus, false, "480k tokens"},
+		{opus, true, "480k tokens · ~$3.20 at API prices"},
+		{flow.Usage{Models: map[string]flow.Tokens{"local-llama": {Input: 1_200_000}}}, true, "1.2M tokens"},
+	} {
+		if got := cardUsage(c.u, c.cost); got != c.want {
+			t.Errorf("cardUsage(%v, %v) = %q, want %q", c.u.Models, c.cost, got, c.want)
+		}
+	}
 }
 
 // The hover card shows the usage line only when there is one.

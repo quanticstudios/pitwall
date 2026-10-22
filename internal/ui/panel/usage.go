@@ -80,7 +80,7 @@ func usageNote(u flow.Usage, cost bool) string {
 	}
 	if cost {
 		if c, ok := u.Cost(); ok {
-			out = append(out, fmt.Sprintf("%s at list prices of %s.", sidebar.Dollars(c), flow.PricesAsOf))
+			out = append(out, fmt.Sprintf("About %s at the API's list prices of %s; a subscription bills a flat fee instead.", sidebar.Dollars(c), flow.PricesAsOf))
 		} else {
 			var none []string
 			for _, id := range slices.Sorted(maps.Keys(u.Models)) {
