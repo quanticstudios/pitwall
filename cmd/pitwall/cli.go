@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -131,6 +133,21 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	return 0
 }
 
+// withIssue is cmd with GitHub issue n of the repository at dir as its
+// last argument, the prompt, or cmd as it is for n 0.
+func withIssue(cmd []string, dir string, n int) ([]string, error) {
+	if n == 0 {
+		return cmd, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	i, err := forge.IssueView(ctx, dir, n)
+	if err != nil {
+		return nil, fmt.Errorf("issue %d: %w", n, err)
+	}
+	return append(cmd, i.Prompt()), nil
+}
+
 func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(usage)
@@ -160,6 +177,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	flags.SetOutput(io.Discard)
 	var asJSON, detached, force, children bool
 	var name, sessionName string
+	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
 	case "ls":
@@ -168,6 +186,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	case "new":
 		flags.StringVar(&name, "n", "", "")
 		flags.BoolVar(&detached, "d", false, "")
+		flags.IntVar(&issue, "issue", 0, "")
 	case "kill":
 		flags.BoolVar(&force, "f", false, "")
 	case "attach", "detach", "rename":
@@ -183,6 +202,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		(command == "kill" && len(args) != 1) ||
 		(command == "rename" && (len(args) < 1 || len(args) > 2)) {
 		return errors.New(usage)
+	}
+	if issue != 0 && cmd == nil {
+		return errors.New("--issue needs an agent to run: pitwall new --issue 12 -- claude")
 	}
 	conn, err := dialCLI()
 	if errors.Is(err, errNotRunning) && command == "ls" {
@@ -223,6 +245,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		}
 		dir, err := filepath.Abs(dir)
 		if err != nil {
+			return err
+		}
+		if cmd, err = withIssue(cmd, dir, issue); err != nil {
 			return err
 		}
 		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd, ParentPane: os.Getenv("PITWALL_PANE")})

@@ -15,7 +15,7 @@ optional name act on the pane's own tab.
 | `pitwall session rename [old] <new>`  | Rename a session, the current one without old                 |
 | `pitwall session kill [-f] <name>`    | End a session and close its processes                         |
 | `pitwall ls [--json] [--children]`    | List the session's tabs in sidebar order: #, name, state, folder, group; `--children` lists only the tabs this pane's tab opened |
-| `pitwall new [-n name] [-d] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell. Run in a pane, the tab hangs under that pane's tab |
+| `pitwall new [-n name] [-d] [--issue n] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell; `--issue n` adds GitHub issue n to cmd as its last argument, the prompt. Run in a pane, the tab hangs under that pane's tab |
 | `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up); `--children` in place of the tab waits for every tab this pane's tab opened |
 | `pitwall split [--down] [tab] [-- cmd...]` | Open a pane right of the tab's last pane, or below with `--down`, and print its address, as `#3.2` |
 | `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
@@ -34,7 +34,7 @@ optional name act on the pane's own tab.
 | `pitwall worktree rm <name> [--force]` | Remove a worktree and close its tab; with changes it lists them and stops unless `--force`. The branch stays |
 | `pitwall worktree prune`              | Forget worktrees whose folder is gone, and list the ones under `.worktrees` that no tab uses |
 | `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |
-| `pitwall queue ls` / `add [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
+| `pitwall queue ls` / `add [--issue n] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |

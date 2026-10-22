@@ -1,0 +1,5 @@
+[
+  {"number": 41, "title": "Crash when the config file is empty", "url": "https://github.com/example/widgets/issues/41", "body": "Steps:\r\n1. Empty config.toml\r\n2. Start\r\n"},
+  {"number": 57, "title": "Login redirect loops on Safari", "url": "https://github.com/example/widgets/issues/57", "body": ""},
+  {"number": 49, "title": "Add a dark theme", "url": "https://github.com/example/widgets/issues/49", "body": "Like the docs site."}
+]

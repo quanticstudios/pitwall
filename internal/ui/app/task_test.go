@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -47,6 +49,16 @@ func TestTaskHelpers(t *testing.T) {
 	} {
 		if got := worktreeName(in); got != want {
 			t.Errorf("worktreeName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for i, want := range map[forge.Issue]string{
+		{Number: 12, Title: "Login fails: \"bad token\" on Safari!"}:            "issue-12-login-fails-bad-token-on",
+		{Number: 3, Title: "supercalifragilisticexpialidocious-and-more-words"}: "issue-3-supercalifragilisticexpialidocious-and",
+		{Number: 7, Title: "???"}: "issue-7",
+		{Number: 140, Title: "  Ünïcode Title / with path\nand a second line"}: "issue-140-n-code-title-with-path",
+	} {
+		if got := issueBranch(i); got != want {
+			t.Errorf("issueBranch(%q) = %q, want %q", i.Title, got, want)
 		}
 	}
 	branches := []string{"main", "feature/login", "origin/main", "origin/feature/login", "fix-main-crash"}
@@ -93,7 +105,8 @@ func TestTaskDialog(t *testing.T) {
 	u.runAction(&st, config.Action{Name: "new_task", Group: "Agents"})
 	u.openRequested(&st, time.Now())
 	d := &u.task
-	if u.modal.kind != modalTask || d.projects[d.project].name != "web-app" || d.agents[d.agent].cmd != "codex" {
+	codex := slices.IndexFunc(d.agents, func(a foundAgent) bool { return a.cmd == "codex" })
+	if u.modal.kind != modalTask || d.projects[d.project].name != "web-app" || d.pickedCount() != 1 || !d.picked[codex] {
 		t.Fatalf("dialog %v on %+v with %+v", u.modal.kind, d.projects[d.project], d.agents)
 	}
 	u.submitTask(&st, false)
@@ -102,7 +115,7 @@ func TestTaskDialog(t *testing.T) {
 	}
 	d.where = whereWorktree
 	d.prompt.SetText("Fix the login redirect\nand add a test")
-	d.mode = 1
+	d.modes[codex] = 1
 	d.syncName()
 	if d.name.Text() != "fix-the-login-redirect" {
 		t.Fatalf("worktree name %q", d.name.Text())
@@ -114,5 +127,87 @@ func TestTaskDialog(t *testing.T) {
 	sent := b.Sent()
 	if got := sent[len(sent)-1]; !reflect.DeepEqual(got, want) || u.modal.kind != modalNone {
 		t.Fatalf("sent %#v\nwant %#v", got, want)
+	}
+}
+
+// Picking an issue fills the prompt and names the worktree after it; two
+// agents make two tasks, each in its own worktree with its own mode, sent
+// in order.
+func TestTaskIssueAgents(t *testing.T) {
+	bin := t.TempDir()
+	for _, a := range []string{"claude", "codex"} {
+		if err := os.WriteFile(filepath.Join(bin, exeName(a)), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", t.TempDir())
+	issues := []forge.Issue{
+		{Number: 57, Title: "Login redirect loops on Safari", URL: "https://github.com/example/widgets/issues/57", Body: "It loops."},
+		{Number: 49, Title: "Add a dark theme", URL: "https://github.com/example/widgets/issues/49"},
+	}
+	defer func(f func(context.Context, string) ([]forge.Issue, error)) { listIssues = f }(listIssues)
+	listIssues = func(context.Context, string) ([]forge.Issue, error) { return issues, nil }
+	b := NewFakeBackend()
+	u := &ui{b: b}
+	st := b.State()
+	u.nav.sync(&st)
+	u.nav.selectWorkspace(&st, "w6", "")
+	u.gui.TaskAgent = "claude"
+	u.openTask(&st, "")
+	d := &u.task
+	for deadline := time.Now().Add(5 * time.Second); len(d.issueList()) == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("issues never fetched")
+		}
+	}
+	if got := d.matches(&d.issue); !slices.Equal(got, []string{"#57 Login redirect loops on Safari", "#49 Add a dark theme"}) {
+		t.Fatalf("issue matches %q", got)
+	}
+	d.issue.SetText("dark")
+	ms := d.matches(&d.issue)
+	if len(ms) != 1 {
+		t.Fatalf("matches for dark %q", ms)
+	}
+	d.take(&d.issue, ms[0])
+	d.syncName()
+	if d.prompt.Text() != issues[1].Prompt() || d.name.Text() != "issue-49-add-a-dark-theme" || d.matches(&d.issue) != nil {
+		t.Fatalf("prompt %q, name %q", d.prompt.Text(), d.name.Text())
+	}
+	claude := slices.IndexFunc(d.agents, func(a foundAgent) bool { return a.cmd == "claude" })
+	codex := slices.IndexFunc(d.agents, func(a foundAgent) bool { return a.cmd == "codex" })
+	d.where = whereHere
+	d.pickAgent(codex, true)
+	if d.pickedCount() != 2 || d.where != whereWorktree {
+		t.Fatalf("picked %v, where %d", d.picked, d.where)
+	}
+	d.modes[claude] = 2
+	d.where = whereBranch
+	if _, err := d.tasks(); err == nil {
+		t.Fatal("two agents on one branch")
+	}
+	d.where = whereWorktree
+	d.base.SetText("main")
+	u.submitTask(&st, true)
+	prompt := issues[1].Prompt()
+	task := model.Task{SessionID: "s1", GroupID: "g2", Dir: fakeHome + "/src/web-app", Base: "main"}
+	var want []any
+	for _, a := range d.agents { // in the agents' order
+		at := task
+		at.Worktree = "issue-49-add-a-dark-theme-" + a.cmd
+		at.Cmd = []string{filepath.Join(bin, exeName(a.cmd)), prompt}
+		if a.cmd == "claude" {
+			at.Cmd = slices.Insert(at.Cmd, 1, "--permission-mode", "plan")
+		}
+		want = append(want, proto.NewTask{Queue: true, FromPane: u.nav.focused(), Task: at})
+	}
+	sent := b.Sent()
+	if got := sent[len(sent)-2:]; !reflect.DeepEqual(got, want) || u.modal.kind != modalNone {
+		t.Fatalf("sent %#v\nwant %#v", got, want)
+	}
+	d.pickAgent(codex, true)
+	d.pickAgent(claude, true) // the last one stays
+	if !d.picked[claude] || d.pickedCount() != 1 {
+		t.Fatalf("picked %v", d.picked)
 	}
 }

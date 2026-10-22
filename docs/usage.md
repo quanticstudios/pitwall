@@ -627,11 +627,21 @@ group's menu) starts an agent on a prompt in a tab of its own, as
   `.pitwall/worktree.toml` setup as **New worktree tab** does; setup runs
   in a shell under the agent.
 - **Agent**: the agent CLIs on your PATH. The dialog remembers the last one.
+  Ctrl+click picks more agents, to compare their work on one prompt: each
+  gets a task of its own in a new worktree, on the branch you name with the
+  agent's name added, such as `issue-12-login-claude` and
+  `issue-12-login-codex`. Their tabs open next to each other.
 - **Mode**: for Claude Code, Accept edits or Plan (`--permission-mode`);
-  for Codex, Read only or Auto (`-s` and `-a`).
+  for Codex, Read only or Auto (`-s` and `-a`). With several agents, each
+  has its own row.
+- **From issue**: in a GitHub repository, with `gh` installed and logged
+  in, the newest 50 open issues. Type a number or words of the title and
+  pick one. It fills the prompt with the issue's number, title, URL and
+  body, and names the new worktree's branch `issue-<n>-<title>`. Both stay
+  editable.
 - **Prompt**: passed as the agent's first argument. Ctrl+Enter starts it.
 
-**Queue** puts the task in the session's queue instead, shown under its
+**Queue** puts the task, or one per agent, in the session's queue instead, shown under its
 group in the sidebar (or at the bottom), with start-now and remove on hover.
 A queued task starts when a running agent of its session finishes: done,
 failed or closed. With `max_running` under `[agents]` in `config.toml` (or
@@ -640,6 +650,7 @@ many agents run in the session. The queue survives a daemon restart.
 
 ```sh
 pitwall queue add -- codex "fix the flaky login test"   # in the current folder
+pitwall queue add --issue 12 -- claude                  # GitHub issue 12 as the prompt
 pitwall queue ls
 pitwall queue rm 1
 ```

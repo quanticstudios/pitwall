@@ -19,8 +19,10 @@ import (
 
 const queueUsage = `usage:
   pitwall queue ls [-s session]                   list the session's queued tasks, first to start first
-  pitwall queue add [-s session] [dir] -- cmd...  queue an agent with its prompt, run in dir, such as
-                                                  pitwall queue add -- codex "fix the flaky test"
+  pitwall queue add [-s session] [--issue n] [dir] -- cmd...
+                                                  queue an agent with its prompt, run in dir, such as
+                                                  pitwall queue add -- codex "fix the flaky test";
+                                                  --issue adds GitHub issue n as the prompt
   pitwall queue rm [-s session] <n>               take task n of pitwall queue ls off the queue`
 
 // queueCommand runs pitwall queue: ls, add and rm.
@@ -47,7 +49,11 @@ func queueCommand(args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("queue "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var sessionName string
+	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
+	if command == "add" {
+		flags.IntVar(&issue, "issue", 0, "")
+	}
 	args, err := parseFlags(flags, args)
 	if err != nil {
 		return err
@@ -82,6 +88,9 @@ func queueCommand(args []string, out io.Writer) error {
 			dir = args[0]
 		}
 		if dir, err = filepath.Abs(dir); err != nil {
+			return err
+		}
+		if cmd, err = withIssue(cmd, dir, issue); err != nil {
 			return err
 		}
 		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd}, Queue: true})

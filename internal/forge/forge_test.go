@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -54,8 +56,8 @@ func TestParse(t *testing.T) {
 	}
 }
 
-// TestAnswer: what gh's exit and stderr mean.
-func TestAnswer(t *testing.T) {
+// TestFailed: what gh's exit and stderr mean.
+func TestFailed(t *testing.T) {
 	exit := func(code int) error {
 		err := exec.Command("sh", "-c", "exit "+string(rune('0'+code))).Run()
 		if err == nil {
@@ -66,6 +68,7 @@ func TestAnswer(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("needs sh")
 	}
+	args := []string{"pr", "view"}
 	for _, tc := range []struct {
 		stderr string
 		err    error
@@ -76,17 +79,15 @@ func TestAnswer(t *testing.T) {
 		{"To get started with GitHub CLI, please run:  gh auth login\n", exit(4), ErrNoGH},
 		{"", exit(4), ErrNoGH},
 		{"none of the git remotes configured for this repository point to a known GitHub host.\n", exit(1), ErrNoGH},
+		{"the 'example/widgets' repository has disabled issues\n", exit(1), ErrNoGH},
 	} {
-		pr, err := answer(nil, []byte(tc.stderr), tc.err)
-		if pr != nil || !errors.Is(err, tc.want) || tc.want == nil && err != nil {
-			t.Errorf("%q: %v, %v; want %v", tc.stderr, pr, err, tc.want)
+		err := failed(args, []byte(tc.stderr), tc.err)
+		if !errors.Is(err, tc.want) || tc.want == nil && err != nil {
+			t.Errorf("%q: %v; want %v", tc.stderr, err, tc.want)
 		}
 	}
-	if _, err := answer(nil, []byte("Post \"https://api.github.com/graphql\": dial tcp: i/o timeout\n"), exit(1)); err == nil || errors.Is(err, ErrNoGH) {
+	if err := failed(args, []byte("Post \"https://api.github.com/graphql\": dial tcp: i/o timeout\n"), exit(1)); err == nil || errors.Is(err, ErrNoGH) {
 		t.Errorf("a network error is %v", err)
-	}
-	if pr, err := answer([]byte(`{"number":5,"state":"OPEN"}`), nil, nil); err != nil || pr == nil || pr.Number != 5 {
-		t.Errorf("success: %v, %v", pr, err)
 	}
 }
 
@@ -109,6 +110,44 @@ func TestView(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := View(context.Background(), dir); !errors.Is(err, ErrNoGH) {
 		t.Errorf("without gh: %v", err)
+	}
+}
+
+// TestIssues reads gh issue list --json output newest first, and runs a
+// fake gh that must be asked for open issues with the fields and the cap.
+func TestIssues(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "issues.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	is, err := ParseIssues(data)
+	if err != nil || len(is) != 3 || is[0].Number != 57 || is[1].Number != 49 || is[2].Number != 41 {
+		t.Fatalf("ParseIssues = %+v, %v", is, err)
+	}
+	if got, want := is[2].Prompt(), "GitHub issue #41: Crash when the config file is empty\nhttps://github.com/example/widgets/issues/41\n\nSteps:\n1. Empty config.toml\n2. Start"; got != want {
+		t.Errorf("Prompt = %q, want %q", got, want)
+	}
+	if got, want := is[0].Prompt(), "GitHub issue #57: Login redirect loops on Safari\nhttps://github.com/example/widgets/issues/57"; got != want {
+		t.Errorf("Prompt without a body = %q, want %q", got, want)
+	}
+	long := Issue{Number: 9, Title: "Huge", URL: "https://github.com/example/widgets/issues/9", Body: "a" + strings.Repeat("ü", 50000)} // 100 KB, byte MaxBody inside a rune
+	if p := long.Prompt(); len(p) > MaxBody+200 || !utf8.ValidString(p) || !strings.HasSuffix(p, "(issue body cut here; read the rest at "+long.URL+")") {
+		t.Errorf("a 100 KB body makes a %d-byte prompt, valid UTF-8 %v, ending %q", len(p), utf8.ValidString(p), p[max(0, len(p)-80):])
+	}
+	if _, err := ParseIssues([]byte("{")); err == nil {
+		t.Error("bad JSON parsed")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a shell script")
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\n[ \"$*\" = 'issue list --state open --limit 50 --json " + IssueFields + "' ] || { echo \"bad call: $*\" >&2; exit 2; }\ncat '" + filepath.Join(must(filepath.Abs("testdata")), "issues.json") + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if is, err := Issues(context.Background(), t.TempDir()); err != nil || len(is) != 3 || is[0].Number != 57 {
+		t.Fatalf("Issues = %+v, %v", is, err)
 	}
 }
 

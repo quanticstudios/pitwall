@@ -3,6 +3,7 @@ package app
 import (
 	"image"
 	"image/color"
+	"slices"
 
 	"gioui.org/io/event"
 	"gioui.org/io/key"
@@ -30,7 +31,7 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 		}
 	}
 	start, queue := false, false
-	eds := []*widget.Editor{&t.prompt, &t.name, &t.base, &t.branch}
+	eds := []*widget.Editor{&t.prompt, &t.name, &t.base, &t.branch, &t.issue}
 	filters := []event.Filter{pointer.Filter{Target: &m.backdrop, Kinds: pointer.Press}, key.Filter{Focus: &m.backdrop, Name: key.NameEscape}}
 	for _, e := range eds {
 		filters = append(filters, key.Filter{Focus: e, Name: key.NameEscape},
@@ -64,9 +65,10 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 				break
 			}
 			if _, ok := ev.(widget.SubmitEvent); ok {
-				// Enter in the base or branch field takes the first match.
+				// Enter in the base, branch or issue field takes the first
+				// match.
 				if ms := t.matches(e); len(ms) > 0 {
-					setText(e, ms[0])
+					t.take(e, ms[0])
 				} else {
 					start = true
 				}
@@ -83,10 +85,12 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 	}
 	t.projectBtn = grow(t.projectBtn, len(t.projects))
 	t.agentBtn = grow(t.agentBtn, len(t.agents))
-	t.modeBtn = grow(t.modeBtn, 4)
+	if len(t.modeBtn) < len(t.agents) {
+		t.modeBtn = make([][]widget.Clickable, len(t.agents))
+	}
 	for i := range t.projects {
 		for t.projectBtn[i].Clicked(gtx) {
-			t.pickProject(i)
+			t.pickProject(i, u.invalidate)
 		}
 	}
 	for i := range t.whereBtn {
@@ -95,13 +99,18 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 		}
 	}
 	for i := range t.agents {
-		for t.agentBtn[i].Clicked(gtx) {
-			t.agent, t.mode = i, 0
+		for {
+			c, ok := t.agentBtn[i].Update(gtx)
+			if !ok {
+				break
+			}
+			t.pickAgent(i, c.Modifiers&(key.ModShortcut|key.ModShift) != 0)
 		}
-	}
-	for i := range t.modeBtn {
-		for t.modeBtn[i].Clicked(gtx) {
-			t.mode = i
+		t.modeBtn[i] = grow(t.modeBtn[i], len(taskModes[t.agents[i].cmd]))
+		for j := range t.modeBtn[i] {
+			for t.modeBtn[i][j].Clicked(gtx) {
+				t.modes[i] = j
+			}
 		}
 	}
 	field := &t.base
@@ -111,6 +120,11 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 	for i, b := range t.matches(field) {
 		for t.matchBtn[i].Clicked(gtx) {
 			setText(field, b)
+		}
+	}
+	for i, s := range t.matches(&t.issue) {
+		for t.issueBtn[i].Clicked(gtx) {
+			t.take(&t.issue, s)
 		}
 	}
 	for t.cancel.Clicked(gtx) {
@@ -155,9 +169,16 @@ func (t *taskDialog) syncName() {
 
 // matches is the branches the base or branch field e offers while it has
 // key focus, as New worktree tab offers them: any branch for a base, a
-// local one to check out. None for the other fields.
+// local one to check out. The issue field offers open issues by number and
+// title. None for the other fields.
 func (t *taskDialog) matches(e *widget.Editor) []string {
 	switch e {
+	case &t.issue:
+		var labels []string
+		for _, i := range t.issueList() {
+			labels = append(labels, issueLabel(i))
+		}
+		return refMatches(labels, e.Text())
 	case &t.base:
 		return refMatches(candidates(t.refs, model.FromNew), e.Text())
 	case &t.branch:
@@ -185,15 +206,15 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 			return para(gtx, th, medium(th.UIFont), th.Sp(theme.Small), th.Muted, s)
 		})
 	}
-	chips := func(cs []widget.Clickable, names []string, on int) gl.FlexChild {
-		return gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.chips(gtx, cs, names, on) })
+	chips := func(cs []widget.Clickable, names []string, on ...int) gl.FlexChild {
+		return gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.chips(gtx, cs, names, on...) })
 	}
 	kids := []gl.FlexChild{
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "New task")
 		}),
 		gap(6),
-		text(14, th.Muted, "Starts an agent on your prompt in a tab of its own, now or when a running agent finishes."),
+		text(14, th.Muted, "Starts agents on your prompt, each in a tab of its own, now or when a running agent finishes."),
 		gap(16), label("Project"), gap(6),
 	}
 	var names []string
@@ -241,16 +262,44 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 		}
 	}
 	if len(t.agents) > 0 {
-		var agents, modes []string
-		for _, a := range t.agents {
+		var agents []string
+		var on []int
+		for i, a := range t.agents {
 			agents = append(agents, a.name)
+			if t.picked[i] {
+				on = append(on, i)
+			}
 		}
-		kids = append(kids, gap(14), label("Agent"), gap(6), chips(t.agentBtn, agents, t.agent))
-		for _, md := range taskModes[t.agents[t.agent].cmd] {
-			modes = append(modes, md.name)
+		kids = append(kids, gap(14), label("Agent"), gap(6), chips(t.agentBtn, agents, on...))
+		switch {
+		case len(on) > 1:
+			kids = append(kids, gap(6), text(12, th.Muted, "One task per agent, each in a new worktree of its own. Ctrl+click drops an agent."))
+		case len(agents) > 1:
+			kids = append(kids, gap(6), text(12, th.Muted, "Ctrl+click adds another agent, to compare their work."))
 		}
-		if len(modes) > 0 {
-			kids = append(kids, gap(14), label("Mode"), gap(6), chips(t.modeBtn, modes, t.mode))
+		for _, i := range on {
+			var modes []string
+			for _, md := range taskModes[t.agents[i].cmd] {
+				modes = append(modes, md.name)
+			}
+			if len(modes) == 0 {
+				continue
+			}
+			l := "Mode"
+			if len(on) > 1 {
+				l = t.agents[i].name + " mode"
+			}
+			kids = append(kids, gap(14), label(l), gap(6), chips(t.modeBtn[i], modes, t.modes[i]))
+		}
+	}
+	if issues := t.matches(&t.issue); len(t.issueList()) > 0 {
+		kids = append(kids, gap(14), label("From issue"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.field(gtx, &t.issue, th.UIFont, fieldH, "Pick an open issue by number or title")
+		}))
+		if gtx.Focused(&t.issue) {
+			for i, s := range issues {
+				kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.pickRow(gtx, &t.issueBtn[i], s) }))
+			}
 		}
 	}
 	kids = append(kids, gap(14), label("Prompt"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -273,15 +322,15 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
 }
 
-// chips draws a wrapping row of options with on picked: aide's selected
-// icon cell, primary tint and ring, on the field colors.
-func (u *ui) chips(gtx gl.Context, cs []widget.Clickable, names []string, on int) gl.Dimensions {
+// chips draws a wrapping row of options with those in on picked: aide's
+// selected icon cell, primary tint and ring, on the field colors.
+func (u *ui) chips(gtx gl.Context, cs []widget.Clickable, names []string, on ...int) gl.Dimensions {
 	th := u.th
 	h, gap := gtx.Dp(28), gtx.Dp(6)
 	w := gtx.Constraints.Max.X
 	x, y := 0, 0
 	for i, n := range names {
-		picked := i == on
+		picked := slices.Contains(on, i)
 		col := theme.Mix(th.SurfaceSecondary, th.Fg, 0.8)
 		if picked {
 			col = th.Fg

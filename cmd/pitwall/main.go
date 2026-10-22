@@ -57,9 +57,10 @@ const usage = `usage:
                              list the current session's tabs, numbered in sidebar order
                              (--json: one object per tab, see docs/agent-skill.md;
                              --children: only the tabs this pane's tab opened)
-  pitwall new [-n name] [-d] [dir] [-- cmd args...]
+  pitwall new [-n name] [-d] [--issue n] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
-                             shell; prints its #. A cmd's pane stays after it
+                             shell; prints its #. --issue adds GitHub issue n
+                             as cmd's last argument, its prompt. A cmd's pane stays after it
                              exits, showing its output, until closed. After a
                              daemon restart it shows a notice instead; a cmd
                              still running then is not run again (exit unknown).
