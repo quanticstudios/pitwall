@@ -353,6 +353,35 @@ installed, the tab is on the default branch, or the branch has no commits
 ahead of it. Create pull request and Open diff in pager have no key by
 default; set `create_pr` or `diff_pager` under `[keys]` to give them one.
 
+When an agent with hooks gets a prompt, the daemon snapshots the tab's
+files: everything on disk, untracked files included and ignored ones left
+out, as a commit object under `refs/pitwall/turns/<tab>/<n>`. It builds the
+snapshot with an index of its own, so your index, stash, branches and HEAD
+stay as they are. A tab keeps its last 20 snapshots, and closing the tab
+deletes them. Once a tab has one, the review view's header has Branch and
+This turn. Branch is the diff above. This turn is what changed on disk since
+the latest turn started, and the file list and totals follow it. It is read
+again when you switch to it, when the agent changes state and when a new
+turn starts, not every few seconds, since each read snapshots the files. The
+view opens on This turn when the agent finished its turn. The prompt's hook
+waits up to 2 seconds for the snapshot, so the turn's first edits stay out
+of it. Agents without hooks get no snapshots, so their tabs have no This
+turn.
+
+Undo turn, in This turn, asks first, naming the file count, then puts the
+files back as they were when the turn started: it deletes the files the
+turn added and brings back the ones it changed or deleted. It writes files
+only, never the index, HEAD or a commit. Once HEAD moved since the turn
+started, for example because the agent committed, Undo turn is hidden and
+the line under the header says why. Before it restores, Undo turn
+snapshots the files again, so Redo turn brings the turn back. Redo turn
+shows until you change a file or the next turn starts, and refuses if a
+file changed since the undo. Undo turn also refuses, changing nothing, when
+the turn changed a `.gitignore` and files would be deleted, since a file it
+ignored before can look new, and when a file no snapshot has, such as an
+ignored one, is in the way of a file it would write back. This turn has no
+Discard changes; Undo turn is its way back.
+
 Once the branch has a pull request, its row shows a chip with the number,
 green while open, grey as a draft, purple once merged and red when closed.
 On an open one, a dot before the number is CI: yellow while checks run,

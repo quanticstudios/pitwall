@@ -32,11 +32,15 @@ const (
 	hugeLines = 3000
 )
 
-// readDiff and discardFiles are what the review view runs git through;
-// tests replace them.
+// readDiff, discardFiles and the turn functions are what the review view
+// runs git through; tests replace them.
 var (
 	readDiff     = gitstat.Diff
 	discardFiles = gitstat.Discard
+	readTurn     = gitstat.LatestTurn
+	readTurnDiff = gitstat.TurnDiff
+	undoTurn     = gitstat.UndoTurn
+	redoTurn     = gitstat.RedoTurn
 )
 
 type noteState int
@@ -79,6 +83,14 @@ type reviewView struct {
 	base   string
 	root   string
 	files  []review.File
+	// turnScope asks for This turn, the tab's latest checkpoint against
+	// its files, over Branch; inTurn says files are that. turn is the
+	// latest checkpoint, a zero one for none.
+	turnScope, inTurn bool
+	turn              gitstat.Turn
+	failed            string           // the last undo or redo's error, which a read does not clear
+	busy              bool             // an undo or redo runs
+	agentState        model.AgentState // the tab's agent's, which rereads This turn when it changes
 
 	sel         int    // the selected file
 	selPath     string // its path, which keeps the selection across reads
@@ -104,6 +116,7 @@ type reviewView struct {
 	editFrom, editTo int
 
 	send, pr, pager, mark, discard, showHuge widget.Clickable
+	branchScope, thisTurn, undo, redo        widget.Clickable
 	prChip                                   widget.Clickable // the PR status in the header: opens the pull request
 	status                                   string           // the line under the header: sent, queued, a failure
 
@@ -112,10 +125,12 @@ type reviewView struct {
 	enterPane  string // the pane whose paste waits for its Enter
 	enterAt    time.Time
 	discarding review.File // the file the discard dialog is about
+	undoFiles  int         // the file count the undo dialog names
 }
 
-// show opens the view on tab ws, reading dir.
-func (r *reviewView) show(ws, dir string, invalidate func()) {
+// show opens the view on tab ws, reading dir, on This turn when turn is
+// set and the tab has a checkpoint.
+func (r *reviewView) show(ws, dir string, turn bool, invalidate func()) {
 	r.hide()
 	r.on, r.ws, r.dir, r.focus = true, ws, dir, true
 	r.sel, r.selPath, r.cur, r.anchor, r.scrollTo, r.rowsDirty, r.editing, r.status = 0, "", -1, -1, -1, true, false, ""
@@ -124,11 +139,47 @@ func (r *reviewView) show(ws, dir string, invalidate func()) {
 	r.mu.Lock()
 	r.gen++
 	r.loaded, r.err, r.files = false, "", nil
+	r.turnScope, r.inTurn, r.turn = turn, false, gitstat.Turn{}
 	ctx, cancel := context.WithCancel(context.Background())
 	r.stop, r.kick = cancel, make(chan struct{}, 1)
 	gen, kick := r.gen, r.kick
 	r.mu.Unlock()
-	go r.load(ctx, gen, dir, kick, invalidate)
+	go r.load(ctx, gen, ws, dir, kick, invalidate)
+}
+
+// setScope shows This turn when turn is set, else Branch, from a fresh
+// read.
+func (r *reviewView) setScope(turn bool) {
+	r.mu.Lock()
+	if r.turnScope != turn {
+		r.turnScope, r.loaded, r.files = turn, false, nil
+	}
+	r.mu.Unlock()
+	r.reload()
+}
+
+// turnState is the tab's latest checkpoint, whether the files shown are
+// its turn's, and the last undo or redo's error.
+func (r *reviewView) turnState() (turn gitstat.Turn, in bool, failed string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.turn, r.inTurn, r.failed
+}
+
+// restoring reports whether an undo or redo runs.
+func (r *reviewView) restoring() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.busy
+}
+
+// markRoot is what marks are kept under: a turn's diff has hashes of its
+// own, so its marks must not replace the branch's.
+func (r *reviewView) markRoot(root string) string {
+	if _, in, _ := r.turnState(); in {
+		return root + "\x00turn"
+	}
+	return root
 }
 
 // hide closes the view and stops its reader. Comments and queued
@@ -157,46 +208,78 @@ func (r *reviewView) reload() {
 }
 
 // load reads dir's diff every filesEvery, or when kicked, until ctx is
-// done, and invalidates when it changed.
-func (r *reviewView) load(ctx context.Context, gen int, dir string, kick chan struct{}, invalidate func()) {
+// done, and invalidates when it changed: tab ws's latest turn's when This
+// turn is asked for and there is one, else the branch's.
+func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick chan struct{}, invalidate func()) {
 	t := time.NewTicker(filesEvery)
 	defer t.Stop()
 	var last []byte
 	var parsed []review.File // last's files: an unchanged diff is not parsed again
+	var p gitstat.Patch
+	var files []review.File
+	var errText string
+	read := ""     // the checkpoint files are the turn diff against, "" for none
+	kicked := true // the first read, or a kick
 	for {
 		c, cancel := context.WithTimeout(ctx, filesWait)
-		p, err := readDiff(c, dir)
+		r.mu.Lock()
+		want := r.turnScope
+		r.mu.Unlock()
+		turn, err := readTurn(c, dir, ws)
+		if err != nil {
+			turn = gitstat.Turn{} // no checkpoint to show
+		}
+		in := want && turn.Rev != ""
+		// why: a turn's diff snapshots the files again, so a tick reads it
+		// only for a new turn; a kick, such as the agent changing state,
+		// reads it always.
+		if !in || kicked || turn.Rev != read {
+			read = ""
+			if in {
+				p, err = readTurnDiff(c, dir, turn.Rev)
+			} else {
+				p, err = readDiff(c, dir)
+			}
+			files, errText = nil, ""
+			if err != nil {
+				errText = err.Error()
+			} else {
+				if in {
+					read = turn.Rev
+				}
+				if parsed == nil || !bytes.Equal(last, p.Diff) {
+					parsed, last = review.Parse(p.Diff), p.Diff
+				}
+				files = slices.Clip(parsed)
+				for _, path := range p.Untracked {
+					b, ok := gitstat.ReadUntracked(p.Root, path)
+					files = append(files, review.Untracked(path, b, !ok))
+				}
+			}
+		}
 		cancel()
 		if ctx.Err() != nil {
 			return
 		}
-		if err != nil {
-			r.update(gen, p, nil, err.Error(), invalidate)
-		} else {
-			if parsed == nil || !bytes.Equal(last, p.Diff) {
-				parsed, last = review.Parse(p.Diff), p.Diff
-			}
-			files := slices.Clip(parsed)
-			for _, path := range p.Untracked {
-				b, ok := gitstat.ReadUntracked(p.Root, path)
-				files = append(files, review.Untracked(path, b, !ok))
-			}
-			r.update(gen, p, files, "", invalidate)
-		}
+		r.update(gen, p, files, errText, turn, in, invalidate)
+		kicked = false
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		case <-kick:
+			kicked = true
 		}
 	}
 }
 
-func (r *reviewView) update(gen int, p gitstat.Patch, files []review.File, err string, invalidate func()) {
+func (r *reviewView) update(gen int, p gitstat.Patch, files []review.File, err string, turn gitstat.Turn, in bool, invalidate func()) {
 	r.mu.Lock()
-	changed := r.gen == gen && (!r.loaded || r.err != err || r.base != p.Base || !sameFiles(r.files, files))
+	// A read of the scope asked for before a switch is dropped.
+	current := r.gen == gen && in == (r.turnScope && turn.Rev != "")
+	changed := current && (!r.loaded || r.err != err || r.base != p.Base || r.turn != turn || r.inTurn != in || !sameFiles(r.files, files))
 	if changed {
-		r.loaded, r.err, r.base, r.root, r.files = true, err, p.Base, p.Root, files
+		r.loaded, r.err, r.base, r.root, r.files, r.turn, r.inTurn = true, err, p.Base, p.Root, files, turn, in
 	}
 	r.mu.Unlock()
 	if changed {
@@ -549,8 +632,20 @@ func (u *ui) openReview(st *model.State, id, file string) {
 	if invalidate == nil {
 		invalidate = func() {}
 	}
-	u.review.show(id, st.LivePath(*ws), invalidate)
-	u.review.selPath = file
+	// A finished turn opens on what it changed.
+	done := agentStateOf(st, ws) == model.StateCompleted
+	u.review.show(id, st.LivePath(*ws), done, invalidate)
+	u.review.selPath, u.review.agentState = file, agentStateOf(st, ws)
+}
+
+// agentStateOf is the state of tab ws's agent, "" for none.
+func agentStateOf(st *model.State, ws *model.Workspace) model.AgentState {
+	if p := agentPane(st, ws); p != nil {
+		if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID }); i >= 0 {
+			return st.Activities[i].State
+		}
+	}
+	return ""
 }
 
 // reviewed reports whether f is marked reviewed in root at its current
@@ -610,6 +705,46 @@ func (u *ui) discardFile() {
 		r.mu.Lock()
 		if err != nil {
 			r.err = "Discard failed: " + err.Error()
+		}
+		r.mu.Unlock()
+		r.reload()
+		invalidate()
+	}()
+}
+
+// undoTurnFiles runs the undo dialog's confirm: the tab's files go back to
+// its latest checkpoint, then the diff is read again. With redo it puts
+// the undone turn back instead, which needs no dialog: Redo shows only
+// while nothing changed since the undo.
+func (u *ui) undoTurnFiles(redo bool) {
+	r := &u.review
+	ws, dir, invalidate := r.ws, r.dir, u.invalidate
+	if invalidate == nil {
+		invalidate = func() {}
+	}
+	run, name, done := undoTurn, "Undo", "Undid the turn"
+	if redo {
+		run, name, done = redoTurn, "Redo", "Redid the turn"
+	}
+	r.mu.Lock()
+	if r.busy {
+		r.mu.Unlock()
+		return
+	}
+	r.busy, r.failed = true, ""
+	r.mu.Unlock()
+	r.status = done
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), filesWait)
+		defer cancel()
+		err := run(ctx, dir, ws)
+		if err != nil {
+			log.Printf("review: %s on tab %s: %q", strings.ToLower(name), ws, err)
+		}
+		r.mu.Lock()
+		r.busy = false
+		if err != nil {
+			r.failed = name + " failed: " + err.Error()
 		}
 		r.mu.Unlock()
 		r.reload()
@@ -705,6 +840,10 @@ func (u *ui) layoutReview(gtx gl.Context, st *model.State) {
 		u.review.hide()
 		u.layoutPanes(gtx, st)
 		return
+	}
+	if s := agentStateOf(st, findWorkspace(st, u.review.ws)); s != u.review.agentState {
+		u.review.agentState = s
+		u.review.reload()
 	}
 	u.drawReview(gtx, st)
 	if r := &u.review; r.focus {

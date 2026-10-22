@@ -53,6 +53,8 @@ func repo(t *testing.T) string {
 	t.Helper()
 	dir := longTempDir(t)
 	runGit(t, dir, "init", "--initial-branch=main")
+	// why: Windows runners set core.autocrlf, so files git writes back come out with CRLF.
+	runGit(t, dir, "config", "core.autocrlf", "false")
 	writeFile(t, dir, "file.txt", "one\ntwo\nthree\n")
 	writeFile(t, dir, ".gitignore", ".worktrees/\n")
 	commit(t, dir)

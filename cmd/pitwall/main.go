@@ -305,7 +305,11 @@ func runHook(args []string) {
 // for; the event goes again at the Version it names.
 func sendHook(path, pane string, provider model.Provider, payload []byte) {
 	ev := proto.AgentEvent{Pane: pane, Provider: provider, Payload: payload}
-	deadline := time.Now().Add(hookWait)
+	wait := hookWait
+	if agent.Prompt(provider, payload) != "" {
+		wait = promptWait // the daemon checkpoints the files first
+	}
+	deadline := time.Now().Add(wait)
 	v, refused, reset := hookOnce(path, proto.Version, &ev, deadline)
 	if reset {
 		// why: Windows resets a socket closed with input unread, and the
@@ -320,6 +324,10 @@ func sendHook(path, pane string, provider model.Provider, payload []byte) {
 
 // hookWait bounds sendHook. A daemon answers in a millisecond or two.
 const hookWait = 500 * time.Millisecond
+
+// promptWait bounds sendHook for a prompt, a little over the daemon's
+// turnWait.
+const promptWait = 2500 * time.Millisecond
 
 // hookOnce sends ev, when set, after Hello{Version: v}. It reports the
 // daemon's Version when the daemon refused v, and whether the connection

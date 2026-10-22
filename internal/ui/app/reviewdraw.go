@@ -47,7 +47,11 @@ func (u *ui) drawReview(gtx gl.Context, st *model.State) {
 	headH := u.reviewHeader(gtx, st, files, base, root)
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, headH), Max: image.Pt(size.X, headH+1)}.Op())
 	body := image.Rect(0, headH+1, size.X, size.Y)
-	switch state, line := reviewBlank(errText, loaded, len(files), base); state {
+	state, line := reviewBlank(errText, loaded, len(files), base)
+	if turn, in, _ := r.turnState(); state == reviewEmpty && in {
+		line = fmt.Sprintf("No changes since turn %d started.", turn.N)
+	}
+	switch state {
 	case reviewFailed:
 		u.reviewMessage(gtx, body, th.Red, line)
 		return
@@ -70,7 +74,7 @@ func (u *ui) drawReview(gtx gl.Context, st *model.State) {
 	o := op.Offset(body.Min).Push(gtx.Ops)
 	lg := gtx
 	lg.Constraints = gl.Exact(image.Pt(listW, body.Dy()))
-	u.reviewFiles(lg, files, root)
+	u.reviewFiles(lg, files, r.markRoot(root))
 	o.Pop()
 
 	o = op.Offset(image.Pt(listW+1, body.Min.Y)).Push(gtx.Ops)
@@ -128,6 +132,8 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	for _, f := range files {
 		add, del = add+f.Add, del+f.Del
 	}
+	turn, inTurn, failed := r.turnState()
+	_, _, _, _, loaded := r.snapshot()
 
 	// The buttons, right to left.
 	x := w - pad
@@ -183,6 +189,26 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 		}
 	}
 	place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.pager, "Open in pager", true, false) })
+	// Undo puts the turn's files back; Redo, while nothing changed since,
+	// brings them again. A commit since the turn started hides both.
+	if inTurn && loaded && !turn.Moved {
+		for r.undo.Clicked(gtx) {
+			if !r.restoring() {
+				r.undoFiles = len(files)
+				u.modal.open(modalUndoTurn, r.ws)
+			}
+		}
+		for r.redo.Clicked(gtx) {
+			u.undoTurnFiles(true)
+		}
+		idle := !r.restoring()
+		switch {
+		case len(files) > 0:
+			place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.undo, "Undo turn", idle, false) })
+		case turn.Redo != "":
+			place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.redo, "Redo turn", idle, false) })
+		}
+	}
 	// The pull request's status goes here, left of the buttons.
 	place(func(gtx gl.Context) gl.Dimensions { return u.reviewPRStatus(gtx, st) })
 
@@ -195,15 +221,39 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	call.Add(gtx.Ops)
 	o.Pop()
 	left += sz.X + gtx.Dp(12)
+	if turn.Rev != "" { // Branch and This turn
+		for r.branchScope.Clicked(gtx) {
+			r.setScope(false)
+		}
+		for r.thisTurn.Clicked(gtx) {
+			r.setScope(true)
+		}
+		for _, b := range []struct {
+			c     *widget.Clickable
+			label string
+			on    bool
+		}{{&r.branchScope, "Branch", !r.turnScope}, {&r.thisTurn, "This turn", r.turnScope}} {
+			m := op.Record(gtx.Ops)
+			gg := gtx
+			gg.Constraints.Min = image.Point{}
+			d := kit.Button(gg, th, b.c, map[bool]kit.Kind{true: kit.Primary, false: kit.Secondary}[b.on], kit.Small, b.label)
+			call := m.Stop()
+			o := op.Offset(image.Pt(left, pad+(rowH-d.Size.Y)/2)).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			o.Pop()
+			left += d.Size.X + gtx.Dp(4)
+		}
+		left += gtx.Dp(8)
+	}
 	type part struct {
 		c color.NRGBA
 		s string
 	}
 	parts := []part{{th.Muted, branch}}
-	if b := gitstat.BranchName(base); b != "" && b != branch {
+	if b := gitstat.BranchName(base); b != "" && b != branch && !inTurn {
 		parts = append(parts, part{th.Muted, "into " + b})
 	}
-	if _, _, _, _, loaded := r.snapshot(); loaded {
+	if loaded {
 		n := fmt.Sprintf("%d files", len(files))
 		if len(files) == 1 {
 			n = "1 file"
@@ -226,6 +276,11 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	status, col := r.status, th.Muted
 	if _, _, _, errText, _ := r.snapshot(); errText != "" {
 		status, col = errText, th.Red
+	} else if failed != "" {
+		status, col = failed, th.Red
+	}
+	if status == "" && inTurn && turn.Moved {
+		status = "Undo is off: HEAD moved since the turn started, and undo never touches commits."
 	}
 	if status == "" {
 		status = "j/k file · n/p hunk · ↑/↓ line, Shift for a range · c or a line number comments · Esc closes"
@@ -433,11 +488,13 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 	pad := gtx.Dp(16)
 	headH := gtx.Dp(48)
 
-	done := u.reviewed(root, f)
+	mark := r.markRoot(root)
+	done := u.reviewed(mark, f)
 	for r.mark.Clicked(gtx) {
-		u.markReviewed(root, files, f, !done)
+		u.markReviewed(mark, files, f, !done)
 		done = !done
 	}
+	_, inTurn, _ := r.turnState()
 	for r.discard.Clicked(gtx) {
 		r.discarding = *f
 		u.modal.open(modalDiscard, r.ws)
@@ -449,6 +506,9 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 		c     *widget.Clickable
 		label string
 	}{{&r.discard, "Discard changes"}, {&r.mark, map[bool]string{false: "Mark reviewed", true: "Reviewed"}[done]}} {
+		if b.c == &r.discard && inTurn { // Undo turn is This turn's way back
+			continue
+		}
 		m := op.Record(gtx.Ops)
 		d := u.reviewButton(gtx, b.c, b.label, true, false)
 		call := m.Stop()
@@ -786,6 +846,31 @@ func boxedCard(gtx gl.Context, th *theme.Theme, fill, border color.NRGBA, w gl.W
 	call.Add(gtx.Ops)
 	o.Pop()
 	return gl.Dimensions{Size: sz}
+}
+
+// undoTurnBody is the dialog that confirms Undo turn.
+func (u *ui) undoTurnBody(gtx gl.Context) gl.Dimensions {
+	th, n := u.th, u.review.undoFiles
+	files := fmt.Sprintf("%d files", n)
+	if n == 1 {
+		files = "1 file"
+	}
+	what := "Puts " + files + " back as they were when the turn started: files the turn added are deleted, " +
+		"files it changed or deleted come back. Commits, the index and HEAD stay as they are. " +
+		"Redo turn brings the turn's files back until you change one or the next turn starts."
+	return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Undo this turn?")
+		}),
+		gl.Rigid(gl.Spacer{Height: 12}.Layout),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, th, th.UIFont, th.Sp(theme.Large), th.Muted, what)
+		}),
+		gl.Rigid(gl.Spacer{Height: 24}.Layout),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.buttons(gtx, "Cancel", "Undo "+files, kit.Danger)
+		}),
+	)
 }
 
 // discardBody is the discard dialog for the review view's file.

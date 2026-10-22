@@ -253,3 +253,89 @@ func TestReviewPRStatus(t *testing.T) {
 		t.Errorf("no PR drew %v", d.Size)
 	}
 }
+
+// TestReviewTurnScope: a tab whose agent finished opens on This turn, the
+// latest checkpoint's diff; Branch reads the branch's again; one that is
+// working opens on Branch. Undo runs on the tab's folder, once while it
+// runs, and its error stays shown after the next read.
+func TestReviewTurnScope(t *testing.T) {
+	oldDiff, oldTurn, oldTurnDiff, oldUndo := readDiff, readTurn, readTurnDiff, undoTurn
+	t.Cleanup(func() { readDiff, readTurn, readTurnDiff, undoTurn = oldDiff, oldTurn, oldTurnDiff, oldUndo })
+	file := func(name string) []byte {
+		return []byte("diff --git a/" + name + " b/" + name + "\n--- a/" + name + "\n+++ b/" + name + "\n@@ -1 +1 @@\n-p\n+q\n")
+	}
+	readDiff = func(context.Context, string) (gitstat.Patch, error) {
+		return gitstat.Patch{Base: "refs/heads/main", Root: "/repo", Diff: file("branch.go")}, nil
+	}
+	readTurn = func(_ context.Context, dir, ws string) (gitstat.Turn, error) {
+		return gitstat.Turn{Rev: "c" + ws, N: 3}, nil
+	}
+	readTurnDiff = func(_ context.Context, _, rev string) (gitstat.Patch, error) {
+		return gitstat.Patch{Root: "/repo", Diff: file(rev + ".go")}, nil
+	}
+	var mu sync.Mutex
+	var undone []string
+	undoTurn = func(_ context.Context, dir, ws string) error {
+		time.Sleep(50 * time.Millisecond)
+		mu.Lock()
+		defer mu.Unlock()
+		undone = append(undone, dir+" "+ws)
+		return gitstat.ErrHeadMoved
+	}
+	paths := func(u *ui) string {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			files, _, _, _, loaded := u.review.snapshot()
+			if loaded || time.Now().After(deadline) {
+				var ps []string
+				for _, f := range files {
+					ps = append(ps, f.Path)
+				}
+				return strings.Join(ps, " ")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	b := newAgentBackend(model.StateCompleted)
+	u := &ui{b: b, th: theme.Dark()}
+	st := b.State()
+	u.openReview(&st, "w", "")
+	t.Cleanup(u.review.hide)
+	if got := paths(u); got != "cw.go" {
+		t.Fatalf("a finished turn opened on %q", got)
+	}
+	if turn, in, _ := u.review.turnState(); !in || turn.N != 3 {
+		t.Errorf("turn %+v, in %v", turn, in)
+	}
+	u.review.setScope(false)
+	if got := paths(u); got != "branch.go" {
+		t.Errorf("Branch shows %q", got)
+	}
+
+	u.undoTurnFiles(false)
+	u.undoTurnFiles(false) // while the first runs: ignored
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, _, failed := u.review.turnState(); failed != "" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	u.review.reload()
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	if _, _, failed := u.review.turnState(); !strings.Contains(failed, "HEAD moved") || len(undone) != 1 || undone[0] != "/repo w" {
+		t.Errorf("undo: ran %q, failed %q", undone, failed)
+	}
+	mu.Unlock()
+
+	b = newAgentBackend(model.StateWorking)
+	u = &ui{b: b, th: theme.Dark()}
+	st = b.State()
+	u.openReview(&st, "w", "")
+	t.Cleanup(u.review.hide)
+	if got := paths(u); got != "branch.go" {
+		t.Errorf("a working agent's tab opened on %q", got)
+	}
+}

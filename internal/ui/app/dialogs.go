@@ -43,8 +43,9 @@ const (
 	modalCleanup
 	modalTask
 	modalDiscard
-	modalPinned  // closing a pinned tab, see pinned.go
-	modalRestart // restarting a daemon older than the window, see restart.go
+	modalUndoTurn // putting back the files of the review view's turn
+	modalPinned   // closing a pinned tab, see pinned.go
+	modalRestart  // restarting a daemon older than the window, see restart.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -211,6 +212,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = func(gtx gl.Context) gl.Dimensions { return u.cleanupBody(gtx, st) }
 	case modalDiscard:
 		content = u.discardBody
+	case modalUndoTurn:
+		content = u.undoTurnBody
 	case modalPinned:
 		content = func(gtx gl.Context) gl.Dimensions { return u.pinnedBody(gtx, ws) }
 	case modalRestart:
@@ -275,6 +278,9 @@ func (u *ui) confirmModal(st *model.State) {
 	case modalCleanup:
 	case modalDiscard:
 		u.discardFile()
+		m.close()
+	case modalUndoTurn:
+		u.undoTurnFiles(false)
 		m.close()
 	case modalPinned:
 		u.confirmPinned(st)
