@@ -407,12 +407,16 @@ and how full its context window is, with a small meter that turns yellow at
 output, cache read and cache write, by model when the session used several,
 subagents included. A tab's hover card shows the same line for its agents.
 The counts come from the agent's session file: Claude Code's message usage,
-Codex's token counts, pi's message usage. A file over 8 MiB is read from its
-last 8 MiB, so its counts end in "+". Cost in dollars is off, since a
-subscription does not bill per token; set `show_cost = true` under `[usage]`
-or use the switch under Agents in the settings page to add what the tokens
-would cost at the API's list prices. pitwall carries a dated price table and
-shows its date; a model missing from it shows tokens and no cost.
+each message counted once, Codex's token counts, pi's and Gemini CLI's
+message usage. A file over 8 MiB is read from its last 8 MiB, so its counts
+end in "+". Cost in dollars is off, since a subscription does not bill per
+token; set `show_cost = true` under `[usage]` or use the switch under Agents
+in the settings page to add an estimate of what the tokens would cost at the
+API's list prices, such as `412k tokens · ~$3.20`. The hover card adds "at
+API prices", and Flow's Session section names the prices' date. pitwall
+carries a dated price table for Claude and OpenAI models, Claude's fast mode
+included; a model missing from it, such as Gemini or Claude Haiku 5.5, shows
+tokens and no cost.
 
 <img src="media/cost.webp" alt="Settings, Usage, Cost: the 30-day total split between Claude Code and Codex, and a daily cost chart" width="640">
 

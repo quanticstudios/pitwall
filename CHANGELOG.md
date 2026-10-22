@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- A tab's cost reads `~$3.20` and says it is an estimate at API prices. The price table is checked again: Claude Sonnet 5.5's cache reads drop to $0.10, and Claude's fast mode, Opus 4.5, Sonnet 4.5 and GPT-5.6 Terra get prices.
 - Pinning a tab moves it to the top, after the tabs already pinned, as in a browser; unpinning puts it right after them. A grouped tab moves within its group.
 - A tab an agent opens with `pitwall new` or `pitwall worktree new` joins the agent's group, so it hangs under the agent's tab even when the agent's tab is ungrouped and the repo has a group. `pitwall worktree new` no longer makes a group for the repo when run from an agent's pane.
 
