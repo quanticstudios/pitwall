@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -127,6 +129,10 @@ func TestIssues(t *testing.T) {
 	}
 	if got, want := is[0].Prompt(), "GitHub issue #57: Login redirect loops on Safari\nhttps://github.com/example/widgets/issues/57"; got != want {
 		t.Errorf("Prompt without a body = %q, want %q", got, want)
+	}
+	long := Issue{Number: 9, Title: "Huge", URL: "https://github.com/example/widgets/issues/9", Body: "a" + strings.Repeat("ü", 50000)} // 100 KB, byte MaxBody inside a rune
+	if p := long.Prompt(); len(p) > MaxBody+200 || !utf8.ValidString(p) || !strings.HasSuffix(p, "(issue body cut here; read the rest at "+long.URL+")") {
+		t.Errorf("a 100 KB body makes a %d-byte prompt, valid UTF-8 %v, ending %q", len(p), utf8.ValidString(p), p[max(0, len(p)-80):])
 	}
 	if _, err := ParseIssues([]byte("{")); err == nil {
 		t.Error("bad JSON parsed")

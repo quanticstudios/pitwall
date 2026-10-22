@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Issue is an issue of a repository, as gh issue list --json IssueFields
@@ -54,9 +55,21 @@ func ParseIssues(data []byte) ([]Issue, error) {
 	return is, nil
 }
 
+// MaxBody is how many bytes of an issue's body Prompt keeps. The prompt is
+// one argument of the agent's command, which Linux caps at 128 KiB, and a
+// body can be up to about 256 KB.
+const MaxBody = 32 << 10
+
 // Prompt is a task prompt for i: its number and title on the first line,
-// which titles the task, then its URL and body.
+// which titles the task, then its URL and body, cut at MaxBody bytes.
 func (i Issue) Prompt() string {
 	body := strings.TrimSpace(strings.ReplaceAll(i.Body, "\r\n", "\n"))
+	if len(body) > MaxBody {
+		n := MaxBody
+		for n > 0 && !utf8.RuneStart(body[n]) {
+			n--
+		}
+		body = body[:n] + "\n\n(issue body cut here; read the rest at " + i.URL + ")"
+	}
 	return strings.TrimSpace(fmt.Sprintf("GitHub issue #%d: %s\n%s\n\n%s", i.Number, strings.TrimSpace(i.Title), i.URL, body))
 }
