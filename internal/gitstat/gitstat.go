@@ -433,8 +433,19 @@ func defaultRef(ctx context.Context, dir string) (string, error) {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
+	return gitWith(ctx, dir, nil, "", args...)
+}
+
+// gitWith is git with env added to the environment and stdin as input.
+func gitWith(ctx context.Context, dir string, env []string, stdin string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	nowindow.Set(cmd)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() != nil {

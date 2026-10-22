@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -92,8 +94,22 @@ func (d *Daemon) removeTab(w *model.Workspace, ti int) []Pane {
 }
 
 // removeWorkspace drops a tab and its panes, and its session when it was
-// the last tab; it never touches the disk. Callers hold d.mu.
+// the last tab. On disk it only deletes the tab's checkpoints, in the
+// background. Callers hold d.mu.
 func (d *Daemon) removeWorkspace(id string) []Pane {
+	if w := d.workspace(id); w != nil && d.o.DropTurns != nil {
+		// A removed worktree's checkpoints are in the repository it was of.
+		dir := cmp.Or(w.WorktreeRoot, d.st.LivePath(*w))
+		go func() {
+			d.turnMu.Lock() // after a checkpoint that is under way
+			defer d.turnMu.Unlock()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			if err := d.o.DropTurns(ctx, dir, id); err != nil {
+				log.Printf("tab %s: drop checkpoints: %q", id, err)
+			}
+		}()
+	}
 	var out []Pane
 	for _, p := range d.st.Panes {
 		if p.WorkspaceID == id {

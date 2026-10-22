@@ -125,6 +125,11 @@ type Options struct {
 	// Scrollback is the lines of history a new pane keeps ([terminal]
 	// scrollback); nil leaves the emulator's default.
 	Scrollback func() int
+	// Checkpoint snapshots a tab's work tree when its agent starts a turn,
+	// and DropTurns deletes the tab's snapshots when it closes
+	// (gitstat.Checkpoint); nil takes none.
+	Checkpoint func(ctx context.Context, worktree, ws string) error
+	DropTurns  func(ctx context.Context, dir, ws string) error
 }
 
 type Daemon struct {
@@ -159,6 +164,7 @@ type Daemon struct {
 	replies map[string]string
 	mail    mail       // see talk.go
 	sendMu  sync.Mutex // one deliver types at a time
+	turnMu  sync.Mutex // one checkpoint at a time, so each gets its own number
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -200,6 +206,8 @@ func New() (*Daemon, error) {
 		Scrollback:     setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
 		Radar:          setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
 		Changes:        gitstat.Changed,
+		Checkpoint:     gitstat.Checkpoint,
+		DropTurns:      gitstat.DropTurns,
 		Conflicts:      gitstat.Conflicts,
 		MaxRunning:     setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
 		RemoteControl:  setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
@@ -1239,6 +1247,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		}
 	}
 	d.noteOutcomes(p.ID, m.Payload, now)
+	if d.o.Checkpoint != nil && agent.Prompt(m.Provider, m.Payload) != "" {
+		if w := d.workspace(p.WorkspaceID); w != nil {
+			go d.checkpoint(d.st.LivePath(*w), w.ID)
+		}
+	}
 	if len(d.mail.queue[p.ID]) > 0 {
 		d.wake(p.ID, 0) // a turn may have ended
 	}
@@ -1252,6 +1265,18 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	d.mu.Unlock()
 	d.runDecisions(ctx, job)
 	return nil
+}
+
+// checkpoint snapshots tab ws's work tree at dir, off the hook's path so a
+// big repository never holds the hook up.
+func (d *Daemon) checkpoint(dir, ws string) {
+	d.turnMu.Lock()
+	defer d.turnMu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := d.o.Checkpoint(ctx, dir, ws); err != nil {
+		log.Printf("tab %s: checkpoint: %q", ws, err)
+	}
 }
 
 // nextWorkspaceName is "workspace-N", the first N not taken in the project,
