@@ -9,7 +9,7 @@ binary with `git describe`, and `pitwall --version` prints it.
 
 Changes land with their notes under `## Unreleased` at the top. To cut a
 release from an up-to-date, clean `main`, run `sh scripts/release.sh`. It
-renames `## Unreleased` to the next `## v0.1.0-beta.N` (or the version you
+renames `## Unreleased` to the next `## v0.1.N` (or the version you
 pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
 `git pull --ff-only` and run `sh scripts/release.sh --tag`. It tags the
 release commit on `main` and pushes the tag once, which starts the release
