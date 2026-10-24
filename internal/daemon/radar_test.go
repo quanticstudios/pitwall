@@ -189,9 +189,9 @@ func (f *fakeRadar) daemon() *Daemon {
 	return d
 }
 
-// TestRadarNotice checks the radar tells about a pair and file once,
-// again only for a new file or a new conflict, and waits while another
-// notice shows.
+// TestRadarNotice checks the radar tells about a pair and file once one
+// of the two has an open pull request, again only for a new file or a new
+// conflict, and waits while another notice shows.
 func TestRadarNotice(t *testing.T) {
 	f := &fakeRadar{changes: map[string]gitstat.Changes{
 		"/wt/billing":  {Uncommitted: []string{"src/server/router.ts"}},
@@ -206,7 +206,12 @@ func TestRadarNotice(t *testing.T) {
 			t.Fatalf("Notice = %q, want %q", d.st.Notice, want)
 		}
 	}
-	scan("acme-api and billing both edit src/server/router.ts.")
+	scan("") // neither has a pull request
+	d.st.PRs = map[string]model.PR{"billing": {Number: 7, State: model.PROpen}}
+	d.scanRadar(context.Background()) // stats unchanged: the opened PR alone must rescan
+	if want := "acme-api and billing both edit src/server/router.ts."; d.st.Notice != want {
+		t.Fatalf("after the PR opened, Notice = %q, want %q", d.st.Notice, want)
+	}
 	d.st.Notice = "" // dismissed
 	scan("")
 

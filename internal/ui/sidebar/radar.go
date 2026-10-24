@@ -35,9 +35,17 @@ func radarColor(th *theme.Theme, overlaps []model.Overlap) (c color.NRGBA, ok bo
 }
 
 // radarMark is the warning mark on line 2 of tab id's row, after its diff
-// stats, when its branch shares files with another tab's.
+// stats, when its branch shares files with a tab's that has an open pull
+// request. Overlaps with branches not yet up for merge show in the hover
+// card alone, so sibling worktrees of one fleet don't all mark each other.
 func radarMark(v *view, id string) []item {
-	col, ok := radarColor(v.th, v.st.Overlaps[id])
+	var ahead []model.Overlap
+	for _, o := range v.st.Overlaps[id] {
+		if v.st.PRs[o.WorkspaceID].State == model.PROpen {
+			ahead = append(ahead, o)
+		}
+	}
+	col, ok := radarColor(v.th, ahead)
 	if !ok {
 		return nil
 	}
