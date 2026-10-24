@@ -46,7 +46,7 @@ type Tab struct {
 	// an agent pane (Pane.Prompt); a non-generic OSC title of a pane running
 	// a command; that command's name; the live directory of the first pane
 	// ("~" for home, else its base name). Generic means empty, "~", "claude",
-	// "claude code", "codex", "pi", "π", or (case-insensitively) the base
+	// "claude code", "codex", "pi", "π", "omp", or (case-insensitively) the base
 	// name of the session directory or repo root, or the user's login name.
 	Title  string
 	Layout *layout.Node
@@ -115,6 +115,7 @@ const (
 	ProviderClaude   Provider = "claude"
 	ProviderCodex    Provider = "codex"
 	ProviderPi       Provider = "pi"
+	ProviderOmp      Provider = "omp" // Oh My Pi, a fork of pi
 	ProviderGemini   Provider = "gemini"
 	ProviderOpenCode Provider = "opencode"
 	ProviderCursor   Provider = "cursor"
@@ -125,7 +126,7 @@ const (
 
 // Agents are the coding agents pitwall recognizes, in the order lists of
 // them show.
-var Agents = []Provider{ProviderClaude, ProviderCodex, ProviderPi, ProviderGemini, ProviderOpenCode, ProviderCursor, ProviderAmp, ProviderAider}
+var Agents = []Provider{ProviderClaude, ProviderCodex, ProviderPi, ProviderOmp, ProviderGemini, ProviderOpenCode, ProviderCursor, ProviderAmp, ProviderAider}
 
 // IsAgent reports whether p is one of Agents: not a terminal command, and
 // not a program only a decision model reads.

@@ -14,7 +14,7 @@ type Notify struct {
 	Input       *bool    `toml:"input" doc:"Notify when an agent asks a question, or a terminal asks for you (pitwall notify, a bell, OSC 9)."`
 	Done        *bool    `toml:"done" doc:"Notify when an agent finishes a turn."`
 	Failed      *bool    `toml:"failed" doc:"Notify when an agent's turn fails."`
-	MutedAgents []string `toml:"muted_agents" doc:"Agents that never notify: claude, codex, pi, gemini, opencode, or terminal for pitwall notify and bells."`
+	MutedAgents []string `toml:"muted_agents" doc:"Agents that never notify: claude, codex, pi, omp, gemini, opencode, or terminal for pitwall notify and bells."`
 	QuietHours  string   `toml:"quiet_hours" doc:"\"22:00-08:00\": between these times nothing plays a sound and only approvals, errors and what triage rates now notify. \"\" for none."`
 }
 

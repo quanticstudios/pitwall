@@ -145,7 +145,7 @@ func TestParsePathArc(t *testing.T) {
 
 // Every agent pitwall recognizes has a name and a mark the parser reads.
 func TestAgentMarks(t *testing.T) {
-	for _, d := range []string{icClaude, icOpenAI, icGemini, icCursor, icOpenCode, icAmp, icAider} {
+	for _, d := range []string{icClaude, icOpenAI, icGemini, icCursor, icOpenCode, icAmp, icAider, icOmp} {
 		if len(parsePath(d)) == 0 { // panics on a command the parser lacks
 			t.Errorf("empty path %.20s", d)
 		}

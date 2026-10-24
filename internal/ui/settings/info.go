@@ -29,8 +29,8 @@ type hookFile struct {
 }
 
 // hookStatus reads (never writes) the agents' hook configs under home:
-// Claude Code's and Codex's always, Gemini CLI's, OpenCode's and pi's when
-// the agent is installed, as `pitwall hooks install` decides.
+// Claude Code's and Codex's always, Gemini CLI's, OpenCode's, pi's and
+// omp's when the agent is installed, as `pitwall hooks install` decides.
 func hookStatus(home string) []hookFile {
 	out := []hookFile{
 		checkHooks("Claude Code", filepath.Join(home, ".claude", "settings.json"), agent.ClaudeHooks("pitwall"), " hook claude"),
@@ -47,6 +47,9 @@ func hookStatus(home string) []hookFile {
 	}
 	if dir := agent.PiDir(home); installed("pi", dir) {
 		out = append(out, checkPlugin("pi", "pi", filepath.Join(dir, "extensions", "pitwall.ts"), agent.IsPiExtension))
+	}
+	if dir := agent.OmpDir(home); dir != agent.PiDir(home) && installed("omp", dir) {
+		out = append(out, checkPlugin("Oh My Pi", "omp", filepath.Join(dir, "extensions", "pitwall.ts"), agent.IsOmpExtension))
 	}
 	return out
 }

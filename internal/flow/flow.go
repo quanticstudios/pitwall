@@ -100,7 +100,7 @@ func (s Subagent) Running() bool { return s.End.IsZero() }
 // not read.
 func Reads(p model.Provider) bool {
 	switch p {
-	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderGemini:
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderOmp, model.ProviderGemini:
 		return true
 	}
 	return false

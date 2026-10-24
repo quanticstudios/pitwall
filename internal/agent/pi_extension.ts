@@ -1,8 +1,10 @@
-// pitwall's pi extension, from `pitwall hooks install`; edited copies are left alone.
+// pitwall's pi and omp extension, from `pitwall hooks install`; edited copies are left alone.
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 const bin = __PITWALL_BIN__;
+// agent is the provider `pitwall hook` reports for: pi, or omp for Oh My Pi.
+const agent: string = "pi";
 
 type Job = { payload: Record<string, unknown>; done: () => void };
 
@@ -29,7 +31,7 @@ export default function (pi: any) {
 	if (!process.env.PITWALL_PANE) return;
 	// why: /reload starts a new runtime in the same session; pitwall tells their reports apart by this.
 	const runtime = randomUUID();
-	// why: one `pitwall hook pi` at a time keeps events in order; pi waits only at shutdown, up to 1s, for the final report.
+	// why: one `pitwall hook` at a time keeps events in order; pi waits only at shutdown, up to 1s, for the final report.
 	const limit = 32;
 	let pending: Job[] = [];
 	let busy = false;
@@ -50,7 +52,7 @@ export default function (pi: any) {
 				resolve();
 			};
 			try {
-				const child = spawn(bin, ["hook", "pi"], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+				const child = spawn(bin, ["hook", agent], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
 				// warn: a child may ignore SIGTERM, so the deadline kills it and moves on regardless.
 				timer = setTimeout(() => {
 					kill(child);
@@ -82,13 +84,13 @@ export default function (pi: any) {
 		});
 	}
 
-	// final runs `pitwall hook pi` detached, so it outlives pi and pi's process
+	// final runs `pitwall hook` detached, so it outlives pi and pi's process
 	// group, and resolves once payload is in its pipe. The hook gives up on its
 	// own after 5s.
 	function final(payload: Record<string, unknown>): Promise<void> {
 		return new Promise<void>((resolve) => {
 			try {
-				const child = spawn(bin, ["hook", "pi"], { detached: true, stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+				const child = spawn(bin, ["hook", agent], { detached: true, stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
 				child.on("error", () => resolve());
 				child.unref();
 				child.stdin?.on("error", () => resolve());
@@ -140,7 +142,11 @@ export default function (pi: any) {
 	pi.on("tool_call", (event: any, ctx: any) => {
 		report(ctx, "tool_call", { tool_name: String(event?.toolName ?? "") });
 	});
-	pi.on("agent_end", (event: any) => {
+	function settle(ctx: any): void {
+		result = last;
+		report(ctx, "agent_settled", last);
+	}
+	pi.on("agent_end", (event: any, ctx: any) => {
 		try {
 			const messages = Array.isArray(event?.messages) ? event.messages : [];
 			const m = [...messages].reverse().find((m: any) => m && m.role === "assistant");
@@ -148,11 +154,10 @@ export default function (pi: any) {
 		} catch {
 			last = {};
 		}
+		// why: omp has no agent_settled; a run's last agent_end is the one that will not continue.
+		if (agent === "omp" && event?.willContinue !== true) settle(ctx);
 	});
-	pi.on("agent_settled", (_event: any, ctx: any) => {
-		result = last;
-		report(ctx, "agent_settled", last);
-	});
+	pi.on("agent_settled", (_event: any, ctx: any) => settle(ctx));
 	pi.on("session_shutdown", async () => {
 		if (!started) return;
 		// why: reports still queued die with pi, a fast `pi -p` run's result

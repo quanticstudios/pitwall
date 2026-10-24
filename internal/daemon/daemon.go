@@ -747,7 +747,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.Scroll:
 		return d.scroll(m)
 	case proto.AgentEvent:
-		if settled, ok := agent.PiSettled(m.Payload); ok && m.Provider == model.ProviderPi {
+		if settled, ok := agent.PiSettled(m.Payload); ok && (m.Provider == model.ProviderPi || m.Provider == model.ProviderOmp) {
 			// why: a shutdown that carries the run's result is that agent_settled, then the shutdown.
 			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: m.Pane, Provider: m.Provider, Payload: settled}); err != nil {
 				return err
@@ -1150,7 +1150,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	// from any other, such as one /reload replaced, changes nothing, and
 	// neither does one a runtime sends after its session_shutdown.
 	piEvent := ""
-	if m.Provider == model.ProviderPi {
+	if m.Provider == model.ProviderPi || m.Provider == model.ProviderOmp {
 		piEvent = agent.PiEvent(m.Payload)
 	}
 	if rt, start := agent.PiRuntime(m.Payload); rt != "" {

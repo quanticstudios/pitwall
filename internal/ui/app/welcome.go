@@ -34,6 +34,7 @@ var welcomeAgents = []struct{ cmd, name, url string }{
 	{"gemini", "Gemini CLI", "https://github.com/google-gemini/gemini-cli"},
 	{"opencode", "OpenCode", "https://github.com/sst/opencode"},
 	{"pi", "pi", "https://github.com/badlogic/pi-mono"},
+	{"omp", "Oh My Pi", "https://github.com/can1357/oh-my-pi"},
 	{"cursor-agent", "Cursor CLI", "https://cursor.com/cli"},
 	{"amp", "Amp", "https://ampcode.com"},
 	{"aider", "Aider", "https://aider.chat"},

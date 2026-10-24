@@ -44,9 +44,9 @@ const usage = `usage:
                              (starts the daemon there if needed)
   pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
   pitwall daemon             run the daemon in the foreground
-  pitwall hook <provider>    forward an agent hook event (claude, codex, pi, gemini, opencode)
+  pitwall hook <provider>    forward an agent hook event (claude, codex, pi, omp, gemini, opencode)
   pitwall hooks              print the hook config for every agent
-  pitwall hooks install      add hooks, pi's extension, OpenCode's plugin and the
+  pitwall hooks install      add hooks, pi's and omp's extensions, OpenCode's plugin and the
                              pitwall skill for Claude Code and Codex (--dry-run;
                              --statusline also runs Claude Code's status line through
                              pitwall statusline, to show its plan limits)
@@ -376,6 +376,7 @@ func printHooks() error {
 	fmt.Printf("# ~/.codex/hooks.json (then trust them once with /hooks inside codex):\n{\"hooks\": %s}\n\n", agent.CodexHooks(bin))
 	fmt.Printf("# or, for finished turns only, ~/.codex/config.toml:\n%s\n\n", agent.CodexNotify(bin))
 	fmt.Printf("# ~/.pi/agent/extensions/pitwall.ts ($PI_CODING_AGENT_DIR/extensions/pitwall.ts when set):\n%s\n", agent.PiExtension(bin))
+	fmt.Printf("# ~/.omp/agent/extensions/pitwall.ts, for Oh My Pi (pi's above when $PI_CODING_AGENT_DIR is set):\n%s\n", agent.OmpExtension(bin))
 	fmt.Printf("# ~/.gemini/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.GeminiHooks(bin))
 	fmt.Printf("# ~/.cursor/hooks.json, merge into the top-level object:\n{\"version\": 1, \"hooks\": %s}\n\n", agent.CursorHooks(bin))
 	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js ($XDG_CONFIG_HOME/opencode/plugins/pitwall.js when set):\n%s\n", agent.OpenCodePlugin(bin))

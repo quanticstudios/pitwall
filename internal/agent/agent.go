@@ -11,6 +11,7 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -110,11 +111,11 @@ type payload struct {
 //	SessionEnd, Interrupt (Codex)           remove
 //	Codex notify agent-turn-complete        completed, Detail = the start of the last message
 //
-// pi, from the extension PiExtension writes:
+// pi, from the extension PiExtension writes, and omp from OmpExtension's:
 //
 //	before_agent_start, agent_start         working
 //	tool_call                               working, Detail = tool name
-//	agent_settled                           completed, Detail = start of the last reply;
+//	agent_settled (omp: its last agent_end) completed, Detail = start of the last reply;
 //	                                        error when the run failed, Detail = the error,
 //	                                        both redacted like Stop's;
 //	                                        remove when the user aborted it
@@ -589,6 +590,15 @@ func PiDir(home string) string {
 	return dir
 }
 
+// OmpDir is omp's agent directory: $PI_CODING_AGENT_DIR, which omp reads
+// too, else .omp/agent in home.
+func OmpDir(home string) string {
+	if os.Getenv("PI_CODING_AGENT_DIR") != "" {
+		return PiDir(home)
+	}
+	return filepath.Join(home, ".omp", "agent")
+}
+
 // CodexNotify returns the `notify = [...]` line for ~/.codex/config.toml.
 // Notify reports only finished turns; CodexHooks covers every state. The
 // command no-ops outside a pitwall pane.
@@ -619,12 +629,27 @@ func PiExtension(bin string) []byte {
 var piReleased = []string{
 	"6075137b80ebb0c738c88c2abca9f192e9fc3858eab4e215f4702bceb3bcca02", // v0.1.0-alpha.5
 	"11f4736b693b600e21a7eb1d5336e842804cee7a5f6a5b1c0a0a2360a492a42b", // v0.1.0-alpha.6
+	"66a661de319a73aa4e500c5357b694e72370138ef5bdbabc5faaead7470d647b", // v0.1.0-alpha.7 to beta.18
 }
 
 // IsPiExtension reports whether b is exactly what PiExtension returns for
 // some binary path, now or in an earlier release: a file pitwall wrote and
 // nobody edited since.
 func IsPiExtension(b []byte) bool { return isGenerated(b, piTemplate, piReleased) }
+
+const piAgent, ompAgent = `const agent: string = "pi";`, `const agent: string = "omp";`
+
+// OmpExtension is PiExtension for omp, which loads it from
+// <OmpDir>/extensions/pitwall.ts: it runs `<bin> hook omp`, and takes a
+// run's last agent_end for the agent_settled omp lacks.
+func OmpExtension(bin string) []byte {
+	return bytes.Replace(PiExtension(bin), []byte(piAgent), []byte(ompAgent), 1)
+}
+
+// IsOmpExtension is IsPiExtension for what OmpExtension returns.
+func IsOmpExtension(b []byte) bool {
+	return bytes.Contains(b, []byte(ompAgent)) && IsPiExtension(bytes.Replace(b, []byte(ompAgent), []byte(piAgent), 1))
+}
 
 //go:embed opencode_plugin.js
 var openCodeTemplate string

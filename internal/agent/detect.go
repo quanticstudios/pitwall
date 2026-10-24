@@ -12,6 +12,7 @@ var programs = map[string]model.Provider{
 	"claude":       model.ProviderClaude,
 	"codex":        model.ProviderCodex,
 	"pi":           model.ProviderPi,
+	"omp":          model.ProviderOmp,
 	"gemini":       model.ProviderGemini,
 	"opencode":     model.ProviderOpenCode,
 	"cursor-agent": model.ProviderCursor,
@@ -116,7 +117,7 @@ func scriptAgent(path string) model.Provider {
 // `pitwall hooks install`. Amp and Aider have none.
 func HooksFor(p model.Provider) bool {
 	switch p {
-	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor:
+	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderOmp, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor:
 		return true
 	}
 	return false

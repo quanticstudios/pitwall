@@ -100,7 +100,7 @@ func paneTitle(ap model.AgentPane) string {
 	agent := AgentName(paneAgent(ap))
 	t := strings.TrimSpace(ap.Pane.Title)
 	switch strings.ToLower(t) {
-	case "", "~", "claude", "claude code", "codex", "pi", "π":
+	case "", "~", "claude", "claude code", "codex", "pi", "π", "omp":
 	default:
 		if !strings.EqualFold(t, agent) {
 			return t

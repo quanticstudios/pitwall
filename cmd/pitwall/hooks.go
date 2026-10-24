@@ -139,6 +139,12 @@ func runHooks(args []string, out io.Writer) error {
 			return mergeGenerated(original, agent.PiExtension(bin), install, agent.IsPiExtension, "pi extension")
 		}})
 	}
+	// why: omp reads $PI_CODING_AGENT_DIR too; when it is set, both load pi's extension.
+	if dir := agent.OmpDir(home); dir != agent.PiDir(home) && installed("omp", dir) {
+		files = append(files, config{path: filepath.Join(dir, "extensions", "pitwall.ts"), merge: func(original []byte) ([]byte, []string, error) {
+			return mergeGenerated(original, agent.OmpExtension(bin), install, agent.IsOmpExtension, "omp extension")
+		}})
+	}
 	if dir := agent.GeminiDir(home); installed("gemini", dir) {
 		files = append(files, config{path: filepath.Join(dir, "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
 			data, changes, err := mergeHooks(original, agent.GeminiHooks(bin), install)
