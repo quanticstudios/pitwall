@@ -60,7 +60,7 @@ var ompFrom, ompTo = color.NRGBA{R: 0xed, G: 0x4a, B: 0xbf, A: 0xff}, color.NRGB
 var (
 	ampColor   = color.NRGBA{R: 0xf3, G: 0x4e, B: 0x3f, A: 0xff}
 	aiderColor = color.NRGBA{R: 0x14, G: 0xb0, B: 0x14, A: 0xff}
-	ompColor   = color.NRGBA{R: 0x9b, G: 0x4d, B: 0xff, A: 0xff} // the gradient's middle stop
+	ompColor   = color.NRGBA{R: 0x9b, G: 0x4d, B: 0xff, A: 0xff} // the middle stop of omp's favicon gradient
 )
 
 // pi's logo from pi (MIT), packages/ai/src/utils/oauth-page.ts: a 4x4 grid
