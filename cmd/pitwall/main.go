@@ -263,6 +263,7 @@ func runDaemon() (err error) {
 			log.Printf("updated the pitwall skill at %s", p)
 		}
 	}
+	daemon.Build = versionString()
 	d, err := daemon.New()
 	if err != nil {
 		ln.Close()
@@ -419,7 +420,7 @@ func runGUI(session string) error {
 			return conn.Send(proto.FocusSession{SessionID: target.ID})
 		}
 		b = newBackend(conn, target.ID)
-		b.state, b.link.Level = initial.State, initial.Level
+		b.state, b.link.Level, b.link.Build = initial.State, initial.Level, initial.Build
 		go b.recvLoop()
 		go b.sendLoop()
 	}

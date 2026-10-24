@@ -37,3 +37,28 @@ func TestRestartOlderDaemon(t *testing.T) {
 	}
 	Host = ""
 }
+
+// A daemon at this Level that runs an older release is behind too; a dev
+// build on either side never is.
+func TestDaemonBehind(t *testing.T) {
+	b := &linked{FakeBackend: NewFakeBackend()}
+	u := &ui{b: b}
+	defer func(v string) { Version = v }(Version)
+	for _, tc := range []struct {
+		name, window string
+		link         Link
+		want         bool
+	}{
+		{"older build", "v0.1.1", Link{Level: proto.Level, Build: "v0.1.0-beta.18"}, true},
+		{"same build", "v0.1.1", Link{Level: proto.Level, Build: "v0.1.1"}, false},
+		{"newer build", "v0.1.1", Link{Level: proto.Level, Build: "v0.1.2"}, false},
+		{"dev daemon", "v0.1.1", Link{Level: proto.Level, Build: "dev-abc123"}, false},
+		{"dev window", "dev-abc123", Link{Level: proto.Level, Build: "v0.1.1"}, false},
+		{"lower level", "v0.1.1", Link{Level: proto.Level - 1}, true},
+	} {
+		Version, b.link = tc.window, tc.link
+		if got := u.daemonBehind(); got != tc.want {
+			t.Errorf("%s: behind %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

@@ -6,16 +6,22 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
+	"github.com/quanticstudios/pitwall/internal/update"
 )
 
 // daemonBehind reports whether this window's daemon is older than the
-// window: the same proto.Version at a lower Level. It still serves the
-// window, but what the newer Levels added does nothing until it restarts,
-// so the update button offers that. Only a local daemon: on a --host the
-// restart would start that machine's own pitwall, which may be as old.
+// window: the same proto.Version at a lower Level, or an older release.
+// It still serves the window, but what the newer pitwall added does
+// nothing until it restarts, so the update button offers that. A dev
+// build on either side is never behind. Only a local daemon: on a --host
+// the restart would start that machine's own pitwall, which may be as old.
 func (u *ui) daemonBehind() bool {
 	l, ok := u.b.(Linker)
-	return ok && Host == "" && l.Link().State == LinkUp && l.Link().Level < proto.Level
+	if !ok || Host != "" {
+		return false
+	}
+	lk := l.Link()
+	return lk.State == LinkUp && (lk.Level < proto.Level || update.Newer(Version, lk.Build))
 }
 
 // updateLabel is the update button's text: the updater's, else "Restart
