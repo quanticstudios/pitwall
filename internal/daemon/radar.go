@@ -91,9 +91,10 @@ func (d *Daemon) scanRadar(ctx context.Context) {
 		}
 	}
 	d.mu.Unlock()
-	// ponytail: a scan runs only when a tab, its branch or its stats moved,
-	// so a new untracked file, which the stats leave out, waits for the next
-	// change that shows; drop the check if that misses overlaps.
+	// ponytail: a scan runs only when a tab, its branch, its stats or its
+	// PR's state moved, so a new untracked file, which the stats leave out,
+	// waits for the next change that shows; drop the check if that misses
+	// overlaps.
 	if sig.String() == d.radar.last {
 		return
 	}
