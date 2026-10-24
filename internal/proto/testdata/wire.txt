@@ -1,4 +1,4 @@
-16.24
+16.25
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -70,7 +70,7 @@ proto.SetLayout{WorkspaceID string; TabID string; Layout *layout.Node}
 proto.SetProjectAppearance{ProjectID string; Icon string; Color string}
 proto.SetSessionGroup{WorkspaceID string; GroupID string}
 proto.SetTabOptions{WorkspaceID string; Pinned bool; Color string}
-proto.StateMsg{State model.State; Level int}
+proto.StateMsg{State model.State; Level int; Build string}
 proto.Sync{}
 proto.Text{Pane string; Sel vt.Selection}
 proto.TextResult{Pane string; Sel vt.Selection; Text string}

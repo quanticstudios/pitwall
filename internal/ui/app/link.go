@@ -38,6 +38,7 @@ type Link struct {
 	Note  string // the dialog's second line: progress, or why a try failed
 	Epoch int    // counts connections made; a new one gets sizes and the session again
 	Level int    // the daemon's proto.Level
+	Build string // the daemon's version, empty below Level 25
 }
 
 // Linker is optionally implemented by a Backend whose daemon connection can

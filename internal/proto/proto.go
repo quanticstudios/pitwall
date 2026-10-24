@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 25 added StateMsg.Build: the window offers to restart a daemon
+// that runs an older release at the same Level.
 // Level 24 added Activity.Resumes and CancelResume: the daemon types
 // continue into an agent a usage limit stopped, once the limit resets.
 // Level 23 added State.Listening, the open ports of each tab's block.
@@ -110,7 +112,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 24
+const Level = 25
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
@@ -371,6 +373,8 @@ type StateMsg struct {
 	State model.State
 	// Level is the daemon's proto.Level, 0 from daemons before level 1.
 	Level int
+	// Build is the daemon's `pitwall --version`, empty below Level 25.
+	Build string
 }
 
 type Frame struct {

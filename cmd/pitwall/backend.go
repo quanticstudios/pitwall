@@ -304,7 +304,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
-	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level}
+	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level, Build: initial.Build}
 	first := b.session == ""
 	b.mu.Unlock()
 	log.Printf("connected to the daemon")
@@ -420,7 +420,7 @@ func (b *backend) recvLoop() {
 		pane := "" // of a frame
 		switch m := msg.(type) {
 		case proto.StateMsg:
-			b.state, b.link.Level = m.State, m.Level
+			b.state, b.link.Level, b.link.Build = m.State, m.Level, m.Build
 			live := map[string]bool{}
 			for _, p := range m.State.Panes {
 				live[p.ID] = true

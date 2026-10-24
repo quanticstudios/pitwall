@@ -55,6 +55,9 @@ const (
 // is disconnected; tests shorten it.
 var writeTimeout = 10 * time.Second
 
+// Build is this binary's version, set by main; StateMsg carries it.
+var Build string
+
 // Pane is what the daemon needs from a running pane; *pane.Pane has it.
 type Pane interface {
 	Write(b []byte) (int, error)
@@ -428,7 +431,7 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 		var out []any
 		if state {
 			d.mu.Lock()
-			out = append(out, proto.StateMsg{State: d.snapshot(), Level: proto.Level})
+			out = append(out, proto.StateMsg{State: d.snapshot(), Level: proto.Level, Build: Build})
 			d.mu.Unlock()
 		}
 		for id := range fresh {
@@ -560,7 +563,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			d.mu.Lock()
 			s := d.snapshot()
 			d.mu.Unlock()
-			c.queue(proto.StateMsg{State: s, Level: proto.Level})
+			c.queue(proto.StateMsg{State: s, Level: proto.Level, Build: Build})
 			continue
 		}
 		if s, ok := m.(proto.Search); ok {

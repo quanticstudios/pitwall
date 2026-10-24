@@ -44,9 +44,10 @@ type Release struct {
 	Assets map[string]string
 }
 
-// releaseRe matches a release tag. A git describe string past a tag
-// (v0.1.0-alpha.18-3-gabc1234, ...-dirty) and dev builds do not match.
-var releaseRe = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?$`)
+// releaseRe matches a release tag: vX.Y.Z, or vX.Y.Z-beta.N and the like.
+// A git describe string past a tag (v0.1.1-3-gabc1234, v0.1.1-dirty) and
+// dev builds do not match.
+var releaseRe = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z]+\.\d+))?$`)
 
 // Newer reports whether tag is a later release than current, by semver
 // precedence: v0.1.0-alpha.10 is after v0.1.0-alpha.9. A current that is
