@@ -208,7 +208,10 @@ func TestRadarNotice(t *testing.T) {
 	}
 	scan("") // neither has a pull request
 	d.st.PRs = map[string]model.PR{"billing": {Number: 7, State: model.PROpen}}
-	scan("acme-api and billing both edit src/server/router.ts.")
+	d.scanRadar(context.Background()) // stats unchanged: the opened PR alone must rescan
+	if want := "acme-api and billing both edit src/server/router.ts."; d.st.Notice != want {
+		t.Fatalf("after the PR opened, Notice = %q, want %q", d.st.Notice, want)
+	}
 	d.st.Notice = "" // dismissed
 	scan("")
 
