@@ -17,7 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- Oh My Pi (`omp`) works like pi: its tab shows Working, Done and Error, the side panel follows its session, and it resumes with `omp --resume <id>` after a restart. `pitwall hooks install` writes pitwall's extension to `~/.omp/agent/extensions/pitwall.ts` when omp is installed.
+- Oh My Pi (`omp`) works like pi: its tab shows Working, Done and Error, the side panel follows its session, and it resumes with `omp --resume <id>` after a restart. `pitwall hooks install` writes pitwall's extension to `~/.omp/agent/extensions/pitwall.ts` when omp is installed; with `$PI_CODING_AGENT_DIR` set, omp loads pi's copy, which reports as omp too.
 
 ## v0.1.0-beta.18
 

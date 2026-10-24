@@ -3,8 +3,10 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 const bin = __PITWALL_BIN__;
-// agent is the provider `pitwall hook` reports for: pi, or omp for Oh My Pi.
+// agent is the copy's agent: pi, or omp for Oh My Pi.
 const agent: string = "pi";
+// why: omp titles its process "omp", and loads pi's copy when $PI_CODING_AGENT_DIR points it at pi's dir.
+const provider = agent === "omp" || process.title === "omp" ? "omp" : "pi";
 
 type Job = { payload: Record<string, unknown>; done: () => void };
 
@@ -52,7 +54,7 @@ export default function (pi: any) {
 				resolve();
 			};
 			try {
-				const child = spawn(bin, ["hook", agent], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+				const child = spawn(bin, ["hook", provider], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
 				// warn: a child may ignore SIGTERM, so the deadline kills it and moves on regardless.
 				timer = setTimeout(() => {
 					kill(child);
@@ -90,7 +92,7 @@ export default function (pi: any) {
 	function final(payload: Record<string, unknown>): Promise<void> {
 		return new Promise<void>((resolve) => {
 			try {
-				const child = spawn(bin, ["hook", agent], { detached: true, stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+				const child = spawn(bin, ["hook", provider], { detached: true, stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
 				child.on("error", () => resolve());
 				child.unref();
 				child.stdin?.on("error", () => resolve());
@@ -155,7 +157,7 @@ export default function (pi: any) {
 			last = {};
 		}
 		// why: omp has no agent_settled; a run's last agent_end is the one that will not continue.
-		if (agent === "omp" && event?.willContinue !== true) settle(ctx);
+		if (provider === "omp" && event?.willContinue !== true) settle(ctx);
 	});
 	pi.on("agent_settled", (_event: any, ctx: any) => settle(ctx));
 	pi.on("session_shutdown", async () => {

@@ -351,7 +351,8 @@ func RestoreCmd(p model.Pane) []string {
 	case model.ProviderPi:
 		return append(piFlags(cmd, args), "--session", p.SessionID)
 	case model.ProviderOmp:
-		return append(keepFlags(cmd, args, ompOptions), "--resume", p.SessionID)
+		// why: omp's --plan takes whatever follows it, so the session id goes first, never after a kept flag.
+		return keepFlags(append(cmd, "--resume", p.SessionID), args, ompOptions)
 	case model.ProviderGemini:
 		return append(keepFlags(cmd, args, geminiOptions), "--resume", p.SessionID)
 	case model.ProviderOpenCode:
@@ -410,8 +411,8 @@ func RestoreCmd(p model.Pane) []string {
 }
 
 // cliOpt is one option of an agent's CLI: the values it takes, '1' one,
-// '+' one or more, '?' an optional one, 0 none, and whether a resumed
-// session keeps it.
+// '!' the next argument whatever it is, "--" included, '+' one or more,
+// '?' an optional one, 0 none, and whether a resumed session keeps it.
 type cliOpt struct {
 	values byte
 	keep   bool
@@ -468,23 +469,32 @@ var geminiOptions = map[string]cliOpt{
 	"--session-id": {'1', false}, "--list-sessions": {}, "--delete-session": {'1', false}, "-o": {'1', false}, "--output-format": {'1', false},
 }
 
-// ompOptions are the options of `omp --help` (v18.12.6). A resume keeps the
-// model, profile, config, tool, extension and approval settings, and drops
-// prompts, session selectors, output modes and one-off actions.
+// ompOptions are the options of omp's own parser (v18.12.6,
+// packages/coding-agent/src/cli/flag-tables.ts): a value flag takes the
+// next argument whatever it is, "--" included; --plan and the session
+// selectors take it only when it does not start with "-", as omp's
+// profile-bootstrap.ts reads them. A resume keeps the model, profile,
+// config, tool, extension and approval settings, and drops what omp's own
+// resume drops (session selectors, --fork, imports, --goal) along with
+// prompts, output modes and one-off actions.
 var ompOptions = map[string]cliOpt{
-	"--model": {'1', true}, "--smol": {'1', true}, "--slow": {'1', true}, "--plan": {'1', true}, "--provider": {'1', true},
-	"--api-key": {'1', true}, "--system-prompt": {'1', true}, "--system-prompt-template": {'1', true},
-	"--append-system-prompt": {'1', true}, "--allow-home": {0, true}, "--profile": {'1', true}, "--cwd": {'1', true},
-	"--config": {'1', true}, "--add-dir": {'1', true}, "--session-dir": {'1', true}, "--models": {'1', true},
-	"--no-tools": {0, true}, "--no-lsp": {0, true}, "--no-pty": {0, true}, "--tools": {'1', true}, "--thinking": {'1', true},
-	"--service-tier": {'1', true}, "--hide-thinking": {0, true}, "--advisor": {0, true}, "--external-thinking": {0, true},
-	"--hook": {'1', true}, "-e": {'1', true}, "--extension": {'1', true}, "--no-extensions": {0, true},
-	"--no-skills": {0, true}, "--skills": {'1', true}, "--no-rules": {0, true}, "--no-title": {0, true},
-	"--auto-approve": {0, true}, "--approval-mode": {'1', true}, "--prewalk": {0, true}, "--no-prewalk": {0, true},
-	"--prewalk-into": {'1', true}, "-p": {}, "--print": {}, "-c": {}, "--continue": {}, "-r": {'?', false}, "--resume": {'?', false},
-	"--restore": {'1', false}, "--goal": {'1', false}, "--plan-yolo": {}, "--plan-yolo-into": {'1', false},
-	"--from-claude": {}, "--from-codex": {}, "--no-session": {}, "--mode": {'1', false}, "--export": {'1', false},
-	"--print-thoughts": {}, "--max-time": {'1', false}, "--no-ui": {}, "--alias": {'1', false},
+	"--cwd": {'!', true}, "--config": {'!', true}, "--add-dir": {'!', true}, "--provider": {'!', true}, "--model": {'!', true},
+	"--smol": {'!', true}, "--slow": {'!', true}, "--prewalk-into": {'!', true}, "--service-tier": {'!', true},
+	"--api-key": {'!', true}, "--system-prompt": {'!', true}, "--system-prompt-template": {'!', true},
+	"--append-system-prompt": {'!', true}, "--session-dir": {'!', true}, "--models": {'!', true}, "--tools": {'!', true},
+	"--thinking": {'!', true}, "--hook": {'!', true}, "--extension": {'!', true}, "-e": {'!', true},
+	"--trusted-extension": {'!', true}, "--plugin-dir": {'!', true}, "--skills": {'!', true}, "--approval-mode": {'!', true},
+	"--profile": {'1', true}, "--plan": {'?', true},
+	"--allow-home": {0, true}, "--no-tools": {0, true}, "--no-lsp": {0, true}, "--no-pty": {0, true},
+	"--hide-thinking": {0, true}, "--advisor": {0, true}, "--external-thinking": {0, true}, "--prewalk": {0, true},
+	"--no-prewalk": {0, true}, "--no-extensions": {0, true}, "--no-skills": {0, true}, "--no-rules": {0, true},
+	"--no-title": {0, true}, "--auto-approve": {0, true}, "--yolo": {0, true},
+	"--mode": {'!', false}, "--fork": {'!', false}, "--goal": {'!', false}, "--plan-yolo-into": {'!', false},
+	"--max-time": {'!', false}, "--provider-session-id": {'!', false}, "--prompt-cache-key": {'!', false},
+	"--export": {'!', false}, "--alias": {'1', false},
+	"--resume": {'?', false}, "-r": {'?', false}, "--restore": {'?', false}, "--session": {'?', false},
+	"--continue": {}, "-c": {}, "--from-claude": {}, "--from-codex": {}, "--no-session": {}, "--plan-yolo": {},
+	"--print": {}, "-p": {}, "--print-thoughts": {}, "--no-ui": {}, "--help": {}, "-h": {}, "--version": {}, "-v": {},
 }
 
 // openCodeOptions are the options of OpenCode's default TUI command
@@ -515,9 +525,9 @@ func keepFlags(cmd, args []string, opts map[string]cliOpt) []string {
 		}
 		start := i
 		switch opt.values {
-		case '1', '+':
+		case '1', '!', '+':
 			if !attached {
-				if i+1 >= len(args) || args[i+1] == "--" {
+				if i+1 >= len(args) || args[i+1] == "--" && opt.values != '!' {
 					continue
 				}
 				i++
