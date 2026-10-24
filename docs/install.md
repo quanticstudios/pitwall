@@ -4,21 +4,21 @@ The install commands are in the [README](../README.md#install).
 
 | Platform                       | Release builds | Status                     |
 | ------------------------------ | -------------- | -------------------------- |
-| Linux (glibc 2.35 or newer)    | x86_64, arm64  | beta, used every day       |
-| macOS                          | arm64, x86_64  | beta, new and not yet run  |
-| Windows 10 1809 or newer, 11   | x86_64, arm64  | beta, new and not yet run  |
+| Linux (glibc 2.35 or newer)    | x86_64, arm64  | used every day             |
+| macOS                          | arm64, x86_64  | new and not yet run        |
+| Windows 10 1809 or newer, 11   | x86_64, arm64  | new and not yet run        |
 
 pitwall is developed on Linux (Hyprland) and works on any Wayland or X11
-desktop. Releases are tagged `v0.1.0-beta.N`. Config and saved state carry
+desktop. Releases are tagged `v0.1.N`, and each one bumps the patch number. Config and saved state carry
 over between releases, and a release that cannot keep them says so in the
 changelog.
 
 The script downloads the latest release for your system, checks it against
 the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
 Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin`, adds that
-folder to your user PATH, and adds pitwall to the Start menu. To pin a release, set `PITWALL_VERSION=v0.1.0-beta.1`; to
+folder to your user PATH, and adds pitwall to the Start menu. To pin a release, set `PITWALL_VERSION=v0.1.1`; to
 install somewhere else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them
-first with `$env:PITWALL_VERSION = 'v0.1.0-beta.1'`.
+first with `$env:PITWALL_VERSION = 'v0.1.1'`.
 
 ## Platform notes
 

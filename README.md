@@ -13,7 +13,7 @@ worktree. They hang under its tab, and one bar shows which of them need you.
 
 <img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs grouped by project, with Working, Approval, Input and Done states, pull request chips and Allow and Deny buttons; the open tab runs three agents in split panes" width="800">
 
-pitwall is in beta. It runs every day on Linux; the macOS and Windows
+pitwall runs every day on Linux; the macOS and Windows
 builds are newer. When a release is out, an Update button installs it,
 and your tabs and config carry over.
 
