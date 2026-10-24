@@ -41,20 +41,26 @@ const (
 // Gemini's spark in its brand purple.
 var geminiColor = color.NRGBA{R: 0x8e, G: 0x75, B: 0xb2, A: 0xff}
 
-// Amp, Aider and Oh My Pi have no mark in Simple Icons, so each gets a
-// letter mark: a rounded badge in its color with a glyph cut from it, Amp's
-// "A", Aider's prompt, ">_", and omp's "π" in pi's coral.
+// Amp and Aider have no mark in Simple Icons, so each gets a letter mark: a
+// rounded badge in its color with a glyph cut from it, Amp's "A" and Aider's
+// prompt, ">_".
 const (
 	icBadge = "M5 2H19A3 3 0 0 1 22 5V19A3 3 0 0 1 19 22H5A3 3 0 0 1 2 19V5A3 3 0 0 1 5 2Z"
 	icAmp   = icBadge + "M12 5.5 6.5 18.5H8.8L9.9 15.8H14.1L15.2 18.5H17.5ZM12 8.9 13.4 13.8H10.6Z"
 	icAider = icBadge + "M6.5 7.5V9.8L9.3 12 6.5 14.2V16.5L12 12ZM13 15V17H18V15Z"
-	icOmp   = icBadge + "M5.5 6.5V8.5H9L8 17.5H10.2L11.2 8.5H13.4V15.6A2 2 0 0 0 15.4 17.6H17.6V15.8H16.2A0.6 0.6 0 0 1 15.6 15.2V8.5H18.5V6.5Z"
 )
+
+// Oh My Pi's π from oh-my-pi (MIT), packages/collab-web/public/favicon.svg,
+// moved from its 64 box to fill the 24 one, in its gradient's pink and the
+// blue its hero image ends on.
+const icOmp = "M3 2H21V6H16V22H12V6H9V17H5V6H3Z"
+
+var ompFrom, ompTo = color.NRGBA{R: 0xed, G: 0x4a, B: 0xbf, A: 0xff}, color.NRGBA{R: 0x78, G: 0xa6, B: 0xec, A: 0xff}
 
 var (
 	ampColor   = color.NRGBA{R: 0xf3, G: 0x4e, B: 0x3f, A: 0xff}
 	aiderColor = color.NRGBA{R: 0x14, G: 0xb0, B: 0x14, A: 0xff}
-	ompColor   = piMark[0].col
+	ompColor   = color.NRGBA{R: 0x9b, G: 0x4d, B: 0xff, A: 0xff} // the gradient's middle stop
 )
 
 // pi's logo from pi (MIT), packages/ai/src/utils/oauth-page.ts: a 4x4 grid
@@ -117,7 +123,7 @@ func AgentName(p model.Provider) string {
 
 // AgentMark draws the agent's logo in a size box: Claude's starburst,
 // OpenAI's knot for Codex, Cursor's cube and OpenCode's block in fg, pi's
-// blocks, Gemini's spark, or Amp's, Aider's and omp's letter marks.
+// blocks, omp's gradient π, Gemini's spark, or Amp's and Aider's letter marks.
 func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) layout.Dimensions {
 	switch p {
 	case model.ProviderCodex:
@@ -133,7 +139,7 @@ func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) l
 	case model.ProviderAider:
 		return fillIcon(gtx, icAider, size, aiderColor)
 	case model.ProviderOmp:
-		return fillIcon(gtx, icOmp, size, ompColor)
+		return gradientIcon(gtx, icOmp, size, ompFrom, ompTo)
 	case model.ProviderPi:
 		var dims layout.Dimensions
 		for _, m := range piMark {
@@ -145,7 +151,7 @@ func AgentMark(gtx layout.Context, p model.Provider, size int, fg color.NRGBA) l
 }
 
 // AgentColor is the agent's color in charts: Claude's orange, pi's blue
-// block, omp's coral, Gemini's purple, Amp's red, Aider's green, else fg.
+// block, omp's purple, Gemini's purple, Amp's red, Aider's green, else fg.
 func AgentColor(p model.Provider, fg color.NRGBA) color.NRGBA {
 	switch p {
 	case model.ProviderClaude:

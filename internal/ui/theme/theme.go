@@ -397,5 +397,22 @@ func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 			log.Printf("theme: emoji: %q", err)
 		}
 	}
+	// why: Gio falls back only to faces of the asked weight, and the
+	// fallbacks have Regular and Bold alone, so a Medium or SemiBold title
+	// drew a box for a glyph the UI font lacks, such as omp's "π".
+	for _, f := range faces {
+		if f.Font.Typeface == ui.Typeface {
+			continue
+		}
+		switch f.Font.Weight {
+		case font.Normal:
+			f.Font.Weight = font.Medium
+		case font.Bold:
+			f.Font.Weight = font.SemiBold
+		default:
+			continue
+		}
+		faces = append(faces, f)
+	}
 	return fontSet{faces, ui, mono, errors.Join(errs...)}
 }

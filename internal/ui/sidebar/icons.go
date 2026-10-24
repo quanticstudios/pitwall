@@ -201,16 +201,37 @@ func fillIcon(gtx layout.Context, d string, size int, col color.NRGBA) layout.Di
 }
 
 func paintIcon(gtx layout.Context, d string, size int, col color.NRGBA, rot float32, fill bool) layout.Dimensions {
+	if rot != 0 {
+		c := f32.Pt(float32(size)/2, float32(size)/2)
+		defer op.Affine(f32.AffineId().Rotate(c, rot)).Push(gtx.Ops).Pop()
+	}
+	s := float32(size) / 24
+	p := iconPath(gtx, d, size)
+	if fill {
+		paint.FillShape(gtx.Ops, col, clip.Outline{Path: p}.Op())
+	} else {
+		paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p, Width: 2 * s}.Op())
+	}
+	return layout.Dimensions{Size: image.Pt(size, size)}
+}
+
+// gradientIcon fills path d like fillIcon with a gradient from col1 at the
+// box's top left to col2 at its bottom right.
+func gradientIcon(gtx layout.Context, d string, size int, col1, col2 color.NRGBA) layout.Dimensions {
+	defer clip.Outline{Path: iconPath(gtx, d, size)}.Op().Push(gtx.Ops).Pop()
+	paint.LinearGradientOp{Stop2: f32.Pt(float32(size), float32(size)), Color1: col1, Color2: col2}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+	return layout.Dimensions{Size: image.Pt(size, size)}
+}
+
+// iconPath is path d scaled from its 24x24 box to size px.
+func iconPath(gtx layout.Context, d string, size int) clip.PathSpec {
 	segs, ok := iconCache[d]
 	if !ok {
 		segs = parsePath(d)
 		iconCache[d] = segs
 	}
 	s := float32(size) / 24
-	if rot != 0 {
-		c := f32.Pt(float32(size)/2, float32(size)/2)
-		defer op.Affine(f32.AffineId().Rotate(c, rot)).Push(gtx.Ops).Pop()
-	}
 	var p clip.Path
 	p.Begin(gtx.Ops)
 	for _, sg := range segs {
@@ -228,12 +249,7 @@ func paintIcon(gtx layout.Context, d string, size int, col color.NRGBA, rot floa
 			p.Close()
 		}
 	}
-	if fill {
-		paint.FillShape(gtx.Ops, col, clip.Outline{Path: p.End()}.Op())
-	} else {
-		paint.FillShape(gtx.Ops, col, clip.Stroke{Path: p.End(), Width: 2 * s}.Op())
-	}
-	return layout.Dimensions{Size: image.Pt(size, size)}
+	return p.End()
 }
 
 // projectIcons are the icons the project popover offers, in grid order:

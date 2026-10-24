@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"gioui.org/font"
+	"gioui.org/text"
+	"golang.org/x/image/math/fixed"
+
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -50,5 +54,19 @@ func TestDarkFillsFonts(t *testing.T) {
 	}
 	if _, err := os.Stat(emojiFile); err == nil && !strings.HasSuffix(string(th.MonoFont.Typeface), ", "+emojiFamily) {
 		t.Errorf("mono typeface %q lacks the emoji fallback", th.MonoFont.Typeface)
+	}
+}
+
+func TestUIFontFallsBackForMissingGlyphs(t *testing.T) {
+	th := Dark()
+	// omp titles its tab "π > dir", Geist has no Greek, and row titles are
+	// Medium or SemiBold.
+	for _, w := range []font.Weight{font.Normal, font.Medium, font.SemiBold, font.Bold} {
+		f := th.UIFont
+		f.Weight = w
+		th.Shaper.LayoutString(text.Parameters{Font: f, PxPerEm: fixed.I(16), MaxWidth: 1000}, "π")
+		if g, ok := th.Shaper.NextGlyph(); !ok || g.ID&(1<<32-1) == 0 {
+			t.Errorf("π shapes to .notdef at weight %v", w)
+		}
 	}
 }
