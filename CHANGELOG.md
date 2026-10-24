@@ -1,19 +1,24 @@
 # Changelog
 
-pitwall is in beta. Releases are `v0.1.0-beta.1`, `v0.1.0-beta.2`, ...:
-each release bumps the beta number and becomes the latest release on
-GitHub, which is what the installers take. Before the beta came
-`v0.1.0-alpha.1` to `v0.1.0-alpha.24`, and before those the `v0.0.N` tags,
-the same alpha under patch numbers. A release is a git tag on `main`; `scripts/install.sh` stamps the
-binary with `git describe`, and `pitwall --version` prints it.
+Releases are `v0.1.1`, `v0.1.2`, ...: each release bumps the patch number
+and becomes the latest release on GitHub, which is what the installers take.
+Before them came `v0.1.0-beta.1` to `v0.1.0-beta.18`, `v0.1.0-alpha.1` to
+`v0.1.0-alpha.24`, and the `v0.0.N` tags. A release is a git tag on `main`;
+`scripts/install.sh` stamps the binary with `git describe`, and
+`pitwall --version` prints it.
 
 Changes land with their notes under `## Unreleased` at the top. To cut a
 release from an up-to-date, clean `main`, run `sh scripts/release.sh`. It
 renames `## Unreleased` to the next `## v0.1.N` (or the version you
-pass) and opens a `Release v0.1.0-beta.N` pull request. Once that merges,
+pass) and opens a `Release v0.1.N` pull request. Once that merges,
 `git pull --ff-only` and run `sh scripts/release.sh --tag`. It tags the
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
+
+## Unreleased
+
+- omp tabs show Oh My Pi's own gradient π instead of a coral letter badge.
+- A character the sidebar's font lacks, such as the π omp puts in its tab title, no longer draws as a box in bold and medium titles; it comes from the terminal font, as it already did in regular text.
 
 ## v0.1.1
 

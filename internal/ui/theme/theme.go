@@ -397,5 +397,38 @@ func loadFonts(uiFam, monoFam string, fallback []string) fontSet {
 			log.Printf("theme: emoji: %q", err)
 		}
 	}
+	// why: Gio falls back only to faces of the asked weight, and the
+	// fallbacks lack some of the UI's four (JetBrains Mono has Regular and
+	// Bold, the Go fonts' Bold reads as SemiBold), so a title drew a box for
+	// a glyph the UI font lacks, such as omp's "π". Each missing weight
+	// borrows the family's nearest one.
+	have := map[font.Font]bool{}
+	for _, f := range faces {
+		have[f.Font] = true
+	}
+	best := map[font.Font]font.FontFace{}
+	var order []font.Font
+	for _, f := range faces {
+		if f.Font.Typeface == ui.Typeface {
+			continue
+		}
+		for _, w := range []font.Weight{font.Normal, font.Medium, font.SemiBold, font.Bold} {
+			k := f.Font
+			k.Weight = w
+			if have[k] {
+				continue
+			}
+			b, ok := best[k]
+			if !ok {
+				order = append(order, k)
+			}
+			if !ok || abs(float32(f.Font.Weight-w)) < abs(float32(b.Font.Weight-w)) {
+				best[k] = f
+			}
+		}
+	}
+	for _, k := range order {
+		faces = append(faces, font.FontFace{Font: k, Face: best[k].Face})
+	}
 	return fontSet{faces, ui, mono, errors.Join(errs...)}
 }
