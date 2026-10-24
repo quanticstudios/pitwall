@@ -44,7 +44,7 @@ Oh My Pi (`omp`), a fork of pi, loads the same extension from
 fires no `agent_settled`, so the extension takes a run's last `agent_end`,
 the one omp sends without `willContinue`, as the finished run. omp also reads
 `$PI_CODING_AGENT_DIR`; when it is set, omp and pi share that directory and
-pi's extension, and an omp tab reports as pi.
+pi's extension, which knows omp by its process title and reports as omp.
 
 OpenCode takes plugins rather than shell hooks, so for OpenCode the command
 writes `~/.config/opencode/plugins/pitwall.js` (under `$XDG_CONFIG_HOME`

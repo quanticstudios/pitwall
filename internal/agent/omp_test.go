@@ -40,13 +40,16 @@ func TestOmpExtension(t *testing.T) {
 	// A fake `pitwall` appends each payload it gets as a line. The harness
 	// drives the extension through one run as omp and as pi fire it: omp ends
 	// a run with an agent_end that will not continue, pi with agent_settled.
+	// omp loads pi's copy under $PI_CODING_AGENT_DIR, and that copy knows omp
+	// by its process title.
 	for _, tt := range []struct {
-		agent string
-		ext   func(bin string) []byte
-		end   string
+		name, agent string
+		ext         func(bin string) []byte
+		title, end  string
 	}{
-		{"omp", OmpExtension, ""},
-		{"pi", PiExtension, `await on.agent_settled({}, ctx);`},
+		{"omp", "omp", OmpExtension, "", ""},
+		{"pi's copy in omp", "omp", PiExtension, "omp", ""},
+		{"pi", "pi", PiExtension, "", `await on.agent_settled({}, ctx);`},
 	} {
 		dir := t.TempDir()
 		out := filepath.Join(dir, "out.jsonl")
@@ -60,6 +63,7 @@ func TestOmpExtension(t *testing.T) {
 		}
 		harness := filepath.Join(dir, "harness.mjs")
 		if err := os.WriteFile(harness, []byte(`import fs from "node:fs";
+if (process.env.TITLE) process.title = process.env.TITLE;
 const ext = (await import(process.argv[2])).default;
 const on = {};
 ext({ on: (name, fn) => { on[name] = fn; } });
@@ -82,17 +86,17 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 			t.Fatal(err)
 		}
 		cmd := exec.Command(node, "--experimental-strip-types", "--no-warnings", harness, ext)
-		cmd.Env = append(os.Environ(), "PITWALL_PANE=p1", "OUT="+out)
+		cmd.Env = append(os.Environ(), "PITWALL_PANE=p1", "OUT="+out, "TITLE="+tt.title)
 		cmd.WaitDelay = 15 * time.Second
 		if b, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("%s: node: %v\n%s", tt.agent, err, b)
+			t.Fatalf("%s: node: %v\n%s", tt.name, err, b)
 		}
 		b, err := os.ReadFile(out)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(b), "secret-arg") {
-			t.Errorf("%s: sent tool arguments: %s", tt.agent, b)
+			t.Errorf("%s: sent tool arguments: %s", tt.name, b)
 		}
 		var got []string
 		var settled []byte
@@ -105,11 +109,11 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 		}
 		want := "session_start before_agent_start agent_start tool_call agent_settled session_shutdown"
 		if strings.Join(got, " ") != want {
-			t.Fatalf("%s: events\n got %v\nwant %s", tt.agent, got, want)
+			t.Fatalf("%s: events\n got %v\nwant %s", tt.name, got, want)
 		}
 		p := model.Provider(tt.agent)
 		if next, ok := Derive(&model.Activity{Provider: p, SessionID: "s1", State: model.StateWorking}, p, settled, time.Now()); !ok || next.State != model.StateCompleted || next.Detail != "All done." || next.Provider != p {
-			t.Errorf("%s: Derive(agent_settled) = %+v, %v", tt.agent, next, ok)
+			t.Errorf("%s: Derive(agent_settled) = %+v, %v", tt.name, next, ok)
 		}
 	}
 }

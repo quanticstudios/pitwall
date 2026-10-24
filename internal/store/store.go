@@ -468,23 +468,31 @@ var geminiOptions = map[string]cliOpt{
 	"--session-id": {'1', false}, "--list-sessions": {}, "--delete-session": {'1', false}, "-o": {'1', false}, "--output-format": {'1', false},
 }
 
-// ompOptions are the options of `omp --help` (v18.12.6). A resume keeps the
-// model, profile, config, tool, extension and approval settings, and drops
-// prompts, session selectors, output modes and one-off actions.
+// ompOptions are the options of omp's own parser (v18.12.6,
+// packages/coding-agent/src/cli/flag-tables.ts): a value flag takes the
+// next argument whatever it is, --plan and the session selectors take it
+// only when it does not start with "-". A resume keeps the model, profile,
+// config, tool, extension and approval settings, and drops what omp's own
+// resume drops (session selectors, --fork, imports, --goal) along with
+// prompts, output modes and one-off actions.
 var ompOptions = map[string]cliOpt{
-	"--model": {'1', true}, "--smol": {'1', true}, "--slow": {'1', true}, "--plan": {'1', true}, "--provider": {'1', true},
+	"--cwd": {'1', true}, "--config": {'1', true}, "--add-dir": {'1', true}, "--provider": {'1', true}, "--model": {'1', true},
+	"--smol": {'1', true}, "--slow": {'1', true}, "--prewalk-into": {'1', true}, "--service-tier": {'1', true},
 	"--api-key": {'1', true}, "--system-prompt": {'1', true}, "--system-prompt-template": {'1', true},
-	"--append-system-prompt": {'1', true}, "--allow-home": {0, true}, "--profile": {'1', true}, "--cwd": {'1', true},
-	"--config": {'1', true}, "--add-dir": {'1', true}, "--session-dir": {'1', true}, "--models": {'1', true},
-	"--no-tools": {0, true}, "--no-lsp": {0, true}, "--no-pty": {0, true}, "--tools": {'1', true}, "--thinking": {'1', true},
-	"--service-tier": {'1', true}, "--hide-thinking": {0, true}, "--advisor": {0, true}, "--external-thinking": {0, true},
-	"--hook": {'1', true}, "-e": {'1', true}, "--extension": {'1', true}, "--no-extensions": {0, true},
-	"--no-skills": {0, true}, "--skills": {'1', true}, "--no-rules": {0, true}, "--no-title": {0, true},
-	"--auto-approve": {0, true}, "--approval-mode": {'1', true}, "--prewalk": {0, true}, "--no-prewalk": {0, true},
-	"--prewalk-into": {'1', true}, "-p": {}, "--print": {}, "-c": {}, "--continue": {}, "-r": {'?', false}, "--resume": {'?', false},
-	"--restore": {'1', false}, "--goal": {'1', false}, "--plan-yolo": {}, "--plan-yolo-into": {'1', false},
-	"--from-claude": {}, "--from-codex": {}, "--no-session": {}, "--mode": {'1', false}, "--export": {'1', false},
-	"--print-thoughts": {}, "--max-time": {'1', false}, "--no-ui": {}, "--alias": {'1', false},
+	"--append-system-prompt": {'1', true}, "--session-dir": {'1', true}, "--models": {'1', true}, "--tools": {'1', true},
+	"--thinking": {'1', true}, "--hook": {'1', true}, "--extension": {'1', true}, "-e": {'1', true},
+	"--trusted-extension": {'1', true}, "--plugin-dir": {'1', true}, "--skills": {'1', true}, "--approval-mode": {'1', true},
+	"--profile": {'1', true}, "--plan": {'?', true},
+	"--allow-home": {0, true}, "--no-tools": {0, true}, "--no-lsp": {0, true}, "--no-pty": {0, true},
+	"--hide-thinking": {0, true}, "--advisor": {0, true}, "--external-thinking": {0, true}, "--prewalk": {0, true},
+	"--no-prewalk": {0, true}, "--no-extensions": {0, true}, "--no-skills": {0, true}, "--no-rules": {0, true},
+	"--no-title": {0, true}, "--auto-approve": {0, true}, "--yolo": {0, true},
+	"--mode": {'1', false}, "--fork": {'1', false}, "--goal": {'1', false}, "--plan-yolo-into": {'1', false},
+	"--max-time": {'1', false}, "--provider-session-id": {'1', false}, "--prompt-cache-key": {'1', false},
+	"--export": {'1', false}, "--alias": {'1', false},
+	"--resume": {'?', false}, "-r": {'?', false}, "--restore": {'?', false}, "--session": {'?', false},
+	"--continue": {}, "-c": {}, "--from-claude": {}, "--from-codex": {}, "--no-session": {}, "--plan-yolo": {},
+	"--print": {}, "-p": {}, "--print-thoughts": {}, "--no-ui": {}, "--help": {}, "-h": {}, "--version": {}, "-v": {},
 }
 
 // openCodeOptions are the options of OpenCode's default TUI command

@@ -48,8 +48,12 @@ func hookStatus(home string) []hookFile {
 	if dir := agent.PiDir(home); installed("pi", dir) {
 		out = append(out, checkPlugin("pi", "pi", filepath.Join(dir, "extensions", "pitwall.ts"), agent.IsPiExtension))
 	}
-	if dir := agent.OmpDir(home); dir != agent.PiDir(home) && installed("omp", dir) {
-		out = append(out, checkPlugin("Oh My Pi", "omp", filepath.Join(dir, "extensions", "pitwall.ts"), agent.IsOmpExtension))
+	if dir := agent.OmpDir(home); installed("omp", dir) {
+		is := agent.IsOmpExtension
+		if dir == agent.PiDir(home) {
+			is = agent.IsPiExtension // why: omp shares pi's dir, and its extension, under $PI_CODING_AGENT_DIR
+		}
+		out = append(out, checkPlugin("Oh My Pi", "omp", filepath.Join(dir, "extensions", "pitwall.ts"), is))
 	}
 	return out
 }

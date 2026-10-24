@@ -435,7 +435,7 @@ func TestPiExtension(t *testing.T) {
 		}
 	}
 	src := string(PiExtension("pitwall"))
-	for _, s := range []string{`spawn(bin, ["hook", agent]`, `kill("SIGKILL")`, "const limit = 32;", "for (const job of pending.splice(0)) job.done();", "detached: true", "...session, ...result }", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
+	for _, s := range []string{`spawn(bin, ["hook", provider]`, `kill("SIGKILL")`, "const limit = 32;", "for (const job of pending.splice(0)) job.done();", "detached: true", "...session, ...result }", "runtime = randomUUID()", "{ event, runtime,", "if (cps.length <= 16000) return s;", "cut.search(/\\s\\S*$/)", "if (!started) begin(ctx);", `"agent_settled"`, `"session_shutdown"`, `"tool_call"`} {
 		if !strings.Contains(src, s) {
 			t.Errorf("extension lacks %s", s)
 		}
