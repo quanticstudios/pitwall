@@ -27,7 +27,7 @@ bad() {
     fail=1
 }
 
-# setup makes a fresh origin and clone whose CHANGELOG.md top is $1, tagged with $2 (default: two betas and three releases).
+# setup makes a fresh origin and clone whose CHANGELOG.md top is $1, tagged with $2 (default: an old v0.0.10, two betas and three releases).
 setup() {
     rm -rf "$tmp/origin.git" "$tmp/repo" "$tmp/gh.log"
     git init --quiet --bare -b main "$tmp/origin.git"
@@ -37,7 +37,7 @@ setup() {
     printf '# Changelog\n\n%s\n## v0.1.10\n\n- Old.\n' "$1" >CHANGELOG.md
     git add CHANGELOG.md
     git commit --quiet -m init
-    for t in ${2:-v0.1.0-beta.17 v0.1.0-beta.18 v0.1.2 v0.1.9 v0.1.10}; do
+    for t in ${2:-v0.0.10 v0.1.0-beta.17 v0.1.0-beta.18 v0.1.2 v0.1.9 v0.1.10}; do
         git tag -a "$t" -m "$t"
     done
     git push --quiet origin main --tags
@@ -105,7 +105,7 @@ git checkout -- CHANGELOG.md
 git switch --quiet -c other
 refuses 'not main'
 
-setup "$unreleased" 'v0.1.0-beta.17 v0.1.0-beta.18'
+setup "$unreleased" 'v0.0.10 v0.1.0-beta.17 v0.1.0-beta.18'
 out=$(sh "$script" --dry-run)
 printf '%s' "$out" | grep -qE 'release-v0\.1\.1( |$)' || bad "first release after betas is not v0.1.1: $out"
 

@@ -43,13 +43,14 @@ git fetch --quiet --tags origin
     die 'main differs from origin/main; run: git pull --ff-only'
 
 if [ -z "$version" ]; then
-    # The newest release tag (no pre-release suffix) gets its patch number bumped; v0.1.1 is the first.
-    latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -e - | head -n 1 || true)
-    n=${latest##*.}
+    # The newest tag, pre-releases included, without its suffix gets its patch number bumped: v0.1.0-beta.18 gives v0.1.1.
+    latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+    base=${latest%%-*}
+    n=${base##*.}
     case "$n" in
-        '' | *[!0-9]*) version=v0.1.1 ;;
-        *) version=${latest%.*}.$((n + 1)) ;;
+        '' | *[!0-9]*) die 'no vX.Y.Z tag to count from; pass the version' ;;
     esac
+    version=${base%.*}.$((n + 1))
     step "Next version after ${latest:-no tags}: $version"
 else
     step "Version: $version"
