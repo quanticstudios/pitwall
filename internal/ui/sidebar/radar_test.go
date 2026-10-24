@@ -99,3 +99,30 @@ func TestRadarCardInput(t *testing.T) {
 		t.Error("the card stayed open after a click on a file")
 	}
 }
+
+// TestRadarMarkOnlyForOpenPRs checks a row marks only overlaps with a tab
+// whose pull request is open, while its hover card keeps them all.
+func TestRadarMarkOnlyForOpenPRs(t *testing.T) {
+	th := theme.Dark()
+	st := cardState()
+	st.Workspaces = append(st.Workspaces, model.Workspace{ID: "api", Name: "acme-api", NameSet: true, Branch: "acme-api"})
+	st.Overlaps = map[string][]model.Overlap{
+		"agent": {{WorkspaceID: "api", Branch: "acme-api", Files: []string{"go.mod"}, Conflicts: 1}},
+		"api":   {{WorkspaceID: "agent", Branch: "fix/login", Files: []string{"go.mod"}, Conflicts: 1}},
+	}
+	st.PRs = map[string]model.PR{"api": {Number: 3, State: model.PROpen}}
+	v := newView(layout.Context{}, th, st, "", "")
+	if radarMark(v, "agent") == nil {
+		t.Error("no mark for a conflict with an open pull request")
+	}
+	if radarMark(v, "api") != nil {
+		t.Error("a mark for a conflict with a branch that has no pull request")
+	}
+	if c := cardFor(v, st.Workspaces[2]); len(c.radar) != 1 {
+		t.Errorf("the hover card dropped an overlap: %+v", c.radar)
+	}
+	st.PRs["api"] = model.PR{Number: 3, State: model.PRMerged}
+	if radarMark(v, "agent") != nil {
+		t.Error("a mark for a merged pull request")
+	}
+}

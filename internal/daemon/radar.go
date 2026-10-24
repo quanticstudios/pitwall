@@ -87,7 +87,7 @@ func (d *Daemon) scanRadar(ctx context.Context) {
 			t := radarTab{id: w.ID, branch: w.Branch, dir: d.st.LivePath(w)}
 			tabs = append(tabs, t)
 			branches[w.Branch] = true
-			fmt.Fprintln(&sig, t, d.st.Stats[w.ID])
+			fmt.Fprintln(&sig, t, d.st.Stats[w.ID], d.st.PRs[w.ID].State) // an opened PR can make a notice due
 		}
 	}
 	d.mu.Unlock()
@@ -211,7 +211,8 @@ func (d *Daemon) overlaps(ctx context.Context, tabs []radarTab) (map[string][]mo
 
 // radarNotice puts, in State.Notice, the pairs of tabs that started to
 // share files or to conflict since the last notice, and reports whether it
-// did. Another notice on screen holds it back until it is dismissed.
+// did. A pair counts once one of its tabs has an open pull request: until
+// then sibling branches of one fleet overlap as a matter of course. Another notice on screen holds it back until it is dismissed.
 // Callers hold d.mu.
 func (d *Daemon) radarNotice() bool {
 	if d.st.Notice != "" && d.st.Notice != d.radar.notice {
@@ -225,6 +226,9 @@ func (d *Daemon) radarNotice() bool {
 		for _, o := range d.st.Overlaps[id] {
 			if o.WorkspaceID < id {
 				continue // the pair once, from its first tab
+			}
+			if d.st.PRs[id].State != model.PROpen && d.st.PRs[o.WorkspaceID].State != model.PROpen {
+				continue
 			}
 			var fresh []string
 			conflict := false

@@ -439,18 +439,22 @@ tab without the click.
 
 Agents in worktrees of one repository can edit the same files without
 knowing it. When two tabs on different branches of the same repository
-change a file in common, committed or not, both rows get a warning
-triangle after their diff stats: amber when they only touch the same files,
-red when merging their commits would conflict (`git merge-tree`, which
-leaves the work trees alone). Uncommitted changes count as touching, never as
-a conflict. The hover card names the other tab, lists the files with the
+change a file in common, committed or not, and one of them has an open
+pull request, the other's row gets a warning triangle after its diff stats:
+amber when they only touch the same files, red when merging their commits
+would conflict (`git merge-tree`, which leaves the work trees alone). The
+open pull request is the next to land, so the other branch will have to
+rebase over it. Branches without one, such as a fleet of agents started from
+one commit, overlap as a matter of course and show only in the hover card.
+Uncommitted changes count as touching, never as a conflict. The hover card
+lists every overlap: it names the other tab, lists the files with the
 conflicting ones first in red, and suggests which branch to merge first: the
 one with fewer conflicting files, else the one not behind the default
 branch, else the smaller one. Click a file in the card to open that tab's
-review view on it. The first time two tabs share a file, a notice says so, such as
+review view on it. The first time two tabs share a file while one of them has an open pull request, a notice says so, such as
 "billing and acme-api both edit src/server/router.ts"; it comes back only for
 a new file or a new conflict. pitwall checks when it refreshes the branch
-stats, at most every 30 seconds, and only while tabs sit on two or more
+stats or a pull request opens, at most every 30 seconds, and only while tabs sit on two or more
 branches. Set `conflict_radar = false` under `[git]` to turn it off.
 
 A soft green broadcast mark under a tab's agent icon means you can drive

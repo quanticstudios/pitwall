@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- The conflict radar marks a tab's row, and puts up its notice, only for an overlap with a tab whose pull request is open. Worktrees started from one commit, like a fleet of agents, no longer all show warning triangles; the hover card still lists every overlap.
 - omp tabs show Oh My Pi's own gradient π instead of a coral letter badge.
 - A character the sidebar's font lacks, such as the π omp puts in its tab title, no longer draws as a box in bold and medium titles; it comes from the terminal font, as it already did in regular text.
 
