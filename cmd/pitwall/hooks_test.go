@@ -492,6 +492,48 @@ func TestHooksPiExtension(t *testing.T) {
 	}
 }
 
+// omp gets its own extension under ~/.omp/agent, unless $PI_CODING_AGENT_DIR
+// points it at pi's.
+func TestHooksOmpExtension(t *testing.T) {
+	home := hooksHome(t)
+	dir := filepath.Join(home, ".omp", "agent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "extensions", "pitwall.ts")
+	var out bytes.Buffer
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(readHooksTestFile(t, path), agent.OmpExtension(testBin)) || !strings.Contains(out.String(), "wrote omp extension") {
+		t.Fatalf("install: %s", out.String())
+	}
+	writeHooksTestFile(t, path, string(agent.OmpExtension("/old/pitwall")))
+	if err := runHooks([]string{"install"}, &out); err != nil || !bytes.Equal(readHooksTestFile(t, path), agent.OmpExtension(testBin)) {
+		t.Fatalf("install over an old binary's file: %v", err)
+	}
+	out.Reset()
+	if err := runHooks([]string{"uninstall"}, &out); err != nil || !strings.Contains(out.String(), "removed omp extension") {
+		t.Fatalf("uninstall: %v %s", err, out.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("uninstall left the extension")
+	}
+
+	shared := filepath.Join(home, "agent")
+	t.Setenv("PI_CODING_AGENT_DIR", shared)
+	if err := os.Mkdir(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := runHooks([]string{"install"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(readHooksTestFile(t, filepath.Join(shared, "extensions", "pitwall.ts")), agent.PiExtension(testBin)) || strings.Contains(out.String(), "omp extension") {
+		t.Fatalf("a shared agent dir got omp's extension: %s", out.String())
+	}
+}
+
 // The skill goes to Claude's and Codex's skills dirs, never over an
 // edited copy, and leaves with its dir on uninstall.
 func TestHooksSkill(t *testing.T) {

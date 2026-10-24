@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// pi reads a pi session: entries {type, timestamp, ...}; type "message"
+// pi reads a pi or omp session: entries {type, timestamp, ...}; type "message"
 // carries a message whose role is user, assistant or toolResult. An
 // assistant's content has text and toolCall {id, name, arguments} blocks; a
 // toolResult names its toolCallId. pi has no plan and no subagents.

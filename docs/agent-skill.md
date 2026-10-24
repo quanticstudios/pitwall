@@ -145,7 +145,7 @@ order, detached tabs last. Every key is always present; unknown strings are
 {"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0}]}
 ```
 
-`agent` is the agent's name (`claude`, `codex`, `pi`, `gemini`, `opencode`,
+`agent` is the agent's name (`claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
 `cursor`, `amp`, `aider`, or another program a decision model reads from the
 screen) or `""`. `state` is one from the table above,
 for the tab's main pane. `question` is the agent's question or approval

@@ -1,6 +1,6 @@
 # Hooks
 
-Hooks are how Claude Code, Codex, pi, Gemini CLI, OpenCode and Cursor CLI
+Hooks are how Claude Code, Codex, pi, Oh My Pi, Gemini CLI, OpenCode and Cursor CLI
 tell pitwall exactly what they are doing. Amp and Aider have no hooks;
 pitwall recognizes them and reads what it can from their screens (see
 [Watching agents](usage.md#watching-agents)).
@@ -12,6 +12,7 @@ pitwall recognizes them and reads what it can from their screens (see
 | Gemini CLI | hooks in `~/.gemini/settings.json`                | `gemini` is on `PATH` or the dir exists       |
 | Cursor CLI | hooks in `~/.cursor/hooks.json`                   | `cursor-agent` is on `PATH` or the dir exists |
 | pi         | an extension, `~/.pi/agent/extensions/pitwall.ts` | `pi` is on `PATH` or the dir exists           |
+| Oh My Pi   | the same, `~/.omp/agent/extensions/pitwall.ts`    | `omp` is on `PATH` or the dir exists          |
 | OpenCode   | a plugin, `~/.config/opencode/plugins/pitwall.js` | `opencode` is on `PATH` or the dir exists     |
 | Amp, Aider | nothing: they have no hooks                       |                                               |
 
@@ -37,6 +38,13 @@ daemon never fails pi. pitwall skips pi when `pi` is not on your `PATH` and
 its agent directory does not exist. It replaces the extension only when
 nobody edited it; an edited one is left alone with a warning, and the other
 agents' hooks are installed as usual.
+
+Oh My Pi (`omp`), a fork of pi, loads the same extension from
+`~/.omp/agent/extensions/pitwall.ts`, where it runs `pitwall hook omp`. omp
+fires no `agent_settled`, so the extension takes a run's last `agent_end`,
+the one omp sends without `willContinue`, as the finished run. omp also reads
+`$PI_CODING_AGENT_DIR`; when it is set, omp and pi share that directory and
+pi's extension, and an omp tab reports as pi.
 
 OpenCode takes plugins rather than shell hooks, so for OpenCode the command
 writes `~/.config/opencode/plugins/pitwall.js` (under `$XDG_CONFIG_HOME`
@@ -69,8 +77,8 @@ pane.
 
 Inside Codex, run `/hooks` once to trust the new hooks, and restart agent
 sessions that were already running (`/reload` in pi). `pitwall hooks
-uninstall` removes only the exact entries pitwall added, and pi's
-extension, OpenCode's plugin and the skill only when they are unedited. `pitwall hooks` prints the blocks and the
+uninstall` removes only the exact entries pitwall added, and pi's and
+omp's extensions, OpenCode's plugin and the skill only when they are unedited. `pitwall hooks` prints the blocks and the
 extension if you prefer to edit the files yourself.
 
 The hooks do nothing outside a pitwall pane, so they are safe to keep

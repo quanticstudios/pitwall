@@ -68,6 +68,7 @@ func TestIdentify(t *testing.T) {
 		{"codex", "/home/u/.local/share/mise/installs/codex/0.160.0/bin/codex", model.ProviderCodex},
 		{"MainThread", "/usr/lib/codex/codex", model.ProviderCodex},
 		{"pi", "/home/u/.local/share/mise/installs/pi/latest/pi/pi", model.ProviderPi},
+		{"omp", "/home/u/.local/share/mise/installs/github-can1357-oh-my-pi/18.12.6/omp", model.ProviderOmp},
 		{"gemini", "/usr/bin/gemini", model.ProviderGemini},
 		{"opencode", "/home/u/.npm/lib/node_modules/opencode-ai/bin/opencode.exe", model.ProviderOpenCode},
 		{"cursor-agent", "", model.ProviderCursor},

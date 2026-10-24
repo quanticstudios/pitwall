@@ -430,7 +430,7 @@ func dirName(dir string) string {
 // sets its own (C:\Program Files\Git\usr\bin\sh.exe).
 func genericTitle(w *model.Workspace, title string) bool {
 	switch strings.ToLower(title) {
-	case "", "~", "claude", "claude code", "codex", "pi", "π":
+	case "", "~", "claude", "claude code", "codex", "pi", "π", "omp":
 		return true
 	}
 	if len(title) > 3 && title[1] == ':' && title[2] == '\\' && strings.HasSuffix(strings.ToLower(title), ".exe") {

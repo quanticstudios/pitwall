@@ -33,7 +33,7 @@ pitwall
 ```
 
 The first window shows a welcome card. It lists the agent CLIs it found on
-your `PATH` (Claude Code, Codex, Gemini CLI, OpenCode, pi, Cursor CLI, Amp,
+your `PATH` (Claude Code, Codex, Gemini CLI, OpenCode, pi, Oh My Pi, Cursor CLI, Amp,
 Aider) and whether each one's hooks are installed. Start opens an agent in
 a tab of its own, and Install hooks shows what it would change before it
 changes it. Dismiss the card, or do anything else, and it never shows
@@ -133,7 +133,7 @@ approval = true               # permission prompts and plans
 input = true                  # questions, pitwall notify, bells
 done = false                  # finished turns
 failed = true                 # failed turns
-muted_agents = ["codex"]      # claude, codex, pi, gemini, opencode, terminal
+muted_agents = ["codex"]      # claude, codex, pi, omp, gemini, opencode, terminal
 quiet_hours = "22:00-08:00"   # no sound, and only approvals, errors and triage's "now"
 ```
 
@@ -171,6 +171,7 @@ the processes in the pane's own foreground group, and nothing else's.
 | Claude     | yes          | from the screen         | yes                     | yes                  |
 | Codex      | yes          | from the screen         | yes                     | yes                  |
 | pi         | an extension | from the screen         | yes                     | yes                  |
+| Oh My Pi   | an extension | none (the logo only)    | yes                     | side panel only      |
 | Gemini CLI | yes          | from the screen         | yes                     | yes                  |
 | OpenCode   | a plugin     | from the screen         | yes                     | no                   |
 | Cursor CLI | yes          | none (the logo only)    | yes                     | no                   |
@@ -182,6 +183,9 @@ Some states are out of reach:
 - pi has no permission prompts of its own, so a pi tab shows Working, Done,
   Error or nothing, never Input, Approval or Plan; a dialog an extension
   opens with `ctx.ui.confirm` is not reported.
+- Oh My Pi shows the same states as pi. It asks before a tool only when
+  `tools.approvalMode` is set (the default, `yolo`, never asks), and pitwall
+  does not report that prompt, so the tab stays Working.
 - Gemini CLI fires no hook when a turn fails, so with hooks it never shows
   Error; a failed turn stays Working until the next prompt.
 - OpenCode shows Plan only with its experimental plan mode on
