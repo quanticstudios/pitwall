@@ -39,6 +39,9 @@ func TestNewer(t *testing.T) {
 		{"v9.9.9", "dev-0123456789ab-dirty", false},
 		{"v9.9.9", "v0.1.0-alpha.18-3-g0123abc", false},
 		{"v9.9.9", "v0.1.0-alpha.18-dirty", false},
+		{"v9.9.9", "v0.1.1-dirty", false},
+		{"v9.9.9", "v0.1.1-3-g0123abc", false},
+		{"v0.1.1-dirty", "v0.1.0", false},
 		{"v9.9.9", "0123abc", false},
 		{"v9.9.9", "", false},
 	} {

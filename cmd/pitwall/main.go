@@ -455,10 +455,11 @@ func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, err
 	}
 	conn, initial, err := guiHandshake(nc, session)
 	switch {
-	case err == nil && restart && initial.Level < proto.Level:
-		// Same Version, older Level: the user asked to finish an upgrade.
+	case err == nil && restart && app.Behind(initial.Level, initial.Build):
+		// Same Version, older Level or release: the user asked to finish
+		// an upgrade.
 		conn.Close()
-		err = fmt.Errorf("the daemon is at protocol level %d and this pitwall %d", initial.Level, proto.Level)
+		err = fmt.Errorf("the daemon is %q at protocol level %d and this pitwall %q at %d", initial.Build, initial.Level, app.Version, proto.Level)
 	case err == nil:
 		return conn, initial, nil
 	case !errors.As(err, new(incompatible)):

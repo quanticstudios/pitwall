@@ -9,19 +9,26 @@ import (
 	"github.com/quanticstudios/pitwall/internal/update"
 )
 
-// daemonBehind reports whether this window's daemon is older than the
-// window: the same proto.Version at a lower Level, or an older release.
-// It still serves the window, but what the newer pitwall added does
-// nothing until it restarts, so the update button offers that. A dev
-// build on either side is never behind. Only a local daemon: on a --host
-// the restart would start that machine's own pitwall, which may be as old.
+// Behind reports whether a daemon of this proto.Version, at level and
+// running build, is older than this pitwall: a lower Level, or an older
+// release. Builds compare only when both are release tags, so a dev or
+// dirty build on either side counts by Level alone.
+func Behind(level int, build string) bool {
+	return level < proto.Level || update.Newer(Version, build)
+}
+
+// daemonBehind reports whether this window's daemon is Behind. It still
+// serves the window, but what the newer pitwall added does nothing until
+// it restarts, so the update button offers that. Only a local daemon: on a
+// --host the restart would start that machine's own pitwall, which may be
+// as old.
 func (u *ui) daemonBehind() bool {
 	l, ok := u.b.(Linker)
 	if !ok || Host != "" {
 		return false
 	}
 	lk := l.Link()
-	return lk.State == LinkUp && (lk.Level < proto.Level || update.Newer(Version, lk.Build))
+	return lk.State == LinkUp && Behind(lk.Level, lk.Build)
 }
 
 // updateLabel is the update button's text: the updater's, else "Restart

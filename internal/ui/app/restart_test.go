@@ -38,8 +38,8 @@ func TestRestartOlderDaemon(t *testing.T) {
 	Host = ""
 }
 
-// A daemon at this Level that runs an older release is behind too; a dev
-// build on either side never is.
+// A daemon at this Level that runs an older release is behind too. A dev,
+// dirty or describe build on either side compares by Level alone.
 func TestDaemonBehind(t *testing.T) {
 	b := &linked{FakeBackend: NewFakeBackend()}
 	u := &ui{b: b}
@@ -54,7 +54,12 @@ func TestDaemonBehind(t *testing.T) {
 		{"newer build", "v0.1.1", Link{Level: proto.Level, Build: "v0.1.2"}, false},
 		{"dev daemon", "v0.1.1", Link{Level: proto.Level, Build: "dev-abc123"}, false},
 		{"dev window", "dev-abc123", Link{Level: proto.Level, Build: "v0.1.1"}, false},
+		{"dirty daemon", "v0.1.2", Link{Level: proto.Level, Build: "v0.1.1-dirty"}, false},
+		{"dirty window", "v0.1.2-dirty", Link{Level: proto.Level, Build: "v0.1.1"}, false},
+		{"describe daemon", "v0.1.2", Link{Level: proto.Level, Build: "v0.1.1-3-g0123abc"}, false},
+		{"describe window", "v0.1.2-3-g0123abc", Link{Level: proto.Level, Build: "v0.1.1"}, false},
 		{"lower level", "v0.1.1", Link{Level: proto.Level - 1}, true},
+		{"lower level, dev window", "dev-abc123", Link{Level: proto.Level - 1, Build: "v0.1.1"}, true},
 	} {
 		Version, b.link = tc.window, tc.link
 		if got := u.daemonBehind(); got != tc.want {
