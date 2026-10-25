@@ -163,8 +163,9 @@ type payload struct {
 // tool, awaiting-input), PostToolUse once the user answered (working), Stop
 // (completed), StopFailure (error) and Interrupt for a run the user aborted
 // (remove). The question plan_exit asks, whether to switch to the build
-// agent, comes as PreToolUse of ExitPlanMode (plan-ready); OpenCode has
-// that tool only with OPENCODE_EXPERIMENTAL_PLAN_MODE set.
+// agent, comes as PreToolUse of ExitPlanMode (plan-ready); OpenCode 1 has
+// that tool only with OPENCODE_EXPERIMENTAL_PLAN_MODE set, and OpenCode 2
+// not at all.
 //
 // Tool failures stay working: an agent recovers from a failed command inside
 // the same turn, so error is reserved for turns the API ended. A Claude turn
@@ -658,7 +659,8 @@ func IsOmpExtension(b []byte) bool {
 var openCodeTemplate string
 
 // OpenCodePlugin returns the JavaScript plugin OpenCode loads from
-// <OpenCodeDir>/plugins/pitwall.js. Inside a pitwall pane it runs `<bin> hook
+// <OpenCodeDir>/plugins/pitwall.js, and OpenCode 2's TUI from
+// <OpenCodeDir>/plugins/pitwall/tui.js. Inside a pitwall pane it runs `<bin> hook
 // opencode` with a JSON payload on stdin, without a shell, one at a time in
 // the background, on each prompt, tool call, permission or question, and
 // finished, failed or aborted run of the main session; subagents' sessions
@@ -679,6 +681,7 @@ func IsOpenCodePlugin(b []byte) bool { return isGenerated(b, openCodeTemplate, o
 var openCodeReleased = []string{
 	"5e48c0f9ff7ae39bf0153001d3f7df57b4f5f9e0a6b9726b5fea39186a9d62c6", // v0.1.0-alpha.23
 	"765995ca8593576244fd4d147bd7d69497ae7cf6f5ee9f173333455c28534da1", // v0.1.0-beta.3 to v0.1.1
+	"3dc21c6709b78b409a79ba301932553bb1e9ff3484ed1e50ea74b48873c7f280", // main after v0.1.1, before OpenCode 2
 }
 
 //go:embed pitwall_skill.md
