@@ -20,8 +20,9 @@ import (
 
 // A tab whose agent opened other tabs (model.State.Root) is a fleet: its
 // row grows a strip under line 2, a bar with one segment per worker in its
-// state's color and a chip per state with its count, and the workers' rows
-// hang under it, kidIndent further in, until the strip folds them away.
+// state's color and a chip per state with its count. The workers start
+// folded into the strip; a click on it hangs their rows under it, kidIndent
+// further in.
 
 // kidIndent is how much further in a worker's row starts than its root's.
 const kidIndent unit.Dp = 14
@@ -73,15 +74,20 @@ func fleetHeight(gtx layout.Context, th *theme.Theme) int {
 }
 
 // KidsFolded reports whether tab id's workers are folded into its row.
-func (s *Sidebar) KidsFolded(id string) bool { return s.kidsFolded[id] }
+func (s *Sidebar) KidsFolded(id string) bool { return !s.kidsOpen[id] }
 
-// kidsShown is tab id's workers as the sidebar lists them under it: none
-// while its strip is folded.
+// kidsShown is tab id's workers as the sidebar lists them under it: while
+// its strip is folded, only the active tab, so the tab on screen keeps a row.
 func (s *Sidebar) kidsShown(v *view, id string) []model.Workspace {
-	if s.kidsFolded[id] {
-		return nil
+	if s.kidsOpen[id] {
+		return v.kids[id]
 	}
-	return v.kids[id]
+	for i, k := range v.kids[id] {
+		if k.ID == v.active {
+			return v.kids[id][i : i+1]
+		}
+	}
+	return nil
 }
 
 // fleetStrip draws tab id's strip in gtx's exact size: the fold chevron
@@ -99,7 +105,7 @@ func (s *Sidebar) fleetStrip(gtx layout.Context, v *view, id string, base color.
 		}
 		cs := gtx.Dp(12)
 		o := op.Offset(image.Pt(gtx.Dp(1), gtx.Dp(8)-cs/2)).Push(gtx.Ops)
-		chevron(gtx, &r.kidsT, !s.kidsFolded[id], cs, col)
+		chevron(gtx, &r.kidsT, s.kidsOpen[id], cs, col)
 		o.Pop()
 
 		x0, gap := gtx.Dp(20), gtx.Dp(2)

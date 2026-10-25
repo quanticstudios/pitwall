@@ -157,10 +157,11 @@ type Sidebar struct {
 	// whose sub-rows are folded away.
 	subs   map[string]*subRow
 	folded map[string]bool
-	// The fleets whose workers are folded into their strip (fleet.go).
-	kidsFolded map[string]bool
-	favicons   map[string]*favicon // repo root: its icon, nil when it has none
-	roots      map[string]string   // folder: the repo root above it, "" outside one
+	// The fleets whose workers hang under their strip; the rest are folded
+	// into it (fleet.go).
+	kidsOpen map[string]bool
+	favicons map[string]*favicon // repo root: its icon, nil when it has none
+	roots    map[string]string   // folder: the repo root above it, "" outside one
 
 	// Hints draws the keys the sidebar takes above the footer's buttons
 	// while it has the keyboard; nil hides them.

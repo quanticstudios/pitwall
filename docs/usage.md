@@ -272,7 +272,7 @@ whole session still closes it. The row of dots under Pin tab tints the tab
 in one of eight colors, or none.
 
 A tab an agent opens from its pane, with `pitwall new` or `pitwall
-worktree new`, hangs under the agent's tab, a step further in. It joins
+worktree new`, is that agent's worker. It joins
 the agent's group, or stays out of groups with an ungrouped agent, even
 when its folder has a group of its own. The
 agent's row grows a bar with one segment per worker in its state's color
@@ -280,8 +280,9 @@ and, under it, a count each of the workers that need you, failed, work,
 are done and stopped. A stopped worker, grey in the bar, has no agent
 running in its tab: the agent exited or never started. When the agent's
 own turn ends while a worker still works, its pill reads Watching, a blue
-outline with an eye, until the last worker stops. Click the bar to fold the workers into that row and again
-to bring them back. Ctrl+Shift+U still jumps to a folded worker that
+outline with an eye, until the last worker stops. The workers start
+folded into the agent's row, all but the one on screen; click the bar to
+list them under it, a step further in, and again to fold them. Ctrl+Shift+U still jumps to a folded worker that
 needs you. [The agent skill page](agent-skill.md#workers) has the
 commands an orchestrator runs.
 
