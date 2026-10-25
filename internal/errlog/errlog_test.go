@@ -107,3 +107,27 @@ func TestAddRedactsAndCuts(t *testing.T) {
 		t.Errorf("output %d runes, ends %q", n, e.Output[len(e.Output)-40:])
 	}
 }
+
+// TestAddHugeOutput: a 1 MB output counts in full toward Size, and only its
+// tail is kept.
+func TestAddHugeOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "errors.jsonl")
+	l, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := "HEAD " + strings.Repeat("é", 1<<20) + " Error: tests failed"
+	l.Add(Event{T: time.Now(), Kind: Command, Command: "go test ./...", Output: out})
+	l.Close(time.Second)
+	evs, err := Read(path, time.Time{})
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("read %v, %v", evs, err)
+	}
+	e := evs[0]
+	if want := len("go test ./...") + len([]rune(out)); e.Size != want {
+		t.Errorf("size %d, want %d", e.Size, want)
+	}
+	if n := len([]rune(e.Output)); n != outputLen || !strings.HasSuffix(e.Output, " Error: tests failed") || strings.Contains(e.Output, "HEAD") {
+		t.Errorf("output %d runes, ends %q", n, string([]rune(e.Output)[n-30:]))
+	}
+}

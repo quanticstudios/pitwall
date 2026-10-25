@@ -18,7 +18,6 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - An orchestrator's workers start folded into its row, so a fleet takes one row until you click its bar to list them.
-- Settings has an Agent errors category: the commands, tool calls and API errors your agents hit, kept redacted in `errors.jsonl` and grouped by cause over 7 days, 30 days or all time, with a Copy report button to hand the list to an agent to fix.
 - Settings has an Agent errors category: every failed tool call and API error from Claude Code, Codex, Cursor, Gemini CLI, OpenCode, pi and omp, kept redacted in `errors.jsonl` and grouped by cause over 7 days, 30 days or all time, by count or by tokens, with a Copy report button to hand the list to an agent to fix. Run `pitwall hooks install` again to update the OpenCode plugin and the pi and omp extension.
 - After an update, pitwall offers to restart its background service whenever that service still runs the older version, not only when the protocol changed.
 - The conflict radar marks a tab's row, and puts up its notice, only for an overlap with a tab whose pull request is open. Sibling worktrees still at work, like a fleet of agents, no longer mark each other's rows; the hover card still lists every overlap.

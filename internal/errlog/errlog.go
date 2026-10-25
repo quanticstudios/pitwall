@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/logs"
@@ -86,10 +87,17 @@ func (l *Log) Add(e Event, known ...string) {
 		return
 	}
 	e.V, e.T = Version, e.T.UTC().Truncate(time.Millisecond)
-	cmd, out := []rune(strings.TrimSpace(decide.Redact(e.Command, known...))), []rune(strings.TrimSpace(decide.Redact(e.Output, known...)))
 	if e.Size == 0 {
-		e.Size = len(cmd) + len(out)
+		e.Size = utf8.RuneCountInString(e.Command) + utf8.RuneCountInString(e.Output)
 	}
+	// why: the caller holds the daemon's lock, and a build's output can run
+	// to megabytes, so Redact sees only a few times what the line keeps. A
+	// secret cut in half at that edge sits at the far end of the kept text,
+	// and the cut below drops it, unless redaction shrank the text below
+	// the cut's length.
+	cmd, out := []rune(e.Command), []rune(e.Output)
+	cmd, out = cmd[:min(len(cmd), 2*commandLen)], out[max(0, len(out)-8*outputLen):]
+	cmd, out = []rune(strings.TrimSpace(decide.Redact(string(cmd), known...))), []rune(strings.TrimSpace(decide.Redact(string(out), known...)))
 	if len(cmd) > commandLen {
 		e.Command = string(cmd[:commandLen-1]) + "…"
 	} else {
