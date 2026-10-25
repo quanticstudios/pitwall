@@ -281,8 +281,8 @@ are done and stopped. A stopped worker, grey in the bar, has no agent
 running in its tab: the agent exited or never started. When the agent's
 own turn ends while a worker still works, its pill reads Watching, a blue
 outline with an eye, until the last worker stops. The workers start
-folded into the agent's row; click the bar to list them under it, a step
-further in, and again to fold them. Ctrl+Shift+U still jumps to a folded worker that
+folded into the agent's row, all but the one on screen; click the bar to
+list them under it, a step further in, and again to fold them. Ctrl+Shift+U still jumps to a folded worker that
 needs you. [The agent skill page](agent-skill.md#workers) has the
 commands an orchestrator runs.
 

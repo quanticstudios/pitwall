@@ -58,6 +58,9 @@ func TestFleet(t *testing.T) {
 	if h.click(strip); !h.s.KidsFolded("u1") {
 		t.Fatal("a second click did not fold the workers again")
 	}
+	if got := h.s.Rows(&h.st, "", "w2"); !slices.Equal(got, []string{"u1", "w2", "x"}) {
+		t.Fatalf("folded with worker w2 active: Rows %v, want the active worker listed", got)
+	}
 }
 
 func TestFleetState(t *testing.T) {

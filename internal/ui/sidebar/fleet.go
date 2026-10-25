@@ -76,13 +76,18 @@ func fleetHeight(gtx layout.Context, th *theme.Theme) int {
 // KidsFolded reports whether tab id's workers are folded into its row.
 func (s *Sidebar) KidsFolded(id string) bool { return !s.kidsOpen[id] }
 
-// kidsShown is tab id's workers as the sidebar lists them under it: none
-// while its strip is folded.
+// kidsShown is tab id's workers as the sidebar lists them under it: while
+// its strip is folded, only the active tab, so the tab on screen keeps a row.
 func (s *Sidebar) kidsShown(v *view, id string) []model.Workspace {
-	if !s.kidsOpen[id] {
-		return nil
+	if s.kidsOpen[id] {
+		return v.kids[id]
 	}
-	return v.kids[id]
+	for i, k := range v.kids[id] {
+		if k.ID == v.active {
+			return v.kids[id][i : i+1]
+		}
+	}
+	return nil
 }
 
 // fleetStrip draws tab id's strip in gtx's exact size: the fold chevron
