@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -84,18 +83,15 @@ func release(t *testing.T, goos string, bin []byte, sums func(name, sum string) 
 	arc := buf.Bytes()
 	sum := sha256.Sum256(arc)
 	var hits atomic.Int32
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	const dl = "/quanticstudios/pitwall/releases/download/v0.1.0-alpha.10/"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		switch r.URL.Path {
 		case "/latest":
-			json.NewEncoder(w).Encode(map[string]any{"tag_name": "v0.1.0-alpha.10", "assets": []map[string]string{
-				{"name": "checksums.txt", "browser_download_url": srv.URL + "/checksums.txt"},
-				{"name": name, "browser_download_url": srv.URL + "/" + name},
-			}})
-		case "/checksums.txt":
+			http.Redirect(w, r, "/quanticstudios/pitwall/releases/tag/v0.1.0-alpha.10", http.StatusFound)
+		case dl + "checksums.txt":
 			fmt.Fprint(w, sums(name, hex.EncodeToString(sum[:])))
-		case "/" + name:
+		case dl + name:
 			w.Write(arc)
 		default:
 			http.NotFound(w, r)

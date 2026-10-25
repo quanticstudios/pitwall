@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- The update check reads the latest release from github.com's redirect instead of GitHub's API, so the Update button no longer goes missing when other tools on the machine use up the API's 60 requests an hour.
+
 ## v0.1.2
 
 - Settings has a Timing category: how your agents' turns split between the model, tests, builds, CI, other tools and waiting on you, per day and per task from prompt to merge, with the slowest commands and a Copy report button. The daemon keeps it in `timing.jsonl`, redacted, with no prompts or output.

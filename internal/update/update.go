@@ -10,7 +10,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,8 +24,11 @@ import (
 	"strings"
 )
 
-// LatestURL is GitHub's latest release, the one get.sh installs.
-const LatestURL = "https://api.github.com/repos/quanticstudios/pitwall/releases/latest"
+// LatestURL redirects to GitHub's latest release, the one get.sh
+// installs.
+// why: GitHub's API allows 60 requests an hour per IP without a token,
+// which other tools on the machine use up; this page has no such limit.
+const LatestURL = "https://github.com/quanticstudios/pitwall/releases/latest"
 
 // Managed is whether a package manager owns the binary at exe, a resolved
 // path: Homebrew's Cellar, /usr/bin from pacman or a distro package, or
@@ -37,11 +39,11 @@ func Managed(exe string) bool {
 		strings.Contains(strings.ToLower(exe), `\scoop\apps\`)
 }
 
-// Release is a GitHub release: its tag and its assets' download URLs by
-// file name.
+// Release is a GitHub release: its tag, and the URL its assets download
+// from, each file's name appended.
 type Release struct {
-	Tag    string
-	Assets map[string]string
+	Tag  string
+	Base string
 }
 
 // releaseRe matches a release tag: vX.Y.Z, or vX.Y.Z-beta.N and the like.
@@ -104,31 +106,34 @@ func compareNum(a, b string) int {
 	return strings.Compare(a, b)
 }
 
-// Check fetches the latest release from url and reports whether it is
-// newer than current. A current that is not a release tag makes no
-// request.
+// Check follows url's redirect to the latest release's page and reports
+// whether its tag is newer than current. A current that is not a release
+// tag makes no request.
 func Check(ctx context.Context, c *http.Client, url, current string) (Release, bool, error) {
 	if releaseRe.FindStringSubmatch(current) == nil {
 		return Release{}, false, nil
 	}
-	data, err := get(ctx, c, url, 1<<20)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
 		return Release{}, false, err
 	}
-	var r struct {
-		Tag    string `json:"tag_name"`
-		Assets []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
+	nc := *c
+	nc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := nc.Do(req)
+	if err != nil {
+		return Release{}, false, err
 	}
-	if err := json.Unmarshal(data, &r); err != nil {
-		return Release{}, false, fmt.Errorf("latest release: %w", err)
+	resp.Body.Close()
+	loc, err := resp.Location()
+	if err != nil {
+		return Release{}, false, fmt.Errorf("HEAD %s: %s", url, resp.Status)
 	}
-	rel := Release{Tag: r.Tag, Assets: map[string]string{}}
-	for _, a := range r.Assets {
-		rel.Assets[a.Name] = a.URL
+	dir, tag := path.Split(loc.Path)
+	if !strings.HasSuffix(dir, "/releases/tag/") || tag == "" {
+		return Release{}, false, fmt.Errorf("latest release: unexpected redirect to %s", loc)
 	}
+	loc.Path = strings.TrimSuffix(dir, "tag/") + "download/" + tag + "/"
+	rel := Release{Tag: tag, Base: loc.String()}
 	return rel, Newer(rel.Tag, current), nil
 }
 
@@ -145,11 +150,11 @@ func install(ctx context.Context, c *http.Client, rel Release, exe, goos, goarch
 	if goos == "windows" {
 		name, extract, bin = fmt.Sprintf("pitwall_%s_%s.zip", goos, goarch), extractZip, "pitwall.exe"
 	}
-	sums, err := get(ctx, c, rel.Assets["checksums.txt"], 1<<20)
+	sums, err := get(ctx, c, rel.asset("checksums.txt"), 1<<20)
 	if err != nil {
 		return fmt.Errorf("checksums.txt: %w", err)
 	}
-	arc, err := get(ctx, c, rel.Assets[name], 256<<20)
+	arc, err := get(ctx, c, rel.asset(name), 256<<20)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
@@ -296,6 +301,14 @@ func RemoveOld(exe string) {
 			os.Remove(oldName(exe, i))
 		}
 	}
+}
+
+// asset is the download URL of rel's file name, "" without a release.
+func (rel Release) asset(name string) string {
+	if rel.Base == "" {
+		return ""
+	}
+	return rel.Base + name
 }
 
 func get(ctx context.Context, c *http.Client, url string, limit int64) ([]byte, error) {
