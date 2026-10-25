@@ -5,8 +5,10 @@
 package errlog
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -48,7 +50,21 @@ type Event struct {
 	Output   string    `json:"output,omitempty"`
 	Exit     int       `json:"exit,omitempty"`
 	Cwd      string    `json:"cwd,omitempty"`
+	// Quiet marks a command that exited 1 with no output, as grep finding
+	// nothing does; Interrupted one the user stopped. Both are kept, in
+	// groups of their own.
+	Quiet       bool `json:"quiet,omitempty"`
+	Interrupted bool `json:"interrupted,omitempty"`
+	// Size is the runes of the command and the whole output before the
+	// cut: about what the failure cost the agent in tokens, see Tokens.
+	Size int   `json:"size,omitempty"`
+	Ms   int64 `json:"ms,omitempty"` // how long the call ran, when the agent says
 }
+
+// Tokens is about how many tokens e's command and output took.
+// ponytail: four runes a token, an average for English and code; a
+// tokenizer per model would be exact.
+func (e Event) Tokens() int { return e.Size / 4 }
 
 // Log appends events to the file without blocking the caller. A nil Log
 // drops them.
@@ -70,15 +86,19 @@ func (l *Log) Add(e Event, known ...string) {
 		return
 	}
 	e.V, e.T = Version, e.T.UTC().Truncate(time.Millisecond)
-	if r := []rune(strings.TrimSpace(decide.Redact(e.Command, known...))); len(r) > commandLen {
-		e.Command = string(r[:commandLen-1]) + "…"
-	} else {
-		e.Command = string(r)
+	cmd, out := []rune(strings.TrimSpace(decide.Redact(e.Command, known...))), []rune(strings.TrimSpace(decide.Redact(e.Output, known...)))
+	if e.Size == 0 {
+		e.Size = len(cmd) + len(out)
 	}
-	if r := []rune(strings.TrimSpace(decide.Redact(e.Output, known...))); len(r) > outputLen {
-		e.Output = "…" + string(r[len(r)-outputLen+1:])
+	if len(cmd) > commandLen {
+		e.Command = string(cmd[:commandLen-1]) + "…"
 	} else {
-		e.Output = string(r)
+		e.Command = string(cmd)
+	}
+	if len(out) > outputLen {
+		e.Output = "…" + string(out[len(out)-outputLen+1:])
+	} else {
+		e.Output = string(out)
 	}
 	b, err := json.Marshal(e)
 	if err != nil {
@@ -104,12 +124,14 @@ func Read(path string, since time.Time) ([]Event, error) {
 type Group struct {
 	Sig       string
 	Count     int
+	Tokens    int      // the sum of the events' Tokens
 	Providers []string // sorted
 	Last      time.Time
 	Example   Event // the most recent
 }
 
-// Groups puts evs together by Signature, the most frequent first.
+// Groups puts evs together by Signature, the most frequent first; see
+// ByTokens for the costliest.
 func Groups(evs []Event) []Group {
 	at := map[string]int{}
 	var out []Group
@@ -123,6 +145,7 @@ func Groups(evs []Event) []Group {
 		}
 		g := &out[i]
 		g.Count++
+		g.Tokens += e.Tokens()
 		if e.Provider != "" && !slices.Contains(g.Providers, e.Provider) {
 			g.Providers = append(g.Providers, e.Provider)
 			slices.Sort(g.Providers)
@@ -140,18 +163,28 @@ func Groups(evs []Event) []Group {
 	return out
 }
 
+// ByTokens is gs, a copy, the most tokens first.
+func ByTokens(gs []Group) []Group {
+	out := slices.Clone(gs)
+	slices.SortStableFunc(out, func(a, b Group) int { return cmp.Or(b.Tokens-a.Tokens, b.Count-a.Count) })
+	return out
+}
+
 // errorWords mark the line of an output that says what went wrong.
 var errorWords = []string{"error", "not found", "no such", "no matches", "permission denied", "unknown", "invalid", "unrecognized", "cannot", "failed", "fatal", "zsh:", "bash:"}
 
 // Placeholders, applied in order: quoted text first, as it may hold the
-// rest; a glob before a path, as /x/* is both. A path starts the line or
-// follows a space, =, : or bracket; its first character is kept.
+// rest; a glob before a path, as /x/* is both. A path, absolute or with a
+// slash in it, starts the line or follows a space, =, : or bracket; that
+// character is kept. A number next to a letter, as in TS2304, is part of a
+// code and stays. A shell's line number goes: zsh:1: is zsh:.
 var (
 	quoted = regexp.MustCompile(`"[^"]*"|'[^']*'|` + "`[^`]*`")
 	glob   = regexp.MustCompile(`\S*\*\S*`)
-	path   = regexp.MustCompile(`(^|[\s=:(\[])~?/[^\s:,;)\]]+`)
+	path   = regexp.MustCompile(`(^|[\s=:(\[])(?:~?/[^\s:,;()\]]+|[\w.@+-]+(?:/[\w.@+-]+)+)`)
 	hex    = regexp.MustCompile(`\b(?:0x)?[0-9a-fA-F]{7,}\b`)
-	digits = regexp.MustCompile(`\d+`)
+	digits = regexp.MustCompile(`(^|[^A-Za-z\d])\d+`)
+	shell  = regexp.MustCompile(`^(\w+):N:`)
 )
 
 // sigLen caps a signature.
@@ -161,6 +194,12 @@ const sigLen = 160
 // output with an error word in it, or else its last line, with quoted
 // text, globs, paths, hex ids and numbers made placeholders.
 func Signature(e Event) string {
+	switch {
+	case e.Interrupted:
+		return "Interrupted by you: " + head(e)
+	case e.Quiet:
+		return "Exit 1 with no output: " + head(e)
+	}
 	line := ""
 	for l := range strings.Lines(e.Output) {
 		l = strings.TrimSpace(l)
@@ -184,7 +223,8 @@ func Signature(e Event) string {
 		}
 		return m // a word such as "defaced", or a number
 	})
-	line = digits.ReplaceAllString(line, "N")
+	line = digits.ReplaceAllString(line, "${1}N")
+	line = shell.ReplaceAllString(line, "$1:")
 	line = strings.Join(strings.Fields(line), " ")
 	if r := []rune(line); len(r) > sigLen {
 		line = string(r[:sigLen-1]) + "…"
@@ -201,20 +241,38 @@ func Signature(e Event) string {
 	return "failed with no output"
 }
 
+// head is the program e ran, such as "grep", or its tool.
+func head(e Event) string {
+	if f := strings.Fields(e.Command); e.Kind == Command && len(f) > 0 {
+		return filepath.Base(f[0])
+	}
+	return cmp.Or(e.Tool, "a call")
+}
+
 // Report is the first n groups as Markdown, to paste into an agent and
 // ask it to fix the causes. span names the window, such as "the last 7
 // days".
 func Report(gs []Group, n int, span string) string {
-	total := 0
+	total, toks := 0, 0
 	for _, g := range gs {
-		total += g.Count
+		total, toks = total+g.Count, toks+g.Tokens
 	}
+	gs = gs[:min(n, len(gs))]
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Agent errors, %s\n\n", span)
-	fmt.Fprintf(&b, "My coding agents hit these %d errors, grouped by cause, most frequent first. Find why each happens and fix it in my setup: CLAUDE.md or AGENTS.md, shell config, or a missing tool.\n", total)
-	for i, g := range gs[:min(n, len(gs))] {
+	fmt.Fprintf(&b, "My coding agents hit these %d errors, about %s tokens of commands and output, grouped by cause, most frequent first. "+
+		"Each one is a wasted step. Find why each happens and fix it in my setup: CLAUDE.md or AGENTS.md, shell config, or a missing tool. "+
+		"\"Exit 1 with no output\" and \"Interrupted by you\" groups may not be bugs; check whether the agent should run something else.\n", total, short(toks))
+	if len(gs) > 1 {
+		var top []string
+		for _, g := range ByTokens(gs)[:min(3, len(gs))] {
+			top = append(top, fmt.Sprintf("%d (%s tokens)", slices.IndexFunc(gs, func(x Group) bool { return x.Sig == g.Sig })+1, short(g.Tokens)))
+		}
+		fmt.Fprintf(&b, "\nCostliest: %s.\n", strings.Join(top, ", "))
+	}
+	for i, g := range gs {
 		e := g.Example
-		fmt.Fprintf(&b, "\n## %d. %s\n\n×%d, %s, last %s\n", i+1, g.Sig, g.Count, strings.Join(g.Providers, ", "), g.Last.Local().Format("2006-01-02 15:04"))
+		fmt.Fprintf(&b, "\n## %d. %s\n\n×%d, about %s tokens, %s, last %s\n", i+1, g.Sig, g.Count, short(g.Tokens), strings.Join(g.Providers, ", "), g.Last.Local().Format("2006-01-02 15:04"))
 		if e.Cwd != "" {
 			fmt.Fprintf(&b, "cwd: %s\n", e.Cwd)
 		}
@@ -230,4 +288,15 @@ func Report(gs []Group, n int, span string) string {
 		}
 	}
 	return b.String()
+}
+
+// short is n tokens for a person: 840, 3.1k, 2.4M.
+func short(n int) string {
+	switch {
+	case n >= 1e6:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1e3:
+		return fmt.Sprintf("%.1fk", float64(n)/1e3)
+	}
+	return fmt.Sprint(n)
 }

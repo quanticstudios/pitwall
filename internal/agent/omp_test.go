@@ -75,12 +75,15 @@ await on.session_start({}, ctx);
 await on.before_agent_start({ prompt: "fix it" }, ctx);
 await on.agent_start({}, ctx);
 await on.tool_call({ toolName: "bash", input: { command: "echo secret-arg" } }, ctx);
+await on.tool_result({ toolName: "bash", input: { command: "echo secret-arg" }, content: [{ type: "text", text: "ok" }], isError: false }, ctx);
+await on.tool_result({ toolName: "bash", input: { command: "make" }, content: [{ type: "text", text: "no rule\n\nCommand exited with code 2" }], isError: true,
+	structuredContent: { exit_code: 2 }, details: { exitCode: 2 } }, { ...ctx, cwd: "/r" });
 await on.agent_end({ messages: [reply("stop", "Checking the tests.")], willContinue: true }, ctx);
 await on.agent_end({ messages: [reply("stop", "All done.")] }, ctx);
 `+tt.end+`
-await wait(5);
-await on.session_shutdown({}, ctx);
 await wait(6);
+await on.session_shutdown({}, ctx);
+await wait(7);
 await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 `), 0o600); err != nil {
 			t.Fatal(err)
@@ -99,19 +102,28 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 			t.Errorf("%s: sent tool arguments: %s", tt.name, b)
 		}
 		var got []string
-		var settled []byte
+		var settled, toolErr []byte
 		for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 			ev := PiEvent([]byte(line))
-			if ev == "agent_settled" {
+			switch ev {
+			case "agent_settled":
 				settled = []byte(line)
+			case "tool_error":
+				toolErr = []byte(line)
 			}
 			got = append(got, ev)
 		}
-		want := "session_start before_agent_start agent_start tool_call agent_settled session_shutdown"
+		want := "session_start before_agent_start agent_start tool_call tool_error agent_settled session_shutdown"
 		if strings.Join(got, " ") != want {
 			t.Fatalf("%s: events\n got %v\nwant %s", tt.name, got, want)
 		}
 		p := model.Provider(tt.agent)
+		if f, ok := ToolFailure(p, toolErr); !ok || f != (Failure{Tool: "bash", Command: "make", Output: "no rule\n\nCommand exited with code 2", Exit: 2, Cwd: "/r", Shell: true}) {
+			t.Errorf("%s: ToolFailure(tool_error) = %+v, %v", tt.name, f, ok)
+		}
+		if _, ok := Derive(&model.Activity{Provider: p, SessionID: "s1", State: model.StateWorking}, p, toolErr, time.Now()); ok {
+			t.Errorf("%s: tool_error changed the activity", tt.name)
+		}
 		if next, ok := Derive(&model.Activity{Provider: p, SessionID: "s1", State: model.StateWorking}, p, settled, time.Now()); !ok || next.State != model.StateCompleted || next.Detail != "All done." || next.Provider != p {
 			t.Errorf("%s: Derive(agent_settled) = %+v, %v", tt.name, next, ok)
 		}

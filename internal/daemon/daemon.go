@@ -1250,13 +1250,14 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			}
 		}
 	}
-	if f, ok := agent.ToolFailure(m.Payload); ok {
+	if f, ok := agent.ToolFailure(m.Provider, m.Payload); ok {
 		kind := errlog.Tool
 		if f.Shell {
 			kind = errlog.Command
 		}
 		d.o.Errors.Add(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
-			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd)}, d.dec.cur.Secrets...)
+			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd),
+			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms}, d.dec.cur.Secrets...)
 	}
 	if p.Provider != m.Provider {
 		if p.Provider != "" {

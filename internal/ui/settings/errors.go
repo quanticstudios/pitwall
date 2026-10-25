@@ -25,6 +25,7 @@ import (
 type errorsPage struct {
 	path   string // errors.jsonl; tests set it
 	window string // week, month or ever; "" is week
+	order  string // byCount or byTokens; "" is byCount
 	read   bool   // a read has started since the page opened
 
 	mu      sync.Mutex
@@ -38,6 +39,7 @@ type errorsPage struct {
 // errorSum is one window of errors.jsonl.
 type errorSum struct {
 	Total     int
+	Tokens    int
 	Kinds     map[string]int
 	Providers map[string]int
 	Groups    []errlog.Group
@@ -49,6 +51,8 @@ const (
 	errorsEmpty   = "Appears after an agent's command, tool call or turn fails."
 	errorsLoading = "Reading the errors log…"
 	topGroups     = 15
+	byCount       = "Most frequent"
+	byTokens      = "Most tokens"
 )
 
 // readErrors reads errors.jsonl; tests replace it.
@@ -99,6 +103,7 @@ func errorWindow(evs []errlog.Event, win string, now time.Time) errorSum {
 		if !e.T.Before(from) {
 			in = append(in, e)
 			s.Total++
+			s.Tokens += e.Tokens()
 			s.Kinds[e.Kind]++
 			s.Providers[e.Provider]++
 		}
@@ -200,12 +205,17 @@ func (p *Page) agentErrors() []section {
 	if note != "" {
 		return secs
 	}
+	order, gs := byCount, s.Groups
+	if p.er.order == byTokens {
+		order, gs = byTokens, errlog.ByTokens(gs)
+	}
 	var rows []row
-	for _, g := range s.Groups[:min(topGroups, len(s.Groups))] {
+	for _, g := range gs[:min(topGroups, len(gs))] {
 		rows = append(rows, row{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.errorGroup(gtx, g) }})
 	}
-	return append(secs, section{title: "Most frequent",
-		desc: "Errors grouped by the line that says what went wrong, with numbers, paths and quoted text set aside. Each shows its latest example. Commands and output are redacted before they are saved.",
+	return append(secs, section{title: order,
+		desc: "Errors grouped by the line that says what went wrong, with numbers, paths and quoted text set aside. Each shows its latest example. " +
+			"Tokens are about what the commands and output took, at four characters a token. Commands and output are redacted before they are saved.",
 		rows: rows})
 }
 
@@ -219,7 +229,7 @@ func (p *Page) errorTotals(gtx gl.Context, s *errorSum, win string) gl.Dimension
 		}),
 		gl.Rigid(gl.Spacer{Height: 6}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, errorSplit(s))
+			return p.para(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, errorSplit(s)+" · about "+compact(int64(s.Tokens))+" tokens")
 		}),
 		gl.Rigid(gl.Spacer{Height: 14}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
@@ -227,7 +237,13 @@ func (p *Page) errorTotals(gtx gl.Context, s *errorSum, win string) gl.Dimension
 			for c.Clicked(gtx) {
 				p.copy(gtx, "errors-copy", errlog.Report(s.Groups, topGroups, span(win)))
 			}
-			return p.button(gtx, c, secondary, p.copyLabel("errors-copy", "Copy report"))
+			return gl.Flex{Alignment: gl.Middle}.Layout(gtx,
+				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+					return p.button(gtx, c, secondary, p.copyLabel("errors-copy", "Copy report"))
+				}),
+				gl.Rigid(gl.Spacer{Width: 12}.Layout),
+				gl.Rigid(p.segmented("errors-order", []string{byCount, byTokens}, cmp.Or(p.er.order, byCount), func(o string) { p.er.order = o })),
+			)
 		}),
 	)
 }
@@ -241,7 +257,7 @@ func (p *Page) errorGroup(gtx gl.Context, g errlog.Group) gl.Dimensions {
 	for _, pv := range g.Providers {
 		names = append(names, agentName(model.Provider(pv)))
 	}
-	meta := strings.Join(append(names, ago(gtx.Now.Sub(g.Last))), " · ")
+	meta := strings.Join(append(names, "about "+compact(int64(g.Tokens))+" tokens", ago(gtx.Now.Sub(g.Last))), " · ")
 	cmd := e.Command
 	if e.Kind == errlog.Tool {
 		cmd = strings.TrimSpace(e.Tool + " " + cmd)

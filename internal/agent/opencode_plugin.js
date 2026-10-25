@@ -12,6 +12,12 @@ function text(s) {
 	return i > 0 ? cut.slice(0, i) : "";
 }
 
+// tail is the end of a failed tool's output, where its error is.
+function tail(s) {
+	const cps = Array.from(String(s ?? "").trim());
+	return cps.slice(-16000).join("");
+}
+
 // PitwallPlugin reports to the pitwall pane it runs in, in Claude Code's hook names; outside one it does nothing.
 export const PitwallPlugin = async () => {
 	if (!process.env.PITWALL_PANE) return {};
@@ -25,6 +31,7 @@ export const PitwallPlugin = async () => {
 	const status = new Map(); // session: "busy" or "idle"
 	const ended = new Set(); // sessions whose run failed or was aborted: their idle is no completion
 	const plans = new Set(); // call ids of plan_exit, whose question asks to approve the plan
+	const failed = new Set(); // call ids of tool calls reported as failed
 
 	function run(payload) {
 		return new Promise((resolve) => {
@@ -76,6 +83,26 @@ export const PitwallPlugin = async () => {
 		pump();
 	}
 
+	// fail reports a main session's tool call that errored, or a shell command
+	// that exited non-zero, once.
+	function fail(part) {
+		const st = part.state ?? {};
+		const exit = st.metadata?.exit;
+		const nonzero = st.status === "completed" && typeof exit === "number" && exit !== 0;
+		if (!main(part.sessionID) || failed.has(part.callID) || (st.status !== "error" && !nonzero)) return;
+		failed.add(part.callID);
+		if (failed.size > 256) failed.delete(failed.values().next().value);
+		const input = st.input ?? {};
+		send("PostToolUseFailure", part.sessionID, {
+			tool_name: String(part.tool ?? ""),
+			tool_input: { command: input.command, file_path: input.filePath },
+			error: tail(st.status === "error" ? st.error : (st.output ?? st.metadata?.output)),
+			exit_code: typeof exit === "number" ? exit : undefined,
+			is_interrupt: st.metadata?.interrupted === true,
+			duration_ms: st.time?.start && st.time?.end ? st.time.end - st.time.start : undefined,
+		});
+	}
+
 	function main(session) {
 		return typeof session === "string" && session !== "" && !children.has(session);
 	}
@@ -122,6 +149,7 @@ export const PitwallPlugin = async () => {
 						return;
 					case "message.part.updated":
 						if (p.part?.type === "text" && !p.part.synthetic && replies.has(p.part.messageID)) last.set(p.part.sessionID, p.part.text);
+						if (p.part?.type === "tool") fail(p.part);
 						return;
 				}
 				const session = p.sessionID;

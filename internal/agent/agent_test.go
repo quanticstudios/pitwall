@@ -443,8 +443,9 @@ func TestPiExtension(t *testing.T) {
 	if i, j := strings.Index(src, "if (!process.env.PITWALL_PANE) return;"), strings.Index(src, "pi.on("); i < 0 || j < i {
 		t.Error("extension registers handlers outside a pitwall pane")
 	}
-	if strings.Contains(src, "shell: true") || strings.Contains(src, "event.input") {
-		t.Error("extension uses a shell or sends tool arguments")
+	// Only a failed call's command or path goes out, for errors.jsonl.
+	if guard := strings.Index(src, "if (event?.isError !== true) return;"); strings.Contains(src, "shell: true") || strings.Count(src, "event.input") != 1 || guard < 0 || strings.Index(src, "event.input") < guard {
+		t.Error("extension uses a shell or sends tool arguments of a call that worked")
 	}
 	// An unedited file from an earlier release is pitwall's too.
 	old, err := os.ReadFile("testdata/pi_extension_alpha5.ts")
@@ -621,32 +622,56 @@ func TestToolFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	claude, codex, cursor, gemini, opencode, pi := model.ProviderClaude, model.ProviderCodex, model.ProviderCursor, model.ProviderGemini, model.ProviderOpenCode, model.ProviderPi
 	for _, c := range []struct {
-		payload string
-		want    Failure
-		ok      bool
+		provider model.Provider
+		payload  string
+		want     Failure
+		ok       bool
 	}{
-		{string(failure), Failure{Tool: "Bash", Command: "npm test", Output: "Error: Cannot find module 'express'", Cwd: "/home/u/repo", Exit: 1, Shell: true}, true},
-		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"grep -rn foo --include=*.go ."},"error":"Exit code 1\nzsh: no matches found: --include=*.go"}`,
+		{claude, string(failure), Failure{Tool: "Bash", Command: "npm test", Output: "Error: Cannot find module 'express'", Cwd: "/home/u/repo", Exit: 1, Ms: 4187, Shell: true}, true},
+		{claude, `{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"grep -rn foo --include=*.go ."},"error":"Exit code 1\nzsh: no matches found: --include=*.go"}`,
 			Failure{Tool: "Bash", Command: "grep -rn foo --include=*.go .", Output: "zsh: no matches found: --include=*.go", Exit: 1, Shell: true}, true},
-		{`{"hook_event_name":"PostToolUse","tool_name":"exec_command","tool_input":{"command":["rg","x"]},"tool_response":{"aggregated_output":"zsh: command not found: rg","exit_code":127}}`,
-			Failure{Tool: "exec_command", Command: "rg x", Output: "zsh: command not found: rg", Exit: 127, Shell: true}, true},
-		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Edit","tool_input":{"file_path":"/r/a.go","old_string":"x"},"error":"File has not been read yet."}`,
+		{claude, `{"hook_event_name":"PostToolUseFailure","tool_name":"Edit","tool_input":{"file_path":"/r/a.go","old_string":"x"},"error":"File has not been read yet."}`,
 			Failure{Tool: "Edit", Command: "/r/a.go", Output: "File has not been read yet."}, true},
-		// Skipped: grep finding nothing, in both shapes.
-		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"grep -q x f"},"error":"Exit code 1"}`, Failure{}, false},
-		{`{"hook_event_name":"PostToolUse","tool_name":"exec_command","tool_input":{"command":["grep","x"]},"tool_response":{"aggregated_output":"","exit_code":1}}`, Failure{}, false},
-		// Skipped: the user interrupted it.
-		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"sleep 99"},"error":"Exit code 130","is_interrupt":true}`, Failure{}, false},
-		{`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"sleep 99"},"tool_response":{"stdout":"","interrupted":true,"exit_code":130}}`, Failure{}, false},
+		// Kept and marked: grep finding nothing, and a run the user stopped.
+		{claude, `{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"grep -q x f"},"error":"Exit code 1"}`,
+			Failure{Tool: "Bash", Command: "grep -q x f", Exit: 1, Shell: true, Quiet: true}, true},
+		{claude, `{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"sleep 99"},"error":"Exit code 130","is_interrupt":true}`,
+			Failure{Tool: "Bash", Command: "sleep 99", Exit: 130, Shell: true, Interrupted: true}, true},
+		// Codex sends the output alone; its last line tells.
+		{codex, `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"rg -n x src"},"tool_response":"zsh:1: command not found: rg"}`,
+			Failure{Tool: "Bash", Command: "rg -n x src", Output: "zsh:1: command not found: rg", Shell: true}, true},
+		{codex, `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"go build ./..."},"tool_response":""}`, Failure{}, false},
+		{codex, `{"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"},"tool_response":"error: x"}`, Failure{}, false},
+		{cursor, `{"hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"grep -q x f","cwd":"/r"},"cwd":"/r","error_message":"Command failed with exit code 1","failure_type":"error","duration":12,"is_interrupt":false}`,
+			Failure{Tool: "Shell", Command: "grep -q x f", Cwd: "/r", Exit: 1, Ms: 12, Shell: true, Quiet: true}, true},
+		{cursor, `{"hook_event_name":"postToolUseFailure","tool_name":"Read","tool_input":{"file_path":"/r/x"},"error_message":"File not found","failure_type":"error"}`,
+			Failure{Tool: "Read", Command: "/r/x", Output: "File not found"}, true},
+		{gemini, `{"hook_event_name":"AfterTool","tool_name":"run_shell_command","tool_input":{"command":"ls /nope"},"tool_response":{"llmContent":"Output: ls: cannot access '/nope': No such file or directory\nExit Code: 2\nProcess Group PGID: 77","returnDisplay":""}}`,
+			Failure{Tool: "run_shell_command", Command: "ls /nope", Output: "ls: cannot access '/nope': No such file or directory", Exit: 2, Shell: true}, true},
+		{gemini, `{"hook_event_name":"AfterTool","tool_name":"run_shell_command","tool_input":{"command":"grep -q x f"},"tool_response":{"llmContent":"Output: (empty)\nExit Code: 1"}}`,
+			Failure{Tool: "run_shell_command", Command: "grep -q x f", Exit: 1, Shell: true, Quiet: true}, true},
+		{gemini, `{"hook_event_name":"AfterTool","tool_name":"read_file","tool_input":{"file_path":"/r/x"},"tool_response":{"llmContent":"","error":{"message":"File not found: /r/x","type":"file_not_found"}}}`,
+			Failure{Tool: "read_file", Command: "/r/x", Output: "File not found: /r/x"}, true},
+		{gemini, `{"hook_event_name":"AfterTool","tool_name":"run_shell_command","tool_input":{"command":"ls"},"tool_response":{"llmContent":"Output: a b"}}`, Failure{}, false},
+		{opencode, `{"hook_event_name":"PostToolUseFailure","session_id":"s","tool_name":"bash","tool_input":{"command":"tsc"},"error":"src/a.ts(1,1): error TS2304","exit_code":2,"duration_ms":900}`,
+			Failure{Tool: "bash", Command: "tsc", Output: "src/a.ts(1,1): error TS2304", Exit: 2, Ms: 900, Shell: true}, true},
+		{pi, `{"event":"tool_error","tool_name":"bash","tool_input":{"command":"make"},"error":"make: *** No rule to make target\n\nCommand exited with code 2","exit_code":2,"cwd":"/r"}`,
+			Failure{Tool: "bash", Command: "make", Output: "make: *** No rule to make target\n\nCommand exited with code 2", Exit: 2, Cwd: "/r", Shell: true}, true},
+		{pi, `{"event":"tool_error","tool_name":"bash","tool_input":{"command":"sleep 9"},"error":"partial\n\n[Command aborted]"}`,
+			Failure{Tool: "bash", Command: "sleep 9", Output: "partial\n\n[Command aborted]", Shell: true, Interrupted: true}, true},
+		{pi, `{"event":"tool_error","tool_name":"edit","tool_input":{"path":"/r/a.go"},"error":"oldText not found"}`,
+			Failure{Tool: "edit", Command: "/r/a.go", Output: "oldText not found"}, true},
 		// Not failures.
-		{`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a"}}`, Failure{}, false},
-		{`{"hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"x"},"tool_response":{"success":true}}`, Failure{}, false},
-		{`{"hook_event_name":"PostToolUseFailure","transcript_path":null,"tool_name":"Bash","tool_input":{"command":"x"},"error":"Exit code 2"}`, Failure{}, false},
+		{claude, `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a"}}`, Failure{}, false},
+		{claude, `{"hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"x"},"tool_response":{"success":true}}`, Failure{}, false},
+		{claude, `{"hook_event_name":"PostToolUseFailure","transcript_path":null,"tool_name":"Bash","tool_input":{"command":"x"},"error":"Exit code 2"}`, Failure{}, false},
+		{pi, `{"event":"tool_call","tool_name":"bash"}`, Failure{}, false},
 	} {
-		f, ok := ToolFailure([]byte(c.payload))
+		f, ok := ToolFailure(c.provider, []byte(c.payload))
 		if f != c.want || ok != c.ok {
-			t.Errorf("ToolFailure(%s) = %+v %v", c.payload, f, ok)
+			t.Errorf("ToolFailure(%s, %s) = %+v %v", c.provider, c.payload, f, ok)
 		}
 	}
 }

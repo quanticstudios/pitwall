@@ -509,22 +509,6 @@ Set `limits_in_sidebar = true` under `[usage]`, or use the switch under
 Limits, to show each agent's fullest window at the bottom of the sidebar,
 yellow from 80% and red from 95%.
 
-Settings, Agent errors shows why your agents waste steps. From the hooks,
-the daemon keeps every shell command that failed, every other tool call
-that failed (Edit, Read and the like) and every turn the API ended, from
-Claude Code and Codex, and API errors from pi, omp, Cursor and OpenCode
-too. A command that exits 1 with no output, as grep finding nothing, and a
-call you interrupted are not kept. Each goes to `errors.jsonl` in the state
-folder with its time, agent, command, the end of its output, exit code and
-folder; secrets in the command and output are redacted before it is
-written, and at 10 MB the file moves to `errors.jsonl.1`. The page groups
-the errors of the last 7 days, 30 days or all time by the line that says
-what went wrong, with numbers, paths and quoted text set aside, so
-`zsh: no matches found: --include=*.go` and `--include=*.ts` count as one.
-Copy report puts the top groups, each with its latest command and output,
-on the clipboard as Markdown to paste into an agent and ask it to fix the
-causes in CLAUDE.md, your shell config or a missing tool.
-
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
 Drag to select, double-click a word, triple-click a line (the whole line
@@ -576,6 +560,39 @@ PS0='\e]133;C\a'
 Only the prompt start (`133;A`) is needed to jump; pitwall keeps the
 other marks on their rows too. The keys are `prev_prompt` and
 `next_prompt` in config.toml.
+
+### Agent errors
+
+Settings, Agent errors shows where your agents waste steps and tokens. From
+the hooks, the daemon keeps every tool call that failed and every turn the
+API ended, in `errors.jsonl` in the state folder: its time, agent, command
+or file path, the end of its output, exit code, folder and how long it ran.
+It skips nothing. A command that exited 1 with no output, as grep finding
+nothing, is marked quiet and a call you stopped is marked interrupted, and
+each of those gets a group of its own. Secrets in the command and output
+are redacted before the line is written, and at 10 MB the file moves to
+`errors.jsonl.1`.
+
+What each agent reports:
+
+| Agent       | Failed tool calls                                                   | API errors |
+| ----------- | ------------------------------------------------------------------- | ---------- |
+| Claude Code | every failed tool call (PostToolUseFailure)                         | StopFailure |
+| Codex       | shell commands whose last line reads as an error, such as `zsh: command not found`; Codex hooks carry no exit code and fire nothing for a failed patch or MCP call | none |
+| Cursor      | every failed tool call (postToolUseFailure)                         | a stop with status error |
+| Gemini CLI  | a tool's error, and shell commands that exit non-zero (AfterTool)   | none: Gemini has no hook for a failed turn |
+| OpenCode    | a tool that errors, and shell commands that exit non-zero (pitwall's plugin) | session errors |
+| pi, omp     | every tool result marked an error (pitwall's extension)             | a run that ends in an error |
+
+The page groups the errors of the last 7 days, 30 days or all time by the
+line that says what went wrong, with numbers, paths and quoted text set
+aside, so `zsh: no matches found: --include=*.go` and `--include=*.ts` count
+as one. Each group shows how often it happened and about how many tokens its
+commands and output took, at four characters a token; Most frequent and
+Most tokens sort by either. Copy report puts the top groups, each with its
+latest command and output, on the clipboard as Markdown to paste into an
+agent and ask it to fix the causes in CLAUDE.md, your shell config or a
+missing tool.
 
 ### Grouping
 
