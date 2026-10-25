@@ -12,8 +12,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// TestFleet: tabs u1 opened hang under it, kidIndent in, after a strip on
-// u1's row; a click on the strip folds them away and opens no tab.
+// TestFleet: tabs u1 opened start folded into a strip on u1's row; a click
+// on the strip hangs them under it, kidIndent in, and opens no tab.
 func TestFleet(t *testing.T) {
 	h := &dragHarness{t: t, now: time.Unix(1e9, 0)}
 	h.st = model.State{
@@ -35,25 +35,28 @@ func TestFleet(t *testing.T) {
 		}
 		return got
 	}
+	if got, want := keys(), []string{"su1", "sx"}; !slices.Equal(got, want) {
+		t.Fatalf("a fleet starts folded, laid out %v, want %v", got, want)
+	}
+	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	th := theme.Dark()
+	strip := h.at("u1", rowHeight(gtx, th)+4)
+	h.move(strip)
+	if evs := h.click(strip); h.s.KidsFolded("u1") || len(evs) != 0 {
+		t.Fatalf("the strip did not unfold the workers, or sent %v", evs)
+	}
 	if got, want := keys(), []string{"su1", "sw1", "sw2", "sx"}; !slices.Equal(got, want) {
-		t.Fatalf("laid out %v, want %v", got, want)
+		t.Fatalf("unfolded: %v, want %v", got, want)
 	}
 	if got := h.s.Rows(&h.st, "", "u1"); !slices.Equal(got, []string{"u1", "w1", "w2", "x"}) {
 		t.Fatalf("Rows %v", got)
 	}
-	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
-	th := theme.Dark()
 	root, kid := h.elem('s', "u1"), h.elem('s', "w1")
 	if root.bot-root.top != rowHeight(gtx, th)+fleetHeight(gtx, th) || kid.x != int(kidIndent) || kid.parent != "u1" {
 		t.Fatalf("root %+v, worker %+v", root, kid)
 	}
-	strip := h.at("u1", rowHeight(gtx, th)+4)
-	h.move(strip)
-	if evs := h.click(strip); !h.s.kidsFolded["u1"] || len(evs) != 0 {
-		t.Fatalf("the strip did not fold the workers, or sent %v", evs)
-	}
-	if got, want := keys(), []string{"su1", "sx"}; !slices.Equal(got, want) {
-		t.Fatalf("folded: %v, want %v", got, want)
+	if h.click(strip); !h.s.KidsFolded("u1") {
+		t.Fatal("a second click did not fold the workers again")
 	}
 }
 

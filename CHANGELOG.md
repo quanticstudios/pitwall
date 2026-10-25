@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- An orchestrator's workers start folded into its row, so a fleet takes one row until you click its bar to list them.
 - After an update, pitwall offers to restart its background service whenever that service still runs the older version, not only when the protocol changed.
 - The conflict radar marks a tab's row, and puts up its notice, only for an overlap with a tab whose pull request is open. Sibling worktrees still at work, like a fleet of agents, no longer mark each other's rows; the hover card still lists every overlap.
 - omp tabs show Oh My Pi's own gradient π instead of a coral letter badge.
