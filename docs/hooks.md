@@ -5,16 +5,16 @@ tell pitwall exactly what they are doing. Amp and Aider have no hooks;
 pitwall recognizes them and reads what it can from their screens (see
 [Watching agents](usage.md#watching-agents)).
 
-| Agent      | What `pitwall hooks install` writes               | Installed when                                |
-| ---------- | ------------------------------------------------- | --------------------------------------------- |
-| Claude     | hooks in `~/.claude/settings.json`, the skill     | always                                        |
-| Codex      | hooks in `~/.codex/hooks.json`, the skill         | always                                        |
-| Gemini CLI | hooks in `~/.gemini/settings.json`                | `gemini` is on `PATH` or the dir exists       |
-| Cursor CLI | hooks in `~/.cursor/hooks.json`                   | `cursor-agent` is on `PATH` or the dir exists |
-| pi         | an extension, `~/.pi/agent/extensions/pitwall.ts` | `pi` is on `PATH` or the dir exists           |
-| Oh My Pi   | the same, `~/.omp/agent/extensions/pitwall.ts`    | `omp` is on `PATH` or the dir exists          |
-| OpenCode   | a plugin, `~/.config/opencode/plugins/pitwall.js` | `opencode` is on `PATH` or the dir exists     |
-| Amp, Aider | nothing: they have no hooks                       |                                               |
+| Agent      | What `pitwall hooks install` writes                                            | Installed when                                |
+| ---------- | ------------------------------------------------------------------------------ | --------------------------------------------- |
+| Claude     | hooks in `~/.claude/settings.json`, the skill                                  | always                                        |
+| Codex      | hooks in `~/.codex/hooks.json`, the skill                                      | always                                        |
+| Gemini CLI | hooks in `~/.gemini/settings.json`                                             | `gemini` is on `PATH` or the dir exists       |
+| Cursor CLI | hooks in `~/.cursor/hooks.json`                                                | `cursor-agent` is on `PATH` or the dir exists |
+| pi         | an extension, `~/.pi/agent/extensions/pitwall.ts`                              | `pi` is on `PATH` or the dir exists           |
+| Oh My Pi   | the same, `~/.omp/agent/extensions/pitwall.ts`                                 | `omp` is on `PATH` or the dir exists          |
+| OpenCode   | a plugin, `~/.config/opencode/plugins/pitwall.js` and `plugins/pitwall/tui.js` | `opencode` is on `PATH` or the dir exists     |
+| Amp, Aider | nothing: they have no hooks                                                    |                                               |
 
 For the JSON configs (Gemini's is in `$GEMINI_CLI_HOME` when set):
 
@@ -57,8 +57,15 @@ permission prompt, question, and finished, failed or aborted run of the main
 session, never a subagent's. It sends a tool's name, and only for a call
 that failed or a shell command that exited non-zero its command or file
 path, exit code and the end of its output, for Agent errors. It replaces or
-removes only a file nobody edited. The plugin uses OpenCode 1's plugin
-interface.
+removes only a file nobody edited.
+
+The same file also goes to `~/.config/opencode/plugins/pitwall/tui.js`, for
+OpenCode 2. OpenCode 2 runs `plugins/pitwall.js` in one background service
+that every OpenCode window shares, where it cannot tell which pane a session
+belongs to, so it does nothing there. It loads `pitwall/tui.js` into each
+OpenCode window instead, and that copy reports the sessions its window shows
+to its own pane. OpenCode 1 loads only `plugins/pitwall.js`; it needs
+OpenCode 1.4 or later.
 
 The skill teaches Claude Code and Codex to talk with another agent in a
 pitwall pane: `pitwall send` for a conversation, `prompt --wait` for one

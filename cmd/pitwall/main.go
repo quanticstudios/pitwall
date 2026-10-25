@@ -380,7 +380,7 @@ func printHooks() error {
 	fmt.Printf("# ~/.omp/agent/extensions/pitwall.ts, for Oh My Pi (pi's above when $PI_CODING_AGENT_DIR is set):\n%s\n", agent.OmpExtension(bin))
 	fmt.Printf("# ~/.gemini/settings.json, merge into the top-level object:\n{\"hooks\": %s}\n\n", agent.GeminiHooks(bin))
 	fmt.Printf("# ~/.cursor/hooks.json, merge into the top-level object:\n{\"version\": 1, \"hooks\": %s}\n\n", agent.CursorHooks(bin))
-	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js ($XDG_CONFIG_HOME/opencode/plugins/pitwall.js when set):\n%s\n", agent.OpenCodePlugin(bin))
+	fmt.Printf("# ~/.config/opencode/plugins/pitwall.js and, for OpenCode 2, ~/.config/opencode/plugins/pitwall/tui.js ($XDG_CONFIG_HOME/opencode/plugins/ when set):\n%s\n", agent.OpenCodePlugin(bin))
 	fmt.Printf("# ~/.claude/skills/pitwall/SKILL.md, and ~/.codex/skills/pitwall/SKILL.md ($CODEX_HOME/skills/pitwall/SKILL.md when set):\n%s", agent.Skill())
 	return nil
 }

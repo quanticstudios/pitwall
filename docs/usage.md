@@ -188,9 +188,9 @@ Some states are out of reach:
   does not report that prompt, so the tab stays Working.
 - Gemini CLI fires no hook when a turn fails, so with hooks it never shows
   Error; a failed turn stays Working until the next prompt.
-- OpenCode shows Plan only with its experimental plan mode on
+- OpenCode 1 shows Plan only with its experimental plan mode on
   (`OPENCODE_EXPERIMENTAL_PLAN_MODE=1`), when it asks to switch to the
-  build agent.
+  build agent. OpenCode 2 never asks, so it never shows Plan.
 - Cursor's prompt and approval hooks decide for the agent, so pitwall does
   not install them: a Cursor tab shows Working, Done, Error or nothing,
   never Approval.

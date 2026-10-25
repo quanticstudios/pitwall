@@ -613,6 +613,7 @@ func TestHooksGeminiAndOpenCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	plugin := filepath.Join(cfg, "opencode", "plugins", "pitwall.js")
+	tui := filepath.Join(cfg, "opencode", "plugins", "pitwall", "tui.js")
 	out.Reset()
 	if err := runHooks([]string{"install", "--dry-run"}, &out); err != nil {
 		t.Fatal(err)
@@ -628,7 +629,7 @@ func TestHooksGeminiAndOpenCode(t *testing.T) {
 	if string(root["theme"]) != `"Dracula"` || len(events) != 7 || !strings.Contains(string(events["BeforeTool"]), "lint.sh") || !strings.Contains(string(events["AfterAgent"]), `"timeout": 5000`) {
 		t.Fatalf("Gemini settings: %s", readHooksTestFile(t, gemini))
 	}
-	if !bytes.Equal(readHooksTestFile(t, plugin), agent.OpenCodePlugin(testBin)) {
+	if !bytes.Equal(readHooksTestFile(t, plugin), agent.OpenCodePlugin(testBin)) || !bytes.Equal(readHooksTestFile(t, tui), agent.OpenCodePlugin(testBin)) {
 		t.Fatal("install wrote another plugin")
 	}
 	if err := runHooks([]string{"uninstall"}, &out); err != nil {
@@ -637,6 +638,9 @@ func TestHooksGeminiAndOpenCode(t *testing.T) {
 	equalHookJSON(t, readHooksTestFile(t, gemini), []byte(original))
 	if _, err := os.Stat(plugin); !os.IsNotExist(err) {
 		t.Fatal("uninstall left the plugin")
+	}
+	if _, err := os.Stat(filepath.Dir(tui)); !os.IsNotExist(err) {
+		t.Fatal("uninstall left OpenCode 2's plugin directory")
 	}
 
 	// Gemini's settings may carry comments: they are skipped with a

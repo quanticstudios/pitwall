@@ -161,9 +161,12 @@ func runHooks(args []string, out io.Writer) error {
 		}})
 	}
 	if dir := agent.OpenCodeDir(home); installed("opencode", dir) {
-		files = append(files, config{path: filepath.Join(dir, "plugins", "pitwall.js"), merge: func(original []byte) ([]byte, []string, error) {
+		plugin := func(original []byte) ([]byte, []string, error) {
 			return mergeGenerated(original, agent.OpenCodePlugin(bin), install, agent.IsOpenCodePlugin, "OpenCode plugin")
-		}})
+		}
+		// why: OpenCode 2 runs plugins/pitwall.js in a background service every TUI shares, and loads the TUI half only from a directory.
+		files = append(files, config{path: filepath.Join(dir, "plugins", "pitwall.js"), merge: plugin},
+			config{path: filepath.Join(dir, "plugins", "pitwall", "tui.js"), ownDir: true, merge: plugin})
 	}
 	for i := range files {
 		f := &files[i]
