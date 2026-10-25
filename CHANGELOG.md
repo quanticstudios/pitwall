@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.2
 
 - Settings has a Timing category: how your agents' turns split between the model, tests, builds, CI, other tools and waiting on you, per day and per task from prompt to merge, with the slowest commands and a Copy report button. The daemon keeps it in `timing.jsonl`, redacted, with no prompts or output.
 - An orchestrator's workers start folded into its row, so a fleet takes one row until you click its bar to list them.
