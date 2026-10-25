@@ -116,7 +116,7 @@ func TestAddHugeOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := "HEAD " + strings.Repeat("é", 1<<20) + " Error: tests failed"
+	out := "HEAD " + strings.Repeat("é ", 1<<19) + "Error: tests failed"
 	l.Add(Event{T: time.Now(), Kind: Command, Command: "go test ./...", Output: out})
 	l.Close(time.Second)
 	evs, err := Read(path, time.Time{})
@@ -129,5 +129,54 @@ func TestAddHugeOutput(t *testing.T) {
 	}
 	if n := len([]rune(e.Output)); n != outputLen || !strings.HasSuffix(e.Output, " Error: tests failed") || strings.Contains(e.Output, "HEAD") {
 		t.Errorf("output %d runes, ends %q", n, string([]rune(e.Output)[n-30:]))
+	}
+}
+
+// TestAddCutSecret: a secret or header line that straddles the edge of
+// what Add redacts is dropped whole, even when redaction then shrinks the
+// rest below the kept length.
+func TestAddCutSecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "errors.jsonl")
+	l, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "ghp_" + strings.Repeat("A", 200)
+	// keys is n runes of whole keys that redact to a tenth of their size.
+	keys := func(n int) string {
+		s := strings.Repeat(" "+key, n/(len(key)+1))
+		return strings.Repeat(" ", n-len(s)) + s
+	}
+	end := " Error: push rejected"
+	// Past the 4800-rune edge only the key's last 30 runes remain, too
+	// short to match, and the whole keys after them redact to under 600.
+	cut := key[len(key)-30:] + " " + keys(8*outputLen-31-len(end)) + end
+	l.Add(Event{T: time.Now(), Kind: Command, Command: "git push", Output: strings.Repeat("x", 100) + key[:len(key)-30] + cut})
+	// The edge falls in a header line, after its name.
+	line := "kie: sess a b c\n"
+	l.Add(Event{T: time.Now(), Kind: Command, Command: "curl", Output: strings.Repeat("y\n", 3000) + "Coo" + line + keys(8*outputLen-len(line)-len(end)) + end})
+	l.Add(Event{T: time.Now(), Kind: Command, Command: "curl -H 'Cookie: session=" + strings.Repeat("s", 2*commandLen) + " more'", Output: "x"})
+	l.Add(Event{T: time.Now(), Kind: Command, Command: "echo", Output: strings.Repeat("z", 9000)})
+	// The edge falls in a private key's body.
+	body := strings.Repeat("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n", 200) + "-----END PRIVATE KEY-----\n" + end
+	l.Add(Event{T: time.Now(), Kind: Command, Command: "cat k", Output: "-----BEGIN PRIVATE KEY-----\n" + strings.Repeat("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n", 100) + body[len(body)-8*outputLen:]})
+	l.Close(time.Second)
+	evs, err := Read(path, time.Time{})
+	if err != nil || len(evs) != 5 {
+		t.Fatalf("read %v, %v", evs, err)
+	}
+	for _, e := range evs[:2] {
+		if strings.Contains(e.Output, "AAAAAAAAAA") || strings.Contains(e.Output, "sess") || !strings.HasSuffix(e.Output, end) || !strings.Contains(e.Output, "[redacted]") {
+			t.Errorf("cut secret kept: %q", e.Output)
+		}
+	}
+	if e := evs[2]; strings.Contains(e.Command, "sss") || e.Command != "curl -H 'Cookie:" {
+		t.Errorf("command cut mid-word: %q", e.Command)
+	}
+	if e := evs[3]; e.Output != "" || e.Size != 9004 {
+		t.Errorf("one word past the edge: %+v", e)
+	}
+	if e := evs[4]; e.Output != strings.TrimSpace(end) {
+		t.Errorf("a cut key block kept: %q", e.Output)
 	}
 }

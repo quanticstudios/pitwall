@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/quanticstudios/pitwall/internal/decide"
@@ -91,12 +92,37 @@ func (l *Log) Add(e Event, known ...string) {
 		e.Size = utf8.RuneCountInString(e.Command) + utf8.RuneCountInString(e.Output)
 	}
 	// why: the caller holds the daemon's lock, and a build's output can run
-	// to megabytes, so Redact sees only a few times what the line keeps. A
-	// secret cut in half at that edge sits at the far end of the kept text,
-	// and the cut below drops it, unless redaction shrank the text below
-	// the cut's length.
+	// to megabytes, so Redact sees only a few times what the line keeps.
+	// A secret cut at that edge would no longer match its pattern, so the
+	// cut text loses its partial line, or partial word when it is one line.
 	cmd, out := []rune(e.Command), []rune(e.Output)
-	cmd, out = cmd[:min(len(cmd), 2*commandLen)], out[max(0, len(out)-8*outputLen):]
+	if len(cmd) > 2*commandLen {
+		c := string(cmd[:2*commandLen])
+		i := strings.LastIndexByte(c, '\n')
+		if i < 0 {
+			i = max(0, strings.LastIndexFunc(c, unicode.IsSpace)) // none: nothing is left
+		}
+		cmd = []rune(c[:i])
+	}
+	if len(out) > 8*outputLen {
+		o := string(out[len(out)-8*outputLen:])
+		i := strings.IndexByte(o, '\n')
+		if i < 0 {
+			i = strings.IndexFunc(o, unicode.IsSpace)
+		}
+		if i < 0 {
+			i = len(o)
+		}
+		// A key block cut after its BEGIN line goes through its END line.
+		if end, begin := strings.Index(o, "-----END"), strings.Index(o, "-----BEGIN"); end >= 0 && (begin < 0 || end < begin) {
+			n := strings.IndexByte(o[end:], '\n')
+			if n < 0 {
+				n = len(o) - end
+			}
+			i = max(i, end+n)
+		}
+		out = []rune(o[i:])
+	}
 	cmd, out = []rune(strings.TrimSpace(decide.Redact(string(cmd), known...))), []rune(strings.TrimSpace(decide.Redact(string(out), known...)))
 	if len(cmd) > commandLen {
 		e.Command = string(cmd[:commandLen-1]) + "…"
