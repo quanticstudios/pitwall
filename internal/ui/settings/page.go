@@ -57,6 +57,7 @@ const (
 	catUsage
 	catDecisions
 	catStats
+	catErrors
 	catPhone
 	catAbout
 )
@@ -70,6 +71,7 @@ var categories = []struct{ name, desc string }{
 	{"Usage", "Your plan limits and what your coding agents cost, from their own files."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
 	{"Decision stats", "What the decisions log shows: calls, cost, and whether seeing the model's suggestion changes how you answer approvals."},
+	{"Agent errors", "Commands, tool calls and turns of your agents that failed, grouped so the ones that repeat stand out. Copy the report into an agent to fix the causes."},
 	{"Phone", "See which agents need you and answer them from your phone, over your own network."},
 	{"About", "Version, config file and documentation."},
 }
@@ -125,6 +127,7 @@ type Page struct {
 
 	dp decisionsPage
 	st statsPage
+	er errorsPage
 	ph phonePage
 	nt notifyPage
 	us usagePage
@@ -158,6 +161,7 @@ func (p *Page) Show(configPath string) {
 	p.us.gen++
 	// Decision stats reads the log again when it shows.
 	p.st.read = false
+	p.er.read = false
 	families(nil) // start the font scan
 }
 
@@ -730,6 +734,8 @@ func (p *Page) sections(cat int) []section {
 		return p.decisions()
 	case catStats:
 		return p.stats()
+	case catErrors:
+		return p.agentErrors()
 	case catPhone:
 		return p.phone()
 	case catAbout:

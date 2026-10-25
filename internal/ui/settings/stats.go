@@ -86,16 +86,11 @@ func (p *Page) readStats() {
 // windowStats is the stats of the events in win up to now. evs is oldest
 // first, so all time starts at the first.
 func windowStats(evs []decisionlog.Event, win string, now time.Time) decisionlog.Stats {
-	from := now.AddDate(0, 0, -7)
-	switch win {
-	case month:
-		from = now.AddDate(0, 0, -30)
-	case ever:
-		from = now
-		if len(evs) > 0 {
-			from = evs[0].T
-		}
+	first := now
+	if len(evs) > 0 {
+		first = evs[0].T
 	}
+	from := windowFrom(win, now, first)
 	var in []decisionlog.Event
 	for _, e := range evs {
 		if !e.T.Before(from) {
@@ -103,6 +98,17 @@ func windowStats(evs []decisionlog.Event, win string, now time.Time) decisionlog
 		}
 	}
 	return decisionlog.Compute(in, from, now)
+}
+
+// windowFrom is when win starts: first, the oldest event, for all time.
+func windowFrom(win string, now, first time.Time) time.Time {
+	switch win {
+	case month:
+		return now.AddDate(0, 0, -30)
+	case ever:
+		return first
+	}
+	return now.AddDate(0, 0, -7)
 }
 
 // statsNote is the line shown instead of stats, "" when there are some.

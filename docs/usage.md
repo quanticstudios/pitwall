@@ -509,6 +509,22 @@ Set `limits_in_sidebar = true` under `[usage]`, or use the switch under
 Limits, to show each agent's fullest window at the bottom of the sidebar,
 yellow from 80% and red from 95%.
 
+Settings, Agent errors shows why your agents waste steps. From the hooks,
+the daemon keeps every shell command that failed, every other tool call
+that failed (Edit, Read and the like) and every turn the API ended, from
+Claude Code and Codex, and API errors from pi, omp, Cursor and OpenCode
+too. A command that exits 1 with no output, as grep finding nothing, and a
+call you interrupted are not kept. Each goes to `errors.jsonl` in the state
+folder with its time, agent, command, the end of its output, exit code and
+folder; secrets in the command and output are redacted before it is
+written, and at 10 MB the file moves to `errors.jsonl.1`. The page groups
+the errors of the last 7 days, 30 days or all time by the line that says
+what went wrong, with numbers, paths and quoted text set aside, so
+`zsh: no matches found: --include=*.go` and `--include=*.ts` count as one.
+Copy report puts the top groups, each with its latest command and output,
+on the clipboard as Markdown to paste into an agent and ask it to fix the
+causes in CLAUDE.md, your shell config or a missing tool.
+
 Selecting text with the mouse copies it to the clipboard, as zellij and Warp
 do, and a small "Copied 42 characters" notice shows at the bottom of the panes.
 Drag to select, double-click a word, triple-click a line (the whole line

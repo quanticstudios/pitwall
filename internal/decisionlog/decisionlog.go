@@ -6,11 +6,7 @@
 package decisionlog
 
 import (
-	"bufio"
 	"encoding/json"
-	"errors"
-	"io/fs"
-	"os"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/logs"
@@ -92,8 +88,8 @@ type Log struct{ w *logs.Writer }
 func Open(path string) (*Log, error) { return open(path, MaxSize) }
 
 func open(path string, max int64) (*Log, error) {
-	r := &rotating{path: path, max: max}
-	if err := r.reopen(); err != nil {
+	r, err := logs.OpenRotating(path, max)
+	if err != nil {
 		return nil, err
 	}
 	return &Log{w: logs.NewWriter("decisionlog ", r, r)}, nil
@@ -119,79 +115,9 @@ func (l *Log) Close(timeout time.Duration) {
 	}
 }
 
-// rotating is the file, moved to .1 when a line would take it past max.
-// Only the Writer's goroutine uses it.
-type rotating struct {
-	path string
-	max  int64
-	f    *os.File
-	size int64
-}
-
-func (r *rotating) reopen() error {
-	f, err := logs.OpenFile(r.path, r.max)
-	if err != nil {
-		return err
-	}
-	fi, err := f.Stat()
-	if err != nil {
-		f.Close()
-		return err
-	}
-	r.f, r.size = f, fi.Size()
-	return nil
-}
-
-func (r *rotating) Write(p []byte) (int, error) {
-	if r.f != nil && r.size > 0 && r.size+int64(len(p)) > r.max {
-		r.f.Close()
-		r.f = nil
-		os.Rename(r.path, r.path+".1")
-	}
-	if r.f == nil {
-		if err := r.reopen(); err != nil {
-			return 0, err
-		}
-	}
-	n, err := r.f.Write(p)
-	r.size += int64(n)
-	return n, err
-}
-
-func (r *rotating) Close() error {
-	if r.f == nil {
-		return nil
-	}
-	return r.f.Close()
-}
-
 // Read returns the events at or after since from path.1 and path, oldest
 // first. Lines that are not events, such as the writer's note of dropped
 // lines, are skipped; missing files are no events.
 func Read(path string, since time.Time) ([]Event, error) {
-	var out []Event
-	for _, p := range []string{path + ".1", path} {
-		f, err := os.Open(p)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		sc := bufio.NewScanner(f)
-		sc.Buffer(nil, 1<<20)
-		for sc.Scan() {
-			var e Event
-			if json.Unmarshal(sc.Bytes(), &e) != nil || e.V == 0 || e.T.Before(since) {
-				continue
-			}
-			out = append(out, e)
-		}
-		err = sc.Err()
-		f.Close()
-		if err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
+	return logs.ReadJSONL(path, func(e Event) bool { return e.V != 0 && !e.T.Before(since) })
 }

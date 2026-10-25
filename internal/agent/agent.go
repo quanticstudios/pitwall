@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -889,6 +890,77 @@ func ToolRun(payload []byte) (command, output string, failed, ok bool) {
 	}
 	failed = p.Event == "PostToolUseFailure" || r.ExitCode != nil && *r.ExitCode != 0
 	return command, output, failed, true
+}
+
+// Failure is a failed tool call as ToolFailure reads it. Shell marks a
+// shell command; Exit is its exit code, 0 when unknown.
+type Failure struct {
+	Tool, Command, Output, Cwd string
+	Exit                       int
+	Shell                      bool
+}
+
+// exitLine is how Claude starts a failed command's error.
+var exitLine = regexp.MustCompile(`^Exit code (\d+)\s*`)
+
+// ToolFailure is the failure a Claude or Codex PostToolUse or
+// PostToolUseFailure reports: a shell command that failed (see ToolRun),
+// or any other tool's failure event with its error. ok is false for other
+// payloads, a /side fork, and two failures that are not errors:
+//   - a call the user interrupted (is_interrupt, or the response's
+//     interrupted): the user stopped it, nothing broke;
+//   - a command that exited 1 with no output, as grep finding nothing or
+//     test answering no: that is an answer.
+func ToolFailure(payload []byte) (f Failure, ok bool) {
+	var p struct {
+		Event          string          `json:"hook_event_name"`
+		TranscriptPath json.RawMessage `json:"transcript_path"`
+		ToolName       string          `json:"tool_name"`
+		ToolInput      map[string]any  `json:"tool_input"`
+		ToolResponse   json.RawMessage `json:"tool_response"`
+		Error          string          `json:"error"`
+		Interrupt      bool            `json:"is_interrupt"`
+		Cwd            string          `json:"cwd"`
+	}
+	if json.Unmarshal(payload, &p) != nil || string(p.TranscriptPath) == "null" || p.Interrupt {
+		return Failure{}, false
+	}
+	var r struct {
+		Interrupted bool `json:"interrupted"`
+		ExitCode    *int `json:"exit_code"`
+	}
+	if json.Unmarshal(p.ToolResponse, &r); r.Interrupted {
+		return Failure{}, false
+	}
+	f = Failure{Tool: p.ToolName, Cwd: p.Cwd}
+	if cmd, out, failed, shell := ToolRun(payload); shell {
+		if !failed {
+			return Failure{}, false
+		}
+		f.Command, f.Output, f.Shell = cmd, out, true
+		if r.ExitCode != nil {
+			f.Exit = *r.ExitCode
+		}
+		if m := exitLine.FindStringSubmatch(out); m != nil {
+			f.Exit, _ = strconv.Atoi(m[1])
+			f.Output = out[len(m[0]):]
+		}
+		if f.Exit == 1 && f.Output == "" {
+			return Failure{}, false
+		}
+		return f, true
+	}
+	if p.Event != "PostToolUseFailure" || p.ToolName == "" {
+		return Failure{}, false
+	}
+	for _, k := range []string{"file_path", "path", "pattern", "url", "query"} {
+		if s, _ := p.ToolInput[k].(string); s != "" {
+			f.Command = s
+			break
+		}
+	}
+	f.Output = strings.TrimSpace(p.Error)
+	return f, true
 }
 
 // HookEvent returns a Claude Code or Codex hook's event name and tool

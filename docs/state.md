@@ -6,6 +6,7 @@
 | Saved tab backups   | `state.json.prev`, `state.json.bad-<time>` and `state.json.restored-<time>` next to it |
 | Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
 | Decisions log       | `~/.local/state/pitwall/decisions.jsonl` (`pitwall jev report`) |
+| Agent errors log    | `~/.local/state/pitwall/errors.jsonl` (Settings, Agent errors) |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |

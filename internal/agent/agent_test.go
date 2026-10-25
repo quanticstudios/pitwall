@@ -615,3 +615,38 @@ func TestToolRun(t *testing.T) {
 		}
 	}
 }
+
+func TestToolFailure(t *testing.T) {
+	failure, err := os.ReadFile("testdata/claude_post_tool_use_failure.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		payload string
+		want    Failure
+		ok      bool
+	}{
+		{string(failure), Failure{Tool: "Bash", Command: "npm test", Output: "Error: Cannot find module 'express'", Cwd: "/home/u/repo", Exit: 1, Shell: true}, true},
+		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"grep -rn foo --include=*.go ."},"error":"Exit code 1\nzsh: no matches found: --include=*.go"}`,
+			Failure{Tool: "Bash", Command: "grep -rn foo --include=*.go .", Output: "zsh: no matches found: --include=*.go", Exit: 1, Shell: true}, true},
+		{`{"hook_event_name":"PostToolUse","tool_name":"exec_command","tool_input":{"command":["rg","x"]},"tool_response":{"aggregated_output":"zsh: command not found: rg","exit_code":127}}`,
+			Failure{Tool: "exec_command", Command: "rg x", Output: "zsh: command not found: rg", Exit: 127, Shell: true}, true},
+		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Edit","tool_input":{"file_path":"/r/a.go","old_string":"x"},"error":"File has not been read yet."}`,
+			Failure{Tool: "Edit", Command: "/r/a.go", Output: "File has not been read yet."}, true},
+		// Skipped: grep finding nothing, in both shapes.
+		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"grep -q x f"},"error":"Exit code 1"}`, Failure{}, false},
+		{`{"hook_event_name":"PostToolUse","tool_name":"exec_command","tool_input":{"command":["grep","x"]},"tool_response":{"aggregated_output":"","exit_code":1}}`, Failure{}, false},
+		// Skipped: the user interrupted it.
+		{`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"sleep 99"},"error":"Exit code 130","is_interrupt":true}`, Failure{}, false},
+		{`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"sleep 99"},"tool_response":{"stdout":"","interrupted":true,"exit_code":130}}`, Failure{}, false},
+		// Not failures.
+		{`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"ls"},"tool_response":{"stdout":"a"}}`, Failure{}, false},
+		{`{"hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"x"},"tool_response":{"success":true}}`, Failure{}, false},
+		{`{"hook_event_name":"PostToolUseFailure","transcript_path":null,"tool_name":"Bash","tool_input":{"command":"x"},"error":"Exit code 2"}`, Failure{}, false},
+	} {
+		f, ok := ToolFailure([]byte(c.payload))
+		if f != c.want || ok != c.ok {
+			t.Errorf("ToolFailure(%s) = %+v %v", c.payload, f, ok)
+		}
+	}
+}
