@@ -29,6 +29,13 @@ function text(message: any): string {
 	return i > 0 ? cut.slice(0, i) : "";
 }
 
+// tail is the end of a failed tool's output, where its error is.
+function tail(content: any): string {
+	if (!Array.isArray(content)) return "";
+	const s = content.filter((c: any) => c && c.type === "text").map((c: any) => String(c.text)).join("\n").trim();
+	return Array.from(s).slice(-16000).join("");
+}
+
 export default function (pi: any) {
 	if (!process.env.PITWALL_PANE) return;
 	// why: /reload starts a new runtime in the same session; pitwall tells their reports apart by this.
@@ -143,6 +150,19 @@ export default function (pi: any) {
 	});
 	pi.on("tool_call", (event: any, ctx: any) => {
 		report(ctx, "tool_call", { tool_name: String(event?.toolName ?? "") });
+	});
+	pi.on("tool_result", (event: any, ctx: any) => {
+		if (event?.isError !== true) return;
+		const input = event.input ?? {};
+		// why: pi puts bash's exit code in structuredContent, omp in details.
+		const exit = event.structuredContent?.exit_code ?? event.details?.exitCode;
+		report(ctx, "tool_error", {
+			tool_name: String(event.toolName ?? ""),
+			tool_input: { command: typeof input.command === "string" ? input.command : undefined, path: typeof input.path === "string" ? input.path : undefined },
+			error: tail(event.content),
+			exit_code: typeof exit === "number" ? exit : undefined,
+			cwd: typeof ctx?.cwd === "string" ? ctx.cwd : undefined,
+		});
 	});
 	function settle(ctx: any): void {
 		result = last;

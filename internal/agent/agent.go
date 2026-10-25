@@ -12,12 +12,14 @@ package agent
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -630,6 +632,7 @@ var piReleased = []string{
 	"6075137b80ebb0c738c88c2abca9f192e9fc3858eab4e215f4702bceb3bcca02", // v0.1.0-alpha.5
 	"11f4736b693b600e21a7eb1d5336e842804cee7a5f6a5b1c0a0a2360a492a42b", // v0.1.0-alpha.6
 	"66a661de319a73aa4e500c5357b694e72370138ef5bdbabc5faaead7470d647b", // v0.1.0-alpha.7 to beta.18
+	"68f2cee0198007bb7d620c8eb866d0017dd9a6ed02a93621a08b6ca72d0af741", // v0.1.1
 }
 
 // IsPiExtension reports whether b is exactly what PiExtension returns for
@@ -659,8 +662,9 @@ var openCodeTemplate string
 // opencode` with a JSON payload on stdin, without a shell, one at a time in
 // the background, on each prompt, tool call, permission or question, and
 // finished, failed or aborted run of the main session; subagents' sessions
-// are left out. It sends the tool's name but never its arguments. Outside a
-// pane it registers nothing.
+// are left out. It sends a tool's name, and only for a failed call its
+// command or file path and the end of its error. Outside a pane it
+// registers nothing.
 func OpenCodePlugin(bin string) []byte {
 	q, _ := json.Marshal(bin)
 	return []byte(strings.Replace(openCodeTemplate, piBinToken, string(q), 1))
@@ -674,6 +678,7 @@ func IsOpenCodePlugin(b []byte) bool { return isGenerated(b, openCodeTemplate, o
 // releases shipped it, so an install replaces those files as unedited.
 var openCodeReleased = []string{
 	"5e48c0f9ff7ae39bf0153001d3f7df57b4f5f9e0a6b9726b5fea39186a9d62c6", // v0.1.0-alpha.23
+	"765995ca8593576244fd4d147bd7d69497ae7cf6f5ee9f173333455c28534da1", // v0.1.0-beta.3 to v0.1.1
 }
 
 //go:embed pitwall_skill.md
@@ -889,6 +894,155 @@ func ToolRun(payload []byte) (command, output string, failed, ok bool) {
 	}
 	failed = p.Event == "PostToolUseFailure" || r.ExitCode != nil && *r.ExitCode != 0
 	return command, output, failed, true
+}
+
+// Failure is a failed tool call as ToolFailure reads it. Shell marks a
+// shell command; Exit is its exit code, 0 when unknown. Quiet marks a
+// command that exited 1 with no output, as grep finding nothing does, and
+// Interrupted one the user stopped. Ms is how long it ran, 0 when unknown.
+type Failure struct {
+	Tool, Command, Output, Cwd string
+	Exit                       int
+	Ms                         int64
+	Shell, Quiet, Interrupted  bool
+}
+
+var (
+	// exitLine is how Claude starts a failed command's error, and Cursor
+	// says one failed with no output.
+	exitLine = regexp.MustCompile(`^(?:Exit code|Command failed with exit code) (\d+)\s*`)
+	// geminiExit is the line Gemini's shell tool adds for a non-zero exit.
+	geminiExit = regexp.MustCompile(`(?m)^Exit Code: (\d+)$`)
+	// geminiMeta are the lines Gemini adds around a command's output.
+	geminiMeta = regexp.MustCompile(`(?m)^(?:Exit Code|Signal|Background PIDs|Process Group PGID): .*$`)
+	// codexShellError is the last line of a Codex command that failed in a
+	// way the output says, as Codex's hooks carry no exit code.
+	// ponytail: a pattern, not the exit code; a failure that prints none of
+	// these is missed. Reading the exit from Codex's rollout file would
+	// catch every one.
+	codexShellError = regexp.MustCompile(`(?i)^(?:(?:zsh|bash|sh|fish|dash)(?::\d+)?: .*|.*\b(?:command not found|no such file or directory|permission denied|no matches found|(?:unknown|invalid|unrecognized|illegal) option)\b.*|(?:error|fatal): .*)$`)
+	// aborted is the last line pi and omp give a command the user stopped.
+	aborted = regexp.MustCompile(`^\[?Command (?:aborted|cancelled)\]?$`)
+)
+
+// ToolFailure is the failed tool call a hook reports, whatever made it fail
+// (see Failure for the marks):
+//
+//	Claude Code   PostToolUseFailure; PostToolUse of a Bash run that exited non-zero
+//	Codex         PostToolUse of a Bash run whose last line reads as a shell
+//	              error (codexShellError): Codex sends no exit code, and fires
+//	              no hook for a failed apply_patch or MCP call
+//	Cursor        postToolUseFailure
+//	Gemini CLI    AfterTool with an error, or a shell run with Exit Code
+//	OpenCode      PostToolUseFailure from pitwall's plugin
+//	pi, omp       tool_error from pitwall's extension
+//
+// ok is false for other payloads and for a Claude or Codex /side fork.
+func ToolFailure(provider model.Provider, payload []byte) (f Failure, ok bool) {
+	var p struct {
+		Event          string          `json:"hook_event_name"`
+		PiEvent        string          `json:"event"`
+		TranscriptPath json.RawMessage `json:"transcript_path"`
+		ToolName       string          `json:"tool_name"`
+		ToolInput      map[string]any  `json:"tool_input"`
+		ToolResponse   json.RawMessage `json:"tool_response"`
+		Error          string          `json:"error"`
+		ErrorMessage   string          `json:"error_message"` // Cursor
+		Interrupt      bool            `json:"is_interrupt"`
+		Cwd            string          `json:"cwd"`
+		DurationMs     int64           `json:"duration_ms"` // Claude, and pitwall's plugins
+		Duration       float64         `json:"duration"`    // Cursor, in ms
+		ExitCode       *int            `json:"exit_code"`   // pitwall's plugins
+	}
+	if json.Unmarshal(payload, &p) != nil {
+		return Failure{}, false
+	}
+	f = Failure{Tool: p.ToolName, Cwd: p.Cwd, Interrupted: p.Interrupt, Ms: cmp.Or(p.DurationMs, int64(p.Duration))}
+	if c, _ := p.ToolInput["command"].(string); c != "" {
+		f.Command, f.Shell = c, true
+	} else {
+		for _, k := range []string{"file_path", "path", "filePath", "pattern", "url", "query"} {
+			if s, _ := p.ToolInput[k].(string); s != "" {
+				f.Command = s
+				break
+			}
+		}
+	}
+	if p.ExitCode != nil {
+		f.Exit = *p.ExitCode
+	}
+	switch {
+	case p.Event == "PostToolUse" || p.Event == "PostToolUseFailure":
+		if string(p.TranscriptPath) == "null" {
+			return Failure{}, false // a /side fork
+		}
+		var r struct {
+			Interrupted bool `json:"interrupted"`
+			ExitCode    *int `json:"exit_code"`
+		}
+		if json.Unmarshal(p.ToolResponse, &r); r.Interrupted {
+			f.Interrupted = true
+		}
+		if r.ExitCode != nil {
+			f.Exit = *r.ExitCode
+		}
+		cmd, out, failed, shell := ToolRun(payload)
+		if shell {
+			f.Command, f.Output, f.Shell = cmd, out, true
+			if provider == model.ProviderCodex && !failed && p.ToolName == "Bash" {
+				failed = codexShellError.MatchString(lastLine(out))
+			}
+		} else {
+			f.Output, failed = strings.TrimSpace(p.Error), p.Event == "PostToolUseFailure" && p.ToolName != ""
+		}
+		if !failed && !f.Interrupted {
+			return Failure{}, false
+		}
+	case p.Event == "postToolUseFailure": // Cursor
+		f.Output = strings.TrimSpace(p.ErrorMessage)
+	case p.Event == "AfterTool": // Gemini
+		var r struct {
+			LLM   json.RawMessage `json:"llmContent"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		json.Unmarshal(p.ToolResponse, &r)
+		var text string
+		json.Unmarshal(r.LLM, &text) // a string for the shell tool; parts otherwise
+		switch m := geminiExit.FindStringSubmatch(text); {
+		case strings.HasPrefix(text, "Command was cancelled by user"):
+			f.Interrupted, f.Output = true, text
+		case r.Error != nil:
+			f.Output = r.Error.Message
+		case m != nil:
+			f.Exit, _ = strconv.Atoi(m[1])
+			f.Output = strings.TrimSpace(geminiMeta.ReplaceAllString(text, ""))
+			f.Output = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(f.Output, "Output: "), "(empty)"))
+		default:
+			return Failure{}, false
+		}
+	case p.PiEvent == "tool_error": // pi, omp
+		f.Output = strings.TrimSpace(p.Error)
+		f.Shell = p.ToolName == "bash"
+		if aborted.MatchString(lastLine(f.Output)) {
+			f.Interrupted = true
+		}
+	default:
+		return Failure{}, false
+	}
+	if m := exitLine.FindStringSubmatch(f.Output); m != nil {
+		f.Exit, _ = strconv.Atoi(m[1])
+		f.Output = f.Output[len(m[0]):]
+	}
+	f.Quiet = f.Shell && f.Exit == 1 && f.Output == "" && !f.Interrupted
+	return f, true
+}
+
+// lastLine is s's last non-empty line, trimmed.
+func lastLine(s string) string {
+	s = strings.TrimSpace(s)
+	return strings.TrimSpace(s[strings.LastIndexByte(s, '\n')+1:])
 }
 
 // HookEvent returns a Claude Code or Codex hook's event name and tool

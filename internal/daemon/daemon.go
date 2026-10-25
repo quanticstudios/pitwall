@@ -26,6 +26,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/decisionlog"
+	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
@@ -97,6 +98,8 @@ type Options struct {
 	Decisions func() Decisions
 	// Journal is decisions.jsonl; nil logs nothing.
 	Journal *decisionlog.Log
+	// Errors is errors.jsonl; nil logs nothing.
+	Errors *errlog.Log
 	// Remote reads [remote]; nil never serves the phone page. RemoteDir
 	// holds its pairings, devices and certificate.
 	Remote        func() config.RemoteSettings
@@ -188,8 +191,13 @@ func New() (*Daemon, error) {
 	if err != nil {
 		log.Printf("decisions log: %q", err) // decisions work without it
 	}
+	errs, err := errlog.Open(filepath.Join(filepath.Dir(path), "errors.jsonl"))
+	if err != nil {
+		log.Printf("errors log: %q", err)
+	}
 	return NewWith(Options{
 		Journal: journal,
+		Errors:  errs,
 		StartPane: func(c pane.Config) (Pane, error) {
 			p, err := pane.Start(c)
 			if err != nil {
@@ -367,6 +375,7 @@ func (d *Daemon) shutdown() {
 	}
 	wg.Wait()
 	d.o.Journal.Close(time.Second)
+	d.o.Errors.Close(time.Second)
 }
 
 // client is one connection's outbound queue. Bursts coalesce: a pending
@@ -1212,6 +1221,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 				next.Detail = decide.Redact(next.Detail, secrets...)
 			}
 		}
+		if next.State == model.StateError {
+			d.o.Errors.Add(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: errlog.API, Output: next.Detail, Cwd: p.Cwd}, d.dec.cur.Secrets...)
+		}
 		switch {
 		case next.State == "" && ai >= 0:
 			d.st.Activities = slices.Delete(d.st.Activities, ai, ai+1)
@@ -1237,6 +1249,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 				}
 			}
 		}
+	}
+	if f, ok := agent.ToolFailure(m.Provider, m.Payload); ok {
+		kind := errlog.Tool
+		if f.Shell {
+			kind = errlog.Command
+		}
+		d.o.Errors.Add(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
+			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd),
+			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms}, d.dec.cur.Secrets...)
 	}
 	if p.Provider != m.Provider {
 		if p.Provider != "" {

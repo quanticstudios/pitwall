@@ -30,8 +30,10 @@ For the JSON configs (Gemini's is in `$GEMINI_CLI_HOME` when set):
 pi has no shell hooks, so for pi the same command writes a small extension,
 `~/.pi/agent/extensions/pitwall.ts` (under `$PI_CODING_AGENT_DIR` when set).
 Inside a pitwall pane it runs `pitwall hook pi` in the background, one at a
-time, on each prompt, tool call, finished run and session end, and sends the
-tool's name but never its arguments. pi waits for it only when a session
+time, on each prompt, tool call, failed tool call, finished run and session
+end. It sends a tool's name, and only for a failed call its command or file
+path, exit code and the end of its error, for
+[Agent errors](usage.md#agent-errors). pi waits for it only when a session
 ends (exit, `/new`, `/resume`, `/reload`), and then at most a second; a hook
 still running after 5 seconds is killed. A missing binary or a stopped
 daemon never fails pi. pitwall skips pi when `pi` is not on your `PATH` and
@@ -52,8 +54,11 @@ when set), when `opencode` is on your `PATH` or that directory exists. The
 plugin works like pi's extension: inside a pitwall pane it runs `pitwall
 hook opencode` in the background, one at a time, on each prompt, tool call,
 permission prompt, question, and finished, failed or aborted run of the main
-session, never a subagent's. It sends the tool's name but never its
-arguments, and replaces or removes only a file nobody edited.
+session, never a subagent's. It sends a tool's name, and only for a call
+that failed or a shell command that exited non-zero its command or file
+path, exit code and the end of its output, for Agent errors. It replaces or
+removes only a file nobody edited. The plugin uses OpenCode 1's plugin
+interface.
 
 The skill teaches Claude Code and Codex to talk with another agent in a
 pitwall pane: `pitwall send` for a conversation, `prompt --wait` for one

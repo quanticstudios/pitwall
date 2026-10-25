@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,7 +67,7 @@ func TestOpenCodePlugin(t *testing.T) {
 	if err := os.WriteFile(plugin, OpenCodePlugin(fake), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	const want = 13
+	const want = 15
 	harness := filepath.Join(dir, "harness.mjs")
 	if err := os.WriteFile(harness, []byte(`import fs from "node:fs";
 const { PitwallPlugin } = await import(process.argv[2]);
@@ -77,6 +78,13 @@ await h["tool.execute.before"]({ tool: "bash", sessionID: "s1", callID: "c1" }, 
 await ev("session.created", { sessionID: "s2", info: { id: "s2", parentID: "s1" } });
 await h["tool.execute.before"]({ tool: "read", sessionID: "s2", callID: "c2" }, { args: {} });
 await ev("session.idle", { sessionID: "s2" });
+const tool = (sessionID, callID, tool, state) => ev("message.part.updated", { sessionID, part: { type: "tool", sessionID, messageID: "m0", callID, tool, state } });
+await tool("s1", "c1", "bash", { status: "running", input: { command: "echo secret-arg" } });
+await tool("s1", "c1", "bash", { status: "completed", input: { command: "echo secret-arg" }, output: "ok", metadata: { exit: 0 } });
+await tool("s1", "c4", "bash", { status: "completed", input: { command: "tsc" }, output: "error TS2304", metadata: { exit: 2 }, time: { start: 100, end: 900 } });
+await tool("s1", "c4", "bash", { status: "completed", input: { command: "tsc" }, output: "error TS2304", metadata: { exit: 2 }, time: { start: 100, end: 900 } });
+await tool("s1", "c5", "read", { status: "error", input: { filePath: "/r/x" }, error: "File not found", time: { start: 1, end: 2 } });
+await tool("s2", "c6", "read", { status: "error", input: { filePath: "/r/y" }, error: "child" });
 await ev("permission.asked", { id: "p1", sessionID: "s1", permission: "bash", patterns: [] });
 await ev("permission.replied", { sessionID: "s1", requestID: "p1", reply: "once" });
 await h["tool.execute.before"]({ tool: "plan_exit", sessionID: "s1", callID: "c3" }, { args: {} });
@@ -104,7 +112,7 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(node, harness, plugin, "13")
+	cmd := exec.Command(node, harness, plugin, "15")
 	cmd.Env = append(os.Environ(), "PITWALL_PANE=p1", "OUT="+out)
 	cmd.WaitDelay = 15 * time.Second
 	if b, err := cmd.CombinedOutput(); err != nil {
@@ -114,11 +122,12 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "secret-arg") || strings.Contains(string(b), "ctx") {
+	if strings.Contains(string(b), "secret-arg") || strings.Contains(string(b), "ctx") || strings.Contains(string(b), "child") {
 		t.Errorf("sent tool arguments or a synthetic part: %s", b)
 	}
 	var got []string
 	var stop, failure map[string]any
+	var tools []string
 	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		var m map[string]any
 		if err := json.Unmarshal([]byte(line), &m); err != nil {
@@ -136,20 +145,32 @@ await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
 			stop = m
 		case "StopFailure":
 			failure = m
+		case "PostToolUseFailure":
+			f, ok := ToolFailure(model.ProviderOpenCode, []byte(line))
+			if !ok {
+				t.Errorf("ToolFailure(%s) not ok", line)
+			}
+			tools = append(tools, fmt.Sprintf("%+v", f))
 		}
 		got = append(got, ev)
 	}
-	wantEvents := []string{"SessionStart", "UserPromptSubmit:fix it", "PreToolUse:bash", "Notification:permission_prompt", "PostToolUse",
+	wantEvents := []string{"SessionStart", "UserPromptSubmit:fix it", "PreToolUse:bash", "PostToolUseFailure", "PostToolUseFailure", "Notification:permission_prompt", "PostToolUse",
 		"PreToolUse:plan_exit", "PreToolUse:ExitPlanMode", "PostToolUse", "Stop",
 		"UserPromptSubmit:", "Interrupt", "UserPromptSubmit:", "StopFailure"}
 	if len(wantEvents) != want || strings.Join(got, " ") != strings.Join(wantEvents, " ") {
 		t.Fatalf("events\n got %v\nwant %v", got, wantEvents)
 	}
+	if w := []string{
+		fmt.Sprintf("%+v", Failure{Tool: "bash", Command: "tsc", Output: "error TS2304", Exit: 2, Ms: 800, Shell: true}),
+		fmt.Sprintf("%+v", Failure{Tool: "read", Command: "/r/x", Output: "File not found", Ms: 1}),
+	}; strings.Join(tools, "\n") != strings.Join(w, "\n") {
+		t.Errorf("failures\n got %v\nwant %v", tools, w)
+	}
 	if stop["last_assistant_message"] != "All done." || stop["session_id"] != "s1" || failure["error"] != "rate limited" {
 		t.Errorf("Stop %v, StopFailure %v", stop, failure)
 	}
 	// Derive reads them as Claude's hooks.
-	if next, ok := Derive(nil, model.ProviderOpenCode, []byte(strings.Split(string(b), "\n")[8]), time.Now()); !ok || next.State != model.StateCompleted || next.Detail != "All done." {
+	if next, ok := Derive(nil, model.ProviderOpenCode, []byte(strings.Split(string(b), "\n")[10]), time.Now()); !ok || next.State != model.StateCompleted || next.Detail != "All done." {
 		t.Errorf("Derive(Stop) = %+v, %v", next, ok)
 	}
 }
