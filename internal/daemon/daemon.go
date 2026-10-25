@@ -37,6 +37,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/store"
+	"github.com/quanticstudios/pitwall/internal/timelog"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -100,6 +101,8 @@ type Options struct {
 	Journal *decisionlog.Log
 	// Errors is errors.jsonl; nil logs nothing.
 	Errors *errlog.Log
+	// Timing is timing.jsonl; nil logs nothing.
+	Timing *timelog.Log
 	// Remote reads [remote]; nil never serves the phone page. RemoteDir
 	// holds its pairings, devices and certificate.
 	Remote        func() config.RemoteSettings
@@ -158,6 +161,7 @@ type Daemon struct {
 	closing     bool
 	savePending bool
 	live        liveness
+	turns       timelog.Tracker       // each pane's running turn, for timing.jsonl
 	resumed     map[string]time.Time  // pane: when NewWith relaunched it with a resume command
 	attn        map[string]*attention // pane: seen time and OSC notification, see attention.go
 	clip        model.Clipboard       // the latest OSC 52 write, see attention.go
@@ -195,9 +199,14 @@ func New() (*Daemon, error) {
 	if err != nil {
 		log.Printf("errors log: %q", err)
 	}
+	timing, err := timelog.Open(filepath.Join(filepath.Dir(path), "timing.jsonl"))
+	if err != nil {
+		log.Printf("timing log: %q", err)
+	}
 	return NewWith(Options{
 		Journal: journal,
 		Errors:  errs,
+		Timing:  timing,
 		StartPane: func(c pane.Config) (Pane, error) {
 			p, err := pane.Start(c)
 			if err != nil {
@@ -376,6 +385,7 @@ func (d *Daemon) shutdown() {
 	wg.Wait()
 	d.o.Journal.Close(time.Second)
 	d.o.Errors.Close(time.Second)
+	d.o.Timing.Close(time.Second)
 }
 
 // client is one connection's outbound queue. Bursts coalesce: a pending
@@ -1291,6 +1301,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			p.Prompt, changed = s, true
 		}
 	}
+	d.syncTurn(p, now) // a call may start the turn, as Cursor's first does
+	if c, ok := agent.ToolCall(m.Payload); ok {
+		d.turns.Tool(p.ID, c, now)
+	}
 	d.noteOutcomes(p.ID, m.Payload, now)
 	var turnDir, turnWS string // a tab to checkpoint once d.mu is free
 	if d.o.Checkpoint != nil && agent.Prompt(m.Provider, m.Payload) != "" {
@@ -1684,6 +1698,7 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 // and a save runs saveDelay after the first unsaved change, so a steady
 // stream of agent events cannot postpone it forever.
 func (d *Daemon) changed() {
+	d.syncTurns(time.Now())
 	d.pumpQueue()
 	d.pruneNotices()
 	d.retitle()

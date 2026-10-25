@@ -594,6 +594,28 @@ latest command and output, on the clipboard as Markdown to paste into an
 agent and ask it to fix the causes in CLAUDE.md, your shell config or a
 missing tool.
 
+### Timing
+
+Settings, Timing shows where your agents' time goes. A turn runs from your
+prompt to the agent stopping, failing, being interrupted or its pane
+closing, and the daemon writes one line per turn to `timing.jsonl` in the
+state folder: its tab, branch, agent, start and end, and how its time split
+between the model, tools and waiting on you for an approval or an answer.
+Tool time comes from the hooks around each call, so parallel calls count
+once, and commands sort into tests, builds, lint, git, CI and `gh` (watches
+and sleeps included), installs and other shell; other tools into reading,
+editing, subagents, web and MCP. Model time is what is left. Claude Code,
+Codex, Gemini CLI and OpenCode bracket every call. Cursor reports only how
+long a call ran, and pi and omp only calls that failed, so their tool time
+is short. Each turn keeps its five slowest commands, redacted and cut to
+200 characters; prompts and output are never stored. The file also gets a
+line when a tab gets its first prompt, opens a pull request, finishes CI,
+merges and closes. The page shows 7 days, 30 days or all time: a stacked
+bar, agent hours per day, the commands that took longest and each task's
+time from prompt to merge. Copy report puts it on the clipboard as Markdown
+to ask an agent what to speed up. At 10 MB the file moves to
+`timing.jsonl.1`.
+
 ### Grouping
 
 <img src="media/drag.webp" alt="Dragging a tab into the web-app group while the other rows slide apart, then dragging the billing group above the loose tabs" width="800">

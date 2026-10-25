@@ -1039,6 +1039,57 @@ func ToolFailure(provider model.Provider, payload []byte) (f Failure, ok bool) {
 	return f, true
 }
 
+// Call is the start or end of a tool call, as ToolCall reads it. ID is
+// the agent's id for the call, "" when it sends none; Ms is how long it
+// ran, on an end, when the agent says.
+type Call struct {
+	End               bool
+	ID, Tool, Command string
+	Ms                int64
+}
+
+// ToolCall reads a hook that starts or ends a tool call:
+//
+//	start   PreToolUse (Claude, Codex, OpenCode), BeforeTool (Gemini), tool_call (pi, omp)
+//	end     PostToolUse, PostToolUseFailure, AfterTool, Cursor's postToolUse and
+//	        postToolUseFailure, tool_error (pi, omp)
+//
+// Claude Code and Codex send an id for each call; the others do not. pi
+// and omp report only a call that failed, and Cursor only the end, with
+// how long it ran. ok is false for other payloads and a /side fork.
+func ToolCall(payload []byte) (c Call, ok bool) {
+	var p struct {
+		Event     string `json:"hook_event_name"`
+		PiEvent   string `json:"event"`
+		ToolName  string `json:"tool_name"`
+		ToolUseID string `json:"tool_use_id"`
+		ToolInput struct {
+			Command json.RawMessage `json:"command"`
+		} `json:"tool_input"`
+		DurationMs int64   `json:"duration_ms"`
+		Duration   float64 `json:"duration"` // Cursor, in ms
+	}
+	if json.Unmarshal(payload, &p) != nil {
+		return Call{}, false
+	}
+	if pp, _ := decode(payload); sideFork(pp) {
+		return Call{}, false
+	}
+	switch cmp.Or(p.Event, p.PiEvent) {
+	case "PreToolUse", "BeforeTool", "tool_call":
+	case "PostToolUse", "PostToolUseFailure", "AfterTool", "postToolUse", "postToolUseFailure", "tool_error":
+		c.End = true
+	default:
+		return Call{}, false
+	}
+	var argv []string
+	if json.Unmarshal(p.ToolInput.Command, &c.Command) != nil && json.Unmarshal(p.ToolInput.Command, &argv) == nil {
+		c.Command = strings.Join(argv, " ") // Codex sends argv
+	}
+	c.ID, c.Tool, c.Ms = p.ToolUseID, p.ToolName, cmp.Or(p.DurationMs, int64(p.Duration))
+	return c, true
+}
+
 // lastLine is s's last non-empty line, trimmed.
 func lastLine(s string) string {
 	s = strings.TrimSpace(s)
