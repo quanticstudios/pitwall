@@ -330,13 +330,19 @@ func (p *Page) tiles(gtx gl.Context, s *decisionlog.Stats) gl.Dimensions {
 		failed += f.Failed
 	}
 	days := s.SpanDays()
-	type tile struct{ label, value, sub string }
-	ts := []tile{
+	return p.tileGrid(gtx, []tile{
 		{"Calls", count(s.Calls), fmt.Sprintf("%s failed", decisionlog.Pct(failed, s.Calls))},
 		{"Total cost", decisionlog.Money(s.Dollars), count(s.Tokens) + " input tokens"},
 		{"Cost per day", decisionlog.Money(s.Dollars / float64(days)), fmt.Sprintf("over %d days", days)},
 		{"Median latency", fmt.Sprintf("%.0f ms", s.P50), "answered calls"},
-	}
+	})
+}
+
+// tile is one headline number: a muted label, the value and a line under.
+type tile struct{ label, value, sub string }
+
+// tileGrid sets ts out in four columns, two when narrow.
+func (p *Page) tileGrid(gtx gl.Context, ts []tile) gl.Dimensions {
 	w := gtx.Constraints.Max.X
 	cols := 4
 	if w < gtx.Dp(560) {

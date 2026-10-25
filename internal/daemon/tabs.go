@@ -97,6 +97,9 @@ func (d *Daemon) removeTab(w *model.Workspace, ti int) []Pane {
 // the last tab. On disk it only deletes the tab's checkpoints, in the
 // background. Callers hold d.mu.
 func (d *Daemon) removeWorkspace(id string) []Pane {
+	if w := d.workspace(id); w != nil {
+		d.tabClosed(*w)
+	}
 	if w := d.workspace(id); w != nil && d.o.DropTurns != nil {
 		// A removed worktree's checkpoints are in the repository it was of.
 		dir := cmp.Or(w.WorktreeRoot, d.st.LivePath(*w))

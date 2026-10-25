@@ -7,6 +7,7 @@
 | Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
 | Decisions log       | `~/.local/state/pitwall/decisions.jsonl` (`pitwall jev report`) |
 | Agent errors log    | `~/.local/state/pitwall/errors.jsonl` (Settings, Agent errors) |
+| Timing log          | `~/.local/state/pitwall/timing.jsonl` (Settings, Timing)      |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
