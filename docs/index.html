@@ -55,13 +55,22 @@ nav.top a:hover { color: var(--fg); }
   margin: 0 0 16px; max-width: 20ch; font-weight: 650;
 }
 .hero p.lede { color: var(--muted); font-size: 18px; max-width: 58ch; margin: 0 0 24px; }
-.states { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 28px; padding: 0; list-style: none; font-size: 14px; color: var(--muted); }
-.states li::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 7px; background: currentColor; vertical-align: 1px; }
-.states .working { color: var(--blue); }
-.states .input { color: var(--yellow); }
-.states .plan { color: var(--purple); }
-.states .done { color: var(--green); }
-.states .error { color: var(--red); }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 28px; max-width: 760px; margin: 0 0 28px; padding: 0; list-style: none; font-size: 15px; color: var(--muted); }
+.facts li { padding-left: 16px; position: relative; }
+.facts li::before { content: ""; position: absolute; left: 0; top: 9px; width: 8px; height: 8px; border-radius: 2px; background: var(--green); }
+.facts strong { color: var(--fg); font-weight: 600; }
+
+ol.steps { margin: 18px 0 0; padding: 0; list-style: none; counter-reset: step; max-width: 760px; }
+ol.steps li { counter-increment: step; position: relative; padding: 0 0 18px 44px; color: var(--muted); }
+ol.steps li::before {
+  content: counter(step); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 6px;
+  display: grid; place-items: center; font-weight: 650; font-size: 14px; color: var(--fg); background: var(--surface-2); border: 1px solid var(--elevated);
+}
+ol.steps strong { color: var(--fg); font-weight: 600; }
+ol.steps code { color: var(--fg); background: var(--surface-2); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+
+.blurbs p { color: var(--muted); max-width: 70ch; }
+.blurbs p strong { display: block; color: var(--fg); margin-bottom: 2px; }
 
 .actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .button {
@@ -137,6 +146,7 @@ footer a { color: var(--muted); }
   .docs { grid-template-columns: 1fr; }
   .hero { padding-top: 16px; }
   .hero p.lede { font-size: 17px; }
+  .facts { grid-template-columns: 1fr; }
   .feature .tall img { max-width: 240px; }
   table.agents td:first-child { white-space: normal; }
 }
@@ -163,6 +173,7 @@ footer a { color: var(--muted); }
       pitwall
     </a>
     <nav class="top">
+      <a href="#try">Try it</a>
       <a href="#features">Features</a>
       <a href="#install">Install</a>
       <a href="#docs">Docs</a>
@@ -172,17 +183,16 @@ footer a { color: var(--muted); }
 
   <div class="hero">
     <h1>A desktop terminal for running several coding agents at once.</h1>
-    <p class="lede">Run five agents in five tabs and one of them is always stuck on a question you have not seen. pitwall lights up that tab, notifies you, and takes you there with one key. Or let one agent run ten workers in their own worktrees, and watch them as one row.</p>
-    <ul class="states" aria-label="Agent states the sidebar shows">
-      <li class="working">Working</li>
-      <li class="input">Input</li>
-      <li class="input">Approval</li>
-      <li class="plan">Plan</li>
-      <li class="done">Done</li>
-      <li class="error">Error</li>
+    <p class="lede">Run five agents in five tabs and one of them is always stuck waiting on you, on a permission prompt or a question you have not seen. pitwall lights up that tab, notifies you, and takes you there with one key.</p>
+    <ul class="facts">
+      <li><strong>Free and MIT licensed.</strong> No account.</li>
+      <li><strong>Linux, macOS and Windows</strong>, x86_64 and arm64.</li>
+      <li><strong>Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and Oh My Pi.</strong></li>
+      <li><strong>One command</strong> to install.</li>
     </ul>
     <div class="actions">
       <a class="button primary" href="#install">Install</a>
+      <a class="button" href="#try">Try it in five minutes</a>
       <a class="button" href="https://github.com/quanticstudios/pitwall">View on GitHub</a>
     </div>
   </div>
@@ -216,6 +226,21 @@ scoop install pitwall</code></pre>
     </div>
   </section>
 
+  <section id="try">
+    <div class="wrap">
+      <h2>Try it in five minutes</h2>
+      <p>Use a git repo you don't mind agents changing. On macOS the keys below are <kbd>Cmd+U</kbd>, <kbd>Cmd+Shift+Y</kbd>, <kbd>Cmd+Shift+N</kbd>, <kbd>Cmd+Shift+R</kbd> and <kbd>Cmd+T</kbd>.</p>
+      <ol class="steps">
+        <li><strong>Start two or three agents.</strong> Run <code>pitwall</code> in the repo and press Install hooks on the welcome card (or in Settings, Agents), so the agents report their state. <kbd>Ctrl+Shift+T</kbd> opens a tab; run <code>claude</code> in one, <code>codex</code> in another, and give each a task that runs a command.</li>
+        <li><strong>Watch the sidebar.</strong> Each tab's row reads Working, Input, Approval, Plan, Done or Error, with the branch and the lines changed.</li>
+        <li><strong>Press <kbd>Ctrl+Shift+U</kbd>.</strong> When an agent stops to ask, its row lights up and a desktop notification arrives. The key takes you to the agent that started waiting most recently; press it again for the next one.</li>
+        <li><strong>Allow or Deny.</strong> A Claude Code or Codex permission prompt puts Allow and Deny on the row. Click them, or press <kbd>Ctrl+Shift+Y</kbd> or <kbd>Ctrl+Shift+D</kbd>. To answer from a phone, turn it on in Settings, Phone, press Pair and scan the QR code; the phone has to reach your computer, for example over Tailscale (<a href="https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md">the phone page</a>).</li>
+        <li><strong>Ask for a fleet.</strong> Tell Claude Code or Codex "split this across three workers". Each worker gets its own worktree and tab, folded into the orchestrator's row as a bar of their states. Click the bar to list them.</li>
+        <li><strong>Review and comment.</strong> <kbd>Ctrl+Shift+R</kbd> opens the tab's changes. Click a line number, type a comment and press Enter. The Send comments button types them all into the agent as one prompt.</li>
+      </ol>
+    </div>
+  </section>
+
   <section id="features">
     <div class="wrap">
       <div class="feature">
@@ -238,23 +263,31 @@ scoop install pitwall</code></pre>
 
       <div class="feature">
         <div class="text">
-          <h3>Pin and color the tabs you keep</h3>
-          <p><strong>Pin a tab and it stays open. Closing it from the window asks you to unpin it first, and <code>pitwall kill</code> from a script or another agent is refused.</strong></p>
-          <p>Give a tab one of eight colors from its menu and its row takes a faint tint, so the billing work and the webhook fix stop looking alike. A soft green mark under the agent's icon shows which Claude Code sessions have <code>/remote-control</code> on, so you know which ones you can pick up from your phone.</p>
-        </div>
-        <div class="media">
-          <div class="shot tall"><img src="media/tabs.webp" width="288" height="460" loading="lazy" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working"></div>
-        </div>
-      </div>
-
-      <div class="feature">
-        <div class="text">
           <h3>Answer without switching windows</h3>
           <p><strong>Allow or Deny a permission prompt from the sidebar or your phone.</strong> <kbd>Ctrl+Shift+Y</kbd> and <kbd>Ctrl+Shift+D</kbd> press the row's buttons, and on Linux the notification has them too.</p>
           <p>Pair your phone by QR code and it lists what needs you, takes typed answers and gets push notifications while locked. There is no account and no relay: the phone talks to your computer over your own network.</p>
         </div>
         <div class="media">
           <div class="shot tall"><img src="media/phone.webp" width="780" height="1688" loading="lazy" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <h3>Run a fleet of workers</h3>
+          <p><strong>Ask Claude Code or Codex to split a job and it starts one worker per task, each in its own worktree, under its own tab.</strong> The orchestrator's row gets a bar with a segment per worker in its state's color, and counts of how many need you, failed, are working and are done. The workers start folded into that row, so ten of them take one row; click the bar to open the tree and watch or type into any of them.</p>
+          <p>The orchestrator waits with <code>pitwall wait --children</code>. It stops at the first worker that asks a question, and <kbd>Ctrl+Shift+U</kbd> takes you to it. When a worker's pull request merges, Archive removes its tab, worktree and branch.</p>
+          <p><code>pitwall hooks install</code> teaches both agents these commands, so "split this across three workers" is all you have to say.</p>
+          <pre class="term"><code>pitwall worktree new invoice-pdf -- \
+  claude "Render invoices as PDFs"
+pitwall worktree new webhook-retry -- \
+  codex "Retry failed webhooks"
+pitwall wait --children \
+  --until done --timeout 30m</code></pre>
+        </div>
+        <div class="media stack">
+          <div class="shot tall"><img src="media/fleet-folded.webp" width="288" height="316" loading="lazy" alt="The sidebar with the Billing epic fleet folded into one row: a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, above a rate limiting tab and a collapsed web-app group"></div>
+          <div class="shot tall"><img src="media/workers.webp" width="288" height="880" loading="lazy" alt="The same fleet unfolded: a Billing epic tab running Claude Code with a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, and its ten workers indented under it, each on its own branch, among them Retry failed webhooks waiting for input, Refund flow waiting for approval and Mid-cycle plan change with an error"></div>
         </div>
       </div>
 
@@ -282,30 +315,36 @@ scoop install pitwall</code></pre>
 
       <div class="feature">
         <div class="text">
+          <h3>Find where agents waste time and tokens</h3>
+          <p><strong>Settings, Agent errors lists the failed commands, tool calls and API errors your agents' hooks report, grouped by cause.</strong> <code>zsh: command not found: rg</code> thirty-eight times is one row, with its count and about how many tokens it cost. Sort by count or by tokens, over 7 days, 30 days or all time.</p>
+          <p>Copy report puts the list on the clipboard as Markdown, so you can hand it to an agent and ask it to fix the causes in CLAUDE.md, your shell config or a missing tool.</p>
+          <p><strong>Settings, Timing shows where your agents' time goes.</strong> Each turn splits into the model, tests, builds, CI, other tools and waiting on you, per day and per task from prompt to merge, with the slowest commands. Both pages read logs the daemon keeps with secrets redacted; the timing log holds no prompts or output.</p>
+        </div>
+        <div class="media stack">
+          <div class="shot"><img src="media/agent-errors.webp" width="1280" height="800" loading="lazy" alt="Settings, Agent errors over 30 days: 131 errors from Claude Code, Codex, Gemini, OpenCode and pi, about 43.2K tokens. The top groups are zsh: command not found: rg 38 times, npm ERR! Missing script 21 times, String to replace not found in file 17 times, and a failing go test 14 times, each with its latest command and output"></div>
+          <div class="shot"><img src="media/timing.webp" width="1280" height="800" loading="lazy" alt="Settings, Timing over 30 days: tests took 16% of turn time, the model 32% and waiting on you 6%, over 106 turns in 9 tabs; a stacked bar of where the time goes and a chart of agent hours per day"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <h3>Know what it costs</h3>
+          <p><strong>See how much of your Claude Code and Codex plan limits you have used, and when you will hit 100% at this pace.</strong> The sidebar's footer keeps each agent's fullest window in view.</p>
+          <p>Settings, Usage also adds up what the last 7, 30 or 90 days would cost at API prices, per agent and per day. The agent panel shows each session's tokens and how full its context is, and lists every subagent, Claude Code workflow runs included, with what it was asked.</p>
+        </div>
+        <div class="media">
+          <div class="shot"><img src="media/usage.webp" width="1280" height="992" loading="lazy" alt="Settings, Usage beside the sidebar: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, Codex's windows at 34% and 61%, and $944.63 over 30 days split between Claude Code and Codex with a daily cost chart. The sidebar's footer shows each agent's fullest window, 5h at 72% and 7d at 61%."></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
           <h3>Line up the next task</h3>
           <p><strong>New task (<kbd>Ctrl+Shift+A</kbd>) starts an agent on a prompt in a tab of its own, or queues it until a running agent finishes.</strong></p>
           <p>Pick the project, a fresh worktree or a branch, the agent and its permission mode. Cap how many agents run at once, and the queue starts the next task as one finishes.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/new-task.webp" width="562" height="688" loading="lazy" alt="The New task dialog: project acme-api, a new worktree on a branch named from the prompt, Claude Code in its default mode, and the prompt, with Queue and Start buttons"></div>
-        </div>
-      </div>
-
-      <div class="feature">
-        <div class="text">
-          <h3>Run a fleet of workers</h3>
-          <p><strong>Ask Claude Code or Codex to split a job and it starts one worker per task, each in its own worktree, under its own tab.</strong> The orchestrator's row gets a bar with a segment per worker in its state's color, and counts of how many need you, failed, are working and are done. Fold the workers away, or open the tree to watch and type into any of them.</p>
-          <p>The orchestrator waits with <code>pitwall wait --children</code>. It stops at the first worker that asks a question, and <kbd>Ctrl+Shift+U</kbd> takes you to it. When a worker's pull request merges, Archive removes its tab, worktree and branch.</p>
-          <p><code>pitwall hooks install</code> teaches both agents these commands, so "split this across three workers" is all you have to say.</p>
-          <pre class="term"><code>pitwall worktree new invoice-pdf -- \
-  claude "Render invoices as PDFs"
-pitwall worktree new webhook-retry -- \
-  codex "Retry failed webhooks"
-pitwall wait --children \
-  --until done --timeout 30m</code></pre>
-        </div>
-        <div class="media">
-          <div class="shot tall"><img src="media/workers.webp" width="288" height="880" loading="lazy" alt="The sidebar: a Billing epic tab running Claude Code with a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, and its ten workers indented under it, each on its own branch, among them Retry failed webhooks waiting for input, Refund flow waiting for approval and Mid-cycle plan change with an error"></div>
         </div>
       </div>
 
@@ -335,23 +374,23 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
 
       <div class="feature">
         <div class="text">
-          <h3>Know what it costs</h3>
-          <p><strong>See how much of your Claude Code and Codex plan limits you have used, and when you will hit 100% at this pace.</strong> The sidebar's footer keeps each agent's fullest window in view.</p>
-          <p>Settings, Usage also adds up what the last 7, 30 or 90 days would cost at API prices, per agent and per day. The agent panel shows each session's tokens and how full its context is, and lists every subagent, Claude Code workflow runs included, with what it was asked.</p>
-        </div>
-        <div class="media">
-          <div class="shot"><img src="media/usage.webp" width="1280" height="992" loading="lazy" alt="Settings, Usage beside the sidebar: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, Codex's windows at 34% and 61%, and $944.63 over 30 days split between Claude Code and Codex with a daily cost chart. The sidebar's footer shows each agent's fullest window, 5h at 72% and 7d at 61%."></div>
-        </div>
-      </div>
-
-      <div class="feature">
-        <div class="text">
           <h3>Never lose a session</h3>
           <p><strong>Close the window, reboot or upgrade, and your tabs come back in their folders with the agents resumed where they left off.</strong></p>
           <p>Sessions work like tmux, and the switcher (<kbd>Ctrl+Shift+S</kbd>) shows every session's agents before you switch. <code>pitwall --host box</code> runs them on another machine over ssh, so they keep going when the laptop closes.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/sessions.webp" width="738" height="560" loading="lazy" alt="The session switcher: sessions acme, billing and docs with their working and needs-you counts, and the billing session's tabs on the right"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <h3>Pin and color the tabs you keep</h3>
+          <p><strong>Pin a tab and it stays open. Closing it from the window asks you to unpin it first, and <code>pitwall kill</code> from a script or another agent is refused.</strong></p>
+          <p>Give a tab one of eight colors from its menu and its row takes a faint tint, so the billing work and the webhook fix stop looking alike. A soft green mark under the agent's icon shows which Claude Code sessions have <code>/remote-control</code> on, so you know which ones you can pick up from your phone.</p>
+        </div>
+        <div class="media">
+          <div class="shot tall"><img src="media/tabs.webp" width="288" height="460" loading="lazy" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working"></div>
         </div>
       </div>
 
@@ -379,12 +418,23 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
           <tr><td>Gemini CLI</td><td>Every state but Error, resume, side panel, cost</td></tr>
           <tr><td>OpenCode</td><td>Working, Input, Approval, Done and Error, resume</td></tr>
           <tr><td>pi</td><td>Working, Done and Error, resume, side panel, cost</td></tr>
-          <tr><td>Oh My Pi</td><td>Working, Done and Error, resume, side panel, cost</td></tr>
+          <tr><td>Oh My Pi</td><td>Working, Done and Error, resume, side panel</td></tr>
           <tr><td>Cursor CLI</td><td>Working, Done and Error, resume</td></tr>
           <tr><td>Aider, Amp</td><td>Aider's state read from its screen; Amp's logo, and its bell rings</td></tr>
         </tbody>
       </table>
       <p>Builds for Linux, macOS and Windows 10 and 11, on x86_64 and arm64.</p>
+    </div>
+  </section>
+
+  <section id="press" class="blurbs">
+    <div class="wrap">
+      <h2>For creators and press</h2>
+      <p>Quantic Studios makes pitwall. We don't pay for coverage and don't expect any. If you review it, say what you think, including what is broken.</p>
+      <p><strong>One line</strong>pitwall is a free desktop terminal that shows what each of your coding agents is doing and takes you to the one waiting on you.</p>
+      <p><strong>One paragraph</strong>pitwall is a free, MIT-licensed desktop terminal for running several coding agents at once. A sidebar shows each agent's state, and one key jumps to the agent stuck on a question or a permission prompt.</p>
+      <p><strong>About 100 words</strong>pitwall is a free, MIT-licensed desktop terminal for Linux, macOS and Windows, built for running several coding agents at once. Each tab's row in the sidebar says whether its agent is working, waiting for input or approval, done or failed. When one stops to ask, Ctrl+Shift+U jumps to it, and Allow and Deny work from the sidebar or a paired phone. An agent can split a job across workers, each in its own git worktree, and the fleet shows as one row. A review view sends line comments back to the agent. It works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and Oh My Pi.</p>
+      <p>The logo is <a href="https://github.com/quanticstudios/pitwall/blob/main/packaging/pitwall.svg">packaging/pitwall.svg</a>, and every screenshot and clip on this page is in <a href="https://github.com/quanticstudios/pitwall/tree/main/docs/media">docs/media</a>. Write to <a href="mailto:info@quanticstudios.io">info@quanticstudios.io</a>.</p>
     </div>
   </section>
 
