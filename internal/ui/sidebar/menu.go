@@ -88,6 +88,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 		} else {
 			entries = append(entries, menuEntry{c: &s.menuItem[actPR], icon: icGitPullRequest, text: "Create pull request", off: pr != "", hint: pr})
 		}
+		entries = append(entries, s.opinionEntries(v, ws)...)
 	}
 	entries = append(entries,
 		menuEntry{c: &s.menuItem[actDetach], icon: icDetach, text: "Detach tab", sep: true},

@@ -42,6 +42,9 @@ type Sidebar struct {
 	Numbers [9]bool
 	// GH is whether the gh CLI is installed, for Create pull request.
 	GH bool
+	// Installed is whether Claude Code's and Codex's CLIs are on PATH, for
+	// Second opinion.
+	Installed map[model.Provider]bool
 	// Usage is the token use of a tab's agents for its hover card, nil
 	// when unknown. ShowCost adds what the tokens cost.
 	Usage    func(workspace string) *flow.Usage
@@ -192,6 +195,8 @@ const (
 	actArchive
 	actPin
 	actCancelResume
+	actOpinionClaude
+	actOpinionCodex
 	actCount
 )
 

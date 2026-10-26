@@ -131,3 +131,16 @@ func Command(p model.Provider) string {
 	}
 	return string(p)
 }
+
+// Reviewer is the agent that gives agent p's changes a second opinion:
+// Codex for Claude Code, Claude Code for Codex, "" for any other agent,
+// whose user picks one.
+func Reviewer(p model.Provider) model.Provider {
+	switch p {
+	case model.ProviderClaude:
+		return model.ProviderCodex
+	case model.ProviderCodex:
+		return model.ProviderClaude
+	}
+	return ""
+}

@@ -96,6 +96,11 @@ const usage = `usage:
   pitwall read <pane> [--screen]
                              print the last reply of the pane's agent
                              (--screen: the text on its screen)
+  pitwall review [tab] [--agent claude|codex]
+                             a second opinion: open the other agent, read
+                             only, beside the tab's agent to review the
+                             branch and uncommitted changes; prints its
+                             address. Its first reply goes to the tab's agent
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
@@ -186,7 +191,7 @@ func main() {
 		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
 	case "completion":
 		err = runCompletion(os.Args[2:], os.Stdout)
-	case "ls", "new", "wait", "split", "prompt", "send", "read", "attach", "detach", "kill", "rename", "tab", "session", "queue":
+	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

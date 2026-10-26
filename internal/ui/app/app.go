@@ -423,7 +423,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.find = false
 		u.openFind()
 	}
-	if a := u.nav.prAct; a != "" {
+	if a := u.nav.prAct; a == "second_opinion" {
+		u.nav.prAct = ""
+		u.secondOpinion(st, u.nav.workspace, "")
+	} else if a != "" {
 		u.nav.prAct = ""
 		u.prAction(st, u.nav.workspace, a)
 	}
@@ -659,6 +662,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 		u.sidebar.Numbers = digits
 		u.sidebar.GH = ghInstalled()
+		u.sidebar.Installed = reviewersInstalled()
 		u.sidebar.ShowCost = u.cfg.ShowCost
 		u.sidebar.Limits = nil
 		if u.cfg.LimitsInSidebar {
@@ -828,6 +832,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.prAction(st, e.WorkspaceID, "send_failures")
 	case sidebar.SendReview:
 		u.prAction(st, e.WorkspaceID, "send_review")
+	case sidebar.SecondOpinion:
+		u.secondOpinion(st, e.WorkspaceID, e.Agent)
 	case sidebar.Archive:
 		u.modal.open(modalDelete, e.WorkspaceID)
 		u.modal.archive, u.modal.removeBranch = true, true

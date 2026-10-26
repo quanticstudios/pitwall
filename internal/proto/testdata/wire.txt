@@ -1,4 +1,4 @@
-16.25
+16.26
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string}
@@ -59,6 +59,7 @@ proto.Resize{Pane string; Cols int; Rows int}
 proto.Scroll{Pane string; Lines int; Prompts int}
 proto.Search{Pane string; Query string}
 proto.SearchResult{Pane string; Query string; Matches []vt.Match; More bool}
+proto.SecondOpinion{Pane string; Agent string}
 proto.SeePane{Pane string}
 proto.SelectTab{WorkspaceID string; TabID string}
 proto.Send{Pane string; From string; Text string}

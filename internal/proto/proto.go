@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 26 added SecondOpinion: another agent reviews a tab's changes,
+// and the daemon sends its reply to the tab's agent.
 // Level 25 added StateMsg.Build: the window offers to restart a daemon
 // that runs an older release at the same Level.
 // Level 24 added Activity.Resumes and CancelResume: the daemon types
@@ -112,12 +114,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 25
+const Level = 26
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case SecondOpinion:
+		return 26
 	case CancelResume:
 		return 22
 	case FocusDir:
@@ -647,6 +651,17 @@ type CancelResume struct {
 	Pane string
 }
 
+// SecondOpinion splits Pane's tab and starts Agent, the path or name of
+// claude or codex, beside it in a read-only mode, pointed at a file of
+// review instructions for the tab's changes. When the reviewer's first turn
+// ends, the daemon queues its reply for Pane, as Send does. The daemon
+// answers Error when Agent is neither or is not on its PATH, and when Pane
+// runs no agent that takes messages.
+type SecondOpinion struct {
+	Pane  string
+	Agent string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
@@ -666,4 +681,5 @@ var Messages = []any{
 	Send{},
 	FocusDir{},
 	CancelResume{},
+	SecondOpinion{},
 }

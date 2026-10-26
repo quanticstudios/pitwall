@@ -115,6 +115,8 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 		return promptCommand(args[1:], stdin, out, errOut)
 	case len(args) > 0 && args[0] == "split":
 		err = splitCommand(args[1:], out)
+	case len(args) > 0 && args[0] == "review":
+		err = reviewCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "read":
 		err = readCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "send":
