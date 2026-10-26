@@ -1,5 +1,26 @@
 # Troubleshooting
 
+Run `pitwall doctor` first. It prints a line per check and changes nothing:
+
+```
+info pitwall v0.1.3
+ok   pitwall on PATH: /home/me/.local/bin/pitwall
+ok   daemon: v0.1.3, protocol 16.25
+FAIL hooks: ~/.claude/settings.json needs: added Notification: '/home/me/.local/bin/pitwall' hook claude and 9 more
+     fix: pitwall hooks install --dry-run, then pitwall hooks install
+ok   hooks: ~/.claude/skills/pitwall/SKILL.md
+ok   config: ~/.config/pitwall/config.toml
+```
+
+It checks that the `pitwall` on your `PATH` is the binary you ran, that the
+daemon answers with the same version and protocol, that every installed
+agent's hooks, plugin or extension, and pitwall skill are in place and
+unedited, and that `config.toml` loads. Over ssh on a Linux host with
+systemd, it also checks linger (see [Remote hosts](remote.md)). Each `FAIL`
+names the command that fixes it, and the exit status is 1 while any line
+fails. A daemon that is not running is only `info`: the window starts one.
+Codex still needs `/hooks` once to trust its hooks, which doctor cannot see.
+
 - **The window does not open from the launcher.** Errors are sent as a
   desktop notification (an alert on macOS, a message box on Windows); run
   `pitwall` in a terminal to see them.

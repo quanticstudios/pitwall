@@ -302,6 +302,7 @@ pi and Oh My Pi.
 
 ## Docs
 
+- [Concepts](docs/concepts.md): session, tab, pane, group, worker and the agent states, and the [glossary](GLOSSARY.md)
 - [Using pitwall](docs/usage.md): first run, watching agents, sessions, review, worktrees, tasks
 - [Keybindings](docs/keys.md): the presets, tab mode, pane mode, find, copy mode, moving between vim and panes
 - [Command line](docs/cli.md): every command, and driving tabs from scripts
@@ -314,6 +315,7 @@ pi and Oh My Pi.
 - [Install](docs/install.md): platforms, updates, building from source
 - [Troubleshooting](docs/troubleshooting.md): what to check, and the logs
 - [Agent skill](docs/agent-skill.md): a page to hand an agent that drives pitwall
+- [For agents](docs/llms.txt): what an agent reads first, inside pitwall, setting it up, or changing it
 - [Development](docs/development.md) and [credits](docs/credits.md)
 
 ## Contributing

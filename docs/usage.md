@@ -46,6 +46,7 @@ terminal instead:
 ```sh
 pitwall hooks install --dry-run   # see what would change
 pitwall hooks install             # let your agents report their state
+pitwall doctor                    # check every line says ok
 ```
 
 The window opens on a shell in the folder you launched it from, in a

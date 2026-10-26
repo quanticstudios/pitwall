@@ -51,6 +51,55 @@ On a Linux host with systemd, run `loginctl enable-linger` there once.
 Without it, logging out of the host's last session, which closing the
 laptop does, deletes the runtime folder that holds the daemon's socket, and
 the next window can no longer reach the daemon your agents run in.
+`pitwall doctor`, run on the host over ssh, says whether linger is on.
+
+### Keep the daemon running across reboots
+
+A window starts the host's daemon when none runs, so after the host reboots
+your tabs come back only once you connect. To have them back before that,
+let systemd start the daemon at boot. pitwall installs no unit itself; write
+this one to `~/.config/systemd/user/pitwall.service` on the host:
+
+```ini
+[Unit]
+Description=pitwall daemon
+
+[Service]
+ExecStart=%h/.local/bin/pitwall daemon
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+Then, on the host:
+
+```sh
+loginctl enable-linger
+systemctl --user daemon-reload
+systemctl --user enable --now pitwall
+systemctl --user status pitwall   # active (running)
+```
+
+Stop any daemon that is not under systemd first: it holds the socket, and
+the unit's daemon exits as soon as it sees one running. Change `ExecStart`
+if pitwall lives somewhere other than `~/.local/bin`, as with Homebrew.
+Panes start with the unit's environment, so a command such as `pitwall new
+-- claude` finds only what is on systemd's `PATH`. Add
+`Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin` under
+`[Service]`, with your own folders, when an agent lives elsewhere.
+Crash traces go to `journalctl --user -u pitwall`; the daemon's own log
+stays in `daemon.log`.
+
+`systemctl --user stop pitwall` stops the daemon and every program in its
+panes. When the window restarts the daemon after an upgrade, the new one runs
+outside the unit until the next boot, and `systemctl --user status` shows the
+unit inactive until then. To remove the unit:
+
+```sh
+systemctl --user disable --now pitwall
+rm ~/.config/systemd/user/pitwall.service
+```
 
 When the link drops, the window keeps its last screen under "Disconnected
 from pitwall's background service." and reconnects as described under
