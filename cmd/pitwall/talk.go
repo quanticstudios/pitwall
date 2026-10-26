@@ -143,6 +143,9 @@ func reviewCommand(args []string, out io.Writer) error {
 			return fmt.Errorf("pick the reviewer of %s's changes with --agent claude or --agent codex", agentOf(panes[0]))
 		}
 	}
+	if *reviewer != "claude" && *reviewer != "codex" {
+		return fmt.Errorf("pick claude or codex to review, not %q", *reviewer)
+	}
 	path, err := exec.LookPath(*reviewer)
 	if err != nil {
 		return fmt.Errorf("%s is not installed: no %s on PATH", *reviewer, *reviewer)
