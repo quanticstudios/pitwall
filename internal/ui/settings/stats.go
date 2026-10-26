@@ -382,9 +382,12 @@ func (p *Page) tileGrid(gtx gl.Context, ts []tile) gl.Dimensions {
 }
 
 // panel is a settings card around w, the full width it is given.
-func (p *Page) panel(gtx gl.Context, w gl.Widget) gl.Dimensions {
+func (p *Page) panel(gtx gl.Context, w gl.Widget) gl.Dimensions { return p.framed(gtx, p.th.Border, w) }
+
+// framed is a panel with a border of col.
+func (p *Page) framed(gtx gl.Context, col color.NRGBA, w gl.Widget) gl.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	return boxed(gtx, p.th.SurfaceSecondary, p.th.Border, gtx.Dp(8), image.Pt(gtx.Dp(16), gtx.Dp(14)), w)
+	return boxed(gtx, p.th.SurfaceSecondary, col, gtx.Dp(8), image.Pt(gtx.Dp(16), gtx.Dp(14)), w)
 }
 
 // approvalsPanel sets the two holdout arms side by side, with the median

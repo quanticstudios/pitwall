@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Settings, Agent errors has charts: tiles for the errors, the tokens they took, errors per active day and the top cause's share, a bar per day stacked by kind, and a split by cause whose hover outlines the cause's group.
 - OpenCode 2 loads pitwall's plugin again, so its tabs show Working, Approval, Input, Done and Error and report failed commands. Run `pitwall hooks install` again: it adds `plugins/pitwall/tui.js` next to `plugins/pitwall.js`. OpenCode 1 needs version 1.4 or later.
 - The update check reads the latest release from github.com's redirect instead of GitHub's API, so the Update button no longer goes missing when other tools on the machine use up the API's 60 requests an hour.
 

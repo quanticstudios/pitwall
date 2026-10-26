@@ -134,6 +134,7 @@ type Page struct {
 	ph phonePage
 	nt notifyPage
 	us usagePage
+	ch charts // hover and focus in the Timing and Agent errors charts
 }
 
 // pending is a recorded chord another action already has.

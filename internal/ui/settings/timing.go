@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"gioui.org/font"
-	"gioui.org/gesture"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -21,7 +20,6 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/timelog"
-	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -38,11 +36,6 @@ type timingPage struct {
 	sum     *timelog.Summary
 	any     bool // the log has a turn at all
 	err     string
-
-	hovers map[string]*gesture.Hover
-	focus  string    // the part under the pointer last frame, which the charts pick out
-	next   string    // the part under the pointer this frame
-	frame  time.Time // the frame next is for
 }
 
 // Lines the category shows instead of charts, and how many sinks and
@@ -152,77 +145,6 @@ func (p *Page) partOf(kind string) part {
 		return ps[i]
 	}
 	return ps[len(ps)-2]
-}
-
-// hovered reports whether the pointer is over r, tracked by id.
-func (p *Page) hovered(gtx gl.Context, id string, r image.Rectangle) bool {
-	if p.tm.hovers == nil {
-		p.tm.hovers = map[string]*gesture.Hover{}
-	}
-	h := p.tm.hovers[id]
-	if h == nil {
-		h = new(gesture.Hover)
-		p.tm.hovers[id] = h
-	}
-	st := clip.Rect(r).Push(gtx.Ops)
-	h.Add(gtx.Ops)
-	st.Pop()
-	return h.Update(gtx.Source)
-}
-
-// focusFrame starts a frame's focus: the part hovered in the last one.
-// Every chart that picks a part out calls it first, as the page's list
-// lays out only the rows on screen.
-func (p *Page) focusFrame(gtx gl.Context) {
-	if !gtx.Now.Equal(p.tm.frame) {
-		p.tm.frame, p.tm.focus, p.tm.next = gtx.Now, p.tm.next, ""
-	}
-}
-
-// focusMoved asks for another frame when the hovered part changed, so the
-// charts pick out the new one.
-func (p *Page) focusMoved(gtx gl.Context) {
-	if p.tm.next != p.tm.focus {
-		gtx.Execute(op.InvalidateCmd{})
-	}
-}
-
-// dim is c faded toward the card while another part has the focus.
-func (p *Page) dim(c color.NRGBA, name string) color.NRGBA {
-	if p.tm.focus != "" && p.tm.focus != name {
-		return theme.Mix(p.th.SurfaceSecondary, c, 0.3)
-	}
-	return c
-}
-
-// tip draws a tooltip over everything, centred above anchor and kept
-// inside the width w: its first line strong, the rest muted.
-func (p *Page) tip(gtx gl.Context, anchor image.Rectangle, w int, lines ...string) {
-	th := p.th
-	m := op.Record(gtx.Ops)
-	g := gtx
-	g.Constraints = gl.Constraints{Max: image.Pt(gtx.Dp(280), gtx.Constraints.Max.Y)}
-	var kids []gl.FlexChild
-	for i, l := range lines {
-		f, c, size := th.UIFont, th.Muted, p.th.Sp(theme.Small)
-		if i == 0 {
-			f, c = weight(f, font.Medium), th.Fg
-		}
-		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.text(gtx, f, size, c, l) }))
-	}
-	d := gl.Flex{Axis: gl.Vertical}.Layout(g, kids...)
-	content := m.Stop()
-	pad := image.Pt(gtx.Dp(10), gtx.Dp(7))
-	size := d.Size.Add(pad.Mul(2))
-	at := kit.Place(anchor, size, image.Rect(0, -1<<20, w, 1<<20), kit.Above, gtx.Dp(6), 0)
-	m = op.Record(gtx.Ops)
-	o := op.Offset(at).Push(gtx.Ops)
-	kit.Surface(gtx, image.Rectangle{Max: size}, gtx.Dp(6), kit.Floating, th.BorderStrong, th.SurfaceElevated)
-	o2 := op.Offset(pad).Push(gtx.Ops)
-	content.Add(gtx.Ops)
-	o2.Pop()
-	o.Pop()
-	op.Defer(gtx.Ops, m.Stop())
 }
 
 func (p *Page) timing() []section {
@@ -353,236 +275,81 @@ func (p *Page) timingTiles(gtx gl.Context, s *timelog.Summary) gl.Dimensions {
 	})
 }
 
-// chartEmpty is a chart's card when it has nothing to draw.
-func (p *Page) chartEmpty(gtx gl.Context, line string) gl.Dimensions {
-	return p.panel(gtx, func(gtx gl.Context) gl.Dimensions {
-		return gl.Inset{Top: 8, Bottom: 8}.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			return p.para(gtx, p.th.UIFont, p.th.Sp(theme.Body), p.th.Muted, line)
-		})
-	})
-}
-
 // split is one stacked bar of the window's turn time by part, with a
 // legend of each part's share and hours.
 func (p *Page) split(gtx gl.Context, s *timelog.Summary) gl.Dimensions {
 	total := s.Agent + s.Wait
-	var ps []part
+	var ss []share
 	for _, pt := range p.timeParts() {
-		if pt.of(s.Parts) > 0 {
-			ps = append(ps, pt)
+		v := pt.of(s.Parts)
+		if v <= 0 {
+			continue
 		}
+		tip := []string{pt.name, timelog.Hours(v) + " · " + timelog.Pct(v, total) + " of turn time"}
+		if len(pt.kinds) > 1 {
+			for _, k := range pt.kinds {
+				if v := s.Parts[k]; v > 0 {
+					tip = append(tip, timelog.Label(k)+" "+timelog.Hours(v))
+				}
+			}
+		}
+		ss = append(ss, share{pt.name, pt.col, v, timelog.Pct(v, total) + " · " + timelog.Hours(v), tip})
 	}
-	if total <= 0 || len(ps) == 0 {
+	if total <= 0 || len(ss) == 0 {
 		return p.chartEmpty(gtx, "The turns in this window took no measurable time.")
 	}
-	p.focusFrame(gtx)
-	defer p.focusMoved(gtx)
-	return p.panel(gtx, func(gtx gl.Context) gl.Dimensions {
-		w := gtx.Constraints.Max.X
-		bar := func(gtx gl.Context) gl.Dimensions {
-			h, gap := gtx.Dp(28), gtx.Dp(2)
-			type seg struct {
-				pt   part
-				r    image.Rectangle
-				part int64
-			}
-			// Every part gets at least 2px, so a sliver stays visible.
-			var segs []seg
-			avail := w - gap*(len(ps)-1)
-			x := 0
-			for i, pt := range ps {
-				v := pt.of(s.Parts)
-				sw := max(gtx.Dp(2), int(float64(avail)*float64(v)/float64(total)+0.5))
-				if i == len(ps)-1 {
-					sw = max(1, w-x)
-				}
-				segs = append(segs, seg{pt, image.Rect(x, 0, min(w, x+sw), h), v})
-				x += sw + gap
-			}
-			st := clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(4)).Push(gtx.Ops)
-			for _, sg := range segs {
-				paint.FillShape(gtx.Ops, p.dim(sg.pt.col, sg.pt.name), clip.Rect(sg.r).Op())
-			}
-			st.Pop()
-			for _, sg := range segs {
-				if p.hovered(gtx, "split-"+sg.pt.name, sg.r) {
-					p.tm.next = sg.pt.name
-					lines := []string{sg.pt.name, timelog.Hours(sg.part) + " · " + timelog.Pct(sg.part, total) + " of turn time"}
-					if len(sg.pt.kinds) > 1 {
-						for _, k := range sg.pt.kinds {
-							if v := s.Parts[k]; v > 0 {
-								lines = append(lines, timelog.Label(k)+" "+timelog.Hours(v))
-							}
-						}
-					}
-					p.tip(gtx, sg.r, w, lines...)
-				}
-			}
-			return gl.Dimensions{Size: image.Pt(w, h)}
-		}
-		return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
-			gl.Rigid(bar),
-			gl.Rigid(gl.Spacer{Height: 16}.Layout),
-			gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.legend(gtx, ps, s.Parts, total) }),
-		)
-	})
-}
-
-// legend is a grid of the parts: a dot, the name, then its share and
-// hours. Hovering one picks it out in the charts.
-func (p *Page) legend(gtx gl.Context, ps []part, parts map[string]int64, total int64) gl.Dimensions {
-	th := p.th
-	w := gtx.Constraints.Max.X
-	cols := max(1, min(4, w/gtx.Dp(150)))
-	gap := gtx.Dp(12)
-	cw := (w - gap*(cols-1)) / cols
-	y, rowH := 0, 0
-	for i, pt := range ps {
-		if i > 0 && i%cols == 0 {
-			y, rowH = y+rowH+gtx.Dp(10), 0
-		}
-		at := image.Pt((i%cols)*(cw+gap), y)
-		o := op.Offset(at).Push(gtx.Ops)
-		g := gtx
-		g.Constraints = gl.Constraints{Max: image.Pt(cw, gtx.Constraints.Max.Y)}
-		v := pt.of(parts)
-		d := hstack(g, 8,
-			func(gtx gl.Context) gl.Dimensions {
-				return gl.Inset{Top: 4}.Layout(gtx, func(gtx gl.Context) gl.Dimensions { return dot(gtx, p.dim(pt.col, pt.name), gtx.Dp(8)) })
-			},
-			func(gtx gl.Context) gl.Dimensions {
-				return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
-					gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-						return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Fg, pt.name)
-					}),
-					gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-						return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, timelog.Pct(v, total)+" · "+timelog.Hours(v))
-					}),
-				)
-			},
-		)
-		o.Pop()
-		if p.hovered(gtx, "legend-"+pt.name, image.Rectangle{Min: at, Max: at.Add(image.Pt(cw, d.Size.Y))}) {
-			p.tm.next = pt.name
-		}
-		rowH = max(rowH, d.Size.Y)
-	}
-	return gl.Dimensions{Size: image.Pt(w, y+rowH)}
+	return p.splitBar(gtx, "time", ss, total, 4)
 }
 
 // dayHours is a bar per day of the agents' hours, stacked by part with
-// the model at the base, on hour gridlines, the first, middle and last
-// day under it. Hovering a day shows its hours.
+// the model at the base, on hour gridlines. Hovering a day shows its
+// hours.
 func (p *Page) dayHours(gtx gl.Context, s *timelog.Summary) gl.Dimensions {
-	th := p.th
 	ps := p.timeParts()
 	ps = ps[:len(ps)-1] // agent time: no waiting on you
-	agent := func(d timelog.Day) int64 { return d.Total - d.Parts[timelog.Wait] }
+	c := dayChart{id: "time", per: 3.6e6,
+		label: func(v float64) string { return strings.TrimSuffix(fmt.Sprintf("%.1f", v), ".0") + "h" }}
+	for _, pt := range ps {
+		c.series = append(c.series, share{name: pt.name, col: pt.col})
+	}
 	var peak int64
 	for _, d := range s.Days {
-		peak = max(peak, agent(d))
+		vs := make([]int64, len(ps))
+		var a int64
+		for j, pt := range ps {
+			vs[j] = pt.of(d.Parts)
+			a += vs[j]
+		}
+		peak = max(peak, a)
+		c.days, c.vals = append(c.days, d.Date), append(c.vals, vs)
 	}
 	if peak <= 0 {
 		return p.chartEmpty(gtx, "No agent time in this window.")
 	}
+	c.tip = func(i int) []string {
+		var a int64
+		for _, v := range c.vals[i] {
+			a += v
+		}
+		lines := []string{c.days[i].Format("Mon Jan 2") + " · " + timelog.Hours(a)}
+		type pv struct {
+			name string
+			v    int64
+		}
+		var top []pv
+		for j, pt := range ps {
+			if v := c.vals[i][j]; v > 0 {
+				top = append(top, pv{pt.name, v})
+			}
+		}
+		slices.SortStableFunc(top, func(a, b pv) int { return cmp.Compare(b.v, a.v) })
+		for _, t := range top[:min(4, len(top))] {
+			lines = append(lines, t.name+" "+timelog.Hours(t.v)+" · "+timelog.Pct(t.v, a))
+		}
+		return lines
+	}
 	p.focusFrame(gtx)
-	return p.panel(gtx, func(gtx gl.Context) gl.Dimensions {
-		w, h := gtx.Constraints.Max.X, gtx.Dp(168)
-		top, step := niceScale(float64(peak)/3.6e6, 4)
-		label := func(s string) (op.CallOp, image.Point) {
-			m := op.Record(gtx.Ops)
-			d := p.text(gtx, th.UIFont, p.th.Sp(theme.Caption), th.Muted, s)
-			return m.Stop(), d.Size
-		}
-		type tick struct {
-			v    float64
-			call op.CallOp
-			sz   image.Point
-		}
-		var ticks []tick
-		gutter := 0
-		for v := 0.0; v <= top+step/2; v += step {
-			c, sz := label(strings.TrimSuffix(fmt.Sprintf("%.1f", v), ".0") + "h")
-			ticks = append(ticks, tick{v, c, sz})
-			gutter = max(gutter, sz.X)
-		}
-		gutter += gtx.Dp(8)
-		_, lsz := label("0")
-		plot := image.Rect(gutter, lsz.Y/2, w, h-lsz.Y-gtx.Dp(8))
-		ys := func(hours float64) int { return plot.Max.Y - int(hours/top*float64(plot.Dy())+0.5) }
-		grid := theme.Mix(th.SurfaceSecondary, th.Fg, 0.08)
-		for _, t := range ticks {
-			y := ys(t.v)
-			paint.FillShape(gtx.Ops, grid, clip.Rect{Min: image.Pt(plot.Min.X, y), Max: image.Pt(plot.Max.X, y+1)}.Op())
-			o := op.Offset(image.Pt(gutter-gtx.Dp(8)-t.sz.X, y-t.sz.Y/2)).Push(gtx.Ops)
-			t.call.Add(gtx.Ops)
-			o.Pop()
-		}
-		n := len(s.Days)
-		slot := float64(plot.Dx()) / float64(n)
-		bw := max(1, min(gtx.Dp(28), int(slot*0.62)))
-		gap := gtx.Dp(2)
-		if bw < gtx.Dp(6) {
-			gap = 0 // too thin to cut
-		}
-		for i, d := range s.Days {
-			x := plot.Min.X + int(float64(i)*slot+(slot-float64(bw))/2)
-			col := image.Rect(plot.Min.X+int(float64(i)*slot), plot.Min.Y, plot.Min.X+int(float64(i+1)*slot), plot.Max.Y)
-			hover := p.hovered(gtx, fmt.Sprint("day-", i), col)
-			if hover {
-				rrect(gtx, theme.Mix(th.SurfaceSecondary, th.Fg, 0.05), col, gtx.Dp(4))
-			}
-			a := agent(d)
-			if a <= 0 {
-				continue
-			}
-			barTop := ys(float64(a) / 3.6e6)
-			st := clip.RRect{Rect: image.Rect(x, barTop, x+bw, plot.Max.Y), NW: gtx.Dp(4), NE: gtx.Dp(4)}.Push(gtx.Ops)
-			var acc int64
-			for _, pt := range ps {
-				v := pt.of(d.Parts)
-				if v <= 0 {
-					continue
-				}
-				y0, y1 := ys(float64(acc)/3.6e6), ys(float64(acc+v)/3.6e6)
-				acc += v
-				if acc < a {
-					y1 += gap // a surface gap above all but the top part
-				}
-				if y1 < y0 {
-					paint.FillShape(gtx.Ops, p.dim(pt.col, pt.name), clip.Rect{Min: image.Pt(x, y1), Max: image.Pt(x+bw, y0)}.Op())
-				}
-			}
-			st.Pop()
-			if hover {
-				lines := []string{d.Date.Format("Mon Jan 2") + " · " + timelog.Hours(a)}
-				type pv struct {
-					name string
-					v    int64
-				}
-				var top []pv
-				for _, pt := range ps {
-					if v := pt.of(d.Parts); v > 0 {
-						top = append(top, pv{pt.name, v})
-					}
-				}
-				slices.SortStableFunc(top, func(a, b pv) int { return cmp.Compare(b.v, a.v) })
-				for _, t := range top[:min(4, len(top))] {
-					lines = append(lines, t.name+" "+timelog.Hours(t.v)+" · "+timelog.Pct(t.v, a))
-				}
-				p.tip(gtx, image.Rect(x, barTop, x+bw, barTop), w, lines...)
-			}
-		}
-		for _, i := range slices.Compact([]int{0, n / 2, n - 1}) {
-			c, sz := label(s.Days[i].Date.Format("Jan 2"))
-			x := plot.Min.X + int((float64(i)+0.5)*slot) - sz.X/2
-			x = max(plot.Min.X, min(x, plot.Max.X-sz.X))
-			o := op.Offset(image.Pt(x, plot.Max.Y+gtx.Dp(8))).Push(gtx.Ops)
-			c.Add(gtx.Ops)
-			o.Pop()
-		}
-		return gl.Dimensions{Size: image.Pt(w, h)}
-	})
+	return p.panel(gtx, func(gtx gl.Context) gl.Dimensions { return p.dayBars(gtx, c) })
 }
 
 // sinks is the slowest commands, ranked by total time, each with its

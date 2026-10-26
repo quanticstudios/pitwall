@@ -204,6 +204,50 @@ func ByTokens(gs []Group) []Group {
 	return out
 }
 
+// Top is gs's first n groups, and the rest as one group with no Sig.
+func Top(gs []Group, n int) ([]Group, Group) {
+	n = min(n, len(gs))
+	var rest Group
+	for _, g := range gs[n:] {
+		rest.Count += g.Count
+		rest.Tokens += g.Tokens
+	}
+	return gs[:n], rest
+}
+
+// Day is the errors on Date, local time: how many of each kind and their
+// tokens.
+type Day struct {
+	Date   time.Time
+	Kinds  map[string]int
+	Count  int
+	Tokens int
+}
+
+// Days counts evs by the day they happened in loc, one Day for every day
+// from from to to, empty ones too.
+func Days(evs []Event, from, to time.Time, loc *time.Location) []Day {
+	f := from.In(loc)
+	day0 := time.Date(f.Year(), f.Month(), f.Day(), 0, 0, 0, 0, loc)
+	var out []Day
+	at := map[time.Time]int{}
+	for d := day0; !d.After(to); d = d.AddDate(0, 0, 1) {
+		at[d] = len(out)
+		out = append(out, Day{Date: d, Kinds: map[string]int{}})
+	}
+	for _, e := range evs {
+		t := e.T.In(loc)
+		i, ok := at[time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)]
+		if !ok || e.T.Before(from) || e.T.After(to) {
+			continue
+		}
+		out[i].Kinds[e.Kind]++
+		out[i].Count++
+		out[i].Tokens += e.Tokens()
+	}
+	return out
+}
+
 // errorWords mark the line of an output that says what went wrong.
 var errorWords = []string{"error", "not found", "no such", "no matches", "permission denied", "unknown", "invalid", "unrecognized", "cannot", "failed", "fatal", "zsh:", "bash:"}
 

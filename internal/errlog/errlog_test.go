@@ -180,3 +180,39 @@ func TestAddCutSecret(t *testing.T) {
 		t.Errorf("a cut key block kept: %q", e.Output)
 	}
 }
+
+func TestDays(t *testing.T) {
+	loc := time.FixedZone("x", 2*3600)
+	from := time.Date(2026, 10, 1, 9, 0, 0, 0, loc)
+	to := from.AddDate(0, 0, 2)
+	evs := []Event{
+		{T: from.Add(-time.Hour), Kind: Command, Size: 400},                // before the window
+		{T: from.Add(time.Hour), Kind: Command, Size: 400},                 // Oct 1
+		{T: time.Date(2026, 10, 1, 23, 30, 0, 0, time.UTC), Kind: API},     // Oct 2 in loc
+		{T: time.Date(2026, 10, 2, 12, 0, 0, 0, loc), Kind: Tool, Size: 8}, // Oct 2
+	}
+	ds := Days(evs, from, to, loc)
+	if len(ds) != 3 || !ds[0].Date.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, loc)) {
+		t.Fatalf("days = %+v", ds)
+	}
+	if ds[0].Count != 1 || ds[0].Kinds[Command] != 1 || ds[0].Tokens != 100 {
+		t.Errorf("Oct 1 = %+v", ds[0])
+	}
+	if ds[1].Count != 2 || ds[1].Kinds[API] != 1 || ds[1].Kinds[Tool] != 1 || ds[1].Tokens != 2 {
+		t.Errorf("Oct 2 = %+v", ds[1])
+	}
+	if ds[2].Count != 0 {
+		t.Errorf("Oct 3 = %+v", ds[2])
+	}
+}
+
+func TestTop(t *testing.T) {
+	gs := []Group{{Sig: "a", Count: 5, Tokens: 50}, {Sig: "b", Count: 3, Tokens: 30}, {Sig: "c", Count: 2, Tokens: 20}, {Sig: "d", Count: 1, Tokens: 10}}
+	top, rest := Top(gs, 2)
+	if len(top) != 2 || top[1].Sig != "b" || rest.Sig != "" || rest.Count != 3 || rest.Tokens != 30 {
+		t.Errorf("Top(2) = %+v, %+v", top, rest)
+	}
+	if top, rest := Top(gs, 9); len(top) != 4 || rest.Count != 0 {
+		t.Errorf("Top(9) = %+v, %+v", top, rest)
+	}
+}
