@@ -148,7 +148,7 @@ func (d *Daemon) relayReview(pane string) {
 	if d.panes[to] == nil {
 		return // the reviewed pane closed
 	}
-	d.mail.queue[to] = append(d.mail.queue[to], letter{pane, reviewNote + "\n\n" + d.replies[pane]})
+	d.mail.queue[to] = append(d.mail.queue[to], letter{from: pane, text: reviewNote + "\n\n" + d.replies[pane]})
 	d.changed()
 	d.wake(to, 0)
 }
