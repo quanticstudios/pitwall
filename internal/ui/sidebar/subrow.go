@@ -204,7 +204,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, ap model.Age
 	}
 	answerW := 0
 	if answering {
-		answerW = answerSize(gtx, th, *a, base).X
+		answerW = answerSize(gtx, th, *a, base, false).X
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		g := gtx

@@ -33,9 +33,11 @@ type agentSends struct {
 }
 
 // agentSend is a fetch's answer: the message for tab ws's agent, "" when
-// there is nothing to send, or the error gh gave.
+// there is nothing to send, or the error gh gave. A Plan row's Request
+// changes… comes as act request_changes with the plan's pane.
 type agentSend struct {
 	ws, act, text string
+	pane          string // the agent's pane, "" for the tab's first
 	err           error
 }
 
@@ -92,10 +94,16 @@ func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 	s.mu.Unlock()
 	for _, res := range done {
 		what := "Send failures to agent"
-		if res.act == "send_review" {
+		switch res.act {
+		case "send_review":
 			what = "Send review comments to agent"
+		case "request_changes":
+			what = "Request changes"
 		}
 		p := agentPane(st, findWorkspace(st, res.ws))
+		if res.pane != "" {
+			p = findPane(st, res.pane)
+		}
 		area := image.Rectangle{Max: gtx.Constraints.Max}
 		switch {
 		case res.err != nil:
@@ -112,6 +120,9 @@ func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 		default:
 			u.review.enqueue(p.ID, res.text, nil).send = true
 			msg := "Queued until " + agentName(p) + " waits for input"
+			if res.act == "request_changes" {
+				msg = "Queued: answer No in " + agentName(p) + "'s plan dialog to send it"
+			}
 			if agentReady(st, p.ID) {
 				msg = "Sent to " + agentName(p)
 			}

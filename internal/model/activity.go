@@ -54,6 +54,9 @@ type Activity struct {
 	// Resumes is when the daemon types continue into an agent its plan's
 	// usage limit stopped; zero for no resume set.
 	Resumes time.Time
+	// QuietSince is when a working agent's screen last changed, once it
+	// has been still for [agents] quiet_after; zero otherwise.
+	QuietSince time.Time
 }
 
 // ResumedDetail is the Detail of a working activity whose agent the

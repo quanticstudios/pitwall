@@ -39,7 +39,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	w := gtx.Constraints.Max.X
 	pad := gtx.Dp(8)
 	l1, l2 := rowLines(gtx, th)
-	h := rowHeight(gtx, th)
+	h := rowHeight(gtx, th) + statusHeight(gtx, th, ws.Status)
 	fleet := len(v.kids[ws.ID]) > 0
 	if fleet {
 		h += fleetHeight(gtx, th)
@@ -100,9 +100,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
 	x := (btn-glyph)/2 + glyph/4 // the button's edge to the ×'s edge
 	answering := s.answering(v, ws.ID, ghost, a)
+	planning := s.planning(v, ws.ID, ghost, a)
 	answerW := 0
-	if answering {
-		answerW = answerSize(gtx, th, *a, base).X
+	if answering || planning {
+		answerW = answerSize(gtx, th, *a, base, planning).X
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
@@ -122,7 +123,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return s.stateIcon(gtx, v, ws, a, isActive, base)
 			}},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				if s.renaming == ws.ID && !ghost {
+				if (s.renaming == ws.ID || s.replying == ws.ID) && !ghost {
 					return s.renameField(gtx, th)
 				}
 				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), nameCol, title)
@@ -166,7 +167,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// Allow and Deny or the agent count leave it a few letters at most,
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
-		if !answering && v.agents[ws.ID] == nil && where != title {
+		if !answering && !planning && v.agents[ws.ID] == nil && where != title {
 			line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})
@@ -212,7 +213,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		switch {
-		case answering: // drawn over the row below, with room for "…" and "×"
+		case answering || planning: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(answerW+gtx.Dp(6)+2*btn-x, 0)}
 			}})
@@ -228,6 +229,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Purple, "Merged")
 			}})
+		case QuietText(v.now, a) != "":
+			// A working agent whose screen stays still says so in place of the time.
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, QuietText(v.now, a))
+			}})
 		default:
 			if rt := relTime(v.now, ws.UpdatedAt); rt != "" {
 				line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
@@ -237,8 +243,18 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		}
 		hrow(gtx, l2, gtx.Dp(6), line...)
 		off.Pop()
+		y := pad + l1 + gtx.Dp(4) + l2
+		if ws.Status != "" {
+			// Under line 2, in its column and color.
+			y += gtx.Dp(statusGap)
+			gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
+			off = op.Offset(image.Pt(left+gtx.Dp(20), y)).Push(gtx.Ops)
+			label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, ws.Status)
+			off.Pop()
+			y += l2
+		}
 		if fleet {
-			off = op.Offset(image.Pt(left, pad+l1+gtx.Dp(4)+l2)).Push(gtx.Ops)
+			off = op.Offset(image.Pt(left, y)).Push(gtx.Ops)
 			gtx.Constraints = layout.Exact(image.Pt(inner, fleetHeight(gtx, th)))
 			s.fleetStrip(gtx, v, ws.ID, base, ghost)
 			off.Pop()
@@ -265,6 +281,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
 		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
 		answerButtons(gtx, th, &r.allow, &r.deny, *a, base)
+		off.Pop()
+	}
+	if planning {
+		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
+		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		planButton(gtx, th, &r.plan, base)
 		off.Pop()
 	}
 	if showMore {
@@ -456,6 +478,9 @@ func (s *Sidebar) renameField(gtx layout.Context, th *theme.Theme) layout.Dimens
 	off := op.Offset(image.Pt(gtx.Dp(4), 0)).Push(gtx.Ops)
 	centered(gtx, image.Pt(w-gtx.Dp(8), h), func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		if s.replying != "" && s.editor.Len() == 0 {
+			label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Readable(th.Muted, th.SurfaceSecondary), "What to change")
+		}
 		return s.editor.Layout(gtx, th.Shaper, semibold(th.UIFont), th.Sp(theme.Body), material(gtx, th.Fg), material(gtx, theme.Mix(th.SurfaceSecondary, th.Primary, 0.35)))
 	})
 	off.Pop()
@@ -597,6 +622,32 @@ func rowBase(th *theme.Theme, a *model.Activity, active, hovered bool) color.NRG
 		}
 	}
 	return base
+}
+
+// statusGap is the space between line 2 and a status line, in dp.
+const statusGap = 2
+
+// statusHeight is what a status line adds to a row: statusGap and a line
+// 2 high; 0 without one.
+func statusHeight(gtx layout.Context, th *theme.Theme, status string) int {
+	if status == "" {
+		return 0
+	}
+	_, l2 := rowLines(gtx, th)
+	return gtx.Dp(statusGap) + l2
+}
+
+// QuietText is "quiet 20m" for a working activity whose screen has been
+// still since QuietSince, else "".
+func QuietText(now time.Time, a *model.Activity) string {
+	if a == nil || a.State != model.StateWorking || a.QuietSince.IsZero() {
+		return ""
+	}
+	d := now.Sub(a.QuietSince)
+	if d >= time.Hour {
+		return fmt.Sprintf("quiet %dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("quiet %dm", int(d.Minutes()))
 }
 
 // relTime ports aide's formatRelativeTime.

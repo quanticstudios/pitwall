@@ -101,6 +101,9 @@ const usage = `usage:
                              only, beside the tab's agent to review the
                              branch and uncommitted changes; prints its
                              address. Its first reply goes to the tab's agent
+  pitwall status [pane] [-- text]
+                             show text under the tab's row, such as "CI
+                             3/7"; no text or --clear clears it
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
@@ -191,7 +194,7 @@ func main() {
 		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
 	case "completion":
 		err = runCompletion(os.Args[2:], os.Stdout)
-	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue":
+	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

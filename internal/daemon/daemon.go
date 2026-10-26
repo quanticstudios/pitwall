@@ -140,6 +140,11 @@ type Options struct {
 	// that names no reset; nil knows none.
 	ResumeAfterLimit func() bool
 	Limits           func() []flow.Limit
+	// QuietAfter reads [agents] quiet_after, how long a working agent's
+	// screen stays still before its row says quiet, and ContinueWhenQuiet
+	// [agents] continue_when_quiet; nil means off.
+	QuietAfter        func() time.Duration
+	ContinueWhenQuiet func() bool
 	// RemoteControl reports whether panes show Claude Code's Remote
 	// Control ([appearance] remote_control); nil means off.
 	RemoteControl func() bool
@@ -184,11 +189,12 @@ type Daemon struct {
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
 	replies map[string]string
-	mail    mail              // see talk.go
-	reviews map[string]string // second opinions: reviewer pane to the pane it reviews; see opinion.go
-	lim     limitResumes      // see resume.go
-	sendMu  sync.Mutex        // one deliver types at a time
-	turnMu  sync.Mutex        // one checkpoint at a time, so each gets its own number
+	mail    mail                  // see talk.go
+	reviews map[string]string     // second opinions: reviewer pane to the pane it reviews; see opinion.go
+	lim     limitResumes          // see resume.go
+	quiet   map[string]*quietPane // see quiet.go
+	sendMu  sync.Mutex            // one deliver types at a time
+	turnMu  sync.Mutex            // one checkpoint at a time, so each gets its own number
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -221,39 +227,41 @@ func New() (*Daemon, error) {
 			}
 			return p, nil
 		},
-		NewVT:            vt.New,
-		Derive:           agent.Derive,
-		SessionID:        agent.SessionID,
-		RepoRoot:         gitstat.RepoRoot,
-		Branch:           gitBranch,
-		Stats:            gitstat.Stats,
-		AddWorktree:      gitstat.AddWorktree,
-		RemoveWorktree:   gitstat.RemoveWorktree,
-		PR:               forge.View,
-		ArchiveOnMerge:   func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
-		AutoSendFailures: func() bool { s, _ := config.Load(); return s.AutoSendFailures },
-		Head:             gitHead,
-		Failures:         forge.Failures,
-		Orphans:          pruneOrphans,
-		Save:             func(s model.State) error { return store.Save(path, s) },
-		Load:             func() (model.State, error) { return store.Open(path) },
-		RestoreCmd:       store.RestoreCmd,
-		Decisions:        loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
-		Bell:             setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
-		Scrollback:       setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
-		Radar:            setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
-		Changes:          gitstat.Changed,
-		Conflicts:        gitstat.Conflicts,
-		MaxRunning:       setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
-		ResumeAfterLimit: setting(config.Path(), func(s config.Settings) bool { return s.ResumeAfterLimit }),
-		Limits:           trackedLimits(),
-		RemoteControl:    setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
-		Remote:           func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
-		RemoteDir:        remote.Dir(),
-		Split:            layout.Split,
-		Remove:           layout.Remove,
-		Checkpoint:       gitstat.Checkpoint,
-		DropTurns:        gitstat.DropTurns,
+		NewVT:             vt.New,
+		Derive:            agent.Derive,
+		SessionID:         agent.SessionID,
+		RepoRoot:          gitstat.RepoRoot,
+		Branch:            gitBranch,
+		Stats:             gitstat.Stats,
+		AddWorktree:       gitstat.AddWorktree,
+		RemoveWorktree:    gitstat.RemoveWorktree,
+		PR:                forge.View,
+		ArchiveOnMerge:    func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
+		AutoSendFailures:  func() bool { s, _ := config.Load(); return s.AutoSendFailures },
+		Head:              gitHead,
+		Failures:          forge.Failures,
+		Orphans:           pruneOrphans,
+		Save:              func(s model.State) error { return store.Save(path, s) },
+		Load:              func() (model.State, error) { return store.Open(path) },
+		RestoreCmd:        store.RestoreCmd,
+		Decisions:         loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
+		Bell:              setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
+		Scrollback:        setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
+		Radar:             setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
+		Changes:           gitstat.Changed,
+		Conflicts:         gitstat.Conflicts,
+		MaxRunning:        setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
+		ResumeAfterLimit:  setting(config.Path(), func(s config.Settings) bool { return s.ResumeAfterLimit }),
+		Limits:            trackedLimits(),
+		QuietAfter:        setting(config.Path(), func(s config.Settings) time.Duration { return s.QuietAfter }),
+		ContinueWhenQuiet: setting(config.Path(), func(s config.Settings) bool { return s.ContinueWhenQuiet }),
+		RemoteControl:     setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
+		Remote:            func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
+		RemoteDir:         remote.Dir(),
+		Split:             layout.Split,
+		Remove:            layout.Remove,
+		Checkpoint:        gitstat.Checkpoint,
+		DropTurns:         gitstat.DropTurns,
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)
 		},
@@ -802,6 +810,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.cancelResume(m)
 	case proto.SecondOpinion:
 		return d.secondOpinion(m)
+	case proto.SetStatus:
+		return d.setStatus(m)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:

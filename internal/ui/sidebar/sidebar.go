@@ -118,6 +118,8 @@ type Sidebar struct {
 	popover    int // tag that keeps clicks on a popover's body from closing it
 
 	renaming      string // tab whose name is being edited
+	replying      string // or the tab whose plan gets Request changes…
+	replyPane     string // the pane showing that plan
 	renamingGroup string // or the group's
 	focusEditor   bool
 	editorLaidOut bool
@@ -220,6 +222,7 @@ var projectColorIDs = [...]string{
 type rowState struct {
 	click, more, close widget.Clickable
 	allow, deny        widget.Clickable // a pending approval's answers
+	plan               widget.Clickable // a plan's Request changes…
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	port               widget.Clickable // the port chip: opens the dev server
 	fold               widget.Clickable // the agent count, which folds the sub-rows
@@ -276,8 +279,8 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	view := st.View(session)
 	st = &view
 	v := newView(gtx, th, st, session, activeWorkspace)
-	if s.renaming != "" {
-		if _, ok := v.activity[s.renaming]; !ok {
+	for _, id := range []string{s.renaming, s.replying} {
+		if _, ok := v.activity[id]; id != "" && !ok {
 			s.cancelRename()
 		}
 	}
@@ -388,12 +391,13 @@ type view struct {
 	remote        map[string]bool              // a tab with an agent under remote control
 	kids          map[string][]model.Workspace // a live tab's workers, which hang under it (model.State.Root)
 	rootOf        map[string]string            // a live worker's root, the tab it hangs under
+	status        map[string]string            // a live tab's status line (pitwall status)
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active,
 		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{},
-		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}}
+		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}, status: map[string]string{}}
 	if v.now.IsZero() {
 		v.now = time.Now()
 	}
@@ -437,6 +441,9 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 			v.byProject[g] = append(v.byProject[g], ws)
 		}
 		v.activity[ws.ID] = model.Aggregate(acts[ws.ID])
+		if ws.Status != "" {
+			v.status[ws.ID] = ws.Status
+		}
 		if u := model.Aggregate(unseen[ws.ID]); u != nil {
 			v.unseen[ws.ID] = u
 		}

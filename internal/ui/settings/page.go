@@ -1216,6 +1216,10 @@ func (p *Page) agents() []section {
 		extra: "queue tasks max_running limit", control: p.stepper("agents", "max_running", float64(p.s.MaxRunning), 0, 100, 1, 0)})
 	rows = append(rows, row{label: "Resume after limit", desc: "When Claude Code or Codex stops on its plan's usage limit, types continue into it a minute after the limit resets. The tab's pill shows when; typing in the pane or Cancel resume in the tab's menu drops it. A daemon restart drops it too.",
 		extra: "usage limit reset continue resume_after_limit", control: p.toggle("agents", "resume_after_limit", p.s.ResumeAfterLimit)})
+	rows = append(rows, row{label: "Quiet after", desc: "Minutes a working agent's screen may stay still before its row shows quiet 20m in place of the time. 0 turns it off.",
+		extra: "quiet stuck silent minutes quiet_after", control: p.stepper("agents", "quiet_after", p.s.QuietAfter.Minutes(), 0, 1440, 5, config.DefaultQuietAfter)})
+	rows = append(rows, row{label: "Continue when quiet", desc: "Types continue once into a working agent whose screen has stayed still that long. Only for agents whose prompts pitwall reads from the screen, and never while one shows; typing in the pane lets it type again.",
+		extra: "quiet continue nudge continue_when_quiet", control: p.toggle("agents", "continue_when_quiet", p.s.ContinueWhenQuiet)})
 	rows = append(rows, row{label: "Show cost", desc: "Next to each agent's tokens, what they would cost at the API's list prices. A subscription does not bill per token, so this is off by default.",
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
 	return []section{{rows: rows}}

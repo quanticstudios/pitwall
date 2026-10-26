@@ -118,6 +118,34 @@ the row showed, so a click never lands on a newer question. With a decision
 model, its advice stays in the pill above them, and the button it
 recommends is outlined.
 
+A Plan row has **Request changes…**. It opens a field on the row: type
+what should change and press Enter, or Esc to cancel. pitwall never
+answers the plan dialog. It queues your text and types it, as your reply,
+the next time the agent waits for input, so choose No in the dialog
+yourself. A notice says when the text waits.
+
+A working agent whose screen has not changed for 20 minutes shows
+**quiet 20m** on its row in place of the time, and in its hover card. An
+agent can hang mid-turn, and Gemini CLI never reports a failed turn, so
+Working alone does not mean busy. Set the minutes with `quiet_after` under
+`[agents]` in `config.toml`, or **Quiet after** in Settings; 0 turns it
+off. With `continue_when_quiet = true` (**Continue when quiet**), pitwall
+also types `continue` and Enter into a quiet agent, once. It does so only
+for Claude Code, Codex, pi, Gemini CLI and OpenCode, whose prompts it reads
+from the screen, and only while the screen shows no prompt, form or
+spinner. It types again only after the agent stops working or you type in
+its pane.
+
+A script can put a line of text under a tab's row, such as the state of CI:
+
+```sh
+pitwall status 3 -- "CI 3/7"     # tab #3; a pane address works too
+pitwall status -- "on review"    # inside a pane: its own tab
+pitwall status 3                 # clear it, as --clear does
+```
+
+The hover card shows it too, and it goes when the tab closes.
+
 On Linux, a click on a notification raises the window on its pane, as
 Ctrl+Shift+U does, and an approval's notification has Allow and Deny too.
 This needs notify-send from libnotify 0.7.10 or later; older ones show plain
@@ -193,7 +221,8 @@ Some states are out of reach:
   `tools.approvalMode` is set (the default, `yolo`, never asks), and pitwall
   does not report that prompt, so the tab stays Working.
 - Gemini CLI fires no hook when a turn fails, so with hooks it never shows
-  Error; a failed turn stays Working until the next prompt.
+  Error; a failed turn stays Working until the next prompt, and its row
+  reads quiet once `quiet_after` passes.
 - OpenCode 1 shows Plan only with its experimental plan mode on
   (`OPENCODE_EXPERIMENTAL_PLAN_MODE=1`), when it asks to switch to the
   build agent. OpenCode 2 never asks, so it never shows Plan.

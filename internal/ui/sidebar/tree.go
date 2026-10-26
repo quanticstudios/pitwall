@@ -51,7 +51,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		if root != "" {
 			x += gtx.Dp(kidIndent)
 		}
-		h := rowH
+		h := rowH + statusHeight(gtx, v.th, v.status[id])
 		if len(v.kids[id]) > 0 {
 			h += fleetHeight(gtx, v.th)
 		}

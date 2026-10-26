@@ -114,3 +114,22 @@ func TestSendToAgent(t *testing.T) {
 		t.Errorf("without an agent: %q %q", f, r)
 	}
 }
+
+// Request changes… on a Plan row queues the reply, typed only once the
+// agent leaves its plan dialog and waits for input.
+func TestRequestChanges(t *testing.T) {
+	b := newAgentBackend(model.StatePlanReady)
+	u := &ui{b: b}
+	st := b.State()
+	u.sidebarEvent(&st, sidebar.RequestChanges{PaneID: "p", Text: "split step 2"})
+	waitSends(t, u, &st)
+	if len(b.sent) != 0 || len(u.review.queue) != 1 || !strings.HasPrefix(u.notice, "Queued: answer No") {
+		t.Fatalf("over the plan: sent %q, queue %d, notice %q", b.sent, len(u.review.queue), u.notice)
+	}
+	b.st.Activities[0].State = model.StateCompleted
+	st = b.State()
+	u.deliver(&st, time.Now())
+	if len(b.sent) != 1 || !strings.Contains(string(b.sent[0].Data), "split step 2") {
+		t.Fatalf("after the plan: sent %q", b.sent)
+	}
+}

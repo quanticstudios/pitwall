@@ -69,7 +69,7 @@ func (s *Sidebar) targets(v *view, id string) []string {
 // Editing reports whether an inline rename holds key focus, so the window
 // keeps its panes from taking it back.
 func (s *Sidebar) Editing() bool {
-	return s.renaming != "" || s.renamingGroup != ""
+	return s.renaming != "" || s.renamingGroup != "" || s.replying != ""
 }
 
 // StartRename opens the inline editor on tab ws's row, starting from name.
@@ -83,8 +83,15 @@ func (s *Sidebar) startRename(ws, group, name string) {
 	s.renameFrom = name
 }
 
+// startReply opens an empty field on tab ws's row for a reply to the plan
+// pane shows.
+func (s *Sidebar) startReply(ws, pane string) {
+	s.startRename("", "", "")
+	s.replying, s.replyPane = ws, pane
+}
+
 func (s *Sidebar) cancelRename() {
-	s.renaming, s.renamingGroup = "", ""
+	s.renaming, s.renamingGroup, s.replying = "", "", ""
 	s.focusEditor, s.selectAll = false, false
 }
 
@@ -334,6 +341,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			if _, ok := ev.(widget.SubmitEvent); ok {
 				name := strings.TrimSpace(s.editor.Text())
 				switch {
+				case s.replying != "":
+					if name != "" {
+						s.events = append(s.events, RequestChanges{PaneID: s.replyPane, Text: name})
+					}
 				case name == strings.TrimSpace(s.renameFrom):
 				case s.renamingGroup != "":
 					if name != "" {

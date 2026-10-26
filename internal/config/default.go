@@ -33,6 +33,8 @@ func defaults() Config {
 	c.Notify = defaultNotifications()
 	none := 0.0
 	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit = &none, &on
+	quiet := float64(DefaultQuietAfter)
+	c.Agents.QuietAfter, c.Agents.ContinueWhenQuiet = &quiet, &off
 	return c
 }
 
