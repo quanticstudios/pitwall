@@ -329,8 +329,8 @@ func head(e Event) string {
 
 // Report is the first n groups as Markdown, to paste into an agent and
 // ask it to fix the causes. span names the window, such as "the last 7
-// days".
-func Report(gs []Group, n int, span string) string {
+// days", and order how gs are sorted, such as "most frequent first".
+func Report(gs []Group, n int, span, order string) string {
 	total, toks := 0, 0
 	for _, g := range gs {
 		total, toks = total+g.Count, toks+g.Tokens
@@ -338,9 +338,9 @@ func Report(gs []Group, n int, span string) string {
 	gs = gs[:min(n, len(gs))]
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Agent errors, %s\n\n", span)
-	fmt.Fprintf(&b, "My coding agents hit these %d errors, about %s tokens of commands and output, grouped by cause, most frequent first. "+
+	fmt.Fprintf(&b, "My coding agents hit these %d errors, about %s tokens of commands and output, grouped by cause, %s. "+
 		"Each one is a wasted step. Find why each happens and fix it in my setup: CLAUDE.md or AGENTS.md, shell config, or a missing tool. "+
-		"\"Exit 1 with no output\" and \"Interrupted by you\" groups may not be bugs; check whether the agent should run something else.\n", total, short(toks))
+		"\"Exit 1 with no output\" and \"Interrupted by you\" groups may not be bugs; check whether the agent should run something else.\n", total, short(toks), order)
 	if len(gs) > 1 {
 		var top []string
 		for _, g := range ByTokens(gs)[:min(3, len(gs))] {
@@ -354,6 +354,9 @@ func Report(gs []Group, n int, span string) string {
 		if e.Cwd != "" {
 			fmt.Fprintf(&b, "cwd: %s\n", e.Cwd)
 		}
+		if f := LikelyFix(g); f != "" {
+			fmt.Fprintf(&b, "Likely fix: %s\n", f)
+		}
 		if e.Command != "" {
 			label := "command"
 			if e.Kind == Tool {
@@ -366,6 +369,20 @@ func Report(gs []Group, n int, span string) string {
 		}
 	}
 	return b.String()
+}
+
+// Ask is the prompt that hands report to an agent to fix the causes.
+func Ask(report string) string {
+	return `Find and fix the causes of my coding agents' errors.
+
+The report below comes from pitwall. Work through it:
+
+1. Group the errors by cause. Several groups may share one.
+2. For each cause, propose the smallest fix: a line in the agent's instruction file (CLAUDE.md or AGENTS.md, global or in a project), a change to my shell config, a tool to install, a script in the project, or leave it be.
+3. Estimate the tokens each fix would save, from the counts and tokens in the report.
+4. Show each change as a diff. Ask me before you edit any file outside this project, global instruction files included.
+
+` + report
 }
 
 // short is n tokens for a person: 840, 3.1k, 2.4M.

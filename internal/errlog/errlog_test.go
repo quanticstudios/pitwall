@@ -64,17 +64,20 @@ func TestGroups(t *testing.T) {
 	if by := ByTokens(big); by[0].Sig != "b" || big[0].Sig != "a" {
 		t.Errorf("ByTokens = %+v, input now %+v", by, big)
 	}
-	if r := Report(big, 15, "all time"); !strings.Contains(r, "Costliest: 2 (900 tokens), 1 (10 tokens).") {
+	if r := Report(big, 15, "all time", "most frequent first"); !strings.Contains(r, "Costliest: 2 (900 tokens), 1 (10 tokens).") {
 		t.Errorf("costliest line missing:\n%s", r)
 	}
-	r := Report(gs, 1, "the last 7 days")
-	for _, want := range []string{"4 errors", "## 1. zsh: no matches found: <glob>", "×3, about ", "tokens, claude, codex", "grep y --include=*.md"} {
+	r := Report(gs, 1, "the last 7 days", "most tokens first")
+	for _, want := range []string{"4 errors", "most tokens first", "## 1. zsh: no matches found: <glob>", "×3, about ", "tokens, claude, codex", "grep y --include=*.md", "Likely fix: zsh expands"} {
 		if !strings.Contains(r, want) {
 			t.Errorf("report lacks %q:\n%s", want, r)
 		}
 	}
 	if strings.Contains(r, "## 2.") {
 		t.Errorf("report past n:\n%s", r)
+	}
+	if a := Ask(r); !strings.HasSuffix(a, r) || !strings.Contains(a, "Ask me before you edit any file outside this project") {
+		t.Errorf("ask prompt:\n%s", a)
 	}
 }
 

@@ -32,6 +32,7 @@ type taskDialog struct {
 	picked   []bool // per agent: whether it gets a task
 	modes    []int  // per agent: into taskModes of it
 	err      string
+	preset   string // the prompt the next open starts with
 
 	prompt, name, base, branch, issue widget.Editor
 	autoName                          string             // the name the prompt last filled in; once the user changes it, the prompt stops
@@ -194,7 +195,8 @@ func (u *ui) openTask(st *model.State, group string) {
 	t.err, t.focus = "", true
 	t.prompt.Submit, t.name.SingleLine, t.base.SingleLine, t.branch.SingleLine, t.issue.SingleLine = false, true, true, true, true
 	t.name.Submit, t.base.Submit, t.branch.Submit, t.issue.Submit = true, true, true, true
-	t.prompt.SetText("")
+	t.prompt.SetText(t.preset)
+	t.preset = ""
 	t.name.SetText("")
 	t.branch.SetText("")
 	t.issue.SetText("")

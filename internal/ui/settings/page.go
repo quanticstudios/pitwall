@@ -46,6 +46,7 @@ const (
 	Saved                    // config.toml changed; reload it now
 	InstallHooks             // open the Install hooks dialog
 	InstallStatusline        // open it with pitwall statusline ticked
+	AskAgent                 // open the New task dialog with TaskPrompt
 )
 
 const (
@@ -96,6 +97,7 @@ type Page struct {
 	probs  []string
 	err    string // the last save that failed
 	result Result
+	prompt string // the prompt AskAgent opens New task with
 
 	search      widget.Editor
 	focusSearch bool
@@ -180,6 +182,9 @@ func (p *Page) ReloadHooks() {
 func (p *Page) Hide() {
 	p.shown, p.rec, p.keyRec, p.conflict, p.dd = false, slot{}, false, nil, ""
 }
+
+// TaskPrompt is the prompt for the New task dialog after AskAgent.
+func (p *Page) TaskPrompt() string { return p.prompt }
 
 // take returns the frame's result. After a save it asks for another
 // frame, which draws the reloaded config.
