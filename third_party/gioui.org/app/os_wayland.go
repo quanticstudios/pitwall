@@ -1061,8 +1061,15 @@ func (w *window) ReadClipboard() {
 	}
 	w.disp.readClipClose = make(chan struct{})
 	r, err := w.disp.readClipboard()
-	if r == nil || err != nil {
+	if err != nil {
+		w.disp.readClipClose = nil // pitwall: or no later read runs
 		return
+	}
+	if r == nil {
+		// pitwall: no text on the clipboard (an image, or nothing) reads as
+		// empty text, as on macOS and Windows. Upstream sent no event and
+		// left readClipClose set, so every later read returned early.
+		r = io.NopCloser(bytes.NewReader(nil))
 	}
 	// Don't let slow clipboard transfers block event loop.
 	go func() {

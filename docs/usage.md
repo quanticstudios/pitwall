@@ -610,6 +610,17 @@ Ctrl+click one (Cmd+click on macOS) to open it in your browser, even inside
 Claude Code or Codex.
 Set `links = false` under `[terminal]` to turn this off.
 
+In a pane running Claude Code or Codex, Ctrl+V and the paste key
+(Ctrl+Shift+V, Cmd+V on macOS) both paste whatever is on the clipboard.
+Text goes in as a bracketed paste. When the clipboard holds an image, or
+nothing, pitwall sends the agent Ctrl+V and the agent reads the image
+itself, the way it does in any terminal. Each agent reads the clipboard
+through the pane's environment: Codex directly, Claude Code through
+`wl-paste` or `xclip` on Linux. A pane started from a desktop session has
+what they need. In every other program, Ctrl+V reaches the program as a
+key, so Vim's block select and the shell's quoted insert work as before,
+and the paste key pastes text only.
+
 Programs can set the clipboard with OSC 52, the way Neovim, tmux and Helix
 copy, also over ssh: `printf '\e]52;c;%s\a' "$(printf hi | base64)"` puts
 "hi" on it. A write may hold up to 1 MB of text. Programs can never read

@@ -739,22 +739,21 @@ func (h *x11EventHandler) handleEvents() bool {
 		case C.SelectionNotify:
 			cevt := (*C.XSelectionEvent)(unsafe.Pointer(xev))
 			prop := w.atoms.clipboardContent
-			if cevt.property != prop {
-				break
-			}
 			if cevt.selection != w.atoms.clipboard {
 				break
 			}
+			// pitwall: a clipboard with no UTF-8 text (an image, or nothing)
+			// refuses the conversion with property None and reads as empty
+			// text, as on macOS and Windows. Upstream sent no event.
+			if cevt.property != prop && cevt.property != C.None {
+				break
+			}
+			var str string
 			var text C.XTextProperty
-			if st := C.XGetTextProperty(w.x, w.xw, &text, prop); st == 0 {
-				// Failed; ignore.
-				break
+			if cevt.property == prop && C.XGetTextProperty(w.x, w.xw, &text, prop) != 0 &&
+				text.format == 8 && text.encoding == w.atoms.utf8string {
+				str = C.GoStringN((*C.char)(unsafe.Pointer(text.value)), C.int(text.nitems))
 			}
-			if text.format != 8 || text.encoding != w.atoms.utf8string {
-				// Ignore non-utf-8 encoded strings.
-				break
-			}
-			str := C.GoStringN((*C.char)(unsafe.Pointer(text.value)), C.int(text.nitems))
 			w.ProcessEvent(transfer.DataEvent{
 				Type: "application/text",
 				Open: func() io.ReadCloser {

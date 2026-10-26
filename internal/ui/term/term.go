@@ -51,6 +51,10 @@ type View struct {
 	// Links underlines links and opens the one under a Ctrl+click, even
 	// while the program owns the mouse.
 	Links bool
+	// PasteImages marks a pane whose agent (Claude Code, Codex) reads an
+	// image off the clipboard on Ctrl+V. Ctrl+V pastes there as the paste
+	// key does, and a paste finding no text sends the agent Ctrl+V.
+	PasteImages bool
 
 	th       *theme.Theme
 	ppem     fixed.Int26_6
