@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.3
 
 - Settings, Agent errors shows a likely fix for known causes, such as unquoted globs in zsh or a missing command, and Copy report includes it. Ask an agent to fix these opens New task with the report as the prompt.
 - Settings, Agent errors has charts: tiles for the errors, the tokens they took, errors per active day and the top cause's share, a bar per day stacked by kind, and a split by cause whose hover outlines the cause's group.
