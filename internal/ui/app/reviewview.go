@@ -118,10 +118,10 @@ type reviewView struct {
 	editing          bool
 	editFrom, editTo int
 
-	send, pr, pager, mark, discard, showHuge widget.Clickable
-	branchScope, thisTurn, undo, redo        widget.Clickable
-	prChip                                   widget.Clickable // the PR status in the header: opens the pull request
-	status                                   string           // the line under the header: sent, queued, a failure
+	send, pr, pager, opinion, mark, discard, showHuge widget.Clickable
+	branchScope, thisTurn, undo, redo                 widget.Clickable
+	prChip                                            widget.Clickable // the PR status in the header: opens the pull request
+	status                                            string           // the line under the header: sent, queued, a failure
 
 	notes      map[string][]*note // by repository root
 	queue      []delivery

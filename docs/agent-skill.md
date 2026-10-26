@@ -145,6 +145,20 @@ restart, or before the agent finished a turn, there is none: read says so
 on stderr and exits 1. `--screen` prints the text on the pane's screen
 instead.
 
+`pitwall review [tab] [--agent claude|codex]` asks another agent for a
+second opinion on a tab's changes, by default the calling pane's tab, and
+prints the reviewer's address. It splits the tab and starts Codex for a
+Claude Code tab, Claude Code for a Codex tab, or the one `--agent` names,
+read only, pointed at review instructions in pitwall's state directory: the
+branch against its base plus uncommitted changes, findings with a
+severity, `path:line` and a fix, and no code changes. When the reviewer's
+first turn ends, pitwall sends its reply to the tab's agent as a message,
+under a line asking to verify each blocker and major against the code
+before changing anything and to say which findings were dropped and why.
+The tab's agent must report through hooks, as for `send`. Run it from your
+own pane to have your work reviewed; the findings arrive as your next
+prompt.
+
 `pitwall ls --json` prints one object per tab of the session, in sidebar
 order, detached tabs last. Every key is always present; unknown strings are
 `""`.
@@ -264,8 +278,10 @@ same `wait` again.
 
 ## Recipes
 
-Hand a review to Codex in a tab the user can watch, and read the verdict
-from a file it writes:
+Get your own changes reviewed by the other agent with `pitwall review`;
+its findings come back as a message. To steer a review yourself, hand it
+to Codex in a tab the user can watch, and read the verdict from a file it
+writes:
 
 ```sh
 tab=$(pitwall new -d -n "review auth" -- codex "review origin/main..HEAD; write SHIP or HOLD and the findings to /tmp/review.txt")

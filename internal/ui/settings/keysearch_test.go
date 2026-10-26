@@ -46,7 +46,7 @@ func TestShortcutSearch(t *testing.T) {
 		{"mac", "cmd+shift+r", map[string][]string{"Shortcuts": {"view_diff"}}},
 		{"mac", "⌘⇧R", map[string][]string{"Shortcuts": {"view_diff"}}},
 		{"conventional", "deny", map[string][]string{"Shortcuts": {"deny_prompt"}}},
-		{"conventional", "review", map[string][]string{"Shortcuts": {"view_diff", "send_review"}}},
+		{"conventional", "review", map[string][]string{"Shortcuts": {"view_diff", "send_review", "second_opinion"}}},
 		{"conventional", "copy", map[string][]string{"Shortcuts": {"copy", "copy_mode"}}},
 	} {
 		var p Page

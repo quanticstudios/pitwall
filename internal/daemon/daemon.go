@@ -178,10 +178,11 @@ type Daemon struct {
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
 	replies map[string]string
-	mail    mail         // see talk.go
-	lim     limitResumes // see resume.go
-	sendMu  sync.Mutex   // one deliver types at a time
-	turnMu  sync.Mutex   // one checkpoint at a time, so each gets its own number
+	mail    mail              // see talk.go
+	reviews map[string]string // second opinions: reviewer pane to the pane it reviews; see opinion.go
+	lim     limitResumes      // see resume.go
+	sendMu  sync.Mutex        // one deliver types at a time
+	turnMu  sync.Mutex        // one checkpoint at a time, so each gets its own number
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -790,6 +791,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.send(m)
 	case proto.CancelResume:
 		return d.cancelResume(m)
+	case proto.SecondOpinion:
+		return d.secondOpinion(m)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:
@@ -1127,6 +1130,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.piRetired, id)
 	delete(d.attn, id)
 	delete(d.replies, id)
+	delete(d.reviews, id)
 	if t := d.mail.wake[id]; t != nil {
 		t.Stop()
 	}
@@ -1226,6 +1230,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		clearDecisions(&next) // a new state needs new answers
 		if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {
 			d.keepReply(p.ID, msg)
+			d.relayReview(p.ID)
 		}
 		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
 			// The known keys, from the whole message before it is cut.

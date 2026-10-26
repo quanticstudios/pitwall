@@ -1,12 +1,14 @@
 package sidebar
 
+import "github.com/quanticstudios/pitwall/internal/model"
+
 // Event is one of SelectWorkspace, NewTab, CloseTab, RenameTab, AddProject,
 // DetachSession, AttachSession, KillSession, GroupByFolder, DeleteWorkspace,
 // OpenSettings, SetProjectAppearance, MoveToGroup, NewGroup, RenameGroup,
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
 // RerunChecks, SendFailures, SendReview, Archive, NewTaskIn, DropTask,
-// OpenPort, CancelResume.
+// OpenPort, CancelResume, SecondOpinion.
 type Event any
 
 // CancelResume drops the resume after a usage limit of the tab's agents.
@@ -89,6 +91,13 @@ type SendFailures struct{ WorkspaceID string }
 // SendReview sends the unresolved review comments of the tab's pull
 // request to its agent.
 type SendReview struct{ WorkspaceID string }
+
+// SecondOpinion asks Agent, Claude Code or Codex, to review the tab's
+// changes; its reply goes to the tab's agent.
+type SecondOpinion struct {
+	WorkspaceID string
+	Agent       model.Provider
+}
 
 // Archive asks to archive a tab whose pull request merged: close its
 // panes, remove its worktree and delete its branch, after a confirm.

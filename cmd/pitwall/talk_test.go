@@ -6,6 +6,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -216,4 +217,56 @@ func paneID(t *testing.T, addr string) string {
 		t.Fatal(err)
 	}
 	return p.ID
+}
+
+// fakeReviewer stands in for Codex in a second opinion: it reports one
+// turn as soon as it starts, whose reply names the flags it got.
+const fakeReviewer = `#!/bin/sh
+hook() { printf '%s' "$1" | PITWALL_TEST_MAIN=1 "$PITWALL_TEST_EXE" hook claude; }
+hook '{"hook_event_name":"UserPromptSubmit","session_id":"r","prompt":"go"}'
+hook "{\"hook_event_name\":\"Stop\",\"session_id\":\"r\",\"last_assistant_message\":\"No findings with $1 $2.\"}"
+while IFS= read -r line; do :; done
+`
+
+// TestReview asks a fake Codex for a second opinion on a fake Claude's
+// branch, and its reply reaches the Claude as a message.
+func TestReview(t *testing.T) {
+	bin, run := talkDaemon(t)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for name, script := range map[string]string{"peer": fakePeer, "codex": fakeReviewer} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run(0, "#1\n", "new", "-n", "lead", repo, "--", filepath.Join(bin, "peer"))
+	run(0, "idle\n", "wait", "1.1", "--until", "idle", "--timeout", "10s")
+	if stderr := run(1, "", "review", "lead", "--agent", "gemini"); !strings.Contains(stderr, "pick claude or codex") {
+		t.Fatalf("review by gemini: %q", stderr)
+	}
+	// The daemon reads the tab's branch in the background.
+	for start := time.Now(); ; time.Sleep(50 * time.Millisecond) {
+		code, out, stderr := cliOutput("review", "lead", "--agent", "codex")
+		if code == 0 && out == "#1.2\n" {
+			break
+		}
+		if time.Since(start) > 10*time.Second {
+			t.Fatalf("review: %d %q %q", code, out, stderr)
+		}
+	}
+	want := "got: [pitwall: message from claude in #1.2; reply with: pitwall send @" + paneID(t, "1.2") + " ...] Another agent reviewed your changes."
+	for start := time.Now(); ; time.Sleep(50 * time.Millisecond) {
+		code, out, _ := cliOutput("read", "1.1")
+		if code == 0 && strings.HasPrefix(out, want) && strings.Contains(out, "No findings with -s read-only.") {
+			break
+		}
+		if time.Since(start) > 15*time.Second {
+			t.Fatalf("read 1.1: %d %q, want %q ... No findings with -s read-only.", code, out, want)
+		}
+	}
 }

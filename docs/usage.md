@@ -364,6 +364,31 @@ installed, the tab is on the default branch, or the branch has no commits
 ahead of it. Create pull request and Open diff in pager have no key by
 default; set `create_pr` or `diff_pager` under `[keys]` to give them one.
 
+Second opinion has another agent review the tab's changes and send its
+findings to the tab's agent. The tab's "…" menu has it as Second opinion
+from Codex for a Claude Code tab and from Claude Code for a Codex tab, and
+offers both for any other agent. The review view's Second opinion button,
+the command palette and `pitwall review [tab] [--agent claude|codex]` pick
+the same reviewer, Claude Code for another agent, unless `--agent` names
+one. pitwall splits the tab and starts the reviewer beside the tab's agent,
+in its folder, read only: Claude Code with `--permission-mode plan`, Codex
+with `-s read-only`. Its prompt is one line pointing at a file in the state
+directory, `reviews/<pane>.md`, which asks it to review the branch against
+its base and the uncommitted and untracked changes, to change nothing, and
+to end with a summary that gives each finding a severity (blocker, major,
+minor or nit), a `path:line` and a fix. When the reviewer's first turn
+ends, pitwall queues that reply for the tab's agent, as `pitwall send`
+does, under one line asking it to check each blocker and major against the
+code before changing anything and to say which findings it dropped and
+why. That is the only round: the reviewer's pane stays open for you to
+read, and its later replies stay there. Close it as any pane. A reviewer
+that asks permission shows Approval like any agent; pitwall never answers
+it. The entry is greyed out with the reason when the tab runs no agent,
+its agent reports nothing through hooks, or the reviewer's CLI is not on
+PATH, and it shows only for a tab in a git repository. A daemon restart
+before the reviewer finishes drops the hand-off. Second opinion has no key
+by default; set `second_opinion` under `[keys]` to give it one.
+
 When an agent with hooks gets a prompt, the daemon snapshots the tab's
 files: everything on disk, untracked files included and ignored ones left
 out, as a commit object under `refs/pitwall/turns/<tab>/<n>`. It builds the

@@ -189,6 +189,13 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 		}
 	}
 	place(func(gtx gl.Context) gl.Dimensions { return u.reviewButton(gtx, &r.pager, "Open in pager", true, false) })
+	for r.opinion.Clicked(gtx) {
+		u.secondOpinion(st, r.ws, "")
+	}
+	opinionOff := opinionBlocked(st, ws, "")
+	place(func(gtx gl.Context) gl.Dimensions {
+		return u.reviewButton(gtx, &r.opinion, "Second opinion", opinionOff == "", false)
+	})
 	// Undo puts the turn's files back; Redo, while nothing changed since,
 	// brings them again. A commit since the turn started hides both.
 	if inTurn && loaded && !turn.Moved {

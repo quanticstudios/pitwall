@@ -236,6 +236,8 @@ func (s *Sidebar) prClicks(gtx layout.Context, v *view, ws model.Workspace) {
 		e = SendReview{WorkspaceID: ws.ID}
 	case s.menuItem[actArchive].Clicked(gtx):
 		e = Archive{WorkspaceID: ws.ID}
+	default:
+		e = s.opinionClick(gtx, v, ws)
 	}
 	if e != nil {
 		s.events = append(s.events, e)

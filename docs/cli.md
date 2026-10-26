@@ -21,6 +21,7 @@ optional name act on the pane's own tab.
 | `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
 | `pitwall send <pane> -- text`         | Queue a message for the pane's agent and return; pitwall types it, under a header naming the sender, at the agent's next prompt |
 | `pitwall read <pane> [--screen]`      | Print the last reply of the pane's agent, or with `--screen` the text on its screen |
+| `pitwall review [tab] [--agent claude\|codex]` | Second opinion: open the other agent read only beside the tab's agent to review its changes, and print its address; its first reply goes to the tab's agent |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
 | `pitwall rename [old] <new>`          | Rename a tab                                                  |
@@ -66,6 +67,8 @@ pitwall session attach billing                 # open a window on it
 agent or a command in a tab you can watch and take over, then wait for it.
 `split`, `prompt`, `send` and `read` let one agent open another next to
 it and discuss a plan, in turns it drives or with messages both ways.
+`review` has the other agent review a tab's changes and send its findings
+back.
 [docs/agent-skill.md](agent-skill.md) is a page to hand an agent: the
 states, exit codes and recipes.
 

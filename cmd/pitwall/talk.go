@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -18,7 +21,8 @@ import (
 
 // split, prompt, send and read let one agent open another in a pane of
 // its tab, type a prompt into it or queue a message for it, and read its
-// reply. docs/agent-skill.md documents them.
+// reply; review opens one for a second opinion. docs/agent-skill.md
+// documents them.
 
 var errOlder = errors.New("the daemon is older than this pitwall; restart it to use prompt, send and read")
 
@@ -76,6 +80,12 @@ func splitCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	return printNewPane(out, state, after, w)
+}
+
+// printNewPane prints the address of the pane in tab w that after has and
+// before had not.
+func printNewPane(out io.Writer, before, after model.State, w model.Workspace) error {
 	tabs := numbered(after, w.SessionID)
 	i := slices.IndexFunc(tabs, func(t model.Workspace) bool { return t.ID == w.ID })
 	if i < 0 {
@@ -83,13 +93,71 @@ func splitCommand(args []string, out io.Writer) error {
 	}
 	panes := tabPanes(after, tabs[i])
 	n := slices.IndexFunc(panes, func(p model.Pane) bool {
-		return !slices.ContainsFunc(state.Panes, func(old model.Pane) bool { return old.ID == p.ID })
+		return !slices.ContainsFunc(before.Panes, func(old model.Pane) bool { return old.ID == p.ID })
 	})
 	if n < 0 {
 		return errors.New("cannot identify the new pane from daemon state")
 	}
-	_, err = fmt.Fprintf(out, "#%d.%d\n", i+1, n+1)
+	_, err := fmt.Fprintf(out, "#%d.%d\n", i+1, n+1)
 	return err
+}
+
+// reviewCommand asks another agent for a second opinion on a tab's
+// changes, and prints the reviewer's address. pitwall sends its reply to
+// the tab's agent.
+func reviewCommand(args []string, out io.Writer) error {
+	flags := flag.NewFlagSet("review", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	sessionName := flags.String("s", "", "")
+	reviewer := flags.String("agent", "", "")
+	args, err := parseFlags(flags, args)
+	if err != nil || len(args) > 1 {
+		return errors.New("usage: pitwall review [-s session] [tab] [--agent claude|codex]")
+	}
+	conn, err := dialCLI()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	m, err := syncMsg(conn)
+	if err != nil {
+		return err
+	}
+	if m.Level < proto.Since(proto.SecondOpinion{}) {
+		return errors.New("the daemon is older than this pitwall; restart it to use review")
+	}
+	session, err := currentSession(m.State, *sessionName)
+	if err != nil {
+		return err
+	}
+	w, err := resolveTab(m.State, session.ID, strings.Join(args, ""))
+	if err != nil {
+		return err
+	}
+	panes := slices.DeleteFunc(tabPanes(m.State, w), func(p model.Pane) bool { return p.Exited || agentOf(p) == "" })
+	if len(panes) == 0 {
+		return fmt.Errorf("tab %s runs no agent to review", tabTitle(w))
+	}
+	if *reviewer == "" {
+		if *reviewer = string(agent.Reviewer(panes[0].Provider)); *reviewer == "" {
+			return fmt.Errorf("pick the reviewer of %s's changes with --agent claude or --agent codex", agentOf(panes[0]))
+		}
+	}
+	if *reviewer != "claude" && *reviewer != "codex" {
+		return fmt.Errorf("pick claude or codex to review, not %q", *reviewer)
+	}
+	path, err := exec.LookPath(*reviewer)
+	if err != nil {
+		return fmt.Errorf("%s is not installed: no %s on PATH", *reviewer, *reviewer)
+	}
+	if path, err = filepath.Abs(path); err != nil {
+		return err
+	}
+	after, err := syncCLI(conn, proto.SecondOpinion{Pane: panes[0].ID, Agent: path})
+	if err != nil {
+		return err
+	}
+	return printNewPane(out, m.State, after, w)
 }
 
 // readCommand prints the last reply of a pane's agent, or its screen.
