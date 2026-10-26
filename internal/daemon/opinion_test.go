@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
-	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -38,11 +38,25 @@ func TestSecondOpinion(t *testing.T) {
 	refused(filepath.Join(t.TempDir(), "claude"), "not installed")
 	refused(codex, "runs no agent") // a takes no messages yet
 
-	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"done"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"startup"}`)
 	refused(codex, "no git repository")
+	// The finished turn refreshes the tab's stats, which the fake git
+	// reports for a path with "repo" in it, with no default branch.
 	d.mu.Lock()
-	d.st.Stats = map[string]model.BranchStats{"w": {Base: "refs/remotes/origin/main"}}
+	d.st.Workspaces[0].Path = "/work/repo"
 	d.mu.Unlock()
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"done"}`)
+	for start := time.Now(); ; time.Sleep(time.Millisecond) {
+		d.mu.Lock()
+		_, git := d.st.Stats["w"]
+		d.mu.Unlock()
+		if git {
+			break
+		}
+		if time.Since(start) > 2*time.Second {
+			t.Fatal("no stats for the tab")
+		}
+	}
 	if err := opinion(codex); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +72,7 @@ func TestSecondOpinion(t *testing.T) {
 	if len(r.Cmd) != 4 || r.Cmd[0] != codex || r.Cmd[1] != "-s" || r.Cmd[2] != "read-only" || !strings.Contains(r.Cmd[3], file) {
 		t.Fatalf("reviewer cmd %q", r.Cmd)
 	}
-	if b, err := os.ReadFile(file); err != nil || !strings.Contains(string(b), "git diff --merge-base refs/remotes/origin/main") {
+	if b, err := os.ReadFile(file); err != nil || !strings.Contains(string(b), "git diff --merge-base origin/HEAD") {
 		t.Fatalf("instructions %q, %v", b, err)
 	}
 
