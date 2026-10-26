@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +65,9 @@ func Stats(ctx context.Context, worktree string) (model.BranchStats, error) {
 	}
 	if _, err := fmt.Sscan(out, &stats.Behind, &stats.Ahead); err != nil {
 		return stats, err
+	}
+	if stats.Ahead > 0 {
+		stats.Compare = compare(ctx, worktree, BranchName(base))
 	}
 	if stats.Ahead == 0 && stats.Behind == 0 {
 		stats.MergeStatus = model.MergeUpToDate
@@ -385,6 +389,49 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch, fo
 		}
 	}
 	return nil
+}
+
+// compare is the web page to open a pull request against base for the
+// branch at dir, when it is pushed to origin and origin is not on GitHub,
+// where gh opens one; "" otherwise.
+func compare(ctx context.Context, dir, base string) string {
+	remote, err := git(ctx, dir, "config", "--get", "remote.origin.url")
+	if remote = strings.TrimSpace(remote); err != nil || strings.Contains(strings.ToLower(remote), "github.com") {
+		return ""
+	}
+	up, err := git(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	head, ok := strings.CutPrefix(strings.TrimSpace(up), "origin/")
+	if err != nil || !ok {
+		return ""
+	}
+	return compareURL(remote, base, head)
+}
+
+// Adapted from forge (MIT): internal/land/land.go (compareURL)
+
+// compareURL is the page comparing head with base on the host of remote,
+// an http, ssh or scp-like URL: GitLab's /-/compare/, else the /compare/
+// of GitHub-like hosts such as Gitea and Forgejo. A remote with no host,
+// such as a path, has none.
+func compareURL(remote, base, head string) string {
+	s := strings.TrimSuffix(strings.TrimSuffix(remote, "/"), ".git")
+	scheme, host, path := "https", "", ""
+	if u, err := url.Parse(s); err == nil && u.Host != "" {
+		host, path = u.Hostname(), u.Path // an ssh port is no web port
+		if u.Scheme == "http" || u.Scheme == "https" {
+			scheme, host = u.Scheme, u.Host
+		}
+	} else if h, p, ok := strings.Cut(s[strings.Index(s, "@")+1:], ":"); ok && len(h) > 1 && !strings.ContainsAny(h, `/\`) {
+		host, path = h, "/"+strings.TrimPrefix(p, "/")
+	}
+	if host == "" {
+		return ""
+	}
+	sep := "/compare/"
+	if strings.Contains(strings.ToLower(host), "gitlab") {
+		sep = "/-/compare/"
+	}
+	return scheme + "://" + host + path + sep + base + "..." + head
 }
 
 // BranchName is the branch a base ref names: "main" for

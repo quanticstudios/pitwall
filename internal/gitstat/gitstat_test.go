@@ -97,6 +97,39 @@ func TestStats(t *testing.T) {
 	checkStats(t, dir, model.BranchStats{Behind: 1, MergeStatus: model.MergeClean, Base: "refs/heads/main"})
 }
 
+// TestCompare: a branch pushed to an origin off GitHub gets its compare
+// page; one on GitHub, or not pushed, gets none.
+func TestCompare(t *testing.T) {
+	dir := repo(t)
+	runGit(t, dir, "checkout", "-b", "feature")
+	writeFile(t, dir, "file.txt", "feature\n")
+	commit(t, dir)
+	want := model.BranchStats{Additions: 1, Deletions: 3, Ahead: 1, MergeStatus: model.MergeClean, Base: "refs/heads/main"}
+	runGit(t, dir, "remote", "add", "origin", "git@gitlab.example.com:me/widgets.git")
+	checkStats(t, dir, want) // not pushed
+	runGit(t, dir, "update-ref", "refs/remotes/origin/feature", "HEAD")
+	runGit(t, dir, "branch", "--set-upstream-to=origin/feature")
+	want.Compare = "https://gitlab.example.com/me/widgets/-/compare/main...feature"
+	checkStats(t, dir, want)
+	runGit(t, dir, "remote", "set-url", "origin", "https://github.com/me/widgets.git")
+	want.Compare = ""
+	checkStats(t, dir, want)
+
+	for remote, url := range map[string]string{
+		"https://codeberg.org/me/widgets.git":             "https://codeberg.org/me/widgets/compare/main...feature",
+		"http://git.lan:3000/me/widgets":                  "http://git.lan:3000/me/widgets/compare/main...feature",
+		"ssh://git@gitea.example.com:2222/me/widgets.git": "https://gitea.example.com/me/widgets/compare/main...feature",
+		"git@gitlab.com:group/sub/widgets.git":            "https://gitlab.com/group/sub/widgets/-/compare/main...feature",
+		"forge.example.com:me/widgets":                    "https://forge.example.com/me/widgets/compare/main...feature",
+		"/srv/git/widgets.git":                            "",
+		`C:\repos\widgets`:                                "",
+	} {
+		if got := compareURL(remote, "main", "feature"); got != url {
+			t.Errorf("compareURL(%q) = %q, want %q", remote, got, url)
+		}
+	}
+}
+
 func TestMergeConflict(t *testing.T) {
 	dir := repo(t)
 	runGit(t, dir, "checkout", "-b", "feature")

@@ -291,6 +291,8 @@ type Settings struct {
 	MergeMethod string
 	// ArchiveOnMerge archives a merged worktree tab without a click.
 	ArchiveOnMerge bool
+	// AutoSendFailures sends a branch's failed checks to its agent.
+	AutoSendFailures bool
 	// ConflictRadar marks tabs whose branches change the same files.
 	ConflictRadar bool
 	// Hosts is [[hosts]] as written.

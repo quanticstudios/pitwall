@@ -422,13 +422,25 @@ Once the branch has a pull request, its row shows a chip with the number,
 green while open, grey as a draft, purple once merged and red when closed.
 On an open one, a dot before the number is CI: yellow while checks run,
 green when they pass, red when one failed, and a check or a red diff glyph
-after it is the review: approved, or changes requested. The hover card lists
-the checks by name. Click the chip to open the pull request in your browser.
+after it is the review: approved, or changes requested. Once nothing stops
+a merge, a green Ready replaces the review, and Merge PR in the menu says
+ready. The hover card says why an open pull request cannot merge yet, the
+first that applies: it conflicts with the base branch, checks failed (by
+name), changes were requested (by whom, and "awaiting re-review" when the
+review is older than the last commit), checks still run, or it is a draft,
+has no approving review or is blocked by branch protection. Under that it
+lists the checks by name. Click the chip to open the pull request in your
+browser.
 The daemon asks `gh pr view` about each branch: at once for a new branch,
 every minute for an open pull request and every five for a branch without
 one, five times slower while no pitwall window has focus, and not at all
 for 15 minutes after GitHub says its rate limit is hit. It never asks you to
-log in: without `gh`, or logged out, the row shows nothing.
+log in: without `gh`, or logged out, the row shows nothing. When `origin`
+is not on GitHub, such as GitLab, Gitea or Forgejo, and the branch has
+commits pushed there, the "…" menu has Open compare page in place of
+Create pull request. It opens the host's page to compare the branch with
+the default branch and open a pull request from it: `/-/compare/` on a
+host whose name has `gitlab` in it, `/compare/` on any other.
 
 The "…" menu and the command palette then have Open PR, Merge PR and, when
 a check failed, Re-run failed checks in place of Create pull request.
@@ -467,6 +479,17 @@ add Archive, which closes the tab and, for a worktree pitwall made, removes
 the worktree and deletes the branch, as Delete does with its box ticked.
 Set `archive_on_merge = true` under `[git]` to archive a merged worktree
 tab without the click.
+
+Set `auto_send_failures = true` under `[git]` and the daemon does Send
+failures to agent by itself when a pull request's checks fail on a commit
+it has not sent for. It sends at most twice per branch, and only once
+GitHub reports the commit the tab has checked out: while an agent's fix is
+not pushed, or GitHub has not caught up with the push, the failures are of
+an older commit and nothing goes. An agent that is working, or waits on
+you, gets nothing either; the daemon tries again at its next look at the
+pull request. The message arrives as one from a script,
+as `pitwall send` types it. The daemon keeps its count in memory, so a
+restart allows two more.
 <img src="media/conflict.webp" alt="The hover card of a tab whose branch conflicts with another: its pull request and checks, the conflicting file in red, the suggestion to merge this tab first, and its ports" width="600">
 
 Agents in worktrees of one repository can edit the same files without

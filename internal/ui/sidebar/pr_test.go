@@ -74,3 +74,28 @@ func TestSendBlocked(t *testing.T) {
 		}
 	}
 }
+
+// TestReasonText: the hover card says why an open pull request cannot
+// merge yet, and says nothing for a merged one or an older daemon's.
+func TestReasonText(t *testing.T) {
+	for _, tc := range []struct {
+		pr          model.PR
+		text, lines string
+	}{
+		{model.PR{State: model.PROpen, Reason: model.ReasonChecksFailing, Detail: "build, lint"}, "Checks failing: build, lint", "try"},
+		{model.PR{State: model.PROpen, Reason: model.ReasonChangesRequested, Detail: "by ann, awaiting re-review"}, "Changes requested: by ann, awaiting re-review", "try"},
+		{model.PR{State: model.PROpen, Reason: model.ReasonConflicting, Detail: "conflicts with main"}, "Conflicts with main", "try"},
+		{model.PR{State: model.PROpen, Reason: model.ReasonReady, Detail: "approved, checks green, mergeable"}, "Ready to merge", "try"},
+		{model.PR{State: model.PRMerged, Reason: model.ReasonMerged, Detail: "merged"}, "Merged: merged", "tr"},
+		{model.PR{State: model.PROpen}, "", "tr"},
+	} {
+		if tc.pr.Reason != "" {
+			if got := ReasonText(tc.pr); got != tc.text {
+				t.Errorf("%s: %q, want %q", tc.pr.Reason, got, tc.text)
+			}
+		}
+		if got := (card{title: "x", pr: &tc.pr}).lines(); got != tc.lines {
+			t.Errorf("%s: card lines %q, want %q", tc.pr.Reason, got, tc.lines)
+		}
+	}
+}

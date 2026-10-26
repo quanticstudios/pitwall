@@ -192,6 +192,9 @@ type BranchStats struct {
 	// Base is the default branch's ref the rest is counted against, such as
 	// "refs/remotes/origin/main"; "" from a daemon before proto.Level 2.
 	Base string
+	// Compare is the web page to open a pull request on, for a branch
+	// with commits pushed to an origin that is not GitHub; else "".
+	Compare string
 }
 
 // Session is a named set of tabs and groups, like a tmux session. A window

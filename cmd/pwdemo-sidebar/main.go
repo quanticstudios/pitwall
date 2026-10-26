@@ -14,6 +14,7 @@
 //	-ui-size n     [font] ui_size
 //	-answers       show Allow and Deny on approvals
 //	-pane id       the focused pane of the active tab
+//	-gh            act as if the gh CLI is installed, for the PR menu entries
 package main
 
 import (
@@ -52,6 +53,7 @@ func main() {
 	uiSize := flag.Float64("ui-size", 0, "[font] ui_size; 0 for the default")
 	flag.BoolVar(&sb.Answers, "answers", false, "show Allow and Deny on approvals")
 	flag.StringVar(&sb.Pane, "pane", "", "the focused pane of the active tab")
+	flag.BoolVar(&sb.GH, "gh", false, "act as if the gh CLI is installed, for the PR menu entries")
 	flag.Parse()
 	tc, ok := config.Builtin(*themeName)
 	if !ok {
@@ -195,21 +197,23 @@ func fakeState(now time.Time) model.State {
 			"ws-term":     {Additions: 1290, Deletions: 211},
 			"ws-daemon":   {Additions: 57, Deletions: 3},
 			"ws-conflict": {Additions: 18, Deletions: 44, MergeStatus: model.MergeConflicts},
-			"ws-plan":     {MergeStatus: model.MergeUpToDate},
+			"ws-plan":     {Ahead: 2, MergeStatus: model.MergeClean, Compare: "https://gitlab.com/acme/api/-/compare/main...plan"},
 			"ws-hotkeys":  {Additions: 6, Deletions: 6},
 		},
 		// One PR chip per state: open with each CI rollup and review, a
-		// draft, merged and closed.
+		// draft, merged and closed, each with why it cannot merge yet.
 		PRs: map[string]model.PR{
 			"ws-sidebar": {Number: 123, State: model.PROpen, Review: model.ReviewApproved, URL: "https://github.com/acme/api/pull/123",
-				Checks: []model.Check{{Name: "build", State: model.CheckPass}, {Name: "test", State: model.CheckPass}}},
+				Checks: []model.Check{{Name: "build", State: model.CheckPass}, {Name: "test", State: model.CheckPass}}, Reason: model.ReasonReady},
 			"ws-term": {Number: 131, State: model.PROpen, Review: model.ReviewChanges, URL: "https://github.com/acme/api/pull/131",
-				Checks: []model.Check{{Name: "build", State: model.CheckPass}, {Name: "test (ubuntu-latest)", State: model.CheckFail}, {Name: "lint", State: model.CheckPending}}},
+				Checks: []model.Check{{Name: "build", State: model.CheckPass}, {Name: "test (ubuntu-latest)", State: model.CheckFail}, {Name: "lint", State: model.CheckPending}},
+				Reason: model.ReasonChecksFailing, Detail: "test (ubuntu-latest)"},
 			"ws-daemon": {Number: 9, State: model.PROpen, Draft: true, URL: "https://github.com/acme/api/pull/9",
-				Checks: []model.Check{{Name: "build", State: model.CheckPending}}},
-			"ws-pi":       {Number: 118, State: model.PRMerged, URL: "https://github.com/acme/api/pull/118"},
-			"ws-hotkeys":  {Number: 77, State: model.PRClosed, URL: "https://github.com/acme/web/pull/77"},
-			"ws-conflict": {Number: 140, State: model.PROpen, Review: model.ReviewRequired, Conflicts: true, URL: "https://github.com/acme/api/pull/140"},
+				Checks: []model.Check{{Name: "build", State: model.CheckPending}}, Reason: model.ReasonChecksPending, Detail: "build"},
+			"ws-pi":      {Number: 118, State: model.PRMerged, URL: "https://github.com/acme/api/pull/118"},
+			"ws-hotkeys": {Number: 77, State: model.PRClosed, URL: "https://github.com/acme/web/pull/77"},
+			"ws-conflict": {Number: 140, State: model.PROpen, Review: model.ReviewRequired, Conflicts: true, URL: "https://github.com/acme/api/pull/140",
+				Reason: model.ReasonConflicting, Detail: "conflicts with main"},
 		},
 	}
 	add := func(id, project, name, branch string, updated time.Duration, provider model.Provider, state model.AgentState) {

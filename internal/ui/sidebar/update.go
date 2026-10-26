@@ -300,6 +300,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.events = append(s.events, DetachSession{WorkspaceID: id})
 			s.closeMenus()
 		}
+		if s.menuItem[actCompare].Clicked(gtx) {
+			s.events = append(s.events, OpenCompare{WorkspaceID: id})
+			s.closeMenus()
+		}
 		if s.menuItem[actDelete].Clicked(gtx) {
 			s.events = append(s.events, DeleteWorkspace{WorkspaceID: id})
 			s.closeMenus()

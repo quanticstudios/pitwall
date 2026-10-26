@@ -197,6 +197,7 @@ const (
 	actCancelResume
 	actOpinionClaude
 	actOpinionCodex
+	actCompare
 	actCount
 )
 

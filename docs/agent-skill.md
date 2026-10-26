@@ -164,7 +164,7 @@ order, detached tabs last. Every key is always present; unknown strings are
 `""`.
 
 ```json
-{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0,"since":"2026-10-26T14:02:11Z"}],"parent":"3f6a1c0b9e2d4785","since":"2026-10-26T14:02:11Z"}
+{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0,"since":"2026-10-26T14:02:11Z"}],"parent":"3f6a1c0b9e2d4785","since":"2026-10-26T14:02:11Z","pr_state":"checks_failing"}
 ```
 
 `agent` is the agent's name (`claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
@@ -172,7 +172,10 @@ order, detached tabs last. Every key is always present; unknown strings are
 screen) or `""`. `state` is one from the table above,
 for the tab's main pane. `question` is the agent's question or approval
 detail while blocked. `exit_code` is `null` until the process exits, then
-its exit code. `pane_list` has the same keys for every pane of the tab, in
+its exit code. `pr_state` says why the branch's pull request cannot merge
+yet: `conflicting`, `checks_failing`, `changes_requested`, `checks_pending`
+or `review_required`, the first that applies, or `ready`; `merged` or
+`closed` once it is, and `""` with no pull request. `pane_list` has the same keys for every pane of the tab, in
 layout order; its `n` is the N of the pane's address, and `queued` counts
 the pane's messages from `send` not yet typed. `since` is when the agent's
 current state began, `null` for a pane with no agent state. `parent` is the

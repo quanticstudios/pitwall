@@ -26,7 +26,7 @@ var (
 )
 
 // Fields is what View asks gh for.
-const Fields = "number,state,isDraft,url,reviewDecision,mergeable,statusCheckRollup"
+const Fields = "number,state,isDraft,url,reviewDecision,mergeable,statusCheckRollup,mergeStateStatus,latestReviews,headRefOid,baseRefName,commits"
 
 // View is the pull request of the branch checked out at dir, nil when it
 // has none.
@@ -99,7 +99,20 @@ type ghPR struct {
 	URL            string `json:"url"`
 	ReviewDecision string `json:"reviewDecision"`
 	Mergeable      string `json:"mergeable"`
-	Checks         []struct {
+	MergeState     string `json:"mergeStateStatus"` // CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, UNKNOWN, UNSTABLE...
+	Head           string `json:"headRefOid"`
+	Base           string `json:"baseRefName"`
+	Reviews        []struct {
+		Author struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		State       string    `json:"state"`
+		SubmittedAt time.Time `json:"submittedAt"`
+	} `json:"latestReviews"`
+	Commits []struct {
+		CommittedDate time.Time `json:"committedDate"`
+	} `json:"commits"`
+	Checks []struct {
 		Type       string `json:"__typename"` // CheckRun or StatusContext
 		Name       string `json:"name"`       // a CheckRun's
 		Context    string `json:"context"`    // a StatusContext's name
@@ -152,7 +165,92 @@ func Parse(data []byte) (model.PR, error) {
 		}
 		pr.Checks = append(pr.Checks, ch)
 	}
+	pr.Head = g.Head
+	pr.Reason, pr.Detail = readiness(g, pr)
 	return pr, nil
+}
+
+// Adapted from forge (MIT): internal/land/pr.go (PRState)
+
+// readiness is the one reason pr, parsed from g, is not ready to merge. The
+// first rule that matches wins: merged or closed; conflicting; a check
+// failed; changes requested, awaiting re-review when the review is older
+// than the last commit; a check runs or GitHub has not worked out
+// mergeability yet; a draft, no approval, or blocked by branch protection;
+// else ready.
+func readiness(g ghPR, pr model.PR) (model.Reason, string) {
+	switch pr.State {
+	case model.PRMerged:
+		return model.ReasonMerged, "merged"
+	case model.PRClosed:
+		return model.ReasonClosed, "closed without merging"
+	}
+	if g.Mergeable == "CONFLICTING" || g.MergeState == "DIRTY" {
+		base := g.Base
+		if base == "" {
+			base = "the base branch"
+		}
+		return model.ReasonConflicting, "conflicts with " + base
+	}
+	if failed := pr.Failed(); len(failed) > 0 {
+		return model.ReasonChecksFailing, listText(failed)
+	}
+	// ponytail: the last commit's date stands in for the last push, which
+	// gh does not report; a review between a commit and its push counts as
+	// newer.
+	var pushed time.Time
+	if n := len(g.Commits); n > 0 {
+		pushed = g.Commits[n-1].CommittedDate
+	}
+	var requested []string
+	approved, fresh := false, false
+	for _, r := range g.Reviews {
+		switch r.State {
+		case "CHANGES_REQUESTED":
+			requested = append(requested, r.Author.Login)
+			fresh = fresh || r.SubmittedAt.After(pushed)
+		case "APPROVED":
+			approved = true
+		}
+	}
+	if g.ReviewDecision == "CHANGES_REQUESTED" || g.ReviewDecision == "" && len(requested) > 0 {
+		switch {
+		case len(requested) == 0:
+			return model.ReasonChangesRequested, "changes requested"
+		case !fresh:
+			return model.ReasonChangesRequested, "by " + strings.Join(requested, ", ") + ", awaiting re-review"
+		}
+		return model.ReasonChangesRequested, "by " + strings.Join(requested, ", ")
+	}
+	var pending []string
+	for _, c := range pr.Checks {
+		if c.State == model.CheckPending {
+			pending = append(pending, c.Name)
+		}
+	}
+	if g.Mergeable == "UNKNOWN" || g.Mergeable == "" || g.MergeState == "UNKNOWN" {
+		pending = append(pending, "mergeability")
+	}
+	if len(pending) > 0 {
+		return model.ReasonChecksPending, listText(pending)
+	}
+	switch {
+	case g.IsDraft || g.MergeState == "DRAFT":
+		return model.ReasonReviewRequired, "draft"
+	case g.ReviewDecision != "APPROVED" && (g.ReviewDecision != "" || !approved):
+		return model.ReasonReviewRequired, "no approving review"
+	case g.MergeState == "BLOCKED":
+		return model.ReasonReviewRequired, "merge blocked by branch protection"
+	}
+	return model.ReasonReady, "approved, checks green, mergeable"
+}
+
+// listText joins items, at most three, with "+n more".
+func listText(items []string) string {
+	if len(items) <= 3 {
+		return strings.Join(items, ", ")
+	}
+	return strings.Join(items[:3], ", ") + fmt.Sprintf(" +%d more", len(items)-3)
 }
 
 // How long View waits before asking about the same branch again.
