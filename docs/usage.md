@@ -589,10 +589,20 @@ line that says what went wrong, with numbers, paths and quoted text set
 aside, so `zsh: no matches found: --include=*.go` and `--include=*.ts` count
 as one. Each group shows how often it happened and about how many tokens its
 commands and output took, at four characters a token; Most frequent and
-Most tokens sort by either. Copy report puts the top groups, each with its
-latest command and output, on the clipboard as Markdown to paste into an
-agent and ask it to fix the causes in CLAUDE.md, your shell config or a
-missing tool.
+Most tokens sort by either. A group with a known cause shows a Likely fix
+line: quote globs zsh would expand, quote words that start with `=`,
+install a missing command, read a file again before editing it, check
+`package.json` before `npm run`, or pick a model your plan includes. Rate
+limits and overloaded APIs are marked as nothing to fix locally.
+
+Copy report puts the top groups in the order shown, each with its latest
+command, output and likely fix, on the clipboard as Markdown to paste into
+an agent and ask it to fix the causes in CLAUDE.md, your shell config or a
+missing tool. Ask an agent to fix these opens New task with that report as
+the prompt. The prompt asks the agent to group the errors by cause, propose
+the smallest fix for each with the tokens it would save, show each change
+as a diff, and ask before it edits any file outside the project. You pick
+the agent and folder as for any task.
 
 Above the groups, four tiles give the errors and their causes, the tokens
 they took, the errors on a day that had any, and the top cause's share.

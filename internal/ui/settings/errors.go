@@ -218,10 +218,7 @@ func (p *Page) agentErrors() []section {
 		return secs
 	}
 	causes := p.errorCauses(s)
-	order, gs := byCount, s.Groups
-	if p.er.order == byTokens {
-		order, gs = byTokens, errlog.ByTokens(gs)
-	}
+	order, gs := p.errorOrder(s)
 	var rows []row
 	for _, g := range gs[:min(topGroups, len(gs))] {
 		rows = append(rows, row{bare: true, control: func(gtx gl.Context) gl.Dimensions { return p.errorGroup(gtx, g, causes) }})
@@ -259,13 +256,22 @@ func (p *Page) errorTotals(gtx gl.Context, s *errorSum, win string) gl.Dimension
 		}),
 		gl.Rigid(gl.Spacer{Height: 14}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
-			c := p.btn("errors-copy")
+			order, gs := p.errorOrder(s)
+			report := func() string { return errlog.Report(gs, topGroups, span(win), strings.ToLower(order)+" first") }
+			c, ask := p.btn("errors-copy"), p.btn("errors-ask")
 			for c.Clicked(gtx) {
-				p.copy(gtx, "errors-copy", errlog.Report(s.Groups, topGroups, span(win)))
+				p.copy(gtx, "errors-copy", report())
+			}
+			for ask.Clicked(gtx) {
+				p.prompt, p.result = errlog.Ask(report()), AskAgent
 			}
 			return gl.Flex{Alignment: gl.Middle}.Layout(gtx,
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 					return p.button(gtx, c, secondary, p.copyLabel("errors-copy", "Copy report"))
+				}),
+				gl.Rigid(gl.Spacer{Width: 8}.Layout),
+				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+					return p.button(gtx, ask, secondary, "Ask an agent to fix these")
 				}),
 				gl.Rigid(gl.Spacer{Width: 12}.Layout),
 				gl.Rigid(p.segmented("errors-order", []string{byCount, byTokens}, cmp.Or(p.er.order, byCount), func(o string) { p.er.order = o })),
@@ -274,9 +280,17 @@ func (p *Page) errorTotals(gtx gl.Context, s *errorSum, win string) gl.Dimension
 	)
 }
 
+// errorOrder is the order the groups are listed in, and the groups so.
+func (p *Page) errorOrder(s *errorSum) (string, []errlog.Group) {
+	if p.er.order == byTokens {
+		return byTokens, errlog.ByTokens(s.Groups)
+	}
+	return byCount, s.Groups
+}
+
 // errorGroup is one group's card: its signature and count, the agents
-// and when last seen, then its latest command and the end of its output.
-// Its border takes its cause's color while the cause chart picks it out.
+// and when last seen, a likely fix when one is known, then its latest
+// command and the end of its output. Its border takes its cause's color while the cause chart picks it out.
 func (p *Page) errorGroup(gtx gl.Context, g errlog.Group, causes []share) gl.Dimensions {
 	th := p.th
 	p.focusFrame(gtx)
@@ -284,7 +298,7 @@ func (p *Page) errorGroup(gtx gl.Context, g errlog.Group, causes []share) gl.Dim
 	if i := slices.IndexFunc(causes, func(c share) bool { return c.name == g.Sig }); i >= 0 && p.focused("cause", g.Sig) {
 		border = causes[i].col
 	}
-	e := g.Example
+	e, fix := g.Example, errlog.LikelyFix(g)
 	var names []string
 	for _, pv := range g.Providers {
 		names = append(names, agentName(model.Provider(pv)))
@@ -327,6 +341,19 @@ func (p *Page) errorGroup(gtx gl.Context, g errlog.Group, causes []share) gl.Dim
 				gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 					return p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, meta)
 				}),
+			}
+			if fix != "" {
+				kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+					return gl.Flex{Alignment: gl.Baseline}.Layout(gtx,
+						gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+							return p.text(gtx, weight(th.UIFont, font.Medium), p.th.Sp(theme.Small), th.Fg, "Likely fix")
+						}),
+						gl.Rigid(gl.Spacer{Width: 8}.Layout),
+						gl.Flexed(1, func(gtx gl.Context) gl.Dimensions {
+							return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Fg, fix)
+						}),
+					)
+				}))
 			}
 			if cmd != "" || len(out) > 0 {
 				kids = append(kids, gl.Rigid(gl.Spacer{Height: 10}.Layout))

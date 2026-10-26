@@ -72,6 +72,8 @@ func (u *ui) settingsResult(r settings.Result) {
 		u.openHooks()
 	case settings.InstallStatusline:
 		u.openHooksWith(true)
+	case settings.AskAgent:
+		u.task.preset, u.nav.task = u.settings.TaskPrompt(), true
 	}
 }
 

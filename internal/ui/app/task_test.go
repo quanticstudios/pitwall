@@ -211,3 +211,24 @@ func TestTaskIssueAgents(t *testing.T) {
 		t.Fatalf("picked %v", d.picked)
 	}
 }
+
+// TestTaskPreset: Ask an agent in Settings opens New task once with its
+// prompt; the next open starts empty.
+func TestTaskPreset(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	b := NewFakeBackend()
+	u := &ui{b: b}
+	st := b.State()
+	u.nav.sync(&st)
+	u.nav.selectWorkspace(&st, "w6", "")
+	u.task.preset = "Find and fix the causes"
+	u.openTask(&st, "")
+	if got := u.task.prompt.Text(); got != "Find and fix the causes" || u.task.preset != "" {
+		t.Fatalf("prompt %q, preset %q", got, u.task.preset)
+	}
+	u.openTask(&st, "")
+	if got := u.task.prompt.Text(); got != "" {
+		t.Fatalf("second open prompt %q", got)
+	}
+}
