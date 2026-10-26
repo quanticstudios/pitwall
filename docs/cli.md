@@ -36,6 +36,7 @@ optional name act on the pane's own tab.
 | `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |
 | `pitwall queue ls` / `add [--issue n] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
+| `pitwall doctor`                      | Check that the `pitwall` on PATH is this one, the daemon runs this version, each installed agent's hooks and skill are in place, and the config loads; prints `ok`, `FAIL` or `info` per check, with the fix under each FAIL, and exits 1 on a FAIL. It changes nothing |
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](troubleshooting.md#logs)) |

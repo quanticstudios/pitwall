@@ -720,3 +720,22 @@ func TestHomebrewOpt(t *testing.T) {
 		}
 	}
 }
+
+// The window's preview lists one line per change and none of the files,
+// whose own lines, such as the skill's "# " heading, are not changes.
+func TestInstallHooksPreview(t *testing.T) {
+	home := hooksHome(t)
+	out, err := installHooks(true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := filepath.Join(home, ".claude", "skills", "pitwall", "SKILL.md")
+	if !strings.Contains(out, skill+": wrote pitwall skill\n") {
+		t.Errorf("no skill line:\n%s", out)
+	}
+	for line := range strings.Lines(out) {
+		if !strings.HasPrefix(line, home) {
+			t.Errorf("line %q is not a change to a file under home", line)
+		}
+	}
+}

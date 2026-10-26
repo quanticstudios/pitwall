@@ -117,6 +117,7 @@ const usage = `usage:
                              focus the pane next to the calling one, for
                              vim at the edge of its windows (see docs/keys.md)
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
+  pitwall doctor             check the install, the daemon, hooks and config; changes nothing
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
   pitwall remote <cmd>       pair, devices, revoke: answer agents from a phone (see pitwall remote)
@@ -166,6 +167,8 @@ func main() {
 		os.Exit(runStatusline(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "config":
 		os.Exit(runConfig(os.Args[2:], os.Stdout, os.Stderr))
+	case "doctor":
+		os.Exit(runDoctor(os.Stdout))
 	case "notify":
 		err = runNotify(os.Args[2:])
 	case "focus":

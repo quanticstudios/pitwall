@@ -40,7 +40,18 @@ func homebrewOpt(bin string) string {
 
 var hookBeforeWrite = func(path string) {}
 
-func runHooks(args []string, out io.Writer) error {
+func runHooks(args []string, out io.Writer) error { return hooks(args, out, nil) }
+
+// hookPlan is what a dry run would do to one file: skip it and why, or its
+// changes, none when it is unchanged.
+type hookPlan struct {
+	path, skip string
+	changes    []string
+}
+
+// hooks is runHooks; a dry run with plans set appends one per file there
+// instead of printing it.
+func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 	if len(args) == 0 {
 		return printHooks()
 	}
@@ -179,6 +190,10 @@ func runHooks(args []string, out io.Writer) error {
 		}
 	}
 	for _, f := range files {
+		if dry && plans != nil {
+			*plans = append(*plans, hookPlan{f.path, f.skip, f.changes})
+			continue
+		}
 		if dry {
 			// The changes as comment lines, then the file they make.
 			switch {
@@ -258,25 +273,35 @@ func runHooks(args []string, out io.Writer) error {
 // button. A dry run returns only what would change, one line per change,
 // without the files. statusline adds pitwall statusline to Claude Code's.
 func installHooks(dry, statusline bool) (string, error) {
-	var b strings.Builder
 	args := []string{"install"}
 	if statusline {
 		args = append(args, "--statusline")
 	}
-	if dry {
-		args = append(args, "--dry-run")
-	}
-	err := runHooks(args, &b)
+	var b strings.Builder
 	if !dry {
+		err := runHooks(args, &b)
 		return b.String(), err
 	}
-	var lines []string
-	for line := range strings.Lines(b.String()) {
-		if s, ok := strings.CutPrefix(line, "# "); ok {
-			lines = append(lines, s)
+	plans, err := planHooks(args)
+	for _, p := range plans {
+		switch {
+		case p.skip != "":
+			fmt.Fprintf(&b, "%s: skipped: %s\n", p.path, p.skip)
+		case len(p.changes) == 0:
+			fmt.Fprintf(&b, "%s: unchanged\n", p.path)
+		}
+		for _, change := range p.changes {
+			fmt.Fprintf(&b, "%s: %s\n", p.path, change)
 		}
 	}
-	return strings.Join(lines, ""), err
+	return b.String(), err
+}
+
+// planHooks is a dry run of `pitwall hooks <args...>`, one plan per file.
+func planHooks(args []string) ([]hookPlan, error) {
+	var plans []hookPlan
+	err := hooks(append(args, "--dry-run"), io.Discard, &plans)
+	return plans, err
 }
 
 // piAgentDir is agent.PiDir, or "" when pi is neither on PATH nor
