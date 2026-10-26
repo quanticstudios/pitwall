@@ -30,6 +30,21 @@ const (
 	ReviewChanges  Review = "changes" // changes requested
 )
 
+// Reason is the one reason a pull request is not ready to merge yet, or
+// ReasonReady, ReasonMerged or ReasonClosed.
+type Reason string
+
+const (
+	ReasonConflicting      Reason = "conflicting"
+	ReasonChecksFailing    Reason = "checks_failing"
+	ReasonChangesRequested Reason = "changes_requested"
+	ReasonChecksPending    Reason = "checks_pending"
+	ReasonReviewRequired   Reason = "review_required"
+	ReasonReady            Reason = "ready"
+	ReasonMerged           Reason = "merged"
+	ReasonClosed           Reason = "closed"
+)
+
 // PR is the pull request of a tab's branch, as gh reports it.
 type PR struct {
 	Number int
@@ -40,6 +55,12 @@ type PR struct {
 	// Conflicts is true when GitHub says the branch cannot merge cleanly.
 	Conflicts bool
 	Checks    []Check
+	// Head is the commit GitHub sees at the tip of the branch.
+	Head string
+	// Reason is why it is not ready to merge, with Detail in a few words:
+	// "conflicting", "conflicts with main".
+	Reason Reason
+	Detail string
 }
 
 // Check is one CI check of a PR: a check run or a commit status.

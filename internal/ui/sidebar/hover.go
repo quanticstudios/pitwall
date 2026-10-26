@@ -154,6 +154,9 @@ func (c card) lines() string {
 	}
 	if c.pr != nil {
 		out += "r"
+		if c.pr.State == model.PROpen && c.pr.Reason != "" {
+			out += "y"
+		}
 		if c.pr.State == model.PROpen && len(c.pr.Checks) > 0 {
 			out += "c"
 		}
@@ -375,6 +378,15 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.85), PRSummary(*c.pr))
 				}})
+			})
+		case 'y':
+			y -= gap / 2
+			col := theme.Mix(bg, th.Fg, 0.8)
+			if c.pr.Reason == model.ReasonReady {
+				col = th.Readable(th.Green, bg)
+			}
+			line(nil, func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Small), col, ReasonText(*c.pr))
 			})
 		case 'c':
 			// The checks belong to the PR above them, closer together.

@@ -85,6 +85,8 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 		entries = append(entries, menuEntry{c: &s.menuItem[actDiff], icon: icFileDiff, text: "View diff", sep: true, off: diff != "", hint: diff})
 		if p, ok := v.st.PRs[ws.ID]; ok && p.State != model.PRClosed {
 			entries = append(entries, s.prEntries(v, ws, p)...)
+		} else if v.st.Stats[ws.ID].Compare != "" {
+			entries = append(entries, menuEntry{c: &s.menuItem[actCompare], icon: icExternal, text: "Open compare page"})
 		} else {
 			entries = append(entries, menuEntry{c: &s.menuItem[actPR], icon: icGitPullRequest, text: "Create pull request", off: pr != "", hint: pr})
 		}

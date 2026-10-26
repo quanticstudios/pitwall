@@ -8,7 +8,7 @@ import "github.com/quanticstudios/pitwall/internal/model"
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
 // RerunChecks, SendFailures, SendReview, Archive, NewTaskIn, DropTask,
-// OpenPort, CancelResume, SecondOpinion.
+// OpenPort, OpenCompare, CancelResume, SecondOpinion.
 type Event any
 
 // CancelResume drops the resume after a usage limit of the tab's agents.
@@ -74,6 +74,10 @@ type Answer struct {
 
 // OpenPR opens the tab's pull request in the browser.
 type OpenPR struct{ WorkspaceID string }
+
+// OpenCompare opens the page to open a pull request for the tab's branch
+// on a host other than GitHub, its BranchStats.Compare, in the browser.
+type OpenCompare struct{ WorkspaceID string }
 
 // OpenPort opens http://localhost:<Port>, a tab's dev server, in the browser.
 type OpenPort struct{ Port int }

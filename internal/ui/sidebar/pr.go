@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"strings"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -79,6 +80,20 @@ func PRSummary(pr model.PR) string {
 	return s
 }
 
+// ReasonText is why open pull request pr cannot merge yet, for the hover
+// card: "Checks failing: build, lint", "Conflicts with main", or "Ready to
+// merge".
+func ReasonText(pr model.PR) string {
+	switch pr.Reason {
+	case model.ReasonReady:
+		return "Ready to merge"
+	case model.ReasonConflicting:
+		return strings.ToUpper(pr.Detail[:1]) + pr.Detail[1:]
+	}
+	r := strings.ReplaceAll(string(pr.Reason), "_", " ")
+	return strings.ToUpper(r[:1]) + r[1:] + ": " + pr.Detail
+}
+
 // checkText is a check's state in the hover card.
 func checkText(s model.CheckState) string {
 	switch s {
@@ -95,7 +110,7 @@ func checkText(s model.CheckState) string {
 // PRChip draws a tab's pull request on base: #123 on a pill in its
 // PRColor; while it is open, the CI rollup's dot before the number and the
 // review after it, a check when approved, a diff glyph in red when
-// changes are requested.
+// changes are requested, or Ready once nothing stops a merge.
 func PRChip(gtx layout.Context, th *theme.Theme, pr model.PR, base color.NRGBA) layout.Dimensions {
 	col := PRColor(th, pr)
 	bg := theme.Mix(base, col, 0.14)
@@ -117,6 +132,10 @@ func PRChip(gtx layout.Context, th *theme.Theme, pr model.PR, base color.NRGBA) 
 		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), fmt.Sprintf("#%d", pr.Number))
 	}})
 	switch {
+	case open && pr.Reason == model.ReasonReady:
+		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(th.Green, bg), "Ready")
+		}})
 	case open && pr.Review == model.ReviewApproved:
 		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icCheck, gtx.Dp(10), th.Green, 0) }})
 	case open && pr.Review == model.ReviewChanges:
@@ -192,7 +211,11 @@ func (s *Sidebar) prEntries(v *view, ws model.Workspace, pr model.PR) []menuEntr
 	if pr.State == model.PRMerged {
 		return append(out, menuEntry{c: &s.menuItem[actArchive], icon: icArchive, text: "Archive…"})
 	}
-	out = append(out, menuEntry{c: &s.menuItem[actMergePR], icon: icGitMerge, text: "Merge PR…", off: merge != "", hint: merge})
+	hint := merge
+	if merge == "" && pr.Reason == model.ReasonReady {
+		hint = "ready"
+	}
+	out = append(out, menuEntry{c: &s.menuItem[actMergePR], icon: icGitMerge, text: "Merge PR…", off: merge != "", hint: hint})
 	failures, review := SendBlocked(v.st, ws, s.GH)
 	if pr.CI() == model.CheckFail {
 		out = append(out, menuEntry{c: &s.menuItem[actRerun], icon: icRerun, text: "Re-run failed checks", off: rerun != "", hint: rerun},

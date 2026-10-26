@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 27 added PR.Head, Reason and Detail, why a pull request is not
+// ready to merge, and BranchStats.Compare, the page to open one off GitHub.
 // Level 26 added SecondOpinion: another agent reviews a tab's changes,
 // and the daemon sends its reply to the tab's agent.
 // Level 25 added StateMsg.Build: the window offers to restart a daemon
@@ -114,7 +116,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 26
+const Level = 27
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.

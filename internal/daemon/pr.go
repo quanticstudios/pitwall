@@ -20,9 +20,11 @@ const prTick = 10 * time.Second
 const prTimeout = 30 * time.Second
 
 // prPoll is what the PR poller remembers, guarded by Daemon.mu: gh's last
-// answer per branch (prKey), and a rate limit pause for all of them.
+// answer per branch (prKey), the heads whose failed checks went to its
+// agent, and a rate limit pause for all of them.
 type prPoll struct {
 	seen  map[string]*prSeen
+	sent  map[string][]string
 	pause time.Time
 	wake  chan struct{} // a poke: run pollPRs now
 }
@@ -86,7 +88,8 @@ func (d *Daemon) hidden() bool {
 // whose answer forge.Next says is due at now, then sets State.PRs. A tab
 // whose PR it sees go from open to merged is archived, as the delete dialog
 // does with its branch box ticked, when [git] archive_on_merge is on and
-// the tab is a worktree pitwall made.
+// the tab is a worktree pitwall made. With [git] auto_send_failures on,
+// a branch's failed checks go to its tab's agent; see sendFailures.
 func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	type job struct{ key, dir string }
 	var jobs []job
@@ -117,6 +120,7 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	for k := range d.prs.seen {
 		if !live[k] {
 			delete(d.prs.seen, k) // no tab is on that branch now
+			delete(d.prs.sent, k)
 		}
 	}
 	d.mu.Unlock()
@@ -139,6 +143,7 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		}
 	}
 
+	auto := len(answers) > 0 && d.o.AutoSendFailures != nil && d.o.Head != nil && d.o.Failures != nil && d.o.AutoSendFailures()
 	d.mu.Lock()
 	for k, a := range answers {
 		s := d.prs.seen[k]
@@ -183,7 +188,19 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	if changed {
 		d.changed()
 	}
+	var sends []autoSend
+	if auto {
+		answered := map[string]bool{}
+		for k := range answers {
+			answered[k] = true
+		}
+		sends = d.autoSends(answered, keys)
+	}
 	d.mu.Unlock()
+
+	for _, a := range sends {
+		d.sendFailures(ctx, a)
+	}
 
 	if len(archive) == 0 || d.o.ArchiveOnMerge == nil || !d.o.ArchiveOnMerge() {
 		return

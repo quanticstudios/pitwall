@@ -26,6 +26,9 @@ build. Either step takes `--dry-run`.
 - `pitwall ls` has a SINCE column and `--tree`, which puts each tab under the tab that opened it. `ls --json` adds `parent` and `since`.
 - The pitwall skill checks for running workers before starting any, tells you the tab numbers it opened, asks workers for a report and a done line, and nudges workers that time out. A copy you have not edited updates on its own.
 - Second opinion, in a tab's menu, the review view, the command palette and `pitwall review`, has the other agent review the tab's changes: Codex for Claude Code, Claude Code for Codex, your pick for any other agent. The reviewer opens read only in a split, and its reply goes to the tab's agent, which checks each finding before it changes anything.
+- The hover card of a tab with an open pull request says why it cannot merge yet: conflicts, failed checks, changes requested (or awaiting re-review), checks still running, or no approval. A pull request ready to merge shows Ready on its chip, and `pitwall ls --json` has the reason in `pr_state`.
+- A branch pushed to GitLab, Gitea, Forgejo or another host that is not GitHub has Open compare page in its tab menu, which opens the host's page for starting a pull request.
+- Set `auto_send_failures = true` under `[git]` to send a pull request's failed checks to the tab's agent when CI fails, at most twice per branch and never while the agent works or GitHub still shows an older commit.
 - OpenCode 2 loads pitwall's plugin again, so its tabs show Working, Approval, Input, Done and Error and report failed commands. Run `pitwall hooks install` again: it adds `plugins/pitwall/tui.js` next to `plugins/pitwall.js`. OpenCode 1 needs version 1.4 or later.
 - The update check reads the latest release from github.com's redirect instead of GitHub's API, so the Update button no longer goes missing when other tools on the machine use up the API's 60 requests an hour.
 

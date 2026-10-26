@@ -28,12 +28,13 @@ func TestParse(t *testing.T) {
 			Checks: []model.Check{
 				{Name: "build", State: model.CheckPass}, {Name: "test (ubuntu-latest)", State: model.CheckFail}, {Name: "lint", State: model.CheckPending},
 				{Name: "deploy-preview", State: model.CheckSkip}, {Name: "ci/circleci: e2e", State: model.CheckPending}, {Name: "license/cla", State: model.CheckPass},
-			}}, model.CheckFail},
-		{"draft.json", model.PR{Number: 9, State: model.PROpen, Draft: true, URL: "https://github.com/example/widgets/pull/9"}, model.CheckNone},
+			}, Reason: model.ReasonChecksFailing, Detail: "test (ubuntu-latest)"}, model.CheckFail},
+		{"draft.json", model.PR{Number: 9, State: model.PROpen, Draft: true, URL: "https://github.com/example/widgets/pull/9",
+			Reason: model.ReasonChecksPending, Detail: "mergeability"}, model.CheckNone},
 		{"merged.json", model.PR{Number: 118, State: model.PRMerged, URL: "https://github.com/example/widgets/pull/118", Review: model.ReviewApproved,
-			Checks: []model.Check{{Name: "build", State: model.CheckPass}}}, model.CheckPass},
+			Checks: []model.Check{{Name: "build", State: model.CheckPass}}, Reason: model.ReasonMerged, Detail: "merged"}, model.CheckPass},
 		{"closed.json", model.PR{Number: 77, State: model.PRClosed, URL: "https://github.com/example/widgets/pull/77", Review: model.ReviewRequired, Conflicts: true,
-			Checks: []model.Check{{Name: "build", State: model.CheckFail}, {Name: "ci/jenkins", State: model.CheckFail}}}, model.CheckFail},
+			Checks: []model.Check{{Name: "build", State: model.CheckFail}, {Name: "ci/jenkins", State: model.CheckFail}}, Reason: model.ReasonClosed, Detail: "closed without merging"}, model.CheckFail},
 	} {
 		data, err := os.ReadFile(filepath.Join("testdata", tc.file))
 		if err != nil {
@@ -53,6 +54,53 @@ func TestParse(t *testing.T) {
 	pr := model.PR{Checks: []model.Check{{Name: "a", State: model.CheckPass}, {Name: "b", State: model.CheckPending}, {Name: "c", State: model.CheckSkip}}}
 	if ci := pr.CI(); ci != model.CheckPending {
 		t.Errorf("pass and pending roll up to %q", ci)
+	}
+}
+
+// TestReason: each rule of the reduction, first match winning.
+func TestReason(t *testing.T) {
+	const (
+		green   = `"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"`
+		pass    = `"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}]`
+		commit  = `"commits":[{"committedDate":"2026-10-20T10:00:00Z"}]`
+		before  = `"submittedAt":"2026-10-20T09:00:00Z"`
+		after   = `"submittedAt":"2026-10-20T11:00:00Z"`
+		approve = `"reviewDecision":"APPROVED","latestReviews":[{"author":{"login":"ann"},"state":"APPROVED",` + after + `}]`
+	)
+	for _, tc := range []struct {
+		json   string
+		reason model.Reason
+		detail string
+	}{
+		{`"state":"OPEN","mergeable":"CONFLICTING","baseRefName":"main",` + approve, model.ReasonConflicting, "conflicts with main"},
+		{`"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"DIRTY"`, model.ReasonConflicting, "conflicts with the base branch"},
+		{`"state":"OPEN",` + green + `,"statusCheckRollup":[{"__typename":"StatusContext","context":"ci/a","state":"FAILURE"},{"__typename":"StatusContext","context":"ci/b","state":"ERROR"},` +
+			`{"__typename":"CheckRun","name":"c","status":"COMPLETED","conclusion":"CANCELLED"},{"__typename":"CheckRun","name":"d","status":"COMPLETED","conclusion":"TIMED_OUT"}]`,
+			model.ReasonChecksFailing, "ci/a, ci/b, c +1 more"},
+		{`"state":"OPEN",` + green + `,` + pass + `,` + commit + `,"reviewDecision":"CHANGES_REQUESTED","latestReviews":[{"author":{"login":"bob"},"state":"CHANGES_REQUESTED",` + after + `}]`,
+			model.ReasonChangesRequested, "by bob"},
+		{`"state":"OPEN",` + green + `,` + pass + `,` + commit + `,"reviewDecision":"CHANGES_REQUESTED","latestReviews":[{"author":{"login":"bob"},"state":"CHANGES_REQUESTED",` + before + `}]`,
+			model.ReasonChangesRequested, "by bob, awaiting re-review"},
+		{`"state":"OPEN",` + green + `,"reviewDecision":"CHANGES_REQUESTED"`, model.ReasonChangesRequested, "changes requested"},
+		{`"state":"OPEN",` + green + `,"latestReviews":[{"author":{"login":"cy"},"state":"CHANGES_REQUESTED",` + after + `}]`, model.ReasonChangesRequested, "by cy"},
+		{`"state":"OPEN",` + green + `,"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"IN_PROGRESS"}],` + approve, model.ReasonChecksPending, "build"},
+		{`"state":"OPEN","mergeable":"UNKNOWN",` + pass + `,` + approve, model.ReasonChecksPending, "mergeability"},
+		{`"state":"OPEN","isDraft":true,` + green + `,` + pass, model.ReasonReviewRequired, "draft"},
+		{`"state":"OPEN",` + green + `,` + pass + `,"reviewDecision":"REVIEW_REQUIRED"`, model.ReasonReviewRequired, "no approving review"},
+		{`"state":"OPEN",` + green + `,` + pass, model.ReasonReviewRequired, "no approving review"},
+		{`"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED",` + pass + `,` + approve, model.ReasonReviewRequired, "merge blocked by branch protection"},
+		{`"state":"OPEN",` + green + `,` + pass + `,` + approve, model.ReasonReady, "approved, checks green, mergeable"},
+		// No review required by the repo: an approval among the reviews counts.
+		{`"state":"OPEN",` + green + `,` + pass + `,"latestReviews":[{"author":{"login":"ann"},"state":"APPROVED",` + after + `}]`, model.ReasonReady, "approved, checks green, mergeable"},
+		{`"state":"MERGED","mergeable":"CONFLICTING"`, model.ReasonMerged, "merged"},
+	} {
+		pr, err := Parse([]byte("{" + tc.json + "}"))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.json, err)
+		}
+		if pr.Reason != tc.reason || pr.Detail != tc.detail {
+			t.Errorf("%s:\n got %s %q\nwant %s %q", tc.json, pr.Reason, pr.Detail, tc.reason, tc.detail)
+		}
 	}
 }
 

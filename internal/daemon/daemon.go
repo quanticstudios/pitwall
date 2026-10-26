@@ -118,6 +118,12 @@ type Options struct {
 	// archive_on_merge; nil means off.
 	PR             func(ctx context.Context, dir string) (*model.PR, error)
 	ArchiveOnMerge func() bool
+	// AutoSendFailures reads [git] auto_send_failures; nil means off. It
+	// compares the commit at a dir (Head) with the pull request's and
+	// fetches the failed checks with Failures (forge.Failures).
+	AutoSendFailures func() bool
+	Head             func(ctx context.Context, dir string) (string, error)
+	Failures         func(ctx context.Context, dir string) ([]forge.FailedCheck, error)
 	// Bell reports whether a BEL raises its pane's attention ([terminal]
 	// bell); nil means it does.
 	Bell func() bool
@@ -225,6 +231,9 @@ func New() (*Daemon, error) {
 		RemoveWorktree:   gitstat.RemoveWorktree,
 		PR:               forge.View,
 		ArchiveOnMerge:   func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
+		AutoSendFailures: func() bool { s, _ := config.Load(); return s.AutoSendFailures },
+		Head:             gitHead,
+		Failures:         forge.Failures,
 		Orphans:          pruneOrphans,
 		Save:             func(s model.State) error { return store.Save(path, s) },
 		Load:             func() (model.State, error) { return store.Open(path) },
@@ -283,7 +292,7 @@ func NewWith(o Options) (*Daemon, error) {
 	if o.Decisions != nil {
 		d.dec.cur = o.Decisions()
 	}
-	d.prs = prPoll{seen: map[string]*prSeen{}, wake: make(chan struct{}, 1)}
+	d.prs = prPoll{seen: map[string]*prSeen{}, sent: map[string][]string{}, wake: make(chan struct{}, 1)}
 	d.mail = newMail()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	for i := range d.st.Workspaces {

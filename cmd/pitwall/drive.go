@@ -47,6 +47,9 @@ type tabJSON struct {
 	// Since is when the main pane's state started, null without an agent
 	// activity.
 	Since *time.Time `json:"since"`
+	// PRState is why the branch's pull request cannot merge yet, a
+	// model.Reason such as "checks_failing", or "ready"; "" with no PR.
+	PRState string `json:"pr_state"`
 }
 
 // paneJSON is one pane in tabJSON.PaneList, a contract like it.
@@ -79,7 +82,7 @@ func tabsJSON(state model.State, session string, only map[string]bool) []tabJSON
 		if only != nil && !only[w.ID] {
 			continue
 		}
-		t := tabJSON{N: i + 1, ID: w.ID, Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached}
+		t := tabJSON{N: i + 1, ID: w.ID, Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached, PRState: string(state.PRs[w.ID].Reason)}
 		if slices.ContainsFunc(state.Workspaces, func(p model.Workspace) bool { return p.ID == w.Parent }) {
 			t.Parent = w.Parent
 		}
