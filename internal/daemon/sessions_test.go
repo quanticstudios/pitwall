@@ -294,3 +294,26 @@ func TestChildJoinsParentGroup(t *testing.T) {
 		t.Fatal("Root without a parent made a tab")
 	}
 }
+
+// A tab's Env reaches its command, and a restart starts it with it again.
+func TestNewSessionEnv(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars := []string{"PITWALL_GUARD=1", "FOO=bar"}
+	must(t, d.handle(context.Background(), proto.NewSession{Cwd: t.TempDir(), Cmd: []string{"claude"}, Env: vars}))
+	if got := f.pane(0).cfg.Env; !slices.Equal(got[len(got)-2:], vars) {
+		t.Fatalf("started with %q, want %q at the end", got, vars)
+	}
+	st := d.st
+	st.Panes[0].Provider, st.Panes[0].SessionID = model.ProviderClaude, "s"
+	f.saved = st
+	if _, err := NewWith(f.options()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.pane(1).cfg; !slices.Contains(got.Cmd, "--resume") || !slices.Equal(got.Env[len(got.Env)-2:], vars) {
+		t.Fatalf("restored %q with %q, want %q", got.Cmd, got.Env, vars)
+	}
+}

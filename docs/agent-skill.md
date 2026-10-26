@@ -263,6 +263,12 @@ case $? in
 esac
 ```
 
+A worker that must not push or merge gets `--guard`, or every
+`worktree new` worker does when the user sets `guard_workers`. Its agent
+then gets a deny with a reason for `git push`, `gh pr merge` and the like,
+and should stop and report instead. `--preset NAME` starts one of the
+user's [agent presets](usage.md#agent-presets), with the prompt after `--`.
+
 `pitwall ls --children` (and `--json`) lists only your workers. Each
 worktree has its own branch and ports, and the sidebar warns when two
 workers edit the same file. Give every worker one self-contained task:

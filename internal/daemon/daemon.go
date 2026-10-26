@@ -331,7 +331,7 @@ func NewWith(o Options) (*Daemon, error) {
 			continue
 		}
 		cmd := o.RestoreCmd(*p)
-		if err := d.start(p.ID, cmd, p.Cwd, d.portsOf(p.WorkspaceID)); err != nil {
+		if err := d.start(p.ID, cmd, p.Cwd, d.portsOf(p.WorkspaceID), p.Env); err != nil {
 			log.Printf("restore pane %s: %q", p.ID, err)
 			gone = append(gone, p.ID)
 			continue
@@ -952,7 +952,7 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 		// and the shell stays once it ends. A problem shows as the shell's
 		// notice: a GUI shows no request's error.
 		nw := &d.st.Workspaces[len(d.st.Workspaces)-1]
-		if aerr := d.addTab(nw, path, m.Cmd); aerr != nil {
+		if aerr := d.addTab(nw, path, m.Cmd, m.Env); aerr != nil {
 			err = errors.Join(err, aerr)
 		} else {
 			id := d.st.Panes[len(d.st.Panes)-1].ID
@@ -1092,7 +1092,7 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 		return fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
 	}
 	id := newID()
-	if err := d.start(id, m.Cmd, w.Path, w.Ports); err != nil {
+	if err := d.start(id, m.Cmd, w.Path, w.Ports, nil); err != nil {
 		return err
 	}
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: w.Path})
@@ -1481,9 +1481,9 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 
 // start launches a pane and its watcher, at the pane's last size when it
 // had one and the default size otherwise. A pane in a tab with ports gets
-// them in its environment, and its output is watched for a port conflict.
-// Callers hold d.mu.
-func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBlock) error {
+// them in its environment, and its output is watched for a port conflict;
+// env comes after them. Callers hold d.mu.
+func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBlock, env []string) error {
 	newVT := d.notifyingVT(id)
 	if ports.First != 0 && newVT != nil {
 		inner := newVT
@@ -1496,7 +1496,7 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 	if !ok || size[0] <= 0 || size[1] <= 0 {
 		size = [2]int{defaultCols, defaultRows}
 	}
-	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: portEnv(ports), Cols: size[0], Rows: size[1], NewVT: newVT})
+	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portEnv(ports), env...), Cols: size[0], Rows: size[1], NewVT: newVT})
 	if err != nil {
 		return err
 	}
@@ -1666,7 +1666,7 @@ func (d *Daemon) exited(id string, p Pane) {
 			d.sizes[id] = size
 		}
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
-		err := d.start(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID))
+		err := d.start(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID), sp.Env)
 		if err == nil {
 			d.changed()
 			d.mu.Unlock()

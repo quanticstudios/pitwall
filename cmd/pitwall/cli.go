@@ -21,7 +21,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/forge"
+	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -168,19 +170,14 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	args = args[1:]
 	var cmd []string
+	dashes := false
 	if i := slices.Index(args, "--"); i >= 0 && command == "new" {
-		args, cmd = args[:i], args[i+1:]
-		if len(cmd) == 0 {
-			return errors.New(usage)
-		}
-		if err := absCmd(cmd); err != nil {
-			return err
-		}
+		args, cmd, dashes = args[:i], args[i+1:], true
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var asJSON, detached, force, children, tree bool
-	var name, sessionName string
+	var asJSON, detached, force, children, tree, guarded bool
+	var name, sessionName, preset string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
@@ -192,6 +189,8 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		flags.StringVar(&name, "n", "", "")
 		flags.BoolVar(&detached, "d", false, "")
 		flags.IntVar(&issue, "issue", 0, "")
+		flags.StringVar(&preset, "preset", "", "")
+		flags.BoolVar(&guarded, "guard", false, "")
 	case "kill":
 		flags.BoolVar(&force, "f", false, "")
 	case "attach", "detach", "rename":
@@ -208,6 +207,13 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		(command == "rename" && (len(args) < 1 || len(args) > 2)) {
 		return errors.New(usage)
 	}
+	if dashes && len(cmd) == 0 && preset == "" {
+		return errors.New(usage)
+	}
+	var vars []string
+	if cmd, vars, err = launch(preset, guarded, cmd); err != nil {
+		return err
+	}
 	if issue != 0 && cmd == nil {
 		return errors.New("--issue needs an agent to run: pitwall new --issue 12 -- claude")
 	}
@@ -223,8 +229,12 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return err
 	}
 	defer conn.Close()
-	state, err := syncCLI(conn)
+	m, err := syncMsg(conn)
 	if err != nil {
+		return err
+	}
+	state := m.State
+	if err := varsLevel(vars, m.Level); err != nil {
 		return err
 	}
 	session, err := currentSession(state, sessionName)
@@ -255,7 +265,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if cmd, err = withIssue(cmd, dir, issue); err != nil {
 			return err
 		}
-		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd, ParentPane: os.Getenv("PITWALL_PANE")})
+		after, err := syncCLI(conn, proto.NewSession{Name: name, Cwd: dir, SessionID: session.ID, Cmd: cmd, Env: vars, ParentPane: os.Getenv("PITWALL_PANE")})
 		if err != nil {
 			return err
 		}
@@ -314,6 +324,42 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	_, err = syncCLI(conn, request)
 	return err
+}
+
+// launch is the command and environment of a tab that new, worktree new
+// or queue add opens: preset's agent and args before rest, else rest, its
+// program made absolute; preset's variables, and guard.Env when guarded or
+// the preset asks for the guard.
+func launch(preset string, guarded bool, rest []string) (cmd, vars []string, err error) {
+	cmd = rest
+	if preset != "" {
+		s, _ := config.Load()
+		p, ok := s.FindPreset(preset)
+		if !ok {
+			return nil, nil, fmt.Errorf("no preset %q in %s", preset, config.Path())
+		}
+		cmd = append(append([]string{p.Agent}, p.Args...), rest...)
+		vars, guarded = slices.Clone(p.Env), guarded || p.Guard
+	}
+	if guarded {
+		if len(cmd) == 0 {
+			return nil, nil, errors.New("--guard needs an agent to run: --guard -- claude")
+		}
+		vars = append(vars, guard.Env+"=1")
+	}
+	if len(cmd) > 0 {
+		err = absCmd(cmd)
+	}
+	return cmd, vars, err
+}
+
+// varsLevel refuses vars, a preset's or the guard's, for a daemon that
+// would drop them.
+func varsLevel(vars []string, level int) error {
+	if len(vars) > 0 && level < proto.EnvLevel {
+		return errors.New("the pitwall daemon running is older than this pitwall and would drop the preset's variables and the guard; they work once it restarts")
+	}
+	return nil
 }
 
 // absCmd makes cmd's program an absolute path, found on this shell's

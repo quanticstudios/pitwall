@@ -17,6 +17,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
+	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -91,10 +92,10 @@ var taskModes = map[string][]taskMode{
 // it as their first argument and stay open.
 var promptFlags = map[string][]string{"gemini": {"-i"}, "opencode": {"--prompt"}}
 
-// taskCmd is the argv that starts agent, the program at path, in mode on
-// prompt.
-func taskCmd(path, agent string, mode int, prompt string) []string {
-	cmd := []string{path}
+// taskCmd is the argv that starts agent, the program at path, with args
+// in mode on prompt.
+func taskCmd(path, agent string, args []string, mode int, prompt string) []string {
+	cmd := append([]string{path}, args...)
 	if ms := taskModes[agent]; mode > 0 && mode < len(ms) {
 		cmd = append(cmd, ms[mode].args...)
 	}
@@ -187,6 +188,13 @@ func (u *ui) openTask(st *model.State, group string) {
 		for _, a := range welcomeAgents {
 			t.agents = append(t.agents, foundAgent{cmd: a.cmd, name: a.name})
 		}
+	}
+	for _, p := range u.cfg.Presets {
+		vars := slices.Clone(p.Env)
+		if p.Guard {
+			vars = append(vars, guard.Env+"=1")
+		}
+		t.agents = append(t.agents, foundAgent{cmd: p.Agent, name: p.Name, preset: true, args: p.Args, vars: vars})
 	}
 	t.picked, t.modes = make([]bool, len(t.agents)), make([]int, len(t.agents))
 	if len(t.agents) > 0 {
@@ -365,8 +373,10 @@ func (t *taskDialog) tasks() ([]model.Task, error) {
 			}
 		}
 		at := task
-		at.Cmd = taskCmd(path, a.cmd, t.modes[i], prompt)
-		if several {
+		at.Cmd, at.Env = taskCmd(path, a.cmd, a.args, t.modes[i], prompt), a.vars
+		if several && a.preset {
+			at.Worktree += "-" + worktreeName(a.name)
+		} else if several {
 			at.Worktree += "-" + a.cmd
 		}
 		out = append(out, at)
@@ -385,6 +395,12 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 	}
 	if !queue {
 		u.nav.expectSession(st) // the new tab shows once it opens
+	}
+	for _, task := range tasks {
+		if len(task.Env) > 0 && linkLevel(u.b) < proto.EnvLevel {
+			t.err = "The pitwall daemon running is older than this window and would drop the preset's variables and the guard. They work once it restarts."
+			return
+		}
 	}
 	for _, task := range tasks {
 		task.SessionID = u.nav.session

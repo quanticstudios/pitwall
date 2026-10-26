@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -19,10 +18,12 @@ import (
 
 const queueUsage = `usage:
   pitwall queue ls [-s session]                   list the session's queued tasks, first to start first
-  pitwall queue add [-s session] [--issue n] [dir] -- cmd...
+  pitwall queue add [-s session] [--issue n] [--preset name] [dir] -- cmd...
                                                   queue an agent with its prompt, run in dir, such as
                                                   pitwall queue add -- codex "fix the flaky test";
-                                                  --issue adds GitHub issue n as the prompt
+                                                  --issue adds GitHub issue n as the prompt;
+                                                  --preset runs a [[agents.preset]], cmd being
+                                                  its prompt
   pitwall queue rm [-s session] <n>               take task n of pitwall queue ls off the queue`
 
 // queueCommand runs pitwall queue: ls, add and rm.
@@ -31,36 +32,31 @@ func queueCommand(args []string, out io.Writer) error {
 		return errors.New(queueUsage)
 	}
 	command, args := args[0], args[1:]
-	var cmd []string
+	var cmd, vars []string
 	if i := slices.Index(args, "--"); i >= 0 && command == "add" {
 		args, cmd = args[:i], args[i+1:]
-		if len(cmd) == 0 {
-			return errors.New(queueUsage)
-		}
-		// why: as for pitwall new, the daemon runs it with its own PATH.
-		path, err := exec.LookPath(cmd[0])
-		if err != nil && !errors.Is(err, exec.ErrDot) {
-			return err
-		}
-		if cmd[0], err = filepath.Abs(path); err != nil {
-			return err
-		}
 	}
 	flags := flag.NewFlagSet("queue "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var sessionName string
+	var sessionName, preset string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	if command == "add" {
 		flags.IntVar(&issue, "issue", 0, "")
+		flags.StringVar(&preset, "preset", "", "")
 	}
 	args, err := parseFlags(flags, args)
 	if err != nil {
 		return err
 	}
+	if command == "add" && (len(cmd) > 0 || preset != "") {
+		if cmd, vars, err = launch(preset, false, cmd); err != nil {
+			return err
+		}
+	}
 	switch {
 	case command == "ls" && len(args) == 0:
-	case command == "add" && cmd != nil && len(args) <= 1:
+	case command == "add" && len(cmd) > 0 && len(args) <= 1:
 	case command == "rm" && len(args) == 1:
 	default:
 		return errors.New(queueUsage)
@@ -70,8 +66,12 @@ func queueCommand(args []string, out io.Writer) error {
 		return err
 	}
 	defer conn.Close()
-	state, err := syncCLI(conn)
+	m, err := syncMsg(conn)
 	if err != nil {
+		return err
+	}
+	state := m.State
+	if err := varsLevel(vars, m.Level); err != nil {
 		return err
 	}
 	session, err := currentSession(state, sessionName)
@@ -93,7 +93,7 @@ func queueCommand(args []string, out io.Writer) error {
 		if cmd, err = withIssue(cmd, dir, issue); err != nil {
 			return err
 		}
-		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd}, Queue: true})
+		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd, Env: vars}, Queue: true})
 		return err
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(args[0], "#"))

@@ -24,6 +24,7 @@ type cliExchange struct {
 	request any
 	state   model.State
 	error   string
+	level   int // the daemon's proto.Level in its StateMsg
 }
 
 // setHome makes dir the home folder, and on Windows the profile whose
@@ -88,7 +89,7 @@ func fakeCLI(t *testing.T, exchanges ...cliExchange) {
 						return err
 					}
 				}
-				if err := c.Send(proto.StateMsg{State: exchange.state}); err != nil {
+				if err := c.Send(proto.StateMsg{State: exchange.state, Level: exchange.level}); err != nil {
 					return err
 				}
 			}
@@ -499,5 +500,43 @@ func TestCLISessions(t *testing.T) {
 	t.Cleanup(func() { launchGUI = previous })
 	if code, _, stderr := cliOutput("session", "attach", "api"); code != 0 || stderr != "" || !slices.Equal(launched, []string{"api"}) {
 		t.Fatalf("%d %s %v", code, stderr, launched)
+	}
+}
+
+// pitwall new --preset runs the preset's agent and args before cmd, with
+// its variables and the guard's; a daemon below proto.EnvLevel is refused.
+func TestCLINewPreset(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	os.MkdirAll(filepath.Join(dir, "pitwall"), 0o755)
+	os.WriteFile(filepath.Join(dir, "pitwall", "config.toml"), []byte(`[[agents.preset]]
+name = "fast"
+agent = "sh"
+args = ["-c", "true"]
+env = ["FOO=1"]
+guard = true
+`), 0o600)
+	t.Chdir(dir)
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	sh, _ = filepath.Abs(sh)
+	after := cliState()
+	after.Workspaces = append(after.Workspaces, model.Workspace{ID: "new", SessionID: "m"})
+	fakeCLI(t, cliExchange{state: cliState(), level: proto.Level},
+		cliExchange{request: proto.NewSession{Cwd: dir, SessionID: "m", Cmd: []string{sh, "-c", "true", "hi"}, Env: []string{"FOO=1", "PITWALL_GUARD=1"}}, state: after})
+	if code, out, stderr := cliOutput("new", "--preset", "fast", "--", "hi"); code != 0 || out != "#3\n" || stderr != "" {
+		t.Fatalf("%d: %s %s", code, out, stderr)
+	}
+	fakeCLI(t, cliExchange{state: cliState(), level: proto.EnvLevel - 1})
+	if code, _, stderr := cliOutput("new", "--guard", "--", "sh"); code == 0 || !strings.Contains(stderr, "older than this pitwall") {
+		t.Fatalf("old daemon: %d %s", code, stderr)
+	}
+	if code, _, stderr := cliOutput("new", "--preset", "none"); code == 0 || !strings.Contains(stderr, `no preset "none"`) {
+		t.Fatalf("unknown preset: %d %s", code, stderr)
+	}
+	if code, _, stderr := cliOutput("new", "--guard"); code == 0 || !strings.Contains(stderr, "--guard needs an agent") {
+		t.Fatalf("guard alone: %d %s", code, stderr)
 	}
 }

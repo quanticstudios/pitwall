@@ -175,6 +175,10 @@ type Pane struct {
 	// device: Claude Code with /remote-control on. The daemon fills it in;
 	// it is not saved.
 	RemoteControl bool `json:"-"`
+	// Env is what the pane's command gets on top of the daemon's
+	// environment: a preset's variables and the guard's. A restart starts
+	// the pane with it again.
+	Env []string
 }
 
 type MergeStatus string
@@ -285,6 +289,7 @@ type Task struct {
 	// Dir.
 	Worktree, Base, Branch string
 	Cmd                    []string // the agent, its flags and the prompt
+	Env                    []string // added to the agent's environment, as Pane.Env
 }
 
 // Title is the first line of a task's last argument, its prompt, or the

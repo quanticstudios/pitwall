@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 29 added Env on NewSession, NewWorkspace, Task and Pane: a
+// preset's variables and the guard's, kept across restarts.
 // Level 28 added SetStatus, Workspace.Status and Activity.QuietSince: a
 // script's line under a tab's row, and how long a working agent's screen
 // has been still.
@@ -119,7 +121,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 28
+const Level = 29
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
@@ -200,6 +202,9 @@ type NewSession struct {
 	// CLI's PITWALL_PANE): its tab becomes the new tab's Parent when both
 	// are in one session.
 	ParentPane string
+	// Env is added to Cmd's environment, now and after a restart
+	// (model.Pane.Env). A daemon below EnvLevel ignores it.
+	Env []string
 }
 
 // SetSessionGroup moves a session into a group; "" ungroups it right after
@@ -258,6 +263,8 @@ type NewWorkspace struct {
 	// worktree comes from, so a parent outside the repo's group needs no
 	// group made for it.
 	Root string
+	// Env is NewSession.Env.
+	Env []string
 }
 
 type RenameWorkspace struct {
@@ -589,6 +596,10 @@ type SessionShow struct {
 type SeePane struct {
 	Pane string
 }
+
+// EnvLevel is the Level of daemons that take Env on NewSession,
+// NewWorkspace and Task.
+const EnvLevel = 29
 
 // WorkspaceRootLevel is the Level of daemons that take NewWorkspace.Root.
 const WorkspaceRootLevel = 22

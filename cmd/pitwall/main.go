@@ -45,6 +45,7 @@ const usage = `usage:
   pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
   pitwall daemon             run the daemon in the foreground
   pitwall hook <provider>    forward an agent hook event (claude, codex, pi, omp, gemini, opencode)
+  pitwall guard              exit 2 when the guard denies the command in {"tool_input":...} on stdin
   pitwall hooks              print the hook config for every agent
   pitwall hooks install      add hooks, pi's and omp's extensions, OpenCode's plugin and the
                              pitwall skill for Claude Code and Codex (--dry-run;
@@ -58,10 +59,13 @@ const usage = `usage:
                              (--json: one object per tab, see docs/agent-skill.md;
                              --children: only the tabs this pane's tab opened;
                              --tree: each tab under the tab that opened it)
-  pitwall new [-n name] [-d] [--issue n] [dir] [-- cmd args...]
+  pitwall new [-n name] [-d] [--issue n] [--preset name] [--guard] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. --issue adds GitHub issue n
-                             as cmd's last argument, its prompt. A cmd's pane stays after it
+                             as cmd's last argument, its prompt. --preset runs a
+                             [[agents.preset]] with cmd's args after its own;
+                             --guard denies the agent pushes and merges (see
+                             docs/usage.md). A cmd's pane stays after it
                              exits, showing its output, until closed. After a
                              daemon restart it shows a notice instead; a cmd
                              still running then is not run again (exit unknown).
@@ -171,7 +175,9 @@ func main() {
 	case "hook":
 		// why: pi's final report runs detached, with no one left to kill a hook stuck on a busy daemon.
 		time.AfterFunc(5*time.Second, func() { os.Exit(0) })
-		runHook(os.Args[2:])
+		os.Exit(runHook(os.Args[2:]))
+	case "guard":
+		os.Exit(runGuard(os.Stdin, os.Stdout, os.Stderr))
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)
 	case "statusline":
@@ -289,11 +295,13 @@ func runDaemon() (err error) {
 }
 
 // runHook never fails loudly: an agent must not stall or print errors because
-// pitwall is down, and outside a pitwall pane it does nothing at all.
-func runHook(args []string) {
+// pitwall is down, and outside a pitwall pane it does nothing at all. It
+// returns the exit status: 2 when the guard denies the tool call (guardHook),
+// which then goes unreported, else 0.
+func runHook(args []string) int {
 	pane := os.Getenv("PITWALL_PANE")
 	if pane == "" || len(args) == 0 {
-		return
+		return 0
 	}
 	provider := model.Provider(args[0])
 	var payload []byte
@@ -302,14 +310,18 @@ func runHook(args []string) {
 	} else {
 		payload, _ = io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
 	}
+	if code := guardHook(provider, payload, os.Stdout, os.Stderr); code != 0 {
+		return code
+	}
 	path := os.Getenv("PITWALL_SOCKET")
 	if path == "" {
 		var err error
 		if path, err = proto.SocketPath(); err != nil {
-			return
+			return 0
 		}
 	}
 	sendHook(path, pane, provider, payload)
+	return 0
 }
 
 // sendHook forwards one hook event. It waits at most hookWait, for the

@@ -15,6 +15,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -24,12 +25,15 @@ const worktreeUsage = `usage:
   pitwall worktree ls [--all]   this repo's worktrees: tab, branch, changes, and commits
                                 ahead of and behind the default branch (--all: every
                                 repo pitwall has a group for)
-  pitwall worktree new <name> [--from <ref> | --branch <branch> | --pr <n>] [-- cmd args...]
+  pitwall worktree new <name> [--from <ref> | --branch <branch> | --pr <n>]
+                       [--preset <name>] [--guard] [-- cmd args...]
                                 open a tab in a new worktree, <repo>/.worktrees/<name>:
                                 a new branch <name> off ref (default: the default
                                 branch), an existing local or remote branch, or GitHub
                                 pull request n as branch pr-<n>; cmd runs in it, else
-                                the tab opens empty. Prints the tab's #
+                                the tab opens empty. --preset runs a [[agents.preset]]
+                                with cmd's args after its own; --guard denies the agent
+                                pushes and merges. Prints the tab's #
   pitwall worktree rm <name> [--force]
                                 remove the worktree and close its tab; --force when it
                                 has changes. Its branch stays
@@ -50,18 +54,14 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	}
 	command, args := args[0], args[1:]
 	var cmd []string
+	dashes := false
 	if i := slices.Index(args, "--"); i >= 0 && command == "new" {
-		if args, cmd = args[:i], args[i+1:]; len(cmd) == 0 {
-			return errors.New(worktreeUsage)
-		}
-		if err := absCmd(cmd); err != nil {
-			return err
-		}
+		args, cmd, dashes = args[:i], args[i+1:], true
 	}
 	flags := flag.NewFlagSet("worktree "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var all, force bool
-	var from, branch string
+	var all, force, guarded bool
+	var from, branch, preset string
 	var pr int
 	switch command {
 	case "ls":
@@ -70,6 +70,8 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		flags.StringVar(&from, "from", "", "")
 		flags.StringVar(&branch, "branch", "", "")
 		flags.IntVar(&pr, "pr", 0, "")
+		flags.StringVar(&preset, "preset", "", "")
+		flags.BoolVar(&guarded, "guard", false, "")
 	case "rm":
 		flags.BoolVar(&force, "force", false, "")
 	case "prune":
@@ -80,8 +82,17 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	if err != nil {
 		return fmt.Errorf("%w\n%s", err, worktreeUsage)
 	}
-	if (command == "ls" || command == "prune") != (len(args) == 0) || len(args) > 1 {
+	if (command == "ls" || command == "prune") != (len(args) == 0) || len(args) > 1 || dashes && len(cmd) == 0 && preset == "" {
 		return errors.New(worktreeUsage)
+	}
+	// An agent's worker gets the guard when [agents] guard_workers says so.
+	if !guarded && os.Getenv("PITWALL_PANE") != "" && (len(cmd) > 0 || preset != "") {
+		s, _ := config.Load()
+		guarded = s.GuardWorkers
+	}
+	var vars []string
+	if cmd, vars, err = launch(preset, guarded, cmd); err != nil {
+		return err
 	}
 	var root string
 	if !all {
@@ -122,7 +133,10 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		if err != nil {
 			return err
 		}
-		return newWorktree(conn, out, state, level, root, args[0], f, cmd)
+		if err := varsLevel(vars, level); err != nil {
+			return err
+		}
+		return newWorktree(conn, out, state, level, root, args[0], f, cmd, vars)
 	case "rm":
 		return removeWorktree(ctx, conn, errOut, state, root, args[0], force)
 	}
@@ -249,9 +263,9 @@ func listWorktrees(ctx context.Context, out io.Writer, state model.State, roots 
 // Run from an agent's pane, the tab joins the agent's group instead, and
 // no group is made. With no session the daemon makes one, as pitwall new
 // does.
-func newWorktree(conn *cliConn, out io.Writer, state model.State, level int, root, name string, from model.WorktreeFrom, cmd []string) error {
+func newWorktree(conn *cliConn, out io.Writer, state model.State, level int, root, name string, from model.WorktreeFrom, cmd, vars []string) error {
 	session, _ := currentSession(state, "")
-	msg := proto.NewWorkspace{Name: name, From: from, Cmd: cmd, ParentPane: os.Getenv("PITWALL_PANE")}
+	msg := proto.NewWorkspace{Name: name, From: from, Cmd: cmd, Env: vars, ParentPane: os.Getenv("PITWALL_PANE")}
 	if parent, err := resolveTab(state, "", ""); err == nil && level >= proto.WorkspaceRootLevel {
 		session.ID, msg.Root = parent.SessionID, root
 	} else {

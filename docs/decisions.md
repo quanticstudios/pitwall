@@ -89,6 +89,13 @@ entry you listed (shown as "never_allow #N", never its text). These flags
 are hints, not a guarantee. pitwall never recommends for `AskUserQuestion`
 or a plan approval.
 
+The [guard](usage.md#the-guard) is no exception. It denies a command such
+as `git push` before the agent's permission check runs, in a tab you turned
+it on for, and the agent reads why. A deny is not an answer to a prompt: it
+never allows a call, never approves one the agent asked you about, and
+the guard reads only the command's text, so it is a seatbelt, not a
+sandbox.
+
 ## Costs
 
 Jev bills per input token, about $0.04 per million; output is free. A

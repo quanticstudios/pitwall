@@ -126,7 +126,7 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 	}
 	d.mu.Unlock()
 	var id string
-	err = d.addSession(ctx, proto.NewSession{Cwd: dir, SessionID: t.SessionID, GroupID: t.GroupID, Cmd: t.Cmd}, "", nil, func(w *model.Workspace) {
+	err = d.addSession(ctx, proto.NewSession{Cwd: dir, SessionID: t.SessionID, GroupID: t.GroupID, Cmd: t.Cmd, Env: t.Env}, "", nil, func(w *model.Workspace) {
 		id = w.ID
 		if root != "" {
 			w.WorktreeRoot, w.Ports = root, portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
@@ -143,7 +143,7 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 	}
 	ti := tabIndex(w, "")
 	pid := newID()
-	if err := d.start(pid, nil, w.Path, w.Ports); err != nil {
+	if err := d.start(pid, nil, w.Path, w.Ports, nil); err != nil {
 		return err
 	}
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: pid, WorkspaceID: w.ID, Cwd: w.Path})
