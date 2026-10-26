@@ -15,6 +15,11 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- In Claude Code and Codex panes, Ctrl+V and Ctrl+Shift+V both paste text or an image: text goes in as a paste, and with an image on the clipboard the agent gets Ctrl+V and attaches it. Codex used to answer Ctrl+V with text on the clipboard by saying it found no image.
+- Pasting with only an image on the clipboard no longer stops every later paste in the window from working on Wayland.
+
 ## v0.1.3
 
 - Settings, Agent errors shows a likely fix for known causes, such as unquoted globs in zsh or a missing command, and Copy report includes it. Ask an agent to fix these opens New task with the report as the prompt.

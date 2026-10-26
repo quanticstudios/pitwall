@@ -60,6 +60,7 @@ conventional:
 | Ctrl+Shift+N                            | New session                                               |
 | Ctrl+Shift+P                            | Command palette: every action and its keys                |
 | Ctrl+Shift+C / Ctrl+Shift+V             | Copy selection / paste (also Ctrl+Insert / Shift+Insert)  |
+| Ctrl+V in Claude Code or Codex          | Paste text or an image                                    |
 | Ctrl+Shift+X                            | Copy mode: select and copy with the keyboard              |
 | Ctrl+Backspace                          | Delete the word before the cursor (sends Ctrl+W)          |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
@@ -112,6 +113,7 @@ aide:
 | Ctrl+P then Esc or Enter          | Leave pane mode                                |
 | Ctrl+P twice                      | Send Ctrl+P to the terminal                    |
 | Ctrl+Shift+C / Ctrl+Shift+V       | Copy / paste (also Ctrl+Insert / Shift+Insert) |
+| Ctrl+V in Claude Code or Codex    | Paste text or an image                         |
 | Ctrl+Shift+X                      | Copy mode                                      |
 | Ctrl+Backspace                    | Delete the word before the cursor (sends Ctrl+W) |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
@@ -143,6 +145,7 @@ mac:
 | Cmd+Shift+P                             | Command palette: every action and its keys                |
 | Cmd+,                                   | Settings                                                  |
 | Cmd+C / Cmd+V                           | Copy selection / paste                                    |
+| Ctrl+V in Claude Code or Codex          | Paste text or an image, as Cmd+V does there               |
 | Cmd+Shift+X                             | Copy mode                                                 |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Cmd+F                                   | Find in the pane's scrollback                             |

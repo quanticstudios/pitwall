@@ -128,6 +128,11 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 					}
 				}
 				continue // copy mode sends the program nothing
+			case agentPasteKey(e, v.PasteImages):
+				if e.State == key.Press {
+					v.action(gtx, g, "paste", rows)
+				}
+				continue
 			}
 			if textKey(e) && !kittyAll {
 				continue
@@ -159,7 +164,7 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			b, _ := io.ReadAll(r)
 			r.Close()
 			if !v.cm.on {
-				out = append(out, input.Paste(string(b), m)...)
+				out = append(out, clipInput(string(b), v.PasteImages, m)...)
 			}
 		case pointer.Event:
 			out = append(out, v.pointer(e, g, m, focused)...)
@@ -183,6 +188,28 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 		out = append(out, input.Focus(in, m.FocusEvents)...)
 	}
 	return out
+}
+
+// agentPasteKey reports whether e is Ctrl+V in a pane whose agent reads
+// images off the clipboard (View.PasteImages), which pastes there.
+func agentPasteKey(e key.Event, agent bool) bool {
+	return agent && e.Name == "V" && e.Modifiers == key.ModCtrl
+}
+
+// clipInput is what a paste of the clipboard's text sends the program.
+// With no text, an image or nothing, an agent that reads images gets
+// Ctrl+V and reads the clipboard itself; any other program gets nothing.
+func clipInput(text string, agent bool, m vt.Modes) []byte {
+	if text != "" {
+		return input.Paste(text, m)
+	}
+	if !agent {
+		return nil
+	}
+	v := key.Event{Name: "V", Modifiers: key.ModCtrl, State: key.Press}
+	out := input.Key(v, m)
+	v.State = key.Release
+	return append(out, input.Key(v, m)...)
 }
 
 // Run runs a pane action (config.PaneAction) in the next Layout, as its

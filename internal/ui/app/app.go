@@ -933,6 +933,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		p.view.Keys = u.nav.bind()
 		p.view.CopyOnSelect = u.cfg.CopyOnSelect
 		p.view.Links = u.cfg.Links
+		pn := findPane(st, id)
+		p.view.PasteImages = pn != nil && (pn.Provider == model.ProviderClaude || pn.Provider == model.ProviderCodex)
 		var att *model.Activity
 		if a, ok := unseen[id]; ok {
 			att = &a
@@ -941,7 +943,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		if s := advice[id]; s != "" {
 			u.drawAdvice(gtx, r, s)
 		}
-		if pn := findPane(st, id); pn != nil && pn.HooksMissing && !u.welcome.on && u.hooksNotice() { // the welcome card offers the install already
+		if pn != nil && pn.HooksMissing && !u.welcome.on && u.hooksNotice() { // the welcome card offers the install already
 			u.drawHooksNotice(gtx, p, r)
 		}
 		if id == zoom {

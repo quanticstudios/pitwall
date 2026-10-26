@@ -33,6 +33,12 @@ Each change is marked `pitwall` in a comment:
   three layouts, layout 1 became 3, wrapped to 0, and the pane typed the
   first layout's letters. GNOME appends the locale's layout to every keymap
   it builds, so us and ru on en_US is `us,ru,us` and hit this.
+- `app/os_wayland.go`, `window.ReadClipboard`, and `app/os_x11.go`, the
+  `SelectionNotify` case: a clipboard with no text, such as one holding an
+  image, reads as empty text, as it already does on macOS and Windows.
+  Upstream sent no event, so a pane could not tell an image from a slow
+  read. On Wayland it also left `readClipClose` set, and every later read
+  in the window returned before reading. A failed read clears it too.
 
 The Vulkan path (`app/vulkan_wayland.go`) is upstream's. pitwall always builds
 with `-tags=novulkan`, and skipping a Vulkan present after rendering would
