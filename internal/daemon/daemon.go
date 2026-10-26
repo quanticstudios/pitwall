@@ -252,7 +252,9 @@ func New() (*Daemon, error) {
 
 // NewWith loads state through o.Load and relaunches every saved pane that had
 // not exited, using o.RestoreCmd in the pane's saved Cwd. Activities from the
-// previous run are dropped: the agents behind them are new processes.
+// previous run are dropped, except a finished turn of an agent session that
+// resumes: it sits at its prompt with that turn done. A resumed agent that
+// was mid-turn gets restartLine typed once it is back (see restartNudge).
 //
 // A held pane (model.Pane.Held) is relaunched only when its agent session
 // can be resumed (store.Resumes). One whose command had exited comes back exited with its code,
@@ -273,6 +275,7 @@ func NewWith(o Options) (*Daemon, error) {
 	if st.Stats == nil {
 		st.Stats = map[string]model.BranchStats{}
 	}
+	saved := st.Activities
 	st.Activities = nil
 	st.PRs = map[string]model.PR{}
 	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}}
@@ -318,6 +321,7 @@ func NewWith(o Options) (*Daemon, error) {
 		if resumes {
 			d.resumed[p.ID] = time.Now()
 			log.Printf("pane %s: resuming %q, mode %q", p.ID, p.Provider, p.AgentMode)
+			d.restartNudge(p.ID, saved)
 		}
 	}
 	for _, id := range gone {

@@ -179,6 +179,11 @@ the processes in the pane's own foreground group, and nothing else's.
 | Amp        | none         | none (the logo only)    | no                      | no                   |
 | Aider      | none         | Working, Input and Done | no                      | no                   |
 
+After a restart, a resumed agent whose turn had finished still shows Done.
+One that was in the middle of a turn gets one line typed once it is back:
+pitwall restarted and resumed the session, so continue the task where it
+left off and leave the uncommitted work in place.
+
 Some states are out of reach:
 
 - pi has no permission prompts of its own, so a pi tab shows Working, Done,

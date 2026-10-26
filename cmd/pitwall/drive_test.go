@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -129,10 +130,12 @@ func TestCLIListJSON(t *testing.T) {
 	// A shell that exited, right of the agent.
 	st.Workspaces[0].Tabs[0].Layout = &layout.Node{Children: []*layout.Node{{Pane: "p"}, {Pane: "q"}}}
 	st.Panes = append(st.Panes, model.Pane{ID: "q", WorkspaceID: "w", Exited: true, ExitCode: 4})
+	st.Activities[0].UpdatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	fakeCLI(t, cliExchange{state: st})
 	code, out, stderr := cliOutput("ls", "--json")
 	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"panes":2,"detached":false,` +
-		`"pane_list":[{"n":1,"id":"p","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"queued":0},{"n":2,"id":"q","agent":"","state":"exited","question":"","exit_code":4,"queued":0}]}]` + "\n"
+		`"pane_list":[{"n":1,"id":"p","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"queued":0,"since":"2026-01-02T03:04:05Z"},{"n":2,"id":"q","agent":"","state":"exited","question":"","exit_code":4,"queued":0,"since":null}],` +
+		`"parent":"","since":"2026-01-02T03:04:05Z"}]` + "\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
 	}
@@ -386,6 +389,35 @@ func TestCLIWaitChildren(t *testing.T) {
 	}
 }
 
+// ls --tree puts each tab under the tab that opened it, and ls --json
+// names that tab in parent.
+func TestCLIListTree(t *testing.T) {
+	st := fleetState(model.StateWorking, "").State
+	// w3 is w1's worker.
+	w3 := st.Workspaces[2]
+	w3.ID, w3.Name, w3.Parent, w3.Tabs = "w3", "w3", "w1", []model.Tab{{ID: "tw3", Layout: &layout.Node{Pane: "pw3"}}}
+	st.Workspaces = append(st.Workspaces, w3)
+	st.Panes = append(st.Panes, model.Pane{ID: "pw3", WorkspaceID: "w3"})
+	fakeCLI(t, cliExchange{state: st})
+	code, out, stderr := cliOutput("ls", "--tree")
+	var names []string
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n")[1:] {
+		f := strings.Fields(l)
+		names = append(names, strings.Join(f[:len(f)-3], " "))
+	}
+	want := "1 orch|2 ├─ w1|4 │ └─ w3|3 └─ w2|5 x"
+	if code != 0 || strings.Join(names, "|") != want {
+		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
+	}
+	parents := map[string]string{}
+	for _, tab := range tabsJSON(st, "m", nil) {
+		parents[tab.Title] = tab.Parent
+	}
+	if parents["orch"] != "" || parents["w1"] != "o" || parents["w3"] != "w1" {
+		t.Fatalf("parents %v", parents)
+	}
+}
+
 func TestCLIListChildren(t *testing.T) {
 	fakeCLI(t, cliExchange{state: fleetState(model.StateWorking, "").State})
 	t.Setenv("PITWALL_PANE", "po")
@@ -396,5 +428,129 @@ func TestCLIListChildren(t *testing.T) {
 	}
 	if code != 0 || strings.Join(names, ",") != "2 w1,3 w2" {
 		t.Fatalf("%d %q %s", code, out, stderr)
+	}
+}
+
+// fakeFleet serves a watch connection that receives states, and a CLI
+// connection that answers each proto.Read with the next of replies ("" is
+// "no reply kept"; a screen read gets screen) and records each proto.Send.
+func fakeFleet(t *testing.T, states []any, replies []string, screen string) *[]proto.Send {
+	t.Helper()
+	path := sockPath(t, "fleet.sock")
+	t.Setenv("PITWALL_SOCKET", path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent []proto.Send
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c := proto.NewConn(nc)
+			hello, err := c.Recv()
+			if err != nil {
+				nc.Close()
+				return
+			}
+			if hello.(proto.Hello).Kind == "watch" {
+				go func() {
+					defer nc.Close()
+					for _, m := range states {
+						c.Send(m)
+					}
+					c.Recv()
+				}()
+				continue
+			}
+			for {
+				m, err := c.Recv()
+				if err != nil {
+					break
+				}
+				switch m := m.(type) {
+				case proto.Read:
+					r := proto.ReadResult{Pane: m.Pane}
+					switch {
+					case m.Screen:
+						r.Text = screen
+					case len(replies) == 0 || replies[0] == "":
+						r.Err = "no reply kept"
+					default:
+						r.Text = replies[0]
+					}
+					if !m.Screen && len(replies) > 0 {
+						replies = replies[1:]
+					}
+					c.Send(r)
+				case proto.Send:
+					sent = append(sent, m)
+				case proto.Sync:
+					c.Send(proto.StateMsg{})
+				}
+			}
+			nc.Close()
+		}
+	}()
+	t.Cleanup(func() { ln.Close(); <-done })
+	return &sent
+}
+
+// turnBase is a time after any test's wait starts.
+var turnBase = time.Now().Add(time.Hour)
+
+// at is fleetState with w1's and w2's turns ending mins minutes past
+// turnBase.
+func at(m proto.StateMsg, mins ...int) proto.StateMsg {
+	for i := range m.State.Activities {
+		m.State.Activities[i].UpdatedAt = turnBase.Add(time.Duration(mins[i]) * time.Minute)
+	}
+	return m
+}
+
+func TestCLIWaitDoneLine(t *testing.T) {
+	work, done := model.StateWorking, model.StateCompleted
+	queued := at(fleetState(done, done), 0, 0)
+	queued.State.Queued = map[string]int{"pw1": 1}
+	for _, tc := range []struct {
+		name    string
+		states  []any
+		replies []string
+		screen  string
+		code    int
+		out     string
+		nudges  int
+	}{
+		{"both done", []any{fleetState(work, work), at(fleetState(done, done), 0, 0)},
+			[]string{"shipped\n\nDONE", "⏺ **DONE**"}, "", 0, "#2 w1 done\n#3 w2 done\n", 0},
+		{"a message still to type", []any{queued, at(fleetState(done, done), 0, 0)},
+			[]string{"DONE", "DONE"}, "", 0, "#2 w1 done\n#3 w2 done\n", 0},
+		{"nudged, then done", []any{at(fleetState(done, done), 0, 0), at(fleetState(done, done), 1, 0)},
+			[]string{"all set", "DONE", "oops\nDONE"}, "", 0, "#2 w1 done\n#3 w2 done\n", 1},
+		{"no line twice", []any{at(fleetState(done, done), 0, 0), at(fleetState(done, done), 1, 0)},
+			[]string{"all set", "DONE", "still nothing"}, "", 0, "#2 w1 no-done-line\n#3 w2 done\n", 1},
+		{"blocked line", []any{at(fleetState(done, work), 0, 0)},
+			[]string{"tried\nBLOCKED: no API key"}, "", 2, "#2 w1 BLOCKED: no API key\n", 0},
+		{"screen after a restart", []any{at(fleetState(done, done), 0, 0)},
+			[]string{"", ""}, "⏺ Committed.\n\n⏺ DONE\n\n╭────╮\n│ >  │\n╰────╯", 0, "#2 w1 done\n#3 w2 done\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sent := fakeFleet(t, tc.states, tc.replies, tc.screen)
+			t.Setenv("PITWALL_PANE", "po")
+			code, out, stderr := cliOutput("wait", "--children", "--done-line", "--until", "done", "--timeout", "2s")
+			if code != tc.code || out != tc.out {
+				t.Fatalf("code %d out %q stderr %q; want %d %q", code, out, stderr, tc.code, tc.out)
+			}
+			if len(*sent) != tc.nudges || tc.nudges > 0 && ((*sent)[0].Pane != "pw1" || (*sent)[0].From != "po" || (*sent)[0].Text != doneNudge) {
+				t.Fatalf("sent %+v, want %d nudge to pw1", *sent, tc.nudges)
+			}
+		})
+	}
+	if code, _, stderr := cliOutput("wait", "w1", "--done-line", "--until", "done"); code != 1 || !strings.Contains(stderr, "--children") {
+		t.Fatalf("--done-line without --children: %d %q", code, stderr)
 	}
 }

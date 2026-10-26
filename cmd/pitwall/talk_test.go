@@ -185,7 +185,7 @@ func TestAgentSend(t *testing.T) {
 	run(0, "idle\n", "wait", "1.4", "--until", "idle", "--timeout", "10s")
 	run(2, "blocked: Run make\n", "prompt", "1.4", "--wait", "--timeout", "10s", "block please")
 	run(0, "", "send", "1.4", "later")
-	run(0, `"queued":1}`, "ls", "--json")
+	run(0, `"queued":1,`, "ls", "--json")
 	t.Setenv("PITWALL_PANE", a)
 	if stderr := run(1, "", "send", "@"+a, "hi"); !strings.Contains(stderr, "this pane") {
 		t.Fatalf("send to its own pane: %q", stderr)

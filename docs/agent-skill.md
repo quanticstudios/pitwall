@@ -37,7 +37,15 @@ when the user should see the work. When cmd exits, its pane stays with the
 output on screen and the exit code recorded, until someone closes it. The
 tab survives a daemon restart (an upgrade or a reboot), but its screen does
 not: the pane shows a one-line notice instead. A command that had exited
-keeps its exit code. An agent with a known session resumes. Any other
+keeps its exit code. An agent with a known session resumes: one that had
+finished its turn comes back `done`, and one that was mid-turn gets this
+line typed once it is back, with no header:
+
+```text
+pitwall restarted and resumed this session. Continue the task where you left off; your uncommitted work is in the worktree, don't checkout, reset or stash it.
+```
+
+Any other
 command still running is not run again, since that may not be safe: it comes
 back exited with its exit code unknown (`exit_code` null, and `wait` prints
 `exit unknown` and exits 3). A relative command path
@@ -142,7 +150,7 @@ order, detached tabs last. Every key is always present; unknown strings are
 `""`.
 
 ```json
-{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0}]}
+{"n":2,"id":"8c1f3a90d2e4b7a1","title":"review auth","group":"api","cwd":"/work/api","branch":"auth-review","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"panes":1,"detached":false,"pane_list":[{"n":1,"id":"5d0e9b2c71a4f836","agent":"codex","state":"blocked","question":"Run go test ./...?","exit_code":null,"queued":0,"since":"2026-10-26T14:02:11Z"}],"parent":"3f6a1c0b9e2d4785","since":"2026-10-26T14:02:11Z"}
 ```
 
 `agent` is the agent's name (`claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
@@ -152,14 +160,39 @@ for the tab's main pane. `question` is the agent's question or approval
 detail while blocked. `exit_code` is `null` until the process exits, then
 its exit code. `pane_list` has the same keys for every pane of the tab, in
 layout order; its `n` is the N of the pane's address, and `queued` counts
-the pane's messages from `send` not yet typed.
+the pane's messages from `send` not yet typed. `since` is when the agent's
+current state began, `null` for a pane with no agent state. `parent` is the
+`id` of the tab that opened this one (see Workers below), `""` for none.
+
+`pitwall ls --tree` prints the table with each tab under the tab that
+opened it. The table's `SINCE` column says how long each tab has been in
+its state.
 
 `pitwall wait --children --until ...` waits on every tab your tab opened
 (see Workers below) in place of one tab. It prints a line per tab, as `#14
 invoice-pdf done` or `#15 retry exit 1`, once every one got there, and
 exits 0, or 3 when one exited with an error. A tab that blocks ends it at
 once with 2, printing `#N <name> blocked: <question>` for each blocked one.
-Tabs opened while it waits count too.
+Tabs opened while it waits count too. A tab whose agent still has a message
+from `send` to type is not done yet. Only the tabs your tab opened count, not
+their own workers: a worker that opens workers waits for them itself.
+
+`--done-line` (with `--children --until done`) also reads each finished
+worker's last reply, or after a daemon restart the bottom of its screen, for
+a last line `DONE` or `BLOCKED: <why>`:
+
+| Last line        | wait                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| `DONE`           | counts the worker done: `#N <name> done`                                              |
+| `BLOCKED: <why>` | ends at once with 2, like a blocked tab: `#N <name> BLOCKED: <why>`                   |
+| neither          | sends the worker one nudge and goes on waiting                                        |
+| neither, again   | counts it finished but unverified: `#N <name> no-done-line`                           |
+
+The nudge goes through `send`, from your pane:
+
+```text
+You stopped without a final DONE or BLOCKED line. If you are finished, end with a line DONE. If not, continue the task and end with it. If you are blocked, say why and end with a line BLOCKED: <why>. Answer in your reply, not with pitwall send.
+```
 
 ## Workers
 
@@ -170,9 +203,13 @@ how many need the user, failed, work and are done; the user can fold the
 workers into that row. A worker's own workers hang under the same row.
 
 Workers are pitwall's subagents: when the user asks for subagents or
-workers, start them as tabs so the user can watch them. Never run
-`pitwall` on its own, `pitwall -s` or `pitwall session new` for a worker;
-those open another window or session.
+workers, start them as tabs so the user can watch them, and tell the user
+the tab numbers. Never run `pitwall` on its own, `pitwall -s` or `pitwall
+session new` for a worker; those open another window or session.
+
+Look before you start any: `pitwall ls --children --json` lists the workers
+you already have. An orchestrator resumed after a restart, or one whose
+context was compacted, may have workers still running.
 
 Open the tabs before any slow setup. `worktree new` and `new` return once
 the tab exists, so an install or an environment goes in the worker's
@@ -197,18 +234,33 @@ agent may not run a pasted command.
 for t in invoice-pdf webhook-retry rate-limit; do
   pitwall worktree new "$t" -- claude "$(cat "tasks/$t.md")"
 done
-pitwall wait --children --until done --timeout 45m
+pitwall wait --children --done-line --until done --timeout 45m
 case $? in
   0) pitwall ls --children ;;                # every worker finished
-  2) echo "a worker waits on you; answer it in its tab" ;;
+  2) echo "a worker waits on you or gave up; see its line" ;;
   3) echo "a worker exited with an error" ;;
+  124) for n in $(pitwall ls --children --json | jq -r '.[] | select(.state == "working") | .n'); do
+         pitwall send "#$n" -- "Stop exploring and finish now: commit what works, record open questions as assumptions, and end with DONE."
+       done
+       pitwall wait --children --done-line --until done --timeout 15m ;;
 esac
 ```
 
 `pitwall ls --children` (and `--json`) lists only your workers. Each
 worktree has its own branch and ports, and the sidebar warns when two
 workers edit the same file. Give every worker one self-contained task:
-the goal, the files, how to check it, and to commit on its branch.
+the goal, the files, how to check it, and to commit on its branch. End
+each brief with the report you want back and the done line:
+
+```text
+When you finish, reply with: status, the changes, each command you ran
+with its exit code, and known gaps. Write unknown rather than guess.
+Make your last line DONE, or BLOCKED: <why> if you cannot go on.
+```
+
+If the daemon restarts while workers run, it resumes them, and each one
+that was mid-turn is told to continue (see `pitwall new` above). Run the
+same `wait` again.
 
 ## Recipes
 

@@ -286,3 +286,31 @@ func (d *Daemon) cancelResume(m proto.CancelResume) error {
 	}
 	return nil
 }
+
+// restartLine is what a resumed agent that was mid-turn gets typed once it
+// is back after a daemon restart.
+const restartLine = "pitwall restarted and resumed this session. Continue the task where you left off; your uncommitted work is in the worktree, don't checkout, reset or stash it."
+
+// restartWait is how long after a restart restartLine waits for the
+// agent's first hook. Codex sends none until its first prompt, so past it
+// the line goes once the agent sits at its prompt anyway.
+const restartWait = 20 * time.Second
+
+// restartNudge carries pane id's state over a restart from saved, the
+// activities of the run before: a finished turn stays finished, so pitwall
+// wait counts it, and a turn that was running gets restartLine queued like
+// a pitwall send. The agent's first hook (Claude's resume SessionStart, pi's
+// session_start) delivers it, or restartWait. Callers hold d.mu.
+func (d *Daemon) restartNudge(id string, saved []model.Activity) {
+	i := slices.IndexFunc(saved, func(a model.Activity) bool { return a.PaneID == id })
+	if i < 0 {
+		return
+	}
+	switch a := saved[i]; a.State {
+	case model.StateCompleted, model.StateError:
+		d.st.Activities = append(d.st.Activities, a)
+	case model.StateWorking:
+		d.mail.queue[id] = append(d.mail.queue[id], letter{text: restartLine, plain: true})
+		d.wake(id, restartWait)
+	}
+}

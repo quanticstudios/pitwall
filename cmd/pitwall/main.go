@@ -53,10 +53,11 @@ const usage = `usage:
   pitwall hooks uninstall    remove this binary's hooks and status line (--dry-run)
   pitwall statusline [cmd]   Claude Code's status line: save its plan limits for
                              Settings, Usage, then run cmd, your own status line
-  pitwall ls [--json] [--children]
+  pitwall ls [--json] [--children] [--tree]
                              list the current session's tabs, numbered in sidebar order
                              (--json: one object per tab, see docs/agent-skill.md;
-                             --children: only the tabs this pane's tab opened)
+                             --children: only the tabs this pane's tab opened;
+                             --tree: each tab under the tab that opened it)
   pitwall new [-n name] [-d] [--issue n] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. --issue adds GitHub issue n
@@ -75,7 +76,9 @@ const usage = `usage:
                              timed out, 1 error; for exit, the process's code,
                              or 3 when a daemon restart lost it. --children in
                              place of <tab> waits on every tab this pane's tab
-                             opened, printing one line each; one blocked ends it
+                             opened, printing one line each; one blocked ends it.
+                             --done-line also wants a last reply line DONE or
+                             BLOCKED: <why>, and nudges a worker once without one
   pitwall split [--down] [tab] [-- cmd args...]
                              open a pane running cmd, else a shell, right of
                              the tab's last pane (--down: below it); prints
