@@ -142,16 +142,17 @@ func TestCLIList(t *testing.T) {
 			fakeCLI(t, cliExchange{state: state})
 			if format == "table" {
 				state.Workspaces[0].Path = filepath.Join(os.Getenv("HOME"), "src")
+				state.Activities[1].UpdatedAt = time.Now().Add(-5*time.Minute - time.Second)
 				code, out, stderr := cliOutput("ls")
 				if code != 0 || stderr != "" {
 					t.Fatalf("%d: %s", code, stderr)
 				}
 				lines := strings.Split(strings.TrimSpace(out), "\n")
 				// Numbered in sidebar order (group g above tab c), detached last.
-				if len(lines) != 4 || strings.Join(strings.Fields(lines[0]), " ") != "# NAME STATE FOLDER GROUP" ||
-					strings.Join(strings.Fields(lines[1]), " ") != "1 fix login Error "+filepath.Join("~", "src")+" agents" ||
-					strings.Join(strings.Fields(lines[2]), " ") != "2 ~ idle /work/c -" ||
-					strings.Join(strings.Fields(lines[3]), " ") != "3 alpine idle /work/b - (detached)" {
+				if len(lines) != 4 || strings.Join(strings.Fields(lines[0]), " ") != "# NAME STATE SINCE FOLDER GROUP" ||
+					strings.Join(strings.Fields(lines[1]), " ") != "1 fix login Error 5m ago "+filepath.Join("~", "src")+" agents" ||
+					strings.Join(strings.Fields(lines[2]), " ") != "2 ~ idle - /work/c -" ||
+					strings.Join(strings.Fields(lines[3]), " ") != "3 alpine idle - /work/b - (detached)" {
 					t.Fatal(out)
 				}
 			} else {

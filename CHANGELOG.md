@@ -20,6 +20,11 @@ build. Either step takes `--dry-run`.
 - Settings, Agent errors shows a likely fix for known causes, such as unquoted globs in zsh or a missing command, and Copy report includes it. Ask an agent to fix these opens New task with the report as the prompt.
 - Settings, Agent errors has charts: tiles for the errors, the tokens they took, errors per active day and the top cause's share, a bar per day stacked by kind, and a split by cause whose hover outlines the cause's group.
 - `pitwall doctor` checks the install: that the `pitwall` on PATH is the one running, that the daemon runs the same version, each installed agent's hooks and skill, the config, and linger on a Linux host over ssh. It prints the command that fixes each failure and changes nothing.
+- `pitwall wait --children --done-line` waits for each worker's last line to read `DONE` or `BLOCKED: <why>`. A worker that stops without one gets one nudge; a second miss prints `no-done-line`, and `BLOCKED` ends the wait like a blocked tab. The pitwall skill tells orchestrators to end every brief with that line.
+- After a daemon restart, a resumed agent whose turn had finished still shows Done, so `pitwall wait --children` no longer waits forever on a worker that finished before the restart. One that was mid-turn is told to continue once it is back.
+- `pitwall wait --children` no longer counts a worker done while a message from `pitwall send` waits to be typed into it.
+- `pitwall ls` has a SINCE column and `--tree`, which puts each tab under the tab that opened it. `ls --json` adds `parent` and `since`.
+- The pitwall skill checks for running workers before starting any, tells you the tab numbers it opened, asks workers for a report and a done line, and nudges workers that time out. A copy you have not edited updates on its own.
 - OpenCode 2 loads pitwall's plugin again, so its tabs show Working, Approval, Input, Done and Error and report failed commands. Run `pitwall hooks install` again: it adds `plugins/pitwall/tui.js` next to `plugins/pitwall.js`. OpenCode 1 needs version 1.4 or later.
 - The update check reads the latest release from github.com's redirect instead of GitHub's API, so the Update button no longer goes missing when other tools on the machine use up the API's 60 requests an hour.
 

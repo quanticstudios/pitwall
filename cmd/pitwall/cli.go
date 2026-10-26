@@ -175,7 +175,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var asJSON, detached, force, children bool
+	var asJSON, detached, force, children, tree bool
 	var name, sessionName string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
@@ -183,6 +183,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	case "ls":
 		flags.BoolVar(&asJSON, "json", false, "")
 		flags.BoolVar(&children, "children", false, "")
+		flags.BoolVar(&tree, "tree", false, "")
 	case "new":
 		flags.StringVar(&name, "n", "", "")
 		flags.BoolVar(&detached, "d", false, "")
@@ -237,7 +238,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if asJSON {
 			return json.NewEncoder(out).Encode(tabsJSON(state, session.ID, only))
 		}
-		return listTabs(out, state, session.ID, only)
+		return listTabs(out, state, session.ID, only, tree)
 	case "new":
 		dir := "."
 		if len(args) == 1 {
@@ -454,18 +455,53 @@ func childTabs(state model.State) (map[string]bool, error) {
 }
 
 // listTabs prints one row per tab of session, or of only when it is not
-// nil: its number, title, state, folder and group.
-func listTabs(out io.Writer, state model.State, session string, only map[string]bool) error {
+// nil: its number, title, state and since when, folder and group. With
+// tree, a tab's workers follow it, indented under it.
+func listTabs(out io.Writer, state model.State, session string, only map[string]bool, tree bool) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	home, _ := os.UserHomeDir()
-	if _, err := fmt.Fprintln(w, "#\tNAME\tSTATE\tFOLDER\tGROUP"); err != nil {
+	if _, err := fmt.Fprintln(w, "#\tNAME\tSTATE\tSINCE\tFOLDER\tGROUP"); err != nil {
 		return err
 	}
-	for i, tab := range numbered(state, session) {
-		if only != nil && !only[tab.ID] {
-			continue
+	tabs := numbered(state, session)
+	var rows []int             // indexes into tabs, in print order
+	prefix := map[int]string{} // tree connectors before a tab's name
+	listed := func(i int) bool { return only == nil || only[tabs[i].ID] }
+	if tree {
+		// walk adds tab i and, below it, the listed tabs it opened.
+		var walk func(i int, indent string)
+		walk = func(i int, indent string) {
+			rows = append(rows, i)
+			var kids []int
+			for k, t := range tabs {
+				if t.Parent == tabs[i].ID && listed(k) {
+					kids = append(kids, k)
+				}
+			}
+			for n, k := range kids {
+				branch, next := "├─ ", "│  "
+				if n == len(kids)-1 {
+					branch, next = "└─ ", "   "
+				}
+				prefix[k] = indent + branch
+				walk(k, indent+next)
+			}
 		}
-		label := "idle"
+		for i, t := range tabs {
+			if p := slices.IndexFunc(tabs, func(p model.Workspace) bool { return p.ID == t.Parent }); listed(i) && (p < 0 || !listed(p)) {
+				walk(i, "")
+			}
+		}
+	} else {
+		for i := range tabs {
+			if listed(i) {
+				rows = append(rows, i)
+			}
+		}
+	}
+	for _, i := range rows {
+		tab := tabs[i]
+		label, since := "idle", "-"
 		var activities []model.Activity
 		for _, a := range state.Activities {
 			if a.WorkspaceID == tab.ID {
@@ -474,6 +510,9 @@ func listTabs(out io.Writer, state model.State, session string, only map[string]
 		}
 		if a := model.Aggregate(activities); a != nil {
 			label = model.PillLabel(*a)
+			if !a.UpdatedAt.IsZero() {
+				since = ago(time.Since(a.UpdatedAt))
+			}
 		}
 		group := "-"
 		for _, p := range state.Projects {
@@ -489,7 +528,7 @@ func listTabs(out io.Writer, state model.State, session string, only map[string]
 		if tab.Detached {
 			marker = " (detached)"
 		}
-		if _, err := fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s%s\n", i+1, tabTitle(tab), label, folder, group, marker); err != nil {
+		if _, err := fmt.Fprintf(w, "%d\t%s%s\t%s\t%s\t%s\t%s%s\n", i+1, prefix[i], tabTitle(tab), label, since, folder, group, marker); err != nil {
 			return err
 		}
 	}

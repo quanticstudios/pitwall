@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,17 +42,23 @@ type tabJSON struct {
 	// PaneList is every pane of the tab in layout order: N is the N of
 	// its address, TAB.N.
 	PaneList []paneJSON `json:"pane_list"`
+	// Parent is the id of the tab that opened this one, "" for none.
+	Parent string `json:"parent"`
+	// Since is when the main pane's state started, null without an agent
+	// activity.
+	Since *time.Time `json:"since"`
 }
 
 // paneJSON is one pane in tabJSON.PaneList, a contract like it.
 type paneJSON struct {
-	N        int    `json:"n"`
-	ID       string `json:"id"`
-	Agent    string `json:"agent"`
-	State    string `json:"state"`
-	Question string `json:"question"`
-	ExitCode *int   `json:"exit_code"`
-	Queued   int    `json:"queued"` // messages from pitwall send not yet typed
+	N        int        `json:"n"`
+	ID       string     `json:"id"`
+	Agent    string     `json:"agent"`
+	State    string     `json:"state"`
+	Question string     `json:"question"`
+	ExitCode *int       `json:"exit_code"`
+	Queued   int        `json:"queued"` // messages from pitwall send not yet typed
+	Since    *time.Time `json:"since"`
 }
 
 func paneOf(state model.State, n int, p model.Pane) paneJSON {
@@ -58,6 +66,9 @@ func paneOf(state model.State, n int, p model.Pane) paneJSON {
 	j.Agent, j.State, j.Question = paneState(state, p)
 	if p.Exited && !p.ExitUnknown {
 		j.ExitCode = &p.ExitCode
+	}
+	if i := slices.IndexFunc(state.Activities, func(a model.Activity) bool { return a.PaneID == p.ID }); i >= 0 && !p.Exited && !state.Activities[i].UpdatedAt.IsZero() {
+		j.Since = &state.Activities[i].UpdatedAt
 	}
 	return j
 }
@@ -69,6 +80,9 @@ func tabsJSON(state model.State, session string, only map[string]bool) []tabJSON
 			continue
 		}
 		t := tabJSON{N: i + 1, ID: w.ID, Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached}
+		if slices.ContainsFunc(state.Workspaces, func(p model.Workspace) bool { return p.ID == w.Parent }) {
+			t.Parent = w.Parent
+		}
 		for _, p := range state.Projects {
 			if p.ID == w.ProjectID {
 				t.Group = p.Name
@@ -78,7 +92,7 @@ func tabsJSON(state model.State, session string, only map[string]bool) []tabJSON
 		t.Panes = len(panes)
 		if p := mainPane(panes); p != nil {
 			main := paneOf(state, 0, *p)
-			t.Agent, t.State, t.Question, t.ExitCode = main.Agent, main.State, main.Question, main.ExitCode
+			t.Agent, t.State, t.Question, t.ExitCode, t.Since = main.Agent, main.State, main.Question, main.ExitCode, main.Since
 		}
 		t.PaneList = []paneJSON{}
 		for i, p := range panes {
@@ -329,12 +343,16 @@ func waitTab(args []string, out io.Writer) (int, error) {
 	until := flags.String("until", "", "")
 	timeout := flags.Duration("timeout", 0, "")
 	children := flags.Bool("children", false, "")
+	doneLine := flags.Bool("done-line", false, "")
 	args, err := parseFlags(flags, args)
 	if err != nil {
 		return waitError, err
 	}
 	if len(args) > 1 || *children && len(args) == 1 || !slices.Contains([]string{"done", "idle", "blocked", "exit"}, *until) {
-		return waitError, errors.New("usage: pitwall wait [-s session] [tab[.N] | --children] --until done|idle|blocked|exit [--timeout 10m]")
+		return waitError, errors.New("usage: pitwall wait [-s session] [tab[.N] | --children [--done-line]] --until done|idle|blocked|exit [--timeout 10m]")
+	}
+	if *doneLine && (!*children || *until != "done") {
+		return waitError, errors.New("--done-line goes with --children --until done")
 	}
 	name := ""
 	if len(args) == 1 {
@@ -362,7 +380,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		return waitError, err
 	}
 	if *children {
-		code, err := waitChildren(watch, state, session.ID, *until, out)
+		code, err := waitChildren(watch, state, session.ID, *until, *doneLine, out)
 		if err != nil && timedOut.Load() {
 			return waitTimeout, fmt.Errorf("timed out after %s", *timeout)
 		}
@@ -425,9 +443,41 @@ func waitTab(args []string, out io.Writer) (int, error) {
 // waitChildren is wait --children: it waits on every tab the calling
 // pane's tab opened until each one got to until, then prints a line per
 // tab. A tab that blocks ends the wait at once, printing the blocked ones.
-// Tabs opened during the wait count too.
-func waitChildren(watch *watcher, state model.State, session, until string, out io.Writer) (int, error) {
-	saw := map[string]bool{} // a turn ran in the tab during this wait
+// Tabs opened during the wait count too, and a tab with a message from
+// pitwall send still to type is not done. With doneLine, a tab is done
+// once its agent's last reply ends with a line DONE; BLOCKED: <why> there
+// ends the wait like a blocked tab. A tab that finished without either gets
+// doneNudge once, and finishing again without one prints no-done-line.
+func waitChildren(watch *watcher, state model.State, session, until string, doneLine bool, out io.Writer) (int, error) {
+	saw := map[string]bool{}           // a turn ran in the tab during this wait
+	nudged := map[string]time.Time{}   // tab: when doneNudge was sent to it
+	marks := map[string]doneMarkSeen{} // tab: its done line, for the turn that ended at since
+	var conn *cliConn
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
+	// mark reads pane's done line, once per turn of the tab's: "DONE",
+	// "BLOCKED: why" or "".
+	mark := func(tab, pane string, since time.Time) (string, error) {
+		if m, ok := marks[tab]; ok && m.since.Equal(since) {
+			return m.line, nil
+		}
+		if conn == nil {
+			c, err := dialCLI()
+			if err != nil {
+				return "", err
+			}
+			conn = c
+		}
+		line, err := readDoneLine(conn, pane)
+		if err != nil {
+			return "", err
+		}
+		marks[tab] = doneMarkSeen{since, line}
+		return line, nil
+	}
 	for {
 		only, err := childTabs(state)
 		if err != nil {
@@ -442,13 +492,19 @@ func waitChildren(watch *watcher, state model.State, session, until string, out 
 			if !only[w.ID] {
 				continue
 			}
-			st, question, code := "exited", "", (*int)(nil)
+			st, question, code, queued := "exited", "", (*int)(nil), 0
+			var pane string
+			var since time.Time
 			if p := mainPane(tabPanes(state, w)); p != nil {
 				j := paneOf(state, 0, *p)
-				st, question, code = j.State, j.Question, j.ExitCode
+				st, question, code, queued, pane = j.State, j.Question, j.ExitCode, j.Queued, p.ID
+				if j.Since != nil {
+					since = *j.Since
+				}
 			}
 			saw[w.ID] = saw[w.ID] || st == "working" || st == "blocked"
 			head := fmt.Sprintf("#%d %s", i+1, tabTitle(w))
+			finished := st == "done" || st == "idle" && saw[w.ID]
 			switch {
 			case st == "blocked":
 				blocked = append(blocked, fmt.Sprintf("%s blocked: %s", head, question))
@@ -461,7 +517,34 @@ func waitChildren(watch *watcher, state model.State, session, until string, out 
 					lines = append(lines, fmt.Sprintf("%s exit %d", head, *code))
 					failed = failed || *code != 0
 				}
-			case until == "done" && (st == "done" || st == "idle" && saw[w.ID]),
+			case until == "done" && finished && queued > 0:
+			case until == "done" && finished && doneLine:
+				at, ok := nudged[w.ID]
+				if ok && !at.IsZero() && !since.After(at) {
+					break // the nudge's turn has not ended yet
+				}
+				line, err := mark(w.ID, pane, since)
+				if err != nil {
+					return waitError, err
+				}
+				switch {
+				case line == "DONE":
+					reached++
+					lines = append(lines, head+" done")
+				case line != "":
+					blocked = append(blocked, head+" "+line)
+				case ok:
+					reached++
+					lines = append(lines, head+" no-done-line")
+				default:
+					nudged[w.ID] = time.Now()
+					if _, err := syncCLI(conn, proto.Send{Pane: pane, From: os.Getenv("PITWALL_PANE"), Text: doneNudge}); err != nil {
+						nudged[w.ID] = time.Time{} // pitwall cannot type into it: no turn to wait for
+						reached++
+						lines = append(lines, head+" no-done-line")
+					}
+				}
+			case until == "done" && finished,
 				until == "idle" && (st == "idle" || st == "done"):
 				reached++
 				lines = append(lines, head+" "+st)
@@ -485,4 +568,52 @@ func waitChildren(watch *watcher, state model.State, session, until string, out 
 			return waitError, err
 		}
 	}
+}
+
+// doneMarkSeen is a tab's done line as read for the turn that ended at
+// since.
+type doneMarkSeen struct {
+	since time.Time
+	line  string
+}
+
+// doneNudge is what wait --done-line sends a worker that ended its turn
+// without a done line.
+// Adapted from forge (MIT): internal/machine/step.go markerNudge
+const doneNudge = "You stopped without a final DONE or BLOCKED line. If you are finished, end with a line DONE. If not, continue the task and end with it. If you are blocked, say why and end with a line BLOCKED: <why>. Answer in your reply, not with pitwall send."
+
+// doneLineRe matches a done line, which stands alone: DONE, or BLOCKED: and
+// why. Claude Code puts a bullet before its reply, and markdown may wrap
+// the word.
+// Adapted from forge (MIT): internal/markers/markers.go markerRe
+var doneLineRe = regexp.MustCompile("^\\s*(?:[●⏺]\\s*)?[*`]*(DONE|BLOCKED\\b:?[^*`]*?)[*`]*\\s*$")
+
+// readDoneLine is the done line pane's agent ended its last reply with,
+// "DONE" or "BLOCKED: why", else "". Without a reply kept, as after a
+// daemon restart, it looks at the last lines of the screen instead.
+func readDoneLine(conn *cliConn, pane string) (string, error) {
+	var lines []string
+	if reply, err := readPane(conn, proto.Read{Pane: pane}); err == nil {
+		if t := strings.TrimSpace(reply); t != "" {
+			lines = strings.Split(t, "\n")
+			lines = lines[len(lines)-1:]
+		}
+	} else {
+		screen, err := readPane(conn, proto.Read{Pane: pane, Screen: true})
+		if err != nil {
+			return "", err
+		}
+		lines = strings.Split(screen, "\n")
+		lines = lines[max(0, len(lines)-20):]
+	}
+	for _, l := range slices.Backward(lines) {
+		if m := doneLineRe.FindStringSubmatch(l); m != nil {
+			if m[1] == "DONE" {
+				return "DONE", nil
+			}
+			why := strings.TrimSpace(strings.TrimLeft(strings.TrimPrefix(m[1], "BLOCKED"), ":"))
+			return "BLOCKED: " + why, nil
+		}
+	}
+	return "", nil
 }

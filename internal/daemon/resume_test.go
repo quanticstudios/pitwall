@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -238,5 +240,55 @@ func TestResumeNotSet(t *testing.T) {
 	d.mu.Unlock()
 	if a.Detail != "You've hit your session limit · resets 3pm (UTC)" || resumes(d, "a").IsZero() {
 		t.Fatalf("activity %+v, want the limit message and a resume", a)
+	}
+}
+
+// TestRestartCarriesTurns: across a daemon restart, a resumed agent whose
+// turn had finished stays done, so pitwall wait counts it, and one that
+// was mid-turn gets restartLine typed, without a header, once its resume
+// SessionStart arrives. A pane that does not resume keeps neither.
+func TestRestartCarriesTurns(t *testing.T) {
+	old, oldSettle := replyDelay, sendSettle
+	replyDelay, sendSettle = 0, 10*time.Millisecond
+	t.Cleanup(func() { replyDelay, sendSettle = old, oldSettle })
+	f := &fakes{statsCalls: map[string]int{}}
+	claude := model.ProviderClaude
+	f.saved = model.State{
+		Sessions: []model.Session{{ID: "s", Name: "work"}},
+		Workspaces: []model.Workspace{{ID: "w", SessionID: "s", Name: "w", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{
+			Dir: layout.Horizontal, Children: []*layout.Node{{Pane: "done"}, {Pane: "mid"}, {Pane: "shell"}}}}}, ActiveTab: "t"}},
+		Panes: []model.Pane{
+			{ID: "done", WorkspaceID: "w", Provider: claude, SessionID: "s1"},
+			{ID: "mid", WorkspaceID: "w", Provider: claude, SessionID: "s2"},
+			{ID: "shell", WorkspaceID: "w"},
+		},
+		Activities: []model.Activity{
+			{PaneID: "done", WorkspaceID: "w", Provider: claude, State: model.StateCompleted, Detail: "shipped"},
+			{PaneID: "mid", WorkspaceID: "w", Provider: claude, State: model.StateWorking},
+			{PaneID: "shell", WorkspaceID: "w", State: model.StateCompleted},
+		},
+	}
+	o := f.options()
+	o.Derive = agent.Derive
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	acts := d.st.Activities
+	d.mu.Unlock()
+	if len(acts) != 1 || acts[0].PaneID != "done" || acts[0].State != model.StateCompleted {
+		t.Fatalf("activities after the restart: %+v, want done's finished turn alone", acts)
+	}
+	if got := f.pane(1).got(); got != "" {
+		t.Fatalf("typed %q before the agent was back", got)
+	}
+	claudeHook(t, d, "mid", `{"session_id":"s2","hook_event_name":"SessionStart","source":"resume"}`)
+	want := restartLine + "\r"
+	if got := gotAfter(t, f.pane(1), 0, len(want)); got != want {
+		t.Fatalf("mid got %q, want %q", got, want)
+	}
+	if got := f.pane(0).got(); got != "" {
+		t.Fatalf("done got %q", got)
 	}
 }

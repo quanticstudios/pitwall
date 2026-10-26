@@ -125,7 +125,11 @@ func newMail() mail {
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
-type letter struct{ from, text string }
+// A plain letter is pitwall's own and is typed without a header.
+type letter struct {
+	from, text string
+	plain      bool
+}
 
 // send queues m for its pane's agent, which gets it when it next sits at
 // its prompt. It refuses a pane whose agent cannot take a prompt even
@@ -148,7 +152,7 @@ func (d *Daemon) send(m proto.Send) error {
 		}
 		d.mail.sent[m.Pane]++
 	}
-	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{m.From, m.Text})
+	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{from: m.From, text: m.Text})
 	d.changed()
 	d.wake(m.Pane, 0)
 	return nil
@@ -207,7 +211,10 @@ func (d *Daemon) deliver(pane string) {
 	}
 	d.mail.typed[pane] = time.Now()
 	delete(d.replies, pane)
-	text := d.header(q[0].from) + "\n" + q[0].text
+	text := q[0].text
+	if !q[0].plain {
+		text = d.header(q[0].from) + "\n" + text
+	}
 	d.changed()
 	d.mu.Unlock()
 	if err := d.typeLine(pane, p, text, "the message is empty"); err != nil {
