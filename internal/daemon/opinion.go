@@ -123,7 +123,7 @@ func (d *Daemon) secondOpinion(m proto.SecondOpinion) error {
 		return fmt.Errorf("pane %s is in no tab", m.Pane)
 	}
 	id := newID()
-	if err := d.start(id, cmd, cmp.Or(sp.Cwd, w.Path), w.Ports); err != nil {
+	if err := d.start(id, cmd, cmp.Or(sp.Cwd, w.Path), w.Ports, nil); err != nil {
 		return err
 	}
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: cmd, Cwd: cmp.Or(sp.Cwd, w.Path)})

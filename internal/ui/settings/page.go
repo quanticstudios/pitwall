@@ -1222,7 +1222,23 @@ func (p *Page) agents() []section {
 		extra: "quiet continue nudge continue_when_quiet", control: p.toggle("agents", "continue_when_quiet", p.s.ContinueWhenQuiet)})
 	rows = append(rows, row{label: "Show cost", desc: "Next to each agent's tokens, what they would cost at the API's list prices. A subscription does not bill per token, so this is off by default.",
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
-	return []section{{rows: rows}}
+	rows = append(rows, row{label: "Guard workers", desc: "Turns the guard on in tabs an agent opens with pitwall worktree new: it denies their agents git push, gh pr merge, terraform apply and the like. A seatbelt, not a sandbox; see docs/usage.md.",
+		extra: "guard deny push merge worker guard_workers", control: p.toggle("agents", "guard_workers", p.s.GuardWorkers)})
+	var presets []row
+	for _, ps := range p.s.Presets {
+		guarded := func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{} }
+		if ps.Guard {
+			guarded = func(gtx gl.Context) gl.Dimensions {
+				return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, "Guarded")
+			}
+		}
+		presets = append(presets, row{label: ps.Name, desc: strings.Join(append([]string{ps.Agent}, ps.Args...), " "), extra: "preset " + ps.Agent, control: guarded})
+	}
+	if len(presets) == 0 {
+		presets = append(presets, row{label: "No presets yet", desc: "Add one as an [[agents.preset]] table in config.toml, with name, agent, args, env and guard.",
+			extra: "preset", control: func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{} }})
+	}
+	return []section{{rows: rows}, {title: "Presets", desc: "Agents with their arguments and variables, which the New task dialog lists after the plain agents and pitwall new --preset starts. Change them in config.toml.", rows: presets}}
 }
 
 func (p *Page) copyLabel(id, label string) string {

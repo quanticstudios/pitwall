@@ -79,7 +79,7 @@ func TestTaskHelpers(t *testing.T) {
 		{"gemini", 0, []string{"/bin/gemini", "-i", "go"}},
 		{"pi", 3, []string{"/bin/pi", "go"}},
 	} {
-		if got := taskCmd("/bin/"+c.agent, c.agent, c.mode, "go"); !slices.Equal(got, c.want) {
+		if got := taskCmd("/bin/"+c.agent, c.agent, nil, c.mode, "go"); !slices.Equal(got, c.want) {
 			t.Errorf("taskCmd(%s, %d) = %q, want %q", c.agent, c.mode, got, c.want)
 		}
 	}
@@ -230,5 +230,44 @@ func TestTaskPreset(t *testing.T) {
 	u.openTask(&st, "")
 	if got := u.task.prompt.Text(); got != "" {
 		t.Fatalf("second open prompt %q", got)
+	}
+}
+
+// An agent preset follows the plain agents and starts its agent with its args,
+// before the mode's, and its variables, the guard's included. Next to its
+// own agent its worktree takes the preset's name.
+func TestTaskAgentPreset(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, exeName("claude")), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", t.TempDir())
+	b := NewFakeBackend()
+	u := &ui{b: b}
+	u.cfg.Presets = []config.AgentPreset{{Name: "Opus high", Agent: "claude", Args: []string{"--model", "opus"}, Env: []string{"FOO=1"}, Guard: true}}
+	st := b.State()
+	u.nav.sync(&st)
+	u.nav.selectWorkspace(&st, "w6", "")
+	u.openTask(&st, "")
+	d := &u.task
+	if len(d.agents) != 2 || d.agents[0].preset || !d.agents[1].preset || d.agents[1].name != "Opus high" {
+		t.Fatalf("agents %+v", d.agents)
+	}
+	d.pickAgent(1, false)
+	d.modes[1] = 2
+	d.prompt.SetText("go")
+	tasks, err := d.tasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := filepath.Join(bin, exeName("claude"))
+	if got := tasks[0]; !slices.Equal(got.Cmd, []string{claude, "--model", "opus", "--permission-mode", "plan", "go"}) || !slices.Equal(got.Env, []string{"FOO=1", "PITWALL_GUARD=1"}) {
+		t.Fatalf("task %+v", got)
+	}
+	d.pickAgent(0, true)
+	d.name.SetText("fix")
+	if tasks, err = d.tasks(); err != nil || len(tasks) != 2 || tasks[0].Worktree != "fix-claude" || tasks[1].Worktree != "fix-opus-high" || tasks[0].Env != nil {
+		t.Fatalf("tasks %+v, %v", tasks, err)
 	}
 }

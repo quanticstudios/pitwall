@@ -845,7 +845,8 @@ group's menu) starts an agent on a prompt in a tab of its own, as
   new worktree on an existing branch. Worktrees get their ports and
   `.pitwall/worktree.toml` setup as **New worktree tab** does; setup runs
   in a shell under the agent.
-- **Agent**: the agent CLIs on your PATH. The dialog remembers the last one.
+- **Agent**: the agent CLIs on your PATH, then your
+  [presets](#agent-presets). The dialog remembers the last one.
   Ctrl+click picks more agents, to compare their work on one prompt: each
   gets a task of its own in a new worktree, on the branch you name with the
   agent's name added, such as `issue-12-login-claude` and
@@ -870,9 +871,97 @@ many agents run in the session. The queue survives a daemon restart.
 ```sh
 pitwall queue add -- codex "fix the flaky login test"   # in the current folder
 pitwall queue add --issue 12 -- claude                  # GitHub issue 12 as the prompt
+pitwall queue add --preset "Opus high" -- "fix it"       # a preset, "fix it" its prompt
 pitwall queue ls
 pitwall queue rm 1
 ```
+
+### Agent presets
+
+A preset is an agent with its arguments and environment under a name. Add
+one `[[agents.preset]]` table per preset to `config.toml`. Set the model and
+effort through `args`, the way each agent's CLI takes them:
+
+```toml
+[[agents.preset]]
+name = "Opus high"
+agent = "claude"
+args = ["--model", "opus", "--effort", "high"]
+
+[[agents.preset]]
+name = "Codex worker"
+agent = "codex"
+args = ["-m", "gpt-5", "-c", "model_reasoning_effort=high"]
+env = ["CODEX_HOME=/home/me/.codex-work"]
+guard = true
+```
+
+pi takes the effort after the model (`["--model", "anthropic/claude-opus-5-5:high"]`),
+and OpenCode as a variant (`["-m", "anthropic/claude-opus-5-5#high"]`).
+
+The New task dialog lists presets after the plain agents, with the same
+modes as their agent. `--preset NAME` starts one from `pitwall new`,
+`pitwall worktree new` and `pitwall queue add`. Arguments after `--` follow
+the preset's own, so `pitwall new --preset "Opus high" -- "fix the flaky
+test"` passes the prompt. `guard = true` turns on the [guard](#the-guard).
+**Settings, Agents** lists the presets read only; edit them in
+`config.toml`.
+
+A preset's tab keeps its environment after a daemon restart, and a resumed
+agent keeps the arguments its CLI documents as session settings: Claude
+Code's `--model` and `--effort`, Codex's `-m` and `-c`, pi's `--model`.
+OpenCode drops `-m` on resume, but OpenCode picks the model and variant of
+the session's last message when it opens one, so the preset's model stays.
+
+### The guard
+
+The guard stops an agent from running the commands that are yours to run:
+`git push`, `gh pr merge` and `gh pr create`, `terraform` and `tofu`
+`apply` and `destroy`, `kubectl apply` and `delete`, and `helm install`,
+`upgrade` and `uninstall`. Turn it on for one tab with `--guard`:
+
+```sh
+pitwall new --guard -- claude "fix the flaky test"
+pitwall worktree new login-fix --guard -- codex "fix the login redirect"
+```
+
+`guard = true` in a preset does the same. With `guard_workers = true` under
+`[agents]` (or **Guard workers** in Settings), every tab an agent opens
+with `pitwall worktree new` gets the guard, so an orchestrator's workers
+can't push or merge. It is off by default.
+
+When the agent asks to run a denied command, the hook answers with a deny
+and a reason, `` pitwall guard: `git push origin fix` is for the human; stop
+and ask. `` The agent reads the reason and the call never runs. Every other
+call goes through as before. Add your own patterns under `[agents]`:
+
+```toml
+[agents]
+guard_deny = ["npm publish *", "docker push *"]
+```
+
+`*` matches any run of characters and `?` one; a trailing ` *` also matches
+the bare command. These patterns add to the list. Nothing in `config.toml`
+can lift a built-in one, and a config with problems still leaves the
+built-in list on.
+
+The guard covers Claude Code and Codex through their `PreToolUse` hook, and
+pi, omp and OpenCode 1 through pitwall's extension and plugin, which run
+`pitwall guard` before each shell command. Run `pitwall hooks install`
+after an upgrade so the extension and plugin have the check. OpenCode 2
+runs plugins in one background service that every OpenCode window shares,
+so pitwall can't tell a guarded tab's calls apart there and does not guard
+OpenCode 2. Gemini CLI, Cursor and the other agents have no guard either.
+
+The guard is a seatbelt, not a sandbox. It reads the command the agent
+asks to run, split on `&&`, `||`, `;`, `|`, `&` and newlines, with leading
+`VAR=value` dropped. A command that hides the push gets through:
+`echo $(git push)`, `eval "git push"`, `sh -c 'git push'` typed as one
+string, a script that pushes, or an alias. A deny is not an answer to a
+permission prompt: the guard never allows anything, and pitwall still
+never answers a prompt for you. Use it to catch an agent that forgot its
+instructions, and keep credentials an agent must not use out of its
+environment.
 
 ### Resume after a usage limit
 

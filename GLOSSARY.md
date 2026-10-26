@@ -38,3 +38,9 @@ _Avoid_: integration, plugin (for all of them)
 
 **Task**: a prompt for an agent from the New task dialog or `pitwall queue add`. Start opens its tab now; a queued task waits until an agent of its session finishes.
 _Avoid_: job, ticket
+
+**Agent preset**: an agent with its arguments and variables under a name, from `[[agents.preset]]` in `config.toml`. New task lists it after the plain agents; `--preset NAME` starts it from the command line.
+_Avoid_: profile, template
+
+**Guard**: denies `git push`, `gh pr merge` and similar commands in a tab it is on for, through the agent's own hook, with a reason the agent reads. A seatbelt, not a sandbox: it reads only the command's text and never answers a prompt.
+_Avoid_: sandbox, policy, block list

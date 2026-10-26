@@ -18,6 +18,36 @@ function tail(s) {
 	return cps.slice(-16000).join("");
 }
 
+// check runs `pitwall guard` on a shell command in a guarded tab and resolves
+// to the reason it denies it, or "" when it allows it or cannot run.
+function check(command) {
+	return new Promise((resolve) => {
+		let reason = "";
+		try {
+			const child = spawn(bin, ["guard"], { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
+			const timer = setTimeout(() => {
+				try {
+					child.kill("SIGKILL");
+				} catch {}
+				resolve("");
+			}, 5000);
+			child.stderr?.on("data", (d) => (reason += d));
+			child.on("error", () => {
+				clearTimeout(timer);
+				resolve("");
+			});
+			child.on("close", (code) => {
+				clearTimeout(timer);
+				resolve(code === 2 ? reason.trim() || "pitwall guard: denied" : "");
+			});
+			child.stdin?.on("error", () => {});
+			child.stdin?.end(JSON.stringify({ tool_input: { command } }));
+		} catch {
+			resolve("");
+		}
+	});
+}
+
 // reporter returns send, which reports one event in Claude Code's hook names.
 function reporter() {
 	// why: one `pitwall hook opencode` at a time keeps events in order.
@@ -134,12 +164,19 @@ async function server() {
 				send("UserPromptSubmit", input.sessionID, { prompt });
 			} catch {}
 		},
-		"tool.execute.before": async (input) => {
+		"tool.execute.before": async (input, output) => {
 			try {
-				if (!main(input?.sessionID)) return;
-				if (input.tool === "plan_exit" && input.callID) plans.add(input.callID);
-				send("PreToolUse", input.sessionID, { tool_name: String(input.tool ?? "") });
+				if (main(input?.sessionID)) {
+					if (input.tool === "plan_exit" && input.callID) plans.add(input.callID);
+					send("PreToolUse", input.sessionID, { tool_name: String(input.tool ?? "") });
+				}
 			} catch {}
+			const command = output?.args?.command;
+			// why: an error thrown here stops the tool call, subagents' included, and the model reads its message.
+			if (process.env.PITWALL_GUARD && typeof command === "string") {
+				const reason = await check(command);
+				if (reason) throw new Error(reason);
+			}
 		},
 		event: async ({ event }) => {
 			try {

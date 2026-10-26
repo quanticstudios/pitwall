@@ -74,6 +74,45 @@ subject to the following conditions:
   Software.
 ```
 
+### forge
+
+<https://github.com/Gustavobelfort/forge>, MIT License, Copyright (c) 2026
+Gustavo Belfort. Read at commit `29478e6345f5a31150712f0d6d2c73206c67893e`.
+
+forge runs agent pipelines. pitwall took its deny list for commands that are
+the human's and the hook that applies it. Each adapted block carries a
+`// Adapted from forge (MIT): <path>` comment. pitwall's own `internal/forge`
+package, for the git host, is unrelated.
+
+| pitwall file | forge source |
+| --- | --- |
+| `internal/guard/guard.go` | `internal/pipeline/permissions.go` (the deny list), `internal/pipeline/guard.go` (pattern match, splitting a command) |
+| `cmd/pitwall/guard.go` | `cmd/forge/guard.go` (the PreToolUse deny) |
+
+```text
+MIT License
+
+Copyright (c) 2026 Gustavo Belfort
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### charmbracelet/x/vt (vendored and patched)
 
 <https://github.com/charmbracelet/x>, MIT License, Copyright (c) Charmbracelet,

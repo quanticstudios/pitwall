@@ -287,6 +287,12 @@ type Settings struct {
 	QuietAfter time.Duration
 	// ContinueWhenQuiet types continue once into a quiet agent.
 	ContinueWhenQuiet bool
+	// Presets is [[agents.preset]] without the ones with problems.
+	Presets []AgentPreset
+	// GuardWorkers turns the guard on in worktree tabs agents open.
+	GuardWorkers bool
+	// GuardDeny is [agents] guard_deny: patterns the guard denies too.
+	GuardDeny []string
 	// Worktrees is [worktrees] resolved.
 	Worktrees WorktreeSettings
 	// Remote is [remote] resolved.
@@ -489,8 +495,10 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ri...)
 	fi = append(fi, resolveGit(c.Git, &s)...)
 	var ai []issue
-	s.MaxRunning, ai = resolveAgents(c.Agents)
+	s.MaxRunning, s.Presets, ai = resolveAgents(c.Agents)
 	s.ResumeAfterLimit = c.Agents.ResumeAfterLimit == nil || *c.Agents.ResumeAfterLimit
+	s.GuardWorkers = c.Agents.GuardWorkers != nil && *c.Agents.GuardWorkers
+	s.GuardDeny = c.Agents.GuardDeny
 	fi = append(fi, ai...)
 	s.QuietAfter, ai = resolveQuiet(c.Agents)
 	s.ContinueWhenQuiet = c.Agents.ContinueWhenQuiet != nil && *c.Agents.ContinueWhenQuiet

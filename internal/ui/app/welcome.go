@@ -62,6 +62,9 @@ type foundAgent struct {
 	cmd, name string
 	hooks     bool // every hook pitwall installs is in its config
 	hookless  bool // the agent has no hooks: pitwall reads its screen
+	// preset marks an [[agents.preset]]: cmd with args, its tab getting vars.
+	preset     bool
+	args, vars []string
 }
 
 // NoteFirstRun marks a first run, one with no daemon state, config or

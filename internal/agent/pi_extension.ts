@@ -29,6 +29,34 @@ function text(message: any): string {
 	return i > 0 ? cut.slice(0, i) : "";
 }
 
+// check runs `pitwall guard` on a shell command in a guarded tab and resolves
+// to the reason it denies it, or "" when it allows it or cannot run.
+function check(command: string): Promise<string> {
+	return new Promise<string>((resolve) => {
+		let reason = "";
+		try {
+			const child = spawn(bin, ["guard"], { stdio: ["pipe", "ignore", "pipe"], windowsHide: true });
+			const timer = setTimeout(() => {
+				kill(child);
+				resolve("");
+			}, 5000);
+			child.stderr?.on("data", (d: Buffer) => (reason += d));
+			child.on("error", () => {
+				clearTimeout(timer);
+				resolve("");
+			});
+			child.on("close", (code: number | null) => {
+				clearTimeout(timer);
+				resolve(code === 2 ? reason.trim() || "pitwall guard: denied" : "");
+			});
+			child.stdin?.on("error", () => {});
+			child.stdin?.end(JSON.stringify({ tool_input: { command } }));
+		} catch {
+			resolve("");
+		}
+	});
+}
+
 // tail is the end of a failed tool's output, where its error is.
 function tail(content: any): string {
 	if (!Array.isArray(content)) return "";
@@ -148,8 +176,14 @@ export default function (pi: any) {
 		result = undefined;
 		report(ctx, "agent_start");
 	});
-	pi.on("tool_call", (event: any, ctx: any) => {
+	pi.on("tool_call", async (event: any, ctx: any) => {
 		report(ctx, "tool_call", { tool_name: String(event?.toolName ?? "") });
+		const command = event?.input?.command;
+		// why: a tool_call handler that returns block stops the call, and the model reads the reason.
+		if (process.env.PITWALL_GUARD && typeof command === "string") {
+			const reason = await check(command);
+			if (reason) return { block: true, reason };
+		}
 	});
 	pi.on("tool_result", (event: any, ctx: any) => {
 		if (event?.isError !== true) return;

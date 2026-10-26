@@ -634,6 +634,7 @@ var piReleased = []string{
 	"11f4736b693b600e21a7eb1d5336e842804cee7a5f6a5b1c0a0a2360a492a42b", // v0.1.0-alpha.6
 	"66a661de319a73aa4e500c5357b694e72370138ef5bdbabc5faaead7470d647b", // v0.1.0-alpha.7 to beta.18
 	"68f2cee0198007bb7d620c8eb866d0017dd9a6ed02a93621a08b6ca72d0af741", // v0.1.1
+	"e498d49b0defcf672784d88bcd50c2997be90acc99633b83cb7332b2366e7d0a", // v0.1.2
 }
 
 // IsPiExtension reports whether b is exactly what PiExtension returns for
@@ -681,7 +682,8 @@ func IsOpenCodePlugin(b []byte) bool { return isGenerated(b, openCodeTemplate, o
 var openCodeReleased = []string{
 	"5e48c0f9ff7ae39bf0153001d3f7df57b4f5f9e0a6b9726b5fea39186a9d62c6", // v0.1.0-alpha.23
 	"765995ca8593576244fd4d147bd7d69497ae7cf6f5ee9f173333455c28534da1", // v0.1.0-beta.3 to v0.1.1
-	"3dc21c6709b78b409a79ba301932553bb1e9ff3484ed1e50ea74b48873c7f280", // main after v0.1.1, before OpenCode 2
+	"3dc21c6709b78b409a79ba301932553bb1e9ff3484ed1e50ea74b48873c7f280", // main after v0.1.1, before OpenCode 2, and v0.1.2
+	"a40d8dde4d811c98b7b4eceb52476cffd8669b6ea129a3b2ed5fe3129b3c5bdf", // main after v0.1.2, OpenCode 2
 }
 
 //go:embed pitwall_skill.md

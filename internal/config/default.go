@@ -32,7 +32,7 @@ func defaults() Config {
 	c.Remote = defaultRemote()
 	c.Notify = defaultNotifications()
 	none := 0.0
-	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit = &none, &on
+	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit, c.Agents.GuardWorkers = &none, &on, &off
 	quiet := float64(DefaultQuietAfter)
 	c.Agents.QuietAfter, c.Agents.ContinueWhenQuiet = &quiet, &off
 	return c
