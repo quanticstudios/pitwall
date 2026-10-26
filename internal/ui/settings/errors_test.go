@@ -68,7 +68,16 @@ func TestErrorsPage(t *testing.T) {
 	if got, want := errorSplit(s), "2 commands, 1 tool call · Claude Code 2, Codex 1"; got != want {
 		t.Errorf("split %q, want %q", got, want)
 	}
-	if s := sum(month); s.Total != 4 || s.Kinds[errlog.API] != 1 {
+	days := func(s *errorSum) (n int) {
+		for _, d := range s.Days {
+			n += d.Count
+		}
+		return n
+	}
+	if len(s.Days) != 8 || days(s) != 3 {
+		t.Errorf("week days %+v", s.Days)
+	}
+	if s := sum(month); s.Total != 4 || s.Kinds[errlog.API] != 1 || days(s) != 4 {
 		t.Errorf("month %+v", s)
 	}
 	if got := errorsNote(&errorSum{}, true, false, week); got != "No errors in the last 7 days." {

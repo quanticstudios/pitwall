@@ -594,6 +594,13 @@ latest command and output, on the clipboard as Markdown to paste into an
 agent and ask it to fix the causes in CLAUDE.md, your shell config or a
 missing tool.
 
+Above the groups, four tiles give the errors and their causes, the tokens
+they took, the errors on a day that had any, and the top cause's share.
+Errors per day stacks each day's commands, tool calls and API errors; hover
+a day for its counts and tokens. Where errors come from splits the window by
+its four most frequent causes and the rest. Hovering a cause shows its count
+and tokens and outlines its group in the list below in the cause's color.
+
 ### Timing
 
 Settings, Timing shows where your agents' time goes. A turn runs from your
