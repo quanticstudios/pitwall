@@ -271,6 +271,29 @@ func (d *Daemon) renameWorkspace(m proto.RenameWorkspace) error {
 	return nil
 }
 
+// statusRunes caps a tab's status line; the row shows one line of it.
+const statusRunes = 120
+
+// setStatus is proto.SetStatus: the line under a tab's row, on one line
+// and cut to statusRunes.
+func (d *Daemon) setStatus(m proto.SetStatus) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	w := d.workspace(m.WorkspaceID)
+	if w == nil {
+		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	text := strings.Join(strings.Fields(m.Text), " ")
+	if r := []rune(text); len(r) > statusRunes {
+		text = string(r[:statusRunes-1]) + "…"
+	}
+	if w.Status != text {
+		w.Status = text
+		d.changed()
+	}
+	return nil
+}
+
 // nameTaken reports whether a tab of session other than except was given
 // name. Callers hold d.mu.
 func (d *Daemon) nameTaken(session, name, except string) bool {

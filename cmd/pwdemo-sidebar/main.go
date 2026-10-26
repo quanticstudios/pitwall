@@ -246,11 +246,15 @@ func fakeState(now time.Time) model.State {
 			Detail: "Bash: go test ./internal/billing/...", UpdatedAt: ago(3 * time.Minute)},
 		model.Activity{PaneID: "trio-3", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, State: model.StateCompleted, UpdatedAt: ago(8 * time.Minute)})
 	add("ws-sidebar", "p-api", "Add rate limiting to the public API", "rate-limit", 40*time.Second, model.ProviderClaude, model.StateWorking)
+	st.Workspaces[len(st.Workspaces)-1].Status = "CI 3/7 · waiting on review" // from pitwall status
 	add("ws-term", "p-api", "Paginate the orders endpoint", "orders-pagination", 2*time.Minute, model.ProviderCodex, model.StateConnecting)
 	add("ws-daemon", "p-api", "Rotate the signing keys", "key-rotation", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)
 	add("ws-conflict", "p-api", "Retry failed webhooks", "webhook-retry", 9*time.Minute, model.ProviderClaude, model.StateError)
 	add("ws-pi", "p-api", "Port the parser", "parser-port", 7*time.Minute, model.ProviderPi, model.StateCompleted)
 	add("ws-plan", "p-api", "Split the billing service", "billing-split", 22*time.Minute, model.ProviderClaude, model.StatePlanReady)
+	// A working agent whose screen has been still for 24 minutes.
+	add("ws-quiet", "p-api", "Summarize the incident", "incident-notes", 25*time.Minute, model.ProviderGemini, model.StateWorking)
+	st.Activities[len(st.Activities)-1].QuietSince = ago(24 * time.Minute)
 	add("ws-hotkeys", "p-web", "Fix the checkout race", "fix/checkout-race", 12*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
 	add("ws-release", "p-web", "Release 2.3", "release/2.3", 26*time.Hour, model.ProviderCodex, model.StateCompleted)
 	add("ws-ci", "", "CI watch", "", 30*time.Second, model.ProviderTerminal, model.StateTerminalRunning)

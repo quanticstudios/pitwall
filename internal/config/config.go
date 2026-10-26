@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -281,6 +282,11 @@ type Settings struct {
 	// ResumeAfterLimit types continue into an agent its usage limit
 	// stopped, once the limit resets.
 	ResumeAfterLimit bool
+	// QuietAfter is [agents] quiet_after: how long a working agent's screen
+	// stays still before its row says quiet, 0 for never.
+	QuietAfter time.Duration
+	// ContinueWhenQuiet types continue once into a quiet agent.
+	ContinueWhenQuiet bool
 	// Worktrees is [worktrees] resolved.
 	Worktrees WorktreeSettings
 	// Remote is [remote] resolved.
@@ -485,6 +491,9 @@ func LoadFile(path string) (Settings, []Problem) {
 	var ai []issue
 	s.MaxRunning, ai = resolveAgents(c.Agents)
 	s.ResumeAfterLimit = c.Agents.ResumeAfterLimit == nil || *c.Agents.ResumeAfterLimit
+	fi = append(fi, ai...)
+	s.QuietAfter, ai = resolveQuiet(c.Agents)
+	s.ContinueWhenQuiet = c.Agents.ContinueWhenQuiet != nil && *c.Agents.ContinueWhenQuiet
 	fi = append(fi, ai...)
 	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
 	var wi []issue

@@ -8,7 +8,7 @@ import "github.com/quanticstudios/pitwall/internal/model"
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
 // RerunChecks, SendFailures, SendReview, Archive, NewTaskIn, DropTask,
-// OpenPort, OpenCompare, CancelResume, SecondOpinion.
+// OpenPort, OpenCompare, CancelResume, SecondOpinion, RequestChanges.
 type Event any
 
 // CancelResume drops the resume after a usage limit of the tab's agents.
@@ -70,6 +70,14 @@ type Answer struct {
 	PaneID string
 	At     int64 // the activity's UpdatedAt in Unix nanoseconds
 	Allow  bool
+}
+
+// RequestChanges is a reply typed on a Plan row: the app queues Text for
+// the agent in PaneID, typed once it waits at its prompt. pitwall never
+// answers the plan dialog itself.
+type RequestChanges struct {
+	PaneID string
+	Text   string
 }
 
 // OpenPR opens the tab's pull request in the browser.

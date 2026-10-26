@@ -118,7 +118,8 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 // card is what a tab's hover card shows. Lines lists which lines, in
 // order: 't' title, 'f' folder, 'b' branch, 'r' its pull request, 'c'
 // the PR's checks, 'g' its buttons to the agent, 'x' the conflict radar,
-// 'o' the worktree's ports, 's' agent state, 'd' its detail, 'a' each
+// 'o' the worktree's ports, 's' agent state, 'd' its detail, 'm' the
+// status line pitwall status set, 'a' each
 // agent pane, 'u' token use, 'j' the decision model's advice, 'p' pane
 // count.
 type card struct {
@@ -137,7 +138,9 @@ type card struct {
 	sendFails    *widget.Clickable // Send failures to agent; nil draws none
 	sendNotes    *widget.Clickable // Send review comments to agent; nil draws none
 	state        model.AgentState
+	quiet        string // QuietText of the activity
 	detail       string
+	status       string            // the tab's status line
 	agents       []model.AgentPane // with two or more, each one
 	usage        string            // UsageText of the tab's agents
 	decision     string
@@ -176,6 +179,9 @@ func (c card) lines() string {
 			out += "d"
 		}
 	}
+	if c.status != "" {
+		out += "m"
+	}
 	if len(c.agents) > 1 {
 		out += "a"
 	}
@@ -211,9 +217,10 @@ func cardFor(v *view, ws model.Workspace) card {
 		c.pr = &pr
 	}
 	if a := v.activity[ws.ID]; a != nil {
-		c.state, c.detail = a.State, clampDetail(a.Detail)
+		c.state, c.detail, c.quiet = a.State, clampDetail(a.Detail), QuietText(v.now, a)
 		c.decision = AdviceText(*a, v.st.Decide.Provider)
 	}
+	c.status = ws.Status
 	c.radar = radarEntries(v, ws)
 	for _, p := range v.st.Panes {
 		if p.WorkspaceID == ws.ID {
@@ -470,14 +477,24 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				return layout.Dimensions{Size: image.Pt(icon, icon)}
 			}
 			line(dot, func(gtx layout.Context) layout.Dimensions {
-				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{w: func(gtx layout.Context) layout.Dimensions {
+				items := []item{{w: func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), col, stateText(c.state))
-				}})
+				}}}
+				if c.quiet != "" {
+					items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.UIFont, th.Sp(theme.Small), muted, c.quiet)
+					}})
+				}
+				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(6), items...)
 			})
 		case 'd':
 			y -= gap / 2 // the detail belongs to the state above it
 			line(nil, func(gtx layout.Context) layout.Dimensions {
 				return detailLabel(gtx, th, theme.Mix(bg, th.Fg, 0.8), c.detail)
+			})
+		case 'm':
+			line(iconOf(icMessage, muted), func(gtx layout.Context) layout.Dimensions {
+				return wrapLabel(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.8), c.status, 2)
 			})
 		case 'a':
 			for _, ap := range c.agents {

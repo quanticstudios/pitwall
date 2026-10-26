@@ -19,6 +19,49 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
+// Request changes… on a Plan row opens an empty field; Enter sends its
+// text for the plan's pane, and an empty field sends nothing.
+func TestRequestChangesField(t *testing.T) {
+	st := model.State{
+		Workspaces: []model.Workspace{{ID: "w", Name: "Session"}},
+		Panes:      []model.Pane{{ID: "p", WorkspaceID: "w", Provider: model.ProviderClaude}},
+		Activities: []model.Activity{{PaneID: "p", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StatePlanReady}},
+	}
+	var s Sidebar
+	var r input.Router
+	var ops op.Ops
+	frame := func() []Event {
+		ops.Reset()
+		gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: layout.Exact(image.Pt(288, 600)), Now: time.Now()}
+		_, events := s.Layout(gtx, theme.Dark(), &st, "", "w")
+		r.Frame(&ops)
+		return events
+	}
+	frame()
+	if v := newView(layout.Context{}, theme.Dark(), &st, "", "w"); !s.planning(v, "w", false, v.activity["w"]) {
+		t.Fatal("a Plan row shows no Request changes…")
+	}
+	for _, text := range []string{"  ", "split step 2"} {
+		s.startReply("w", "p")
+		frame()
+		frame()
+		if !s.Editing() || !r.Source().Focused(&s.editor) {
+			t.Fatal("the reply field took no focus")
+		}
+		s.editor.SetText(text)
+		r.Queue(key.Event{Name: key.NameReturn, State: key.Press})
+		events := frame()
+		want := []Event{RequestChanges{PaneID: "p", Text: "split step 2"}}
+		if text == "  " {
+			want = nil
+		}
+		if !slices.Equal(events, want) || s.Editing() {
+			t.Fatalf("%q sent %v, editing %v", text, events, s.Editing())
+		}
+	}
+}
+
 func TestRenameEndsWhenHiddenOrBlurred(t *testing.T) {
 	for _, name := range []string{"visible session", "visible group", "collapsed", "deleted session", "deleted group", "detached", "blurred session", "blurred group"} {
 		t.Run(name, func(t *testing.T) {
@@ -92,6 +135,34 @@ func TestRelTime(t *testing.T) {
 	}
 	if got := relTime(now, time.Time{}); got != "" {
 		t.Errorf("zero time = %q", got)
+	}
+}
+
+// QuietText names a working agent's still stretch in minutes, then hours,
+// and nothing for any other state.
+func TestQuietText(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		state model.AgentState
+		ago   time.Duration
+		want  string
+	}{
+		{model.StateWorking, 20 * time.Minute, "quiet 20m"},
+		{model.StateWorking, 59*time.Minute + 59*time.Second, "quiet 59m"},
+		{model.StateWorking, 3*time.Hour + time.Minute, "quiet 3h"},
+		{model.StateWorking, 0, ""}, // zero QuietSince
+		{model.StatePlanReady, 30 * time.Minute, ""},
+	} {
+		a := &model.Activity{State: c.state}
+		if c.ago > 0 {
+			a.QuietSince = now.Add(-c.ago)
+		}
+		if got := QuietText(now, a); got != c.want {
+			t.Errorf("%s %v: %q, want %q", c.state, c.ago, got, c.want)
+		}
+	}
+	if got := QuietText(now, nil); got != "" {
+		t.Errorf("no activity: %q", got)
 	}
 }
 

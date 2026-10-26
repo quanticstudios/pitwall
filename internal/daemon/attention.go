@@ -231,8 +231,9 @@ func (d *Daemon) pruneNotices() {
 
 // attended is st.Activities as clients see them: a pane's OSC notification
 // in place of its activity, Unseen set on each needs-you activity that
-// changed since its pane was last seen, and Resumes on each a usage limit
-// stopped. Callers hold d.mu.
+// changed since its pane was last seen, Resumes on each a usage limit
+// stopped, and QuietSince on each working one whose screen stays still.
+// Callers hold d.mu.
 func (d *Daemon) attended() []model.Activity {
 	out := slices.Clone(d.st.Activities)
 	for _, p := range d.st.Panes {
@@ -254,6 +255,9 @@ func (d *Daemon) attended() []model.Activity {
 		out[i].Unseen = model.NeedsYou(out[i].State) && out[i].UpdatedAt.After(seen)
 		if r := d.pendingResume(out[i].PaneID); r != nil {
 			out[i].Resumes = r.at
+		}
+		if q := d.quiet[out[i].PaneID]; q != nil && q.shown && out[i].State == model.StateWorking {
+			out[i].QuietSince = q.since
 		}
 	}
 	return out

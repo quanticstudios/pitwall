@@ -132,11 +132,13 @@ func TestCLIListJSON(t *testing.T) {
 	st.Panes = append(st.Panes, model.Pane{ID: "q", WorkspaceID: "w", Exited: true, ExitCode: 4})
 	st.Activities[0].UpdatedAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	st.PRs = map[string]model.PR{"w": {Number: 7, State: model.PROpen, Reason: model.ReasonChecksFailing}}
+	st.Workspaces[0].Status = "CI 3/7"
+	st.Activities[0].QuietSince = time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
 	fakeCLI(t, cliExchange{state: st})
 	code, out, stderr := cliOutput("ls", "--json")
 	want := `[{"n":1,"id":"w","title":"build","group":"agents","cwd":"/work/app/src","branch":"main","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"panes":2,"detached":false,` +
 		`"pane_list":[{"n":1,"id":"p","agent":"codex","state":"blocked","question":"Run make?","exit_code":null,"queued":0,"since":"2026-01-02T03:04:05Z"},{"n":2,"id":"q","agent":"","state":"exited","question":"","exit_code":4,"queued":0,"since":null}],` +
-		`"parent":"","since":"2026-01-02T03:04:05Z","pr_state":"checks_failing"}]` + "\n"
+		`"parent":"","since":"2026-01-02T03:04:05Z","pr_state":"checks_failing","quiet_since":"2026-10-26T12:00:00Z","status":"CI 3/7"}]` + "\n"
 	if code != 0 || out != want || stderr != "" {
 		t.Fatalf("%d %s\n%s\nwant %s", code, stderr, out, want)
 	}

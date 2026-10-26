@@ -40,6 +40,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 28 added SetStatus, Workspace.Status and Activity.QuietSince: a
+// script's line under a tab's row, and how long a working agent's screen
+// has been still.
 // Level 27 added PR.Head, Reason and Detail, why a pull request is not
 // ready to merge, and BranchStats.Compare, the page to open one off GitHub.
 // Level 26 added SecondOpinion: another agent reviews a tab's changes,
@@ -116,12 +119,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 27
+const Level = 28
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case SetStatus:
+		return 28
 	case SecondOpinion:
 		return 26
 	case CancelResume:
@@ -664,6 +669,13 @@ type SecondOpinion struct {
 	Agent string
 }
 
+// SetStatus sets the line of text under a tab's row, from `pitwall
+// status`; an empty Text clears it.
+type SetStatus struct {
+	WorkspaceID string
+	Text        string
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
@@ -684,4 +696,5 @@ var Messages = []any{
 	FocusDir{},
 	CancelResume{},
 	SecondOpinion{},
+	SetStatus{},
 }

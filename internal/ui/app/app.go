@@ -803,6 +803,16 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.openReview(st, e.WorkspaceID, "")
 	case sidebar.Answer:
 		u.send(proto.Answer{Pane: e.PaneID, At: e.At, Allow: e.Allow})
+	case sidebar.RequestChanges:
+		// why: queued like Send failures, so it waits for the user to answer the plan dialog; pitwall never presses its keys.
+		if p := findPane(st, e.PaneID); p != nil {
+			u.sends.mu.Lock()
+			u.sends.done = append(u.sends.done, agentSend{ws: p.WorkspaceID, pane: p.ID, act: "request_changes", text: e.Text})
+			u.sends.mu.Unlock()
+			if u.invalidate != nil {
+				u.invalidate()
+			}
+		}
 	case sidebar.CancelResume:
 		for _, a := range st.Activities {
 			if a.WorkspaceID == e.WorkspaceID && !a.Resumes.IsZero() {

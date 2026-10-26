@@ -50,6 +50,10 @@ type tabJSON struct {
 	// PRState is why the branch's pull request cannot merge yet, a
 	// model.Reason such as "checks_failing", or "ready"; "" with no PR.
 	PRState string `json:"pr_state"`
+	// QuietSince is when the working agent's screen last changed, once
+	// it has been still for [agents] quiet_after; null otherwise.
+	QuietSince *time.Time `json:"quiet_since"`
+	Status     string     `json:"status"` // the line pitwall status set
 }
 
 // paneJSON is one pane in tabJSON.PaneList, a contract like it.
@@ -82,7 +86,7 @@ func tabsJSON(state model.State, session string, only map[string]bool) []tabJSON
 		if only != nil && !only[w.ID] {
 			continue
 		}
-		t := tabJSON{N: i + 1, ID: w.ID, Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached, PRState: string(state.PRs[w.ID].Reason)}
+		t := tabJSON{N: i + 1, ID: w.ID, Title: tabTitle(w), Cwd: state.LivePath(w), Branch: w.Branch, Detached: w.Detached, PRState: string(state.PRs[w.ID].Reason), Status: w.Status}
 		if slices.ContainsFunc(state.Workspaces, func(p model.Workspace) bool { return p.ID == w.Parent }) {
 			t.Parent = w.Parent
 		}
@@ -96,6 +100,11 @@ func tabsJSON(state model.State, session string, only map[string]bool) []tabJSON
 		if p := mainPane(panes); p != nil {
 			main := paneOf(state, 0, *p)
 			t.Agent, t.State, t.Question, t.ExitCode, t.Since = main.Agent, main.State, main.Question, main.ExitCode, main.Since
+			for _, a := range state.Activities {
+				if a.PaneID == p.ID && !a.QuietSince.IsZero() {
+					t.QuietSince = &a.QuietSince
+				}
+			}
 		}
 		t.PaneList = []paneJSON{}
 		for i, p := range panes {

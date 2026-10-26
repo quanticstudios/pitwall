@@ -356,3 +356,12 @@ type into an agent only while it sits at its prompt with no form on
 screen, and `send` waits while the user types in that pane. pitwall
 never answers a permission prompt or a question for an agent: a blocked
 agent waits for the user.
+
+## Status line
+
+`pitwall status [pane] -- text` shows a short line under a tab's row and
+in its hover card, such as `pitwall status -- "CI 3/7"` from your own pane
+or `pitwall status 3 -- "waiting on review"` for tab 3. Without text, or
+with `--clear`, it removes the line. `ls --json` gives it as `status`, and
+`quiet_since` is when a working agent's screen last changed once it has
+stayed still for `[agents] quiet_after` (20 minutes), else `null`.

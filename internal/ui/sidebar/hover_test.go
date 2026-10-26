@@ -118,6 +118,13 @@ func TestCardLines(t *testing.T) {
 	if c := cardFor(v, st.Workspaces[1]); c.decision != "" {
 		t.Errorf("shell card shows %q", c.decision)
 	}
+	// A quiet working agent and a status line from pitwall status.
+	st.Activities[0].State, st.Activities[0].QuietSince = model.StateWorking, time.Now().Add(-25*time.Minute)
+	st.Workspaces[0].Status = "CI 3/7"
+	v = newView(layout.Context{}, theme.Dark(), st, "", "")
+	if c := cardFor(v, st.Workspaces[0]); c.quiet != "quiet 25m" || c.status != "CI 3/7" || c.lines() != "tfbosdmp" {
+		t.Errorf("quiet card %q %q, lines %q", c.quiet, c.status, c.lines())
+	}
 }
 
 func TestClampDetail(t *testing.T) {

@@ -117,6 +117,8 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 		err = splitCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "review":
 		err = reviewCommand(args[1:], out)
+	case len(args) > 0 && args[0] == "status":
+		err = statusCommand(args[1:])
 	case len(args) > 0 && args[0] == "read":
 		err = readCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "send":

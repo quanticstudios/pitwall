@@ -92,7 +92,10 @@ type Workspace struct {
 	// Parent is the tab whose pane opened this one with `pitwall new` or
 	// `pitwall worktree new` (proto.NewSession.ParentPane), "" for a tab the
 	// user opened. The sidebar hangs a tab under its parent's top ancestor.
-	Parent    string
+	Parent string
+	// Status is a line of text a script set with `pitwall status`, shown
+	// under the tab's row; "" for none.
+	Status    string
 	UpdatedAt time.Time
 	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
 	ActiveTab string // the id of Tabs[0]

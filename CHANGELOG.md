@@ -29,6 +29,9 @@ build. Either step takes `--dry-run`.
 - The hover card of a tab with an open pull request says why it cannot merge yet: conflicts, failed checks, changes requested (or awaiting re-review), checks still running, or no approval. A pull request ready to merge shows Ready on its chip, and `pitwall ls --json` has the reason in `pr_state`.
 - A branch pushed to GitLab, Gitea, Forgejo or another host that is not GitHub has Open compare page in its tab menu, which opens the host's page for starting a pull request.
 - Set `auto_send_failures = true` under `[git]` to send a pull request's failed checks to the tab's agent when CI fails, at most twice per branch and never while the agent works or GitHub still shows an older commit.
+- A working agent whose screen has not changed for 20 minutes shows "quiet 20m" on its row in place of the time, and `pitwall ls --json` gives `quiet_since`. Set the minutes with `quiet_after` under `[agents]`. With `continue_when_quiet = true`, pitwall types `continue` into it once.
+- `pitwall status [pane] -- text` puts a line of text, such as "CI 3/7", under a tab's row and in its hover card; without text it clears it. `pitwall ls --json` gives it as `status`.
+- A Plan row has Request changes…: type what should change, and pitwall types it as your reply the next time the agent waits for input. It never answers the plan dialog for you.
 - OpenCode 2 loads pitwall's plugin again, so its tabs show Working, Approval, Input, Done and Error and report failed commands. Run `pitwall hooks install` again: it adds `plugins/pitwall/tui.js` next to `plugins/pitwall.js`. OpenCode 1 needs version 1.4 or later.
 - The update check reads the latest release from github.com's redirect instead of GitHub's API, so the Update button no longer goes missing when other tools on the machine use up the API's 60 requests an hour.
 
