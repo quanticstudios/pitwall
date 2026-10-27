@@ -639,3 +639,23 @@ func TestFocusDir(t *testing.T) {
 		}
 	}
 }
+
+// A split opens in the folder of the pane it splits, not the session's.
+func TestSplitOpensInPaneCwd(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	home, moved := t.TempDir(), t.TempDir()
+	f.saved = model.State{
+		Workspaces: []model.Workspace{{ID: "w", Name: "w", Path: home, Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "p"}}}, ActiveTab: "t"}},
+		Panes:      []model.Pane{{ID: "p", WorkspaceID: "w", Cwd: moved}},
+	}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: "w", TabID: "t", Target: "p"}))
+	if c := f.pane(1).cfg; c.Cwd != moved {
+		t.Fatalf("split opened in %q, want %q", c.Cwd, moved)
+	}
+	must(t, d.handle(ctx, proto.OpenPane{WorkspaceID: "w", TabID: "t"}))
+	if c := f.pane(2).cfg; c.Cwd != home {
+		t.Fatalf("untargeted pane opened in %q, want %q", c.Cwd, home)
+	}
+}

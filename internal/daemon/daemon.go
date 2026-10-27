@@ -1101,11 +1101,19 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 	if m.Target != "" && (t == nil || !slices.Contains(layout.Panes(t.Layout), m.Target)) {
 		return fmt.Errorf("no pane %s in tab %q of session %s", m.Target, m.TabID, w.ID)
 	}
+	// A split opens where the pane it splits is, which a cd may have moved
+	// away from the session's folder.
+	cwd := w.Path
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Target }); i >= 0 && d.st.Panes[i].Cwd != "" {
+		if fi, err := os.Stat(d.st.Panes[i].Cwd); err == nil && fi.IsDir() {
+			cwd = d.st.Panes[i].Cwd
+		}
+	}
 	id := newID()
-	if err := d.start(id, m.Cmd, w.Path, w.Ports, nil); err != nil {
+	if err := d.start(id, m.Cmd, cwd, w.Ports, nil); err != nil {
 		return err
 	}
-	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: w.Path})
+	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: cwd})
 	leaf := &layout.Node{Pane: id}
 	switch {
 	case t == nil: // a project's workspace gets its first tab with its first pane
