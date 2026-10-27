@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.4
 
 - Fleet mode, off by default, in Settings, Fleet and under `[fleet]` in `config.toml`. Three lanes, small, normal and big, each name one of your presets; `pitwall worktree new <name> --lane small -- "<brief>"` starts the lane's preset on the brief, and `pitwall worktree lanes` lists them. The pitwall skill tells orchestrator agents to route each task to a lane by size.
 - Fleet mode puts the contents of a worker contract file, set with `contract`, before every `--lane` brief.
