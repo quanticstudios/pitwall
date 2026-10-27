@@ -379,6 +379,8 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 		return drawIcon(gtx, icLoader, sz, th.Blue, float32(frac*2*math.Pi))
 	case model.StateWatching:
 		return drawIcon(gtx, icEye, sz, th.Blue, 0)
+	case model.StatePROpen:
+		return drawIcon(gtx, icGitPullRequest, sz, th.Blue, 0)
 	case model.StateCompleted:
 		return drawIcon(gtx, icCircleCheck, sz, th.Green, 0)
 	case model.StatePlanReady:
@@ -586,7 +588,7 @@ func StateColor(th *theme.Theme, s model.AgentState) color.NRGBA {
 		return th.Red
 	case model.StatePendingApproval, model.StateAwaitingInput:
 		return th.Yellow
-	case model.StateWorking, model.StateConnecting, model.StateWatching:
+	case model.StateWorking, model.StateConnecting, model.StateWatching, model.StatePROpen:
 		return th.Blue
 	case model.StatePlanReady:
 		return th.Purple

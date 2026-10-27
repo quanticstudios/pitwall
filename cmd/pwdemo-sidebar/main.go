@@ -214,6 +214,8 @@ func fakeState(now time.Time) model.State {
 			"ws-hotkeys": {Number: 77, State: model.PRClosed, URL: "https://github.com/acme/web/pull/77"},
 			"ws-conflict": {Number: 140, State: model.PROpen, Review: model.ReviewRequired, Conflicts: true, URL: "https://github.com/acme/api/pull/140",
 				Reason: model.ReasonConflicting, Detail: "conflicts with main"},
+			"ws-propen": {Number: 152, State: model.PROpen, Review: model.ReviewRequired, URL: "https://github.com/acme/api/pull/152",
+				Checks: []model.Check{{Name: "build", State: model.CheckPass}, {Name: "test", State: model.CheckPending}}, Reason: model.ReasonChecksPending, Detail: "test"},
 		},
 	}
 	add := func(id, project, name, branch string, updated time.Duration, provider model.Provider, state model.AgentState) {
@@ -251,6 +253,8 @@ func fakeState(now time.Time) model.State {
 	add("ws-daemon", "p-api", "Rotate the signing keys", "key-rotation", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)
 	add("ws-conflict", "p-api", "Retry failed webhooks", "webhook-retry", 9*time.Minute, model.ProviderClaude, model.StateError)
 	add("ws-pi", "p-api", "Port the parser", "parser-port", 7*time.Minute, model.ProviderPi, model.StateCompleted)
+	// A finished turn whose branch has an open pull request.
+	add("ws-propen", "p-api", "Cache the price lookups", "price-cache", 4*time.Minute, model.ProviderCodex, model.StatePROpen)
 	add("ws-plan", "p-api", "Split the billing service", "billing-split", 22*time.Minute, model.ProviderClaude, model.StatePlanReady)
 	// A working agent whose screen has been still for 24 minutes.
 	add("ws-quiet", "p-api", "Summarize the incident", "incident-notes", 25*time.Minute, model.ProviderGemini, model.StateWorking)

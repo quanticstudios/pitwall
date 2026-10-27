@@ -109,3 +109,65 @@ func TestWorktreeOffline(t *testing.T) {
 		}
 	}
 }
+
+// new --lane starts the lane's preset with the words after -- as one
+// brief, the worker contract before it, and names the lane to the daemon;
+// lanes lists them, and fleet mode off or an unknown lane is refused.
+func TestWorktreeLane(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	sh, _ = filepath.Abs(sh)
+	repo := gitRepo(t)
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("PITWALL_PANE", "")
+	contract := filepath.Join(cfg, "contract.md")
+	os.WriteFile(contract, []byte("Commit on the branch.\n"), 0o644)
+	os.MkdirAll(filepath.Join(cfg, "pitwall"), 0o755)
+	write := func(on bool) {
+		os.WriteFile(filepath.Join(cfg, "pitwall", "config.toml"), []byte(`[[agents.preset]]
+name = "Quick"
+agent = "sh"
+args = ["-c", "true"]
+
+[fleet]
+enabled = `+map[bool]string{true: "true", false: "false"}[on]+`
+contract = "`+filepath.ToSlash(contract)+`"
+
+[fleet.small]
+preset = "Quick"
+timebox = 15
+`), 0o600)
+	}
+	write(true)
+	t.Chdir(repo)
+	before := model.State{
+		Sessions: []model.Session{{ID: "s", Name: "main"}},
+		Projects: []model.Project{{ID: "g", SessionID: "s", Root: repo, Kind: model.ProjectGit}},
+	}
+	after := before
+	after.Workspaces = []model.Workspace{{ID: "w", SessionID: "s", ProjectID: "g", Name: "fix"}}
+	fakeCLI(t, cliExchange{state: before, level: proto.Level},
+		cliExchange{request: proto.NewWorkspace{ProjectID: "g", Name: "fix", Cmd: []string{sh, "-c", "true", "Commit on the branch.\n\nFix the login redirect."}, Lane: "small"}, state: after})
+	if code, out, stderr := worktreeOutput("new", "fix", "--lane", "small", "--", "Fix the login", "redirect."); code != 0 || out != "#1\n" {
+		t.Fatalf("%d %q %s", code, out, stderr)
+	}
+	if code, out, _ := worktreeOutput("lanes"); code != 0 || !strings.Contains(out, "small   Quick") || !strings.Contains(out, "15m") || !strings.Contains(out, "(none: lane off)") {
+		t.Fatalf("lanes %d %q", code, out)
+	}
+	for args, want := range map[string]string{
+		"new x --lane big -- go":                  `no lane "big"`,
+		"new x --lane small":                      "--lane needs a brief",
+		"new x --lane small --preset Quick -- go": "one of --preset and --lane",
+	} {
+		if code, _, stderr := worktreeOutput(strings.Fields(args)...); code == 0 || !strings.Contains(stderr, want) {
+			t.Errorf("%s: %d %q, want %q", args, code, stderr, want)
+		}
+	}
+	write(false)
+	if code, _, stderr := worktreeOutput("new", "x", "--lane", "small", "--", "go"); code == 0 || !strings.Contains(stderr, "fleet mode") {
+		t.Errorf("fleet off: %d %q", code, stderr)
+	}
+}

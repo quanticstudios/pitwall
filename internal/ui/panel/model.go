@@ -263,9 +263,12 @@ func bannerFor(in *Input) banner {
 		return banner{kind: "wait", eyebrow: "Needs you", what: "The plan is ready for review", why: firstLine(a.Detail)}
 	case model.StateError:
 		return banner{kind: "error", eyebrow: "Stopped on an error", what: name + " hit an error", why: firstLine(a.Detail)}
-	case model.StateCompleted:
+	case model.StateCompleted, model.StatePROpen:
 		b := banner{kind: "done", eyebrow: "Finished " + sidebar.RelTime(in.Now, a.UpdatedAt), what: "Latest turn completed"}
-		if a.Review {
+		switch {
+		case a.State == model.StatePROpen:
+			b.what = "Turn finished; the pull request is open"
+		case a.Review:
 			b.what = "Turn finished; the turn check says look at it"
 		}
 		if t != nil {
@@ -369,7 +372,7 @@ func graphFor(in *Input) []node {
 	if a != nil {
 		state = a.State
 	}
-	ended := t != nil && !t.End.IsZero() || state == model.StateCompleted
+	ended := t != nil && !t.End.IsZero() || state == model.StateCompleted || state == model.StatePROpen
 
 	prompt := node{kind: "Prompt", title: "No prompt yet", state: nodeCompleted}
 	if t != nil {

@@ -17,6 +17,12 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Fleet mode, off by default, in Settings, Fleet and under `[fleet]` in `config.toml`. Three lanes, small, normal and big, each name one of your presets; `pitwall worktree new <name> --lane small -- "<brief>"` starts the lane's preset on the brief, and `pitwall worktree lanes` lists them. The pitwall skill tells orchestrator agents to route each task to a lane by size.
+- Fleet mode puts the contents of a worker contract file, set with `contract`, before every `--lane` brief.
+- Fleet mode nudges a lane worker once when it runs past its lane's timebox with no pull request open, and tells the tab that started it once past twice the timebox.
+- Fleet mode escalates a lane worker whose checks fail again after `auto_send_failures` sent them twice: it tells the parent tab, or with `escalate = "respawn"` starts the big lane in the same worktree with the diff stat, the failure and the old agent's last screen.
+- A finished turn whose branch has an open pull request reads PR open, with a pull request icon, in the sidebar, `pitwall ls`, `ls --json` (`pr-open`) and the phone page. `pitwall wait --until done` and `wait --children` wait until the pull request merges or closes.
+
 - In Claude Code and Codex panes, Ctrl+V and Ctrl+Shift+V both paste text or an image: text goes in as a paste, and with an image on the clipboard the agent gets Ctrl+V and attaches it. Codex used to answer Ctrl+V with text on the clipboard by saying it found no image.
 - Pasting with only an image on the clipboard no longer stops every later paste in the window from working on Wayland.
 

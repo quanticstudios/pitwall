@@ -32,6 +32,7 @@ const (
 	fleetNeed = iota // a permission prompt, a question or a plan
 	fleetError
 	fleetWorking
+	fleetPR // its turn ended and its pull request is open
 	fleetDone
 	fleetIdle // no agent running: not started yet, or exited
 	fleetStates
@@ -45,6 +46,8 @@ func fleetState(a *model.Activity) int {
 		return fleetError
 	case a.State == model.StatePendingApproval, a.State == model.StateAwaitingInput, a.State == model.StatePlanReady:
 		return fleetNeed
+	case a.State == model.StatePROpen:
+		return fleetPR
 	case a.State == model.StateCompleted:
 		return fleetDone
 	}
@@ -57,7 +60,7 @@ func fleetColor(th *theme.Theme, state int, base color.NRGBA) color.NRGBA {
 		return th.Yellow
 	case fleetError:
 		return th.Red
-	case fleetWorking:
+	case fleetWorking, fleetPR:
 		return th.Blue
 	case fleetDone:
 		return th.Green
@@ -65,7 +68,7 @@ func fleetColor(th *theme.Theme, state int, base color.NRGBA) color.NRGBA {
 	return theme.Mix(base, th.Muted, 0.45)
 }
 
-var fleetIcons = [...]string{fleetNeed: icCircleAlert, fleetError: icX, fleetWorking: icLoader, fleetDone: icCheck, fleetIdle: icPower}
+var fleetIcons = [...]string{fleetNeed: icCircleAlert, fleetError: icX, fleetWorking: icLoader, fleetPR: icGitPullRequest, fleetDone: icCheck, fleetIdle: icPower}
 
 // fleetHeight is the strip's height: 6dp, the 4dp bar, 5dp, the chips.
 func fleetHeight(gtx layout.Context, th *theme.Theme) int {

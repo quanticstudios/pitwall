@@ -20,6 +20,10 @@ const (
 	// StateWatching is the sidebar's, never an agent's: an orchestrator
 	// whose own turn ended while a worker of its works.
 	StateWatching AgentState = "watching"
+	// StatePROpen is never an agent's either: the daemon shows a finished
+	// turn as it while the tab's branch has an open pull request, which
+	// has not merged or closed yet (State.AwaitPR).
+	StatePROpen AgentState = "pr-open"
 )
 
 type Activity struct {
@@ -83,24 +87,27 @@ func UrgencyRank(a Activity) int {
 }
 
 // NeedsYou reports a state that waits on the user: a question, an
-// approval, a plan, an error, or a finished turn.
+// approval, a plan, an error, or a finished turn, its pull request open
+// or not.
 func NeedsYou(s AgentState) bool {
 	switch s {
-	case StateAwaitingInput, StatePendingApproval, StatePlanReady, StateError, StateCompleted:
+	case StateAwaitingInput, StatePendingApproval, StatePlanReady, StateError, StateCompleted, StatePROpen:
 		return true
 	}
 	return false
 }
 
 // Ported from aide src/shared/workspace-activity.ts.
+// StatePROpen, pitwall's own, sits between a plan and a finished turn.
 var statePriority = map[AgentState]int{
-	StateError:           7,
-	StatePendingApproval: 6,
-	StateAwaitingInput:   5,
-	StateWorking:         4,
-	StateConnecting:      4,
-	StateWatching:        4,
-	StatePlanReady:       3,
+	StateError:           8,
+	StatePendingApproval: 7,
+	StateAwaitingInput:   6,
+	StateWorking:         5,
+	StateConnecting:      5,
+	StateWatching:        5,
+	StatePlanReady:       4,
+	StatePROpen:          3,
 	StateCompleted:       2,
 	StateTerminalRunning: 1,
 }
@@ -115,6 +122,7 @@ var shortLabels = map[AgentState]string{
 	StateTerminalRunning: "Running",
 	StateWorking:         "Working",
 	StateWatching:        "Watching",
+	StatePROpen:          "PR open",
 }
 
 // SortActivities orders by state priority, then most recent first.
@@ -153,7 +161,7 @@ func Tier(a *Activity) AttentionTier {
 	switch a.State {
 	case StateError, StatePendingApproval, StateAwaitingInput:
 		return TierAttention
-	case StateWorking, StateConnecting, StateTerminalRunning, StateWatching:
+	case StateWorking, StateConnecting, StateTerminalRunning, StateWatching, StatePROpen:
 		return TierActive
 	}
 	return TierIdle
@@ -170,4 +178,13 @@ func PillLabel(a Activity) string {
 		return "Check"
 	}
 	return shortLabels[a.State]
+}
+
+// AwaitPR is a as clients see it: a finished turn reads StatePROpen while
+// its tab's branch has an open pull request.
+func (s State) AwaitPR(a Activity) Activity {
+	if pr, ok := s.PRs[a.WorkspaceID]; ok && a.State == StateCompleted && pr.State == PROpen {
+		a.State = StatePROpen
+	}
+	return a
 }

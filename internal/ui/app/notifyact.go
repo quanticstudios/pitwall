@@ -113,7 +113,7 @@ func notifyRule(r config.NotifySettings, a model.Activity, now time.Time) (show,
 		show = r.Approval
 	case model.StateAwaitingInput:
 		show = r.Input
-	case model.StateCompleted:
+	case model.StateCompleted, model.StatePROpen:
 		show = r.Done
 	case model.StateError:
 		show = r.Failed

@@ -95,10 +95,24 @@ type Workspace struct {
 	Parent string
 	// Status is a line of text a script set with `pitwall status`, shown
 	// under the tab's row; "" for none.
-	Status    string
+	Status string
+	// Lane is the fleet lane the tab's agent started on with pitwall
+	// worktree new --lane; its zero value is none.
+	Lane      Lane
 	UpdatedAt time.Time
 	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
 	ActiveTab string // the id of Tabs[0]
+}
+
+// Lane is a fleet worker's lane and what pitwall did about it: at most
+// one nudge past the lane's timebox, one message to the parent tab past
+// twice the timebox, and one escalation on repeat red checks.
+type Lane struct {
+	Name  string // small, normal or big
+	Start time.Time
+	// Nudged, Told and Escalated are set once each is done, so a daemon
+	// restart does not repeat them.
+	Nudged, Told, Escalated bool
 }
 
 // PortBlock is the TCP ports First to Last; the zero value is none.

@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 30 added NewWorkspace.Lane and Workspace.Lane: a fleet worker's
+// lane, its timebox and what pitwall did about it.
 // Level 29 added Env on NewSession, NewWorkspace, Task and Pane: a
 // preset's variables and the guard's, kept across restarts.
 // Level 28 added SetStatus, Workspace.Status and Activity.QuietSince: a
@@ -121,7 +123,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 29
+const Level = 30
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
@@ -265,6 +267,9 @@ type NewWorkspace struct {
 	Root string
 	// Env is NewSession.Env.
 	Env []string
+	// Lane is the fleet lane Cmd starts, "small", "normal" or "big", for
+	// its timebox; "" for none. A daemon below LaneLevel ignores it.
+	Lane string
 }
 
 type RenameWorkspace struct {
@@ -600,6 +605,9 @@ type SeePane struct {
 // EnvLevel is the Level of daemons that take Env on NewSession,
 // NewWorkspace and Task.
 const EnvLevel = 29
+
+// LaneLevel is the Level of daemons that take NewWorkspace.Lane.
+const LaneLevel = 30
 
 // WorkspaceRootLevel is the Level of daemons that take NewWorkspace.Root.
 const WorkspaceRootLevel = 22

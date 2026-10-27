@@ -124,6 +124,11 @@ type Options struct {
 	AutoSendFailures func() bool
 	Head             func(ctx context.Context, dir string) (string, error)
 	Failures         func(ctx context.Context, dir string) ([]forge.FailedCheck, error)
+	// Fleet reads config.toml for [fleet] and the presets its lanes name;
+	// nil leaves fleet mode off. DiffStat is a branch's changes for the
+	// brief of a worker respawned on the big lane; nil leaves them out.
+	Fleet    func() config.Settings
+	DiffStat func(ctx context.Context, dir string) (string, error)
 	// Bell reports whether a BEL raises its pane's attention ([terminal]
 	// bell); nil means it does.
 	Bell func() bool
@@ -240,6 +245,8 @@ func New() (*Daemon, error) {
 		AutoSendFailures:  func() bool { s, _ := config.Load(); return s.AutoSendFailures },
 		Head:              gitHead,
 		Failures:          forge.Failures,
+		Fleet:             func() config.Settings { s, _ := config.Load(); return s },
+		DiffStat:          diffStat,
 		Orphans:           pruneOrphans,
 		Save:              func(s model.State) error { return store.Save(path, s) },
 		Load:              func() (model.State, error) { return store.Open(path) },
@@ -930,6 +937,9 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
 	if parent := d.workspace(w.Parent); parent != nil {
 		w.ProjectID = parent.ProjectID // hang under the parent, in its group or none
+	}
+	if m.Lane != "" && len(m.Cmd) > 0 {
+		w.Lane = model.Lane{Name: m.Lane, Start: time.Now()}
 	}
 	if owned != "" {
 		w.Ports = portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
@@ -1802,6 +1812,9 @@ func (d *Daemon) snapshot() model.State {
 	}
 	s.Panes = slices.Clone(s.Panes)
 	s.Activities = d.attended()
+	for i, a := range s.Activities {
+		s.Activities[i] = s.AwaitPR(a)
+	}
 	s.Stats = maps.Clone(s.Stats)
 	s.PRs = maps.Clone(s.PRs)           // entries are replaced, never changed in place
 	s.Overlaps = maps.Clone(s.Overlaps) // the radar replaces a tab's list whole

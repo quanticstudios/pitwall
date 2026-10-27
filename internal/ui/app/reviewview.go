@@ -645,7 +645,8 @@ func (u *ui) openReview(st *model.State, id, file string) {
 		invalidate = func() {}
 	}
 	// A finished turn opens on what it changed.
-	done := agentStateOf(st, ws) == model.StateCompleted
+	as := agentStateOf(st, ws)
+	done := as == model.StateCompleted || as == model.StatePROpen
 	u.review.show(id, st.LivePath(*ws), done, invalidate)
 	u.review.selPath, u.review.agentState = file, agentStateOf(st, ws)
 }

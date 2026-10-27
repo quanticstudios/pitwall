@@ -62,7 +62,7 @@ func TestCompletion(t *testing.T) {
 		}
 	}
 	for name, want := range map[string][]string{
-		"session": {"ls", "new", "attach", "rename", "kill"}, "worktree": {"ls", "new", "rm", "prune"},
+		"session": {"ls", "new", "attach", "rename", "kill"}, "worktree": {"ls", "new", "lanes", "rm", "prune"},
 		"tab": {"new", "rename", "close"}, "hooks": {"install", "uninstall"}, "completion": {"bash", "zsh", "fish"},
 		"config": {"path", "default", "init", "check", "schema"}, "remote": {"pair", "devices", "revoke"},
 		"jev": {"login", "status", "logout", "report"}, "queue": {"ls", "add", "rm"},

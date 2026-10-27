@@ -14,13 +14,13 @@
 :root {
   --bg: #08090c; --surface: #14161b; --field: #1c1f26; --line: #252932;
   --fg: #f2f3f5; --muted: #8e939c; --primary: #2997ff; --on-primary: #06121f;
-  --red: #ff6b6b; --yellow: #ffc533; --green: #59d499; --purple: #bd93ff;
+  --red: #ff6b6b; --yellow: #ffc533; --green: #59d499; --blue: #57c1ff; --purple: #bd93ff;
 }
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #f5f5f7; --surface: #ffffff; --field: #ebebef; --line: #dcdce0;
     --fg: #1d1d1f; --muted: #6e6e73; --primary: #0066cc; --on-primary: #ffffff;
-    --red: #cf222e; --yellow: #9a6700; --green: #1a7f37; --purple: #8250df;
+    --red: #cf222e; --yellow: #9a6700; --green: #1a7f37; --blue: #0969da; --purple: #8250df;
   }
 }
 * { box-sizing: border-box; }
@@ -40,6 +40,7 @@ h1 { font-size: 20px; font-weight: 600; margin: 0; }
 .pill.pending-approval, .pill.awaiting-input { color: var(--yellow); }
 .pill.error { color: var(--red); }
 .pill.completed { color: var(--green); }
+.pill.pr-open { color: var(--blue); }
 .pill.plan-ready { color: var(--purple); }
 .tab { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .where { color: var(--muted); font-size: 13px; margin-top: 2px; }

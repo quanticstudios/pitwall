@@ -26,14 +26,18 @@ const worktreeUsage = `usage:
                                 ahead of and behind the default branch (--all: every
                                 repo pitwall has a group for)
   pitwall worktree new <name> [--from <ref> | --branch <branch> | --pr <n>]
-                       [--preset <name>] [--guard] [-- cmd args...]
+                       [--preset <name> | --lane <lane>] [--guard] [-- cmd args...]
                                 open a tab in a new worktree, <repo>/.worktrees/<name>:
                                 a new branch <name> off ref (default: the default
                                 branch), an existing local or remote branch, or GitHub
                                 pull request n as branch pr-<n>; cmd runs in it, else
                                 the tab opens empty. --preset runs a [[agents.preset]]
                                 with cmd's args after its own; --guard denies the agent
-                                pushes and merges. Prints the tab's #
+                                pushes and merges. --lane (fleet mode) runs the lane's
+                                preset with the words after -- as one brief, the worker
+                                contract before it. Prints the tab's #
+  pitwall worktree lanes        the fleet lanes: small, normal and big, each with its
+                                preset and timebox
   pitwall worktree rm <name> [--force]
                                 remove the worktree and close its tab; --force when it
                                 has changes. Its branch stays
@@ -61,7 +65,7 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	flags := flag.NewFlagSet("worktree "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var all, force, guarded bool
-	var from, branch, preset string
+	var from, branch, preset, lane string
 	var pr int
 	switch command {
 	case "ls":
@@ -71,10 +75,16 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		flags.StringVar(&branch, "branch", "", "")
 		flags.IntVar(&pr, "pr", 0, "")
 		flags.StringVar(&preset, "preset", "", "")
+		flags.StringVar(&lane, "lane", "", "")
 		flags.BoolVar(&guarded, "guard", false, "")
 	case "rm":
 		flags.BoolVar(&force, "force", false, "")
 	case "prune":
+	case "lanes":
+		if len(args) > 0 {
+			return errors.New(worktreeUsage)
+		}
+		return listLanes(out)
 	default:
 		return fmt.Errorf("unknown command %q\n%s", command, worktreeUsage)
 	}
@@ -84,6 +94,11 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	}
 	if (command == "ls" || command == "prune") != (len(args) == 0) || len(args) > 1 || dashes && len(cmd) == 0 && preset == "" {
 		return errors.New(worktreeUsage)
+	}
+	if lane != "" {
+		if preset, cmd, err = laneLaunch(lane, preset, cmd); err != nil {
+			return err
+		}
 	}
 	// An agent's worker gets the guard when [agents] guard_workers says so.
 	if !guarded && os.Getenv("PITWALL_PANE") != "" && (len(cmd) > 0 || preset != "") {
@@ -136,7 +151,10 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		if err := varsLevel(vars, level); err != nil {
 			return err
 		}
-		return newWorktree(conn, out, state, level, root, args[0], f, cmd, vars)
+		if lane != "" && level < proto.LaneLevel {
+			return errors.New("the pitwall daemon running is older than this pitwall and would not keep the lane's timebox; it works once the daemon restarts")
+		}
+		return newWorktree(conn, out, state, level, root, args[0], f, cmd, vars, lane)
 	case "rm":
 		return removeWorktree(ctx, conn, errOut, state, root, args[0], force)
 	}
@@ -168,6 +186,52 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	}
 	_, err = fmt.Fprintln(out, "No tab uses these. pitwall worktree rm <name> deletes one.")
 	return err
+}
+
+// laneLaunch turns --lane into the lane's preset and its brief: the words
+// of brief joined, with the worker contract before them.
+func laneLaunch(lane, preset string, brief []string) (string, []string, error) {
+	if preset != "" {
+		return "", nil, errors.New("use one of --preset and --lane")
+	}
+	s, _ := config.Load()
+	if !s.Fleet.On {
+		return "", nil, errors.New("--lane needs fleet mode: turn it on in Settings, Fleet, or set enabled = true under [fleet] in config.toml")
+	}
+	l, ok := s.Fleet.Lane(lane)
+	if !ok {
+		return "", nil, fmt.Errorf("no lane %q with a preset; see pitwall worktree lanes", lane)
+	}
+	if len(brief) == 0 {
+		return "", nil, errors.New(`--lane needs a brief: pitwall worktree new <name> --lane small -- "<brief>"`)
+	}
+	text, err := s.Fleet.Brief(strings.Join(brief, " "))
+	if err != nil {
+		return "", nil, err
+	}
+	return l.Preset, []string{text}, nil
+}
+
+// listLanes prints the fleet lanes as config.toml sets them.
+func listLanes(out io.Writer) error {
+	s, _ := config.Load()
+	if !s.Fleet.On {
+		_, err := fmt.Fprintln(out, "Fleet mode is off: turn it on in Settings, Fleet, or set enabled = true under [fleet] in config.toml.")
+		return err
+	}
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "LANE\tPRESET\tTIMEBOX\tFOR")
+	for i, l := range s.Fleet.Lanes {
+		preset, tb := l.Preset, "off"
+		if preset == "" {
+			preset = "(none: lane off)"
+		}
+		if l.Timebox > 0 {
+			tb = fmt.Sprintf("%gm", l.Timebox.Minutes())
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", l.Name, preset, tb, config.LaneDescs[i])
+	}
+	return w.Flush()
 }
 
 // mainRoot is the main worktree of the repo at dir, also from inside a
@@ -263,9 +327,9 @@ func listWorktrees(ctx context.Context, out io.Writer, state model.State, roots 
 // Run from an agent's pane, the tab joins the agent's group instead, and
 // no group is made. With no session the daemon makes one, as pitwall new
 // does.
-func newWorktree(conn *cliConn, out io.Writer, state model.State, level int, root, name string, from model.WorktreeFrom, cmd, vars []string) error {
+func newWorktree(conn *cliConn, out io.Writer, state model.State, level int, root, name string, from model.WorktreeFrom, cmd, vars []string, lane string) error {
 	session, _ := currentSession(state, "")
-	msg := proto.NewWorkspace{Name: name, From: from, Cmd: cmd, Env: vars, ParentPane: os.Getenv("PITWALL_PANE")}
+	msg := proto.NewWorkspace{Name: name, From: from, Cmd: cmd, Env: vars, ParentPane: os.Getenv("PITWALL_PANE"), Lane: lane}
 	if parent, err := resolveTab(state, "", ""); err == nil && level >= proto.WorkspaceRootLevel {
 		session.ID, msg.Root = parent.SessionID, root
 	} else {

@@ -65,15 +65,16 @@ keeps running, and `pitwall` opens the most recently used one again.
 
 Each sidebar row shows a tab's state:
 
-| State    | Meaning                                           |
-| -------- | ------------------------------------------------- |
-| Working  | The agent is in a turn                            |
-| Input    | The agent asked you a question                    |
-| Approval | The agent wants permission to run a tool          |
-| Plan     | The agent finished a plan and waits for approval  |
-| Done     | The agent finished its turn                       |
-| Error    | The turn failed                                   |
-| `go`     | A terminal is running that command                |
+| State    | Meaning                                                                    |
+| -------- | -------------------------------------------------------------------------- |
+| Working  | The agent is in a turn                                                     |
+| Input    | The agent asked you a question                                             |
+| Approval | The agent wants permission to run a tool                                   |
+| Plan     | The agent finished a plan and waits for approval                           |
+| PR open  | The agent finished its turn, and the tab's branch has an open pull request |
+| Done     | The agent finished its turn                                                |
+| Error    | The turn failed                                                            |
+| `go`     | A terminal is running that command                                         |
 
 A tab running an agent pitwall knows always shows it, idle or busy: the
 agent's logo replaces the row icon. The logo goes when the agent exits back
@@ -312,7 +313,7 @@ the agent's group, or stays out of groups with an ungrouped agent, even
 when its folder has a group of its own. The
 agent's row grows a bar with one segment per worker in its state's color
 and, under it, a count each of the workers that need you, failed, work,
-are done and stopped. A stopped worker, grey in the bar, has no agent
+have a pull request open, are done and stopped. A stopped worker, grey in the bar, has no agent
 running in its tab: the agent exited or never started. When the agent's
 own turn ends while a worker still works, its pill reads Watching, a blue
 outline with an eye, until the last worker stops. The workers start
@@ -973,6 +974,71 @@ permission prompt: the guard never allows anything, and pitwall still
 never answers a prompt for you. Use it to catch an agent that forgot its
 instructions, and keep credentials an agent must not use out of its
 environment.
+
+### Fleet mode
+
+Fleet mode lets an orchestrator agent start workers by a task's size, and
+keeps an eye on them while they run. Turn it on in **Settings, Fleet**, or
+under `[fleet]` in `config.toml`. It is off by default.
+
+```toml
+[fleet]
+enabled = true
+contract = "~/fleet/contract.md"   # goes before every --lane brief
+escalate = "parent"                # or "respawn", "off"
+
+[fleet.small]                      # one clear pull request, mechanical work included
+preset = "Quick"
+timebox = 30
+
+[fleet.normal]                     # normal work
+preset = "Standard"
+timebox = 60
+
+[fleet.big]                        # whole features, investigations, risky changes
+preset = "Deep"
+timebox = 120
+```
+
+Each lane names one of your [presets](#agent-presets). Lanes ship empty;
+a lane without a preset is off. `pitwall worktree lanes` lists them, and
+the pitwall skill tells an orchestrator agent to route by size, one worker
+per task:
+
+```sh
+pitwall worktree new login-fix --lane small -- "Fix the login redirect. FEAT-123 has the steps."
+```
+
+The words after `--` are the brief. pitwall starts the lane's preset with
+the brief as its prompt, and puts the contents of the `contract` file
+before it. A contract holds what every worker should do, for example:
+
+```markdown
+Work only in this worktree. Commit on its branch with a message that says
+what changed. Run the tests before you push. Open a pull request when the
+tests pass, and stop there: the orchestrator reviews and merges.
+```
+
+A worker on a lane that runs past the lane's `timebox` (minutes) with no
+pull request open gets one nudge, typed at its prompt as `pitwall send`
+does. Set its words with `nudge`. Past twice the timebox, still with no
+pull request, the tab that started it gets a line from pitwall. Each
+happens once per worker, and a daemon restart keeps track of what was
+sent.
+
+With `auto_send_failures` under `[git]` on, pitwall sends a branch's
+failed checks to its agent at most twice. When a lane worker's checks
+fail again after that, `escalate` decides what happens: `parent` (the
+default) tells the tab that started it, `respawn` closes the worker's
+agent and starts the `big` lane in the same worktree, with the branch's
+diff stat, the failed checks and the old agent's last screen as its brief,
+and `off` does nothing. Without a `big` preset, `respawn` tells the parent
+instead.
+
+A finished turn reads **PR open** in place of Done while its branch has an
+open pull request, fleet mode or not. `pitwall wait --until done` and
+`wait --children --until done` keep waiting until the pull request merges
+or closes; `--until idle` returns at once.
 
 ### Resume after a usage limit
 

@@ -73,7 +73,9 @@ const usage = `usage:
   pitwall wait <tab> --until done|idle|blocked|exit [--timeout 10m]
                              block until the tab's agent is there (its first
                              live agent pane, else live pane). done: it
-                             finished its turn; idle: done, or at its prompt;
+                             finished its turn, and its pull request, if open,
+                             merged or closed; idle: done, a pull request open,
+                             or at its prompt;
                              blocked: it waits on a permission prompt or a
                              question; exit: its process ended. Without an agent, done means exit. Exit codes: 0 reached,
                              2 blocked instead, 3 the process exited, 124
@@ -124,7 +126,7 @@ const usage = `usage:
   TAB.N, the Nth pane of the tab in layout order (3.2, #3.2, review.2),
   or @ and its id from ls --json; wait, prompt, send and read take one,
   and a tab alone is its main pane.
-  pitwall worktree <cmd>     ls, new, rm, prune: this repo's git worktrees (see pitwall worktree)
+  pitwall worktree <cmd>     ls, new, lanes, rm, prune: this repo's git worktrees and the fleet lanes (see pitwall worktree)
   pitwall completion <shell>  bash, zsh, fish: print the shell's completion script, e.g.
                              source <(pitwall completion bash)
   pitwall notify <text>      ring the calling pane, e.g. npm test && pitwall notify "tests passed"

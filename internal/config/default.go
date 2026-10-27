@@ -35,6 +35,7 @@ func defaults() Config {
 	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit, c.Agents.GuardWorkers = &none, &on, &off
 	quiet := float64(DefaultQuietAfter)
 	c.Agents.QuietAfter, c.Agents.ContinueWhenQuiet = &quiet, &off
+	c.Fleet = defaultFleet()
 	return c
 }
 

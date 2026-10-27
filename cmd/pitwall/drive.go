@@ -212,6 +212,8 @@ func agentOf(p model.Pane) string {
 //	working  a turn runs, or, with no agent, a command runs in the shell
 //	blocked  the agent waits on a permission prompt, a question or a plan
 //	done     the agent finished its turn (or ended it with an error)
+//	pr-open  the agent finished its turn and its tab's branch has an open
+//	         pull request: done once it merges or closes
 //	idle     the agent sits at its prompt with nothing to report
 //	running  no agent is known, and the pane's process runs: a shell at its
 //	         prompt, or a command pitwall knows nothing more about
@@ -242,6 +244,8 @@ func paneState(state model.State, p model.Pane) (agent, st, question string) {
 	switch state.Activities[i].State {
 	case model.StateCompleted, model.StateError:
 		return agent, "done", ""
+	case model.StatePROpen:
+		return agent, "pr-open", ""
 	}
 	return agent, "working", ""
 }
@@ -435,7 +439,7 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		}
 		saw = saw || st == "working" || st == "blocked"
 		switch {
-		case st == *until, *until == "idle" && st == "done",
+		case st == *until, *until == "idle" && (st == "done" || st == "pr-open"),
 			*until == "done" && st == "idle" && saw: // an interrupted turn ends idle
 			fmt.Fprintln(out, st)
 			return waitReached, nil
@@ -557,7 +561,7 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 					}
 				}
 			case until == "done" && finished,
-				until == "idle" && (st == "idle" || st == "done"):
+				until == "idle" && (st == "idle" || st == "done" || st == "pr-open"):
 				reached++
 				lines = append(lines, head+" "+st)
 			}
