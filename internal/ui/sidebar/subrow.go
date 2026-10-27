@@ -120,6 +120,7 @@ var stateNouns = map[model.AgentState][2]string{
 	model.StateWorking:         {"working", "working"},
 	model.StateConnecting:      {"working", "working"},
 	model.StatePlanReady:       {"plan", "plans"},
+	model.StatePROpen:          {"PR open", "PRs open"},
 	model.StateCompleted:       {"done", "done"},
 }
 

@@ -78,7 +78,7 @@ func DecideNotifications(previous Notifications, next []Activity, focused bool, 
 		}
 		switch a.State {
 		case StateAwaitingInput, StatePendingApproval, StatePlanReady, StateError:
-		case StateCompleted:
+		case StateCompleted, StatePROpen:
 			if old.State != StateWorking {
 				continue
 			}

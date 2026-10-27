@@ -50,6 +50,15 @@ tabs. Give each worker its own tab, in this session:
   bar of their states, so the user can watch and step in.
 - `pitwall ls --children` lists them (`--json` for their `state`).
 
+With fleet mode on, `pitwall worktree lanes` lists the user's lanes. Route
+each task by its size: one clear pull request, mechanical work included,
+to `small`; normal work to `normal`; whole features, investigations and
+risky changes to `big`. One worker per task; never split a task across
+workers. `pitwall worktree new <name> --lane small -- "<brief>"` starts
+the lane's preset on the brief. A worker whose pull request is open reads
+`pr-open`, which `wait --until done` waits past until the pull request
+merges or closes; use `--until idle` to review it before then.
+
 Give each worker one self-contained task: the goal, the files, how to
 check it, and to commit on its branch. End every brief with:
 

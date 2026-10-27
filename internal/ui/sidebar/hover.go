@@ -258,6 +258,8 @@ func stateText(s model.AgentState) string {
 		return "Connecting"
 	case model.StateWatching:
 		return "Watching its workers"
+	case model.StatePROpen:
+		return "Finished; its pull request is open"
 	case model.StatePlanReady:
 		return "Plan ready"
 	case model.StateCompleted:

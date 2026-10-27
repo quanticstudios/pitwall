@@ -37,7 +37,7 @@ type Item struct {
 // Replies reports whether a pane in state s takes a typed reply: a
 // question, or an agent at its prompt after a turn.
 func Replies(s model.AgentState) bool {
-	return s == model.StateAwaitingInput || s == model.StateCompleted || s == model.StateError
+	return s == model.StateAwaitingInput || s == model.StateCompleted || s == model.StateError || s == model.StatePROpen
 }
 
 // Items lists st's panes that need you, most pressing first.

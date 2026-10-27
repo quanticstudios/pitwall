@@ -55,6 +55,15 @@ merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr
 archive_on_merge = false                # archive a merged worktree tab without a click
 auto_send_failures = false              # send a branch's failed checks to its agent
 conflict_radar = true                   # mark tabs whose branches change the same files
+
+[fleet]                                 # see usage.md, Fleet mode
+enabled = false                         # pitwall worktree new --lane and the timeboxes
+contract = ""                           # a file that goes before every --lane brief
+escalate = "parent"                     # or "respawn", "off": CI red after two sends
+
+[fleet.small]                           # also [fleet.normal] and [fleet.big]
+preset = ""                             # an [[agents.preset]] name; empty is off
+timebox = 30                            # minutes before one nudge; 60 and 120 for the others
 ```
 
 Chords are modifiers (`Ctrl`, `Alt`, `Shift`, `Super`) and a key joined by

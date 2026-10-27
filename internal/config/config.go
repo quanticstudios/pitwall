@@ -33,6 +33,7 @@ type Config struct {
 	Updates   Updates     `toml:"updates" doc:"Release updates."`
 	Usage     Usage       `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Agents    AgentLimits `toml:"agents" doc:"Agents started from the task queue, and agents a usage limit stopped."`
+	Fleet     Fleet       `toml:"fleet" doc:"Fleet mode: lanes that start a preset by a task's size, a contract before every worker's brief, a timebox per lane, and what happens when a worker's CI keeps failing. See docs/usage.md."`
 	Decisions Decisions   `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, turn checks, check runs, stuck agents. Off until provider is set; see docs/decisions.md for what each feature sends."`
 	Worktrees Worktrees   `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Notify    Notify      `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
@@ -293,6 +294,8 @@ type Settings struct {
 	GuardWorkers bool
 	// GuardDeny is [agents] guard_deny: patterns the guard denies too.
 	GuardDeny []string
+	// Fleet is [fleet] resolved.
+	Fleet FleetSettings
 	// Worktrees is [worktrees] resolved.
 	Worktrees WorktreeSettings
 	// Remote is [remote] resolved.
@@ -502,6 +505,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ai...)
 	s.QuietAfter, ai = resolveQuiet(c.Agents)
 	s.ContinueWhenQuiet = c.Agents.ContinueWhenQuiet != nil && *c.Agents.ContinueWhenQuiet
+	fi = append(fi, ai...)
+	s.Fleet, ai = resolveFleet(c.Fleet, s.Presets)
 	fi = append(fi, ai...)
 	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
 	var wi []issue

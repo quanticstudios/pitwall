@@ -522,7 +522,7 @@ func (n *nav) jumpAttention(st *model.State) {
 			if ra, rb := model.UrgencyRank(a), model.UrgencyRank(b); ra != rb {
 				return rb - ra
 			}
-			if ca, cb := a.State == model.StateCompleted, b.State == model.StateCompleted; ca != cb {
+			if ca, cb := a.State == model.StateCompleted || a.State == model.StatePROpen, b.State == model.StateCompleted || b.State == model.StatePROpen; ca != cb {
 				if ca {
 					return 1
 				}

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -49,6 +50,7 @@ func (d *Daemon) prLoop(ctx context.Context) {
 	defer t.Stop()
 	for {
 		d.pollPRs(ctx, time.Now())
+		d.checkFleet(time.Now())
 		select {
 		case <-ctx.Done():
 			return
@@ -89,7 +91,8 @@ func (d *Daemon) hidden() bool {
 // whose PR it sees go from open to merged is archived, as the delete dialog
 // does with its branch box ticked, when [git] archive_on_merge is on and
 // the tab is a worktree pitwall made. With [git] auto_send_failures on,
-// a branch's failed checks go to its tab's agent; see sendFailures.
+// a branch's failed checks go to its tab's agent; see sendFailures. In
+// fleet mode, a lane worker past those sends is escalated; see escalate.
 func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	type job struct{ key, dir string }
 	var jobs []job
@@ -144,6 +147,11 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	}
 
 	auto := len(answers) > 0 && d.o.AutoSendFailures != nil && d.o.Head != nil && d.o.Failures != nil && d.o.AutoSendFailures()
+	var fleet config.Settings
+	fleetOn := false
+	if auto {
+		fleet, fleetOn = d.fleetOn()
+	}
 	d.mu.Lock()
 	for k, a := range answers {
 		s := d.prs.seen[k]
@@ -189,10 +197,14 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		d.changed()
 	}
 	var sends []autoSend
+	var escs []escalation
 	if auto {
 		answered := map[string]bool{}
 		for k := range answers {
 			answered[k] = true
+		}
+		if fleetOn {
+			escs = d.escalations(answered, keys, fleet.Fleet.Escalate)
 		}
 		sends = d.autoSends(answered, keys)
 	}
@@ -200,6 +212,9 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 
 	for _, a := range sends {
 		d.sendFailures(ctx, a)
+	}
+	for _, e := range escs {
+		d.escalate(ctx, fleet, e)
 	}
 
 	if len(archive) == 0 || d.o.ArchiveOnMerge == nil || !d.o.ArchiveOnMerge() {

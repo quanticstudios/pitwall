@@ -54,6 +54,7 @@ const (
 	catKeys
 	catTerminal
 	catAgents
+	catFleet
 	catNotify
 	catUsage
 	catDecisions
@@ -69,6 +70,7 @@ var categories = []struct{ name, desc string }{
 	{"Keyboard shortcuts", "Click a shortcut to record a new one."},
 	{"Terminal", "How every pane behaves."},
 	{"Agents", "The sidebar learns what each agent is doing from hooks in its config."},
+	{"Fleet", "An orchestrator agent starts workers in lanes by task size; pitwall times them and escalates CI that keeps failing."},
 	{"Notifications", "Desktop notifications for a pane that needs you while you are looking elsewhere."},
 	{"Usage", "Your plan limits and what your coding agents cost, from their own files."},
 	{"Decisions", "A decision model, such as TypeSafe's Jev, answers quick questions for pitwall: is this approval safe, how urgent is this, what is this agent doing."},
@@ -135,6 +137,7 @@ type Page struct {
 	tm timingPage
 	ph phonePage
 	nt notifyPage
+	fl fleetPage
 	us usagePage
 	ch charts // hover and focus in the Timing and Agent errors charts
 }
@@ -736,6 +739,8 @@ func (p *Page) sections(cat int) []section {
 		return p.terminal()
 	case catAgents:
 		return p.agents()
+	case catFleet:
+		return p.fleet()
 	case catNotify:
 		return p.notifications()
 	case catUsage:

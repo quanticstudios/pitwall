@@ -701,6 +701,7 @@ var skillReleased = []string{
 	"6cec294845de6ae3ad05aca4bd70a1f9a847ac7edbfc4266862286d3393bccf8", // v0.1.0-beta.7 to beta.12
 	"c40961dc6743e5554a13827da3d6ac37ae6de3969204bbbf8ede46d19e3b4a8e", // v0.1.0-beta.13
 	"085da77c31907a35ca1b29f504d224df1bf8e9218684e0ac354e7ea654031961", // v0.1.0-beta.14 to v0.1.2
+	"2cef04b6e5ab13d8bdbaa36f33814714339c45490501684ad21d03988a4366f3", // v0.1.3
 }
 
 // IsSkill reports whether b is what Skill returns, now or in an earlier

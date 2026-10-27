@@ -62,13 +62,17 @@ pane that ran an agent, else the first pane.
 | `working` | a turn runs; for a tab without an agent, a command runs in its shell        |
 | `blocked` | the agent waits on a permission prompt, a question or a plan approval       |
 | `done`    | the agent finished its turn, or ended it with an error                      |
+| `pr-open` | the agent finished its turn and the tab's branch has an open pull request   |
 | `idle`    | the agent sits at its prompt with nothing new                               |
 | `running` | no agent is known and the process runs: a shell at its prompt, or a command |
 | `exited`  | the tab's process ended (`exit_code` has its status)                        |
 | `""`      | an agent the tab was started with has not been seen running yet             |
 
 `--until done` waits for `done`, or for `idle` after a turn it saw (an
-interrupted turn ends idle). `--until idle` takes `idle` or `done`. Only an
+interrupted turn ends idle). A tab in `pr-open` is not done: it turns
+`done` once its pull request merges or closes, so `--until done` and
+`--children --until done` keep waiting until then. `--until idle` takes
+`idle`, `done` or `pr-open`. Only an
 agent is ever idle, so `--until idle` on a shell tab waits until the
 timeout. `--until blocked` waits for a prompt or question. `--until exit`
 waits for the process to end. On a tab that never showed an agent, `done`
@@ -268,6 +272,36 @@ A worker that must not push or merge gets `--guard`, or every
 then gets a deny with a reason for `git push`, `gh pr merge` and the like,
 and should stop and report instead. `--preset NAME` starts one of the
 user's [agent presets](usage.md#agent-presets), with the prompt after `--`.
+
+### Lanes
+
+When the user turns on fleet mode, `pitwall worktree lanes` lists three
+lanes, each one of the user's presets with a timebox:
+
+```text
+LANE    PRESET    TIMEBOX  FOR
+small   Quick     30m      One clear pull request, mechanical work included.
+normal  Standard  60m      Normal work.
+big     Deep      120m     Whole features, investigations and risky changes.
+```
+
+Route each task by its size: one clear pull request, mechanical work
+included, goes to `small`; normal work to `normal`; whole features,
+investigations and risky changes to `big`. Start one worker per task, and
+never split one task across workers:
+
+```sh
+pitwall worktree new login-fix --lane small -- "Fix the login redirect. FEAT-123 has the steps."
+```
+
+The words after `--` are the brief. pitwall starts the lane's preset with
+the brief as its prompt, and puts the user's worker contract, if any,
+before it. A worker past its lane's timebox with no pull request open gets
+one nudge; past twice the timebox, your pane gets a line from pitwall
+saying so. When its checks fail again after pitwall sent it the failures
+twice, your pane gets a line, or pitwall replaces the worker with the big
+lane, as the user set. A worker whose pull request is open reads
+`pr-open`; wait with `--until idle` to review it before it merges.
 
 `pitwall ls --children` (and `--json`) lists only your workers. Each
 worktree has its own branch and ports, and the sidebar warns when two
