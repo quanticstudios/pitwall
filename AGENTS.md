@@ -19,6 +19,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/guard`       | The deny list a guarded tab's hooks check commands against     |
 | `internal/gitstat`     | Worktrees and branch stats via `git`                           |
 | `internal/store`       | Persist state, resume commands                                 |
+| `internal/repoicon`    | Find a repo's root and its favicon or logo files               |
 | `internal/logs`        | Log files, a non-blocking log writer, a line rate limiter      |
 | `internal/decisionlog` | decisions.jsonl and `pitwall jev report`                       |
 | `internal/update`      | Find a newer GitHub release, install it over the binary        |

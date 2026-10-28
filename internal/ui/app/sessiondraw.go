@@ -514,7 +514,7 @@ func (u *ui) preview(gtx gl.Context, st *model.State, rect image.Rectangle) {
 	}
 	sb := d.previews[s.sel]
 	if sb == nil {
-		sb = &sidebar.Sidebar{ExpandAll: true, TreeOnly: true}
+		sb = &sidebar.Sidebar{ExpandAll: true, TreeOnly: true, RepoIcons: u.repoIcons()}
 		d.previews[s.sel] = sb
 	}
 	active := u.nav.lastWS[s.sel]

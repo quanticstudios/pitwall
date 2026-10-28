@@ -18,6 +18,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -37,6 +38,11 @@ type Sidebar struct {
 	// Host is the ssh host the daemon runs on, named in the header; ""
 	// for this machine.
 	Host string
+	// RepoIcons, when set, asks the daemon for a folder's repo root and
+	// that repo's icon files, for a window whose daemon runs on another
+	// machine; nil reads this machine's disk. It reports false while the
+	// answer is out, and for good from a daemon too old to give one.
+	RepoIcons func(dir string) (proto.FaviconResult, bool)
 	// Numbers marks the rows, first to ninth from the top, that show their
 	// goto_tab digit in place of their icon.
 	Numbers [9]bool

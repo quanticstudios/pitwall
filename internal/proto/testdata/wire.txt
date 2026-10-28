@@ -1,4 +1,4 @@
-16.30
+16.31
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -33,6 +33,9 @@ proto.DetachSession{WorkspaceID string; Detached bool}
 proto.DismissNotice{Notice string}
 proto.DropTask{ID string; Start bool}
 proto.Error{Message string}
+proto.Favicon{Dir string}
+proto.FaviconFile{Name string; Data []uint8}
+proto.FaviconResult{Dir string; Root string; Files []proto.FaviconFile}
 proto.FocusDir{Pane string; Dir layout.Direction}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string}
 proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64}
