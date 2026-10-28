@@ -3,6 +3,7 @@ package timelog
 import (
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -144,8 +145,9 @@ func TestTurnInterrupted(t *testing.T) {
 	}
 }
 
-// TestTurnPreNoPost: a call with an id and no end runs to the turn's end,
-// and an end with no start but a run time counts that time.
+// TestTurnPreNoPost: a call with an id and no end counts for nothing in
+// a turn that finishes, and runs to the end of one the pane's closing
+// stops; an end with no start but a run time counts that time.
 func TestTurnPreNoPost(t *testing.T) {
 	var tr Tracker
 	w := where()
@@ -153,15 +155,153 @@ func TestTurnPreNoPost(t *testing.T) {
 	tr.Tool("p", agent.Call{ID: "x", Tool: "Task"}, at(10))
 	tr.Tool("p", agent.Call{End: true, Tool: "Shell", Command: "make build", Ms: 4000}, at(30))
 	e := tr.State(w, model.StateError, at(40))[0]
-	if e.End != Failed || !maps.Equal(e.Tools, map[string]int64{Agent: 28000, Build: 2000}) {
+	if e.End != Failed || !maps.Equal(e.Tools, map[string]int64{Build: 4000}) || e.Model != 36000 {
 		t.Errorf("turn %+v", e)
 	}
 	if e, ok := tr.Close("p", at(50)); ok {
 		t.Errorf("closed a finished turn %+v", e)
 	}
 	tr.State(w, model.StateWorking, at(60))
-	if e, ok := tr.Close("p", at(70)); !ok || e.End != PaneClosed || e.Ms != 10000 {
+	tr.Tool("p", agent.Call{ID: "y", Tool: "Task"}, at(62))
+	if e, ok := tr.Close("p", at(70)); !ok || e.End != PaneClosed || e.Ms != 10000 || e.Tools[Agent] != 8000 {
 		t.Errorf("close %+v", e)
+	}
+}
+
+// replay runs calls through a turn from 0s to end s, which ends it as
+// completed.
+func replay(t *testing.T, end int, calls ...func(*Tracker)) Event {
+	t.Helper()
+	var tr Tracker
+	w := where()
+	tr.State(w, model.StateWorking, at(0))
+	for _, c := range calls {
+		c(&tr)
+	}
+	evs := tr.State(w, model.StateCompleted, at(end))
+	if len(evs) != 1 {
+		t.Fatalf("events %+v", evs)
+	}
+	e := evs[0]
+	var sum int64
+	for _, v := range e.Tools {
+		sum += v
+	}
+	if e.Model+e.Wait+sum != e.Ms {
+		t.Errorf("parts %d+%d+%d add up to %d, not %d", e.Model, e.Wait, sum, e.Model+e.Wait+sum, e.Ms)
+	}
+	return e
+}
+
+func pre(s int, id, tool, cmd string) func(*Tracker) {
+	return func(tr *Tracker) { tr.Tool("p", agent.Call{ID: id, Tool: tool, Command: cmd}, at(s)) }
+}
+
+func post(s int, id string) func(*Tracker) {
+	return func(tr *Tracker) { tr.Tool("p", agent.Call{End: true, ID: id}, at(s)) }
+}
+
+// TestTurnLostEnds replays turns from real logs in which calls sent no
+// end: before, each ran until the turn ended and was kept as a slow
+// command.
+func TestTurnLostEnds(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		end   int
+		calls []func(*Tracker)
+		tools map[string]int64
+		slow  []Cmd
+	}{{
+		// Codex, 81 min: other hooks blocked two pull request creates,
+		// two deploys and a script, which then ran 54 to 79 min each.
+		name: "codex blocked calls",
+		end:  4860,
+		calls: []func(*Tracker){
+			pre(60, "exec-1", "Bash", "gh pr create --fill"),
+			pre(70, "exec-2", "Bash", "gh pr create --fill --draft"),
+			pre(100, "exec-3", "Bash", "make build"),
+			pre(600, "exec-4", "Bash", "deployctl up --service api"),
+			pre(645, "exec-5", "Bash", "deployctl up --service web"),
+			post(1200, "exec-3"),
+			pre(1300, "exec-6", "Bash", "git status"), // the model ran: 1-2 and 4-5 are over
+			post(1301, "exec-6"),
+			pre(1600, "exec-7", "Bash", "python3 - <<'PY'"),
+			pre(2000, "exec-8", "Bash", "go test ./..."),
+			post(3000, "exec-8"),
+			pre(3100, "exec-9", "Bash", "gh pr checks 7 --watch"), // and 7
+			post(4700, "exec-9"),
+		},
+		tools: map[string]int64{Build: 1100000, Git: 1000, Test: 1000000, CI: 1600000},
+		slow: []Cmd{{"gh pr checks 7 --watch", CI, 1600000}, {"make build", Build, 1100000},
+			{"go test ./...", Test, 1000000}, {"git status", Git, 1000}},
+	}, {
+		// Codex, 24 min: a test still running when Codex handed back its
+		// output, a patch that failed and two blocked pull request creates.
+		name: "codex yielded and failed calls",
+		end:  1440,
+		calls: []func(*Tracker){
+			pre(1, "exec-1", "Bash", "go test ./..."),
+			pre(15, "exec-2", "apply_patch", "*** Begin Patch"),
+			pre(20, "exec-3", "Bash", "git diff"),
+			post(21, "exec-3"),
+			pre(480, "exec-4", "Bash", "gh pr create --fill"),
+			pre(540, "exec-5", "Bash", "gh pr create --fill"),
+			pre(600, "exec-6", "Bash", "make build"),
+			post(660, "exec-6"),
+		},
+		tools: map[string]int64{Git: 1000, Build: 60000},
+		slow:  []Cmd{{"make build", Build, 60000}, {"git diff", Git, 1000}},
+	}, {
+		// Claude Code, 32 min: a failed command's parallel siblings were
+		// cancelled, and other hooks blocked two greps, a `true` and an
+		// Edit, which ran 11 to 20 min each.
+		name: "claude cancelled and blocked calls",
+		end:  1920,
+		calls: []func(*Tracker){
+			pre(100, "toolu_1", "Bash", "go vet ./..."),
+			pre(100, "toolu_2", "Bash", "grep -rn Foo ."),
+			pre(100, "toolu_3", "Read", ""),
+			post(101, "toolu_1"),
+			pre(150, "toolu_4", "Read", ""), // the siblings were cancelled
+			post(151, "toolu_4"),
+			pre(732, "toolu_5", "Bash", `grep -n "Limit = " -A3 internal/x.go`),
+			pre(740, "toolu_6", "Bash", "go test ./..."),
+			pre(780, "toolu_7", "Bash", "true"),
+			pre(798, "toolu_8", "Bash", `grep -n "Schema = " -A25 internal/y.go`),
+			post(900, "toolu_6"),
+			pre(1260, "toolu_9", "Edit", ""),
+			pre(1300, "toolu_10", "Bash", "gofmt -l ."),
+			post(1310, "toolu_10"),
+		},
+		tools: map[string]int64{Lint: 11000, Search: 1000, Test: 160000},
+		slow:  []Cmd{{"go test ./...", Test, 160000}, {"gofmt -l .", Lint, 10000}, {"go vet ./...", Lint, 1000}},
+	}, {
+		// Claude Code, 8 min with no model time: one `true` with no end.
+		name:  "claude lone call",
+		end:   509,
+		calls: []func(*Tracker){pre(0, "toolu_1", "Bash", "true")},
+	}, {
+		// Claude Code: a subagent's calls arrive on the pane while its
+		// Agent call runs, and set that call aside until its end comes.
+		name: "claude subagent",
+		end:  200,
+		calls: []func(*Tracker){
+			pre(10, "toolu_1", "Agent", ""),
+			pre(11, "toolu_2", "Read", ""),
+			post(12, "toolu_2"),
+			pre(13, "toolu_3", "Bash", "go test ./..."),
+			post(20, "toolu_3"),
+			post(100, "toolu_1"),
+		},
+		tools: map[string]int64{Agent: 86000, Search: 500, Test: 3500},
+		slow:  []Cmd{{"go test ./...", Test, 7000}},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := replay(t, tc.end, tc.calls...)
+			if !maps.Equal(e.Tools, tc.tools) || !slices.Equal(e.Slow, tc.slow) {
+				t.Errorf("tools %v, want %v\nslow %+v\nwant %+v", e.Tools, tc.tools, e.Slow, tc.slow)
+			}
+		})
 	}
 }
 
