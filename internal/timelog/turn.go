@@ -31,7 +31,9 @@ type turn struct {
 	waitFrom time.Time // zero while not waiting
 	waits    []span
 	open     []call
+	stale    []call // calls with an id whose end never came, set aside
 	calls    []call
+	lastEnd  time.Time // when the latest call ended
 }
 
 type span struct{ from, to time.Time }
@@ -115,8 +117,18 @@ func (tr *Tracker) Forget(tab string) { delete(tr.tabs, tab) }
 // start without an id also ends the calls before it, and a call it never
 // reports the end of runs until the next one, or the turn's end. An end
 // with no start, as Cursor sends, ran for c.Ms before it.
-// ponytail: a Claude call the user denies sends no end, so it runs until
-// the turn ends; matching the denial on screen would end it there.
+//
+// Claude Code and Codex send no end for a call that another hook blocked,
+// that the user denied or that was cancelled, and Codex none for a
+// command still running when it handed back its output. A start that
+// comes after an end means the model ran in between, so a call with an id
+// that started before that end is over: it is set aside and counts for
+// nothing, its time going to the model or the calls around it. Its end,
+// if it still comes, as for a call running beside a subagent's, counts it
+// again.
+// ponytail: a lone call with no end, such as a denied one, keeps running
+// through the agent's next calls until one of them ends; matching the
+// denial on screen would end it sooner.
 func (tr *Tracker) Tool(pane string, c agent.Call, now time.Time) {
 	t := tr.turns[pane]
 	if t == nil {
@@ -126,12 +138,26 @@ func (tr *Tracker) Tool(pane string, c agent.Call, now time.Time) {
 		if c.ID == "" {
 			t.closeOpen(now, func(o call) bool { return o.id == "" })
 		}
+		t.open = slices.DeleteFunc(t.open, func(o call) bool {
+			if o.id != "" && o.from.Before(t.lastEnd) {
+				t.stale = append(t.stale, o)
+				return true
+			}
+			return false
+		})
 		t.open = append(t.open, call{span: span{from: now}, id: c.ID, tool: c.Tool, cmd: c.Command})
 		return
 	}
+	t.lastEnd = now
 	i := slices.IndexFunc(t.open, func(o call) bool { return o.id == c.ID })
 	if i < 0 && c.ID != "" {
-		i = slices.IndexFunc(t.open, func(o call) bool { return o.id == "" })
+		if j := slices.IndexFunc(t.stale, func(o call) bool { return o.id == c.ID }); j >= 0 {
+			t.open = append(t.open, t.stale[j])
+			t.stale = slices.Delete(t.stale, j, j+1)
+			i = len(t.open) - 1
+		} else {
+			i = slices.IndexFunc(t.open, func(o call) bool { return o.id == "" })
+		}
 	}
 	if i >= 0 {
 		o := t.open[i]
@@ -167,6 +193,11 @@ func (tr *Tracker) finish(pane string, now time.Time, end string) Event {
 	delete(tr.turns, pane)
 	if !t.waitFrom.IsZero() {
 		t.waits = append(t.waits, span{t.waitFrom, now})
+	}
+	if end == Completed || end == Failed {
+		// The agent finished its reply, so its calls are over: one with an
+		// id that sent no end is set aside, as in Tool.
+		t.open = slices.DeleteFunc(t.open, func(o call) bool { return o.id != "" })
 	}
 	t.closeOpen(now, func(call) bool { return true })
 	e := t.line(Turn, now)
