@@ -17,6 +17,9 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Settings, Agents adds, edits and deletes presets: name, agent, model, effort, extra arguments and the guard. pitwall writes the model and effort as the agent's own flags in `config.toml`. Renaming a preset renames it in the fleet lanes; deleting one turns those lanes off.
+- Settings, Fleet shows the agent, model and effort each lane runs, and has a New preset button.
+- The phone page and its push notifications show PR open for a finished turn whose branch has an open pull request. They showed Done.
 - Splitting a pane opens the new one in that pane's folder, so a `cd` in the shell carries over. It used to open in the session's folder.
 
 ## v0.1.4

@@ -138,6 +138,7 @@ type Page struct {
 	ph phonePage
 	nt notifyPage
 	fl fleetPage
+	pr presetsPage
 	us usagePage
 	ch charts // hover and focus in the Timing and Agent errors charts
 }
@@ -167,6 +168,7 @@ func (p *Page) Show(configPath string) {
 	p.s.Path = configPath
 	p.readKey()
 	p.readDevices()
+	p.pr.found = findPresetAgents()
 	p.us.gen++
 	// Decision stats reads the log again when it shows.
 	p.st.read = false
@@ -183,7 +185,7 @@ func (p *Page) ReloadHooks() {
 
 // Hide closes the page, dropping a recording or open dropdown.
 func (p *Page) Hide() {
-	p.shown, p.rec, p.keyRec, p.conflict, p.dd = false, slot{}, false, nil, ""
+	p.shown, p.rec, p.keyRec, p.conflict, p.dd, p.pr.open = false, slot{}, false, nil, "", false
 }
 
 // TaskPrompt is the prompt for the New task dialog after AskAgent.
@@ -315,12 +317,17 @@ func (p *Page) write(es ...edit) {
 	}
 }
 
+// path is config.toml's path.
+func (p *Page) path() string {
+	if p.s.Path != "" {
+		return p.s.Path
+	}
+	return config.Path()
+}
+
 // save sets table.key to the TOML literal v, or removes it for nil.
 func (p *Page) save(table, k string, v *string) {
-	path := p.s.Path
-	if path == "" {
-		path = config.Path()
-	}
+	path := p.path()
 	var err error
 	if v == nil {
 		err = config.RemoveKey(path, table, k)
@@ -480,6 +487,7 @@ type row struct {
 type section struct {
 	title, desc string
 	rows        []row
+	anchor      bool // the page scrolls to it when the preset editor opens
 }
 
 // filterRows is the rows q matches: by words, or for keys such as
@@ -513,6 +521,10 @@ func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
 	addSections := func(secs []section) {
 		for _, sec := range secs {
 			space(24)
+			if sec.anchor && p.pr.scroll && q == "" {
+				p.pr.scroll = false
+				p.list.Position = gl.Position{First: len(items)}
+			}
 			if sec.title != "" {
 				items = append(items, func(gtx gl.Context) gl.Dimensions {
 					return gl.Flex{Axis: gl.Vertical}.Layout(gtx,
@@ -1229,21 +1241,7 @@ func (p *Page) agents() []section {
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
 	rows = append(rows, row{label: "Guard workers", desc: "Turns the guard on in tabs an agent opens with pitwall worktree new: it denies their agents git push, gh pr merge, terraform apply and the like. A seatbelt, not a sandbox; see docs/usage.md.",
 		extra: "guard deny push merge worker guard_workers", control: p.toggle("agents", "guard_workers", p.s.GuardWorkers)})
-	var presets []row
-	for _, ps := range p.s.Presets {
-		guarded := func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{} }
-		if ps.Guard {
-			guarded = func(gtx gl.Context) gl.Dimensions {
-				return p.text(gtx, th.UIFont, p.th.Sp(theme.Body), th.Muted, "Guarded")
-			}
-		}
-		presets = append(presets, row{label: ps.Name, desc: strings.Join(append([]string{ps.Agent}, ps.Args...), " "), extra: "preset " + ps.Agent, control: guarded})
-	}
-	if len(presets) == 0 {
-		presets = append(presets, row{label: "No presets yet", desc: "Add one as an [[agents.preset]] table in config.toml, with name, agent, args, env and guard.",
-			extra: "preset", control: func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{} }})
-	}
-	return []section{{rows: rows}, {title: "Presets", desc: "Agents with their arguments and variables, which the New task dialog lists after the plain agents and pitwall new --preset starts. Change them in config.toml.", rows: presets}}
+	return []section{{rows: rows}, p.presets()}
 }
 
 func (p *Page) copyLabel(id, label string) string {
