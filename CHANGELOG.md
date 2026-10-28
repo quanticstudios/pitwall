@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.5
 
 - Settings, Agents adds, edits and deletes presets: name, agent, model, effort, extra arguments and the guard. pitwall writes the model and effort as the agent's own flags in `config.toml`. Renaming a preset renames it in the fleet lanes; deleting one turns those lanes off.
 - Settings, Fleet shows the agent, model and effort each lane runs, and has a New preset button.
