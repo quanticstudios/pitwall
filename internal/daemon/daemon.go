@@ -626,6 +626,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(d.text(t))
 			continue
 		}
+		if f, ok := m.(proto.Favicon); ok {
+			c.queue(favicon(f)) // a reply to this client alone
+			continue
+		}
 		if r, ok := m.(proto.Read); ok {
 			c.queue(d.read(r)) // a reply to this client alone
 			continue

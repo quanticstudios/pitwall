@@ -111,6 +111,9 @@ Some things stay on the machine they belong to:
 
 - Notifications come from the state the daemon sends, so they show on the
   laptop as usual.
+- The sidebar's repo icons come from the repo on the host, which the
+  daemon there reads. With an older pitwall on the host, each repo gets its
+  letter tile.
 - Ctrl+click opens a web link here. A file link names a file on the host and
   does nothing.
 - Open folder as group takes the folder's full path on the host, without

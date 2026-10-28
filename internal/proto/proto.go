@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 31 added Favicon and FaviconResult: a window whose daemon runs
+// on another machine gets repo icons from the daemon.
 // Level 30 added NewWorkspace.Lane and Workspace.Lane: a fleet worker's
 // lane, its timebox and what pitwall did about it.
 // Level 29 added Env on NewSession, NewWorkspace, Task and Pane: a
@@ -123,12 +125,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 30
+const Level = 31
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Favicon, FaviconResult:
+		return 31
 	case SetStatus:
 		return 28
 	case SecondOpinion:
@@ -438,6 +442,28 @@ type SearchResult struct {
 	More    bool
 }
 
+// Favicon asks for the repo root at or above Dir and that repo's icon
+// files, for a window whose daemon runs on another machine. The daemon
+// answers this client alone with a FaviconResult.
+type Favicon struct {
+	Dir string
+}
+
+// FaviconResult answers Favicon. Root is "" outside a repo. Files are
+// the root's icon files, best first (repoicon.Files), repoicon.Max bytes
+// in all; the window decodes them.
+type FaviconResult struct {
+	Dir, Root string
+	Files     []FaviconFile
+}
+
+// FaviconFile is one icon file: its path, whose extension marks an SVG,
+// and its bytes.
+type FaviconFile struct {
+	Name string
+	Data []byte
+}
+
 // TextResult answers a Text with Sel's text.
 type TextResult struct {
 	Pane string
@@ -716,4 +742,5 @@ var Messages = []any{
 	CancelResume{},
 	SecondOpinion{},
 	SetStatus{},
+	Favicon{}, FaviconResult{},
 }

@@ -33,10 +33,11 @@ type backend struct {
 	session string // the session the window shows, from SessionShow
 	state   model.State
 	frames  map[string]proto.Frame
-	found   map[string]proto.SearchResult // per pane, the reply to its last Search
-	tree    proto.WorktreeInfo            // the reply to the last WorktreeQuery, cleared when one is sent
-	texts   map[string]proto.TextResult   // per pane, a Text reply not yet taken
-	moves   []proto.FocusDir              // not yet taken by the window
+	found   map[string]proto.SearchResult   // per pane, the reply to its last Search
+	tree    proto.WorktreeInfo              // the reply to the last WorktreeQuery, cleared when one is sent
+	texts   map[string]proto.TextResult     // per pane, a Text reply not yet taken
+	icons   map[string]*proto.FaviconResult // per folder, the daemon's FaviconResult, nil while it is out
+	moves   []proto.FocusDir                // not yet taken by the window
 	link    app.Link
 	dialing bool // a dial loop runs
 	// view is the panes the last proto.View named, and waits a channel
@@ -71,7 +72,7 @@ var retryMin, retryMax = 500 * time.Millisecond, 30 * time.Second
 // tab $PITWALL_ATTACH names. With c nil it starts disconnected.
 func newBackend(c *proto.Conn, session string) *backend {
 	b := &backend{conn: c, changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), retry: make(chan struct{}, 1),
-		frames: map[string]proto.Frame{}, view: map[string]bool{}, waits: map[string]chan struct{}{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
+		frames: map[string]proto.Frame{}, view: map[string]bool{}, waits: map[string]chan struct{}{}, found: map[string]proto.SearchResult{}, texts: map[string]proto.TextResult{}, icons: map[string]*proto.FaviconResult{}, outWake: make(chan struct{}, 1), done: make(chan struct{})}
 	if c == nil {
 		b.outErr = errNotConnected
 		close(b.done)
@@ -304,6 +305,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
+	maps.DeleteFunc(b.icons, func(_ string, r *proto.FaviconResult) bool { return r == nil }) // asked of the old connection: ask again
 	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level, Build: initial.Build}
 	first := b.session == ""
 	b.mu.Unlock()
@@ -440,6 +442,11 @@ func (b *backend) recvLoop() {
 			b.tree = m
 		case proto.TextResult:
 			b.texts[m.Pane] = m
+		case proto.FaviconResult:
+			b.icons[m.Dir] = &m
+			if m.Root != "" {
+				b.icons[m.Root] = &m // the root's own answer, too
+			}
 		case proto.Frame:
 			b.frames[m.Pane] = m
 			if w := b.waits[m.Pane]; w != nil {
@@ -479,6 +486,24 @@ func (b *backend) TakeText(pane string) (proto.TextResult, bool) {
 	r, ok := b.texts[pane]
 	delete(b.texts, pane)
 	return r, ok
+}
+
+// Favicon implements app.Iconer: dir's FaviconResult, asked for once a
+// connection until it comes. A daemon below its Level never answers.
+func (b *backend) Favicon(dir string) (proto.FaviconResult, bool) {
+	b.mu.Lock()
+	r, asked := b.icons[dir]
+	if !asked {
+		b.icons[dir] = nil
+	}
+	b.mu.Unlock()
+	if r != nil {
+		return *r, true
+	}
+	if !asked {
+		b.Send(proto.Favicon{Dir: dir})
+	}
+	return proto.FaviconResult{}, false
 }
 
 // TakeMoves implements app.Mover.

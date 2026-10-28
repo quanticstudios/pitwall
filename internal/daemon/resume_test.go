@@ -121,8 +121,6 @@ func TestResumeGuards(t *testing.T) {
 // Codex reports no limit through its hooks: its screen does, once per
 // message. A message without a time resumes at the tracked limit's reset.
 func TestResumeFromScreen(t *testing.T) {
-	defer func(l *time.Location) { time.Local = l }(time.Local)
-	time.Local = time.UTC // Codex prints local time
 	clock := useFakeClock(t, time.Date(2026, 10, 22, 13, 20, 0, 0, time.UTC))
 	d, f := talkDaemon(t)
 	d.o.ResumeAfterLimit = func() bool { return true }
@@ -197,8 +195,6 @@ func TestResumeCancelWhileTyping(t *testing.T) {
 // already past set no resume. A limit message replaces an earlier
 // error's Detail.
 func TestResumeNotSet(t *testing.T) {
-	defer func(l *time.Location) { time.Local = l }(time.Local)
-	time.Local = time.UTC
 	clock := useFakeClock(t, time.Date(2026, 10, 22, 13, 20, 0, 0, time.UTC))
 	d, f := talkDaemon(t)
 	d.o.ResumeAfterLimit = func() bool { return true }

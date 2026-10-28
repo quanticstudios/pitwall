@@ -12,6 +12,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -174,5 +175,38 @@ func TestFavicon(t *testing.T) {
 	}
 	if s.groupFavicon(theme.Dark(), model.Project{Root: repo, Kind: model.ProjectGit, Icon: "rocket"}) != nil {
 		t.Fatal("a group's own icon lost to the favicon")
+	}
+}
+
+// A window on another machine's daemon takes icons from the daemon, and
+// shows letter tiles while it has no answer, or none ever comes.
+func TestRemoteFavicon(t *testing.T) {
+	th := theme.Dark()
+	v := &view{th: th, st: &model.State{Projects: []model.Project{{ID: "g", Name: "billing", Color: "violet", Kind: model.ProjectGit, Root: "/host/billing"}}}}
+	ws := model.Workspace{Path: "/host/billing/api", RepoRoot: "/host/billing", ProjectID: "g"}
+	var asked []string
+	s := Sidebar{RepoIcons: func(dir string) (proto.FaviconResult, bool) {
+		asked = append(asked, dir)
+		return proto.FaviconResult{}, false
+	}}
+	if f := s.tabFavicon(v, ws); f == nil || f.src != nil || f.letter != "B" {
+		t.Fatalf("a tab with no answer from the daemon: %+v", f)
+	}
+	if f := s.groupFavicon(th, v.st.Projects[0]); f == nil || f.src != nil || f.letter != "B" {
+		t.Fatalf("a group with no answer from the daemon: %+v", f)
+	}
+	if len(asked) == 0 || asked[0] != ws.Path {
+		t.Fatalf("asked the daemon about %v, want the tab's folder first", asked)
+	}
+
+	red := color.NRGBA{R: 255, A: 255}
+	s.RepoIcons = func(dir string) (proto.FaviconResult, bool) {
+		return proto.FaviconResult{Dir: dir, Root: "/host/billing", Files: []proto.FaviconFile{
+			{Name: "/host/billing/favicon.svg", Data: []byte("not an svg")},
+			{Name: "/host/billing/favicon.png", Data: pngOf(t, 16, red)},
+		}}, true
+	}
+	if f := s.tabFavicon(v, ws); f == nil || f.src == nil {
+		t.Fatalf("the daemon's icon, after a file that does not decode: %+v", f)
 	}
 }

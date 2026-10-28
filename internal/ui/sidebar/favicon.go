@@ -25,6 +25,7 @@ import (
 	xdraw "golang.org/x/image/draw"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/repoicon"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -33,29 +34,11 @@ import (
 // badge on its corner. It reads SVG, PNG and ICO files. A repo with none
 // gets a tile with its name's first letter.
 
-// faviconPaths are where a repo keeps its icon, best first, an SVG before
-// a bitmap: .pitwall/icon.* is one the user put there to pick it, apps/*
-// covers a monorepo's web apps.
-var faviconPaths = []string{
-	".pitwall/icon.svg", ".pitwall/icon.png", ".pitwall/icon.ico",
-	"favicon.svg", "favicon.ico", "favicon.png",
-	"public/favicon.svg", "public/favicon.ico", "public/favicon.png", "public/icon.svg", "public/icon.png", "public/apple-touch-icon.png", "public/logo.svg", "public/logo.png",
-	"static/favicon.svg", "static/favicon.ico", "static/favicon.png",
-	"app/icon.svg", "app/favicon.ico", "app/icon.png", "src/app/icon.svg", "src/app/favicon.ico", "src/app/icon.png",
-	"assets/favicon.svg", "assets/favicon.ico", "assets/favicon.png", "assets/icon.svg", "assets/icon.png", "assets/logo.svg", "assets/logo.png",
-	"build/icon.png", "logo.svg", "logo.png", "icon.svg", "icon.png", ".github/logo.svg", ".github/logo.png",
-	"apps/*/public/favicon.svg", "apps/*/public/favicon.ico", "apps/*/public/favicon.png", "apps/*/app/icon.svg", "apps/*/app/favicon.ico",
-}
-
-// maxFavicon caps the file read: a favicon is kilobytes.
-const maxFavicon = 1 << 20
-
-// findFavicon is the first icon under root that decodes, or nil.
+// findFavicon is the first of root's icon files that decodes, or nil.
 func findFavicon(root string) image.Image {
-	for _, p := range faviconPaths {
-		matches, _ := filepath.Glob(filepath.Join(root, p))
-		for _, m := range matches {
-			if img := readFavicon(m); img != nil {
+	for _, f := range repoicon.Files(root) {
+		if b, err := os.ReadFile(f); err == nil {
+			if img := decodeFavicon(f, b); img != nil {
 				return img
 			}
 		}
@@ -63,20 +46,13 @@ func findFavicon(root string) image.Image {
 	return nil
 }
 
-func readFavicon(path string) image.Image {
-	fi, err := os.Stat(path)
-	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxFavicon {
-		return nil
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
+// decodeFavicon decodes b, the bytes of the icon file name, or gives nil.
+func decodeFavicon(name string, b []byte) image.Image {
 	switch {
 	case bytes.HasPrefix(b, pngMagic):
 		img, _ := png.Decode(bytes.NewReader(b))
 		return img
-	case strings.EqualFold(filepath.Ext(path), ".svg"):
+	case strings.EqualFold(filepath.Ext(name), ".svg"):
 		return decodeSVG(b)
 	}
 	return decodeICO(b)
@@ -187,7 +163,8 @@ type favicon struct {
 }
 
 // favicon is root's icon, looked up the first time root shows and kept
-// for the window's life, misses too.
+// for the window's life, misses too. With RepoIcons it is nil, uncached,
+// until the daemon answers.
 // ponytail: read on the UI goroutine and never refreshed; move the lookup
 // off it, or recheck, if a slow disk or a changed icon ever matters.
 func (s *Sidebar) favicon(root string) *favicon {
@@ -199,7 +176,21 @@ func (s *Sidebar) favicon(root string) *favicon {
 	}
 	f, seen := s.favicons[root]
 	if !seen {
-		if img := findFavicon(root); img != nil {
+		var img image.Image
+		if s.RepoIcons == nil {
+			img = findFavicon(root)
+		} else {
+			r, ok := s.RepoIcons(root)
+			if !ok {
+				return nil
+			}
+			for _, file := range r.Files {
+				if img = decodeFavicon(file.Name, file.Data); img != nil {
+					break
+				}
+			}
+		}
+		if img != nil {
 			f = &favicon{src: img}
 		}
 		s.favicons[root] = f
@@ -244,7 +235,10 @@ func badged(gtx layout.Context, f *favicon, mark func(gtx layout.Context, size i
 // or its letter tile; a folder outside a repo has none, so a home
 // folder's stray icon.png never shows.
 func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
-	root := s.repoRoot(v.st.LivePath(ws))
+	root, ok := s.repoRoot(v.st.LivePath(ws))
+	if !ok { // the daemon has not answered, or is too old to: the tab's own repo
+		root = ws.RepoRoot
+	}
 	if root == "" {
 		return nil
 	}
@@ -265,30 +259,30 @@ func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
 	return letterFavicon(v.th, name, colorID)
 }
 
-// repoRoot is the folder at or above dir that holds .git, a worktree's
-// own included, or "" outside a repo; kept per dir for the window's life.
-func (s *Sidebar) repoRoot(dir string) string {
+// repoRoot is the folder at or above dir that holds .git, or "" outside
+// a repo; kept per dir for the window's life. ok is false while
+// RepoIcons has no answer.
+func (s *Sidebar) repoRoot(dir string) (root string, ok bool) {
 	if dir == "" {
-		return ""
+		return "", true
 	}
 	if root, ok := s.roots[dir]; ok {
-		return root
+		return root, true
+	}
+	if s.RepoIcons == nil {
+		root = repoicon.Root(dir)
+	} else {
+		r, ok := s.RepoIcons(dir)
+		if !ok {
+			return "", false
+		}
+		root = r.Root
 	}
 	if s.roots == nil {
 		s.roots = map[string]string{}
 	}
-	root := ""
-	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
-		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
-			root = d
-			break
-		}
-		if filepath.Dir(d) == d {
-			break
-		}
-	}
 	s.roots[dir] = root
-	return root
+	return root, true
 }
 
 // groupFavicon is a git group's repo icon, or its letter tile, unless the
