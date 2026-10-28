@@ -717,7 +717,12 @@ Tool time comes from the hooks around each call, so parallel calls count
 once, and commands sort into tests, builds, lint, git, CI and `gh` (watches
 and sleeps included), installs and other shell; other tools into reading,
 editing, subagents, web and MCP. Model time is what is left. Claude Code,
-Codex, Gemini CLI and OpenCode bracket every call. Cursor reports only how
+Codex, Gemini CLI and OpenCode bracket every call that runs. Claude Code
+and Codex send no end for a call another hook blocked, you denied or the
+agent cancelled, and Codex none for a command still running when it hands
+the output back. Such a call is over once the agent starts another after
+some call ended, or once the turn finishes, and counts for nothing: its
+time goes to the model or the calls beside it. Cursor reports only how
 long a call ran, and pi and omp only calls that failed, so their tool time
 is short. Each turn keeps its five slowest commands, redacted and cut to
 200 characters; prompts and output are never stored. The file also gets a
