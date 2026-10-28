@@ -503,6 +503,21 @@ func filterRows(rs []row, q string) []row {
 	return out
 }
 
+// searchSections is category i's sections cut to the rows that match q.
+// An open preset editor keeps its sections whole, so a search never hides
+// its buttons or its form.
+func (p *Page) searchSections(i int, q string) []section {
+	var secs []section
+	for _, sec := range p.sections(i) {
+		if p.pr.open && sec.anchor {
+			secs = append(secs, sec)
+		} else if rs := filterRows(sec.rows, q); len(rs) > 0 {
+			secs = append(secs, section{title: sec.title, rows: rs})
+		}
+	}
+	return secs
+}
+
 // content is the scrolling right side: the category (or every match of
 // the search) as cards of rows, at most 800dp wide.
 func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
@@ -521,7 +536,7 @@ func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
 	addSections := func(secs []section) {
 		for _, sec := range secs {
 			space(24)
-			if sec.anchor && p.pr.scroll && q == "" {
+			if sec.anchor && p.pr.scroll {
 				p.pr.scroll = false
 				p.list.Position = gl.Position{First: len(items)}
 			}
@@ -565,12 +580,7 @@ func (p *Page) content(gtx gl.Context, q string) gl.Dimensions {
 	} else {
 		found := false
 		for i, c := range categories {
-			var secs []section
-			for _, sec := range p.sections(i) {
-				if rs := filterRows(sec.rows, q); len(rs) > 0 {
-					secs = append(secs, section{title: sec.title, rows: rs})
-				}
-			}
+			secs := p.searchSections(i, q)
 			if len(secs) == 0 {
 				continue
 			}

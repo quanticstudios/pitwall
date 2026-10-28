@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 func TestPresetEditor(t *testing.T) {
@@ -76,5 +77,37 @@ preset = "Quick"
 	}
 	if !strings.Contains(p.pr.note, "The small and big lanes are off now.") {
 		t.Errorf("note %q", p.pr.note)
+	}
+}
+
+func TestPresetEditorSurvivesSearch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[[agents.preset]]\nname = \"Quick\"\nagent = \"claude\"\nargs = [\"--model\", \"opus\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var p Page
+	p.th = theme.Dark()
+	p.Show(path)
+	p.s, _ = config.LoadFile(path)
+	p.editPreset(&p.s.Presets[0])
+	// "zzz" matches no row, yet the open editor keeps all of its rows, the buttons' included.
+	var kept []section
+	for i := range categories {
+		kept = append(kept, p.searchSections(i, "zzz")...)
+	}
+	full := 0
+	for i := range categories {
+		for _, sec := range p.sections(i) {
+			if sec.anchor {
+				full += len(sec.rows)
+			}
+		}
+	}
+	got := 0
+	for _, sec := range kept {
+		got += len(sec.rows)
+	}
+	if full == 0 || got != full {
+		t.Fatalf("search kept %d of the editor's %d rows", got, full)
 	}
 }
