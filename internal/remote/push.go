@@ -377,6 +377,7 @@ func (p *Pusher) send(ctx context.Context, d Device, n Notice, now time.Time) er
 
 // NoticeOf is the push for activity a of st, as the page lists it.
 func NoticeOf(st model.State, a model.Activity) Notice {
+	a = st.AwaitPR(a)
 	n := Notice{Title: "pitwall", State: string(a.State), Body: model.PillLabel(a), Pane: a.PaneID, Urgent: model.Urgent(a)}
 	for _, w := range st.Workspaces {
 		if w.ID == a.WorkspaceID && w.Label != "" {

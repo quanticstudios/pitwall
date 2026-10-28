@@ -226,6 +226,13 @@ func TestItems(t *testing.T) {
 	if b := got[2]; b.Answer || !b.Reply || b.Label != "Done" {
 		t.Errorf("done %+v", b)
 	}
+	st.PRs = map[string]model.PR{"w": {Number: 7, State: model.PROpen}}
+	if b := Items(st)[2]; b.State != string(model.StatePROpen) || b.Label != "PR open" || !b.Reply {
+		t.Errorf("done with an open pull request %+v", b)
+	}
+	if n := NoticeOf(st, st.Activities[1]); n.State != string(model.StatePROpen) || !strings.HasPrefix(n.Body, "PR open") {
+		t.Errorf("notice %+v", n)
+	}
 }
 
 func TestCertAndURL(t *testing.T) {

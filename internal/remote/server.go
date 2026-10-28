@@ -45,7 +45,7 @@ func Items(st model.State) []Item {
 	acts := make([]model.Activity, 0, len(st.Activities))
 	for _, a := range st.Activities {
 		if model.NeedsYou(a.State) {
-			acts = append(acts, a)
+			acts = append(acts, st.AwaitPR(a))
 		}
 	}
 	model.SortActivities(acts)

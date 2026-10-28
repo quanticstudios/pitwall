@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -133,7 +134,10 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(f.Name(), path)
 }
 
-var headerRe = regexp.MustCompile(`^\s*\[\s*([^\]\[]+?)\s*\]\s*(#.*)?$`)
+var (
+	headerRe      = regexp.MustCompile(`^\s*\[\s*([^\]\[]+?)\s*\]\s*(#.*)?$`)
+	arrayHeaderRe = regexp.MustCompile(`^\s*\[\[\s*([^\]\[]+?)\s*\]\]\s*(#.*)?$`)
+)
 
 // editTOML is SetKey (value set) or RemoveKey (nil) on the text src.
 func editTOML(src, table, key string, value *string) string {
@@ -150,6 +154,11 @@ func editTOML(src, table, key string, value *string) string {
 			lineEnd = pos + i + 1
 		}
 		line := strings.TrimRight(src[pos:lineEnd], "\r\n")
+		if m := arrayHeaderRe.FindStringSubmatch(line); m != nil {
+			cur = "[[" + clean(m[1]) + "]]" // keys under it are no table's
+			pos = lineEnd
+			continue
+		}
 		if m := headerRe.FindStringSubmatch(line); m != nil {
 			cur = clean(m[1])
 			if cur == table {
@@ -275,4 +284,154 @@ func valueEnd(s string, i int) int {
 		i++
 	}
 	return last
+}
+
+// SetPreset replaces the [[agents.preset]] named old in the TOML file at
+// path with p, or removes it for a nil p. With old "", it adds p after the
+// last preset. Every byte outside that preset's table stays as it was.
+func SetPreset(path, old string, p *AgentPreset) error {
+	target, err := resolveLinks(path)
+	if err != nil {
+		return err
+	}
+	src, err := os.ReadFile(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	mode := os.FileMode(0o644)
+	if fi, err := os.Stat(target); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	out, err := editPreset(string(src), old, p)
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if _, err := toml.Decode(out, &m); err != nil {
+		if _, errOld := toml.Decode(string(src), &m); errOld == nil {
+			return fmt.Errorf("saving the preset would break %s: %v", filepath.Base(path), err)
+		}
+	}
+	return writeFile(target, []byte(out), mode)
+}
+
+// presetBlock is one [[agents.preset]] table in a file's text: from its
+// header to its last key, without the blank and comment lines after it.
+type presetBlock struct {
+	start, end int
+	name       string
+}
+
+func presetBlocks(src string) []presetBlock {
+	var out []presetBlock
+	open := false
+	closeBlock := func() {
+		if !open {
+			return
+		}
+		open = false
+		b := &out[len(out)-1]
+		body := src[b.start:b.end]
+		body = body[strings.IndexByte(body+"\n", '\n'):]
+		var p AgentPreset
+		if _, err := toml.Decode(body, &p); err == nil {
+			b.name = p.Name
+		}
+	}
+	for pos := 0; pos < len(src); {
+		lineEnd := len(src)
+		if i := strings.IndexByte(src[pos:], '\n'); i >= 0 {
+			lineEnd = pos + i + 1
+		}
+		line := strings.TrimRight(src[pos:lineEnd], "\r\n")
+		switch m := arrayHeaderRe.FindStringSubmatch(line); {
+		case m != nil || headerRe.MatchString(line):
+			closeBlock()
+			if m != nil && clean(m[1]) == "agents.preset" {
+				out, open = append(out, presetBlock{start: pos, end: lineEnd}), true
+			}
+		case keyRe.MatchString(line):
+			ve := valueEnd(src, pos+keyRe.FindStringIndex(line)[1])
+			if i := strings.IndexByte(src[ve:], '\n'); i >= 0 {
+				lineEnd = ve + i + 1
+			} else {
+				lineEnd = len(src)
+			}
+			if open {
+				out[len(out)-1].end = lineEnd
+			}
+		}
+		pos = lineEnd
+	}
+	closeBlock()
+	return out
+}
+
+// presetTOML is p as an [[agents.preset]] table.
+func presetTOML(p AgentPreset) string {
+	list := func(ss []string) string {
+		q := make([]string, len(ss))
+		for i, s := range ss {
+			q[i] = Quote(s)
+		}
+		return "[" + strings.Join(q, ", ") + "]"
+	}
+	out := "[[agents.preset]]\nname = " + Quote(p.Name) + "\nagent = " + Quote(p.Agent) + "\n"
+	if len(p.Args) > 0 {
+		out += "args = " + list(p.Args) + "\n"
+	}
+	if len(p.Env) > 0 {
+		out += "env = " + list(p.Env) + "\n"
+	}
+	if p.Guard {
+		out += "guard = true\n"
+	}
+	return out
+}
+
+// editPreset is SetPreset on the text src.
+func editPreset(src, old string, p *AgentPreset) (string, error) {
+	blocks := presetBlocks(src)
+	at := -1
+	if old != "" {
+		at = slices.IndexFunc(blocks, func(b presetBlock) bool { return b.name == old })
+		if at < 0 {
+			return "", fmt.Errorf("no preset is named %q", old)
+		}
+	}
+	if p == nil {
+		b := blocks[at]
+		end := b.end
+		if strings.HasPrefix(src[end:], "\n") || strings.HasPrefix(src[end:], "\r\n") {
+			end += strings.IndexByte(src[end:], '\n') + 1 // the blank line after it
+		}
+		return src[:b.start] + src[end:], nil
+	}
+	switch {
+	case strings.TrimSpace(p.Name) == "":
+		return "", errors.New("a preset needs a name")
+	case strings.TrimSpace(p.Agent) == "":
+		return "", errors.New("a preset needs an agent")
+	}
+	for i, b := range blocks {
+		if i != at && b.name == p.Name {
+			return "", fmt.Errorf("a preset is already named %q", p.Name)
+		}
+	}
+	t := presetTOML(*p)
+	if at >= 0 {
+		return src[:blocks[at].start] + t + src[blocks[at].end:], nil
+	}
+	end := len(src)
+	if len(blocks) > 0 {
+		end = blocks[len(blocks)-1].end
+	}
+	head := src[:end]
+	if head != "" && !strings.HasSuffix(head, "\n") {
+		head += "\n"
+	}
+	if head != "" {
+		head += "\n"
+	}
+	return head + t + src[end:], nil
 }
