@@ -153,3 +153,66 @@ func TestAllThemes(t *testing.T) {
 		t.Fatalf("got %+v", last)
 	}
 }
+
+func TestSetPreset(t *testing.T) {
+	const src = `[agents]
+max_running = 2
+
+# Quick one.
+[[agents.preset]]
+name = "Quick"
+agent = "codex"
+args = [
+  "-m", "gpt-x", # small
+]
+
+[[agents.preset]]
+name = "Deep"
+agent = "claude"
+env = ["A=b"]
+
+# Lanes.
+[fleet.small]
+preset = "Quick"
+`
+	p := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(p, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string { b, _ := os.ReadFile(p); return string(b) }
+	if err := SetPreset(p, "Quick", &AgentPreset{Name: "Fast", Agent: "codex", Args: []string{"-m", "gpt-y"}, Guard: true}); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(src, "name = \"Quick\"\nagent = \"codex\"\nargs = [\n  \"-m\", \"gpt-x\", # small\n]\n",
+		"name = \"Fast\"\nagent = \"codex\"\nargs = [\"-m\", \"gpt-y\"]\nguard = true\n", 1)
+	if got := read(); got != want {
+		t.Fatalf("edit:\n%s", got)
+	}
+	if err := SetPreset(p, "", &AgentPreset{Name: "Mid", Agent: "pi"}); err != nil {
+		t.Fatal(err)
+	}
+	want = strings.Replace(want, "env = [\"A=b\"]\n", "env = [\"A=b\"]\n\n[[agents.preset]]\nname = \"Mid\"\nagent = \"pi\"\n", 1)
+	if got := read(); got != want {
+		t.Fatalf("add:\n%s", got)
+	}
+	if err := SetPreset(p, "", &AgentPreset{Name: "Deep", Agent: "pi"}); err == nil {
+		t.Error("a second Deep saved")
+	}
+	if err := SetPreset(p, "Deep", nil); err != nil {
+		t.Fatal(err)
+	}
+	want = strings.Replace(want, "[[agents.preset]]\nname = \"Deep\"\nagent = \"claude\"\nenv = [\"A=b\"]\n\n", "", 1)
+	if got := read(); got != want {
+		t.Fatalf("delete:\n%s", got)
+	}
+	// A key set in [agents] stays out of the presets after it.
+	if err := SetKey(p, "agents", "guard_workers", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); !strings.HasPrefix(got, "[agents]\nmax_running = 2\nguard_workers = true\n") {
+		t.Fatalf("set key:\n%s", got)
+	}
+	if err := SetPreset(filepath.Join(t.TempDir(), "new.toml"), "", &AgentPreset{Name: "A", Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+}

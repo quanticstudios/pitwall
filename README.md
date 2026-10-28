@@ -122,6 +122,42 @@ across three workers" is all you have to say.
 
 <img src="docs/media/fleet-folded.webp" alt="The sidebar with the Billing epic fleet folded into one row: a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, above a rate limiting tab and a collapsed web-app group" width="240"> <img src="docs/media/workers.webp" alt="The same fleet unfolded: ten workers indented under the Billing epic tab, each on its own branch, among them Retry failed webhooks waiting for input, Refund flow waiting for approval and Mid-cycle plan change with an error" width="240">
 
+### Fleet mode
+
+**Fleet mode sends each worker to a lane by the size of its task, and each
+lane runs the model you picked for it.** A fast, cheap model takes the small
+fixes and your strongest model takes the whole features, without anyone
+picking a model per task. A lane runs one of your presets, which holds the
+agent, model and effort.
+
+On top of the lanes, pitwall keeps watch over the workers:
+
+- Your worker contract, a text file on how to commit and when to stop, goes
+  before every brief.
+- A worker with no pull request open at its lane's timebox gets one nudge.
+  At twice the timebox, the orchestrator hears about it.
+- When a worker's checks fail again after pitwall sent it the failures twice
+  (`auto_send_failures` under `[git]`), pitwall tells the orchestrator, or
+  restarts the task on the big lane. [Fleet mode](docs/usage.md#fleet-mode)
+  has the details.
+- A finished worker reads **PR open** until its pull request merges or
+  closes, and `pitwall wait --until done` keeps waiting for that.
+
+Set it up in three steps:
+
+1. In **Settings, Agents**, add a preset for each model: pick the agent, type
+   the model, pick the effort.
+2. In **Settings, Fleet**, pick a preset for the small, normal and big lanes,
+   and turn fleet mode on.
+3. Ask your orchestrator agent to split the work. It starts each worker on a
+   lane:
+
+```sh
+pitwall worktree new login-fix --lane small -- "Fix the login redirect"
+```
+
+<img src="docs/media/fleet-settings.webp" alt="Settings, Fleet with fleet mode on: the small lane runs the Quick preset (Codex, gpt-x-mini, low), the normal lane Standard (Codex, gpt-x, high) and the big lane Deep (Claude Code, opus, xhigh), each with its timebox, and a New preset button" width="560">
+
 ### Review what the agent changed
 
 **Ctrl+Shift+R opens the tab's changes. Comment on any line, then send all

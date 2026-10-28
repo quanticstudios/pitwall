@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -84,4 +85,157 @@ func (s Settings) FindPreset(name string) (AgentPreset, bool) {
 		return AgentPreset{}, false
 	}
 	return s.Presets[i], true
+}
+
+// Efforts are the effort levels agent takes in a preset, nil when pitwall
+// does not set its model and effort.
+func Efforts(agent string) []string {
+	switch filepath.Base(agent) {
+	case "claude":
+		return []string{"low", "medium", "high", "xhigh", "max"}
+	case "codex", "opencode":
+		return []string{"none", "low", "medium", "high", "xhigh", "max"}
+	case "pi":
+		return []string{"low", "medium", "high", "xhigh"}
+	}
+	return nil
+}
+
+const codexEffort = "model_reasoning_effort="
+
+// SplitArgs reads a preset's args as the model, the effort and the rest,
+// as PresetArgs writes them. Args it does not know stay in rest.
+func SplitArgs(agent string, args []string) (model, effort string, rest []string) {
+	efforts := Efforts(agent)
+	if efforts == nil {
+		return "", "", args
+	}
+	// suffix splits "x:high" (pi) or "x#high" (OpenCode) at sep.
+	suffix := func(v string, sep string) (string, string) {
+		if i := strings.LastIndex(v, sep); i > 0 && slices.Contains(efforts, v[i+1:]) {
+			return v[:i], v[i+1:]
+		}
+		return v, ""
+	}
+	for i := 0; i < len(args); i++ {
+		a, next := args[i], ""
+		if i+1 < len(args) {
+			next = args[i+1]
+		}
+		switch base := filepath.Base(agent); {
+		case model == "" && next != "" && (a == "--model" || base != "claude" && base != "pi" && a == "-m"):
+			model = next
+			switch base {
+			case "pi":
+				model, effort = suffix(model, ":")
+			case "opencode":
+				model, effort = suffix(model, "#")
+			}
+			i++
+		case effort == "" && base == "claude" && a == "--effort" && slices.Contains(efforts, next):
+			effort = next
+			i++
+		case effort == "" && base == "codex" && a == "-c" && strings.HasPrefix(next, codexEffort) && slices.Contains(efforts, strings.Trim(next[len(codexEffort):], `"'`)):
+			effort = strings.Trim(next[len(codexEffort):], `"'`)
+			i++
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return model, effort, rest
+}
+
+// PresetArgs is the args that run agent on model at effort, in the agent's
+// own flags, then rest. Either may be "".
+func PresetArgs(agent, model, effort string, rest []string) []string {
+	var out []string
+	switch filepath.Base(agent) {
+	case "claude":
+		if model != "" {
+			out = append(out, "--model", model)
+		}
+		if effort != "" {
+			out = append(out, "--effort", effort)
+		}
+	case "codex":
+		if model != "" {
+			out = append(out, "-m", model)
+		}
+		if effort != "" {
+			out = append(out, "-c", codexEffort+effort)
+		}
+	case "pi", "opencode":
+		sep := ":"
+		if filepath.Base(agent) == "opencode" {
+			sep = "#"
+		}
+		if model != "" && effort != "" {
+			model += sep + effort
+		}
+		if model != "" {
+			out = append(out, "--model", model)
+		}
+	}
+	return append(out, rest...)
+}
+
+// SplitShell splits s into words as a POSIX shell would, with its single
+// and double quotes and backslashes, and no expansions.
+func SplitShell(s string) ([]string, error) {
+	var out []string
+	var w strings.Builder
+	in, quote := false, rune(0)
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch {
+		case quote == '\'':
+			if r == '\'' {
+				quote = 0
+			} else {
+				w.WriteRune(r)
+			}
+		case r == '\\' && (quote == 0 || i+1 < len(rs) && strings.ContainsRune(`"\$`+"`", rs[i+1])):
+			if i+1 < len(rs) {
+				i++
+				w.WriteRune(rs[i])
+			}
+			in = true
+		case quote == '"':
+			if r == '"' {
+				quote = 0
+			} else {
+				w.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote, in = r, true
+		case r == ' ' || r == '\t' || r == '\n':
+			if in {
+				out, in = append(out, w.String()), false
+				w.Reset()
+			}
+		default:
+			w.WriteRune(r)
+			in = true
+		}
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("a %c quote is not closed", quote)
+	}
+	if in {
+		out = append(out, w.String())
+	}
+	return out, nil
+}
+
+// JoinShell is args as one line SplitShell reads back.
+func JoinShell(args []string) string {
+	q := make([]string, len(args))
+	for i, a := range args {
+		q[i] = a
+		if a == "" || strings.ContainsAny(a, " \t\n'\"\\$`*?[]#~;&|<>(){}!") {
+			q[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+		}
+	}
+	return strings.Join(q, " ")
 }

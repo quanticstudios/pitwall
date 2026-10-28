@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	gl "gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/unit"
 	"gioui.org/widget"
 
@@ -77,12 +78,27 @@ func (p *Page) fleet() []section {
 				}
 			})
 		}
+		desc := config.LaneDescs[i] + " Off until you pick a preset."
+		if ps, ok := p.s.FindPreset(l.Preset); ok {
+			desc = config.LaneDescs[i] + " Runs " + presetSummary(ps) + "."
+		}
 		lanes = append(lanes,
-			row{label: title + " lane", desc: config.LaneDescs[i] + " pitwall worktree new --lane " + l.Name + " starts this preset.",
+			row{label: title + " lane", desc: desc,
 				extra: "fleet lane preset " + l.Name, control: pick},
 			row{label: title + " timebox", desc: "Minutes a " + l.Name + " worker may run with no pull request open before pitwall nudges it once. 0 turns it off.",
 				extra: "fleet lane timebox nudge minutes " + l.Name, control: p.stepper(table, "timebox", l.Timebox.Minutes(), 0, 1440, 5, config.DefaultTimeboxes[i])})
 	}
+	lanes = append(lanes, row{label: "New preset", desc: "For a model or effort no preset runs yet. Opens the preset editor in Settings, Agents.",
+		extra: "fleet lane preset new model effort", control: func(gtx gl.Context) gl.Dimensions {
+			c := p.btn("fleet-new-preset")
+			for c.Clicked(gtx) {
+				p.cat, p.dd, p.conflict = catAgents, "", nil
+				p.search.SetText("")
+				p.editPreset(nil)
+				gtx.Execute(op.InvalidateCmd{}) // the rows of this frame are already built
+			}
+			return p.button(gtx, c, secondary, "New preset")
+		}})
 	return []section{
 		{rows: []row{
 			{label: "Fleet mode", desc: "Lanes start a preset by a task's size, the worker contract goes before each brief, workers past their timebox get a nudge, and repeat red checks escalate. Off by default.",

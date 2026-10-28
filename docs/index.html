@@ -294,6 +294,21 @@ pitwall wait --children \
 
       <div class="feature">
         <div class="text">
+          <h3>Fleet mode</h3>
+          <p><strong>Fleet mode sends each worker to a lane by the size of its task, and each lane runs the model you picked for it.</strong> A fast, cheap model takes the small fixes and your strongest model takes the whole features. A lane runs one of your presets, which holds the agent, model and effort.</p>
+          <p>Every brief starts with your worker contract. A worker with no pull request at its lane's timebox gets one nudge, and the orchestrator hears about it at twice the timebox. Checks that keep failing go back to the orchestrator, or restart the task on the big lane. A finished worker reads PR open until its pull request merges.</p>
+          <p>To set it up, add a preset per model in Settings, Agents, pick one per lane in Settings, Fleet and turn fleet mode on. Then ask your agent to split the work.</p>
+          <pre class="term"><code>pitwall worktree new login-fix \
+  --lane small -- \
+  "Fix the login redirect"</code></pre>
+        </div>
+        <div class="media">
+          <div class="shot"><img src="media/fleet-settings.webp" width="734" height="672" loading="lazy" alt="Settings, Fleet with fleet mode on: the small lane runs the Quick preset (Codex, gpt-x-mini, low), the normal lane Standard (Codex, gpt-x, high) and the big lane Deep (Claude Code, opus, xhigh), each with its timebox, and a New preset button"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
           <h3>Review what the agent changed</h3>
           <p><strong><kbd>Ctrl+Shift+R</kbd> opens the tab's changes. Comment on any line, then send all the comments to the agent as one prompt.</strong></p>
           <p>Untracked files are included. Tick off the files you have read; one the agent touches again comes back unticked. Throw away a file's changes with one button.</p>

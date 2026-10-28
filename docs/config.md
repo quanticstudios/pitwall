@@ -56,6 +56,11 @@ archive_on_merge = false                # archive a merged worktree tab without 
 auto_send_failures = false              # send a branch's failed checks to its agent
 conflict_radar = true                   # mark tabs whose branches change the same files
 
+[[agents.preset]]                       # Settings, Agents adds and edits these
+name = "Quick"
+agent = "codex"
+args = ["-m", "gpt-x", "-c", "model_reasoning_effort=low"]
+
 [fleet]                                 # see usage.md, Fleet mode
 enabled = false                         # pitwall worktree new --lane and the timeboxes
 contract = ""                           # a file that goes before every --lane brief

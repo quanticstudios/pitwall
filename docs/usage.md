@@ -895,9 +895,11 @@ pitwall queue rm 1
 
 ### Agent presets
 
-A preset is an agent with its arguments and environment under a name. Add
-one `[[agents.preset]]` table per preset to `config.toml`. Set the model and
-effort through `args`, the way each agent's CLI takes them:
+A preset is an agent with its model, effort, arguments and environment
+under a name. Add, edit and delete them in **Settings, Agents**: pick the
+agent, type the model, pick the effort and add any extra arguments. Each
+preset is an `[[agents.preset]]` table in `config.toml`, and the model and
+effort go into `args` the way each agent's CLI takes them:
 
 ```toml
 [[agents.preset]]
@@ -916,13 +918,21 @@ guard = true
 pi takes the effort after the model (`["--model", "anthropic/claude-opus-5-5:high"]`),
 and OpenCode as a variant (`["-m", "anthropic/claude-opus-5-5#high"]`).
 
+Settings offers the efforts each agent takes: `low` to `max` for Claude
+Code, `none` to `max` for Codex and OpenCode, `low` to `xhigh` for pi. For
+other agents it edits the name, extra arguments and guard only. Extra
+arguments split as a shell would, so quote a value with spaces. A
+hand-written preset whose `args` don't read as a model and effort keeps
+them in its extra arguments. `env` stays in `config.toml`: Settings shows
+the variables' names and keeps them when you save.
+
 The New task dialog lists presets after the plain agents, with the same
 modes as their agent. `--preset NAME` starts one from `pitwall new`,
 `pitwall worktree new` and `pitwall queue add`. Arguments after `--` follow
 the preset's own, so `pitwall new --preset "Opus high" -- "fix the flaky
 test"` passes the prompt. `guard = true` turns on the [guard](#the-guard).
-**Settings, Agents** lists the presets read only; edit them in
-`config.toml`.
+Renaming a preset in Settings renames it in the fleet lanes that use it.
+Deleting one turns those lanes off, and the page says which.
 
 A preset's tab keeps its environment after a daemon restart, and a resumed
 agent keeps the arguments its CLI documents as session settings: Claude
@@ -1005,8 +1015,12 @@ preset = "Deep"
 timebox = 120
 ```
 
-Each lane names one of your [presets](#agent-presets). Lanes ship empty;
-a lane without a preset is off. `pitwall worktree lanes` lists them, and
+Each lane names one of your [presets](#agent-presets), and the preset
+picks the model: a fast, cheap one for small tasks, your strongest for big
+ones. Lanes ship empty; a lane without a preset is off. **Settings, Fleet**
+shows what each lane runs, such as "Codex, gpt-x, high", and its **New
+preset** button opens the preset editor. `pitwall worktree lanes` lists
+them, and
 the pitwall skill tells an orchestrator agent to route by size, one worker
 per task:
 
