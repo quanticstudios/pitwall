@@ -79,6 +79,8 @@ func allMessages() []any {
 		SetStatus{WorkspaceID: "w", Text: "CI 3/7"},
 		Favicon{Dir: "/r/src"},
 		FaviconResult{Dir: "/r/src", Root: "/r", Files: []FaviconFile{{Name: "/r/favicon.svg", Data: []byte("<svg/>")}}},
+		PasteImage{Pane: "a", Data: []byte("\x89PNG")},
+		PasteImageResult{Pane: "a", Path: "/s/paste/image-1.png", Err: "e"},
 		FrameRows{Pane: "a", Rows: []int{2}, Cells: []vt.Cell{{Content: "x", Width: 1}}, Wrapped: []bool{false, false, true}, Title: "t", ScrollPushed: 1 << 40},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},

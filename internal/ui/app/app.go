@@ -213,6 +213,7 @@ type paneUI struct {
 	sentCols   int
 	sentRows   int
 	copyWant   *vt.Selection // the selection whose proto.Text reply is awaited
+	pasteWait  bool          // a proto.PasteImage was sent; its reply is awaited
 	focusClick bool          // its address is the click-to-focus pointer tag
 	// The hooks notice: its buttons, and its area's pointer tag.
 	hooksInstall, hooksHide widget.Clickable
@@ -306,6 +307,7 @@ type ui struct {
 
 	review reviewView // the review view, shown in place of the panes
 	sends  agentSends // Send failures and Send review comments, fetching
+	pastes hostPastes // a --host window's image pastes
 
 	notice   string          // the copy notice on screen, "" for none
 	noticeAt time.Time       // when it was shown
@@ -935,6 +937,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		p.view.Links = u.cfg.Links
 		pn := findPane(st, id)
 		p.view.PasteImages = pn != nil && (pn.Provider == model.ProviderClaude || pn.Provider == model.ProviderCodex)
+		p.view.HostPaste = Host != ""
 		var att *model.Activity
 		if a, ok := unseen[id]; ok {
 			att = &a
@@ -1063,6 +1066,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	cl.Pop()
 
 	u.paneCopy(gtx, p, id, rect)
+	u.panePaste(gtx, p, id, rect, m)
 	if l := p.view.OpenLink(); l != "" {
 		openLink(l)
 	}

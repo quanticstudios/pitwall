@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 32 added PasteImage and PasteImageResult: a window whose daemon
+// runs on another machine pastes an image from its own clipboard.
 // Level 31 added Favicon and FaviconResult: a window whose daemon runs
 // on another machine gets repo icons from the daemon.
 // Level 30 added NewWorkspace.Lane and Workspace.Lane: a fleet worker's
@@ -125,12 +127,14 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 31
+const Level = 32
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case PasteImage, PasteImageResult:
+		return 32
 	case Favicon, FaviconResult:
 		return 31
 	case SetStatus:
@@ -464,6 +468,24 @@ type FaviconFile struct {
 	Data []byte
 }
 
+// MaxPasteImage is the largest image a PasteImage carries.
+const MaxPasteImage = 20 << 20
+
+// PasteImage is an image from the clipboard of a window whose daemon runs
+// on another machine, for Pane's agent: PNG, JPEG, GIF or WebP bytes, at
+// most MaxPasteImage. The daemon saves it to a file only the user can read
+// and answers this client alone with a PasteImageResult.
+type PasteImage struct {
+	Pane string
+	Data []byte
+}
+
+// PasteImageResult answers PasteImage with the saved file's path on the
+// daemon's machine, or Err.
+type PasteImageResult struct {
+	Pane, Path, Err string
+}
+
 // TextResult answers a Text with Sel's text.
 type TextResult struct {
 	Pane string
@@ -743,4 +765,5 @@ var Messages = []any{
 	SecondOpinion{},
 	SetStatus{},
 	Favicon{}, FaviconResult{},
+	PasteImage{}, PasteImageResult{},
 }

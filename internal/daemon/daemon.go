@@ -630,6 +630,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(favicon(f)) // a reply to this client alone
 			continue
 		}
+		if p, ok := m.(proto.PasteImage); ok {
+			c.queue(pasteImage(p)) // a reply to this client alone
+			continue
+		}
 		if r, ok := m.(proto.Read); ok {
 			c.queue(d.read(r)) // a reply to this client alone
 			continue
