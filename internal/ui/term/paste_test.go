@@ -12,21 +12,27 @@ func TestClipInput(t *testing.T) {
 	bracketed := vt.Modes{BracketedPaste: true}
 	kitty := vt.Modes{KittyKeyboard: 1}
 	for _, c := range []struct {
-		name  string
-		text  string
-		agent bool
-		m     vt.Modes
-		want  string
+		name        string
+		text        string
+		agent, host bool
+		m           vt.Modes
+		want        string
+		image       bool
 	}{
-		{"agent text", "hi", true, bracketed, "\x1b[200~hi\x1b[201~"},
-		{"shell text", "hi", false, bracketed, "\x1b[200~hi\x1b[201~"},
+		{"agent text", "hi", true, false, bracketed, "\x1b[200~hi\x1b[201~", false},
+		{"shell text", "hi", false, false, bracketed, "\x1b[200~hi\x1b[201~", false},
 		// An image, or nothing, reads as no text.
-		{"agent image", "", true, bracketed, "\x16"},
-		{"agent image kitty", "", true, kitty, "\x1b[118;5u"},
-		{"shell image", "", false, bracketed, ""},
+		{"agent image", "", true, false, bracketed, "\x16", false},
+		{"agent image kitty", "", true, false, kitty, "\x1b[118;5u", false},
+		{"shell image", "", false, false, bracketed, "", false},
+		// On a --host window the agent has no clipboard: the window pastes.
+		{"host agent text", "hi", true, true, bracketed, "\x1b[200~hi\x1b[201~", false},
+		{"host agent image", "", true, true, bracketed, "", true},
+		{"host shell image", "", false, true, bracketed, "", false},
 	} {
-		if got := string(clipInput(c.text, c.agent, c.m)); got != c.want {
-			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		got, image := clipInput(c.text, c.agent, c.host, c.m)
+		if string(got) != c.want || image != c.image {
+			t.Errorf("%s: got %q image %v, want %q image %v", c.name, got, image, c.want, c.image)
 		}
 	}
 }

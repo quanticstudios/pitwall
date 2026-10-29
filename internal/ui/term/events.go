@@ -164,7 +164,9 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			b, _ := io.ReadAll(r)
 			r.Close()
 			if !v.cm.on {
-				out = append(out, clipInput(string(b), v.PasteImages, m)...)
+				in, img := clipInput(string(b), v.PasteImages, v.HostPaste, m)
+				out = append(out, in...)
+				v.imageWanted = v.imageWanted || img
 			}
 		case pointer.Event:
 			out = append(out, v.pointer(e, g, m, focused)...)
@@ -199,17 +201,30 @@ func agentPasteKey(e key.Event, agent bool) bool {
 // clipInput is what a paste of the clipboard's text sends the program.
 // With no text, an image or nothing, an agent that reads images gets
 // Ctrl+V and reads the clipboard itself; any other program gets nothing.
-func clipInput(text string, agent bool, m vt.Modes) []byte {
+// With host, the agent runs on another machine with no clipboard of ours,
+// so it gets nothing and image asks the window to paste the image itself.
+func clipInput(text string, agent, host bool, m vt.Modes) (out []byte, image bool) {
 	if text != "" {
-		return input.Paste(text, m)
+		return input.Paste(text, m), false
 	}
 	if !agent {
-		return nil
+		return nil, false
+	}
+	if host {
+		return nil, true
 	}
 	v := key.Event{Name: "V", Modifiers: key.ModCtrl, State: key.Press}
-	out := input.Key(v, m)
+	out = input.Key(v, m)
 	v.State = key.Release
-	return append(out, input.Key(v, m)...)
+	return append(out, input.Key(v, m)...), false
+}
+
+// ImageWanted reports, once, that a paste in a HostPaste pane found no
+// text, so the window should paste the image on its own clipboard.
+func (v *View) ImageWanted() bool {
+	w := v.imageWanted
+	v.imageWanted = false
+	return w
 }
 
 // Run runs a pane action (config.PaneAction) in the next Layout, as its

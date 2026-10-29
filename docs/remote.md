@@ -114,6 +114,11 @@ Some things stay on the machine they belong to:
 - The sidebar's repo icons come from the repo on the host, which the
   daemon there reads. With an older pitwall on the host, each repo gets its
   letter tile.
+- Ctrl+V in a Claude Code or Codex pane pastes text or an image from the
+  clipboard here. The host keeps a pasted image in a file only you can
+  read, under its state directory, for a day, and the agent gets that
+  file's path. With an older pitwall on the host, text still pastes, and
+  an image paste says under the pane that the host's pitwall is too old.
 - Ctrl+click opens a web link here. A file link names a file on the host and
   does nothing.
 - Open folder as group takes the folder's full path on the host, without

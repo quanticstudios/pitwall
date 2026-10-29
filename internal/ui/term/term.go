@@ -55,6 +55,10 @@ type View struct {
 	// image off the clipboard on Ctrl+V. Ctrl+V pastes there as the paste
 	// key does, and a paste finding no text sends the agent Ctrl+V.
 	PasteImages bool
+	// HostPaste marks a PasteImages pane whose agent runs on another
+	// machine (pitwall --host): a paste finding no text asks the window,
+	// through ImageWanted, instead of sending Ctrl+V.
+	HostPaste bool
 
 	th       *theme.Theme
 	ppem     fixed.Int26_6
@@ -78,23 +82,24 @@ type View struct {
 		img paint.ImageOp
 	}
 
-	sel       vt.Selection // the selection, while selOn
-	selOn     bool
-	selCols   int  // the grid width sel was made at: a rewrap renumbers lines
-	dragging  bool // a mouse selection is being dragged
-	dragAt    f32.Point
-	auto      int // rows the drag is above (< 0) or below the view, which scrolls it
-	autoAt    time.Time
-	autoAcc   float64 // autoscroll not yet a whole line
-	clicks    int     // presses in a row on one cell: 2 selects a word, 3 a line
-	lastPress pointer.Event
-	lastCell  image.Point
-	buttons   pointer.Buttons // held as of the last pointer event
-	selDone   bool            // a selection was finished this frame
-	copied    *Copy           // what this frame asks to copy
-	queued    string          // the pane action Run asked for
-	cm        copyMode
-	wantFind  bool // copy mode's / or ? asks for the find bar
+	sel         vt.Selection // the selection, while selOn
+	selOn       bool
+	selCols     int  // the grid width sel was made at: a rewrap renumbers lines
+	dragging    bool // a mouse selection is being dragged
+	dragAt      f32.Point
+	auto        int // rows the drag is above (< 0) or below the view, which scrolls it
+	autoAt      time.Time
+	autoAcc     float64 // autoscroll not yet a whole line
+	clicks      int     // presses in a row on one cell: 2 selects a word, 3 a line
+	lastPress   pointer.Event
+	lastCell    image.Point
+	buttons     pointer.Buttons // held as of the last pointer event
+	selDone     bool            // a selection was finished this frame
+	copied      *Copy           // what this frame asks to copy
+	queued      string          // the pane action Run asked for
+	imageWanted bool            // a HostPaste paste found no text
+	cm          copyMode
+	wantFind    bool // copy mode's / or ? asks for the find bar
 
 	keyText string // text of the key press report-all just encoded
 	eatText string // text of the key press that just left copy mode

@@ -618,7 +618,13 @@ nothing, pitwall sends the agent Ctrl+V and the agent reads the image
 itself, the way it does in any terminal. Each agent reads the clipboard
 through the pane's environment: Codex directly, Claude Code through
 `wl-paste` or `xclip` on Linux. A pane started from a desktop session has
-what they need. In every other program, Ctrl+V reaches the program as a
+what they need. In a `pitwall --host` window the agent runs on a host with
+no clipboard, so the window reads the image itself, with `wl-paste` on
+Wayland, `xclip` on X11 or `osascript` on macOS, and sends it to the host.
+The host saves it in `paste` under its state directory, readable only by
+you, and the window pastes the file's path, which Claude Code and Codex
+attach as an image. An image may be up to 20 MiB, and the host deletes it
+after a day. In every other program, Ctrl+V reaches the program as a
 key, so Vim's block select and the shell's quoted insert work as before,
 and the paste key pastes text only.
 

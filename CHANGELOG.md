@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- Ctrl+V in a Claude Code or Codex pane of a `pitwall --host` window pastes an image from this machine's clipboard. The window sends it to the host, which saves it to a private file for a day, and pastes that file's path, which the agent attaches. It used to send Ctrl+V, and the agent found no clipboard on the host. A host whose pitwall predates this says so under the pane.
+
 ## v0.1.5
 
 - Settings, Agents adds, edits and deletes presets: name, agent, model, effort, extra arguments and the guard. pitwall writes the model and effort as the agent's own flags in `config.toml`. Renaming a preset renames it in the fleet lanes; deleting one turns those lanes off.
