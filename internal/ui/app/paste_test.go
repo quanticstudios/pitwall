@@ -100,7 +100,7 @@ func TestHostPaste(t *testing.T) {
 	wait()
 	b.reply = &proto.PasteImageResult{Pane: "p", Err: "no space left on device"}
 	frame()
-	if u.notice != "Can't paste the image: no space left on device" || len(b.sent) != 1 {
+	if u.notice != "Can't paste the image: no space left on device" || !u.noticeErr || len(b.sent) != 1 {
 		t.Errorf("daemon error: notice %q, sent %d", u.notice, len(b.sent))
 	}
 

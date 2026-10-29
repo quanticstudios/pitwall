@@ -43,12 +43,20 @@ func copiedText(s string) string {
 // showNotice starts the notice over with text under the pane at r,
 // replacing any on screen.
 func (u *ui) showNotice(gtx gl.Context, text string, r image.Rectangle) {
-	u.notice, u.noticeAt, u.noticeIn = text, gtx.Now, r
+	u.notice, u.noticeAt, u.noticeIn, u.noticeErr = text, gtx.Now, r, false
 	gtx.Execute(op.InvalidateCmd{})
 }
 
+// showError is showNotice for a failure, with an alert in place of the
+// check.
+func (u *ui) showError(gtx gl.Context, text string, r image.Rectangle) {
+	u.showNotice(gtx, text, r)
+	u.noticeErr = true
+}
+
 // drawNotice draws the notice bottom-centre in the pane that copied, in the
-// pane area gtx fills: a check and a line of text on a bordered surface chip.
+// pane area gtx fills: a check, or an alert for an error, and a line of
+// text on a bordered surface chip.
 func (u *ui) drawNotice(gtx gl.Context) {
 	if u.notice == "" {
 		return
@@ -80,7 +88,11 @@ func (u *ui) drawNotice(gtx gl.Context) {
 	paint.FillShape(gtx.Ops, th.Border, clip.UniformRRect(image.Rectangle{Max: box}, rad).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, th.Surface, clip.UniformRRect(image.Rect(1, 1, box.X-1, box.Y-1), rad-1).Op(gtx.Ops))
 	o := op.Offset(image.Pt(pad.X, (h-is)/2)).Push(gtx.Ops)
-	sidebar.Icon(gtx, "check", is, th.Green)
+	if u.noticeErr {
+		sidebar.Icon(gtx, "circle-alert", is, th.Yellow)
+	} else {
+		sidebar.Icon(gtx, "check", is, th.Green)
+	}
 	o.Pop()
 	o = op.Offset(image.Pt(pad.X+is+gap, (h-ts.Y)/2)).Push(gtx.Ops)
 	call.Add(gtx.Ops)

@@ -69,9 +69,9 @@ func (u *ui) panePaste(gtx gl.Context, p *paneUI, id string, r image.Rectangle, 
 	switch {
 	case !ok:
 	case rd.err != nil:
-		u.showNotice(gtx, "Can't paste the image: "+rd.err.Error(), r)
+		u.showError(gtx, "Can't paste the image: "+rd.err.Error(), r)
 	case !u.send(proto.PasteImage{Pane: id, Data: rd.data}):
-		u.showNotice(gtx, "Can't paste the image: the connection to "+Host+" is down", r)
+		u.showError(gtx, "Can't paste the image: the connection to "+Host+" is down", r)
 	default:
 		p.pasteWait = true
 	}
@@ -79,7 +79,7 @@ func (u *ui) panePaste(gtx gl.Context, p *paneUI, id string, r image.Rectangle, 
 		if res, ok := pr.TakePasted(id); ok {
 			p.pasteWait = false
 			if res.Err != "" {
-				u.showNotice(gtx, "Can't paste the image: "+res.Err, r)
+				u.showError(gtx, "Can't paste the image: "+res.Err, r)
 			} else {
 				u.send(proto.Input{Pane: id, Data: input.Paste(res.Path, m)})
 			}
@@ -91,7 +91,7 @@ func (u *ui) panePaste(gtx gl.Context, p *paneUI, id string, r image.Rectangle, 
 // read for it runs or the daemon is too old to take the image.
 func (u *ui) readImage(gtx gl.Context, id string, r image.Rectangle) {
 	if u.link().Level < proto.Since(proto.PasteImage{}) {
-		u.showNotice(gtx, "Can't paste the image: pitwall on "+Host+" is too old; update it there", r)
+		u.showError(gtx, "Can't paste the image: pitwall on "+Host+" is too old; update it there", r)
 		return
 	}
 	s := &u.pastes

@@ -309,9 +309,10 @@ type ui struct {
 	sends  agentSends // Send failures and Send review comments, fetching
 	pastes hostPastes // a --host window's image pastes
 
-	notice   string          // the copy notice on screen, "" for none
-	noticeAt time.Time       // when it was shown
-	noticeIn image.Rectangle // the pane that copied, in the pane area
+	notice    string          // the copy notice on screen, "" for none
+	noticeAt  time.Time       // when it was shown
+	noticeIn  image.Rectangle // the pane that copied, in the pane area
+	noticeErr bool            // the notice says something failed
 
 	dismiss   widget.Clickable // State.Notice's close button
 	sideKeys  sidebarKeys      // focus_sidebar's mode, see sidebarfocus.go
