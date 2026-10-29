@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +41,11 @@ func TestPasteImage(t *testing.T) {
 		t.Errorf("file %q, %v", b, err)
 	}
 	for f, want := range map[string]os.FileMode{r.Path: 0o600, dir: 0o700} {
-		if fi, err := os.Stat(f); err != nil || fi.Mode().Perm() != want {
+		if runtime.GOOS == "windows" {
+			break // Windows has no Unix modes, and no remote windows
+		}
+		// why: Windows has no Unix mode bits; Stat reports 0666 and 0777.
+		if fi, err := os.Stat(f); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != want {
 			t.Errorf("%s: mode %v, %v; want %v", f, fi.Mode().Perm(), err, want)
 		}
 	}

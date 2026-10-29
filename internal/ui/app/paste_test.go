@@ -7,6 +7,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -122,6 +123,12 @@ func TestHostPaste(t *testing.T) {
 // lists, reports a missing tool, an empty clipboard and an image over the
 // cap, and decodes osascript's hex on macOS.
 func TestClipImage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake clipboard tools are shell scripts, and Windows has no remote windows")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake tools are shell scripts, and Windows has no remote windows")
+	}
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
 	tool := func(name, script string) {
