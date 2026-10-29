@@ -126,9 +126,6 @@ func TestClipImage(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake clipboard tools are shell scripts, and Windows has no remote windows")
 	}
-	if runtime.GOOS == "windows" {
-		t.Skip("the fake tools are shell scripts, and Windows has no remote windows")
-	}
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)
 	tool := func(name, script string) {

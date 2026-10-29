@@ -43,8 +43,7 @@ func TestPasteImage(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			break // Windows has no Unix modes, and no remote windows
 		}
-		// why: Windows has no Unix mode bits; Stat reports 0666 and 0777.
-		if fi, err := os.Stat(f); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != want {
+		if fi, err := os.Stat(f); err != nil || fi.Mode().Perm() != want {
 			t.Errorf("%s: mode %v, %v; want %v", f, fi.Mode().Perm(), err, want)
 		}
 	}
