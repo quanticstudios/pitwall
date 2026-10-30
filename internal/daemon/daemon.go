@@ -118,12 +118,16 @@ type Options struct {
 	// archive_on_merge; nil means off.
 	PR             func(ctx context.Context, dir string) (*model.PR, error)
 	ArchiveOnMerge func() bool
-	// AutoSendFailures reads [git] auto_send_failures; nil means off. It
+	// AutoSendFailures reads [git] send_failures_on_fail or its older name
+	// auto_send_failures; nil means off. It
 	// compares the commit at a dir (Head) with the pull request's and
 	// fetches the failed checks with Failures (forge.Failures).
 	AutoSendFailures func() bool
 	Head             func(ctx context.Context, dir string) (string, error)
 	Failures         func(ctx context.Context, dir string) ([]forge.FailedCheck, error)
+	// SendReviewOnRequest reads [git] send_review_on_request; nil means off.
+	SendReviewOnRequest func() bool
+	Reviews             func(context.Context, string, int) ([]forge.Thread, []forge.Comment, error)
 	// Fleet reads config.toml for [fleet] and the presets its lanes name;
 	// nil leaves fleet mode off. DiffStat is a branch's changes for the
 	// brief of a worker respawned on the big lane; nil leaves them out.
@@ -269,6 +273,10 @@ func New() (*Daemon, error) {
 		Remove:            layout.Remove,
 		Checkpoint:        gitstat.Checkpoint,
 		DropTurns:         gitstat.DropTurns,
+
+		SendReviewOnRequest: func() bool { s, _ := config.Load(); return s.SendReviewOnRequest },
+		Reviews:             forge.Reviews,
+
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)
 		},

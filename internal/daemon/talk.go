@@ -129,12 +129,19 @@ func newMail() mail {
 type letter struct {
 	from, text string
 	plain      bool
+	notice     string // success notice prefix, completed with the agent name
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
 // its prompt. It refuses a pane whose agent cannot take a prompt even
 // after its turn, and agents past sendLimit.
 func (d *Daemon) send(m proto.Send) error {
+	return d.sendMessage(m, "", false)
+}
+
+// sendMessage optionally limits a pane to one queued message and gives it
+// a notice only after delivery.
+func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	switch {
 	case m.From == m.Pane:
 		return errors.New("that is the sending pane: send to another agent's pane")
@@ -146,13 +153,16 @@ func (d *Daemon) send(m proto.Send) error {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if one && len(d.mail.queue[m.Pane]) > 0 {
+		return errors.New("a message already waits for the agent")
+	}
 	if m.From != "" {
 		if d.mail.sent[m.Pane] >= sendLimit {
 			return fmt.Errorf("agents sent that pane %d messages since the user last typed in it: stop, and ask the user before sending more", sendLimit)
 		}
 		d.mail.sent[m.Pane]++
 	}
-	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{from: m.From, text: m.Text})
+	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{from: m.From, text: m.Text, notice: notice})
 	d.changed()
 	d.wake(m.Pane, 0)
 	return nil
@@ -219,6 +229,13 @@ func (d *Daemon) deliver(pane string) {
 	d.mu.Unlock()
 	if err := d.typeLine(pane, p, text, "the message is empty"); err != nil {
 		log.Printf("pane %s: a message was lost: %q", pane, err)
+	} else if q[0].notice != "" {
+		d.mu.Lock()
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
+			d.st.Notice = q[0].notice + string(d.st.Panes[i].Provider)
+			d.changed()
+		}
+		d.mu.Unlock()
 	}
 }
 

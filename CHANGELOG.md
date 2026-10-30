@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Settings, Agents can send CI failures once per head commit and requested review changes once per review. Both are off by default, with one message held while an agent works. The existing `auto_send_failures` config key still works; ordinary tabs can now receive more than two failing commits, while fleet escalation keeps its limit.
+
 - A Codex tab stopped at its folder trust dialog shows as needing you. It showed as idle.
 
 ## v0.1.6

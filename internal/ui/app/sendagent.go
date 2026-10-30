@@ -65,15 +65,7 @@ func (u *ui) startSend(st *model.State, ws *model.Workspace, act string) {
 		ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
 		defer cancel()
 		res := agentSend{ws: ws.ID, act: act}
-		if act == "send_failures" {
-			var checks []forge.FailedCheck
-			if checks, res.err = fetchFailures(ctx, dir); len(checks) > 0 {
-				res.text = forge.FailuresPrompt(number, checks)
-			}
-		} else {
-			threads, changes, err := fetchReviews(ctx, dir, number)
-			res.text, res.err = forge.ReviewPrompt(number, threads, changes), err
-		}
+		res.text, res.err = forge.SendPrompt(ctx, dir, number, act, fetchFailures, fetchReviews)
 		s.mu.Lock()
 		delete(s.busy, key)
 		s.done = append(s.done, res)
