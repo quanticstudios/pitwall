@@ -5,10 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/logs"
+	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/web"
 )
 
@@ -45,7 +48,7 @@ func (d *Daemon) serveWeb(s config.WebSettings) (stop func()) {
 		f, err := web.Read(d.o.WebPath)
 		return f.Token, err
 	}
-	ws := &web.Server{Version: Build, Token: token}
+	ws := &web.Server{Version: Build, Token: token, Chats: chatHub{d}}
 	if s.Bundle != "" {
 		// A session lives while web.json keeps the token it started under.
 		ws.Client = &web.Client{Dir: s.Bundle, Live: func(owner string) bool {
@@ -65,4 +68,57 @@ func (d *Daemon) serveWeb(s config.WebSettings) (stop func()) {
 		srv.Close()
 		log.Printf("web: stopped serving %s", ln.Addr())
 	}
+}
+
+// chatHub is the chats as the web server streams them: each chat's loop
+// pushes its deltas to its subscribers, and changed tells the list's.
+type chatHub struct{ d *Daemon }
+
+func (h chatHub) Subscribe(id string, s web.Sink) error {
+	return h.on(id, func(c *chat) {
+		if c.subs == nil {
+			c.subs = map[web.Sink]bool{}
+		}
+		c.subs[s] = true
+	})
+}
+
+func (h chatHub) Unsubscribe(id string, s web.Sink) {
+	h.on(id, func(c *chat) { delete(c.subs, s) })
+}
+
+func (h chatHub) Read(id string, after int64) (out proto.ChatDeltas, err error) {
+	err = h.on(id, func(c *chat) { out = c.read(after) })
+	return out, err
+}
+
+// on runs f on chat id's loop.
+func (h chatHub) on(id string, f func(*chat)) error {
+	c, err := h.d.chat(id)
+	if err != nil {
+		return err
+	}
+	if !c.do(func() { f(c) }) {
+		return chatError{"not-found", "chat " + id + " is closed"}
+	}
+	return nil
+}
+
+func (h chatHub) List() []model.Chat {
+	h.d.mu.Lock()
+	defer h.d.mu.Unlock()
+	return slices.Clone(h.d.st.Chats)
+}
+
+func (h chatHub) WatchList(s web.Sink, on bool) {
+	h.d.mu.Lock()
+	defer h.d.mu.Unlock()
+	if !on {
+		delete(h.d.listSinks, s)
+		return
+	}
+	if h.d.listSinks == nil {
+		h.d.listSinks = map[web.Sink]bool{}
+	}
+	h.d.listSinks[s] = true
 }

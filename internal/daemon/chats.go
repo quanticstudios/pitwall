@@ -28,6 +28,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/eventlog"
 	"github.com/quanticstudios/pitwall/internal/store"
+	"github.com/quanticstudios/pitwall/internal/web"
 )
 
 // Chats: managed sessions the daemon drives through a session.Driver
@@ -42,6 +43,10 @@ import (
 
 // recentDeltas is how many deltas a chat keeps for ChatRead After.
 const recentDeltas = 1024
+
+// coalesce is how long an append delta takes more text for the same item
+// before the loop publishes it (managed-sessions.md, Delta).
+const coalesce = 16 * time.Millisecond
 
 // chatClose bounds Driver.Close when a chat or the daemon closes.
 const chatClose = 5 * time.Second
@@ -81,12 +86,20 @@ type chat struct {
 	resuming bool
 	sent     *session.Message
 	recap    string
+
+	published int64     // the seq of the last delta logged and sent to subs
+	hold      time.Time // until when the last delta, an append, takes more text
+	flush     *time.Timer
+	subs      map[web.Sink]bool
 }
 
 // chatError is a command's failure with its ChatResult code.
 type chatError struct{ code, msg string }
 
 func (e chatError) Error() string { return e.msg }
+
+// Code is the web protocol's result code.
+func (e chatError) Code() string { return e.code }
 
 var errResolved = chatError{"conflict", "the request is no longer pending: someone answered first, or it expired"}
 
@@ -364,7 +377,7 @@ func (c *chat) open() {
 		log.Printf("chat %s: %q", c.id, err)
 		return
 	}
-	c.log, c.snap, c.seq = l, snap, seq
+	c.log, c.snap, c.seq, c.published = l, snap, seq, seq
 }
 
 // save writes config.json when the config changed.
@@ -394,6 +407,8 @@ func (c *chat) close() {
 			}
 			c.drv = nil
 		}
+		c.hold = time.Time{}
+		c.publish() // a held append, to the log and the subs
 		if c.log != nil {
 			c.save()
 			if err := c.log.Compact(c.snap, c.seq); err != nil {
@@ -402,11 +417,16 @@ func (c *chat) close() {
 			c.log.Close()
 			c.log = nil
 		}
+		for s := range c.subs {
+			s.Removed(c.id)
+		}
 	})
 	close(c.quit)
 }
 
 func (c *chat) loop(d *Daemon) {
+	c.flush = time.NewTimer(coalesce)
+	c.flush.Stop()
 	for {
 		select {
 		case f := <-c.cmds:
@@ -423,9 +443,11 @@ func (c *chat) loop(d *Daemon) {
 			}
 			c.save()
 			d.chatChanged(c)
+		case <-c.flush.C: // the held append's time is up
 		case <-c.quit:
 			return
 		}
+		c.publish()
 	}
 }
 
@@ -567,10 +589,11 @@ func recap(s session.Snapshot) string {
 	return "pitwall could not resume this chat's earlier session. What you said at the end of each earlier turn:\n\n" + string(text)
 }
 
-// commit numbers ds as one revision stamped at stamp and applies them.
+// commit numbers ds as one revision stamped at stamp and applies them. An
+// append for the item the last delta appends to, within coalesce of it,
+// joins that delta instead of taking a seq.
 func (c *chat) commit(ds []session.Delta, stamp string) {
 	rev := c.snap.Revision + 1
-	var applied []session.Delta
 	for _, dl := range ds {
 		dl.Version, dl.SessionID, dl.Seq, dl.Revision, dl.UpdatedAt = session.DeltaVersion, c.id, c.seq+1, rev, stamp
 		if dl.Snapshot != nil {
@@ -583,23 +606,59 @@ func (c *chat) commit(ds []session.Delta, stamp string) {
 			log.Printf("chat %s: %s delta: %q", c.id, dl.Type, err)
 			continue
 		}
+		appends := dl.Type == session.DeltaItemTextAppend || dl.Type == session.DeltaReasoningAppend || dl.Type == session.DeltaToolOutputAppend
+		if last := len(c.recent) - 1; appends && time.Now().Before(c.hold) && c.recent[last].Type == dl.Type && c.recent[last].ItemID == dl.ItemID {
+			m := &c.recent[last]
+			m.Text += dl.Text
+			m.Revision, m.UpdatedAt, m.ItemUpdatedAt = dl.Revision, dl.UpdatedAt, dl.ItemUpdatedAt
+			c.snap = n
+			continue
+		}
 		c.snap, c.seq = n, dl.Seq
 		c.recent = append(c.recent, dl)
 		if len(c.recent) > 2*recentDeltas {
-			c.recent = slices.Clone(c.recent[len(c.recent)-recentDeltas:])
+			c.recent = slices.Clone(c.recent[len(c.recent)-max(recentDeltas, int(c.seq-c.published)):])
 		}
-		applied = append(applied, dl)
+		c.hold = time.Time{}
+		if appends {
+			c.hold = time.Now().Add(coalesce)
+			c.flush.Reset(coalesce)
+		}
 	}
-	if c.log == nil || len(applied) == 0 {
+}
+
+// publish writes the deltas numbered since the last publish to the log and
+// hands them to subs, all but an append still within its coalesce time, so
+// every consumer sees one stream. The log compacts only with nothing held.
+func (c *chat) publish() {
+	upto := c.seq
+	if time.Now().Before(c.hold) {
+		upto--
+	}
+	if upto <= c.published {
 		return
 	}
-	if err := c.log.Append(applied); err != nil {
-		log.Printf("chat %s: log: %q", c.id, err)
-	} else if c.log.Due() {
-		if err := c.log.Compact(c.snap, c.seq); err != nil {
-			log.Printf("chat %s: compact: %q", c.id, err)
+	ds := c.recent[len(c.recent)-int(c.seq-c.published) : len(c.recent)-int(c.seq-upto)]
+	if c.log != nil {
+		if err := c.log.Append(ds); err != nil {
+			log.Printf("chat %s: log: %q", c.id, err)
+		} else if upto == c.seq && c.log.Due() {
+			if err := c.log.Compact(c.snap, c.seq); err != nil {
+				log.Printf("chat %s: compact: %q", c.id, err)
+			}
 		}
 	}
+	if len(c.subs) > 0 {
+		out := proto.ChatDeltas{Chat: c.id, Seq: c.published}
+		for _, dl := range ds {
+			b, _ := json.Marshal(dl)
+			out.Deltas = append(out.Deltas, b)
+		}
+		for s := range c.subs {
+			s.Deltas(out)
+		}
+	}
+	c.published = upto
 }
 
 // reduce commits what event e does to c's snapshot, for the loop's own
@@ -614,7 +673,11 @@ func (c *chat) system(text string) {
 	c.reduce(session.Event{Type: session.EventContent, ItemID: newUUID(), Kind: session.KindSystem, Text: text})
 }
 
+// read publishes what the loop holds back, so a subscriber's next deltas
+// follow what it returns.
 func (c *chat) read(after int64) proto.ChatDeltas {
+	c.hold = time.Time{}
+	c.publish()
 	out := proto.ChatDeltas{Chat: c.id, Seq: c.seq}
 	kept := c.recent[max(0, len(c.recent)-recentDeltas):]
 	first := c.seq - int64(len(kept)) // the seq before the oldest kept delta

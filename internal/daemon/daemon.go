@@ -220,13 +220,15 @@ type Daemon struct {
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
 	replies map[string]string
-	mail    mail                  // see talk.go
-	reviews map[string]string     // second opinions: reviewer pane to the pane it reviews; see opinion.go
-	chats   map[string]*chat      // live chats by id; see chats.go
-	lim     limitResumes          // see resume.go
-	quiet   map[string]*quietPane // see quiet.go
-	sendMu  sync.Mutex            // one deliver types at a time
-	turnMu  sync.Mutex            // one checkpoint at a time, so each gets its own number
+	mail    mail              // see talk.go
+	reviews map[string]string // second opinions: reviewer pane to the pane it reviews; see opinion.go
+	chats   map[string]*chat  // live chats by id; see chats.go
+	// listSinks are the web connections watching the chat list; see web.go.
+	listSinks map[web.Sink]bool
+	lim       limitResumes          // see resume.go
+	quiet     map[string]*quietPane // see quiet.go
+	sendMu    sync.Mutex            // one deliver types at a time
+	turnMu    sync.Mutex            // one checkpoint at a time, so each gets its own number
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
@@ -1939,6 +1941,9 @@ func (d *Daemon) changed() {
 	}
 	for c := range d.watchers {
 		c.push(func() { c.state = true })
+	}
+	for s := range d.listSinks {
+		s.ListChanged()
 	}
 	if !d.savePending && !d.closing {
 		d.savePending = true
