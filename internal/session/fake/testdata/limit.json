@@ -1,0 +1,25 @@
+{
+  "mode": "",
+  "prompt": "limit",
+  "runtimeEvents": [
+    {
+      "type": "limit",
+      "limit": {
+        "rejected": true,
+        "resets": "2030-01-01T00:00:00Z",
+        "windows": [
+          {
+            "minutes": 300,
+            "used": 100,
+            "resets": "2030-01-01T00:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "type": "turn.completed",
+      "state": "failed",
+      "errorMessage": "Usage limit reached"
+    }
+  ]
+}

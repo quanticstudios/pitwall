@@ -1,0 +1,31 @@
+{
+  "mode": "",
+  "prompt": "reasoning",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "reasoning",
+      "kind": "reasoning-text",
+      "text": "Checking the request.",
+      "delayMs": 20
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reasoning",
+      "kind": "reasoning-text",
+      "text": " Ready.",
+      "delayMs": 20
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "Done.",
+      "delayMs": 20
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

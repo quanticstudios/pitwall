@@ -1,0 +1,28 @@
+{
+  "mode": "codex",
+  "prompt": "stream-codex",
+  "runtimeEvents": [
+    {
+      "repeat": 120,
+      "delayMs": 10,
+      "events": [
+        {
+          "type": "content.delta",
+          "itemId": "reply",
+          "kind": "assistant-text",
+          "text": "${paddedIndex} "
+        }
+      ]
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "complete"
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "mode": "claude",
+  "prompt": "fail-claude",
+  "runtimeEvents": [
+    {
+      "type": "turn.completed",
+      "state": "failed"
+    }
+  ]
+}

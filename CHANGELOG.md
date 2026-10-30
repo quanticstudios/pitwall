@@ -18,6 +18,8 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - The daemon has a Claude Code driver for managed chats: it runs `claude -p` in stream-json mode, sends turns and maps streamed text, tool calls, usage and limits to chat events. Nothing starts it yet.
+- Managed-session tests and aide e2e can use scripted Claude and Codex providers without starting agents. The provider registry opts in with `PITWALL_FAKE_PROVIDERS=1` and logs a warning; daemon wiring comes with the chat-loop work.
+
 - `docs/web-protocol.md` specifies the protocol aide will use to drive chats over a localhost WebSocket, with a JSON Schema (`docs/web-protocol.schema.json`) tested against aide's delta fixtures. Nothing serves it yet.
 - A new daemon can take over a running daemon's panes, PTYs and socket on Linux and macOS without the processes noticing, with output, queued input, scrollback and held tabs intact. A failure at any step leaves the old daemon serving. `pitwall update` does not use it yet.
 - The phone page retries a port that is in use every 2 seconds. It waited for the settings to change.

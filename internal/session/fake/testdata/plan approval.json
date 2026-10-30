@@ -1,0 +1,17 @@
+{
+  "mode": "",
+  "prompt": "plan approval",
+  "runtimeEvents": [
+    {
+      "type": "request.opened",
+      "requestId": "request",
+      "requestType": "plan-approval",
+      "detail": "${provider} is ready to apply its plan",
+      "answers": {}
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

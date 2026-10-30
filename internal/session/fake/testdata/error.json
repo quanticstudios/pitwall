@@ -1,0 +1,15 @@
+{
+  "mode": "",
+  "prompt": "error",
+  "runtimeEvents": [
+    {
+      "type": "runtime.error",
+      "message": "Fake managed provider error"
+    },
+    {
+      "type": "turn.completed",
+      "state": "failed",
+      "errorMessage": "Fake managed provider error"
+    }
+  ]
+}

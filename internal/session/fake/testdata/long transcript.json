@@ -1,0 +1,38 @@
+{
+  "mode": "",
+  "prompt": "long transcript",
+  "runtimeEvents": [
+    {
+      "repeat": 1000,
+      "events": [
+        {
+          "type": "content.delta",
+          "itemId": "long-${index}",
+          "kind": "tool-call",
+          "text": "",
+          "tool": {
+            "callId": "long-${index}",
+            "command": "echo ${index}",
+            "exitCode": 0,
+            "input": {
+              "command": "echo ${index}"
+            },
+            "output": "${index}",
+            "status": "completed",
+            "toolName": "Bash"
+          }
+        },
+        {
+          "type": "content.delta",
+          "itemId": "long-text-${index}",
+          "kind": "assistant-text",
+          "text": "Step ${index} line 0: checked the next file."
+        }
+      ]
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

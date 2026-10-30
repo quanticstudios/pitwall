@@ -1,0 +1,16 @@
+{
+  "mode": "",
+  "prompt": "fleet consult",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "Handled: fleet consult"
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "mode": "",
+  "prompt": "stream-lines",
+  "runtimeEvents": [
+    {
+      "repeat": 300,
+      "delayMs": 15,
+      "events": [
+        {
+          "type": "content.delta",
+          "itemId": "reply",
+          "kind": "assistant-text",
+          "text": "line ${paddedIndex}\n\n"
+        }
+      ]
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

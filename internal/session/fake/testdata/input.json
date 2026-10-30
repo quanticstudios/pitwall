@@ -1,0 +1,30 @@
+{
+  "mode": "",
+  "prompt": "input",
+  "runtimeEvents": [
+    {
+      "type": "user-input.requested",
+      "requestId": "request",
+      "detail": "${provider} needs input",
+      "questions": [
+        {
+          "header": "Prompt",
+          "id": "prompt",
+          "options": [
+            {
+              "description": "Continue the task.",
+              "id": "continue",
+              "label": "Continue"
+            }
+          ],
+          "prompt": "What should ${provider} do next?"
+        }
+      ],
+      "answers": {}
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

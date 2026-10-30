@@ -1,0 +1,10 @@
+{
+  "mode": "codex",
+  "prompt": "fail-codex",
+  "runtimeEvents": [
+    {
+      "type": "turn.completed",
+      "state": "failed"
+    }
+  ]
+}

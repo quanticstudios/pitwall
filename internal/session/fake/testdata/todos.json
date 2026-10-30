@@ -1,0 +1,54 @@
+{
+  "mode": "",
+  "prompt": "todos",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "kind": "tool-call",
+      "itemId": "fake-todos",
+      "text": "",
+      "tool": {
+        "callId": "fake-todos",
+        "input": {},
+        "status": "running",
+        "toolName": "TodoWrite"
+      }
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-todos",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-todos",
+        "input": {},
+        "status": "completed",
+        "tasks": [
+          {
+            "status": "completed",
+            "subject": "Read the ticket"
+          },
+          {
+            "status": "in_progress",
+            "subject": "Write the checklist"
+          },
+          {
+            "status": "pending",
+            "subject": "Ship the PR"
+          }
+        ],
+        "toolName": "TodoWrite"
+      }
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "Tracking three tasks."
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

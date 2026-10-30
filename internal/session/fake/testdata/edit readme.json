@@ -1,0 +1,16 @@
+{
+  "mode": "",
+  "prompt": "edit readme",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "Handled: edit readme"
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}
