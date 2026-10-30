@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- `docs/web-protocol.md` specifies the protocol aide will use to drive chats over a localhost WebSocket, with a JSON Schema (`docs/web-protocol.schema.json`) tested against aide's delta fixtures. Nothing serves it yet.
 - Pane exit tracking can follow transferred processes on Linux and macOS, including processes started by the previous daemon. Older Linux kernels report an unknown exit code for these processes.
 - A group you made by grouping tabs shows their repo's icon in place of the folder when all its tabs are in one repo, its worktrees included. An icon you picked still wins, and the first tile in **Icon and color** brings back the repo's icon.
 - A group header counts its tabs that need you, are working, or finished a turn you have not seen, each with its row's state glyph. It showed only a count of tabs with something unseen.

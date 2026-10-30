@@ -25,6 +25,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/update`      | Find a newer GitHub release, install it over the binary        |
 | `internal/remote`      | The phone page: pairing, device tokens, its HTTP server        |
 | `internal/qr`          | QR codes for pairing                                           |
+| `internal/web`         | The web protocol; for now the test of its JSON Schema          |
 | `internal/input`       | Gio events to PTY bytes                                        |
 | `internal/ui/theme`    | Colors, derived tokens, type and spacing scales, from aide     |
 | `internal/ui/anim`     | Eased values, the durations, reduce_motion                     |

@@ -27,3 +27,4 @@ If you are an agent CHANGING pitwall: read AGENTS.md, then CONTRIBUTING.md. Ever
 - [Where things live](https://github.com/quanticstudios/pitwall/blob/main/docs/state.md): files, saved tabs, reboots, upgrades
 - [AGENTS.md](https://github.com/quanticstudios/pitwall/blob/main/AGENTS.md): package layout and rules, for contributors
 - [Managed sessions](https://github.com/quanticstudios/pitwall/blob/main/docs/managed-sessions.md): design of chats the daemon drives over stream-json and app-server, for contributors
+- [Web protocol](https://github.com/quanticstudios/pitwall/blob/main/docs/web-protocol.md): JSON over WebSocket for aide and other web clients, with its JSON Schema, for contributors

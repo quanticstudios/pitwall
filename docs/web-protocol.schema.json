@@ -1,0 +1,2210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/quanticstudios/pitwall/blob/main/docs/web-protocol.schema.json",
+  "title": "pitwall web protocol 1",
+  "description": "One frame of the web protocol (docs/web-protocol.md). Uses only the keywords internal/web/schema_test.go checks.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/client"
+    },
+    {
+      "$ref": "#/$defs/server"
+    }
+  ],
+  "$defs": {
+    "client": {
+      "description": "A frame the client sends.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/hello"
+        },
+        {
+          "$ref": "#/$defs/subscribeSessions"
+        },
+        {
+          "$ref": "#/$defs/unsubscribeSessions"
+        },
+        {
+          "$ref": "#/$defs/listSessions"
+        },
+        {
+          "$ref": "#/$defs/subscribe"
+        },
+        {
+          "$ref": "#/$defs/unsubscribe"
+        },
+        {
+          "$ref": "#/$defs/read"
+        },
+        {
+          "$ref": "#/$defs/start"
+        },
+        {
+          "$ref": "#/$defs/send"
+        },
+        {
+          "$ref": "#/$defs/interrupt"
+        },
+        {
+          "$ref": "#/$defs/resolveApproval"
+        },
+        {
+          "$ref": "#/$defs/resolveInput"
+        },
+        {
+          "$ref": "#/$defs/set"
+        },
+        {
+          "$ref": "#/$defs/fork"
+        },
+        {
+          "$ref": "#/$defs/rewind"
+        },
+        {
+          "$ref": "#/$defs/archive"
+        },
+        {
+          "$ref": "#/$defs/unarchive"
+        },
+        {
+          "$ref": "#/$defs/listProjects"
+        },
+        {
+          "$ref": "#/$defs/listWorktrees"
+        }
+      ]
+    },
+    "server": {
+      "description": "A frame the server sends.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/welcome"
+        },
+        {
+          "$ref": "#/$defs/result"
+        },
+        {
+          "$ref": "#/$defs/error"
+        },
+        {
+          "$ref": "#/$defs/sessions"
+        },
+        {
+          "$ref": "#/$defs/sessionsChanged"
+        },
+        {
+          "$ref": "#/$defs/deltas"
+        },
+        {
+          "$ref": "#/$defs/removed"
+        }
+      ]
+    },
+    "hello": {
+      "description": "The client's first frame.",
+      "type": "object",
+      "required": [
+        "type",
+        "protocol",
+        "token",
+        "client"
+      ],
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "protocol": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "token": {
+          "type": "string"
+        },
+        "client": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "subscribeSessions": {
+      "description": "Get the session list now and its changes after.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribeSessions"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "unsubscribeSessions": {
+      "description": "Stop the session list's changes.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "unsubscribeSessions"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "listSessions": {
+      "description": "The session list once; archived chats when archived is true.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "listSessions"
+        },
+        "id": {
+          "type": "string"
+        },
+        "archived": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "subscribe": {
+      "description": "Get a chat's deltas after seq `after`, then every new one. Also the resync.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "subscribe"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The last seq the client holds; 0 for a snapshot."
+        }
+      },
+      "additionalProperties": false
+    },
+    "unsubscribe": {
+      "description": "Stop a chat's deltas.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "unsubscribe"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "read": {
+      "description": "A chat's deltas after seq `after` once.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "read"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The last seq the client holds; 0 for a snapshot."
+        }
+      },
+      "additionalProperties": false
+    },
+    "start": {
+      "description": "ChatNew.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "dir",
+        "provider"
+      ],
+      "properties": {
+        "type": {
+          "const": "start"
+        },
+        "id": {
+          "type": "string"
+        },
+        "dir": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions"
+          ]
+        },
+        "worktree": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "send": {
+      "description": "ChatSend.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "send"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "text": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        },
+        "how": {
+          "enum": [
+            "steer",
+            "queue"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "interrupt": {
+      "description": "ChatInterrupt.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "interrupt"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "resolveApproval": {
+      "description": "ChatApprove.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "requestId",
+        "decision"
+      ],
+      "properties": {
+        "type": {
+          "const": "resolveApproval"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "allow",
+            "allow-session",
+            "deny"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "resolveInput": {
+      "description": "ChatAnswer.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "requestId",
+        "answers"
+      ],
+      "properties": {
+        "type": {
+          "const": "resolveInput"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "answers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "set": {
+      "description": "ChatSet.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "set"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "fork": {
+      "description": "ChatFork.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "turnId"
+      ],
+      "properties": {
+        "type": {
+          "const": "fork"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "turnId": {
+          "type": "string"
+        },
+        "worktree": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rewind": {
+      "description": "ChatRewind.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "turnId"
+      ],
+      "properties": {
+        "type": {
+          "const": "rewind"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "archive": {
+      "description": "ChatArchive.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "archive"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "delete": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "unarchive": {
+      "description": "ChatUnarchive.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "unarchive"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "listProjects": {
+      "description": "The repos of the open tabs.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "listProjects"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "listWorktrees": {
+      "description": "A repo's git worktrees.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "root"
+      ],
+      "properties": {
+        "type": {
+          "const": "listWorktrees"
+        },
+        "id": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "welcome": {
+      "description": "The answer to hello.",
+      "type": "object",
+      "required": [
+        "type",
+        "protocol",
+        "server",
+        "deltaVersion",
+        "capabilities"
+      ],
+      "properties": {
+        "type": {
+          "const": "welcome"
+        },
+        "protocol": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "server": {
+          "type": "object",
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "deltaVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "description": "The answer to the command with the same id.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "ok"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "code": {
+          "enum": [
+            "not-found",
+            "conflict",
+            "busy",
+            "unsupported",
+            "provider",
+            "invalid"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "chats": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/chat"
+              }
+            },
+            "sessionId": {
+              "type": "string",
+              "description": "A chat id."
+            },
+            "workspaceId": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "snapshot": {
+              "$ref": "#/$defs/snapshot"
+            },
+            "deltas": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/delta"
+              }
+            },
+            "projects": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/project"
+              }
+            },
+            "worktrees": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/worktree"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "ok": {
+              "const": true
+            }
+          }
+        },
+        {
+          "properties": {
+            "ok": {
+              "const": false
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ]
+        }
+      ]
+    },
+    "error": {
+      "description": "A frame the server cannot tie to a command.",
+      "type": "object",
+      "required": [
+        "type",
+        "code",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "code": {
+          "enum": [
+            "not-found",
+            "conflict",
+            "busy",
+            "unsupported",
+            "provider",
+            "invalid"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sessions": {
+      "description": "The whole session list.",
+      "type": "object",
+      "required": [
+        "type",
+        "chats"
+      ],
+      "properties": {
+        "type": {
+          "const": "sessions"
+        },
+        "chats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/chat"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "sessionsChanged": {
+      "description": "Chats added or updated, and ids of chats removed.",
+      "type": "object",
+      "required": [
+        "type",
+        "changed",
+        "removed"
+      ],
+      "properties": {
+        "type": {
+          "const": "sessionsChanged"
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/chat"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "deltas": {
+      "description": "ChatDeltas: a new base when snapshot is set (seq is its seq), then deltas in seq order.",
+      "type": "object",
+      "required": [
+        "type",
+        "sessionId",
+        "deltas"
+      ],
+      "properties": {
+        "type": {
+          "const": "deltas"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "deltas": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/delta"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "removed": {
+      "description": "A subscribed chat was archived or deleted; its subscription ended.",
+      "type": "object",
+      "required": [
+        "type",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "removed"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "chat": {
+      "description": "model.Chat: one entry of the session list.",
+      "type": "object",
+      "required": [
+        "id",
+        "workspaceId",
+        "provider",
+        "model",
+        "effort",
+        "mode",
+        "title",
+        "state",
+        "pending",
+        "queued",
+        "turns",
+        "seq",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "connecting",
+            "ready",
+            "running",
+            "waiting",
+            "stopped",
+            "error"
+          ]
+        },
+        "pending": {
+          "type": "integer"
+        },
+        "queued": {
+          "type": "integer"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "project": {
+      "description": "The tabs that share a repo root.",
+      "type": "object",
+      "required": [
+        "root",
+        "name",
+        "workspaces"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "workspaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label",
+              "branch",
+              "path",
+              "worktree",
+              "pinned",
+              "chat"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "branch": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "worktree": {
+                "type": "boolean"
+              },
+              "pinned": {
+                "type": "boolean"
+              },
+              "chat": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "worktree": {
+      "description": "gitstat.Worktree.",
+      "type": "object",
+      "required": [
+        "path",
+        "branch",
+        "head"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "attachment": {
+      "description": "aide's ManagedSessionAttachment.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "mimeType",
+            "data",
+            "sizeBytes"
+          ],
+          "properties": {
+            "kind": {
+              "const": "image"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "mimeType": {
+              "enum": [
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ]
+            },
+            "data": {
+              "type": "string",
+              "description": "base64"
+            },
+            "sizeBytes": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "workspace-file"
+            },
+            "id": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "snapshot": {
+      "description": "aide's ManagedSessionSnapshot.",
+      "type": "object",
+      "required": [
+        "sessionId",
+        "paneId",
+        "workspaceId",
+        "provider",
+        "content",
+        "turns",
+        "pendingApprovals",
+        "pendingUserInputs",
+        "planApproval",
+        "sessionState",
+        "running",
+        "detail",
+        "lastCompletedAt",
+        "lastError",
+        "lastErrorAt",
+        "model",
+        "effort",
+        "serviceTier",
+        "permissionMode",
+        "interactionMode",
+        "selectionNotice",
+        "runtimeGeneration",
+        "revision",
+        "updatedAt"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "paneId": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          }
+        },
+        "turns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/turn"
+          }
+        },
+        "pendingApprovals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/approval"
+          }
+        },
+        "pendingUserInputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/input"
+          }
+        },
+        "planApproval": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "detail",
+                "id"
+              ],
+              "properties": {
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "sessionState": {
+          "enum": [
+            "connecting",
+            "ready",
+            "running",
+            "waiting",
+            "stopped",
+            "error"
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastCompletedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastErrorAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serviceTier": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "permissionMode": {
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions"
+          ]
+        },
+        "interactionMode": {
+          "enum": [
+            "build",
+            "plan"
+          ]
+        },
+        "selectionNotice": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtimeGeneration": {
+          "type": "integer"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "usageReports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/usageReport"
+          }
+        },
+        "usageSummary": {
+          "$ref": "#/$defs/usageSummary"
+        }
+      }
+    },
+    "item": {
+      "description": "aide's ManagedSessionContentItem.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "provider",
+        "text",
+        "turnId",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "assistant-text",
+            "reasoning-text",
+            "reasoning-summary-text",
+            "command-output",
+            "file-change-output",
+            "system",
+            "tool-call",
+            "user-prompt"
+          ]
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex",
+            null
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "commentary",
+            "final_answer"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        },
+        "tool": {
+          "$ref": "#/$defs/tool"
+        }
+      }
+    },
+    "tool": {
+      "description": "aide's ManagedSessionToolCall.",
+      "type": "object",
+      "required": [
+        "callId",
+        "toolName",
+        "input",
+        "status"
+      ],
+      "properties": {
+        "callId": {
+          "type": "string"
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "input": {
+          "description": "Anything."
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "failed"
+          ]
+        },
+        "command": {
+          "type": "string"
+        },
+        "diff": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "status"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "output": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "string"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/task"
+          }
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": [
+        "status",
+        "subject"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        }
+      }
+    },
+    "turn": {
+      "description": "aide's ManagedSessionTurnSummary.",
+      "type": "object",
+      "required": [
+        "id",
+        "provider",
+        "startedAt",
+        "completedAt",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "completedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "checkpointId": {
+          "type": "string"
+        },
+        "recipientAlias": {
+          "type": "string"
+        },
+        "requestText": {
+          "type": "string"
+        }
+      }
+    },
+    "approval": {
+      "description": "aide's ManagedSessionPendingApproval.",
+      "type": "object",
+      "required": [
+        "id",
+        "detail",
+        "requestType"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requestType": {
+          "enum": [
+            "command-execution-approval",
+            "file-change-approval",
+            "file-read-approval",
+            "plan-approval",
+            "dynamic-tool-call",
+            "tool-user-input",
+            "unknown"
+          ]
+        },
+        "request": {
+          "type": "object",
+          "required": [
+            "toolName"
+          ],
+          "properties": {
+            "toolName": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string"
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "diff": {
+              "type": "string"
+            },
+            "filePath": {
+              "type": "string"
+            },
+            "input": {
+              "description": "Anything."
+            }
+          }
+        }
+      }
+    },
+    "input": {
+      "description": "aide's ManagedSessionPendingUserInput.",
+      "type": "object",
+      "required": [
+        "id",
+        "detail",
+        "questions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "prompt",
+              "options"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "header": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "label"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "usage": {
+      "description": "aide's ManagedSessionUsage.",
+      "type": "object",
+      "required": [
+        "inputTokens",
+        "outputTokens"
+      ],
+      "properties": {
+        "inputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "cachedInputTokens": {
+          "type": "integer"
+        },
+        "contextTokens": {
+          "type": "integer"
+        },
+        "maxTokens": {
+          "type": "integer"
+        }
+      }
+    },
+    "modelUsage": {
+      "description": "aide's ManagedModelUsage.",
+      "type": "object",
+      "required": [
+        "model",
+        "inputTokens",
+        "outputTokens",
+        "cachedInputTokens",
+        "cacheCreationInputTokens",
+        "estimatedCostUsd"
+      ],
+      "properties": {
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "cachedInputTokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cacheCreationInputTokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "estimatedCostUsd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "usageReport": {
+      "description": "aide's ManagedUsageReport.",
+      "type": "object",
+      "required": [
+        "id",
+        "scopeId",
+        "provider",
+        "runtimeGeneration",
+        "turnId",
+        "createdAt",
+        "models",
+        "estimatedCostUsd"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "scopeId": {
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex",
+            "jev"
+          ]
+        },
+        "runtimeGeneration": {
+          "type": "integer"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/modelUsage"
+          }
+        },
+        "estimatedCostUsd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "usageSummary": {
+      "description": "aide's ManagedUsageSummary.",
+      "type": "object",
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "cachedInputTokens",
+        "cacheCreationInputTokens",
+        "estimatedCostUsd",
+        "isCostComplete",
+        "models"
+      ],
+      "properties": {
+        "inputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "cachedInputTokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cacheCreationInputTokens": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "estimatedCostUsd": {
+          "type": "number"
+        },
+        "isCostComplete": {
+          "type": "boolean"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/modelUsage"
+          }
+        }
+      }
+    },
+    "delta": {
+      "description": "aide's SessionDelta (src/shared/session-delta.ts).",
+      "type": "object",
+      "required": [
+        "version",
+        "sessionId",
+        "seq",
+        "revision",
+        "updatedAt",
+        "type"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Must equal welcome.deltaVersion."
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "snapshot",
+            "item.add",
+            "item.text.append",
+            "item.patch",
+            "tool.start",
+            "tool.output.append",
+            "tool.end",
+            "reasoning.append",
+            "plan.update",
+            "approval.add",
+            "approval.resolve",
+            "input.add",
+            "input.resolve",
+            "turn",
+            "status",
+            "usage",
+            "usage.reports",
+            "error",
+            "session.patch"
+          ]
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        },
+        "item": {
+          "$ref": "#/$defs/item"
+        },
+        "itemId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "itemUpdatedAt": {
+          "type": "string"
+        },
+        "patch": {
+          "type": "object",
+          "description": "A partial item."
+        },
+        "status": {
+          "type": "string"
+        },
+        "exitCode": {
+          "type": "integer"
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "endedAt": {
+          "type": "string"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/task"
+          }
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "input": {
+          "$ref": "#/$defs/input"
+        },
+        "turn": {
+          "$ref": "#/$defs/turn"
+        },
+        "sessionState": {
+          "enum": [
+            "connecting",
+            "ready",
+            "running",
+            "waiting",
+            "stopped",
+            "error"
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastCompletedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "usageReports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/usageReport"
+          }
+        },
+        "usageSummary": {
+          "$ref": "#/$defs/usageSummary"
+        },
+        "lastError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastErrorAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "set": {
+          "type": "object",
+          "description": "A partial snapshot of patchable keys."
+        },
+        "unset": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "snapshot"
+            }
+          },
+          "required": [
+            "snapshot"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "item.add"
+            }
+          },
+          "required": [
+            "item"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "item.text.append"
+            }
+          },
+          "required": [
+            "itemId",
+            "text",
+            "itemUpdatedAt"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "item.patch"
+            }
+          },
+          "required": [
+            "itemId",
+            "patch"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "tool.start"
+            },
+            "item": {
+              "required": [
+                "tool"
+              ]
+            }
+          },
+          "required": [
+            "item"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "tool.output.append"
+            }
+          },
+          "required": [
+            "itemId",
+            "text",
+            "itemUpdatedAt"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "tool.end"
+            },
+            "status": {
+              "enum": [
+                "completed",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "itemId",
+            "status",
+            "startedAt",
+            "endedAt"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "reasoning.append"
+            }
+          },
+          "required": [
+            "itemId",
+            "text",
+            "itemUpdatedAt"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "plan.update"
+            }
+          },
+          "required": [
+            "itemId",
+            "tasks",
+            "itemUpdatedAt"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "approval.add"
+            }
+          },
+          "required": [
+            "approval"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "approval.resolve"
+            }
+          },
+          "required": [
+            "requestId"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "input.add"
+            }
+          },
+          "required": [
+            "input"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "input.resolve"
+            }
+          },
+          "required": [
+            "requestId"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "turn"
+            }
+          },
+          "required": [
+            "turn"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "status"
+            },
+            "status": {
+              "enum": [
+                "working",
+                "waiting",
+                "done",
+                "error",
+                "interrupted"
+              ]
+            }
+          },
+          "required": [
+            "status",
+            "sessionState",
+            "running",
+            "detail",
+            "lastCompletedAt"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "usage"
+            }
+          },
+          "required": [
+            "usage"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "usage.reports"
+            }
+          },
+          "required": [
+            "usageReports",
+            "usageSummary"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "error"
+            }
+          },
+          "required": [
+            "lastError",
+            "lastErrorAt"
+          ]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "session.patch"
+            }
+          },
+          "required": [
+            "set"
+          ]
+        }
+      ]
+    }
+  }
+}

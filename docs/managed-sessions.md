@@ -1075,7 +1075,7 @@ assistant text, one line per tool call, approvals with their ids.
 <a id="web"></a>
 ## Web protocol constraints
 
-ENG-2693 writes `docs/web-protocol.md`. These parts are fixed here, so the
+ENG-2693 wrote [web-protocol.md](web-protocol.md). These parts are fixed here, so the
 socket and the web protocol never disagree:
 
 - The session list is `[]model.Chat` as JSON; a session's contents are a

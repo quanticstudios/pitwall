@@ -1,0 +1,763 @@
+{
+  "description": "A claude turn that waits on a plan approval and a question, records a usage report, then dies on a runtime error.",
+  "mode": "claude",
+  "prompt": "Say hello",
+  "runtimeEvents": [
+    {
+      "createdAt": "2026-10-23T12:01:01.000Z",
+      "type": "turn.started",
+      "turnId": "turn-1"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:02.000Z",
+      "type": "session.state.changed",
+      "state": "running"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:03.000Z",
+      "type": "request.opened",
+      "requestId": "plan-1",
+      "requestType": "plan-approval",
+      "detail": "Ship it in two steps."
+    },
+    {
+      "createdAt": "2026-10-23T12:01:04.000Z",
+      "type": "session.state.changed",
+      "state": "waiting"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:05.000Z",
+      "type": "request.resolved",
+      "requestId": "plan-1"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:06.000Z",
+      "type": "session.state.changed",
+      "state": "running"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:07.000Z",
+      "type": "user-input.requested",
+      "requestId": "question-1",
+      "detail": "Pick one",
+      "questions": [
+        {
+          "id": "branch",
+          "prompt": "Which branch?",
+          "options": [
+            {
+              "id": "main",
+              "label": "main"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "createdAt": "2026-10-23T12:01:08.000Z",
+      "type": "user-input.resolved",
+      "requestId": "question-1"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:09.000Z",
+      "type": "session.usage.updated",
+      "inputTokens": 40,
+      "outputTokens": 2,
+      "report": {
+        "id": "result-1",
+        "scopeId": "query-1",
+        "provider": "claude",
+        "turnId": "turn-1",
+        "createdAt": "2026-10-23T12:01:09.000Z",
+        "estimatedCostUsd": 0.01,
+        "models": [
+          {
+            "model": "claude-test",
+            "inputTokens": 40,
+            "outputTokens": 2,
+            "cachedInputTokens": null,
+            "cacheCreationInputTokens": null,
+            "estimatedCostUsd": 0.01
+          }
+        ]
+      }
+    },
+    {
+      "createdAt": "2026-10-23T12:01:10.000Z",
+      "type": "runtime.error",
+      "message": "Provider connection dropped."
+    }
+  ],
+  "deltas": [
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 1,
+      "revision": 3,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "snapshot",
+      "snapshot": {
+        "content": [],
+        "detail": null,
+        "effort": null,
+        "interactionMode": "build",
+        "lastCompletedAt": null,
+        "lastError": null,
+        "lastErrorAt": null,
+        "model": null,
+        "paneId": "workspace-1:claude-pane",
+        "pendingApprovals": [],
+        "pendingUserInputs": [],
+        "permissionMode": "default",
+        "planApproval": null,
+        "provider": "claude",
+        "running": true,
+        "sessionId": "workspace-1:claude-session",
+        "sessionState": "ready",
+        "turns": [],
+        "updatedAt": "2026-10-23T12:00:00.000Z",
+        "workspaceId": "workspace-1",
+        "revision": 3,
+        "runtimeGeneration": 1,
+        "selectionNotice": null,
+        "serviceTier": null
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 2,
+      "revision": 4,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "item.add",
+      "item": {
+        "attachments": [],
+        "id": "user-prompt:00000000-0000-4000-8000-000000000001",
+        "kind": "user-prompt",
+        "provider": null,
+        "text": "Say hello",
+        "turnId": null,
+        "updatedAt": "2026-10-23T12:00:00.000Z"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 3,
+      "revision": 5,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "preparingActivityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": null
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 4,
+      "revision": 6,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": null
+            },
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "completed",
+              "label": "Jev preparation",
+              "detail": "Context preparation completed.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000003",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": null
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 5,
+      "revision": 7,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "status",
+      "status": "working",
+      "sessionState": "running",
+      "running": true,
+      "detail": null,
+      "lastCompletedAt": null
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 6,
+      "revision": 7,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "completed",
+              "label": "Jev preparation",
+              "detail": "Context preparation completed.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000003",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "turn",
+              "status": "started",
+              "label": "Orchestrator turn",
+              "detail": "The provider started this turn.",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000004",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 7,
+      "revision": 8,
+      "updatedAt": "2026-10-23T12:01:01.000Z",
+      "type": "item.patch",
+      "itemId": "user-prompt:00000000-0000-4000-8000-000000000001",
+      "patch": {
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:01.000Z"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 8,
+      "revision": 8,
+      "updatedAt": "2026-10-23T12:01:01.000Z",
+      "type": "turn",
+      "turn": {
+        "completedAt": null,
+        "id": "turn-1",
+        "provider": "claude",
+        "startedAt": "2026-10-23T12:01:01.000Z",
+        "state": "running"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 9,
+      "revision": 8,
+      "updatedAt": "2026-10-23T12:01:01.000Z",
+      "type": "session.patch",
+      "set": {},
+      "unset": ["preparingActivityId"]
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 10,
+      "revision": 9,
+      "updatedAt": "2026-10-23T12:01:02.000Z",
+      "type": "session.patch",
+      "set": {}
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 11,
+      "revision": 10,
+      "updatedAt": "2026-10-23T12:01:03.000Z",
+      "type": "approval.add",
+      "approval": {
+        "detail": "Ship it in two steps.",
+        "id": "plan-1",
+        "requestType": "plan-approval"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 12,
+      "revision": 10,
+      "updatedAt": "2026-10-23T12:01:03.000Z",
+      "type": "status",
+      "status": "waiting",
+      "sessionState": "waiting",
+      "running": true,
+      "detail": "Ship it in two steps.",
+      "lastCompletedAt": null
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 13,
+      "revision": 11,
+      "updatedAt": "2026-10-23T12:01:04.000Z",
+      "type": "session.patch",
+      "set": {}
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 14,
+      "revision": 12,
+      "updatedAt": "2026-10-23T12:01:05.000Z",
+      "type": "approval.resolve",
+      "requestId": "plan-1"
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 15,
+      "revision": 12,
+      "updatedAt": "2026-10-23T12:01:05.000Z",
+      "type": "status",
+      "status": "working",
+      "sessionState": "running",
+      "running": true,
+      "detail": null,
+      "lastCompletedAt": null
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 16,
+      "revision": 13,
+      "updatedAt": "2026-10-23T12:01:06.000Z",
+      "type": "session.patch",
+      "set": {}
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 17,
+      "revision": 14,
+      "updatedAt": "2026-10-23T12:01:07.000Z",
+      "type": "input.add",
+      "input": {
+        "detail": "Pick one",
+        "id": "question-1",
+        "questions": [
+          {
+            "id": "branch",
+            "options": [
+              {
+                "id": "main",
+                "label": "main"
+              }
+            ],
+            "prompt": "Which branch?"
+          }
+        ]
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 18,
+      "revision": 14,
+      "updatedAt": "2026-10-23T12:01:07.000Z",
+      "type": "status",
+      "status": "waiting",
+      "sessionState": "waiting",
+      "running": true,
+      "detail": "Pick one",
+      "lastCompletedAt": null
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 19,
+      "revision": 15,
+      "updatedAt": "2026-10-23T12:01:08.000Z",
+      "type": "input.resolve",
+      "requestId": "question-1"
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 20,
+      "revision": 15,
+      "updatedAt": "2026-10-23T12:01:08.000Z",
+      "type": "status",
+      "status": "working",
+      "sessionState": "running",
+      "running": true,
+      "detail": null,
+      "lastCompletedAt": null
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 21,
+      "revision": 16,
+      "updatedAt": "2026-10-23T12:01:09.000Z",
+      "type": "usage",
+      "usage": {
+        "inputTokens": 40,
+        "outputTokens": 2
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 22,
+      "revision": 16,
+      "updatedAt": "2026-10-23T12:01:09.000Z",
+      "type": "usage.reports",
+      "usageReports": [
+        {
+          "id": "result-1",
+          "scopeId": "query-1",
+          "provider": "claude",
+          "turnId": "turn-1",
+          "createdAt": "2026-10-23T12:01:09.000Z",
+          "estimatedCostUsd": 0.01,
+          "models": [
+            {
+              "model": "claude-test",
+              "inputTokens": 40,
+              "outputTokens": 2,
+              "cachedInputTokens": null,
+              "cacheCreationInputTokens": null,
+              "estimatedCostUsd": 0.01
+            }
+          ],
+          "runtimeGeneration": 1
+        }
+      ],
+      "usageSummary": {
+        "inputTokens": 40,
+        "outputTokens": 2,
+        "cachedInputTokens": null,
+        "cacheCreationInputTokens": null,
+        "estimatedCostUsd": 0.01,
+        "isCostComplete": true,
+        "models": [
+          {
+            "model": "claude-test",
+            "inputTokens": 40,
+            "outputTokens": 2,
+            "cachedInputTokens": null,
+            "cacheCreationInputTokens": null,
+            "estimatedCostUsd": 0.01,
+            "provider": "claude"
+          }
+        ]
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 23,
+      "revision": 17,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "status",
+      "status": "error",
+      "sessionState": "error",
+      "running": false,
+      "detail": "Provider connection dropped.",
+      "lastCompletedAt": null
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 24,
+      "revision": 17,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "error",
+      "lastError": "Provider connection dropped.",
+      "lastErrorAt": "2026-10-23T12:01:10.000Z"
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 25,
+      "revision": 17,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "completed",
+              "label": "Jev preparation",
+              "detail": "Context preparation completed.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000003",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "turn",
+              "status": "started",
+              "label": "Orchestrator turn",
+              "detail": "The provider started this turn.",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000004",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "turn",
+              "status": "failed",
+              "label": "Orchestrator stopped",
+              "detail": "The runtime stopped before completing its active turn.",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000005",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:claude-session",
+      "seq": 26,
+      "revision": 18,
+      "updatedAt": "2026-10-23T12:01:10.000Z",
+      "type": "turn",
+      "turn": {
+        "completedAt": "2026-10-23T12:01:10.000Z",
+        "id": "turn-1",
+        "provider": "claude",
+        "startedAt": "2026-10-23T12:01:01.000Z",
+        "state": "failed"
+      }
+    }
+  ],
+  "snapshot": {
+    "fleet": {
+      "plan": null,
+      "events": [
+        {
+          "type": "preparation",
+          "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+          "requestedBy": "user",
+          "status": "started",
+          "label": "Jev preparation",
+          "detail": "Preparing authorized context for the orchestrator.",
+          "model": "jev",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000002",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "preparation",
+          "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+          "requestedBy": "user",
+          "status": "completed",
+          "label": "Jev preparation",
+          "detail": "Context preparation completed.",
+          "model": "jev",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "turn",
+          "status": "started",
+          "label": "Orchestrator turn",
+          "detail": "The provider started this turn.",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000004",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "turn",
+          "status": "failed",
+          "label": "Orchestrator stopped",
+          "detail": "The runtime stopped before completing its active turn.",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000005",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        }
+      ],
+      "acceptedNodeIds": [],
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "droppedEventCount": 0
+    },
+    "content": [
+      {
+        "attachments": [],
+        "id": "user-prompt:00000000-0000-4000-8000-000000000001",
+        "kind": "user-prompt",
+        "provider": null,
+        "text": "Say hello",
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:01.000Z"
+      }
+    ],
+    "detail": "Provider connection dropped.",
+    "effort": null,
+    "interactionMode": "build",
+    "lastCompletedAt": null,
+    "lastError": "Provider connection dropped.",
+    "lastErrorAt": "2026-10-23T12:01:10.000Z",
+    "model": null,
+    "paneId": "workspace-1:claude-pane",
+    "pendingApprovals": [],
+    "pendingUserInputs": [],
+    "permissionMode": "default",
+    "planApproval": null,
+    "provider": "claude",
+    "running": false,
+    "sessionId": "workspace-1:claude-session",
+    "sessionState": "error",
+    "turns": [
+      {
+        "completedAt": "2026-10-23T12:01:10.000Z",
+        "id": "turn-1",
+        "provider": "claude",
+        "startedAt": "2026-10-23T12:01:01.000Z",
+        "state": "failed"
+      }
+    ],
+    "updatedAt": "2026-10-23T12:01:10.000Z",
+    "usage": {
+      "inputTokens": 40,
+      "outputTokens": 2
+    },
+    "usageReports": [
+      {
+        "id": "result-1",
+        "scopeId": "query-1",
+        "provider": "claude",
+        "turnId": "turn-1",
+        "createdAt": "2026-10-23T12:01:09.000Z",
+        "estimatedCostUsd": 0.01,
+        "models": [
+          {
+            "model": "claude-test",
+            "inputTokens": 40,
+            "outputTokens": 2,
+            "cachedInputTokens": null,
+            "cacheCreationInputTokens": null,
+            "estimatedCostUsd": 0.01
+          }
+        ],
+        "runtimeGeneration": 1
+      }
+    ],
+    "usageSummary": {
+      "inputTokens": 40,
+      "outputTokens": 2,
+      "cachedInputTokens": null,
+      "cacheCreationInputTokens": null,
+      "estimatedCostUsd": 0.01,
+      "isCostComplete": true,
+      "models": [
+        {
+          "model": "claude-test",
+          "inputTokens": 40,
+          "outputTokens": 2,
+          "cachedInputTokens": null,
+          "cacheCreationInputTokens": null,
+          "estimatedCostUsd": 0.01,
+          "provider": "claude"
+        }
+      ]
+    },
+    "workspaceId": "workspace-1",
+    "revision": 18,
+    "runtimeGeneration": 1,
+    "selectionNotice": null,
+    "serviceTier": null
+  }
+}
