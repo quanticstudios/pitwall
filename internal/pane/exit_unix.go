@@ -4,6 +4,7 @@ package pane
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -37,6 +38,18 @@ func (w commandExit) Wait() (int, error) {
 // events only cover exits after registration. Config.Cmd and Env are ignored;
 // the caller restores any emulator state separately through Config.NewVT.
 func Adopt(c Config, master *os.File, pid int) (*Pane, error) {
+	p, err := Prepare(c, master, pid)
+	if err != nil {
+		return nil, err
+	}
+	p.Start()
+	return p, nil
+}
+
+// Prepare is Adopt without reading: the exit watcher is registered and the
+// emulator built, and nothing reads the PTY until Start. Release gives up a
+// pane that was never started.
+func Prepare(c Config, master *os.File, pid int) (*Pane, error) {
 	if master == nil {
 		return nil, fmt.Errorf("adopt pane: nil PTY master")
 	}
@@ -54,7 +67,19 @@ func Adopt(c Config, master *os.File, pid int) (*Pane, error) {
 		w.Close()
 		return nil, fmt.Errorf("adopt pane %d: %w", pid, err)
 	}
-	return newPane(c, sys{tty: tty, pid: pid, waiter: w}), nil
+	return prepared(c, sys{tty: tty, pid: pid, waiter: w}), nil
+}
+
+// Release closes a pane from Prepare that was never started: its PTY master,
+// exit watcher and emulator. It never signals the process.
+func (p *Pane) Release() {
+	if w, ok := p.waiter.(exitWatcher); ok {
+		w.Close()
+	}
+	p.tty.Close()
+	if c, ok := p.vt.(io.Closer); ok {
+		c.Close()
+	}
 }
 
 // waitChild collects status if reparenting made us the parent. ECHILD means

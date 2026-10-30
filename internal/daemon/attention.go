@@ -48,10 +48,9 @@ var bellInterval = time.Second
 // pick it up; later states carry only its Seq.
 const clipKeep = 5 * time.Second
 
-// notifyingVT wraps d.o.NewVT so the emulator of pane id reports OSC
+// notifyingVT wraps newVT so the emulator of pane id reports OSC
 // notifications, bells and OSC 52 clipboard writes to the daemon.
-func (d *Daemon) notifyingVT(id string) vt.NewFunc {
-	newVT := d.o.NewVT
+func (d *Daemon) notifyingVT(id string, newVT vt.NewFunc) vt.NewFunc {
 	if newVT == nil {
 		return nil
 	}

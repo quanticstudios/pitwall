@@ -58,7 +58,7 @@ func TestTextReply(t *testing.T) {
 // emulators.
 func TestScrollbackSetting(t *testing.T) {
 	d := &Daemon{o: Options{NewVT: vt.New, Scrollback: func() int { return 5 }}}
-	e := d.notifyingVT("p")(8, 3, nil)
+	e := d.notifyingVT("p", d.o.NewVT)(8, 3, nil)
 	for i := range 20 {
 		fmt.Fprintf(e, "line %d\r\n", i)
 	}

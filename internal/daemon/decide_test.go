@@ -423,7 +423,7 @@ func TestPromptTitleScrubsKnownKey(t *testing.T) {
 func TestNoticeScrubsKnownKey(t *testing.T) {
 	const key = "plainlookingkeyvalue42xyz"
 	d := knownKeyDaemon(t, key)
-	e := d.notifyingVT("a")(40, 2, io.Discard)
+	e := d.notifyingVT("a", d.o.NewVT)(40, 2, io.Discard)
 	e.Write([]byte("\x1b]9;deployed with " + key + "\x07"))
 	for start := time.Now(); ; time.Sleep(5 * time.Millisecond) {
 		d.mu.Lock()

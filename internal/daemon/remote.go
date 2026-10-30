@@ -15,6 +15,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/input"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
@@ -24,6 +25,9 @@ import (
 // remoteCheck is how often remoteLoop rereads [remote].
 const remoteCheck = 2 * time.Second
 
+// remoteFails keeps a phone page that cannot start to a log line a minute.
+var remoteFails = logs.Limiter{Every: time.Minute}
+
 // remoteLoop serves the phone page while [remote] enables it, and serves
 // it anew when the settings change, so turning it on needs no restart.
 func (d *Daemon) remoteLoop(ctx context.Context) {
@@ -31,17 +35,25 @@ func (d *Daemon) remoteLoop(ctx context.Context) {
 		return
 	}
 	var cur config.RemoteSettings
-	stop := func() {}
-	defer func() { stop() }()
+	var stop func() // nil while not serving
+	defer func() {
+		if stop != nil {
+			stop()
+		}
+	}()
 	t := time.NewTicker(remoteCheck)
 	defer t.Stop()
 	for {
-		if s := d.o.Remote(); s != cur {
+		s := d.o.Remote()
+		if s != cur && stop != nil {
 			stop()
-			stop, cur = func() {}, s
-			if s.Enabled {
-				stop = d.serveRemote(s)
-			}
+			stop = nil
+		}
+		cur = s
+		if s.Enabled && stop == nil {
+			// why: retried at each check, since a daemon handing off holds
+			// the port until it exits.
+			stop = d.serveRemote(s)
 		}
 		select {
 		case <-ctx.Done():
@@ -52,20 +64,25 @@ func (d *Daemon) remoteLoop(ctx context.Context) {
 }
 
 // serveRemote starts the phone page on s.Listen, and the pushes to the
-// phones that turned them on, and returns what stops both. A failure is logged, and waits for the settings to change.
+// phones that turned them on, and returns what stops both, or nil after
+// a failure, which is logged once a minute.
 func (d *Daemon) serveRemote(s config.RemoteSettings) (stop func()) {
 	ln, err := net.Listen("tcp", s.Listen)
 	if err != nil {
-		log.Printf("remote: %q", err)
-		return func() {}
+		if ok, _ := remoteFails.Allow("listen", time.Now()); ok {
+			log.Printf("remote: %q", err)
+		}
+		return nil
 	}
 	scheme := "http"
 	if s.TLS {
 		cert, fp, err := remote.Cert(d.o.RemoteDir)
 		if err != nil {
 			ln.Close()
-			log.Printf("remote: certificate: %q", err)
-			return func() {}
+			if ok, _ := remoteFails.Allow("cert", time.Now()); ok {
+				log.Printf("remote: certificate: %q", err)
+			}
+			return nil
 		}
 		ln = tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 		scheme = "https"
