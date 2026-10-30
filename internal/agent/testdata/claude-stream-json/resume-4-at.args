@@ -1,0 +1,1 @@
+-p --input-format stream-json --output-format stream-json --verbose --model claude-sonnet-5-5 --effort low --setting-sources project --strict-mcp-config --resume 40ab806d-5ff7-459a-926e-a263e6c244e4 --resume-session-at 07a45f3e-76ca-4492-9149-41725037db79 --fork-session

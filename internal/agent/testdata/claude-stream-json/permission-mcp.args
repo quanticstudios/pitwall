@@ -1,0 +1,1 @@
+-p --input-format stream-json --output-format stream-json --verbose --model claude-sonnet-5-5 --effort low --setting-sources project --strict-mcp-config --mcp-config {"mcpServers":{"probe":{"type":"stdio","command":"/tmp/stream-json-probe/probe","args":["mcp-server"]}}} --permission-prompt-tool mcp__probe__approve
