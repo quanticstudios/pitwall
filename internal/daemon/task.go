@@ -126,7 +126,7 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 	}
 	d.mu.Unlock()
 	var id string
-	err = d.addSession(ctx, proto.NewSession{Cwd: dir, SessionID: t.SessionID, GroupID: t.GroupID, Cmd: t.Cmd, Env: t.Env}, "", nil, func(w *model.Workspace) {
+	err = d.addSession(ctx, proto.NewSession{Cwd: dir, SessionID: t.SessionID, GroupID: t.GroupID, Cmd: t.Cmd, Env: t.Env, Profile: t.Profile}, "", nil, func(w *model.Workspace) {
 		id = w.ID
 		if root != "" {
 			w.WorktreeRoot, w.Ports = root, portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
@@ -143,10 +143,11 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 	}
 	ti := tabIndex(w, "")
 	pid := newID()
-	if err := d.start(pid, nil, w.Path, w.Ports, nil); err != nil {
+	env := d.profileEnv(w)
+	if err := d.start(pid, nil, w.Path, w.Ports, env); err != nil {
 		return err
 	}
-	d.st.Panes = append(d.st.Panes, model.Pane{ID: pid, WorkspaceID: w.ID, Cwd: w.Path})
+	d.st.Panes = append(d.st.Panes, model.Pane{ID: pid, WorkspaceID: w.ID, Cwd: w.Path, Env: env})
 	tab := &w.Tabs[ti]
 	tab.Layout = d.o.Split(tab.Layout, layout.Panes(tab.Layout)[0], pid, layout.Vertical)
 	if typed != nil {

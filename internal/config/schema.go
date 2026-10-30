@@ -87,6 +87,8 @@ func typeSchema(t reflect.Type) map[string]any {
 		return map[string]any{"type": "array", "items": map[string]any{"$ref": "#/$defs/color"}, "minItems": 16, "maxItems": 16}
 	}
 	switch t.Kind() {
+	case reflect.Map:
+		return map[string]any{"type": "object", "additionalProperties": typeSchema(t.Elem())}
 	case reflect.Struct:
 		props := map[string]any{}
 		for _, f := range fields(t) {

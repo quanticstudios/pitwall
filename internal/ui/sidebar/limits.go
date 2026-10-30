@@ -1,9 +1,11 @@
 package sidebar
 
 import (
+	"cmp"
 	"fmt"
 	"image"
 	"image/color"
+	"slices"
 	"time"
 
 	"gioui.org/layout"
@@ -44,10 +46,14 @@ func windowShort(minutes int64) string {
 // LimitName is the agent a limit is of, with Codex's name for a model's
 // own limit: "Claude", "Codex GPT-Spark".
 func LimitName(l flow.Limit) string {
-	if l.Name != "" {
-		return AgentName(l.Provider) + " " + l.Name
+	name := AgentName(l.Provider)
+	if l.Profile != "" {
+		name += " · " + cmp.Or(l.ProfileLabel, l.Profile)
 	}
-	return AgentName(l.Provider)
+	if l.Name != "" {
+		return name + " " + l.Name
+	}
+	return name
 }
 
 // Clock is t as now's reader wants it: "16:40" today, "Mon 16:40" this
@@ -92,9 +98,27 @@ func LimitColor(th *theme.Theme, used float64, ok color.NRGBA) color.NRGBA {
 	return ok
 }
 
-// limitMeter draws each limit's fullest window in a row of equal cells,
-// h tall: the agent's mark, the window, a bar and its percentage.
+func (s *Sidebar) profileLimitRows() bool {
+	return slices.ContainsFunc(s.Limits, func(l flow.Limit) bool { return l.Profile != "" })
+}
+
+// limitMeter draws the default meters in equal cells, or one labeled
+// row per limit when accounts need distinguishing. Each row is h tall.
 func (s *Sidebar) limitMeter(gtx layout.Context, th *theme.Theme, h int) {
+	// Each account needs a readable row even when several profiles exist.
+	if s.profileLimitRows() {
+		for i, l := range s.Limits {
+			o := op.Offset(image.Pt(0, i*h)).Push(gtx.Ops)
+			w, _ := l.Tightest(s.now)
+			hrow(gtx, h, gtx.Dp(6), item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, LimitName(l))
+			}}, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), LimitColor(th, w.Used, th.Fg), fmt.Sprintf("%s %.0f%%", windowShort(w.Minutes), w.Used))
+			}})
+			o.Pop()
+		}
+		return
+	}
 	n := len(s.Limits)
 	gap := gtx.Dp(12)
 	cw := (gtx.Constraints.Max.X - (n-1)*gap) / n

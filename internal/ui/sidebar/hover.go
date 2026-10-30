@@ -140,7 +140,8 @@ type card struct {
 	state        model.AgentState
 	quiet        string // QuietText of the activity
 	detail       string
-	status       string            // the tab's status line
+	status       string // the tab's status line
+	profile      string
 	agents       []model.AgentPane // with two or more, each one
 	usage        string            // UsageText of the tab's agents
 	decision     string
@@ -149,6 +150,9 @@ type card struct {
 
 func (c card) lines() string {
 	out := "t"
+	if c.profile != "" {
+		out += "e"
+	}
 	if c.group != "" || c.path != "" {
 		out += "f"
 	}
@@ -201,6 +205,7 @@ func (c card) lines() string {
 func cardFor(v *view, ws model.Workspace) card {
 	c := card{title: Title(ws), when: relTime(v.now, ws.UpdatedAt), agent: v.agent[ws.ID],
 		path: model.ShortPath(v.st.LivePath(ws)), branch: ws.Branch, ports: ws.Ports.String(), open: strings.Trim(fmt.Sprint(v.st.Listening[ws.ID]), "[]")}
+	c.profile = ws.Profile
 	if g := v.groupOf(ws.ID); g != "" {
 		for _, p := range v.st.Projects {
 			if p.ID == g {
@@ -313,6 +318,10 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 	}
 	for _, k := range c.lines() {
 		switch k {
+		case 'e':
+			line(nil, func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Body), muted, "Profile: "+c.profile)
+			})
 		case 't':
 			mark := func(gtx layout.Context) layout.Dimensions {
 				if c.agent != "" {
@@ -577,6 +586,9 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 	// Record once to learn the height, then place it.
 	m := op.Record(gtx.Ops)
 	c := cardFor(v, *ws)
+	if p := s.Profiles[ws.Profile]; p.Label != "" {
+		c.profile = p.Label
+	}
 	if s.Usage != nil {
 		if u := s.Usage(ws.ID); u != nil {
 			c.usage = cardUsage(*u, s.ShowCost)

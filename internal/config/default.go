@@ -125,6 +125,8 @@ func writeTable(b *strings.Builder, v, alt reflect.Value, path string) {
 
 func tomlValue(v reflect.Value) string {
 	switch v.Kind() {
+	case reflect.Map:
+		return "{}"
 	case reflect.Pointer:
 		if v.IsNil() {
 			return `""`

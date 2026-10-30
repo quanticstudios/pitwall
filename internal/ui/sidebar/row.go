@@ -134,6 +134,17 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return drawIcon(gtx, icPin, gtx.Dp(11), th.Readable(th.Muted, base), 0)
 			}})
 		}
+		if ws.Profile != "" {
+			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
+				col := th.Primary
+				if c := s.Profiles[ws.Profile].Color; c != "" {
+					col = theme.Hex(string(c))
+				}
+				d := gtx.Dp(6)
+				paint.FillShape(gtx.Ops, col, clip.Ellipse(image.Rect(0, 0, d, d)).Op(gtx.Ops))
+				return layout.Dimensions{Size: image.Pt(d, d)}
+			}})
+		}
 		if a != nil {
 			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
 		}

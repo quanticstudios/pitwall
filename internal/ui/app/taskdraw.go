@@ -82,6 +82,7 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 		}
 	}
 	t.syncName()
+	t.profile.update(gtx)
 	grow := func(cs []widget.Clickable, n int) []widget.Clickable {
 		if len(cs) < n {
 			return make([]widget.Clickable, n)
@@ -329,6 +330,9 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 				}
 			}
 		}
+	}
+	if len(t.profile.names) > 1 {
+		kids = append(kids, gap(14), label("Account profile"), gap(6), chips(t.profile.buttons, t.profile.labels, t.profile.picked))
 	}
 	if issues := t.matches(&t.issue); len(t.issueList()) > 0 {
 		kids = append(kids, gap(14), label("From issue"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {

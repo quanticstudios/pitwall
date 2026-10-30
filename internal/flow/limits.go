@@ -14,7 +14,9 @@ import (
 // Limit is one plan limit as its agent last reported it: Claude Code's
 // 5-hour and weekly windows, or a Codex limit's.
 type Limit struct {
-	Provider model.Provider `json:"provider"`
+	Profile      string         `json:"profile,omitempty"`
+	ProfileLabel string         `json:"profile_label,omitempty"`
+	Provider     model.Provider `json:"provider"`
 	// Name is Codex's name for a limit of a model's own, "" for the
 	// agent's main limit.
 	Name    string    `json:"name,omitempty"`
@@ -149,6 +151,10 @@ func (r *codexLimits) limit(ts time.Time) (Limit, bool) {
 // the last Scan read, Claude Code's from the ClaudeLimitsFile in stateDir.
 // Claude's first, then by name.
 func (s *Scanner) Limits(stateDir string) []Limit {
+	return s.profileLimits(stateDir, "")
+}
+
+func (s *Scanner) profileLimits(stateDir, profile string) []Limit {
 	latest := map[string]Limit{}
 	keep := func(l Limit) {
 		k := string(l.Provider) + "\x00" + l.Name
@@ -156,7 +162,7 @@ func (s *Scanner) Limits(stateDir string) []Limit {
 			latest[k] = l
 		}
 	}
-	if data, err := os.ReadFile(filepath.Join(stateDir, ClaudeLimitsFile)); err == nil {
+	if data, err := os.ReadFile(ClaudeLimitsPath(stateDir, profile)); err == nil {
 		var l Limit
 		if json.Unmarshal(data, &l) == nil && l.Provider == model.ProviderClaude && len(l.Windows) > 0 {
 			keep(l)

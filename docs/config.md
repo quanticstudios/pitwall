@@ -80,6 +80,69 @@ on macOS. Keys are a printable character, `Space`, `Tab`, `Enter`,
 `Down`, `Left`, `Right` or `F1`-`F12`. Two actions on one chord is an error
 naming both.
 
+## Account profiles
+
+<img src="media/profiles.png" alt="New task and New tab offer Default, Personal, and Work account profiles" width="900">
+
+Give work and personal accounts separate agent config directories. Each
+`[profiles.<name>]` can set either or both directories, an optional label,
+and a color for the tab row's small account mark:
+
+```toml
+[profiles.work]
+label = "Work"
+color = "#60a5fa"
+claude_config_dir = "~/.claude-work"
+codex_home = "~/.codex-work"
+
+[profiles.personal]
+label = "Personal"
+color = "#c084fc"
+claude_config_dir = "~/.claude-personal"
+codex_home = "~/.codex-personal"
+```
+
+Use absolute paths or `~/path`. `claude_config_dir` sets
+`CLAUDE_CONFIG_DIR`; `codex_home` sets `CODEX_HOME`. An omitted directory
+leaves that agent's environment alone. Profile overrides win over preset
+variables. The label defaults to the profile name and the color to the
+theme's accent. Credentials stay in each agent's directory.
+
+Sign in to each account with the agent's CLI first. For example:
+
+```sh
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude
+CODEX_HOME="$HOME/.codex-work" codex
+```
+
+Install pitwall's hooks in those directories. This explicit command also
+sets up Claude Code's status line to report that account's limits:
+
+```sh
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" CODEX_HOME="$HOME/.codex-work" pitwall hooks install --statusline
+```
+
+Repeat for each account. Codex asks you to trust its hooks with `/hooks`.
+An existing Claude status line is wrapped and its output is preserved.
+
+New task offers an Account profile choice, applied to each selected agent.
+New tab asks for a profile when profiles are configured; its shell passes
+the directories to agents you start in it. Choose Default to keep the
+existing environment. With no configured profiles, tab creation behaves
+as before. A tab's hover card shows its profile label, and new split panes
+use the same directories.
+
+<img src="media/profiles-sidebar.png" alt="Colored account marks on tab rows, a Work profile label in a hover card, and separate Claude Work and Codex Personal limits" width="650">
+
+Usage's Limits section and the optional sidebar limit display name each
+profile separately. Claude limits come from that profile's status line;
+Codex limits come from rollouts under its `codex_home`. Automatic continue
+after a limit uses only the stopped tab's profile. Tabs save their profile
+name and resolved directories across daemon restarts. Older state files
+without a profile still load with the default environment. Removing a
+profile leaves existing tabs' saved directories intact; its limits stop
+being scanned until the profile is configured again.
+
 ## Themes
 
 <img src="media/appearance.webp" alt="Settings, Appearance: the four built-in themes as cards with aide-dark picked, then the interface and terminal fonts, their sizes and the line height" width="800">

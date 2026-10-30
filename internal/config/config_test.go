@@ -464,9 +464,12 @@ func validate(root, s map[string]any, v any, path string) []string {
 			fail("not an object")
 			break
 		}
-		props := s["properties"].(map[string]any)
+		props, _ := s["properties"].(map[string]any)
 		for k, x := range m {
 			ps, ok := props[k].(map[string]any)
+			if !ok {
+				ps, ok = s["additionalProperties"].(map[string]any)
+			}
 			if !ok {
 				fail("unknown property %q", k)
 				continue
@@ -551,6 +554,8 @@ func TestSchema(t *testing.T) {
 	full := strings.Join(on, "\n")
 	check("default", Default(), true)
 	check("default, all set", full, true)
+	check("profile", "[profiles.work]\nlabel = \"Work\"\ncolor = \"#aabbcc\"\ncodex_home = \"~/.codex-work\"\n", true)
+	check("profile typo", "[profiles.work]\ncodx_home = \"~/.codex-work\"\n", false)
 	if _, probs := LoadFile(write(t, t.TempDir(), "config.toml", full)); len(probs) > 0 {
 		t.Errorf("default with all set: %s", msgs(probs))
 	}

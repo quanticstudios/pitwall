@@ -29,6 +29,9 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 		mg := gtx
 		mg.Constraints.Max.X = w - 2*px - gtx.Dp(16)
 		s.limitMeter(mg, th, top)
+		if s.profileLimitRows() {
+			top *= len(s.Limits)
+		}
 		off.Pop()
 	}
 	if s.Hints != nil {

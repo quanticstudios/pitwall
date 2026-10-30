@@ -60,7 +60,7 @@ func (p *Page) limits() section {
 
 // limitTitle is "Claude Code" or "Codex GPT-Spark".
 func limitTitle(l flow.Limit) string {
-	if l.Provider == model.ProviderClaude {
+	if l.Provider == model.ProviderClaude && l.Profile == "" {
 		return "Claude Code"
 	}
 	return sidebar.LimitName(l)

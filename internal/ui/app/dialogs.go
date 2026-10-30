@@ -42,6 +42,7 @@ const (
 	modalNewWorktree
 	modalCleanup
 	modalTask
+	modalProfile
 	modalDiscard
 	modalUndoTurn // putting back the files of the review view's turn
 	modalPinned   // closing a pinned tab, see pinned.go
@@ -198,6 +199,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 
 	var content gl.Widget
 	switch m.kind {
+	case modalProfile:
+		content = u.profileTabBody
 	case modalDelete:
 		content = func(gtx gl.Context) gl.Dimensions { return u.deleteBody(gtx, st, ws) }
 	case modalAddProject:
@@ -258,6 +261,8 @@ func (u *ui) cardW(gtx gl.Context, tag event.Tag, width unit.Dp, from time.Time,
 func (u *ui) confirmModal(st *model.State) {
 	m := &u.modal
 	switch m.kind {
+	case modalProfile:
+		u.confirmProfileTab()
 	case modalDelete:
 		u.send(proto.DeleteWorkspace{WorkspaceID: m.ws, RemoveBranch: m.removeBranch, Force: u.deleteForce(m.ws)})
 		m.close()

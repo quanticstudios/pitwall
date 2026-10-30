@@ -533,6 +533,7 @@ func (f *FakeBackend) Send(msg any) error {
 		}
 		w := f.newWorkspace(src.ProjectID, cwd)
 		w.Branch, w.SessionID = src.Branch, src.SessionID
+		w.Profile = m.Profile
 		f.st.Workspaces = slices.Insert(f.st.Workspaces, i+1, w)
 		if src.ProjectID == "" {
 			f.st.PlaceTopAfter(w.ID, src.ID)
@@ -642,6 +643,7 @@ func (f *FakeBackend) Send(msg any) error {
 			}
 		}
 		w := f.newWorkspace(m.GroupID, cwd)
+		w.Profile = m.Profile
 		if m.Name != "" {
 			w.Name, w.NameSet = m.Name, true
 		}

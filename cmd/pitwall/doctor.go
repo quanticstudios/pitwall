@@ -143,7 +143,7 @@ func hooksRows(home string, short func(string) string, report func(ok bool, what
 		return
 	}
 	var skip []string
-	if dir := filepath.Join(home, ".claude"); !installed("claude", dir) {
+	if dir := agent.ClaudeDir(home); !installed("claude", dir) {
 		skip = append(skip, dir+string(os.PathSeparator))
 	}
 	if dir := agent.CodexDir(home); !installed("codex", dir) {

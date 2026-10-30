@@ -129,7 +129,7 @@ func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 		}}
 	}
 	files := []config{
-		{path: filepath.Join(home, ".claude", "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
+		{path: filepath.Join(agent.ClaudeDir(home), "settings.json"), merge: func(original []byte) ([]byte, []string, error) {
 			data, changes, err := jsonHooks(agent.ClaudeHooks(bin))(original)
 			if err != nil || install && !statusline {
 				return data, changes, err
@@ -137,13 +137,12 @@ func hooks(args []string, out io.Writer, plans *[]hookPlan) error {
 			data, more, err := mergeStatusline(data, bin, install)
 			return data, append(changes, more...), err
 		}},
-		{path: filepath.Join(home, ".codex", "hooks.json"), merge: jsonHooks(agent.CodexHooks(bin))},
-		skill(filepath.Join(home, ".claude")),
+		skill(agent.ClaudeDir(home)),
 	}
 	// why: ~/.codex gets hooks.json above whatever is installed, so a skill
 	// there only when the dir existed would arrive on the second install.
 	if dir := agent.CodexDir(home); dir == filepath.Join(home, ".codex") || installed("codex", dir) {
-		files = append(files, skill(dir))
+		files = append(files, config{path: filepath.Join(dir, "hooks.json"), merge: jsonHooks(agent.CodexHooks(bin))}, skill(dir))
 	}
 	if dir := piAgentDir(home); dir != "" {
 		files = append(files, config{path: filepath.Join(dir, "extensions", "pitwall.ts"), merge: func(original []byte) ([]byte, []string, error) {

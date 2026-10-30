@@ -29,6 +29,7 @@ import (
 // started in a tab of its own now or queued (proto.NewTask). The drawing
 // is in taskdraw.go.
 type taskDialog struct {
+	profile  profileChoice
 	projects []taskProject
 	project  int
 	where    int // whereHere, whereWorktree or whereBranch
@@ -242,6 +243,7 @@ func worktreeName(prompt string) string {
 // openTask opens the New task dialog on group's folder, else the open tab's.
 func (u *ui) openTask(st *model.State, group string) {
 	t := &u.task
+	t.profile.reset(u.cfg)
 	t.projects, t.project = taskProjects(st, u.nav.session, u.nav.workspace, group)
 	if len(t.projects) == 0 {
 		return
@@ -460,6 +462,7 @@ func (t *taskDialog) tasks() ([]model.Task, error) {
 			}
 		}
 		at := task
+		at.Profile = t.profile.name()
 		args := a.args
 		if i < len(t.models) {
 			args = config.WithModel(a.cmd, args, cmp.Or(strings.TrimSpace(t.models[i].editor.Text()), "default"))
@@ -488,6 +491,10 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 		u.nav.expectSession(st) // the new tab shows once it opens
 	}
 	for _, task := range tasks {
+		if task.Profile != "" && linkLevel(u.b) < proto.ProfileLevel {
+			t.err = "Account profiles work once the older pitwall daemon restarts."
+			return
+		}
 		if len(task.Env) > 0 && linkLevel(u.b) < proto.EnvLevel {
 			t.err = "The pitwall daemon running is older than this window and would drop the preset's variables and the guard. They work once it restarts."
 			return
