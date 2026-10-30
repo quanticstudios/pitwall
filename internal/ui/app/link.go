@@ -65,6 +65,9 @@ func (u *ui) syncLink(l Link) {
 		return
 	}
 	u.epoch = l.Epoch
+	if u.pal.search {
+		u.all.sent = "" // resend an open search to the replacement connection
+	}
 	for _, p := range u.panes {
 		p.sentCols, p.sentRows = 0, 0
 	}

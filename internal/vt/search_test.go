@@ -1,9 +1,41 @@
 package vt
 
 import (
+	"context"
 	"reflect"
 	"testing"
 )
+
+func TestSearchContextAndASCII(t *testing.T) {
+	for _, query := range []string{"error", "Error", "e", " ", "absent"} {
+		text := "Error error ERROR in old output"
+		f := NewFinder(query)
+		want := f.Row(nil, 42, cellsOf(text))
+		if got := f.asciiRow(nil, 42, text); !reflect.DeepEqual(got, want) {
+			t.Fatalf("ASCII %q: %v, want %v", query, got, want)
+		}
+	}
+	e := New(80, 3, nil)
+	feed(e, "漢字 error old\r\nASCII error old\r\nnew\r\nnew\r\nnew\r\n")
+	s := e.(interface {
+		SearchContext(context.Context, string, int) ([]SearchLine, bool)
+	})
+	got, more := s.SearchContext(context.Background(), "error", 10)
+	if len(got) != 2 || more || got[0].Match.Col != 5 || got[0].Text != "漢字 error old" || got[1].Text != "ASCII error old" {
+		t.Fatalf("excerpts %+v more=%v", got, more)
+	}
+	want, _ := e.Search("error", 10)
+	for i, l := range got {
+		if l.Match != want[i] {
+			t.Errorf("match %+v, want %+v", l.Match, want[i])
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got, _ := s.SearchContext(ctx, "error", 10); len(got) != 0 {
+		t.Fatal("cancelled query returned matches")
+	}
+}
 
 // eAcute is e and a combining acute accent: one cell, two runes.
 var eAcute = "e" + string(rune(0x301))

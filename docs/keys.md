@@ -22,6 +22,15 @@ it come first. A pane mode action that does what a window action does,
 such as Split the pane below, is one row with both keys. The nine Go to
 tab actions are one row, "Go to tab 1–9", until you type a digit.
 
+Choose **Search all sessions** in the palette to search every pane's scrollback
+and the agent transcripts the side panel supports, including detached tabs.
+Results arrive grouped by tab as you type. Enter focuses the tab and scrolls
+to a terminal match, or shows the matching transcript excerpt in that tab.
+Transcript times come from the agent's file. Scrollback times say when it was
+captured, since terminal lines have no timestamps. Broad queries show up to 100
+matches per pane and source, 10,000 total; narrow the query when more exist.
+`search_all` is unbound in every preset. Bind it under `[keys]` if wanted.
+
 To find what a key does, type it: in the palette, the settings search or the
 search field on the Keyboard shortcuts page, `ctrl+shift+d`, `shift ctrl d`
 and `⌃⇧D` all list only the actions bound to Ctrl+Shift+D. `+`, `-` and

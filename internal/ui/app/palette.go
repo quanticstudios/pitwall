@@ -19,6 +19,7 @@ import (
 // palettedraw.go.
 type palette struct {
 	open     bool
+	search   bool // the same palette searches session contents
 	query    string
 	sel      int // the highlighted row of rank's result
 	openedAt time.Time
@@ -241,6 +242,10 @@ func (p *palette) pick(rows []paletteEntry, i int) *paletteEntry {
 
 // paletteKey runs one key in the open palette. Its own shortcut closes it.
 func (u *ui) paletteKey(st *model.State, e key.Event) {
+	if u.pal.search {
+		u.searchAllKey(st, e)
+		return
+	}
 	b := u.nav.bind()
 	if b.Action(e) == "command_palette" {
 		if e.State == key.Press {

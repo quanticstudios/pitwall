@@ -66,6 +66,8 @@ func allMessages() []any {
 		NewGroup{Name: "agents", WorkspaceIDs: []string{"w", "x"}}, RenameGroup{GroupID: "g", Name: "n"}, DeleteGroup{GroupID: "g"},
 		Scroll{Pane: "a", Lines: -3},
 		Search{Pane: "a", Query: "Error"},
+		SearchAll{ID: 123, Query: "Error"},
+		SearchAllResult{ID: 123, Done: true, More: true, Matches: []SessionMatch{{Workspace: "w", Pane: "a", Match: vt.Match{Line: 42}, Snippet: "Error in a transcript", Transcript: true}}},
 		Answer{Pane: "a", At: 1 << 60, Allow: true},
 		SearchResult{Pane: "a", Query: "Error", Matches: []vt.Match{{Line: 1 << 40, Col: 3, Cols: 5}}, More: true},
 		Text{Pane: "a", Sel: vt.Selection{A: vt.Pos{Line: 1 << 40, Col: 2}, B: vt.Pos{Line: 1<<40 + 3}, Mode: vt.SelectBlock}},

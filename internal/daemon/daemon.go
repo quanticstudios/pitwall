@@ -523,6 +523,12 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 // served; see proto.Version for what that asks of a new message type. A hook
 // of any Version is served too, its AgentEvents alone.
 func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
+	var cancelSearch context.CancelFunc
+	defer func() {
+		if cancelSearch != nil {
+			cancelSearch()
+		}
+	}()
 	conn := proto.NewConn(nc)
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { nc.Close() })
@@ -620,6 +626,17 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			s := d.snapshot()
 			d.mu.Unlock()
 			c.queue(proto.StateMsg{State: s, Level: proto.Level, Build: Build})
+			continue
+		}
+		if s, ok := m.(proto.SearchAll); ok {
+			if cancelSearch != nil {
+				cancelSearch()
+			}
+			searchCtx, cancel := context.WithCancel(ctx)
+			cancelSearch = cancel
+			if hello.Level >= proto.Since(s) && s.Query != "" {
+				go d.searchAll(searchCtx, s, func(r proto.SearchAllResult) { c.queue(r) })
+			}
 			continue
 		}
 		if s, ok := m.(proto.Search); ok {
