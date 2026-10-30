@@ -361,7 +361,14 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 		}
 		return drawIcon(gtx, icGitBranch, sz, col, 0)
 	}
-	switch a.State {
+	return stateGlyph(gtx, th, a.State, base, v.t(s))
+}
+
+// stateGlyph is the 12px glyph for state, at t seconds into its pulse or
+// spin.
+func stateGlyph(gtx layout.Context, th *theme.Theme, state model.AgentState, base color.NRGBA, t float64) layout.Dimensions {
+	sz := gtx.Dp(12)
+	switch state {
 	case model.StateError:
 		return drawIcon(gtx, icCircleAlert, sz, th.Red, 0)
 	case model.StatePendingApproval:
@@ -371,11 +378,11 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 	case model.StateWorking:
 		d := gtx.Dp(6)
 		off := op.Offset(image.Pt((sz-d)/2, (sz-d)/2)).Push(gtx.Ops)
-		paint.FillShape(gtx.Ops, theme.Mix(base, th.Blue, pulse(v.t(s))), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, theme.Mix(base, th.Blue, pulse(t)), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
 		off.Pop()
 		return layout.Dimensions{Size: image.Pt(sz, sz)}
 	case model.StateConnecting:
-		_, frac := math.Modf(v.t(s)) // animate-spin: 1s linear
+		_, frac := math.Modf(t) // animate-spin: 1s linear
 		return drawIcon(gtx, icLoader, sz, th.Blue, float32(frac*2*math.Pi))
 	case model.StateWatching:
 		return drawIcon(gtx, icEye, sz, th.Blue, 0)
@@ -388,7 +395,7 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 	case model.StateTerminalRunning:
 		return drawIcon(gtx, icTerminal, sz, th.Green, 0)
 	}
-	return drawIcon(gtx, icGitBranch, sz, StateColor(th, a.State), 0)
+	return drawIcon(gtx, icGitBranch, sz, StateColor(th, state), 0)
 }
 
 // gotoDigit is a row's goto_tab digit while its modifier is held: a small

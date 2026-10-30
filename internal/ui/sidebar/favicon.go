@@ -235,10 +235,7 @@ func badged(gtx layout.Context, f *favicon, mark func(gtx layout.Context, size i
 // or its letter tile; a folder outside a repo has none, so a home
 // folder's stray icon.png never shows.
 func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
-	root, ok := s.repoRoot(v.st.LivePath(ws))
-	if !ok { // the daemon has not answered, or is too old to: the tab's own repo
-		root = ws.RepoRoot
-	}
+	root := s.tabRoot(v, ws)
 	if root == "" {
 		return nil
 	}
@@ -257,6 +254,53 @@ func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
 		}
 	}
 	return letterFavicon(v.th, name, colorID)
+}
+
+// tabRoot is the repo the tab's shell or agent is in now, "" outside one.
+func (s *Sidebar) tabRoot(v *view, ws model.Workspace) string {
+	root, ok := s.repoRoot(v.st.LivePath(ws))
+	if !ok { // the daemon has not answered, or is too old to: the tab's own repo
+		root = ws.RepoRoot
+	}
+	return root
+}
+
+// mainCheckout is the repo a tab in root is in, a worktree counting as
+// its main checkout: the one pitwall made it from, or the folder holding
+// the .worktrees it sits in.
+// ponytail: a worktree elsewhere counts as a repo of its own; ask git for
+// its common dir if that ever matters.
+func mainCheckout(ws model.Workspace, root string) string {
+	if ws.WorktreeRoot != "" && root == ws.RepoRoot {
+		return ws.WorktreeRoot
+	}
+	if root != "" && filepath.Base(filepath.Dir(root)) == ".worktrees" {
+		return filepath.Dir(filepath.Dir(root))
+	}
+	return root
+}
+
+// groupRoot is the repo whose icon group p's header shows: a git group's
+// own, or the one all of a plain group's tabs are in; "" for none, or
+// when the user picked an icon.
+func (s *Sidebar) groupRoot(v *view, p model.Project) string {
+	switch {
+	case p.Icon != "":
+		return ""
+	case p.Kind == model.ProjectGit:
+		return p.Root
+	case p.Kind != model.ProjectGroup:
+		return ""
+	}
+	root := ""
+	for i, ws := range v.groupTabs(p.ID) {
+		r := mainCheckout(ws, s.tabRoot(v, ws))
+		if r == "" || i > 0 && r != root {
+			return ""
+		}
+		root = r
+	}
+	return root
 }
 
 // repoRoot is the folder at or above dir that holds .git, or "" outside
@@ -285,16 +329,16 @@ func (s *Sidebar) repoRoot(dir string) (root string, ok bool) {
 	return root, true
 }
 
-// groupFavicon is a git group's repo icon, or its letter tile, unless the
-// user picked an icon for the group.
-func (s *Sidebar) groupFavicon(th *theme.Theme, p model.Project) *favicon {
-	if p.Icon != "" || p.Kind != model.ProjectGit {
+// groupFavicon is the icon of groupRoot's repo, or its letter tile.
+func (s *Sidebar) groupFavicon(v *view, p model.Project) *favicon {
+	root := s.groupRoot(v, p)
+	if root == "" {
 		return nil
 	}
-	if f := s.favicon(p.Root); f != nil {
+	if f := s.favicon(root); f != nil {
 		return f
 	}
-	return letterFavicon(th, p.Name, p.Color)
+	return letterFavicon(v.th, p.Name, p.Color)
 }
 
 // letterFavicon is a tile with name's first letter or digit, in the color
