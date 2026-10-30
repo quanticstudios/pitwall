@@ -116,3 +116,41 @@ func TestSplitShell(t *testing.T) {
 		t.Error("an open quote splits")
 	}
 }
+
+func TestACPAgents(t *testing.T) {
+	p := write(t, t.TempDir(), "config.toml", `[[agents.acp]]
+name = "grok"
+command = "grok-agent"
+args = ["--acp", "argument with spaces"]
+env = ["API_TOKEN=synthetic"]
+[[agents.acp]]
+name = "grok"
+command = "other"
+[[agents.acp]]
+name = "bad name"
+command = "bad"
+[[agents.acp]]
+name = "no-command"
+[[agents.acp]]
+name = "bad-env"
+command = "agent"
+env = ["missing-equals"]
+`)
+	s, problems := LoadFile(p)
+	if len(s.ACPAgents) != 1 || len(problems) != 4 {
+		t.Fatalf("agents %+v; problems %+v", s.ACPAgents, problems)
+	}
+	a := s.ACPAgents[0]
+	if a.Name != "grok" || a.Command != "grok-agent" || !slices.Equal(a.Args, []string{"--acp", "argument with spaces"}) || !slices.Equal(a.Env, []string{"API_TOKEN=synthetic"}) {
+		t.Fatalf("agent: %+v", a)
+	}
+	for _, a := range []ACPAgent{{Name: "bad", Command: "a\x00b"}, {Name: "bad", Command: "a", Args: []string{"\x00"}}, {Name: "bad", Command: "a", Env: []string{"=value"}}, {Name: "bad", Command: "a", Env: []string{"X=\x00"}}} {
+		got, issues := resolveACP([]ACPAgent{a})
+		if len(got) != 0 || len(issues) != 1 {
+			t.Fatalf("invalid ACP agent accepted: %+v", a)
+		}
+	}
+	if !strings.Contains(string(Schema()), `"acp"`) || !strings.Contains(Default(), "[[agents.acp]]") {
+		t.Fatal("ACP is absent from generated config documentation")
+	}
+}
