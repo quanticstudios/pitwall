@@ -21,6 +21,7 @@ build. Either step takes `--dry-run`.
 - A group header counts its tabs that need you, are working, or finished a turn you have not seen, each with its row's state glyph. It showed only a count of tabs with something unseen.
 - Settings, Agents can send CI failures once per head commit and requested review changes once per review. Both are off by default, with one message held while an agent works. The existing `auto_send_failures` config key still works; ordinary tabs can now receive more than two failing commits, while fleet escalation keeps its limit.
 - Terminal state can be saved and restored for a future daemon handoff, including scrollback and partially read escape sequences.
+- New task has an editable model picker per agent, with Claude aliases and Codex cache suggestions, and remembers each agent's choice. `pitwall new` and `pitwall queue add` accept `--model`, including `default` to leave the model unset.
 - A Codex tab stopped at its folder trust dialog shows as needing you. It showed as idle.
 - Drop image files onto an agent pane to paste their quoted paths. Clipboard images now use the same private save-and-paste path locally and over `--host`, with images kept under the state directory until their tab closes. A shell receives dropped paths and ignores clipboard images.
 

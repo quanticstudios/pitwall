@@ -32,6 +32,11 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 	}
 	start, queue := false, false
 	eds := []*widget.Editor{&t.prompt, &t.name, &t.base, &t.branch, &t.issue}
+	for i := range t.models {
+		if t.picked[i] {
+			eds = append(eds, &t.models[i].editor)
+		}
+	}
 	filters := []event.Filter{pointer.Filter{Target: &m.backdrop, Kinds: pointer.Press}, key.Filter{Focus: &m.backdrop, Name: key.NameEscape}}
 	for _, e := range eds {
 		filters = append(filters, key.Filter{Focus: e, Name: key.NameEscape},
@@ -65,7 +70,7 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 				break
 			}
 			if _, ok := ev.(widget.SubmitEvent); ok {
-				// Enter in the base, branch or issue field takes the first
+				// Enter in a field with suggestions takes the first
 				// match.
 				if ms := t.matches(e); len(ms) > 0 {
 					t.take(e, ms[0])
@@ -110,6 +115,17 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 		for j := range t.modeBtn[i] {
 			for t.modeBtn[i][j].Clicked(gtx) {
 				t.modes[i] = j
+			}
+		}
+	}
+	for i := range t.models {
+		m := &t.models[i]
+		if !t.picked[i] {
+			continue
+		}
+		for j, choice := range t.matches(&m.editor) {
+			for m.buttons[j].Clicked(gtx) {
+				setText(&m.editor, choice)
 			}
 		}
 	}
@@ -172,6 +188,15 @@ func (t *taskDialog) syncName() {
 // local one to check out. The issue field offers open issues by number and
 // title. None for the other fields.
 func (t *taskDialog) matches(e *widget.Editor) []string {
+	for i := range t.models {
+		if e == &t.models[i].editor {
+			query := e.Text()
+			if query == "default" {
+				query = ""
+			}
+			return refMatches(t.models[i].choices, query)
+		}
+	}
 	switch e {
 	case &t.issue:
 		var labels []string
@@ -282,14 +307,27 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 			for _, md := range taskModes[t.agents[i].cmd] {
 				modes = append(modes, md.name)
 			}
-			if len(modes) == 0 {
-				continue
-			}
+
 			l := "Mode"
 			if len(on) > 1 {
 				l = t.agents[i].name + " mode"
 			}
-			kids = append(kids, gap(14), label(l), gap(6), chips(t.modeBtn[i], modes, t.modes[i]))
+			if len(modes) > 0 {
+				kids = append(kids, gap(14), label(l), gap(6), chips(t.modeBtn[i], modes, t.modes[i]))
+			}
+			ml := "Model"
+			if len(on) > 1 {
+				ml = t.agents[i].name + " model"
+			}
+			m := &t.models[i]
+			kids = append(kids, gap(14), label(ml), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+				return u.field(gtx, &m.editor, th.MonoFont, fieldH, "default, or type a model ID")
+			}))
+			if gtx.Focused(&m.editor) {
+				for j, choice := range t.matches(&m.editor) {
+					kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.pickRow(gtx, &m.buttons[j], choice) }))
+				}
+			}
 		}
 	}
 	if issues := t.matches(&t.issue); len(t.issueList()) > 0 {
@@ -319,7 +357,9 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 		o.Pop()
 		return d
 	}))
-	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
+	return t.scroll.Layout(gtx, len(kids), func(gtx gl.Context, i int) gl.Dimensions {
+		return gl.Flex{}.Layout(gtx, kids[i])
+	})
 }
 
 // chips draws a wrapping row of options with those in on picked: aide's

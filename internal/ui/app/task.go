@@ -3,6 +3,7 @@ package app
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,8 +14,10 @@ import (
 	"sync"
 	"time"
 
+	gl "gioui.org/layout"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/guard"
@@ -32,6 +35,8 @@ type taskDialog struct {
 	agents   []foundAgent
 	picked   []bool // per agent: whether it gets a task
 	modes    []int  // per agent: into taskModes of it
+	models   []taskModel
+	scroll   widget.List
 	err      string
 	preset   string // the prompt the next open starts with
 
@@ -46,6 +51,67 @@ type taskDialog struct {
 	whereBtn             [3]widget.Clickable
 	matchBtn, issueBtn   [maxPicks]widget.Clickable
 	cancel, queue, start widget.Clickable
+}
+
+// taskModel is an editable model with CLI suggestions for one agent.
+type taskModel struct {
+	key     string // agent command, or preset name
+	editor  widget.Editor
+	choices []string
+	buttons [maxPicks]widget.Clickable
+}
+
+// taskPresetModel keeps the preset's raw model, including pi/OpenCode's
+// effort suffix. Unknown agent options stay in the preset's args.
+func taskPresetModel(args []string) string {
+	for i, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if (arg == "--model" || arg == "-m") && i+1 < len(args) {
+			return args[i+1]
+		}
+		if v, ok := strings.CutPrefix(arg, "--model="); ok {
+			return v
+		}
+		if v, ok := strings.CutPrefix(arg, "-m="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// taskModels reads only Codex's discovery cache, never its configuration.
+// A missing or invalid cache leaves an editable field with just default.
+func taskModels(agent, home string) []string {
+	out := []string{"default"}
+	switch agent {
+	case "claude":
+		return append(out, "opus", "sonnet")
+	case "codex":
+		if home == "" {
+			return out
+		}
+		data, err := os.ReadFile(filepath.Join(home, ".codex", "models_cache.json"))
+		if err != nil {
+			return out
+		}
+		var cache struct {
+			Models []struct {
+				Slug       string
+				Visibility string
+			}
+		}
+		if json.Unmarshal(data, &cache) != nil {
+			return out
+		}
+		for _, m := range cache.Models {
+			if m.Slug != "" && m.Visibility != "hide" && !slices.Contains(out, m.Slug) {
+				out = append(out, m.Slug)
+			}
+		}
+	}
+	return out
 }
 
 // taskIssues is the open issues of the dialog's project, which a goroutine
@@ -197,6 +263,27 @@ func (u *ui) openTask(st *model.State, group string) {
 		t.agents = append(t.agents, foundAgent{cmd: p.Agent, name: p.Name, preset: true, args: p.Args, vars: vars})
 	}
 	t.picked, t.modes = make([]bool, len(t.agents)), make([]int, len(t.agents))
+	t.models = make([]taskModel, len(t.agents))
+	home, _ := os.UserHomeDir()
+	if Host != "" { // the local cache does not describe the host
+		home = ""
+	}
+	for i, a := range t.agents {
+		m := &t.models[i]
+		m.choices = taskModels(a.cmd, home)
+		m.editor.SingleLine, m.editor.Submit = true, true
+		m.key = a.cmd
+		if a.preset {
+			m.key = "preset:" + a.name
+		}
+		selection, ok := u.gui.TaskModels[m.key]
+		if !ok && a.preset {
+			selection = taskPresetModel(a.args)
+		}
+		m.editor.SetText(cmp.Or(selection, "default"))
+	}
+	t.scroll = widget.List{}
+	t.scroll.Axis = gl.Vertical
 	if len(t.agents) > 0 {
 		t.picked[max(0, slices.IndexFunc(t.agents, func(a foundAgent) bool { return a.cmd == u.gui.TaskAgent }))] = true
 	}
@@ -373,7 +460,11 @@ func (t *taskDialog) tasks() ([]model.Task, error) {
 			}
 		}
 		at := task
-		at.Cmd, at.Env = taskCmd(path, a.cmd, a.args, t.modes[i], prompt), a.vars
+		args := a.args
+		if i < len(t.models) {
+			args = config.WithModel(a.cmd, args, cmp.Or(strings.TrimSpace(t.models[i].editor.Text()), "default"))
+		}
+		at.Cmd, at.Env = taskCmd(path, a.cmd, args, t.modes[i], prompt), a.vars
 		if several && a.preset {
 			at.Worktree += "-" + worktreeName(a.name)
 		} else if several {
@@ -410,9 +501,17 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 			return
 		}
 	}
-	// The first picked agent is the one the dialog picks next time.
-	if a := t.agents[slices.Index(t.picked, true)].cmd; a != u.gui.TaskAgent && u.report != nil { // a real window, not a test
-		u.gui.TaskAgent = a
+	// The first picked agent and each model survive reopening.
+	u.gui.TaskAgent = t.agents[slices.Index(t.picked, true)].cmd
+	if u.gui.TaskModels == nil {
+		u.gui.TaskModels = make(map[string]string)
+	}
+	for i := range t.agents {
+		if t.picked[i] {
+			u.gui.TaskModels[t.models[i].key] = cmp.Or(strings.TrimSpace(t.models[i].editor.Text()), "default")
+		}
+	}
+	if u.report != nil { // a real window, not a test
 		saveGUIState(u.gui)
 	}
 	u.modal.close()

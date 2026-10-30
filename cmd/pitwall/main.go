@@ -59,11 +59,12 @@ const usage = `usage:
                              (--json: one object per tab, see docs/agent-skill.md;
                              --children: only the tabs this pane's tab opened;
                              --tree: each tab under the tab that opened it)
-  pitwall new [-n name] [-d] [--issue n] [--preset name] [--guard] [dir] [-- cmd args...]
+  pitwall new [-n name] [-d] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. --issue adds GitHub issue n
                              as cmd's last argument, its prompt. --preset runs a
                              [[agents.preset]] with cmd's args after its own;
+                             --model selects a model, default leaves it unset;
                              --guard denies the agent pushes and merges (see
                              docs/usage.md). A cmd's pane stays after it
                              exits, showing its output, until closed. After a

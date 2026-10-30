@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -116,6 +117,7 @@ func TestTaskDialog(t *testing.T) {
 	d.where = whereWorktree
 	d.prompt.SetText("Fix the login redirect\nand add a test")
 	d.modes[codex] = 1
+	d.models[codex].editor.SetText("gpt-custom")
 	d.syncName()
 	if d.name.Text() != "fix-the-login-redirect" {
 		t.Fatalf("worktree name %q", d.name.Text())
@@ -123,7 +125,7 @@ func TestTaskDialog(t *testing.T) {
 	d.base.SetText("release/1.4")
 	u.submitTask(&st, true)
 	want := proto.NewTask{Queue: true, FromPane: u.nav.focused(), Task: model.Task{SessionID: "s1", GroupID: "g2", Dir: fakeHome + "/src/web-app",
-		Worktree: "fix-the-login-redirect", Base: "release/1.4", Cmd: []string{filepath.Join(bin, exeName("codex")), "-s", "read-only", "Fix the login redirect\nand add a test"}}}
+		Worktree: "fix-the-login-redirect", Base: "release/1.4", Cmd: []string{filepath.Join(bin, exeName("codex")), "-m", "gpt-custom", "-s", "read-only", "Fix the login redirect\nand add a test"}}}
 	sent := b.Sent()
 	if got := sent[len(sent)-1]; !reflect.DeepEqual(got, want) || u.modal.kind != modalNone {
 		t.Fatalf("sent %#v\nwant %#v", got, want)
@@ -182,6 +184,8 @@ func TestTaskIssueAgents(t *testing.T) {
 		t.Fatalf("picked %v, where %d", d.picked, d.where)
 	}
 	d.modes[claude] = 2
+	d.models[claude].editor.SetText("sonnet")
+	d.models[codex].editor.SetText("gpt-custom")
 	d.where = whereBranch
 	if _, err := d.tasks(); err == nil {
 		t.Fatal("two agents on one branch")
@@ -197,7 +201,9 @@ func TestTaskIssueAgents(t *testing.T) {
 		at.Worktree = "issue-49-add-a-dark-theme-" + a.cmd
 		at.Cmd = []string{filepath.Join(bin, exeName(a.cmd)), prompt}
 		if a.cmd == "claude" {
-			at.Cmd = slices.Insert(at.Cmd, 1, "--permission-mode", "plan")
+			at.Cmd = slices.Insert(at.Cmd, 1, "--model", "sonnet", "--permission-mode", "plan")
+		} else {
+			at.Cmd = slices.Insert(at.Cmd, 1, "-m", "gpt-custom")
 		}
 		want = append(want, proto.NewTask{Queue: true, FromPane: u.nav.focused(), Task: at})
 	}
@@ -205,6 +211,21 @@ func TestTaskIssueAgents(t *testing.T) {
 	if got := sent[len(sent)-2:]; !reflect.DeepEqual(got, want) || u.modal.kind != modalNone {
 		t.Fatalf("sent %#v\nwant %#v", got, want)
 	}
+	// Model choices survive serializing the same GUI state as the agent.
+	data, err := json.Marshal(u.gui)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored guiState
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	u.gui = restored
+	u.openTask(&st, "")
+	if d.models[claude].editor.Text() != "sonnet" || d.models[codex].editor.Text() != "gpt-custom" {
+		t.Fatalf("models not remembered: %+v", u.gui.TaskModels)
+	}
+	d.pickAgent(codex, true)
 	d.pickAgent(codex, true)
 	d.pickAgent(claude, true) // the last one stays
 	if !d.picked[claude] || d.pickedCount() != 1 {
@@ -265,9 +286,96 @@ func TestTaskAgentPreset(t *testing.T) {
 	if got := tasks[0]; !slices.Equal(got.Cmd, []string{claude, "--model", "opus", "--permission-mode", "plan", "go"}) || !slices.Equal(got.Env, []string{"FOO=1", "PITWALL_GUARD=1"}) {
 		t.Fatalf("task %+v", got)
 	}
+	d.models[1].editor.SetText("sonnet")
+	tasks, err = d.tasks()
+	if err != nil || !slices.Equal(tasks[0].Cmd, []string{claude, "--model", "sonnet", "--permission-mode", "plan", "go"}) {
+		t.Fatalf("override: %+v, %v", tasks, err)
+	}
+	d.models[1].editor.SetText("default")
+	tasks, err = d.tasks()
+	if err != nil || !slices.Equal(tasks[0].Cmd, []string{claude, "--permission-mode", "plan", "go"}) {
+		t.Fatalf("default: %+v, %v", tasks, err)
+	}
 	d.pickAgent(0, true)
 	d.name.SetText("fix")
 	if tasks, err = d.tasks(); err != nil || len(tasks) != 2 || tasks[0].Worktree != "fix-claude" || tasks[1].Worktree != "fix-opus-high" || tasks[0].Env != nil {
 		t.Fatalf("tasks %+v, %v", tasks, err)
+	}
+	d.models[1].editor.SetText("sonnet")
+	u.submitTask(&st, true)
+	u.openTask(&st, "")
+	if d.models[0].editor.Text() != "default" || d.models[1].editor.Text() != "sonnet" {
+		t.Fatalf("preset and plain agent models mixed: %+v", u.gui.TaskModels)
+	}
+}
+
+func TestTaskModels(t *testing.T) {
+	home := t.TempDir()
+	if got := taskModels("claude", home); !slices.Equal(got, []string{"default", "opus", "sonnet"}) {
+		t.Fatalf("Claude models %q", got)
+	}
+	for _, tc := range []struct {
+		name, data string
+		want       []string
+	}{
+		{"missing", "", []string{"default"}},
+		{"invalid", "{", []string{"default"}},
+		{"cache", `{"models":[{"slug":"gpt-custom","visibility":"list"},{"slug":"hidden","visibility":"hide"},{"slug":"gpt-other"},{"slug":"gpt-custom"},{"slug":""}]}`, []string{"default", "gpt-custom", "gpt-other"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.data != "" {
+				if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(home, ".codex", "models_cache.json"), []byte(tc.data), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := taskModels("codex", home); !slices.Equal(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if got := taskModels("codex", ""); !slices.Equal(got, []string{"default"}) {
+		t.Fatalf("remote models %q", got)
+	}
+}
+
+func TestTaskModelSuggestions(t *testing.T) {
+	d := taskDialog{models: make([]taskModel, 1)}
+	m := &d.models[0]
+	m.choices = []string{"default", "opus", "sonnet"}
+	for _, tc := range []struct {
+		query string
+		want  []string
+	}{
+		{"default", m.choices}, {"", m.choices}, {"son", []string{"sonnet"}}, {"sonnet", nil}, {"custom-id", nil},
+	} {
+		m.editor.SetText(tc.query)
+		if got := d.matches(&m.editor); !slices.Equal(got, tc.want) {
+			t.Fatalf("%q: %q, want %q", tc.query, got, tc.want)
+		}
+	}
+	d.take(&m.editor, "opus")
+	if m.editor.Text() != "opus" {
+		t.Fatal("model selection not applied")
+	}
+}
+
+func TestTaskPresetModel(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--model", "anthropic/claude-x:high"}, "anthropic/claude-x:high"},
+		{[]string{"--model=gemini-custom"}, "gemini-custom"},
+		{[]string{"-m", "gpt-custom"}, "gpt-custom"},
+		{[]string{"-m=gpt-custom"}, "gpt-custom"},
+		{[]string{"--", "--model", "literal"}, ""},
+		{nil, ""},
+	} {
+		if got := taskPresetModel(tc.args); got != tc.want {
+			t.Fatalf("%q: %q, want %q", tc.args, got, tc.want)
+		}
 	}
 }

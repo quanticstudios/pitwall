@@ -177,7 +177,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var asJSON, detached, force, children, tree, guarded bool
-	var name, sessionName, preset string
+	var name, sessionName, preset, modelName string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
@@ -187,6 +187,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		flags.BoolVar(&tree, "tree", false, "")
 	case "new":
 		flags.StringVar(&name, "n", "", "")
+		flags.StringVar(&modelName, "model", "", "")
 		flags.BoolVar(&detached, "d", false, "")
 		flags.IntVar(&issue, "issue", 0, "")
 		flags.StringVar(&preset, "preset", "", "")
@@ -212,6 +213,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	var vars []string
 	if cmd, vars, err = launch(preset, guarded, cmd); err != nil {
+		return err
+	}
+	if cmd, err = withModel(cmd, modelName); err != nil {
 		return err
 	}
 	if issue != 0 && cmd == nil {
@@ -351,6 +355,17 @@ func launch(preset string, guarded bool, rest []string) (cmd, vars []string, err
 		err = absCmd(cmd)
 	}
 	return cmd, vars, err
+}
+
+// withModel applies a CLI model override after resolving a preset.
+func withModel(cmd []string, selection string) ([]string, error) {
+	if strings.TrimSpace(selection) == "" {
+		return cmd, nil
+	}
+	if len(cmd) == 0 {
+		return nil, errors.New("--model needs an agent to run: --model opus -- claude")
+	}
+	return append([]string{cmd[0]}, config.WithModel(cmd[0], cmd[1:], selection)...), nil
 }
 
 // varsLevel refuses vars, a preset's or the guard's, for a daemon that

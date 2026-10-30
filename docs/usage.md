@@ -880,7 +880,7 @@ error when you make the tab, and the tab is made anyway.
 
 ### Tasks and the queue
 
-<img src="media/new-task.webp" alt="The New task dialog: project, where it runs, agent, mode and prompt, with Queue and Start buttons" width="480">
+<img src="media/new-task.webp" alt="The New task dialog: project, where it runs, agent, mode, model and prompt, with Queue and Start buttons" width="480">
 
 **New task** (Ctrl+Shift+A, the command palette, or **New task…** in a
 group's menu) starts an agent on a prompt in a tab of its own, as
@@ -902,6 +902,12 @@ group's menu) starts an agent on a prompt in a tab of its own, as
 - **Mode**: for Claude Code, Accept edits or Plan (`--permission-mode`);
   for Codex, Read only or Auto (`-s` and `-a`). With several agents, each
   has its own row.
+- **Model**: pick a suggestion or type a full model ID. Claude offers `opus`
+  and `sonnet`; Codex offers the visible models in `~/.codex/models_cache.json`
+  when present. Without a cache, type a model ID. `default` or an empty field
+  passes no model flag. Each selected agent has its own field, remembered per
+  agent after Start or Queue. A preset starts with its configured model; the
+  field overrides it for this task. Remote windows use free text for Codex.
 - **From issue**: in a GitHub repository, with `gh` installed and logged
   in, the newest 50 open issues. Type a number or words of the title and
   pick one. It fills the prompt with the issue's number, title, URL and
@@ -917,12 +923,19 @@ failed or closed. With `max_running` under `[agents]` in `config.toml` (or
 many agents run in the session. The queue survives a daemon restart.
 
 ```sh
-pitwall queue add -- codex "fix the flaky login test"   # in the current folder
+pitwall new --model sonnet -- claude "fix the flaky login test"
+pitwall queue add --model gpt-custom -- codex "fix the flaky login test"   # in the current folder
 pitwall queue add --issue 12 -- claude                  # GitHub issue 12 as the prompt
 pitwall queue add --preset "Opus high" -- "fix it"       # a preset, "fix it" its prompt
 pitwall queue ls
 pitwall queue rm 1
 ```
+
+`pitwall new` and `pitwall queue add` accept `--model ID` before `--`.
+Claude receives `--model ID`, Codex receives `-m ID`. With `--preset`, this
+replaces its model for this task. `--model default` clears an explicit model;
+omitting the option keeps the preset or CLI default. Other agents receive
+`--model ID` and must support that option.
 
 ### Agent presets
 
