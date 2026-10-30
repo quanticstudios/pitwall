@@ -124,7 +124,7 @@ func TestHandoffHistoryAndIndependence(t *testing.T) {
 	}
 	_, _ = a.Write([]byte("\x1b]7;file:///tmp/fixture\a\x1b[5 q\x1b[?1049hALT"))
 	b := restored(t, a).(*emulator)
-	if b.Cwd() != "/tmp/fixture" || b.st.hist.limit() != 7 {
+	if b.Cwd() != filepath.FromSlash("/tmp/fixture") || b.st.hist.limit() != 7 {
 		t.Fatal("cwd or custom history limit lost")
 	}
 	if !reflect.DeepEqual(a.st.hist.at(0), b.st.hist.at(0)) {
