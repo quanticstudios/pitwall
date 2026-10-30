@@ -322,15 +322,25 @@ func appearanceOf(p model.Project) (icon, color string) {
 
 // appearanceMenu is ProjectOverflowMenu without the icon search and the
 // setup entry: a 7-column icon grid and aide's color row, placed under
-// anchor, the trigger's rect in the sidebar, kept inside the window.
-func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Project, anchor image.Rectangle) {
+// anchor, the trigger's rect in the sidebar, kept inside the window. A
+// group with a repo gets the repo's icon as the grid's first tile.
+func (s *Sidebar) appearanceMenu(gtx layout.Context, v *view, p model.Project, anchor image.Rectangle) {
+	th := v.th
 	s.catcher(gtx)
 	icon, col := appearanceOf(p)
+	repo := s.repoTile(v, p)
+	first := 0 // the grid index of projectIcons[0]
+	if repo != nil {
+		first = 1
+		if p.Icon == "" {
+			icon = "" // the repo's tile is the one picked, not the folder
+		}
+	}
 	w, pad, gap := gtx.Dp(320), gtx.Dp(10), gtx.Dp(4)
 	inner := w - 2*pad
 	cell, sw := gtx.Dp(32), gtx.Dp(24)
 	const cols = 7
-	rows := (len(projectIcons) + cols - 1) / cols
+	rows := (first + len(projectIcons) + cols - 1) / cols
 	perRow := max(1, (inner+gap)/(sw+gap))
 	colorRows := (len(projectColorIDs) + perRow - 1) / perRow
 	labelH := gtx.Dp(16)
@@ -357,10 +367,18 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 	section(y, "Icon")
 	y += labelH + gtx.Dp(8)
 	colW := (inner - (cols-1)*gap) / cols
-	for i, ic := range projectIcons {
-		c := &s.iconBtn[i]
+	for i := range first + len(projectIcons) {
+		c, selected, glyph := &s.repoIcon, icon == "", func(gtx layout.Context, _ color.NRGBA) layout.Dimensions {
+			return repo.draw(gtx, gtx.Dp(14))
+		}
+		if i >= first {
+			ic := projectIcons[i-first]
+			c, selected = &s.iconBtn[i-first], ic.name == icon
+			glyph = func(gtx layout.Context, fg color.NRGBA) layout.Dimensions {
+				return drawIcon(gtx, ic.d, gtx.Dp(14), fg, 0)
+			}
+		}
 		at := image.Pt(pad+(i%cols)*(colW+gap), y+(i/cols)*(cell+gap))
-		selected := ic.name == icon
 		off := op.Offset(at).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = layout.Exact(image.Pt(cell, cell))
@@ -377,9 +395,7 @@ func (s *Sidebar) appearanceMenu(gtx layout.Context, th *theme.Theme, p model.Pr
 				paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(r, gtx.Dp(8)).Op(gtx.Ops))
 				fg = th.Fg
 			}
-			return drawCentered(gtx, cell, func(gtx layout.Context) layout.Dimensions {
-				return drawIcon(gtx, ic.d, gtx.Dp(14), fg, 0)
-			})
+			return drawCentered(gtx, cell, func(gtx layout.Context) layout.Dimensions { return glyph(gtx, fg) })
 		})
 		off.Pop()
 	}

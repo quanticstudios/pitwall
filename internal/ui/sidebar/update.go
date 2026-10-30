@@ -143,7 +143,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.toggleGroupMenu(p.ID)
 		}
 		if s.appearance == p.ID {
-			icon, col := appearanceOf(p)
+			_, col := appearanceOf(p)
+			for s.repoIcon.Clicked(gtx) {
+				s.events = append(s.events, SetProjectAppearance{ProjectID: p.ID, Icon: "", Color: col})
+			}
 			for i := range s.iconBtn {
 				for s.iconBtn[i].Clicked(gtx) {
 					s.events = append(s.events, SetProjectAppearance{ProjectID: p.ID, Icon: projectIcons[i].name, Color: col})
@@ -151,7 +154,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			}
 			for i := range s.colorBtn {
 				for s.colorBtn[i].Clicked(gtx) {
-					s.events = append(s.events, SetProjectAppearance{ProjectID: p.ID, Icon: icon, Color: projectColorIDs[i]})
+					s.events = append(s.events, SetProjectAppearance{ProjectID: p.ID, Icon: p.Icon, Color: projectColorIDs[i]})
 				}
 			}
 		}

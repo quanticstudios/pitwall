@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"slices"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -30,12 +31,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	case hovered:
 		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(8)).Op(gtx.Ops))
 	}
-	attention := 0 // tabs with something the user has not seen
-	for _, ws := range v.byProject[p.ID] {
-		if v.unseen[ws.ID] != nil {
-			attention++
-		}
-	}
+	summary := groupSummary(v, v.groupTabs(p.ID))
 	bg := th.Sidebar
 	switch {
 	case cursor:
@@ -71,7 +67,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 				return chevron(gtx, &ps.chev, s.isExpanded(p.ID), gtx.Dp(12), th.Muted)
 			}},
 			{w: func(gtx layout.Context) layout.Dimensions {
-				if f := s.groupFavicon(th, p); f != nil {
+				if f := s.groupFavicon(v, p); f != nil {
 					return f.draw(gtx, gtx.Dp(14))
 				}
 				return drawIcon(gtx, projectIcon(p.Icon), gtx.Dp(14), th.ProjectColor(p.Color), 0)
@@ -84,14 +80,15 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), nameCol, p.Name)
 			}},
 		}
-		if attention > 0 {
+		for _, c := range summary {
+			// Each state's glyph, still, and its count.
 			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-				d := gtx.Dp(16)
-				paint.FillShape(gtx.Ops, theme.Mix(bg, th.Yellow, 0.14), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
-				centered(gtx, image.Pt(d, d), func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(th.Yellow, theme.Mix(bg, th.Yellow, 0.14)), fmt.Sprint(attention))
-				})
-				return layout.Dimensions{Size: image.Pt(d, d)}
+				return hrowFit(gtx, h, gtx.Dp(3),
+					item{w: func(gtx layout.Context) layout.Dimensions { return stateGlyph(gtx, th, c.state, bg, 0) }},
+					item{w: func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(th.Muted, bg), fmt.Sprint(c.n))
+					}},
+				)
 			}})
 		}
 		hrow(gtx, h, gtx.Dp(8), items...)
@@ -115,7 +112,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	anchor.Max = anchor.Min.Add(image.Pt(btn, btn))
 	if s.appearance == p.ID {
 		m := op.Record(gtx.Ops)
-		s.appearanceMenu(gtx, th, p, anchor)
+		s.appearanceMenu(gtx, v, p, anchor)
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	if s.groupMenu == p.ID {
@@ -136,6 +133,50 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	}
 	off.Pop()
 	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// groupTabs are group id's live tabs, the workers hanging under them
+// included.
+func (v *view) groupTabs(id string) []model.Workspace {
+	var tabs []model.Workspace
+	for _, ws := range v.byProject[id] {
+		tabs = append(tabs, ws)
+		tabs = append(tabs, v.kids[ws.ID]...)
+	}
+	return tabs
+}
+
+// stateCount is one entry of a group header's summary: n tabs, drawn with
+// state's glyph.
+type stateCount struct {
+	state model.AgentState
+	n     int
+}
+
+// groupSummary counts tabs that need the user, then tabs at work, then
+// tabs with something done the user has not seen, most urgent first. A
+// tab counts once, in the first that fits; an entry takes the glyph of
+// its most urgent state, and an empty one is left out.
+func groupSummary(v *view, tabs []model.Workspace) []stateCount {
+	var sum [3]stateCount
+	add := func(i int, st model.AgentState) {
+		if sum[i].n == 0 || model.Aggregate([]model.Activity{{State: sum[i].state}, {State: st}}).State == st {
+			sum[i].state = st
+		}
+		sum[i].n++
+	}
+	for _, ws := range tabs {
+		a := v.activity[ws.ID]
+		switch {
+		case a != nil && (a.State == model.StatePendingApproval || a.State == model.StateAwaitingInput || a.State == model.StatePlanReady):
+			add(0, a.State)
+		case model.Pulses(a):
+			add(1, model.StateWorking)
+		case v.unseen[ws.ID] != nil:
+			add(2, v.unseen[ws.ID].State)
+		}
+	}
+	return slices.DeleteFunc(sum[:], func(c stateCount) bool { return c.n == 0 })
 }
 
 // projectHeaderGhost draws group p's header for the lifted copy under the

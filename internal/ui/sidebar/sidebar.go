@@ -119,6 +119,7 @@ type Sidebar struct {
 
 	appearance string               // project whose icon and color popover is open
 	iconBtn    [35]widget.Clickable // one per projectIcons entry
+	repoIcon   widget.Clickable     // the picker's tile for the repo's icon
 	colorBtn   [len(projectColorIDs)]widget.Clickable
 	tabColor   [len(tabColorIDs)]widget.Clickable
 	popover    int // tag that keeps clicks on a popover's body from closing it

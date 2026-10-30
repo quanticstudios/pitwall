@@ -450,3 +450,29 @@ func TestHrowDropsOpt(t *testing.T) {
 		t.Errorf("width %d, want 30: the squeezed opt dropped", got)
 	}
 }
+
+// A group header counts its tabs that need the user, then those working,
+// then those done and unseen; each tab once, its workers too, and an idle
+// tab not at all.
+func TestGroupSummary(t *testing.T) {
+	act := func(s model.AgentState) *model.Activity { return &model.Activity{State: s} }
+	v := &view{
+		byProject: map[string][]model.Workspace{"g": {{ID: "plan"}, {ID: "ask"}, {ID: "work"}, {ID: "done"}, {ID: "idle"}, {ID: "orch"}}},
+		kids:      map[string][]model.Workspace{"orch": {{ID: "w1"}, {ID: "w2"}}},
+		activity: map[string]*model.Activity{
+			"plan": act(model.StatePlanReady), "ask": act(model.StatePendingApproval), "work": act(model.StateWorking),
+			"done": act(model.StateCompleted), "idle": nil, "orch": act(model.StateWatching),
+			"w1": act(model.StateConnecting), "w2": act(model.StateAwaitingInput),
+		},
+		// An unseen question counts as needing the user, not twice.
+		unseen: map[string]*model.Activity{"done": act(model.StateCompleted), "w2": act(model.StateAwaitingInput)},
+	}
+	got := groupSummary(v, v.groupTabs("g"))
+	want := []stateCount{{model.StatePendingApproval, 3}, {model.StateWorking, 2}, {model.StateCompleted, 1}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("summary %v, want %v", got, want)
+	}
+	if got := groupSummary(v, []model.Workspace{{ID: "idle"}}); len(got) != 0 {
+		t.Fatalf("an idle group shows %v", got)
+	}
+}

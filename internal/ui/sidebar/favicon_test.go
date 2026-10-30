@@ -3,6 +3,7 @@ package sidebar
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -173,7 +174,7 @@ func TestFavicon(t *testing.T) {
 	if letterFavicon(th, "--", "") != nil {
 		t.Fatal("a name with no letter got a tile")
 	}
-	if s.groupFavicon(theme.Dark(), model.Project{Root: repo, Kind: model.ProjectGit, Icon: "rocket"}) != nil {
+	if s.groupFavicon(v, model.Project{Root: repo, Kind: model.ProjectGit, Icon: "rocket"}) != nil {
 		t.Fatal("a group's own icon lost to the favicon")
 	}
 }
@@ -192,7 +193,7 @@ func TestRemoteFavicon(t *testing.T) {
 	if f := s.tabFavicon(v, ws); f == nil || f.src != nil || f.letter != "B" {
 		t.Fatalf("a tab with no answer from the daemon: %+v", f)
 	}
-	if f := s.groupFavicon(th, v.st.Projects[0]); f == nil || f.src != nil || f.letter != "B" {
+	if f := s.groupFavicon(v, v.st.Projects[0]); f == nil || f.src != nil || f.letter != "B" {
 		t.Fatalf("a group with no answer from the daemon: %+v", f)
 	}
 	if len(asked) == 0 || asked[0] != ws.Path {
@@ -208,5 +209,63 @@ func TestRemoteFavicon(t *testing.T) {
 	}
 	if f := s.tabFavicon(v, ws); f == nil || f.src == nil {
 		t.Fatalf("the daemon's icon, after a file that does not decode: %+v", f)
+	}
+}
+
+// A plain group shows the icon of the one repo its tabs are in, a
+// worktree counting as its main checkout; several repos, no tabs, or an
+// icon the user picked keep the glyph. The picker offers the repo's icon
+// as long as the group has a repo, and picking it, Icon "", brings it back.
+func TestGroupRoot(t *testing.T) {
+	s := Sidebar{RepoIcons: func(dir string) (proto.FaviconResult, bool) {
+		return proto.FaviconResult{Dir: dir, Root: dir}, true
+	}}
+	g := model.Project{ID: "g", Name: "acme", Kind: model.ProjectGroup}
+	group := func(paths ...string) *view {
+		v := &view{th: theme.Dark(), st: &model.State{}, byProject: map[string][]model.Workspace{}}
+		for i, p := range paths {
+			v.byProject["g"] = append(v.byProject["g"], model.Workspace{ID: fmt.Sprint(i), Path: filepath.FromSlash(p)})
+		}
+		return v
+	}
+	cases := []struct {
+		name string
+		v    *view
+		want string
+	}{
+		{"a repo and its worktree", group("/h/acme", "/h/acme/.worktrees/fix"), "/h/acme"},
+		{"worktrees only", group("/h/acme/.worktrees/a", "/h/acme/.worktrees/b"), "/h/acme"},
+		{"two repos", group("/h/acme", "/h/other"), ""},
+		{"no tabs", group(), ""},
+	}
+	for _, c := range cases {
+		if got := s.groupRoot(c.v, g); got != filepath.FromSlash(c.want) {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+		if f := s.groupFavicon(c.v, g); (f != nil) != (c.want != "") {
+			t.Errorf("%s: header icon %+v", c.name, f)
+		}
+		if f := s.repoTile(c.v, g); (f != nil) != (c.want != "") {
+			t.Errorf("%s: picker tile %+v", c.name, f)
+		}
+	}
+	// A worktree pitwall made elsewhere counts as the repo it came from.
+	v := group("/h/acme")
+	v.byProject["g"] = append(v.byProject["g"], model.Workspace{ID: "w", Path: filepath.FromSlash("/h/wt"), RepoRoot: filepath.FromSlash("/h/wt"), WorktreeRoot: filepath.FromSlash("/h/acme")})
+	if got := s.groupRoot(v, g); got != filepath.FromSlash("/h/acme") {
+		t.Errorf("pitwall's worktree: %q", got)
+	}
+	// A picked glyph wins on the header, the picker still offers the
+	// repo's tile, and Icon "" shows it again.
+	g.Icon = "rocket"
+	if f := s.groupFavicon(v, g); f != nil {
+		t.Errorf("a picked icon lost to the repo's: %+v", f)
+	}
+	if f := s.repoTile(v, g); f == nil || f.letter != "A" {
+		t.Errorf("the picker's repo tile with a glyph picked: %+v", f)
+	}
+	g.Icon = ""
+	if f := s.groupFavicon(v, g); f == nil || f.letter != "A" {
+		t.Errorf("back to the repo's icon: %+v", f)
 	}
 }

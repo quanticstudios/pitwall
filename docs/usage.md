@@ -82,7 +82,8 @@ to the shell.
 
 In a repo, the tab shows the repo's icon with the agent's logo as a badge
 on its corner, or the icon alone for a shell, and the repo's group shows it
-in place of the folder. The icon follows the folder the tab's first pane is
+in place of the folder. So does a group you made by grouping tabs, when
+all its tabs are in one repo; a worktree counts as its repo. The icon follows the folder the tab's first pane is
 in now, so a shell that changes into a repo shows that repo's icon.
 pitwall looks for `.pitwall/icon.svg`, `.png` or `.ico` first, so you can
 pick one by putting it there. Then it looks for `favicon.svg`,
@@ -91,7 +92,15 @@ pick one by putting it there. Then it looks for `favicon.svg`,
 `icon` files. It reads SVG, PNG and ICO files, and looks once per repo
 while the window is open. A repo with none gets a tile with its name's
 first letter, in its group's color or one picked from the name. An icon
-you pick for a group in **Icon and color** wins over the repo's.
+you pick for a group in **Icon and color** wins over the repo's. The
+picker's first tile is the repo's icon itself, for a group that has a
+repo: pick it to go back to the repo's icon.
+
+After its name, a group header counts its tabs by state, with the glyph
+their rows show: tabs that need you (an approval, a question or a plan),
+then tabs working, then tabs with a finished turn you have not seen. A
+state with no tabs is left out, so an idle group shows nothing after its
+name.
 
 A tab with two or more agent panes keeps one row with its most urgent state
 and a count such as "3 agents · 1 approval". Under it, each agent pane gets
@@ -104,8 +113,7 @@ When an agent needs you (a question, an approval, a plan, an error, a
 finished turn) in a pane you are not looking at, that pane gets a ring in the
 state's color and its sidebar row gets an accent bar. Not looking
 means another tab, another pane of the same tab, or the window in the
-background. The mark stays until you focus that pane, and a group header
-counts its tabs that carry one. pitwall also sends a desktop notification
+background. The mark stays until you focus that pane. pitwall also sends a desktop notification
 for it. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
