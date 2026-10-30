@@ -146,6 +146,36 @@ func TestHandoffHistoryAndIndependence(t *testing.T) {
 	}
 }
 
+func TestHandoffOSCColorOverrides(t *testing.T) {
+	a := New(20, 3, nil).(*emulator)
+	defer a.Close()
+	_, _ = a.Write([]byte("\x1b]10;#123456\a\x1b]11;rgb:aa/bb/cc\a\x1b]12;rgba:11/22/33/ff\a"))
+	data, err := Save(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reply replyBuf
+	b, err := Restore(data, &reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.(*emulator).Close()
+	sameFrame(t, a, b)
+	for _, code := range []int{10, 11, 12} {
+		var r, g, bl uint32
+		switch code {
+		case 10:
+			r, g, bl, _ = a.e.ForegroundColor().RGBA()
+		case 11:
+			r, g, bl, _ = a.e.BackgroundColor().RGBA()
+		case 12:
+			r, g, bl, _ = a.e.CursorColor().RGBA()
+		}
+		_, _ = fmt.Fprintf(b, "\x1b]%d;?\a", code)
+		reply.waitFor(t, fmt.Sprintf("\x1b]%d;rgb:%04x/%04x/%04x\a", code, r, g, bl))
+	}
+}
+
 func TestHandoffSyncFrameAndCallbacks(t *testing.T) {
 	a := New(20, 3, nil).(*emulator)
 	defer a.Close()

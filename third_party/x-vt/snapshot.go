@@ -19,7 +19,9 @@ const maxSnapshotCells = 1 << 20
 func init() {
 	for _, c := range []any{ansi.BasicColor(0), ansi.IndexedColor(0), ansi.TrueColor(0), ansi.RGBColor{},
 		color.RGBA{}, color.RGBA64{}, color.NRGBA{}, color.NRGBA64{}, color.Gray{}, color.Gray16{},
-		color.Alpha{}, color.Alpha16{}, color.CMYK{}} {
+		color.Alpha{}, color.Alpha16{}, color.CMYK{},
+		// XParseColor returns its dependency's concrete color type for hex OSC colors.
+		ansi.XParseColor("#000000")} {
 		gob.Register(c)
 	}
 }

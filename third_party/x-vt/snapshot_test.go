@@ -41,6 +41,7 @@ func TestSnapshotFullState(t *testing.T) {
 		"\x1b[5 q\x1b7\x1b[2;5r\x1b[3g\x1b[7G\x1bH\x1b)0\x0e\x1b[?1049hALT" +
 		"\x1b[?1;1003;1006;2004h\x1b[?25l\x1b[?6h\x1b[3;5r\x1b[2;20H!")
 	a.SetIndexedColor(5, ansi.RGBColor{R: 1, G: 2, B: 3})
+	a.SetIndexedColor(17, ansi.XParseColor("#abcdef"))
 	a.SetForegroundColor(color.RGBA64{R: 1234, G: 4321, B: 5678, A: 65535})
 	a.SetBackgroundColor(ansi.TrueColor(0x123456))
 	a.SetCursorColor(color.NRGBA{R: 4, G: 5, B: 6, A: 255})
