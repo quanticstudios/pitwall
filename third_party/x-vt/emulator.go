@@ -48,7 +48,10 @@ type Emulator struct {
 
 	// The ANSI parser to use.
 	parser *ansi.Parser
-	cb     Callbacks
+	// pending keeps only the unfinished parser sequence for daemon handoff.
+	pending         []byte
+	pendingOverflow bool
+	cb              Callbacks
 
 	// The terminal's icon name and title.
 	iconName, title string
@@ -88,17 +91,7 @@ func NewEmulator(w, h int) *Emulator {
 	t.parser = ansi.NewParser()
 	t.parser.SetParamsSize(parser.MaxParamsSize)
 	t.parser.SetDataSize(1024 * 1024 * 4) // 4MB data buffer
-	t.parser.SetHandler(ansi.Handler{
-		Print:     t.handlePrint,
-		Execute:   t.handleControl,
-		HandleCsi: t.handleCsi,
-		HandleEsc: t.handleEsc,
-		HandleDcs: t.handleDcs,
-		HandleOsc: t.handleOsc,
-		HandleApc: t.handleApc,
-		HandlePm:  t.handlePm,
-		HandleSos: t.handleSos,
-	})
+	t.setParserHandlers()
 	t.pr, t.pw = io.Pipe()
 	t.resetModes()
 	t.tabstops = uv.DefaultTabStops(w)
@@ -110,6 +103,20 @@ func NewEmulator(w, h int) *Emulator {
 	t.defaultCur = color.White
 
 	return t
+}
+
+func (t *Emulator) setParserHandlers() {
+	t.parser.SetHandler(ansi.Handler{
+		Print:     t.handlePrint,
+		Execute:   t.handleControl,
+		HandleCsi: t.handleCsi,
+		HandleEsc: t.handleEsc,
+		HandleDcs: t.handleDcs,
+		HandleOsc: t.handleOsc,
+		HandleApc: t.handleApc,
+		HandlePm:  t.handlePm,
+		HandleSos: t.handleSos,
+	})
 }
 
 // SetLogger sets the terminal's logger.
@@ -303,6 +310,14 @@ func (e *Emulator) Write(p []byte) (n int, err error) {
 
 	for i := range p {
 		e.parser.Advance(p[i])
+		if e.parser.State() == parser.GroundState {
+			e.pending = e.pending[:0]
+			e.pendingOverflow = false
+		} else if len(e.pending) < maxPending {
+			e.pending = append(e.pending, p[i])
+		} else {
+			e.pendingOverflow = true
+		}
 		// Flush the last cluster once the whole slice is written. Every
 		// sequence handler flushes on its own way in, so a cluster only has to
 		// survive until either the next printable character extends it or the

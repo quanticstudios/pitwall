@@ -77,3 +77,30 @@ From the pitwall root, run `mise exec -- go test ./internal/vt`.
 `TestAltScreenMemory` writes 50,000 full-width scrolling lines on the alternate
 screen and requires retained heap growth below 2 MiB after garbage collection.
 The baseline excludes construction of the emulator, as in `TestHistoryMemory`.
+
+## Patch: terminal handoff snapshots
+
+`snapshot.go` adds binary save/restore for both screen buffers, full current
+and saved cursors and pens, scroll regions, line flags, modes, tab stops,
+character sets and shifts, pending wrap, repeat character, title and colors.
+It retains handlers, callbacks and reply pipes from the receiving emulator.
+Scrollback must be drained by the embedding emulator before saving, so it
+cannot silently disappear. Pitwall serializes its compact history separately.
+
+`Emulator.Write` retains only the unfinished ANSI/UTF-8 sequence, capped at
+4 MiB. Restore feeds those bytes into a parser with handlers muted, then
+reattaches the receiving emulator's handlers. This reconstructs partial parser
+state without repeating control-byte effects, callbacks or replies. An
+unfinished sequence beyond the cap refuses handoff until it completes.
+Completed output is never retained or replayed. Each Write already flushes
+completed graphemes before returning.
+
+The backend encoding has its own version. `internal/vt` adds the public handoff
+version header and owns compatibility across changes to either encoding.
+Only the parser's color types and standard-library color structs are registered
+with gob. An unsupported custom color implementation fails encoding.
+
+`go -C third_party/x-vt test ./...` covers state equivalence, continued parsing,
+palette and default overrides, saved cursors, tab stops, partial sequences,
+sequence limits, undrained history and invalid snapshots. Root-module handoff
+tests exercise the integrated emulator with recorded PTY output.

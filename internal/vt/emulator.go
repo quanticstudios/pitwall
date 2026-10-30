@@ -137,6 +137,9 @@ func (t *emulator) SetDirtyFunc(f func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.st.wake = f
+	if t.st.syncing {
+		t.st.armSync()
+	}
 }
 
 // SetNotifyFunc sets f to be called for each OSC 9, 99 or 777 notification
@@ -193,9 +196,9 @@ func (st *state) armSync() {
 	switch {
 	case st.wake == nil:
 	case st.syncTimer == nil:
-		st.syncTimer = time.AfterFunc(syncTimeout, st.wake)
+		st.syncTimer = time.AfterFunc(max(0, syncTimeout-time.Since(st.syncStart)), st.wake)
 	default:
-		st.syncTimer.Reset(syncTimeout)
+		st.syncTimer.Reset(max(0, syncTimeout-time.Since(st.syncStart)))
 	}
 }
 
