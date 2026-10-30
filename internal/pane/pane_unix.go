@@ -15,8 +15,9 @@ import (
 )
 
 type sys struct {
-	tty *os.File // the PTY master
-	cmd *exec.Cmd
+	tty    *os.File // the PTY master
+	pid    int
+	waiter exitWaiter
 }
 
 // spawnAttempts bounds retries of a start the kernel refused with EPERM.
@@ -41,7 +42,7 @@ func spawn(c Config, argv, env []string) (sys, error) {
 				cmd.Wait()
 				return sys{}, fmt.Errorf("start %s: %w", argv[0], err)
 			}
-			return sys{ptmx, cmd}, nil
+			return sys{tty: ptmx, pid: cmd.Process.Pid, waiter: commandExit{cmd}}, nil
 		}
 		if attempt < spawnAttempts && errors.Is(err, syscall.EPERM) {
 			time.Sleep(time.Duration(attempt) * time.Millisecond)
@@ -68,8 +69,14 @@ func pollable(f *os.File) (*os.File, error) {
 }
 
 func (p *Pane) reap() int {
-	p.cmd.Wait()
-	return p.cmd.ProcessState.ExitCode()
+	code, err := p.waiter.Wait()
+	if err != nil {
+		// The kernel watcher failed. PTY EOF still proves that all slave
+		// holders have gone, but carries no numeric exit status.
+		<-p.readDone
+		return -1
+	}
+	return code
 }
 
 // drain bounds the read that follows the exit.
@@ -88,7 +95,7 @@ func (p *Pane) Cwd() string {
 			return cwd
 		}
 	}
-	return procCwd(p.cmd.Process.Pid)
+	return procCwd(p.pid)
 }
 
 // foreground is the PTY's foreground process group, or 0 if unknown.
@@ -116,11 +123,11 @@ func (p *Pane) control(f func(fd int) error) error {
 }
 
 // Close sends SIGHUP and kills the process group after 2s. It returns once the
-// process is reaped and the master closed; a process that left the group and
+// process has exited and the master closed; a process that left the group and
 // still holds the slave is left running.
 func (p *Pane) Close() error {
 	p.closeOnce.Do(func() {
-		pg := -p.cmd.Process.Pid // Setsid made the child a group leader
+		pg := -p.pid // Setsid made the child a group leader
 		select {
 		case <-p.exited:
 			return

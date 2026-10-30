@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Pane exit tracking can follow transferred processes on Linux and macOS, including processes started by the previous daemon. Older Linux kernels report an unknown exit code for these processes.
 - A group you made by grouping tabs shows their repo's icon in place of the folder when all its tabs are in one repo, its worktrees included. An icon you picked still wins, and the first tile in **Icon and color** brings back the repo's icon.
 - A group header counts its tabs that need you, are working, or finished a turn you have not seen, each with its row's state glyph. It showed only a count of tabs with something unseen.
 - Settings, Agents can send CI failures once per head commit and requested review changes once per review. Both are off by default, with one message held while an agent works. The existing `auto_send_failures` config key still works; ordinary tabs can now receive more than two failing commits, while fleet escalation keeps its limit.
