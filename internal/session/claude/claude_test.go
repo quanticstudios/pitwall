@@ -43,7 +43,8 @@ func TestMain(m *testing.M) {
 }
 
 // fakeClaude replays FAKE_CLAUDE (a stdout capture): each user line on
-// stdin gets the capture's next lines, up to and including a result. It
+// stdin gets the capture's next lines, up to and including a result or a
+// control_request, which waits for the next stdin line of any type. It
 // logs its arguments and stdin to FAKE_CLAUDE_LOG. FAKE_CLAUDE_MODE crash
 // exits 3 on the first user line; hang prints nothing and outlives stdin.
 func fakeClaude() {
@@ -77,6 +78,7 @@ func fakeClaude() {
 
 	mode := os.Getenv("FAKE_CLAUDE_MODE")
 	in := bufio.NewReader(os.Stdin)
+	asked := false // the last line printed was a control_request
 	for {
 		l, err := in.ReadBytes('\n')
 		if len(l) > 0 {
@@ -84,16 +86,18 @@ func fakeClaude() {
 			var msg struct{ Type string }
 			json.Unmarshal(l, &msg)
 			switch {
-			case msg.Type != "user" || mode == "hang":
+			case (msg.Type != "user" && !asked) || mode == "hang":
 			case mode == "crash":
 				fmt.Fprint(os.Stderr, "boom")
 				os.Exit(3)
 			default:
+				asked = false
 				for len(out) > 0 {
 					o := out[0]
 					out = out[1:]
 					os.Stdout.Write(o)
-					if json.Unmarshal(o, &msg) == nil && msg.Type == "result" {
+					if json.Unmarshal(o, &msg) == nil && (msg.Type == "result" || msg.Type == "control_request") {
+						asked = msg.Type == "control_request"
 						break
 					}
 				}
@@ -256,8 +260,82 @@ func prompts(t *testing.T, name string) (out []session.Message, lines []map[stri
 	return out, lines
 }
 
-// TestFixtures replays every capture, one turn per prompt the spike sent,
-// and checks the events against testdata/<name>.events.jsonl.
+// replay drives r through testdata/<name>.stdin.jsonl, what the spike
+// wrote: a user line is a turn, sent once the one before ended; an answer
+// goes to the request it names once the driver opened it; interrupts and
+// settings go as they come.
+func (r *run) replay(name string) {
+	r.t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name+".stdin.jsonl"))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	msgs, _ := prompts(r.t, name)
+	ctx := context.Background()
+	turn := ""
+	end := func() {
+		if turn != "" {
+			r.waitFor("end of "+turn, func(e session.Event) bool {
+				return e.Type == session.EventTurnCompleted && e.TurnID == turn
+			})
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var l struct {
+			Type    string
+			Request struct {
+				Subtype, Model, Mode string
+				Settings             struct{ EffortLevel string }
+			}
+			Response struct {
+				RequestID string `json:"request_id"`
+				Response  struct {
+					Behavior, Message string
+					UpdatedInput      struct{ Answers map[string]string }
+				}
+			}
+		}
+		if err := json.Unmarshal([]byte(line), &l); err != nil {
+			r.t.Fatal(err)
+		}
+		switch req := l.Request; {
+		case l.Type == "user":
+			end()
+			if turn, err = r.d.Send(ctx, msgs[0]); err != nil {
+				r.t.Fatal(err)
+			}
+			msgs = msgs[1:]
+		case l.Type == "control_response" && l.Response.Response.Behavior == "":
+			// An answer to a hook_callback, which the driver refuses itself.
+		case l.Type == "control_response":
+			id, resp := l.Response.RequestID, l.Response.Response
+			e := r.waitFor("request "+id, func(e session.Event) bool {
+				return (e.Type == session.EventRequestOpened || e.Type == session.EventInputRequested) && e.RequestID == id
+			})
+			switch {
+			case e.Type == session.EventInputRequested:
+				answers := map[string][]string{}
+				for q, a := range resp.UpdatedInput.Answers {
+					answers[q] = []string{a}
+				}
+				err = r.d.Answer(ctx, id, answers)
+			default:
+				err = r.d.Approve(ctx, id, session.Decision{Allow: resp.Behavior == "allow", Reason: resp.Message})
+			}
+		case req.Subtype == "interrupt":
+			err = r.d.Interrupt(ctx)
+		case req.Subtype == "set_model", req.Subtype == "apply_flag_settings", req.Subtype == "set_permission_mode":
+			err = r.d.Set(ctx, session.Settings{Model: req.Model, Effort: req.Settings.EffortLevel, Mode: req.Mode})
+		}
+		if err != nil {
+			r.t.Fatalf("%s: %v", line, err)
+		}
+	}
+	end()
+}
+
+// TestFixtures replays every capture as the spike drove it and checks the
+// events against testdata/<name>.events.jsonl.
 func TestFixtures(t *testing.T) {
 	paths, _ := filepath.Glob("testdata/*.stdout.jsonl")
 	if len(paths) == 0 {
@@ -267,10 +345,7 @@ func TestFixtures(t *testing.T) {
 		name := strings.TrimSuffix(filepath.Base(p), ".stdout.jsonl")
 		t.Run(name, func(t *testing.T) {
 			r := start(t, name, "", session.Origin{})
-			msgs, _ := prompts(t, name)
-			for _, m := range msgs {
-				r.turn(m)
-			}
+			r.replay(name)
 			r.close(5 * time.Second)
 			events := r.emitted()
 			id := events[1].ResumeID // Start's own session.resume-id
@@ -367,7 +442,7 @@ func TestFork(t *testing.T) {
 }
 
 func TestArgs(t *testing.T) {
-	base := "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages "
+	base := "-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio "
 	for _, c := range []struct {
 		cfg  session.Config
 		from session.Origin
@@ -527,5 +602,156 @@ func TestPath(t *testing.T) {
 	msgs, _ := prompts(t, "basic")
 	if end := r.turn(msgs[0]); end.State != session.TurnCompleted {
 		t.Errorf("turn = %+v", end)
+	}
+}
+
+// controls are the control lines the driver wrote, by type.
+func (r *run) controls(typ string) []map[string]any {
+	_, lines := r.stdin()
+	var out []map[string]any
+	for _, l := range lines {
+		if l["type"] == typ {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func (r *run) opened(what session.EventType) session.Event {
+	r.t.Helper()
+	return r.waitFor(string(what), func(e session.Event) bool { return e.Type == what })
+}
+
+// TestApprove: allow sends the asked input back, allow for the session
+// adds the ask's rules for this session only, and a deny's reason is the
+// tool result the model reads.
+func TestApprove(t *testing.T) {
+	r := start(t, "permission-stdio", "", session.Origin{})
+	msgs, _ := prompts(t, "permission-stdio")
+	ctx := context.Background()
+	r.d.Send(ctx, msgs[0])
+	write := r.opened(session.EventRequestOpened)
+	if err := r.d.Approve(ctx, write.RequestID, session.Decision{Allow: true, ForSession: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.d.Approve(ctx, write.RequestID, session.Decision{Allow: true}); err == nil {
+		t.Error("a second answer to the same ask was written")
+	}
+	r.waitFor("end of turn 1", func(e session.Event) bool { return e.Type == session.EventTurnCompleted })
+	r.d.Send(ctx, msgs[1])
+	bash := r.opened(session.EventRequestOpened)
+	if err := r.d.Approve(ctx, bash.RequestID, session.Decision{Reason: "Not in this repo."}); err != nil {
+		t.Fatal(err)
+	}
+	result := r.waitFor("Bash result", func(e session.Event) bool { return e.Tool != nil && e.Tool.Status == "failed" })
+	r.close(5 * time.Second)
+
+	got := r.controls("control_response")
+	b, _ := json.Marshal(got)
+	want := `[{"response":{"request_id":"f6dae1ab-669a-4298-abf4-5873df1eb723","response":{"behavior":"allow","updatedInput":{"content":"hello\n","file_path":"/tmp/stream-json-scratch/notes.txt"}},"subtype":"success"},"type":"control_response"},` +
+		`{"response":{"request_id":"efc1a10c-5f16-42d1-a10a-e58b641367f4","response":{"behavior":"deny","message":"Not in this repo."},"subtype":"success"},"type":"control_response"}]`
+	if string(b) != want {
+		t.Errorf("answers = %s\nwant %s", b, want)
+	}
+	// The fake replays the spike's own deny message as the tool result.
+	if result.Tool.Output != "The pitwall user denied this command." {
+		t.Errorf("deny result = %q", result.Tool.Output)
+	}
+
+	// Allow for the session on the Bash ask, whose suggestions hold a rule.
+	r = start(t, "permission-stdio", "", session.Origin{})
+	r.d.Send(ctx, msgs[0])
+	r.d.Approve(ctx, r.opened(session.EventRequestOpened).RequestID, session.Decision{})
+	r.waitFor("end of turn 1", func(e session.Event) bool { return e.Type == session.EventTurnCompleted })
+	r.d.Send(ctx, msgs[1])
+	r.d.Approve(ctx, r.opened(session.EventRequestOpened).RequestID, session.Decision{Allow: true, ForSession: true})
+	r.close(5 * time.Second)
+	got = r.controls("control_response")
+	b, _ = json.Marshal(got[0]["response"])
+	if !strings.Contains(string(b), `"message":"The pitwall user denied this."`) {
+		t.Errorf("deny with no reason = %s", b)
+	}
+	b, _ = json.Marshal(got[1]["response"])
+	if !strings.Contains(string(b), `"updatedPermissions":[{"behavior":"allow","destination":"session","rules":[{"ruleContent":"touch made-by-bash.txt","toolName":"Bash"}],"type":"addRules"}]`) {
+		t.Errorf("allow for session = %s", b)
+	}
+}
+
+// TestAnswer: AskUserQuestion's answer is its input plus the labels keyed
+// by question text.
+func TestAnswer(t *testing.T) {
+	r := start(t, "ask-user-question", "", session.Origin{})
+	msgs, _ := prompts(t, "ask-user-question")
+	ctx := context.Background()
+	r.d.Send(ctx, msgs[0])
+	ask := r.opened(session.EventInputRequested)
+	q := ask.Questions[0]
+	if q.ID != "Which fruit do you prefer?" || len(q.Options) != 3 || q.Options[2].ID != "cherry" {
+		t.Errorf("question = %+v", q)
+	}
+	if err := r.d.Answer(ctx, ask.RequestID, map[string][]string{q.ID: {"apple", "cherry"}}); err != nil {
+		t.Fatal(err)
+	}
+	r.waitFor("end of turn", func(e session.Event) bool { return e.Type == session.EventTurnCompleted })
+	r.close(5 * time.Second)
+	b, _ := json.Marshal(r.controls("control_response")[0]["response"])
+	if !strings.Contains(string(b), `"behavior":"allow","updatedInput":{"answers":{"Which fruit do you prefer?":"apple, cherry"},"questions":[{"header":"Fruit"`) {
+		t.Errorf("answer = %s", b)
+	}
+}
+
+// TestInterrupt: an interrupt during an ask withdraws the ask, ends the
+// turn interrupted, and leaves the driver ready for the next turn. While
+// idle it writes nothing.
+func TestInterrupt(t *testing.T) {
+	r := start(t, "interrupt-pending-permission", "", session.Origin{})
+	msgs, _ := prompts(t, "interrupt-pending-permission")
+	ctx := context.Background()
+	if err := r.d.Interrupt(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r.d.Send(ctx, msgs[0])
+	ask := r.opened(session.EventRequestOpened)
+	if err := r.d.Interrupt(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r.waitFor("withdrawn ask", func(e session.Event) bool {
+		return e.Type == session.EventRequestResolved && e.RequestID == ask.RequestID
+	})
+	end := r.waitFor("end of turn", func(e session.Event) bool { return e.Type == session.EventTurnCompleted })
+	if end.State != session.TurnInterrupted {
+		t.Errorf("turn = %+v", end)
+	}
+	var pe *session.ProviderError
+	if err := r.d.Approve(ctx, ask.RequestID, session.Decision{Allow: true}); !errors.As(err, &pe) {
+		t.Errorf("answer to a withdrawn ask: %v", err)
+	}
+	if _, err := r.d.Send(ctx, session.Message{Text: "still there?"}); err != nil {
+		t.Errorf("send after the interrupt: %v", err)
+	}
+	r.close(5 * time.Second)
+	b, _ := json.Marshal(r.controls("control_request"))
+	if string(b) != `[{"request":{"subtype":"interrupt"},"request_id":"req_1","type":"control_request"}]` {
+		t.Errorf("control requests = %s", b)
+	}
+}
+
+// TestSet: each setting is its own control request, as the spike sent
+// them.
+func TestSet(t *testing.T) {
+	r := start(t, "model-effort", "", session.Origin{})
+	if err := r.d.Set(context.Background(), session.Settings{Model: "claude-opus-5-5", Effort: "medium", Mode: "plan"}); err != nil {
+		t.Fatal(err)
+	}
+	r.close(5 * time.Second)
+	b, _ := json.Marshal(r.controls("control_request"))
+	want := `[{"request":{"model":"claude-opus-5-5","subtype":"set_model"},"request_id":"req_1","type":"control_request"},` +
+		`{"request":{"settings":{"effortLevel":"medium"},"subtype":"apply_flag_settings"},"request_id":"req_2","type":"control_request"},` +
+		`{"request":{"mode":"plan","subtype":"set_permission_mode"},"request_id":"req_3","type":"control_request"}]`
+	if string(b) != want {
+		t.Errorf("control requests = %s\nwant %s", b, want)
+	}
+	if err := r.d.Set(context.Background(), session.Settings{Mode: "default"}); !errors.Is(err, session.ErrClosed) {
+		t.Errorf("set after close: %v", err)
 	}
 }

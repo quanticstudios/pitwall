@@ -26,13 +26,22 @@ type stream struct {
 	contextModel  string
 	contextTokens *int64
 
+	pending map[string]ask // can_use_tool request id: what Claude asks, until answered or withdrawn
+
 	logged map[string]bool // types and subtypes skipped, logged once per process
 	reply  any             // a control_response line line wants written
 }
 
+// ask is an open can_use_tool request, what its answer needs.
+type ask struct {
+	tool        string
+	input       json.RawMessage
+	suggestions []json.RawMessage // permission_suggestions
+}
+
 func newStream(resume string) *stream {
 	return &stream{resume: resume, logged: map[string]bool{}, streamed: map[string]int{},
-		blocks: map[string]int{}, tools: map[string]session.ToolCall{}}
+		blocks: map[string]int{}, tools: map[string]session.ToolCall{}, pending: map[string]ask{}}
 }
 
 // line is one stdout line, the fields of every type the driver reads.
@@ -65,10 +74,13 @@ type line struct {
 
 	RateLimitInfo *rateLimitInfo `json:"rate_limit_info"`
 
-	// control_request
+	// control_request, control_cancel_request
 	RequestID string `json:"request_id"`
 	Request   struct {
-		Subtype string `json:"subtype"`
+		Subtype     string            `json:"subtype"`
+		ToolName    string            `json:"tool_name"`
+		Input       json.RawMessage   `json:"input"`
+		Suggestions []json.RawMessage `json:"permission_suggestions"`
 	} `json:"request"`
 }
 
@@ -147,13 +159,19 @@ func (s *stream) line(b []byte) []session.Event {
 	case "rate_limit_event":
 		return s.limit(l)
 	case "control_request":
-		// shortcut: every control request is refused until ENG-2686 answers
-		// can_use_tool (which no CLI sends without --permission-prompt-tool).
+		if l.Request.Subtype == "can_use_tool" {
+			return s.canUseTool(l)
+		}
 		s.reply = map[string]any{"type": "control_response", "response": map[string]any{
 			"subtype": "error", "request_id": l.RequestID, "error": "pitwall does not handle " + l.Request.Subtype}}
 		return nil
-	case "control_response", "control_cancel_request":
-		return nil // answers to requests pitwall does not send yet; withdrawn asks are ENG-2686's
+	case "control_cancel_request":
+		return s.withdraw(l.RequestID)
+	case "control_response":
+		// shortcut: the driver's own requests are not matched to their
+		// answers, so a refused set_model goes unreported; match them by
+		// request_id if a caller needs ProviderError.
+		return nil
 	}
 	s.skip(l.Type)
 	return nil
@@ -193,8 +211,8 @@ func (s *stream) system(l line) []session.Event {
 		return []session.Event{{Type: session.EventContent, ItemID: id, Kind: session.KindSystem, Text: text}}
 	case "status", "task_started", "task_progress", "task_notification", "thinking_tokens",
 		"hook_started", "hook_progress", "hook_response":
-		// shortcut: status's permissionMode becomes a session.patch once
-		// ENG-2686 brings plan mode.
+		// status's permissionMode echoes a set_permission_mode, which the
+		// chat loop patched when it called Set.
 		return nil
 	}
 	s.skip("system/" + l.Subtype)
@@ -400,4 +418,80 @@ func (s *stream) limit(l line) []session.Event {
 		lim.Windows = append(lim.Windows, lw)
 	}
 	return []session.Event{{Type: session.EventLimit, Limit: lim}}
+}
+
+// canUseTool is Claude asking before a tool runs: AskUserQuestion asks
+// the user questions, ExitPlanMode asks to leave plan mode with a plan,
+// any other tool asks for permission.
+func (s *stream) canUseTool(l line) []session.Event {
+	r := l.Request
+	s.pending[l.RequestID] = ask{tool: r.ToolName, input: r.Input, suggestions: r.Suggestions}
+	var in struct {
+		Plan      string `json:"plan"`
+		Command   string `json:"command"`
+		Cwd       string `json:"cwd"`
+		FilePath  string `json:"file_path"`
+		Questions []struct {
+			Question, Header string
+			Options          []struct{ Label, Description string }
+		} `json:"questions"`
+	}
+	json.Unmarshal(r.Input, &in)
+	switch r.ToolName {
+	case "AskUserQuestion":
+		e := session.Event{Type: session.EventInputRequested, RequestID: l.RequestID, Questions: []session.Question{}}
+		for _, q := range in.Questions {
+			// The question text is its id: Claude takes answers keyed by it.
+			sq := session.Question{ID: q.Question, Prompt: q.Question, Header: q.Header, Options: []session.PromptOption{}}
+			for _, o := range q.Options {
+				sq.Options = append(sq.Options, session.PromptOption{ID: o.Label, Label: o.Label, Description: o.Description})
+			}
+			e.Questions = append(e.Questions, sq)
+		}
+		if len(e.Questions) > 0 {
+			e.Detail = e.Questions[0].Prompt
+		}
+		return []session.Event{e}
+	case "ExitPlanMode":
+		return []session.Event{{Type: session.EventRequestOpened, RequestID: l.RequestID, RequestType: session.RequestPlan,
+			Detail: in.Plan, Request: &session.ToolRequest{ToolName: r.ToolName, Input: r.Input}}}
+	}
+	detail := in.Command
+	if detail == "" {
+		detail = string(r.Input)
+	}
+	if r := []rune(detail); len(r) > 240 {
+		detail = string(r[:240])
+	}
+	return []session.Event{{Type: session.EventRequestOpened, RequestID: l.RequestID, RequestType: requestType(r.ToolName),
+		Detail:  r.ToolName + ": " + detail,
+		Request: &session.ToolRequest{ToolName: r.ToolName, Input: r.Input, Command: in.Command, Cwd: in.Cwd, FilePath: in.FilePath}}}
+}
+
+// requestType is aide's classifyToolRequestType.
+func requestType(tool string) session.RequestType {
+	t := strings.ToLower(tool)
+	switch {
+	case strings.Contains(t, "read"):
+		return session.RequestFileRead
+	case strings.Contains(t, "edit"), strings.Contains(t, "write"), strings.Contains(t, "patch"), strings.Contains(t, "replace"):
+		return session.RequestFileChange
+	case strings.Contains(t, "bash"), strings.Contains(t, "command"), strings.Contains(t, "shell"):
+		return session.RequestCommand
+	}
+	return session.RequestDynamicTool
+}
+
+// withdraw closes request id, which Claude no longer waits on: it was
+// interrupted, or answered elsewhere.
+func (s *stream) withdraw(id string) []session.Event {
+	a, ok := s.pending[id]
+	if !ok {
+		return nil
+	}
+	delete(s.pending, id)
+	if a.tool == "AskUserQuestion" {
+		return []session.Event{{Type: session.EventInputResolved, RequestID: id}}
+	}
+	return []session.Event{{Type: session.EventRequestResolved, RequestID: id}}
 }

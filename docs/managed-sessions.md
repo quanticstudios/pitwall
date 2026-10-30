@@ -178,7 +178,7 @@ A chat has a lifetime; its provider process has a shorter one.
 | Turn (`ChatSend`) | Idle: adds a `user-prompt` item, takes the turn checkpoint ([attach](#attach)), calls `Driver.Send`. A turn running: queues the message (or steers, when asked and the driver can). When a turn ends and the queue is not held, the next queued message starts the next turn. |
 | Steer (`ChatSend{How: "steer"}`) | `Driver.Steer`. On `ErrUnsupported` the message is queued instead and the result says so. |
 | Interrupt (`ChatInterrupt`) | `Driver.Interrupt`. The turn ends `interrupted`. Pending approvals and inputs of that turn resolve. The queue is held until the next `ChatSend`, so stopping a turn does not start the next one. |
-| Answer (`ChatApprove`, `ChatAnswer`) | First answer wins ([approvals](#approvals)). |
+| Answer (`ChatApprove`, `ChatAnswer`) | First answer wins ([approvals](#approvals)). Allowing a `plan-approval` (Implement) while `permissionMode` is `plan` then sets it to `default`, as `ChatSet` would. |
 | Settings (`ChatSet`) | `Driver.Set`, then a `session.patch` delta with the new `model`, `effort` or `permissionMode`. |
 | No process | After a daemon restart, after a crash, or after `Close`. The chat stays `ready`; the next command that needs the provider starts it with `Origin{Resume: cfg.Resume}` ([resume](#resume)). |
 | Archive (`ChatArchive`) | Closes the driver, compacts the log, moves `chats/<id>/` to `chats/archive/<id>/`, removes the tab as `CloseTab` would (a worktree stays; deleting it stays `DeleteWorkspace`'s job). Refused for a pinned tab, like `CloseTab`. Closing a chat tab or killing its session archives the chat. |
@@ -639,8 +639,12 @@ claude -p --input-format stream-json --output-format stream-json --verbose
 | `Close` | close stdin; kill after the deadline |
 | an unknown CLI `control_request` | `control_response` `{"subtype":"error","request_id":...,"error":"pitwall does not handle <subtype>"}` |
 
-`Steer` returns `ErrUnsupported` until ENG-2686 shows a user line written
-mid-turn joins that turn (the spike left it untested).
+`Steer` returns `ErrUnsupported`, so the loop queues the message for the
+next turn: no capture shows a user line written mid-turn joining that turn.
+`Interrupt` while idle writes nothing. `Approve` and `Answer` refuse a
+request id Claude no longer waits on with `ProviderError`. Responses to the
+driver's own control requests are not matched yet, so a refused `set_model`
+goes unreported.
 
 ### Stdout
 
@@ -652,7 +656,7 @@ mid-turn joins that turn (the spike left it untested).
 | `assistant` `tool_use` block | `content.delta` tool-call, item id the `tool_use` id, `Tool{status: running}`; `TodoWrite` fills `Tool.Tasks` |
 | `user` `tool_result` | that tool's `content.delta`: status completed, or failed when `is_error`, output the result text |
 | `result` | `turn.completed`: `success` completed; `error_during_execution` with `terminal_reason` `aborted_streaming` or `aborted_tools` (stopped during a tool, as in `interrupt-tool`) interrupted; any other error failed with `result` as the message. `Point` is the `uuid` of the turn's last `assistant` line. Then `session.usage.updated` from `usage` and `modelUsage`. |
-| `control_request` `can_use_tool` | `request.opened`, request id the `request_id`; `ExitPlanMode` as `plan-approval` with the plan as detail; `AskUserQuestion` as `user-input.requested`, question ids the question texts |
+| `control_request` `can_use_tool` | `request.opened`, request id the `request_id`, type from the tool name as aide's `classifyToolRequestType`, detail `<tool>: <command or input>`; `ExitPlanMode` as `plan-approval` with the plan as detail; `AskUserQuestion` as `user-input.requested`, question ids the question texts, option ids the labels |
 | `control_cancel_request` | `request.resolved` or `user-input.resolved` for that id; the loop adds "Claude withdrew this request" |
 | `rate_limit_event` | `limit` from `rate_limit_info`: `Rejected` when `status` is `rejected`, windows from `unifiedWindows` |
 | `system/status` with `permissionMode` | the loop's `session.patch` for `permissionMode` |
@@ -671,7 +675,9 @@ mid-turn joins that turn (the spike left it untested).
   `sdk.d.ts`, and the screen-based limit reading stays the PTY fallback.
 - `updatedPermissions` (allow for session), steering mid-turn, `--resume`
   of a session another process holds open, macOS and Windows are untested.
-  ENG-2686 captures them or leaves the call `ErrUnsupported`.
+  ENG-2686 wrote allow for session from `sdk.d.ts`'s `PermissionUpdate`
+  (an ask with no `addRules` suggestion is allowed once) and left `Steer`
+  `ErrUnsupported`; both want a capture.
 - Decoding is lenient: switch on `type` and `subtype`, ignore unknown
   fields and types, answer unknown control requests with an error.
 - Optional behavior is gated on `capabilities`, not version numbers.
@@ -1130,9 +1136,9 @@ pitwall stays simple. A chat is one agent in one tab, driven by the user.
 These need a capture or a decision that belongs to a later ticket.
 
 1. Claude steering mid-turn: untested; `Steer` is `ErrUnsupported` and the
-   message queues until ENG-2686 captures it.
-2. Claude "allow for session" through `updatedPermissions`: untested
-   (ENG-2686).
+   message queues until a capture shows it joins the turn.
+2. Claude "allow for session" through `updatedPermissions`: written from
+   `sdk.d.ts`, never captured.
 3. A Claude `rate_limit_event` with `status: rejected` and the `result`
    that goes with it: never captured. ENG-2688 adds the fixture when one
    happens, and the screen-based reading stays the fallback for panes.

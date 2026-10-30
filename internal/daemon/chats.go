@@ -336,7 +336,17 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 	case session.EventExited:
 		c.drv = nil // the next command starts it again with Origin{Resume}
 	}
+	// A request the provider resolves while still pending was withdrawn: an
+	// answer takes it out of the snapshot first.
+	withdrawn := (e.Type == session.EventRequestResolved &&
+		slices.ContainsFunc(c.snap.PendingApprovals, func(a session.Approval) bool { return a.ID == e.RequestID })) ||
+		(e.Type == session.EventInputResolved &&
+			slices.ContainsFunc(c.snap.PendingUserInputs, func(in session.InputRequest) bool { return in.ID == e.RequestID }))
 	c.commit(session.Reduce(c.snap, e), e.CreatedAt)
+	if withdrawn {
+		p := string(c.cfg.Provider)
+		c.system(strings.ToUpper(p[:1]) + p[1:] + " withdrew this request")
+	}
 	d.chatNext(context.Background(), c)
 }
 
@@ -514,8 +524,21 @@ func (d *Daemon) chatApprove(ctx context.Context, c *chat, m proto.ChatApprove) 
 	if err != nil {
 		return err
 	}
+	plan := slices.ContainsFunc(c.snap.PendingApprovals, func(a session.Approval) bool {
+		return a.ID == id && a.RequestType == session.RequestPlan
+	})
 	c.reduce(session.Event{Type: session.EventRequestResolved, RequestID: id})
-	return c.deliver(func() error { return c.drv.Approve(ctx, id, dec) })
+	if err := c.deliver(func() error { return c.drv.Approve(ctx, id, dec) }); err != nil {
+		return err
+	}
+	// Implement: the plan is approved, so the chat leaves plan mode. The
+	// answer stands either way.
+	if plan && dec.Allow && c.snap.PermissionMode == "plan" {
+		if err := c.set(ctx, proto.ChatSet{Chat: c.id, Mode: "default"}); err != nil {
+			c.system("The chat stays in plan mode: " + err.Error())
+		}
+	}
+	return nil
 }
 
 func (d *Daemon) chatAnswer(ctx context.Context, c *chat, m proto.ChatAnswer) error {
