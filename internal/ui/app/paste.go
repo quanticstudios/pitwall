@@ -15,9 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"gioui.org/app"
 	gl "gioui.org/layout"
+	"gioui.org/op"
 
 	"github.com/quanticstudios/pitwall/internal/input"
+	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -28,7 +32,7 @@ type Paster interface {
 	TakePasted(pane string) (proto.PasteImageResult, bool)
 }
 
-// hostPastes are a --host window's image pastes. The clipboard is read
+// hostPastes are the window's image pastes. The clipboard is read
 // off the UI goroutine, and each read waits in done for its pane's next
 // frame.
 type hostPastes struct {
@@ -52,14 +56,22 @@ var readClipImage = func(ctx context.Context) ([]byte, error) {
 	return clipImage(ctx, runtime.GOOS, os.Getenv)
 }
 
-// panePaste pastes an image into pane id's agent on Host, when its view
+// panePaste pastes an image into pane id's agent, when its view
 // asks: it reads the image on this machine's clipboard, sends it to the
 // daemon, which saves it on the host, and pastes the path it answers with
 // as text, which Claude Code and Codex attach. A failure shows a notice
 // under the pane at r and sends nothing.
 func (u *ui) panePaste(gtx gl.Context, p *paneUI, id string, r image.Rectangle, m vt.Modes) {
-	if p.view.ImageWanted() {
-		u.readImage(gtx, id, r)
+	if !p.pasteWait && !u.pasteBusy(id) {
+		if p.view.ImageWanted() {
+			u.readImage(gtx, id, r)
+		} else if len(p.dropFiles) > 0 {
+			path := p.dropFiles[0]
+			p.dropFiles = p.dropFiles[1:]
+			u.startPaste(gtx, id, r, func(context.Context) ([]byte, error) {
+				return readDroppedImage(path)
+			})
+		}
 	}
 	s := &u.pastes
 	s.mu.Lock()
@@ -71,17 +83,20 @@ func (u *ui) panePaste(gtx gl.Context, p *paneUI, id string, r image.Rectangle, 
 	case rd.err != nil:
 		u.showError(gtx, "Can't paste the image: "+rd.err.Error(), r)
 	case !u.send(proto.PasteImage{Pane: id, Data: rd.data}):
-		u.showError(gtx, "Can't paste the image: the connection to "+Host+" is down", r)
+		u.showError(gtx, "Can't paste the image: the connection to the background service is down", r)
 	default:
 		p.pasteWait = true
 	}
 	if pr, ok := u.b.(Paster); ok && p.pasteWait {
 		if res, ok := pr.TakePasted(id); ok {
 			p.pasteWait = false
+			if len(p.dropFiles) > 0 {
+				gtx.Execute(op.InvalidateCmd{})
+			}
 			if res.Err != "" {
 				u.showError(gtx, "Can't paste the image: "+res.Err, r)
 			} else {
-				u.send(proto.Input{Pane: id, Data: input.Paste(res.Path, m)})
+				u.send(proto.Input{Pane: id, Data: input.PastePaths([]string{res.Path}, m)})
 			}
 		}
 	}
@@ -90,8 +105,23 @@ func (u *ui) panePaste(gtx gl.Context, p *paneUI, id string, r image.Rectangle, 
 // readImage starts reading the clipboard's image for pane id, unless a
 // read for it runs or the daemon is too old to take the image.
 func (u *ui) readImage(gtx gl.Context, id string, r image.Rectangle) {
+	u.startPaste(gtx, id, r, readClipImage)
+}
+
+func (u *ui) pasteBusy(id string) bool {
+	u.pastes.mu.Lock()
+	defer u.pastes.mu.Unlock()
+	_, ready := u.pastes.done[id]
+	return u.pastes.busy[id] || ready
+}
+
+func (u *ui) startPaste(gtx gl.Context, id string, r image.Rectangle, read func(context.Context) ([]byte, error)) {
 	if u.link().Level < proto.Since(proto.PasteImage{}) {
-		u.showError(gtx, "Can't paste the image: pitwall on "+Host+" is too old; update it there", r)
+		message := "Can't paste the image: pitwall's background service is too old; restart pitwall"
+		if Host != "" {
+			message = "Can't paste the image: pitwall on " + Host + " is too old; update it there"
+		}
+		u.showError(gtx, message, r)
 		return
 	}
 	s := &u.pastes
@@ -111,7 +141,7 @@ func (u *ui) readImage(gtx gl.Context, id string, r image.Rectangle) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), pasteTimeout)
 		defer cancel()
-		b, err := readClipImage(ctx)
+		b, err := read(ctx)
 		s.mu.Lock()
 		delete(s.busy, id)
 		s.done[id] = pasteRead{b, err}
@@ -137,7 +167,9 @@ func clipImage(ctx context.Context, goos string, getenv func(string) string) ([]
 	case goos == "darwin":
 		return macImage(ctx)
 	case goos == "windows":
-		return nil, errors.New("Windows has no remote windows")
+		// Use a memory stream: clipboard image bytes never go to a local
+		// temporary file, even when the daemon is on another machine.
+		return clipRun(ctx, proto.MaxPasteImage, "powershell.exe", "-NoProfile", "-NonInteractive", "-STA", "-Command", `Add-Type -AssemblyName System.Windows.Forms; $image = [System.Windows.Forms.Clipboard]::GetImage(); if ($null -eq $image) { exit 1 }; $stream = New-Object System.IO.MemoryStream; try { $image.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png); $data = $stream.ToArray(); [Console]::OpenStandardOutput().Write($data, 0, $data.Length) } finally { $stream.Dispose(); $image.Dispose() }`)
 	case getenv("WAYLAND_DISPLAY") != "":
 		return pickImage(ctx, "wl-paste", "wl-clipboard", []string{"--list-types"},
 			func(t string) []string { return []string{"--no-newline", "--type", t} })
@@ -189,6 +221,7 @@ func macImage(ctx context.Context) ([]byte, error) {
 // clipRun runs name and returns its output, or errTooBig past limit bytes.
 func clipRun(ctx context.Context, limit int, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	nowindow.Set(cmd)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -204,6 +237,61 @@ func clipRun(ctx context.Context, limit int, name string, args ...string) ([]byt
 	}
 	if werr := cmd.Wait(); err == nil {
 		err = werr
+	}
+	return b, err
+}
+
+// dropFiles targets the pane under the drop, even if another pane has
+// keyboard focus. Remote agents need the local image uploaded first.
+func (u *ui) dropFiles(e app.FileDropEvent) {
+	if u.modal.kind != modalNone || u.sw.open || u.pal.open || u.welcome.on || u.offline {
+		return
+	}
+	st := u.b.State()
+	for id, p := range u.panes {
+		if !e.Position.In(p.rect) || findPane(&st, id) == nil {
+			continue
+		}
+		pn := findPane(&st, id)
+		if Host != "" && model.IsAgent(pn.Provider) {
+			p.dropFiles = append(p.dropFiles, e.Paths...)
+		} else {
+			_, m, _ := u.b.Frame(id)
+			if data := input.PastePaths(e.Paths, m); len(data) > 0 {
+				u.send(proto.Input{Pane: id, Data: data})
+			}
+		}
+		return
+	}
+}
+
+func readDroppedImage(path string) ([]byte, error) {
+	// Check before opening, so a directory, device or FIFO is never read.
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, errors.New("the dropped image is not a regular file")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err = f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, errors.New("the dropped image is not a regular file")
+	}
+	if fi.Size() > proto.MaxPasteImage {
+		return nil, errTooBig
+	}
+	b, err := io.ReadAll(io.LimitReader(f, proto.MaxPasteImage+1))
+	if len(b) > proto.MaxPasteImage {
+		return nil, errTooBig
 	}
 	return b, err
 }

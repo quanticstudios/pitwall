@@ -676,6 +676,15 @@ func gio_onText(h C.uintptr_t, cstr C.CFTypeRef) {
 	w.w.EditorInsert(str)
 }
 
+//export gio_onFileDrop
+func gio_onFileDrop(h C.uintptr_t, data *C.char, x, y C.CGFloat) {
+	w := windowFor(h)
+	w.w.ProcessEvent(FileDropEvent{
+		Position: image.Pt(int(float32(x)*w.scale), int(float32(y)*w.scale)),
+		Paths:    fileURIs(C.GoString(data)),
+	})
+}
+
 //export gio_onMouse
 func gio_onMouse(h C.uintptr_t, evt C.CFTypeRef, cdir C.int, cbtn C.NSInteger, x, y, dx, dy C.CGFloat, ti C.double, mods C.NSUInteger) {
 	w := windowFor(h)

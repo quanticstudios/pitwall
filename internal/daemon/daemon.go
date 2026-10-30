@@ -639,7 +639,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			continue
 		}
 		if p, ok := m.(proto.PasteImage); ok {
-			c.queue(pasteImage(p)) // a reply to this client alone
+			c.queue(d.pasteImage(p)) // a reply to this client alone
 			continue
 		}
 		if r, ok := m.(proto.Read); ok {

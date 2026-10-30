@@ -21,6 +21,7 @@ build. Either step takes `--dry-run`.
 - Terminal state can be saved and restored for a future daemon handoff, including scrollback and partially read escape sequences.
 
 - A Codex tab stopped at its folder trust dialog shows as needing you. It showed as idle.
+- Drop image files onto an agent pane to paste their quoted paths. Clipboard images now use the same private save-and-paste path locally and over `--host`, with images kept under the state directory until their tab closes. A shell receives dropped paths and ignores clipboard images.
 
 ## v0.1.6
 

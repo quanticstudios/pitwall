@@ -33,6 +33,15 @@ import (
 	"gioui.org/io/system"
 )
 
+// pitwall: shell file drops do not need an OLE object or extra dependency.
+var (
+	dropShell       = syscall.NewLazySystemDLL("shell32.dll")
+	dragAcceptFiles = dropShell.NewProc("DragAcceptFiles")
+	dragQueryFile   = dropShell.NewProc("DragQueryFileW")
+	dragQueryPoint  = dropShell.NewProc("DragQueryPoint")
+	dragFinish      = dropShell.NewProc("DragFinish")
+)
+
 type Win32ViewEvent struct {
 	HWND uintptr
 }
@@ -213,6 +222,7 @@ func (w *window) init() error {
 		return err
 	}
 	w.hwnd = hwnd
+	dragAcceptFiles.Call(uintptr(hwnd), 1) // pitwall: receive WM_DROPFILES
 	return nil
 }
 
@@ -260,6 +270,24 @@ func windowProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintptr
 	w := win.(*window)
 
 	switch msg {
+	case 0x0233: // pitwall: WM_DROPFILES
+		defer dragFinish.Call(wParam)
+		var point windows.Point
+		client, _, _ := dragQueryPoint.Call(wParam, uintptr(unsafe.Pointer(&point)))
+		if client == 0 {
+			return 0
+		}
+		count, _, _ := dragQueryFile.Call(wParam, 0xffffffff, 0, 0)
+		var paths []string
+		for i := uintptr(0); i < count; i++ {
+			n, _, _ := dragQueryFile.Call(wParam, i, 0, 0)
+			buf := make([]uint16, n+1)
+			if copied, _, _ := dragQueryFile.Call(wParam, i, uintptr(unsafe.Pointer(&buf[0])), n+1); copied > 0 {
+				paths = append(paths, syscall.UTF16ToString(buf))
+			}
+		}
+		w.ProcessEvent(FileDropEvent{Position: image.Pt(int(point.X), int(point.Y)), Paths: paths})
+		return 0
 	case windows.WM_UNICHAR:
 		if wParam == windows.UNICODE_NOCHAR {
 			// Tell the system that we accept WM_UNICHAR messages.

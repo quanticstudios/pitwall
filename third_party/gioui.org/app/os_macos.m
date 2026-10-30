@@ -79,6 +79,20 @@ static void handleMouse(GioView *view, NSEvent *event, int typ, CGFloat dx, CGFl
 }
 
 @implementation GioView
+// pitwall: native Finder drops arrive as file URLs, not clipboard text.
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+	return [[sender draggingPasteboard] canReadObjectForClasses:@[[NSURL class]] options:@{NSPasteboardURLReadingFileURLsOnlyKey:@YES}] ? NSDragOperationCopy : NSDragOperationNone;
+}
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+	NSArray<NSURL *> *urls = [[sender draggingPasteboard] readObjectsForClasses:@[[NSURL class]] options:@{NSPasteboardURLReadingFileURLsOnlyKey:@YES}];
+	if (urls.count == 0) { return NO; }
+	NSMutableArray<NSString *> *lines = [NSMutableArray array];
+	for (NSURL *url in urls) { [lines addObject:url.absoluteString]; }
+	NSPoint p = [self convertPoint:[sender draggingLocation] fromView:nil];
+	NSString *list = [lines componentsJoinedByString:@"\r\n"];
+	gio_onFileDrop(self.handle, (char *)list.UTF8String, p.x, self.bounds.size.height - p.y);
+	return YES;
+}
 - (void)setFrameSize:(NSSize)newSize {
 	[super setFrameSize:newSize];
 	[self setNeedsDisplay:YES];
@@ -401,6 +415,7 @@ CFTypeRef gio_createView(int presentWithTrans) {
 		NSRect frame = NSMakeRect(0, 0, 0, 0);
 		GioView* view = [[GioView alloc] initWithFrame:frame];
 		view.presentWithTrans = presentWithTrans ? YES : NO;
+		[view registerForDraggedTypes:@[NSPasteboardTypeFileURL]]; // pitwall
 		view.wantsLayer = YES;
 		view.layerContentsRedrawPolicy = NSViewLayerContentsRedrawDuringViewResize;
 

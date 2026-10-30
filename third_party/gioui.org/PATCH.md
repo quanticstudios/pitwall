@@ -7,6 +7,14 @@ in `LICENSE`. Tests, testdata, `.builds` and the flake files are removed.
 
 ## Patch
 
+- `app/filedrop.go`, `app/window.go`, and the Wayland, X11, macOS and Windows
+  backends: pitwall's `FileDropEvent` delivers native file drops with their
+  content-area position. Wayland reads `text/uri-list` off-thread and finishes
+  the offer on the display thread. X11 implements Xdnd v5 with its own
+  selection, macOS accepts Finder file URLs, and Windows uses `WM_DROPFILES`.
+  Clipboard events stay separate. URI parsing and event delivery have tests,
+  run with `go test gioui.org/app` from the pitwall root.
+
 Each change is marked `pitwall` in a comment:
 
 - `app/os_wayland.go`, `window.present` (new): runs the swap with a frame
