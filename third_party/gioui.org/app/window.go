@@ -110,6 +110,7 @@ type Window struct {
 }
 
 type eventSummary struct {
+	fileDrops    []FileDropEvent // pitwall: native drops wait for the application
 	wakeup       bool
 	cfg          *ConfigEvent
 	view         *ViewEvent
@@ -593,6 +594,10 @@ func (w *Window) nextEvent() (event.Event, bool) {
 		e := *s.cfg
 		s.cfg = nil
 		return e, true
+	case len(s.fileDrops) > 0:
+		e := s.fileDrops[0]
+		s.fileDrops = s.fileDrops[1:]
+		return e, true
 	case s.frame != nil:
 		e := *s.frame
 		s.frame = nil
@@ -609,6 +614,10 @@ func (w *Window) nextEvent() (event.Event, bool) {
 
 func (w *Window) processEvent(e event.Event) bool {
 	switch e2 := e.(type) {
+	case FileDropEvent:
+		// pitwall: native positions include Gio decorations and insets.
+		e2.Position = e2.Position.Sub(w.lastFrame.off).Sub(w.viewport.Min)
+		w.coalesced.fileDrops = append(w.coalesced.fileDrops, e2)
 	case wakeupEvent:
 		w.coalesced.wakeup = true
 	case frameEvent:

@@ -1,0 +1,2 @@
+# Preserve captured PTY bytes, including CR and escape sequences, on every OS.
+*.raw binary

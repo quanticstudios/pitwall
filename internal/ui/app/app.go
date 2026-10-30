@@ -161,6 +161,9 @@ func Run(b Backend) error {
 			if !e.Config.Focused {
 				u.blur()
 			}
+		case app.FileDropEvent:
+			u.dropFiles(e)
+			w.Invalidate()
 		case app.FrameEvent:
 			start := time.Now()
 			gtx := app.NewContext(&ops, e)
@@ -210,6 +213,8 @@ type Scroller interface {
 }
 
 type paneUI struct {
+	rect       image.Rectangle // last visible pane bounds, in window pixels
+	dropFiles  []string
 	sentCols   int
 	sentRows   int
 	copyWant   *vt.Selection // the selection whose proto.Text reply is awaited
@@ -275,8 +280,9 @@ type ui struct {
 	winFocused    bool                 // the window has keyboard focus
 	seeSent       map[string]time.Time // pane: the UpdatedAt its last SeePane was for
 	focusSent     string               // the pane the last SeePane named, "" for none
-	clipSeq       uint64               // the last OSC 52 write put on the clipboard (State.Clipboard.Seq)
-	rings         map[string]ring      // pane: its attention ring, see attentionRing
+	contentOrigin image.Point
+	clipSeq       uint64          // the last OSC 52 write put on the clipboard (State.Clipboard.Seq)
+	rings         map[string]ring // pane: its attention ring, see attentionRing
 
 	settings   settings.Page // shown in place of the panes
 	settingsWS string        // the tab it was opened over; leaving it closes the page
@@ -487,6 +493,9 @@ func (u *ui) layout(gtx gl.Context) {
 		u.nav.folded = u.sidebar.KidsFolded
 	}
 	st := u.b.State()
+	for _, p := range u.panes {
+		p.rect = image.Rectangle{}
+	}
 	link := u.link()
 	u.syncLink(link)
 	u.offline = link.State != LinkUp
@@ -623,7 +632,8 @@ func (u *ui) layout(gtx gl.Context) {
 		visible.Max.X = side.Min.X
 	}
 	pc := clip.Rect(visible).Push(gtx.Ops)
-	off := op.Offset(area.Min.Add(image.Pt(edge-left, 0))).Push(gtx.Ops)
+	u.contentOrigin = area.Min.Add(image.Pt(edge-left, 0))
+	off := op.Offset(u.contentOrigin).Push(gtx.Ops)
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(area.Size())
 	// Another session fades in, so the change of context shows.
@@ -938,7 +948,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		p.view.Links = u.cfg.Links
 		pn := findPane(st, id)
 		p.view.PasteImages = pn != nil && (pn.Provider == model.ProviderClaude || pn.Provider == model.ProviderCodex)
-		p.view.HostPaste = Host != ""
+		p.view.HostPaste = true // save local and remote clipboard images through the daemon
 		var att *model.Activity
 		if a, ok := unseen[id]; ok {
 			att = &a
@@ -1007,6 +1017,7 @@ func roundedFor(gtx gl.Context, sole bool) int {
 
 func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, findFocus, sole bool, att *model.Activity) {
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
+	p.rect = rect.Add(u.contentOrigin)
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
 	gtx.Constraints = gl.Exact(rect.Size())
 

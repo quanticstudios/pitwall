@@ -101,6 +101,12 @@ type wlDisplay struct {
 	repeat        repeatState
 	poller        poller
 	readClipClose chan struct{}
+	// pitwall: file reads finish off-thread; only the display thread
+	// touches offers, and no reader wakes a display after destruction.
+	dropMu      sync.Mutex
+	dropClosed  bool
+	dropReads   []wlDropRead
+	dropReaders map[*os.File]unsafe.Pointer
 }
 
 type wlSeat struct {
@@ -137,8 +143,17 @@ type wlSeat struct {
 	// source represents the clipboard content of the most recent
 	// clipboard write, if any.
 	source *C.struct_wl_data_source
+	// pitwall: the current native file drag, separate from the clipboard.
+	dropOffer  *C.struct_wl_data_offer
+	dropWindow *window
+	dropPos    image.Point
 	// content is the data belonging to source.
 	content []byte
+}
+
+type wlDropRead struct {
+	event FileDropEvent
+	offer *C.struct_wl_data_offer
 }
 
 type repeatState struct {
@@ -481,7 +496,7 @@ func gio_onSeatCapabilities(data unsafe.Pointer, seat *C.struct_wl_seat, caps C.
 // content.
 func (s *wlSeat) flushOffers() {
 	for o := range s.offers {
-		if o == s.clipboard {
+		if o == s.clipboard || o == s.dropOffer {
 			continue
 		}
 		// We're only interested in clipboard offers.
@@ -762,19 +777,90 @@ func gio_onDataDeviceOffer(data unsafe.Pointer, dataDev *C.struct_wl_data_device
 func gio_onDataDeviceEnter(data unsafe.Pointer, dataDev *C.struct_wl_data_device, serial C.uint32_t, surf *C.struct_wl_surface, x, y C.wl_fixed_t, id *C.struct_wl_data_offer) {
 	s := callbackLoad(data).(*wlSeat)
 	s.serial = serial
+	// pitwall: offer local file URIs to the application on drop.
+	s.dropOffer = id
+	s.dropWindow = callbackLoad(unsafe.Pointer(surf)).(*window)
+	s.dropPos = image.Pt(int(fromFixed(x)*float32(s.dropWindow.scale)), int(fromFixed(y)*float32(s.dropWindow.scale)))
 	s.flushOffers()
+	if id == nil {
+		return
+	}
+	var mime *C.char
+	for _, t := range s.offers[id] {
+		if t == "text/uri-list" {
+			mime = C.CString(t)
+			defer C.free(unsafe.Pointer(mime))
+			break
+		}
+	}
+	C.wl_data_offer_accept(id, serial, mime)
+	C.wl_data_offer_set_actions(id, C.WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY, C.WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY)
 }
 
 //export gio_onDataDeviceLeave
 func gio_onDataDeviceLeave(data unsafe.Pointer, dataDev *C.struct_wl_data_device) {
+	// pitwall: after a drop, its reader owns the offer until it finishes.
+	s := callbackLoad(data).(*wlSeat)
+	s.dropOffer, s.dropWindow = nil, nil
+	s.flushOffers()
 }
 
 //export gio_onDataDeviceMotion
 func gio_onDataDeviceMotion(data unsafe.Pointer, dataDev *C.struct_wl_data_device, t C.uint32_t, x, y C.wl_fixed_t) {
+	s := callbackLoad(data).(*wlSeat)
+	if w := s.dropWindow; w != nil {
+		s.dropPos = image.Pt(int(fromFixed(x)*float32(w.scale)), int(fromFixed(y)*float32(w.scale)))
+	}
 }
 
 //export gio_onDataDeviceDrop
 func gio_onDataDeviceDrop(data unsafe.Pointer, dataDev *C.struct_wl_data_device) {
+	s := callbackLoad(data).(*wlSeat)
+	offer, win, pos := s.dropOffer, s.dropWindow, s.dropPos
+	if offer == nil || win == nil {
+		return
+	}
+	for _, t := range s.offers[offer] {
+		if t != "text/uri-list" {
+			continue
+		}
+		r, w, err := os.Pipe()
+		if err != nil {
+			return
+		}
+		mime := C.CString(t)
+		C.wl_data_offer_receive(offer, mime, C.int(w.Fd()))
+		C.free(unsafe.Pointer(mime))
+		w.Close()
+		// Keep the offer alive through leave and clipboard selection events.
+		delete(s.offers, offer)
+		s.dropOffer, s.dropWindow = nil, nil
+		disp := win.disp
+		disp.dropMu.Lock()
+		if disp.dropReaders == nil {
+			disp.dropReaders = make(map[*os.File]unsafe.Pointer)
+		}
+		disp.dropReaders[r] = unsafe.Pointer(offer)
+		disp.dropMu.Unlock()
+		go func() {
+			defer r.Close()
+			r.SetReadDeadline(time.Now().Add(10 * time.Second))
+			b, err := io.ReadAll(io.LimitReader(r, (1<<20)+1))
+			e := FileDropEvent{Position: pos}
+			if err == nil && len(b) <= 1<<20 {
+				e.Paths = fileURIs(string(b))
+			}
+			disp.dropMu.Lock()
+			defer disp.dropMu.Unlock()
+			delete(disp.dropReaders, r)
+			if disp.dropClosed {
+				return
+			}
+			disp.dropReads = append(disp.dropReads, wlDropRead{e, offer})
+			disp.wakeup()
+		}()
+		return
+	}
 }
 
 //export gio_onDataDeviceSelection
@@ -1429,6 +1515,19 @@ func (w *window) dispatch() {
 	if err := w.disp.dispatch(); err != nil || w.closing {
 		w.close(err)
 		return
+	}
+	w.disp.dropMu.Lock()
+	drops := w.disp.dropReads
+	w.disp.dropReads = nil
+	w.disp.dropMu.Unlock()
+	for _, rd := range drops {
+		// pitwall: finish the transfer only after consuming its data.
+		if len(rd.event.Paths) > 0 {
+			C.wl_data_offer_finish(rd.offer)
+			w.ProcessEvent(rd.event)
+		}
+		callbackDelete(unsafe.Pointer(rd.offer))
+		C.wl_data_offer_destroy(rd.offer)
 	}
 	select {
 	case e := <-w.clipReads:
@@ -2185,6 +2284,19 @@ func newWLDisplay() (*wlDisplay, error) {
 }
 
 func (d *wlDisplay) destroy() {
+	d.dropMu.Lock()
+	d.dropClosed = true
+	for reader, offer := range d.dropReaders {
+		reader.Close()
+		callbackDelete(offer)
+	}
+	d.dropReaders = nil
+	for _, rd := range d.dropReads {
+		callbackDelete(unsafe.Pointer(rd.offer))
+		C.wl_data_offer_destroy(rd.offer)
+	}
+	d.dropReads = nil
+	d.dropMu.Unlock()
 	if d.readClipClose != nil {
 		close(d.readClipClose)
 		d.readClipClose = nil

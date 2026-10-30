@@ -56,7 +56,7 @@ type View struct {
 	// key does, and a paste finding no text sends the agent Ctrl+V.
 	PasteImages bool
 	// HostPaste marks a PasteImages pane whose agent runs on another
-	// machine (pitwall --host): a paste finding no text asks the window,
+	// machine or needs a saved image path: a paste finding no text asks the window,
 	// through ImageWanted, instead of sending Ctrl+V.
 	HostPaste bool
 

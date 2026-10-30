@@ -116,7 +116,7 @@ Some things stay on the machine they belong to:
   letter tile.
 - Ctrl+V in a Claude Code or Codex pane pastes text or an image from the
   clipboard here. The host keeps a pasted image in a file only you can
-  read, under its state directory, for a day, and the agent gets that
+  read, under its state directory, until the tab closes, and the agent gets that
   file's path. With an older pitwall on the host, text still pastes, and
   an image paste says under the pane that the host's pitwall is too old.
 - Ctrl+click opens a web link here. A file link names a file on the host and

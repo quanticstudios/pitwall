@@ -628,20 +628,30 @@ Set `links = false` under `[terminal]` to turn this off.
 
 In a pane running Claude Code or Codex, Ctrl+V and the paste key
 (Ctrl+Shift+V, Cmd+V on macOS) both paste whatever is on the clipboard.
-Text goes in as a bracketed paste. When the clipboard holds an image, or
-nothing, pitwall sends the agent Ctrl+V and the agent reads the image
-itself, the way it does in any terminal. Each agent reads the clipboard
-through the pane's environment: Codex directly, Claude Code through
-`wl-paste` or `xclip` on Linux. A pane started from a desktop session has
-what they need. In a `pitwall --host` window the agent runs on a host with
-no clipboard, so the window reads the image itself, with `wl-paste` on
-Wayland, `xclip` on X11 or `osascript` on macOS, and sends it to the host.
-The host saves it in `paste` under its state directory, readable only by
-you, and the window pastes the file's path, which Claude Code and Codex
-attach as an image. An image may be up to 20 MiB, and the host deletes it
-after a day. In every other program, Ctrl+V reaches the program as a
-key, so Vim's block select and the shell's quoted insert work as before,
-and the paste key pastes text only.
+Text goes in as a bracketed paste. When the clipboard holds an image,
+pitwall reads it with `wl-paste` on Wayland, `xclip` on X11, `osascript`
+on macOS or PowerShell on Windows. On Linux, install `wl-clipboard` or
+`xclip` for your display server. The daemon saves the image in a private
+`paste/<tab-id>` folder under pitwall's state directory and the window
+pastes its quoted path. Claude Code and Codex attach the file as an image.
+Images may be up to 20 MiB and stay available until the tab closes, including
+when you close and reopen the window. Closing the tab removes its saved
+images. A plain shell ignores clipboard images. Ctrl+V in other programs
+still reaches the program as a key, so Vim's block select and the shell's
+quoted insert work as before.
+
+Drop image files from your file manager onto a pane to paste their quoted
+paths. The drop goes to the pane under the pointer, even when another pane
+has keyboard focus. Spaces and quotes in file names stay part of the path.
+A plain shell also receives dropped file paths. Dropped source files are
+left in place when the tab closes.
+
+In a `pitwall --host` window, clipboard images and files dropped onto an
+agent pane are sent to the host and saved under its state directory, then
+the agent receives the host's path. Files dropped onto a remote shell paste
+the local path; transfer those files yourself before using that path on the
+host. A missing clipboard tool, failed upload or old daemon shows an error
+under the pane and pastes nothing.
 
 Programs can set the clipboard with OSC 52, the way Neovim, tmux and Helix
 copy, also over ssh: `printf '\e]52;c;%s\a' "$(printf hi | base64)"` puts

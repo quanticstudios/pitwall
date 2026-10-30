@@ -46,6 +46,7 @@ jobs:
           GOOS=windows GOARCH=amd64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
           GOOS=windows GOARCH=arm64 go build -ldflags=-H=windowsgui -o /dev/null ./cmd/pitwall
       - run: go test -race -timeout 5m ./...
+      - run: go test -race gioui.org/app
       - name: Check the vendored terminal module
         run: |
           go -C third_party/x-vt vet ./...
@@ -116,6 +117,7 @@ jobs:
           cache: ${{ runner.os != 'Windows' }}
       - run: go build ./...
       - run: go vet ./...
+      - run: go test gioui.org/app
       - name: Test the platform-independent packages
         if: runner.os == 'macOS'
         run: go test ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input

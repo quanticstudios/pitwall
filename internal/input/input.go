@@ -4,6 +4,7 @@ package input
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
@@ -292,6 +293,24 @@ func Paste(s string, m vt.Modes) []byte {
 	return []byte(s)
 }
 
+// PastePaths quotes file paths before pasting them, so spaces and shell
+// metacharacters belong to the path. Each path stays a separate argument.
+func PastePaths(paths []string, m vt.Modes) []byte {
+	quoted := make([]string, 0, len(paths))
+	for _, path := range paths {
+		// Control characters cannot be represented literally in terminal
+		// input without risking another key or a paste boundary.
+		if strings.ContainsFunc(path, func(r rune) bool { return r < 32 || r == 127 }) {
+			continue
+		}
+		quoted = append(quoted, quotePath(path, runtime.GOOS == "windows"))
+	}
+	if len(quoted) == 0 {
+		return nil
+	}
+	return Paste(strings.Join(quoted, " "), m)
+}
+
 // Mouse encodes a pointer event at zero-based cell (col,row), or nil when the
 // program has not asked for that event. Scroll emits one report per active axis.
 // For Press and Release, e.Buttons names the button that changed. Gio reports
@@ -390,4 +409,11 @@ func mouseReport(code int, release bool, col, row int, mods key.Modifiers, m vt.
 		return nil
 	}
 	return []byte{'\x1b', '[', 'M', byte(code + 32), byte(col + 33), byte(row + 33)}
+}
+
+func quotePath(path string, windows bool) string {
+	if windows {
+		return "'" + strings.ReplaceAll(path, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
