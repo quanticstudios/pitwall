@@ -18,7 +18,7 @@ import (
 
 const queueUsage = `usage:
   pitwall queue ls [-s session]                   list the session's queued tasks, first to start first
-  pitwall queue add [-s session] [--issue n] [--preset name] [dir] -- cmd...
+  pitwall queue add [-s session] [--issue n] [--preset name] [--model model] [dir] -- cmd...
                                                   queue an agent with its prompt, run in dir, such as
                                                   pitwall queue add -- codex "fix the flaky test";
                                                   --issue adds GitHub issue n as the prompt;
@@ -38,12 +38,13 @@ func queueCommand(args []string, out io.Writer) error {
 	}
 	flags := flag.NewFlagSet("queue "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var sessionName, preset string
+	var sessionName, preset, modelName string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	if command == "add" {
 		flags.IntVar(&issue, "issue", 0, "")
 		flags.StringVar(&preset, "preset", "", "")
+		flags.StringVar(&modelName, "model", "", "")
 	}
 	args, err := parseFlags(flags, args)
 	if err != nil {
@@ -53,6 +54,9 @@ func queueCommand(args []string, out io.Writer) error {
 		if cmd, vars, err = launch(preset, false, cmd); err != nil {
 			return err
 		}
+	}
+	if cmd, err = withModel(cmd, modelName); err != nil {
+		return err
 	}
 	switch {
 	case command == "ls" && len(args) == 0:

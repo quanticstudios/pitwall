@@ -15,7 +15,7 @@ optional name act on the pane's own tab.
 | `pitwall session rename [old] <new>`  | Rename a session, the current one without old                 |
 | `pitwall session kill [-f] <name>`    | End a session and close its processes                         |
 | `pitwall ls [--json] [--children] [--tree]` | List the session's tabs in sidebar order: #, name, state, since when, folder, group; `--children` lists only the tabs this pane's tab opened; `--tree` puts each tab under the tab that opened it |
-| `pitwall new [-n name] [-d] [--issue n] [--preset name] [--guard] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell; `--issue n` adds GitHub issue n to cmd as its last argument, the prompt; `--preset` runs an [agent preset](usage.md#agent-presets) with cmd's args after its own; `--guard` turns on [the guard](usage.md#the-guard). Run in a pane, the tab hangs under that pane's tab |
+| `pitwall new [-n name] [-d] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd...]` | Open a tab and print its #; `-d` leaves it detached; with `-- cmd` the tab runs cmd instead of a shell; `--issue n` adds GitHub issue n to cmd as its last argument, the prompt; `--preset` runs an [agent preset](usage.md#agent-presets) with cmd's args after its own; `--model` selects a model for this task, overriding a preset; `default` clears the model flag; `--guard` turns on [the guard](usage.md#the-guard). Run in a pane, the tab hangs under that pane's tab |
 | `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up); `--children` in place of the tab waits for every tab this pane's tab opened, and `--done-line` with it wants each worker's last line to be `DONE` or `BLOCKED: <why>` |
 | `pitwall split [--down] [tab] [-- cmd...]` | Open a pane right of the tab's last pane, or below with `--down`, and print its address, as `#3.2` |
 | `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
@@ -36,7 +36,7 @@ optional name act on the pane's own tab.
 | `pitwall worktree rm <name> [--force]` | Remove a worktree and close its tab; with changes it lists them and stops unless `--force`. The branch stays |
 | `pitwall worktree prune`              | Forget worktrees whose folder is gone, and list the ones under `.worktrees` that no tab uses |
 | `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |
-| `pitwall queue ls` / `add [--issue n] [--preset name] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
+| `pitwall queue ls` / `add [--issue n] [--preset name] [--model model] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
 | `pitwall doctor`                      | Check that the `pitwall` on PATH is this one, the daemon runs this version, each installed agent's hooks and skill are in place, and the config loads; prints `ok`, `FAIL` or `info` per check, with the fix under each FAIL, and exits 1 on a FAIL. It changes nothing |
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
@@ -44,6 +44,10 @@ optional name act on the pane's own tab.
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](troubleshooting.md#logs)) |
 | `pitwall remote pair` / `devices` / `revoke` | Pair a phone, list paired phones, unpair one (see [Phone](phone.md)) |
 | `pitwall --version`                   | Print the version                                             |
+
+`new --model ID` and `queue add --model ID` pass `--model ID` to the agent,
+or `-m ID` to Codex. Put the option before `--`. Omit it to keep the agent's
+or preset's model; use `--model default` to pass no model flag.
 
 A name is a tab's `#` from `pitwall ls` (`3` or `#3`), its `id` from
 `pitwall ls --json`, else its title. A

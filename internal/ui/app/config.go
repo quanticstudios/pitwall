@@ -144,6 +144,8 @@ type guiState struct {
 	Welcome bool `json:"welcome,omitempty"`
 	// TaskAgent is the agent the New task dialog last started.
 	TaskAgent string `json:"task_agent,omitempty"`
+	// TaskModels remembers the last model started per agent.
+	TaskModels map[string]string `json:"task_models,omitempty"`
 	// Reviewed is the review view's marks: repository root, then path,
 	// then the hash of the change that was reviewed (review.File.Hash).
 	Reviewed map[string]map[string]string `json:"reviewed,omitempty"`
