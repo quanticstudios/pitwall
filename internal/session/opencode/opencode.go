@@ -53,7 +53,8 @@ func (p Provider) Start(ctx context.Context, cfg session.Config, from session.Or
 	life, end := context.WithCancel(context.Background())
 	d := &driver{url: strings.TrimRight(p.URL, "/"), cwd: cfg.Cwd, password: password, client: p.Client,
 		ctx: life, cancel: end, stop: stop, emit: emit, done: make(chan struct{}),
-		wake: make(chan struct{}, 1), settings: session.Settings{Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode},
+		shutdown: make(chan struct{}),
+		wake:     make(chan struct{}, 1), settings: session.Settings{Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode},
 		s: newStream(from.Resume)}
 	if d.client == nil {
 		d.client = &http.Client{}
@@ -131,6 +132,7 @@ type driver struct {
 	stop               func(context.Context)
 	emit               func(session.Event)
 	done, wake         chan struct{}
+	shutdown           chan struct{} // Close finished aborting and stopping the server
 	mu                 sync.Mutex
 	s                  *stream
 	settings           session.Settings
@@ -234,7 +236,11 @@ func (d *driver) read(body io.ReadCloser) {
 		}
 	}
 	d.cancel()
-	d.stop(context.Background())
+	if d.closing.Load() {
+		<-d.shutdown
+	} else {
+		d.stop(context.Background())
+	}
 	d.mu.Lock()
 	if !d.closing.Load() {
 		if wireErr == nil {
@@ -435,6 +441,7 @@ func (d *driver) Close(ctx context.Context) error {
 		d.exchange(abort, "POST", "/session/"+url.PathEscape(d.s.id)+"/abort", nil, nil)
 		cancel()
 		d.stop(ctx)
+		close(d.shutdown)
 	}
 	<-d.done
 	return nil

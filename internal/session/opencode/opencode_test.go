@@ -523,6 +523,10 @@ func TestMain(m *testing.M) {
 		case "/session":
 			io.WriteString(w, `{"id":"ses_fake"}`)
 		case "/session/ses_fake/abort":
+			if err := os.WriteFile(filepath.Join(cwd, "aborted"), []byte("aborted"), 0600); err != nil {
+				w.WriteHeader(500)
+				return
+			}
 			io.WriteString(w, `true`)
 		case "/event":
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -561,6 +565,9 @@ func TestOwnedServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	next(t, events, session.EventExited)
+	if _, err := os.Stat(filepath.Join(dir, "aborted")); err != nil {
+		t.Fatal("server stopped before the abort completed:", err)
+	}
 	for _, action := range []string{"exit", "hang"} {
 		cfg.Env = append(cfg.Env, "PITWALL_OPENCODE_HELPER_ACTION="+action)
 		timeout := 3 * time.Second
