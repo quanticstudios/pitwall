@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 38 added Task.NextStart and Task.Repeat: scheduled queued tasks.
 // Level 37 added chats (managed sessions): model.Chat, State.Chats,
 // Workspace.Chat and the Chat* messages. A client below ChatLevel never
 // sees a chat tab.
@@ -136,7 +137,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 37
+const Level = 38
 
 // ChatLevel added chats and the Chat* messages.
 const ChatLevel = 37

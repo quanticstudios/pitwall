@@ -44,7 +44,7 @@ func TestQueueStarts(t *testing.T) {
 		if freed == nil {
 			freed = map[string]int{}
 		}
-		start, wait := queueStarts(c.tasks, c.running, c.starting, freed, c.limit)
+		start, wait := queueStarts(c.tasks, c.running, c.starting, freed, c.limit, time.Now())
 		if ids(start) != c.start || len(start)+len(wait) != len(c.tasks) || freed["s"] != c.freedLeft {
 			t.Errorf("%s: start %q wait %q freed %d, want start %q freed %d", c.name, ids(start), ids(wait), freed["s"], c.start, c.freedLeft)
 		}
@@ -138,5 +138,96 @@ func TestRunningPanes(t *testing.T) {
 	}
 	if got := runningPanes(&st); !maps.Equal(got, map[string]string{"cursor": "s", "aider": "s", "held": "s"}) {
 		t.Errorf("runningPanes = %v", got)
+	}
+}
+
+// The clock advances without sleeping. A future entry cannot block a ready
+// one, and missed repeat slots collapse into a single dispatch.
+func TestQueueSchedule(t *testing.T) {
+	now := time.Date(2026, 10, 30, 2, 0, 0, 0, time.UTC)
+	due := model.Task{ID: "scheduled", SessionID: "s", NextStart: now, Repeat: 24 * time.Hour}
+	for _, c := range []struct {
+		name                     string
+		now                      time.Time
+		running, starting, freed map[string]int
+		limit, starts            int
+		next                     time.Time
+	}{
+		{name: "before", now: now.Add(-time.Second), limit: 1, next: now},
+		{name: "due", now: now, limit: 1, starts: 1, next: now.Add(24 * time.Hour)},
+		{name: "wake after several days", now: now.Add(73 * time.Hour), limit: 1, starts: 1, next: now.Add(96 * time.Hour)},
+		{name: "exact missed slot", now: now.Add(72 * time.Hour), limit: 1, starts: 1, next: now.Add(96 * time.Hour)},
+		{name: "capacity full", now: now.Add(73 * time.Hour), running: map[string]int{"s": 1}, limit: 1, next: now},
+		{name: "still starting", now: now, starting: map[string]int{"s": 1}, limit: 1, next: now},
+		{name: "default queue occupied", now: now, running: map[string]int{"s": 1}, next: now},
+		{name: "finished agent", now: now, running: map[string]int{"s": 1}, freed: map[string]int{"s": 1}, starts: 1, next: now.Add(24 * time.Hour)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			start, wait := queueStarts([]model.Task{due}, c.running, c.starting, c.freed, c.limit, c.now)
+			if len(start) != c.starts || len(wait) != 1 || !wait[0].NextStart.Equal(c.next) {
+				t.Fatalf("start %+v, wait %+v; want %d starts and next %v", start, wait, c.starts, c.next)
+			}
+			if c.starts > 0 {
+				again, _ := queueStarts(wait, nil, nil, nil, 1, c.now)
+				if len(again) != 0 {
+					t.Fatal("caught up more than once")
+				}
+			}
+		})
+	}
+	future := due
+	future.NextStart = now.Add(time.Hour)
+	immediate := model.Task{ID: "ready", SessionID: "s"}
+	start, wait := queueStarts([]model.Task{future, immediate}, nil, nil, nil, 1, now)
+	if len(start) != 1 || start[0].ID != "ready" || len(wait) != 1 {
+		t.Fatalf("future blocked ready: %v %v", start, wait)
+	}
+	due.Repeat = 0
+	start, wait = queueStarts([]model.Task{due}, nil, nil, nil, 1, now)
+	if len(start) != 1 || len(wait) != 0 {
+		t.Fatalf("one-shot: %v %v", start, wait)
+	}
+}
+
+func TestScheduledQueueTick(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.MaxRunning = func() int { return 1 }
+	d := newDaemon(t, o)
+	now := time.Date(2100, 1, 1, 2, 0, 0, 0, time.UTC)
+	must(t, d.handle(context.Background(), proto.NewTask{Task: model.Task{Dir: t.TempDir(), Cmd: []string{"codex", "nightly"}, NextStart: now, Repeat: 24 * time.Hour}, Queue: true}))
+	d.checkQueue(now.Add(-time.Second))
+	if st := d.state(); len(st.Workspaces) != 0 || len(st.Tasks) != 1 {
+		t.Fatalf("early start: %+v", st)
+	}
+	// Saving and loading must retain the pending schedule.
+	d.shutdown()
+	d = newDaemon(t, o)
+	d.checkQueue(now.Add(73 * time.Hour))
+	waitUntil(t, "scheduled task starts", func() bool { return len(d.state().Workspaces) == 1 })
+	st := d.state()
+	if len(st.Tasks) != 1 || !st.Tasks[0].NextStart.Equal(now.Add(96*time.Hour)) {
+		t.Fatalf("repeat not advanced: %+v", st.Tasks)
+	}
+	d.checkQueue(now.Add(73 * time.Hour))
+	if len(d.state().Workspaces) != 1 {
+		t.Fatal("repeat piled up")
+	}
+	d.shutdown()
+	d = newDaemon(t, o)
+	if st := d.state(); len(st.Tasks) != 1 || !st.Tasks[0].NextStart.Equal(now.Add(96*time.Hour)) {
+		t.Fatalf("lost repeat after restart: %+v", st.Tasks)
+	}
+}
+
+func TestTaskRejectsInvalidRepeat(t *testing.T) {
+	d := newDaemon(t, (&fakes{statsCalls: map[string]int{}}).options())
+	for _, task := range []model.Task{{Repeat: -time.Hour}, {Repeat: time.Hour},
+		{Repeat: time.Hour, NextStart: time.Now(), Worktree: "nightly"},
+		{Repeat: time.Hour, NextStart: time.Now(), Branch: "nightly"}} {
+		task.Dir, task.Cmd = t.TempDir(), []string{"codex", "nightly"}
+		if err := d.handle(context.Background(), proto.NewTask{Task: task, Queue: true}); err == nil {
+			t.Fatal("accepted invalid repeat")
+		}
 	}
 }

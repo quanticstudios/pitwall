@@ -31,7 +31,7 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 		}
 	}
 	start, queue := false, false
-	eds := []*widget.Editor{&t.prompt, &t.name, &t.base, &t.branch, &t.issue}
+	eds := []*widget.Editor{&t.prompt, &t.name, &t.base, &t.branch, &t.issue, &t.at, &t.every}
 	for i := range t.models {
 		if t.picked[i] {
 			eds = append(eds, &t.models[i].editor)
@@ -146,6 +146,9 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 	}
 	for t.cancel.Clicked(gtx) {
 		m.close()
+	}
+	for t.schedule.Clicked(gtx) {
+		t.scheduled = !t.scheduled
 	}
 	for t.queue.Clicked(gtx) {
 		queue = true
@@ -347,6 +350,13 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 	kids = append(kids, gap(14), label("Prompt"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 		return u.field(gtx, &t.prompt, th.UIFont, gtx.Dp(132), "What should the agent do?")
 	}))
+	if t.scheduled {
+		kids = append(kids, gap(14), label("Start at"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.field(gtx, &t.at, th.MonoFont, fieldH, "HH:MM, local time, optional with repeat")
+		}), gap(14), label("Repeat"), gap(6), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.field(gtx, &t.every, th.MonoFont, fieldH, "Optional interval, such as 24h")
+		}), gap(6), text(12, th.Muted, "Queue uses this schedule. Start runs immediately."))
+	}
 	if t.err != "" {
 		kids = append(kids, gap(8), text(12, th.Red, t.err))
 	}
@@ -354,8 +364,9 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 		d := u.buttonRow(gtx,
 			dialogButton{&t.start, "Start", kit.Primary},
 			dialogButton{&t.queue, "Queue", kit.Secondary},
+			dialogButton{&t.schedule, "Start at", kit.Secondary},
 			dialogButton{&t.cancel, "Cancel", kit.Secondary})
-		call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Ctrl+Enter starts")
+		call, sz := textCall(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, "Ctrl+Enter")
 		o := op.Offset(image.Pt(0, (d.Size.Y-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		o.Pop()

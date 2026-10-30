@@ -379,3 +379,95 @@ func TestTaskPresetModel(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskScheduleSubmission(t *testing.T) {
+	for _, c := range []struct {
+		name, at, every string
+		queue, invalid  bool
+	}{
+		{"once", "02:00", "", true, false},
+		{"repeat", "02:00", "24h", true, false},
+		{"interval only", "", "24h", true, false},
+		{"bad time", "noon", "", true, true},
+		{"bad repeat", "02:00", "0s", true, true},
+		{"missing schedule", "", "", true, true},
+		{"start immediately", "bad time", "", false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			b := NewFakeBackend()
+			u := &ui{b: b}
+			st := b.State()
+			u.nav.sync(&st)
+			u.task.projects = []taskProject{{dir: t.TempDir()}}
+			u.task.agents = []foundAgent{{cmd: "codex"}}
+			u.task.models = []taskModel{{key: "codex"}}
+			u.task.picked, u.task.modes = []bool{true}, []int{0}
+			u.task.prompt.SetText("nightly")
+			u.task.scheduled = true
+			u.task.at.SetText(c.at)
+			u.task.every.SetText(c.every)
+			u.modal.open(modalTask, "")
+			before := time.Now()
+			u.submitTask(&st, c.queue)
+			if c.invalid {
+				if u.task.err == "" || len(b.Sent()) != 0 {
+					t.Fatalf("accepted invalid schedule: %v %q", b.Sent(), u.task.err)
+				}
+				return
+			}
+			sent := b.Sent()
+			if len(sent) != 1 {
+				t.Fatalf("sent %v, error %q", sent, u.task.err)
+			}
+			got := sent[0].(proto.NewTask)
+			if got.Queue != c.queue || got.Task.NextStart.IsZero() == c.queue {
+				t.Fatalf("schedule: %+v", got)
+			}
+			if c.every != "" && got.Task.Repeat != 24*time.Hour {
+				t.Fatalf("repeat: %+v", got.Task)
+			}
+			if c.queue && c.at == "" && (got.Task.NextStart.Before(before.Add(24*time.Hour)) || got.Task.NextStart.After(time.Now().Add(24*time.Hour))) {
+				t.Fatalf("first repeat: %+v", got.Task)
+			}
+		})
+	}
+}
+
+func TestTaskScheduleOldDaemon(t *testing.T) {
+	b := &linked{FakeBackend: NewFakeBackend(), link: Link{Level: proto.ScheduleLevel - 1}}
+	u := &ui{b: b}
+	st := b.State()
+	u.nav.sync(&st)
+	u.task.projects = []taskProject{{dir: t.TempDir()}}
+	u.task.agents = []foundAgent{{cmd: "codex"}}
+	u.task.models = []taskModel{{key: "codex"}}
+	u.task.picked, u.task.modes = []bool{true}, []int{0}
+	u.task.prompt.SetText("nightly")
+	u.task.scheduled = true
+	u.task.at.SetText("02:00")
+	u.modal.open(modalTask, "")
+	u.submitTask(&st, true)
+	if len(b.Sent()) != 0 || !strings.Contains(u.task.err, "daemon restarts") || u.modal.kind != modalTask {
+		t.Fatal("old daemon could silently drop schedule")
+	}
+}
+
+func TestTaskRepeatWorktree(t *testing.T) {
+	for _, where := range []int{whereWorktree, whereBranch} {
+		b := NewFakeBackend()
+		u := &ui{b: b}
+		st := b.State()
+		u.task.projects = []taskProject{{dir: t.TempDir()}}
+		u.task.agents = []foundAgent{{cmd: "codex"}}
+		u.task.picked, u.task.modes = []bool{true}, []int{0}
+		u.task.prompt.SetText("nightly")
+		u.task.scheduled, u.task.where = true, where
+		u.task.name.SetText("nightly")
+		u.task.branch.SetText("nightly")
+		u.task.every.SetText("24h")
+		u.submitTask(&st, true)
+		if len(b.Sent()) != 0 || !strings.Contains(u.task.err, "This folder") {
+			t.Fatalf("repeat would recreate its worktree: %q", u.task.err)
+		}
+	}
+}

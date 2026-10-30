@@ -319,6 +319,9 @@ type Overlap struct {
 // Task is an agent to start on a prompt, in a tab of its own: at once, or
 // from its session's queue (State.Tasks) when an agent there finishes.
 type Task struct {
+	NextStart time.Time     `json:",omitzero"`  // zero starts when queue capacity allows
+	Repeat    time.Duration `json:",omitempty"` // zero runs once; otherwise advance from NextStart
+
 	Profile   string // the account profile its tab keeps across restarts
 	ID        string
 	SessionID string

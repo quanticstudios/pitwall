@@ -410,7 +410,8 @@ func (d *Daemon) tidy() {
 	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Chat != "" })
 	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool {
 		return !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
-			!slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == s.ID })
+			!slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == s.ID }) &&
+			!slices.ContainsFunc(d.st.Tasks, func(t model.Task) bool { return t.SessionID == s.ID })
 	})
 	d.st.Tasks = slices.DeleteFunc(d.st.Tasks, func(t model.Task) bool { return d.st.Session(t.SessionID) == nil })
 	d.retitle()
@@ -1903,7 +1904,7 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 // stream of agent events cannot postpone it forever.
 func (d *Daemon) changed() {
 	d.syncTurns(time.Now())
-	d.pumpQueue()
+	d.pumpQueue(time.Now())
 	d.pruneNotices()
 	d.retitle()
 	d.fixOrders()
