@@ -23,7 +23,8 @@ func screenFixture(t *testing.T, file string) vt.Grid {
 // The claude-*.txt fixtures are pitwall's own emulator reading Claude Code
 // 2.1.287 in a 100x30 PTY, except claude-idle.txt, which is claude-spinner.txt
 // with the spinner turned into the line a finished turn leaves. codex-*.txt
-// are Codex 0.160.0 read the same way. The tuios-*.txt ones are tuios's screen
+// are Codex 0.160.0 read the same way, except codex-trust.txt, which is
+// written from a capture of Codex's folder trust dialog. The tuios-*.txt ones are tuios's screen
 // fixtures, and tuios-claude-question.txt is tuios's derived select form.
 func TestReadScreen(t *testing.T) {
 	for file, want := range map[string]Screen{
@@ -35,6 +36,7 @@ func TestReadScreen(t *testing.T) {
 		"tuios-claude-code-working.txt": ScreenBusy,
 		"tuios-codex-working.txt":       ScreenBusy,
 		"tuios-codex-approval.txt":      ScreenForm,
+		"codex-trust.txt":               ScreenForm,
 	} {
 		if got := ReadScreen(screenFixture(t, file)); got != want {
 			t.Errorf("%s: got %d, want %d", file, got, want)
@@ -52,6 +54,7 @@ func TestState(t *testing.T) {
 		"codex-working.txt":         model.StateWorking,
 		"tuios-codex-approval.txt":  model.StatePendingApproval,
 		"codex-idle.txt":            "",
+		"codex-trust.txt":           model.StatePendingApproval,
 	} {
 		if got := State(screenFixture(t, file)); got != want {
 			t.Errorf("%s: got %q, want %q", file, got, want)

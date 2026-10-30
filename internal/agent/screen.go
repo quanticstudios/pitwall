@@ -36,7 +36,9 @@ func ReadScreen(g vt.Grid) Screen {
 	busy := false
 	for _, l := range lines {
 		low := strings.ToLower(l)
-		if strings.Contains(low, "esc to cancel") || strings.Contains(low, "do you want to proceed") || strings.Contains(low, "would you like to proceed") {
+		// "esc back" is the footer of Codex's folder trust dialog, which a
+		// worker started in a new folder stops at.
+		if strings.Contains(low, "esc to cancel") || strings.Contains(low, "esc back") || strings.Contains(low, "do you want to proceed") || strings.Contains(low, "would you like to proceed") {
 			return ScreenForm
 		}
 		busy = busy || strings.Contains(low, "esc to interrupt") || spinner.MatchString(l)
