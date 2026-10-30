@@ -32,13 +32,32 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	if !p.open {
 		return
 	}
+	u.updateSearchAll()
 	b := u.nav.bind()
 	all := paletteRows(b, "", nil)
 	rows := paletteRows(b, p.query, u.gui.Recent)
+	title, hint := "Commands", "Type an action, a group or a key"
+	count := fmt.Sprintf("%d of %d", len(rows), len(all))
+	if p.search {
+		title, hint = "Search all sessions", "Type to search every session"
+		rows = make([]paletteEntry, len(u.all.matches))
+		if u.all.preview != nil {
+			title = "Transcript match"
+			if u.all.preview.Hidden {
+				title = "Scrollback match"
+			}
+			rows = make([]paletteEntry, 1)
+		}
+		count = u.searchStatus()
+	}
 	for i := range min(len(rows), len(d.rows)) {
 		if d.rows[i].Clicked(gtx) {
-			if r := p.pick(rows, i); r != nil {
-				u.runEntry(st, *r)
+			if p.search && u.all.preview == nil {
+				u.pickSearchAll(st, u.all.matches[i])
+			} else if !p.search {
+				if r := p.pick(rows, i); r != nil {
+					u.runEntry(st, *r)
+				}
 			}
 			gtx.Execute(op.InvalidateCmd{})
 			return
@@ -48,14 +67,21 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	t := anim.At(gtx, p.openedAt, anim.Overlay)
 	if u.backdrop(gtx, t, &d.backdrop) {
 		p.close()
+		u.stopSearchAll()
 		return
 	}
 	size := gtx.Constraints.Max
 	w := min(gtx.Dp(600), size.X-gtx.Dp(48))
 	pad, footH := gtx.Dp(16), gtx.Dp(44)
 	inner := w - 2*pad
-	tc, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, "Commands")
+	tc, tsz := textCall(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, title)
 	fieldH, rowH, gap := gtx.Dp(34), gtx.Dp(34), gtx.Dp(2)
+	if p.search {
+		fieldH, rowH = gtx.Dp(56), gtx.Dp(72)
+		if u.all.preview != nil {
+			rowH = gtx.Dp(144)
+		}
+	}
 	// The card fits its rows, up to 420dp, and eases to a new height; its
 	// top stays where the tallest card's would be, so the field holds still.
 	most := min(gtx.Dp(420), size.Y-gtx.Dp(64))
@@ -69,7 +95,11 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	o := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
 	tc.Add(gtx.Ops)
 	o.Pop()
-	cc, _ := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, fmt.Sprint(len(all)))
+	label := fmt.Sprint(len(all))
+	if p.search {
+		label = ""
+	}
+	cc, _ := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, label)
 	o = op.Offset(image.Pt(pad+tsz.X+gtx.Dp(8), y+gtx.Dp(2))).Push(gtx.Ops)
 	cc.Add(gtx.Ops)
 	o.Pop()
@@ -81,8 +111,12 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	y += tsz.Y + gtx.Dp(12)
 
-	u.filterField(gtx, image.Rect(pad, y, pad+inner, y+fieldH), p.query, "Type an action, a group or a key",
-		fmt.Sprintf("%d of %d", len(rows), len(all)), true, p.openedAt)
+	if p.search {
+		u.filterField(gtx, image.Rect(pad, y, pad+inner, y+gtx.Dp(34)), p.query, hint, "", u.all.preview == nil, p.openedAt)
+		drawText(gtx, th, image.Pt(pad+gtx.Dp(8), y+gtx.Dp(38)), th.UIFont, th.Sp(theme.Small), th.Muted, count)
+	} else {
+		u.filterField(gtx, image.Rect(pad, y, pad+inner, y+fieldH), p.query, hint, count, true, p.openedAt)
+	}
 	y += fieldH + gtx.Dp(10)
 
 	listTop, listBot := y, h-footH-gtx.Dp(8)
@@ -105,7 +139,17 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 			continue
 		}
 		o := op.Offset(image.Pt(pad, ry)).Push(gtx.Ops)
-		u.paletteRow(gtx, &d.rows[i], e, p.query, u.nav.reviewBlocked(st, e.action.Name), i == sel, image.Pt(inner, rowH))
+		if p.search {
+			m := u.all.preview
+			first := true
+			if m == nil {
+				m = &u.all.matches[i]
+				first = i == 0 || u.all.matches[i-1].Workspace != m.Workspace
+			}
+			u.searchRow(gtx, st, &d.rows[i], *m, first, image.Pt(inner, rowH))
+		} else {
+			u.paletteRow(gtx, &d.rows[i], e, p.query, u.nav.reviewBlocked(st, e.action.Name), i == sel, image.Pt(inner, rowH))
+		}
 		o.Pop()
 	}
 	if sel >= 0 {
@@ -113,7 +157,12 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	if len(rows) == 0 {
 		msg := "Nothing matches \"" + p.query + "\". Try part of a name, a group like Panes, or a key like Ctrl+T."
-		if c, ok := config.KeyQuery(p.query); ok {
+		if p.search {
+			msg = "No matches"
+			if p.query == "" || !u.all.done {
+				msg = ""
+			}
+		} else if c, ok := config.KeyQuery(p.query); ok {
 			msg = "Nothing uses " + c.String() + "."
 		}
 		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+(rowH-gtx.Dp(18))/2), th.UIFont, th.Sp(theme.Body), th.Muted, msg)
@@ -122,7 +171,14 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 
 	paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Fg, 0.08), clip.Rect{Min: image.Pt(1, h-footH), Max: image.Pt(w-1, h-footH+1)}.Op())
 	o = op.Offset(image.Pt(pad, h-footH)).Push(gtx.Ops)
-	u.drawHints(gtx, footH, [][2]string{{"↑↓", "move"}, {"Enter", "run"}, {"Esc", "close"}})
+	verb := "run"
+	if p.search {
+		verb = "open match"
+		if u.all.preview != nil {
+			verb = "close"
+		}
+	}
+	u.drawHints(gtx, footH, [][2]string{{"↑↓", "move"}, {"Enter", verb}, {"Esc", "close"}})
 	o.Pop()
 }
 

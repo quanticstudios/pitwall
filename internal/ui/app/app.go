@@ -271,7 +271,8 @@ type ui struct {
 	hint    gotoHint  // the goto_tab modifiers, for the sidebar's digits
 
 	sw       sessionSwitcher
-	pal      palette   // the command palette
+	pal      palette // the command palette
+	all      sessionSearch
 	showSent string    // the session the last SessionShow named
 	switchAt time.Time // when the window last switched sessions
 	title    string    // the window title last set
@@ -426,7 +427,16 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 	}
 	if u.nav.palette {
 		u.nav.palette = false
+		u.stopSearchAll()
+		u.pal.search = false
 		u.pal.openAt(now)
+	}
+	if u.nav.searchAll {
+		u.nav.searchAll = false
+		u.pal.openAt(now)
+		u.pal.search = true
+		u.all.preview = nil
+		u.all.sent = ""
 	}
 	if u.nav.find {
 		u.nav.find = false
@@ -1033,6 +1043,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	}
 
 	g, m, ok := u.b.Frame(id)
+	u.searchAllJump(id)
 	if !ok {
 		g = vt.Grid{}
 	}

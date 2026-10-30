@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -65,6 +66,17 @@ func (s *stopped) Search(query string, limit int) ([]vt.Match, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.vt.Search(query, limit)
+}
+
+func (s *stopped) SearchContext(ctx context.Context, query string, limit int) ([]vt.SearchLine, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if f, ok := s.vt.(interface {
+		SearchContext(context.Context, string, int) ([]vt.SearchLine, bool)
+	}); ok {
+		return f.SearchContext(ctx, query, limit)
+	}
+	return nil, false
 }
 func (s *stopped) Text(sel vt.Selection) string {
 	s.mu.Lock()

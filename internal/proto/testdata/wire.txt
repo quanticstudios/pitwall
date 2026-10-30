@@ -1,4 +1,4 @@
-16.33
+16.34
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -64,12 +64,15 @@ proto.RenameWorkspace{WorkspaceID string; Name string}
 proto.Resize{Pane string; Cols int; Rows int}
 proto.Scroll{Pane string; Lines int; Prompts int}
 proto.Search{Pane string; Query string}
+proto.SearchAll{ID uint64; Query string}
+proto.SearchAllResult{ID uint64; Matches []proto.SessionMatch; Done bool; More bool}
 proto.SearchResult{Pane string; Query string; Matches []vt.Match; More bool}
 proto.SecondOpinion{Pane string; Agent string}
 proto.SeePane{Pane string}
 proto.SelectTab{WorkspaceID string; TabID string}
 proto.Send{Pane string; From string; Text string}
 proto.SessionKill{SessionID string}
+proto.SessionMatch{Workspace string; Pane string; Match vt.Match; Snippet string; Time time.Time; Transcript bool; Hidden bool}
 proto.SessionNew{Name string; Cwd string; FromPane string}
 proto.SessionRename{SessionID string; Name string}
 proto.SessionShow{SessionID string}

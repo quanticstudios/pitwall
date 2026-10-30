@@ -33,7 +33,9 @@ type backend struct {
 	session string // the session the window shows, from SessionShow
 	state   model.State
 	frames  map[string]proto.Frame
-	found   map[string]proto.SearchResult     // per pane, the reply to its last Search
+	found   map[string]proto.SearchResult // per pane, the reply to its last Search
+	allID   uint64
+	all     []proto.SearchAllResult           // unconsumed batches of the current session search
 	tree    proto.WorktreeInfo                // the reply to the last WorktreeQuery, cleared when one is sent
 	texts   map[string]proto.TextResult       // per pane, a Text reply not yet taken
 	icons   map[string]*proto.FaviconResult   // per folder, the daemon's FaviconResult, nil while it is out
@@ -154,6 +156,9 @@ func (b *backend) Show(panes []string) {
 // backend which session's frames redraw the window.
 func (b *backend) Send(msg any) error {
 	b.mu.Lock()
+	if s, ok := msg.(proto.SearchAll); ok {
+		b.allID, b.all = s.ID, nil
+	}
 	if s, ok := msg.(proto.SessionShow); ok {
 		b.session = s.SessionID
 	}
@@ -304,6 +309,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.outMu.Unlock()
 	b.mu.Lock()
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
+	b.all = nil
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
 	maps.DeleteFunc(b.icons, func(_ string, r *proto.FaviconResult) bool { return r == nil }) // asked of the old connection: ask again
@@ -439,6 +445,10 @@ func (b *backend) recvLoop() {
 			b.moves = append(b.moves, m)
 		case proto.SearchResult:
 			b.found[m.Pane] = m
+		case proto.SearchAllResult:
+			if m.ID == b.allID {
+				b.all = append(b.all, m)
+			}
 		case proto.WorktreeInfo:
 			b.tree = m
 		case proto.TextResult:

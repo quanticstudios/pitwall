@@ -3,6 +3,7 @@
 package pane
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -219,6 +220,18 @@ func (p *Pane) Search(query string, limit int) ([]vt.Match, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.vt.Search(query, limit)
+}
+
+// SearchContext forwards the emulator's optional cancellable session search.
+func (p *Pane) SearchContext(ctx context.Context, query string, limit int) ([]vt.SearchLine, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s, ok := p.vt.(interface {
+		SearchContext(context.Context, string, int) ([]vt.SearchLine, bool)
+	}); ok {
+		return s.SearchContext(ctx, query, limit)
+	}
+	return nil, false
 }
 
 func (p *Pane) Text(sel vt.Selection) string {
