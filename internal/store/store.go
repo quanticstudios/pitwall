@@ -23,6 +23,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// Account profiles add optional Workspace.Profile and Task.Profile fields
+// to version 8. Missing fields decode to "", preserving older state files.
 // formatVersion 8 added Pane.Held;
 // formatVersion 7 added sessions, which own the tabs, groups and order;
 // formatVersion 6 added State.Order and dropped generated tab names;

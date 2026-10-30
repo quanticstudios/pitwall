@@ -24,7 +24,7 @@ const (
 // statusline report, for Settings, Usage, the sidebar's meter and the
 // notice a window at limitNoticeAt shows once.
 type limitWatch struct {
-	scan flow.Scanner // Codex's latest days only
+	scan flow.ProfileScanner // Codex's latest days, per account
 
 	mu     sync.Mutex
 	limits []flow.Limit
@@ -40,8 +40,8 @@ func (lw *limitWatch) watch(stop <-chan struct{}, invalidate func()) {
 	defer t.Stop()
 	for {
 		now := time.Now()
-		lw.scan.Scan(flow.CodexDays(home, now, limitsDays), now.AddDate(0, 0, -limitsDays))
-		lw.set(lw.scan.Limits(config.StateDir()), now)
+		cfg, _ := config.Load()
+		lw.set(lw.scan.Read(home, config.StateDir(), cfg.Profiles, now, limitsDays), now)
 		invalidate()
 		select {
 		case <-stop:
@@ -96,7 +96,7 @@ func (lw *limitWatch) set(limits []flow.Limit, now time.Time) {
 // limitKey names one cycle of a window. Its reset time can drift by
 // seconds between reports, so it counts in ten minutes.
 func limitKey(l flow.Limit, w flow.Window) string {
-	return fmt.Sprint(l.Provider, "/", l.Name, "/", w.Minutes, "/", w.Resets.Round(10*time.Minute).Unix())
+	return fmt.Sprint(l.Provider, "/", l.Profile, "/", l.Name, "/", w.Minutes, "/", w.Resets.Round(10*time.Minute).Unix())
 }
 
 // limitNotice is "Claude 5-hour window at 92%, resets 16:40".

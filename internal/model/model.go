@@ -55,6 +55,7 @@ type Tab struct {
 // Workspace is one tab of a Session: a split tree of panes started in Path.
 // Name is set only when a person chose one, and is unique in its session.
 type Workspace struct {
+	Profile   string // account profile name, "" for the default environment
 	ID        string
 	SessionID string // the Session that owns this tab
 	ProjectID string // "" while the session is ungrouped
@@ -291,6 +292,7 @@ type Overlap struct {
 // Task is an agent to start on a prompt, in a tab of its own: at once, or
 // from its session's queue (State.Tasks) when an agent there finishes.
 type Task struct {
+	Profile   string // the account profile its tab keeps across restarts
 	ID        string
 	SessionID string
 	GroupID   string // the group its tab joins and its queue entry shows under, "" for none

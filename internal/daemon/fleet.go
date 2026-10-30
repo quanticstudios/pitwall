@@ -220,6 +220,7 @@ func (d *Daemon) respawn(ctx context.Context, s config.Settings, e escalation, p
 		return fmt.Errorf("pane %s is in no tab", e.pane)
 	}
 	id := newID()
+	env = append(env, d.profileEnv(w)...)
 	if err := d.start(id, cmd, w.Path, w.Ports, env); err != nil {
 		d.mu.Unlock()
 		return err

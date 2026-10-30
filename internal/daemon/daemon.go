@@ -78,6 +78,8 @@ type Pane interface {
 // Options are the daemon's collaborators. New wires the real packages; tests
 // pass fakes to NewWith.
 type Options struct {
+	// Profiles reads account profiles for new tabs; nil has none.
+	Profiles       func() map[string]config.Profile
 	StartPane      func(pane.Config) (Pane, error)
 	NewVT          vt.NewFunc
 	Derive         func(prev *model.Activity, provider model.Provider, payload []byte, now time.Time) (model.Activity, bool)
@@ -264,6 +266,7 @@ func New() (*Daemon, error) {
 		MaxRunning:        setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
 		ResumeAfterLimit:  setting(config.Path(), func(s config.Settings) bool { return s.ResumeAfterLimit }),
 		Limits:            trackedLimits(),
+		Profiles:          func() map[string]config.Profile { s, _ := config.Load(); return s.Profiles },
 		QuietAfter:        setting(config.Path(), func(s config.Settings) time.Duration { return s.QuietAfter }),
 		ContinueWhenQuiet: setting(config.Path(), func(s config.Settings) bool { return s.ContinueWhenQuiet }),
 		RemoteControl:     setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
@@ -1143,10 +1146,11 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 		}
 	}
 	id := newID()
-	if err := d.start(id, m.Cmd, cwd, w.Ports, nil); err != nil {
+	env := d.profileEnv(w)
+	if err := d.start(id, m.Cmd, cwd, w.Ports, env); err != nil {
 		return err
 	}
-	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: cwd})
+	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: cwd, Env: env})
 	leaf := &layout.Node{Pane: id}
 	switch {
 	case t == nil: // a project's workspace gets its first tab with its first pane

@@ -308,9 +308,10 @@ type ui struct {
 
 	hooks hooksDialog // the Install hooks dialog and the pane notices
 
-	gui     guiState   // gui.json as loaded, and as last saved
-	welcome welcome    // the first-run card
-	task    taskDialog // the New task dialog, shown as modalTask
+	gui     guiState      // gui.json as loaded, and as last saved
+	welcome welcome       // the first-run card
+	task    taskDialog    // the New task dialog, shown as modalTask
+	profile profileChoice // New tab's account picker
 
 	review reviewView // the review view, shown in place of the panes
 	sends  agentSends // Send failures and Send review comments, fetching
@@ -335,6 +336,9 @@ var sendErrs = logs.Limiter{Every: 10 * time.Second}
 
 // send reports whether the backend took msg.
 func (u *ui) send(msg any) bool {
+	if u.pickTabProfile(msg) {
+		return true
+	}
 	if u.welcome.on && byUser(msg) {
 		u.endWelcome()
 	}
@@ -687,6 +691,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.GH = ghInstalled()
 		u.sidebar.Installed = reviewersInstalled()
 		u.sidebar.ShowCost = u.cfg.ShowCost
+		u.sidebar.Profiles = u.cfg.Profiles
 		u.sidebar.Limits = nil
 		if u.cfg.LimitsInSidebar {
 			u.sidebar.Limits = u.limits.get()

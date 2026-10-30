@@ -28,8 +28,9 @@ func runStatusline(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 	}
 	in, _ := io.ReadAll(io.LimitReader(stdin, 4<<20))
 	if l, ok := flow.Statusline(in, time.Now()); ok {
+		l.Profile = os.Getenv("PITWALL_PROFILE")
 		if data, err := json.Marshal(l); err == nil {
-			_ = saveState(filepath.Join(stateDir(), flow.ClaudeLimitsFile), data)
+			_ = saveState(flow.ClaudeLimitsPath(stateDir(), l.Profile), data)
 		}
 	}
 	if len(args) == 0 {

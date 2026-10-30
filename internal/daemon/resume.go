@@ -61,14 +61,14 @@ func (l *limitResumes) seenMsg(id, msg string) {
 // last two days.
 func trackedLimits() func() []flow.Limit {
 	var mu sync.Mutex
-	var s flow.Scanner
+	var s flow.ProfileScanner
 	return func() []flow.Limit {
 		mu.Lock()
 		defer mu.Unlock()
 		home, _ := os.UserHomeDir()
 		now := time.Now()
-		s.Scan(flow.CodexDays(home, now, 2), now.AddDate(0, 0, -2))
-		return s.Limits(config.StateDir())
+		cfg, _ := config.Load()
+		return s.Read(home, config.StateDir(), cfg.Profiles, now, 2)
 	}
 }
 
@@ -160,6 +160,11 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 	}
 	sp := d.st.Panes[pi]
 	if resets.IsZero() {
+		profile := ""
+		if w := d.workspace(sp.WorkspaceID); w != nil {
+			profile = w.Profile
+		}
+		limits = slices.DeleteFunc(slices.Clone(limits), func(l flow.Limit) bool { return l.Profile != profile })
 		resets = limitReset(limits, sp.Provider, now)
 	}
 	if resets.IsZero() || resets.Before(now.Add(-resumeDelay)) {

@@ -35,6 +35,7 @@ func hooksHome(t *testing.T) string {
 	t.Setenv("PI_CODING_AGENT_DIR", "")
 	t.Setenv("GEMINI_CLI_HOME", "")
 	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	previous := hookExecutable
 	hookExecutable = func() (string, error) { return testBin, nil }

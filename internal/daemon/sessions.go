@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -29,6 +30,17 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 // the tab goes into a new session named *create (generated when ""). prep,
 // when set, fills in the tab before its pane starts, under d.mu.
 func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string, create *string, prep func(*model.Workspace)) error {
+	if m.Profile != "" {
+		s := config.Settings{}
+		if d.o.Profiles != nil {
+			s.Profiles = d.o.Profiles()
+		}
+		var err error
+		m.Env, err = s.ProfileEnv(m.Profile, m.Env)
+		if err != nil {
+			return err
+		}
+	}
 	home := homeDir()
 	path := m.Cwd
 	if m.FromPane != "" {
@@ -92,6 +104,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	}
 	w := model.Workspace{ID: newID(), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
+	w.Profile = m.Profile
 	if prep != nil {
 		prep(&w)
 	}

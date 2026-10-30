@@ -40,6 +40,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 35 added account profiles on NewSession, NewTab and Task.
 // Level 34 added SearchAll and SearchAllResult: cancellable session search.
 // Level 33 added PR.ChangeRequests, the reviews requesting changes.
 // Level 32 added PasteImage and PasteImageResult: a window whose daemon
@@ -129,7 +130,10 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 34
+const Level = 35
+
+// ProfileLevel added account profiles on NewSession, NewTab and Task.
+const ProfileLevel = 35
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.
@@ -199,6 +203,7 @@ type Hello struct {
 // with no session at all the daemon makes one. An empty Name leaves the tab
 // unnamed.
 type NewSession struct {
+	Profile   string
 	Name      string // "" leaves it unnamed
 	Cwd       string
 	GroupID   string
@@ -533,6 +538,7 @@ func RefusedVersion(e Error) (int, bool) {
 // directory when set, else Cwd, else that session's Path. A GUI shows the
 // newest session.
 type NewTab struct {
+	Profile     string
 	WorkspaceID string
 	Cwd         string
 	FromPane    string

@@ -16,6 +16,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -27,6 +28,7 @@ import (
 const Width unit.Dp = 288
 
 type Sidebar struct {
+	Profiles map[string]config.Profile
 	// ExpandAll starts every group expanded, for a drawing of a session
 	// the window does not show (the session switcher's preview).
 	ExpandAll bool

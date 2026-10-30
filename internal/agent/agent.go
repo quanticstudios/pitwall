@@ -717,7 +717,7 @@ func IsSkill(b []byte) bool {
 // returns the files it rewrote.
 func RefreshSkill(home string) []string {
 	var out []string
-	for _, dir := range []string{filepath.Join(home, ".claude"), CodexDir(home)} {
+	for _, dir := range []string{ClaudeDir(home), CodexDir(home)} {
 		path := filepath.Join(dir, "skills", "pitwall", "SKILL.md")
 		if b, err := os.ReadFile(path); err == nil && IsSkill(b) && string(b) != skill {
 			if os.WriteFile(path, Skill(), 0o644) == nil {
@@ -726,6 +726,14 @@ func RefreshSkill(home string) []string {
 		}
 	}
 	return out
+}
+
+// ClaudeDir is Claude Code's config directory, $CLAUDE_CONFIG_DIR or ~/.claude.
+func ClaudeDir(home string) string {
+	if h := os.Getenv("CLAUDE_CONFIG_DIR"); h != "" {
+		return h
+	}
+	return filepath.Join(home, ".claude")
 }
 
 // CodexDir is Codex's home directory, $CODEX_HOME or ~/.codex.

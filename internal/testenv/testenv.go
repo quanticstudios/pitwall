@@ -20,11 +20,14 @@ func Main(m *testing.M) {
 		os.Exit(1)
 	}
 	for k, v := range map[string]string{
-		"XDG_STATE_HOME":  filepath.Join(dir, "state"),
-		"XDG_CONFIG_HOME": filepath.Join(dir, "config"),
-		"XDG_RUNTIME_DIR": filepath.Join(dir, "run"),
-		"PITWALL_SOCKET":  "",
-		"PITWALL_PANE":    "",
+		"XDG_STATE_HOME":    filepath.Join(dir, "state"),
+		"XDG_CONFIG_HOME":   filepath.Join(dir, "config"),
+		"XDG_RUNTIME_DIR":   filepath.Join(dir, "run"),
+		"PITWALL_SOCKET":    "",
+		"PITWALL_PANE":      "",
+		"PITWALL_PROFILE":   "",
+		"CLAUDE_CONFIG_DIR": "",
+		"CODEX_HOME":        "",
 	} {
 		os.Setenv(k, v)
 	}

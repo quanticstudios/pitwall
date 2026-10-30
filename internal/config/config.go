@@ -40,6 +40,8 @@ type Config struct {
 	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
 	Remote    Remote      `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
+
+	Profiles map[string]Profile `toml:"profiles" doc:"Named Claude Code and Codex accounts. See docs/config.md."`
 }
 
 // Host is one [[hosts]] entry.
@@ -249,6 +251,7 @@ const (
 
 // Settings is a loaded config with every value filled in.
 type Settings struct {
+	Profiles   map[string]Profile
 	Path       string
 	Keys       *Bindings
 	ThemeName  string
@@ -490,6 +493,9 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.RemoteControl = c.Appear.RemoteControl == nil || *c.Appear.RemoteControl
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts
+	var pi []issue
+	s.Profiles, pi = resolveProfiles(c.Profiles)
+	fi = append(fi, pi...)
 	var di []issue
 	var dn []issue
 	s.Decisions, di, dn = resolveDecisions(c.Decisions)
@@ -778,6 +784,21 @@ func set(f reflect.Value, val any, path string, issues *[]issue) string {
 		return ""
 	}
 	switch f.Kind() {
+	case reflect.Map:
+		t, ok := val.(map[string]any)
+		if !ok {
+			return "want a table"
+		}
+		out := reflect.MakeMap(f.Type())
+		for _, name := range slices.Sorted(mapKeys(t)) {
+			entry := reflect.New(f.Type().Elem()).Elem()
+			if msg := set(entry, t[name], path+"."+name, issues); msg != "" {
+				*issues = append(*issues, issue{path + "." + name, msg})
+				continue
+			}
+			out.SetMapIndex(reflect.ValueOf(name), entry)
+		}
+		f.Set(out)
 	case reflect.Struct:
 		t, ok := val.(map[string]any)
 		if !ok {
