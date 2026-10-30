@@ -49,6 +49,9 @@ func (d *Daemon) stoppedPane(p *model.Pane) Pane {
 	return s
 }
 
+// Save is the screen's handoff snapshot.
+func (s *stopped) Save() ([]byte, error) { s.mu.Lock(); defer s.mu.Unlock(); return vt.Save(s.vt) }
+
 func (s *stopped) Write([]byte) (int, error) { return 0, errors.New("the pane's command has exited") }
 func (s *stopped) Resize(cols, rows int) error {
 	s.mu.Lock()

@@ -4,6 +4,7 @@ package pane
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -37,6 +38,11 @@ type Pane struct {
 	done      chan struct{} // closed once the process exits and its output is read
 	exit      int           // written before exited closes
 	closeOnce sync.Once
+
+	hold    sync.Mutex    // guards paused and drainAt, and the deadlines they set
+	paused  chan struct{} // non-nil while a handoff pauses the pane; Resume closes it
+	parked  chan struct{} // the reader stops here for a pause
+	drainAt time.Time     // the read deadline drain set; zero for none
 }
 
 // Shell is the program Start runs for a Config without Cmd.
@@ -74,10 +80,13 @@ func Start(c Config) (*Pane, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newPane(c, s), nil
+	p := prepared(c, s)
+	p.Start()
+	return p, nil
 }
 
-func newPane(c Config, s sys) *Pane {
+// prepared builds a pane that reads nothing until Start.
+func prepared(c Config, s sys) *Pane {
 	p := &Pane{
 		sys:      s,
 		vt:       c.NewVT(c.Cols, c.Rows, s.tty),
@@ -85,6 +94,7 @@ func newPane(c Config, s sys) *Pane {
 		exited:   make(chan struct{}),
 		readDone: make(chan struct{}),
 		done:     make(chan struct{}),
+		parked:   make(chan struct{}),
 	}
 	if d, ok := p.vt.(interface{ SetDirtyFunc(func()) }); ok {
 		// invariant: the callback holds the channel, not p. A method value
@@ -92,9 +102,14 @@ func newPane(c Config, s sys) *Pane {
 		dirty := p.dirty
 		d.SetDirtyFunc(func() { signal(dirty) })
 	}
+	return p
+}
+
+// Start begins reading the PTY and watching the process of a pane from
+// Prepare. Call it once.
+func (p *Pane) Start() {
 	go p.read()
 	go p.wait()
-	return p
 }
 
 // environ is os.Environ() without the variables that make nested tools think
@@ -131,9 +146,34 @@ func (p *Pane) read() {
 			p.signal()
 		}
 		if err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) && p.park() {
+				continue
+			}
 			return // EIO once every holder of the slave is gone, or the drain deadline
 		}
 	}
+}
+
+// park holds the reader while a handoff pauses the pane and reports
+// whether it did; a deadline without a pause is the drain's.
+func (p *Pane) park() bool {
+	p.hold.Lock()
+	resume := p.paused
+	p.hold.Unlock()
+	if resume == nil {
+		return false
+	}
+	p.parked <- struct{}{}
+	<-resume
+	return true
+}
+
+// Save is the emulator's handoff snapshot (vt.Save). Pause the pane first,
+// or output may land after it.
+func (p *Pane) Save() ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return vt.Save(p.vt)
 }
 
 // wait observes the process exit without waiting for PTY EOF, which a detached

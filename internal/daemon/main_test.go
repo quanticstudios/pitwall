@@ -11,7 +11,9 @@ import (
 // UTC, which the Codex screens the tests feed assume.
 func TestMain(m *testing.M) {
 	// why: set once, never swapped back; a daemon's pending save timer
-	// reads time.Local after its test returns.
+	// reads time.Local, and its pending delivery replyDelay, after its
+	// test returns.
 	time.Local = time.UTC
+	replyDelay = 0
 	testenv.Main(m)
 }

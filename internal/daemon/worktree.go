@@ -142,6 +142,9 @@ func (w *portWatch) Write(p []byte) (int, error) {
 	return w.Emulator.Write(p)
 }
 
+// MarshalBinary forwards the handoff snapshot (vt.Save).
+func (w *portWatch) MarshalBinary() ([]byte, error) { return vt.Save(w.Emulator) }
+
 // SetDirtyFunc and Close forward what package pane asks of the emulator.
 func (w *portWatch) SetDirtyFunc(f func()) {
 	if s, ok := w.Emulator.(interface{ SetDirtyFunc(func()) }); ok {

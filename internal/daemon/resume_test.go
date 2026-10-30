@@ -244,9 +244,9 @@ func TestResumeNotSet(t *testing.T) {
 // was mid-turn gets restartLine typed, without a header, once its resume
 // SessionStart arrives. A pane that does not resume keeps neither.
 func TestRestartCarriesTurns(t *testing.T) {
-	old, oldSettle := replyDelay, sendSettle
-	replyDelay, sendSettle = 0, 10*time.Millisecond
-	t.Cleanup(func() { replyDelay, sendSettle = old, oldSettle })
+	oldSettle := sendSettle
+	sendSettle = 10 * time.Millisecond
+	t.Cleanup(func() { sendSettle = oldSettle })
 	f := &fakes{statsCalls: map[string]int{}}
 	claude := model.ProviderClaude
 	f.saved = model.State{

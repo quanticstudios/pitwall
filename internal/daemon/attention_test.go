@@ -58,7 +58,7 @@ func TestAttention(t *testing.T) {
 	}
 
 	// An OSC 9 from the emulator becomes an unseen awaiting-input activity.
-	e := d.notifyingVT("a")(10, 2, io.Discard)
+	e := d.notifyingVT("a", d.o.NewVT)(10, 2, io.Discard)
 	e.Write([]byte("\x1b]9;tests ✳ passed\x07"))
 	waitDetail("a", "tests ✳ passed")
 	if a := of("a"); a.State != model.StateAwaitingInput || !a.Unseen || a.Provider != model.ProviderTerminal {
@@ -144,7 +144,7 @@ func TestBell(t *testing.T) {
 		return nil
 	}
 
-	e := d.notifyingVT("a")(10, 2, io.Discard)
+	e := d.notifyingVT("a", d.o.NewVT)(10, 2, io.Discard)
 	e.Write([]byte("\a\a"))
 	for start := time.Now(); of("a") == nil && time.Since(start) < 2*time.Second; time.Sleep(5 * time.Millisecond) {
 	}
@@ -203,7 +203,7 @@ func TestClipboard(t *testing.T) {
 		defer d.mu.Unlock()
 		return d.snapshot().Clipboard
 	}
-	e := d.notifyingVT("a")(10, 2, io.Discard)
+	e := d.notifyingVT("a", d.o.NewVT)(10, 2, io.Discard)
 	e.Write([]byte("\x1b]52;c;aGk=\x07"))
 	for start := time.Now(); clip().Text == "" && time.Since(start) < 2*time.Second; time.Sleep(5 * time.Millisecond) {
 	}

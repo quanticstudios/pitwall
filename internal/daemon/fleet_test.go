@@ -21,9 +21,6 @@ import (
 // prompt. s is what Options.Fleet returns.
 func fleetDaemon(t *testing.T, start time.Time, s *config.Settings) (*Daemon, *fakes) {
 	t.Helper()
-	old := replyDelay
-	replyDelay = 0
-	t.Cleanup(func() { replyDelay = old })
 	tab := func(id, pane string) []model.Tab {
 		return []model.Tab{{ID: id + "t", Layout: &layout.Node{Pane: pane}}}
 	}

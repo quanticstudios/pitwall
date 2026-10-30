@@ -178,11 +178,12 @@ type Daemon struct {
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
-	sizes       map[string][2]int      // per pane, the last size it took; a process started in the pane again starts at it
-	inputs      map[string]chan []byte // per pane, drained by writeInput
-	views       map[string]*view       // scroll positions, see scroll.go
-	clients     map[*client]struct{}   // gui clients only
-	watchers    map[*client]struct{}   // watch clients: StateMsg and PaneExited, no frames
+	sizes       map[string][2]int           // per pane, the last size it took; a process started in the pane again starts at it
+	inputs      map[string]chan []byte      // per pane, drained by writeInput
+	holds       map[string]chan chan []byte // per pane, how a handoff takes writeInput's unwritten input
+	views       map[string]*view            // scroll positions, see scroll.go
+	clients     map[*client]struct{}        // gui clients only
+	watchers    map[*client]struct{}        // watch clients: StateMsg and PaneExited, no frames
 	closing     bool
 	savePending bool
 	live        liveness
@@ -212,6 +213,14 @@ type Daemon struct {
 
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
+
+	// ln and stop are Serve's listener and how to end it, set before it
+	// accepts; gate pauses accepting during a handoff, and handedOff
+	// marks one that a new daemon took over. See handoff.go.
+	ln        net.Listener
+	stop      context.CancelFunc
+	gate      acceptGate
+	handedOff bool
 }
 
 // New loads state from store.Path() with store.Open, which sets aside a file
@@ -302,28 +311,14 @@ func New() (*Daemon, error) {
 // command twice may not be safe. Either shows a notice in place of its
 // screen, which is not saved.
 func NewWith(o Options) (*Daemon, error) {
-	if o.StatsInterval == 0 {
-		o.StatsInterval = 30 * time.Second
-	}
-	if o.Branch == nil {
-		o.Branch = gitBranch
-	}
 	st, err := o.Load()
 	if err != nil {
 		return nil, err
 	}
-	if st.Stats == nil {
-		st.Stats = map[string]model.BranchStats{}
-	}
 	saved := st.Activities
 	st.Activities = nil
 	st.PRs = map[string]model.PR{}
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}}
-	if o.Decisions != nil {
-		d.dec.cur = o.Decisions()
-	}
-	d.prs = prPoll{seen: map[string]*prSeen{}, sent: map[string][]string{}, wake: make(chan struct{}, 1)}
-	d.mail = newMail()
+	d := fromState(o, st)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	for i := range d.st.Workspaces {
 		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
@@ -367,6 +362,33 @@ func NewWith(o Options) (*Daemon, error) {
 	for _, id := range gone {
 		closeAll(d.removePane(id))
 	}
+	d.tidy()
+	return d, nil
+}
+
+// fromState is a daemon holding st and no panes.
+func fromState(o Options, st model.State) *Daemon {
+	if o.StatsInterval == 0 {
+		o.StatsInterval = 30 * time.Second
+	}
+	if o.Branch == nil {
+		o.Branch = gitBranch
+	}
+	if st.Stats == nil {
+		st.Stats = map[string]model.BranchStats{}
+	}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, holds: map[string]chan chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}}
+	if o.Decisions != nil {
+		d.dec.cur = o.Decisions()
+	}
+	d.prs = prPoll{seen: map[string]*prSeen{}, sent: map[string][]string{}, wake: make(chan struct{}, 1)}
+	d.mail = newMail()
+	return d
+}
+
+// tidy drops sessions and tasks nothing refers to and fixes titles and
+// orders once the panes are in. Callers hold d.mu.
+func (d *Daemon) tidy() {
 	d.adopt()
 	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool {
 		return !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
@@ -375,13 +397,15 @@ func NewWith(o Options) (*Daemon, error) {
 	d.st.Tasks = slices.DeleteFunc(d.st.Tasks, func(t model.Task) bool { return d.st.Session(t.SessionID) == nil })
 	d.retitle()
 	d.fixOrders()
-	return d, nil
 }
 
 // Serve accepts clients until ctx is done, then saves state and closes panes.
 func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	d.mu.Lock()
+	d.ln, d.stop = ln, cancel
+	d.mu.Unlock()
 	context.AfterFunc(ctx, func() { ln.Close() })
 	d.radar.mu.Lock()
 	d.radar.ctx = ctx
@@ -397,6 +421,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	for {
 		nc, err := ln.Accept()
 		if err != nil {
+			if d.gate.wait(err) {
+				continue // a handoff paused accepting and failed
+			}
 			if ctx.Err() == nil {
 				acceptErr = err
 			}
@@ -413,6 +440,15 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 func (d *Daemon) shutdown() {
 	d.saveMu.Lock()
 	d.mu.Lock()
+	if d.handedOff {
+		// The state and panes are the new daemon's now.
+		d.mu.Unlock()
+		d.saveMu.Unlock()
+		d.o.Journal.Close(time.Second)
+		d.o.Errors.Close(time.Second)
+		d.o.Timing.Close(time.Second)
+		return
+	}
 	d.closing = true
 	s := d.saveSnapshot()
 	panes := slices.Collect(maps.Values(d.panes))
@@ -546,6 +582,15 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		return
 	}
 	hello, ok := m.(proto.Hello)
+	if ok && hello.Kind == "handoff" {
+		// why: before the Version check, since the new daemon may be a
+		// build of another Version; the handoff has its own. Shutdown
+		// waits for it: closing it after Commit would read as the new
+		// daemon dying and resume these panes under two readers.
+		stop()
+		d.serveHandoff(nc, conn)
+		return
+	}
 	// A hook of another Version is served: its AgentEvent never changes.
 	foreign := ok && hello.Version != proto.Version
 	if !ok || foreign && hello.Kind != "hook" {
@@ -796,20 +841,26 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
-		d.mu.Lock()
-		p, in := d.panes[m.Pane], d.inputs[m.Pane]
-		d.mu.Unlock()
-		if p == nil {
-			return fmt.Errorf("no pane %s", m.Pane)
+		p, err := d.pane(m.Pane)
+		if err != nil {
+			return err
 		}
 		d.unscroll(m.Pane, p)
+		// why: queued under d.mu, so a handoff, which holds it, takes
+		// every byte queued before it and none after.
+		d.mu.Lock()
+		queued := false
 		select {
-		case in <- m.Data:
-			d.noteInput(m.Pane, m.Data)
-			return nil
+		case d.inputs[m.Pane] <- m.Data:
+			queued = true
 		default:
+		}
+		d.mu.Unlock()
+		if !queued {
 			return fmt.Errorf("pane %s is not reading its input; dropped %d bytes", m.Pane, len(m.Data))
 		}
+		d.noteInput(m.Pane, m.Data)
+		return nil
 	case proto.Resize:
 		p, err := d.pane(m.Pane)
 		if err != nil {
@@ -1196,6 +1247,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.panes, id)
 	delete(d.sizes, id)
 	delete(d.inputs, id)
+	delete(d.holds, id)
 	delete(d.views, id)
 	delete(d.resumed, id)
 	delete(d.live.hookAt, id)
@@ -1543,24 +1595,14 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 // them in its environment, and its output is watched for a port conflict;
 // env comes after them. Callers hold d.mu.
 func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBlock, env []string) error {
-	newVT := d.notifyingVT(id)
-	if ports.First != 0 && newVT != nil {
-		inner := newVT
-		newVT = func(cols, rows int, reply io.Writer) vt.Emulator {
-			// why: the emulator writes under the pane's lock, which d.mu precedes.
-			return &portWatch{Emulator: inner(cols, rows, reply), hit: func() { go d.portInUse(id) }}
-		}
-	}
 	size, ok := d.sizes[id]
 	if !ok || size[0] <= 0 || size[1] <= 0 {
 		size = [2]int{defaultCols, defaultRows}
 	}
-	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portEnv(ports), env...), Cols: size[0], Rows: size[1], NewVT: newVT})
+	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portEnv(ports), env...), Cols: size[0], Rows: size[1], NewVT: d.paneVT(id, ports, d.o.NewVT)})
 	if err != nil {
 		return err
 	}
-	d.panes[id] = p
-	d.sizes[id] = size
 	program, provider := "shell", model.Provider("")
 	if len(cmd) > 0 {
 		program = filepath.Base(cmd[0]) // never its arguments
@@ -1569,26 +1611,72 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 		provider = d.st.Panes[i].Provider
 	}
 	log.Printf("pane %s: started %q, provider %q, %dx%d", id, program, provider, size[0], size[1])
-	in := make(chan []byte, inputQueue)
-	d.inputs[id] = in
-	go d.watch(id, p)
-	go writeInput(p, in)
+	d.run(id, p, size, nil)
 	return nil
+}
+
+// paneVT is newVT with pane id's notifications and, for a pane in a tab
+// with ports, its watch for a port conflict.
+func (d *Daemon) paneVT(id string, ports model.PortBlock, newVT vt.NewFunc) vt.NewFunc {
+	newVT = d.notifyingVT(id, newVT)
+	if ports.First != 0 && newVT != nil {
+		inner := newVT
+		newVT = func(cols, rows int, reply io.Writer) vt.Emulator {
+			// why: the emulator writes under the pane's lock, which d.mu precedes.
+			return &portWatch{Emulator: inner(cols, rows, reply), hit: func() { go d.portInUse(id) }}
+		}
+	}
+	return newVT
+}
+
+// run adopts a running pane: its frames, its exit and its input, which
+// starts with queued. Callers hold d.mu.
+func (d *Daemon) run(id string, p Pane, size [2]int, queued [][]byte) {
+	d.panes[id] = p
+	d.sizes[id] = size
+	in, hold := make(chan []byte, max(inputQueue, len(queued))), make(chan chan []byte)
+	for _, b := range queued {
+		in <- b
+	}
+	d.inputs[id], d.holds[id] = in, hold
+	go d.watch(id, p)
+	go writeInput(p, in, hold)
 }
 
 // writeInput writes one pane's input on a goroutine of its own: a program
 // that stops reading stdin blocks this goroutine, never a client connection
-// or shutdown.
-// ponytail: the PTY fd is in blocking mode, so a write stuck when the pane
-// closes leaks this goroutine and the fd until the daemon exits; a
-// non-blocking fd in package pane would let Close interrupt it.
-func writeInput(p Pane, in <-chan []byte) {
+// or shutdown. A handoff pauses the pane, which ends a blocked write, and
+// sends a channel on hold: writeInput answers on it with the input it took
+// but did not write, then goes on with what comes back.
+func writeInput(p Pane, in <-chan []byte, hold <-chan chan []byte) {
+	var rest []byte
 	for {
-		select {
-		case b := <-in:
-			p.Write(b) // a pane that cannot take input has exited, which watch reports
-		case <-p.Done():
-			return
+		if len(rest) == 0 {
+			select {
+			case rest = <-in:
+			case r := <-hold:
+				r <- nil
+				rest = <-r
+			case <-p.Done():
+				return
+			}
+			continue
+		}
+		n, err := p.Write(rest)
+		switch {
+		case err == nil:
+			rest = nil
+		case errors.Is(err, os.ErrDeadlineExceeded):
+			rest = rest[n:]
+			select {
+			case r := <-hold:
+				r <- rest
+				rest = <-r
+			case <-p.Done():
+				return
+			}
+		default:
+			rest = nil // a pane that cannot take input has exited, which watch reports
 		}
 	}
 }
@@ -1739,6 +1827,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		d.st.Panes[i].Exited, d.st.Panes[i].ExitCode = true, code
 		log.Printf("pane %s: exited %d; held", id, code)
 		delete(d.inputs, id)
+		delete(d.holds, id)
 		delete(d.live.hookAt, id)
 		delete(d.live.fg, id)
 		delete(d.live.started, id)

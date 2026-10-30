@@ -79,8 +79,70 @@ func (p *Pane) reap() int {
 	return code
 }
 
-// drain bounds the read that follows the exit.
-func (p *Pane) drain() { p.tty.SetReadDeadline(time.Now().Add(drainTimeout)) }
+// drain bounds the read that follows the exit. A paused pane keeps its
+// pause deadline; Resume sets this one.
+func (p *Pane) drain() {
+	p.hold.Lock()
+	defer p.hold.Unlock()
+	p.drainAt = time.Now().Add(drainTimeout)
+	if p.paused == nil {
+		p.tty.SetReadDeadline(p.drainAt)
+	}
+}
+
+// Pause stops the pane for a handoff. It returns once the reader is between
+// two reads, so the emulator holds every byte read and the kernel buffer
+// the rest. A Write blocked on a program that does not read its input
+// returns with what it wrote. Resume undoes it.
+func (p *Pane) Pause() {
+	p.hold.Lock()
+	if p.paused != nil {
+		p.hold.Unlock()
+		return
+	}
+	p.paused = make(chan struct{})
+	past := time.Unix(1, 0)
+	p.tty.SetReadDeadline(past)
+	p.tty.SetWriteDeadline(past)
+	p.hold.Unlock()
+	select {
+	case <-p.parked:
+	case <-p.readDone:
+	}
+}
+
+// Resume reads and writes again after Pause.
+func (p *Pane) Resume() {
+	p.hold.Lock()
+	defer p.hold.Unlock()
+	if p.paused == nil {
+		return
+	}
+	p.tty.SetReadDeadline(p.drainAt)
+	p.tty.SetWriteDeadline(time.Time{})
+	close(p.paused)
+	p.paused = nil
+}
+
+// Master duplicates the PTY master of a running pane for a handoff and
+// returns its process's PID. Pause the pane first. The caller closes the
+// copy.
+func (p *Pane) Master() (*os.File, int, error) {
+	select {
+	case <-p.exited:
+		return nil, 0, fmt.Errorf("pane process %d exited", p.pid)
+	default:
+	}
+	var dup int
+	err := p.control(func(fd int) (err error) {
+		dup, err = unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0)
+		return err
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("duplicate PTY master: %w", err)
+	}
+	return os.NewFile(uintptr(dup), p.tty.Name()), p.pid, nil
+}
 
 func (p *Pane) setSize(cols, rows int) error {
 	return p.control(func(fd int) error {
