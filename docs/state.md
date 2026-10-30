@@ -63,6 +63,11 @@ until you choose:
   running. Windows still open from before the upgrade keep working. Run
   `pitwall` again when you are ready to restart; it asks again.
 
+`pitwall update` and the Update button skip that question on Linux and
+macOS: the new daemon takes over the old one's panes without stopping them,
+whatever the protocol versions. Only when that fails does pitwall fall back
+to the restart above ([Updates](install.md#updates)).
+
 A window from before the upgrade whose daemon was restarted by a newer one
 reopens itself on the installed binary. CLI commands of the other major
 version get an error until the restart. Agent hooks keep working across

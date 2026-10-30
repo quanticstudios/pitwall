@@ -17,13 +17,14 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- New `pitwall update` installs the latest release, then hands the running daemon's panes to the new binary on Linux and macOS, so agents, dev servers and test loops keep running with their scrollback. The Update button does the same after its install. If the handoff fails, `pitwall update` restarts the daemon as before and says why; the button shows why and leaves the restart to "Restart to finish". Windows keeps the restart.
 - `pitwall chat` starts and drives chats: agents pitwall runs over their own protocol rather than in a terminal, each in a tab of its own. `chat new`, `send`, `approve`, `interrupt`, `set`, `read`, `wait` and `archive` work over the daemon's socket, and `pitwall ls` lists chats in their own section. The daemon starts no agent driver yet, so `chat new` says pitwall cannot run that agent until one is wired in. Chats do not survive a daemon restart yet.
 - The daemon has a Claude Code driver for managed chats: it runs `claude -p` in stream-json mode, sends turns and maps streamed text, tool calls, usage and limits to chat events. Nothing starts it yet.
 - Managed-session tests and aide e2e can use scripted Claude and Codex providers without starting agents. The provider registry opts in with `PITWALL_FAKE_PROVIDERS=1` and logs a warning; daemon wiring comes with the chat-loop work.
 
 - `docs/web-protocol.md` specifies the protocol aide will use to drive chats over a localhost WebSocket, with a JSON Schema (`docs/web-protocol.schema.json`) tested against aide's delta fixtures. Nothing serves it yet.
 - `[web] enabled = true` serves the web protocol's handshake on `127.0.0.1` for local clients such as aide. The address and token go in `web.json` (mode 0600) in the state folder, and `pitwall web token --rotate` replaces the token. Requests from another site's page or through a rebound DNS name are refused. Commands answer `unsupported` until later releases add them.
-- A new daemon can take over a running daemon's panes, PTYs and socket on Linux and macOS without the processes noticing, with output, queued input, scrollback and held tabs intact. A failure at any step leaves the old daemon serving. `pitwall update` does not use it yet.
+- A new daemon can take over a running daemon's panes, PTYs and socket on Linux and macOS without the processes noticing, with output, queued input, scrollback and held tabs intact. A failure at any step leaves the old daemon serving.
 - The phone page retries a port that is in use every 2 seconds. It waited for the settings to change.
 - Pane exit tracking can follow transferred processes on Linux and macOS, including processes started by the previous daemon. Older Linux kernels report an unknown exit code for these processes.
 - A group you made by grouping tabs shows their repo's icon in place of the folder when all its tabs are in one repo, its worktrees included. An icon you picked still wins, and the first tile in **Icon and color** brings back the repo's icon.

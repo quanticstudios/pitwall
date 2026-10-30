@@ -49,6 +49,10 @@ pitwall hooks install             # let your agents report their state
 pitwall doctor                    # check every line says ok
 ```
 
+`pitwall update` installs the latest release and hands the running
+daemon's panes to it, their programs still running; see
+[Updates](install.md#updates) for what it does when that fails.
+
 The window opens on a shell in the folder you launched it from, in a
 session with a generated name such as `swift-otter`. Run `claude`, `codex`,
 `pi`, a dev server, anything. The tab's row in the sidebar shows what is
