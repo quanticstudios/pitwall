@@ -651,7 +651,7 @@ mid-turn joins that turn (the spike left it untested).
 | `assistant` text block | `content.delta` with only the text not yet streamed |
 | `assistant` `tool_use` block | `content.delta` tool-call, item id the `tool_use` id, `Tool{status: running}`; `TodoWrite` fills `Tool.Tasks` |
 | `user` `tool_result` | that tool's `content.delta`: status completed, or failed when `is_error`, output the result text |
-| `result` | `turn.completed`: `success` completed; `error_during_execution` with `terminal_reason` `aborted_streaming` interrupted; any other error failed with `result` as the message. `Point` is the `uuid` of the turn's last `assistant` line. Then `session.usage.updated` from `usage` and `modelUsage`. |
+| `result` | `turn.completed`: `success` completed; `error_during_execution` with `terminal_reason` `aborted_streaming` or `aborted_tools` (stopped during a tool, as in `interrupt-tool`) interrupted; any other error failed with `result` as the message. `Point` is the `uuid` of the turn's last `assistant` line. Then `session.usage.updated` from `usage` and `modelUsage`. |
 | `control_request` `can_use_tool` | `request.opened`, request id the `request_id`; `ExitPlanMode` as `plan-approval` with the plan as detail; `AskUserQuestion` as `user-input.requested`, question ids the question texts |
 | `control_cancel_request` | `request.resolved` or `user-input.resolved` for that id; the loop adds "Claude withdrew this request" |
 | `rate_limit_event` | `limit` from `rate_limit_info`: `Rejected` when `status` is `rejected`, windows from `unifiedWindows` |

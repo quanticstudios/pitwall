@@ -11,7 +11,7 @@ directly from Go.
 Everything below was captured on 2026-10-30 against Claude Code 2.1.314 on
 Linux, in a scratch git repo under `/tmp`, with throwaway sessions only. The
 probe ran `--model claude-sonnet-5-5 --effort low`. Raw captures are in
-[`internal/agent/testdata/claude-stream-json/`](../../internal/agent/testdata/claude-stream-json/),
+[`internal/session/claude/testdata/`](../../internal/session/claude/testdata/),
 one scenario per prefix: `<name>.args` is the command line,
 `<name>.stdin.jsonl` what the probe wrote, `<name>.stdout.jsonl` what the
 CLI wrote. Home paths and the account email are replaced with `/home/user`
@@ -399,7 +399,7 @@ missing from `--help`, and Claude Code ships often. To keep that cheap:
 3. Record `claude_code_version` and `capabilities` from `system/init`.
    Gate optional behavior on capabilities rather than on version numbers.
 4. Run the driver tests (ENG-2682) against the fixtures in
-   `internal/agent/testdata/claude-stream-json/`, and re-capture them when
+   `internal/session/claude/testdata/`, and re-capture them when
    the CLI changes the shapes.
 5. Keep the Go driver interface narrow (start, send, approve, interrupt,
    set mode, set model, close, events out) so a Node helper could sit
