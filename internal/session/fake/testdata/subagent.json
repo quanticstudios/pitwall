@@ -1,0 +1,85 @@
+{
+  "mode": "",
+  "prompt": "subagent",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "fake-subagent",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-subagent",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore"
+        },
+        "status": "running",
+        "toolName": "Task"
+      }
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-subagent",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-subagent",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore"
+        },
+        "status": "running",
+        "toolName": "Task",
+        "output": "Listing the repo root.",
+        "progress": "Reading src"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-subagent",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-subagent",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore"
+        },
+        "status": "running",
+        "toolName": "Task",
+        "output": "Listing the repo root.\nFound 12 source files.",
+        "progress": "Reading src"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-subagent",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-subagent",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore"
+        },
+        "status": "completed",
+        "toolName": "Task",
+        "output": "Listing the repo root.\nFound 12 source files."
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "The subagent finished exploring.",
+      "delayMs": 100
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

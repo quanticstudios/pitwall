@@ -1,0 +1,24 @@
+{
+  "mode": "",
+  "prompt": "approval",
+  "runtimeEvents": [
+    {
+      "type": "request.opened",
+      "requestId": "request",
+      "requestType": "command-execution-approval",
+      "detail": "${provider} needs approval",
+      "answers": {},
+      "request": {
+        "command": "rm -rf build && bun run build",
+        "input": {
+          "command": "rm -rf build && bun run build"
+        },
+        "toolName": "Bash"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

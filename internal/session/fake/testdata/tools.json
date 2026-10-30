@@ -1,0 +1,127 @@
+{
+  "mode": "",
+  "prompt": "tools",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "fake-bash",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-bash",
+        "command": "echo hello",
+        "input": {
+          "command": "echo hello"
+        },
+        "toolName": "Bash",
+        "status": "running"
+      }
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-bash",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-bash",
+        "command": "echo hello",
+        "exitCode": 0,
+        "input": {
+          "command": "echo hello"
+        },
+        "output": "hello",
+        "status": "completed",
+        "toolName": "Bash"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-edit",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-edit",
+        "input": {
+          "file_path": "README.md",
+          "new_string": "after",
+          "old_string": "before"
+        },
+        "toolName": "Edit",
+        "status": "running"
+      }
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-edit",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-edit",
+        "diff": "--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,1 @@\n-before\n+after",
+        "files": [
+          {
+            "path": "README.md",
+            "status": "modified"
+          }
+        ],
+        "input": {
+          "file_path": "README.md",
+          "new_string": "after",
+          "old_string": "before"
+        },
+        "output": "Edited README.md",
+        "status": "completed",
+        "toolName": "Edit"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-read",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-read",
+        "input": {
+          "file_path": "README.md"
+        },
+        "toolName": "Read",
+        "status": "running"
+      }
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-read",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-read",
+        "files": [
+          {
+            "path": "README.md",
+            "status": "read"
+          }
+        ],
+        "input": {
+          "file_path": "README.md"
+        },
+        "output": "before",
+        "status": "completed",
+        "toolName": "Read"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "Ran three tools.",
+      "delayMs": 100
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

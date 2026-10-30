@@ -1,0 +1,25 @@
+{
+  "mode": "",
+  "prompt": "edit approval",
+  "runtimeEvents": [
+    {
+      "type": "request.opened",
+      "requestId": "request",
+      "requestType": "file-change-approval",
+      "detail": "${provider} needs approval",
+      "answers": {},
+      "request": {
+        "diff": "--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,1 @@\n-before\n+after",
+        "filePath": "README.md",
+        "input": {
+          "file_path": "README.md"
+        },
+        "toolName": "Edit"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}
