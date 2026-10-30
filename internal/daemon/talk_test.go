@@ -19,9 +19,6 @@ import (
 // b, neither reported on yet.
 func talkDaemon(t *testing.T) (*Daemon, *fakes) {
 	t.Helper()
-	old := replyDelay
-	replyDelay = 0
-	t.Cleanup(func() { replyDelay = old })
 	f := &fakes{statsCalls: map[string]int{}}
 	f.saved = model.State{
 		Sessions: []model.Session{{ID: "s", Name: "work"}},
