@@ -31,9 +31,9 @@ type Pane struct {
 	vt vt.Emulator
 
 	dirty     chan struct{}
-	exited    chan struct{} // closed once the process is reaped
+	exited    chan struct{} // closed once the process exits
 	readDone  chan struct{}
-	done      chan struct{} // closed once the process is reaped and its output read
+	done      chan struct{} // closed once the process exits and its output is read
 	exit      int           // written before exited closes
 	closeOnce sync.Once
 }
@@ -73,6 +73,10 @@ func Start(c Config) (*Pane, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newPane(c, s), nil
+}
+
+func newPane(c Config, s sys) *Pane {
 	p := &Pane{
 		sys:      s,
 		vt:       c.NewVT(c.Cols, c.Rows, s.tty),
@@ -89,7 +93,7 @@ func Start(c Config) (*Pane, error) {
 	}
 	go p.read()
 	go p.wait()
-	return p, nil
+	return p
 }
 
 // environ is os.Environ() without the variables that make nested tools think
@@ -131,7 +135,7 @@ func (p *Pane) read() {
 	}
 }
 
-// wait reaps the process without waiting for PTY EOF, which a detached
+// wait observes the process exit without waiting for PTY EOF, which a detached
 // descendant holding the slave can delay forever.
 func (p *Pane) wait() {
 	p.exit = p.reap()
@@ -246,7 +250,7 @@ func (p *Pane) Dirty() <-chan struct{} { return p.dirty }
 func (p *Pane) Done() <-chan struct{}  { return p.done }
 
 // ExitCode is the process's exit status once Done is closed, and -1 before
-// that or when a signal killed it.
+// that, when a signal killed it, or when an adopted process's status is unavailable.
 func (p *Pane) ExitCode() int {
 	select {
 	case <-p.done:
