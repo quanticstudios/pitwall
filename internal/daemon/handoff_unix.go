@@ -451,6 +451,10 @@ func takeover(uc *net.UnixConn, conn *proto.Conn, o Options) (*Daemon, *net.Unix
 		a.p.Start()
 		d.run(a.ID, a.p, size, a.Input)
 	}
+	// Chats come back from disk, as after a restart: the old daemon closes
+	// them as it exits. shortcut: a command in that window opens a chat
+	// the old daemon still has open; moving chats in the bundle ends it.
+	d.loadChats()
 	d.tidy()
 	d.mu.Unlock()
 	ln.SetUnlinkOnClose(true)

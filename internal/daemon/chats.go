@@ -1,14 +1,18 @@
 package daemon
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -22,6 +26,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/eventlog"
 	"github.com/quanticstudios/pitwall/internal/store"
 )
 
@@ -31,8 +36,9 @@ import (
 // do, and the driver's events wait in a queue the loop drains, so a driver
 // that emits while a command waits on it never blocks.
 //
-// shortcut: chats live in memory only; a daemon restart drops them and
-// their tabs. ENG-2680's event log makes them last.
+// With Options.Chats set, each chat keeps an eventlog under it. The daemon
+// reads only config.json of each at start; the first command loads the
+// rest, and one that needs the provider resumes its session (Resume).
 
 // recentDeltas is how many deltas a chat keeps for ChatRead After.
 const recentDeltas = 1024
@@ -49,13 +55,14 @@ type chat struct {
 	quit chan struct{}
 	wake chan struct{}
 	evMu sync.Mutex
-	evs  []session.Event
+	evs  []chatEvent // each with the start it came from
 
 	// Owned by the loop.
 	cfg    session.Config
 	snap   session.Snapshot
 	seq    int64
 	drv    session.Driver
+	starts int // Provider.Start calls; an event of an earlier one is dropped
 	recent []session.Delta
 	sum    model.Chat // the summary last put in State.Chats
 	// limit is a plan limit that refused the running turn; its end
@@ -63,6 +70,17 @@ type chat struct {
 	limit *session.Limit
 	// resumed marks the running turn as the limit resume's continue.
 	resumed bool
+
+	dir    string        // the chat's eventlog folder; "" in memory only
+	log    *eventlog.Log // nil until the first command loads the chat
+	loaded bool
+	saved  []byte // config.json as last written
+	// resuming: the driver started from cfg.Resume and has not confirmed
+	// it yet; sent is the message it got meanwhile, to send again on a
+	// fallback. recap goes before the next message after a fallback.
+	resuming bool
+	sent     *session.Message
+	recap    string
 }
 
 // chatError is a command's failure with its ChatResult code.
@@ -219,7 +237,7 @@ func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult 
 			w.WorktreeRoot, w.Ports = root, portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
 		}
 	}
-	c := &chat{id: newUUID(), prov: prov, title: promptTitle(m.Prompt), cmds: make(chan func()), quit: make(chan struct{}), wake: make(chan struct{}, 1)}
+	c := d.newChat(newUUID(), prov, promptTitle(m.Prompt))
 	err := d.addSession(ctx, proto.NewSession{Name: m.Name, Cwd: dir, SessionID: m.SessionID, GroupID: m.GroupID, ParentPane: m.ParentPane}, "", nil, func(w *model.Workspace) {
 		if ports != nil {
 			ports(w)
@@ -253,8 +271,9 @@ func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult 
 }
 
 // chatArchive closes the chat's tab as CloseTab does, which closes the
-// chat (removeWorkspace). shortcut: archived chats are not kept until
-// ENG-2680 stores them, so Delete changes nothing.
+// chat (removeWorkspace) and archives its folder. shortcut: Delete changes
+// nothing yet; ChatArchive{Delete} of an archived chat comes with
+// ChatUnarchive.
 func (d *Daemon) chatArchive(m proto.ChatArchive) error {
 	c, err := d.chat(m.Chat)
 	if err != nil {
@@ -274,20 +293,112 @@ func (d *Daemon) dropChat(id string) {
 	d.st.Chats = slices.DeleteFunc(d.st.Chats, func(s model.Chat) bool { return s.ID == id })
 	d.dropPane(id) // its activity, attention, resume and decisions, as a pane's
 	if c != nil {
-		go c.close()
+		go func() {
+			c.close()
+			if c.dir != "" {
+				if err := eventlog.Archive(d.o.Chats, c.id); err != nil {
+					log.Printf("chat %s: archive: %q", c.id, err)
+				}
+			}
+		}()
 	}
 }
 
-// close ends the driver and the loop. It runs once per chat.
+// newChat is a chat whose loop runs, with nothing loaded.
+func (d *Daemon) newChat(id string, prov session.Provider, title string) *chat {
+	c := &chat{id: id, prov: prov, title: title, cmds: make(chan func()), quit: make(chan struct{}), wake: make(chan struct{}, 1)}
+	if d.o.Chats != "" {
+		c.dir = filepath.Join(d.o.Chats, id)
+	}
+	return c
+}
+
+// loadChats rebuilds State.Chats: it reads config.json of each stored chat
+// whose tab came back, and nothing else, so no snapshot loads and no
+// provider starts. Callers hold d.mu.
+func (d *Daemon) loadChats() {
+	d.st.Chats = nil // what a saved or handed-over state carries is stale
+	if d.o.Chats == "" {
+		return
+	}
+	entries, err := os.ReadDir(d.o.Chats)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Printf("chats: %q", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "archive" {
+			continue
+		}
+		cfg, err := eventlog.ReadConfig(filepath.Join(d.o.Chats, e.Name()))
+		if err != nil {
+			log.Printf("chat %s: %q", e.Name(), err)
+			continue
+		}
+		w := d.st.Workspace(cfg.Workspace)
+		if cfg.ID != e.Name() || w == nil || w.Chat != cfg.ID {
+			log.Printf("chat %s: its tab %s is gone", e.Name(), cfg.Workspace)
+			continue
+		}
+		c := d.newChat(cfg.ID, d.o.Providers[cfg.Provider], w.Label)
+		c.cfg = cfg
+		c.saved, _ = json.Marshal(cfg)
+		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode,
+			Title: w.Label, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
+		d.chats[c.id] = c
+		d.st.Chats = append(d.st.Chats, c.sum)
+		go c.loop(d)
+	}
+}
+
+// open loads the chat's log, once. A chat whose log does not open goes on
+// in memory.
+func (c *chat) open() {
+	if c.loaded || c.dir == "" {
+		return
+	}
+	c.loaded = true
+	l, _, snap, seq, err := eventlog.Open(c.dir)
+	if err != nil {
+		log.Printf("chat %s: %q", c.id, err)
+		return
+	}
+	c.log, c.snap, c.seq = l, snap, seq
+}
+
+// save writes config.json when the config changed.
+func (c *chat) save() {
+	if c.log == nil {
+		return
+	}
+	b, _ := json.Marshal(c.cfg)
+	if bytes.Equal(b, c.saved) {
+		return
+	}
+	if err := c.log.WriteConfig(c.cfg); err != nil {
+		log.Printf("chat %s: config: %q", c.id, err)
+		return
+	}
+	c.saved = b
+}
+
+// close ends the driver, the log and the loop. It runs once per chat.
 func (c *chat) close() {
 	ctx, cancel := context.WithTimeout(context.Background(), chatClose)
 	defer cancel()
-	c.do(func() {
+	c.run(func() {
 		if c.drv != nil {
 			if err := c.drv.Close(ctx); err != nil {
 				log.Printf("chat %s: close: %q", c.id, err)
 			}
 			c.drv = nil
+		}
+		if c.log != nil {
+			c.save()
+			if err := c.log.Compact(c.snap, c.seq); err != nil {
+				log.Printf("chat %s: compact: %q", c.id, err)
+			}
+			c.log.Close()
+			c.log = nil
 		}
 	})
 	close(c.quit)
@@ -304,8 +415,11 @@ func (c *chat) loop(d *Daemon) {
 			c.evs = nil
 			c.evMu.Unlock()
 			for _, e := range evs {
-				d.chatEvent(c, e)
+				if e.start == c.starts {
+					d.chatEvent(c, e.Event)
+				}
 			}
+			c.save()
 			d.chatChanged(c)
 		case <-c.quit:
 			return
@@ -313,8 +427,14 @@ func (c *chat) loop(d *Daemon) {
 	}
 }
 
-// do runs f on c's loop and waits for it; false when the chat is closed.
+// do runs f on c's loop, the chat loaded, and waits for it; false when the
+// chat is closed.
 func (c *chat) do(f func()) bool {
+	return c.run(func() { c.open(); f(); c.save() })
+}
+
+// run is do without loading the chat.
+func (c *chat) run(f func()) bool {
 	done := make(chan struct{})
 	select {
 	case c.cmds <- func() { f(); close(done) }:
@@ -325,21 +445,38 @@ func (c *chat) do(f func()) bool {
 	}
 }
 
-// emit is the driver's event callback.
-func (c *chat) emit(e session.Event) {
-	c.evMu.Lock()
-	c.evs = append(c.evs, e)
-	c.evMu.Unlock()
-	select {
-	case c.wake <- struct{}{}:
-	default:
+type chatEvent struct {
+	session.Event
+	start int
+}
+
+// emitter is the event callback of the driver Start number start returns.
+// A driver that failed to start may still emit, and its session.exited
+// must not end the one started after it.
+func (c *chat) emitter(start int) func(session.Event) {
+	return func(e session.Event) {
+		c.evMu.Lock()
+		c.evs = append(c.evs, chatEvent{e, start})
+		c.evMu.Unlock()
+		select {
+		case c.wake <- struct{}{}:
+		default:
+		}
 	}
+}
+
+// start runs c.prov.Start from `from`. The process outlives any one
+// request: Close ends it.
+func (c *chat) start(from session.Origin) (session.Driver, error) {
+	c.starts++
+	return c.prov.Start(context.Background(), c.cfg, from, c.emitter(c.starts))
 }
 
 func (d *Daemon) chatEvent(c *chat, e session.Event) {
 	switch e.Type {
 	case session.EventResumeID:
 		c.cfg.Resume = e.ResumeID
+		c.resuming, c.sent = false, nil
 		return
 	case session.EventLimit:
 		d.chatLimit(c, *e.Limit)
@@ -355,12 +492,73 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 		c.drv = nil // the next command starts it again with Origin{Resume}
 	}
 	c.commit(session.Reduce(c.snap, e), e.CreatedAt)
+	if e.Type == session.EventExited && c.resuming {
+		// Claude's --resume of a session it cannot find exits before
+		// system/init.
+		why := fmt.Sprintf("%s exited before it resumed the session", c.cfg.Provider)
+		for _, t := range c.snap.Turns {
+			if t.State == session.TurnRunning { // the message goes again below
+				c.reduce(session.Event{Type: session.EventTurnCompleted, TurnID: t.ID, State: session.TurnFailed, ErrorMessage: why})
+			}
+		}
+		c.forget(why)
+		if m := c.sent; m != nil {
+			c.sent = nil
+			if _, _, err := d.chatTurn(context.Background(), c, *m); err != nil {
+				log.Printf("chat %s: send again without history: %q", c.id, err)
+			}
+			return
+		}
+	}
 	d.chatNext(context.Background(), c)
+}
+
+// forget drops the provider session that did not resume: the next start is
+// a new one, and the next message carries a recap of the transcript.
+func (c *chat) forget(why string) {
+	c.resuming, c.cfg.Resume = false, ""
+	c.recap = recap(c.snap)
+	c.system("Resumed without history: " + why)
+}
+
+// recapLimit bounds a recap's text, as docs/managed-sessions.md sets it.
+const recapLimit = 2000
+
+// recap is a short summary of s for a provider session that starts without
+// its history: the last assistant text of each turn, the latest kept when
+// they pass recapLimit. "" when there is none.
+func recap(s session.Snapshot) string {
+	var turns []string
+	last := map[string]int{} // turn id to its index in turns
+	for _, it := range s.Content {
+		if it.Kind != session.KindAssistantText || strings.TrimSpace(it.Text) == "" {
+			continue
+		}
+		turn := ""
+		if it.TurnID != nil {
+			turn = *it.TurnID
+		}
+		if i, ok := last[turn]; ok {
+			turns[i] = it.Text
+			continue
+		}
+		last[turn] = len(turns)
+		turns = append(turns, it.Text)
+	}
+	text := []rune(strings.Join(turns, "\n\n"))
+	if len(text) == 0 {
+		return ""
+	}
+	if len(text) > recapLimit {
+		text = text[len(text)-recapLimit:]
+	}
+	return "pitwall could not resume this chat's earlier session. What you said at the end of each earlier turn:\n\n" + string(text)
 }
 
 // commit numbers ds as one revision stamped at stamp and applies them.
 func (c *chat) commit(ds []session.Delta, stamp string) {
 	rev := c.snap.Revision + 1
+	var applied []session.Delta
 	for _, dl := range ds {
 		dl.Version, dl.SessionID, dl.Seq, dl.Revision, dl.UpdatedAt = session.DeltaVersion, c.id, c.seq+1, rev, stamp
 		if dl.Snapshot != nil {
@@ -377,6 +575,17 @@ func (c *chat) commit(ds []session.Delta, stamp string) {
 		c.recent = append(c.recent, dl)
 		if len(c.recent) > 2*recentDeltas {
 			c.recent = slices.Clone(c.recent[len(c.recent)-recentDeltas:])
+		}
+		applied = append(applied, dl)
+	}
+	if c.log == nil || len(applied) == 0 {
+		return
+	}
+	if err := c.log.Append(applied); err != nil {
+		log.Printf("chat %s: log: %q", c.id, err)
+	} else if c.log.Due() {
+		if err := c.log.Compact(c.snap, c.seq); err != nil {
+			log.Printf("chat %s: compact: %q", c.id, err)
 		}
 	}
 }
@@ -409,13 +618,28 @@ func (c *chat) read(after int64) proto.ChatDeltas {
 	return out
 }
 
-// chatStart starts the provider when it is not running.
+// chatStart starts the provider when it is not running: resuming its
+// session when the chat has one, else, or when that fails, a new one.
 func (d *Daemon) chatStart(c *chat) error {
 	if c.drv != nil {
 		return nil
 	}
-	// The process outlives any one request: Close ends it.
-	drv, err := c.prov.Start(context.Background(), c.cfg, session.Origin{Resume: c.cfg.Resume}, c.emit)
+	if c.prov == nil {
+		return chatError{"unsupported", fmt.Sprintf("pitwall cannot run %s chats", c.cfg.Provider)}
+	}
+	resume := c.cfg.Resume
+	drv, err := c.start(session.Origin{Resume: resume})
+	switch {
+	case err == nil:
+		c.resuming = resume != ""
+	case resume != "":
+		// Forget the session only when a new one starts: a provider that
+		// does not start at all says nothing about the session.
+		if fresh, ferr := c.start(session.Origin{}); ferr == nil {
+			c.forget(err.Error())
+			drv, err = fresh, nil
+		}
+	}
 	if err != nil {
 		c.reduce(session.Event{Type: session.EventError, Message: fmt.Sprintf("%s did not start: %v", c.cfg.Provider, err)})
 		return err
@@ -483,7 +707,17 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		}
 	}
 	c.resumed, c.limit = false, nil
-	turn, err := c.drv.Send(ctx, m)
+	sent := m
+	if c.recap != "" {
+		sent.Text = c.recap + "\n\n" + m.Text
+	}
+	turn, err := c.drv.Send(ctx, sent)
+	if err == nil {
+		c.recap = ""
+		if c.resuming {
+			c.sent = &m
+		}
+	}
 	if errors.Is(err, session.ErrBusy) {
 		c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, session.QueuedMessage{ID: m.ID, Text: m.Text})
 		return "", "queued", nil
@@ -502,6 +736,9 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 // provider, and no turn until one starts, unless it steers the running
 // one.
 func (c *chat) prompt(m session.Message, steer bool) {
+	if slices.ContainsFunc(c.snap.Content, func(it session.Item) bool { return it.ID == m.ID }) {
+		return // sent again after a fallback
+	}
 	stamp := session.Stamp(time.Now())
 	it := session.Item{ID: m.ID, Kind: session.KindUserPrompt, Text: m.Text, UpdatedAt: stamp, Attachments: []session.Attachment{}}
 	if i := slices.IndexFunc(c.snap.Turns, func(t session.TurnSummary) bool { return t.State == session.TurnRunning }); steer && i >= 0 {
