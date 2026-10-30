@@ -21,6 +21,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -220,6 +221,7 @@ func macImage(ctx context.Context) ([]byte, error) {
 // clipRun runs name and returns its output, or errTooBig past limit bytes.
 func clipRun(ctx context.Context, limit int, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	nowindow.Set(cmd)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
