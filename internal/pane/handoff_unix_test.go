@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -94,7 +95,8 @@ func TestPauseHandsOver(t *testing.T) {
 }
 
 // Resume reads what came while paused, and a process that exited while
-// paused still drains and reports its code.
+// paused still drains and reports its code. macOS holds an exiting process
+// until its output is read, so there it exits only after Resume.
 func TestPauseResume(t *testing.T) {
 	p, err := Start(Config{Cols: 80, Rows: 24, NewVT: vt.New, Cmd: []string{"sh", "-c", `stty -echo; echo ready; read l; echo "bye:$l"; exit 3`}})
 	if err != nil {
@@ -112,13 +114,15 @@ func TestPauseResume(t *testing.T) {
 	if _, err := master.Write([]byte("x\n")); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-p.exited:
-	case <-time.After(5 * time.Second):
-		t.Fatal("process did not exit")
-	}
-	if _, _, err := p.Master(); err == nil {
-		t.Fatal("Master of an exited process succeeded")
+	if runtime.GOOS == "linux" {
+		select {
+		case <-p.exited:
+		case <-time.After(5 * time.Second):
+			t.Fatal("process did not exit")
+		}
+		if _, _, err := p.Master(); err == nil {
+			t.Fatal("Master of an exited process succeeded")
+		}
 	}
 	p.Resume()
 	select {
@@ -138,6 +142,11 @@ func TestPrepareRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The daemon's master is on Go's poller, which Prepare's switch of the
+	// shared file description to non-blocking does not disturb.
+	if master, err = pollable(master); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { master.Close() })
 	cmd := exec.Command("sh", "-c", `stty -echo; read l; echo "got:$l"`)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
@@ -147,7 +156,12 @@ func TestPrepareRelease(t *testing.T) {
 	}
 	slave.Close()
 	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
-	dup, err := unix.FcntlInt(master.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	var dup int
+	rc, err := master.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc.Control(func(fd uintptr) { dup, err = unix.FcntlInt(fd, unix.F_DUPFD_CLOEXEC, 0) })
 	if err != nil {
 		t.Fatal(err)
 	}
