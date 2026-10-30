@@ -1,0 +1,624 @@
+{
+  "description": "A codex turn that streams reasoning and answer text, then reports token usage.",
+  "mode": "codex",
+  "prompt": "Say hello",
+  "runtimeEvents": [
+    {
+      "createdAt": "2026-10-23T12:01:01.000Z",
+      "type": "turn.started",
+      "turnId": "turn-1"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:02.000Z",
+      "type": "session.state.changed",
+      "state": "running"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:03.000Z",
+      "type": "content.delta",
+      "kind": "reasoning-text",
+      "itemId": "reasoning-1",
+      "text": "Reading"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:04.000Z",
+      "type": "content.delta",
+      "kind": "reasoning-text",
+      "itemId": "reasoning-1",
+      "text": " the prompt."
+    },
+    {
+      "createdAt": "2026-10-23T12:01:05.000Z",
+      "type": "content.delta",
+      "kind": "assistant-text",
+      "itemId": "answer-1",
+      "text": "Hel",
+      "phase": "final_answer"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:06.000Z",
+      "type": "content.delta",
+      "kind": "assistant-text",
+      "itemId": "answer-1",
+      "text": "lo"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:07.000Z",
+      "type": "content.delta",
+      "kind": "assistant-text",
+      "itemId": "answer-1",
+      "text": " world."
+    },
+    {
+      "createdAt": "2026-10-23T12:01:08.000Z",
+      "type": "session.usage.updated",
+      "inputTokens": 120,
+      "outputTokens": 8,
+      "cachedInputTokens": 100,
+      "contextTokens": 128,
+      "maxTokens": 272000
+    },
+    {
+      "createdAt": "2026-10-23T12:01:09.000Z",
+      "type": "turn.completed",
+      "turnId": "turn-1",
+      "state": "completed"
+    },
+    {
+      "createdAt": "2026-10-23T12:01:10.000Z",
+      "type": "session.state.changed",
+      "state": "ready"
+    }
+  ],
+  "deltas": [
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 1,
+      "revision": 3,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "snapshot",
+      "snapshot": {
+        "content": [],
+        "detail": null,
+        "effort": null,
+        "interactionMode": "build",
+        "lastCompletedAt": null,
+        "lastError": null,
+        "lastErrorAt": null,
+        "model": null,
+        "paneId": "workspace-1:codex-pane",
+        "pendingApprovals": [],
+        "pendingUserInputs": [],
+        "permissionMode": "default",
+        "planApproval": null,
+        "provider": "codex",
+        "running": true,
+        "sessionId": "workspace-1:codex-session",
+        "sessionState": "ready",
+        "turns": [],
+        "updatedAt": "2026-10-23T12:00:00.000Z",
+        "workspaceId": "workspace-1",
+        "revision": 3,
+        "runtimeGeneration": 1,
+        "selectionNotice": null,
+        "serviceTier": null
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 2,
+      "revision": 4,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "item.add",
+      "item": {
+        "attachments": [],
+        "id": "user-prompt:00000000-0000-4000-8000-000000000001",
+        "kind": "user-prompt",
+        "provider": null,
+        "text": "Say hello",
+        "turnId": null,
+        "updatedAt": "2026-10-23T12:00:00.000Z"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 3,
+      "revision": 5,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "preparingActivityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": null
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 4,
+      "revision": 6,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": null
+            },
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "completed",
+              "label": "Jev preparation",
+              "detail": "Context preparation completed.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000003",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": null
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 5,
+      "revision": 7,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "status",
+      "status": "working",
+      "sessionState": "running",
+      "running": true,
+      "detail": null,
+      "lastCompletedAt": null
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 6,
+      "revision": 7,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "completed",
+              "label": "Jev preparation",
+              "detail": "Context preparation completed.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000003",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "turn",
+              "status": "started",
+              "label": "Orchestrator turn",
+              "detail": "The provider started this turn.",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000004",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 7,
+      "revision": 8,
+      "updatedAt": "2026-10-23T12:01:01.000Z",
+      "type": "item.patch",
+      "itemId": "user-prompt:00000000-0000-4000-8000-000000000001",
+      "patch": {
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:01.000Z"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 8,
+      "revision": 8,
+      "updatedAt": "2026-10-23T12:01:01.000Z",
+      "type": "turn",
+      "turn": {
+        "completedAt": null,
+        "id": "turn-1",
+        "provider": "codex",
+        "startedAt": "2026-10-23T12:01:01.000Z",
+        "state": "running"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 9,
+      "revision": 8,
+      "updatedAt": "2026-10-23T12:01:01.000Z",
+      "type": "session.patch",
+      "set": {},
+      "unset": ["preparingActivityId"]
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 10,
+      "revision": 9,
+      "updatedAt": "2026-10-23T12:01:02.000Z",
+      "type": "session.patch",
+      "set": {}
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 11,
+      "revision": 10,
+      "updatedAt": "2026-10-23T12:01:03.000Z",
+      "type": "item.add",
+      "item": {
+        "createdAt": "2026-10-23T12:01:03.000Z",
+        "id": "reasoning-1",
+        "kind": "reasoning-text",
+        "provider": "codex",
+        "text": "Reading",
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:03.000Z"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 12,
+      "revision": 11,
+      "updatedAt": "2026-10-23T12:01:04.000Z",
+      "type": "reasoning.append",
+      "itemId": "reasoning-1",
+      "text": " the prompt.",
+      "itemUpdatedAt": "2026-10-23T12:01:04.000Z"
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 13,
+      "revision": 12,
+      "updatedAt": "2026-10-23T12:01:05.000Z",
+      "type": "item.add",
+      "item": {
+        "createdAt": "2026-10-23T12:01:05.000Z",
+        "id": "answer-1",
+        "kind": "assistant-text",
+        "phase": "final_answer",
+        "provider": "codex",
+        "text": "Hel",
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:05.000Z"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 14,
+      "revision": 13,
+      "updatedAt": "2026-10-23T12:01:06.000Z",
+      "type": "item.text.append",
+      "itemId": "answer-1",
+      "text": "lo",
+      "itemUpdatedAt": "2026-10-23T12:01:06.000Z"
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 15,
+      "revision": 14,
+      "updatedAt": "2026-10-23T12:01:07.000Z",
+      "type": "item.text.append",
+      "itemId": "answer-1",
+      "text": " world.",
+      "itemUpdatedAt": "2026-10-23T12:01:07.000Z"
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 16,
+      "revision": 15,
+      "updatedAt": "2026-10-23T12:01:08.000Z",
+      "type": "usage",
+      "usage": {
+        "inputTokens": 120,
+        "outputTokens": 8,
+        "maxTokens": 272000,
+        "cachedInputTokens": 100,
+        "contextTokens": 128
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 17,
+      "revision": 16,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "status",
+      "status": "done",
+      "sessionState": "ready",
+      "running": true,
+      "detail": null,
+      "lastCompletedAt": "2026-10-23T12:01:09.000Z"
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 18,
+      "revision": 16,
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "type": "session.patch",
+      "set": {
+        "fleet": {
+          "plan": null,
+          "events": [
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "started",
+              "label": "Jev preparation",
+              "detail": "Preparing authorized context for the orchestrator.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000002",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "preparation",
+              "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+              "requestedBy": "user",
+              "status": "completed",
+              "label": "Jev preparation",
+              "detail": "Context preparation completed.",
+              "model": "jev",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000003",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "turn",
+              "status": "started",
+              "label": "Orchestrator turn",
+              "detail": "The provider started this turn.",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000004",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            },
+            {
+              "type": "turn",
+              "status": "completed",
+              "label": "Orchestrator turn",
+              "detail": "Provider-reported turn outcome. Plan acceptance is separate.",
+              "source": "runtime",
+              "id": "00000000-0000-4000-8000-000000000005",
+              "createdAt": "2026-10-23T12:00:00.000Z",
+              "turnId": "turn-1"
+            }
+          ],
+          "acceptedNodeIds": [],
+          "updatedAt": "2026-10-23T12:00:00.000Z",
+          "droppedEventCount": 0
+        }
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 19,
+      "revision": 17,
+      "updatedAt": "2026-10-23T12:01:09.000Z",
+      "type": "turn",
+      "turn": {
+        "completedAt": "2026-10-23T12:01:09.000Z",
+        "id": "turn-1",
+        "provider": "codex",
+        "startedAt": "2026-10-23T12:01:01.000Z",
+        "state": "completed"
+      }
+    },
+    {
+      "version": 1,
+      "sessionId": "workspace-1:codex-session",
+      "seq": 20,
+      "revision": 18,
+      "updatedAt": "2026-10-23T12:01:10.000Z",
+      "type": "session.patch",
+      "set": {}
+    }
+  ],
+  "snapshot": {
+    "fleet": {
+      "plan": null,
+      "events": [
+        {
+          "type": "preparation",
+          "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+          "requestedBy": "user",
+          "status": "started",
+          "label": "Jev preparation",
+          "detail": "Preparing authorized context for the orchestrator.",
+          "model": "jev",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000002",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "preparation",
+          "activityId": "user-prompt:00000000-0000-4000-8000-000000000001",
+          "requestedBy": "user",
+          "status": "completed",
+          "label": "Jev preparation",
+          "detail": "Context preparation completed.",
+          "model": "jev",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "turn",
+          "status": "started",
+          "label": "Orchestrator turn",
+          "detail": "The provider started this turn.",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000004",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        },
+        {
+          "type": "turn",
+          "status": "completed",
+          "label": "Orchestrator turn",
+          "detail": "Provider-reported turn outcome. Plan acceptance is separate.",
+          "source": "runtime",
+          "id": "00000000-0000-4000-8000-000000000005",
+          "createdAt": "2026-10-23T12:00:00.000Z",
+          "turnId": "turn-1"
+        }
+      ],
+      "acceptedNodeIds": [],
+      "updatedAt": "2026-10-23T12:00:00.000Z",
+      "droppedEventCount": 0
+    },
+    "content": [
+      {
+        "attachments": [],
+        "id": "user-prompt:00000000-0000-4000-8000-000000000001",
+        "kind": "user-prompt",
+        "provider": null,
+        "text": "Say hello",
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:01.000Z"
+      },
+      {
+        "createdAt": "2026-10-23T12:01:03.000Z",
+        "id": "reasoning-1",
+        "kind": "reasoning-text",
+        "provider": "codex",
+        "text": "Reading the prompt.",
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:04.000Z"
+      },
+      {
+        "createdAt": "2026-10-23T12:01:05.000Z",
+        "id": "answer-1",
+        "kind": "assistant-text",
+        "phase": "final_answer",
+        "provider": "codex",
+        "text": "Hello world.",
+        "turnId": "turn-1",
+        "updatedAt": "2026-10-23T12:01:07.000Z"
+      }
+    ],
+    "detail": null,
+    "effort": null,
+    "interactionMode": "build",
+    "lastCompletedAt": "2026-10-23T12:01:09.000Z",
+    "lastError": null,
+    "lastErrorAt": null,
+    "model": null,
+    "paneId": "workspace-1:codex-pane",
+    "pendingApprovals": [],
+    "pendingUserInputs": [],
+    "permissionMode": "default",
+    "planApproval": null,
+    "provider": "codex",
+    "running": true,
+    "sessionId": "workspace-1:codex-session",
+    "sessionState": "ready",
+    "turns": [
+      {
+        "completedAt": "2026-10-23T12:01:09.000Z",
+        "id": "turn-1",
+        "provider": "codex",
+        "startedAt": "2026-10-23T12:01:01.000Z",
+        "state": "completed"
+      }
+    ],
+    "updatedAt": "2026-10-23T12:01:10.000Z",
+    "usage": {
+      "inputTokens": 120,
+      "outputTokens": 8,
+      "maxTokens": 272000,
+      "cachedInputTokens": 100,
+      "contextTokens": 128
+    },
+    "workspaceId": "workspace-1",
+    "revision": 18,
+    "runtimeGeneration": 1,
+    "selectionNotice": null,
+    "serviceTier": null
+  }
+}
