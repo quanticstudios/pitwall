@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -267,5 +268,94 @@ func TestCrashLoopRefused(t *testing.T) {
 	}
 	if started, _ := filepath.Glob(filepath.Join(runs, "run-*")); len(started) != 1+maxRestarts {
 		t.Errorf("%d servers started, want %d", len(started), 1+maxRestarts)
+	}
+}
+
+// waitN waits until n events of typ arrived.
+func (r *recorder) waitN(t *testing.T, typ session.EventType, n int) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		got := 0
+		for _, e := range r.all() {
+			if e.Type == typ {
+				got++
+			}
+		}
+		if got >= n {
+			return
+		}
+	}
+	t.Fatalf("fewer than %d %s events in %v", n, typ, r.all())
+}
+
+// TestRequests answers each request kind, refuses an unknown one, and
+// interrupts a turn with an approval open; the next turn still runs.
+func TestRequests(t *testing.T) {
+	ids, old := 0, newID
+	newID = func() string { ids++; return fmt.Sprintf("req-%d", ids) }
+	t.Cleanup(func() { newID = old })
+	d, rec, _ := start(t, "approvals.jsonl", session.Config{})
+	ctx := context.Background()
+	if _, err := d.Send(ctx, session.Message{ID: "u1", Text: "Clean up"}); err != nil {
+		t.Fatal(err)
+	}
+	rec.waitN(t, session.EventRequestOpened, 2)
+	rec.waitFor(t, session.EventInputRequested)
+	if err := d.Answer(ctx, "req-1", map[string][]string{"q1": {"Yes"}}); err == nil {
+		t.Error("Answer on an approval succeeded, want an error")
+	}
+	if err := d.Approve(ctx, "req-1", session.Decision{Allow: true, ForSession: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Approve(ctx, "req-1", session.Decision{Allow: true}); err == nil {
+		t.Error("a second answer succeeded, want an error")
+	}
+	if err := d.Approve(ctx, "req-2", session.Decision{Reason: "keep the package name"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Answer(ctx, "req-3", map[string][]string{"q1": {"Yes"}}); err != nil {
+		t.Fatal(err)
+	}
+	rec.waitN(t, session.EventRequestOpened, 3)
+	if err := d.Interrupt(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rec.waitFor(t, session.EventTurnCompleted)
+	if err := d.Steer(ctx, session.Message{Text: "late"}); !errors.Is(err, session.ErrIdle) {
+		t.Errorf("Steer while idle = %v, want ErrIdle", err)
+	}
+	if err := d.Interrupt(ctx); err != nil {
+		t.Errorf("Interrupt while idle = %v, want a no-op", err)
+	}
+	if id, err := d.Send(ctx, session.Message{ID: "u2", Text: "Go on"}); err != nil || id != "turn_2" {
+		t.Fatalf("Send after the interrupt = %q, %v; want turn_2", id, err)
+	}
+	rec.waitN(t, session.EventTurnCompleted, 2)
+	if err := d.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	events := rec.all()
+	golden(t, "approvals.events.json", events)
+
+	s := fold(t, events)
+	if len(s.PendingApprovals) != 0 || len(s.PendingUserInputs) != 0 {
+		t.Errorf("pending after the turns: %+v %+v, want none", s.PendingApprovals, s.PendingUserInputs)
+	}
+	if len(s.Turns) != 2 || s.Turns[0].State != session.TurnInterrupted || s.Turns[1].State != session.TurnCompleted {
+		t.Errorf("turns = %+v, want turn_1 interrupted and turn_2 completed", s.Turns)
+	}
+	var plan *session.ToolCall
+	for _, it := range s.Content {
+		if it.ID == "plan-turn_1" {
+			plan = it.Tool
+		}
+	}
+	if plan == nil || len(plan.Tasks) != 2 || plan.Tasks[0].Status != "completed" {
+		t.Errorf("plan = %+v, want two completed tasks", plan)
+	}
+	if !slices.ContainsFunc(events, func(e session.Event) bool {
+		return e.Type == session.EventError && strings.Contains(e.Message, "item/tool/call")
+	}) {
+		t.Error("no error event for the refused item/tool/call")
 	}
 }

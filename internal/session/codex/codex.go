@@ -37,7 +37,7 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 	if from.Fork || from.At != "" {
 		return nil, session.ErrUnsupported // fork and rewind: ENG-2691
 	}
-	d := &driver{cfg: cfg, events: make(chan session.Event, 64), emitted: make(chan struct{})}
+	d := &driver{cfg: cfg, events: make(chan session.Event, 64), emitted: make(chan struct{}), requests: map[string]request{}}
 	go func() {
 		defer close(d.emitted)
 		for e := range d.events {
@@ -75,6 +75,8 @@ type driver struct {
 	phases   map[string]string
 	streamed map[string]bool
 	unknown  map[string]bool
+
+	requests map[string]request // under mu: open server requests by the request id pitwall gave them
 }
 
 // proc is one app-server process.
@@ -314,6 +316,7 @@ func (d *driver) read(p *proc, stdout io.Reader) {
 
 	d.mu.Lock()
 	d.p, d.turn = nil, ""
+	clear(d.requests) // session.exited resolves them in the snapshot
 	d.mu.Unlock()
 	close(p.done)
 }
@@ -351,9 +354,7 @@ func (d *driver) handle(p *proc, line []byte) {
 		}
 		c.reply <- reply{result: m.Result}
 	case m.ID != nil:
-		// Approvals and user input are ENG-2685; until then every server
-		// request gets aide's answer to one it does not know.
-		p.write(message{ID: m.ID, Error: rpcError{Code: -32601, Message: "Unsupported request: " + m.Method}})
+		d.request(p, m.ID, m.Method, m.Params)
 	default:
 		d.notify(m.Method, m.Params)
 	}
@@ -408,12 +409,8 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 		d.mu.Unlock()
 	}
 
-	input := []map[string]string{{"type": "text", "text": m.Text}}
-	for _, im := range m.Images {
-		input = append(input, map[string]string{"type": "image", "url": "data:" + im.MimeType + ";base64," + base64.StdEncoding.EncodeToString(im.Data)})
-	}
 	d.mu.Lock()
-	params := map[string]any{"threadId": d.thread, "input": input}
+	params := map[string]any{"threadId": d.thread, "input": input(m)}
 	d.mu.Unlock()
 	if m.ID != "" {
 		params["clientUserMessageId"] = m.ID
@@ -428,6 +425,15 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 	var r struct{ Turn struct{ ID string } }
 	json.Unmarshal(res, &r)
 	return r.Turn.ID, nil
+}
+
+// input is m as turn/start and turn/steer take it.
+func input(m session.Message) []map[string]string {
+	in := []map[string]string{{"type": "text", "text": m.Text}}
+	for _, im := range m.Images {
+		in = append(in, map[string]string{"type": "image", "url": "data:" + im.MimeType + ";base64," + base64.StdEncoding.EncodeToString(im.Data)})
+	}
+	return in
 }
 
 // restart starts a server for the thread a crashed one had open.
@@ -450,20 +456,47 @@ func (d *driver) restart(ctx context.Context) error {
 	return d.start(ctx, thread)
 }
 
-// Steer, Interrupt, Approve, Answer and Set are ENG-2685.
-
-func (d *driver) Steer(context.Context, session.Message) error { return session.ErrUnsupported }
-
-func (d *driver) Interrupt(context.Context) error { return session.ErrUnsupported }
-
-func (d *driver) Approve(context.Context, string, session.Decision) error {
-	return session.ErrUnsupported
+func (d *driver) Steer(ctx context.Context, m session.Message) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+	return d.steer(ctx, m)
 }
 
-func (d *driver) Answer(context.Context, string, map[string][]string) error {
-	return session.ErrUnsupported
+// steer adds m to the running turn. The caller holds cmdMu.
+func (d *driver) steer(ctx context.Context, m session.Message) error {
+	d.mu.Lock()
+	p, thread, turn, closing := d.p, d.thread, d.turn, d.closing
+	d.mu.Unlock()
+	switch {
+	case closing:
+		return session.ErrClosed
+	case p == nil || turn == "":
+		return session.ErrIdle
+	}
+	params := map[string]any{"threadId": thread, "expectedTurnId": turn, "input": input(m)}
+	if m.ID != "" {
+		params["clientUserMessageId"] = m.ID
+	}
+	_, err := d.call(ctx, p, "turn/steer", params)
+	return err
 }
 
+// Interrupt asks the server to stop the turn; turn/completed with status
+// interrupted ends it.
+func (d *driver) Interrupt(ctx context.Context) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+	d.mu.Lock()
+	p, thread, turn := d.p, d.thread, d.turn
+	d.mu.Unlock()
+	if p == nil || turn == "" {
+		return nil
+	}
+	_, err := d.call(ctx, p, "turn/interrupt", map[string]string{"threadId": thread, "turnId": turn})
+	return err
+}
+
+// Set (thread/settings/update) is not wired yet.
 func (d *driver) Set(context.Context, session.Settings) error { return session.ErrUnsupported }
 
 func (d *driver) Close(ctx context.Context) error {
