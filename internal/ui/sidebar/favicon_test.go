@@ -224,7 +224,7 @@ func TestGroupRoot(t *testing.T) {
 	group := func(paths ...string) *view {
 		v := &view{th: theme.Dark(), st: &model.State{}, byProject: map[string][]model.Workspace{}}
 		for i, p := range paths {
-			v.byProject["g"] = append(v.byProject["g"], model.Workspace{ID: fmt.Sprint(i), Path: p})
+			v.byProject["g"] = append(v.byProject["g"], model.Workspace{ID: fmt.Sprint(i), Path: filepath.FromSlash(p)})
 		}
 		return v
 	}
@@ -239,7 +239,7 @@ func TestGroupRoot(t *testing.T) {
 		{"no tabs", group(), ""},
 	}
 	for _, c := range cases {
-		if got := s.groupRoot(c.v, g); got != c.want {
+		if got := s.groupRoot(c.v, g); got != filepath.FromSlash(c.want) {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 		if f := s.groupFavicon(c.v, g); (f != nil) != (c.want != "") {
@@ -251,8 +251,8 @@ func TestGroupRoot(t *testing.T) {
 	}
 	// A worktree pitwall made elsewhere counts as the repo it came from.
 	v := group("/h/acme")
-	v.byProject["g"] = append(v.byProject["g"], model.Workspace{ID: "w", Path: "/h/wt", RepoRoot: "/h/wt", WorktreeRoot: "/h/acme"})
-	if got := s.groupRoot(v, g); got != "/h/acme" {
+	v.byProject["g"] = append(v.byProject["g"], model.Workspace{ID: "w", Path: filepath.FromSlash("/h/wt"), RepoRoot: filepath.FromSlash("/h/wt"), WorktreeRoot: filepath.FromSlash("/h/acme")})
+	if got := s.groupRoot(v, g); got != filepath.FromSlash("/h/acme") {
 		t.Errorf("pitwall's worktree: %q", got)
 	}
 	// A picked glyph wins on the header, the picker still offers the
