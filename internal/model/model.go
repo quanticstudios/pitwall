@@ -103,6 +103,30 @@ type Workspace struct {
 	UpdatedAt time.Time
 	Tabs      []Tab  // exactly one; none for a project workspace before OpenPane
 	ActiveTab string // the id of Tabs[0]
+	// Chat is the id of the managed session this tab shows (State.Chats),
+	// "" for a tab of panes. A chat tab has no Tabs and no panes.
+	Chat string
+}
+
+// Chat is a managed session's summary. The daemon keeps it current; the
+// transcript is fetched with proto.ChatRead, never pushed in State. The
+// JSON keys are the web protocol's session list (docs/web-protocol.md).
+type Chat struct {
+	ID          string   `json:"id"`          // a UUID the daemon chose; also the chat's Activity.PaneID
+	WorkspaceID string   `json:"workspaceId"` // the tab it owns
+	Provider    Provider `json:"provider"`
+	Model       string   `json:"model"` // "" means the provider's default
+	Effort      string   `json:"effort"`
+	Mode        string   `json:"mode"` // permission mode: default, acceptEdits, plan, bypassPermissions
+	// Title is the first prompt (first line, whitespace collapsed, cut to 48
+	// runes, as Pane.Prompt) until someone renames the tab.
+	Title     string    `json:"title"`
+	State     string    `json:"state"`   // aide's sessionState: connecting, ready, running, waiting, stopped, error
+	Pending   int       `json:"pending"` // approvals and input requests waiting on someone
+	Queued    int       `json:"queued"`  // messages waiting for the running turn to end
+	Turns     int       `json:"turns"`
+	Seq       int64     `json:"seq"` // the seq of the chat's latest delta
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // Lane is a fleet worker's lane and what pitwall did about it: at most
@@ -274,6 +298,9 @@ type State struct {
 	// missing. The daemon fills it in and replaces it whole; it is not
 	// saved.
 	Listening map[string][]int `json:"-"`
+	// Chats are the live (not archived) chats of every session. The daemon
+	// fills it in; it is not saved in state.json.
+	Chats []Chat `json:"-"`
 }
 
 // Overlap is another tab whose branch, in the same repository, changes

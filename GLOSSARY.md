@@ -12,6 +12,9 @@ _Avoid_: workspace (outside the code), window, row
 **Pane**: one terminal in a tab, running a shell, a command or an agent. Addressed as `TAB.N` or `@<id>`.
 _Avoid_: terminal (for the address), split, window
 
+**Chat**: an agent pitwall drives over the agent's own protocol rather than in a terminal; it has a tab of its own and no panes (`pitwall chat`). `model.Chat` in the code; design text calls it a managed session.
+_Avoid_: session (that is the set of tabs), conversation
+
 **Group**: tabs the user put together under one sidebar header, often for one repo or folder. `model.Project` in the code.
 _Avoid_: project (outside the code), folder
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -40,6 +41,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 37 added chats (managed sessions): model.Chat, State.Chats,
+// Workspace.Chat and the Chat* messages. A client below ChatLevel never
+// sees a chat tab.
 // Level 36 added Activity.AutoContinues: the hover card explains when
 // Claude Code handles its own usage-limit resume.
 // Level 35 added account profiles on NewSession, NewTab and Task.
@@ -132,7 +136,10 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 36
+const Level = 37
+
+// ChatLevel added chats and the Chat* messages.
+const ChatLevel = 37
 
 // ProfileLevel added account profiles on NewSession, NewTab and Task.
 const ProfileLevel = 35
@@ -141,6 +148,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case ChatNew, ChatSend, ChatInterrupt, ChatApprove, ChatAnswer, ChatSet, ChatQueue, ChatRead, ChatArchive, ChatResult, ChatDeltas:
+		return ChatLevel
 	case SearchAll, SearchAllResult:
 		return 34
 	case PasteImage, PasteImageResult:
@@ -779,4 +788,93 @@ var Messages = []any{
 	Favicon{}, FaviconResult{},
 	PasteImage{}, PasteImageResult{},
 	SearchAll{}, SearchAllResult{},
+	ChatNew{}, ChatSend{}, ChatInterrupt{}, ChatApprove{}, ChatAnswer{}, ChatSet{}, ChatQueue{}, ChatRead{}, ChatArchive{},
+	ChatResult{}, ChatDeltas{},
+}
+
+// Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
+// answers each Chat* request to its client alone: ChatRead with
+// ChatDeltas, a failed ChatRead and every other one with ChatResult. A chat
+// is named by its id.
+
+// ChatNew opens a chat in a tab of its own: in Dir, or in a worktree made
+// from the repo at Dir, as a Task's. Prompt, when set, is the first turn.
+type ChatNew struct {
+	SessionID, GroupID     string
+	Dir                    string // the folder, or the repo a worktree is made from
+	Worktree, Base, Branch string // as model.Task
+	Provider               model.Provider
+	Model, Effort, Mode    string
+	Prompt                 string
+	Images                 []string // paths the daemon reads and copies into images/
+	Name                   string   // the tab's name, "" for none
+	ParentPane             string   // as NewSession.ParentPane
+}
+
+// ChatSend starts a turn with Text, or queues it behind the running one.
+// How "steer" adds it to the running turn where the provider can, and
+// "queue" always queues.
+type ChatSend struct {
+	Chat   string
+	Text   string
+	Images []string
+	How    string
+}
+
+// ChatInterrupt stops the running turn and holds the queue until the next
+// ChatSend.
+type ChatInterrupt struct{ Chat string }
+
+// ChatApprove answers a pending approval: first answer wins.
+type ChatApprove struct {
+	Chat, Request string
+	Decision      string // allow, allow-session, deny
+	Reason        string
+	By            string // who answers, for decisions.jsonl; the daemon sets it for socket clients
+}
+
+// ChatAnswer answers a pending input request.
+type ChatAnswer struct {
+	Chat, Request string
+	Answers       map[string][]string // question id to the chosen labels or typed text
+}
+
+// ChatSet changes the model, effort or permission mode; "" leaves one as it
+// is.
+type ChatSet struct{ Chat, Model, Effort, Mode string }
+
+// ChatQueue reorders, edits or drops queued messages.
+type ChatQueue struct {
+	Chat  string
+	Queue []session.QueuedMessage // the whole queue as it should be; unknown ids are refused
+}
+
+// ChatRead asks for a chat's transcript.
+type ChatRead struct {
+	Chat  string
+	After int64 // 0: a snapshot; else the deltas after seq After, or a snapshot when they are gone
+}
+
+// ChatArchive closes a chat and its tab, as CloseTab does; refused for a
+// pinned tab. Delete removes it for good.
+type ChatArchive struct {
+	Chat   string
+	Delete bool
+}
+
+// ChatResult answers a Chat* request.
+type ChatResult struct {
+	Chat    string
+	Turn    string // ChatSend: the turn it started, "" when queued
+	Code    string // "" on success; not-found, conflict, busy, unsupported, provider, invalid
+	Message string
+}
+
+// ChatDeltas carries a chat's contents as session.Snapshot and
+// session.Delta JSON.
+type ChatDeltas struct {
+	Chat     string
+	Snapshot []byte   // JSON Snapshot when the client needs a new base, else nil
+	Seq      int64    // Snapshot's seq
+	Deltas   [][]byte // JSON Deltas, in seq order, after Seq
 }

@@ -16,7 +16,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/proto`       | Wire messages, gob framing, socket path                        |
 | `internal/daemon`      | State owner, socket server, wiring of pane/agent/gitstat/store |
 | `internal/agent`       | Claude/Codex hook payload to `model.Activity`                  |
-| `internal/session`     | Managed session events, deltas, snapshots: `Reduce`, `Apply`   |
+| `internal/session`     | Chats' events, deltas, snapshots (`Reduce`, `Apply`), `Driver` |
 | `internal/guard`       | The deny list a guarded tab's hooks check commands against     |
 | `internal/gitstat`     | Worktrees and branch stats via `git`                           |
 | `internal/store`       | Persist state, resume commands                                 |

@@ -105,7 +105,7 @@ func TestLoadCorrupt(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":9,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
+	for _, data := range []string{"{", "null", "{}", `{"format_version":1}`, `{"format_version":99,"state":{}}`, `{"format_version":1,"state":{}} {}`} {
 		t.Run(data, func(t *testing.T) {
 			if err := os.WriteFile(Path(), []byte(data), 0600); err != nil {
 				t.Fatal(err)
@@ -506,6 +506,31 @@ func TestLoadMigratesVersion7Held(t *testing.T) {
 		if !reflect.DeepEqual(held, want) {
 			t.Fatalf("version %d: held %v, want %v", version, held, want)
 		}
+	}
+}
+
+// TestChatTabs checks a version 8 file, from before chats, loads with no
+// chat and keeps a .prev, and Workspace.Chat round-trips.
+func TestChatTabs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v8 := `{"format_version":8,"state":{"Sessions":[{"ID":"s","Name":"main"}],"Workspaces":[{"ID":"w","SessionID":"s"}]}}`
+	if err := os.WriteFile(path, []byte(v8), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil || len(s.Workspaces) != 1 || s.Workspaces[0].Chat != "" {
+		t.Fatalf("load: %#v, %v", s.Workspaces, err)
+	}
+	if _, err := os.Stat(path + ".prev"); err != nil {
+		t.Fatalf("no prev: %v", err)
+	}
+	s.Workspaces[0].Chat = "c1"
+	s.Chats = []model.Chat{{ID: "c1"}}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = Load(path); err != nil || s.Workspaces[0].Chat != "c1" || s.Chats != nil {
+		t.Fatalf("round trip: %#v %#v, %v", s.Workspaces, s.Chats, err)
 	}
 }
 
