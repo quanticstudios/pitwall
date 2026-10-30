@@ -65,6 +65,11 @@ type x11Window struct {
 	xkbEventBase C.int
 	xw           C.Window
 	ibus         *ibus.IBus
+	// pitwall: Xdnd file transfers use a separate selection and property.
+	xdnd         map[string]C.Atom
+	dropSource   C.Window
+	dropPosition image.Point
+	dropAccepted bool
 
 	atoms struct {
 		// "UTF8_STRING".
@@ -738,6 +743,10 @@ func (h *x11EventHandler) handleEvents() bool {
 			// redraw will be done by a later expose event
 		case C.SelectionNotify:
 			cevt := (*C.XSelectionEvent)(unsafe.Pointer(xev))
+			if cevt.selection == w.xdnd["XdndSelection"] {
+				w.finishFileDrop(cevt)
+				continue
+			}
 			prop := w.atoms.clipboardContent
 			if cevt.selection != w.atoms.clipboard {
 				break
@@ -808,6 +817,9 @@ func (h *x11EventHandler) handleEvents() bool {
 			}
 		case C.ClientMessage: // extensions
 			cevt := (*C.XClientMessageEvent)(unsafe.Pointer(xev))
+			if w.fileDropMessage(cevt) {
+				continue
+			}
 			switch *(*C.long)(unsafe.Pointer(&cevt.data)) {
 			case C.long(w.atoms.evDelWindow):
 				if w.closing != nil {
@@ -916,6 +928,13 @@ func newX11Window(gioWin *callbacks, options []Option) error {
 	wmhints := C.XClassHint{name, name}
 	C.XSetClassHint(dpy, win, &wmhints)
 
+	// pitwall: advertise Xdnd v5 to desktop file managers.
+	w.xdnd = make(map[string]C.Atom)
+	for _, name := range []string{"XdndAware", "XdndEnter", "XdndPosition", "XdndStatus", "XdndLeave", "XdndDrop", "XdndFinished", "XdndSelection", "XdndTypeList", "XdndActionCopy", "text/uri-list", "PITWALL_DROP"} {
+		w.xdnd[name] = w.atom(name, false)
+	}
+	version := C.long(5)
+	C.XChangeProperty(dpy, win, w.xdnd["XdndAware"], C.XA_ATOM, 32, C.PropModeReplace, (*C.uchar)(unsafe.Pointer(&version)), 1)
 	w.atoms.utf8string = w.atom("UTF8_STRING", false)
 	w.atoms.plaintext = w.atom("text/plain;charset=utf-8", false)
 	w.atoms.gtk_text_buffer_contents = w.atom("GTK_TEXT_BUFFER_CONTENTS", false)
@@ -1037,4 +1056,95 @@ func (h *ibusEventHandler) Event(new string, sel key.Range, visible, preedit boo
 		w.invalidate()
 	default:
 	}
+}
+
+// pitwall: Xdnd messages contain five native longs, even on a 64-bit Xlib.
+func (w *x11Window) sendDropMessage(kind string, values [5]C.long) {
+	if w.dropSource == 0 {
+		return
+	}
+	var xev C.XEvent
+	e := (*C.XClientMessageEvent)(unsafe.Pointer(&xev))
+	e._type, e.display, e.window = C.ClientMessage, w.x, w.dropSource
+	e.message_type, e.format = w.xdnd[kind], 32
+	*(*[5]C.long)(unsafe.Pointer(&e.data)) = values
+	C.XSendEvent(w.x, w.dropSource, C.False, C.NoEventMask, &xev)
+}
+
+func (w *x11Window) fileDropMessage(e *C.XClientMessageEvent) bool {
+	d := *(*[5]C.long)(unsafe.Pointer(&e.data))
+	switch e.message_type {
+	case w.xdnd["XdndEnter"]:
+		w.dropSource, w.dropAccepted = C.Window(d[0]), false
+		if d[1]>>24 < 3 {
+			return true
+		}
+		types := []C.long{d[2], d[3], d[4]}
+		if d[1]&1 != 0 {
+			var actual C.Atom
+			var format C.int
+			var count, after C.ulong
+			var data *C.uchar
+			if C.XGetWindowProperty(w.x, w.dropSource, w.xdnd["XdndTypeList"], 0, 256, C.False, C.XA_ATOM, &actual, &format, &count, &after, &data) == C.Success && actual == C.XA_ATOM && format == 32 && data != nil {
+				types = unsafe.Slice((*C.long)(unsafe.Pointer(data)), int(count))
+			}
+			if data != nil {
+				defer C.XFree(unsafe.Pointer(data))
+			}
+		}
+		for _, t := range types {
+			w.dropAccepted = w.dropAccepted || C.Atom(t) == w.xdnd["text/uri-list"]
+		}
+	case w.xdnd["XdndPosition"]:
+		if C.Window(d[0]) != w.dropSource {
+			return true
+		}
+		var x, y C.int
+		var child C.Window
+		C.XTranslateCoordinates(w.x, C.XDefaultRootWindow(w.x), w.xw, C.int(int16(d[2]>>16)), C.int(int16(d[2])), &x, &y, &child)
+		w.dropPosition = image.Pt(int(x), int(y))
+		status := [5]C.long{C.long(w.xw), 2}
+		if w.dropAccepted {
+			status[1], status[4] = 3, C.long(w.xdnd["XdndActionCopy"])
+		}
+		w.sendDropMessage("XdndStatus", status)
+	case w.xdnd["XdndLeave"]:
+		w.dropSource, w.dropAccepted = 0, false
+	case w.xdnd["XdndDrop"]:
+		if C.Window(d[0]) != w.dropSource {
+			return true
+		}
+		if w.dropAccepted {
+			C.XConvertSelection(w.x, w.xdnd["XdndSelection"], w.xdnd["text/uri-list"], w.xdnd["PITWALL_DROP"], w.xw, C.Time(d[2]))
+		} else {
+			w.sendDropMessage("XdndFinished", [5]C.long{C.long(w.xw)})
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+func (w *x11Window) finishFileDrop(e *C.XSelectionEvent) {
+	var paths []string
+	if w.dropSource != 0 && e.property == w.xdnd["PITWALL_DROP"] {
+		var actual C.Atom
+		var format C.int
+		var count, after C.ulong
+		var data *C.uchar
+		if C.XGetWindowProperty(w.x, w.xw, e.property, 0, 1<<18, C.True, C.AnyPropertyType, &actual, &format, &count, &after, &data) == C.Success && actual == w.xdnd["text/uri-list"] && format == 8 && after == 0 && data != nil {
+			paths = fileURIs(C.GoStringN((*C.char)(unsafe.Pointer(data)), C.int(count)))
+		}
+		if data != nil {
+			C.XFree(unsafe.Pointer(data))
+		}
+		C.XDeleteProperty(w.x, w.xw, e.property)
+	}
+	reply := [5]C.long{C.long(w.xw)}
+	if len(paths) > 0 {
+		reply[1], reply[2] = 1, C.long(w.xdnd["XdndActionCopy"])
+		w.ProcessEvent(FileDropEvent{Position: w.dropPosition, Paths: paths})
+	}
+	w.sendDropMessage("XdndFinished", reply)
+	w.dropSource, w.dropAccepted = 0, false
 }

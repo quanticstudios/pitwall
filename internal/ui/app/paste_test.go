@@ -11,9 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/app"
 	"gioui.org/io/input"
 	gl "gioui.org/layout"
 	"gioui.org/op"
+	terminalInput "github.com/quanticstudios/pitwall/internal/input"
+	"slices"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -91,9 +94,9 @@ func TestHostPaste(t *testing.T) {
 	if len(b.images) != 1 || b.images[0].Pane != "p" || !bytes.Equal(b.images[0].Data, png) || !p.pasteWait {
 		t.Fatalf("sent %+v, waiting %v", b.images, p.pasteWait)
 	}
-	b.reply = &proto.PasteImageResult{Pane: "p", Path: "/home/me/.local/state/pitwall/paste/image-1.png"}
+	b.reply = &proto.PasteImageResult{Pane: "p", Path: "/home/me/state with spaces/pitwall/paste/tab/image-1.png"}
 	frame()
-	if len(b.sent) != 1 || string(b.sent[0].Data) != "\x1b[200~/home/me/.local/state/pitwall/paste/image-1.png\x1b[201~" || p.pasteWait {
+	if len(b.sent) != 1 || string(b.sent[0].Data) != "\x1b[200~'/home/me/state with spaces/pitwall/paste/tab/image-1.png'\x1b[201~" || p.pasteWait {
 		t.Fatalf("pasted %q, waiting %v", b.sent, p.pasteWait)
 	}
 
@@ -155,6 +158,10 @@ func TestClipImage(t *testing.T) {
 --list-types) printf 'text/html\nimage/jpeg\nimage/png\n' ;;
 *) printf 'wl %s' "$*" ;;
 esac`)
+	tool("powershell.exe", `printf 'windows image'`)
+	if b, err := clipImage(ctx, "windows", env()); err != nil || string(b) != "windows image" {
+		t.Errorf("Windows clipboard: %q, %v", b, err)
+	}
 	tool("xclip", `case "$*" in
 *TARGETS*) printf 'TARGETS\nUTF8_STRING\nimage/gif\n' ;;
 *) printf 'x %s' "$*" ;;
@@ -194,5 +201,129 @@ esac`)
 	tool("osascript", `echo "execution error: Can't make some data into the expected type. (-1700)" >&2; exit 1`)
 	if _, err := clipImage(ctx, "darwin", env()); !errors.Is(err, errNoImage) {
 		t.Errorf("macOS, no image: %v", err)
+	}
+}
+
+func TestDropFiles(t *testing.T) {
+	old := Host
+	t.Cleanup(func() { Host = old })
+	paths := []string{"/tmp/screen shot.png", "/tmp/it's.png"}
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex, model.ProviderTerminal} {
+		for _, host := range []string{"", "box"} {
+			Host = host
+			b := newAgentBackend(model.StateAwaitingInput)
+			b.st.Panes[0].Provider = provider
+			p := &paneUI{rect: image.Rect(100, 50, 500, 400)}
+			u := &ui{b: b, panes: map[string]*paneUI{"p": p, "other": {rect: image.Rect(0, 50, 100, 400)}}}
+			u.nav.focus = map[string]string{focusKey("", ""): "other"}
+			u.dropFiles(app.FileDropEvent{Position: image.Pt(120, 80), Paths: paths})
+			if host != "" && model.IsAgent(provider) {
+				if !slices.Equal(p.dropFiles, paths) || len(b.sent) != 0 {
+					t.Fatalf("remote drop: queue %q, sent %+v", p.dropFiles, b.sent)
+				}
+			} else if len(b.sent) != 1 || b.sent[0].Pane != "p" || string(b.sent[0].Data) != string(terminalInput.PastePaths(paths, vt.Modes{BracketedPaste: true})) {
+				t.Fatalf("drop for %s on %q: sent %+v", provider, host, b.sent)
+			}
+			before := len(b.sent)
+			u.dropFiles(app.FileDropEvent{Position: image.Pt(10, 10), Paths: paths})
+			u.offline = true
+			u.dropFiles(app.FileDropEvent{Position: image.Pt(120, 80), Paths: paths})
+			if len(b.sent) != before {
+				t.Fatal("drop outside a pane or behind the offline dialog sent input")
+			}
+		}
+	}
+}
+
+func TestLocalImagePaste(t *testing.T) {
+	oldHost, oldRead := Host, readClipImage
+	t.Cleanup(func() { Host, readClipImage = oldHost, oldRead })
+	Host = ""
+	readClipImage = func(context.Context) ([]byte, error) { return []byte("local image"), nil }
+	b := &pasteBackend{agentBackend: newAgentBackend(model.StateAwaitingInput), level: proto.Level}
+	u := &ui{b: b}
+	u.readImage(gl.Context{}, "p", image.Rectangle{})
+	waitPasteRead(t, u)
+	var ops op.Ops
+	u.panePaste(gl.Context{Ops: &ops, Now: time.Now()}, &paneUI{}, "p", image.Rectangle{}, vt.Modes{})
+	if len(b.images) != 1 || string(b.images[0].Data) != "local image" {
+		t.Fatalf("local paste did not use daemon save: %+v", b.images)
+	}
+}
+
+func waitPasteRead(t *testing.T, u *ui) {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		u.pastes.mu.Lock()
+		ready := len(u.pastes.done) > 0
+		u.pastes.mu.Unlock()
+		if ready {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatal("image read never completed")
+		}
+	}
+}
+
+func TestRemoteFilePaste(t *testing.T) {
+	old := Host
+	Host = "box"
+	t.Cleanup(func() { Host = old })
+	path := filepath.Join(t.TempDir(), "screen shot.png")
+	data := []byte("image bytes")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := &pasteBackend{agentBackend: newAgentBackend(model.StateAwaitingInput), level: proto.Level}
+	p := &paneUI{rect: image.Rect(0, 0, 500, 400)}
+	u := &ui{b: b, panes: map[string]*paneUI{"p": p}}
+	u.dropFiles(app.FileDropEvent{Position: image.Pt(20, 20), Paths: []string{path, path}})
+	frame := func() {
+		var ops op.Ops
+		u.panePaste(gl.Context{Ops: &ops, Now: time.Now()}, p, "p", image.Rectangle{}, vt.Modes{BracketedPaste: true})
+	}
+	for i := range 2 {
+		frame()
+		waitPasteRead(t, u)
+		frame()
+		if len(b.images) != i+1 || !bytes.Equal(b.images[i].Data, data) || !p.pasteWait {
+			t.Fatalf("upload %d: %+v, waiting %v", i, b.images, p.pasteWait)
+		}
+		frame() // while waiting for the daemon, no second upload starts
+		if u.pasteBusy("p") {
+			t.Fatal("started another upload before receiving the saved path")
+		}
+		b.reply = &proto.PasteImageResult{Pane: "p", Path: "/state/tab/screen shot.png"}
+		frame()
+	}
+	if len(b.sent) != 2 || string(b.sent[0].Data) != "\x1b[200~'/state/tab/screen shot.png'\x1b[201~" {
+		t.Fatalf("remote paths: %+v", b.sent)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("source changed: %q, %v", got, err)
+	}
+}
+
+func TestReadDroppedImage(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := readDroppedImage(dir); err == nil {
+		t.Fatal("read a directory as an image")
+	}
+	if _, err := readDroppedImage(filepath.Join(dir, "missing")); err == nil {
+		t.Fatal("read a missing file")
+	}
+	path := filepath.Join(dir, "large.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = f.Truncate(proto.MaxPasteImage + 1)
+	f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readDroppedImage(path); !errors.Is(err, errTooBig) {
+		t.Fatalf("oversize image: %v", err)
 	}
 }

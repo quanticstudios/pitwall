@@ -95,9 +95,12 @@ func (d *Daemon) removeTab(w *model.Workspace, ti int) []Pane {
 }
 
 // removeWorkspace drops a tab and its panes, and its session when it was
-// the last tab. On disk it only deletes the tab's checkpoints, in the
+// the last tab. It removes saved images and deletes checkpoints in the
 // background. Callers hold d.mu.
 func (d *Daemon) removeWorkspace(id string) []Pane {
+	if err := os.RemoveAll(pasteDir(id)); err != nil {
+		log.Printf("tab %s: remove pasted images: %v", id, err)
+	}
 	if w := d.workspace(id); w != nil {
 		d.tabClosed(*w)
 	}
