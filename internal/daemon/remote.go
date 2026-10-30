@@ -22,19 +22,25 @@ import (
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
-// remoteCheck is how often remoteLoop rereads [remote].
+// remoteCheck is how often a listener's settings are read again.
 const remoteCheck = 2 * time.Second
 
 // remoteFails keeps a phone page that cannot start to a log line a minute.
 var remoteFails = logs.Limiter{Every: time.Minute}
 
-// remoteLoop serves the phone page while [remote] enables it, and serves
-// it anew when the settings change, so turning it on needs no restart.
+// remoteLoop serves the phone page while [remote] enables it.
 func (d *Daemon) remoteLoop(ctx context.Context) {
 	if d.o.Remote == nil {
 		return
 	}
-	var cur config.RemoteSettings
+	watchListener(ctx, d.o.Remote, func(s config.RemoteSettings) bool { return s.Enabled }, d.serveRemote)
+}
+
+// watchListener runs serve while on(get()) holds, and serves anew when the
+// settings change, so turning a listener on needs no restart. serve
+// returns what stops it, or nil after a failure.
+func watchListener[S comparable](ctx context.Context, get func() S, on func(S) bool, serve func(S) (stop func())) {
+	var cur S
 	var stop func() // nil while not serving
 	defer func() {
 		if stop != nil {
@@ -44,16 +50,16 @@ func (d *Daemon) remoteLoop(ctx context.Context) {
 	t := time.NewTicker(remoteCheck)
 	defer t.Stop()
 	for {
-		s := d.o.Remote()
+		s := get()
 		if s != cur && stop != nil {
 			stop()
 			stop = nil
 		}
 		cur = s
-		if s.Enabled && stop == nil {
+		if on(s) && stop == nil {
 			// why: retried at each check, since a daemon handing off holds
 			// the port until it exits.
-			stop = d.serveRemote(s)
+			stop = serve(s)
 		}
 		select {
 		case <-ctx.Done():

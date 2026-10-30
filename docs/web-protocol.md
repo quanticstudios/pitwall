@@ -47,9 +47,20 @@ with mode 0600:
 | `token` | 64 hex digits, 32 bytes from `crypto/rand` |
 | `pid` | the daemon's process id, so a client can tell a stale file |
 
-The token stays the same across daemon restarts. Deleting `web.json` and
-restarting the daemon makes a new one. Only a process that can read the
-user's files can connect, which is the same trust the Unix socket has.
+The token stays the same across daemon restarts. `pitwall web token
+--rotate` writes a new one; the daemon checks every `hello` against the
+file, so the old token stops working at once, and connections already
+open stay. Deleting `web.json` and restarting the daemon makes a new one
+too. Only a process that can read the user's files can connect, which is
+the same trust the Unix socket has. On Windows the mode bits do nothing,
+and the file is as private as `%LOCALAPPDATA%`, which only the user, the
+system and administrators can read.
+
+The listener is off until `[web] enabled = true` in `config.toml`, so a
+plain install serves nothing new. `[web] port` fixes the port; without it
+the system picks a free one each time the daemon starts, and `web.json`
+has it. The daemon rereads the setting every 2 seconds, as it does
+`[remote]`, so turning it on or off needs no restart.
 
 The HTTP upgrade request is refused with 403 before any frame when:
 

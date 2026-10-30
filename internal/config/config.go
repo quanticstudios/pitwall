@@ -39,6 +39,7 @@ type Config struct {
 	Notify    Notify      `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
 	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
 	Remote    Remote      `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
+	Web       Web         `toml:"web" doc:"Local web clients such as aide: a WebSocket on 127.0.0.1 that pitwall's background service serves. Off until enabled; see docs/web-protocol.md."`
 	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
 
 	Profiles map[string]Profile `toml:"profiles" doc:"Named Claude Code and Codex accounts. See docs/config.md."`
@@ -304,6 +305,8 @@ type Settings struct {
 	Worktrees WorktreeSettings
 	// Remote is [remote] resolved.
 	Remote RemoteSettings
+	// Web is [web] resolved.
+	Web WebSettings
 	// Notifications is [notifications] resolved.
 	Notifications NotifySettings
 	// MergeMethod is [git] merge_method: squash, merge or rebase.
@@ -502,6 +505,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, di...)
 	var ri []issue
 	s.Remote, ri = resolveRemote(c.Remote)
+	fi = append(fi, ri...)
+	s.Web, ri = resolveWeb(c.Web)
 	fi = append(fi, ri...)
 	s.Notifications, ri = resolveNotifications(c.Notify)
 	fi = append(fi, ri...)

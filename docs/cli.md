@@ -52,6 +52,7 @@ optional name act on the pane's own tab.
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](troubleshooting.md#logs)) |
 | `pitwall remote pair` / `devices` / `revoke` | Pair a phone, list paired phones, unpair one (see [Phone](phone.md)) |
+| `pitwall web token --rotate`          | Give local web clients a new token in `web.json`; the old one stops working at once (see [Web protocol](web-protocol.md#connection)) |
 | `pitwall --version`                   | Print the version                                             |
 
 `new --model ID` and `queue add --model ID` pass `--model ID` to the agent,
