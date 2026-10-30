@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -40,5 +41,17 @@ func TestServeWeb(t *testing.T) {
 	}
 	if g, _ := web.Read(path); g.Token != f.Token {
 		t.Errorf("stop changed the token")
+	}
+
+	// A port still held, as by a daemon handing off, is nil: watchListener
+	// tries again at the next check.
+	ln, err := web.Listen(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if stop := d.serveWeb(config.WebSettings{Enabled: true, Port: ln.Addr().(*net.TCPAddr).Port}); stop != nil {
+		stop()
+		t.Error("serveWeb on a taken port did not return nil")
 	}
 }
