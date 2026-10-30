@@ -119,7 +119,7 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 // order: 't' title, 'f' folder, 'b' branch, 'r' its pull request, 'c'
 // the PR's checks, 'g' its buttons to the agent, 'x' the conflict radar,
 // 'o' the worktree's ports, 's' agent state, 'd' its detail, 'm' the
-// status line pitwall status set, 'a' each
+// status line pitwall status set, 'l' Claude's own limit resume, 'a' each
 // agent pane, 'u' token use, 'j' the decision model's advice, 'p' pane
 // count.
 type card struct {
@@ -139,6 +139,7 @@ type card struct {
 	sendNotes    *widget.Clickable // Send review comments to agent; nil draws none
 	state        model.AgentState
 	quiet        string // QuietText of the activity
+	resume       string // who continues after a usage limit
 	detail       string
 	status       string // the tab's status line
 	profile      string
@@ -186,6 +187,9 @@ func (c card) lines() string {
 	if c.status != "" {
 		out += "m"
 	}
+	if c.resume != "" {
+		out += "l"
+	}
 	if len(c.agents) > 1 {
 		out += "a"
 	}
@@ -218,6 +222,11 @@ func cardFor(v *view, ws model.Workspace) card {
 		c.conflicts = st.MergeStatus == model.MergeConflicts
 	}
 	c.agents = v.agents[ws.ID]
+	for _, ap := range v.st.AgentPanes(ws) {
+		if ap.Activity != nil && ap.Activity.AutoContinues {
+			c.resume = "Claude will continue on its own"
+		}
+	}
 	if pr, ok := v.st.PRs[ws.ID]; ok && c.branch != "" {
 		c.pr = &pr
 	}
@@ -506,6 +515,10 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 		case 'm':
 			line(iconOf(icMessage, muted), func(gtx layout.Context) layout.Dimensions {
 				return wrapLabel(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.8), c.status, 2)
+			})
+		case 'l':
+			line(nil, func(gtx layout.Context) layout.Dimensions {
+				return wrapLabel(gtx, th, th.UIFont, th.Sp(theme.Small), muted, c.resume, 2)
 			})
 		case 'a':
 			for _, ap := range c.agents {

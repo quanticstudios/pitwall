@@ -151,6 +151,9 @@ type Options struct {
 	// that names no reset; nil knows none.
 	ResumeAfterLimit func() bool
 	Limits           func() []flow.Limit
+	// ClaudeContinues reads Claude Code's own usage-limit continue
+	// option for the pane's environment; nil leaves pitwall in charge.
+	ClaudeContinues func(model.Pane) bool
 	// QuietAfter reads [agents] quiet_after, how long a working agent's
 	// screen stays still before its row says quiet, and ContinueWhenQuiet
 	// [agents] continue_when_quiet; nil means off.
@@ -267,6 +270,7 @@ func New() (*Daemon, error) {
 		ResumeAfterLimit:  setting(config.Path(), func(s config.Settings) bool { return s.ResumeAfterLimit }),
 		Limits:            trackedLimits(),
 		Profiles:          func() map[string]config.Profile { s, _ := config.Load(); return s.Profiles },
+		ClaudeContinues:   claudeAutoContinue,
 		QuietAfter:        setting(config.Path(), func(s config.Settings) time.Duration { return s.QuietAfter }),
 		ContinueWhenQuiet: setting(config.Path(), func(s config.Settings) bool { return s.ContinueWhenQuiet }),
 		RemoteControl:     setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),

@@ -159,6 +159,7 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 		return
 	}
 	sp := d.st.Panes[pi]
+	auto := d.claudeContinues(sp)
 	if resets.IsZero() {
 		profile := ""
 		if w := d.workspace(sp.WorkspaceID); w != nil {
@@ -167,7 +168,7 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 		limits = slices.DeleteFunc(slices.Clone(limits), func(l flow.Limit) bool { return l.Profile != profile })
 		resets = limitReset(limits, sp.Provider, now)
 	}
-	if resets.IsZero() || resets.Before(now.Add(-resumeDelay)) {
+	if !auto && (resets.IsZero() || resets.Before(now.Add(-resumeDelay))) {
 		log.Printf("pane %s: stopped on a usage limit with no reset ahead; no resume", id)
 		return
 	}
@@ -183,6 +184,10 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 	}
 	d.st.Activities[i].Detail = msg
 	d.dropResume(id)
+	if auto {
+		d.changed()
+		return
+	}
 	r := &resume{at: resets.Add(resumeDelay), p: d.panes[id], prov: sp.Provider, turn: d.st.Activities[i].UpdatedAt, since: turn}
 	r.stop = resumeAfter(r.at.Sub(now), func() { d.fireResume(id, r) })
 	if d.lim.pending == nil {
@@ -256,6 +261,8 @@ func (d *Daemon) resumeBlocked(id string, r *resume) string {
 		return "the pane closed or restarted"
 	case d.st.Panes[pi].Provider != r.prov:
 		return "another agent runs there"
+	case d.claudeContinues(d.st.Panes[pi]):
+		return "Claude will continue on its own"
 	case i < 0 || !d.st.Activities[i].UpdatedAt.Equal(r.turn) || !stoppedState(d.st.Activities[i].State):
 		// why: Windows clocks can give a new turn the stopped one's UpdatedAt, so the state counts too.
 		return "the turn changed"

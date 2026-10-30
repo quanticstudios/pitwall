@@ -40,6 +40,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 36 added Activity.AutoContinues: the hover card explains when
+// Claude Code handles its own usage-limit resume.
 // Level 35 added account profiles on NewSession, NewTab and Task.
 // Level 34 added SearchAll and SearchAllResult: cancellable session search.
 // Level 33 added PR.ChangeRequests, the reviews requesting changes.
@@ -130,7 +132,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 35
+const Level = 36
 
 // ProfileLevel added account profiles on NewSession, NewTab and Task.
 const ProfileLevel = 35
