@@ -1,0 +1,9 @@
+{"type":"session.state.changed","createdAt":"","state":"ready"}
+{"type":"session.resume-id","createdAt":"","resumeId":"SESSION"}
+{"type":"turn.started","createdAt":"","turnId":"turn-1"}
+{"type":"session.resume-id","createdAt":"","resumeId":"SESSION","version":"2.1.314","capabilities":["interrupt_receipt_v1","interrupt_cancel_queued_v1","interrupt_send_now_v1","interrupt_requeue_taken_v1","msg_lifecycle_v1","request_marker_lists_v1","ask_user_question_unanswered_v1","lifecycle_wakeup_source_v1","sdk_mcp_tools_list_changed","sdk_mcp_manifests","mcp_read_resource_v1","mcp_tool_ui_meta_v1","ui_surface_v1","mcp_call_result_not_for_model_v1"]}
+{"type":"content.delta","createdAt":"","itemId":"msg_011CgYpbuJ7A2rSAXV75KpUD:0","kind":"assistant-text","model":"claude-sonnet-5-5","text":"MANGO"}
+{"type":"limit","createdAt":"","limit":{"rejected":false,"resets":"2026-10-30T19:00:00Z","windows":[{"minutes":300,"used":19,"resets":"2026-10-30T19:30:00Z"},{"minutes":10080,"used":80,"resets":"2026-10-30T19:00:00Z"}]}}
+{"type":"turn.completed","createdAt":"","state":"completed","turnId":"turn-1","point":"0fb0d503-83f8-4963-8a7d-00dbc7581e45"}
+{"type":"session.usage.updated","createdAt":"","inputTokens":14,"outputTokens":20,"cachedInputTokens":61409,"contextTokens":17303,"maxTokens":1000000,"report":{"id":"f1a4e8f8-d1c1-4e34-8617-9eb81820211e","scopeId":"SESSION","provider":"claude","turnId":"turn-1","createdAt":"","models":[{"model":"claude-sonnet-5-5","inputTokens":14,"outputTokens":20,"cachedInputTokens":61409,"cacheCreationInputTokens":7627,"estimatedCostUsd":0.0368769}],"estimatedCostUsd":0.0368769}}
+{"type":"session.exited","createdAt":"","exitCode":0}

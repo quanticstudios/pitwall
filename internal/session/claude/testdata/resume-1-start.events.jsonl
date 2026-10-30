@@ -1,0 +1,13 @@
+{"type":"session.state.changed","createdAt":"","state":"ready"}
+{"type":"session.resume-id","createdAt":"","resumeId":"SESSION"}
+{"type":"turn.started","createdAt":"","turnId":"turn-1"}
+{"type":"session.resume-id","createdAt":"","resumeId":"SESSION","version":"2.1.314","capabilities":["interrupt_receipt_v1","interrupt_cancel_queued_v1","interrupt_send_now_v1","interrupt_requeue_taken_v1","msg_lifecycle_v1","request_marker_lists_v1","ask_user_question_unanswered_v1","lifecycle_wakeup_source_v1","sdk_mcp_tools_list_changed","sdk_mcp_manifests","mcp_read_resource_v1","mcp_tool_ui_meta_v1","ui_surface_v1","mcp_call_result_not_for_model_v1"]}
+{"type":"content.delta","createdAt":"","itemId":"msg_011CgYpbN9NWn3E5oKpCkrG8:0","kind":"assistant-text","model":"claude-sonnet-5-5","text":"ok"}
+{"type":"limit","createdAt":"","limit":{"rejected":false,"resets":"2026-10-30T19:00:00Z","windows":[{"minutes":300,"used":18,"resets":"2026-10-30T19:30:00Z"},{"minutes":10080,"used":80,"resets":"2026-10-30T19:00:00Z"}]}}
+{"type":"turn.completed","createdAt":"","state":"completed","turnId":"turn-1","point":"07a45f3e-76ca-4492-9149-41725037db79"}
+{"type":"session.usage.updated","createdAt":"","inputTokens":2,"outputTokens":4,"cachedInputTokens":13149,"contextTokens":17230,"maxTokens":1000000,"report":{"id":"75605e14-dfcc-460d-848a-0af37408a726","scopeId":"SESSION","provider":"claude","turnId":"turn-1","createdAt":"","models":[{"model":"claude-sonnet-5-5","inputTokens":2,"outputTokens":4,"cachedInputTokens":13149,"cacheCreationInputTokens":4075,"estimatedCostUsd":0.017658899999999998}],"estimatedCostUsd":0.017658899999999998}}
+{"type":"turn.started","createdAt":"","turnId":"turn-2"}
+{"type":"content.delta","createdAt":"","itemId":"msg_011CgYpbUTNnKRjiNFJberYd:0","kind":"assistant-text","model":"claude-sonnet-5-5","text":"ok"}
+{"type":"turn.completed","createdAt":"","state":"completed","turnId":"turn-2","point":"ba2a89ff-cf41-4c19-8dcc-d11d7aefa73e"}
+{"type":"session.usage.updated","createdAt":"","inputTokens":6,"outputTokens":8,"cachedInputTokens":26890,"contextTokens":17257,"maxTokens":1000000,"report":{"id":"4812d580-8a49-41b8-9e2c-6f6ae4631931","scopeId":"SESSION","provider":"claude","turnId":"turn-2","createdAt":"","models":[{"model":"claude-sonnet-5-5","inputTokens":6,"outputTokens":8,"cachedInputTokens":26890,"cacheCreationInputTokens":7583,"estimatedCostUsd":0.033113}],"estimatedCostUsd":0.033113}}
+{"type":"session.exited","createdAt":"","exitCode":0}

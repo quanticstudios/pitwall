@@ -1,0 +1,9 @@
+{"type":"session.state.changed","createdAt":"","state":"ready"}
+{"type":"session.resume-id","createdAt":"","resumeId":"SESSION"}
+{"type":"turn.started","createdAt":"","turnId":"turn-1"}
+{"type":"session.resume-id","createdAt":"","resumeId":"SESSION","version":"2.1.314","capabilities":["interrupt_receipt_v1","interrupt_cancel_queued_v1","interrupt_send_now_v1","interrupt_requeue_taken_v1","msg_lifecycle_v1","request_marker_lists_v1","ask_user_question_unanswered_v1","lifecycle_wakeup_source_v1","sdk_mcp_tools_list_changed","sdk_mcp_manifests","mcp_read_resource_v1","mcp_tool_ui_meta_v1","ui_surface_v1","mcp_call_result_not_for_model_v1"]}
+{"type":"content.delta","createdAt":"","itemId":"msg_011CgYpcMtGigpeEAfeWvB2F:0","kind":"assistant-text","model":"claude-sonnet-5-5","text":"PAPAYA"}
+{"type":"limit","createdAt":"","limit":{"rejected":false,"resets":"2026-10-30T19:00:00Z","windows":[{"minutes":300,"used":19,"resets":"2026-10-30T19:30:00Z"},{"minutes":10080,"used":80,"resets":"2026-10-30T19:00:00Z"}]}}
+{"type":"turn.completed","createdAt":"","state":"completed","turnId":"turn-1","point":"4ec21f07-d324-4075-af40-da996a266129"}
+{"type":"session.usage.updated","createdAt":"","inputTokens":18,"outputTokens":30,"cachedInputTokens":75124,"contextTokens":17281,"maxTokens":1000000,"report":{"id":"9303da4b-313d-4c72-9ebf-cbd0cd132bc4","scopeId":"SESSION","provider":"claude","turnId":"turn-1","createdAt":"","models":[{"model":"claude-sonnet-5-5","inputTokens":18,"outputTokens":30,"cachedInputTokens":75124,"cacheCreationInputTokens":11132,"estimatedCostUsd":0.0523764}],"estimatedCostUsd":0.0523764}}
+{"type":"session.exited","createdAt":"","exitCode":0}
