@@ -1,0 +1,34 @@
+{"in":{"id":1,"method":"initialize","params":{"clientInfo":{"name":"pitwall","title":"pitwall","version":"0"},"capabilities":{"experimentalApi":true}}}}
+{"out":{"id":1,"result":{"userAgent":"codex_cli_rs/0.166.0 (Ubuntu 26.4.0; x86_64) xterm-256color","codexHome":"/home/user/.codex","platformFamily":"unix","platformOs":"linux"}}}
+{"in":{"method":"initialized"}}
+{"in":{"id":2,"method":"thread/start","params":{"approvalPolicy":"on-request","sandbox":"workspace-write","cwd":"$CWD","model":"gpt-6.1-sol"}}}
+{"out":{"id":2,"result":{"thread":{"id":"thr_1"},"model":"gpt-6.1-sol","modelProvider":"openai","approvalPolicy":"on-request","approvalsReviewer":"user","cwd":"$CWD","sandbox":{"type":"workspaceWrite"}}}}
+{"out":{"method":"thread/started","params":{"thread":{"id":"thr_1"}}}}
+{"out":{"method":"mcpServer/startupStatus/updated","params":{}}}
+{"in":{"id":3,"method":"turn/start","params":{"threadId":"thr_1","input":[{"type":"text","text":"List the files"},{"type":"image","url":"data:image/png;base64,cG5n"}],"clientUserMessageId":"u1","effort":"high"}}}
+{"out":{"id":3,"result":{"turn":{"id":"turn_1","items":[],"status":"inProgress"}}}}
+{"await":"go"}
+{"out":{"method":"thread/status/changed","params":{"threadId":"thr_1","status":{"type":"active","activeFlags":[]}}}}
+{"out":{"method":"turn/started","params":{"threadId":"thr_1","turn":{"id":"turn_1","items":[],"status":"inProgress"}}}}
+{"out":{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","startedAtMs":1793361600000,"item":{"type":"reasoning","id":"rs_1","summary":[],"content":[]}}}}
+{"out":{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"rs_1","summaryIndex":0,"delta":"Listing the "}}}
+{"out":{"method":"item/reasoning/summaryTextDelta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"rs_1","summaryIndex":0,"delta":"directory"}}}
+{"out":{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","startedAtMs":1793361600000,"item":{"type":"agentMessage","id":"msg_1","text":"","phase":"commentary"}}}}
+{"out":{"method":"item/agentMessage/delta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"msg_1","delta":"I'll run "}}}
+{"out":{"method":"item/agentMessage/delta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"msg_1","delta":"ls."}}}
+{"out":{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"agentMessage","id":"msg_1","text":"I'll run ls.","phase":"commentary"}}}}
+{"out":{"method":"error","params":{"threadId":"thr_1","turnId":"turn_1","willRetry":true,"error":{"message":"Reconnecting... 1/5"}}}}
+{"out":{"id":0,"method":"item/commandExecution/requestApproval","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"call_1","command":"ls"}}}
+{"in":{"id":0,"error":{"code":-32601,"message":"Unsupported request: item/commandExecution/requestApproval"}}}
+{"out":{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","startedAtMs":1793361600000,"item":{"type":"commandExecution","id":"call_1","command":"ls","commandActions":[],"cwd":"/w","status":"inProgress"}}}}
+{"out":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"call_1","delta":"a.go\n"}}}
+{"out":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"call_1","delta":"b.go\n"}}}
+{"out":{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"commandExecution","id":"call_1","command":"ls","commandActions":[],"cwd":"/w","status":"completed","exitCode":0,"aggregatedOutput":"a.go\nb.go\n"}}}}
+{"out":{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","startedAtMs":1793361600000,"item":{"type":"fileChange","id":"call_2","changes":[{"path":"a.go","kind":{"type":"update","move_path":null},"diff":"@@ -1 +1 @@\n-package a\n+package b\n"}],"status":"inProgress"}}}}
+{"out":{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"fileChange","id":"call_2","changes":[{"path":"a.go","kind":{"type":"update","move_path":null},"diff":"@@ -1 +1 @@\n-package a\n+package b\n"}],"status":"completed"}}}}
+{"out":{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"agentMessage","id":"msg_2","text":"Two Go files; a.go is now package b.","phase":"final_answer"}}}}
+{"out":{"method":"thread/tokenUsage/updated","params":{"threadId":"thr_1","turnId":"turn_1","tokenUsage":{"total":{"inputTokens":1200,"cachedInputTokens":200,"outputTokens":80,"reasoningOutputTokens":20,"totalTokens":1280},"last":{"inputTokens":1200,"cachedInputTokens":200,"outputTokens":80,"reasoningOutputTokens":20,"totalTokens":1280},"modelContextWindow":258400}}}}
+{"out":{"method":"thread/tokenUsage/updated","params":{"threadId":"thr_other","turnId":"turn_9","tokenUsage":{"total":{"inputTokens":5,"cachedInputTokens":0,"outputTokens":5,"reasoningOutputTokens":0,"totalTokens":10},"last":{"inputTokens":5,"cachedInputTokens":0,"outputTokens":5,"reasoningOutputTokens":0,"totalTokens":10}}}}}
+{"out":{"method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":1793379600},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":1793750400},"rateLimitReachedType":"rate_limit_reached"}}}}
+{"out":{"method":"turn/completed","params":{"threadId":"thr_1","turn":{"id":"turn_1","items":[],"status":"completed"}}}}
+{"out":{"method":"thread/status/changed","params":{"threadId":"thr_1","status":{"type":"idle"}}}}

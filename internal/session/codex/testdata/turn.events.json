@@ -1,0 +1,311 @@
+[
+  {
+    "type": "session.started",
+    "createdAt": "2026-10-30T12:00:00.000Z"
+  },
+  {
+    "type": "session.resume-id",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "resumeId": "thr_1",
+    "version": "0.166.0"
+  },
+  {
+    "type": "session.state.changed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "ready"
+  },
+  {
+    "type": "session.state.changed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "running"
+  },
+  {
+    "type": "turn.started",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "turnId": "turn_1"
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "rs_1",
+    "kind": "reasoning-summary-text",
+    "model": "gpt-6.1-sol",
+    "text": "Listing the "
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "rs_1",
+    "kind": "reasoning-summary-text",
+    "model": "gpt-6.1-sol",
+    "text": "directory"
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "msg_1",
+    "kind": "assistant-text",
+    "phase": "commentary",
+    "model": "gpt-6.1-sol",
+    "text": "I'll run "
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "msg_1",
+    "kind": "assistant-text",
+    "phase": "commentary",
+    "model": "gpt-6.1-sol",
+    "text": "ls."
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "msg_1",
+    "kind": "assistant-text",
+    "phase": "commentary",
+    "model": "gpt-6.1-sol",
+    "text": ""
+  },
+  {
+    "type": "session.state.changed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "running",
+    "detail": "Reconnecting... 1/5"
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "call_1",
+    "kind": "tool-call",
+    "model": "gpt-6.1-sol",
+    "tool": {
+      "callId": "call_1",
+      "command": "ls",
+      "input": {
+        "type": "commandExecution",
+        "id": "call_1",
+        "command": "ls",
+        "commandActions": [],
+        "cwd": "/w",
+        "status": "inProgress"
+      },
+      "status": "running",
+      "toolName": "Shell"
+    },
+    "text": ""
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "call_1",
+    "kind": "tool-call",
+    "model": "gpt-6.1-sol",
+    "tool": {
+      "callId": "call_1",
+      "command": "ls",
+      "input": {
+        "type": "commandExecution",
+        "id": "call_1",
+        "command": "ls",
+        "commandActions": [],
+        "cwd": "/w",
+        "status": "inProgress"
+      },
+      "output": "a.go\n",
+      "status": "running",
+      "toolName": "Shell"
+    },
+    "text": ""
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "call_1",
+    "kind": "tool-call",
+    "model": "gpt-6.1-sol",
+    "tool": {
+      "callId": "call_1",
+      "command": "ls",
+      "input": {
+        "type": "commandExecution",
+        "id": "call_1",
+        "command": "ls",
+        "commandActions": [],
+        "cwd": "/w",
+        "status": "inProgress"
+      },
+      "output": "a.go\nb.go\n",
+      "status": "running",
+      "toolName": "Shell"
+    },
+    "text": ""
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "call_1",
+    "kind": "tool-call",
+    "model": "gpt-6.1-sol",
+    "tool": {
+      "callId": "call_1",
+      "command": "ls",
+      "exitCode": 0,
+      "input": {
+        "type": "commandExecution",
+        "id": "call_1",
+        "command": "ls",
+        "commandActions": [],
+        "cwd": "/w",
+        "status": "completed",
+        "exitCode": 0,
+        "aggregatedOutput": "a.go\nb.go\n"
+      },
+      "output": "a.go\nb.go\n",
+      "status": "completed",
+      "toolName": "Shell"
+    },
+    "text": ""
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "call_2",
+    "kind": "tool-call",
+    "model": "gpt-6.1-sol",
+    "tool": {
+      "callId": "call_2",
+      "files": [
+        {
+          "path": "a.go",
+          "status": "update"
+        }
+      ],
+      "input": {
+        "type": "fileChange",
+        "id": "call_2",
+        "changes": [
+          {
+            "path": "a.go",
+            "kind": {
+              "type": "update",
+              "move_path": null
+            },
+            "diff": "@@ -1 +1 @@\n-package a\n+package b\n"
+          }
+        ],
+        "status": "inProgress"
+      },
+      "status": "running",
+      "toolName": "Edit"
+    },
+    "text": ""
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "call_2",
+    "kind": "tool-call",
+    "model": "gpt-6.1-sol",
+    "tool": {
+      "callId": "call_2",
+      "files": [
+        {
+          "path": "a.go",
+          "status": "update"
+        }
+      ],
+      "input": {
+        "type": "fileChange",
+        "id": "call_2",
+        "changes": [
+          {
+            "path": "a.go",
+            "kind": {
+              "type": "update",
+              "move_path": null
+            },
+            "diff": "@@ -1 +1 @@\n-package a\n+package b\n"
+          }
+        ],
+        "status": "completed"
+      },
+      "status": "completed",
+      "toolName": "Edit"
+    },
+    "text": ""
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "msg_2",
+    "kind": "assistant-text",
+    "phase": "final_answer",
+    "model": "gpt-6.1-sol",
+    "text": "Two Go files; a.go is now package b."
+  },
+  {
+    "type": "session.usage.updated",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "inputTokens": 1200,
+    "outputTokens": 80,
+    "cachedInputTokens": 200,
+    "contextTokens": 1280,
+    "maxTokens": 258400,
+    "report": {
+      "id": "turn_1",
+      "scopeId": "thr_1",
+      "provider": "codex",
+      "turnId": "turn_1",
+      "createdAt": "2026-10-30T12:00:00.000Z",
+      "models": [
+        {
+          "model": "gpt-6.1-sol",
+          "inputTokens": 1000,
+          "outputTokens": 80,
+          "cachedInputTokens": 200,
+          "cacheCreationInputTokens": null,
+          "estimatedCostUsd": null
+        }
+      ],
+      "estimatedCostUsd": null
+    }
+  },
+  {
+    "type": "limit",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "limit": {
+      "rejected": true,
+      "resets": "2026-10-30T17:00:00Z",
+      "windows": [
+        {
+          "minutes": 300,
+          "used": 100,
+          "resets": "2026-10-30T17:00:00Z"
+        },
+        {
+          "minutes": 10080,
+          "used": 40,
+          "resets": "2026-11-04T00:00:00Z"
+        }
+      ]
+    }
+  },
+  {
+    "type": "turn.completed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "completed",
+    "turnId": "turn_1",
+    "point": "turn_1"
+  },
+  {
+    "type": "session.state.changed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "ready"
+  },
+  {
+    "type": "session.exited",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "exitCode": 0
+  }
+]

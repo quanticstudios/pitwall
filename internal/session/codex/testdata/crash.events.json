@@ -1,0 +1,73 @@
+[
+  {
+    "type": "session.started",
+    "createdAt": "2026-10-30T12:00:00.000Z"
+  },
+  {
+    "type": "session.resume-id",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "resumeId": "thr_9",
+    "version": "0.166.0"
+  },
+  {
+    "type": "session.state.changed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "ready"
+  },
+  {
+    "type": "turn.started",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "turnId": "turn_1"
+  },
+  {
+    "type": "content.delta",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "itemId": "msg_1",
+    "kind": "assistant-text",
+    "model": "gpt-6.1-sol",
+    "text": "Working"
+  },
+  {
+    "type": "runtime.error",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "message": "Codex app-server exited (code 1): thread 'main' panicked: boom"
+  },
+  {
+    "type": "session.exited",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "exitCode": 1
+  },
+  {
+    "type": "session.started",
+    "createdAt": "2026-10-30T12:00:00.000Z"
+  },
+  {
+    "type": "session.resume-id",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "resumeId": "thr_9",
+    "version": "0.166.0"
+  },
+  {
+    "type": "session.state.changed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "ready"
+  },
+  {
+    "type": "turn.started",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "turnId": "turn_2"
+  },
+  {
+    "type": "turn.completed",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "state": "failed",
+    "turnId": "turn_2",
+    "errorMessage": "stream disconnected",
+    "point": "turn_2"
+  },
+  {
+    "type": "session.exited",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "exitCode": 0
+  }
+]

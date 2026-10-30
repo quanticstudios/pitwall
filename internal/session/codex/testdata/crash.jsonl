@@ -1,0 +1,19 @@
+{"in":{"id":1,"method":"initialize","params":{"clientInfo":{"name":"pitwall","title":"pitwall","version":"0"},"capabilities":{"experimentalApi":true}}}}
+{"out":{"id":1,"result":{"userAgent":"codex_cli_rs/0.166.0","codexHome":"/home/user/.codex","platformFamily":"unix","platformOs":"linux"}}}
+{"in":{"method":"initialized"}}
+{"in":{"id":2,"method":"thread/start","params":{"approvalPolicy":"never","sandbox":"workspace-write","cwd":"$CWD"}}}
+{"out":{"id":2,"result":{"thread":{"id":"thr_9"},"model":"gpt-6.1-sol"}}}
+{"in":{"id":3,"method":"turn/start","params":{"threadId":"thr_9","input":[{"type":"text","text":"Work"}],"clientUserMessageId":"u1"}}}
+{"out":{"id":3,"result":{"turn":{"id":"turn_1","items":[],"status":"inProgress"}}}}
+{"out":{"method":"turn/started","params":{"threadId":"thr_9","turn":{"id":"turn_1","items":[],"status":"inProgress"}}}}
+{"out":{"method":"item/agentMessage/delta","params":{"threadId":"thr_9","turnId":"turn_1","itemId":"msg_1","delta":"Working"}}}
+{"exit":1,"stderr":"thread 'main' panicked: boom\n"}
+{"in":{"id":1,"method":"initialize","params":{"clientInfo":{"name":"pitwall","title":"pitwall","version":"0"},"capabilities":{"experimentalApi":true}}}}
+{"out":{"id":1,"result":{"userAgent":"codex_cli_rs/0.166.0","codexHome":"/home/user/.codex","platformFamily":"unix","platformOs":"linux"}}}
+{"in":{"method":"initialized"}}
+{"in":{"id":2,"method":"thread/resume","params":{"threadId":"thr_9","approvalPolicy":"never","sandbox":"workspace-write","cwd":"$CWD"}}}
+{"out":{"id":2,"result":{"thread":{"id":"thr_9"},"model":"gpt-6.1-sol"}}}
+{"in":{"id":3,"method":"turn/start","params":{"threadId":"thr_9","input":[{"type":"text","text":"Again"}],"clientUserMessageId":"u2"}}}
+{"out":{"id":3,"result":{"turn":{"id":"turn_2","items":[],"status":"inProgress"}}}}
+{"out":{"method":"turn/started","params":{"threadId":"thr_9","turn":{"id":"turn_2","items":[],"status":"inProgress"}}}}
+{"out":{"method":"turn/completed","params":{"threadId":"thr_9","turn":{"id":"turn_2","items":[],"status":"failed","error":{"message":"stream disconnected"}}}}}
