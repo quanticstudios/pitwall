@@ -320,7 +320,8 @@ func TestFixtures(t *testing.T) {
 	}
 }
 
-var jsonBlock = regexp.MustCompile("(?s)```json\n(.*?)```")
+// \r? because a Windows checkout can have CRLF line endings.
+var jsonBlock = regexp.MustCompile("(?s)```json\r?\n(.*?)```")
 
 // TestDocExamples validates every json block in docs/web-protocol.md as a
 // frame, so the examples and the schema cannot drift apart.
