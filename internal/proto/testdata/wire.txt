@@ -1,4 +1,4 @@
-16.32
+16.33
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -9,7 +9,7 @@ model.DecideInfo{Provider string; Counts []model.DecideCount}
 model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
-model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; Conflicts bool; Checks []model.Check; Head string; Reason model.Reason; Detail string}
+model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; ChangeRequests []string; Conflicts bool; Checks []model.Check; Head string; Reason model.Reason; Detail string}
 model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; Prompt string; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string}
 model.PortBlock{First int; Last int}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}

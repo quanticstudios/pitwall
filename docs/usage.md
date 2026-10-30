@@ -510,16 +510,23 @@ the worktree and deletes the branch, as Delete does with its box ticked.
 Set `archive_on_merge = true` under `[git]` to archive a merged worktree
 tab without the click.
 
-Set `auto_send_failures = true` under `[git]` and the daemon does Send
-failures to agent by itself when a pull request's checks fail on a commit
-it has not sent for. It sends at most twice per branch, and only once
-GitHub reports the commit the tab has checked out: while an agent's fix is
-not pushed, or GitHub has not caught up with the push, the failures are of
-an older commit and nothing goes. An agent that is working, or waits on
-you, gets nothing either; the daemon tries again at its next look at the
-pull request. The message arrives as one from a script,
-as `pitwall send` types it. The daemon keeps its count in memory, so a
-restart allows two more.
+In Settings, Agents, Pull requests, turn on **Send CI failures automatically**
+or **Send requested changes automatically**. Both are off by default. The
+config keys under `[git]` are `send_failures_on_fail` and
+`send_review_on_request`. The older `auto_send_failures` key still works;
+an explicit `send_failures_on_fail` takes precedence.
+
+The daemon sends failed checks once per head commit, only once GitHub
+reports the commit the tab has checked out. Requested changes go once per
+review, so pushing a new commit does not resend the same review. Both use
+the same fetch and prompt formatting as the manual commands. A tab without
+an agent gets nothing. A busy agent holds at most one message until it
+waits for input. A delivery notice says "Sent CI failures to <agent>" or
+"Sent review comments to <agent>". Failed or empty fetches can retry at the
+next poll. These sends also work with the window closed. The daemon keeps
+its deduplication history in memory, so a restart allows another send.
+Fleet workers with escalation enabled still escalate after two failing
+commits, as described below.
 <img src="media/conflict.webp" alt="The hover card of a tab whose branch conflicts with another: its pull request and checks, the conflicting file in red, the suggestion to merge this tab first, and its ports" width="600">
 
 Agents in worktrees of one repository can edit the same files without
@@ -1051,7 +1058,8 @@ pull request, the tab that started it gets a line from pitwall. Each
 happens once per worker, and a daemon restart keeps track of what was
 sent.
 
-With `auto_send_failures` under `[git]` on, pitwall sends a branch's
+With `send_failures_on_fail` or its older name `auto_send_failures` under
+`[git]` on and fleet escalation enabled, pitwall sends a lane worker's
 failed checks to its agent at most twice. When a lane worker's checks
 fail again after that, `escalate` decides what happens: `parent` (the
 default) tells the tab that started it, `respawn` closes the worker's

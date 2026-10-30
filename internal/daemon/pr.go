@@ -24,10 +24,12 @@ const prTimeout = 30 * time.Second
 // answer per branch (prKey), the heads whose failed checks went to its
 // agent, and a rate limit pause for all of them.
 type prPoll struct {
-	seen  map[string]*prSeen
-	sent  map[string][]string
-	pause time.Time
-	wake  chan struct{} // a poke: run pollPRs now
+	seen    map[string]*prSeen
+	reviews map[string][]string // branch: review IDs already sent
+	busy    map[string]bool     // branch: a send fetch is running
+	sent    map[string][]string
+	pause   time.Time
+	wake    chan struct{} // a poke: run pollPRs now
 }
 
 // prSeen is gh's last answer for one branch.
@@ -91,7 +93,8 @@ func (d *Daemon) hidden() bool {
 // whose PR it sees go from open to merged is archived, as the delete dialog
 // does with its branch box ticked, when [git] archive_on_merge is on and
 // the tab is a worktree pitwall made. With [git] auto_send_failures on,
-// a branch's failed checks go to its tab's agent; see sendFailures. In
+// a branch's failed checks go to its tab's agent; see sendAgent.
+// send_review_on_request sends reviews through the same path. In
 // fleet mode, a lane worker past those sends is escalated; see escalate.
 func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	type job struct{ key, dir string }
@@ -124,6 +127,7 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		if !live[k] {
 			delete(d.prs.seen, k) // no tab is on that branch now
 			delete(d.prs.sent, k)
+			delete(d.prs.reviews, k)
 		}
 	}
 	d.mu.Unlock()
@@ -146,10 +150,11 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		}
 	}
 
-	auto := len(answers) > 0 && d.o.AutoSendFailures != nil && d.o.Head != nil && d.o.Failures != nil && d.o.AutoSendFailures()
+	failures := len(answers) > 0 && d.o.AutoSendFailures != nil && d.o.Head != nil && d.o.Failures != nil && d.o.AutoSendFailures()
 	var fleet config.Settings
 	fleetOn := false
-	if auto {
+	reviews := len(answers) > 0 && d.o.SendReviewOnRequest != nil && d.o.Reviews != nil && d.o.SendReviewOnRequest()
+	if failures {
 		fleet, fleetOn = d.fleetOn()
 	}
 	d.mu.Lock()
@@ -198,7 +203,7 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	}
 	var sends []autoSend
 	var escs []escalation
-	if auto {
+	if failures || reviews {
 		answered := map[string]bool{}
 		for k := range answers {
 			answered[k] = true
@@ -206,12 +211,12 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 		if fleetOn {
 			escs = d.escalations(answered, keys, fleet.Fleet.Escalate)
 		}
-		sends = d.autoSends(answered, keys)
+		sends = d.autoSends(answered, keys, failures, reviews, fleetOn && fleet.Fleet.Escalate != "off")
 	}
 	d.mu.Unlock()
 
 	for _, a := range sends {
-		d.sendFailures(ctx, a)
+		d.sendAgent(ctx, a)
 	}
 	for _, e := range escs {
 		d.escalate(ctx, fleet, e)

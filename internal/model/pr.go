@@ -52,6 +52,8 @@ type PR struct {
 	Draft  bool
 	URL    string
 	Review Review
+	// ChangeRequests identifies outstanding reviews requesting changes.
+	ChangeRequests []string
 	// Conflicts is true when GitHub says the branch cannot merge cleanly.
 	Conflicts bool
 	Checks    []Check

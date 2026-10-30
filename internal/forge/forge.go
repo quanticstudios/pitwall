@@ -103,6 +103,7 @@ type ghPR struct {
 	Head           string `json:"headRefOid"`
 	Base           string `json:"baseRefName"`
 	Reviews        []struct {
+		ID     string `json:"id"`
 		Author struct {
 			Login string `json:"login"`
 		} `json:"author"`
@@ -164,6 +165,17 @@ func Parse(data []byte) (model.PR, error) {
 			}
 		}
 		pr.Checks = append(pr.Checks, ch)
+	}
+	for _, r := range g.Reviews {
+		if r.State == "CHANGES_REQUESTED" {
+			id := r.ID
+			if id == "" && !r.SubmittedAt.IsZero() {
+				id = r.Author.Login + ":" + r.SubmittedAt.UTC().Format(time.RFC3339Nano)
+			}
+			if id != "" {
+				pr.ChangeRequests = append(pr.ChangeRequests, id)
+			}
+		}
 	}
 	pr.Head = g.Head
 	pr.Reason, pr.Detail = readiness(g, pr)

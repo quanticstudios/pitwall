@@ -238,3 +238,25 @@ func TestNext(t *testing.T) {
 		}
 	}
 }
+
+// The same review survives pushes; a second request by the same author
+// has its own identity even when the aggregate decision stays unchanged.
+func TestChangeRequests(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want []string
+	}{
+		{`{"id":"r1","state":"CHANGES_REQUESTED"}`, []string{"r1"}},
+		{`{"author":{"login":"ann"},"state":"CHANGES_REQUESTED","submittedAt":"2026-10-30T12:00:00Z"}`, []string{"ann:2026-10-30T12:00:00Z"}},
+		{`{"author":{"login":"ann"},"state":"CHANGES_REQUESTED","submittedAt":"2026-10-30T13:00:00Z"}`, []string{"ann:2026-10-30T13:00:00Z"}},
+		{`{"id":"r2","state":"APPROVED"}`, nil},
+		{`{"id":"r3","state":"COMMENTED"}`, nil},
+		{`{"id":"r4","state":"DISMISSED"}`, nil},
+		{`{"state":"CHANGES_REQUESTED"}`, nil},
+	} {
+		pr, err := Parse([]byte(`{"state":"OPEN","latestReviews":[` + tc.body + `]}`))
+		if err != nil || !reflect.DeepEqual(pr.ChangeRequests, tc.want) {
+			t.Errorf("%s: requests %v, error %v, want %v", tc.body, pr.ChangeRequests, err, tc.want)
+		}
+	}
+}

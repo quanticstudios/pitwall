@@ -40,6 +40,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 33 added PR.ChangeRequests, the reviews requesting changes.
 // Level 32 added PasteImage and PasteImageResult: a window whose daemon
 // runs on another machine pastes an image from its own clipboard.
 // Level 31 added Favicon and FaviconResult: a window whose daemon runs
@@ -127,7 +128,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 32
+const Level = 33
 
 // Since is the Level that added msg's type, 0 for one every daemon of this
 // Version knows. A client sends msg only to a daemon at that Level or above.

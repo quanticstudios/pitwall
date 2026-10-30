@@ -308,6 +308,8 @@ type Settings struct {
 	ArchiveOnMerge bool
 	// AutoSendFailures sends a branch's failed checks to its agent.
 	AutoSendFailures bool
+	// SendReviewOnRequest sends requested review changes once per review.
+	SendReviewOnRequest bool
 	// ConflictRadar marks tabs whose branches change the same files.
 	ConflictRadar bool
 	// Hosts is [[hosts]] as written.
