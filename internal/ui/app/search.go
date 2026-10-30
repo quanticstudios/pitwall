@@ -108,9 +108,9 @@ func (u *ui) pickSearchAll(st *model.State, m proto.SessionMatch) {
 	}
 	u.nav.selectWorkspace(st, w.ID, m.Pane)
 	u.nav.setFocus(m.Pane)
-	if m.Transcript {
-		// A transcript record has no terminal coordinate. Keep its exact
-		// excerpt visible in the destination tab rather than invent a line.
+	if m.Transcript || m.Hidden {
+		// Transcript records and history behind an alternate screen cannot
+		// be scrolled into the terminal. Show the excerpt in the target tab.
 		u.all.preview = &m
 		u.all.id++
 		u.send(proto.SearchAll{ID: u.all.id})
@@ -157,6 +157,9 @@ func (u *ui) searchStatus() string {
 	case !u.canSearchAll():
 		return searchOld
 	case s.preview != nil:
+		if s.preview.Hidden {
+			return "Scrollback retained behind a fullscreen app"
+		}
 		return "Matching transcript excerpt"
 	case u.pal.query == "":
 		return "Search scrollback and agent transcripts, including detached tabs"

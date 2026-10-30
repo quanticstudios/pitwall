@@ -107,12 +107,14 @@ func (t *emulator) Search(query string, limit int) ([]Match, bool) {
 
 // SearchLine is a match and a bounded excerpt of its row.
 type SearchLine struct {
-	Match Match
-	Text  string
+	Match  Match
+	Text   string
+	Hidden bool // retained main-screen history while the alternate screen is up
 }
 
 // SearchContext captures excerpts with their matches under one lock. It is
-// optional on Emulator and checks cancellation between rows.
+// optional on Emulator and checks cancellation between rows. Session search
+// includes retained main-screen history even while the alternate screen is up.
 func (t *emulator) SearchContext(ctx context.Context, query string, limit int) ([]SearchLine, bool) {
 	return t.search(ctx, query, limit, true)
 }
@@ -156,7 +158,7 @@ func (t *emulator) search(ctx context.Context, query string, limit int, snippets
 				}
 				text = strings.TrimSpace(text)
 			}
-			out = append(out, SearchLine{Match: m, Text: text})
+			out = append(out, SearchLine{Match: m, Text: text, Hidden: g.AltScreen && m.Line < h.pushed})
 		}
 		return false
 	}
@@ -169,7 +171,7 @@ func (t *emulator) search(ctx context.Context, query string, limit int, snippets
 		row = f.Row(row[:0], h.pushed+uint64(y), cells)
 		more = add(cells, "")
 	}
-	if !g.AltScreen {
+	if !g.AltScreen || snippets {
 		var buf []Cell
 		for i := h.len() - 1; i >= 0 && !more; i-- {
 			if ctx.Err() != nil {

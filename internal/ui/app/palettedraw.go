@@ -43,6 +43,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		rows = make([]paletteEntry, len(u.all.matches))
 		if u.all.preview != nil {
 			title = "Transcript match"
+			if u.all.preview.Hidden {
+				title = "Scrollback match"
+			}
 			rows = make([]paletteEntry, 1)
 		}
 		count = u.searchStatus()

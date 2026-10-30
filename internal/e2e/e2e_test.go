@@ -37,7 +37,8 @@ func TestEngine(t *testing.T) {
 	gui.waitFor(t, timeout, frameContains(p.ID, "hello"))
 
 	shell := openPane(t, gui, w.ID, []string{"sh"})
-	gui.send(t, proto.Input{Pane: shell.ID, Data: []byte("echo typed\r")})
+	// Input can precede the first prompt, which would prefix echo's output.
+	gui.send(t, proto.Input{Pane: shell.ID, Data: []byte("printf '\\ntyped\\n'\r")})
 	gui.waitFor(t, timeout, frameContains(shell.ID, "\ntyped\n"))
 	gui.send(t, proto.Resize{Pane: shell.ID, Cols: 100, Rows: 30})
 	// why: ConPTY resizes after ResizePseudoConsole returns, so on Windows

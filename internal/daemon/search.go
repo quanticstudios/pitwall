@@ -54,7 +54,7 @@ func (d *Daemon) searchAll(ctx context.Context, q proto.SearchAll, emit func(pro
 			if ctx.Err() != nil {
 				return
 			}
-			batch = append(batch, proto.SessionMatch{Workspace: p.meta.WorkspaceID, Pane: p.meta.ID, Match: m.Match, Snippet: strings.TrimSpace(m.Text), Time: now})
+			batch = append(batch, proto.SessionMatch{Workspace: p.meta.WorkspaceID, Pane: p.meta.ID, Match: m.Match, Snippet: strings.TrimSpace(m.Text), Time: now, Hidden: m.Hidden})
 		}
 		total += len(batch)
 		send(batch)

@@ -23,6 +23,7 @@ type SessionMatch struct {
 	Snippet         string
 	Time            time.Time
 	Transcript      bool
+	Hidden          bool // scrollback retained behind an alternate-screen app
 }
 
 // SearchAllResult streams bounded batches to the requesting connection only.

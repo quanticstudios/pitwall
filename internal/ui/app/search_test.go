@@ -130,3 +130,17 @@ func TestSearchAllTranscriptPreviewAndEscape(t *testing.T) {
 		t.Fatal("Escape did not dismiss transcript excerpt")
 	}
 }
+
+func TestSearchAllHiddenScrollbackPreview(t *testing.T) {
+	u, _ := keyWindow(t, conventional)
+	st := u.b.State()
+	u.pal.openAt(time.Now())
+	u.pal.search = true
+	u.pickSearchAll(&st, proto.SessionMatch{Workspace: "w1", Pane: "a", Hidden: true, Snippet: "history behind vim"})
+	if u.all.preview == nil || !u.all.preview.Hidden || !u.pal.open {
+		t.Fatal("hidden history not previewed")
+	}
+	if u.all.jump != nil {
+		t.Fatal("tried to scroll a fullscreen app")
+	}
+}

@@ -84,6 +84,18 @@ func TestSearchAllScrollbackAndTranscripts(t *testing.T) {
 	if logs.Len() != 0 {
 		t.Fatalf("search wrote to logs: %q", logs.String())
 	}
+	d.panes["p0"].(*historyPane).term.Write([]byte("\x1b[?1049hfullscreen app"))
+	hidden := false
+	d.searchAll(context.Background(), proto.SearchAll{Query: "needle"}, func(r proto.SearchAllResult) {
+		for _, m := range r.Matches {
+			if m.Pane == "p0" && m.Hidden {
+				hidden = true
+			}
+		}
+	})
+	if !hidden {
+		t.Fatal("retained scrollback behind fullscreen app was not found")
+	}
 }
 
 func TestSearchAllCancellationAndLimit(t *testing.T) {

@@ -26,6 +26,8 @@ Choose **Search all sessions** in the palette to search every pane's scrollback
 and the agent transcripts the side panel supports, including detached tabs.
 Results arrive grouped by tab as you type. Enter focuses the tab and scrolls
 to a terminal match, or shows the matching transcript excerpt in that tab.
+History retained behind a fullscreen app is searchable too; Enter shows its
+excerpt without interrupting the app.
 Transcript times come from the agent's file. Scrollback times say when it was
 captured, since terminal lines have no timestamps. Broad queries show up to 100
 matches per pane and source, 10,000 total; narrow the query when more exist.

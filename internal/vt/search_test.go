@@ -30,6 +30,14 @@ func TestSearchContextAndASCII(t *testing.T) {
 			t.Errorf("match %+v, want %+v", l.Match, want[i])
 		}
 	}
+	feed(e, "\x1b[?1049hfullscreen app")
+	got, _ = s.SearchContext(context.Background(), "error", 10)
+	if len(got) != 2 || !got[0].Hidden || !got[1].Hidden {
+		t.Fatalf("hidden history %+v", got)
+	}
+	if local, _ := e.Search("error", 10); len(local) != 0 {
+		t.Fatal("pane find searched behind the alternate screen")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if got, _ := s.SearchContext(ctx, "error", 10); len(got) != 0 {
