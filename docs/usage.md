@@ -92,7 +92,9 @@ pick one by putting it there. Then it looks for `favicon.svg`,
 `icon` files. It reads SVG, PNG and ICO files, and looks once per repo
 while the window is open. A repo with none gets a tile with its name's
 first letter, in its group's color or one picked from the name. An icon
-you pick for a group in **Icon and color** wins over the repo's.
+you pick for a group in **Icon and color** wins over the repo's. The
+picker's first tile is the repo's icon itself, for a group that has a
+repo: pick it to go back to the repo's icon.
 
 After its name, a group header counts its tabs by state, with the glyph
 their rows show: tabs that need you (an approval, a question or a plan),

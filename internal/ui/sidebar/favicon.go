@@ -280,13 +280,10 @@ func mainCheckout(ws model.Workspace, root string) string {
 	return root
 }
 
-// groupRoot is the repo whose icon group p's header shows: a git group's
-// own, or the one all of a plain group's tabs are in; "" for none, or
-// when the user picked an icon.
+// groupRoot is group p's repo: a git group's own, or the one all of a
+// plain group's tabs are in; "" for none.
 func (s *Sidebar) groupRoot(v *view, p model.Project) string {
 	switch {
-	case p.Icon != "":
-		return ""
 	case p.Kind == model.ProjectGit:
 		return p.Root
 	case p.Kind != model.ProjectGroup:
@@ -329,8 +326,18 @@ func (s *Sidebar) repoRoot(dir string) (root string, ok bool) {
 	return root, true
 }
 
-// groupFavicon is the icon of groupRoot's repo, or its letter tile.
+// groupFavicon is the icon of groupRoot's repo, or its letter tile,
+// unless the user picked an icon for the group.
 func (s *Sidebar) groupFavicon(v *view, p model.Project) *favicon {
+	if p.Icon != "" {
+		return nil
+	}
+	return s.repoTile(v, p)
+}
+
+// repoTile is the icon group p shows with no icon picked: its repo's, or
+// the letter tile of a repo without one; nil with no repo.
+func (s *Sidebar) repoTile(v *view, p model.Project) *favicon {
 	root := s.groupRoot(v, p)
 	if root == "" {
 		return nil

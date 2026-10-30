@@ -112,7 +112,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 	anchor.Max = anchor.Min.Add(image.Pt(btn, btn))
 	if s.appearance == p.ID {
 		m := op.Record(gtx.Ops)
-		s.appearanceMenu(gtx, th, p, anchor)
+		s.appearanceMenu(gtx, v, p, anchor)
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	if s.groupMenu == p.ID {

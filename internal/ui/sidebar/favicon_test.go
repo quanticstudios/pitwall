@@ -214,7 +214,8 @@ func TestRemoteFavicon(t *testing.T) {
 
 // A plain group shows the icon of the one repo its tabs are in, a
 // worktree counting as its main checkout; several repos, no tabs, or an
-// icon the user picked keep the glyph.
+// icon the user picked keep the glyph. The picker offers the repo's icon
+// as long as the group has a repo, and picking it, Icon "", brings it back.
 func TestGroupRoot(t *testing.T) {
 	s := Sidebar{RepoIcons: func(dir string) (proto.FaviconResult, bool) {
 		return proto.FaviconResult{Dir: dir, Root: dir}, true
@@ -230,26 +231,41 @@ func TestGroupRoot(t *testing.T) {
 	cases := []struct {
 		name string
 		v    *view
-		icon string
 		want string
 	}{
-		{"a repo and its worktree", group("/h/acme", "/h/acme/.worktrees/fix"), "", "/h/acme"},
-		{"worktrees only", group("/h/acme/.worktrees/a", "/h/acme/.worktrees/b"), "", "/h/acme"},
-		{"two repos", group("/h/acme", "/h/other"), "", ""},
-		{"no tabs", group(), "", ""},
-		{"a picked icon", group("/h/acme"), "rocket", ""},
+		{"a repo and its worktree", group("/h/acme", "/h/acme/.worktrees/fix"), "/h/acme"},
+		{"worktrees only", group("/h/acme/.worktrees/a", "/h/acme/.worktrees/b"), "/h/acme"},
+		{"two repos", group("/h/acme", "/h/other"), ""},
+		{"no tabs", group(), ""},
 	}
 	for _, c := range cases {
-		g.Icon = c.icon
 		if got := s.groupRoot(c.v, g); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+		if f := s.groupFavicon(c.v, g); (f != nil) != (c.want != "") {
+			t.Errorf("%s: header icon %+v", c.name, f)
+		}
+		if f := s.repoTile(c.v, g); (f != nil) != (c.want != "") {
+			t.Errorf("%s: picker tile %+v", c.name, f)
 		}
 	}
 	// A worktree pitwall made elsewhere counts as the repo it came from.
 	v := group("/h/acme")
 	v.byProject["g"] = append(v.byProject["g"], model.Workspace{ID: "w", Path: "/h/wt", RepoRoot: "/h/wt", WorktreeRoot: "/h/acme"})
-	g.Icon = ""
 	if got := s.groupRoot(v, g); got != "/h/acme" {
 		t.Errorf("pitwall's worktree: %q", got)
+	}
+	// A picked glyph wins on the header, the picker still offers the
+	// repo's tile, and Icon "" shows it again.
+	g.Icon = "rocket"
+	if f := s.groupFavicon(v, g); f != nil {
+		t.Errorf("a picked icon lost to the repo's: %+v", f)
+	}
+	if f := s.repoTile(v, g); f == nil || f.letter != "A" {
+		t.Errorf("the picker's repo tile with a glyph picked: %+v", f)
+	}
+	g.Icon = ""
+	if f := s.groupFavicon(v, g); f == nil || f.letter != "A" {
+		t.Errorf("back to the repo's icon: %+v", f)
 	}
 }

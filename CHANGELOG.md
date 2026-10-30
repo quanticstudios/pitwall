@@ -17,7 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- A group you made by grouping tabs shows their repo's icon in place of the folder when all its tabs are in one repo, its worktrees included. An icon you picked still wins.
+- A group you made by grouping tabs shows their repo's icon in place of the folder when all its tabs are in one repo, its worktrees included. An icon you picked still wins, and the first tile in **Icon and color** brings back the repo's icon.
 - A group header counts its tabs that need you, are working, or finished a turn you have not seen, each with its row's state glyph. It showed only a count of tabs with something unseen.
 - A Codex tab stopped at its folder trust dialog shows as needing you. It showed as idle.
 
