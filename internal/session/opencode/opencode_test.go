@@ -439,6 +439,9 @@ func TestStreamFailureAndProviderError(t *testing.T) {
 			if tc.record != "" {
 				stream <- tc.record
 			}
+			if tc.name == "provider" {
+				idle(stream)
+			}
 			if tc.name != "provider" {
 				close(stream)
 				next(t, events, session.EventError)

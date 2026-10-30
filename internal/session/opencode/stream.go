@@ -11,13 +11,14 @@ import (
 )
 
 type stream struct {
-	id, turn, point string
-	interrupted     bool
-	roles           map[string]string
-	parts           map[string]part
-	permissions     map[string]bool
-	questions       map[string][]session.Question
-	usage           map[string]tokens
+	id, turn, point              string
+	failureState, failureMessage string
+	interrupted                  bool
+	roles                        map[string]string
+	parts                        map[string]part
+	permissions                  map[string]bool
+	questions                    map[string][]session.Question
+	usage                        map[string]tokens
 }
 
 func newStream(id string) *stream {
@@ -28,6 +29,7 @@ func newStream(id string) *stream {
 
 func (s *stream) begin(id string) {
 	s.turn, s.point, s.interrupted = id, "", false
+	s.failureState, s.failureMessage = "", ""
 	s.roles = map[string]string{}
 	s.parts = map[string]part{}
 	s.permissions = map[string]bool{}
@@ -115,7 +117,7 @@ func (s *stream) line(b []byte, post func(session.Event)) error {
 			if s.interrupted || i.Error.Name == "MessageAbortedError" {
 				state = session.TurnInterrupted
 			}
-			s.complete(state, i.Error.message(), post)
+			s.failureState, s.failureMessage = state, i.Error.message()
 			return nil
 		}
 		if i.Time.Completed != 0 {
@@ -221,7 +223,7 @@ func (s *stream) line(b []byte, post func(session.Event)) error {
 		if s.interrupted || p.Error.Name == "MessageAbortedError" {
 			state = session.TurnInterrupted
 		}
-		s.complete(state, p.Error.message(), post)
+		s.failureState, s.failureMessage = state, p.Error.message()
 	}
 	return nil
 }
@@ -237,6 +239,9 @@ func textEvent(p part, delta string) session.Event {
 func (s *stream) complete(state, message string, post func(session.Event)) {
 	if s.turn == "" {
 		return
+	}
+	if s.failureState != "" {
+		state, message = s.failureState, s.failureMessage
 	}
 	if s.interrupted {
 		state = session.TurnInterrupted

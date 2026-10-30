@@ -51,6 +51,7 @@ func TestStreamMappings(t *testing.T) {
 		}},
 		{"assistant-aborted", []string{
 			`{"type":"message.updated","properties":{"info":{"sessionID":"ses_fake","id":"msg_a","role":"assistant","error":{"name":"MessageAbortedError","data":{"message":"aborted"}}}}}`,
+			`{"type":"session.status","properties":{"sessionID":"ses_fake","status":{"type":"idle"}}}`,
 		}, func(t *testing.T, got []session.Event) {
 			if len(got) != 1 || got[0].Type != session.EventTurnCompleted || got[0].State != session.TurnInterrupted {
 				t.Fatal(got)
@@ -77,6 +78,25 @@ func TestStreamMappings(t *testing.T) {
 			}
 			tc.check(t, got)
 		})
+	}
+}
+
+func TestErrorWaitsForIdle(t *testing.T) {
+	s := newStream("ses_fake")
+	s.begin("first")
+	var events []session.Event
+	post := func(e session.Event) { events = append(events, e) }
+	if err := s.line([]byte(`{"type":"session.error","properties":{"sessionID":"ses_fake","error":{"name":"APIError","data":{"message":"refused"}}}}`), post); err != nil {
+		t.Fatal(err)
+	}
+	if s.turn != "first" || len(events) != 0 {
+		t.Fatal("error allowed a new turn before the old idle status")
+	}
+	if err := s.line([]byte(`{"type":"session.status","properties":{"sessionID":"ses_fake","status":{"type":"idle"}}}`), post); err != nil {
+		t.Fatal(err)
+	}
+	if s.turn != "" || len(events) != 1 || events[0].State != session.TurnFailed || events[0].ErrorMessage != "refused" {
+		t.Fatal(events)
 	}
 }
 
