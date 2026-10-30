@@ -1251,7 +1251,10 @@ func (p *Page) agents() []section {
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
 	rows = append(rows, row{label: "Guard workers", desc: "Turns the guard on in tabs an agent opens with pitwall worktree new: it denies their agents git push, gh pr merge, terraform apply and the like. A seatbelt, not a sandbox; see docs/usage.md.",
 		extra: "guard deny push merge worker guard_workers", control: p.toggle("agents", "guard_workers", p.s.GuardWorkers)})
-	return []section{{rows: rows}, p.presets()}
+	return []section{{rows: rows}, p.presets(), {title: "Pull requests", rows: []row{
+		{label: "Send CI failures automatically", desc: "Send failed checks once per head commit. A busy agent holds one message until its turn ends. Fleet workers escalate after two failed commits.", extra: "git auto_send_failures send_failures_on_fail", control: p.toggle("git", "send_failures_on_fail", p.s.AutoSendFailures)},
+		{label: "Send requested changes automatically", desc: "Send review comments when changes are requested, once per review. A busy agent holds one message until its turn ends.", extra: "git send_review_on_request", control: p.toggle("git", "send_review_on_request", p.s.SendReviewOnRequest)},
+	}}}
 }
 
 func (p *Page) copyLabel(id, label string) string {

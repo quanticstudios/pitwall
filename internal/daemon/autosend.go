@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os/exec"
 	"slices"
@@ -15,73 +16,138 @@ import (
 )
 
 // autoSendMax is how many times [git] auto_send_failures sends one
-// branch's failed checks to its agent.
+// fleet worker's failed checks to its agent before escalation.
 const autoSendMax = 2
 
 // autoSendTimeout bounds one fetch of failed checks and their logs.
 const autoSendTimeout = 3 * time.Minute
 
-// autoSend is a branch whose failed checks may go to its tab's agent.
+// autoSend is one branch's failed checks or requested changes to send.
 type autoSend struct {
 	key, dir, pane string
 	pr             model.PR
+	act            string
+	reviews        []string
 }
 
-// autoSends lists, for [git] auto_send_failures, the branches gh just
-// answered for whose open pull request has a failed check on a head not
-// sent yet, fewer than autoSendMax sent, and an agent with no message
-// waiting. Callers hold d.mu.
-func (d *Daemon) autoSends(answered map[string]bool, keys map[string]string) []autoSend {
+// autoSends chooses at most one send per branch. A pane holds at most one
+// message, including while its agent works. Fleet escalation keeps its
+// two-send limit; other tabs may receive every new failing head.
+// Callers hold d.mu.
+func (d *Daemon) autoSends(answered map[string]bool, keys map[string]string, failures, reviews, fleetCap bool) []autoSend {
 	var out []autoSend
 	for _, w := range d.st.Workspaces {
 		k := keys[w.ID]
 		pr, ok := d.st.PRs[w.ID]
+		s := d.prs.seen[k]
+		if !answered[k] || s == nil || s.err != nil || !ok || pr.State != model.PROpen || d.prs.busy[k] ||
+			slices.ContainsFunc(out, func(a autoSend) bool { return a.key == k }) {
+			continue
+		}
+		a := autoSend{key: k, dir: d.st.LivePath(w), pr: pr}
 		sent := d.prs.sent[k]
-		if !answered[k] || !ok || pr.State != model.PROpen || pr.CI() != model.CheckFail || pr.Head == "" ||
-			slices.Contains(sent, pr.Head) || len(sent) >= autoSendMax || slices.ContainsFunc(out, func(a autoSend) bool { return a.key == k }) {
+		if failures && pr.CI() == model.CheckFail && pr.Head != "" && !slices.Contains(sent, pr.Head) &&
+			!(fleetCap && w.Lane.Name != "" && len(sent) >= autoSendMax) {
+			a.act = "send_failures"
+		} else if reviews && pr.Review == model.ReviewChanges {
+			for _, id := range pr.ChangeRequests {
+				id = fmt.Sprintf("%d:%s", pr.Number, id)
+				if !slices.Contains(d.prs.reviews[k], id) {
+					a.reviews = append(a.reviews, id)
+				}
+			}
+			if len(a.reviews) > 0 {
+				a.act = "send_review"
+			}
+		}
+		if a.act == "" {
 			continue
 		}
 		for _, ap := range d.st.AgentPanes(w) {
-			if !ap.Pane.Exited && len(d.mail.queue[ap.Pane.ID]) == 0 {
-				out = append(out, autoSend{k, d.st.LivePath(w), ap.Pane.ID, pr})
-				break
+			if ap.Pane.Exited {
+				continue
 			}
+			if len(d.mail.queue[ap.Pane.ID]) == 0 {
+				a.pane = ap.Pane.ID
+				out = append(out, a)
+			}
+			break // one target per tab, even while its first agent is busy
 		}
 	}
 	return out
 }
 
-// sendFailures queues the failed checks of a's pull request for its agent,
-// as Send failures to agent words them, and counts its head as sent. It
-// skips an agent that is busy or cannot take a prompt, to try again at the
-// next poll, and a branch whose local head is not the one GitHub reports:
-// its checks are of an older commit, or of one an agent has not pushed.
-func (d *Daemon) sendFailures(ctx context.Context, a autoSend) {
-	if _, _, err := d.ready(a.pane); err != nil {
+// sendAgent uses the same fetch/prompt path as the window's startSend.
+// Fetches reserve a branch until they finish. Only a successfully queued
+// prompt counts as sent; failed or empty fetches can retry on the next poll.
+func (d *Daemon) sendAgent(ctx context.Context, a autoSend) {
+	if _, busy, err := d.ready(a.pane); err != nil && !busy {
 		return
 	}
-	if head, err := d.o.Head(ctx, a.dir); err != nil || head != a.pr.Head {
-		return
+	if a.act == "send_failures" {
+		if head, err := d.o.Head(ctx, a.dir); err != nil || head != a.pr.Head {
+			return
+		}
 	}
 	d.mu.Lock()
-	if d.prs.seen[a.key] == nil || slices.Contains(d.prs.sent[a.key], a.pr.Head) { // its tabs went, or a tab's twin sent it
+	s := d.prs.seen[a.key]
+	if a.act == "send_review" {
+		a.reviews = slices.DeleteFunc(slices.Clone(a.reviews), func(id string) bool { return slices.Contains(d.prs.reviews[a.key], id) })
+	}
+	if a.act == "send_review" && len(a.reviews) == 0 || s == nil || d.prs.busy[a.key] || len(d.mail.queue[a.pane]) > 0 ||
+		a.act == "send_failures" && slices.Contains(d.prs.sent[a.key], a.pr.Head) {
 		d.mu.Unlock()
 		return
 	}
-	d.prs.sent[a.key] = append(d.prs.sent[a.key], a.pr.Head)
+	if d.prs.busy == nil {
+		d.prs.busy = map[string]bool{}
+	}
+	d.prs.busy[a.key] = true
 	d.mu.Unlock()
-	// ponytail: fetched in the poll loop, which waits for it; the cap keeps
-	// that rare.
+	defer func() { d.mu.Lock(); delete(d.prs.busy, a.key); d.mu.Unlock() }()
 	cctx, cancel := context.WithTimeout(ctx, autoSendTimeout)
-	checks, err := d.o.Failures(cctx, a.dir)
+	text, err := forge.SendPrompt(cctx, a.dir, a.pr.Number, a.act, d.o.Failures, d.o.Reviews)
 	cancel()
-	if err != nil || len(checks) == 0 {
-		log.Printf("auto_send_failures: pane %s: no failed checks to send: %v", a.pane, err)
+	if err != nil || text == "" {
+		log.Printf("%s: pane %s: nothing to send: %v", a.act, a.pane, err)
 		return
 	}
-	if err := d.send(proto.Send{Pane: a.pane, Text: forge.FailuresPrompt(a.pr.Number, checks)}); err != nil {
-		log.Printf("auto_send_failures: pane %s: %q", a.pane, err)
+	if a.act == "send_failures" {
+		if head, err := d.o.Head(ctx, a.dir); err != nil || head != a.pr.Head {
+			return
+		}
 	}
+	d.mu.Lock()
+	current := d.prs.seen[a.key]
+	valid := current == s && current.pr != nil && current.pr.Number == a.pr.Number && current.pr.State == model.PROpen && current.err == nil
+	if valid && a.act == "send_failures" {
+		valid = current.pr.Head == a.pr.Head && current.pr.CI() == model.CheckFail
+	}
+	if valid && a.act == "send_review" {
+		valid = current.pr.Review == model.ReviewChanges && slices.Equal(current.pr.ChangeRequests, a.pr.ChangeRequests)
+	}
+	d.mu.Unlock()
+	if !valid {
+		return
+	}
+	what := "CI failures"
+	if a.act == "send_review" {
+		what = "review comments"
+	}
+	if err := d.sendMessage(proto.Send{Pane: a.pane, Text: text}, "Sent "+what+" to ", true); err != nil {
+		log.Printf("%s: pane %s: %q", a.act, a.pane, err)
+		return
+	}
+	d.mu.Lock()
+	if a.act == "send_failures" {
+		d.prs.sent[a.key] = append(d.prs.sent[a.key], a.pr.Head)
+	} else {
+		if d.prs.reviews == nil {
+			d.prs.reviews = map[string][]string{}
+		}
+		d.prs.reviews[a.key] = append(d.prs.reviews[a.key], a.reviews...)
+	}
+	d.mu.Unlock()
 }
 
 // gitHead is the commit checked out at dir.

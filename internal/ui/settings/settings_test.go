@@ -439,3 +439,44 @@ func TestDecisionsCommandShownRedacted(t *testing.T) {
 		t.Errorf("command shown as %q", desc)
 	}
 }
+
+// Both automation rows persist their toggles, including overriding the
+// legacy failures key when it was already enabled.
+func TestAutomaticSendSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[git]\nauto_send_failures = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var p Page
+	p.s, _ = config.LoadFile(path)
+	p.th = theme.Dark()
+	var ops op.Ops
+	gtx := gl.Context{Ops: &ops, Constraints: gl.Exact(image.Pt(800, 600))}
+	for _, tc := range []struct {
+		label, key        string
+		failures, reviews bool
+	}{
+		{"Send CI failures automatically", "send_failures_on_fail", false, false},
+		{"Send requested changes automatically", "send_review_on_request", false, true},
+	} {
+		found := false
+		for _, sec := range p.agents() {
+			for _, row := range sec.rows {
+				if row.label != tc.label {
+					continue
+				}
+				p.btn("git." + tc.key).Click()
+				row.control(gtx)
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing row %q", tc.label)
+		}
+		s, probs := config.LoadFile(path)
+		if len(probs) != 0 || s.AutoSendFailures != tc.failures || s.SendReviewOnRequest != tc.reviews {
+			t.Fatalf("%s: failures %v, reviews %v, problems %v", tc.key, s.AutoSendFailures, s.SendReviewOnRequest, probs)
+		}
+		p.s = s
+	}
+}
