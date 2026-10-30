@@ -48,10 +48,12 @@ func Save(path string, s model.State) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(path, append(data, '\n'))
+	return WriteAtomic(path, append(data, '\n'))
 }
 
-func writeAtomic(path string, data []byte) error {
+// WriteAtomic writes data to path through a temp file and a rename, so a
+// crash leaves the old file or the new one. The file is 0600.
+func WriteAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -105,7 +107,7 @@ func Load(path string) (model.State, error) {
 		return model.State{}, err
 	}
 	if version < formatVersion {
-		if err := writeAtomic(path+".prev", data); err != nil {
+		if err := WriteAtomic(path+".prev", data); err != nil {
 			return model.State{}, fmt.Errorf("keep the old state: %w", err)
 		}
 	}
