@@ -108,7 +108,9 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	if prep != nil {
 		prep(&w)
 	}
-	if err := d.addTab(&w, path, m.Cmd, m.Env); err != nil {
+	if w.Chat != "" {
+		// A chat tab shows its chat, not panes.
+	} else if err := d.addTab(&w, path, m.Cmd, m.Env); err != nil {
 		d.st.Sessions = d.st.Sessions[:sessions] // drop one made for this tab
 		return err
 	}

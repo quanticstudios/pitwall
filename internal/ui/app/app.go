@@ -913,6 +913,13 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	} else {
 		u.drag = nil
 	}
+	if ws.Chat != "" {
+		// shortcut: the transcript view is ENG-2689's; until then the CLI reads it.
+		gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
+			return para(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Muted, "Chat: read it with pitwall chat read "+ws.Chat)
+		})
+		return
+	}
 	if root == nil {
 		u.emptyState(gtx, "Open a terminal   "+firstChord(u.nav.bind().Global["split_right"]), func() {
 			u.nav.expectPane(st)

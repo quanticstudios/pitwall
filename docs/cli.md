@@ -37,6 +37,15 @@ optional name act on the pane's own tab.
 | `pitwall worktree prune`              | Forget worktrees whose folder is gone, and list the ones under `.worktrees` that no tab uses |
 | `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |
 | `pitwall queue ls` / `add [--issue n] [--preset name] [--model model] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
+| `pitwall chat new [--provider claude\|codex] [--model M] [--effort E] [--mode M] [--dir D \| --worktree NAME [--base B] \| --branch B] [--name N] [-- prompt]` | Open a [chat](#chats) in a tab of its own, send the prompt, and print the chat's id |
+| `pitwall chat ls [--json]`            | List the session's chats: tab #, id, provider, state, pending answers, title |
+| `pitwall chat send <chat> [--steer\|--queue] -- text` | Start a turn, or queue the text behind the running one; `--steer` adds it to the running turn where the agent can, `--queue` always queues |
+| `pitwall chat approve <chat> [<request>] allow\|allow-session\|deny [--reason R]` | Answer a pending approval, the only one without a request id; refused inside a pitwall pane |
+| `pitwall chat interrupt <chat>`       | Stop the running turn; queued messages wait for the next send |
+| `pitwall chat set <chat> [--model M] [--effort E] [--mode M]` | Change the chat's model, effort or permission mode |
+| `pitwall chat read <chat> [--json]`   | Print the transcript: prompts, replies, a line per tool call, and pending approvals with their ids; `--json` prints the snapshot |
+| `pitwall chat wait <chat> [--until done\|blocked] [--timeout D]` | Block until the chat's turn ends or it waits on an answer; exit codes as `pitwall wait` |
+| `pitwall chat archive <chat>`         | Close the chat and its tab, as `pitwall kill` does |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
 | `pitwall doctor`                      | Check that the `pitwall` on PATH is this one, the daemon runs this version, each installed agent's hooks and skill are in place, and the config loads; prints `ok`, `FAIL` or `info` per check, with the fix under each FAIL, and exits 1 on a FAIL. It changes nothing |
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
@@ -91,3 +100,24 @@ the output, resumes an agent with a known session, and does not run any
 other unfinished command again: its exit code shows as unknown. Any process running as you can reach the
 daemon's socket, so these commands give nothing a local process did not
 already have.
+
+## Chats
+
+A chat is an agent that pitwall drives over the agent's own protocol (Claude
+Code's stream-json, Codex's app-server) instead of a terminal. Each chat has
+a tab of its own with no panes; the window shows a placeholder there until
+the transcript view lands. `pitwall ls` lists chat tabs in a section after
+the other tabs. A chat is named by its id, a unique prefix of it, or its
+tab (`#N` or its title).
+
+```sh
+id=$(pitwall chat new --provider codex -- "fix the failing test")
+pitwall chat wait "$id" --timeout 20m   # 0 done, 2 waiting on an approval, 124 timed out
+pitwall chat read "$id"
+pitwall chat approve "$id" allow        # the only pending approval
+```
+
+For now chats live in the daemon's memory: a daemon restart closes them and
+their tabs. An older window or CLI, from before chats, does not see chat tabs.
+[managed-sessions.md](managed-sessions.md) is the design.
+

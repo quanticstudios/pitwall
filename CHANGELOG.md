@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- `pitwall chat` starts and drives chats: agents pitwall runs over their own protocol rather than in a terminal, each in a tab of its own. `chat new`, `send`, `approve`, `interrupt`, `set`, `read`, `wait` and `archive` work over the daemon's socket, and `pitwall ls` lists chats in their own section. The daemon starts no agent driver yet, so `chat new` says pitwall cannot run that agent until one is wired in. Chats do not survive a daemon restart yet.
 - The daemon has a Claude Code driver for managed chats: it runs `claude -p` in stream-json mode, sends turns and maps streamed text, tool calls, usage and limits to chat events. Nothing starts it yet.
 - Managed-session tests and aide e2e can use scripted Claude and Codex providers without starting agents. The provider registry opts in with `PITWALL_FAKE_PROVIDERS=1` and logs a warning; daemon wiring comes with the chat-loop work.
 

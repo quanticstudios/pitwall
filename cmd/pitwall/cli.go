@@ -109,6 +109,8 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	switch {
 	case len(args) > 0 && args[0] == "wait":
 		return waitCommand(args[1:], out, errOut)
+	case len(args) > 0 && args[0] == "chat":
+		return chatCommand(args[1:], out, errOut)
 	case len(args) > 0 && args[0] == "prompt":
 		var stdin io.Reader
 		if in != nil {
@@ -564,8 +566,15 @@ func listTabs(out io.Writer, state model.State, session string, only map[string]
 			}
 		}
 	}
+	var chats []model.Chat
 	for _, i := range rows {
 		tab := tabs[i]
+		if c := slices.IndexFunc(state.Chats, func(c model.Chat) bool { return c.ID == tab.Chat }); tab.Chat != "" {
+			if c >= 0 {
+				chats = append(chats, state.Chats[c])
+			}
+			continue // listed under chats
+		}
 		label, since := "idle", "-"
 		var activities []model.Activity
 		for _, a := range state.Activities {
@@ -597,7 +606,13 @@ func listTabs(out io.Writer, state model.State, session string, only map[string]
 			return err
 		}
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil || len(chats) == 0 {
+		return err
+	}
+	if _, err := fmt.Fprintln(out); err != nil {
+		return err
+	}
+	return listChats(out, state, session, chats)
 }
 
 func tabCommand(args []string) error {

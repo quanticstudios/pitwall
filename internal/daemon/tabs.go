@@ -103,6 +103,9 @@ func (d *Daemon) removeWorkspace(id string) []Pane {
 	}
 	if w := d.workspace(id); w != nil {
 		d.tabClosed(*w)
+		if w.Chat != "" {
+			d.dropChat(w.Chat)
+		}
 	}
 	if w := d.workspace(id); w != nil && d.o.DropTurns != nil {
 		// A removed worktree's checkpoints are in the repository it was of.
@@ -400,10 +403,16 @@ func (d *Daemon) retitle() {
 		for j := range w.Tabs {
 			w.Tabs[j].Title = tabTitle(w, &w.Tabs[j], panes, running)
 		}
-		if ti := tabIndex(w, ""); ti >= 0 {
+		switch ti := tabIndex(w, ""); {
+		case ti >= 0:
 			w.Label = w.Tabs[ti].Title
-		} else {
+		case w.Chat != "" && !w.NameSet && d.chats[w.Chat] != nil && d.chats[w.Chat].title != "":
+			w.Label = d.chats[w.Chat].title
+		default:
 			w.Label = tabTitle(w, &model.Tab{}, panes, running)
+		}
+		if ci := slices.IndexFunc(d.st.Chats, func(c model.Chat) bool { return c.ID == w.Chat }); w.Chat != "" && ci >= 0 {
+			d.st.Chats[ci].Title = w.Label
 		}
 	}
 }

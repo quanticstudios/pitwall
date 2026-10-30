@@ -16,6 +16,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/testenv"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
@@ -68,6 +69,17 @@ func allMessages() []any {
 		Search{Pane: "a", Query: "Error"},
 		SearchAll{ID: 123, Query: "Error"},
 		SearchAllResult{ID: 123, Done: true, More: true, Matches: []SessionMatch{{Workspace: "w", Pane: "a", Match: vt.Match{Line: 42}, Snippet: "Error in a transcript", Transcript: true}}},
+		ChatNew{SessionID: "s", Dir: "/repo", Worktree: "fix", Provider: model.ProviderCodex, Model: "m", Prompt: "fix it", Images: []string{"/a.png"}},
+		ChatSend{Chat: "c", Text: "more", How: "steer"},
+		ChatInterrupt{Chat: "c"},
+		ChatApprove{Chat: "c", Request: "r", Decision: "deny", Reason: "no", By: "cli"},
+		ChatAnswer{Chat: "c", Request: "r", Answers: map[string][]string{"q": {"yes"}}},
+		ChatSet{Chat: "c", Mode: "plan"},
+		ChatQueue{Chat: "c", Queue: []session.QueuedMessage{{ID: "m", Text: "later"}}},
+		ChatRead{Chat: "c", After: 3},
+		ChatArchive{Chat: "c", Delete: true},
+		ChatResult{Chat: "c", Turn: "t", Code: "busy", Message: "a turn is running"},
+		ChatDeltas{Chat: "c", Snapshot: []byte(`{}`), Seq: 1, Deltas: [][]byte{[]byte(`{"seq":2}`)}},
 		Answer{Pane: "a", At: 1 << 60, Allow: true},
 		SearchResult{Pane: "a", Query: "Error", Matches: []vt.Match{{Line: 1 << 40, Col: 3, Cols: 5}}, More: true},
 		Text{Pane: "a", Sel: vt.Selection{A: vt.Pos{Line: 1 << 40, Col: 2}, B: vt.Pos{Line: 1<<40 + 3}, Mode: vt.SelectBlock}},

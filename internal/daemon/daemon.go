@@ -36,6 +36,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/timelog"
 	"github.com/quanticstudios/pitwall/internal/vt"
@@ -170,6 +171,9 @@ type Options struct {
 	// (gitstat.Checkpoint); nil takes none.
 	Checkpoint func(ctx context.Context, worktree, ws string) error
 	DropTurns  func(ctx context.Context, dir, ws string) error
+	// Providers run chats, by provider; a provider missing here refuses
+	// ChatNew.
+	Providers map[model.Provider]session.Provider
 }
 
 type Daemon struct {
@@ -206,6 +210,7 @@ type Daemon struct {
 	replies map[string]string
 	mail    mail                  // see talk.go
 	reviews map[string]string     // second opinions: reviewer pane to the pane it reviews; see opinion.go
+	chats   map[string]*chat      // live chats by id; see chats.go
 	lim     limitResumes          // see resume.go
 	quiet   map[string]*quietPane // see quiet.go
 	sendMu  sync.Mutex            // one deliver types at a time
@@ -377,7 +382,7 @@ func fromState(o Options, st model.State) *Daemon {
 	if st.Stats == nil {
 		st.Stats = map[string]model.BranchStats{}
 	}
-	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, holds: map[string]chan chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}}
+	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, holds: map[string]chan chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}, chats: map[string]*chat{}}
 	if o.Decisions != nil {
 		d.dec.cur = o.Decisions()
 	}
@@ -390,6 +395,9 @@ func fromState(o Options, st model.State) *Daemon {
 // orders once the panes are in. Callers hold d.mu.
 func (d *Daemon) tidy() {
 	d.adopt()
+	// shortcut: no chat outlives the daemon until ENG-2680 stores them, so
+	// a saved chat tab has nothing to show.
+	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Chat != "" })
 	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool {
 		return !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
 			!slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == s.ID })
@@ -438,6 +446,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 func (d *Daemon) shutdown() {
+	d.closeChats()
 	d.saveMu.Lock()
 	d.mu.Lock()
 	if d.handedOff {
@@ -481,6 +490,7 @@ type client struct {
 	// view is the panes a GUI draws, from proto.View, nil for one below
 	// that Level, which gets every pane's frames; guarded by Daemon.mu.
 	view   map[string]bool
+	level  int  // the client's Hello.Level
 	diffs  bool // the GUI takes FrameRows
 	moves  bool // the GUI takes FocusDir
 	wake   chan struct{}
@@ -530,7 +540,7 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 		var out []any
 		if state {
 			d.mu.Lock()
-			out = append(out, proto.StateMsg{State: d.snapshot(), Level: proto.Level, Build: Build})
+			out = append(out, proto.StateMsg{State: forLevel(d.snapshot(), c.level), Level: proto.Level, Build: Build})
 			d.mu.Unlock()
 		}
 		for id := range fresh {
@@ -607,7 +617,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		d.foreignHook(hello.Version)
 	}
 
-	c := &client{conn: conn, nc: nc, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
+	c := &client{conn: conn, nc: nc, level: hello.Level, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
 	cid := newID()[:6]
 	// errs keeps an input flood into a pane that stopped reading from
 	// logging a line per message.
@@ -677,7 +687,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			d.mu.Lock()
 			s := d.snapshot()
 			d.mu.Unlock()
-			c.queue(proto.StateMsg{State: s, Level: proto.Level, Build: Build})
+			c.queue(proto.StateMsg{State: forLevel(s, c.level), Level: proto.Level, Build: Build})
 			continue
 		}
 		if s, ok := m.(proto.SearchAll); ok {
@@ -709,6 +719,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if p, ok := m.(proto.PasteImage); ok {
 			c.queue(d.pasteImage(p)) // a reply to this client alone
+			continue
+		}
+		if reply, ok := d.chatRequest(ctx, m); ok {
+			c.queue(reply) // a reply to this client alone
 			continue
 		}
 		if r, ok := m.(proto.Read); ok {
@@ -1182,6 +1196,9 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 	w := d.workspace(m.WorkspaceID)
 	if w == nil {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
+	}
+	if w.Chat != "" {
+		return errors.New("a chat tab has no panes")
 	}
 	var t *model.Tab
 	if ti := tabIndex(w, m.TabID); ti >= 0 {
@@ -1958,6 +1975,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Overlaps = maps.Clone(s.Overlaps) // the radar replaces a tab's list whole
 	s.Decide = d.decideInfo()
 	s.Tasks = slices.Clone(s.Tasks)
+	s.Chats = slices.Clone(s.Chats) // chatChanged updates entries in place
 	s.Queued = nil
 	for id, q := range d.mail.queue {
 		if s.Queued == nil {

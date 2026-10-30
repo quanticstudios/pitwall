@@ -25,6 +25,7 @@ import (
 
 // Account profiles add optional Workspace.Profile and Task.Profile fields
 // to version 8. Missing fields decode to "", preserving older state files.
+// formatVersion 9 added Workspace.Chat;
 // formatVersion 8 added Pane.Held;
 // formatVersion 7 added sessions, which own the tabs, groups and order;
 // formatVersion 6 added State.Order and dropped generated tab names;
@@ -32,7 +33,7 @@ import (
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 8
+const formatVersion = 9
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
