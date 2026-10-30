@@ -58,6 +58,9 @@ type Activity struct {
 	// Resumes is when the daemon types continue into an agent its plan's
 	// usage limit stopped; zero for no resume set.
 	Resumes time.Time
+	// AutoContinues means pitwall defers this usage-limit resume to
+	// Claude Code's own setting. Set by the daemon for clients.
+	AutoContinues bool
 	// QuietSince is when a working agent's screen last changed, once it
 	// has been still for [agents] quiet_after; zero otherwise.
 	QuietSince time.Time

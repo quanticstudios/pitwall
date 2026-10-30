@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -253,6 +254,13 @@ func (d *Daemon) attended() []model.Activity {
 			seen = a.seen
 		}
 		out[i].Unseen = model.NeedsYou(out[i].State) && out[i].UpdatedAt.After(seen)
+		if stoppedState(out[i].State) {
+			if _, _, ok := agent.UsageLimit(out[i].Detail, time.Now()); ok {
+				if pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == out[i].PaneID }); pi >= 0 {
+					out[i].AutoContinues = d.claudeContinues(d.st.Panes[pi])
+				}
+			}
+		}
 		if r := d.pendingResume(out[i].PaneID); r != nil {
 			out[i].Resumes = r.at
 		}

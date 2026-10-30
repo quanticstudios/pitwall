@@ -25,7 +25,7 @@ build. Either step takes `--dry-run`.
 - New task has an editable model picker per agent, with Claude aliases and Codex cache suggestions, and remembers each agent's choice. `pitwall new` and `pitwall queue add` accept `--model`, including `default` to leave the model unset.
 - Search all sessions from the command palette, or bind `search_all` to a key. Results group matching scrollback and agent transcript excerpts by tab, including detached tabs. Enter opens the tab at the scrollback line or shows the matching transcript excerpt.
 - Choose named Claude Code and Codex account profiles in New task and New tab. Tabs keep their account after a restart, show its label and color, and track usage limits and limit resumes per profile.
-
+- Usage-limit resumes defer to Claude Code's own auto-continue setting to avoid sending continue twice. The tab's hover card explains when Claude handles the wait. Codex resumes are unchanged.
 - A Codex tab stopped at its folder trust dialog shows as needing you. It showed as idle.
 - Drop image files onto an agent pane to paste their quoted paths. Clipboard images now use the same private save-and-paste path locally and over `--host`, with images kept under the state directory until their tab closes. A shell receives dropped paths and ignores clipboard images.
 

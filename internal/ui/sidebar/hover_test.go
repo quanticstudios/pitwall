@@ -127,6 +127,25 @@ func TestCardLines(t *testing.T) {
 	}
 }
 
+func TestCardClaudeAutoContinue(t *testing.T) {
+	st := cardState()
+	st.Activities[0].State = model.StateError
+	st.Activities[0].AutoContinues = true
+	v := newView(layout.Context{}, theme.Dark(), st, "", "")
+	c := cardFor(v, st.Workspaces[0])
+	if c.resume != "Claude will continue on its own" || !strings.Contains(c.lines(), "l") {
+		t.Fatalf("Claude's continue missing from card: %+v", c)
+	}
+	if c := cardFor(v, st.Workspaces[1]); c.resume != "" || strings.Contains(c.lines(), "l") {
+		t.Fatalf("another tab shows Claude's continue: %+v", c)
+	}
+	st.Activities[0].AutoContinues = false
+	v = newView(layout.Context{}, theme.Dark(), st, "", "")
+	if c := cardFor(v, st.Workspaces[0]); c.resume != "" || strings.Contains(c.lines(), "l") {
+		t.Fatalf("card still shows Claude's continue: %+v", c)
+	}
+}
+
 func TestClampDetail(t *testing.T) {
 	long := strings.Repeat("word ", 500)
 	got := clampDetail(long)

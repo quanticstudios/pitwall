@@ -1114,6 +1114,24 @@ after the reset, pitwall types `continue` and Enter into the pane, and a
 desktop notification says so. Until then the tab's pill reads
 **Resumes 15:04**.
 
+Claude Code also has **Continue automatically at usage limit** in `/config`.
+Its [`autoContinueAtUsageLimit` setting](https://code.claude.com/docs/en/settings-reference#autocontinueatusagelimit)
+defaults to on. pitwall reads it from `~/.claude/settings.json`, or
+`$CLAUDE_CONFIG_DIR/settings.json`, including a tab's environment override.
+Unless that file explicitly sets it to `false`, pitwall schedules no Claude
+resume and the hover card says **Claude will continue on its own**. This also
+applies when the file is missing, unreadable or invalid. pitwall never changes
+Claude's settings. Codex resumes are unchanged.
+
+<img src="media/claude-auto-continue.png" alt="A Claude tab's hover card says Claude will continue on its own after a usage limit" width="320">
+
+This is a user-settings check, not a guarantee that Claude has armed its wait.
+Older Claude versions, managed settings, `--settings`, project settings and
+Claude's own eligibility rules can change its behavior. If you use those
+overrides, keep only one automatic continue enabled. To have pitwall handle
+Claude resumes, turn Claude's option off in `/config` and check any managed
+or command-line overrides too.
+
 pitwall types it only when the pane still runs the same agent and still
 sits at the turn the limit stopped. Typing anything in the pane after the
 turn stopped cancels it, and so do **Cancel resume** in the tab's

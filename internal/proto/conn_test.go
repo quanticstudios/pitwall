@@ -40,7 +40,7 @@ func allMessages() []any {
 		Workspaces: []model.Workspace{{ID: "w", ProjectID: "p", Name: "x", Branch: "x", Path: "/r/x", UpdatedAt: now, Tabs: []model.Tab{{ID: "t", Layout: tree}}, ActiveTab: "t"}},
 		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cmd: []string{"claude"}, Cwd: "/r/x", Exited: true, ExitCode: 2, Provider: model.ProviderClaude, SessionID: "s"}},
 		Activities: []model.Activity{{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StatePendingApproval, UpdatedAt: now, Unseen: true,
-			Advice: "allow", AdviceP: 0.96, AdviceRule: "sudo", Urgency: "now"}},
+			Advice: "allow", AdviceP: 0.96, AdviceRule: "sudo", Urgency: "now", AutoContinues: true}},
 		Stats:  map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
 		Decide: model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}}},
 		Tasks:  []model.Task{{ID: "t", SessionID: "s", GroupID: "p", Dir: "/r", Branch: "fix", Cmd: []string{"claude", "fix it"}}},
