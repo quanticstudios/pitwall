@@ -982,9 +982,11 @@ The answer, who gave it (`gui`, `cli`, `web:<client name>`,
 `phone:<device>`) and how long it waited go to `decisions.jsonl` as the
 approval outcome. No hook needs to infer it.
 
-pitwall never answers for the user. Jev's advice shows on a chat's approval
-as it does on a pane's ([decisions.md](decisions.md)); nothing approves on
-its own.
+pitwall never answers for the user, with one exception: aide's Jev tool
+gate. It is off by default, as in aide, and when on it answers only for
+chats aide started ([setJev](web-protocol.md#setjev)). Jev's advice shows
+on a chat's approval as it does on a pane's ([decisions.md](decisions.md));
+nothing else approves on its own.
 
 <a id="attach"></a>
 ## Worktrees, ports, checkpoints, triage, limits, notifications
@@ -996,6 +998,7 @@ its own.
 | Environment | `Config.Env` is what a pane of that tab gets: the preset's variables, the guard's variable when the guard is on for the tab, the ports, and `PITWALL_PANE=<chat id>`. |
 | Hooks | The agent loads the user's settings, so pitwall's hooks run. With `PITWALL_PANE` set, the guard denies as in a pane, and `pitwall new` from the agent makes its tab a worker of the chat's tab (the daemon resolves a chat id in `ParentPane` to its tab). The daemon drops hook state reports (`proto.AgentEvent`) whose pane is a chat: the stream is the source of truth, and the turn checkpoint is the loop's job. |
 | Turn checkpoints | Before `Driver.Send`, the loop takes `d.checkpoint(cwd, ws)` as the prompt hook does for panes (`daemon.go`, `turnWait`). The turn summary's `checkpointId` is the checkpoint's commit. This turn, Undo turn and Redo turn work on the chat's tab unchanged. |
+| aide's Jev gates | A chat aide started over the web protocol (`Config.Aide`) gets aide's gates from `internal/decide`, with the key, consent list and gate settings aide hands over in `setJev`: no turn starts without consent for the workspace, a key and Jev's preparation of the prompt, and with the tool gate on Jev answers the approvals it is sure of. See [setJev](web-protocol.md#setjev). |
 | Triage, Jev | Through the chat's Activity: triage, approval advice, turn check and check runs read Activity and the snapshot's text, not a screen. Stuck detection reads the snapshot's last items in place of the screen. |
 | Limits | `limit` events become `flow.Limit` values the daemon adds to the ones `internal/flow` reads, so the limits view shows them. A turn that ends on a rejected limit calls `limitStopped(chat id, ...)` with the reset time. `fireResume` sends "continue" through `Driver.Send` instead of typing into a pane (`resume` gets a `send func(string) error`). |
 | Notifications | `model.DecideNotifications` reads Activities, so desktop notifications, the jump-to-attention key, phone push and the Unseen dot work unchanged. `SeePane` with a chat id marks it seen. |
@@ -1185,7 +1188,9 @@ pitwall stays simple. A chat is one agent in one tab, driven by the user.
   events.
 - **No chat UI in pitwall's window** beyond the read-only transcript,
   approvals and a send box. aide is the chat UI.
-- **No automatic approval.** Every approval is a person's answer.
+- **No automatic approval**, except aide's Jev tool gate: off by default,
+  as in aide, and when on it answers only for chats aide started. Every
+  other approval is a person's answer.
 - **No reading of provider transcripts** (`~/.claude/projects`, Codex
   rollouts) to rebuild a chat. pitwall's log is the record.
 - **No Node helper** and no Agent SDK; the drivers speak the wire from Go.

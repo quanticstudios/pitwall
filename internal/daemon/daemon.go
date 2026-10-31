@@ -195,6 +195,9 @@ type Options struct {
 	// Chats is the folder that keeps chats (eventlog.Root); "" keeps them
 	// in memory only, gone with the daemon.
 	Chats string
+	// Gates are aide's Jev gates for the chats aide starts; nil holds no
+	// key, so those chats start no turn until aide hands one over.
+	Gates *decide.Gates
 }
 
 type Daemon struct {
@@ -272,6 +275,7 @@ func Defaults() Options {
 	}
 	return Options{
 		Providers: configuredProviders(),
+		Gates:     gatesFromEnv(),
 		Journal:   journal,
 		Errors:    errs,
 		Timing:    timing,
@@ -353,6 +357,9 @@ func Defaults() Options {
 // command twice may not be safe. Either shows a notice in place of its
 // screen, which is not saved.
 func NewWith(o Options) (*Daemon, error) {
+	if o.Gates == nil {
+		o.Gates = &decide.Gates{}
+	}
 	st, err := o.Load()
 	if err != nil {
 		return nil, err

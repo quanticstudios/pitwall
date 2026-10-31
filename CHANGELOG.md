@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Chats aide starts get aide's Jev gates in the daemon (ENG-2934). aide hands over its TypeSafe key, its per-workspace consent and its gate settings with the new `setJev` web command; the daemon keeps them in memory only and never sends the key back. No turn of such a chat starts without consent for its folder, a key, and Jev's preparation of the prompt, which adds the workspace evidence Jev chose. A refusal fails the command with code `jev` and aide's message. With aide's tool gate on, Jev allows or denies the tool approvals it is sure of before they reach the user. Chats started from pitwall itself are unchanged. `PITWALL_FAKE_PROVIDERS=1` also fakes Jev, which then answers 0.8 to every question.
 - The fake providers follow the chat's permission mode as a real CLI does: `bypassPermissions` opens no command, file-change or file-read approval, and `acceptEdits` opens no file-change approval. aide's Full access spec now runs on the daemon.
 - `TestReadUsage` takes the window its fake `Usage` saw over a channel, so the race detector no longer fails main's linux job on it.
 - Web chats take aide's attachments on `start` and `send`: images, workspace files and pasted text. Claude and Codex get images as images and the rest quoted after the prompt as aide quotes them; the transcript and the queue show them. Over aide's limits (8 attachments, 5 MiB an image, 10 MiB of images, 256 KiB a file or paste) the command answers `invalid`. Before, any attachment answered `unsupported`.
