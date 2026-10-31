@@ -304,6 +304,32 @@ func TestNewerFormat(t *testing.T) {
 	}
 }
 
+func TestReadConfig(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := ReadConfig(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("no config.json: %v, want ErrNotExist", err)
+	}
+	os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"format":2}`), 0600)
+	if _, err := ReadConfig(dir); !errors.Is(err, store.ErrNewer) {
+		t.Errorf("format 2: %v, want ErrNewer", err)
+	}
+	l, _, _, _, err := Open(dir)
+	if err == nil {
+		t.Fatal("Open took a format 2 config")
+	}
+	dir = t.TempDir()
+	if l, _, _, _, err = Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	if err := l.WriteConfig(session.Config{ID: "c1", Resume: "r1"}); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := ReadConfig(dir); err != nil || c.ID != "c1" || c.Resume != "r1" || c.Format != 1 {
+		t.Errorf("ReadConfig = %+v, %v", c, err)
+	}
+}
+
 func TestArchiveAndDelete(t *testing.T) {
 	root := t.TempDir()
 	live := filepath.Join(root, "c1")

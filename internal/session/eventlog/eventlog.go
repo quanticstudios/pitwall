@@ -149,6 +149,24 @@ func Open(dir string) (*Log, session.Config, session.Snapshot, int64, error) {
 	return l, cfg, s, l.seq, nil
 }
 
+// ReadConfig reads dir's config.json alone, which is all the daemon reads
+// of a chat at start. A missing file is fs.ErrNotExist, one a newer pitwall
+// wrote store.ErrNewer.
+func ReadConfig(dir string) (session.Config, error) {
+	var cfg session.Config
+	path := filepath.Join(dir, "config.json")
+	found, err := readJSON(path, &cfg)
+	switch {
+	case err != nil:
+		return cfg, err
+	case !found:
+		return cfg, fmt.Errorf("%s: %w", path, fs.ErrNotExist)
+	case cfg.Format > format:
+		return cfg, fmt.Errorf("%s: %w", path, store.ErrNewer)
+	}
+	return cfg, nil
+}
+
 // readJSON decodes path into v and reports whether the file exists.
 func readJSON(path string, v any) (bool, error) {
 	data, err := os.ReadFile(path)
