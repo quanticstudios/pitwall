@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.7
 
 - A custom theme's long name no longer runs into its "custom" tag in Settings, Appearance. The name ends in "…" instead.
 - A built-in `dracula` theme.
