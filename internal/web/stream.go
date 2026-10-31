@@ -32,6 +32,9 @@ type Chats interface {
 	// Do runs a Chat* socket message as the socket does and returns its
 	// proto.ChatResult.
 	Do(m any) any
+	// Tab is live chat id's tab folder and tab id, where its turns'
+	// checkpoints are.
+	Tab(id string) (dir, ws string, err error)
 	// Workspaces are the daemon's tabs, for listProjects.
 	Workspaces() []model.Workspace
 	// Archived is the archived chats, newest first; Read reads them too.

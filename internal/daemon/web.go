@@ -192,6 +192,17 @@ func (h chatHub) Do(m any) any {
 	return r
 }
 
+// Tab is live chat id's tab folder and tab id.
+func (h chatHub) Tab(id string) (dir, ws string, err error) {
+	if err := h.on(id, func(c *chat) { ws = c.cfg.Workspace }); err != nil {
+		return "", "", err
+	}
+	if dir = h.d.tabDir(ws); dir == "" {
+		return "", "", chatError{"not-found", "chat " + id + " has no tab"}
+	}
+	return dir, ws, nil
+}
+
 func (h chatHub) Workspaces() []model.Workspace {
 	h.d.mu.Lock()
 	defer h.d.mu.Unlock()

@@ -207,7 +207,7 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	case proto.ChatRewind:
 		id = m.Chat
 		run = func(c *chat) (string, string, error) {
-			note, err := d.chatRewind(ctx, c, m.Turn)
+			note, err := d.chatRewind(ctx, c, m.Turn, m.KeepFiles)
 			return "", note, err
 		}
 	case proto.ChatQueue:
@@ -426,29 +426,28 @@ func (d *Daemon) chatFork(ctx context.Context, m proto.ChatFork) proto.ChatResul
 }
 
 // chatRewind drops turn name and every turn after it: the tab's files go
-// back to the turn's checkpoint, refused as Undo turn refuses, then the
-// provider continues from the end of the turn before, through a fork of
-// its session whose new id replaces the chat's.
-func (d *Daemon) chatRewind(ctx context.Context, c *chat, name string) (string, error) {
+// back to the turn's checkpoint, refused as Undo turn refuses, unless
+// keepFiles, then the provider continues from the end of the turn before,
+// through a fork of its session whose new id replaces the chat's.
+func (d *Daemon) chatRewind(ctx context.Context, c *chat, name string, keepFiles bool) (string, error) {
 	i, err := turnIndex(c.snap, name)
 	if err != nil {
 		return "", err
 	}
-	if busy(c.snap) {
+	if c.snap.Busy() {
 		return "", session.ErrBusy
 	}
 	t := c.snap.Turns[i]
-	if t.CheckpointID == "" {
-		return "", chatError{"unsupported", fmt.Sprintf("turn %d has no file checkpoint to go back to", i+1)}
-	}
-	d.mu.Lock()
-	var dir string
-	if w := d.workspace(c.cfg.Workspace); w != nil {
-		dir = d.st.LivePath(*w)
-	}
-	d.mu.Unlock()
-	if err := gitstat.RewindTurn(ctx, dir, c.cfg.Workspace, t.CheckpointID); err != nil {
-		return "", chatError{"conflict", "the files were not put back, so nothing was rewound: " + err.Error()}
+	files := "its files are back as they were when it started"
+	if keepFiles {
+		files = "the files stay as they are"
+	} else {
+		if t.CheckpointID == "" {
+			return "", chatError{"unsupported", fmt.Sprintf("turn %d has no file checkpoint to go back to", i+1)}
+		}
+		if err := gitstat.RewindTurn(ctx, d.tabDir(c.cfg.Workspace), c.cfg.Workspace, t.CheckpointID); err != nil {
+			return "", chatError{"conflict", "the files were not put back, so nothing was rewound: " + err.Error()}
+		}
 	}
 	c.stop("rewind")
 	for _, gone := range c.snap.Turns[i:] {
@@ -467,7 +466,7 @@ func (d *Daemon) chatRewind(ctx context.Context, c *chat, name string) (string, 
 	default:
 		c.cfg.From = &session.Origin{Resume: c.cfg.Resume, At: c.cfg.Points[s.Turns[i-1].ID], Fork: true}
 	}
-	c.system(fmt.Sprintf("Rewound to before turn %d; its files are back as they were when it started", i+1))
+	c.system(fmt.Sprintf("Rewound to before turn %d; %s", i+1, files))
 	return fmt.Sprintf("rewound to before turn %d", i+1), nil
 }
 
@@ -495,7 +494,7 @@ func (d *Daemon) chatSwitch(c *chat, m proto.ChatSet) error {
 	if prov == nil {
 		return chatError{"unsupported", fmt.Sprintf("pitwall cannot run %s chats", m.Provider)}
 	}
-	if busy(c.snap) {
+	if c.snap.Busy() {
 		return chatError{"busy", "a turn is running or waiting on an answer; switch providers once it ends"}
 	}
 	c.stop("provider switch")
@@ -562,6 +561,16 @@ func quoted(s session.Snapshot) string {
 // providerName is p as the transcript names it: Claude, Codex.
 func providerName(p model.Provider) string {
 	return strings.ToUpper(string(p[:1])) + string(p[1:])
+}
+
+// tabDir is the folder tab ws's panes are in, "" for no such tab.
+func (d *Daemon) tabDir(ws string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if w := d.workspace(ws); w != nil {
+		return d.st.LivePath(*w)
+	}
+	return ""
 }
 
 // turnIndex is the index in s.Turns of the turn name: its id, or its
@@ -1091,13 +1100,6 @@ func (d *Daemon) chatStart(c *chat) error {
 	return nil
 }
 
-// busy reports a turn running or about to: the loop sent one, the driver
-// started one, or it waits on an answer.
-func busy(s session.Snapshot) bool {
-	return s.SessionState == session.StateRunning || s.SessionState == session.StateWaiting ||
-		slices.ContainsFunc(s.Turns, func(t session.TurnSummary) bool { return t.State == session.TurnRunning })
-}
-
 // chatSend sends m as how asks: a turn when idle, else queued, or steered
 // into the running turn.
 func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how string) (turn, note string, err error) {
@@ -1113,7 +1115,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 		return "", "", err
 	}
 	c.cfg.Held = false
-	if how == "steer" && busy(c.snap) && c.drv != nil {
+	if how == "steer" && c.snap.Busy() && c.drv != nil {
 		sm, err := d.jevPrepare(ctx, c, m)
 		if err == nil {
 			sm, err = provide(c.cfg.Cwd, sm)
@@ -1131,7 +1133,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 			return "", "", err
 		}
 	}
-	if how != "" || busy(c.snap) {
+	if how != "" || c.snap.Busy() {
 		if err := d.jevQueue(c); err != nil {
 			return "", "", err
 		}
@@ -1218,7 +1220,7 @@ func (c *chat) prompt(m session.Message, steer bool) {
 // chatNext starts the next queued message once the chat is idle, unless an
 // interrupt holds the queue or the provider is not running.
 func (d *Daemon) chatNext(ctx context.Context, c *chat) {
-	if c.drv == nil || c.cfg.Held || len(c.cfg.Queue) == 0 || busy(c.snap) {
+	if c.drv == nil || c.cfg.Held || len(c.cfg.Queue) == 0 || c.snap.Busy() {
 		return
 	}
 	q := c.cfg.Queue[0]
@@ -1476,7 +1478,7 @@ func (d *Daemon) chatActivity(c *chat) func() {
 	i := d.activityIndex(c.id)
 	// While a limit resume waits, the error limitStopped set stays, so the
 	// resume still finds the turn it stopped.
-	held := i >= 0 && d.lim.pending[c.id] != nil && !busy(c.snap)
+	held := i >= 0 && d.lim.pending[c.id] != nil && !c.snap.Busy()
 	var job *decideJob
 	if i < 0 || !held && (d.st.Activities[i].State != state || d.st.Activities[i].Detail != detail) {
 		now := time.Now()
@@ -1504,7 +1506,7 @@ func (d *Daemon) chatActivity(c *chat) func() {
 		d.changed()
 	}
 	limit := func() {}
-	if a := d.st.Activities[i]; c.limit != nil && !busy(c.snap) && stoppedState(a.State) {
+	if a := d.st.Activities[i]; c.limit != nil && !c.snap.Busy() && stoppedState(a.State) {
 		id, turn, resets := c.id, a.UpdatedAt, c.limit.Resets
 		msg := cmp.Or(a.Detail, "Usage limit reached")
 		c.limit = nil
@@ -1640,7 +1642,7 @@ var continueNow = time.Now
 // chatContinue resumes c's provider and sends restartContinue, when the
 // setting is on, nothing started a turn meanwhile and the limit allows.
 func (d *Daemon) chatContinue(c *chat) {
-	if d.o.ChatContinue == nil || !d.o.ChatContinue() || busy(c.snap) {
+	if d.o.ChatContinue == nil || !d.o.ChatContinue() || c.snap.Busy() {
 		return
 	}
 	now := continueNow()

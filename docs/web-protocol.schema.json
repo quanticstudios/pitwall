@@ -73,6 +73,15 @@
           "$ref": "#/$defs/listWorktrees"
         },
         {
+          "$ref": "#/$defs/checkpoints"
+        },
+        {
+          "$ref": "#/$defs/checkpointDiff"
+        },
+        {
+          "$ref": "#/$defs/rewindPreview"
+        },
+        {
           "$ref": "#/$defs/import"
         },
         {
@@ -583,6 +592,10 @@
         },
         "turnId": {
           "type": "string"
+        },
+        "keepFiles": {
+          "type": "boolean",
+          "description": "Leave the files as they are."
         }
       },
       "additionalProperties": false
@@ -726,6 +739,127 @@
         },
         "root": {
           "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkpoints": {
+      "description": "The turns whose file checkpoint the tab still has.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "checkpoints"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkpointDiff": {
+      "description": "What a turn changed in the tab's files.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "turnId"
+      ],
+      "properties": {
+        "type": {
+          "const": "checkpointDiff"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rewindPreview": {
+      "description": "What rewind would do to the tab's files.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "turnId"
+      ],
+      "properties": {
+        "type": {
+          "const": "rewindPreview"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkpoint": {
+      "type": "object",
+      "required": [
+        "turnId",
+        "checkpointId",
+        "capturedAt"
+      ],
+      "properties": {
+        "turnId": {
+          "type": "string"
+        },
+        "checkpointId": {
+          "type": "string"
+        },
+        "capturedAt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fileChange": {
+      "type": "object",
+      "required": [
+        "path",
+        "status"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "added",
+            "deleted",
+            "modified",
+            "renamed",
+            "copied",
+            "type-changed"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "description": "A renamed or copied file's old path."
         }
       },
       "additionalProperties": false
@@ -971,6 +1105,31 @@
             "text": {
               "type": "string",
               "description": "prPrompt: the message, \"\" with nothing to send."
+            },
+            "checkpoints": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/checkpoint"
+              }
+            },
+            "patch": {
+              "type": "string",
+              "description": "checkpointDiff: the turn's patch; rewindPreview: the files now to the checkpoint."
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/fileChange"
+              }
+            },
+            "turnPatch": {
+              "type": "string"
+            },
+            "turnFiles": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/fileChange"
+              }
             }
           },
           "additionalProperties": false

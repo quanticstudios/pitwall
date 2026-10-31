@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 44 added ChatRewind.KeepFiles: a rewind of the conversation alone.
 // Level 43 added ChatSet.Provider: switch a chat to another provider.
 // Level 42 added ChatNew.Attachments, ChatSend.Attachments and
 // QueuedMessage.Attachments: aide's images, files and pasted text.
@@ -143,7 +144,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 43
+const Level = 44
 
 // ChatForkLevel added ChatFork and ChatRewind.
 const ChatForkLevel = 40
@@ -897,8 +898,12 @@ type ChatFork struct{ Chat, Turn, Worktree string }
 
 // ChatRewind drops Turn (its id, or its number from 1) and every turn
 // after it: the files go back to Turn's checkpoint, refused as Undo turn
-// refuses, and the provider continues from the turn before.
-type ChatRewind struct{ Chat, Turn string }
+// refuses, and the provider continues from the turn before. KeepFiles
+// leaves the files as they are; a daemon below Level 44 ignores it.
+type ChatRewind struct {
+	Chat, Turn string
+	KeepFiles  bool
+}
 
 // ChatResult answers a Chat* request.
 type ChatResult struct {

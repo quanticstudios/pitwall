@@ -55,6 +55,12 @@ func webDaemon(t *testing.T, edit ...func(*Options)) string {
 		o.Gates = decide.FakeGates()
 	})
 	t.Cleanup(stop)
+	return webOn(t, d)
+}
+
+// webOn serves the web protocol on d and returns its address.
+func webOn(t *testing.T, d *Daemon) string {
+	t.Helper()
 	ws := &web.Server{Token: func() (string, error) { return webToken, nil }, Chats: chatHub{d}}
 	hs := httptest.NewServer(ws.Handler())
 	t.Cleanup(func() { ws.Close(); hs.Close() })
@@ -436,6 +442,12 @@ func TestWebFork(t *testing.T) {
 	}
 	if r := c.call(map[string]any{"type": "rewind", "sessionId": chat, "turnId": turn}); r["code"] != "unsupported" {
 		t.Errorf("rewind without a checkpoint: %v", r)
+	}
+	if r := c.call(map[string]any{"type": "checkpoints", "sessionId": chat}); r["ok"] != true || len(at(r, "data.checkpoints").([]any)) != 0 {
+		t.Errorf("checkpoints outside a repo: %v", r)
+	}
+	if r := c.call(map[string]any{"type": "checkpointDiff", "sessionId": chat, "turnId": turn}); r["code"] != "unsupported" {
+		t.Errorf("checkpointDiff without a checkpoint: %v", r)
 	}
 }
 

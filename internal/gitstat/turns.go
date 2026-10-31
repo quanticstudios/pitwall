@@ -1,6 +1,7 @@
 package gitstat
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -246,6 +247,72 @@ func TurnDiff(ctx context.Context, worktree, rev string) (Patch, error) {
 		"--src-prefix=a/", "--dst-prefix=b/", "-M", fmt.Sprintf("--unified=%d", fullContext), rev, tree, "--")
 	p.Root, p.Diff = root, []byte(out)
 	return p, err
+}
+
+// Checkpoints is tab ws's checkpoint commits in worktree's repository,
+// oldest first.
+func Checkpoints(ctx context.Context, worktree, ws string) ([]string, error) {
+	prefix, err := turnsRef(ws)
+	if err != nil {
+		return nil, err
+	}
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return nil, fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	list, _, err := turns(ctx, root, prefix)
+	revs := make([]string, len(list))
+	for i, t := range list {
+		revs[i] = t.rev
+	}
+	return revs, err
+}
+
+// Change is a file CheckpointDiff lists. Status is aide's word for git's
+// letter: added, deleted, modified, renamed, copied or type-changed. From
+// is a renamed or copied file's old path.
+type Change struct{ Path, From, Status string }
+
+var statuses = map[byte]string{'A': "added", 'D': "deleted", 'M': "modified", 'R': "renamed", 'C': "copied", 'T': "type-changed"}
+
+// CheckpointDiff is the change from a to b in worktree's repository, each
+// a checkpoint's commit or "" for the files now, as a patch with three
+// lines of context and the files it changes. Renames are found; untracked
+// files count as files, ignored ones do not.
+func CheckpointDiff(ctx context.Context, worktree, a, b string) (patch string, files []Change, err error) {
+	root, ok := RepoRoot(ctx, worktree)
+	if !ok {
+		return "", nil, fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	if a == "" || b == "" {
+		now, err := snapshot(ctx, root)
+		if err != nil {
+			return "", nil, err
+		}
+		a, b = cmp.Or(a, now), cmp.Or(b, now)
+	}
+	patch, err = git(ctx, root, "diff-tree", "-r", "-M", "--patch", "--no-color", "--no-ext-diff", "--no-textconv",
+		"--src-prefix=a/", "--dst-prefix=b/", a, b)
+	if err != nil {
+		return "", nil, err
+	}
+	out, err := git(ctx, root, "diff-tree", "-r", "-M", "--name-status", "-z", a, b)
+	if err != nil {
+		return "", nil, err
+	}
+	f := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+	for i := 0; i+1 < len(f); i += 2 {
+		c := Change{Status: statuses[f[i][0]], Path: f[i+1]}
+		if f[i][0] == 'R' || f[i][0] == 'C' {
+			if i+2 >= len(f) {
+				break
+			}
+			c.From, c.Path = c.Path, f[i+2]
+			i++
+		}
+		files = append(files, c)
+	}
+	return patch, files, nil
 }
 
 // UndoTurn puts worktree's files back as they were at tab ws's latest

@@ -23,7 +23,7 @@ import (
 
 // commands are the ones chatCommand runs. TODO: unarchive with
 // ChatUnarchive.
-var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import", "setJev"}
+var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import", "setJev", "checkpoints", "checkpointDiff", "rewindPreview"}
 
 // frame is every command's keys; each reads its own.
 type frame struct {
@@ -52,6 +52,7 @@ type frame struct {
 	Reason           string              `json:"reason"`
 	Answers          map[string][]string `json:"answers"`
 	Delete           bool                `json:"delete"`
+	KeepFiles        bool                `json:"keepFiles"`
 	Root             string              `json:"root"`
 	Title            string              `json:"title"`
 	CreatedAt        time.Time           `json:"createdAt"`
@@ -92,6 +93,8 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		return true
 	case "setJev":
 		c.reply(s.setJev(id, c.name, msg))
+	case "checkpoints", "checkpointDiff", "rewindPreview":
+		c.reply(s.checkpoint(id, typ, f))
 		return true
 	case "read":
 		if f.After < 0 {
@@ -156,7 +159,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	case "fork":
 		m = proto.ChatFork{Chat: f.SessionID, Turn: f.TurnID, Worktree: f.Worktree}
 	case "rewind":
-		m = proto.ChatRewind{Chat: f.SessionID, Turn: f.TurnID}
+		m = proto.ChatRewind{Chat: f.SessionID, Turn: f.TurnID, KeepFiles: f.KeepFiles}
 	case "archive":
 		m = proto.ChatArchive{Chat: f.SessionID, Delete: f.Delete}
 	}

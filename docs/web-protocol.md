@@ -93,7 +93,7 @@ for logs only.
 The server answers with `welcome`:
 
 ```json
-{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees", "setJev", "reviewThreads", "prPrompt", "mergePR"]}
+{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees", "checkpoints", "checkpointDiff", "rewindPreview", "setJev", "reviewThreads", "prPrompt", "mergePR"]}
 ```
 
 `capabilities` lists every command type this server accepts. A command
@@ -334,6 +334,9 @@ CLI only.
 | `listProjects` | the daemon's `State` | `projects` |
 | `listWorktrees` | `gitstat.ListWorktrees` | `worktrees` |
 | `setJev` | none: aide's Jev gates live in the daemon's memory | none |
+| `checkpoints` | the chat's turns and `gitstat.Checkpoints` | `checkpoints` |
+| `checkpointDiff` | `gitstat.CheckpointDiff` | `patch`, `files` |
+| `rewindPreview` | `gitstat.CheckpointDiff`, twice | `patch`, `files`, `turnPatch`, `turnFiles` |
 | `readUsage` | `internal/flow`, as Settings, Usage reads it | `usage` |
 | `reviewThreads` | the window's Send review comments, without the send | `threads`, `changeRequests` |
 | `prPrompt` | Send failures or Send review comments, without the send | `text` |
@@ -503,10 +506,64 @@ not start answers `provider` and leaves the chat on the one it had.
 {"type": "rewind", "id": "13", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "turnId": "turn-3"}
 ```
 
+```json
+{"type": "rewind", "id": "13", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "turnId": "turn-3", "keepFiles": true}
+```
+
 `fork` makes a new chat holding everything up to the end of `turnId`, in a
 new worktree when `worktree` is set. `rewind` restores files to the
 checkpoint of `turnId` and drops the turns from it on
-([fork and rewind](managed-sessions.md#fork-rewind)).
+([fork and rewind](managed-sessions.md#fork-rewind)). With `keepFiles` it
+drops the turns and leaves the files as they are, and a turn without a
+checkpoint can be rewound too.
+
+<a id="checkpoints"></a>
+### checkpoints, checkpointDiff and rewindPreview
+
+pitwall takes a checkpoint of the tab's files when a turn starts, and the
+turn's summary in the snapshot names it as `checkpointId`. A tab keeps its
+last 20.
+
+```json
+{"type": "checkpoints", "id": "15", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a"}
+```
+
+```json
+{"type": "result", "id": "15", "ok": true, "data": {"checkpoints": [{"turnId": "turn-2", "checkpointId": "4f1c9a0d2b7e6f8a1c3d5e7f9a0b2c4d6e8f0a1b", "capturedAt": "2026-10-30T09:10:02.511Z"}]}}
+```
+
+`checkpoints` lists the turns whose checkpoint the tab still has, oldest
+first. A chat outside a git repository has none.
+
+```json
+{"type": "checkpointDiff", "id": "16", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "turnId": "turn-2"}
+```
+
+```json
+{"type": "result", "id": "16", "ok": true, "data": {"patch": "diff --git a/README.md b/README.md\nindex 2a9e0f1..7d3b4c8 100644\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-before\n+after\n", "files": [{"path": "README.md", "status": "modified"}]}}
+```
+
+`checkpointDiff` is what turn `turnId` changed: from its checkpoint to the
+next turn's, or to the files now for the last turn, so edits made after the
+last turn ends count as its own. `patch` is `git diff` with three lines of
+context and `a/`, `b/` prefixes. `files` names each file with `status`
+`added`, `deleted`, `modified`, `renamed`, `copied` or `type-changed`, and
+`from` for a renamed or copied file's old path. Untracked files count;
+ignored ones do not.
+
+```json
+{"type": "rewindPreview", "id": "17", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "turnId": "turn-2"}
+```
+
+```json
+{"type": "result", "id": "17", "ok": true, "data": {"patch": "diff --git a/README.md b/README.md\nindex 7d3b4c8..2a9e0f1 100644\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-after\n+before\n", "files": [{"path": "README.md", "status": "modified"}], "turnPatch": "", "turnFiles": []}}
+```
+
+`rewindPreview` is what `rewind` would do to the files now: `patch` and
+`files` go from the files now to the turn's checkpoint, and `turnPatch`
+and `turnFiles` are the turn's own change, as `checkpointDiff` answers.
+It changes nothing and is refused, like `rewind`, while a turn runs
+(`busy`). A turn without a checkpoint answers `unsupported`.
 
 ### archive and unarchive
 
@@ -768,8 +825,9 @@ WebSocket implementation of it. This is the mapping, member by member.
 | `setPermissionMode` | `set` with `permissionMode` | |
 | `setMode` | `set` with `permissionMode` | `plan` is `permissionMode: "plan"`, `build` is `permissionMode: "default"` |
 | `fork(sessionId, responseContentItemId)` | `fork` | pitwall forks at a turn: send the item's `turnId` |
-| `previewRewind`, `rewind(previewId, mode)` | `rewind` | no preview step; the mode is always `code-and-conversation` |
-| `getCheckpointDiff` | none in v1 | pitwall has the turn diff (`gitstat.TurnDiff`); a later `checkpointDiff` command is additive |
+| `previewRewind` | `rewindPreview` | pitwall keeps no preview: aide holds it, and `rewind` takes the turn |
+| `rewind(previewId, mode)` | `rewind` | `conversation-only` is `keepFiles: true`. The chat is rewound in place, not copied to a new one |
+| `getCheckpointDiff` | `checkpointDiff` | aide splits `patch` per file |
 | `close` | `archive` | closing a chat tab archives the chat in pitwall |
 | Jev settings (`updateJevSettings`, `updateJevGates`) | `setJev`, from aide's main process | the renderer never sees the key |
 | `setAgents`, `acceptFleetNode` | none | fleet and multi-agent routing stay aide's ([what stays out](managed-sessions.md#out)) |

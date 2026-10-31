@@ -943,6 +943,10 @@ session it forked in place.
   delta with T and the turns after it removed and a `system` item
   "Rewound to before turn N", and drop the removed turns' points. The
   provider starts with the next command that needs it.
+- `ChatRewind` with `KeepFiles` (web `keepFiles`, aide's
+  conversation-only rewind) skips the files: no checkpoint is needed, no
+  checkpoint is dropped, and the `system` item says the files stay as
+  they are.
 - A provider that cannot fork (refuses `Start` from the origin), and a
   turn without a point, get the replay fallback of [resume](#resume): a
   new provider session, a `system` item "The provider continues from a
