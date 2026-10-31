@@ -93,7 +93,7 @@ for logs only.
 The server answers with `welcome`:
 
 ```json
-{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees", "checkpoints", "checkpointDiff", "rewindPreview", "setJev", "reviewThreads", "prPrompt", "mergePR"]}
+{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "rename", "pin", "import", "listProjects", "listWorktrees", "checkpoints", "checkpointDiff", "rewindPreview", "setJev", "reviewThreads", "prPrompt", "mergePR"]}
 ```
 
 `capabilities` lists every command type this server accepts. A command
@@ -147,7 +147,8 @@ Go fields in camelCase; ENG-2684 gives `model.Chat` these JSON tags.
 | `provider` | `claude` or `codex` |
 | `model`, `effort` | `""` for the provider's default |
 | `mode` | the permission mode: `default`, `acceptEdits`, `plan`, `bypassPermissions` |
-| `title` | the tab's title |
+| `title` | the tab's title: the first prompt until someone [renames](#rename) the chat or its tab |
+| `pinned` | `true` when the chat is [pinned](#rename) in aide's task history; left out otherwise |
 | `state` | aide's `sessionState`: `connecting`, `ready`, `running`, `waiting`, `stopped`, `error` |
 | `pending` | approvals and input requests waiting |
 | `recentPrompt` | optional first-prompt excerpt, at most 500 Unicode code points; also available after restart or archive |
@@ -330,6 +331,8 @@ CLI only.
 | `rewind` | `ChatRewind` | none |
 | `archive` | `ChatArchive` | none |
 | `unarchive` | `ChatUnarchive` | `workspaceId` |
+| `rename` | `ChatRename` | none |
+| `pin` | `ChatPin` | none |
 | `import` | none: it writes an archived chat's folder | `imported` |
 | `listProjects` | the daemon's `State` | `projects` |
 | `listWorktrees` | `gitstat.ListWorktrees` | `worktrees` |
@@ -582,6 +585,27 @@ It changes nothing and is refused, like `rewind`, while a turn runs
 `delete: true` removes an archived chat for good. Archive is refused with
 `conflict` for a pinned tab.
 
+<a id="rename"></a>
+### rename and pin
+
+```json
+{"type": "rename", "id": "18", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "title": "Daily review"}
+```
+
+```json
+{"type": "pin", "id": "19", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "pinned": true}
+```
+
+`rename` names the chat's tab, as Rename tab does, and the chat's `title`
+follows it. An empty `title` goes back to the first prompt. A name another
+tab of the same session has answers `conflict`.
+
+`pin` marks the chat in aide's task history; `pinned: false` unmarks it.
+It is the chat's own flag, kept in its `config.json`, and is not the tab's
+pin: a pinned chat still archives, and the archived list keeps `pinned`
+and the title. Both answer `not-found` for an archived chat. Each changes
+the chat's entry in `sessionsChanged`.
+
 <a id="import"></a>
 ### import
 
@@ -810,9 +834,9 @@ WebSocket implementation of it. This is the mapping, member by member.
 
 | SessionTransport | Protocol | Notes |
 | --- | --- | --- |
-| `listSessions(query?)` | `listSessions` | aide filters by `query` itself. `TaskLibrarySnapshot`'s notification settings stay aide's. `projectName`, `workspaceName` and `branchName` come from joining `workspaceId` with `listProjects`. `pinned`, `unread`, `excerpt` and `readActivityKey` have no pitwall field in v1. |
+| `listSessions(query?)` | `listSessions` | aide filters by `query` itself. `TaskLibrarySnapshot`'s notification settings stay aide's. `projectName`, `workspaceName` and `branchName` come from joining `workspaceId` with `listProjects`. `pinned` is the chat's (`pin`). `unread`, `excerpt` and `readActivityKey` have no pitwall field in v1. |
 | `subscribeSessionList` | `subscribeSessions`, `unsubscribeSessions` | the listener runs on `sessions` and `sessionsChanged` |
-| `updateSession(id, {archived})` | `archive`, `unarchive` | `title`, `pinned` and `readActivityKey` have no command in v1 |
+| `updateSession(id, {archived, title, pinned})` | `archive`, `unarchive`, `rename`, `pin` | `readActivityKey` has no command in v1 |
 | `subscribeSession` | `subscribe`, `unsubscribe` | `deltas` and `removed` become `ManagedSessionUpdate`s |
 | `getSessions` | `listSessions`, then `read` per chat | |
 | `getSavedSession` | `read` with `after: 0` | works on archived chats |
@@ -875,9 +899,8 @@ speak on this connection.
    queued messages, but neither the snapshot nor `model.Chat` (only
    `queued`, a count) shows them, so the web has no `queue` command yet.
    It needs a snapshot key for the queue first, which is additive.
-2. Rename, pin and read state of a chat (`updateSession`'s `title`,
-   `pinned`, `readActivityKey`): additive commands once aide needs them
-   over the web.
+2. Read state of a chat (`updateSession`'s `readActivityKey`): an
+   additive command once aide needs it over the web.
 3. Which pitwall session and group `start` puts a tab in: the last used
    one for now; `session` and `group` keys are additive.
 4. The phone: it keeps its device tokens and its own HTTP pages

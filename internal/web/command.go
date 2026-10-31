@@ -23,7 +23,7 @@ import (
 
 // commands are the ones chatCommand runs. TODO: unarchive with
 // ChatUnarchive.
-var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import", "setJev", "checkpoints", "checkpointDiff", "rewindPreview"}
+var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "rename", "pin", "listProjects", "listWorktrees", "import", "setJev", "checkpoints", "checkpointDiff", "rewindPreview"}
 
 // frame is every command's keys; each reads its own.
 type frame struct {
@@ -55,6 +55,7 @@ type frame struct {
 	KeepFiles        bool                `json:"keepFiles"`
 	Root             string              `json:"root"`
 	Title            string              `json:"title"`
+	Pinned           bool                `json:"pinned"`
 	CreatedAt        time.Time           `json:"createdAt"`
 	UpdatedAt        time.Time           `json:"updatedAt"`
 	Snapshot         json.RawMessage     `json:"snapshot"`
@@ -163,6 +164,10 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		m = proto.ChatRewind{Chat: f.SessionID, Turn: f.TurnID, KeepFiles: f.KeepFiles}
 	case "archive":
 		m = proto.ChatArchive{Chat: f.SessionID, Delete: f.Delete}
+	case "rename":
+		m = proto.ChatRename{Chat: f.SessionID, Title: f.Title}
+	case "pin":
+		m = proto.ChatPin{Chat: f.SessionID, Pinned: f.Pinned}
 	}
 	r, _ := s.Chats.Do(m).(proto.ChatResult)
 	if r.Code != "" {

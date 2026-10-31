@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 45 added ChatRename, ChatPin and model.Chat.Pinned: rename and
+// pin a chat, as aide's task history does.
 // Level 44 added ChatRewind.KeepFiles: a rewind of the conversation alone.
 // Level 43 added ChatSet.Provider: switch a chat to another provider.
 // Level 42 added ChatNew.Attachments, ChatSend.Attachments and
@@ -144,7 +146,10 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 44
+const Level = 45
+
+// ChatPinLevel added ChatRename and ChatPin.
+const ChatPinLevel = 45
 
 // ChatForkLevel added ChatFork and ChatRewind.
 const ChatForkLevel = 40
@@ -162,6 +167,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case ChatRename, ChatPin:
+		return ChatPinLevel
 	case ChatFork, ChatRewind:
 		return ChatForkLevel
 	case ChatProviders, ChatProviderList:
@@ -809,6 +816,7 @@ var Messages = []any{
 	ChatNew{}, ChatSend{}, ChatInterrupt{}, ChatApprove{}, ChatAnswer{}, ChatSet{}, ChatQueue{}, ChatRead{}, ChatArchive{},
 	ChatResult{}, ChatDeltas{}, ChatProviders{}, ChatProviderList{},
 	ChatFork{}, ChatRewind{},
+	ChatRename{}, ChatPin{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -888,6 +896,19 @@ type ChatRead struct {
 type ChatArchive struct {
 	Chat   string
 	Delete bool
+}
+
+// ChatRename names the chat's tab, as RenameTab does, which names the
+// chat; an empty Title goes back to the first prompt. Refused with
+// conflict when another tab of the session has the name.
+type ChatRename struct{ Chat, Title string }
+
+// ChatPin pins the chat in aide's task history. It is the chat's, kept
+// in config.json through archive, and not the tab's pin, which refuses
+// archive.
+type ChatPin struct {
+	Chat   string
+	Pinned bool
 }
 
 // ChatFork opens a new chat that continues Chat from the end of Turn (its

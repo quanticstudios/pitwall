@@ -122,6 +122,7 @@ type Chat struct {
 	// runes, as Pane.Prompt) until someone renames the tab.
 	Title        string    `json:"title"`
 	RecentPrompt string    `json:"recentPrompt,omitempty"` // first prompt, at most 500 runes
+	Pinned       bool      `json:"pinned,omitempty"`       // pinned in aide's task history (ChatPin)
 	State        string    `json:"state"`                  // aide's sessionState: connecting, ready, running, waiting, stopped, error
 	Pending      int       `json:"pending"`                // approvals and input requests waiting on someone
 	Queued       int       `json:"queued"`                 // messages waiting for the running turn to end

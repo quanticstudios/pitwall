@@ -103,6 +103,8 @@ type Config struct {
 	// which a live chat's tab and snapshot hold; archive and import set them.
 	Title   string    `json:"title,omitempty"`
 	Updated time.Time `json:"updated,omitzero"`
+	// Pinned is ChatPin's, kept through archive.
+	Pinned bool `json:"pinned,omitempty"`
 	// Imported marks a chat imported from aide's own store (ENG-2707);
 	// while it stays archived, a later import replaces it.
 	Imported bool `json:"imported,omitempty"`
