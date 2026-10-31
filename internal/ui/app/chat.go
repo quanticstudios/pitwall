@@ -7,6 +7,7 @@ import (
 	"gioui.org/op"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -22,7 +23,8 @@ type Chatter interface {
 // while it shows it.
 const ChatPoll = 150 * time.Millisecond
 
-// layoutChat draws the chat tab ws: the chat's transcript, read-only.
+// layoutChat draws the chat tab ws: the chat's transcript, and sends the
+// approvals answered on it.
 func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	ch, ok := u.b.(Chatter)
 	if !ok {
@@ -33,7 +35,14 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	}
 	s, ok := ch.Chat(ws.Chat)
 	if ok {
-		u.transcript.Layout(gtx, u.th, &s)
+		aide := Host == "" && findAide() != nil
+		u.transcript.Layout(gtx, u.th, &s, aide)
+		for _, a := range u.transcript.Answers() {
+			u.send(proto.ChatApprove{Chat: ws.Chat, Request: a.Request, Decision: a.Decision, By: "gui"})
+		}
+		if u.transcript.OpenAide() {
+			openAide(findAide())
+		}
 	} else {
 		gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 			return para(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Muted, "Reading the chat…")

@@ -15,6 +15,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -28,10 +29,10 @@ const outputLines = 60
 
 // Transcript draws a chat's transcript in the main area with the panel's
 // rows: prompts, assistant text, one line per tool call that a click
-// opens, reasoning folded, and what the chat waits on. It is read-only:
-// approvals show how to answer them with pitwall chat. Only the items in
-// view are laid out, so a 2,000-item chat costs a frame what a short one
-// does.
+// opens, reasoning folded, and what the chat waits on: an approval with
+// Allow, Allow for session and Deny, a question with the pitwall chat
+// command that answers it. Only the items in view are laid out, so a
+// 2,000-item chat costs a frame what a short one does.
 type Transcript struct {
 	chat  string // the chat drawn; another one starts afresh
 	list  layout.List
@@ -39,12 +40,42 @@ type Transcript struct {
 	btn   map[string]*widget.Clickable // per item that folds, made when first drawn
 	epoch time.Time
 	laid  int // items laid out in the last frame
+
+	answer  map[string]*[3]widget.Clickable // per pending approval, one per decisions entry
+	sent    map[string]bool                 // approvals answered here that the chat has not resolved yet
+	answers []Answer                        // not taken by Answers yet
+	aideBtn widget.Clickable
+	aide    bool // Open in aide was clicked, until OpenAide takes it
 }
 
-// Layout draws s filling gtx's constraints.
-func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot) layout.Dimensions {
+// Answer is an approval answered with its buttons.
+type Answer struct {
+	Request  string
+	Decision string // allow, allow-session, deny
+}
+
+// decisions are what the approval buttons answer, in their order.
+var decisions = [3]string{"allow", "allow-session", "deny"}
+
+// Answers returns the approvals answered since the last call, once each.
+func (t *Transcript) Answers() []Answer {
+	a := t.answers
+	t.answers = nil
+	return a
+}
+
+// OpenAide reports, once, that Open in aide was clicked.
+func (t *Transcript) OpenAide() bool {
+	o := t.aide
+	t.aide = false
+	return o
+}
+
+// Layout draws s filling gtx's constraints, with an Open in aide button
+// when aide is set.
+func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snapshot, aide bool) layout.Dimensions {
 	if t.open == nil || t.chat != s.SessionID {
-		*t = Transcript{chat: s.SessionID, open: map[string]bool{}, btn: map[string]*widget.Clickable{}}
+		*t = Transcript{chat: s.SessionID, open: map[string]bool{}, btn: map[string]*widget.Clickable{}, answer: map[string]*[3]widget.Clickable{}, sent: map[string]bool{}}
 		t.list.Axis = layout.Vertical
 	}
 	if t.epoch.IsZero() {
@@ -54,6 +85,25 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		if b.Clicked(gtx) {
 			t.open[id] = !t.open[id]
 		}
+	}
+	pending := map[string]bool{}
+	for _, a := range s.PendingApprovals {
+		pending[a.ID] = true
+	}
+	for id, bs := range t.answer {
+		for i := range bs {
+			if bs[i].Clicked(gtx) && pending[id] && !t.sent[id] {
+				t.sent[id] = true
+				t.answers = append(t.answers, Answer{Request: id, Decision: decisions[i]})
+			}
+		}
+		if !pending[id] { // resolved, here or elsewhere
+			delete(t.answer, id)
+			delete(t.sent, id)
+		}
+	}
+	if t.aideBtn.Clicked(gtx) && aide {
+		t.aide = true
 	}
 	t.laid = 0
 	size := gtx.Constraints.Max
@@ -88,6 +138,16 @@ func (t *Transcript) Layout(gtx layout.Context, th *theme.Theme, s *session.Snap
 		}
 		return space(32)(gtx)
 	})
+	if aide {
+		m := op.Record(gtx.Ops)
+		bgtx := gtx
+		bgtx.Constraints.Min = image.Point{}
+		bd := kit.Button(bgtx, th, &t.aideBtn, kit.Secondary, kit.Small, "Open in aide")
+		call := m.Stop()
+		off := op.Offset(image.Pt(size.X-bd.Size.X-gtx.Dp(16), gtx.Dp(12))).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		off.Pop()
+	}
 	if d.p.live {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
 	}
@@ -226,17 +286,17 @@ func (t *Transcript) tail(d *drawer, s *session.Snapshot) []layout.Widget {
 		if what == "" && a.Request != nil {
 			what = strings.TrimSpace(a.Request.ToolName + " " + firstLine(a.Request.Command))
 		}
-		out = append(out, d.waiting("Waiting for approval", what, "pitwall chat approve "+chat+" "+a.ID+" allow|deny"))
+		out = append(out, d.waiting("Waiting for approval", what, "", t.buttons(d, a.ID)))
 	}
 	for _, in := range s.PendingUserInputs {
 		what := deref(in.Detail)
 		for _, q := range in.Questions {
 			what = strings.TrimSpace(what + "\n" + q.Prompt)
 		}
-		out = append(out, d.waiting("Waiting for an answer", what, "pitwall chat answer "+chat+" "+in.ID+" -- answer"))
+		out = append(out, d.waiting("Waiting for an answer", what, "pitwall chat answer "+chat+" "+in.ID+" -- answer", nil))
 	}
 	if p := s.PlanApproval; p != nil {
-		out = append(out, d.waiting("Plan ready", deref(p.Detail), ""))
+		out = append(out, d.waiting("Plan ready", deref(p.Detail), "", nil))
 	}
 	if s.SessionState == session.StateRunning {
 		out = append(out, pad(8, 0, 0, 6, func(gtx layout.Context) layout.Dimensions {
@@ -254,9 +314,32 @@ func (t *Transcript) tail(d *drawer, s *session.Snapshot) []layout.Widget {
 	return out
 }
 
+// buttons are an approval's Allow, Allow for session and Deny, or a line
+// saying its answer went out.
+func (t *Transcript) buttons(d *drawer, id string) layout.Widget {
+	bs := t.answer[id]
+	if bs == nil {
+		bs = new([3]widget.Clickable)
+		t.answer[id] = bs
+	}
+	if t.sent[id] {
+		return d.ui(d.th.Sp(theme.Small), d.c.muted, "Answer sent…")
+	}
+	return func(gtx layout.Context) layout.Dimensions {
+		btn := func(i int, k kit.Kind, label string) layout.FlexChild {
+			return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Right: 8}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return kit.Button(gtx, d.th, &bs[i], k, kit.Small, label)
+				})
+			})
+		}
+		return layout.Flex{}.Layout(gtx, btn(0, kit.Primary, "Allow"), btn(1, kit.Secondary, "Allow for session"), btn(2, kit.Danger, "Deny"))
+	}
+}
+
 // waiting is a yellow card for a request the chat waits on, with the
-// command that answers it.
-func (d *drawer) waiting(eyebrow, what, how string) layout.Widget {
+// command that answers it or the buttons that do.
+func (d *drawer) waiting(eyebrow, what, how string, actions layout.Widget) layout.Widget {
 	return pad(10, 0, 4, 0, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return boxed(gtx, layout.Inset{Top: 11, Bottom: 12, Left: 14, Right: 14}, func(gtx layout.Context) layout.Dimensions {
@@ -266,6 +349,9 @@ func (d *drawer) waiting(eyebrow, what, how string) layout.Widget {
 			}
 			if how != "" {
 				ws = append(ws, layout.Rigid(pad(6, 0, 0, 0, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.muted, how, 1))))
+			}
+			if actions != nil {
+				ws = append(ws, layout.Rigid(pad(10, 0, 0, 0, actions)))
 			}
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)

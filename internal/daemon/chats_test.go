@@ -394,3 +394,40 @@ func TestChatFollow(t *testing.T) {
 		t.Fatalf("followed (seq %d):\n%s\nfresh read (seq %d):\n%s", seq, got, fresh.Seq, fresh.Snapshot)
 	}
 }
+
+// TestChatApproveFake answers a fake Claude's approval with the message the
+// GUI's Allow button sends, and the turn finishes.
+func TestChatApproveFake(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) {
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: fake.New(fake.Options{})}
+	})
+	defer stop()
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Prompt: "approval"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	read := func(what string, ok func(session.Snapshot) bool) session.Snapshot {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			var s session.Snapshot
+			if err := json.Unmarshal(chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: r.Chat}).Snapshot, &s); err != nil {
+				t.Fatal(err)
+			}
+			if ok(s) {
+				return s
+			}
+		}
+		t.Fatalf("timed out waiting for %s", what)
+		return session.Snapshot{}
+	}
+	s := read("the approval", func(s session.Snapshot) bool { return len(s.PendingApprovals) == 1 })
+	a := proto.ChatApprove{Chat: r.Chat, Request: s.PendingApprovals[0].ID, Decision: "allow", By: "gui"}
+	if res := chatCall[proto.ChatResult](gui, a); res.Code != "" {
+		t.Fatalf("approve: %+v", res)
+	}
+	read("the turn to end", func(s session.Snapshot) bool {
+		return len(s.PendingApprovals) == 0 && len(s.Turns) == 1 && s.Turns[0].State == session.TurnCompleted
+	})
+}

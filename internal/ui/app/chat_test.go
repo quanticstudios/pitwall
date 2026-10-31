@@ -28,13 +28,18 @@ func (c *chatBackend) Chat(id string) (session.Snapshot, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.asked = append(c.asked, id)
-	return session.Snapshot{SessionID: id, Provider: model.ProviderClaude, SessionState: session.StateRunning,
-		Content: []session.Item{{ID: "p", Kind: session.KindUserPrompt, Text: "Fix it"}}}, true
+	return session.Snapshot{SessionID: id, Provider: model.ProviderClaude, SessionState: session.StateWaiting,
+		Content:          []session.Item{{ID: "p", Kind: session.KindUserPrompt, Text: "Fix it"}},
+		PendingApprovals: []session.Approval{{ID: "r1", RequestType: session.RequestCommand}}}, true
 }
 
-// TestChatTab: a chat tab draws its transcript and the panel follows the
-// chat in its folder; the sidebar marks it with its provider.
+// TestChatTab: a chat tab draws its transcript, with no Open in aide
+// where aide is not installed, and the panel follows the chat in its
+// folder; the sidebar marks it with its provider.
 func TestChatTab(t *testing.T) {
+	old := findAide
+	findAide = func() []string { return nil }
+	defer func() { findAide = old }()
 	dir := t.TempDir()
 	b := &chatBackend{FakeBackend: NewFakeBackend()}
 	b.mu.Lock()
