@@ -76,6 +76,9 @@
           "$ref": "#/$defs/import"
         },
         {
+          "$ref": "#/$defs/setJev"
+        },
+        {
           "$ref": "#/$defs/readUsage"
         },
         {
@@ -720,6 +723,78 @@
       },
       "additionalProperties": false
     },
+    "setJev": {
+      "description": "aide hands over its TypeSafe key, consent list and Jev gate settings for the chats it starts. Only a client that says hello as aide may send it; the daemon keeps it in memory and never sends the key back.",
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "const": "setJev"
+        },
+        "id": {
+          "type": "string"
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "The TypeSafe key; empty or left out for none."
+        },
+        "disabledRoots": {
+          "type": "array",
+          "description": "Workspace roots where the user turned TypeSafe processing off.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gates": {
+          "type": "object",
+          "properties": {
+            "global": {
+              "$ref": "#/$defs/jevGateOverrides"
+            },
+            "workspaces": {
+              "type": "object",
+              "description": "By workspace root.",
+              "additionalProperties": {
+                "$ref": "#/$defs/jevGateOverrides"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "jevGateOverrides": {
+      "description": "One layer of aide's JevGateOverrides. Only toolGate applies to a pitwall chat.",
+      "type": "object",
+      "properties": {
+        "toolGate": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "allowBelow": {
+              "type": "number"
+            },
+            "denyAbove": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "laneRouting": {
+          "type": "object"
+        },
+        "completionCheck": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
     "readUsage": {
       "description": "Plan limits, and tokens and cost by day and session, as Settings, Usage shows them.",
       "type": "object",
@@ -815,7 +890,8 @@
             "unsupported",
             "provider",
             "invalid",
-            "forge"
+            "forge",
+            "jev"
           ]
         },
         "message": {

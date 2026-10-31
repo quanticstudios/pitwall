@@ -83,6 +83,9 @@ type chat struct {
 	// check is the checkpoint taken for the turn being sent; the turn's
 	// summary gets it as checkpointId when it starts.
 	check string
+	// jevHeld are the tool approvals Jev's tool gate is judging, kept out
+	// of the snapshot meanwhile (jevgates.go).
+	jevHeld map[string]bool
 
 	dir    string        // the chat's eventlog folder; "" in memory only
 	log    *eventlog.Log // nil until the first command loads the chat
@@ -145,8 +148,13 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	switch m := m.(type) {
 	case proto.ChatProviders:
 		return d.chatProviders(), true
+	case decide.AideJev: // the web protocol's setJev; never on the socket
+		d.o.Gates.Set(m)
+		return chatResult("", "", "", nil), true
 	case proto.ChatNew:
 		return d.chatNew(ctx, m), true
+	case web.ClientStart:
+		return d.chatCreate(ctx, m.ChatNew, nil, m.Client == aideClient), true
 	case proto.ChatFork:
 		return d.chatFork(ctx, m), true
 	case proto.ChatArchive:
@@ -235,7 +243,7 @@ func (d *Daemon) chat(id string) (*chat, error) {
 // chatNew opens the tab, as a Task's (startTask), with no pane, starts the
 // provider and sends the prompt.
 func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult {
-	return d.chatCreate(ctx, m, nil)
+	return d.chatCreate(ctx, m, nil, false)
 }
 
 // forkSeed is what a fork's new chat starts from.
@@ -248,8 +256,8 @@ type forkSeed struct {
 
 // chatCreate is chatNew, or with seed the fork of a chat: the new chat's
 // first snapshot holds the seed's transcript and its provider starts from
-// the seed's point.
-func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed) proto.ChatResult {
+// the seed's point. aide gives it aide's Jev gates.
+func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed, aide bool) proto.ChatResult {
 	m.Provider = cmp.Or(m.Provider, model.ProviderClaude)
 	prov := d.o.Providers[m.Provider]
 	if prov == nil {
@@ -300,7 +308,7 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 		}
 		w.Chat = c.id
 		c.cfg = session.Config{Format: 1, ID: c.id, Provider: m.Provider, Workspace: w.ID, Cwd: w.Path, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Created: time.Now(),
-			FakeStartFailure: m.FakeStartFailure, Env: append(portEnv(w.Ports), "PITWALL_PANE="+c.id)}
+			FakeStartFailure: m.FakeStartFailure, Aide: aide, Env: append(portEnv(w.Ports), "PITWALL_PANE="+c.id)}
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: m.Provider, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Title: c.title, State: session.StateReady, UpdatedAt: time.Now()}
 		d.chats[c.id] = c
 		d.st.Chats = append(d.st.Chats, c.sum)
@@ -405,7 +413,7 @@ func (d *Daemon) chatFork(ctx context.Context, m proto.ChatFork) proto.ChatResul
 		seed.title = d.st.Chats[i].Title
 	}
 	d.mu.Unlock()
-	return d.chatCreate(ctx, n, &seed)
+	return d.chatCreate(ctx, n, &seed, cfg.Aide) // a fork of aide's chat keeps its gates
 }
 
 // chatRewind drops turn name and every turn after it: the tab's files go
@@ -729,6 +737,13 @@ func (c *chat) start(from session.Origin) (session.Driver, error) {
 }
 
 func (d *Daemon) chatEvent(c *chat, e session.Event) {
+	if !d.jevHold(c, e) {
+		d.chatApply(c, e)
+	}
+}
+
+// chatApply applies a driver's event to the chat.
+func (d *Daemon) chatApply(c *chat, e session.Event) {
 	switch e.Type {
 	case session.EventResumeID:
 		c.cfg.Resume, c.cfg.From = e.ResumeID, nil
@@ -1001,13 +1016,19 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	if strings.TrimSpace(m.Text) == "" && len(m.Attachments) == 0 {
 		return "", "", invalid("nothing to send")
 	}
-	sent, err := provide(c.cfg.Cwd, m) // refuse bad attachments before queueing them
-	if err != nil {
+	if _, err := provide(c.cfg.Cwd, m); err != nil { // refuse bad attachments before queueing them
 		return "", "", err
 	}
 	c.cfg.Held = false
 	if how == "steer" && busy(c.snap) && c.drv != nil {
-		switch err := c.drv.Steer(ctx, sent); {
+		sm, err := d.jevPrepare(ctx, c, m)
+		if err == nil {
+			sm, err = provide(c.cfg.Cwd, sm)
+		}
+		if err != nil {
+			return "", "", err
+		}
+		switch err := c.drv.Steer(ctx, sm); {
 		case err == nil:
 			c.prompt(m, true)
 			return "", "", nil
@@ -1018,6 +1039,9 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 		}
 	}
 	if how != "" || busy(c.snap) {
+		if err := d.jevQueue(c); err != nil {
+			return "", "", err
+		}
 		c.cfg.Queue = append(c.cfg.Queue, queued(m))
 		d.chatNext(ctx, c)
 		return "", cmp.Or(note, "queued"), nil
@@ -1029,6 +1053,10 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 // driver took it, still before the events the driver emitted meanwhile,
 // which wait for this command to end.
 func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (string, string, error) {
+	sent, err := d.jevPrepare(ctx, c, m)
+	if err != nil {
+		return "", "", err
+	}
 	if err := d.chatStart(c); err != nil {
 		return "", "", err
 	}
@@ -1045,7 +1073,7 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		}
 	}
 	c.resumed, c.limit = false, nil
-	sent, err := provide(c.cfg.Cwd, m)
+	sent, err = provide(c.cfg.Cwd, sent) // after Jev, as aide puts the explicit evidence last
 	if err != nil {
 		c.prompt(m, false)
 		c.reduce(session.Event{Type: session.EventError, Message: "The turn did not start: " + err.Error()})
@@ -1102,6 +1130,11 @@ func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 	q := c.cfg.Queue[0]
 	c.cfg.Queue = c.cfg.Queue[1:]
 	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments}); err != nil {
+		if chatCode(err) == "jev" {
+			// The message waits at the head of the queue until the next send.
+			c.cfg.Queue, c.cfg.Held = slices.Insert(c.cfg.Queue, 0, q), true
+			c.system("The queued message did not start: " + err.Error())
+		}
 		log.Printf("chat %s: queued message: %q", c.id, err)
 	}
 }

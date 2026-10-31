@@ -93,7 +93,7 @@ for logs only.
 The server answers with `welcome`:
 
 ```json
-{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees", "reviewThreads", "prPrompt", "mergePR"]}
+{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees", "setJev", "reviewThreads", "prPrompt", "mergePR"]}
 ```
 
 `capabilities` lists every command type this server accepts. A command
@@ -333,6 +333,7 @@ CLI only.
 | `import` | none: it writes an archived chat's folder | `imported` |
 | `listProjects` | the daemon's `State` | `projects` |
 | `listWorktrees` | `gitstat.ListWorktrees` | `worktrees` |
+| `setJev` | none: aide's Jev gates live in the daemon's memory | none |
 | `readUsage` | `internal/flow`, as Settings, Usage reads it | `usage` |
 | `reviewThreads` | the window's Send review comments, without the send | `threads`, `changeRequests` |
 | `prPrompt` | Send failures or Send review comments, without the send | `text` |
@@ -562,6 +563,51 @@ is true when pitwall made the tab's folder as a worktree.
 {"type": "result", "id": "18", "ok": true, "data": {"worktrees": [{"path": "/home/me/src/pitwall", "branch": "main", "head": "05cf8bd1c0de"}, {"path": "/home/me/src/pitwall/.worktrees/fix-resize", "branch": "fix-resize", "head": "eb7213d2f00d"}]}}
 ```
 
+### setJev
+
+```json
+{"type": "setJev", "id": "14", "apiKey": "ts_live_0123456789abcdef", "disabledRoots": ["/home/me/src/private"], "gates": {"global": {"toolGate": {"enabled": true}}, "workspaces": {"/home/me/src/pitwall": {"toolGate": {"denyAbove": 0.8}}}}}
+```
+
+```json
+{"type": "result", "id": "14", "ok": true}
+```
+
+aide hands over its Jev settings for the chats it starts (ENG-2934): the
+TypeSafe key from the OS keyring, the workspace roots where the user
+turned TypeSafe processing off, and its global and per-workspace gate
+layers. Each `setJev` replaces the last; aide's main process sends one
+whenever the settings change and whenever the renderer connects, since
+the daemon keeps them in memory only. The key is never written to disk or
+a log, and no reply carries it. Only a client whose `hello` says `aide`
+may send it (`invalid` otherwise), and the gates apply only to chats an
+`aide` client started (and their forks):
+
+- Every turn, whether sent, started with a prompt, steered, taken from
+  the queue or sent by pitwall (a limit resume, a restart's continue),
+  goes through aide's Jev preparation first (`internal/decide`, ported
+  from aide's `context-preparation.ts`). Preparation refuses the turn
+  when the workspace is in `disabledRoots` ("Allow TypeSafe processing
+  for this workspace in Settings before sending a message."), when there
+  is no key ("Add a TypeSafe API key in Settings before sending a
+  message."), or when Jev or the workspace context fails. The command
+  then fails with code `jev` and that message, and the prompt does not
+  join the transcript. Otherwise the provider gets the prompt with the
+  workspace evidence Jev chose, and the transcript keeps the prompt as
+  typed.
+- A queued `send` is checked for consent and a key when queued. One that
+  Jev refuses when it comes up stays first in the queue, held, with the
+  reason as a `system` line.
+- With `toolGate.enabled`, a tool approval (not a plan) stays out of the
+  snapshot while Jev judges it. Jev allows it when every probability is
+  under `allowBelow`, denies it when any reaches `denyAbove`, and
+  otherwise lets it through to the user, as it does when Jev does not
+  answer. An allow or deny adds a `system` line. The gate is off unless a
+  layer turns it on; the workspace layer wins over the global one.
+
+`laneRouting` and `completionCheck` are accepted and ignored: they judge
+aide's configured agents, which a pitwall chat does not have.
+
 ### readUsage
 
 What Settings, Usage shows: each plan limit as its agent last reported it,
@@ -671,6 +717,7 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 | `provider` | the provider refused; `message` has its words |
 | `invalid` | the command is malformed: a missing field, a bad value, too many attachments |
 | `forge` | `gh` failed; `message` has its words |
+| `jev` | a Jev gate refused the turn: no consent for the workspace, no key, or preparation failed; `message` is aide's |
 
 A client treats a code it does not know as a failure with `message` to
 show.
@@ -709,6 +756,7 @@ WebSocket implementation of it. This is the mapping, member by member.
 | `previewRewind`, `rewind(previewId, mode)` | `rewind` | no preview step; the mode is always `code-and-conversation` |
 | `getCheckpointDiff` | none in v1 | pitwall has the turn diff (`gitstat.TurnDiff`); a later `checkpointDiff` command is additive |
 | `close` | `archive` | closing a chat tab archives the chat in pitwall |
+| Jev settings (`updateJevSettings`, `updateJevGates`) | `setJev`, from aide's main process | the renderer never sees the key |
 | `setAgents`, `acceptFleetNode` | none | fleet and multi-agent routing stay aide's ([what stays out](managed-sessions.md#out)) |
 
 <a id="versioning"></a>

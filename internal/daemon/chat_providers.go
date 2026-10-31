@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"log"
+	"os"
 	"slices"
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -22,6 +24,15 @@ func configuredProviders() map[model.Provider]session.Provider {
 		log.Printf("chat providers: %s", p.Msg)
 	}
 	return fake.ProvidersFromEnv(acpProviders(s.ACPAgents), nil)
+}
+
+// gatesFromEnv are aide's Jev gates; with PITWALL_FAKE_PROVIDERS=1 their
+// Jev is the fake that answers 0.8 to everything, for aide's e2e.
+func gatesFromEnv() *decide.Gates {
+	if os.Getenv("PITWALL_FAKE_PROVIDERS") == "1" {
+		return decide.FakeGates()
+	}
+	return &decide.Gates{}
 }
 
 func acpProviders(agents []config.ACPAgent) map[model.Provider]session.Provider {

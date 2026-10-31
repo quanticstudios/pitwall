@@ -10,9 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -21,7 +23,7 @@ import (
 
 // commands are the ones chatCommand runs. TODO: unarchive with
 // ChatUnarchive.
-var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import"}
+var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import", "setJev"}
 
 // frame is every command's keys; each reads its own.
 type frame struct {
@@ -69,7 +71,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		return true
 	}
 	switch typ {
-	case "listSessions", "start", "listProjects", "listWorktrees":
+	case "listSessions", "start", "listProjects", "listWorktrees", "setJev":
 	default:
 		if f.SessionID == "" {
 			c.reply(result(id, "invalid", typ+" needs a sessionId"))
@@ -87,6 +89,9 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		return true
 	case "import":
 		c.reply(s.importChat(id, f))
+		return true
+	case "setJev":
+		c.reply(s.setJev(id, c.name, msg))
 		return true
 	case "read":
 		if f.After < 0 {
@@ -132,6 +137,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		if typ == "start" {
 			m = proto.ChatNew{Dir: f.Dir, Provider: f.Provider, Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode,
 				FakeStartFailure: f.FakeStartFailure, Worktree: f.Worktree, Base: f.Base, Branch: f.Branch, Name: f.Name, Prompt: f.Prompt, Attachments: f.Attachments}
+			m = ClientStart{m.(proto.ChatNew), c.name}
 		}
 	case "updateQueue":
 		if f.Action == "" {
@@ -172,6 +178,60 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	}
 	c.reply(ok(id, r.Message, data))
 	return true
+}
+
+// ClientStart is a start command with the hello name of the client that
+// sent it, which the socket's ChatNew does not carry: "aide" gives the
+// chat aide's Jev gates.
+type ClientStart struct {
+	proto.ChatNew
+	Client string
+}
+
+var jevKeyRe = regexp.MustCompile(`^[\x21-\x7e]+$`)
+
+// setJev hands aide's TypeSafe key, consent list and gate settings to the
+// chats' Jev gates (docs/web-protocol.md, setJev). The key stays in the
+// daemon's memory: no reply, log or file carries it.
+func (s *Server) setJev(id, client string, msg []byte) map[string]any {
+	if client != "aide" {
+		return result(id, "invalid", "setJev is aide's: only a client that says hello as aide sends it")
+	}
+	var f struct {
+		APIKey        string   `json:"apiKey"`
+		DisabledRoots []string `json:"disabledRoots"`
+		Gates         struct {
+			Global     decide.GateOverrides            `json:"global"`
+			Workspaces map[string]decide.GateOverrides `json:"workspaces"`
+		} `json:"gates"`
+	}
+	if err := json.Unmarshal(msg, &f); err != nil {
+		return result(id, "invalid", "setJev: want an apiKey string, disabledRoots paths and gates layers")
+	}
+	if f.APIKey != "" && (len(f.APIKey) > 4096 || !jevKeyRe.MatchString(f.APIKey)) {
+		return result(id, "invalid", "the apiKey is not 1 to 4096 printable ASCII characters")
+	}
+	if len(f.DisabledRoots) > 1000 || len(f.Gates.Workspaces) > 1000 {
+		return result(id, "invalid", "at most 1000 disabledRoots and 1000 workspace gate layers")
+	}
+	for _, r := range f.DisabledRoots {
+		if len(r) > 4096 || !filepath.IsAbs(r) {
+			return result(id, "invalid", "each disabledRoots entry is an absolute path")
+		}
+	}
+	if err := f.Gates.Global.Check(); err != nil {
+		return result(id, "invalid", err.Error())
+	}
+	for _, o := range f.Gates.Workspaces {
+		if err := o.Check(); err != nil {
+			return result(id, "invalid", err.Error())
+		}
+	}
+	r, _ := s.Chats.Do(decide.AideJev{Key: decide.Secret(f.APIKey), DisabledRoots: f.DisabledRoots, Global: f.Gates.Global, Workspaces: f.Gates.Workspaces}).(proto.ChatResult)
+	if r.Code != "" {
+		return result(id, r.Code, r.Message)
+	}
+	return ok(id, "", nil)
 }
 
 // importChat stores f's snapshot as an archived chat (docs/web-protocol.md,

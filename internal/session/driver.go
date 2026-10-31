@@ -106,6 +106,9 @@ type Config struct {
 	// Imported marks a chat imported from aide's own store (ENG-2707);
 	// while it stays archived, a later import replaces it.
 	Imported bool `json:"imported,omitempty"`
+	// Aide marks a chat aide started over the web protocol: its turns get
+	// aide's Jev gates (internal/daemon/jevgates.go, ENG-2934).
+	Aide bool `json:"aide,omitempty"`
 	// Env is what the process gets on top of the daemon's environment;
 	// rebuilt from the tab on every start, never saved.
 	Env []string `json:"-"`

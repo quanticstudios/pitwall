@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/session/eventlog"
 	"github.com/quanticstudios/pitwall/internal/session/fake"
 	"github.com/quanticstudios/pitwall/internal/web"
@@ -33,6 +34,7 @@ func TestWebImport(t *testing.T) {
 	d, _, stop := runDaemon(t, &fakes{statsCalls: map[string]int{}}, func(o *Options) {
 		chatProvider(fake.Options{})(o)
 		o.Chats = root
+		o.Gates = decide.FakeGates()
 	})
 	t.Cleanup(stop)
 	ws := &web.Server{Token: func() (string, error) { return webToken, nil }, Chats: chatHub{d}}
@@ -64,6 +66,7 @@ func TestWebImport(t *testing.T) {
 		t.Fatalf("read after a second import: %v", r)
 	}
 
+	c.call(map[string]any{"type": "setJev", "apiKey": "synthetic-e2e-key"})
 	r = c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "Rename the button"})
 	live, _ := at(r, "data.sessionId").(string)
 	if live == "" {

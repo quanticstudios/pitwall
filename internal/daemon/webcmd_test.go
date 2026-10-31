@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/session/fake"
 	"github.com/quanticstudios/pitwall/internal/web"
 )
@@ -43,7 +44,10 @@ type wsClient struct {
 // the web protocol served from an httptest listener.
 func webDaemon(t *testing.T) string {
 	t.Helper()
-	d, _, stop := runDaemon(t, &fakes{statsCalls: map[string]int{}}, chatProvider(fake.Options{}))
+	d, _, stop := runDaemon(t, &fakes{statsCalls: map[string]int{}}, func(o *Options) {
+		chatProvider(fake.Options{})(o)
+		o.Gates = decide.FakeGates()
+	})
 	t.Cleanup(stop)
 	ws := &web.Server{Token: func() (string, error) { return webToken, nil }, Chats: chatHub{d}}
 	hs := httptest.NewServer(ws.Handler())
@@ -405,6 +409,7 @@ func TestWebListWorktrees(t *testing.T) {
 // holds the turn; rewind of a turn without a file checkpoint refuses.
 func TestWebFork(t *testing.T) {
 	c := dialWeb(t, webDaemon(t), "aide")
+	c.call(map[string]any{"type": "setJev", "apiKey": "synthetic-e2e-key"})
 	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "hello"})
 	chat, _ := at(r, "data.sessionId").(string)
 	if r["ok"] != true || chat == "" {
@@ -565,6 +570,7 @@ func TestRecentPrompt(t *testing.T) {
 // fake provider gets the pasted text quoted after the prompt.
 func TestWebAttachments(t *testing.T) {
 	c := dialWeb(t, webDaemon(t), "aide")
+	c.call(map[string]any{"type": "setJev", "apiKey": "synthetic-e2e-key"})
 	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "summarize the log",
 		"attachments": []any{map[string]any{"kind": "pasted-text", "id": "p", "name": "pasted-text-1.txt", "text": "log line\n"}}})
 	chat, _ := at(r, "data.sessionId").(string)
