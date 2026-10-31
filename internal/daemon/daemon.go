@@ -235,6 +235,11 @@ type Daemon struct {
 	mail    mail              // see talk.go
 	reviews map[string]string // second opinions: reviewer pane to the pane it reviews; see opinion.go
 	chats   map[string]*chat  // live chats by id; see chats.go
+	// archiving are the chats dropChat closes, until their folder is archived.
+	archiving map[string]chan struct{}
+	// unarchiveMu runs one unarchive at a time: two of one chat would race
+	// over its folder.
+	unarchiveMu sync.Mutex
 	// listSinks are the web connections watching the chat list; see web.go.
 	listSinks map[web.Sink]bool
 	lim       limitResumes          // see resume.go

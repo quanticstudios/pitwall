@@ -589,6 +589,19 @@ It changes nothing and is refused, like `rewind`, while a turn runs
 `delete: true` removes an archived chat for good. Archive is refused with
 `conflict` for a pinned tab.
 
+`unarchive` brings an archived chat back as a live chat, as aide's Restore
+does and as aide does when it reopens a closed Agent pane. Its folder moves
+back from `chats/archive/` and a new tab opens in the chat's folder; the
+answer carries the chat's `sessionId`, unchanged, and that tab's
+`workspaceId`. The chat keeps its transcript and its provider session id,
+so the next message that needs the provider resumes the session it had, as
+after a daemon restart. An [imported](#import) chat unarchives too and is
+pitwall's from then on: a later `import` with its id leaves it alone. A
+live chat stays where it is and answers with its tab, so two clients that
+both reopen a chat agree. An id with no archived chat answers `not-found`,
+and a daemon that keeps no chats on disk `unsupported`. A chat archived a
+moment ago may still be closing; `unarchive` waits for it.
+
 <a id="rename"></a>
 ### rename and pin
 
@@ -635,8 +648,9 @@ keeps aide's session id, so aide finds it under the id it already has.
   it is, and the answer is `imported: false`.
 - The folder is written beside the archive and renamed into place, so a
   crash leaves the earlier copy or none, never half of one.
-- The chat is read-only history: `read` returns it, `listSessions` with
-  `archived: true` lists it. A daemon that keeps no chats on disk answers
+- The chat is archived: `read` returns it, `listSessions` with
+  `archived: true` lists it, and [`unarchive`](#archive-and-unarchive)
+  makes it live. A daemon that keeps no chats on disk answers
   `unsupported`.
 
 ### listProjects and listWorktrees
@@ -911,9 +925,7 @@ speak on this connection.
    ([phone.md](phone.md)). The full web client on a phone authenticates
    through a device token, which buys a session and its own `hello` token
    ([Web client](remote.md#web-client)).
-5. What the chat loop cannot do yet answers `unsupported`, and the
-   commands without a socket message are left out of `capabilities`:
-   `unarchive`. `archive` with
+5. What the chat loop cannot do yet answers `unsupported`. `archive` with
    `delete: true` archives a live chat as plain `archive` does, as
    `ChatArchive` does on the socket.
 6. A page the daemon serves gets its `hello` token from

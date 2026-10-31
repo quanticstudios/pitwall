@@ -182,7 +182,7 @@ A chat has a lifetime; its provider process has a shorter one.
 | Settings (`ChatSet`) | `Driver.Set`, then a `session.patch` delta with the new `model`, `effort` or `permissionMode`. A different `Provider` closes the driver and starts the other provider instead, between turns; one asked for mid-turn is held in `pendingProviderSelection` until the turn ends ([web protocol, set](web-protocol.md#set)). |
 | No process | After a daemon restart, after a crash, or after `Close`. The chat stays `ready`; the next command that needs the provider starts it with `Origin{Resume: cfg.Resume}` ([resume](#resume)). |
 | Archive (`ChatArchive`) | Closes the driver, compacts the log, moves `chats/<id>/` to `chats/archive/<id>/`, removes the tab as `CloseTab` would (a worktree stays; deleting it stays `DeleteWorkspace`'s job). Refused for a pinned tab, like `CloseTab`. Closing a chat tab or killing its session archives the chat. |
-| Unarchive (`ChatUnarchive`) | Moves the folder back and opens a tab in the chat's `Cwd`. The process starts lazily. |
+| Unarchive (`ChatUnarchive`) | Moves the folder back and opens a tab in the chat's `Cwd`, which `config.json` records at once. The chat keeps its id and `Resume`, so the process starts lazily and resumes the provider session. An imported chat loses `Imported`. A live chat stays as it is. |
 | Delete (`ChatArchive{Delete: true}`) | Removes the folder. An archived chat only. |
 | Rename (`ChatRename`) | Renames the chat's tab, as `RenameTab` does; the chat's title follows. A live chat only. |
 | Pin (`ChatPin`) | Sets `Pinned` in `config.json`, which the archived list keeps. Not the tab's pin, so it does not refuse archive. A live chat only. |
@@ -1076,7 +1076,7 @@ type ChatRewind struct{ Chat, Turn string }
 type ChatArchive struct{ Chat string; Delete bool }
 type ChatRename struct{ Chat, Title string }             // ChatRename and ChatPin are at proto.ChatPinLevel (45)
 type ChatPin struct{ Chat string; Pinned bool }         // aide's task-history pin, in config.json; not the tab's pin
-type ChatUnarchive struct{ Chat string }
+type ChatUnarchive struct{ Chat string } // proto.ChatUnarchiveLevel (46)
 type ChatList struct{ Archived bool } // archived chats are not in State; this lists them
 
 // Daemon to client.

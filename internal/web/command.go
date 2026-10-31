@@ -21,9 +21,8 @@ import (
 	chat "github.com/quanticstudios/pitwall/internal/session"
 )
 
-// commands are the ones chatCommand runs. TODO: unarchive with
-// ChatUnarchive.
-var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "rename", "pin", "listProjects", "listWorktrees", "import", "setJev", "checkpoints", "checkpointDiff", "rewindPreview"}
+// commands are the ones chatCommand runs.
+var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "rename", "pin", "listProjects", "listWorktrees", "import", "setJev", "checkpoints", "checkpointDiff", "rewindPreview"}
 
 // frame is every command's keys; each reads its own.
 type frame struct {
@@ -164,6 +163,8 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		m = proto.ChatRewind{Chat: f.SessionID, Turn: f.TurnID, KeepFiles: f.KeepFiles}
 	case "archive":
 		m = proto.ChatArchive{Chat: f.SessionID, Delete: f.Delete}
+	case "unarchive":
+		m = proto.ChatUnarchive{Chat: f.SessionID}
 	case "rename":
 		m = proto.ChatRename{Chat: f.SessionID, Title: f.Title}
 	case "pin":
@@ -176,7 +177,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	}
 	var data map[string]any
 	switch {
-	case typ == "start" || typ == "fork":
+	case typ == "start" || typ == "fork" || typ == "unarchive":
 		data = map[string]any{"sessionId": r.Chat}
 		chats := s.Chats.List()
 		if i := slices.IndexFunc(chats, func(ch model.Chat) bool { return ch.ID == r.Chat }); i >= 0 {

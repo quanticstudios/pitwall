@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 46 added ChatUnarchive: a chat archived back to a tab, as aide's
+// Restore does.
 // Level 45 added ChatRename, ChatPin and model.Chat.Pinned: rename and
 // pin a chat, as aide's task history does.
 // Level 44 added ChatRewind.KeepFiles: a rewind of the conversation alone.
@@ -146,7 +148,10 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 45
+const Level = 46
+
+// ChatUnarchiveLevel added ChatUnarchive.
+const ChatUnarchiveLevel = 46
 
 // ChatPinLevel added ChatRename and ChatPin.
 const ChatPinLevel = 45
@@ -167,6 +172,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case ChatUnarchive:
+		return ChatUnarchiveLevel
 	case ChatRename, ChatPin:
 		return ChatPinLevel
 	case ChatFork, ChatRewind:
@@ -817,6 +824,7 @@ var Messages = []any{
 	ChatResult{}, ChatDeltas{}, ChatProviders{}, ChatProviderList{},
 	ChatFork{}, ChatRewind{},
 	ChatRename{}, ChatPin{},
+	ChatUnarchive{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -897,6 +905,10 @@ type ChatArchive struct {
 	Chat   string
 	Delete bool
 }
+
+// ChatUnarchive moves an archived chat back to a tab in its Cwd, with
+// its id and provider session. Its result's Chat is the chat.
+type ChatUnarchive struct{ Chat string }
 
 // ChatRename names the chat's tab, as RenameTab does, which names the
 // chat; an empty Title goes back to the first prompt. Refused with
