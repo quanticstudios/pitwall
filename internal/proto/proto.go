@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 42 added ChatNew.Attachments, ChatSend.Attachments and
+// QueuedMessage.Attachments: aide's images, files and pasted text.
 // Level 41 added chat prompt excerpts, queue actions and per-start fake failures.
 // Level 40 added ChatFork and ChatRewind.
 // Level 39 added ChatProviders and ChatProviderList for configured chat agents.
@@ -140,7 +142,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 41
+const Level = 42
 
 // ChatForkLevel added ChatFork and ChatRewind.
 const ChatForkLevel = 40
@@ -821,20 +823,22 @@ type ChatNew struct {
 	Provider               model.Provider
 	Model, Effort, Mode    string
 	Prompt                 string
-	FakeStartFailure       string   // fake providers only
-	Images                 []string // paths the daemon reads and copies into images/
-	Name                   string   // the tab's name, "" for none
-	ParentPane             string   // as NewSession.ParentPane
+	FakeStartFailure       string               // fake providers only
+	Images                 []string             // paths the daemon reads and copies into images/
+	Attachments            []session.Attachment // aide's, sent with Prompt
+	Name                   string               // the tab's name, "" for none
+	ParentPane             string               // as NewSession.ParentPane
 }
 
 // ChatSend starts a turn with Text, or queues it behind the running one.
 // How "steer" adds it to the running turn where the provider can, and
 // "queue" always queues.
 type ChatSend struct {
-	Chat   string
-	Text   string
-	Images []string
-	How    string
+	Chat        string
+	Text        string
+	Images      []string
+	Attachments []session.Attachment
+	How         string
 }
 
 // ChatInterrupt stops the running turn and holds the queue until the next

@@ -18,6 +18,7 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - `TestReadUsage` takes the window its fake `Usage` saw over a channel, so the race detector no longer fails main's linux job on it.
+- Web chats take aide's attachments on `start` and `send`: images, workspace files and pasted text. Claude and Codex get images as images and the rest quoted after the prompt as aide quotes them; the transcript and the queue show them. Over aide's limits (8 attachments, 5 MiB an image, 10 MiB of images, 256 KiB a file or paste) the command answers `invalid`. Before, any attachment answered `unsupported`.
 - Web chat summaries carry recent prompts, snapshots expose queued messages and usage-limit banners, and queue commands edit, reorder, remove, resume or steer pending messages.
 
 - Timing ends a turn you interrupted or whose pane closed at most ten minutes after the agent's last call. A Claude Code session that hung after starting `true` showed a 4.5-hour command. Old turns in `timing.jsonl` keep their numbers.

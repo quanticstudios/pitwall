@@ -1,4 +1,4 @@
-16.41
+16.42
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -31,7 +31,7 @@ proto.ChatArchive{Chat string; Delete bool}
 proto.ChatDeltas{Chat string; Snapshot []uint8; Seq int64; Deltas [][]uint8}
 proto.ChatFork{Chat string; Turn string; Worktree string}
 proto.ChatInterrupt{Chat string}
-proto.ChatNew{SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Provider model.Provider; Model string; Effort string; Mode string; Prompt string; FakeStartFailure string; Images []string; Name string; ParentPane string}
+proto.ChatNew{SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Provider model.Provider; Model string; Effort string; Mode string; Prompt string; FakeStartFailure string; Images []string; Attachments []session.Attachment; Name string; ParentPane string}
 proto.ChatProvider{ID model.Provider; Name string}
 proto.ChatProviderList{Providers []proto.ChatProvider}
 proto.ChatProviders{}
@@ -39,7 +39,7 @@ proto.ChatQueue{Chat string; Queue []session.QueuedMessage; Action string; ID st
 proto.ChatRead{Chat string; After int64}
 proto.ChatResult{Chat string; Turn string; Code string; Message string}
 proto.ChatRewind{Chat string; Turn string}
-proto.ChatSend{Chat string; Text string; Images []string; How string}
+proto.ChatSend{Chat string; Text string; Images []string; Attachments []session.Attachment; How string}
 proto.ChatSet{Chat string; Model string; Effort string; Mode string}
 proto.ClosePane{Pane string}
 proto.CloseTab{WorkspaceID string; TabID string}
@@ -105,7 +105,8 @@ proto.TextResult{Pane string; Sel vt.Selection; Text string}
 proto.View{Panes []string}
 proto.WorktreeInfo{Query proto.WorktreeQuery; Err string; Default string; Local []string; Remote []string; GitHub bool; Changed []string; Unmerged bool; Orphans []model.Orphan}
 proto.WorktreeQuery{ProjectID string; WorkspaceID string; Orphans bool}
-session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string}
+session.Attachment{ID string; Kind string; Data string; MimeType string; Name string; SizeBytes int64; Path string; Text string}
+session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment}
 time.Location{name string; zone []time.zone; tx []time.zoneTrans; extend string; cacheStart int64; cacheEnd int64; cacheZone *time.zone}
 time.Time{wall uint64; ext int64; loc *time.Location}
 time.zone{name string; offset int; isDST bool}

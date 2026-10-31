@@ -51,6 +51,7 @@ type stubDriver struct {
 	turn   string
 	turns  int
 	calls  []string
+	msgs   []session.Message // what Send got
 	closed bool
 }
 
@@ -81,6 +82,7 @@ func (s *stubDriver) Send(_ context.Context, m session.Message) (string, error) 
 	s.turn = fmt.Sprint("turn-", s.turns)
 	turn := s.turn
 	s.calls = append(s.calls, "send "+m.Text)
+	s.msgs = append(s.msgs, m)
 	s.mu.Unlock()
 	s.event(session.Event{Type: session.EventTurnStarted, TurnID: turn})
 	return turn, nil
