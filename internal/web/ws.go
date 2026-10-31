@@ -49,9 +49,10 @@ var (
 )
 
 type conn struct {
-	nc  net.Conn
-	br  *bufio.Reader
-	wmu sync.Mutex
+	name string // hello's client.name
+	nc   net.Conn
+	br   *bufio.Reader
+	wmu  sync.Mutex
 
 	// The outgoing queue and the subscriptions, see stream.go.
 	mu       sync.Mutex

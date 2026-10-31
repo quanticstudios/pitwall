@@ -148,6 +148,9 @@ func (f *fakeChats) WatchList(s Sink, on bool) {
 	}
 }
 
+func (f *fakeChats) Do(m any) any                  { return proto.ChatResult{Code: "unsupported"} }
+func (f *fakeChats) Workspaces() []model.Workspace { return nil }
+
 // setList replaces the list and tells the watchers.
 func (f *fakeChats) setList(chats ...model.Chat) {
 	f.mu.Lock()

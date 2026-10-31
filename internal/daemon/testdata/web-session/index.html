@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>pitwall: one web session</title>
+<!--
+The web protocol's M5 exit test (ENG-2696): one fake-provider chat from
+start to archive, over docs/web-protocol.md and nothing else.
+
+TestWebSession in internal/daemon/webcmd_test.go plays #steps over a real
+WebSocket against the daemon's chat loop. To run it in a browser, start the
+daemon with PITWALL_FAKE_PROVIDERS=1 and [web] bundle set to this folder,
+run pitwall web open, and add ?dir=<a folder> to the URL; run.js plays the
+same steps and prints each one.
+
+A step sends `send` with ${name} replaced by what an earlier step saved,
+and reads its result: every path in `expect` must equal its value, and
+every path in `save` must hold a string, saved under its name. With `poll`
+the step sends again until both hold. A `wait` step waits for a pushed
+frame whose keys are its keys.
+-->
+<script type="application/json" id="steps">
+[
+  {"send": {"type": "listProjects"}, "expect": {"ok": true}},
+  {"send": {"type": "subscribeSessions"}, "expect": {"ok": true}},
+  {"wait": {"type": "sessions"}},
+  {"send": {"type": "start", "dir": "${dir}", "provider": "claude", "permissionMode": "default", "prompt": "approval"},
+   "expect": {"ok": true}, "save": {"chat": "data.sessionId", "workspace": "data.workspaceId"}},
+  {"send": {"type": "subscribe", "sessionId": "${chat}", "after": 0}, "expect": {"ok": true}},
+  {"wait": {"type": "deltas", "sessionId": "${chat}"}},
+  {"send": {"type": "read", "sessionId": "${chat}", "after": 0}, "poll": true,
+   "expect": {"ok": true, "data.snapshot.sessionState": "waiting"}, "save": {"approval": "data.snapshot.pendingApprovals.0.id"}},
+  {"send": {"type": "resolveApproval", "sessionId": "${chat}", "requestId": "${approval}", "decision": "deny", "reason": "Not on main"},
+   "expect": {"ok": true}},
+  {"send": {"type": "resolveApproval", "sessionId": "${chat}", "requestId": "${approval}", "decision": "allow"},
+   "expect": {"ok": false, "code": "conflict"}},
+  {"send": {"type": "listSessions"}, "poll": true, "expect": {"ok": true, "data.chats.0.turns": 1, "data.chats.0.state": "ready"}},
+  {"send": {"type": "set", "sessionId": "${chat}", "model": "claude-sonnet-5-5", "permissionMode": "plan"}, "expect": {"ok": true}},
+  {"send": {"type": "read", "sessionId": "${chat}", "after": 0},
+   "expect": {"ok": true, "data.snapshot.model": "claude-sonnet-5-5", "data.snapshot.permissionMode": "plan"}},
+  {"send": {"type": "send", "sessionId": "${chat}", "text": "input"}, "expect": {"ok": true}, "save": {"turn": "data.turnId"}},
+  {"send": {"type": "read", "sessionId": "${chat}", "after": 0}, "poll": true,
+   "expect": {"ok": true}, "save": {"input": "data.snapshot.pendingUserInputs.0.id"}},
+  {"send": {"type": "resolveInput", "sessionId": "${chat}", "requestId": "${input}", "answers": {"prompt": ["Continue"]}},
+   "expect": {"ok": true}},
+  {"send": {"type": "listSessions"}, "poll": true, "expect": {"ok": true, "data.chats.0.turns": 2, "data.chats.0.state": "ready"}},
+  {"send": {"type": "send", "sessionId": "${chat}", "text": "hello", "how": "queue"}, "expect": {"ok": true, "message": "queued"}},
+  {"send": {"type": "listSessions"}, "poll": true, "expect": {"ok": true, "data.chats.0.turns": 3, "data.chats.0.state": "ready"}},
+  {"send": {"type": "read", "sessionId": "${chat}", "after": 0}, "expect": {"ok": true, "data.snapshot.content.3.text": "Handled: hello"}},
+  {"send": {"type": "interrupt", "sessionId": "${chat}"}, "expect": {"ok": true}},
+  {"send": {"type": "fork", "sessionId": "${chat}", "turnId": "${turn}"}, "expect": {"ok": false, "code": "unsupported"}},
+  {"send": {"type": "listProjects"},
+   "expect": {"ok": true, "data.projects.0.workspaces.0.chat": "${chat}", "data.projects.0.workspaces.0.id": "${workspace}"}},
+  {"send": {"type": "archive", "sessionId": "${chat}"}, "expect": {"ok": true}},
+  {"wait": {"type": "removed", "sessionId": "${chat}"}},
+  {"send": {"type": "read", "sessionId": "${chat}", "after": 0}, "expect": {"ok": false, "code": "not-found"}}
+]
+</script>
+<pre id="log"></pre>
+<script src="run.js"></script>
