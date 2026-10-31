@@ -77,17 +77,41 @@ shows at the bottom of the sidebar. It downloads the release's archive for
 your system, checks it against `checksums.txt`, and replaces the `pitwall`
 binary the window runs; a symlink to it keeps pointing at the new one. When
 the download or the checksum fails, nothing is installed, the button reads
-"Update failed", and a click tries again. After an install, "Restart to
-finish" opens a new window on the same tab and closes this one.
+"Update failed", and a click tries again. After an install, the new
+binary's daemon takes over the running one's panes, as `pitwall update`
+does below. "Restart to finish" then opens a new window on the same tab and
+closes this one.
+
+From a terminal, `pitwall update` does the same: it installs the latest
+release over the binary it runs from, then starts that binary's daemon in
+handoff mode. The new daemon takes over every pane's terminal from the old
+one ([handoff.md](handoff.md)), so agents, dev servers and test loops keep
+running with their scrollback, and it prints which happened:
+
+```
+Installed pitwall v0.1.40 over v0.1.39.
+The new daemon took over; every program in a pane kept running.
+```
+
+If the handoff fails, the old daemon keeps serving and `pitwall update`
+restarts it instead, as **Restart now** does: agents resume, other programs
+in panes stop. It prints why the handoff failed first. The Update button
+does not restart on its own: it shows why in the notice at the top of the
+window, and "Restart to finish" asks before restarting. On a build from
+source, or a binary a package manager owns, `pitwall update` installs
+nothing and only moves the daemon onto the binary, so run it after
+`brew upgrade` or `scripts/install.sh`. With no daemon running it stops
+after the install.
 
 Windows will not replace a running program, so there the update renames
 `pitwall.exe` to `pitwall.exe.old` and puts the new one in its place. The
 next window deletes `pitwall.exe.old` once nothing runs it; while the daemon
 still does, the next update uses `pitwall.exe.old1`, and so on.
 
-The update leaves the daemon running, so tabs keep their processes. Most
-releases work with the daemon already running; when one cannot, the new
-window asks before restarting it, as after any upgrade (see
+Windows has no handoff. There the update leaves the daemon running, so
+tabs keep their processes, and `pitwall update` restarts it. Most releases
+work with the daemon already running; when one cannot, the new window asks
+before restarting it, as after any upgrade (see
 [Upgrades](state.md#upgrades)).
 
 A build from source (`git describe` past a tag, or `-dirty`) never checks.

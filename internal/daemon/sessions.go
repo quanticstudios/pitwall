@@ -134,13 +134,17 @@ func (d *Daemon) parentTab(pane, session string) string {
 	return ""
 }
 
-// paneTab is the tab holding pane, or nil. The caller holds d.mu.
+// paneTab is the tab holding pane, or the tab of chat pane, or nil. The
+// caller holds d.mu.
 func (d *Daemon) paneTab(pane string) *model.Workspace {
-	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane })
-	if pane == "" || i < 0 {
+	if pane == "" {
 		return nil
 	}
-	return d.workspace(d.st.Panes[i].WorkspaceID)
+	ws, _, _, ok := d.agentOf(pane)
+	if !ok {
+		return nil
+	}
+	return d.workspace(ws)
 }
 
 func (d *Daemon) newGroup(m proto.NewGroup) error {

@@ -381,13 +381,7 @@ func (d *Daemon) planDecisions(p model.Pane, m proto.AgentEvent, now time.Time) 
 			ask.held = j.held
 		}
 	}
-	if x.Settings.Triage && model.NeedsYou(a.State) && a.Detail != "" {
-		j.triage, j.state, j.text = true, string(a.State), a.Detail
-		j.triageHeld = holdoutDraw() < x.Settings.TriageHoldout
-		a.Urgency = model.UrgencyPending
-		j.triageID = newID()
-		openPending(&d.dec.triages, p.ID, &pending{id: j.triageID, at: now, held: j.triageHeld})
-	}
+	d.planTriage(a, j)
 	if a.State == model.StateCompleted {
 		if c := d.dec.checks[p.ID]; x.Settings.Check && c != nil && c.failed {
 			a.Review = true // the turn ends on a failed check
@@ -399,6 +393,20 @@ func (d *Daemon) planDecisions(p model.Pane, m proto.AgentEvent, now time.Time) 
 		}
 	}
 	return j.orNil()
+}
+
+// planTriage asks triage about a, a pane's or a chat's activity, when it
+// needs you. It marks the activity's urgency pending so notifications
+// wait for triage. Callers hold d.mu.
+func (d *Daemon) planTriage(a *model.Activity, j *decideJob) {
+	if !j.s.Triage || !model.NeedsYou(a.State) || a.Detail == "" {
+		return
+	}
+	j.triage, j.state, j.text = true, string(a.State), a.Detail
+	j.triageHeld = holdoutDraw() < j.s.TriageHoldout
+	a.Urgency = model.UrgencyPending
+	j.triageID = newID()
+	openPending(&d.dec.triages, a.PaneID, &pending{id: j.triageID, at: a.UpdatedAt, held: j.triageHeld})
 }
 
 // orNil is j, or nil when it asks nothing.

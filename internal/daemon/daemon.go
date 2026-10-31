@@ -157,6 +157,9 @@ type Options struct {
 	// that names no reset; nil knows none.
 	ResumeAfterLimit func() bool
 	Limits           func() []flow.Limit
+	// SaveLimit keeps a plan limit a chat's provider reported where
+	// internal/flow reads it, for the limits view; nil keeps none.
+	SaveLimit func(flow.Limit)
 	// ClaudeContinues reads Claude Code's own usage-limit continue
 	// option for the pane's environment; nil leaves pitwall in charge.
 	ClaudeContinues func(model.Pane) bool
@@ -235,7 +238,10 @@ type Daemon struct {
 
 // New loads state from store.Path() with store.Open, which sets aside a file
 // it cannot read, and relaunches saved panes with store.RestoreCmd.
-func New() (*Daemon, error) {
+func New() (*Daemon, error) { return NewWith(Defaults()) }
+
+// Defaults are the Options New runs with, for Takeover too.
+func Defaults() Options {
 	path := store.Path()
 	journal, err := decisionlog.Open(filepath.Join(filepath.Dir(path), "decisions.jsonl"))
 	if err != nil {
@@ -249,7 +255,7 @@ func New() (*Daemon, error) {
 	if err != nil {
 		log.Printf("timing log: %q", err)
 	}
-	return NewWith(Options{
+	return Options{
 		Journal: journal,
 		Errors:  errs,
 		Timing:  timing,
@@ -288,6 +294,7 @@ func New() (*Daemon, error) {
 		MaxRunning:        setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
 		ResumeAfterLimit:  setting(config.Path(), func(s config.Settings) bool { return s.ResumeAfterLimit }),
 		Limits:            trackedLimits(),
+		SaveLimit:         saveLimit,
 		Profiles:          func() map[string]config.Profile { s, _ := config.Load(); return s.Profiles },
 		ClaudeContinues:   claudeAutoContinue,
 		QuietAfter:        setting(config.Path(), func(s config.Settings) time.Duration { return s.QuietAfter }),
@@ -308,7 +315,7 @@ func New() (*Daemon, error) {
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)
 		},
-	})
+	}
 }
 
 // NewWith loads state through o.Load and relaunches every saved pane that had
@@ -1327,7 +1334,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
 	if pi < 0 {
+		chat := d.isChat(m.Pane)
 		d.mu.Unlock()
+		if chat {
+			return nil // a chat's stream is its state, and its loop takes the checkpoint
+		}
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
@@ -1491,23 +1502,30 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	d.runDecisions(ctx, job)
 	if turnWS != "" {
 		// The hook is answered once the snapshot is taken, so the turn's
-		// first edits stay out of it; past turnWait it goes on without the
-		// hook. pitwall hook waits a little longer for a prompt.
-		done := make(chan struct{})
-		go func() {
-			d.checkpoint(turnDir, turnWS)
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(turnWait):
-		}
+		// first edits stay out of it. pitwall hook waits a little longer
+		// for a prompt.
+		d.checkpointWait(turnDir, turnWS)
 	}
 	return nil
 }
 
 // turnWait is how long a prompt's hook waits for its checkpoint.
 const turnWait = 2 * time.Second
+
+// checkpointWait takes tab ws's turn checkpoint at dir, waiting for it at
+// most turnWait; past that the turn goes on and the checkpoint finishes
+// on its own.
+func (d *Daemon) checkpointWait(dir, ws string) {
+	done := make(chan struct{})
+	go func() {
+		d.checkpoint(dir, ws)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(turnWait):
+	}
+}
 
 // checkpoint snapshots tab ws's work tree at dir, unless the tab closed
 // while it waited: its refs are dropped then, and a checkpoint would make

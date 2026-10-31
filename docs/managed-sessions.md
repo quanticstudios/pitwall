@@ -1184,7 +1184,13 @@ These need a capture or a decision that belongs to a later ticket.
 | [ENG-2697](https://linear.app/quantic/issue/ENG-2697) serve the aide bundle | static serving | [Web protocol](#web) |
 | [ENG-2698](https://linear.app/quantic/issue/ENG-2698) conformance fixtures | `testdata/web-protocol/` | [Fake providers](#fake), [Event model](#events) |
 
-Later tickets that build on the same contract: ENG-2711 (ACP) and ENG-2712
-(OpenCode) add drivers behind [the driver interface](#driver); ENG-2707
+ENG-2712 adds [`internal/session/opencode`](../internal/session/opencode/README.md)
+behind [the driver interface](#driver). It uses OpenCode v1.19.4's HTTP
+server and SSE events, including permissions and session-ID resume. Its
+fake-server restart test covers a fresh driver reattaching to a saved ID;
+the daemon's lazy restart loop remains ENG-2687.
+
+Later tickets that build on the same contract: ENG-2711 (ACP) adds a driver;
+ENG-2707
 imports aide's old sessions as archived chats in [Storage](#storage)'s
 layout.

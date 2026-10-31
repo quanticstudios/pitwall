@@ -209,7 +209,7 @@ func (d *Daemon) showNotice(id string, a *attention, n vt.Notification) {
 func (d *Daemon) seePane(id string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.panes[id] == nil {
+	if d.panes[id] == nil && !d.isChat(id) {
 		return nil // closed while the GUI looked at it
 	}
 	a := d.attnOf(id)

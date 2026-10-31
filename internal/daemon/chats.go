@@ -14,9 +14,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/errlog"
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/store"
 )
 
 // Chats: managed sessions the daemon drives through a session.Driver
@@ -52,6 +58,11 @@ type chat struct {
 	drv    session.Driver
 	recent []session.Delta
 	sum    model.Chat // the summary last put in State.Chats
+	// limit is a plan limit that refused the running turn; its end
+	// schedules the limit resume.
+	limit *session.Limit
+	// resumed marks the running turn as the limit resume's continue.
+	resumed bool
 }
 
 // chatError is a command's failure with its ChatResult code.
@@ -196,6 +207,10 @@ func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult 
 		if err != nil {
 			return chatResult("", "", "", invalid("%v", err))
 		}
+		if wt.Setup != "" {
+			// shortcut: a chat tab has no shell to type setup into, so it does not run; add a runner and the repo's ask (docs/managed-sessions.md, attach).
+			problems = append(problems, errors.New("setup not run: chats do not run worktree setup yet"))
+		}
 		if len(problems) > 0 {
 			note = fmt.Sprintf("worktree %s is ready, but: %v", path, errors.Join(problems...))
 		}
@@ -210,7 +225,8 @@ func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult 
 			ports(w)
 		}
 		w.Chat = c.id
-		c.cfg = session.Config{Format: 1, ID: c.id, Provider: m.Provider, Workspace: w.ID, Cwd: w.Path, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Created: time.Now()}
+		c.cfg = session.Config{Format: 1, ID: c.id, Provider: m.Provider, Workspace: w.ID, Cwd: w.Path, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Created: time.Now(),
+			Env: append(portEnv(w.Ports), "PITWALL_PANE="+c.id)}
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: m.Provider, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Title: c.title, State: session.StateReady, UpdatedAt: time.Now()}
 		d.chats[c.id] = c
 		d.st.Chats = append(d.st.Chats, c.sum)
@@ -256,6 +272,7 @@ func (d *Daemon) dropChat(id string) {
 	c := d.chats[id]
 	delete(d.chats, id)
 	d.st.Chats = slices.DeleteFunc(d.st.Chats, func(s model.Chat) bool { return s.ID == id })
+	d.dropPane(id) // its activity, attention, resume and decisions, as a pane's
 	if c != nil {
 		go c.close()
 	}
@@ -325,7 +342,8 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 		c.cfg.Resume = e.ResumeID
 		return
 	case session.EventLimit:
-		return // shortcut: limits reach flow and limit resume with ENG-2688
+		d.chatLimit(c, *e.Limit)
+		return
 	case session.EventTurnCompleted:
 		if e.Point != "" {
 			if c.cfg.Points == nil {
@@ -463,6 +481,18 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 	if err := d.chatStart(c); err != nil {
 		return "", "", err
 	}
+	if d.o.Checkpoint != nil {
+		d.mu.Lock()
+		var dir string
+		if w := d.workspace(c.cfg.Workspace); w != nil {
+			dir = d.st.LivePath(*w)
+		}
+		d.mu.Unlock()
+		if dir != "" {
+			d.checkpointWait(dir, c.cfg.Workspace) // as a pane's prompt hook does: the turn's edits stay out of it
+		}
+	}
+	c.resumed, c.limit = false, nil
 	turn, err := c.drv.Send(ctx, m)
 	if errors.Is(err, session.ErrBusy) {
 		c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, session.QueuedMessage{ID: m.ID, Text: m.Text})
@@ -606,8 +636,9 @@ func (c *chat) set(ctx context.Context, m proto.ChatSet) error {
 	return nil
 }
 
-// chatChanged brings c's entry in State.Chats up to date. Only a change of
-// a field other than Seq pushes a new State, so streamed text does not.
+// chatChanged brings c's entry in State.Chats and its Activity up to
+// date. Only a change of a field other than Seq pushes a new State, so
+// streamed text does not.
 func (d *Daemon) chatChanged(c *chat) {
 	s := model.Chat{
 		ID: c.id, WorkspaceID: c.cfg.Workspace, Provider: c.cfg.Provider,
@@ -624,14 +655,186 @@ func (d *Daemon) chatChanged(c *chat) {
 	}
 	c.sum = s
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if i := slices.IndexFunc(d.st.Chats, func(x model.Chat) bool { return x.ID == c.id }); i >= 0 {
-		s.Title = d.st.Chats[i].Title // retitle keeps it
-		d.st.Chats[i] = s
-		if moved {
-			d.changed()
+	i := slices.IndexFunc(d.st.Chats, func(x model.Chat) bool { return x.ID == c.id })
+	if i < 0 {
+		d.mu.Unlock()
+		return
+	}
+	s.Title = d.st.Chats[i].Title // retitle keeps it
+	d.st.Chats[i] = s
+	if moved {
+		d.changed()
+	}
+	after := d.chatActivity(c)
+	d.mu.Unlock()
+	after()
+}
+
+// chatActivity brings chat c's Activity in line with its snapshot, as an
+// agent pane's hooks do for its own, and returns what runs once d.mu is
+// free: triage of the new state, and the limit resume of a turn a plan
+// limit refused. Callers hold d.mu.
+func (d *Daemon) chatActivity(c *chat) func() {
+	state, detail, ok := chatState(c.snap, c.resumed)
+	if !ok {
+		return func() {}
+	}
+	secrets := d.dec.cur.Secrets
+	if state == model.StateCompleted {
+		detail = agent.Summary(detail, secrets...)
+	} else {
+		detail = decide.Redact(detail, secrets...)
+	}
+	i := d.activityIndex(c.id)
+	// While a limit resume waits, the error limitStopped set stays, so the
+	// resume still finds the turn it stopped.
+	held := i >= 0 && d.lim.pending[c.id] != nil && !busy(c.snap)
+	var job *decideJob
+	if i < 0 || !held && (d.st.Activities[i].State != state || d.st.Activities[i].Detail != detail) {
+		now := time.Now()
+		a := model.Activity{PaneID: c.id, WorkspaceID: c.cfg.Workspace, Provider: c.cfg.Provider, SessionID: c.cfg.Resume, State: state, Detail: detail, UpdatedAt: now}
+		if i < 0 {
+			d.st.Activities = append(d.st.Activities, a)
+			i = len(d.st.Activities) - 1
+		} else {
+			d.st.Activities[i] = a
+		}
+		switch state {
+		case model.StateError:
+			d.o.Errors.Add(errlog.Event{T: now, Pane: c.id, Provider: string(c.cfg.Provider), Kind: errlog.API, Output: detail, Cwd: c.cfg.Cwd}, secrets...)
+		case model.StateCompleted:
+			go d.refreshStats(context.Background(), c.cfg.Workspace)
+		}
+		if x := d.dec.cur; x.on() {
+			job = &decideJob{pane: c.id, at: now, agent: string(c.cfg.Provider), c: d.client(), s: x.Settings}
+			d.planTriage(&d.st.Activities[i], job)
+			job = job.orNil()
+		}
+		if w := d.workspace(c.cfg.Workspace); w != nil {
+			w.UpdatedAt = now
+		}
+		d.changed()
+	}
+	limit := func() {}
+	if a := d.st.Activities[i]; c.limit != nil && !busy(c.snap) && stoppedState(a.State) {
+		id, turn, resets := c.id, a.UpdatedAt, c.limit.Resets
+		msg := cmp.Or(a.Detail, "Usage limit reached")
+		c.limit = nil
+		if d.resumeOn() {
+			limit = func() { d.limitStopped(id, turn, msg, resets) }
 		}
 	}
+	return func() {
+		limit()
+		d.runDecisions(context.Background(), job)
+	}
+}
+
+// chatState is the Activity state and detail of a chat whose snapshot is
+// s (docs/managed-sessions.md, Placement); ok is false before its first
+// turn, which has none, as an agent pane at its first prompt. resumed
+// marks a running turn as the limit resume's continue.
+func chatState(s session.Snapshot, resumed bool) (state model.AgentState, detail string, ok bool) {
+	if len(s.Turns) == 0 {
+		return "", "", false
+	}
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	switch s.SessionState {
+	case session.StateConnecting:
+		return model.StateConnecting, "", true
+	case session.StateWaiting:
+		switch {
+		case s.PlanApproval != nil:
+			first, _, _ := strings.Cut(deref(s.PlanApproval.Detail), "\n")
+			return model.StatePlanReady, first, true
+		case len(s.PendingApprovals) > 0:
+			return model.StatePendingApproval, deref(s.PendingApprovals[0].Detail), true
+		case len(s.PendingUserInputs) > 0:
+			in := s.PendingUserInputs[0]
+			if len(in.Questions) > 0 {
+				return model.StateAwaitingInput, in.Questions[0].Prompt, true
+			}
+			return model.StateAwaitingInput, deref(in.Detail), true
+		}
+		fallthrough
+	case session.StateRunning:
+		if resumed {
+			return model.StateWorking, model.ResumedDetail, true
+		}
+		return model.StateWorking, "", true
+	case session.StateStopped:
+		return model.StateCompleted, "Interrupted", true
+	case session.StateError:
+		if s.Turns[len(s.Turns)-1].State == session.TurnInterrupted {
+			return model.StateCompleted, "Interrupted", true
+		}
+		return model.StateError, deref(s.LastError), true
+	}
+	for i := len(s.Content) - 1; i >= 0; i-- {
+		if s.Content[i].Kind == session.KindAssistantText {
+			return model.StateCompleted, s.Content[i].Text, true
+		}
+	}
+	return model.StateCompleted, "", true
+}
+
+// chatLimit takes plan limit l of chat c: Claude's goes where the limits
+// view reads it (Codex's rollouts carry Codex's), and one that refused
+// the turn schedules the limit resume when the turn ends.
+func (d *Daemon) chatLimit(c *chat, l session.Limit) {
+	if l.Rejected {
+		c.limit = &l
+	}
+	if d.o.SaveLimit == nil || len(l.Windows) == 0 {
+		return
+	}
+	fl := flow.Limit{Provider: c.cfg.Provider, Seen: time.Now()}
+	d.mu.Lock()
+	if w := d.workspace(c.cfg.Workspace); w != nil {
+		fl.Profile = w.Profile
+	}
+	d.mu.Unlock()
+	for _, w := range l.Windows {
+		fl.Windows = append(fl.Windows, flow.Window{Minutes: w.Minutes, Used: w.Used, Resets: w.Resets})
+	}
+	d.o.SaveLimit(fl)
+}
+
+// saveLimit is Options.SaveLimit: a Claude limit goes in the file pitwall
+// statusline writes, which internal/flow reads.
+func saveLimit(l flow.Limit) {
+	if l.Provider != model.ProviderClaude {
+		return
+	}
+	data, err := json.Marshal(l)
+	if err == nil {
+		err = store.WriteAtomic(flow.ClaudeLimitsPath(config.StateDir(), l.Profile), data)
+	}
+	if err != nil {
+		log.Printf("chat limit: %q", err)
+	}
+}
+
+// chatResume sends text to chat id as the limit resume's turn.
+func (d *Daemon) chatResume(id, text string) error {
+	c, err := d.chat(id)
+	if err != nil {
+		return err
+	}
+	if !c.do(func() {
+		var turn string
+		turn, _, err = d.chatSend(context.Background(), c, session.Message{ID: newUUID(), Text: text}, "")
+		c.resumed = err == nil && turn != ""
+		d.chatChanged(c)
+	}) {
+		return session.ErrClosed
+	}
+	return err
 }
 
 // forLevel is s as a client of level sees it: below proto.ChatLevel, with
