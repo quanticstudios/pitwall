@@ -81,14 +81,18 @@ func chatProvider(o fake.Options) func(*Options) {
 	}
 }
 
-// waitTurns waits until the chat has n turns, all of them done.
+// waitTurns waits until the chat has n turns and none runs. It reads the
+// summary, not the snapshot, so it costs the chat's loop nothing, and gives
+// a long script under -race 30 s.
 func waitTurns(t *testing.T, h chatHub, id string, n int) {
 	t.Helper()
-	waitUntil(t, fmt.Sprint(n, " turns done"), func() bool {
-		var s session.Snapshot
-		json.Unmarshal(mustRead(t, h, id, 0).Snapshot, &s)
-		return len(s.Turns) == n && !slices.ContainsFunc(s.Turns, func(t session.TurnSummary) bool { return t.State == session.TurnRunning })
-	})
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		c := h.List()
+		if i := slices.IndexFunc(c, func(c model.Chat) bool { return c.ID == id }); i >= 0 && c[i].Turns == n && c[i].State != session.StateRunning && c[i].State != session.StateWaiting {
+			return
+		}
+	}
+	t.Fatalf("timed out: %d turns done", n)
 }
 
 // TestChatStream streams a fake provider's turn to five subscribers, two
