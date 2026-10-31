@@ -27,20 +27,55 @@ var helloTimeout = 10 * time.Second // a var for tests
 // until ENG-2695 and ENG-2696 add them.
 type Server struct {
 	// Token is the token hello must carry. It is read on every hello, so
-	// a rotated token works at once.
+	// a rotated token works at once. nil takes only Client's tokens.
 	Token   func() (string, error)
 	Version string // pitwall's, for welcome
+	// Client, when set, is the bundle Handler serves at /, and hello also
+	// takes the tokens its sessions were given.
+	Client *Client
+	// OpenPath is the code file /_pitwall/open redeems for a session.
+	OpenPath string
 
 	mu     sync.Mutex
 	conns  map[*conn]bool
 	closed bool
 }
 
-// Handler serves /ws, behind the Host and Origin checks.
+// Handler serves /ws, and Client's bundle, behind the Host and Origin
+// checks.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ws", s.ws)
+	if s.Client != nil {
+		mux.Handle("GET /", s.Client.Bundle())
+		mux.HandleFunc("GET /_pitwall/bootstrap", s.Client.Bootstrap)
+		mux.HandleFunc("GET /_pitwall/open", s.open)
+	}
 	return local(mux)
+}
+
+// WebSocket serves the web protocol without Handler's Host and Origin
+// checks, for a server that makes its own, such as the phone page.
+func (s *Server) WebSocket() http.Handler { return http.HandlerFunc(s.ws) }
+
+// open trades the one-time code pitwall web open put in the URL for a
+// session cookie, and sends the browser on to /, so the page it shows has
+// no code in its URL. The code is never logged.
+func (s *Server) open(w http.ResponseWriter, r *http.Request) {
+	tok := ""
+	if s.Token != nil {
+		tok, _ = s.Token()
+	}
+	if tok == "" || redeem(s.OpenPath, r.URL.Query().Get("code"), time.Now()) != nil {
+		log.Printf("web: a bad or used open code from %s refused", r.RemoteAddr)
+		http.Error(w, "this link opens pitwall once, within a minute: run pitwall web open again", http.StatusUnauthorized)
+		return
+	}
+	s.Client.Start(w, r, tok)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	log.Printf("web: browser session started from %s", r.RemoteAddr)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // local refuses, with 403, a request whose Host is not this listener's
@@ -146,11 +181,7 @@ func (s *Server) hello(c *conn) (string, error) {
 	if json.Unmarshal(msg, &h) != nil || h.Type != "hello" {
 		return "", closeErr{4000, "expected hello"}
 	}
-	want, err := s.Token()
-	if err != nil {
-		log.Printf("web: token: %q", err)
-	}
-	if err != nil || want == "" || subtle.ConstantTimeCompare([]byte(h.Token), []byte(want)) != 1 {
+	if !s.check(h.Token) {
 		return "", closeErr{4001, "bad token: read web.json again"}
 	}
 	if h.Protocol != Protocol {
@@ -163,6 +194,21 @@ func (s *Server) hello(c *conn) (string, error) {
 		"capabilities": []string{}, // the commands, as ENG-2695 and ENG-2696 add them
 	})
 	return h.Client.Name, err
+}
+
+// check reports whether hello's token is web.json's or a session's.
+func (s *Server) check(token string) bool {
+	if s.Client != nil && s.Client.Check(token) {
+		return true
+	}
+	if s.Token == nil {
+		return false
+	}
+	want, err := s.Token()
+	if err != nil {
+		log.Printf("web: token: %q", err)
+	}
+	return err == nil && want != "" && subtle.ConstantTimeCompare([]byte(token), []byte(want)) == 1
 }
 
 // serve reads commands until the connection ends.

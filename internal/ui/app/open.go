@@ -13,10 +13,18 @@ func openLink(url string) {
 		log.Printf("open link: %q is on %s", url, Host)
 		return
 	}
+	if err := OpenURL(url); err != nil {
+		log.Printf("open link: %q", err)
+	}
+}
+
+// OpenURL opens url in the user's default browser, as an argument of its
+// own, never as shell text.
+func OpenURL(url string) error {
 	cmd := openCommand(url)
 	if err := cmd.Start(); err != nil {
-		log.Printf("open link: %q", err)
-		return
+		return err
 	}
 	go func() { _ = cmd.Wait() }()
+	return nil
 }

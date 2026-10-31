@@ -1,12 +1,15 @@
 package daemon
 
 import (
+	"io"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/web"
@@ -53,5 +56,35 @@ func TestServeWeb(t *testing.T) {
 	if stop := d.serveWeb(config.WebSettings{Enabled: true, Port: ln.Addr().(*net.TCPAddr).Port}); stop != nil {
 		stop()
 		t.Error("serveWeb on a taken port did not return nil")
+	}
+}
+
+// With [web] bundle, the listener serves the bundle at / to a browser
+// that opened a code from web.NewCode, and to nothing else.
+func TestServeWebBundle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "web.json")
+	bundle := t.TempDir()
+	os.WriteFile(filepath.Join(bundle, "index.html"), []byte("fixture"), 0o644)
+	d := &Daemon{o: Options{WebPath: path}}
+	stop := d.serveWeb(config.WebSettings{Enabled: true, Bundle: bundle})
+	defer stop()
+	f, _ := web.Read(path)
+	base := "http" + strings.TrimSuffix(strings.TrimPrefix(f.URL, "ws"), "/ws")
+	if resp, err := http.Get(base + "/"); err != nil || resp.StatusCode != 401 {
+		t.Fatalf("no session: %v %v", resp, err)
+	}
+	code, err := web.NewCode(web.OpenPath(path), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar, _ := cookiejar.New(nil)
+	resp, err := (&http.Client{Jar: jar}).Get(base + "/_pitwall/open?code=" + code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || string(b) != "fixture" || resp.Request.URL.String() != base+"/" {
+		t.Fatalf("open: %d %q at %s", resp.StatusCode, b, resp.Request.URL)
 	}
 }

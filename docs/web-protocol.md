@@ -73,7 +73,8 @@ The HTTP upgrade request is refused with 403 before any frame when:
 
 The token goes in `hello`, not in the URL (URLs land in logs and history)
 and not in a header (a browser's `WebSocket` cannot set one). The server
-compares it in constant time.
+compares it in constant time. `hello` also takes the token of a browser
+session for the bundle the daemon serves ([Web client](remote.md#web-client)).
 
 ### Handshake
 
@@ -566,7 +567,9 @@ speak on this connection.
 3. Which pitwall session and group `start` puts a tab in: the last used
    one for now; `session` and `group` keys are additive.
 4. The phone: it keeps its device tokens and its own HTTP pages
-   ([phone.md](phone.md)) until it moves to this protocol. Then it needs a
-   way to authenticate other than `web.json`.
-5. How a page served by the daemon (ENG-2697) gets the token: ENG-2697
-   decides.
+   ([phone.md](phone.md)). The full web client on a phone authenticates
+   through a device token, which buys a session and its own `hello` token
+   ([Web client](remote.md#web-client)).
+5. A page the daemon serves gets its `hello` token from
+   `/_pitwall/bootstrap` with a session cookie, never from `web.json` or a
+   URL ([Web client](remote.md#web-client)).
