@@ -14,6 +14,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/web"
 )
 
 // call makes one request to h and returns the status and body.
@@ -269,5 +270,72 @@ func TestCertAndURL(t *testing.T) {
 	}
 	if got := PairURL(config.RemoteSettings{Listen: "127.0.0.1:7777"}, "ABC"); got != "http://127.0.0.1:7777/#pair=ABC" {
 		t.Errorf("PairURL = %q", got)
+	}
+}
+
+// A paired device opens the web client with its token and gets a session
+// cookie; the session gets the bundle, its bootstrap and /ws until the
+// device is revoked.
+func TestWebClient(t *testing.T) {
+	s, _ := newServer(t)
+	bundle := t.TempDir()
+	os.WriteFile(filepath.Join(bundle, "index.html"), []byte("fixture"), 0o644)
+	s.Web = &web.Client{Dir: bundle, Live: func(id string) bool { return Paired(s.Dir, id) }}
+	s.WS = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ws") })
+	h := s.Handler()
+	token := pairDevice(t, s, h, "pixel")
+	if _, body := call(t, h, "GET", "/api/items", token, ""); !strings.Contains(body, `"web":true`) {
+		t.Fatalf("items: %s", body)
+	}
+	req := func(method, path, cookie, origin string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, nil)
+		if cookie != "" {
+			r.Header.Set("Cookie", cookie)
+		}
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if st, _ := call(t, h, "POST", "/api/web", "", ""); st != 401 {
+		t.Fatalf("web without a token: %d", st)
+	}
+	if w := req("GET", "/app/", "", ""); w.Code != 401 {
+		t.Fatalf("bundle without a session: %d", w.Code)
+	}
+	r := httptest.NewRequest("POST", "/api/web", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	cks := w.Result().Cookies()
+	if w.Code != 200 || len(cks) != 1 || !cks[0].HttpOnly || strings.Contains(cks[0].Value, token) || !strings.Contains(w.Body.String(), `"/app/"`) {
+		t.Fatalf("web: %d %v %s", w.Code, cks, w.Body)
+	}
+	cookie := cks[0].Name + "=" + cks[0].Value
+	if w := req("GET", "/app/", cookie, ""); w.Code != 200 || w.Body.String() != "fixture" || !strings.Contains(w.Header().Get("Content-Security-Policy"), "style-src 'self';") {
+		t.Fatalf("bundle: %d %q %v", w.Code, w.Body, w.Header())
+	}
+	w = req("GET", "/_pitwall/bootstrap", cookie, "")
+	var b struct{ URL, Token string }
+	json.Unmarshal(w.Body.Bytes(), &b)
+	if w.Code != 200 || b.URL != "/ws" || len(b.Token) != 64 || strings.Contains(token, b.Token) || !s.Web.Check(b.Token) {
+		t.Fatalf("bootstrap: %d %s", w.Code, w.Body)
+	}
+	if w := req("GET", "/ws", "", "http://evil.example"); w.Code != 403 {
+		t.Fatalf("ws from another site: %d", w.Code)
+	}
+	if w := req("GET", "/ws", "", "http://example.com"); w.Code != 200 { // httptest's Host
+		t.Fatalf("ws from the page: %d %s", w.Code, w.Body)
+	}
+	if _, err := Revoke(s.Dir, "pixel"); err != nil {
+		t.Fatal(err)
+	}
+	if w := req("GET", "/app/", cookie, ""); w.Code != 401 {
+		t.Fatalf("bundle after revoke: %d", w.Code)
+	}
+	if s.Web.Check(b.Token) {
+		t.Fatal("hello token works after revoke")
 	}
 }

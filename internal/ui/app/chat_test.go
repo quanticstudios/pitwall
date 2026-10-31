@@ -50,9 +50,13 @@ func TestChatTab(t *testing.T) {
 	b.mu.Unlock()
 	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
 	var ops op.Ops
+	// why: each frame is a second later, so the panel's slide finishes. On
+	// Windows, time.Now() can return the same instant for all three frames.
+	now := time.Now()
 	frame := func() {
 		ops.Reset()
-		u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1600, 800)), Now: time.Now()})
+		now = now.Add(time.Second)
+		u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1600, 800)), Now: now})
 	}
 	frame()
 	u.nav.workspace, u.nav.panelOpen = "wc", true

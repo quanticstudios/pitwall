@@ -72,6 +72,7 @@ func allMessages() []any {
 		ChatNew{SessionID: "s", Dir: "/repo", Worktree: "fix", Provider: model.ProviderCodex, Model: "m", Prompt: "fix it", Images: []string{"/a.png"}},
 		ChatSend{Chat: "c", Text: "more", How: "steer"},
 		ChatInterrupt{Chat: "c"},
+		ChatProviders{}, ChatProviderList{Providers: []ChatProvider{{ID: "acp:grok", Name: "grok"}}},
 		ChatApprove{Chat: "c", Request: "r", Decision: "deny", Reason: "no", By: "cli"},
 		ChatAnswer{Chat: "c", Request: "r", Answers: map[string][]string{"q": {"yes"}}},
 		ChatSet{Chat: "c", Mode: "plan"},

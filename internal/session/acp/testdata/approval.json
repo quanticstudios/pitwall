@@ -1,0 +1,212 @@
+[
+  {
+    "receive": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "initialize",
+      "params": {
+        "protocolVersion": 1,
+        "clientCapabilities": {},
+        "clientInfo": {
+          "name": "pitwall",
+          "version": "1"
+        }
+      }
+    },
+    "send": [
+      {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "loadSession": true,
+            "promptCapabilities": {
+              "image": true
+            }
+          },
+          "agentInfo": {
+            "name": "fake",
+            "version": "test"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "receive": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "session/new",
+      "params": {
+        "cwd": "CWD",
+        "mcpServers": []
+      }
+    },
+    "send": [
+      {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "sessionId": "s1"
+        }
+      }
+    ]
+  },
+  {
+    "receive": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "session/prompt",
+      "params": {
+        "sessionId": "s1",
+        "prompt": [
+          {
+            "type": "text",
+            "text": "fix it"
+          }
+        ]
+      }
+    },
+    "send": [
+      {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "s1",
+          "update": {
+            "sessionUpdate": "agent_thought_chunk",
+            "content": {
+              "type": "text",
+              "text": "Thinking"
+            }
+          }
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "s1",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "I will "
+            }
+          }
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "s1",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "read it."
+            }
+          }
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "s1",
+          "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "t1",
+            "title": "Read file",
+            "kind": "read",
+            "status": "pending",
+            "rawInput": {
+              "path": "/test/file"
+            }
+          }
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": "approval-1",
+        "method": "session/request_permission",
+        "params": {
+          "sessionId": "s1",
+          "toolCall": {
+            "toolCallId": "t1"
+          },
+          "options": [
+            {
+              "optionId": "yes",
+              "name": "Allow once",
+              "kind": "allow_once"
+            },
+            {
+              "optionId": "never",
+              "name": "Deny",
+              "kind": "reject_once"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "receive": {
+      "jsonrpc": "2.0",
+      "id": "approval-1",
+      "result": {
+        "outcome": {
+          "outcome": "selected",
+          "optionId": "yes"
+        }
+      }
+    },
+    "send": [
+      {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "s1",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "t1",
+            "status": "completed",
+            "content": [
+              {
+                "type": "content",
+                "content": {
+                  "type": "text",
+                  "text": "file text"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "s1",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {
+              "type": "text",
+              "text": "Done."
+            }
+          }
+        }
+      },
+      {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "stopReason": "end_turn"
+        }
+      }
+    ]
+  }
+]

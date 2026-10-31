@@ -71,6 +71,9 @@ pi has no permission prompts, so its tabs only take replies.
 name: "allow sent to pane …", "reply sent to pane …", never what the reply
 said.
 
+A paired phone can also open the full aide web client, when `[web]
+bundle` names one: see [Web client](remote.md#web-client).
+
 ## Notifications
 
 The page can push a notification to the phone when an agent needs you:
