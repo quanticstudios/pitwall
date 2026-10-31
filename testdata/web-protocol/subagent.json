@@ -18,10 +18,10 @@
   {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
   {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
   {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
-  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1/fake-subagent","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"status":"running","toolName":"Task"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.000Z"}},
-  {"version":1,"sessionId":"chat","seq":8,"revision":7,"updatedAt":"2030-01-01T00:00:00.100Z","type":"item.patch","itemId":"fake-test-turn-1/fake-subagent","patch":{"tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.","progress":"Reading src","status":"running","toolName":"Task"},"updatedAt":"2030-01-01T00:00:00.100Z"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1/fake-subagent","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"startedAt":"2030-01-01T00:00:00.000Z","status":"running","toolName":"Task"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":8,"revision":7,"updatedAt":"2030-01-01T00:00:00.100Z","type":"item.patch","itemId":"fake-test-turn-1/fake-subagent","patch":{"tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.","progress":"Reading src","startedAt":"2030-01-01T00:00:00.000Z","status":"running","toolName":"Task"},"updatedAt":"2030-01-01T00:00:00.100Z"}},
   {"version":1,"sessionId":"chat","seq":9,"revision":8,"updatedAt":"2030-01-01T00:00:00.200Z","type":"tool.output.append","itemId":"fake-test-turn-1/fake-subagent","text":"\nFound 12 source files.","itemUpdatedAt":"2030-01-01T00:00:00.200Z"},
-  {"version":1,"sessionId":"chat","seq":10,"revision":9,"updatedAt":"2030-01-01T00:00:00.300Z","type":"item.patch","itemId":"fake-test-turn-1/fake-subagent","patch":{"tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.\nFound 12 source files.","status":"completed","toolName":"Task"},"updatedAt":"2030-01-01T00:00:00.300Z"}},
+  {"version":1,"sessionId":"chat","seq":10,"revision":9,"updatedAt":"2030-01-01T00:00:00.300Z","type":"item.patch","itemId":"fake-test-turn-1/fake-subagent","patch":{"tool":{"callId":"fake-test-turn-1/fake-subagent","endedAt":"2030-01-01T00:00:00.300Z","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.\nFound 12 source files.","startedAt":"2030-01-01T00:00:00.000Z","status":"completed","toolName":"Task"},"updatedAt":"2030-01-01T00:00:00.300Z"}},
   {"version":1,"sessionId":"chat","seq":11,"revision":10,"updatedAt":"2030-01-01T00:00:00.400Z","type":"item.add","item":{"createdAt":"2030-01-01T00:00:00.400Z","id":"fake-test-turn-1/reply","kind":"assistant-text","provider":"claude","text":"The subagent finished exploring.","turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.400Z"}},
   {"version":1,"sessionId":"chat","seq":12,"revision":11,"updatedAt":"2030-01-01T00:00:00.400Z","type":"turn","turn":{"completedAt":"2030-01-01T00:00:00.400Z","id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"completed"}},
   {"version":1,"sessionId":"chat","seq":13,"revision":11,"updatedAt":"2030-01-01T00:00:00.400Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.400Z"},
@@ -50,11 +50,13 @@
       "text": "",
       "tool": {
         "callId": "fake-test-turn-1/fake-subagent",
+        "endedAt": "2030-01-01T00:00:00.300Z",
         "input": {
           "description": "Explore the repo",
           "prompt": "Explore"
         },
         "output": "Listing the repo root.\nFound 12 source files.",
+        "startedAt": "2030-01-01T00:00:00.000Z",
         "status": "completed",
         "toolName": "Task"
       },

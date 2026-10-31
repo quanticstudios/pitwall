@@ -216,7 +216,7 @@ func addContent(s Snapshot, e Event, turnID *string) []Item {
 			it.Phase = e.Phase
 		}
 		if e.Tool != nil {
-			it.Tool = ptr(*e.Tool)
+			it.Tool = toolTimes(*e.Tool, it.Tool, e.CreatedAt)
 		}
 		it.Text += e.Text
 		it.UpdatedAt = e.CreatedAt
@@ -237,7 +237,7 @@ func addContent(s Snapshot, e Event, turnID *string) []Item {
 		it.Model = ptr(e.Model)
 	}
 	if e.Tool != nil {
-		it.Tool = ptr(*e.Tool)
+		it.Tool = toolTimes(*e.Tool, nil, e.CreatedAt)
 	}
 	// shortcut: the snapshot does not keep a joined item's own id, so a later
 	// delta for it joins again only while it is still the last item.
@@ -250,6 +250,23 @@ func addContent(s Snapshot, e Event, turnID *string) []Item {
 		}
 	}
 	return append(content, it)
+}
+
+// toolTimes is aide's withToolTimes: t stamped with when the chat first
+// saw the call and first saw it finished, kept from prev, since no provider
+// reports either.
+func toolTimes(t ToolCall, prev *ToolCall, at string) *ToolCall {
+	t.StartedAt, t.EndedAt = at, ""
+	if prev != nil && prev.StartedAt != "" {
+		t.StartedAt = prev.StartedAt
+	}
+	if t.Status != "running" {
+		t.EndedAt = at
+		if prev != nil && prev.EndedAt != "" {
+			t.EndedAt = prev.EndedAt
+		}
+	}
+	return &t
 }
 
 // pendingDetail is the first pending approval's detail, else the first
@@ -383,13 +400,10 @@ func diffItem(p, q Item) ([]Delta, bool) {
 				if (qt.Status != "completed" && qt.Status != "failed") || qt.ExitCode == nil && pt.ExitCode != nil {
 					patch = true
 				}
-				// shortcut: an item keeps no start time, so StartedAt is when the
-				// item last changed before the end. Add one to ToolCall if a
-				// consumer needs the exact start.
-				ds = append(ds, Delta{Type: DeltaToolEnd, ItemID: q.ID, Status: qt.Status, ExitCode: qt.ExitCode, StartedAt: p.UpdatedAt, EndedAt: q.UpdatedAt})
+				ds = append(ds, Delta{Type: DeltaToolEnd, ItemID: q.ID, Status: qt.Status, ExitCode: qt.ExitCode, StartedAt: qt.StartedAt, EndedAt: qt.EndedAt})
 			}
-			pt.Output, pt.Tasks, pt.Status, pt.ExitCode = "", nil, "", nil
-			qt.Output, qt.Tasks, qt.Status, qt.ExitCode = "", nil, "", nil
+			pt.Output, pt.Tasks, pt.Status, pt.ExitCode, pt.EndedAt = "", nil, "", nil, ""
+			qt.Output, qt.Tasks, qt.Status, qt.ExitCode, qt.EndedAt = "", nil, "", nil, ""
 			patch = patch || !reflect.DeepEqual(pt, qt)
 		}
 	}

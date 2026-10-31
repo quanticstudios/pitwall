@@ -118,7 +118,12 @@ func TestReduceTool(t *testing.T) {
 	} {
 		e := Event{Type: EventContent, CreatedAt: "2", Kind: KindToolCall, ItemID: "c", Tool: tc.tool}
 		n, types := step(t, s, e)
-		if !reflect.DeepEqual(types, tc.want) || !reflect.DeepEqual(n.Content[0].Tool, tc.tool) || n.Content[0].UpdatedAt != "2" {
+		want := *tc.tool // stamped as aide's withToolTimes does
+		want.StartedAt = "1"
+		if want.Status != "running" {
+			want.EndedAt = "2"
+		}
+		if !reflect.DeepEqual(types, tc.want) || !reflect.DeepEqual(*n.Content[0].Tool, want) || n.Content[0].UpdatedAt != "2" {
 			t.Errorf("%+v: %v gives %+v, want %v", tc.tool, types, n.Content[0], tc.want)
 		}
 	}

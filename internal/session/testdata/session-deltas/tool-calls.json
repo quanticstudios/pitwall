@@ -414,6 +414,7 @@
           "input": {
             "command": "ls"
           },
+          "startedAt": "2026-10-23T12:01:03.000Z",
           "status": "running",
           "toolName": "Bash"
         },
@@ -471,7 +472,9 @@
         "text": "",
         "tool": {
           "callId": "call-todos",
+          "endedAt": "2026-10-23T12:01:07.000Z",
           "input": {},
+          "startedAt": "2026-10-23T12:01:07.000Z",
           "status": "completed",
           "tasks": [
             {
@@ -713,11 +716,13 @@
         "tool": {
           "callId": "call-bash",
           "command": "ls",
+          "endedAt": "2026-10-23T12:01:06.000Z",
           "exitCode": 0,
           "input": {
             "command": "ls"
           },
           "output": "README.md\nsrc\n",
+          "startedAt": "2026-10-23T12:01:03.000Z",
           "status": "completed",
           "toolName": "Bash"
         },
@@ -732,7 +737,9 @@
         "text": "",
         "tool": {
           "callId": "call-todos",
+          "endedAt": "2026-10-23T12:01:07.000Z",
           "input": {},
+          "startedAt": "2026-10-23T12:01:07.000Z",
           "status": "completed",
           "tasks": [
             {
