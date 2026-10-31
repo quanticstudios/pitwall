@@ -1,0 +1,24 @@
+{
+  "mode": "codex",
+  "prompt": "codex commentary",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "commentary",
+      "kind": "assistant-text",
+      "phase": "commentary",
+      "text": "`[aide · geography]` Checking the answer."
+    },
+    {
+      "type": "content.delta",
+      "itemId": "final",
+      "kind": "assistant-text",
+      "phase": "final_answer",
+      "text": "`[aide · geography]` The capital of Japan is Tokyo."
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

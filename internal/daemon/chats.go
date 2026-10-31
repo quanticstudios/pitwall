@@ -204,6 +204,9 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	case proto.ChatSet:
 		id = m.Chat
 		run = func(c *chat) (string, string, error) {
+			if m.Provider != "" {
+				c.unhold() // the latest model choice replaces a held switch
+			}
 			if m.Provider != "" && m.Provider != c.cfg.Provider {
 				return "", "", d.chatSwitch(c, m)
 			}
@@ -506,13 +509,17 @@ func (c *chat) stop(why string) {
 // session of its own with m's model and effort, and the next message
 // carries the conversation so far (quoted). When the new one does not
 // start, the chat stays on its provider, which the next command resumes.
+// A switch while a turn runs or waits is held in the snapshot's
+// pendingProviderSelection, as aide holds it, until chatHeld runs it.
 func (d *Daemon) chatSwitch(c *chat, m proto.ChatSet) error {
 	prov := d.o.Providers[m.Provider]
 	if prov == nil {
 		return chatError{"unsupported", fmt.Sprintf("pitwall cannot run %s chats", m.Provider)}
 	}
 	if c.snap.Busy() {
-		return chatError{"busy", "a turn is running or waiting on an answer; switch providers once it ends"}
+		held, _ := json.Marshal(map[string]any{pendingSwitch: heldSwitch{m.Provider, m.Model, m.Effort}})
+		c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: held}}, session.Stamp(time.Now()))
+		return nil
 	}
 	c.stop("provider switch")
 	old, oldProv := c.cfg, c.prov
@@ -533,6 +540,42 @@ func (d *Daemon) chatSwitch(c *chat, m proto.ChatSet) error {
 	c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	c.system("Switched to " + providerName(m.Provider))
 	return nil
+}
+
+// pendingSwitch is the snapshot key of a held switch, aide's
+// ManagedSessionProviderSelection.
+const pendingSwitch = "pendingProviderSelection"
+
+type heldSwitch struct {
+	Mode   model.Provider `json:"mode"`
+	Model  string         `json:"model,omitempty"`
+	Effort string         `json:"effort,omitempty"`
+}
+
+// unhold drops the switch chatSwitch held.
+func (c *chat) unhold() {
+	if c.snap.Extra[pendingSwitch] != nil {
+		c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Unset: []string{pendingSwitch}}}, session.Stamp(time.Now()))
+	}
+}
+
+// chatHeld runs the switch chatSwitch held once c is idle. One that fails
+// is dropped with an error, as aide drops it.
+func (d *Daemon) chatHeld(c *chat) {
+	raw := c.snap.Extra[pendingSwitch]
+	if raw == nil || c.snap.Busy() {
+		return
+	}
+	c.unhold()
+	var h heldSwitch
+	if err := json.Unmarshal(raw, &h); err != nil {
+		log.Printf("chat %s: held switch %s: %v", c.id, raw, err)
+		return
+	}
+	m := proto.ChatSet{Chat: c.id, Provider: h.Mode, Model: h.Model, Effort: h.Effort}
+	if err := d.chatSwitch(c, m); err != nil {
+		c.reduce(session.Event{Type: session.EventError, Message: "The model switch failed: " + err.Error()})
+	}
 }
 
 // quotedLimit is how much text quoted keeps, aide's 24,000 characters.
@@ -927,6 +970,7 @@ func (d *Daemon) chatApply(c *chat, e session.Event) {
 			return
 		}
 	}
+	d.chatHeld(c)
 	d.chatNext(context.Background(), c)
 }
 
@@ -1158,6 +1202,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 		d.chatNext(ctx, c)
 		return "", cmp.Or(note, "queued"), nil
 	}
+	d.chatHeld(c) // one a restart kept
 	return d.chatTurn(ctx, c, m)
 }
 

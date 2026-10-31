@@ -491,9 +491,13 @@ provider starts a session of its own, the snapshot's `provider`, `model`,
 `effort` and `runtimeGeneration` change, and the transcript gets a system
 line "Switched to Codex". The next message carries the conversation so far
 the way aide's `prepareInput` quotes it: the user and assistant texts, the
-last 24,000 characters, as JSON after the message. A turn running or
-waiting on an answer gets `busy`; switch once it ends. A provider that does
-not start answers `provider` and leaves the chat on the one it had.
+last 24,000 characters, as JSON after the message. A switch while a
+turn runs or waits on an answer is held, as aide holds it: the snapshot's
+`pendingProviderSelection` gets `mode`, `model` and `effort`, a later `set`
+with `provider` replaces or drops it, and it runs once the turn ends or
+with the next message. A provider that does not start answers `provider`
+and leaves the chat on the one it had; a held switch that does not start
+leaves an error in the snapshot.
 
 ```json
 {"type": "set", "id": "14", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "provider": "codex", "model": "gpt-6.1-sol", "effort": "high"}

@@ -69,6 +69,8 @@ orchestration, which the managed-session spec excludes. `todos` emits a
 running call before the completed tasks so it exercises `plan.update`.
 `reasoning`, `limit`, and `error` add the ticket's other event cases.
 A deny with a reason replies `<provider> got the denial reason: <reason>`.
+`codex commentary` is pitwall's own: a Codex turn with a commentary item
+and a final answer, each with its `phase`, for aide's commentary spec.
 `usage limit <unix seconds>` reports a five-hour limit that resets then and
 fails the turn, as aide's banner tests expect.
 

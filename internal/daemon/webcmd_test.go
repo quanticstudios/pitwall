@@ -642,9 +642,9 @@ func (d recordDriver) Send(ctx context.Context, m session.Message) (string, erro
 }
 
 // TestWebSwitchProvider switches a chat from Claude to Codex with set:
-// refused while a turn waits, then the transcript says so, Codex answers,
-// and its first message carries the conversation as aide quotes it. A
-// Codex that does not start leaves the chat on Claude.
+// held while a turn waits and run once it ends, then the transcript says
+// so, Codex answers, and its first message carries the conversation as
+// aide quotes it. A Codex that does not start leaves the chat on Claude.
 func TestWebSwitchProvider(t *testing.T) {
 	claude, codex := &recorder{Provider: fake.New(fake.Options{})}, &recorder{Provider: fake.New(fake.Options{})}
 	c := dialWeb(t, webDaemon(t, func(o *Options) {
@@ -656,19 +656,28 @@ func TestWebSwitchProvider(t *testing.T) {
 	waitUntil(t, "claude answers", func() bool { return at(read(), "data.snapshot.turns.0.state") == "completed" })
 	c.call(map[string]any{"type": "send", "sessionId": id, "text": "approval"})
 	waitUntil(t, "approval", func() bool { return at(read(), "data.snapshot.pendingApprovals.0.id") != nil })
-	toCodex := map[string]any{"type": "set", "sessionId": id, "provider": "codex", "model": "gpt-6.1-sol", "effort": "high"}
-	if r := c.call(toCodex); r["code"] != "busy" {
-		t.Fatalf("switch while waiting: %v", r)
+	gen := at(read(), "data.snapshot.runtimeGeneration")
+	set := func(provider, model, effort string) {
+		if r := c.call(map[string]any{"type": "set", "sessionId": id, "provider": provider, "model": model, "effort": effort}); r["ok"] != true {
+			t.Fatalf("set %s %s while waiting: %v", provider, model, r)
+		}
+	}
+	set("codex", "gpt-6.1-sol", "medium")
+	set("claude", "claude-sonnet-5-5", "")
+	if s := at(read(), "data.snapshot").(map[string]any); s["pendingProviderSelection"] != nil {
+		t.Fatalf("a choice of the chat's own provider kept the held switch: %v", s["pendingProviderSelection"])
+	}
+	set("codex", "gpt-6.1-sol", "high")
+	s := at(read(), "data.snapshot").(map[string]any)
+	held, _ := json.Marshal(s["pendingProviderSelection"])
+	if s["provider"] != "claude" || string(held) != `{"effort":"high","mode":"codex","model":"gpt-6.1-sol"}` {
+		t.Fatalf("snapshot while waiting: provider %v held %s", s["provider"], held)
 	}
 	c.call(map[string]any{"type": "resolveApproval", "sessionId": id, "requestId": at(read(), "data.snapshot.pendingApprovals.0.id"), "decision": "allow"})
-	waitUntil(t, "idle", func() bool { return at(read(), "data.snapshot.sessionState") == "ready" })
-	gen := at(read(), "data.snapshot.runtimeGeneration")
-	if r := c.call(toCodex); r["ok"] != true {
-		t.Fatalf("switch: %v", r)
-	}
-	s := at(read(), "data.snapshot").(map[string]any)
-	if s["provider"] != "codex" || s["model"] != "gpt-6.1-sol" || s["effort"] != "high" || s["runtimeGeneration"] == gen {
-		t.Fatalf("snapshot after the switch: provider %v model %v effort %v generation %v (was %v)", s["provider"], s["model"], s["effort"], s["runtimeGeneration"], gen)
+	waitUntil(t, "the held switch", func() bool { return at(read(), "data.snapshot.provider") == "codex" })
+	s = at(read(), "data.snapshot").(map[string]any)
+	if s["model"] != "gpt-6.1-sol" || s["effort"] != "high" || s["runtimeGeneration"] == gen || s["sessionState"] != "ready" || s["pendingProviderSelection"] != nil {
+		t.Fatalf("snapshot after the switch: model %v effort %v generation %v (was %v) state %v held %v", s["model"], s["effort"], s["runtimeGeneration"], gen, s["sessionState"], s["pendingProviderSelection"])
 	}
 	c.call(map[string]any{"type": "send", "sessionId": id, "text": "next",
 		"attachments": []any{map[string]any{"kind": "pasted-text", "id": "p", "name": "pasted-text-1.txt", "text": "log line\n"}}})
