@@ -4,7 +4,8 @@ Design for [ENG-2722](https://linear.app/quantic/issue/ENG-2722), part of
 [pitwall#152](https://github.com/quanticstudios/pitwall/issues/152). A new
 daemon takes over a running daemon's panes without their processes noticing:
 the PTY masters move between the two processes, and every child keeps its
-terminal. `pitwall update` does not use it yet; that is ENG-2723.
+terminal. `pitwall update` and the Update button use it
+([ENG-2723](https://linear.app/quantic/issue/ENG-2723)).
 
 Linux and macOS only. On Windows `daemon.Takeover` fails at once and the
 caller keeps today's restart path.
@@ -134,9 +135,27 @@ escape sequence finishing as bold text, shells and echo loops answering
 input sent before and after, and every queued input byte reaching the
 program in order.
 
-## For ENG-2723
+## In pitwall update
 
-`Takeover` returns a daemon and its listener; the caller runs `Serve`. The
-lock next to the socket is held by the old daemon until it exits, so the new
-one takes it with a blocking `flock` after `Takeover` returns, then writes
-its PID there. On any `Takeover` error the old daemon is still serving.
+`pitwall update`, and a window after its Update button installs, start the
+installed binary as `pitwall daemon --handoff` with a pipe as fd 3. That
+daemon calls `Takeover`, writes `ok` or its error to the pipe and closes it
+before any pane can start, then runs `Serve`. The lock next to the socket is
+held by the old daemon until it exits, so the new one takes it with a
+blocking `flock` in the background and then writes its PID there; until
+then a daemon starting finds the new one on the socket and stops.
+
+On any answer but `ok`, or none within a minute (the new daemon is then
+killed, which before `Started` resumes the old one), the old daemon is
+still serving. `pitwall update` restarts it as **Restart now** does; a
+window leaves that to "Restart to finish". Windows skips the handoff.
+
+`TestUpdateDrill` in `cmd/pitwall/drill_test.go` is the release drill. It
+builds this tree as v0.0.1 and v0.0.2, serves v0.0.2 as a release from a
+local server (`PITWALL_UPDATE_URL`), and runs v0.0.1's daemon in temporary
+directories with an agent TUI on the alternate screen, a dev server and a
+test loop. After v0.0.1's `pitwall update` it checks that all three kept
+their processes, the server still answers, the loop's first line is still
+in its scrollback, and the TUI keeps drawing. A second run serves a release
+whose daemon refuses the handoff and checks that the update says so and
+restarts the daemon. CI runs it on Linux and macOS.

@@ -235,7 +235,10 @@ type Daemon struct {
 
 // New loads state from store.Path() with store.Open, which sets aside a file
 // it cannot read, and relaunches saved panes with store.RestoreCmd.
-func New() (*Daemon, error) {
+func New() (*Daemon, error) { return NewWith(Defaults()) }
+
+// Defaults are the Options New runs with, for Takeover too.
+func Defaults() Options {
 	path := store.Path()
 	journal, err := decisionlog.Open(filepath.Join(filepath.Dir(path), "decisions.jsonl"))
 	if err != nil {
@@ -249,7 +252,7 @@ func New() (*Daemon, error) {
 	if err != nil {
 		log.Printf("timing log: %q", err)
 	}
-	return NewWith(Options{
+	return Options{
 		Journal: journal,
 		Errors:  errs,
 		Timing:  timing,
@@ -308,7 +311,7 @@ func New() (*Daemon, error) {
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)
 		},
-	})
+	}
 }
 
 // NewWith loads state through o.Load and relaunches every saved pane that had

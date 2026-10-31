@@ -664,6 +664,9 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	fo.Pop()
 	u.takeSends(pgtx, &st)
+	if n := u.updates.takeNote(); n != "" {
+		u.sendFailed(n)
+	}
 	u.drawNotice(pgtx)
 	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown(), u.sends.err))
 	off.Pop()
