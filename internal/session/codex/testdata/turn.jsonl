@@ -18,8 +18,8 @@
 {"out":{"method":"item/agentMessage/delta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"msg_1","delta":"ls."}}}
 {"out":{"method":"item/completed","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"agentMessage","id":"msg_1","text":"I'll run ls.","phase":"commentary"}}}}
 {"out":{"method":"error","params":{"threadId":"thr_1","turnId":"turn_1","willRetry":true,"error":{"message":"Reconnecting... 1/5"}}}}
-{"out":{"id":0,"method":"item/commandExecution/requestApproval","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"call_1","command":"ls"}}}
-{"in":{"id":0,"error":{"code":-32601,"message":"Unsupported request: item/commandExecution/requestApproval"}}}
+{"out":{"id":0,"method":"mcpServer/elicitation/request","params":{"threadId":"thr_1","turnId":"turn_1","serverName":"docs","message":"Sign in"}}}
+{"in":{"id":0,"error":{"code":-32601,"message":"Unsupported request: mcpServer/elicitation/request"}}}
 {"out":{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","startedAtMs":1793361600000,"item":{"type":"commandExecution","id":"call_1","command":"ls","commandActions":[],"cwd":"/w","status":"inProgress"}}}}
 {"out":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"call_1","delta":"a.go\n"}}}
 {"out":{"method":"item/commandExecution/outputDelta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"call_1","delta":"b.go\n"}}}

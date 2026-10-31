@@ -719,14 +719,14 @@ generate-json-schema --out DIR`). aide uses only the ones marked "aide".
 | `item/agentMessage/delta` | `content.delta` assistant-text (aide) |
 | `item/reasoning/textDelta`, `item/reasoning/summaryTextDelta` | reasoning-text, reasoning-summary-text (aide) |
 | `item/commandExecution/outputDelta`, `item/fileChange/outputDelta` | the tool call's output (aide) |
-| `turn/plan/updated` | the plan tool item's `Tasks` |
+| `turn/plan/updated` | the turn's plan as one `Plan` tool item, `plan-<turn id>`, its steps as `Tasks` |
 | `thread/tokenUsage/updated` | `session.usage.updated` (aide's `parseCodexUsage`) |
 | `account/rateLimits/updated` | `limit`: `primary` and `secondary` windows (`usedPercent`, `resetsAt`, `windowDurationMins`); `Rejected` when `rateLimitReachedType` is set |
 | `error` | `runtime.error` (aide) |
-| `serverRequest/resolved` | `request.resolved` or `user-input.resolved` for the request it names |
+| `serverRequest/resolved` | `request.resolved` or `user-input.resolved` for the request it names, unless pitwall already answered it |
 | server request `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/fileRead/requestApproval` | `request.opened` with a UUID the driver maps to the JSON-RPC id (aide) |
 | server request `item/tool/requestUserInput` | `user-input.requested` (aide) |
-| any other server request | error `-32601` (aide) |
+| any other server request | error `-32601` (aide), and a `runtime.error` that names the method |
 
 Answers:
 
@@ -735,6 +735,9 @@ Answers:
 | `Approve` allow | `{decision:"accept"}`, or `"acceptForSession"` with `ForSession` |
 | `Approve` deny | `{decision:"decline"}`; the turn goes on. With a `Reason`, the driver then steers the reason into the turn, since the decision has no field for it |
 | `Answer` | `{answers:{<question id>:{answers:[...]}}}` (aide) |
+
+The driver posts `request.resolved` or `user-input.resolved` as it answers.
+A turn's end resolves any request still open.
 
 aide answers a deny with `decision: "deny"`, which the 0.166.0 schema does
 not list (`accept`, `acceptForSession`, `acceptWithExecpolicyAmendment`,
@@ -1146,7 +1149,9 @@ These need a capture or a decision that belongs to a later ticket.
    that goes with it: never captured. ENG-2688 adds the fixture when one
    happens, and the screen-based reading stays the fallback for panes.
 4. Codex deny with a reason: the decision has no field; the driver steers
-   the reason in after `decline`. ENG-2685 checks that the model reads it.
+   "I declined that request: <reason>" in after `decline`. ENG-2685 tests
+   it against a recorded transcript only; whether the model acts on it is
+   unchecked against a live Codex.
 5. Whether `codex app-server` runs pitwall's Codex hooks: ENG-2681 checks.
    If it does not, the guard does not cover Codex chats, and the chat's
    tab says so on its hover card.
