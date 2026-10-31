@@ -27,12 +27,15 @@ type Script struct {
 
 // Step is a runtime event with an optional delay and response gate. A request
 // carrying Answers pauses replay until Approve or Answer supplies a response.
+// Queue keeps replaying after such a request, so several stay open at once;
+// replay then waits until every open request has a response.
 // Repeat and Events compact large transcripts; ${index} is the zero-based
 // repetition index. Plain aide runtime events need none of these extensions.
 type Step struct {
 	session.Event
 	DelayMS int             `json:"delayMs,omitempty"`
 	Answers *Answers        `json:"answers,omitempty"`
+	Queue   bool            `json:"queue,omitempty"`
 	Repeat  int             `json:"repeat,omitempty"`
 	Events  []session.Event `json:"events,omitempty"`
 }
@@ -77,7 +80,7 @@ func (s Step) MarshalJSON() ([]byte, error) {
 	if err := json.Unmarshal(b, &fields); err != nil {
 		return nil, err
 	}
-	for key, value := range map[string]any{"delayMs": s.DelayMS, "answers": s.Answers, "repeat": s.Repeat, "events": s.Events} {
+	for key, value := range map[string]any{"delayMs": s.DelayMS, "answers": s.Answers, "queue": s.Queue, "repeat": s.Repeat, "events": s.Events} {
 		b, err := json.Marshal(value)
 		if err != nil {
 			return nil, err
@@ -90,6 +93,7 @@ func (s *Step) UnmarshalJSON(b []byte) error {
 	var meta struct {
 		DelayMS int             `json:"delayMs"`
 		Answers *Answers        `json:"answers"`
+		Queue   bool            `json:"queue"`
 		Repeat  int             `json:"repeat"`
 		Events  []session.Event `json:"events"`
 	}
@@ -100,6 +104,6 @@ func (s *Step) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &meta); err != nil {
 		return err
 	}
-	*s = Step{Event: event, DelayMS: meta.DelayMS, Answers: meta.Answers, Repeat: meta.Repeat, Events: meta.Events}
+	*s = Step{Event: event, DelayMS: meta.DelayMS, Answers: meta.Answers, Queue: meta.Queue, Repeat: meta.Repeat, Events: meta.Events}
 	return nil
 }

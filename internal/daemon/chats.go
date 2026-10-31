@@ -308,7 +308,7 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 		stamp := session.Stamp(time.Now())
 		s := session.Snapshot{
 			SessionID: c.id, PaneID: c.id, WorkspaceID: c.cfg.Workspace, Provider: c.cfg.Provider,
-			SessionState: session.StateReady, PermissionMode: cmp.Or(m.Mode, "default"), InteractionMode: "build",
+			SessionState: session.StateReady, PermissionMode: cmp.Or(m.Mode, "default"), InteractionMode: interactionMode(m.Mode),
 			Model: optional(m.Model), Effort: optional(m.Effort), UpdatedAt: stamp,
 		}
 		if seed != nil {
@@ -1175,9 +1175,21 @@ func (c *chat) set(ctx context.Context, m proto.ChatSet) error {
 	if len(patch) == 0 {
 		return invalid("nothing to set")
 	}
+	if m.Mode != "" {
+		patch["interactionMode"] = interactionMode(m.Mode)
+	}
 	set, _ := json.Marshal(patch)
 	c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
 	return nil
+}
+
+// interactionMode is aide's name for a chat in plan mode, which pitwall
+// keeps as the permission mode.
+func interactionMode(mode string) string {
+	if mode == "plan" {
+		return "plan"
+	}
+	return "build"
 }
 
 // chatChanged brings c's entry in State.Chats and its Activity up to

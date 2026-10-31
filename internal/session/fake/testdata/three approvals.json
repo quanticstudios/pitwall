@@ -1,0 +1,54 @@
+{
+  "mode": "",
+  "prompt": "three approvals",
+  "runtimeEvents": [
+    {
+      "type": "request.opened",
+      "requestId": "request-1",
+      "requestType": "command-execution-approval",
+      "detail": "${provider} needs approval",
+      "answers": {},
+      "request": {
+        "command": "echo one",
+        "input": {
+          "command": "echo one"
+        },
+        "toolName": "Bash"
+      },
+      "queue": true
+    },
+    {
+      "type": "request.opened",
+      "requestId": "request-2",
+      "requestType": "command-execution-approval",
+      "detail": "${provider} needs approval",
+      "answers": {},
+      "request": {
+        "command": "echo two",
+        "input": {
+          "command": "echo two"
+        },
+        "toolName": "Bash"
+      },
+      "queue": true
+    },
+    {
+      "type": "request.opened",
+      "requestId": "request-3",
+      "requestType": "command-execution-approval",
+      "detail": "${provider} needs approval",
+      "answers": {},
+      "request": {
+        "command": "echo three",
+        "input": {
+          "command": "echo three"
+        },
+        "toolName": "Bash"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

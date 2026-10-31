@@ -3,7 +3,7 @@
   {"type":"session.resume-id","createdAt":"2030-01-01T00:00:00.000Z","resumeId":"fake-test","version":"fake"},
   {"type":"session.state.changed","createdAt":"2030-01-01T00:00:00.000Z","state":"ready"},
   {"type":"turn.started","createdAt":"2030-01-01T00:00:00.000Z","turnId":"fake-test-turn-1"},
-  {"type":"request.opened","createdAt":"2030-01-01T00:00:00.000Z","detail":"claude is ready to apply its plan","requestId":"fake-test-turn-1/request","requestType":"plan-approval"},
+  {"type":"request.opened","createdAt":"2030-01-01T00:00:00.000Z","detail":"claude is ready to apply its plan","requestId":"fake-test-turn-1/request","requestType":"plan-approval","request":{"input":{"plan":"# Rename the greeting\n\n1. Step 1\n2. Step 2\n3. Step 3\n4. Step 4\n5. Step 5\n6. Step 6\n7. Step 7\n8. Step 8\n9. Step 9\n10. Step 10\n11. Step 11\n12. Step 12\n13. Step 13\n14. Step 14\n15. Step 15\n16. Step 16\n17. Step 17\n18. Step 18\n19. Step 19\n20. Step 20\n21. Step 21\n22. Step 22\n23. Step 23\n24. Step 24"},"toolName":"ExitPlanMode"}},
   {"type":"request.resolved","createdAt":"2030-01-01T00:00:00.000Z","requestId":"fake-test-turn-1/request"},
   {"type":"turn.completed","createdAt":"2030-01-01T00:00:00.000Z","state":"completed","turnId":"fake-test-turn-1","point":"fake-test-turn-1"},
   {"type":"session.exited","createdAt":"2030-01-01T00:00:00.000Z","exitCode":0}
@@ -15,7 +15,7 @@
   {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
   {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
   {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
-  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.add","approval":{"detail":"claude is ready to apply its plan","id":"fake-test-turn-1/request","requestType":"plan-approval"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.add","approval":{"detail":"claude is ready to apply its plan","id":"fake-test-turn-1/request","request":{"input":{"plan":"# Rename the greeting\n\n1. Step 1\n2. Step 2\n3. Step 3\n4. Step 4\n5. Step 5\n6. Step 6\n7. Step 7\n8. Step 8\n9. Step 9\n10. Step 10\n11. Step 11\n12. Step 12\n13. Step 13\n14. Step 14\n15. Step 15\n16. Step 16\n17. Step 17\n18. Step 18\n19. Step 19\n20. Step 20\n21. Step 21\n22. Step 22\n23. Step 23\n24. Step 24"},"toolName":"ExitPlanMode"},"requestType":"plan-approval"}},
   {"version":1,"sessionId":"chat","seq":8,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"waiting","sessionState":"waiting","running":true,"detail":"claude is ready to apply its plan","lastCompletedAt":null},
   {"version":1,"sessionId":"chat","seq":9,"revision":7,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.resolve","requestId":"fake-test-turn-1/request"},
   {"version":1,"sessionId":"chat","seq":10,"revision":7,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},

@@ -158,7 +158,7 @@ type driver struct {
 	turn    string
 	steps   []Step
 	next    int
-	gate    *Step
+	gates   []Step // open requests waiting for a response, in open order
 	timer   <-chan time.Time
 	pending *command
 }
@@ -244,23 +244,23 @@ func (d *driver) complete(e session.Event) {
 	if d.turn == "" {
 		return
 	}
-	if d.gate != nil {
+	for _, gate := range d.gates {
 		kind := session.EventRequestResolved
-		if d.gate.Type == session.EventInputRequested {
+		if gate.Type == session.EventInputRequested {
 			kind = session.EventInputResolved
 		}
-		d.event(session.Event{Type: kind, RequestID: d.gate.RequestID})
+		d.event(session.Event{Type: kind, RequestID: gate.RequestID})
 	}
 	e.TurnID = d.turn
 	if e.Point == "" {
 		e.Point = d.turn
 	}
 	d.event(e)
-	d.turn, d.gate = "", nil
+	d.turn, d.gates = "", nil
 }
 func (d *driver) schedule() {
 	d.timer = nil
-	if d.gate != nil || d.next >= len(d.steps) {
+	if n := len(d.gates); n > 0 && !d.gates[n-1].Queue || d.next >= len(d.steps) {
 		return
 	}
 	d.timer = d.clock.After(time.Duration(d.steps[d.next].DelayMS) * time.Millisecond)
@@ -277,23 +277,29 @@ func (d *driver) run(resume string) {
 		}
 		select {
 		case <-d.timer:
-			step := d.steps[d.next]
-			d.next++
-			if step.Type == session.EventTurnCompleted {
-				d.complete(step.Event)
-			} else {
-				d.event(step.Event)
-				if step.Type == session.EventError && !slices.ContainsFunc(d.steps[d.next:], func(s Step) bool { return s.Type == session.EventTurnCompleted }) {
-					d.turn, d.gate = "", nil
-				}
-				if step.Type == session.EventExited {
-					if d.pending != nil {
-						d.pending.reply <- result{err: session.ErrClosed}
+			for {
+				step := d.steps[d.next]
+				d.next++
+				if step.Type == session.EventTurnCompleted {
+					d.complete(step.Event)
+				} else {
+					d.event(step.Event)
+					if step.Type == session.EventError && !slices.ContainsFunc(d.steps[d.next:], func(s Step) bool { return s.Type == session.EventTurnCompleted }) {
+						d.turn, d.gates = "", nil
 					}
-					return
+					if step.Type == session.EventExited {
+						if d.pending != nil {
+							d.pending.reply <- result{err: session.ErrClosed}
+						}
+						return
+					}
+					if step.Answers != nil {
+						d.gates = append(d.gates, step)
+					}
 				}
-				if step.Answers != nil {
-					d.gate = &step
+				// A queued request opens with the undelayed steps after it, so no response lands in between and replay stays deterministic.
+				if !step.Queue || d.next >= len(d.steps) || d.steps[d.next].DelayMS != 0 {
+					break
 				}
 			}
 			d.schedule()
@@ -369,14 +375,16 @@ func (d *driver) send(c command) result {
 }
 
 func (d *driver) respond(c command) error {
-	if d.gate == nil || d.gate.RequestID != c.requestID {
+	i := slices.IndexFunc(d.gates, func(s Step) bool { return s.RequestID == c.requestID })
+	if i < 0 {
 		return &session.ProviderError{Op: c.op, Message: "no such pending request"}
 	}
-	input := d.gate.Type == session.EventInputRequested
+	gate := d.gates[i]
+	input := gate.Type == session.EventInputRequested
 	if input != (c.op == "answer") {
 		return &session.ProviderError{Op: c.op, Message: "wrong response kind"}
 	}
-	expected := d.gate.Answers
+	expected := gate.Answers
 	if expected.Allow != nil && *expected.Allow != c.decision.Allow || expected.Input != nil && !reflect.DeepEqual(expected.Input, c.answers) {
 		return &session.ProviderError{Op: c.op, Message: "response differs from script answers"}
 	}
@@ -385,8 +393,14 @@ func (d *driver) respond(c command) error {
 		kind = session.EventInputResolved
 	}
 	d.event(session.Event{Type: kind, RequestID: c.requestID})
-	d.gate = nil
-	d.schedule()
+	// aide's fake echoes a denial reason so e2e can see it reached the provider.
+	if !input && !c.decision.Allow && c.decision.Reason != "" {
+		d.event(session.Event{Type: session.EventContent, ItemID: c.requestID + "/denial", Kind: session.KindAssistantText, Text: string(d.cfg.Provider) + " got the denial reason: " + c.decision.Reason})
+	}
+	d.gates = slices.Delete(d.gates, i, i+1)
+	if len(d.gates) == 0 {
+		d.schedule()
+	}
 	return nil
 }
 
@@ -461,6 +475,18 @@ func (d *driver) script(prompt string) ([]Step, error) {
 	}
 	if d.options.Script == nil && name == "perf-stream" {
 		s = perfScript(d.options.Stream)
+	}
+	// "usage limit <unix seconds>" is aide's: a five-hour limit that resets then, and a refused turn.
+	if seconds, ok := strings.CutPrefix(name, "usage limit "); d.options.Script == nil && ok {
+		unix, err := strconv.ParseInt(seconds, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("fake script %q: %w", name, err)
+		}
+		resets := time.Unix(unix, 0).UTC()
+		s = Script{RuntimeEvents: []Step{
+			{Event: session.Event{Type: session.EventLimit, Limit: &session.Limit{Rejected: true, Resets: resets, Windows: []session.LimitWindow{{Minutes: 300, Used: 100, Resets: resets}}}}},
+			{Event: session.Event{Type: session.EventTurnCompleted, State: session.TurnFailed, ErrorMessage: "You've hit your usage limit."}},
+		}}
 	}
 	// Decode a new copy on each turn; substitutions only touch JSON string values.
 	b, err := json.Marshal(s.RuntimeEvents)

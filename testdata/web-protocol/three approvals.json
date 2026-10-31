@@ -1,0 +1,78 @@
+{"prompt":"three approvals","provider":"claude","scenario":"three approvals",
+"runtimeEvents": [
+  {"type":"session.resume-id","createdAt":"2030-01-01T00:00:00.000Z","resumeId":"fake-test","version":"fake"},
+  {"type":"session.state.changed","createdAt":"2030-01-01T00:00:00.000Z","state":"ready"},
+  {"type":"turn.started","createdAt":"2030-01-01T00:00:00.000Z","turnId":"fake-test-turn-1"},
+  {"type":"request.opened","createdAt":"2030-01-01T00:00:00.000Z","detail":"claude needs approval","requestId":"fake-test-turn-1/request-1","requestType":"command-execution-approval","request":{"command":"echo one","input":{"command":"echo one"},"toolName":"Bash"}},
+  {"type":"request.opened","createdAt":"2030-01-01T00:00:00.000Z","detail":"claude needs approval","requestId":"fake-test-turn-1/request-2","requestType":"command-execution-approval","request":{"command":"echo two","input":{"command":"echo two"},"toolName":"Bash"}},
+  {"type":"request.opened","createdAt":"2030-01-01T00:00:00.000Z","detail":"claude needs approval","requestId":"fake-test-turn-1/request-3","requestType":"command-execution-approval","request":{"command":"echo three","input":{"command":"echo three"},"toolName":"Bash"}},
+  {"type":"request.resolved","createdAt":"2030-01-01T00:00:00.000Z","requestId":"fake-test-turn-1/request-1"},
+  {"type":"request.resolved","createdAt":"2030-01-01T00:00:00.000Z","requestId":"fake-test-turn-1/request-2"},
+  {"type":"request.resolved","createdAt":"2030-01-01T00:00:00.000Z","requestId":"fake-test-turn-1/request-3"},
+  {"type":"turn.completed","createdAt":"2030-01-01T00:00:00.000Z","state":"completed","turnId":"fake-test-turn-1","point":"fake-test-turn-1"},
+  {"type":"session.exited","createdAt":"2030-01-01T00:00:00.000Z","exitCode":0}
+],
+"deltas": [
+  {"version":1,"sessionId":"chat","seq":1,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z","type":"snapshot","snapshot":{"sessionId":"chat","paneId":"chat","workspaceId":"tab","provider":"claude","content":[],"turns":[],"pendingApprovals":[],"pendingUserInputs":[],"planApproval":null,"sessionState":"ready","running":false,"detail":null,"lastCompletedAt":null,"lastError":null,"lastErrorAt":null,"model":null,"effort":null,"serviceTier":null,"permissionMode":"default","interactionMode":"build","selectionNotice":null,"runtimeGeneration":0,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":2,"revision":2,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":3,"revision":3,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.add","item":{"attachments":[],"id":"prompt","kind":"user-prompt","provider":null,"text":"three approvals","turnId":null,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
+  {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.add","approval":{"detail":"claude needs approval","id":"fake-test-turn-1/request-1","request":{"command":"echo one","input":{"command":"echo one"},"toolName":"Bash"},"requestType":"command-execution-approval"}},
+  {"version":1,"sessionId":"chat","seq":8,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"waiting","sessionState":"waiting","running":true,"detail":"claude needs approval","lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":9,"revision":7,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.add","approval":{"detail":"claude needs approval","id":"fake-test-turn-1/request-2","request":{"command":"echo two","input":{"command":"echo two"},"toolName":"Bash"},"requestType":"command-execution-approval"}},
+  {"version":1,"sessionId":"chat","seq":10,"revision":8,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.add","approval":{"detail":"claude needs approval","id":"fake-test-turn-1/request-3","request":{"command":"echo three","input":{"command":"echo three"},"toolName":"Bash"},"requestType":"command-execution-approval"}},
+  {"version":1,"sessionId":"chat","seq":11,"revision":9,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.resolve","requestId":"fake-test-turn-1/request-1"},
+  {"version":1,"sessionId":"chat","seq":12,"revision":10,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.resolve","requestId":"fake-test-turn-1/request-2"},
+  {"version":1,"sessionId":"chat","seq":13,"revision":11,"updatedAt":"2030-01-01T00:00:00.000Z","type":"approval.resolve","requestId":"fake-test-turn-1/request-3"},
+  {"version":1,"sessionId":"chat","seq":14,"revision":11,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":15,"revision":12,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"completed"}},
+  {"version":1,"sessionId":"chat","seq":16,"revision":12,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.000Z"},
+  {"version":1,"sessionId":"chat","seq":17,"revision":13,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"interrupted","sessionState":"stopped","running":false,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.000Z"}
+],
+"snapshot": {
+  "sessionId": "chat",
+  "paneId": "chat",
+  "workspaceId": "tab",
+  "provider": "claude",
+  "content": [
+    {
+      "attachments": [],
+      "id": "prompt",
+      "kind": "user-prompt",
+      "provider": null,
+      "text": "three approvals",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.000Z"
+    }
+  ],
+  "turns": [
+    {
+      "completedAt": "2030-01-01T00:00:00.000Z",
+      "id": "fake-test-turn-1",
+      "provider": "claude",
+      "startedAt": "2030-01-01T00:00:00.000Z",
+      "state": "completed"
+    }
+  ],
+  "pendingApprovals": [],
+  "pendingUserInputs": [],
+  "planApproval": null,
+  "sessionState": "stopped",
+  "running": false,
+  "detail": null,
+  "lastCompletedAt": "2030-01-01T00:00:00.000Z",
+  "lastError": null,
+  "lastErrorAt": null,
+  "model": null,
+  "effort": null,
+  "serviceTier": null,
+  "permissionMode": "default",
+  "interactionMode": "build",
+  "selectionNotice": null,
+  "runtimeGeneration": 0,
+  "revision": 13,
+  "updatedAt": "2030-01-01T00:00:00.000Z"
+}
+}

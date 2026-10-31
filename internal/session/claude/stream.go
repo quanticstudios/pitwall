@@ -50,6 +50,8 @@ type line struct {
 	Subtype   string `json:"subtype"`
 	UUID      string `json:"uuid"`
 	SessionID string `json:"session_id"`
+	// ParentToolUseID is the Task call a subagent's line belongs to, "" on the main thread.
+	ParentToolUseID string `json:"parent_tool_use_id"`
 
 	// system/init
 	Model        string   `json:"model"`
@@ -222,7 +224,7 @@ func (s *stream) system(l line) []session.Event {
 // streamEvent is a partial message's text or thinking as it streams. Its
 // item id is the one the finished assistant line's block gets.
 func (s *stream) streamEvent(l line) []session.Event {
-	if l.Event == nil || l.Event.Type != "content_block_delta" {
+	if l.Event == nil || l.Event.Type != "content_block_delta" || l.ParentToolUseID != "" {
 		return nil
 	}
 	id := l.APIMessageID + ":" + strconv.Itoa(l.Event.Index)
@@ -247,6 +249,9 @@ func (s *stream) assistant(l line) []session.Event {
 	if json.Unmarshal(l.Message, &m) != nil || json.Unmarshal(m.Content, &blocks) != nil {
 		s.skip("undecodable assistant line")
 		return nil
+	}
+	if l.ParentToolUseID != "" {
+		return s.subagent(l.ParentToolUseID, blocks)
 	}
 	if m.Model != "" {
 		s.contextModel = m.Model
@@ -285,6 +290,25 @@ func (s *stream) assistant(l line) []session.Event {
 		}
 	}
 	return out
+}
+
+// subagent adds a subagent's tool calls to its Task call, as aide does;
+// its text and the calls themselves stay out of the transcript.
+func (s *stream) subagent(parent string, blocks []block) []session.Event {
+	t, ok := s.tools[parent]
+	n := len(t.SubagentTools)
+	// why: an emitted event still holds the old slice.
+	t.SubagentTools = slices.Clone(t.SubagentTools)
+	for _, b := range blocks {
+		if b.Type == "tool_use" && b.Name != "" {
+			t.SubagentTools = append(t.SubagentTools, b.Name)
+		}
+	}
+	if !ok || len(t.SubagentTools) == n {
+		return nil
+	}
+	s.tools[parent] = t
+	return []session.Event{{Type: session.EventContent, ItemID: parent, Kind: session.KindToolCall, Tool: &t}}
 }
 
 // todos is TodoWrite's input as the call's tasks.
