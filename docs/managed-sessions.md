@@ -910,7 +910,7 @@ every client sees the same list. Any of these may answer:
 | pitwall's GUI | `proto.ChatApprove` / `ChatAnswer` over the socket |
 | the CLI (`pitwall chat approve`) | the same messages; refused when `$PITWALL_PANE` is set, so an agent in a pane does not answer for another agent (a seatbelt: an agent can unset it) |
 | aide and other web clients | the web protocol's answer commands (ENG-2696) |
-| a paired phone | `internal/remote`, with its device token (ENG-2692) |
+| a paired phone | `POST /api/approve` and `/api/input` on the phone page (`internal/remote`), with its device token, as `ChatApprove` / `ChatAnswer` (ENG-2692) |
 
 First wins:
 

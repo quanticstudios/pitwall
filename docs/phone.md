@@ -67,8 +67,21 @@ has a permission prompt on it. A reply loses its control characters, so it
 cannot press keys or end a paste, and goes in as a paste followed by Enter.
 pi has no permission prompts, so its tabs only take replies.
 
+A chat tab (one pitwall drives with `pitwall chat` rather than in a
+terminal) shows what its agent asks in full: the tool and its command or
+file for an approval, the whole text of a plan, and each question of an
+input request with its options. An approval takes Allow, Allow for session,
+or Deny with an optional reason the agent reads. A plan takes Approve plan
+or Keep planning. A question takes a tapped option or a typed answer. These
+go to the chat as the GUI's answers do, by the request's id, so the first
+answer from any client wins: one that comes later, from the phone, the GUI,
+`pitwall chat approve` or aide, gets "no longer pending", and every client's
+copy of the chat drops the request. A chat takes no reply to a finished
+turn from the phone yet.
+
 `daemon.log` gets a line for each pairing and each answer, with the device's
-name: "allow sent to pane …", "reply sent to pane …", never what the reply
+name: "allow sent to pane …", "reply sent to pane …", "allow sent to chat
+…", "answer sent to chat …", never what a reply, a reason or an answer
 said.
 
 A paired phone can also open the full aide web client, when `[web]
@@ -77,7 +90,8 @@ bundle` names one: see [Web client](remote.md#web-client).
 ## Notifications
 
 The page can push a notification to the phone when an agent needs you:
-an approval, a question, a plan, an error, or a turn that finished. It
+an approval, a question, a plan, an error, or a turn that finished, in a
+terminal tab or a chat tab alike. It
 pushes what the desktop notifies, by the same rules: only what you have
 not seen in a window, at most one every 3 seconds per tab, nothing for
 what triage calls fyi, and an approval or an error at high urgency. The

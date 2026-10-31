@@ -15,6 +15,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/web"
 )
 
@@ -35,6 +36,50 @@ type Item struct {
 	Advice  string `json:"advice"` // the decision model's recommendation, "allow 96%"
 	Answer  bool   `json:"answer"` // Allow and Deny work
 	Reply   bool   `json:"reply"`  // a reply works
+	// Requests are a chat's pending approvals and input requests, which
+	// the page answers by id; the daemon fills them from the snapshot.
+	Requests []Request `json:"requests,omitempty"`
+}
+
+// Request is one of a chat's pending approvals or input requests.
+type Request struct {
+	ID        string             `json:"id"`
+	Kind      string             `json:"kind"`   // approval, plan, input
+	Detail    string             `json:"detail"` // the approval's detail, the plan's text, the input's detail
+	Tool      string             `json:"tool,omitempty"`
+	Command   string             `json:"command,omitempty"`
+	Path      string             `json:"path,omitempty"`
+	Questions []session.Question `json:"questions,omitempty"`
+}
+
+// Requests are s's pending approvals, then its input requests, with
+// every text the agent wrote passed through redact.
+func Requests(s session.Snapshot, redact func(string) string) []Request {
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return redact(*p)
+	}
+	var out []Request
+	for _, a := range s.PendingApprovals {
+		r := Request{ID: a.ID, Kind: "approval", Detail: deref(a.Detail)}
+		if a.RequestType == session.RequestPlan {
+			r.Kind = "plan"
+		}
+		if t := a.Request; t != nil {
+			r.Tool, r.Command, r.Path = t.ToolName, redact(t.Command), t.FilePath
+		}
+		out = append(out, r)
+	}
+	for _, in := range s.PendingUserInputs {
+		qs := slices.Clone(in.Questions)
+		for i := range qs {
+			qs[i].Prompt = redact(qs[i].Prompt)
+		}
+		out = append(out, Request{ID: in.ID, Kind: "input", Detail: deref(in.Detail), Questions: qs})
+	}
+	return out
 }
 
 // Replies reports whether a pane in state s takes a typed reply: a
@@ -61,7 +106,7 @@ func Items(st model.State) []Item {
 		}
 		it.Answer = Answerable(a)
 		if slices.ContainsFunc(st.Chats, func(c model.Chat) bool { return c.ID == a.PaneID }) {
-			it.Answer, it.Reply = false, false // shortcut: the phone answers chats with ENG-2692
+			it.Answer, it.Reply = false, false // a chat is answered through its Requests
 		}
 		for _, w := range st.Workspaces {
 			if w.ID == a.WorkspaceID {
@@ -90,6 +135,11 @@ type Server struct {
 	// still shows the activity of UpdatedAt at.
 	Answer func(pane string, at int64, allow bool) error
 	Reply  func(pane string, at int64, text string) error
+	// Approve answers chat's pending approval request with allow,
+	// allow-session or deny, and AnswerInput its input request, through
+	// the chat's loop as the GUI's answers go; by is "phone:<device>".
+	Approve     func(chat, request, decision, reason, by string) error
+	AnswerInput func(chat, request string, answers map[string][]string) error
 	// Web, when set, is the web client for paired devices: a device
 	// starts a session with its token at POST /api/web, and the session
 	// gets the bundle at /app/, its bootstrap at /_pitwall/bootstrap, and
@@ -206,7 +256,52 @@ func (s *Server) Handler() http.Handler {
 		log.Printf("remote: %q: reply sent to pane %s", d.Name, req.Pane) // never the text
 		writeJSON200(w, map[string]any{})
 	}))
+	mux.HandleFunc("POST /api/approve", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+		var req struct {
+			Chat     string `json:"chat"`
+			Request  string `json:"request"`
+			Decision string `json:"decision"`
+			Reason   string `json:"reason"`
+		}
+		// why: the request is named, so an answer never lands on one the phone has not shown.
+		if !decode(w, r, &req) || !named(w, req.Chat, req.Request) {
+			return
+		}
+		if err := s.Approve(req.Chat, req.Request, req.Decision, req.Reason, "phone:"+d.Name); err != nil {
+			log.Printf("remote: %q: %s of chat %s refused: %q", d.Name, req.Decision, req.Chat, err)
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		log.Printf("remote: %q: %s sent to chat %s", d.Name, req.Decision, req.Chat) // never the reason
+		writeJSON200(w, map[string]any{})
+	}))
+	mux.HandleFunc("POST /api/input", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+		var req struct {
+			Chat    string              `json:"chat"`
+			Request string              `json:"request"`
+			Answers map[string][]string `json:"answers"`
+		}
+		if !decode(w, r, &req) || !named(w, req.Chat, req.Request) {
+			return
+		}
+		if err := s.AnswerInput(req.Chat, req.Request, req.Answers); err != nil {
+			log.Printf("remote: %q: answer to chat %s refused: %q", d.Name, req.Chat, err)
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		log.Printf("remote: %q: answer sent to chat %s", d.Name, req.Chat) // never the answer
+		writeJSON200(w, map[string]any{})
+	}))
 	return headers(mux)
+}
+
+// named refuses, with 400, an answer that names no chat or request.
+func named(w http.ResponseWriter, chat, request string) bool {
+	if chat == "" || request == "" {
+		http.Error(w, "name the chat and the request", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
 // headers keeps the page to its own script and out of frames, and every
