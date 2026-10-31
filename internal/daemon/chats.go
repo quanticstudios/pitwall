@@ -1583,6 +1583,10 @@ func (d *Daemon) chatChanged(c *chat) {
 	}
 	c.sum = s
 	d.mu.Lock()
+	if c.title == "" && c.cfg.RecentPrompt != "" {
+		// Started without a prompt: the tab takes the first one, as an agent pane's does.
+		c.title, moved = promptTitle(c.cfg.RecentPrompt), true
+	}
 	i := slices.IndexFunc(d.st.Chats, func(x model.Chat) bool { return x.ID == c.id })
 	if i < 0 {
 		d.mu.Unlock()

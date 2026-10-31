@@ -111,3 +111,17 @@ func TestWebUnarchive(t *testing.T) {
 		t.Fatalf("an import over a chat pitwall archived: %v", r)
 	}
 }
+
+// TestWebTitleFromFirstSend: a chat started without a prompt, as aide
+// starts one, takes its title from the first message it is sent.
+func TestWebTitleFromFirstSend(t *testing.T) {
+	c := dialWeb(t, webDaemon(t), "title")
+	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude"})
+	id := at(r, "data.sessionId")
+	if r := c.call(map[string]any{"type": "send", "sessionId": id, "text": "  initialize   shared chat\nwith a second line"}); r["ok"] != true {
+		t.Fatalf("send: %v", r)
+	}
+	waitUntil(t, "the title", func() bool {
+		return at(c.call(map[string]any{"type": "listSessions"}), "data.chats.0.title") == "initialize shared chat"
+	})
+}
