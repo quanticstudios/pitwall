@@ -184,6 +184,8 @@ A chat has a lifetime; its provider process has a shorter one.
 | Archive (`ChatArchive`) | Closes the driver, compacts the log, moves `chats/<id>/` to `chats/archive/<id>/`, removes the tab as `CloseTab` would (a worktree stays; deleting it stays `DeleteWorkspace`'s job). Refused for a pinned tab, like `CloseTab`. Closing a chat tab or killing its session archives the chat. |
 | Unarchive (`ChatUnarchive`) | Moves the folder back and opens a tab in the chat's `Cwd`. The process starts lazily. |
 | Delete (`ChatArchive{Delete: true}`) | Removes the folder. An archived chat only. |
+| Rename (`ChatRename`) | Renames the chat's tab, as `RenameTab` does; the chat's title follows. A live chat only. |
+| Pin (`ChatPin`) | Sets `Pinned` in `config.json`, which the archived list keeps. Not the tab's pin, so it does not refuse archive. A live chat only. |
 
 Close of the daemon: each chat loop flushes, writes its snapshot, and calls
 `Driver.Close` with a 5 s deadline; no turn continues without the daemon.
@@ -1071,6 +1073,8 @@ type ChatUnsubscribe struct{ Chat string }
 type ChatFork struct{ Chat, Turn, Worktree string } // ChatFork and ChatRewind are at proto.ChatForkLevel (40)
 type ChatRewind struct{ Chat, Turn string }
 type ChatArchive struct{ Chat string; Delete bool }
+type ChatRename struct{ Chat, Title string }             // ChatRename and ChatPin are at proto.ChatPinLevel (45)
+type ChatPin struct{ Chat string; Pinned bool }         // aide's task-history pin, in config.json; not the tab's pin
 type ChatUnarchive struct{ Chat string }
 type ChatList struct{ Archived bool } // archived chats are not in State; this lists them
 

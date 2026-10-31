@@ -163,6 +163,11 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 		return d.chatFork(ctx, m), true
 	case proto.ChatArchive:
 		return chatResult(m.Chat, "", "", d.chatArchive(m)), true
+	case proto.ChatRename:
+		return chatResult(m.Chat, "", "", d.chatRename(m)), true
+	case proto.ChatPin:
+		id = m.Chat
+		run = func(c *chat) (string, string, error) { c.cfg.Pinned = m.Pinned; return "", "", nil }
 	case proto.ChatRead:
 		c, err := d.chat(m.Chat)
 		if err != nil {
@@ -353,6 +358,18 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 		d.chatChanged(c)
 	})
 	return chatResult(c.id, turn, note, err)
+}
+
+// chatRename names the chat's tab, which retitle copies to the chat.
+func (d *Daemon) chatRename(m proto.ChatRename) error {
+	c, err := d.chat(m.Chat)
+	if err != nil {
+		return err
+	}
+	if err := d.renameTab(proto.RenameTab{WorkspaceID: c.cfg.Workspace, Name: m.Title}); err != nil {
+		return chatError{"conflict", err.Error()}
+	}
+	return nil
 }
 
 // chatArchive closes the chat's tab as CloseTab does, which closes the
@@ -665,7 +682,7 @@ func (d *Daemon) loadChats() {
 		c.cfg = cfg
 		c.saved, _ = json.Marshal(cfg)
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode,
-			Title: w.Label, RecentPrompt: cfg.RecentPrompt, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
+			Title: w.Label, RecentPrompt: cfg.RecentPrompt, Pinned: cfg.Pinned, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
 		d.chats[c.id] = c
 		d.st.Chats = append(d.st.Chats, c.sum)
 		go c.loop(d)
@@ -1437,7 +1454,7 @@ func (d *Daemon) chatChanged(c *chat) {
 		Model: c.cfg.Model, Effort: c.cfg.Effort, Mode: c.cfg.Mode,
 		State: c.snap.SessionState, Pending: len(c.snap.PendingApprovals) + len(c.snap.PendingUserInputs),
 		Queued: len(c.cfg.Queue), Turns: len(c.snap.Turns), Seq: c.seq,
-		UpdatedAt: c.sum.UpdatedAt, Title: c.sum.Title, RecentPrompt: c.cfg.RecentPrompt,
+		UpdatedAt: c.sum.UpdatedAt, Title: c.sum.Title, RecentPrompt: c.cfg.RecentPrompt, Pinned: c.cfg.Pinned,
 	}
 	same := s
 	same.Seq = c.sum.Seq

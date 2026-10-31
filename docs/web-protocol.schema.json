@@ -67,6 +67,12 @@
           "$ref": "#/$defs/unarchive"
         },
         {
+          "$ref": "#/$defs/rename"
+        },
+        {
+          "$ref": "#/$defs/pin"
+        },
+        {
           "$ref": "#/$defs/listProjects"
         },
         {
@@ -643,6 +649,59 @@
         "sessionId": {
           "type": "string",
           "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "rename": {
+      "description": "ChatRename: names the chat's tab, which the chat's title follows.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "title"
+      ],
+      "properties": {
+        "type": {
+          "const": "rename"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "title": {
+          "type": "string",
+          "description": "The new name; \"\" goes back to the first prompt."
+        }
+      },
+      "additionalProperties": false
+    },
+    "pin": {
+      "description": "ChatPin: pins the chat in aide's task history, kept through archive.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "pinned"
+      ],
+      "properties": {
+        "type": {
+          "const": "pin"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "pinned": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -1357,6 +1416,10 @@
         "recentPrompt": {
           "type": "string",
           "description": "First prompt excerpt, at most 500 Unicode code points; optional for older chats."
+        },
+        "pinned": {
+          "type": "boolean",
+          "description": "Pinned in aide's task history; left out when not."
         }
       },
       "additionalProperties": false
