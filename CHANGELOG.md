@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- `TestReadUsage` takes the window its fake `Usage` saw over a channel, so the race detector no longer fails main's linux job on it.
 - Web chat summaries carry recent prompts, snapshots expose queued messages and usage-limit banners, and queue commands edit, reorder, remove, resume or steer pending messages.
 
 - Timing ends a turn you interrupted or whose pane closed at most ten minutes after the agent's last call. A Claude Code session that hung after starting `true` showed a 4.5-hour command. Old turns in `timing.jsonl` keep their numbers.

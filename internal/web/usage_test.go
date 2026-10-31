@@ -16,9 +16,11 @@ func TestReadUsage(t *testing.T) {
 	s, hs := newServer(t, fixed(goodToken))
 	now := time.Now()
 	resets := now.Add(time.Hour).Truncate(time.Second)
-	var since time.Time
+	// why: Usage runs on the server's goroutine; a reply read off the socket
+	// does not order it before the test, so since comes over a channel.
+	sinces := make(chan time.Time, 2)
 	s.Usage = func(t time.Time) Usage {
-		since = t
+		sinces <- t
 		return Usage{
 			Limits: []flow.Limit{{Provider: model.ProviderClaude, Seen: now, Windows: []flow.Window{
 				{Minutes: 300, Used: 42, Resets: resets}, {Minutes: 10080, Used: 18.5}}}},
@@ -37,7 +39,7 @@ func TestReadUsage(t *testing.T) {
 	var v viewer
 	c.send(t, map[string]any{"type": "readUsage", "id": "1", "days": 7})
 	u := expectResult(t, &v, c, "1", true)["data"].(map[string]any)["usage"].(map[string]any)
-	if !since.Equal(flow.Since(now, 7)) {
+	if since := <-sinces; !since.Equal(flow.Since(now, 7)) {
 		t.Errorf("since %v, want %v", since, flow.Since(now, 7))
 	}
 	if u["showCost"] != true || u["pricesAsOf"] != flow.PricesAsOf {
