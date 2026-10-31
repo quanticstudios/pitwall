@@ -83,10 +83,13 @@ type Config struct {
 	// thread id. A fork's new id replaces it as soon as the driver says.
 	Resume string `json:"resume,omitempty"`
 	// Points maps a turn id to Event.Point, for fork and rewind.
-	Points  map[string]string `json:"points,omitempty"`
-	Queue   []QueuedMessage   `json:"queue,omitempty"`
-	Held    bool              `json:"held,omitempty"` // the queue waits for the next send (after an interrupt)
-	Created time.Time         `json:"created"`
+	Points map[string]string `json:"points,omitempty"`
+	Queue  []QueuedMessage   `json:"queue,omitempty"`
+	Held   bool              `json:"held,omitempty"` // the queue waits for the next send (after an interrupt)
+	// Continued is when the loop sent "Continue where you left off" after
+	// a restart, for the limit on those sends.
+	Continued []time.Time `json:"continued,omitempty"`
+	Created   time.Time   `json:"created"`
 	// Env is what the process gets on top of the daemon's environment;
 	// rebuilt from the tab on every start, never saved.
 	Env []string `json:"-"`

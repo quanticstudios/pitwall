@@ -293,6 +293,9 @@ type Settings struct {
 	QuietAfter time.Duration
 	// ContinueWhenQuiet types continue once into a quiet agent.
 	ContinueWhenQuiet bool
+	// ChatContinue is [agents] chat_continue_after_restart: continue a
+	// chat turn a daemon restart cut off.
+	ChatContinue bool
 	// Presets is [[agents.preset]] without the ones with problems.
 	Presets []AgentPreset
 	// ACPAgents is [[agents.acp]] without the entries with problems.
@@ -523,6 +526,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ai...)
 	s.QuietAfter, ai = resolveQuiet(c.Agents)
 	s.ContinueWhenQuiet = c.Agents.ContinueWhenQuiet != nil && *c.Agents.ContinueWhenQuiet
+	s.ChatContinue = c.Agents.ChatContinue != nil && *c.Agents.ChatContinue
 	fi = append(fi, ai...)
 	s.Fleet, ai = resolveFleet(c.Fleet, s.Presets)
 	fi = append(fi, ai...)
