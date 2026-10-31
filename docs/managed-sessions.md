@@ -823,6 +823,11 @@ func Delete(root, id string) error    // an archived chat's folder, gone
 - Images stay inline in `item.add` deltas as aide's attachment shape
   (base64 `data`), within aide's limits: 8 attachments, 5 MB each, 10 MB per
   message. `images/` holds the files a queued message or a resend needs.
+- Archive writes the tab's title and the time to `config.json` (`title`,
+  `updated`), since the tab that held them goes; an archived chat lists
+  from that file alone. aide's old sessions arrive in `archive/` through
+  the web protocol's [`import`](web-protocol.md#import), with
+  `imported: true` in `config.json`.
 - `snapshot.json` `format` and `config.json` `format` start at 1. A reader
   refuses a higher one and leaves the chat out of `State.Chats` with a line
   in `daemon.log`, as `store` treats a newer `state.json`.

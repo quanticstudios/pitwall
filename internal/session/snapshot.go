@@ -127,15 +127,16 @@ type Item struct {
 }
 
 // Attachment is aide's ManagedSessionAttachment: an image (Data, MimeType,
-// Name, SizeBytes) or a workspace file (Path).
+// Name, SizeBytes), a workspace file (Path) or pasted text (Name, Text).
 type Attachment struct {
 	ID        string `json:"id"`
-	Kind      string `json:"kind"` // image, workspace-file
+	Kind      string `json:"kind"` // image, workspace-file, pasted-text
 	Data      string `json:"data,omitempty"`
 	MimeType  string `json:"mimeType,omitempty"`
 	Name      string `json:"name,omitempty"`
 	SizeBytes int64  `json:"sizeBytes,omitempty"`
 	Path      string `json:"path,omitempty"`
+	Text      string `json:"text,omitempty"`
 }
 
 // ToolCall is aide's ManagedProviderRuntimeToolCall.

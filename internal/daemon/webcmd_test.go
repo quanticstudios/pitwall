@@ -340,7 +340,7 @@ func TestWebCommandErrors(t *testing.T) {
 		frame map[string]any
 		code  string
 	}{
-		{map[string]any{"type": "listSessions", "archived": true}, "unsupported"},
+		{map[string]any{"type": "import", "sessionId": "c1", "dir": notGit, "provider": "claude", "snapshot": map[string]any{"sessionId": "c1"}}, "unsupported"},
 		{map[string]any{"type": "listSessions", "archived": "yes"}, "invalid"},
 		{map[string]any{"type": "read", "sessionId": "nope"}, "not-found"},
 		{map[string]any{"type": "read", "sessionId": chat, "after": -1}, "invalid"},

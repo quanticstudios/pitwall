@@ -308,10 +308,16 @@ func (d *Daemon) chatArchive(m proto.ChatArchive) error {
 func (d *Daemon) dropChat(id string) {
 	c := d.chats[id]
 	delete(d.chats, id)
+	title := ""
+	if i := slices.IndexFunc(d.st.Chats, func(s model.Chat) bool { return s.ID == id }); i >= 0 {
+		title = d.st.Chats[i].Title
+	}
 	d.st.Chats = slices.DeleteFunc(d.st.Chats, func(s model.Chat) bool { return s.ID == id })
 	d.dropPane(id) // its activity, attention, resume and decisions, as a pane's
 	if c != nil {
 		go func() {
+			// The tab that held the title goes; an archived chat lists from config.json.
+			c.do(func() { c.cfg.Title, c.cfg.Updated = title, time.Now() })
 			c.close()
 			if c.dir != "" {
 				if err := eventlog.Archive(d.o.Chats, c.id); err != nil {

@@ -464,3 +464,84 @@ func TestHelperWriter(t *testing.T) {
 	}
 	time.Sleep(time.Hour) // until killed; the cap keeps the parent's replay small
 }
+
+// TestImport writes an archived chat that ReadArchived and Archived find,
+// replaces it on a second import, and leaves alone a live chat and one
+// pitwall archived itself.
+func TestImport(t *testing.T) {
+	root := t.TempDir()
+	cfg := session.Config{ID: "c1", Provider: model.ProviderClaude, Workspace: "w1", Cwd: "/src", Title: "Fix it", Updated: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
+	snap := replay(t, 5)
+	snap.Content[0].Attachments = []session.Attachment{{ID: "a1", Kind: "pasted-text", Name: "notes", Text: "pasted"}}
+	if ok, err := Import(root, cfg, snap); !ok || err != nil {
+		t.Fatalf("import: %v, %v", ok, err)
+	}
+	got, s, seq, err := ReadArchived(root, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := cfg
+	want.Format, want.Imported = 1, true
+	if !reflect.DeepEqual(got, want) || seq != 1 || asJSON(t, s) != asJSON(t, snap) {
+		t.Fatalf("read back %+v seq %d\n%+v\nwant %+v\n%+v", got, seq, s, want, snap)
+	}
+
+	snap.Content = snap.Content[:1]
+	if ok, err := Import(root, cfg, snap); !ok || err != nil {
+		t.Fatalf("import again: %v, %v", ok, err)
+	}
+	if _, s, _, _ := ReadArchived(root, "c1"); len(s.Content) != 1 {
+		t.Fatalf("a second import kept %d items, want 1", len(s.Content))
+	}
+	if cs := Archived(root); len(cs) != 1 || cs[0].ID != "c1" {
+		t.Fatalf("archived: %+v", cs)
+	}
+
+	// A live chat and one pitwall archived are not imports to replace.
+	for _, dir := range []string{"live", filepath.Join("archive", "own")} {
+		l, _, _, _, err := Open(filepath.Join(root, dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.WriteConfig(session.Config{ID: filepath.Base(dir)}); err != nil {
+			t.Fatal(err)
+		}
+		l.Close()
+		c := cfg
+		c.ID = filepath.Base(dir)
+		if ok, err := Import(root, c, snap); ok || err != nil {
+			t.Errorf("import over %s: %v, %v", dir, ok, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(root, "archive", "live")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("import of a live chat wrote an archived copy: %v", err)
+	}
+	if _, _, _, err := ReadArchived(root, "nope"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("read a missing chat: %v", err)
+	}
+	if _, err := Import(root, session.Config{ID: "../x"}, snap); err == nil {
+		t.Error("imported a chat id that is a path")
+	}
+}
+
+// TestImportCrash finds the copy a crash left: a half-written import is
+// not listed, and the next import cleans it up.
+func TestImportCrash(t *testing.T) {
+	root := t.TempDir()
+	tmp := filepath.Join(root, "archive", ".import-c1")
+	if err := os.MkdirAll(tmp, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.json"), []byte(`{"format":1,"id":"c1"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if cs := Archived(root); len(cs) != 0 {
+		t.Fatalf("listed a half-written import: %+v", cs)
+	}
+	if ok, err := Import(root, session.Config{ID: "c1", Provider: model.ProviderCodex}, replay(t, 1)); !ok || err != nil {
+		t.Fatalf("import: %v, %v", ok, err)
+	}
+	if _, err := os.Lstat(tmp); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the crashed import's folder stays: %v", err)
+	}
+}
