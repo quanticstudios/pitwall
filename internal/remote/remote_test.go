@@ -2,11 +2,13 @@ package remote
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/web"
 )
 
@@ -234,7 +237,7 @@ func TestItems(t *testing.T) {
 	if n := NoticeOf(st, st.Activities[1]); n.State != string(model.StatePROpen) || !strings.HasPrefix(n.Body, "PR open") {
 		t.Errorf("notice %+v", n)
 	}
-	// A chat's approval is listed, but the phone cannot answer it yet.
+	// A chat's approval is answered through its Requests, not the pane's keys.
 	st.Chats = []model.Chat{{ID: "c"}}
 	if c := Items(st)[0]; c.Pane != "c" || c.Answer || c.Reply {
 		t.Errorf("chat approval %+v", c)
@@ -337,5 +340,74 @@ func TestWebClient(t *testing.T) {
 	}
 	if s.Web.Check(b.Token) {
 		t.Fatal("hello token works after revoke")
+	}
+}
+
+func TestRequests(t *testing.T) {
+	str := func(s string) *string { return &s }
+	s := session.Snapshot{
+		PendingApprovals: []session.Approval{
+			{ID: "r1", RequestType: session.RequestCommand, Detail: str("Run it"), Request: &session.ToolRequest{ToolName: "Bash", Command: "deploy --token=hunter2"}},
+			{ID: "r2", RequestType: session.RequestPlan, Detail: str("1. Fix\n2. Test")},
+			{ID: "r3", RequestType: session.RequestFileChange, Request: &session.ToolRequest{ToolName: "Edit", FilePath: "a.go"}},
+		},
+		PendingUserInputs: []session.InputRequest{{ID: "i1", Questions: []session.Question{{ID: "q", Prompt: "Use hunter2?", Options: []session.PromptOption{{ID: "y", Label: "Yes"}}}}}},
+	}
+	got := Requests(s, func(s string) string { return strings.ReplaceAll(s, "hunter2", "…") })
+	want := []Request{
+		{ID: "r1", Kind: "approval", Detail: "Run it", Tool: "Bash", Command: "deploy --token=…"},
+		{ID: "r2", Kind: "plan", Detail: "1. Fix\n2. Test"},
+		{ID: "r3", Kind: "approval", Tool: "Edit", Path: "a.go"},
+		{ID: "i1", Kind: "input", Questions: []session.Question{{ID: "q", Prompt: "Use …?", Options: []session.PromptOption{{ID: "y", Label: "Yes"}}}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("requests\n%+v\nwant\n%+v", got, want)
+	}
+	if s.PendingUserInputs[0].Questions[0].Prompt != "Use hunter2?" {
+		t.Error("Requests changed the snapshot")
+	}
+}
+
+// TestChatAnswers answers a fake chat's approval and question from a
+// paired phone; the first answer wins.
+func TestChatAnswers(t *testing.T) {
+	s, _ := newServer(t)
+	pending := map[string]bool{"r1": true, "i1": true}
+	var got []string
+	take := func(chat, request string) error {
+		if chat != "c" || !pending[request] {
+			return errors.New("the request is no longer pending")
+		}
+		delete(pending, request)
+		return nil
+	}
+	s.Approve = func(chat, request, decision, reason, by string) error {
+		got = append(got, strings.Join([]string{request, decision, reason, by}, " "))
+		return take(chat, request)
+	}
+	s.AnswerInput = func(chat, request string, answers map[string][]string) error {
+		got = append(got, request+" "+strings.Join(answers["q"], ","))
+		return take(chat, request)
+	}
+	h := s.Handler()
+	if st, _ := call(t, h, "POST", "/api/approve", "", `{"chat":"c","request":"r1","decision":"allow"}`); st != 401 || got != nil {
+		t.Fatalf("no token: %d %v", st, got)
+	}
+	token := pairDevice(t, s, h, "pixel")
+	if st, _ := call(t, h, "POST", "/api/approve", token, `{"chat":"c","decision":"allow"}`); st != 400 || got != nil {
+		t.Fatalf("no request named: %d %v", st, got)
+	}
+	if st, body := call(t, h, "POST", "/api/approve", token, `{"chat":"c","request":"r1","decision":"deny","reason":"not now"}`); st != 200 {
+		t.Fatalf("deny: %d %s", st, body)
+	}
+	if st, body := call(t, h, "POST", "/api/approve", token, `{"chat":"c","request":"r1","decision":"allow"}`); st != 409 || !strings.Contains(body, "no longer pending") {
+		t.Fatalf("second answer: %d %s", st, body)
+	}
+	if st, body := call(t, h, "POST", "/api/input", token, `{"chat":"c","request":"i1","answers":{"q":["Continue"]}}`); st != 200 {
+		t.Fatalf("input: %d %s", st, body)
+	}
+	want := []string{"r1 deny not now phone:pixel", "r1 allow  phone:pixel", "i1 Continue"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("answers %q, want %q", got, want)
 	}
 }

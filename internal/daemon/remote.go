@@ -14,6 +14,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -135,15 +136,51 @@ func (d *Daemon) serveRemote(s phone) (stop func()) {
 // remoteServer is the phone page over this daemon's state and panes.
 func (d *Daemon) remoteServer() *remote.Server {
 	return &remote.Server{
-		Dir: d.o.RemoteDir,
-		Items: func() []remote.Item {
-			d.mu.Lock()
-			defer d.mu.Unlock()
-			return remote.Items(d.st)
-		},
-		Answer: d.remoteAnswer,
-		Reply:  d.remoteReply,
+		Dir:         d.o.RemoteDir,
+		Items:       d.remoteItems,
+		Answer:      d.remoteAnswer,
+		Reply:       d.remoteReply,
+		Approve:     d.remoteApprove,
+		AnswerInput: d.remoteInput,
 	}
+}
+
+// remoteItems is what the phone page lists, with each chat's pending
+// requests read from its loop once d.mu is free.
+func (d *Daemon) remoteItems() []remote.Item {
+	d.mu.Lock()
+	items := remote.Items(d.st)
+	secrets := d.dec.cur.Secrets
+	chats := make([]*chat, len(items))
+	for i, it := range items {
+		chats[i] = d.chats[it.Pane]
+	}
+	d.mu.Unlock()
+	redact := func(s string) string { return decide.Redact(s, secrets...) }
+	for i, c := range chats {
+		if c != nil {
+			c.run(func() { items[i].Requests = remote.Requests(c.snap, redact) })
+		}
+	}
+	return items
+}
+
+// remoteApprove and remoteInput send the phone's answer to a chat as the
+// GUI's go, so the first answer wins and every client sees it resolved.
+func (d *Daemon) remoteApprove(chat, request, decision, reason, by string) error {
+	return chatRefusal(d.chatRequest(context.Background(), proto.ChatApprove{Chat: chat, Request: request, Decision: decision, Reason: reason, By: by}))
+}
+
+func (d *Daemon) remoteInput(chat, request string, answers map[string][]string) error {
+	return chatRefusal(d.chatRequest(context.Background(), proto.ChatAnswer{Chat: chat, Request: request, Answers: answers}))
+}
+
+// chatRefusal is the error in chatRequest's reply, nil when it worked.
+func chatRefusal(reply any, _ bool) error {
+	if r, ok := reply.(proto.ChatResult); ok && r.Code != "" {
+		return errors.New(r.Message)
+	}
+	return nil
 }
 
 // waiting returns pane and its activity while that activity is still the

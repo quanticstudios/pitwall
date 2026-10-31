@@ -84,7 +84,7 @@ function card(it) {
   const top = el('div', 'top');
   top.append(el('span', 'pill ' + it.state, it.label), el('span', 'tab', it.tab || 'Tab'));
   c.append(top, el('div', 'where', [agents[it.agent] || it.agent, it.session].filter(Boolean).join(' · ')));
-  if (it.detail) c.append(el('p', 'detail', it.detail));
+  if (it.detail && !it.requests) c.append(el('p', 'detail', it.detail));
   if (it.risk || it.advice) {
     const f = el('div', 'flags');
     if (it.risk) f.append(el('span', 'risk', 'Risk: ' + it.risk));
@@ -126,15 +126,98 @@ function card(it) {
     row.append(text, send);
     c.append(row);
   }
+  (it.requests || []).forEach((r) => c.append(request(it.pane, r, done, failed)));
   c.append(note);
   return c;
+}
+
+// request is a chat's pending approval, plan or question, answered by its id.
+function request(chat, r, done, failed) {
+  const box = el('div', 'request');
+  if (r.tool || r.command) box.append(el('pre', 'command', [r.tool, r.command].filter(Boolean).join(': ')));
+  if (r.path) box.append(el('div', 'where', r.path));
+  if (r.detail) box.append(el('p', 'detail', r.detail));
+  const buttons = [];
+  const lock = (on) => buttons.forEach((b) => { b.disabled = on; });
+  if (r.kind === 'input') {
+    const picks = (r.questions || []).map((q) => {
+      box.append(el('p', 'detail', q.prompt || q.header || ''));
+      const pick = { id: q.id, label: '' };
+      if (q.options && q.options.length) {
+        const row = el('div', 'row wrap');
+        q.options.forEach((o) => {
+          const b = el('button', '', o.label);
+          if (o.description) b.title = o.description;
+          b.onclick = () => { pick.label = o.label; row.querySelectorAll('button').forEach((x) => x.classList.toggle('allow', x === b)); };
+          buttons.push(b);
+          row.append(b);
+        });
+        box.append(row);
+      }
+      pick.text = el('textarea');
+      pick.text.rows = 1;
+      pick.text.placeholder = q.options && q.options.length ? 'Or type an answer' : 'Answer';
+      pick.text.setAttribute('aria-label', pick.text.placeholder);
+      const typed = el('div', 'row');
+      typed.append(pick.text);
+      box.append(typed);
+      return pick;
+    });
+    const send = el('button', 'send allow', 'Send');
+    buttons.push(send);
+    send.onclick = () => {
+      const answers = {};
+      for (const p of picks) {
+        const v = p.text.value.trim() || p.label;
+        if (!v) { failed(new Error('Answer every question.')); return; }
+        answers[p.id] = [v];
+      }
+      lock(true);
+      api('/api/input', { chat, request: r.id, answers })
+        .then(() => done('Sent.'))
+        .catch((e) => { lock(false); failed(e); });
+    };
+    const row = el('div', 'row');
+    row.append(send);
+    box.append(row);
+    return box;
+  }
+  const reason = el('textarea');
+  reason.rows = 1;
+  reason.placeholder = 'Reason to deny (optional)';
+  reason.setAttribute('aria-label', reason.placeholder);
+  const answer = (decision, msg) => {
+    lock(true);
+    api('/api/approve', { chat, request: r.id, decision, reason: decision === 'deny' ? reason.value.trim() : '' })
+      .then(() => done(msg))
+      .catch((e) => { lock(false); failed(e); });
+  };
+  const row = el('div', 'row wrap');
+  const allow = el('button', 'allow', r.kind === 'plan' ? 'Approve plan' : 'Allow');
+  allow.onclick = () => answer('allow', 'Allowed.');
+  buttons.push(allow);
+  row.append(allow);
+  if (r.kind !== 'plan') {
+    const session = el('button', '', 'Allow for session');
+    session.onclick = () => answer('allow-session', 'Allowed for this session.');
+    buttons.push(session);
+    row.append(session);
+  }
+  const deny = el('button', '', r.kind === 'plan' ? 'Keep planning' : 'Deny');
+  deny.onclick = () => answer('deny', 'Denied.');
+  buttons.push(deny);
+  row.append(deny);
+  const why = el('div', 'row');
+  why.append(reason);
+  box.append(row, why);
+  return box;
 }
 
 // why: an unchanged item keeps its card, so a reply being typed survives a refresh.
 function render(items, device) {
   const keep = new Map();
   const want = items.map((it) => {
-    const k = [it.pane, it.at, it.risk, it.advice].join('|');
+    const k = [it.pane, it.at, it.risk, it.advice, (it.requests || []).map((r) => r.id)].join('|');
     const c = cards.get(k) || card(it);
     keep.set(k, c);
     return c;

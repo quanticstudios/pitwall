@@ -16,6 +16,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/fake"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -58,7 +60,14 @@ func remoteDaemon(t *testing.T) (*Daemon, *fakes, func(method, path, body string
 			t.Fatal(err)
 		}
 	}
-	code, err := remote.Pair(o.RemoteDir, "pixel", time.Now())
+	return d, f, pairPhone(t, d)
+}
+
+// pairPhone pairs a device called pixel with d's phone page and returns
+// what calls the page with its token.
+func pairPhone(t *testing.T, d *Daemon) func(method, path, body string) (int, string) {
+	t.Helper()
+	code, err := remote.Pair(d.o.RemoteDir, "pixel", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +86,7 @@ func remoteDaemon(t *testing.T) (*Daemon, *fakes, func(method, path, body string
 		t.Fatalf("pair: %d %s", st, body)
 	}
 	token = pr.Token
-	return d, f, do
+	return do
 }
 
 // gotAfter waits for pane p's input past its first n bytes to be want
@@ -288,4 +297,107 @@ func TestPushLoop(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no push for a new approval")
 	}
+}
+
+// TestRemoteChat answers a fake Claude's approval and question from a
+// paired phone: each turn goes on, a second answer and the GUI's get
+// conflict, and the approval pushes as a pane's would.
+func TestRemoteChat(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, sock, stop := runDaemon(t, f, func(o *Options) {
+		o.RemoteDir = t.TempDir()
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: fake.New(fake.Options{})}
+	})
+	defer stop()
+	do := pairPhone(t, d)
+	pushed := make(chan *http.Request, 10)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pushed <- r
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	ua, _ := ecdh.P256().GenerateKey(nil)
+	sub, _ := json.Marshal(remote.Subscription{Endpoint: srv.URL + "/p", Keys: remote.PushKeys{
+		P256dh: base64.RawURLEncoding.EncodeToString(ua.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(make([]byte, 16))}})
+	if st, body := do("POST", "/api/push", string(sub)); st != 200 {
+		t.Fatalf("subscribe: %d %s", st, body)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { d.pushLoop(ctx, &remote.Pusher{Dir: d.o.RemoteDir, Client: srv.Client()}); close(done) }()
+	defer func() { cancel(); <-done }()
+	for start := time.Now(); time.Since(start) < 2*time.Second; time.Sleep(time.Millisecond) {
+		d.mu.Lock()
+		running := d.pushWake != nil
+		d.mu.Unlock()
+		if running {
+			break
+		}
+	}
+
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
+	// waitRequest waits for chat's item to list one request, and returns it.
+	waitRequest := func(chat string) remote.Request {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if got, _ := items(t, do); len(got[chat].Requests) == 1 {
+				return got[chat].Requests[0]
+			}
+		}
+		t.Fatalf("chat %s lists no request", chat)
+		return remote.Request{}
+	}
+	waitTurn := func(chat string) {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			var s session.Snapshot
+			json.Unmarshal(chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: chat}).Snapshot, &s)
+			if len(s.PendingApprovals)+len(s.PendingUserInputs) == 0 && len(s.Turns) == 1 && s.Turns[0].State == session.TurnCompleted {
+				return
+			}
+		}
+		t.Fatalf("chat %s: the turn did not finish", chat)
+	}
+
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Prompt: "approval"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	req := waitRequest(r.Chat)
+	if req.Kind != "approval" || req.Tool != "Bash" || req.Command != "rm -rf build && bun run build" {
+		t.Fatalf("approval %+v", req)
+	}
+	select {
+	case p := <-pushed:
+		if p.Header.Get("Urgency") != "high" {
+			t.Fatalf("push headers %v", p.Header)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no push for the chat's approval")
+	}
+	body := fmt.Sprintf(`{"chat":%q,"request":%q,"decision":"allow"}`, r.Chat, req.ID)
+	if st, out := do("POST", "/api/approve", body); st != 200 {
+		t.Fatalf("approve: %d %s", st, out)
+	}
+	if st, out := do("POST", "/api/approve", body); st != http.StatusConflict {
+		t.Fatalf("second approve: %d %s", st, out)
+	}
+	if res := chatCall[proto.ChatResult](gui, proto.ChatApprove{Chat: r.Chat, Request: req.ID, Decision: "deny", By: "gui"}); res.Code != "conflict" {
+		t.Fatalf("the GUI's late answer: %+v", res)
+	}
+	waitTurn(r.Chat)
+
+	r = chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Prompt: "input"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	req = waitRequest(r.Chat)
+	if req.Kind != "input" || len(req.Questions) != 1 || req.Questions[0].Options[0].Label != "Continue" {
+		t.Fatalf("input %+v", req)
+	}
+	body = fmt.Sprintf(`{"chat":%q,"request":%q,"answers":{%q:["Continue"]}}`, r.Chat, req.ID, req.Questions[0].ID)
+	if st, out := do("POST", "/api/input", body); st != 200 {
+		t.Fatalf("answer: %d %s", st, out)
+	}
+	waitTurn(r.Chat)
 }
