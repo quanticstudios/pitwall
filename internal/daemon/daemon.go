@@ -137,6 +137,9 @@ type Options struct {
 	// SendReviewOnRequest reads [git] send_review_on_request; nil means off.
 	SendReviewOnRequest func() bool
 	Reviews             func(context.Context, string, int) ([]forge.Thread, []forge.Comment, error)
+	// Merge merges pull request number at dir by [git] merge_method, for
+	// the web's mergePR (forge.Merge); nil answers unsupported.
+	Merge func(ctx context.Context, dir string, number int) error
 	// Fleet reads config.toml for [fleet] and the presets its lanes name;
 	// nil leaves fleet mode off. DiffStat is a branch's changes for the
 	// brief of a worker respawned on the big lane; nil leaves them out.
@@ -326,6 +329,10 @@ func Defaults() Options {
 
 		SendReviewOnRequest: func() bool { s, _ := config.Load(); return s.SendReviewOnRequest },
 		Reviews:             forge.Reviews,
+		Merge: func(ctx context.Context, dir string, number int) error {
+			s, _ := config.Load()
+			return forge.Merge(ctx, dir, number, s.MergeMethod)
+		},
 
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)

@@ -260,3 +260,23 @@ func TestChangeRequests(t *testing.T) {
 		}
 	}
 }
+
+// TestMerge runs a fake gh that must be asked to merge the number by the
+// method, in the branch's folder.
+func TestMerge(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh is a shell script")
+	}
+	bin, dir := t.TempDir(), t.TempDir()
+	script := "#!/bin/sh\n[ \"$*\" = 'pr merge 41 --rebase' ] && [ \"$(pwd -P)\" = '" + must(filepath.EvalSymlinks(dir)) + "' ] || { echo \"bad call: $*\" >&2; exit 1; }\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := Merge(context.Background(), dir, 41, "rebase"); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if err := Merge(context.Background(), dir, 41, "squash"); err == nil || !strings.Contains(err.Error(), "bad call: pr merge 41 --squash") {
+		t.Fatalf("Merge by squash: %v, want gh's words", err)
+	}
+}

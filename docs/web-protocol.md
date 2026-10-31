@@ -14,7 +14,8 @@ every `json` example in this file.
 
 Who builds it: ENG-2694 the listener, the token file and the handshake;
 ENG-2695 subscriptions, resync and backpressure; ENG-2696 the commands;
-ENG-2698 conformance fixtures; ENG-2700 aide's WebSocket transport.
+ENG-2698 conformance fixtures; ENG-2700 aide's WebSocket transport;
+ENG-2708 pull requests.
 
 ## Contents
 
@@ -25,6 +26,7 @@ ENG-2698 conformance fixtures; ENG-2700 aide's WebSocket transport.
 - [Resync](#resync)
 - [Backpressure](#backpressure)
 - [Commands](#commands)
+- [Pull requests](#pull-requests)
 - [Results and errors](#results)
 - [aide's SessionTransport](#transport)
 - [Versioning](#versioning)
@@ -91,7 +93,7 @@ for logs only.
 The server answers with `welcome`:
 
 ```json
-{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees"]}
+{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees", "reviewThreads", "prPrompt", "mergePR"]}
 ```
 
 `capabilities` lists every command type this server accepts. A command
@@ -152,6 +154,7 @@ Go fields in camelCase; ENG-2684 gives `model.Chat` these JSON tags.
 | `turns` | turns so far |
 | `seq` | the seq of the chat's latest delta |
 | `updatedAt` | RFC 3339 |
+| `pr` | the [pull request](#pull-requests) of the tab's branch; left out when it has none |
 
 `subscribeSessions` gets the whole list at once, then changes:
 
@@ -329,6 +332,9 @@ CLI only.
 | `listProjects` | the daemon's `State` | `projects` |
 | `listWorktrees` | `gitstat.ListWorktrees` | `worktrees` |
 | `readUsage` | `internal/flow`, as Settings, Usage reads it | `usage` |
+| `reviewThreads` | the window's Send review comments, without the send | `threads`, `changeRequests` |
+| `prPrompt` | Send failures or Send review comments, without the send | `text` |
+| `mergePR` | the merge dialog's `gh pr merge` | none |
 
 ### start
 
@@ -522,6 +528,75 @@ are sent either way: `showCost` is `[usage] show_cost`, and a client shows
 them only when it is on. A server without the scan leaves `readUsage` out
 of `capabilities`.
 
+<a id="pull-requests"></a>
+## Pull requests
+
+pitwall already polls the pull request of every tab's branch (`forge.View`,
+backing off as `forge.Next` says). Each chat's list entry carries its
+tab's as `pr`, so a client sees checks and reviews change through
+`sessionsChanged` and never calls GitHub itself:
+
+```json
+{"type": "sessionsChanged", "changed": [{"id": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "workspaceId": "a1b2c3d4e5f60718", "provider": "claude", "model": "", "effort": "", "mode": "default", "title": "Fix the flaky resize test", "state": "ready", "pending": 0, "queued": 0, "turns": 4, "seq": 498, "updatedAt": "2026-10-30T09:31:02.418Z", "pr": {"number": 241, "state": "open", "draft": false, "url": "https://github.com/quanticstudios/pitwall/pull/241", "review": "changes", "checks": [{"name": "linux", "state": "fail"}, {"name": "other (macos-latest)", "state": "pass"}], "conflicts": false, "head": "eb7213d2f00d4e1c", "reason": "checks_failing", "detail": "linux failing"}}], "removed": []}
+```
+
+`state` is `open`, `merged` or `closed`; `review` is `""`, `required`,
+`approved` or `changes`; a check's `state` is `pending`, `pass`, `fail`,
+`skip` or `""`; `reason` and `detail` are why it is not ready to merge,
+as the sidebar's PR row says it. Tabs on one branch in one folder share
+one pull request.
+
+The commands below name the chat; pitwall acts on its tab's pull request,
+and answers `not-found` when the tab's branch has none. They call `gh`, so
+they can take seconds, and later commands on the connection do not wait
+for them. A failed `gh` answers `forge`.
+
+### reviewThreads
+
+```json
+{"type": "reviewThreads", "id": "21", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a"}
+```
+
+```json
+{"type": "result", "id": "21", "ok": true, "data": {"threads": [{"path": "internal/pane/pane_test.go", "line": 88, "comments": [{"author": "octocat", "body": "This sleep is the flake."}], "more": 0}], "changeRequests": [{"author": "octocat", "body": "Wait on the resize event instead."}]}}
+```
+
+`threads` are the unresolved review threads; `line` is the line on the
+branch's version of the file, the line it was on when GitHub lost it, or 0
+for a comment on the whole file. `more` counts the comments past the first
+50. `changeRequests` are the standing change requests that have text.
+
+### prPrompt
+
+```json
+{"type": "prPrompt", "id": "22", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "what": "failures"}
+```
+
+```json
+{"type": "result", "id": "22", "ok": true, "data": {"text": "These checks failed on pull request #241:\n- linux: https://github.com/quanticstudios/pitwall/actions/runs/1/job/2 (no log)\n\nFix these and push."}}
+```
+
+`what` is `failures` (Send failures to agent) or `review` (Send review
+comments to agent). `text` is the message those send, capped at 30 KiB
+(`forge.MaxPrompt`), and `""` when there is nothing to send. The client
+sends it with `send`, or starts a chat with it as `prompt`; pitwall's
+`[git] send_failures_on_fail` still only reaches agent panes.
+
+### mergePR
+
+```json
+{"type": "mergePR", "id": "23", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a"}
+```
+
+```json
+{"type": "result", "id": "23", "ok": true}
+```
+
+It runs `gh pr merge <number> --<[git] merge_method>` in the tab's folder
+and polls the pull request again at once, so the list shows it merged. It
+answers `conflict` when the pull request is not open. Confirming is the
+client's, as pitwall's merge dialog is.
+
 <a id="results"></a>
 ## Results and errors
 
@@ -536,6 +611,7 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 | `unsupported` | this provider cannot, or this server does not know the command |
 | `provider` | the provider refused; `message` has its words |
 | `invalid` | the command is malformed: a missing field, a bad value, too many attachments |
+| `forge` | `gh` failed; `message` has its words |
 
 A client treats a code it does not know as a failure with `message` to
 show.

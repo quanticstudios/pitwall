@@ -238,6 +238,9 @@ func (s *Server) capabilities() []string {
 	if s.Usage != nil {
 		out = append(out, "readUsage")
 	}
+	if _, ok := s.Chats.(Forge); ok {
+		out = append(out, forgeCommands...)
+	}
 	return out
 }
 
@@ -263,7 +266,7 @@ func (s *Server) serve(c *conn) error {
 			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame is not a JSON object"})
 		case f.ID == "":
 			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame has no id"})
-		case s.Chats != nil && (s.command(c, f.Type, f.ID, msg) || s.chatCommand(c, f.Type, f.ID, msg)):
+		case s.Chats != nil && (s.command(c, f.Type, f.ID, msg) || s.chatCommand(c, f.Type, f.ID, msg) || s.forgeCommand(c, f.Type, f.ID, msg)):
 		case s.usage(c, f.Type, f.ID, msg):
 		default:
 			c.reply(result(f.ID, "unsupported", fmt.Sprintf("pitwall does not serve %q yet", f.Type)))

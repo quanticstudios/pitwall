@@ -216,7 +216,7 @@ func (s *Server) unsubscribeAll(c *conn) {
 
 // writer writes c's queue until done closes or a write fails.
 func (s *Server) writer(c *conn, done <-chan struct{}) error {
-	var sent map[string]model.Chat // the list as the client has it
+	var sent map[string]listed // the list as the client has it
 	for {
 		c.mu.Lock()
 		for len(c.q) == 0 {
@@ -315,21 +315,19 @@ func (s *Server) base(c *conn, id string, after int64) []byte {
 // list is the frame that brings the client's list, *sent, up to date: the
 // whole list when full or the client has none, else what changed, or nil.
 // A change of Seq alone is not one: it moves with every delta.
-func (s *Server) list(sent *map[string]model.Chat, full bool) []byte {
-	chats := s.Chats.List()
+func (s *Server) list(sent *map[string]listed, full bool) []byte {
+	chats := s.entries(s.Chats.List())
 	old := *sent
-	*sent = make(map[string]model.Chat, len(chats))
+	*sent = make(map[string]listed, len(chats))
 	for _, ch := range chats {
 		(*sent)[ch.ID] = ch
 	}
 	if full || old == nil {
 		return mustJSON(map[string]any{"type": "sessions", "chats": nonNil(chats)})
 	}
-	changed, removed := []model.Chat{}, []string{}
+	changed, removed := []listed{}, []string{}
 	for _, ch := range chats {
-		was, ok := old[ch.ID]
-		was.Seq = ch.Seq
-		if !ok || was != ch {
+		if was, ok := old[ch.ID]; !ok || !same(was, ch) {
 			changed = append(changed, ch)
 		}
 	}
