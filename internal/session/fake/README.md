@@ -32,6 +32,8 @@ An empty mode works for both providers. Each runtime event may add:
 - `answers`: pause after opening an approval or input request. `{}` accepts
   any response. `{"allow": true}` checks a decision;
   `{"input": {"question-id": ["answer"]}}` checks input answers.
+- `queue`: keep replaying after a gated request, so several stay open at
+  once. Replay goes on once every open request has a response.
 - `repeat` and `events`: repeat an event group, substituting `${index}` or
   `${paddedIndex}`. This keeps 2,000-item transcripts small on disk.
 
@@ -52,7 +54,9 @@ subagent                 long transcript        long transcript wait
 perf-stream              stream-lines           stream-codex
 wait-claude              wait-codex             fail-claude
 fail-codex               edit readme            fail-start
-fleet plan               fleet consult
+fleet plan               fleet consult          three approvals
+empty reply              think-stream           tool kinds
+auth error               usage limit <unix seconds>
 ```
 
 `edit readme` appends `edited by the turn\n` to the chat's existing README.md,
@@ -60,6 +64,9 @@ as aide does. Fleet prompts reply with aide's text, but do not invoke fleet
 orchestration, which the managed-session spec excludes. `todos` emits a
 running call before the completed tasks so it exercises `plan.update`.
 `reasoning`, `limit`, and `error` add the ticket's other event cases.
+A deny with a reason replies `<provider> got the denial reason: <reason>`.
+`usage limit <unix seconds>` reports a five-hour limit that resets then and
+fails the turn, as aide's banner tests expect.
 
 `perf-stream` accepts aide's existing environment knobs, sampled at Start:
 `AIDE_FAKE_STREAM_TOKENS_PER_SECOND` (50), `AIDE_FAKE_STREAM_SECONDS` (150),

@@ -1,0 +1,11 @@
+{
+  "mode": "",
+  "prompt": "auth error",
+  "runtimeEvents": [
+    {
+      "type": "turn.completed",
+      "state": "failed",
+      "errorMessage": "Not logged in · Please run /login"
+    }
+  ]
+}

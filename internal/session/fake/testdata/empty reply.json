@@ -1,0 +1,10 @@
+{
+  "mode": "",
+  "prompt": "empty reply",
+  "runtimeEvents": [
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

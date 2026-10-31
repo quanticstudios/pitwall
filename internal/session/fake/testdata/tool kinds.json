@@ -1,0 +1,217 @@
+{
+  "mode": "",
+  "prompt": "tool kinds",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "fake-fail",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-fail",
+        "input": {
+          "command": "bun run lint"
+        },
+        "toolName": "Bash",
+        "status": "running",
+        "command": "bun run lint"
+      }
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-fail",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-fail",
+        "command": "bun run lint",
+        "exitCode": 1,
+        "input": {
+          "command": "bun run lint"
+        },
+        "output": "\u001b[31merror\u001b[0m README.md: missing title",
+        "status": "failed",
+        "toolName": "Bash"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-grep",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-grep",
+        "input": {
+          "path": ".",
+          "pattern": "before"
+        },
+        "toolName": "Grep",
+        "status": "running"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-grep",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-grep",
+        "input": {
+          "path": ".",
+          "pattern": "before"
+        },
+        "output": "README.md:1:before",
+        "status": "completed",
+        "toolName": "Grep"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-web",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-web",
+        "input": {
+          "query": "electron releases"
+        },
+        "toolName": "WebSearch",
+        "status": "running"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-web",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-web",
+        "input": {
+          "query": "electron releases"
+        },
+        "output": "Web search results for query: \"electron releases\"\n\nLinks: [{\"title\":\"Electron releases\",\"url\":\"https://releases.electronjs.org/\"}]",
+        "status": "completed",
+        "toolName": "WebSearch"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-task",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-task",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore",
+          "subagent_type": "Explore"
+        },
+        "toolName": "Task",
+        "status": "running"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-task",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-task",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore",
+          "subagent_type": "Explore"
+        },
+        "output": "Found the README.",
+        "status": "completed",
+        "toolName": "Task",
+        "subagentTools": [
+          "Read",
+          "Grep"
+        ]
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-mcp",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-mcp",
+        "input": {
+          "id": "ENG-1"
+        },
+        "toolName": "mcp__linear__get_issue",
+        "status": "running"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-mcp",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-mcp",
+        "input": {
+          "id": "ENG-1"
+        },
+        "output": "ENG-1: Example issue",
+        "status": "completed",
+        "toolName": "mcp__linear__get_issue"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-sleep",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-sleep",
+        "input": {
+          "command": "sleep 2"
+        },
+        "toolName": "Bash",
+        "status": "running",
+        "command": "sleep 2"
+      },
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "fake-sleep",
+      "kind": "tool-call",
+      "text": "",
+      "tool": {
+        "callId": "fake-sleep",
+        "command": "sleep 2",
+        "exitCode": 0,
+        "input": {
+          "command": "sleep 2"
+        },
+        "status": "completed",
+        "toolName": "Bash"
+      },
+      "delayMs": 2500
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "Ran every tool kind.",
+      "delayMs": 100
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

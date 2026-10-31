@@ -1,0 +1,233 @@
+{"prompt":"tool kinds","provider":"claude","scenario":"tool kinds",
+"runtimeEvents": [
+  {"type":"session.resume-id","createdAt":"2030-01-01T00:00:00.000Z","resumeId":"fake-test","version":"fake"},
+  {"type":"session.state.changed","createdAt":"2030-01-01T00:00:00.000Z","state":"ready"},
+  {"type":"turn.started","createdAt":"2030-01-01T00:00:00.000Z","turnId":"fake-test-turn-1"},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.000Z","itemId":"fake-test-turn-1/fake-fail","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-fail","command":"bun run lint","input":{"command":"bun run lint"},"status":"running","toolName":"Bash"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.100Z","itemId":"fake-test-turn-1/fake-fail","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-fail","command":"bun run lint","exitCode":1,"input":{"command":"bun run lint"},"output":"\u001b[31merror\u001b[0m README.md: missing title","status":"failed","toolName":"Bash"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.200Z","itemId":"fake-test-turn-1/fake-grep","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-grep","input":{"path":".","pattern":"before"},"status":"running","toolName":"Grep"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.300Z","itemId":"fake-test-turn-1/fake-grep","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-grep","input":{"path":".","pattern":"before"},"output":"README.md:1:before","status":"completed","toolName":"Grep"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.400Z","itemId":"fake-test-turn-1/fake-web","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-web","input":{"query":"electron releases"},"status":"running","toolName":"WebSearch"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.500Z","itemId":"fake-test-turn-1/fake-web","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-web","input":{"query":"electron releases"},"output":"Web search results for query: \"electron releases\"\n\nLinks: [{\"title\":\"Electron releases\",\"url\":\"https://releases.electronjs.org/\"}]","status":"completed","toolName":"WebSearch"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.600Z","itemId":"fake-test-turn-1/fake-task","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-task","input":{"description":"Explore the repo","prompt":"Explore","subagent_type":"Explore"},"status":"running","toolName":"Task"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.700Z","itemId":"fake-test-turn-1/fake-task","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-task","input":{"description":"Explore the repo","prompt":"Explore","subagent_type":"Explore"},"output":"Found the README.","status":"completed","subagentTools":["Read","Grep"],"toolName":"Task"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.800Z","itemId":"fake-test-turn-1/fake-mcp","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-mcp","input":{"id":"ENG-1"},"status":"running","toolName":"mcp__linear__get_issue"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.900Z","itemId":"fake-test-turn-1/fake-mcp","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-mcp","input":{"id":"ENG-1"},"output":"ENG-1: Example issue","status":"completed","toolName":"mcp__linear__get_issue"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:01.000Z","itemId":"fake-test-turn-1/fake-sleep","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-sleep","command":"sleep 2","input":{"command":"sleep 2"},"status":"running","toolName":"Bash"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:03.500Z","itemId":"fake-test-turn-1/fake-sleep","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-sleep","command":"sleep 2","exitCode":0,"input":{"command":"sleep 2"},"status":"completed","toolName":"Bash"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:03.600Z","itemId":"fake-test-turn-1/reply","kind":"assistant-text","text":"Ran every tool kind."},
+  {"type":"turn.completed","createdAt":"2030-01-01T00:00:03.600Z","state":"completed","turnId":"fake-test-turn-1","point":"fake-test-turn-1"},
+  {"type":"session.exited","createdAt":"2030-01-01T00:00:03.600Z","exitCode":0}
+],
+"deltas": [
+  {"version":1,"sessionId":"chat","seq":1,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z","type":"snapshot","snapshot":{"sessionId":"chat","paneId":"chat","workspaceId":"tab","provider":"claude","content":[],"turns":[],"pendingApprovals":[],"pendingUserInputs":[],"planApproval":null,"sessionState":"ready","running":false,"detail":null,"lastCompletedAt":null,"lastError":null,"lastErrorAt":null,"model":null,"effort":null,"serviceTier":null,"permissionMode":"default","interactionMode":"build","selectionNotice":null,"runtimeGeneration":0,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":2,"revision":2,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":3,"revision":3,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.add","item":{"attachments":[],"id":"prompt","kind":"user-prompt","provider":null,"text":"tool kinds","turnId":null,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
+  {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1/fake-fail","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-fail","command":"bun run lint","input":{"command":"bun run lint"},"startedAt":"2030-01-01T00:00:00.000Z","status":"running","toolName":"Bash"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":8,"revision":7,"updatedAt":"2030-01-01T00:00:00.100Z","type":"tool.output.append","itemId":"fake-test-turn-1/fake-fail","text":"\u001b[31merror\u001b[0m README.md: missing title","itemUpdatedAt":"2030-01-01T00:00:00.100Z"},
+  {"version":1,"sessionId":"chat","seq":9,"revision":7,"updatedAt":"2030-01-01T00:00:00.100Z","type":"tool.end","itemId":"fake-test-turn-1/fake-fail","status":"failed","exitCode":1,"startedAt":"2030-01-01T00:00:00.000Z","endedAt":"2030-01-01T00:00:00.100Z"},
+  {"version":1,"sessionId":"chat","seq":10,"revision":8,"updatedAt":"2030-01-01T00:00:00.200Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.200Z","id":"fake-test-turn-1/fake-grep","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-grep","input":{"path":".","pattern":"before"},"startedAt":"2030-01-01T00:00:00.200Z","status":"running","toolName":"Grep"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.200Z"}},
+  {"version":1,"sessionId":"chat","seq":11,"revision":9,"updatedAt":"2030-01-01T00:00:00.300Z","type":"tool.output.append","itemId":"fake-test-turn-1/fake-grep","text":"README.md:1:before","itemUpdatedAt":"2030-01-01T00:00:00.300Z"},
+  {"version":1,"sessionId":"chat","seq":12,"revision":9,"updatedAt":"2030-01-01T00:00:00.300Z","type":"tool.end","itemId":"fake-test-turn-1/fake-grep","status":"completed","startedAt":"2030-01-01T00:00:00.200Z","endedAt":"2030-01-01T00:00:00.300Z"},
+  {"version":1,"sessionId":"chat","seq":13,"revision":10,"updatedAt":"2030-01-01T00:00:00.400Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.400Z","id":"fake-test-turn-1/fake-web","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-web","input":{"query":"electron releases"},"startedAt":"2030-01-01T00:00:00.400Z","status":"running","toolName":"WebSearch"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.400Z"}},
+  {"version":1,"sessionId":"chat","seq":14,"revision":11,"updatedAt":"2030-01-01T00:00:00.500Z","type":"tool.output.append","itemId":"fake-test-turn-1/fake-web","text":"Web search results for query: \"electron releases\"\n\nLinks: [{\"title\":\"Electron releases\",\"url\":\"https://releases.electronjs.org/\"}]","itemUpdatedAt":"2030-01-01T00:00:00.500Z"},
+  {"version":1,"sessionId":"chat","seq":15,"revision":11,"updatedAt":"2030-01-01T00:00:00.500Z","type":"tool.end","itemId":"fake-test-turn-1/fake-web","status":"completed","startedAt":"2030-01-01T00:00:00.400Z","endedAt":"2030-01-01T00:00:00.500Z"},
+  {"version":1,"sessionId":"chat","seq":16,"revision":12,"updatedAt":"2030-01-01T00:00:00.600Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.600Z","id":"fake-test-turn-1/fake-task","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-task","input":{"description":"Explore the repo","prompt":"Explore","subagent_type":"Explore"},"startedAt":"2030-01-01T00:00:00.600Z","status":"running","toolName":"Task"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.600Z"}},
+  {"version":1,"sessionId":"chat","seq":17,"revision":13,"updatedAt":"2030-01-01T00:00:00.700Z","type":"item.patch","itemId":"fake-test-turn-1/fake-task","patch":{"tool":{"callId":"fake-test-turn-1/fake-task","endedAt":"2030-01-01T00:00:00.700Z","input":{"description":"Explore the repo","prompt":"Explore","subagent_type":"Explore"},"output":"Found the README.","startedAt":"2030-01-01T00:00:00.600Z","status":"completed","subagentTools":["Read","Grep"],"toolName":"Task"},"updatedAt":"2030-01-01T00:00:00.700Z"}},
+  {"version":1,"sessionId":"chat","seq":18,"revision":14,"updatedAt":"2030-01-01T00:00:00.800Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.800Z","id":"fake-test-turn-1/fake-mcp","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-mcp","input":{"id":"ENG-1"},"startedAt":"2030-01-01T00:00:00.800Z","status":"running","toolName":"mcp__linear__get_issue"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.800Z"}},
+  {"version":1,"sessionId":"chat","seq":19,"revision":15,"updatedAt":"2030-01-01T00:00:00.900Z","type":"tool.output.append","itemId":"fake-test-turn-1/fake-mcp","text":"ENG-1: Example issue","itemUpdatedAt":"2030-01-01T00:00:00.900Z"},
+  {"version":1,"sessionId":"chat","seq":20,"revision":15,"updatedAt":"2030-01-01T00:00:00.900Z","type":"tool.end","itemId":"fake-test-turn-1/fake-mcp","status":"completed","startedAt":"2030-01-01T00:00:00.800Z","endedAt":"2030-01-01T00:00:00.900Z"},
+  {"version":1,"sessionId":"chat","seq":21,"revision":16,"updatedAt":"2030-01-01T00:00:01.000Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:01.000Z","id":"fake-test-turn-1/fake-sleep","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-sleep","command":"sleep 2","input":{"command":"sleep 2"},"startedAt":"2030-01-01T00:00:01.000Z","status":"running","toolName":"Bash"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:01.000Z"}},
+  {"version":1,"sessionId":"chat","seq":22,"revision":17,"updatedAt":"2030-01-01T00:00:03.500Z","type":"tool.end","itemId":"fake-test-turn-1/fake-sleep","status":"completed","exitCode":0,"startedAt":"2030-01-01T00:00:01.000Z","endedAt":"2030-01-01T00:00:03.500Z"},
+  {"version":1,"sessionId":"chat","seq":23,"revision":18,"updatedAt":"2030-01-01T00:00:03.600Z","type":"item.add","item":{"createdAt":"2030-01-01T00:00:03.600Z","id":"fake-test-turn-1/reply","kind":"assistant-text","provider":"claude","text":"Ran every tool kind.","turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:03.600Z"}},
+  {"version":1,"sessionId":"chat","seq":24,"revision":19,"updatedAt":"2030-01-01T00:00:03.600Z","type":"turn","turn":{"completedAt":"2030-01-01T00:00:03.600Z","id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"completed"}},
+  {"version":1,"sessionId":"chat","seq":25,"revision":19,"updatedAt":"2030-01-01T00:00:03.600Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":"2030-01-01T00:00:03.600Z"},
+  {"version":1,"sessionId":"chat","seq":26,"revision":20,"updatedAt":"2030-01-01T00:00:03.600Z","type":"status","status":"interrupted","sessionState":"stopped","running":false,"detail":null,"lastCompletedAt":"2030-01-01T00:00:03.600Z"}
+],
+"snapshot": {
+  "sessionId": "chat",
+  "paneId": "chat",
+  "workspaceId": "tab",
+  "provider": "claude",
+  "content": [
+    {
+      "attachments": [],
+      "id": "prompt",
+      "kind": "user-prompt",
+      "provider": null,
+      "text": "tool kinds",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.000Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.000Z",
+      "id": "fake-test-turn-1/fake-fail",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-fail",
+        "command": "bun run lint",
+        "endedAt": "2030-01-01T00:00:00.100Z",
+        "exitCode": 1,
+        "input": {
+          "command": "bun run lint"
+        },
+        "output": "\u001b[31merror\u001b[0m README.md: missing title",
+        "startedAt": "2030-01-01T00:00:00.000Z",
+        "status": "failed",
+        "toolName": "Bash"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.100Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.200Z",
+      "id": "fake-test-turn-1/fake-grep",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-grep",
+        "endedAt": "2030-01-01T00:00:00.300Z",
+        "input": {
+          "path": ".",
+          "pattern": "before"
+        },
+        "output": "README.md:1:before",
+        "startedAt": "2030-01-01T00:00:00.200Z",
+        "status": "completed",
+        "toolName": "Grep"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.300Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.400Z",
+      "id": "fake-test-turn-1/fake-web",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-web",
+        "endedAt": "2030-01-01T00:00:00.500Z",
+        "input": {
+          "query": "electron releases"
+        },
+        "output": "Web search results for query: \"electron releases\"\n\nLinks: [{\"title\":\"Electron releases\",\"url\":\"https://releases.electronjs.org/\"}]",
+        "startedAt": "2030-01-01T00:00:00.400Z",
+        "status": "completed",
+        "toolName": "WebSearch"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.500Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.600Z",
+      "id": "fake-test-turn-1/fake-task",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-task",
+        "endedAt": "2030-01-01T00:00:00.700Z",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore",
+          "subagent_type": "Explore"
+        },
+        "output": "Found the README.",
+        "startedAt": "2030-01-01T00:00:00.600Z",
+        "status": "completed",
+        "subagentTools": [
+          "Read",
+          "Grep"
+        ],
+        "toolName": "Task"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.700Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.800Z",
+      "id": "fake-test-turn-1/fake-mcp",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-mcp",
+        "endedAt": "2030-01-01T00:00:00.900Z",
+        "input": {
+          "id": "ENG-1"
+        },
+        "output": "ENG-1: Example issue",
+        "startedAt": "2030-01-01T00:00:00.800Z",
+        "status": "completed",
+        "toolName": "mcp__linear__get_issue"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.900Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:01.000Z",
+      "id": "fake-test-turn-1/fake-sleep",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-sleep",
+        "command": "sleep 2",
+        "endedAt": "2030-01-01T00:00:03.500Z",
+        "exitCode": 0,
+        "input": {
+          "command": "sleep 2"
+        },
+        "startedAt": "2030-01-01T00:00:01.000Z",
+        "status": "completed",
+        "toolName": "Bash"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:03.500Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:03.600Z",
+      "id": "fake-test-turn-1/reply",
+      "kind": "assistant-text",
+      "provider": "claude",
+      "text": "Ran every tool kind.",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:03.600Z"
+    }
+  ],
+  "turns": [
+    {
+      "completedAt": "2030-01-01T00:00:03.600Z",
+      "id": "fake-test-turn-1",
+      "provider": "claude",
+      "startedAt": "2030-01-01T00:00:00.000Z",
+      "state": "completed"
+    }
+  ],
+  "pendingApprovals": [],
+  "pendingUserInputs": [],
+  "planApproval": null,
+  "sessionState": "stopped",
+  "running": false,
+  "detail": null,
+  "lastCompletedAt": "2030-01-01T00:00:03.600Z",
+  "lastError": null,
+  "lastErrorAt": null,
+  "model": null,
+  "effort": null,
+  "serviceTier": null,
+  "permissionMode": "default",
+  "interactionMode": "build",
+  "selectionNotice": null,
+  "runtimeGeneration": 0,
+  "revision": 20,
+  "updatedAt": "2030-01-01T00:00:03.600Z"
+}
+}

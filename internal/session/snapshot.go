@@ -153,7 +153,9 @@ type ToolCall struct {
 	StartedAt string          `json:"startedAt,omitempty"` // set by tool.end
 	Status    string          `json:"status"`              // running, completed, failed
 	Tasks     []Task          `json:"tasks,omitzero"`      // task-list calls only
-	ToolName  string          `json:"toolName"`
+	// SubagentTools names the calls a Task's subagent made, in order.
+	SubagentTools []string `json:"subagentTools,omitzero"`
+	ToolName      string   `json:"toolName"`
 }
 
 type ToolFile struct {

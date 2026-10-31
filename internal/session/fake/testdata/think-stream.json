@@ -1,0 +1,227 @@
+{
+  "mode": "",
+  "prompt": "think-stream",
+  "runtimeEvents": [
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 0 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 1 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 2 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 3 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 4 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 5 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 6 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 7 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 8 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 9 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 10 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 11 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 12 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 13 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 14 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "\n\nChecking the latest idea. ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 16 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 17 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 18 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 19 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 20 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 21 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 22 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 23 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 24 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 25 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 26 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 27 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 28 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "thinking",
+      "kind": "reasoning-text",
+      "text": "step 29 ",
+      "delayMs": 100
+    },
+    {
+      "type": "content.delta",
+      "itemId": "reply",
+      "kind": "assistant-text",
+      "text": "Done thinking.",
+      "delayMs": 100
+    },
+    {
+      "type": "turn.completed",
+      "state": "completed"
+    }
+  ]
+}

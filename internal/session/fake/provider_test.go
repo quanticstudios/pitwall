@@ -56,7 +56,7 @@ func start(t *testing.T, cfg session.Config, o Options) (session.Driver, chan se
 }
 
 // Keep this explicit: adding a scenario to aide requires adding it here too.
-var aideScenarios = []string{"approval", "edit approval", "plan approval", "input", "tools", "long transcript", "long transcript wait", "todos", "subagent", "perf-stream", "wait-claude", "wait-codex", "fail-claude", "fail-codex", "edit readme", "stream-lines", "stream-codex", "fail-start", "fleet plan", "fleet consult"}
+var aideScenarios = []string{"approval", "edit approval", "plan approval", "input", "tools", "long transcript", "long transcript wait", "todos", "subagent", "perf-stream", "wait-claude", "wait-codex", "fail-claude", "fail-codex", "edit readme", "stream-lines", "stream-codex", "fail-start", "fleet plan", "fleet consult", "three approvals", "empty reply", "think-stream", "tool kinds", "auth error"}
 
 func TestAideScenarioNames(t *testing.T) {
 	for _, name := range aideScenarios {
@@ -176,6 +176,9 @@ func TestReplayContentsAndTiming(t *testing.T) {
 		{"long transcript", 2000, 0, "Step 999 line 3: checked the next file."},
 		{"subagent", 5, 400 * time.Millisecond, "The subagent finished exploring."},
 		{"tools", 7, 400 * time.Millisecond, "Ran three tools."},
+		{"tool kinds", 13, 3600 * time.Millisecond, "Ran every tool kind."},
+		{"think-stream", 31, 3100 * time.Millisecond, "step 14 \n\nChecking the latest idea. step 16"},
+		{"empty reply", 0, 0, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			events := replay(t, tc.name, model.ProviderCodex)
@@ -453,5 +456,61 @@ func TestStartOriginAndIDUniqueness(t *testing.T) {
 	}
 	if _, err := New(Options{ScriptName: "no-such-script"}).Start(context.Background(), session.Config{Provider: model.ProviderCodex}, session.Origin{}, func(session.Event) {}); err == nil {
 		t.Fatal("accepted missing script")
+	}
+}
+
+func TestQueuedApprovalsDenialReasonAndUsageLimit(t *testing.T) {
+	d, ch := start(t, session.Config{ID: "chat", Provider: model.ProviderClaude, Cwd: t.TempDir()}, testOptions())
+	receive(t, ch)
+	receive(t, ch)
+	if _, err := d.Send(context.Background(), session.Message{Text: "three approvals"}); err != nil {
+		t.Fatal(err)
+	}
+	receive(t, ch) // turn.started
+	var open []string
+	for range 3 {
+		e := receive(t, ch)
+		if e.Type != session.EventRequestOpened {
+			t.Fatalf("got %s, want all three requests open before any response", e.Type)
+		}
+		open = append(open, e.RequestID)
+	}
+	if err := d.Approve(context.Background(), open[0], session.Decision{Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if e := receive(t, ch); e.Type != session.EventRequestResolved || e.RequestID != open[0] {
+		t.Fatalf("got %+v", e)
+	}
+	if err := d.Approve(context.Background(), open[1], session.Decision{Reason: "Print it with printf instead."}); err != nil {
+		t.Fatal(err)
+	}
+	receive(t, ch)
+	if e := receive(t, ch); e.Text != "claude got the denial reason: Print it with printf instead." {
+		t.Fatalf("got %+v", e)
+	}
+	select {
+	case e := <-ch:
+		t.Fatalf("turn went on with a request still open: %+v", e)
+	default:
+	}
+	if err := d.Approve(context.Background(), open[2], session.Decision{}); err != nil {
+		t.Fatal(err)
+	}
+	receive(t, ch)
+	if e := receive(t, ch); e.Type != session.EventTurnCompleted || e.State != session.TurnCompleted {
+		t.Fatalf("got %+v", e)
+	}
+
+	if _, err := d.Send(context.Background(), session.Message{Text: "usage limit 1893456000"}); err != nil {
+		t.Fatal(err)
+	}
+	receive(t, ch)
+	limit := receive(t, ch)
+	want := time.Unix(1893456000, 0).UTC()
+	if limit.Type != session.EventLimit || !limit.Limit.Rejected || !limit.Limit.Resets.Equal(want) || len(limit.Limit.Windows) != 1 || limit.Limit.Windows[0].Minutes != 300 {
+		t.Fatalf("got %+v", limit)
+	}
+	if e := receive(t, ch); e.Type != session.EventTurnCompleted || e.State != session.TurnFailed || e.ErrorMessage != "You've hit your usage limit." {
+		t.Fatalf("got %+v", e)
 	}
 }

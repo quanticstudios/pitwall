@@ -755,3 +755,35 @@ func TestSet(t *testing.T) {
 		t.Errorf("set after close: %v", err)
 	}
 }
+
+// TestSubagentLines: a subagent's lines name their Task call in
+// parent_tool_use_id. Its calls go on that call; its text and calls stay
+// out of the transcript.
+func TestSubagentLines(t *testing.T) {
+	s := newStream("s")
+	var got []session.Event
+	for _, l := range []string{
+		`{"type":"assistant","parent_tool_use_id":null,"message":{"id":"m1","content":[{"type":"tool_use","id":"task","name":"Task","input":{"subagent_type":"Explore"}}]}}`,
+		`{"type":"stream_event","parent_tool_use_id":"task","api_message_id":"m2","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"looking"}}}`,
+		`{"type":"assistant","parent_tool_use_id":"task","message":{"id":"m2","content":[{"type":"text","text":"looking"},{"type":"tool_use","id":"r","name":"Read","input":{}}]}}`,
+		`{"type":"user","parent_tool_use_id":"task","message":{"content":[{"type":"tool_result","tool_use_id":"r","content":"x"}]}}`,
+		`{"type":"assistant","parent_tool_use_id":"task","message":{"id":"m3","content":[{"type":"tool_use","id":"g","name":"Grep","input":{}}]}}`,
+		`{"type":"user","parent_tool_use_id":null,"message":{"content":[{"type":"tool_result","tool_use_id":"task","content":"Found it."}]}}`,
+	} {
+		got = append(got, s.line([]byte(l))...)
+	}
+	if len(got) != 4 {
+		t.Fatalf("%d events, want the Task call's start, two subagent updates and its end: %+v", len(got), got)
+	}
+	for _, e := range got {
+		if e.ItemID != "task" {
+			t.Fatalf("a subagent line reached the transcript: %+v", e)
+		}
+	}
+	if tools := got[1].Tool.SubagentTools; !slices.Equal(tools, []string{"Read"}) {
+		t.Fatalf("first update %v; a later call must not change an emitted event", tools)
+	}
+	if end := got[3].Tool; end.Status != "completed" || !slices.Equal(end.SubagentTools, []string{"Read", "Grep"}) {
+		t.Fatalf("end %+v", end)
+	}
+}
