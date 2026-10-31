@@ -233,6 +233,11 @@ func TestItems(t *testing.T) {
 	if n := NoticeOf(st, st.Activities[1]); n.State != string(model.StatePROpen) || !strings.HasPrefix(n.Body, "PR open") {
 		t.Errorf("notice %+v", n)
 	}
+	// A chat's approval is listed, but the phone cannot answer it yet.
+	st.Chats = []model.Chat{{ID: "c"}}
+	if c := Items(st)[0]; c.Pane != "c" || c.Answer || c.Reply {
+		t.Errorf("chat approval %+v", c)
+	}
 }
 
 func TestCertAndURL(t *testing.T) {

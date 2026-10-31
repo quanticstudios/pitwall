@@ -16,8 +16,8 @@ import (
 
 // Resume after a usage limit: when Claude Code or Codex ends a turn on its
 // plan's usage limit, the daemon types continue into it resumeDelay after
-// the limit resets ([agents] resume_after_limit). The schedule lives in
-// memory only; a daemon restart drops it.
+// the limit resets ([agents] resume_after_limit), or sends it to a chat.
+// The schedule lives in memory only; a daemon restart drops it.
 
 // resumeDelay is how long after a limit resets continue is typed.
 var resumeDelay = time.Minute
@@ -28,10 +28,11 @@ var (
 	resumeAfter = func(wait time.Duration, f func()) (stop func() bool) { return time.AfterFunc(wait, f).Stop }
 )
 
-// resume is a pane's pending continue.
+// resume is a pane's or a chat's pending continue.
 type resume struct {
-	at   time.Time      // when continue is typed
-	p    Pane           // the pane's process when it was set
+	at   time.Time // when continue is typed
+	p    Pane      // the pane's process when it was set; nil for a chat
+	send func(string) error
 	prov model.Provider // the agent it was set for
 	turn time.Time      // UpdatedAt of the activity the limit stopped
 	// since is when the turn stopped, zero when unknown: a key of the
@@ -135,7 +136,25 @@ func (d *Daemon) checkLimits() {
 	}
 }
 
-// limitStopped schedules continue for pane id, whose agent's turn turn
+// agentOf is the tab and agent of id, a pane or a chat, and the pane, nil
+// for a chat. Callers hold d.mu.
+func (d *Daemon) agentOf(id string) (ws string, prov model.Provider, p *model.Pane, ok bool) {
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 {
+		return d.st.Panes[i].WorkspaceID, d.st.Panes[i].Provider, &d.st.Panes[i], true
+	}
+	if i := slices.IndexFunc(d.st.Chats, func(c model.Chat) bool { return c.ID == id }); i >= 0 {
+		return d.st.Chats[i].WorkspaceID, d.st.Chats[i].Provider, nil, true
+	}
+	return "", "", nil, false
+}
+
+// isChat reports whether id is a live chat's. Callers hold d.mu.
+func (d *Daemon) isChat(id string) bool {
+	_, _, p, ok := d.agentOf(id)
+	return ok && p == nil
+}
+
+// limitStopped schedules continue for pane or chat id, whose agent's turn turn
 // (the UpdatedAt of its activity, zero for none) ended on limit message
 // msg naming reset resets, zero for none. Without one, the reset is the
 // one the tracked limits name. The activity becomes an error with msg as
@@ -149,31 +168,30 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
+	ws, prov, sp, ok := d.agentOf(id)
 	i := d.activityIndex(id)
 	var cur time.Time
 	if i >= 0 {
 		cur = d.st.Activities[i].UpdatedAt
 	}
-	if d.closing || pi < 0 || !cur.Equal(turn) || d.mail.keyAt[id].After(turn) {
+	if d.closing || !ok || !cur.Equal(turn) || d.mail.keyAt[id].After(turn) {
 		return
 	}
-	sp := d.st.Panes[pi]
-	auto := d.claudeContinues(sp)
+	auto := sp != nil && d.claudeContinues(*sp)
 	if resets.IsZero() {
 		profile := ""
-		if w := d.workspace(sp.WorkspaceID); w != nil {
+		if w := d.workspace(ws); w != nil {
 			profile = w.Profile
 		}
 		limits = slices.DeleteFunc(slices.Clone(limits), func(l flow.Limit) bool { return l.Profile != profile })
-		resets = limitReset(limits, sp.Provider, now)
+		resets = limitReset(limits, prov, now)
 	}
 	if !auto && (resets.IsZero() || resets.Before(now.Add(-resumeDelay))) {
 		log.Printf("pane %s: stopped on a usage limit with no reset ahead; no resume", id)
 		return
 	}
 	if i < 0 || d.st.Activities[i].State != model.StateError {
-		a := model.Activity{PaneID: id, WorkspaceID: sp.WorkspaceID, Provider: sp.Provider, State: model.StateError, Detail: msg, UpdatedAt: time.Now()}
+		a := model.Activity{PaneID: id, WorkspaceID: ws, Provider: prov, State: model.StateError, Detail: msg, UpdatedAt: time.Now()}
 		if i < 0 {
 			d.st.Activities = append(d.st.Activities, a)
 			i = len(d.st.Activities) - 1
@@ -188,7 +206,12 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 		d.changed()
 		return
 	}
-	r := &resume{at: resets.Add(resumeDelay), p: d.panes[id], prov: sp.Provider, turn: d.st.Activities[i].UpdatedAt, since: turn}
+	r := &resume{at: resets.Add(resumeDelay), p: d.panes[id], prov: prov, turn: d.st.Activities[i].UpdatedAt, since: turn}
+	if p := r.p; p != nil {
+		r.send = func(text string) error { return d.typeLine(id, p, text, "nothing to type") }
+	} else {
+		r.send = func(text string) error { return d.chatResume(id, text) }
+	}
 	r.stop = resumeAfter(r.at.Sub(now), func() { d.fireResume(id, r) })
 	if d.lim.pending == nil {
 		d.lim.pending = map[string]*resume{}
@@ -209,15 +232,16 @@ func limitReset(limits []flow.Limit, prov model.Provider, now time.Time) time.Ti
 	return top.Resets
 }
 
-// fireResume types continue into pane id for r, unless resumeBlocked
-// says why not or the screen shows a turn or a prompt. It holds sendMu
+// fireResume types continue into pane id for r, or sends it to chat id,
+// unless resumeBlocked says why not or the screen shows a turn or a
+// prompt. It holds sendMu
 // before it takes r, so a key or a cancel while another typing runs still
 // drops it. Once typed, the activity is working with model.ResumedDetail,
 // which the GUI notifies about.
 func (d *Daemon) fireResume(id string, r *resume) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
-	busy := agent.ReadScreen(r.p.Snapshot()) != agent.ScreenNone
+	busy := r.p != nil && agent.ReadScreen(r.p.Snapshot()) != agent.ScreenNone
 	d.mu.Lock()
 	if d.lim.pending[id] != r {
 		d.mu.Unlock()
@@ -234,7 +258,7 @@ func (d *Daemon) fireResume(id string, r *resume) {
 		log.Printf("pane %s: no resume after the usage limit: %s", id, why)
 		return
 	}
-	if err := d.typeLine(id, r.p, "continue", "nothing to type"); err != nil {
+	if err := r.send("continue"); err != nil {
 		log.Printf("pane %s: resume after the usage limit: %q", id, err)
 		return
 	}
@@ -247,21 +271,21 @@ func (d *Daemon) fireResume(id string, r *resume) {
 	}
 }
 
-// resumeBlocked is why r must not type into pane id, "" when it may: the
-// setting is on, the pane still runs the same process and agent, its
-// activity is still the turn the limit stopped, and the user typed
-// nothing in it since that turn stopped. Callers hold d.mu.
+// resumeBlocked is why r must not type into pane id, or send to chat id,
+// "" when it may: the setting is on, the pane still runs the same process
+// and agent, its activity is still the turn the limit stopped, and the
+// user typed nothing in it since that turn stopped. Callers hold d.mu.
 func (d *Daemon) resumeBlocked(id string, r *resume) string {
-	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
+	_, prov, sp, ok := d.agentOf(id)
 	i := d.activityIndex(id)
 	switch {
 	case !d.resumeOn():
 		return "resume_after_limit is off"
-	case d.closing || pi < 0 || d.panes[id] != r.p:
+	case d.closing || !ok || d.panes[id] != r.p:
 		return "the pane closed or restarted"
-	case d.st.Panes[pi].Provider != r.prov:
+	case prov != r.prov:
 		return "another agent runs there"
-	case d.claudeContinues(d.st.Panes[pi]):
+	case sp != nil && d.claudeContinues(*sp):
 		return "Claude will continue on its own"
 	case i < 0 || !d.st.Activities[i].UpdatedAt.Equal(r.turn) || !stoppedState(d.st.Activities[i].State):
 		// why: Windows clocks can give a new turn the stopped one's UpdatedAt, so the state counts too.
