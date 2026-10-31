@@ -478,6 +478,21 @@ answer from any client wins; a later one gets `conflict`
 `model`, `effort` and `permissionMode` are each optional; a key left out
 stays as it is. The snapshot gets a `session.patch` delta.
 
+`provider` other than the chat's switches the chat to it, as aide's
+`switchSessionProvider` does. `model` and `effort` are then the new
+provider's, and one left out is its default. The process ends, the new
+provider starts a session of its own, the snapshot's `provider`, `model`,
+`effort` and `runtimeGeneration` change, and the transcript gets a system
+line "Switched to Codex". The next message carries the conversation so far
+the way aide's `prepareInput` quotes it: the user and assistant texts, the
+last 24,000 characters, as JSON after the message. A turn running or
+waiting on an answer gets `busy`; switch once it ends. A provider that does
+not start answers `provider` and leaves the chat on the one it had.
+
+```json
+{"type": "set", "id": "14", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "provider": "codex", "model": "gpt-6.1-sol", "effort": "high"}
+```
+
 ### fork and rewind
 
 ```json
@@ -749,7 +764,7 @@ WebSocket implementation of it. This is the mapping, member by member.
 | `interrupt` | `interrupt` | `recipientAlias` is dropped |
 | `resolveApproval` | `resolveApproval` | `decision` renamed: `accept` is `allow`, `accept-for-session` is `allow-session`, `deny` is `deny` |
 | `resolveInput` | `resolveInput` | a string answer is sent as a one-item list |
-| `setModel` | `set` with `model`, `effort` | a different provider (`mode`) gets `unsupported`; `serviceTier` is dropped |
+| `setModel` | `set` with `model`, `effort` | a different provider (`mode`) is `set` with `provider`; `serviceTier` is dropped |
 | `setPermissionMode` | `set` with `permissionMode` | |
 | `setMode` | `set` with `permissionMode` | `plan` is `permissionMode: "plan"`, `build` is `permissionMode: "default"` |
 | `fork(sessionId, responseContentItemId)` | `fork` | pitwall forks at a turn: send the item's `turnId` |
