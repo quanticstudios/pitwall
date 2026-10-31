@@ -256,9 +256,10 @@ func Defaults() Options {
 		log.Printf("timing log: %q", err)
 	}
 	return Options{
-		Journal: journal,
-		Errors:  errs,
-		Timing:  timing,
+		Providers: configuredProviders(),
+		Journal:   journal,
+		Errors:    errs,
+		Timing:    timing,
 		StartPane: func(c pane.Config) (Pane, error) {
 			p, err := pane.Start(c)
 			if err != nil {

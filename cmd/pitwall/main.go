@@ -145,7 +145,7 @@ const usage = `usage:
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
   pitwall remote <cmd>       pair, devices, revoke: answer agents from a phone (see pitwall remote)
-  pitwall web <cmd>          token: the token local web clients such as aide connect with (see pitwall web)
+  pitwall web <cmd>          open: the web client in a browser; token: the token local web clients connect with (see pitwall web)
 `
 
 func main() {

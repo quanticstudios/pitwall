@@ -67,6 +67,7 @@ textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--pri
 .empty { color: var(--muted); text-align: center; padding: 48px 16px; }
 .empty .row { max-width: 360px; margin: 16px auto 0; }
 #push .note { margin: 0 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#full { margin: 0 0 12px; }
 .card.focus { border-color: var(--primary); }
 code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; background: var(--field); padding: 1px 5px; border-radius: 5px; }
 </style>
@@ -75,6 +76,7 @@ code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; 
 <main>
   <header><h1>pitwall</h1><div id="status" aria-live="polite"></div></header>
   <div id="push"></div>
+  <div id="full" hidden><button>Open the full client</button></div>
   <div id="list"></div>
 </main>
 <script src="app.js"></script>

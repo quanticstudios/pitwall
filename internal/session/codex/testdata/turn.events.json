@@ -74,6 +74,11 @@
     "detail": "Reconnecting... 1/5"
   },
   {
+    "type": "runtime.error",
+    "createdAt": "2026-10-30T12:00:00.000Z",
+    "message": "Codex asked for mcpServer/elicitation/request, which pitwall does not handle; it was refused."
+  },
+  {
     "type": "content.delta",
     "createdAt": "2026-10-30T12:00:00.000Z",
     "itemId": "call_1",

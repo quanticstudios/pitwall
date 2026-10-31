@@ -129,3 +129,63 @@ Some things stay on the machine they belong to:
   the machine they run on. Run them on the host, for example in one of its
   panes.
 - Windows has no remote windows: its ssh cannot share a connection.
+
+## Web client
+
+pitwall's background service can serve a built aide web client, the
+bundle, to a browser on this machine and to paired phones. Point it at
+the bundle's folder:
+
+```toml
+[web]
+enabled = true
+bundle = "~/src/aide/out/web"
+```
+
+Then `pitwall web open` opens it in your default browser. The local
+listener serves it at `/` on `127.0.0.1`, next to the web protocol at
+`/ws` ([web-protocol.md](web-protocol.md)). With `[remote]` on too, the
+phone page shows Open the full client to a paired phone, which serves the
+same bundle at `/app/` and the web protocol at `/ws` on the phone page's
+address, such as the one `tailscale serve` gives. The phone page's own
+approvals stay at `/`.
+
+pitwall serves the folder's files and nothing else: a folder's
+`index.html` but no listing, no dotfile, nothing outside the folder, a
+symlink out of it included. The bundle loads its files with relative
+URLs (Vite's `base: './'`), since it sits at `/app/` on the phone.
+
+### Sessions and the bootstrap
+
+No token goes in a URL, a log line or the browser's history:
+
+1. `pitwall web open` writes a one-time code's SHA-256 to `web-open.json`
+   in the state folder (mode 0600) and opens
+   `http://127.0.0.1:<port>/_pitwall/open?code=<code>`. The code is not the
+   token. It works once, within a minute.
+2. The listener deletes the code, sets a session cookie (HttpOnly,
+   SameSite=Strict, named for the listener's port) and answers 303 to `/`,
+   so the page the browser shows has no code in its URL. A history entry
+   for the open link holds only a used code.
+3. On a phone, the phone page sends its device token in the
+   `Authorization` header to `POST /api/web`, which sets the cookie the
+   same way. The device token stays in the phone page.
+4. The bundle fetches `/_pitwall/bootstrap` with the cookie and gets
+   `{"url": "/ws", "token": "<64 hex digits>", "protocol": 1}`. It keeps
+   the token in memory and sends it in `hello`. The token is the
+   session's own: neither `web.json`'s token nor a device token reaches the
+   browser. `url` is relative, so it is right behind `tailscale serve`.
+
+Every file the bundle loads needs the cookie, and so does the bootstrap.
+A session lasts 24 hours at most and ends with the listener, a daemon
+restart, `pitwall web token --rotate` (the local listener's sessions) or
+`pitwall remote revoke` (that phone's sessions): run `pitwall web open`
+again, or tap Open the full client again. `daemon.log` says when a
+session starts, never the code or a token.
+
+The bundle's pages get this Content-Security-Policy: scripts, styles,
+images, fonts and workers from the page's own origin only, no inline
+script or style, no `eval`, connections only to its own origin and its
+WebSocket, no frames, forms or `<base>`. The local listener still refuses
+a request whose `Host` or `Origin` is not its own; the phone page refuses
+a `/ws` upgrade whose `Origin` is another site's.

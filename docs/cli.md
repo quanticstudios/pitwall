@@ -37,7 +37,8 @@ optional name act on the pane's own tab.
 | `pitwall worktree prune`              | Forget worktrees whose folder is gone, and list the ones under `.worktrees` that no tab uses |
 | `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |
 | `pitwall queue ls` / `add [--issue n] [--preset name] [--model model] [--at HH:MM] [--every duration] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
-| `pitwall chat new [--provider claude\|codex] [--model M] [--effort E] [--mode M] [--dir D \| --worktree NAME [--base B] \| --branch B] [--name N] [-- prompt]` | Open a [chat](#chats) in a tab of its own, send the prompt, and print the chat's id |
+| `pitwall chat new [--provider ID] [--model M] [--effort E] [--mode M] [--dir D \| --worktree NAME [--base B] \| --branch B] [--name N] [-- prompt]` | Open a [chat](#chats) in a tab of its own, send the prompt, and print the chat's id |
+| `pitwall chat providers [--json]` | List the daemon's managed providers, including [configured ACP agents](acp.md) |
 | `pitwall chat ls [--json]`            | List the session's chats: tab #, id, provider, state, pending answers, title |
 | `pitwall chat send <chat> [--steer\|--queue] -- text` | Start a turn, or queue the text behind the running one; `--steer` adds it to the running turn where the agent can, `--queue` always queues |
 | `pitwall chat approve <chat> [<request>] allow\|allow-session\|deny [--reason R]` | Answer a pending approval, the only one without a request id; refused inside a pitwall pane |
@@ -52,6 +53,7 @@ optional name act on the pane's own tab.
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](troubleshooting.md#logs)) |
 | `pitwall remote pair` / `devices` / `revoke` | Pair a phone, list paired phones, unpair one (see [Phone](phone.md)) |
+| `pitwall web open`                    | Open the web client (`[web] bundle`) in the default browser, with a link that works once, within a minute (see [Web client](remote.md#web-client)) |
 | `pitwall web token --rotate`          | Give local web clients a new token in `web.json`; the old one stops working at once (see [Web protocol](web-protocol.md#connection)) |
 | `pitwall --version`                   | Print the version                                             |
 

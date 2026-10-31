@@ -88,10 +88,17 @@ func (d *driver) notify(method string, params json.RawMessage) {
 		d.mu.Lock()
 		d.turn = ""
 		d.mu.Unlock()
+		d.settleAll()
 		clear(d.tools)
 		clear(d.phases)
 		clear(d.streamed)
 		d.post(e)
+
+	case "turn/plan/updated":
+		d.plan(params)
+
+	case "serverRequest/resolved":
+		d.serverResolved(params)
 
 	case "item/started", "item/completed":
 		var n struct{ Item json.RawMessage }
@@ -124,6 +131,25 @@ func (d *driver) notify(method string, params json.RawMessage) {
 	default:
 		logUnknown(d, method)
 	}
+}
+
+// planStatus maps a Codex plan step's status to a Task's.
+var planStatus = map[string]string{"pending": "pending", "inProgress": "in_progress", "completed": "completed"}
+
+// plan shows a turn's plan as one task-list tool call, updated in place.
+func (d *driver) plan(params json.RawMessage) {
+	var n struct {
+		TurnID string
+		Plan   []struct{ Step, Status string }
+	}
+	if json.Unmarshal(params, &n) != nil || n.TurnID == "" {
+		return
+	}
+	c := &session.ToolCall{CallID: "plan-" + n.TurnID, ToolName: "Plan", Status: "completed", Tasks: []session.Task{}}
+	for _, s := range n.Plan {
+		c.Tasks = append(c.Tasks, session.Task{Subject: s.Step, Status: cmp.Or(planStatus[s.Status], "pending")})
+	}
+	d.postTool(c)
 }
 
 func (d *driver) currentModel() string {

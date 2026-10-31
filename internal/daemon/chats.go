@@ -104,6 +104,8 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	var id string
 	var run func(*chat) (turn, note string, err error)
 	switch m := m.(type) {
+	case proto.ChatProviders:
+		return d.chatProviders(), true
 	case proto.ChatNew:
 		return d.chatNew(ctx, m), true
 	case proto.ChatArchive:

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,8 @@ func TestWeb(t *testing.T) {
 		{"[web]\nenabled = true\nport = 8123\n", WebSettings{Enabled: true, Port: 8123}, ""},
 		{"[web]\nenabled = true\nport = 70000\n", WebSettings{}, "web listener stays off"},
 		{"[web]\nenabled = true\nport = 1.5\n", WebSettings{}, "not a whole number"},
+		{"[web]\nbundle = \"" + filepath.ToSlash(dir) + "\"\n", WebSettings{Bundle: dir}, ""},
+		{"[web]\nbundle = \"dist\"\n", WebSettings{}, "want an absolute folder"},
 	} {
 		s, probs := LoadFile(write(t, dir, "config.toml", tc.toml))
 		if s.Web != tc.want {

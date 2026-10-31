@@ -9,6 +9,7 @@ package web
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net"
@@ -74,13 +75,23 @@ func newToken() string {
 	return hex.EncodeToString(b)
 }
 
+func hashHex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 // write writes f to path with mode 0600, atomically.
 func write(path string, f File) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
+		return err
+	}
+	return writeFile(path, data)
+}
+
+// writeFile writes data to path with mode 0600, atomically.
+func writeFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".web-*")

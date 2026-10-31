@@ -295,6 +295,8 @@ type Settings struct {
 	ContinueWhenQuiet bool
 	// Presets is [[agents.preset]] without the ones with problems.
 	Presets []AgentPreset
+	// ACPAgents is [[agents.acp]] without the entries with problems.
+	ACPAgents []ACPAgent
 	// GuardWorkers turns the guard on in worktree tabs agents open.
 	GuardWorkers bool
 	// GuardDeny is [agents] guard_deny: patterns the guard denies too.
@@ -513,6 +515,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, resolveGit(c.Git, &s)...)
 	var ai []issue
 	s.MaxRunning, s.Presets, ai = resolveAgents(c.Agents)
+	fi = append(fi, ai...)
+	s.ACPAgents, ai = resolveACP(c.Agents.ACP)
 	s.ResumeAfterLimit = c.Agents.ResumeAfterLimit == nil || *c.Agents.ResumeAfterLimit
 	s.GuardWorkers = c.Agents.GuardWorkers != nil && *c.Agents.GuardWorkers
 	s.GuardDeny = c.Agents.GuardDeny

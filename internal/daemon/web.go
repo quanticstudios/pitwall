@@ -41,13 +41,25 @@ func (d *Daemon) serveWeb(s config.WebSettings) (stop func()) {
 		}
 		return nil
 	}
-	ws := &web.Server{Version: Build, Token: func() (string, error) {
+	token := func() (string, error) {
 		f, err := web.Read(d.o.WebPath)
 		return f.Token, err
-	}}
+	}
+	ws := &web.Server{Version: Build, Token: token}
+	if s.Bundle != "" {
+		// A session lives while web.json keeps the token it started under.
+		ws.Client = &web.Client{Dir: s.Bundle, Live: func(owner string) bool {
+			t, err := token()
+			return err == nil && t == owner
+		}}
+		ws.OpenPath = web.OpenPath(d.o.WebPath)
+	}
 	srv := &http.Server{Handler: ws.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	log.Printf("web: serving ws://%s/ws, token in %s", ln.Addr(), d.o.WebPath)
+	if ws.Client != nil {
+		log.Printf("web: serving the web client in %s at http://%s/", s.Bundle, ln.Addr())
+	}
 	return func() {
 		ws.Close()
 		srv.Close()
