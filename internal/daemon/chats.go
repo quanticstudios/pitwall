@@ -1143,11 +1143,11 @@ func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (str
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
 	case "steer":
 		// Keep the original queue on a refused steer.
-		queue := slices.Clone(c.cfg.Queue)
+		queue, held := slices.Clone(c.cfg.Queue), c.cfg.Held
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
 		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text}, "steer")
 		if err != nil {
-			c.cfg.Queue = queue
+			c.cfg.Queue, c.cfg.Held = queue, held
 		}
 		return turn, note, err
 	default:

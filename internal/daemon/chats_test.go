@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -471,4 +472,17 @@ func TestChatApproveFake(t *testing.T) {
 	read("the turn to end", func(s session.Snapshot) bool {
 		return len(s.PendingApprovals) == 0 && len(s.Turns) == 1 && s.Turns[0].State == session.TurnCompleted
 	})
+}
+
+func TestChatQueueRefusedSteerPreservesQueue(t *testing.T) {
+	c := &chat{
+		snap: session.Snapshot{Turns: []session.TurnSummary{{State: session.TurnRunning}}},
+		cfg:  session.Config{Held: true, Queue: []session.QueuedMessage{{ID: "q1", Text: "later"}, {ID: "q2", Text: "last"}}},
+		drv:  &stubDriver{steer: session.ErrClosed},
+	}
+	before := slices.Clone(c.cfg.Queue)
+	_, _, err := (&Daemon{}).chatQueue(context.Background(), c, proto.ChatQueue{Action: "steer", ID: "q1"})
+	if err != session.ErrClosed || !reflect.DeepEqual(c.cfg.Queue, before) || !c.cfg.Held {
+		t.Fatalf("refused steer: %v queue %+v held %v", err, c.cfg.Queue, c.cfg.Held)
+	}
 }
