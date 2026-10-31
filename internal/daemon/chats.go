@@ -1172,10 +1172,12 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		c.reduce(session.Event{Type: session.EventError, Message: "The turn did not start: " + err.Error()})
 		return "", "", err
 	}
+	// aide's order: the prompt, the quoted conversation, then the evidence
+	// Jev and the attachments appended to it.
+	sent.Text = m.Text + c.quoted + strings.TrimPrefix(sent.Text, m.Text)
 	if c.recap != "" {
 		sent.Text = c.recap + "\n\n" + sent.Text
 	}
-	sent.Text += c.quoted
 	turn, err := c.drv.Send(ctx, sent)
 	if err == nil {
 		c.recap, c.quoted = "", ""
