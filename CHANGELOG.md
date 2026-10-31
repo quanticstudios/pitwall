@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- A chat's tool calls record when they started and ended, as aide's do, so aide's web client shows their durations. `testdata/web-protocol/` holds one conformance fixture per fake provider scenario: the events, the delta stream a web client gets and the snapshot it ends on. aide vendors them, and `go test ./internal/session/fake -run TestConformance -update` rewrites them.
 - A custom theme's long name no longer runs into its "custom" tag in Settings, Appearance. The name ends in "…" instead.
 - A built-in `dracula` theme.
 - The phone page answers chat tabs: it shows an approval's tool and command or file, a plan's full text and an input request's questions, and sends Allow, Allow for session, Deny with a reason, Approve plan and typed or tapped answers to the chat as the GUI does. The first answer from any client wins. Push notifications cover chat tabs as they do terminal tabs.
