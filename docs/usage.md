@@ -757,7 +757,10 @@ and Codex send no end for a call another hook blocked, you denied or the
 agent cancelled, and Codex none for a command still running when it hands
 the output back. Such a call is over once the agent starts another after
 some call ended, or once the turn finishes, and counts for nothing: its
-time goes to the model or the calls beside it. Cursor reports only how
+time goes to the model or the calls beside it. A turn that stops without
+the agent finishing it, because you interrupted it or closed its pane, ends
+at most ten minutes after the agent's last call, so a session that hung
+does not count the hours it sat. Cursor reports only how
 long a call ran, and pi and omp only calls that failed, so their tool time
 is short. Each turn keeps its five slowest commands, redacted and cut to
 200 characters; prompts and output are never stored. The file also gets a
