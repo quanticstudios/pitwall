@@ -604,7 +604,7 @@ speak on this connection.
    ([Web client](remote.md#web-client)).
 5. What the chat loop cannot do yet answers `unsupported`, and the
    commands without a socket message are left out of `capabilities`:
-   `fork` and `rewind` (ENG-2691), `unarchive`, and `attachments` in
+   `unarchive`, and `attachments` in
    `start` and `send` (after the limits are checked). `archive` with
    `delete: true` archives a live chat as plain `archive` does, as
    `ChatArchive` does on the socket.

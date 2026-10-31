@@ -24,10 +24,10 @@ func TestCheckpointOnPrompt(t *testing.T) {
 	o := f.options()
 	o.Derive = agent.Derive
 	calls := make(chan string, 4)
-	o.Checkpoint = func(_ context.Context, dir, ws string) error {
+	o.Checkpoint = func(_ context.Context, dir, ws string) (string, error) {
 		time.Sleep(50 * time.Millisecond)
 		calls <- "checkpoint " + dir + " " + ws
-		return nil
+		return "", nil
 	}
 	o.DropTurns = func(_ context.Context, dir, ws string) error { calls <- "drop " + dir + " " + ws; return nil }
 	d := newDaemon(t, o)

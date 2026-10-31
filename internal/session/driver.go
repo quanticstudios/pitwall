@@ -19,9 +19,9 @@ type Provider interface {
 
 // Origin is where a started provider session comes from.
 type Origin struct {
-	Resume string // a provider session to continue; "" starts a new one
-	At     string // a Config.Points value: continue from there, dropping what came after
-	Fork   bool   // continue under a new provider id, leaving Resume as it was
+	Resume string `json:"resume,omitempty"` // a provider session to continue; "" starts a new one
+	At     string `json:"at,omitempty"`     // a Config.Points value: continue from there, dropping what came after
+	Fork   bool   `json:"fork,omitempty"`   // continue under a new provider id, leaving Resume as it was
 }
 
 // Driver is one running provider process for one chat. Every method is
@@ -82,6 +82,10 @@ type Config struct {
 	// Resume is the provider session id: Claude's session_id, Codex's
 	// thread id. A fork's new id replaces it as soon as the driver says.
 	Resume string `json:"resume,omitempty"`
+	// From is where the next start continues instead of Resume: a fork or
+	// rewind whose new provider id has not arrived yet (Claude reports it
+	// with the first turn). The new id clears it.
+	From *Origin `json:"from,omitempty"`
 	// Points maps a turn id to Event.Point, for fork and rewind.
 	Points map[string]string `json:"points,omitempty"`
 	Queue  []QueuedMessage   `json:"queue,omitempty"`

@@ -363,8 +363,8 @@ func TestWebCommandErrors(t *testing.T) {
 		{map[string]any{"type": "resolveInput", "sessionId": chat, "answers": map[string]any{"q": "a"}}, "invalid"},
 		{map[string]any{"type": "set", "sessionId": chat}, "invalid"},
 		{map[string]any{"type": "set", "sessionId": "nope", "model": "m"}, "not-found"},
-		{map[string]any{"type": "fork", "sessionId": chat, "turnId": "t"}, "unsupported"},
-		{map[string]any{"type": "rewind", "sessionId": chat, "turnId": "t"}, "unsupported"},
+		{map[string]any{"type": "fork", "sessionId": chat, "turnId": "t"}, "not-found"},
+		{map[string]any{"type": "rewind", "sessionId": chat, "turnId": "t"}, "not-found"},
 		{map[string]any{"type": "unarchive", "sessionId": chat}, "unsupported"},
 		{map[string]any{"type": "archive", "sessionId": "nope"}, "not-found"},
 		{map[string]any{"type": "listProjects", "root": 5}, "invalid"},
@@ -397,5 +397,32 @@ func TestWebListWorktrees(t *testing.T) {
 	}
 	if a, _ := filepath.EvalSymlinks(path); a == "" {
 		t.Fatalf("worktree path %q", path)
+	}
+}
+
+// TestWebFork: fork answers with the new chat's session and tab, which
+// holds the turn; rewind of a turn without a file checkpoint refuses.
+func TestWebFork(t *testing.T) {
+	c := dialWeb(t, webDaemon(t), "aide")
+	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "hello"})
+	chat, _ := at(r, "data.sessionId").(string)
+	if r["ok"] != true || chat == "" {
+		t.Fatalf("start: %v", r)
+	}
+	turn := ""
+	for deadline := time.Now().Add(10 * time.Second); turn == ""; time.Sleep(20 * time.Millisecond) {
+		r := c.call(map[string]any{"type": "read", "sessionId": chat})
+		if at(r, "data.snapshot.turns.0.state") == "completed" {
+			turn, _ = at(r, "data.snapshot.turns.0.id").(string)
+		} else if time.Now().After(deadline) {
+			t.Fatalf("no completed turn: %v", r)
+		}
+	}
+	r = c.call(map[string]any{"type": "fork", "sessionId": chat, "turnId": turn})
+	if fork, _ := at(r, "data.sessionId").(string); r["ok"] != true || fork == "" || fork == chat || at(r, "data.workspaceId") == nil {
+		t.Fatalf("fork: %v", r)
+	}
+	if r := c.call(map[string]any{"type": "rewind", "sessionId": chat, "turnId": turn}); r["code"] != "unsupported" {
+		t.Errorf("rewind without a checkpoint: %v", r)
 	}
 }

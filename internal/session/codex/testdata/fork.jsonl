@@ -1,0 +1,9 @@
+{"in":{"id":1,"method":"initialize","params":{"clientInfo":{"name":"pitwall","title":"pitwall","version":"0"},"capabilities":{"experimentalApi":true}}}}
+{"out":{"id":1,"result":{"userAgent":"codex_cli_rs/0.166.0","codexHome":"/home/user/.codex","platformFamily":"unix","platformOs":"linux"}}}
+{"in":{"method":"initialized"}}
+{"in":{"id":2,"method":"thread/fork","params":{"threadId":"thr_1","lastTurnId":"turn_1","approvalPolicy":"on-request","sandbox":"workspace-write","cwd":"$CWD"}}}
+{"out":{"id":2,"result":{"thread":{"id":"thr_2"},"model":"gpt-6.1-sol","modelProvider":"openai","approvalPolicy":"on-request","approvalsReviewer":"user","cwd":"$CWD","sandbox":{"type":"workspaceWrite"}}}}
+{"in":{"id":3,"method":"turn/start","params":{"threadId":"thr_2","input":[{"type":"text","text":"Again"}],"clientUserMessageId":"u2"}}}
+{"out":{"id":3,"result":{"turn":{"id":"turn_3","items":[],"status":"inProgress"}}}}
+{"out":{"method":"turn/started","params":{"threadId":"thr_2","turn":{"id":"turn_3","items":[],"status":"inProgress"}}}}
+{"out":{"method":"turn/completed","params":{"threadId":"thr_2","turn":{"id":"turn_3","items":[],"status":"completed"}}}}

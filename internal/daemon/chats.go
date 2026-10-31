@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -78,6 +80,9 @@ type chat struct {
 	// cut: loading the chat ended a turn a restart cut off; the loop may
 	// continue it once the command that loaded it is done.
 	cut bool
+	// check is the checkpoint taken for the turn being sent; the turn's
+	// summary gets it as checkpointId when it starts.
+	check string
 
 	dir    string        // the chat's eventlog folder; "" in memory only
 	log    *eventlog.Log // nil until the first command loads the chat
@@ -142,6 +147,8 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 		return d.chatProviders(), true
 	case proto.ChatNew:
 		return d.chatNew(ctx, m), true
+	case proto.ChatFork:
+		return d.chatFork(ctx, m), true
 	case proto.ChatArchive:
 		return chatResult(m.Chat, "", "", d.chatArchive(m)), true
 	case proto.ChatRead:
@@ -180,6 +187,12 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	case proto.ChatSet:
 		id = m.Chat
 		run = func(c *chat) (string, string, error) { return "", "", c.set(ctx, m) }
+	case proto.ChatRewind:
+		id = m.Chat
+		run = func(c *chat) (string, string, error) {
+			note, err := d.chatRewind(ctx, c, m.Turn)
+			return "", note, err
+		}
 	case proto.ChatQueue:
 		id = m.Chat
 		run = func(c *chat) (string, string, error) {
@@ -219,6 +232,21 @@ func (d *Daemon) chat(id string) (*chat, error) {
 // chatNew opens the tab, as a Task's (startTask), with no pane, starts the
 // provider and sends the prompt.
 func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult {
+	return d.chatCreate(ctx, m, nil)
+}
+
+// forkSeed is what a fork's new chat starts from.
+type forkSeed struct {
+	title  string           // the chat it forks
+	snap   session.Snapshot // its transcript through the turn
+	points map[string]string
+	from   *session.Origin // nil: no provider point, so a text recap
+}
+
+// chatCreate is chatNew, or with seed the fork of a chat: the new chat's
+// first snapshot holds the seed's transcript and its provider starts from
+// the seed's point.
+func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed) proto.ChatResult {
 	m.Provider = cmp.Or(m.Provider, model.ProviderClaude)
 	prov := d.o.Providers[m.Provider]
 	if prov == nil {
@@ -255,7 +283,11 @@ func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult 
 			w.WorktreeRoot, w.Ports = root, portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
 		}
 	}
-	c := d.newChat(newUUID(), prov, promptTitle(m.Prompt))
+	title := promptTitle(m.Prompt)
+	if seed != nil {
+		title = seed.title
+	}
+	c := d.newChat(newUUID(), prov, title)
 	err := d.addSession(ctx, proto.NewSession{Name: m.Name, Cwd: dir, SessionID: m.SessionID, GroupID: m.GroupID, ParentPane: m.ParentPane}, "", nil, func(w *model.Workspace) {
 		if ports != nil {
 			ports(w)
@@ -279,7 +311,19 @@ func (d *Daemon) chatNew(ctx context.Context, m proto.ChatNew) proto.ChatResult 
 			SessionState: session.StateReady, PermissionMode: cmp.Or(m.Mode, "default"), InteractionMode: "build",
 			Model: optional(m.Model), Effort: optional(m.Effort), UpdatedAt: stamp,
 		}
+		if seed != nil {
+			s.Content, s.Turns = seed.snap.Content, seed.snap.Turns
+		}
 		c.commit([]session.Delta{{Type: session.DeltaSnapshot, Snapshot: &s}}, stamp)
+		if seed != nil {
+			c.system("Forked from " + cmp.Or(seed.title, "a chat"))
+			c.cfg.Points = seed.points
+			if seed.from != nil {
+				c.cfg.Resume, c.cfg.From = seed.from.Resume, seed.from
+			} else {
+				c.forget("the turn left no point the provider can continue from", true)
+			}
+		}
 		if err = d.chatStart(c); err == nil && m.Prompt != "" {
 			turn, _, err = d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Prompt}, "")
 		}
@@ -301,6 +345,143 @@ func (d *Daemon) chatArchive(m proto.ChatArchive) error {
 		return chatError{"conflict", err.Error()}
 	}
 	return nil
+}
+
+// chatFork opens a chat that continues m.Chat from the end of m.Turn
+// (docs/managed-sessions.md, fork and rewind): a tab beside the chat's, or
+// a worktree made from its branch, with the chat's settings and its
+// transcript through the turn. The chat does not change.
+func (d *Daemon) chatFork(ctx context.Context, m proto.ChatFork) proto.ChatResult {
+	src, err := d.chat(m.Chat)
+	if err != nil {
+		return chatResult(m.Chat, "", "", err)
+	}
+	var seed forkSeed
+	var cfg session.Config
+	if !src.do(func() {
+		var i int
+		if i, err = turnIndex(src.snap, m.Turn); err != nil {
+			return
+		}
+		if src.snap.Turns[i].State == session.TurnRunning {
+			err = chatError{"busy", fmt.Sprintf("turn %d is still running", i+1)}
+			return
+		}
+		cfg, seed.snap = src.cfg, upTo(src.snap, i+1)
+		seed.points = map[string]string{}
+		for j := range seed.snap.Turns {
+			t := &seed.snap.Turns[j]
+			if p := src.cfg.Points[t.ID]; p != "" {
+				seed.points[t.ID] = p
+			}
+			t.CheckpointID = "" // the source tab's: the fork's tab has its own
+		}
+		if p := src.cfg.Points[src.snap.Turns[i].ID]; p != "" && src.cfg.Resume != "" {
+			// While the chat's own fork or rewind has not reported its new
+			// id, Resume is still the session it forks, which holds p.
+			seed.from = &session.Origin{Resume: src.cfg.Resume, At: p, Fork: true}
+		}
+	}) {
+		err = chatError{"not-found", "chat " + m.Chat + " is closed"}
+	}
+	if err != nil {
+		return chatResult(m.Chat, "", "", err)
+	}
+	n := proto.ChatNew{Dir: cfg.Cwd, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode}
+	d.mu.Lock()
+	if w := d.workspace(cfg.Workspace); w != nil {
+		n.SessionID = d.st.SessionOf(w.ID)
+		if m.Worktree != "" {
+			n.Dir, n.Worktree, n.Base = cmp.Or(w.WorktreeRoot, cfg.Cwd), m.Worktree, w.Branch
+		}
+	}
+	if i := slices.IndexFunc(d.st.Chats, func(x model.Chat) bool { return x.ID == src.id }); i >= 0 {
+		seed.title = d.st.Chats[i].Title
+	}
+	d.mu.Unlock()
+	return d.chatCreate(ctx, n, &seed)
+}
+
+// chatRewind drops turn name and every turn after it: the tab's files go
+// back to the turn's checkpoint, refused as Undo turn refuses, then the
+// provider continues from the end of the turn before, through a fork of
+// its session whose new id replaces the chat's.
+func (d *Daemon) chatRewind(ctx context.Context, c *chat, name string) (string, error) {
+	i, err := turnIndex(c.snap, name)
+	if err != nil {
+		return "", err
+	}
+	if busy(c.snap) {
+		return "", session.ErrBusy
+	}
+	t := c.snap.Turns[i]
+	if t.CheckpointID == "" {
+		return "", chatError{"unsupported", fmt.Sprintf("turn %d has no file checkpoint to go back to", i+1)}
+	}
+	d.mu.Lock()
+	var dir string
+	if w := d.workspace(c.cfg.Workspace); w != nil {
+		dir = d.st.LivePath(*w)
+	}
+	d.mu.Unlock()
+	if err := gitstat.RewindTurn(ctx, dir, c.cfg.Workspace, t.CheckpointID); err != nil {
+		return "", chatError{"conflict", "the files were not put back, so nothing was rewound: " + err.Error()}
+	}
+	if c.drv != nil {
+		cctx, cancel := context.WithTimeout(ctx, chatClose)
+		if err := c.drv.Close(cctx); err != nil {
+			log.Printf("chat %s: close for rewind: %q", c.id, err)
+		}
+		cancel()
+		c.drv = nil
+		c.starts++ // what the closed process still emits is dropped
+	}
+	for _, gone := range c.snap.Turns[i:] {
+		delete(c.cfg.Points, gone.ID)
+	}
+	s := upTo(c.snap, i)
+	c.commit([]session.Delta{{Type: session.DeltaSnapshot, Snapshot: &s}}, session.Stamp(time.Now()))
+	c.resuming, c.sent, c.recap = false, nil, ""
+	// While an earlier fork or rewind has not reported its new id, Resume
+	// is still the session it forks, which holds every kept point.
+	switch {
+	case i == 0:
+		c.cfg.Resume, c.cfg.From, c.cfg.Points = "", nil, nil
+	case c.cfg.Resume == "" || c.cfg.Points[s.Turns[i-1].ID] == "":
+		c.forget(fmt.Sprintf("turn %d left no point the provider can continue from", i), true)
+	default:
+		c.cfg.From = &session.Origin{Resume: c.cfg.Resume, At: c.cfg.Points[s.Turns[i-1].ID], Fork: true}
+	}
+	c.system(fmt.Sprintf("Rewound to before turn %d; its files are back as they were when it started", i+1))
+	return fmt.Sprintf("rewound to before turn %d", i+1), nil
+}
+
+// turnIndex is the index in s.Turns of the turn name: its id, or its
+// number from 1.
+func turnIndex(s session.Snapshot, name string) (int, error) {
+	if i := slices.IndexFunc(s.Turns, func(t session.TurnSummary) bool { return t.ID == name }); i >= 0 {
+		return i, nil
+	}
+	if n, err := strconv.Atoi(name); err == nil && n >= 1 && n <= len(s.Turns) {
+		return n - 1, nil
+	}
+	return 0, chatError{"not-found", "no turn " + name}
+}
+
+// upTo is s cut after its first n turns: those turns, the items before the
+// first item of a later turn, and nothing pending.
+func upTo(s session.Snapshot, n int) session.Snapshot {
+	later := map[string]bool{}
+	for _, t := range s.Turns[n:] {
+		later[t.ID] = true
+	}
+	end := slices.IndexFunc(s.Content, func(it session.Item) bool { return it.TurnID != nil && later[*it.TurnID] })
+	if end < 0 {
+		end = len(s.Content)
+	}
+	s.Content, s.Turns = slices.Clone(s.Content[:end]), slices.Clone(s.Turns[:n])
+	s.PendingApprovals, s.PendingUserInputs, s.PlanApproval = nil, nil, nil
+	return s
 }
 
 // dropChat forgets a chat and closes it in the background. Callers hold
@@ -534,7 +715,7 @@ func (c *chat) start(from session.Origin) (session.Driver, error) {
 func (d *Daemon) chatEvent(c *chat, e session.Event) {
 	switch e.Type {
 	case session.EventResumeID:
-		c.cfg.Resume = e.ResumeID
+		c.cfg.Resume, c.cfg.From = e.ResumeID, nil
 		c.resuming, c.sent = false, nil
 		return
 	case session.EventLimit:
@@ -559,6 +740,14 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 	asked := len(c.snap.PendingApprovals)+len(c.snap.PendingUserInputs) > 0
 	c.commit(session.Reduce(c.snap, e), e.CreatedAt)
 	name := func() string { p := string(c.cfg.Provider); return strings.ToUpper(p[:1]) + p[1:] }
+	if e.Type == session.EventTurnStarted && c.check != "" {
+		if i := slices.IndexFunc(c.snap.Turns, func(t session.TurnSummary) bool { return t.ID == e.TurnID }); i >= 0 {
+			t := c.snap.Turns[i]
+			t.CheckpointID = c.check
+			c.commit([]session.Delta{{Type: session.DeltaTurn, Turn: &t}}, e.CreatedAt)
+		}
+		c.check = ""
+	}
 	if withdrawn {
 		c.system(name() + " withdrew this request")
 	}
@@ -578,7 +767,7 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 				c.reduce(session.Event{Type: session.EventTurnCompleted, TurnID: t.ID, State: session.TurnFailed, ErrorMessage: why})
 			}
 		}
-		c.forget(why)
+		c.forget(why, c.cfg.From != nil)
 		if m := c.sent; m != nil {
 			c.sent = nil
 			if _, _, err := d.chatTurn(context.Background(), c, *m); err != nil {
@@ -590,12 +779,18 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 	d.chatNext(context.Background(), c)
 }
 
-// forget drops the provider session that did not resume: the next start is
-// a new one, and the next message carries a recap of the transcript.
-func (c *chat) forget(why string) {
-	c.resuming, c.cfg.Resume = false, ""
+// forget drops the provider session that did not resume, or a fork or
+// rewind the provider cannot make (replay): the next start is a new one,
+// and the next message carries a recap of the transcript. The points go
+// with the session they were in.
+func (c *chat) forget(why string, replay bool) {
+	line := "Resumed without history: "
+	if replay {
+		line = "The provider continues from a text recap of this chat, not its history: "
+	}
+	c.resuming, c.cfg.Resume, c.cfg.From, c.cfg.Points = false, "", nil, nil
 	c.recap = recap(c.snap)
-	c.system("Resumed without history: " + why)
+	c.system(line + why)
 }
 
 // recapLimit bounds a recap's text, as docs/managed-sessions.md sets it.
@@ -745,16 +940,19 @@ func (d *Daemon) chatStart(c *chat) error {
 	if c.prov == nil {
 		return chatError{"unsupported", fmt.Sprintf("pitwall cannot run %s chats", c.cfg.Provider)}
 	}
-	resume := c.cfg.Resume
-	drv, err := c.start(session.Origin{Resume: resume})
+	from := session.Origin{Resume: c.cfg.Resume}
+	if c.cfg.From != nil {
+		from = *c.cfg.From
+	}
+	drv, err := c.start(from)
 	switch {
 	case err == nil:
-		c.resuming = resume != ""
-	case resume != "":
+		c.resuming = from.Resume != ""
+	case from.Resume != "":
 		// Forget the session only when a new one starts: a provider that
 		// does not start at all says nothing about the session.
 		if fresh, ferr := c.start(session.Origin{}); ferr == nil {
-			c.forget(err.Error())
+			c.forget(err.Error(), c.cfg.From != nil)
 			drv, err = fresh, nil
 		}
 	}
@@ -821,7 +1019,8 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		}
 		d.mu.Unlock()
 		if dir != "" {
-			d.checkpointWait(dir, c.cfg.Workspace) // as a pane's prompt hook does: the turn's edits stay out of it
+			// shortcut: a checkpoint past turnWait leaves the turn without a checkpointId, so it cannot be rewound; hand it to the loop when it lands if that bites.
+			c.check = d.checkpointWait(dir, c.cfg.Workspace) // as a pane's prompt hook does: the turn's edits stay out of it
 		}
 	}
 	c.resumed, c.limit = false, nil

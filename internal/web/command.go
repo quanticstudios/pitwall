@@ -20,9 +20,9 @@ import (
 	chat "github.com/quanticstudios/pitwall/internal/session"
 )
 
-// commands are the ones chatCommand runs. TODO(ENG-2691): fork and rewind
-// once their socket messages land; unarchive with ChatUnarchive.
-var commands = []string{"listSessions", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "archive", "listProjects", "listWorktrees", "import"}
+// commands are the ones chatCommand runs. TODO: unarchive with
+// ChatUnarchive.
+var commands = []string{"listSessions", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import"}
 
 // aide's attachment limits.
 const (
@@ -34,6 +34,7 @@ const (
 // frame is every command's keys; each reads its own.
 type frame struct {
 	SessionID      string              `json:"sessionId"`
+	TurnID         string              `json:"turnId"`
 	After          int64               `json:"after"`
 	Archived       bool                `json:"archived"`
 	Dir            string              `json:"dir"`
@@ -156,6 +157,10 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		m = proto.ChatAnswer{Chat: f.SessionID, Request: f.RequestID, Answers: f.Answers}
 	case "set":
 		m = proto.ChatSet{Chat: f.SessionID, Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode}
+	case "fork":
+		m = proto.ChatFork{Chat: f.SessionID, Turn: f.TurnID, Worktree: f.Worktree}
+	case "rewind":
+		m = proto.ChatRewind{Chat: f.SessionID, Turn: f.TurnID}
 	case "archive":
 		m = proto.ChatArchive{Chat: f.SessionID, Delete: f.Delete}
 	}
@@ -166,7 +171,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	}
 	var data map[string]any
 	switch {
-	case typ == "start":
+	case typ == "start" || typ == "fork":
 		data = map[string]any{"sessionId": r.Chat}
 		chats := s.Chats.List()
 		if i := slices.IndexFunc(chats, func(ch model.Chat) bool { return ch.ID == r.Chat }); i >= 0 {

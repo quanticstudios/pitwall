@@ -131,6 +131,12 @@ func (r *recorder) waitFor(t *testing.T, typ session.EventType) {
 // start runs the driver against the fake server playing testdata/name.
 func start(t *testing.T, name string, cfg session.Config) (session.Driver, *recorder, string) {
 	t.Helper()
+	return startFrom(t, name, cfg, session.Origin{})
+}
+
+// startFrom is start with the driver started from `from`.
+func startFrom(t *testing.T, name string, cfg session.Config, from session.Origin) (session.Driver, *recorder, string) {
+	t.Helper()
 	now = func() time.Time { return time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC) }
 	script, err := filepath.Abs(filepath.Join("testdata", name))
 	if err != nil {
@@ -142,7 +148,7 @@ func start(t *testing.T, name string, cfg session.Config) (session.Driver, *reco
 	// The fake's settings ride in Config.Env, which only the process sees.
 	cfg.Env = []string{"PITWALL_CODEX_FAKE=" + script, "PITWALL_CODEX_FAKE_RUNS=" + runs, "PITWALL_CODEX_FAKE_CWD=" + cfg.Cwd}
 	rec := &recorder{}
-	d, err := Provider{}.Start(context.Background(), cfg, session.Origin{}, rec.emit)
+	d, err := Provider{}.Start(context.Background(), cfg, from, rec.emit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,5 +363,29 @@ func TestRequests(t *testing.T) {
 		return e.Type == session.EventError && strings.Contains(e.Message, "item/tool/call")
 	}) {
 		t.Error("no error event for the refused item/tool/call")
+	}
+}
+
+// TestFork: a fork opens the thread with thread/fork through the chosen
+// turn, reports the new thread's id, and runs turns on it. Codex cannot
+// cut a thread in place, so a point without a fork is refused.
+func TestFork(t *testing.T) {
+	d, rec, _ := startFrom(t, "fork.jsonl", session.Config{}, session.Origin{Resume: "thr_1", At: "turn_1", Fork: true})
+	defer d.Close(context.Background())
+	if id, err := d.Send(context.Background(), session.Message{ID: "u2", Text: "Again"}); err != nil || id != "turn_3" {
+		t.Fatalf("Send = %q, %v; want turn_3", id, err)
+	}
+	rec.waitFor(t, session.EventTurnCompleted)
+	var ids []string
+	for _, e := range rec.all() {
+		if e.Type == session.EventResumeID {
+			ids = append(ids, e.ResumeID)
+		}
+	}
+	if !slices.Equal(ids, []string{"thr_2"}) {
+		t.Errorf("resume ids %q, want the fork's thr_2", ids)
+	}
+	if _, err := (Provider{}).Start(context.Background(), session.Config{}, session.Origin{Resume: "thr_1", At: "turn_1"}, func(session.Event) {}); !errors.Is(err, session.ErrUnsupported) {
+		t.Errorf("a point without a fork: %v, want ErrUnsupported", err)
 	}
 }

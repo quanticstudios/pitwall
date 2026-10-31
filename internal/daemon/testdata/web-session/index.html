@@ -46,7 +46,7 @@ frame whose keys are its keys.
   {"send": {"type": "listSessions"}, "poll": true, "expect": {"ok": true, "data.chats.0.turns": 3, "data.chats.0.state": "ready"}},
   {"send": {"type": "read", "sessionId": "${chat}", "after": 0}, "expect": {"ok": true, "data.snapshot.content.3.text": "Handled: hello"}},
   {"send": {"type": "interrupt", "sessionId": "${chat}"}, "expect": {"ok": true}},
-  {"send": {"type": "fork", "sessionId": "${chat}", "turnId": "${turn}"}, "expect": {"ok": false, "code": "unsupported"}},
+  {"send": {"type": "fork", "sessionId": "${chat}", "turnId": "${turn}"}, "expect": {"ok": true}, "save": {"fork": "data.sessionId"}},
   {"send": {"type": "listProjects"},
    "expect": {"ok": true, "data.projects.0.workspaces.0.chat": "${chat}", "data.projects.0.workspaces.0.id": "${workspace}"}},
   {"send": {"type": "archive", "sessionId": "${chat}"}, "expect": {"ok": true}},

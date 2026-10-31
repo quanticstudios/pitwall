@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 40 added ChatFork and ChatRewind.
 // Level 39 added ChatProviders and ChatProviderList for configured chat agents.
 // Level 38 added Task.NextStart and Task.Repeat: scheduled queued tasks.
 // Level 37 added chats (managed sessions): model.Chat, State.Chats,
@@ -138,7 +139,10 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 39
+const Level = 40
+
+// ChatForkLevel added ChatFork and ChatRewind.
+const ChatForkLevel = 40
 
 // ChatProvidersLevel added provider discovery for managed chats.
 const ChatProvidersLevel = 39
@@ -153,6 +157,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case ChatFork, ChatRewind:
+		return ChatForkLevel
 	case ChatProviders, ChatProviderList:
 		return ChatProvidersLevel
 	case ChatNew, ChatSend, ChatInterrupt, ChatApprove, ChatAnswer, ChatSet, ChatQueue, ChatRead, ChatArchive, ChatResult, ChatDeltas:
@@ -797,6 +803,7 @@ var Messages = []any{
 	SearchAll{}, SearchAllResult{},
 	ChatNew{}, ChatSend{}, ChatInterrupt{}, ChatApprove{}, ChatAnswer{}, ChatSet{}, ChatQueue{}, ChatRead{}, ChatArchive{},
 	ChatResult{}, ChatDeltas{}, ChatProviders{}, ChatProviderList{},
+	ChatFork{}, ChatRewind{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -868,6 +875,17 @@ type ChatArchive struct {
 	Chat   string
 	Delete bool
 }
+
+// ChatFork opens a new chat that continues Chat from the end of Turn (its
+// id, or its number from 1), through the provider, in a new tab beside
+// Chat's, or in a new worktree named Worktree made from Chat's branch.
+// Chat does not change. The result names the new chat.
+type ChatFork struct{ Chat, Turn, Worktree string }
+
+// ChatRewind drops Turn (its id, or its number from 1) and every turn
+// after it: the files go back to Turn's checkpoint, refused as Undo turn
+// refuses, and the provider continues from the turn before.
+type ChatRewind struct{ Chat, Turn string }
 
 // ChatResult answers a Chat* request.
 type ChatResult struct {

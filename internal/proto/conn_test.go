@@ -79,6 +79,7 @@ func allMessages() []any {
 		ChatQueue{Chat: "c", Queue: []session.QueuedMessage{{ID: "m", Text: "later"}}},
 		ChatRead{Chat: "c", After: 3},
 		ChatArchive{Chat: "c", Delete: true},
+		ChatFork{Chat: "c", Turn: "2", Worktree: "try"}, ChatRewind{Chat: "c", Turn: "t1"},
 		ChatResult{Chat: "c", Turn: "t", Code: "busy", Message: "a turn is running"},
 		ChatDeltas{Chat: "c", Snapshot: []byte(`{}`), Seq: 1, Deltas: [][]byte{[]byte(`{"seq":2}`)}},
 		Answer{Pane: "a", At: 1 << 60, Allow: true},

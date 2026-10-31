@@ -162,29 +162,29 @@ func commitTree(ctx context.Context, root, parent, tree, msg string) (string, er
 
 // Checkpoint snapshots worktree's files as tab ws's next checkpoint, then
 // drops the checkpoints past the latest KeepTurns and the redo snapshot,
-// which was the turn before's.
-func Checkpoint(ctx context.Context, worktree, ws string) error {
+// which was the turn before's. It returns the checkpoint's commit.
+func Checkpoint(ctx context.Context, worktree, ws string) (string, error) {
 	prefix, err := turnsRef(ws)
 	if err != nil {
-		return err
+		return "", err
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return fmt.Errorf("%s is not in a git repository", worktree)
+		return "", fmt.Errorf("%s is not in a git repository", worktree)
 	}
 	list, redo, err := turns(ctx, root, prefix)
 	if err != nil {
-		return err
+		return "", err
 	}
 	// HEAD before the files: a commit made while they are read must not
 	// pass for the one they were taken on.
 	parent, err := head(ctx, root)
 	if err != nil {
-		return err
+		return "", err
 	}
 	tree, err := snapshot(ctx, root)
 	if err != nil {
-		return err
+		return "", err
 	}
 	n := 1
 	if len(list) > 0 {
@@ -192,7 +192,7 @@ func Checkpoint(ctx context.Context, worktree, ws string) error {
 	}
 	rev, err := commitTree(ctx, root, parent, tree, fmt.Sprintf("pitwall checkpoint: tab %s, turn %d", ws, n))
 	if err != nil {
-		return err
+		return "", err
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "create %s%d %s\n", prefix, n, rev)
@@ -204,8 +204,10 @@ func Checkpoint(ctx context.Context, worktree, ws string) error {
 	if redo.name != "" {
 		fmt.Fprintf(&b, "delete %s\n", redo.name)
 	}
-	_, err = gitWith(ctx, root, nil, b.String(), "update-ref", "--stdin")
-	return err
+	if _, err := gitWith(ctx, root, nil, b.String(), "update-ref", "--stdin"); err != nil {
+		return "", err
+	}
+	return rev, nil
 }
 
 // LatestTurn is tab ws's latest checkpoint in worktree's repository, a
@@ -253,6 +255,22 @@ func TurnDiff(ctx context.Context, worktree, rev string) (Patch, error) {
 // parent, when the files already match the checkpoint, and as restore
 // does; it never touches HEAD, the index or a commit.
 func UndoTurn(ctx context.Context, worktree, ws string) error {
+	return undo(ctx, worktree, ws, "")
+}
+
+// RewindTurn is UndoTurn to tab ws's checkpoint rev, which need not be the
+// latest, for a chat's rewind: the checkpoints after rev go, so rev's is
+// the latest and RedoTurn puts back what the rewind replaced. Files that
+// already match rev change nothing, and that is no refusal.
+func RewindTurn(ctx context.Context, worktree, ws, rev string) error {
+	if rev == "" {
+		return errors.New("no checkpoint to go back to")
+	}
+	return undo(ctx, worktree, ws, rev)
+}
+
+// undo is UndoTurn to checkpoint rev, "" for the latest.
+func undo(ctx context.Context, worktree, ws, rev string) error {
 	restoring.Lock()
 	defer restoring.Unlock()
 	prefix, err := turnsRef(ws)
@@ -270,7 +288,13 @@ func UndoTurn(ctx context.Context, worktree, ws string) error {
 	if len(list) == 0 {
 		return errors.New("no checkpoint to go back to")
 	}
-	last := list[len(list)-1]
+	i := len(list) - 1
+	if rev != "" {
+		if i = slices.IndexFunc(list, func(t turnRef) bool { return t.rev == rev }); i < 0 {
+			return fmt.Errorf("the turn's checkpoint is gone: a tab keeps its last %d", KeepTurns)
+		}
+	}
+	last := list[i]
 	if err := onHead(ctx, root, last.parent); err != nil {
 		return err
 	}
@@ -278,9 +302,20 @@ func UndoTurn(ctx context.Context, worktree, ws string) error {
 	if err != nil {
 		return err
 	}
+	var refs strings.Builder
+	for _, t := range list[i+1:] {
+		fmt.Fprintf(&refs, "delete %s\n", t.name)
+	}
 	if now == last.tree {
-		// why: a second undo would replace the redo snapshot with these.
-		return errors.New("the files are already as the turn started")
+		if rev == "" {
+			// why: a second undo would replace the redo snapshot with these.
+			return errors.New("the files are already as the turn started")
+		}
+		if refs.Len() == 0 {
+			return nil
+		}
+		_, err := gitWith(ctx, root, nil, refs.String(), "update-ref", "--stdin")
+		return err
 	}
 	if err := check(ctx, root, now, last.rev); err != nil {
 		return err
@@ -289,7 +324,8 @@ func UndoTurn(ctx context.Context, worktree, ws string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := git(ctx, root, "update-ref", prefix+"redo", redo); err != nil {
+	fmt.Fprintf(&refs, "update %sredo %s\n", prefix, redo)
+	if _, err := gitWith(ctx, root, nil, refs.String(), "update-ref", "--stdin"); err != nil {
 		return err
 	}
 	return restore(ctx, root, now, last.rev)

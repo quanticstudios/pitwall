@@ -32,7 +32,7 @@ func TestCheckpoint(t *testing.T) {
 	}
 	before := state()
 
-	if err := Checkpoint(ctx, dir, "w1"); err != nil {
+	if _, err := Checkpoint(ctx, dir, "w1"); err != nil {
 		t.Fatal(err)
 	}
 	if after := state(); after != before {
@@ -50,7 +50,7 @@ func TestCheckpoint(t *testing.T) {
 	}
 
 	for range KeepTurns + 1 {
-		if err := Checkpoint(ctx, dir, "w1"); err != nil {
+		if _, err := Checkpoint(ctx, dir, "w1"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -61,7 +61,7 @@ func TestCheckpoint(t *testing.T) {
 	if turn, err := LatestTurn(ctx, dir, "w1"); err != nil || turn.N != KeepTurns+2 || turn.Moved {
 		t.Errorf("LatestTurn = %+v, %v", turn, err)
 	}
-	if err := Checkpoint(ctx, dir, "../x"); err == nil {
+	if _, err := Checkpoint(ctx, dir, "../x"); err == nil {
 		t.Error("a tab id with a slash named a ref")
 	}
 	if err := DropTurns(ctx, dir, "w1"); err != nil {
@@ -95,7 +95,7 @@ func TestUndoTurn(t *testing.T) {
 	writeFile(t, dir, "del.txt", "del\n")
 	commit(t, dir)
 	writeFile(t, dir, "pre.txt", "untracked before the turn\n")
-	if err := Checkpoint(ctx, dir, "w"); err != nil {
+	if _, err := Checkpoint(ctx, dir, "w"); err != nil {
 		t.Fatal(err)
 	}
 	head, index := runGit(t, dir, "rev-parse", "HEAD"), runGit(t, dir, "ls-files", "--stage")
@@ -201,7 +201,7 @@ func TestUndoRefuses(t *testing.T) {
 
 	// A folder where a file was, holding an ignored file.
 	dir := setup()
-	if err := Checkpoint(ctx, dir, "w"); err != nil {
+	if _, err := Checkpoint(ctx, dir, "w"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(dir, "f")); err != nil {
@@ -222,7 +222,7 @@ func TestUndoRefuses(t *testing.T) {
 	// A .gitignore change that makes an old ignored file look added.
 	dir = setup()
 	writeFile(t, dir, "old.log", "kept\n")
-	if err := Checkpoint(ctx, dir, "w"); err != nil {
+	if _, err := Checkpoint(ctx, dir, "w"); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, dir, ".gitignore", ".worktrees/\n")
@@ -235,7 +235,7 @@ func TestUndoRefuses(t *testing.T) {
 
 	// A second undo, then a redo over files changed since the undo.
 	dir = setup()
-	if err := Checkpoint(ctx, dir, "w"); err != nil {
+	if _, err := Checkpoint(ctx, dir, "w"); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, dir, "f", "the turn\n")
@@ -263,7 +263,7 @@ func TestUndoRefuses(t *testing.T) {
 	runGit(t, dir, "update-index", "--skip-worktree", "file.txt")
 	writeFile(t, dir, "f", "changed\n")
 	writeFile(t, dir, "file.txt", "skipped\n")
-	if err := Checkpoint(ctx, dir, "w"); err != nil {
+	if _, err := Checkpoint(ctx, dir, "w"); err != nil {
 		t.Fatal(err)
 	}
 	if got := runGit(t, dir, "show", "refs/pitwall/turns/w/1:f"); got != "changed" {
@@ -308,4 +308,59 @@ func TestSnapshotRacyEdit(t *testing.T) {
 	if got := runGit(t, dir, "status", "--porcelain"); !strings.Contains(got, "file.txt") {
 		t.Fatalf("git status missed the edit too: %q", got)
 	}
+}
+
+// TestRewindTurn: three turns edit a file; rewinding to the second's
+// checkpoint puts its start back and drops the third's checkpoint, so redo
+// brings back what the rewind replaced. A rewind whose files already match
+// changes nothing, and once a commit moves HEAD it refuses.
+func TestRewindTurn(t *testing.T) {
+	dir := repo(t)
+	ctx := context.Background()
+	writeFile(t, dir, "f.txt", "0\n")
+	commit(t, dir)
+	var revs []string
+	for _, v := range []string{"1\n", "2\n", "3\n"} {
+		rev, err := Checkpoint(ctx, dir, "w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		revs = append(revs, rev)
+		writeFile(t, dir, "f.txt", v)
+	}
+	writeFile(t, dir, "new.txt", "made by turn 3\n")
+	if err := RewindTurn(ctx, dir, "w", revs[1]); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, dir, "f.txt"); got != "1\n" {
+		t.Errorf("f.txt = %q after the rewind, want turn 2's start", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("new.txt survived the rewind: %v", err)
+	}
+	if turn, err := LatestTurn(ctx, dir, "w"); err != nil || turn.Rev != revs[1] || turn.Redo == "" {
+		t.Fatalf("LatestTurn = %+v, %v; want turn 2's checkpoint with a redo", turn, err)
+	}
+	if err := RewindTurn(ctx, dir, "w", revs[1]); err != nil {
+		t.Errorf("a rewind with nothing to put back: %v", err)
+	}
+	if err := RedoTurn(ctx, dir, "w"); err != nil || readFile(t, dir, "f.txt") != "3\n" {
+		t.Fatalf("redo: %v, f.txt %q", err, readFile(t, dir, "f.txt"))
+	}
+	if err := RewindTurn(ctx, dir, "w", revs[2]); err == nil {
+		t.Error("rewound to a dropped checkpoint")
+	}
+	commit(t, dir)
+	if err := RewindTurn(ctx, dir, "w", revs[0]); !errors.Is(err, ErrHeadMoved) {
+		t.Errorf("rewind after a commit: %v, want ErrHeadMoved", err)
+	}
+}
+
+func readFile(t *testing.T, dir, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
