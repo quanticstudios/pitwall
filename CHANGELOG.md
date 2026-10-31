@@ -19,6 +19,7 @@ build. Either step takes `--dry-run`.
 
 - When every hook is already installed, the Install hooks dialog says why an agent may still send none: Codex needs `/hooks` once to trust them, and an agent started before the install needs a restart. Closing that dialog hides the pane notice. Before, it said only "already installed" and the notice stayed.
 - Web clients see archived chats: `listSessions` with `archived: true` lists them, with the title they had when archived, and `read` returns an archived chat's transcript. A new `import` command stores an old aide session as an archived chat under its aide id. Importing again replaces an earlier import, and never touches a live chat or one pitwall archived itself.
+- Web clients can read what Settings, Usage shows: `readUsage` answers with each plan limit and its reset times, and the tokens and list-price cost of every agent's session files by day and by session, plus `[usage] show_cost`. aide's usage page reads it.
 - `PITWALL_FAKE_PROVIDERS=1` reaches the daemon: its Claude and Codex chats run the scripted providers, so aide's e2e can run against a real daemon. Without it the daemon still starts no Claude or Codex driver.
 
 ## v0.1.7
