@@ -10,16 +10,18 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/acp"
+	"github.com/quanticstudios/pitwall/internal/session/fake"
 )
 
 // configuredProviders reads once at daemon startup, keeping a provider id's
 // executable stable for the lifetime of its chats. No agent is spawned here.
+// PITWALL_FAKE_PROVIDERS=1 adds the scripted Claude and Codex for aide's e2e.
 func configuredProviders() map[model.Provider]session.Provider {
 	s, problems := config.Load()
 	for _, p := range problems {
 		log.Printf("chat providers: %s", p.Msg)
 	}
-	return acpProviders(s.ACPAgents)
+	return fake.ProvidersFromEnv(acpProviders(s.ACPAgents), nil)
 }
 
 func acpProviders(agents []config.ACPAgent) map[model.Provider]session.Provider {

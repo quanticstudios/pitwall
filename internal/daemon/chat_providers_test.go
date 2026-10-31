@@ -62,3 +62,16 @@ command = "missing-agent"
 		t.Fatalf("configured provider not selected: %+v", r)
 	}
 }
+
+func TestConfiguredFakeProviders(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("PITWALL_FAKE_PROVIDERS", "")
+	if got := configuredProviders(); len(got) != 0 {
+		t.Fatalf("without the opt-in: %v", got)
+	}
+	t.Setenv("PITWALL_FAKE_PROVIDERS", "1")
+	got := configuredProviders()
+	if got[model.ProviderClaude] == nil || got[model.ProviderCodex] == nil {
+		t.Fatalf("with PITWALL_FAKE_PROVIDERS=1: %v", got)
+	}
+}

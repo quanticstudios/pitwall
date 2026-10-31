@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- `PITWALL_FAKE_PROVIDERS=1` reaches the daemon: its Claude and Codex chats run the scripted providers, so aide's e2e can run against a real daemon. Without it the daemon still starts no Claude or Codex driver.
+
 ## v0.1.7
 
 - A chat's tool calls record when they started and ended, as aide's do, so aide's web client shows their durations. `testdata/web-protocol/` holds one conformance fixture per fake provider scenario: the events, the delta stream a web client gets and the snapshot it ends on. aide vendors them, and `go test ./internal/session/fake -run TestConformance -update` rewrites them.
@@ -35,7 +39,7 @@ build. Either step takes `--dry-run`.
 - Add an OpenCode managed-session driver with streamed text and tool calls, permission replies, questions, interrupt and session-ID resume. The daemon's provider selection is separate work.
 - The daemon has a Claude Code driver for managed chats: it runs `claude -p` in stream-json mode, sends turns and maps streamed text, tool calls, usage and limits to chat events. Nothing starts it yet.
 - A chat gets what an agent pane gets: an activity in the sidebar with triage, notifications and the Unseen dot, a turn checkpoint before each turn for This turn and Undo turn, its worktree's port block and `PITWALL_PANE` in its environment, and limit resume, which sends "continue" to the chat once a plan limit resets. Claude chats' plan limits show on the Usage page. A worktree's `setup` command does not run for a chat yet; `chat new` says so.
-- Managed-session tests and aide e2e can use scripted Claude and Codex providers without starting agents. The provider registry opts in with `PITWALL_FAKE_PROVIDERS=1` and logs a warning; daemon wiring comes with the chat-loop work.
+- Managed-session tests and aide e2e can use scripted Claude and Codex providers without starting agents. The daemon opts in with `PITWALL_FAKE_PROVIDERS=1` and logs a warning.
 - Queue tasks for a local time with `--at HH:MM` or repeat them with `--every 24h`, also available through Start at in New task. The sidebar shows the next start, capacity limits still apply, and missed repeats run once after sleep.
 - `docs/web-protocol.md` specifies the protocol aide will use to drive chats over a localhost WebSocket, with a JSON Schema (`docs/web-protocol.schema.json`) tested against aide's delta fixtures. Nothing serves it yet.
 - `[web] enabled = true` serves the web protocol's handshake on `127.0.0.1` for local clients such as aide. The address and token go in `web.json` (mode 0600) in the state folder, and `pitwall web token --rotate` replaces the token. Requests from another site's page or through a rebound DNS name are refused. Commands answer `unsupported` until later releases add them.
