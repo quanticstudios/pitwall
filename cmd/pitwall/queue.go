@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -18,7 +19,7 @@ import (
 
 const queueUsage = `usage:
   pitwall queue ls [-s session]                   list the session's queued tasks, first to start first
-  pitwall queue add [-s session] [--issue n] [--preset name] [--model model] [dir] -- cmd...
+  pitwall queue add [-s session] [--issue n] [--preset name] [--model model] [--at HH:MM] [--every duration] [dir] -- cmd...
                                                   queue an agent with its prompt, run in dir, such as
                                                   pitwall queue add -- codex "fix the flaky test";
                                                   --issue adds GitHub issue n as the prompt;
@@ -38,15 +39,21 @@ func queueCommand(args []string, out io.Writer) error {
 	}
 	flags := flag.NewFlagSet("queue "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var sessionName, preset, modelName string
+	var sessionName, preset, modelName, at, every string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	if command == "add" {
+		flags.StringVar(&at, "at", "", "")
+		flags.StringVar(&every, "every", "", "")
 		flags.IntVar(&issue, "issue", 0, "")
 		flags.StringVar(&preset, "preset", "", "")
 		flags.StringVar(&modelName, "model", "", "")
 	}
 	args, err := parseFlags(flags, args)
+	if err != nil {
+		return err
+	}
+	next, repeat, err := model.ParseTaskSchedule(at, every, time.Now())
 	if err != nil {
 		return err
 	}
@@ -74,6 +81,9 @@ func queueCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if !next.IsZero() && m.Level < proto.ScheduleLevel {
+		return errors.New("task schedules need a newer daemon; restart pitwall")
+	}
 	state := m.State
 	if err := varsLevel(vars, m.Level); err != nil {
 		return err
@@ -97,7 +107,7 @@ func queueCommand(args []string, out io.Writer) error {
 		if cmd, err = withIssue(cmd, dir, issue); err != nil {
 			return err
 		}
-		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd, Env: vars}, Queue: true})
+		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd, Env: vars, NextStart: next, Repeat: repeat}, Queue: true})
 		return err
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(args[0], "#"))
@@ -112,7 +122,7 @@ func queueCommand(args []string, out io.Writer) error {
 // folder and group.
 func listTasks(out io.Writer, state model.State, tasks []model.Task) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	if _, err := fmt.Fprintln(w, "#\tTASK\tFOLDER\tGROUP"); err != nil {
+	if _, err := fmt.Fprintln(w, "#\tTASK\tFOLDER\tGROUP\tNEXT START\tREPEAT"); err != nil {
 		return err
 	}
 	home, _ := os.UserHomeDir()
@@ -133,9 +143,23 @@ func listTasks(out io.Writer, state model.State, tasks []model.Task) error {
 				group = p.Name
 			}
 		}
-		if _, err := fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", i+1, t.Title(), folder, group); err != nil {
+		if _, err := fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n", i+1, t.Title(), folder, group, taskStart(t), taskRepeat(t)); err != nil {
 			return err
 		}
 	}
 	return w.Flush()
+}
+
+func taskStart(t model.Task) string {
+	if t.NextStart.IsZero() {
+		return "-"
+	}
+	return t.NextStart.Local().Format("2006-01-02 15:04 MST")
+}
+
+func taskRepeat(t model.Task) string {
+	if t.Repeat == 0 {
+		return "-"
+	}
+	return t.Repeat.String()
 }

@@ -25,7 +25,7 @@ func TestQueueSection(t *testing.T) {
 		Projects:   []model.Project{{ID: "g", SessionID: "s", Name: "repo", Root: "/r", Kind: model.ProjectGit}},
 		Workspaces: []model.Workspace{{ID: "w", SessionID: "s", ProjectID: "g", Name: "tab"}, {ID: "x", SessionID: "s", Name: "loose"}},
 		Tasks: []model.Task{
-			{ID: "t1", SessionID: "s", GroupID: "g", Cmd: []string{"codex", "fix the tests\nmore"}},
+			{ID: "t1", SessionID: "s", GroupID: "g", NextStart: time.Date(2026, 10, 31, 2, 0, 0, 0, time.Local), Repeat: 24 * time.Hour, Cmd: []string{"codex", "fix the tests\nmore"}},
 			{ID: "t2", SessionID: "s", Cmd: []string{"claude", "write docs"}},
 			{ID: "t3", SessionID: "other", Cmd: []string{"pi", "elsewhere"}},
 		},

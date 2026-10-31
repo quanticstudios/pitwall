@@ -1,5 +1,6 @@
 // Package panel is the side panel: what the agent in the focused pane is
-// doing, in five tabs (Flow, Subagents, Plan, Changes, Timeline).
+// doing, in five tabs (Flow, Subagents, Plan, Changes, Timeline). It also
+// draws a chat's transcript, for the main area, with the same rows.
 package panel
 
 import (

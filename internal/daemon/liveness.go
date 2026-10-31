@@ -150,6 +150,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+		d.checkQueue(time.Now())
 		d.checkForeground()
 		d.refreshDecisions()
 		d.detect(ctx)

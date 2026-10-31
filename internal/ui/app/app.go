@@ -300,9 +300,10 @@ type ui struct {
 	linkBackdrop                 int
 	relaunchTried, quit, offline bool
 
-	panel      sidePanel  // the agent panel on the right while nav.panelOpen
-	usage      usageWatch // token use for the tabs' hover cards
-	invalidate func()     // the window's Invalidate; nil in tests
+	panel      sidePanel        // the agent panel on the right while nav.panelOpen
+	transcript panel.Transcript // the chat tab on screen
+	usage      usageWatch       // token use for the tabs' hover cards
+	invalidate func()           // the window's Invalidate; nil in tests
 
 	find findBar // the find bar, on the focused pane while open
 
@@ -917,10 +918,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		u.drag = nil
 	}
 	if ws.Chat != "" {
-		// shortcut: the transcript view is ENG-2689's; until then the CLI reads it.
-		gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
-			return para(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Muted, "Chat: read it with pitwall chat read "+ws.Chat)
-		})
+		u.layoutChat(gtx, st, ws)
 		return
 	}
 	if root == nil {

@@ -42,6 +42,9 @@ type taskDialog struct {
 	preset   string // the prompt the next open starts with
 
 	prompt, name, base, branch, issue widget.Editor
+	at, every                         widget.Editor
+	scheduled                         bool
+	schedule                          widget.Clickable
 	autoName                          string             // the name the prompt last filled in; once the user changes it, the prompt stops
 	refs                              proto.WorktreeInfo // the project's branches, for the base and branch fields
 	issues                            taskIssues
@@ -289,6 +292,10 @@ func (u *ui) openTask(st *model.State, group string) {
 	if len(t.agents) > 0 {
 		t.picked[max(0, slices.IndexFunc(t.agents, func(a foundAgent) bool { return a.cmd == u.gui.TaskAgent }))] = true
 	}
+	t.scheduled = false
+	t.at.SetText("")
+	t.every.SetText("")
+	t.at.SingleLine, t.every.SingleLine = true, true
 	t.err, t.focus = "", true
 	t.prompt.Submit, t.name.SingleLine, t.base.SingleLine, t.branch.SingleLine, t.issue.SingleLine = false, true, true, true, true
 	t.name.Submit, t.base.Submit, t.branch.Submit, t.issue.Submit = true, true, true, true
@@ -487,6 +494,27 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 		t.err = err.Error()
 		return
 	}
+	var next time.Time
+	var repeat time.Duration
+	if queue && t.scheduled {
+		next, repeat, err = model.ParseTaskSchedule(strings.TrimSpace(t.at.Text()), strings.TrimSpace(t.every.Text()), time.Now())
+		if err != nil {
+			t.err = err.Error()
+			return
+		}
+		if repeat > 0 && t.where != whereHere {
+			t.err = "Repeating tasks need This folder under Where."
+			return
+		}
+		if next.IsZero() {
+			t.err = "Enter a start time or repeat interval."
+			return
+		}
+		if linkLevel(u.b) < proto.ScheduleLevel {
+			t.err = "Task schedules work once the older pitwall daemon restarts."
+			return
+		}
+	}
 	if !queue {
 		u.nav.expectSession(st) // the new tab shows once it opens
 	}
@@ -501,6 +529,7 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 		}
 	}
 	for _, task := range tasks {
+		task.NextStart, task.Repeat = next, repeat
 		task.SessionID = u.nav.session
 		if !u.send(proto.NewTask{Task: task, Queue: queue, FromPane: u.nav.focused()}) {
 			u.nav.sessions = nil

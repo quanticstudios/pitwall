@@ -13,6 +13,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/fake"
 )
 
 // stubProvider starts stubDrivers. Each Send starts a turn and emits
@@ -365,4 +366,109 @@ func TestPendingID(t *testing.T) {
 			t.Errorf("pendingID(%v, %q) = %q, %v", c.ids, c.want, got, err)
 		}
 	}
+}
+
+// TestChatFollow follows a fake Claude's chat as the GUI does, reading
+// the deltas after the last seq it has until the turn ends, and ends with
+// the snapshot a fresh read gives.
+func TestChatFollow(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) {
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: fake.New(fake.Options{})}
+	})
+	defer stop()
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Prompt: "tools"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	var snap *session.Snapshot
+	var seq int64
+	reads := 0
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		d := chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: r.Chat, After: seq})
+		reads++
+		if d.Snapshot != nil {
+			if seq != 0 {
+				t.Fatalf("read after %d: a snapshot, want deltas", seq)
+			}
+			snap = new(session.Snapshot)
+			if err := json.Unmarshal(d.Snapshot, snap); err != nil {
+				t.Fatal(err)
+			}
+		}
+		seq = d.Seq
+		for _, raw := range d.Deltas {
+			var dl session.Delta
+			if err := json.Unmarshal(raw, &dl); err != nil {
+				t.Fatal(err)
+			}
+			n, err := session.Apply(snap, seq, dl)
+			if err != nil {
+				t.Fatalf("delta %d after %d: %v", dl.Seq, seq, err)
+			}
+			snap, seq = &n, dl.Seq
+		}
+		if len(snap.Turns) == 1 && snap.Turns[0].State == session.TurnCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("turn never finished: %s running %v %+v", snap.SessionState, snap.Running, snap.Turns)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if reads < 2 {
+		t.Fatalf("the turn ended in %d read; nothing was followed", reads)
+	}
+	tools := 0
+	for _, it := range snap.Content {
+		if it.Kind == session.KindToolCall {
+			tools++
+		}
+	}
+	if tools < 3 {
+		t.Fatalf("%d tool calls followed, want the script's 3", tools)
+	}
+	fresh := chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: r.Chat})
+	got, _ := json.Marshal(snap)
+	if string(got) != string(fresh.Snapshot) || fresh.Seq != seq {
+		t.Fatalf("followed (seq %d):\n%s\nfresh read (seq %d):\n%s", seq, got, fresh.Seq, fresh.Snapshot)
+	}
+}
+
+// TestChatApproveFake answers a fake Claude's approval with the message the
+// GUI's Allow button sends, and the turn finishes.
+func TestChatApproveFake(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := runWith(t, f, func(o *Options) {
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: fake.New(fake.Options{})}
+	})
+	defer stop()
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Prompt: "approval"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	read := func(what string, ok func(session.Snapshot) bool) session.Snapshot {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			var s session.Snapshot
+			if err := json.Unmarshal(chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: r.Chat}).Snapshot, &s); err != nil {
+				t.Fatal(err)
+			}
+			if ok(s) {
+				return s
+			}
+		}
+		t.Fatalf("timed out waiting for %s", what)
+		return session.Snapshot{}
+	}
+	s := read("the approval", func(s session.Snapshot) bool { return len(s.PendingApprovals) == 1 })
+	a := proto.ChatApprove{Chat: r.Chat, Request: s.PendingApprovals[0].ID, Decision: "allow", By: "gui"}
+	if res := chatCall[proto.ChatResult](gui, a); res.Code != "" {
+		t.Fatalf("approve: %+v", res)
+	}
+	read("the turn to end", func(s session.Snapshot) bool {
+		return len(s.PendingApprovals) == 0 && len(s.Turns) == 1 && s.Turns[0].State == session.TurnCompleted
+	})
 }

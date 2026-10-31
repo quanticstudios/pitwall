@@ -36,7 +36,7 @@ optional name act on the pane's own tab.
 | `pitwall worktree rm <name> [--force]` | Remove a worktree and close its tab; with changes it lists them and stops unless `--force`. The branch stays |
 | `pitwall worktree prune`              | Forget worktrees whose folder is gone, and list the ones under `.worktrees` that no tab uses |
 | `pitwall completion bash` / `zsh` / `fish` | Print a completion script for pitwall's commands, e.g. `source <(pitwall completion bash)` or `pitwall completion fish \| source` |
-| `pitwall queue ls` / `add [--issue n] [--preset name] [--model model] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
+| `pitwall queue ls` / `add [--issue n] [--preset name] [--model model] [--at HH:MM] [--every duration] [dir] -- cmd...` / `rm <n>` | List, add to or take from the session's task queue (see [Tasks](usage.md#tasks-and-the-queue)) |
 | `pitwall chat new [--provider claude\|codex] [--model M] [--effort E] [--mode M] [--dir D \| --worktree NAME [--base B] \| --branch B] [--name N] [-- prompt]` | Open a [chat](#chats) in a tab of its own, send the prompt, and print the chat's id |
 | `pitwall chat ls [--json]`            | List the session's chats: tab #, id, provider, state, pending answers, title |
 | `pitwall chat send <chat> [--steer\|--queue] -- text` | Start a turn, or queue the text behind the running one; `--steer` adds it to the running turn where the agent can, `--queue` always queues |
