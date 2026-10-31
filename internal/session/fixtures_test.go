@@ -12,7 +12,10 @@ import (
 )
 
 // testdata/session-deltas is aide's fixtures/session-deltas, copied from
-// aide a265313 (ENG-2666, which added items' createdAt).
+// aide a265313 (ENG-2666, which added items' createdAt), and tool-calls.json
+// from 1942ada (ENG-2665, which added tools' startedAt and endedAt).
+// shortcut: aide's provider-error.json and usage-limit.json (ENG-2670) need
+// delta fields pitwall lacks; copy them once Delta has those.
 type fixture struct {
 	Name          string            `json:"-"`
 	RuntimeEvents []json.RawMessage `json:"runtimeEvents"`

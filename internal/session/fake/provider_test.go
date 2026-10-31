@@ -70,6 +70,13 @@ func replay(t *testing.T, name string, provider model.Provider) []session.Event 
 	t.Helper()
 	o := testOptions()
 	o.ScriptName = name
+	return replayWith(t, name, provider, o)
+}
+
+// replayWith sends name once on a driver from o, allows every approval,
+// answers every input, and closes the driver once the turn ends.
+func replayWith(t *testing.T, name string, provider model.Provider, o Options) []session.Event {
+	t.Helper()
 	cfg := session.Config{ID: "chat", Provider: provider, Cwd: t.TempDir()}
 	if name == "fail-start" {
 		_, err := New(o).Start(context.Background(), cfg, session.Origin{}, func(session.Event) { t.Error("emission from failed start") })

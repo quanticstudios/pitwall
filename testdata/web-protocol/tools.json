@@ -1,0 +1,165 @@
+{"prompt":"tools","provider":"claude","scenario":"tools",
+"runtimeEvents": [
+  {"type":"session.resume-id","createdAt":"2030-01-01T00:00:00.000Z","resumeId":"fake-test","version":"fake"},
+  {"type":"session.state.changed","createdAt":"2030-01-01T00:00:00.000Z","state":"ready"},
+  {"type":"turn.started","createdAt":"2030-01-01T00:00:00.000Z","turnId":"fake-test-turn-1"},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.000Z","itemId":"fake-test-turn-1/fake-bash","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-bash","command":"echo hello","input":{"command":"echo hello"},"status":"running","toolName":"Bash"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.100Z","itemId":"fake-test-turn-1/fake-bash","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-bash","command":"echo hello","exitCode":0,"input":{"command":"echo hello"},"output":"hello","status":"completed","toolName":"Bash"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.100Z","itemId":"fake-test-turn-1/fake-edit","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-edit","input":{"file_path":"README.md","new_string":"after","old_string":"before"},"status":"running","toolName":"Edit"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.200Z","itemId":"fake-test-turn-1/fake-edit","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-edit","diff":"--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,1 @@\n-before\n+after","files":[{"path":"README.md","status":"modified"}],"input":{"file_path":"README.md","new_string":"after","old_string":"before"},"output":"Edited README.md","status":"completed","toolName":"Edit"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.200Z","itemId":"fake-test-turn-1/fake-read","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-read","input":{"file_path":"README.md"},"status":"running","toolName":"Read"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.300Z","itemId":"fake-test-turn-1/fake-read","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-read","files":[{"path":"README.md","status":"read"}],"input":{"file_path":"README.md"},"output":"before","status":"completed","toolName":"Read"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.400Z","itemId":"fake-test-turn-1/reply","kind":"assistant-text","text":"Ran three tools."},
+  {"type":"turn.completed","createdAt":"2030-01-01T00:00:00.400Z","state":"completed","turnId":"fake-test-turn-1","point":"fake-test-turn-1"},
+  {"type":"session.exited","createdAt":"2030-01-01T00:00:00.400Z","exitCode":0}
+],
+"deltas": [
+  {"version":1,"sessionId":"chat","seq":1,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z","type":"snapshot","snapshot":{"sessionId":"chat","paneId":"chat","workspaceId":"tab","provider":"claude","content":[],"turns":[],"pendingApprovals":[],"pendingUserInputs":[],"planApproval":null,"sessionState":"ready","running":false,"detail":null,"lastCompletedAt":null,"lastError":null,"lastErrorAt":null,"model":null,"effort":null,"serviceTier":null,"permissionMode":"default","interactionMode":"build","selectionNotice":null,"runtimeGeneration":0,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":2,"revision":2,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":3,"revision":3,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.add","item":{"attachments":[],"id":"prompt","kind":"user-prompt","provider":null,"text":"tools","turnId":null,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
+  {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1/fake-bash","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-bash","command":"echo hello","input":{"command":"echo hello"},"startedAt":"2030-01-01T00:00:00.000Z","status":"running","toolName":"Bash"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":8,"revision":7,"updatedAt":"2030-01-01T00:00:00.100Z","type":"tool.output.append","itemId":"fake-test-turn-1/fake-bash","text":"hello","itemUpdatedAt":"2030-01-01T00:00:00.100Z"},
+  {"version":1,"sessionId":"chat","seq":9,"revision":7,"updatedAt":"2030-01-01T00:00:00.100Z","type":"tool.end","itemId":"fake-test-turn-1/fake-bash","status":"completed","exitCode":0,"startedAt":"2030-01-01T00:00:00.000Z","endedAt":"2030-01-01T00:00:00.100Z"},
+  {"version":1,"sessionId":"chat","seq":10,"revision":8,"updatedAt":"2030-01-01T00:00:00.100Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.100Z","id":"fake-test-turn-1/fake-edit","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-edit","input":{"file_path":"README.md","new_string":"after","old_string":"before"},"startedAt":"2030-01-01T00:00:00.100Z","status":"running","toolName":"Edit"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.100Z"}},
+  {"version":1,"sessionId":"chat","seq":11,"revision":9,"updatedAt":"2030-01-01T00:00:00.200Z","type":"item.patch","itemId":"fake-test-turn-1/fake-edit","patch":{"tool":{"callId":"fake-test-turn-1/fake-edit","diff":"--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,1 @@\n-before\n+after","endedAt":"2030-01-01T00:00:00.200Z","files":[{"path":"README.md","status":"modified"}],"input":{"file_path":"README.md","new_string":"after","old_string":"before"},"output":"Edited README.md","startedAt":"2030-01-01T00:00:00.100Z","status":"completed","toolName":"Edit"},"updatedAt":"2030-01-01T00:00:00.200Z"}},
+  {"version":1,"sessionId":"chat","seq":12,"revision":10,"updatedAt":"2030-01-01T00:00:00.200Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.200Z","id":"fake-test-turn-1/fake-read","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-read","input":{"file_path":"README.md"},"startedAt":"2030-01-01T00:00:00.200Z","status":"running","toolName":"Read"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.200Z"}},
+  {"version":1,"sessionId":"chat","seq":13,"revision":11,"updatedAt":"2030-01-01T00:00:00.300Z","type":"item.patch","itemId":"fake-test-turn-1/fake-read","patch":{"tool":{"callId":"fake-test-turn-1/fake-read","endedAt":"2030-01-01T00:00:00.300Z","files":[{"path":"README.md","status":"read"}],"input":{"file_path":"README.md"},"output":"before","startedAt":"2030-01-01T00:00:00.200Z","status":"completed","toolName":"Read"},"updatedAt":"2030-01-01T00:00:00.300Z"}},
+  {"version":1,"sessionId":"chat","seq":14,"revision":12,"updatedAt":"2030-01-01T00:00:00.400Z","type":"item.add","item":{"createdAt":"2030-01-01T00:00:00.400Z","id":"fake-test-turn-1/reply","kind":"assistant-text","provider":"claude","text":"Ran three tools.","turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.400Z"}},
+  {"version":1,"sessionId":"chat","seq":15,"revision":13,"updatedAt":"2030-01-01T00:00:00.400Z","type":"turn","turn":{"completedAt":"2030-01-01T00:00:00.400Z","id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"completed"}},
+  {"version":1,"sessionId":"chat","seq":16,"revision":13,"updatedAt":"2030-01-01T00:00:00.400Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.400Z"},
+  {"version":1,"sessionId":"chat","seq":17,"revision":14,"updatedAt":"2030-01-01T00:00:00.400Z","type":"status","status":"interrupted","sessionState":"stopped","running":false,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.400Z"}
+],
+"snapshot": {
+  "sessionId": "chat",
+  "paneId": "chat",
+  "workspaceId": "tab",
+  "provider": "claude",
+  "content": [
+    {
+      "attachments": [],
+      "id": "prompt",
+      "kind": "user-prompt",
+      "provider": null,
+      "text": "tools",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.000Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.000Z",
+      "id": "fake-test-turn-1/fake-bash",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-bash",
+        "command": "echo hello",
+        "endedAt": "2030-01-01T00:00:00.100Z",
+        "exitCode": 0,
+        "input": {
+          "command": "echo hello"
+        },
+        "output": "hello",
+        "startedAt": "2030-01-01T00:00:00.000Z",
+        "status": "completed",
+        "toolName": "Bash"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.100Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.100Z",
+      "id": "fake-test-turn-1/fake-edit",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-edit",
+        "diff": "--- a/README.md\n+++ b/README.md\n@@ -1,1 +1,1 @@\n-before\n+after",
+        "endedAt": "2030-01-01T00:00:00.200Z",
+        "files": [
+          {
+            "path": "README.md",
+            "status": "modified"
+          }
+        ],
+        "input": {
+          "file_path": "README.md",
+          "new_string": "after",
+          "old_string": "before"
+        },
+        "output": "Edited README.md",
+        "startedAt": "2030-01-01T00:00:00.100Z",
+        "status": "completed",
+        "toolName": "Edit"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.200Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.200Z",
+      "id": "fake-test-turn-1/fake-read",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-read",
+        "endedAt": "2030-01-01T00:00:00.300Z",
+        "files": [
+          {
+            "path": "README.md",
+            "status": "read"
+          }
+        ],
+        "input": {
+          "file_path": "README.md"
+        },
+        "output": "before",
+        "startedAt": "2030-01-01T00:00:00.200Z",
+        "status": "completed",
+        "toolName": "Read"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.300Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.400Z",
+      "id": "fake-test-turn-1/reply",
+      "kind": "assistant-text",
+      "provider": "claude",
+      "text": "Ran three tools.",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.400Z"
+    }
+  ],
+  "turns": [
+    {
+      "completedAt": "2030-01-01T00:00:00.400Z",
+      "id": "fake-test-turn-1",
+      "provider": "claude",
+      "startedAt": "2030-01-01T00:00:00.000Z",
+      "state": "completed"
+    }
+  ],
+  "pendingApprovals": [],
+  "pendingUserInputs": [],
+  "planApproval": null,
+  "sessionState": "stopped",
+  "running": false,
+  "detail": null,
+  "lastCompletedAt": "2030-01-01T00:00:00.400Z",
+  "lastError": null,
+  "lastErrorAt": null,
+  "model": null,
+  "effort": null,
+  "serviceTier": null,
+  "permissionMode": "default",
+  "interactionMode": "build",
+  "selectionNotice": null,
+  "runtimeGeneration": 0,
+  "revision": 14,
+  "updatedAt": "2030-01-01T00:00:00.400Z"
+}
+}

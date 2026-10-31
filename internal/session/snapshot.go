@@ -140,17 +140,19 @@ type Attachment struct {
 
 // ToolCall is aide's ManagedProviderRuntimeToolCall.
 type ToolCall struct {
-	CallID   string          `json:"callId"`
-	Command  string          `json:"command,omitempty"`
-	Diff     string          `json:"diff,omitempty"`
-	ExitCode *int            `json:"exitCode,omitempty"`
-	Files    []ToolFile      `json:"files,omitzero"`
-	Input    json.RawMessage `json:"input"`
-	Output   string          `json:"output,omitempty"`
-	Progress string          `json:"progress,omitempty"` // a one-line status while the call runs
-	Status   string          `json:"status"`             // running, completed, failed
-	Tasks    []Task          `json:"tasks,omitzero"`     // task-list calls only
-	ToolName string          `json:"toolName"`
+	CallID    string          `json:"callId"`
+	Command   string          `json:"command,omitempty"`
+	Diff      string          `json:"diff,omitempty"`
+	EndedAt   string          `json:"endedAt,omitempty"` // set by tool.end
+	ExitCode  *int            `json:"exitCode,omitempty"`
+	Files     []ToolFile      `json:"files,omitzero"`
+	Input     json.RawMessage `json:"input"`
+	Output    string          `json:"output,omitempty"`
+	Progress  string          `json:"progress,omitempty"`  // a one-line status while the call runs
+	StartedAt string          `json:"startedAt,omitempty"` // set by tool.end
+	Status    string          `json:"status"`              // running, completed, failed
+	Tasks     []Task          `json:"tasks,omitzero"`      // task-list calls only
+	ToolName  string          `json:"toolName"`
 }
 
 type ToolFile struct {

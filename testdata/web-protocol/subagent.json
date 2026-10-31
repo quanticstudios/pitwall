@@ -1,0 +1,104 @@
+{"prompt":"subagent","provider":"claude","scenario":"subagent",
+"runtimeEvents": [
+  {"type":"session.resume-id","createdAt":"2030-01-01T00:00:00.000Z","resumeId":"fake-test","version":"fake"},
+  {"type":"session.state.changed","createdAt":"2030-01-01T00:00:00.000Z","state":"ready"},
+  {"type":"turn.started","createdAt":"2030-01-01T00:00:00.000Z","turnId":"fake-test-turn-1"},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.000Z","itemId":"fake-test-turn-1/fake-subagent","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"status":"running","toolName":"Task"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.100Z","itemId":"fake-test-turn-1/fake-subagent","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.","progress":"Reading src","status":"running","toolName":"Task"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.200Z","itemId":"fake-test-turn-1/fake-subagent","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.\nFound 12 source files.","progress":"Reading src","status":"running","toolName":"Task"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.300Z","itemId":"fake-test-turn-1/fake-subagent","kind":"tool-call","tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.\nFound 12 source files.","status":"completed","toolName":"Task"},"text":""},
+  {"type":"content.delta","createdAt":"2030-01-01T00:00:00.400Z","itemId":"fake-test-turn-1/reply","kind":"assistant-text","text":"The subagent finished exploring."},
+  {"type":"turn.completed","createdAt":"2030-01-01T00:00:00.400Z","state":"completed","turnId":"fake-test-turn-1","point":"fake-test-turn-1"},
+  {"type":"session.exited","createdAt":"2030-01-01T00:00:00.400Z","exitCode":0}
+],
+"deltas": [
+  {"version":1,"sessionId":"chat","seq":1,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z","type":"snapshot","snapshot":{"sessionId":"chat","paneId":"chat","workspaceId":"tab","provider":"claude","content":[],"turns":[],"pendingApprovals":[],"pendingUserInputs":[],"planApproval":null,"sessionState":"ready","running":false,"detail":null,"lastCompletedAt":null,"lastError":null,"lastErrorAt":null,"model":null,"effort":null,"serviceTier":null,"permissionMode":"default","interactionMode":"build","selectionNotice":null,"runtimeGeneration":0,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":2,"revision":2,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":3,"revision":3,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.add","item":{"attachments":[],"id":"prompt","kind":"user-prompt","provider":null,"text":"subagent","turnId":null,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
+  {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"tool.start","item":{"createdAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1/fake-subagent","kind":"tool-call","provider":"claude","text":"","tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"startedAt":"2030-01-01T00:00:00.000Z","status":"running","toolName":"Task"},"turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":8,"revision":7,"updatedAt":"2030-01-01T00:00:00.100Z","type":"item.patch","itemId":"fake-test-turn-1/fake-subagent","patch":{"tool":{"callId":"fake-test-turn-1/fake-subagent","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.","progress":"Reading src","startedAt":"2030-01-01T00:00:00.000Z","status":"running","toolName":"Task"},"updatedAt":"2030-01-01T00:00:00.100Z"}},
+  {"version":1,"sessionId":"chat","seq":9,"revision":8,"updatedAt":"2030-01-01T00:00:00.200Z","type":"tool.output.append","itemId":"fake-test-turn-1/fake-subagent","text":"\nFound 12 source files.","itemUpdatedAt":"2030-01-01T00:00:00.200Z"},
+  {"version":1,"sessionId":"chat","seq":10,"revision":9,"updatedAt":"2030-01-01T00:00:00.300Z","type":"item.patch","itemId":"fake-test-turn-1/fake-subagent","patch":{"tool":{"callId":"fake-test-turn-1/fake-subagent","endedAt":"2030-01-01T00:00:00.300Z","input":{"description":"Explore the repo","prompt":"Explore"},"output":"Listing the repo root.\nFound 12 source files.","startedAt":"2030-01-01T00:00:00.000Z","status":"completed","toolName":"Task"},"updatedAt":"2030-01-01T00:00:00.300Z"}},
+  {"version":1,"sessionId":"chat","seq":11,"revision":10,"updatedAt":"2030-01-01T00:00:00.400Z","type":"item.add","item":{"createdAt":"2030-01-01T00:00:00.400Z","id":"fake-test-turn-1/reply","kind":"assistant-text","provider":"claude","text":"The subagent finished exploring.","turnId":"fake-test-turn-1","updatedAt":"2030-01-01T00:00:00.400Z"}},
+  {"version":1,"sessionId":"chat","seq":12,"revision":11,"updatedAt":"2030-01-01T00:00:00.400Z","type":"turn","turn":{"completedAt":"2030-01-01T00:00:00.400Z","id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"completed"}},
+  {"version":1,"sessionId":"chat","seq":13,"revision":11,"updatedAt":"2030-01-01T00:00:00.400Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.400Z"},
+  {"version":1,"sessionId":"chat","seq":14,"revision":12,"updatedAt":"2030-01-01T00:00:00.400Z","type":"status","status":"interrupted","sessionState":"stopped","running":false,"detail":null,"lastCompletedAt":"2030-01-01T00:00:00.400Z"}
+],
+"snapshot": {
+  "sessionId": "chat",
+  "paneId": "chat",
+  "workspaceId": "tab",
+  "provider": "claude",
+  "content": [
+    {
+      "attachments": [],
+      "id": "prompt",
+      "kind": "user-prompt",
+      "provider": null,
+      "text": "subagent",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.000Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.000Z",
+      "id": "fake-test-turn-1/fake-subagent",
+      "kind": "tool-call",
+      "provider": "claude",
+      "text": "",
+      "tool": {
+        "callId": "fake-test-turn-1/fake-subagent",
+        "endedAt": "2030-01-01T00:00:00.300Z",
+        "input": {
+          "description": "Explore the repo",
+          "prompt": "Explore"
+        },
+        "output": "Listing the repo root.\nFound 12 source files.",
+        "startedAt": "2030-01-01T00:00:00.000Z",
+        "status": "completed",
+        "toolName": "Task"
+      },
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.300Z"
+    },
+    {
+      "createdAt": "2030-01-01T00:00:00.400Z",
+      "id": "fake-test-turn-1/reply",
+      "kind": "assistant-text",
+      "provider": "claude",
+      "text": "The subagent finished exploring.",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.400Z"
+    }
+  ],
+  "turns": [
+    {
+      "completedAt": "2030-01-01T00:00:00.400Z",
+      "id": "fake-test-turn-1",
+      "provider": "claude",
+      "startedAt": "2030-01-01T00:00:00.000Z",
+      "state": "completed"
+    }
+  ],
+  "pendingApprovals": [],
+  "pendingUserInputs": [],
+  "planApproval": null,
+  "sessionState": "stopped",
+  "running": false,
+  "detail": null,
+  "lastCompletedAt": "2030-01-01T00:00:00.400Z",
+  "lastError": null,
+  "lastErrorAt": null,
+  "model": null,
+  "effort": null,
+  "serviceTier": null,
+  "permissionMode": "default",
+  "interactionMode": "build",
+  "selectionNotice": null,
+  "runtimeGeneration": 0,
+  "revision": 12,
+  "updatedAt": "2030-01-01T00:00:00.400Z"
+}
+}

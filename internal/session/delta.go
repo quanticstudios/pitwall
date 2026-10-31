@@ -235,7 +235,7 @@ func Apply(s *Snapshot, seq int64, d Delta) (Snapshot, error) {
 			if d.ExitCode != nil {
 				t.ExitCode = d.ExitCode
 			}
-			t.Status = d.Status
+			t.Status, t.StartedAt, t.EndedAt = d.Status, d.StartedAt, d.EndedAt
 		})
 	case DeltaPlanUpdate:
 		err = updateTool(d.ItemUpdatedAt, func(t *ToolCall) { t.Tasks = d.Tasks })
