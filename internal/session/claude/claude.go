@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,14 +93,11 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 }
 
 // args is the command line for cfg started from `from`, with id as the
-// session id of a new session.
-//
-// shortcut: no --permission-prompt-tool stdio yet, so the CLI denies every
-// ask on the spot (system/permission_denied); ENG-2686 adds it with
-// can_use_tool answers.
+// session id of a new session. --permission-prompt-tool stdio makes the
+// CLI ask on stdout (can_use_tool) instead of denying on the spot.
 func args(cfg session.Config, from session.Origin, id string) []string {
 	a := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--include-partial-messages"}
+		"--include-partial-messages", "--permission-prompt-tool", "stdio"}
 	if from.Resume == "" {
 		a = append(a, "--session-id", id)
 	} else {
@@ -134,6 +132,7 @@ type driver struct {
 	queue   []session.Event
 	dead    bool // the process is gone; nothing is posted after its session.exited
 	closing bool // Close was called
+	reqs    int  // control requests the driver sent
 }
 
 // post queues e for emitLoop, stamped now. d.mu is held.
@@ -279,21 +278,137 @@ func userLine(m session.Message) map[string]any {
 		"message": map[string]any{"role": "user", "content": content}}
 }
 
-// Steer, Interrupt, Approve, Answer and Set are ENG-2686's.
-
+// Steer is unsupported: the spike never captured a user line written
+// mid-turn joining that turn, so the chat loop queues it for the next.
 func (d *driver) Steer(context.Context, session.Message) error { return session.ErrUnsupported }
 
-func (d *driver) Interrupt(context.Context) error { return session.ErrUnsupported }
-
-func (d *driver) Approve(context.Context, string, session.Decision) error {
-	return session.ErrUnsupported
+// Interrupt stops the running turn. The CLI withdraws its open asks
+// (control_cancel_request) and ends the turn with an aborted result.
+func (d *driver) Interrupt(ctx context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.s.turn == "" {
+		return nil
+	}
+	return d.request(ctx, map[string]any{"subtype": "interrupt"})
 }
 
-func (d *driver) Answer(context.Context, string, map[string][]string) error {
-	return session.ErrUnsupported
+// Approve answers a can_use_tool ask. Allowing ExitPlanMode lets Claude
+// implement its plan; denying it with a reason asks for another.
+func (d *driver) Approve(ctx context.Context, requestID string, dec session.Decision) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	a, err := d.take(ctx, requestID)
+	if err != nil {
+		return err
+	}
+	if !dec.Allow {
+		msg := dec.Reason
+		if msg == "" {
+			msg = "The pitwall user denied this."
+		}
+		return d.respond(requestID, map[string]any{"behavior": "deny", "message": msg})
+	}
+	input := dec.Input
+	if input == nil {
+		input = a.input
+	}
+	r := map[string]any{"behavior": "allow", "updatedInput": input}
+	if dec.ForSession {
+		// The CLI's own "always allow" rules, kept for this session only.
+		// shortcut: no capture of updatedPermissions exists (sdk.d.ts is the
+		// spec); an ask with no addRules suggestion is allowed once.
+		var rules []map[string]any
+		for _, raw := range a.suggestions {
+			var sg map[string]any
+			if json.Unmarshal(raw, &sg) == nil && sg["type"] == "addRules" {
+				sg["destination"] = "session"
+				rules = append(rules, sg)
+			}
+		}
+		if rules != nil {
+			r["updatedPermissions"] = rules
+		}
+	}
+	return d.respond(requestID, r)
 }
 
-func (d *driver) Set(context.Context, session.Settings) error { return session.ErrUnsupported }
+// Answer answers AskUserQuestion: its input plus the answers keyed by
+// question text, several labels joined as Claude Code joins them.
+func (d *driver) Answer(ctx context.Context, requestID string, answers map[string][]string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	a, err := d.take(ctx, requestID)
+	if err != nil {
+		return err
+	}
+	in := map[string]any{}
+	json.Unmarshal(a.input, &in)
+	joined := map[string]string{}
+	for q, labels := range answers {
+		joined[q] = strings.Join(labels, ", ")
+	}
+	in["answers"] = joined
+	return d.respond(requestID, map[string]any{"behavior": "allow", "updatedInput": in})
+}
+
+// take removes the open ask requestID. d.mu is held.
+func (d *driver) take(ctx context.Context, requestID string) (ask, error) {
+	if err := ctx.Err(); err != nil {
+		return ask{}, err
+	}
+	if d.dead || d.closing {
+		return ask{}, session.ErrClosed
+	}
+	a, ok := d.s.pending[requestID]
+	if !ok {
+		return ask{}, &session.ProviderError{Op: "answer", Message: "Claude is not waiting on " + requestID}
+	}
+	delete(d.s.pending, requestID)
+	return a, nil
+}
+
+// respond writes the success control_response to a CLI request. d.mu is
+// held.
+func (d *driver) respond(requestID string, response map[string]any) error {
+	return d.write(map[string]any{"type": "control_response", "response": map[string]any{
+		"subtype": "success", "request_id": requestID, "response": response}})
+}
+
+// Set changes the model, effort and permission mode, one control request
+// each.
+func (d *driver) Set(ctx context.Context, s session.Settings) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, r := range []struct {
+		value string
+		req   map[string]any
+	}{
+		{s.Model, map[string]any{"subtype": "set_model", "model": s.Model}},
+		{s.Effort, map[string]any{"subtype": "apply_flag_settings", "settings": map[string]any{"effortLevel": s.Effort}}},
+		{s.Mode, map[string]any{"subtype": "set_permission_mode", "mode": s.Mode}},
+	} {
+		if r.value == "" {
+			continue
+		}
+		if err := d.request(ctx, r.req); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// request writes a control request to the CLI. d.mu is held.
+func (d *driver) request(ctx context.Context, req map[string]any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if d.dead || d.closing {
+		return session.ErrClosed
+	}
+	d.reqs++
+	return d.write(map[string]any{"type": "control_request", "request_id": fmt.Sprintf("req_%d", d.reqs), "request": req})
+}
 
 // Close closes stdin, which ends the CLI, and kills it when ctx ends
 // first. It returns once every event is out.

@@ -109,7 +109,7 @@ func (s *stubDriver) Answer(_ context.Context, id string, a map[string][]string)
 	return nil
 }
 func (s *stubDriver) Set(_ context.Context, x session.Settings) error {
-	s.call("set " + x.Model)
+	s.call("set " + x.Model + x.Mode)
 	return nil
 }
 func (s *stubDriver) Close(context.Context) error {
@@ -255,6 +255,46 @@ func TestChatFlow(t *testing.T) {
 	waitUntil(t, "driver closed", func() bool { drv.mu.Lock(); defer drv.mu.Unlock(); return drv.closed })
 	if r := chatCall[proto.ChatResult](gui, proto.ChatSend{Chat: id, Text: "hi"}); r.Code != "not-found" {
 		t.Fatalf("send to an archived chat: %+v", r)
+	}
+}
+
+// TestChatPlan: approving a plan leaves plan mode, refining it does not,
+// and a request the provider withdraws says so in the transcript.
+func TestChatPlan(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	prov := &stubProvider{}
+	sock, stop := runWith(t, f, func(o *Options) {
+		o.Providers = map[model.Provider]session.Provider{model.ProviderCodex: prov}
+	})
+	defer stop()
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
+	gui.waitState("first tab", func(s model.State) bool { return len(s.Workspaces) == 1 })
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderCodex, Dir: t.TempDir(), Prompt: "Plan it", Mode: "plan"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	id, drv := r.Chat, prov.driver(t)
+
+	drv.event(session.Event{Type: session.EventRequestOpened, RequestID: "p1", RequestType: session.RequestPlan, Detail: "1. Do it"})
+	waitChat(gui, "plan pending", func(s model.State) bool { return chatOf(s).Pending == 1 })
+	chatCall[proto.ChatResult](gui, proto.ChatApprove{Chat: id, Decision: "deny", Reason: "Smaller"})
+	drv.event(session.Event{Type: session.EventRequestOpened, RequestID: "w1", RequestType: session.RequestCommand, Detail: "make"})
+	drv.event(session.Event{Type: session.EventRequestResolved, RequestID: "w1"})
+	drv.event(session.Event{Type: session.EventRequestOpened, RequestID: "p2", RequestType: session.RequestPlan, Detail: "1. Do less"})
+	waitChat(gui, "second plan pending", func(s model.State) bool { return chatOf(s).Pending == 1 })
+	if r := chatCall[proto.ChatResult](gui, proto.ChatApprove{Chat: id, Decision: "allow"}); r.Code != "" {
+		t.Fatalf("implement: %+v", r)
+	}
+	waitChat(gui, "out of plan mode", func(s model.State) bool { return chatOf(s).Mode == "default" })
+	if got, want := drv.got(), []string{"send Plan it", "approve p1 false", "approve p2 true", "set default"}; !slices.Equal(got, want) {
+		t.Fatalf("driver calls %q, want %q", got, want)
+	}
+	var snap session.Snapshot
+	json.Unmarshal(chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: id}).Snapshot, &snap)
+	if snap.PermissionMode != "default" || !slices.ContainsFunc(snap.Content, func(it session.Item) bool {
+		return it.Kind == session.KindSystem && it.Text == "Codex withdrew this request"
+	}) {
+		t.Fatalf("mode %q, transcript %+v", snap.PermissionMode, snap.Content)
 	}
 }
 
