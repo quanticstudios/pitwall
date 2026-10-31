@@ -365,7 +365,7 @@ func (d *driver) send(c command) result {
 	if err := c.ctx.Err(); err != nil {
 		return result{err: err}
 	}
-	steps, err := d.script(c.message.Text)
+	steps, err := d.script(c.message.Text, c.message.Skill)
 	if err != nil {
 		return result{err: err}
 	}
@@ -433,7 +433,11 @@ func scope(steps []Step, turn string) []Step {
 	return steps
 }
 
-func (d *driver) script(prompt string) ([]Step, error) {
+func (d *driver) script(prompt string, skill *session.Skill) ([]Step, error) {
+	handled := "Handled: ${prompt}"
+	if skill != nil { // aide's fakes name the skill they ran
+		handled = "Handled with " + string(skill.Provider) + " skill " + skill.ID + ": ${prompt}"
+	}
 	// aide appends this context to e2e prompts. It is not part of the scenario.
 	for _, suffix := range []string{"\n\nQuoted prior conversation,", "\n\nWorkspace evidence.", "\n\nConfigured read-only agents", "\n\nFleet policy."} {
 		prompt, _, _ = strings.Cut(prompt, suffix)
@@ -456,14 +460,14 @@ func (d *driver) script(prompt string) ([]Step, error) {
 				name = first
 			}
 			if err != nil {
-				s = Script{RuntimeEvents: []Step{{Event: session.Event{Type: session.EventContent, ItemID: "reply", Kind: session.KindAssistantText, Text: "Handled: ${prompt}"}}, {Event: session.Event{Type: session.EventTurnCompleted, State: session.TurnCompleted}}}}
+				s = Script{RuntimeEvents: []Step{{Event: session.Event{Type: session.EventContent, ItemID: "reply", Kind: session.KindAssistantText, Text: handled}}, {Event: session.Event{Type: session.EventTurnCompleted, State: session.TurnCompleted}}}}
 			}
 		} else if err != nil {
 			return nil, err
 		}
 	}
 	if s.Mode != "" && s.Mode != d.cfg.Provider {
-		s = Script{RuntimeEvents: []Step{{Event: session.Event{Type: session.EventContent, ItemID: "reply", Kind: session.KindAssistantText, Text: "Handled: ${prompt}"}}, {Event: session.Event{Type: session.EventTurnCompleted, State: session.TurnCompleted}}}}
+		s = Script{RuntimeEvents: []Step{{Event: session.Event{Type: session.EventContent, ItemID: "reply", Kind: session.KindAssistantText, Text: handled}}, {Event: session.Event{Type: session.EventTurnCompleted, State: session.TurnCompleted}}}}
 	}
 	if d.options.Script == nil && name == "edit readme" {
 		f, err := os.OpenFile(d.cfg.Cwd+string(os.PathSeparator)+"README.md", os.O_APPEND|os.O_WRONLY, 0)

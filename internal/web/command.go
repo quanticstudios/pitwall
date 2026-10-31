@@ -59,6 +59,7 @@ type frame struct {
 	UpdatedAt        time.Time           `json:"updatedAt"`
 	Snapshot         json.RawMessage     `json:"snapshot"`
 	Attachments      []chat.Attachment   `json:"attachments"`
+	Skill            *chat.Skill         `json:"skill"`
 }
 
 // chatCommand runs a command of commands; false for any other.
@@ -137,10 +138,18 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 			c.reply(result(id, "invalid", "start needs a dir and a provider"))
 			return true
 		}
-		m = proto.ChatSend{Chat: f.SessionID, Text: f.Text, Attachments: f.Attachments, How: f.How}
+		if f.Skill != nil && (f.Skill.Name == "" || f.Skill.ID == "") {
+			c.reply(result(id, "invalid", "a skill needs a provider, an id and a name"))
+			return true
+		}
+		if typ == "start" && f.Skill != nil && f.Skill.Provider != f.Provider {
+			c.reply(result(id, "invalid", fmt.Sprintf("the skill runs with %s, not %s", f.Skill.Provider, f.Provider)))
+			return true
+		}
+		m = proto.ChatSend{Chat: f.SessionID, Text: f.Text, Attachments: f.Attachments, Skill: f.Skill, How: f.How}
 		if typ == "start" {
 			m = proto.ChatNew{Dir: f.Dir, Provider: f.Provider, Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode,
-				FakeStartFailure: f.FakeStartFailure, Worktree: f.Worktree, Base: f.Base, Branch: f.Branch, Name: f.Name, Prompt: f.Prompt, Attachments: f.Attachments}
+				FakeStartFailure: f.FakeStartFailure, Worktree: f.Worktree, Base: f.Base, Branch: f.Branch, Name: f.Name, Prompt: f.Prompt, Attachments: f.Attachments, Skill: f.Skill}
 			m = ClientStart{m.(proto.ChatNew), c.name}
 		}
 	case "updateQueue":

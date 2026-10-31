@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/quanticstudios/pitwall/internal/session"
 )
@@ -255,12 +256,26 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 	if m.ID == "" {
 		m.ID = newUUID()
 	}
+	m.Text = skillText(m.Text, m.Skill)
 	if err := d.write(userLine(m)); err != nil {
 		return "", err
 	}
 	d.s.turn = m.ID
 	d.post(session.Event{Type: session.EventTurnStarted, TurnID: m.ID})
 	return m.ID, nil
+}
+
+// skillText puts skill's slash command ahead of text, as aide's
+// buildClaudeSkillInput does, unless text already starts with it.
+func skillText(text string, skill *session.Skill) string {
+	if skill == nil {
+		return text
+	}
+	cmd := "/" + skill.Name
+	if rest, ok := strings.CutPrefix(text, cmd); ok && (rest == "" || strings.TrimLeftFunc(rest, unicode.IsSpace) != rest) {
+		return text
+	}
+	return cmd + "\n" + text
 }
 
 // userLine is m as a stream-json user message. The CLI keeps uuid, so it

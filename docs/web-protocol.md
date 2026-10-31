@@ -375,6 +375,21 @@ image over 5 MiB or images over 10 MiB in all, pasted text over 256 KiB, a
 workspace file that is a link, outside `dir`, over 256 KiB or neither
 UTF-8 text nor an image, and pasted text and files over 1 MiB in all.
 
+`skill` (here and in `send`) is a provider skill aide resolved for the
+message: `provider`, aide's `id`, `name` (the native name) and, for
+Codex, the skill's `path`. Claude gets `/name` on a line ahead of the
+text, unless the text starts with it. Codex gets a `skill` input item for
+`path` ahead of the text, and cannot steer with one, so the send queues.
+The fake providers answer `Handled with <provider> skill <id>: <text>`.
+It refuses, with `invalid`, a skill with no `id` or `name`, and one whose
+`provider` is not the chat's, or the provider a held switch (`set`) moves
+the chat to. A skill for a held switch's provider queues for that switch
+instead of steering the running turn. A queued message keeps its skill.
+
+```json
+{"type": "send", "id": "5a", "sessionId": "0b6c3e1a-5d2f-4c1e-9a7b-3f2e1d0c9b8a", "text": "prepare the release", "skill": {"provider": "codex", "id": "codex:skill:eafb4a4ea8096486", "name": "release", "path": "/home/me/.codex/skills/release/SKILL.md"}}
+```
+
 ### send
 
 ```json
@@ -859,7 +874,7 @@ WebSocket implementation of it. This is the mapping, member by member.
 | `getSessions` | `listSessions`, then `read` per chat | |
 | `getSavedSession` | `read` with `after: 0` | works on archived chats |
 | `start` | `start` | renamed: `cwd` is `dir`, `mode` is `provider`. pitwall picks `sessionId`, `paneId` and `workspaceId` and returns them. Dropped: `agents`, `jevGates`, `orchestratorSelection`, `contextWindow`, `thinkingBudget`, `readOnly`, `serviceTier`, `selectionNotice`, `interactionMode` (see `setMode`). Added: `worktree`, `base`, `branch`, `name`, `prompt`. |
-| `send` | `send` | `recipients` and `selectedSkill` are dropped; steer and queue are `how` |
+| `send` | `send` | `recipients` is dropped; steer and queue are `how`; `selectedSkill` is `skill`, which aide's main process resolves to its native name and path first |
 | `interrupt` | `interrupt` | `recipientAlias` is dropped |
 | `resolveApproval` | `resolveApproval` | `decision` renamed: `accept` is `allow`, `accept-for-session` is `allow-session`, `deny` is `deny` |
 | `resolveInput` | `resolveInput` | a string answer is sent as a one-item list |
