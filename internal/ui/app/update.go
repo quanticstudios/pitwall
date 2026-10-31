@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +21,11 @@ var Version string
 // Relaunch opens a window on session, showing tab workspace, in a new
 // process; main sets it. Nil leaves "Restart to finish" to the user.
 var Relaunch func(session, workspace string) error
+
+// HandOff moves the local daemon onto the binary just installed, every
+// program in a pane still running; main sets it. Nil, or an error, leaves
+// the daemon to "Restart to finish", which restarts it.
+var HandOff func() error
 
 // recheckAfter is how long since the last check before regaining focus
 // checks again; tests shorten it.
@@ -44,16 +50,18 @@ const (
 	updateFailed = "Update failed"
 )
 
-// updater checks for a newer release and installs it on a click. The daemon
-// is never touched: it keeps running the old binary, which serves the new
-// windows while their proto.Version matches. Otherwise the new window asks
-// before restarting it, as after any upgrade.
+// updater checks for a newer release and installs it on a click, then has
+// HandOff move the daemon onto it. If that fails the daemon keeps running
+// the old binary, which serves the new windows while their proto.Version
+// matches. Otherwise the new window asks before restarting it, as after
+// any upgrade.
 type updater struct {
 	on atomic.Bool // [updates] check
 
 	mu   sync.Mutex
 	rel  update.Release // the newer release, Tag "" while there is none
 	step string         // "", updating, updated or updateFailed
+	note string         // why HandOff failed, for the notice box once
 	poke chan struct{}  // focus regained; made by watch
 }
 
@@ -153,18 +161,36 @@ func (up *updater) click(session, workspace string, invalidate func()) (relaunch
 		ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 		defer cancel()
 		err := installRelease(ctx, rel)
+		note := ""
+		if err == nil && HandOff != nil && Host == "" {
+			if err := HandOff(); err != nil {
+				log.Printf("update: handoff: %q", err)
+				note = fmt.Sprintf("Installed %s, but its daemon could not take over the panes (%v). Restart to finish restarts the daemon: agents resume, other programs in panes stop.", rel.Tag, err)
+			} else {
+				log.Printf("update: the new daemon took over")
+			}
+		}
 		up.mu.Lock()
 		if err != nil {
 			log.Printf("update to %s: %q", rel.Tag, err)
 			up.step = updateFailed
 		} else {
 			log.Printf("update: installed %s", rel.Tag)
-			up.step = updated
+			up.step, up.note = updated, note
 		}
 		up.mu.Unlock()
 		invalidate()
 	}()
 	return false
+}
+
+// takeNote returns the note, once.
+func (up *updater) takeNote() string {
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	n := up.note
+	up.note = ""
+	return n
 }
 
 // managed is whether a package manager owns the running binary; tests

@@ -12,6 +12,7 @@
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
 | Paired phones       | `~/.local/state/pitwall/remote/` (token hashes, mode 0600)    |
+| Web client token    | `~/.local/state/pitwall/web.json` (mode 0600, `pitwall web token --rotate`) |
 | Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
 
 macOS uses the same paths. On Windows, config and themes live in
@@ -61,6 +62,11 @@ until you choose:
 - **Later** closes the window and leaves the old daemon and its programs
   running. Windows still open from before the upgrade keep working. Run
   `pitwall` again when you are ready to restart; it asks again.
+
+`pitwall update` and the Update button skip that question on Linux and
+macOS: the new daemon takes over the old one's panes without stopping them,
+whatever the protocol versions. Only when that fails does pitwall fall back
+to the restart above ([Updates](install.md#updates)).
 
 A window from before the upgrade whose daemon was restarted by a newer one
 reopens itself on the installed binary. CLI commands of the other major

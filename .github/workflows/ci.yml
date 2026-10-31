@@ -121,6 +121,9 @@ jobs:
       - name: Test the platform-independent packages
         if: runner.os == 'macOS'
         run: go test ./internal/agent ./internal/pane ./internal/model ./internal/layout ./internal/input
+      - name: Release drill
+        if: runner.os == 'macOS'
+        run: go test -count=1 -v -run 'TestUpdateDrill|TestFinishUpdate' ./cmd/pitwall
       # why: the macOS suite has never passed; drop continue-on-error after its first green run.
       - name: Test everything
         continue-on-error: ${{ runner.os == 'macOS' }}

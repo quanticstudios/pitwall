@@ -55,6 +55,27 @@ then reads **Restart to finish**: click it, confirm, and the daemon
 restarts with your tabs and agents resumed. On a `--host` window, restart
 from a window on that machine instead.
 
+## An update restarted the daemon
+
+`pitwall update` and the Update button hand the daemon's panes to the new
+binary's daemon. When that fails, `pitwall update` prints why and restarts
+the daemon (agents resume, other programs in panes stop); the Update button
+shows why in the window's notice and leaves the restart to **Restart to
+finish**. Until the new daemon confirms, the old one keeps every pane, so a
+failure never loses one. Common reasons:
+
+- **The old daemon cannot hand off.** A daemon from before handoff support
+  does not understand the request, so the reason reads "the old daemon
+  cannot hand off" or a bare connection error such as `EOF`. This happens
+  once, on the first update from such a release.
+- **A pane's process exited during the handoff.** Its exit belongs to the
+  old daemon. Run `pitwall update` again.
+- **Windows.** It has no handoff, so updates there always restart.
+- **The new daemon did not start.** `crash.log`, next to `daemon.log`, holds
+  what it printed.
+
+`daemon.log` has a `handoff:` line from each side with the step that failed.
+
 ## Logs
 
 `pitwall logs` prints the paths of the three log files, and `pitwall logs -f`

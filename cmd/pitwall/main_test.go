@@ -28,6 +28,9 @@ import (
 // TestMain runs pitwall's main instead of the tests when a test re-executes
 // this binary as pitwall.
 func TestMain(m *testing.M) {
+	if file := os.Getenv("PITWALL_DRILL_SERVE"); file != "" {
+		os.Exit(serveDrill(file))
+	}
 	if mode := os.Getenv("PITWALL_TEST_OLD"); mode != "" {
 		if err := fakeOldDaemon(mode); err != nil {
 			fmt.Fprintln(os.Stderr, err)
