@@ -389,3 +389,16 @@ func TestFork(t *testing.T) {
 		t.Errorf("a point without a fork: %v, want ErrUnsupported", err)
 	}
 }
+
+// TestSkillInput: a skill is an input item ahead of the text, and refuses
+// to steer, as aide's Codex backend does.
+func TestSkillInput(t *testing.T) {
+	m := session.Message{Text: "ship it", Skill: &session.Skill{Provider: "codex", ID: "codex:skill:ab12", Name: "release", Path: "/skills/release/SKILL.md"}}
+	want := []map[string]string{{"type": "skill", "name": "release", "path": "/skills/release/SKILL.md"}, {"type": "text", "text": "ship it"}}
+	if got := input(m); !reflect.DeepEqual(got, want) {
+		t.Errorf("input = %v, want %v", got, want)
+	}
+	if err := (&driver{}).Steer(context.Background(), m); !errors.Is(err, session.ErrUnsupported) {
+		t.Errorf("steer a skill: %v", err)
+	}
+}

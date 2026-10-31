@@ -364,6 +364,9 @@
             "$ref": "#/$defs/attachment"
           }
         },
+        "skill": {
+          "$ref": "#/$defs/skill"
+        },
         "fakeStartFailure": {
           "type": "string",
           "description": "Only scripted fake providers use this per-start failure, e.g. missing-cli. Real providers ignore it."
@@ -399,6 +402,9 @@
           "items": {
             "$ref": "#/$defs/attachment"
           }
+        },
+        "skill": {
+          "$ref": "#/$defs/skill"
         },
         "how": {
           "enum": [
@@ -1672,6 +1678,36 @@
             },
             "additionalProperties": false
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "skill": {
+      "description": "A provider skill aide resolved: session.Skill.",
+      "type": "object",
+      "required": [
+        "provider",
+        "id",
+        "name"
+      ],
+      "properties": {
+        "provider": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "description": "aide's skill id, which the fake providers echo."
+        },
+        "name": {
+          "type": "string",
+          "description": "The native name: Claude's slash command, Codex's skill."
+        },
+        "path": {
+          "type": "string",
+          "description": "Codex's SKILL.md."
         }
       },
       "additionalProperties": false

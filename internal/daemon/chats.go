@@ -186,7 +186,7 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 			if len(m.Images) > 0 {
 				return "", "", chatError{"unsupported", "image paths are not supported yet: send attachments"}
 			}
-			return d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Text, Attachments: m.Attachments}, m.How)
+			return d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Text, Attachments: m.Attachments, Skill: m.Skill}, m.How)
 		}
 	case proto.ChatInterrupt:
 		id = m.Chat
@@ -358,7 +358,7 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 			}
 		}
 		if err = d.chatStart(c); err == nil && (m.Prompt != "" || len(m.Attachments) > 0) {
-			turn, _, err = d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Prompt, Attachments: m.Attachments}, "")
+			turn, _, err = d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Prompt, Attachments: m.Attachments, Skill: m.Skill}, "")
 		}
 		d.chatChanged(c)
 	})
@@ -613,6 +613,15 @@ type heldSwitch struct {
 	Mode   model.Provider `json:"mode"`
 	Model  string         `json:"model,omitempty"`
 	Effort string         `json:"effort,omitempty"`
+}
+
+// held is the provider a held switch moves c to, "" for none.
+func (c *chat) held() model.Provider {
+	var h heldSwitch
+	if raw := c.snap.Extra[pendingSwitch]; raw != nil && json.Unmarshal(raw, &h) == nil {
+		return h.Mode
+	}
+	return ""
 }
 
 // unhold drops the switch chatSwitch held.
@@ -1249,8 +1258,13 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	if _, err := provide(c.cfg.Cwd, m); err != nil { // refuse bad attachments before queueing them
 		return "", "", err
 	}
+	held := c.held()
+	if m.Skill != nil && m.Skill.Provider != cmp.Or(held, c.cfg.Provider) {
+		return "", "", invalid("the skill runs with %s, not this chat's %s", m.Skill.Provider, cmp.Or(held, c.cfg.Provider))
+	}
 	c.cfg.Held = false
-	if how == "steer" && c.snap.Busy() && c.drv != nil {
+	// why: aide checks a skill against the held switch, so it waits for that switch instead of steering this turn.
+	if how == "steer" && c.snap.Busy() && c.drv != nil && (m.Skill == nil || held == "") {
 		sm, err := d.jevPrepare(ctx, c, m)
 		if err == nil {
 			sm, err = provide(c.cfg.Cwd, sm)
@@ -1363,7 +1377,7 @@ func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 	}
 	q := c.cfg.Queue[0]
 	c.cfg.Queue = c.cfg.Queue[1:]
-	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments}); err != nil {
+	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments, Skill: q.Skill}); err != nil {
 		if chatCode(err) == "jev" {
 			// The message waits at the head of the queue until the next send.
 			c.cfg.Queue, c.cfg.Held = slices.Insert(c.cfg.Queue, 0, q), true
@@ -1375,7 +1389,7 @@ func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 
 // queued is m as the queue keeps it.
 func queued(m session.Message) session.QueuedMessage {
-	return session.QueuedMessage{ID: m.ID, Text: m.Text, CreatedAt: session.Stamp(time.Now()), Attachments: m.Attachments}
+	return session.QueuedMessage{ID: m.ID, Text: m.Text, CreatedAt: session.Stamp(time.Now()), Attachments: m.Attachments, Skill: m.Skill}
 }
 
 func nonNil[T any](s []T) []T {
@@ -1436,7 +1450,7 @@ func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (str
 		// Keep the original queue on a refused steer.
 		queue, held := slices.Clone(c.cfg.Queue), c.cfg.Held
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
-		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments}, "steer")
+		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments, Skill: q.Skill}, "steer")
 		if err != nil {
 			c.cfg.Queue, c.cfg.Held = queue, held
 		}

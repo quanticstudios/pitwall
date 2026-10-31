@@ -787,3 +787,22 @@ func TestSubagentLines(t *testing.T) {
 		t.Fatalf("end %+v", end)
 	}
 }
+
+func TestSkillText(t *testing.T) {
+	s := &session.Skill{Provider: "claude", ID: "claude:skill:review", Name: "review"}
+	for _, c := range []struct {
+		text  string
+		skill *session.Skill
+		want  string
+	}{
+		{"fix it", nil, "fix it"},
+		{"fix it", s, "/review\nfix it"},
+		{"/review", s, "/review"},
+		{"/review the diff", s, "/review the diff"},
+		{"/reviewer", s, "/review\n/reviewer"},
+	} {
+		if got := skillText(c.text, c.skill); got != c.want {
+			t.Errorf("skillText(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+}

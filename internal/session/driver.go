@@ -54,6 +54,16 @@ type Message struct {
 	// Attachments are aide's, for the transcript and the queue. The daemon
 	// turns them into Images and Text before a driver sees the message.
 	Attachments []Attachment
+	Skill       *Skill // the provider skill the turn runs, nil for none
+}
+
+// Skill is a provider skill aide resolved for one message: Claude gets
+// "/Name" ahead of the text, Codex a skill input item for Path.
+type Skill struct {
+	Provider model.Provider `json:"provider"`
+	ID       string         `json:"id"`             // aide's id, which the fake providers echo
+	Name     string         `json:"name"`           // the native name: Claude's command, Codex's skill
+	Path     string         `json:"path,omitempty"` // Codex's SKILL.md
 }
 
 type Image struct {
@@ -123,4 +133,5 @@ type QueuedMessage struct {
 	Images    []string `json:"images,omitempty"` // paths under the chat's images/ folder
 	// shortcut: images ride inline in config.json; move them to images/ if big queued images make config writes slow.
 	Attachments []Attachment `json:"attachments,omitempty"`
+	Skill       *Skill       `json:"skill,omitempty"`
 }

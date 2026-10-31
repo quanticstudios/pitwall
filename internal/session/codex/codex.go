@@ -436,9 +436,14 @@ func (d *driver) Send(ctx context.Context, m session.Message) (string, error) {
 	return r.Turn.ID, nil
 }
 
-// input is m as turn/start and turn/steer take it.
+// input is m as turn/start and turn/steer take it: a skill item first, as
+// aide's buildCodexTurnInput puts it.
 func input(m session.Message) []map[string]string {
-	in := []map[string]string{{"type": "text", "text": m.Text}}
+	var in []map[string]string
+	if m.Skill != nil && m.Skill.Path != "" {
+		in = append(in, map[string]string{"type": "skill", "name": m.Skill.Name, "path": m.Skill.Path})
+	}
+	in = append(in, map[string]string{"type": "text", "text": m.Text})
 	for _, im := range m.Images {
 		in = append(in, map[string]string{"type": "image", "url": "data:" + im.MimeType + ";base64," + base64.StdEncoding.EncodeToString(im.Data)})
 	}
@@ -466,6 +471,9 @@ func (d *driver) restart(ctx context.Context) error {
 }
 
 func (d *driver) Steer(ctx context.Context, m session.Message) error {
+	if m.Skill != nil {
+		return session.ErrUnsupported // aide: provider skills cannot steer an active Codex turn
+	}
 	d.cmdMu.Lock()
 	defer d.cmdMu.Unlock()
 	return d.steer(ctx, m)

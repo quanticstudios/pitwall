@@ -727,3 +727,39 @@ func TestWebSwitchProvider(t *testing.T) {
 		return strings.Contains(fmt.Sprint(at(read(), "data.snapshot.content")), "Handled: still claude")
 	})
 }
+
+// TestWebSkill runs a provider skill on start and send, refuses one the
+// chat's provider does not run, and holds a skill for a held switch's
+// provider until the switch runs, instead of steering the running turn.
+func TestWebSkill(t *testing.T) {
+	c := dialWeb(t, webDaemon(t, func(o *Options) {
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: fake.New(fake.Options{}), model.ProviderCodex: fake.New(fake.Options{})}
+	}), "skill")
+	claudeSkill := map[string]any{"provider": "claude", "id": "claude:skill:review", "name": "review"}
+	codexSkill := map[string]any{"provider": "codex", "id": "codex:skill:ab12", "name": "release", "path": "/skills/release/SKILL.md"}
+	if r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "hi", "skill": codexSkill}); r["ok"] != false {
+		t.Fatalf("start with another provider's skill: %v", r)
+	}
+	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "hello", "skill": claudeSkill})
+	id := at(r, "data.sessionId")
+	read := func() map[string]any { return c.call(map[string]any{"type": "read", "sessionId": id}) }
+	content := func() string { return fmt.Sprint(at(read(), "data.snapshot.content")) }
+	waitUntil(t, "the claude skill", func() bool {
+		return strings.Contains(content(), "Handled with claude skill claude:skill:review: hello")
+	})
+	if r := c.call(map[string]any{"type": "send", "sessionId": id, "text": "x", "skill": codexSkill}); r["ok"] != false {
+		t.Fatalf("send a codex skill to a claude chat: %v", r)
+	}
+	if r := c.call(map[string]any{"type": "send", "sessionId": id, "text": "x", "skill": map[string]any{"provider": "claude"}}); r["ok"] != false {
+		t.Fatalf("send a skill with no id or name: %v", r)
+	}
+
+	c.call(map[string]any{"type": "send", "sessionId": id, "text": "approval"})
+	waitUntil(t, "approval", func() bool { return at(read(), "data.snapshot.pendingApprovals.0.id") != nil })
+	c.call(map[string]any{"type": "set", "sessionId": id, "provider": "codex"})
+	if r := c.call(map[string]any{"type": "send", "sessionId": id, "text": "ship it", "skill": codexSkill, "how": "steer"}); r["ok"] != true || r["message"] != "queued" {
+		t.Fatalf("a codex skill behind a held switch: %v", r)
+	}
+	c.call(map[string]any{"type": "resolveApproval", "sessionId": id, "requestId": at(read(), "data.snapshot.pendingApprovals.0.id"), "decision": "allow"})
+	waitUntil(t, "the codex skill", func() bool { return strings.Contains(content(), "Handled with codex skill codex:skill:ab12: ship it") })
+}

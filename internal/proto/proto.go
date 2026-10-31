@@ -148,7 +148,10 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 46
+const Level = 47
+
+// ChatSkillLevel added the provider Skill on ChatNew and ChatSend.
+const ChatSkillLevel = 47
 
 // ChatUnarchiveLevel added ChatUnarchive.
 const ChatUnarchiveLevel = 46
@@ -844,6 +847,7 @@ type ChatNew struct {
 	FakeStartFailure       string               // fake providers only
 	Images                 []string             // paths the daemon reads and copies into images/
 	Attachments            []session.Attachment // aide's, sent with Prompt
+	Skill                  *session.Skill       // runs Prompt, as ChatSend.Skill
 	Name                   string               // the tab's name, "" for none
 	ParentPane             string               // as NewSession.ParentPane
 }
@@ -856,6 +860,7 @@ type ChatSend struct {
 	Text        string
 	Images      []string
 	Attachments []session.Attachment
+	Skill       *session.Skill // the provider skill the turn runs: the chat's provider, or the one a held switch moves it to
 	How         string
 }
 
