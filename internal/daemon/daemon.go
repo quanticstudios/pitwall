@@ -37,6 +37,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/eventlog"
 	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/timelog"
 	"github.com/quanticstudios/pitwall/internal/vt"
@@ -182,6 +183,9 @@ type Options struct {
 	// Providers run chats, by provider; a provider missing here refuses
 	// ChatNew.
 	Providers map[model.Provider]session.Provider
+	// Chats is the folder that keeps chats (eventlog.Root); "" keeps them
+	// in memory only, gone with the daemon.
+	Chats string
 }
 
 type Daemon struct {
@@ -316,6 +320,7 @@ func Defaults() Options {
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)
 		},
+		Chats: eventlog.Root(),
 	}
 }
 
@@ -382,6 +387,7 @@ func NewWith(o Options) (*Daemon, error) {
 	for _, id := range gone {
 		closeAll(d.removePane(id))
 	}
+	d.loadChats()
 	d.tidy()
 	return d, nil
 }
@@ -410,9 +416,8 @@ func fromState(o Options, st model.State) *Daemon {
 // orders once the panes are in. Callers hold d.mu.
 func (d *Daemon) tidy() {
 	d.adopt()
-	// shortcut: no chat outlives the daemon until ENG-2680 stores them, so
-	// a saved chat tab has nothing to show.
-	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Chat != "" })
+	// A chat tab whose chat did not load has nothing to show.
+	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Chat != "" && d.chats[w.Chat] == nil })
 	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool {
 		return !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
 			!slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == s.ID }) &&
