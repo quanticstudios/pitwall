@@ -768,8 +768,10 @@ of the same names under `internal/session/fake/testdata/`.
 - Driver tests do not use `fake`: they run the real driver against a fake
   binary (`PITWALL_CLAUDE_COMMAND`, `PITWALL_CODEX_COMMAND`) that replays
   recorded stdout.
-- ENG-2698's conformance fixtures are fake scripts with the expected delta
-  stream and final snapshot beside them.
+- [`testdata/web-protocol/`](../testdata/web-protocol/README.md) holds a
+  conformance fixture per script: the events it emits, the delta stream a
+  web client gets and the final snapshot. aide vendors them; `go test
+  ./internal/session/fake -run TestConformance -update` rewrites them.
 
 <a id="storage"></a>
 ## Storage

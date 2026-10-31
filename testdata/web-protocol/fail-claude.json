@@ -1,0 +1,65 @@
+{"prompt":"fail-claude","provider":"claude","scenario":"fail-claude",
+"runtimeEvents": [
+  {"type":"session.resume-id","createdAt":"2030-01-01T00:00:00.000Z","resumeId":"fake-test","version":"fake"},
+  {"type":"session.state.changed","createdAt":"2030-01-01T00:00:00.000Z","state":"ready"},
+  {"type":"turn.started","createdAt":"2030-01-01T00:00:00.000Z","turnId":"fake-test-turn-1"},
+  {"type":"turn.completed","createdAt":"2030-01-01T00:00:00.000Z","state":"failed","turnId":"fake-test-turn-1","point":"fake-test-turn-1"},
+  {"type":"session.exited","createdAt":"2030-01-01T00:00:00.000Z","exitCode":0}
+],
+"deltas": [
+  {"version":1,"sessionId":"chat","seq":1,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z","type":"snapshot","snapshot":{"sessionId":"chat","paneId":"chat","workspaceId":"tab","provider":"claude","content":[],"turns":[],"pendingApprovals":[],"pendingUserInputs":[],"planApproval":null,"sessionState":"ready","running":false,"detail":null,"lastCompletedAt":null,"lastError":null,"lastErrorAt":null,"model":null,"effort":null,"serviceTier":null,"permissionMode":"default","interactionMode":"build","selectionNotice":null,"runtimeGeneration":0,"revision":1,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":2,"revision":2,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"done","sessionState":"ready","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":3,"revision":3,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.add","item":{"attachments":[],"id":"prompt","kind":"user-prompt","provider":null,"text":"fail-claude","turnId":null,"updatedAt":"2030-01-01T00:00:00.000Z"}},
+  {"version":1,"sessionId":"chat","seq":4,"revision":4,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"working","sessionState":"running","running":true,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":5,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"item.patch","itemId":"prompt","patch":{"turnId":"fake-test-turn-1"}},
+  {"version":1,"sessionId":"chat","seq":6,"revision":5,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":null,"id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"running"}},
+  {"version":1,"sessionId":"chat","seq":7,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"turn","turn":{"completedAt":"2030-01-01T00:00:00.000Z","id":"fake-test-turn-1","provider":"claude","startedAt":"2030-01-01T00:00:00.000Z","state":"failed"}},
+  {"version":1,"sessionId":"chat","seq":8,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"error","sessionState":"error","running":false,"detail":null,"lastCompletedAt":null},
+  {"version":1,"sessionId":"chat","seq":9,"revision":6,"updatedAt":"2030-01-01T00:00:00.000Z","type":"error","lastError":"Turn failed","lastErrorAt":"2030-01-01T00:00:00.000Z"},
+  {"version":1,"sessionId":"chat","seq":10,"revision":7,"updatedAt":"2030-01-01T00:00:00.000Z","type":"status","status":"interrupted","sessionState":"stopped","running":false,"detail":null,"lastCompletedAt":null}
+],
+"snapshot": {
+  "sessionId": "chat",
+  "paneId": "chat",
+  "workspaceId": "tab",
+  "provider": "claude",
+  "content": [
+    {
+      "attachments": [],
+      "id": "prompt",
+      "kind": "user-prompt",
+      "provider": null,
+      "text": "fail-claude",
+      "turnId": "fake-test-turn-1",
+      "updatedAt": "2030-01-01T00:00:00.000Z"
+    }
+  ],
+  "turns": [
+    {
+      "completedAt": "2030-01-01T00:00:00.000Z",
+      "id": "fake-test-turn-1",
+      "provider": "claude",
+      "startedAt": "2030-01-01T00:00:00.000Z",
+      "state": "failed"
+    }
+  ],
+  "pendingApprovals": [],
+  "pendingUserInputs": [],
+  "planApproval": null,
+  "sessionState": "stopped",
+  "running": false,
+  "detail": null,
+  "lastCompletedAt": null,
+  "lastError": "Turn failed",
+  "lastErrorAt": "2030-01-01T00:00:00.000Z",
+  "model": null,
+  "effort": null,
+  "serviceTier": null,
+  "permissionMode": "default",
+  "interactionMode": "build",
+  "selectionNotice": null,
+  "runtimeGeneration": 0,
+  "revision": 7,
+  "updatedAt": "2030-01-01T00:00:00.000Z"
+}
+}
