@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
 	"runtime"
 	"strings"
 	"sync"
@@ -21,13 +21,14 @@ var findAide = sync.OnceValue(func() []string {
 
 // aideArgv finds aide as its packages install it: aIDE.app in an
 // Applications folder on macOS, an aide.desktop entry in the XDG data
-// folders on Linux. aide ships no Windows build.
+// folders on Linux. aide ships no Windows build, so the paths are
+// slash-separated.
 func aideArgv(goos string, getenv func(string) string, exists func(string) bool, read func(string) ([]byte, error)) []string {
 	home := getenv("HOME")
 	switch goos {
 	case "darwin":
-		for _, dir := range []string{"/Applications", filepath.Join(home, "Applications")} {
-			if app := filepath.Join(dir, "aIDE.app"); exists(app) {
+		for _, dir := range []string{"/Applications", path.Join(home, "Applications")} {
+			if app := path.Join(dir, "aIDE.app"); exists(app) {
 				return []string{"open", "-a", app}
 			}
 		}
@@ -35,14 +36,14 @@ func aideArgv(goos string, getenv func(string) string, exists func(string) bool,
 	default:
 		dirs := []string{getenv("XDG_DATA_HOME")}
 		if dirs[0] == "" {
-			dirs[0] = filepath.Join(home, ".local", "share")
+			dirs[0] = path.Join(home, ".local", "share")
 		}
 		data := getenv("XDG_DATA_DIRS")
 		if data == "" {
 			data = "/usr/local/share:/usr/share"
 		}
-		for _, dir := range append(dirs, filepath.SplitList(data)...) {
-			b, err := read(filepath.Join(dir, "applications", "aide.desktop"))
+		for _, dir := range append(dirs, strings.Split(data, ":")...) {
+			b, err := read(path.Join(dir, "applications", "aide.desktop"))
 			if err != nil {
 				continue
 			}
