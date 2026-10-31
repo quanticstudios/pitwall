@@ -158,6 +158,8 @@ type Options struct {
 	// that names no reset; nil knows none.
 	ResumeAfterLimit func() bool
 	Limits           func() []flow.Limit
+	// Usage answers the web protocol's readUsage; nil serves none.
+	Usage func(since time.Time) web.Usage
 	// SaveLimit keeps a plan limit a chat's provider reported where
 	// internal/flow reads it, for the limits view; nil keeps none.
 	SaveLimit func(flow.Limit)
@@ -304,6 +306,7 @@ func Defaults() Options {
 		MaxRunning:        setting(config.Path(), func(s config.Settings) int { return s.MaxRunning }),
 		ResumeAfterLimit:  setting(config.Path(), func(s config.Settings) bool { return s.ResumeAfterLimit }),
 		Limits:            trackedLimits(),
+		Usage:             usageReader(),
 		SaveLimit:         saveLimit,
 		Profiles:          func() map[string]config.Profile { s, _ := config.Load(); return s.Profiles },
 		ClaudeContinues:   claudeAutoContinue,

@@ -36,6 +36,9 @@ type Server struct {
 	// OpenPath is the code file /_pitwall/open redeems for a session.
 	OpenPath string
 	Chats    Chats // what subscriptions stream; nil serves none
+	// Usage, when set, answers readUsage with the plan limits and
+	// the calls since since.
+	Usage func(since time.Time) Usage
 
 	mu     sync.Mutex
 	conns  map[*conn]bool
@@ -228,10 +231,14 @@ func (s *Server) check(token string) bool {
 
 // capabilities are the commands this server accepts.
 func (s *Server) capabilities() []string {
-	if s.Chats == nil {
-		return []string{}
+	out := []string{}
+	if s.Chats != nil {
+		out = append([]string{"subscribeSessions", "unsubscribeSessions", "subscribe", "unsubscribe"}, commands...)
 	}
-	return append([]string{"subscribeSessions", "unsubscribeSessions", "subscribe", "unsubscribe"}, commands...)
+	if s.Usage != nil {
+		out = append(out, "readUsage")
+	}
+	return out
 }
 
 // serve reads commands until the connection ends; the writer sends what
@@ -257,6 +264,7 @@ func (s *Server) serve(c *conn) error {
 		case f.ID == "":
 			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame has no id"})
 		case s.Chats != nil && (s.command(c, f.Type, f.ID, msg) || s.chatCommand(c, f.Type, f.ID, msg)):
+		case s.usage(c, f.Type, f.ID, msg):
 		default:
 			c.reply(result(f.ID, "unsupported", fmt.Sprintf("pitwall does not serve %q yet", f.Type)))
 		}

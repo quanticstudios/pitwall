@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -54,7 +56,7 @@ func (d *Daemon) serveWeb(s config.WebSettings) (stop func()) {
 		f, err := web.Read(d.o.WebPath)
 		return f.Token, err
 	}
-	ws := &web.Server{Version: Build, Token: token, Chats: chatHub{d}}
+	ws := &web.Server{Version: Build, Token: token, Chats: chatHub{d}, Usage: d.o.Usage}
 	if s.Bundle != "" {
 		// A session lives while web.json keeps the token it started under.
 		ws.Client = &web.Client{Dir: s.Bundle, Live: func(owner string) bool {
@@ -73,6 +75,27 @@ func (d *Daemon) serveWeb(s config.WebSettings) (stop func()) {
 		ws.Close()
 		srv.Close()
 		log.Printf("web: stopped serving %s", ln.Addr())
+	}
+}
+
+// usageReader reads what Settings, Usage shows: the limits as the GUI's
+// meter reads them, from 8 days of Codex rollouts, and the calls in every
+// agent's session files. Its scanners keep what they read, so the next
+// call reads only what the agents appended since.
+func usageReader() func(since time.Time) web.Usage {
+	var mu sync.Mutex
+	var limits flow.ProfileScanner
+	var calls flow.Scanner
+	return func(since time.Time) web.Usage {
+		mu.Lock()
+		defer mu.Unlock()
+		home, _ := os.UserHomeDir()
+		cfg, _ := config.Load()
+		return web.Usage{
+			Limits:   limits.Read(home, config.StateDir(), cfg.Profiles, time.Now(), 8),
+			Records:  calls.Scan(flow.Sources(home), since),
+			ShowCost: cfg.ShowCost,
+		}
 	}
 }
 

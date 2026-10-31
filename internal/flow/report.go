@@ -25,6 +25,7 @@ type Report struct {
 	Providers []ProviderUse // by cost, then tokens
 	Models    []ModelUse    // by cost, then tokens
 	Daily     []DayUse      // one per day of Days
+	BySession []SessionUse  // by tokens, then cost
 }
 
 // ProviderUse is one agent's part of a Report.
@@ -41,6 +42,15 @@ type ModelUse struct {
 	Provider model.Provider // the first agent seen calling it
 	Model    string
 	Priced   bool
+	Cost     float64
+	Tokens   Tokens
+}
+
+// SessionUse is one session's part of a Report.
+type SessionUse struct {
+	Provider model.Provider
+	Session  string    // the agent's session id, its file's name
+	Last     time.Time // its latest call in the window
 	Cost     float64
 	Tokens   Tokens
 }
@@ -70,7 +80,7 @@ func NewReport(recs []Record, now time.Time, days int) Report {
 		p  model.Provider
 		id string
 	}
-	sessions := map[session]bool{}
+	sessions := map[session]*SessionUse{}
 	provs := map[model.Provider]*ProviderUse{}
 	models := map[string]*ModelUse{}
 	for _, rec := range recs {
@@ -99,10 +109,17 @@ func NewReport(recs []Record, now time.Time, days int) Report {
 			pu = &ProviderUse{Provider: rec.Provider, Daily: make([]float64, days)}
 			provs[rec.Provider] = pu
 		}
-		if s := (session{rec.Provider, rec.Session}); !sessions[s] {
-			sessions[s] = true
+		su := sessions[session{rec.Provider, rec.Session}]
+		if su == nil {
+			su = &SessionUse{Provider: rec.Provider, Session: rec.Session}
+			sessions[session{rec.Provider, rec.Session}] = su
 			pu.Sessions++
 			r.Sessions++
+		}
+		su.Cost += cost
+		su.Tokens = su.Tokens.plus(rec.Tokens)
+		if rec.Time.After(su.Last) {
+			su.Last = rec.Time
 		}
 		pu.Cost += cost
 		pu.Tokens = pu.Tokens.plus(rec.Tokens)
@@ -127,6 +144,12 @@ func NewReport(recs []Record, now time.Time, days int) Report {
 	}
 	slices.SortFunc(r.Models, func(a, b ModelUse) int {
 		return cmp.Or(cmp.Compare(b.Cost, a.Cost), cmp.Compare(b.Tokens.Total(), a.Tokens.Total()), strings.Compare(a.Model, b.Model))
+	})
+	for _, su := range sessions {
+		r.BySession = append(r.BySession, *su)
+	}
+	slices.SortFunc(r.BySession, func(a, b SessionUse) int {
+		return cmp.Or(cmp.Compare(b.Tokens.Total(), a.Tokens.Total()), cmp.Compare(b.Cost, a.Cost), strings.Compare(a.Session, b.Session))
 	})
 	return r
 }
