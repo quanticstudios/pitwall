@@ -12,10 +12,11 @@ import (
 )
 
 // Snapshot is aide's ManagedSessionSnapshot. Fields aide marks optional
-// and pitwall never sets (fleet, agents, jevGates, orchestratorSelection,
+// and pitwall rarely sets (fleet, agents, jevGates, orchestratorSelection,
 // pendingProviderSelection, preparingActivityId) are not fields; a
-// snapshot or session.patch from aide that carries them keeps them in
-// Extra, so they round-trip.
+// snapshot or session.patch that carries them keeps them in Extra, so
+// they round-trip. The daemon holds a provider switch in
+// pendingProviderSelection that way.
 type Snapshot struct {
 	SessionID         string         `json:"sessionId"`   // the chat id
 	PaneID            string         `json:"paneId"`      // the chat id too; aide's bridge (M6) maps it

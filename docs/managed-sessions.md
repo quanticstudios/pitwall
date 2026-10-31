@@ -179,7 +179,7 @@ A chat has a lifetime; its provider process has a shorter one.
 | Steer (`ChatSend{How: "steer"}`) | `Driver.Steer`. On `ErrUnsupported` the message is queued instead and the result says so. |
 | Interrupt (`ChatInterrupt`) | `Driver.Interrupt`. The turn ends `interrupted`. Pending approvals and inputs of that turn resolve. The queue is held until the next `ChatSend`, so stopping a turn does not start the next one. |
 | Answer (`ChatApprove`, `ChatAnswer`) | First answer wins ([approvals](#approvals)). Allowing a `plan-approval` (Implement) while `permissionMode` is `plan` then sets it to `default`, as `ChatSet` would. |
-| Settings (`ChatSet`) | `Driver.Set`, then a `session.patch` delta with the new `model`, `effort` or `permissionMode`. A different `Provider` closes the driver and starts the other provider instead, between turns ([web protocol, set](web-protocol.md#set)). |
+| Settings (`ChatSet`) | `Driver.Set`, then a `session.patch` delta with the new `model`, `effort` or `permissionMode`. A different `Provider` closes the driver and starts the other provider instead, between turns; one asked for mid-turn is held in `pendingProviderSelection` until the turn ends ([web protocol, set](web-protocol.md#set)). |
 | No process | After a daemon restart, after a crash, or after `Close`. The chat stays `ready`; the next command that needs the provider starts it with `Origin{Resume: cfg.Resume}` ([resume](#resume)). |
 | Archive (`ChatArchive`) | Closes the driver, compacts the log, moves `chats/<id>/` to `chats/archive/<id>/`, removes the tab as `CloseTab` would (a worktree stays; deleting it stays `DeleteWorkspace`'s job). Refused for a pinned tab, like `CloseTab`. Closing a chat tab or killing its session archives the chat. |
 | Unarchive (`ChatUnarchive`) | Moves the folder back and opens a tab in the chat's `Cwd`. The process starts lazily. |
@@ -379,9 +379,10 @@ change there is a change here. Envelope rules pitwall adds:
 
 ```go
 // Snapshot is aide's ManagedSessionSnapshot. Fields aide marks optional
-// and pitwall never sets (fleet, agents, jevGates, orchestratorSelection,
-// pendingProviderSelection, preparingActivityId) are left out; aide reads
-// them as absent.
+// and pitwall rarely sets (fleet, agents, jevGates, orchestratorSelection,
+// pendingProviderSelection, preparingActivityId) are not fields; a
+// session.patch that sets one keeps it in Extra, which is how the daemon
+// holds a provider switch.
 type Snapshot struct {
 	SessionID         string         `json:"sessionId"`   // the chat id
 	PaneID            string         `json:"paneId"`      // the chat id too; aide's bridge (M6) maps it
