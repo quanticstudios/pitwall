@@ -75,12 +75,15 @@ func liveDaemon(t *testing.T, state model.AgentState) (*Daemon, *livePane, strin
 // table of fakeProcs, and runs the liveness loop.
 func openLive(t *testing.T, fg int, cmd ...string) (*Daemon, *livePane, string) {
 	t.Helper()
-	oldDelay, oldStill, oldPoll, oldSession, oldIdentify, oldComm := settleDelay, stillFor, livePoll, sessionOf, identify, commOf
-	settleDelay, stillFor, livePoll = 60*time.Millisecond, 20*time.Millisecond, 10*time.Millisecond
+	oldDelay, oldStill, oldPoll := settleDelay.set(60*time.Millisecond), stillFor.set(20*time.Millisecond), livePoll.set(10*time.Millisecond)
+	oldSession, oldIdentify, oldComm := sessionOf, identify, commOf
 	sessionOf, identify, commOf = fakeSession, fakeIdentify, fakeComm
 	execd.Store(false)
 	t.Cleanup(func() {
-		settleDelay, stillFor, livePoll, sessionOf, identify, commOf = oldDelay, oldStill, oldPoll, oldSession, oldIdentify, oldComm
+		settleDelay.set(oldDelay)
+		stillFor.set(oldStill)
+		livePoll.set(oldPoll)
+		sessionOf, identify, commOf = oldSession, oldIdentify, oldComm
 	})
 
 	f := &fakes{statsCalls: map[string]int{}}
@@ -130,7 +133,7 @@ func must(t *testing.T, err error) {
 }
 
 // settled waits out every settle check started so far.
-func settled() { time.Sleep(3 * settleDelay) }
+func settled() { time.Sleep(3 * settleDelay.get()) }
 
 func TestInterruptClearsWorking(t *testing.T) {
 	d, _, id := liveDaemon(t, model.StateWorking)
@@ -190,7 +193,7 @@ func TestAnswerAtApproval(t *testing.T) {
 
 func TestForegroundLeavingAgentClears(t *testing.T) {
 	d, lp, id := liveDaemon(t, model.StateCompleted)
-	time.Sleep(5 * livePoll)
+	time.Sleep(5 * livePoll.get())
 	if d.stateOf(id) != model.StateCompleted {
 		t.Fatal("unchanged foreground dropped the activity")
 	}
@@ -213,7 +216,7 @@ func TestForegroundSkipsEndedPane(t *testing.T) {
 	d.mu.Unlock()
 	lp.Close()
 	lp.fgGroup.Store(200)
-	time.Sleep(5 * livePoll)
+	time.Sleep(5 * livePoll.get())
 	if d.stateOf(id) != model.StateCompleted {
 		t.Fatal("the foreground check cleared an ended pane's activity")
 	}
