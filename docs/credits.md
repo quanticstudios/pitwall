@@ -14,7 +14,8 @@ license, is in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). In short:
 - [Lucide](https://lucide.dev) (ISC) and Feather (MIT): the icons.
 - [Geist](https://vercel.com/font) (OFL 1.1): the UI font.
 - [BurntSushi/toml](https://github.com/BurntSushi/toml) (MIT): the config parser.
-- [Tokyo Night](https://github.com/folke/tokyonight.nvim), [Catppuccin](https://github.com/catppuccin/palette)
+- [Tokyo Night](https://github.com/folke/tokyonight.nvim), [Catppuccin](https://github.com/catppuccin/palette),
+  [Dracula](https://github.com/dracula/dracula-theme)
   and GitHub's [Primer](https://github.com/primer/primitives) (all MIT): theme colors.
 - aide (Quantic Studios): the sidebar design and agent states pitwall ports.
 - [zj-radar](https://github.com/marktoda/zj-radar), [zellij](https://zellij.dev),

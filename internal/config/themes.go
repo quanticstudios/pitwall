@@ -69,10 +69,25 @@ var builtins = map[string]Theme{
 				"#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8"),
 		},
 	},
+	// Dracula (dracula/dracula-theme, its VS Code and terminal themes). The
+	// comment color is too dim for muted text, so muted is a lighter step of it.
+	"dracula": {
+		Colors: Colors{
+			Bg: "#21222c", Sidebar: "#21222c", Surface: "#282a36", SurfaceSecondary: "#343746",
+			SurfaceElevated: "#44475a", Border: "#191a21", Fg: "#f8f8f2", Muted: "#a2abd0",
+			Primary: "#bd93f9", OnPrimary: "#21222c", Red: "#ff5555", Yellow: "#f1fa8c",
+			Green: "#50fa7b", Blue: "#8be9fd", Purple: "#ff79c6",
+		},
+		Terminal: Terminal{
+			Foreground: "#f8f8f2", Background: "#282a36", Cursor: "#f8f8f2",
+			ANSI: ansi("#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2",
+				"#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff"),
+		},
+	},
 }
 
 // Themes are the built-in theme names, the default first.
-var Themes = []string{"aide-dark", "aide-light", "tokyo-night", "catppuccin-mocha"}
+var Themes = []string{"aide-dark", "aide-light", "tokyo-night", "catppuccin-mocha", "dracula"}
 
 // Builtin is a built-in theme with every color set, and whether it exists.
 func Builtin(name string) (Theme, bool) {

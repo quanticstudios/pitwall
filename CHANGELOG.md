@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- A built-in `dracula` theme.
 - The phone page answers chat tabs: it shows an approval's tool and command or file, a plan's full text and an input request's questions, and sends Allow, Allow for session, Deny with a reason, Approve plan and typed or tapped answers to the chat as the GUI does. The first answer from any client wins. Push notifications cover chat tabs as they do terminal tabs.
 - The Claude chat driver handles approvals: it asks before a tool runs and takes allow, allow for the session, or deny with a reason Claude reads. A plan Claude submits waits for approval, and approving it takes the chat out of plan mode. Questions Claude asks wait for an answer, an interrupt stops the turn and withdraws its open asks, and the model, effort and mode change while Claude runs. Chats use it once the daemon runs the driver.
 - Configure ACP v1 agents with `[[agents.acp]]` and select them with `pitwall chat new --provider acp:<name>`. `pitwall chat providers` lists configured agents over the shared socket API. Chats stream text and tools, ask for approval, support cancellation, and resume only when the agent supports session load.
