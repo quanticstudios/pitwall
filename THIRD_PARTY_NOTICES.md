@@ -256,7 +256,8 @@ latin Geist variable woff2; the full license is in
 
 The built-in themes in `internal/config/themes.go` copy color values from
 [Tokyo Night](https://github.com/folke/tokyonight.nvim) (MIT, Folke Lemaitre),
-[Catppuccin](https://github.com/catppuccin/palette) (MIT, Catppuccin) and,
+[Catppuccin](https://github.com/catppuccin/palette) (MIT, Catppuccin),
+[Dracula](https://github.com/dracula/dracula-theme) (MIT, Dracula Theme) and,
 for aide-light's state and ANSI colors, GitHub's
 [Primer](https://github.com/primer/primitives) light palette (MIT, GitHub Inc.).
 
