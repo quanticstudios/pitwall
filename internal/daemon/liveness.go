@@ -4,21 +4,37 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// timing is a duration tests shorten while an earlier test's timers may
+// still read it, so it is read and set atomically.
+type timing struct{ v atomic.Int64 }
+
+func newTiming(d time.Duration) *timing {
+	t := &timing{}
+	t.v.Store(int64(d))
+	return t
+}
+
+func (t *timing) get() time.Duration { return time.Duration(t.v.Load()) }
+
+// set makes it d and returns what it was.
+func (t *timing) set(d time.Duration) time.Duration { return time.Duration(t.v.Swap(int64(d))) }
+
 // Liveness timings; tests shorten them.
 var (
 	// livePoll is how often every pane gets its foreground process group
 	// read, for the exit check here and for detect.
-	livePoll = time.Second
+	livePoll = newTiming(time.Second)
 	// settleDelay is how long after a key the screen is judged, and stillFor
 	// how long before that the first of the two compared snapshots is taken.
-	settleDelay = 1500 * time.Millisecond
-	stillFor    = 500 * time.Millisecond
+	settleDelay = newTiming(1500 * time.Millisecond)
+	stillFor    = newTiming(500 * time.Millisecond)
 	// hookGrace is how long an agent whose hooks report its start may run
 	// without one before its pane shows that hooks are missing.
 	hookGrace = 20 * time.Second
@@ -99,9 +115,9 @@ func (d *Daemon) settle(id string, at time.Time) {
 	if err != nil {
 		return
 	}
-	time.Sleep(settleDelay - stillFor)
+	time.Sleep(settleDelay.get() - stillFor.get())
 	before := p.Snapshot()
-	time.Sleep(stillFor)
+	time.Sleep(stillFor.get())
 	g := p.Snapshot()
 
 	d.mu.Lock()
@@ -141,7 +157,7 @@ func isInterrupt(b []byte) bool {
 // crashed, was killed or was suspended. SessionEnd covers only clean exits.
 // Every portPoll it also probes the tabs' port blocks.
 func (d *Daemon) livenessLoop(ctx context.Context) {
-	t := time.NewTicker(livePoll)
+	t := time.NewTicker(livePoll.get())
 	defer t.Stop()
 	var portsAt time.Time
 	for {

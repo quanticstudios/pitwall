@@ -70,7 +70,7 @@ func (d *Daemon) activityOf(id string) model.Activity {
 }
 
 // polls waits out a few liveness polls.
-func polls() { time.Sleep(8 * livePoll) }
+func polls() { time.Sleep(8 * livePoll.get()) }
 
 func TestDetectedAgentWorksThenCompletes(t *testing.T) {
 	d, lp, id := openLive(t, 200)
