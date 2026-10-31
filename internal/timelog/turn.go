@@ -34,7 +34,14 @@ type turn struct {
 	stale    []call // calls with an id whose end never came, set aside
 	calls    []call
 	lastEnd  time.Time // when the latest call ended
+	alive    time.Time // the latest sign of the agent: the start, a call, a wait's end
 }
+
+// idleMax is how long after its last sign a turn the agent never finished
+// can have run: Claude Code's longest Bash timeout. A session that hangs
+// after a call starts, then sits until its pane closes, would otherwise
+// charge the hours to that call.
+const idleMax = 10 * time.Minute
 
 type span struct{ from, to time.Time }
 
@@ -67,7 +74,7 @@ func (tr *Tracker) State(w Where, s model.AgentState, now time.Time) []Event {
 		if tr.turns == nil {
 			tr.turns, tr.ended, tr.tabs = map[string]*turn{}, map[string]time.Time{}, map[string]bool{}
 		}
-		t = &turn{w: w, start: now}
+		t = &turn{w: w, start: now, alive: now}
 		tr.turns[w.Pane] = t
 		if waiting(s) {
 			t.waitFrom = now
@@ -83,7 +90,7 @@ func (tr *Tracker) State(w Where, s model.AgentState, now time.Time) []Event {
 			t.waitFrom = now
 		case !w && !t.waitFrom.IsZero():
 			t.waits = append(t.waits, span{t.waitFrom, now})
-			t.waitFrom = time.Time{}
+			t.waitFrom, t.alive = time.Time{}, now
 		}
 	case t != nil:
 		end := Interrupted
@@ -134,6 +141,7 @@ func (tr *Tracker) Tool(pane string, c agent.Call, now time.Time) {
 	if t == nil {
 		return
 	}
+	t.alive = now
 	if !c.End {
 		if c.ID == "" {
 			t.closeOpen(now, func(o call) bool { return o.id == "" })
@@ -187,10 +195,14 @@ func (t *turn) line(kind string, at time.Time) Event {
 	return Event{T: at, Kind: kind, Pane: t.w.Pane, Tab: t.w.Tab, Project: t.w.Project, Name: t.w.Name, Branch: t.w.Branch, Provider: t.w.Provider}
 }
 
-// finish ends pane's turn at now.
+// finish ends pane's turn at now, or sooner if the agent went quiet
+// without finishing it: see idleMax.
 func (tr *Tracker) finish(pane string, now time.Time, end string) Event {
 	t := tr.turns[pane]
 	delete(tr.turns, pane)
+	if end != Completed && end != Failed && t.waitFrom.IsZero() && now.Sub(t.alive) > idleMax {
+		now = t.alive.Add(idleMax) // the agent stopped answering: see idleMax
+	}
 	if !t.waitFrom.IsZero() {
 		t.waits = append(t.waits, span{t.waitFrom, now})
 	}

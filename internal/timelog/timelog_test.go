@@ -168,6 +168,32 @@ func TestTurnPreNoPost(t *testing.T) {
 	}
 }
 
+// TestTurnHung replays a Claude Code session that started `true` and
+// sent nothing more for 4.5 hours, until its pane closed: the turn ends
+// idleMax after the call started, and a user interrupt after a quiet spell
+// shorter than that keeps all of it. A wait on the user is not capped.
+func TestTurnHung(t *testing.T) {
+	var tr Tracker
+	w := where()
+	tr.State(w, model.StateWorking, at(0))
+	tr.Tool("p", agent.Call{ID: "x", Tool: "Bash", Command: "true"}, at(2))
+	e, _ := tr.Close("p", at(16417))
+	if e.Ms != 602000 || e.Tools[Shell] != 600000 || !e.T.Equal(at(602)) || e.Slow[0].Ms != 600000 {
+		t.Errorf("hung turn %+v", e)
+	}
+
+	tr.State(w, model.StateWorking, at(0))
+	tr.Tool("p", agent.Call{ID: "y", Tool: "Bash", Command: "go test ./..."}, at(10))
+	if e := tr.State(w, "", at(500))[0]; e.Ms != 500000 || e.Tools[Test] != 490000 {
+		t.Errorf("interrupted turn %+v", e)
+	}
+
+	tr.State(w, model.StatePendingApproval, at(0))
+	if e, _ := tr.Close("p", at(3600)); e.Wait != 3600000 {
+		t.Errorf("waiting turn %+v", e)
+	}
+}
+
 // replay runs calls through a turn from 0s to end s, which ends it as
 // completed.
 func replay(t *testing.T, end int, calls ...func(*Tracker)) Event {
