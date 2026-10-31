@@ -508,6 +508,13 @@
           "type": "string",
           "description": "A chat id."
         },
+        "provider": {
+          "description": "Another provider than the chat's switches the chat to it.",
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
         "model": {
           "type": "string"
         },

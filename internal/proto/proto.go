@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 43 added ChatSet.Provider: switch a chat to another provider.
 // Level 42 added ChatNew.Attachments, ChatSend.Attachments and
 // QueuedMessage.Attachments: aide's images, files and pasted text.
 // Level 41 added chat prompt excerpts, queue actions and per-start fake failures.
@@ -142,7 +143,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 42
+const Level = 43
 
 // ChatForkLevel added ChatFork and ChatRewind.
 const ChatForkLevel = 40
@@ -860,8 +861,12 @@ type ChatAnswer struct {
 }
 
 // ChatSet changes the model, effort or permission mode; "" leaves one as it
-// is.
-type ChatSet struct{ Chat, Model, Effort, Mode string }
+// is. A Provider other than the chat's switches the chat to it, between
+// turns, with Model and Effort for the new one ("" is its default).
+type ChatSet struct {
+	Chat, Model, Effort, Mode string
+	Provider                  model.Provider
+}
 
 // ChatQueue reorders, edits or drops queued messages.
 type ChatQueue struct {

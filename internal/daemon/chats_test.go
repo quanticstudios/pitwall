@@ -488,3 +488,27 @@ func TestChatQueueRefusedSteerPreservesQueue(t *testing.T) {
 		t.Fatalf("refused steer: %v queue %+v held %v", err, c.cfg.Queue, c.cfg.Held)
 	}
 }
+
+// TestQuoted keeps the latest 24,000 characters of user and assistant text,
+// cutting the oldest item that does not fit from its start, as aide does.
+func TestQuoted(t *testing.T) {
+	codex := model.ProviderCodex
+	long := strings.Repeat("é", quotedLimit-3)
+	s := session.Snapshot{Content: []session.Item{
+		{Kind: session.KindUserPrompt, Text: "dropped"},
+		{Kind: session.KindAssistantText, Provider: &codex, Text: "abcdef"},
+		{Kind: session.KindSystem, Text: "Switched to Codex"},
+		{Kind: session.KindUserPrompt, Text: long},
+	}}
+	prefix, history, ok := strings.Cut(quoted(s), ":\n")
+	if !ok || !strings.HasPrefix(prefix, "\n\nQuoted prior conversation") {
+		t.Fatalf("quoted: %q", prefix)
+	}
+	want := `[{"provider":"codex","role":"assistant","text":"def"},{"provider":null,"role":"user","text":"` + long + `"}]`
+	if history != want {
+		t.Fatalf("history %.200q", history)
+	}
+	if q := quoted(session.Snapshot{Content: []session.Item{{Kind: session.KindSystem, Text: "x"}}}); q != "" {
+		t.Fatalf("no conversation: %q", q)
+	}
+}

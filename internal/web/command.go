@@ -152,7 +152,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	case "resolveInput":
 		m = proto.ChatAnswer{Chat: f.SessionID, Request: f.RequestID, Answers: f.Answers}
 	case "set":
-		m = proto.ChatSet{Chat: f.SessionID, Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode}
+		m = proto.ChatSet{Chat: f.SessionID, Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode, Provider: f.Provider}
 	case "fork":
 		m = proto.ChatFork{Chat: f.SessionID, Turn: f.TurnID, Worktree: f.Worktree}
 	case "rewind":
