@@ -6,6 +6,9 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// ScheduleLevel is the first daemon level that honors task schedules.
+const ScheduleLevel = 38
+
 // NewTask starts Task in a tab of its own, or with Queue adds it last to
 // its session's queue (model.State.Tasks). The daemon gives it its ID,
 // its SessionID when "" (FromPane's session, else the most recently used

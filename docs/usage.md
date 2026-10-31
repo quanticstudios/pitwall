@@ -926,11 +926,28 @@ failed or closed. With `max_running` under `[agents]` in `config.toml` (or
 **Agents at once** in Settings), queued tasks start whenever fewer than that
 many agents run in the session. The queue survives a daemon restart.
 
+Choose **Start at** beside Queue to enter a local `HH:MM` time and an optional
+repeat interval, then press **Queue**. The CLI accepts `--at 02:00`,
+`--every 24h`, or both. A time that has passed means tomorrow; a repeat
+without `--at` first runs one interval from now. Repeats use elapsed durations,
+so `24h` may shift the local hour across daylight saving changes.
+
+The sidebar and `queue ls` show the next start. The daemon checks every second;
+due tasks still wait for queue capacity and respect `max_running`. A future
+task does not hold up ready tasks behind it. After sleep or a restart, a missed
+time runs once when capacity allows. A repeat then advances to its next future
+slot, skipping missed runs. Repeats run in **This folder** or an existing
+folder passed to the CLI; they cannot create a worktree on each run. Remove
+its queue entry to stop future repeats.
+**Start** and the sidebar's start-now button run immediately; start-now also
+removes the repeat. Scheduling needs a daemon that supports it.
+
 ```sh
 pitwall new --model sonnet -- claude "fix the flaky login test"
 pitwall queue add --model gpt-custom -- codex "fix the flaky login test"   # in the current folder
 pitwall queue add --issue 12 -- claude                  # GitHub issue 12 as the prompt
 pitwall queue add --preset "Opus high" -- "fix it"       # a preset, "fix it" its prompt
+pitwall queue add --at 02:00 --every 24h -- codex "run nightly checks"
 pitwall queue ls
 pitwall queue rm 1
 ```

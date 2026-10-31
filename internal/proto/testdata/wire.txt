@@ -1,4 +1,4 @@
-16.37
+16.38
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -17,7 +17,7 @@ model.Project{ID string; SessionID string; Name string; Root string; Kind model.
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
 model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Listening map[string][]int; Chats []model.Chat}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
-model.Task{Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
+model.Task{NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Color string; Parent string; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string}
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
 proto.AddProject{Path string; SessionID string}

@@ -30,6 +30,12 @@ type taskQueue struct {
 // shows as State.Notice: a GUI shows no request's error.
 func (d *Daemon) newTask(ctx context.Context, m proto.NewTask) error {
 	t := m.Task
+	if t.Repeat < 0 || t.Repeat > 0 && t.NextStart.IsZero() {
+		return errors.New("a repeating task needs a next start and a positive interval")
+	}
+	if t.Repeat > 0 && (t.Worktree != "" || t.Branch != "") {
+		return errors.New("repeating tasks must run in an existing folder")
+	}
 	if len(t.Cmd) == 0 {
 		return errors.New("a task needs a command")
 	}
@@ -206,10 +212,15 @@ func runningPanes(st *model.State) map[string]string {
 // tasks, the agents that finished since tasks last started (freed, which
 // it takes from) and the [agents] max_running limit. Under a limit, a
 // session's task starts while fewer than limit agents run there. With
-// limit 0 it starts for each agent that finished, or when none runs.
-func queueStarts(tasks []model.Task, running, starting, freed map[string]int, limit int) (start, wait []model.Task) {
+// limit 0 it starts for each agent that finished, or when none runs. Future
+// tasks wait; a dispatched repeat stays queued at its next future slot.
+func queueStarts(tasks []model.Task, running, starting, freed map[string]int, limit int, now time.Time) (start, wait []model.Task) {
 	busy := map[string]int{}
 	for _, t := range tasks {
+		if !t.NextStart.IsZero() && now.Before(t.NextStart) {
+			wait = append(wait, t)
+			continue
+		}
 		s := t.SessionID
 		n := running[s] + starting[s] + busy[s]
 		ok := limit > 0 && n < limit || limit == 0 && n == 0
@@ -220,6 +231,11 @@ func queueStarts(tasks []model.Task, running, starting, freed map[string]int, li
 		if ok {
 			start = append(start, t)
 			busy[s]++
+			if t.Repeat > 0 {
+				// Skip missed slots, including those spent waiting for capacity.
+				t.NextStart = now.Add(t.Repeat - now.Sub(t.NextStart)%t.Repeat)
+				wait = append(wait, t)
+			}
 		} else {
 			wait = append(wait, t)
 		}
@@ -229,19 +245,20 @@ func queueStarts(tasks []model.Task, running, starting, freed map[string]int, li
 
 // pumpQueue starts the queued tasks queueStarts lets start, each on a
 // goroutine of its own, and notes which agents finished since the last
-// change. changed calls it; callers hold d.mu.
-func (d *Daemon) pumpQueue() {
+// change. It reports a dispatch so the clock tick can publish and save it.
+// changed also calls it; callers hold d.mu.
+func (d *Daemon) pumpQueue(now time.Time) bool {
 	q := &d.queue
-	now := runningPanes(&d.st)
+	active := runningPanes(&d.st)
 	if q.freed == nil {
 		q.freed, q.starting = map[string]int{}, map[string]int{}
 	}
 	for id, s := range q.running {
-		if _, ok := now[id]; !ok {
+		if _, ok := active[id]; !ok {
 			q.freed[s]++
 		}
 	}
-	q.running = now
+	q.running = active
 	queued := map[string]bool{}
 	for _, t := range d.st.Tasks {
 		queued[t.SessionID] = true
@@ -252,10 +269,10 @@ func (d *Daemon) pumpQueue() {
 		}
 	}
 	if len(d.st.Tasks) == 0 || d.closing {
-		return
+		return false
 	}
 	running := map[string]int{}
-	for _, s := range now {
+	for _, s := range active {
 		running[s]++
 	}
 	limit := 0
@@ -263,10 +280,21 @@ func (d *Daemon) pumpQueue() {
 		limit = d.o.MaxRunning()
 	}
 	var start []model.Task
-	start, d.st.Tasks = queueStarts(d.st.Tasks, running, q.starting, q.freed, limit)
+	start, d.st.Tasks = queueStarts(d.st.Tasks, running, q.starting, q.freed, limit, now)
 	for _, t := range start {
 		q.starting[t.SessionID]++
 		go d.runQueued(t)
+	}
+	return len(start) > 0
+}
+
+// checkQueue uses the existing liveness tick to start due tasks even when
+// no agent activity changes. Publish and save any dispatch and repeat advance.
+func (d *Daemon) checkQueue(now time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.pumpQueue(now) {
+		d.changed()
 	}
 }
 

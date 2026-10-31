@@ -108,6 +108,11 @@ func (s *Sidebar) drawQueue(gtx layout.Context, th *theme.Theme, b queueBlock) {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Small), col, t.Title())
 			}},
 		}
+		if !t.NextStart.IsZero() {
+			items = append(items, item{right: !hovered, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, t.NextStart.Local().Format("Jan 2 15:04"))
+			}})
+		}
 		if hovered {
 			items = append(items,
 				item{right: true, w: func(gtx layout.Context) layout.Dimensions {

@@ -23,6 +23,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// Queue schedules add optional Task.NextStart and Task.Repeat fields.
+// Missing fields decode to zero for immediate, one-shot tasks.
 // Account profiles add optional Workspace.Profile and Task.Profile fields
 // to version 8. Missing fields decode to "", preserving older state files.
 // formatVersion 9 added Workspace.Chat;
