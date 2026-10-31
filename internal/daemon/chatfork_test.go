@@ -154,6 +154,8 @@ func TestChatRewind(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitIn(t, repo, "init", "--initial-branch=main")
+	// why: Windows runners set core.autocrlf, so files git writes back come out with CRLF.
+	gitIn(t, repo, "config", "core.autocrlf", "false")
 	write := func(name, text string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(repo, name), []byte(text), 0o644); err != nil {
