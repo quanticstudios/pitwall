@@ -110,6 +110,19 @@ func (h chatHub) List() []model.Chat {
 	return slices.Clone(h.d.st.Chats)
 }
 
+// Do runs m as the socket does. Its context is not the connection's:
+// a turn a web client starts outlives the client.
+func (h chatHub) Do(m any) any {
+	r, _ := h.d.chatRequest(context.Background(), m)
+	return r
+}
+
+func (h chatHub) Workspaces() []model.Workspace {
+	h.d.mu.Lock()
+	defer h.d.mu.Unlock()
+	return slices.Clone(h.d.st.Workspaces)
+}
+
 func (h chatHub) WatchList(s web.Sink, on bool) {
 	h.d.mu.Lock()
 	defer h.d.mu.Unlock()

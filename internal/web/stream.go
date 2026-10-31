@@ -28,6 +28,11 @@ type Chats interface {
 	// have changed, false stops that.
 	List() []model.Chat
 	WatchList(s Sink, on bool)
+	// Do runs a Chat* socket message as the socket does and returns its
+	// proto.ChatResult.
+	Do(m any) any
+	// Workspaces are the daemon's tabs, for listProjects.
+	Workspaces() []model.Workspace
 }
 
 // Sink is a connection's end of its subscriptions. The daemon calls it on

@@ -121,6 +121,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("web: %q connected from %s", name, r.RemoteAddr)
+	c.name = name
 	done := make(chan struct{})
 	go func() {
 		err := s.writer(c, done)
@@ -230,7 +231,7 @@ func (s *Server) capabilities() []string {
 	if s.Chats == nil {
 		return []string{}
 	}
-	return []string{"subscribeSessions", "unsubscribeSessions", "subscribe", "unsubscribe"} // ENG-2696 adds the rest
+	return append([]string{"subscribeSessions", "unsubscribeSessions", "subscribe", "unsubscribe"}, commands...)
 }
 
 // serve reads commands until the connection ends; the writer sends what
@@ -255,7 +256,7 @@ func (s *Server) serve(c *conn) error {
 			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame is not a JSON object"})
 		case f.ID == "":
 			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame has no id"})
-		case s.Chats != nil && s.command(c, f.Type, f.ID, msg):
+		case s.Chats != nil && (s.command(c, f.Type, f.ID, msg) || s.chatCommand(c, f.Type, f.ID, msg)):
 		default:
 			c.reply(result(f.ID, "unsupported", fmt.Sprintf("pitwall does not serve %q yet", f.Type)))
 		}

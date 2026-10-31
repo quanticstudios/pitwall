@@ -570,6 +570,13 @@ speak on this connection.
    ([phone.md](phone.md)). The full web client on a phone authenticates
    through a device token, which buys a session and its own `hello` token
    ([Web client](remote.md#web-client)).
-5. A page the daemon serves gets its `hello` token from
+5. What the chat loop cannot do yet answers `unsupported`, and the
+   commands without a socket message are left out of `capabilities`:
+   `fork` and `rewind` (ENG-2691), `unarchive`, `listSessions` with
+   `archived: true`, and `attachments` in `start` and `send` (after the
+   limits are checked). `read` of an archived chat answers `not-found`, and
+   `archive` with `delete: true` archives a live chat as plain `archive`
+   does, as `ChatArchive` does on the socket.
+6. A page the daemon serves gets its `hello` token from
    `/_pitwall/bootstrap` with a session cookie, never from `web.json` or a
    URL ([Web client](remote.md#web-client)).
