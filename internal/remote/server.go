@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/web"
 )
 
 // Item is one pane that needs you, as the page shows it. It holds what
@@ -75,7 +77,7 @@ func Items(st model.State) []Item {
 }
 
 //go:embed web
-var web embed.FS
+var page embed.FS
 
 // Server is the phone page and its API. Every API call but pairing needs
 // a device token, as "Authorization: Bearer <token>"; a header, not a
@@ -88,6 +90,12 @@ type Server struct {
 	// still shows the activity of UpdatedAt at.
 	Answer func(pane string, at int64, allow bool) error
 	Reply  func(pane string, at int64, text string) error
+	// Web, when set, is the web client for paired devices: a device
+	// starts a session with its token at POST /api/web, and the session
+	// gets the bundle at /app/, its bootstrap at /_pitwall/bootstrap, and
+	// the web protocol at WS, served at /ws.
+	Web *web.Client
+	WS  http.Handler
 
 	mu    sync.Mutex
 	fails []time.Time // failed pairings and tokens in the last failWindow
@@ -112,7 +120,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux := http.NewServeMux()
 	file := func(name, ctype string) http.HandlerFunc {
-		data, _ := web.ReadFile("web/" + name)
+		data, _ := page.ReadFile("web/" + name)
 		return func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", ctype)
 			w.Write(data)
@@ -127,8 +135,18 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.HandleFunc("POST /api/pair", s.pair)
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
-		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name})
+		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})
 	}))
+	if s.Web != nil {
+		mux.HandleFunc("POST /api/web", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+			s.Web.Start(w, r, d.ID)
+			log.Printf("remote: %q opened the web client", d.Name)
+			writeJSON200(w, map[string]any{"url": "/app/"})
+		}))
+		mux.Handle("GET /app/", http.StripPrefix("/app", s.Web.Bundle()))
+		mux.HandleFunc("GET /_pitwall/bootstrap", s.Web.Bootstrap)
+		mux.Handle("GET /ws", sameOrigin(s.WS))
+	}
 	mux.HandleFunc("GET /api/push", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		key, err := VAPIDKey(s.Dir)
 		if err != nil {
@@ -200,6 +218,21 @@ func headers(h http.Handler) http.Handler {
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("Referrer-Policy", "no-referrer")
 		hd.Set("Cache-Control", "no-store")
+		h.ServeHTTP(w, r)
+	})
+}
+
+// sameOrigin refuses, with 403, a request whose Origin is set and is not
+// this page's host. hello's token stops another site's page anyway; this
+// stops it before the upgrade.
+func sameOrigin(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if o := r.Header.Get("Origin"); o != "" {
+			if u, err := url.Parse(o); err != nil || u.Host != r.Host || u.Scheme != "http" && u.Scheme != "https" {
+				http.Error(w, "forbidden origin", http.StatusForbidden)
+				return
+			}
+		}
 		h.ServeHTTP(w, r)
 	})
 }

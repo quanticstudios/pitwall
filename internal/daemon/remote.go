@@ -20,6 +20,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/vt"
+	"github.com/quanticstudios/pitwall/internal/web"
 )
 
 // remoteCheck is how often a listener's settings are read again.
@@ -28,12 +29,26 @@ const remoteCheck = 2 * time.Second
 // remoteFails keeps a phone page that cannot start to a log line a minute.
 var remoteFails = logs.Limiter{Every: time.Minute}
 
+// phone is what the phone page serves: [remote], and [web] bundle, the
+// web client it serves to paired devices.
+type phone struct {
+	config.RemoteSettings
+	Bundle string
+}
+
 // remoteLoop serves the phone page while [remote] enables it.
 func (d *Daemon) remoteLoop(ctx context.Context) {
 	if d.o.Remote == nil {
 		return
 	}
-	watchListener(ctx, d.o.Remote, func(s config.RemoteSettings) bool { return s.Enabled }, d.serveRemote)
+	get := func() phone {
+		p := phone{RemoteSettings: d.o.Remote()}
+		if d.o.Web != nil {
+			p.Bundle = d.o.Web().Bundle
+		}
+		return p
+	}
+	watchListener(ctx, get, func(p phone) bool { return p.Enabled }, d.serveRemote)
 }
 
 // watchListener runs serve while on(get()) holds, and serves anew when the
@@ -69,10 +84,11 @@ func watchListener[S comparable](ctx context.Context, get func() S, on func(S) b
 	}
 }
 
-// serveRemote starts the phone page on s.Listen, and the pushes to the
-// phones that turned them on, and returns what stops both, or nil after
-// a failure, which is logged once a minute.
-func (d *Daemon) serveRemote(s config.RemoteSettings) (stop func()) {
+// serveRemote starts the phone page on s.Listen, with the web client in
+// s.Bundle when set, and the pushes to the phones that turned them on,
+// and returns what stops them, or nil after a failure, which is logged
+// once a minute.
+func (d *Daemon) serveRemote(s phone) (stop func()) {
 	ln, err := net.Listen("tcp", s.Listen)
 	if err != nil {
 		if ok, _ := remoteFails.Allow("listen", time.Now()); ok {
@@ -94,13 +110,23 @@ func (d *Daemon) serveRemote(s config.RemoteSettings) (stop func()) {
 		scheme = "https"
 		log.Printf("remote: certificate SHA-256 %s", fp)
 	}
-	srv := &http.Server{Handler: d.remoteServer().Handler(), ReadHeaderTimeout: 10 * time.Second}
+	rs := d.remoteServer()
+	var ws *web.Server
+	if s.Bundle != "" {
+		rs.Web = &web.Client{Dir: s.Bundle, Live: func(id string) bool { return remote.Paired(d.o.RemoteDir, id) }}
+		ws = &web.Server{Version: Build, Client: rs.Web}
+		rs.WS = ws.WebSocket()
+	}
+	srv := &http.Server{Handler: rs.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go srv.Serve(ln)
 	ctx, cancel := context.WithCancel(context.Background())
 	go d.pushLoop(ctx, &remote.Pusher{Dir: d.o.RemoteDir})
 	log.Printf("remote: serving %s://%s for paired devices", scheme, ln.Addr())
 	return func() {
 		cancel()
+		if ws != nil {
+			ws.Close()
+		}
 		srv.Close()
 		log.Printf("remote: stopped serving %s", ln.Addr())
 	}

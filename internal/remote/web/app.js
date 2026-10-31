@@ -5,6 +5,7 @@ const KEY = 'pitwall-token';
 const list = document.getElementById('list');
 const status = document.getElementById('status');
 const push = document.getElementById('push');
+const full = document.getElementById('full');
 let token = '';
 try { token = localStorage.getItem(KEY) || ''; } catch (e) { /* private mode: pair again each visit */ }
 let timer = 0;
@@ -25,6 +26,7 @@ function saveToken(t) {
 
 function unpaired(msg) {
   saveToken('');
+  full.hidden = true;
   cards.clear();
   push.replaceChildren();
   const box = el('div', 'empty');
@@ -159,6 +161,7 @@ async function refresh() {
   if (!token) return;
   try {
     const r = await api('/api/items');
+    full.hidden = !r.web;
     render(r.items || [], r.device);
   } catch (e) {
     if (e.message !== 'unpaired') status.textContent = 'Offline: ' + e.message;
@@ -172,6 +175,15 @@ function schedule(ms) {
 }
 
 document.addEventListener('visibilitychange', () => schedule(0));
+
+// why: the device token stays in this page; the full client gets a session cookie of its own.
+full.querySelector('button').onclick = async () => {
+  try {
+    location.assign((await api('/api/web', {})).url);
+  } catch (e) {
+    if (e.message !== 'unpaired') status.textContent = e.message;
+  }
+};
 
 function note(text, button) {
   const p = el('p', 'note', text);

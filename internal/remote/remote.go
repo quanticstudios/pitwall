@@ -172,6 +172,12 @@ func check(dir, token string) (Device, bool) {
 	return d, subtle.ConstantTimeCompare([]byte(hash(secret)), []byte(d.Hash)) == 1
 }
 
+// Paired reports whether the device id is still paired.
+func Paired(dir, id string) bool {
+	var d Device
+	return idRe.MatchString(id) && readJSON(filepath.Join(dir, "devices", id+".json"), &d) == nil && d.ID == id
+}
+
 // Devices are the paired devices, oldest first.
 func Devices(dir string) ([]Device, error) {
 	es, err := os.ReadDir(filepath.Join(dir, "devices"))
