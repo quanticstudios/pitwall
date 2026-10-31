@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- When every hook is already installed, the Install hooks dialog says why an agent may still send none: Codex needs `/hooks` once to trust them, and an agent started before the install needs a restart. Closing that dialog hides the pane notice. Before, it said only "already installed" and the notice stayed.
 - `PITWALL_FAKE_PROVIDERS=1` reaches the daemon: its Claude and Codex chats run the scripted providers, so aide's e2e can run against a real daemon. Without it the daemon still starts no Claude or Codex driver.
 
 ## v0.1.7

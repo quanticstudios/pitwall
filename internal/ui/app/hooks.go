@@ -107,7 +107,14 @@ func (u *ui) confirmHooks() {
 	_, _, changed := hookChanges(text)
 	switch {
 	case busy:
-	case done || failed || !changed:
+	case done || failed:
+		u.modal.close()
+	case !changed:
+		// why: nothing to install, so the pane notices offer nothing more; the
+		// dialog said how to load the hooks.
+		h.mu.Lock()
+		h.hidden = true
+		h.mu.Unlock()
 		u.modal.close()
 	default:
 		u.runHooks(false)
@@ -198,7 +205,7 @@ func (u *ui) hooksBody(gtx gl.Context) gl.Dimensions {
 		}
 	case !changed:
 		ok, cancel = "Close", ""
-		kids = append(kids, text14("Every agent's hooks are already installed."))
+		kids = append(kids, text14("Every agent's hooks are already installed. An agent that still shows this notice has not loaded them: in Codex, run /hooks once to trust them, and restart an agent that started before the install."))
 	default:
 		kids = append(kids, text14("pitwall adds its entries to these files and keeps a backup of each. The hooks do nothing outside a pitwall pane."))
 	}
