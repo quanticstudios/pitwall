@@ -93,6 +93,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		return true
 	case "setJev":
 		c.reply(s.setJev(id, c.name, msg))
+		return true
 	case "checkpoints", "checkpointDiff", "rewindPreview":
 		c.reply(s.checkpoint(id, typ, f))
 		return true
