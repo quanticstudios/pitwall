@@ -869,9 +869,18 @@ is not running can still do, and appends deltas. It never rewrites the log.
 
 The same rules run when a process exits on its own ([errors](#driver)).
 
+A chat loads when the first command names it, so this runs then, before
+the command. On an exit, `Reduce` has already ended the turn and the
+requests; the rest still runs, with the line "Expired: <Provider> exited
+before anyone answered".
+
 `[agents] chat_continue_after_restart` (default false): when on, after a
 reconciled interrupted turn the loop resumes the provider and sends
 "Continue where you left off", at most 3 times per chat per 5 minutes.
+It runs once the command that loaded the chat is done, and not when that
+command started a turn. `config.json` keeps the times in `continued`, so
+the limit holds across restarts; a refused one adds a `system` item "Not
+continued: ...".
 
 <a id="fork-rewind"></a>
 ## Fork and rewind

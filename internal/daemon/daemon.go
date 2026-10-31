@@ -169,6 +169,9 @@ type Options struct {
 	// [agents] continue_when_quiet; nil means off.
 	QuietAfter        func() time.Duration
 	ContinueWhenQuiet func() bool
+	// ChatContinue reads [agents] chat_continue_after_restart; nil means
+	// off.
+	ChatContinue func() bool
 	// RemoteControl reports whether panes show Claude Code's Remote
 	// Control ([appearance] remote_control); nil means off.
 	RemoteControl func() bool
@@ -306,6 +309,7 @@ func Defaults() Options {
 		ClaudeContinues:   claudeAutoContinue,
 		QuietAfter:        setting(config.Path(), func(s config.Settings) time.Duration { return s.QuietAfter }),
 		ContinueWhenQuiet: setting(config.Path(), func(s config.Settings) bool { return s.ContinueWhenQuiet }),
+		ChatContinue:      setting(config.Path(), func(s config.Settings) bool { return s.ChatContinue }),
 		RemoteControl:     setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
 		Remote:            func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
 		RemoteDir:         remote.Dir(),

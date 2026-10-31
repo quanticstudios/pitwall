@@ -75,6 +75,9 @@ type chat struct {
 	limit *session.Limit
 	// resumed marks the running turn as the limit resume's continue.
 	resumed bool
+	// cut: loading the chat ended a turn a restart cut off; the loop may
+	// continue it once the command that loaded it is done.
+	cut bool
 
 	dir    string        // the chat's eventlog folder; "" in memory only
 	log    *eventlog.Log // nil until the first command loads the chat
@@ -378,6 +381,26 @@ func (c *chat) open() {
 		return
 	}
 	c.log, c.snap, c.seq, c.published = l, snap, seq, seq
+	c.cut = c.reconcile("pitwall restarted during this turn", "Expired: pitwall restarted before anyone answered")
+}
+
+// reconcile appends what the provider process, gone, left running or
+// waiting (session.Reconcile), after the system line cut for a cut-off
+// turn and expired for requests nobody can answer any more, both in the
+// turn they are about; "" writes none. It reports a cut-off turn.
+func (c *chat) reconcile(cut, expired string) bool {
+	running := slices.ContainsFunc(c.snap.Turns, func(t session.TurnSummary) bool { return t.State == session.TurnRunning })
+	if running && cut != "" {
+		c.system(cut)
+	}
+	if len(c.snap.PendingApprovals)+len(c.snap.PendingUserInputs) > 0 && expired != "" {
+		c.system(expired)
+	}
+	stamp := session.Stamp(time.Now())
+	if ds := session.Reconcile(c.snap, stamp); ds != nil {
+		c.commit(ds, stamp)
+	}
+	return running
 }
 
 // save writes config.json when the config changed.
@@ -431,6 +454,12 @@ func (c *chat) loop(d *Daemon) {
 		select {
 		case f := <-c.cmds:
 			f()
+			if c.cut {
+				c.cut = false
+				d.chatContinue(c)
+				c.save()
+				d.chatChanged(c)
+			}
 		case <-c.wake:
 			c.evMu.Lock()
 			evs := c.evs
@@ -521,10 +550,18 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 		slices.ContainsFunc(c.snap.PendingApprovals, func(a session.Approval) bool { return a.ID == e.RequestID })) ||
 		(e.Type == session.EventInputResolved &&
 			slices.ContainsFunc(c.snap.PendingUserInputs, func(in session.InputRequest) bool { return in.ID == e.RequestID }))
+	asked := len(c.snap.PendingApprovals)+len(c.snap.PendingUserInputs) > 0
 	c.commit(session.Reduce(c.snap, e), e.CreatedAt)
+	name := func() string { p := string(c.cfg.Provider); return strings.ToUpper(p[:1]) + p[1:] }
 	if withdrawn {
-		p := string(c.cfg.Provider)
-		c.system(strings.ToUpper(p[:1]) + p[1:] + " withdrew this request")
+		c.system(name() + " withdrew this request")
+	}
+	if e.Type == session.EventExited {
+		// Reduce ended the turn and the requests; tool calls are left.
+		if asked {
+			c.system("Expired: " + name() + " exited before anyone answered")
+		}
+		c.reconcile("", "")
 	}
 	if e.Type == session.EventExited && c.resuming {
 		// Claude's --resume of a session it cannot find exits before
@@ -1137,6 +1174,36 @@ func (d *Daemon) chatResume(id, text string) error {
 		return session.ErrClosed
 	}
 	return err
+}
+
+// restartContinue is what the loop sends a chat whose turn a restart cut
+// off, with [agents] chat_continue_after_restart on, at most
+// continueLimit times in continueWindow.
+const (
+	restartContinue = "Continue where you left off"
+	continueLimit   = 3
+	continueWindow  = 5 * time.Minute
+)
+
+// continueNow is the clock of the continue limit.
+var continueNow = time.Now
+
+// chatContinue resumes c's provider and sends restartContinue, when the
+// setting is on, nothing started a turn meanwhile and the limit allows.
+func (d *Daemon) chatContinue(c *chat) {
+	if d.o.ChatContinue == nil || !d.o.ChatContinue() || busy(c.snap) {
+		return
+	}
+	now := continueNow()
+	c.cfg.Continued = slices.DeleteFunc(c.cfg.Continued, func(t time.Time) bool { return now.Sub(t) >= continueWindow })
+	if len(c.cfg.Continued) >= continueLimit {
+		c.system(fmt.Sprintf("Not continued: pitwall continued this chat %d times in the last %d minutes", continueLimit, int(continueWindow.Minutes())))
+		return
+	}
+	c.cfg.Continued = append(c.cfg.Continued, now)
+	if _, _, err := d.chatTurn(context.Background(), c, session.Message{ID: newUUID(), Text: restartContinue}); err != nil {
+		log.Printf("chat %s: continue after the restart: %q", c.id, err)
+	}
 }
 
 // forLevel is s as a client of level sees it: below proto.ChatLevel, with

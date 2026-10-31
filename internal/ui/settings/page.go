@@ -1247,6 +1247,8 @@ func (p *Page) agents() []section {
 		extra: "quiet stuck silent minutes quiet_after", control: p.stepper("agents", "quiet_after", p.s.QuietAfter.Minutes(), 0, 1440, 5, config.DefaultQuietAfter)})
 	rows = append(rows, row{label: "Continue when quiet", desc: "Types continue once into a working agent whose screen has stayed still that long. Only for agents whose prompts pitwall reads from the screen, and never while one shows; typing in the pane lets it type again.",
 		extra: "quiet continue nudge continue_when_quiet", control: p.toggle("agents", "continue_when_quiet", p.s.ContinueWhenQuiet)})
+	rows = append(rows, row{label: "Continue chats after a restart", desc: "When a chat loads with a turn that a daemon restart cut off, resumes its provider and sends \"Continue where you left off\". At most 3 times per chat in 5 minutes.",
+		extra: "chat restart continue resume interrupted chat_continue_after_restart", control: p.toggle("agents", "chat_continue_after_restart", p.s.ChatContinue)})
 	rows = append(rows, row{label: "Show cost", desc: "Next to each agent's tokens, what they would cost at the API's list prices. A subscription does not bill per token, so this is off by default.",
 		extra: "usage tokens cost price dollars show_cost", control: p.toggle("usage", "show_cost", p.s.ShowCost)})
 	rows = append(rows, row{label: "Guard workers", desc: "Turns the guard on in tabs an agent opens with pitwall worktree new: it denies their agents git push, gh pr merge, terraform apply and the like. A seatbelt, not a sandbox; see docs/usage.md.",
