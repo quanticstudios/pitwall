@@ -1071,6 +1071,12 @@ assistant text, one line per tool call, approvals with their ids.
 - ENG-2684 adds a placeholder in place of the transcript ("Chat: read it
   with pitwall chat read <id>"), so a GUI at `ChatLevel` handles a chat tab
   before ENG-2689 lands.
+- As built in ENG-2689: no `ChatSubscribe` exists yet, so the window reads
+  the chat on screen with `ChatRead` after its last seq every 150 ms while
+  the chat is connecting, running or waiting, and on any State change
+  otherwise. It keeps only that chat's snapshot. The transcript is
+  read-only: an approval or question shows the `pitwall chat` command that
+  answers it, and there is no send box or "Open in aide" button yet.
 
 <a id="web"></a>
 ## Web protocol constraints

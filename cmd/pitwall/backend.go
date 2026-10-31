@@ -41,6 +41,7 @@ type backend struct {
 	icons   map[string]*proto.FaviconResult   // per folder, the daemon's FaviconResult, nil while it is out
 	pastes  map[string]proto.PasteImageResult // per pane, a PasteImage reply not yet taken
 	moves   []proto.FocusDir                  // not yet taken by the window
+	chat    chatCache                         // the transcript of the chat on screen
 	link    app.Link
 	dialing bool // a dial loop runs
 	// view is the panes the last proto.View named, and waits a channel
@@ -95,6 +96,7 @@ var (
 	_ app.Worktreer = (*backend)(nil)
 	_ app.Texter    = (*backend)(nil)
 	_ app.Viewer    = (*backend)(nil)
+	_ app.Chatter   = (*backend)(nil)
 )
 
 func (b *backend) State() model.State {
@@ -309,7 +311,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.outMu.Unlock()
 	b.mu.Lock()
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
-	b.all = nil
+	b.all, b.chat = nil, chatCache{}
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
 	maps.DeleteFunc(b.icons, func(_ string, r *proto.FaviconResult) bool { return r == nil }) // asked of the old connection: ask again
@@ -455,6 +457,15 @@ func (b *backend) recvLoop() {
 			b.texts[m.Pane] = m
 		case proto.PasteImageResult:
 			b.pastes[m.Pane] = m
+		case proto.ChatDeltas:
+			if !b.chat.take(m) {
+				b.mu.Unlock()
+				continue
+			}
+		case proto.ChatResult:
+			if m.Chat == b.chat.id && m.Code == "not-found" {
+				b.chat.out = false
+			}
 		case proto.FaviconResult:
 			b.icons[m.Dir] = &m
 			if m.Root != "" {
