@@ -197,3 +197,9 @@ it; off, pitwall stops reading Claude Code's session files.
 The muted text color of every built-in theme reads at 4.5:1 or better on
 its backgrounds. Status chips darken or lighten their text until it does,
 so a custom theme's chips stay readable too.
+
+## ACP agents
+
+Use `[[agents.acp]]` for managed agents that speak ACP v1 over stdio. Each entry
+sets `name`, `command`, `args` and `env`. See [ACP agents](acp.md) for configuration,
+provider discovery and capability limits.

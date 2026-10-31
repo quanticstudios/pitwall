@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 
 // AgentLimits is [agents].
 type AgentLimits struct {
+	ACP               []ACPAgent    `toml:"acp" doc:"ACP v1 agents for managed chats, each a [[agents.acp]] table. See docs/acp.md"`
 	MaxRunning        *float64      `toml:"max_running" min:"0" max:"100" doc:"How many agents may run at once in a session before its queued tasks wait; a queued task starts when one of them finishes (done, failed or closed). 0 sets no limit: a queued task then waits for an agent of its session to finish, or starts at once when none runs"`
 	ResumeAfterLimit  *bool         `toml:"resume_after_limit" doc:"Type continue into a Claude Code or Codex agent that stopped on its plan's usage limit, a minute after the limit resets, unless you typed in its pane since"`
 	QuietAfter        *float64      `toml:"quiet_after" min:"0" max:"1440" doc:"Minutes a working agent's screen may stay still before its row says quiet. 0 turns it off"`
@@ -238,4 +240,43 @@ func JoinShell(args []string) string {
 		}
 	}
 	return strings.Join(q, " ")
+}
+
+// ACPAgent is one [[agents.acp]] entry. Its provider id is acp:<name>.
+type ACPAgent struct {
+	Name    string   `toml:"name" doc:"Unique name using letters, digits, underscores and hyphens. Select with --provider acp:<name>"`
+	Command string   `toml:"command" doc:"Executable to run over ACP stdio, without a shell"`
+	Args    []string `toml:"args" doc:"Arguments to the executable, such as [\"--acp\"]"`
+	Env     []string `toml:"env" doc:"Environment overrides, each NAME=value. Credentials stay out of the provider list and chat log"`
+}
+
+var acpName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+func resolveACP(agents []ACPAgent) ([]ACPAgent, []issue) {
+	var out []ACPAgent
+	var issues []issue
+	for _, a := range agents {
+		msg := ""
+		switch {
+		case !acpName.MatchString(a.Name):
+			msg = "ACP name must use letters, digits, underscores and hyphens, starting with a letter or digit"
+		case strings.TrimSpace(a.Command) == "" || strings.ContainsRune(a.Command, 0):
+			msg = "ACP agent needs a command"
+		case slices.ContainsFunc(out, func(o ACPAgent) bool { return o.Name == a.Name }):
+			msg = "duplicate ACP name"
+		case slices.ContainsFunc(a.Args, func(v string) bool { return strings.ContainsRune(v, 0) }):
+			msg = "ACP args cannot contain NUL"
+		case slices.ContainsFunc(a.Env, func(v string) bool {
+			k, _, ok := strings.Cut(v, "=")
+			return !ok || k == "" || strings.ContainsRune(v, 0)
+		}):
+			msg = "ACP env takes NAME=value strings"
+		}
+		if msg != "" {
+			issues = append(issues, issue{"agents.acp", fmt.Sprintf("%s: %q", msg, a.Name)})
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, issues
 }

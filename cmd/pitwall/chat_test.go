@@ -150,6 +150,8 @@ func TestChatCLI(t *testing.T) {
 		got = append(got, m)
 		mu.Unlock()
 		switch m := m.(type) {
+		case proto.ChatProviders:
+			return proto.ChatProviderList{Providers: []proto.ChatProvider{{ID: "acp:grok", Name: "grok"}}}
 		case proto.ChatNew:
 			return proto.ChatResult{Chat: "new-id", Turn: "t1"}
 		case proto.ChatSend:
@@ -178,6 +180,8 @@ func TestChatCLI(t *testing.T) {
 			proto.ChatApprove{Chat: id, Request: "r1", Decision: "deny", Reason: "no", By: "cli"}, "conflict: someone answered first"},
 		{[]string{"chat", "read", "0f3e"}, 0, "Hi.\n\n", proto.ChatRead{Chat: id}, ""},
 		{[]string{"chat", "ls", "--json"}, 0, "", nil, ""},
+		{[]string{"chat", "providers"}, 0, "acp:grok\tgrok\n", proto.ChatProviders{}, ""},
+		{[]string{"chat", "providers", "--json"}, 0, "[{\"id\":\"acp:grok\",\"name\":\"grok\"}]\n", proto.ChatProviders{}, ""},
 	} {
 		mu.Lock()
 		got = nil

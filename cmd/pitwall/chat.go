@@ -21,8 +21,9 @@ import (
 )
 
 const chatUsage = `usage:
-  pitwall chat new [--provider claude|codex] [--model M] [--effort E] [--mode M]
+  pitwall chat new [--provider ID] [--model M] [--effort E] [--mode M]
                    [--dir D | --worktree NAME [--base B] | --branch B] [--name N] [-- prompt]
+  pitwall chat providers [--json]
   pitwall chat ls [--json]
   pitwall chat send <chat> [--steer|--queue] -- text
   pitwall chat approve <chat> [<request>] allow|allow-session|deny [--reason R]
@@ -67,7 +68,7 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 		flags.StringVar(&modelName, "model", "", "")
 		flags.StringVar(&effort, "effort", "", "")
 		flags.StringVar(&mode, "mode", "", "")
-	case "ls", "read":
+	case "ls", "read", "providers":
 		flags.BoolVar(&asJSON, "json", false, "")
 	case "send":
 		flags.BoolVar(&steer, "steer", false, "")
@@ -87,7 +88,7 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 	}
 	switch {
 	case sub == "new" || sub == "send" && len(args) >= 2:
-	case sub == "ls" && len(args) == 0:
+	case (sub == "ls" || sub == "providers") && len(args) == 0:
 	case sub == "approve" && (len(args) == 2 || len(args) == 3):
 	case sub == "wait" && len(args) == 1 && (until == "done" || until == "blocked"):
 	case (sub == "interrupt" || sub == "set" || sub == "read" || sub == "archive") && len(args) == 1:
@@ -112,6 +113,32 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 	}
 	if m.Level < proto.ChatLevel {
 		return waitError, errors.New("the running pitwall daemon predates chats; restart it to update it (pitwall doctor)")
+	}
+	if sub == "providers" {
+		if m.Level < proto.ChatProvidersLevel {
+			return waitError, errors.New("restart the daemon to list chat providers")
+		}
+		if err := conn.Send(proto.ChatProviders{}); err != nil {
+			return waitError, err
+		}
+		reply, err := chatReply(conn)
+		if err != nil {
+			return waitError, err
+		}
+		list, ok := reply.(proto.ChatProviderList)
+		if !ok {
+			return waitError, fmt.Errorf("unexpected provider reply %T", reply)
+		}
+		if asJSON {
+			err = json.NewEncoder(out).Encode(list.Providers)
+		} else {
+			for _, p := range list.Providers {
+				if _, err = fmt.Fprintf(out, "%s\t%s\n", p.ID, p.Name); err != nil {
+					break
+				}
+			}
+		}
+		return code(err), err
 	}
 	state := m.State
 	sess, err := currentSession(state, sessionName)
@@ -250,7 +277,7 @@ func chatReply(conn *cliConn) (any, error) {
 		switch m := msg.(type) {
 		case proto.Error:
 			return nil, errors.New(m.Message)
-		case proto.ChatResult, proto.ChatDeltas:
+		case proto.ChatResult, proto.ChatDeltas, proto.ChatProviderList:
 			return m, nil
 		}
 	}

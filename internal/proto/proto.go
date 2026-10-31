@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 39 added ChatProviders and ChatProviderList for configured chat agents.
 // Level 38 added Task.NextStart and Task.Repeat: scheduled queued tasks.
 // Level 37 added chats (managed sessions): model.Chat, State.Chats,
 // Workspace.Chat and the Chat* messages. A client below ChatLevel never
@@ -137,7 +138,10 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 38
+const Level = 39
+
+// ChatProvidersLevel added provider discovery for managed chats.
+const ChatProvidersLevel = 39
 
 // ChatLevel added chats and the Chat* messages.
 const ChatLevel = 37
@@ -149,6 +153,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case ChatProviders, ChatProviderList:
+		return ChatProvidersLevel
 	case ChatNew, ChatSend, ChatInterrupt, ChatApprove, ChatAnswer, ChatSet, ChatQueue, ChatRead, ChatArchive, ChatResult, ChatDeltas:
 		return ChatLevel
 	case SearchAll, SearchAllResult:
@@ -790,7 +796,7 @@ var Messages = []any{
 	PasteImage{}, PasteImageResult{},
 	SearchAll{}, SearchAllResult{},
 	ChatNew{}, ChatSend{}, ChatInterrupt{}, ChatApprove{}, ChatAnswer{}, ChatSet{}, ChatQueue{}, ChatRead{}, ChatArchive{},
-	ChatResult{}, ChatDeltas{},
+	ChatResult{}, ChatDeltas{}, ChatProviders{}, ChatProviderList{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
@@ -878,4 +884,17 @@ type ChatDeltas struct {
 	Snapshot []byte   // JSON Snapshot when the client needs a new base, else nil
 	Seq      int64    // Snapshot's seq
 	Deltas   [][]byte // JSON Deltas, in seq order, after Seq
+}
+
+// ChatProviders lists the managed providers available to every client.
+type ChatProviders struct{}
+
+// ChatProviderList answers ChatProviders. It never contains commands or env.
+type ChatProviderList struct{ Providers []ChatProvider }
+
+// ChatProvider is a selectable provider. Runtime capabilities are negotiated
+// at Start, so this list makes no promise about support for session/load.
+type ChatProvider struct {
+	ID   model.Provider `json:"id"`
+	Name string         `json:"name"`
 }
