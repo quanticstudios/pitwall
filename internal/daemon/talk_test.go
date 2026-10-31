@@ -147,11 +147,22 @@ func TestRead(t *testing.T) {
 // typing, one per turn.
 func TestSend(t *testing.T) {
 	d, f := talkDaemon(t)
-	for v, to := range map[*time.Duration]time.Duration{&sendSettle: 250 * time.Millisecond, &sendQuiet: 300 * time.Millisecond} {
-		old := *v
-		*v = to
-		t.Cleanup(func() { *v = old })
-	}
+	oldSettle, oldQuiet := sendSettle, sendQuiet
+	sendSettle, sendQuiet = 250*time.Millisecond, 300*time.Millisecond
+	t.Cleanup(func() {
+		// why: a deliver timer can outlive the test and read these as they
+		// are put back. An empty queue makes a late deliver return before
+		// reading them, and sendMu waits out one already running.
+		d.mu.Lock()
+		for _, w := range d.mail.wake {
+			w.Stop()
+		}
+		clear(d.mail.queue)
+		d.mu.Unlock()
+		d.sendMu.Lock()
+		sendSettle, sendQuiet = oldSettle, oldQuiet
+		d.sendMu.Unlock()
+	})
 	a := f.pane(0)
 	send := func(from, text string) error {
 		t.Helper()
