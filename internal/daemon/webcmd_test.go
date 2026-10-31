@@ -350,12 +350,12 @@ func TestWebCommandErrors(t *testing.T) {
 		{map[string]any{"type": "start", "dir": notGit, "provider": "claude", "worktree": "x"}, "invalid"},
 		{map[string]any{"type": "start", "dir": notGit, "provider": "claude", "attachments": nine}, "invalid"},
 		{map[string]any{"type": "start", "dir": notGit, "provider": "claude", "attachments": []any{big}}, "invalid"},
-		{map[string]any{"type": "start", "dir": notGit, "provider": "claude", "attachments": []any{image}}, "unsupported"},
+		{map[string]any{"type": "start", "dir": notGit, "provider": "claude", "attachments": []any{image}}, "invalid"},
 		{map[string]any{"type": "send", "text": "hi"}, "invalid"},
 		{map[string]any{"type": "send", "sessionId": "nope", "text": "hi"}, "not-found"},
 		{map[string]any{"type": "send", "sessionId": chat, "text": " "}, "invalid"},
 		{map[string]any{"type": "send", "sessionId": chat, "text": "hi", "how": "shout"}, "invalid"},
-		{map[string]any{"type": "send", "sessionId": chat, "text": "hi", "attachments": []any{image}}, "unsupported"},
+		{map[string]any{"type": "send", "sessionId": chat, "text": "hi", "attachments": []any{image}}, "invalid"},
 		{map[string]any{"type": "interrupt", "sessionId": "nope"}, "not-found"},
 		{map[string]any{"type": "resolveApproval", "sessionId": chat, "requestId": "gone", "decision": "allow"}, "conflict"},
 		{map[string]any{"type": "resolveApproval", "sessionId": chat, "requestId": "gone", "decision": "maybe"}, "invalid"},
@@ -558,5 +558,27 @@ func TestRecentPrompt(t *testing.T) {
 	}
 	if got := recentPrompt(strings.Repeat("界", 501)); len([]rune(got)) != 500 || !utf8.ValidString(got) {
 		t.Fatal("excerpt split or exceeded 500 runes")
+	}
+}
+
+// TestWebAttachments: a start's attachments reach the transcript, and the
+// fake provider gets the pasted text quoted after the prompt.
+func TestWebAttachments(t *testing.T) {
+	c := dialWeb(t, webDaemon(t), "aide")
+	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "summarize the log",
+		"attachments": []any{map[string]any{"kind": "pasted-text", "id": "p", "name": "pasted-text-1.txt", "text": "log line\n"}}})
+	chat, _ := at(r, "data.sessionId").(string)
+	if r["ok"] != true || chat == "" {
+		t.Fatalf("start: %v", r)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		r := c.call(map[string]any{"type": "read", "sessionId": chat})
+		reply, _ := at(r, "data.snapshot.content.1.text").(string)
+		if at(r, "data.snapshot.content.0.attachments.0.name") == "pasted-text-1.txt" && strings.Contains(reply, `"content":"log line\n"`) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no attachment or quoted paste: %v", r)
+		}
 	}
 }

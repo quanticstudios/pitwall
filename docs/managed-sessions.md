@@ -565,6 +565,7 @@ type QueuedMessage struct {
 	ID     string   `json:"id"`
 	Text   string   `json:"text"`
 	Images []string `json:"images,omitempty"` // paths under the chat's images/ folder
+	Attachments []Attachment `json:"attachments,omitempty"` // aide's, inline
 }
 ```
 
@@ -825,7 +826,8 @@ func Delete(root, id string) error    // an archived chat's folder, gone
   archive and on clean shutdown. The log never grows past that.
 - Images stay inline in `item.add` deltas as aide's attachment shape
   (base64 `data`), within aide's limits: 8 attachments, 5 MB each, 10 MB per
-  message. `images/` holds the files a queued message or a resend needs.
+  message. A queued message keeps its attachments inline in `config.json`
+  (`queue[].attachments`); `images/` is unused so far.
 - Archive writes the tab's title and the time to `config.json` (`title`,
   `updated`), since the tab that held them goes; an archived chat lists
   from that file alone. aide's old sessions arrive in `archive/` through
@@ -1016,7 +1018,8 @@ type ChatNew struct {
 	Provider                model.Provider
 	Model, Effort, Mode     string
 	Prompt                  string
-	Images                  []string // paths the daemon reads and copies into images/
+	Images                  []string // paths the daemon reads and copies into images/; refused for now
+	Attachments             []session.Attachment // aide's, sent with Prompt
 	Name                    string   // the tab's name, "" for none
 	ParentPane              string   // as NewSession.ParentPane
 }
@@ -1024,7 +1027,8 @@ type ChatNew struct {
 type ChatSend struct {
 	Chat   string
 	Text   string
-	Images []string
+	Images []string // refused for now
+	Attachments []session.Attachment
 	How    string // "" starts a turn or queues behind the running one; "steer"; "queue"
 }
 

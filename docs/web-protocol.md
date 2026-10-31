@@ -354,9 +354,19 @@ worktree is made from. `worktree`, `base` and `branch` are as
 puts the tab in the pitwall session the user used last.
 
 `attachments` (here and in `send`) are aide's `ManagedSessionAttachment`:
-an `image` with base64 `data`, or a `workspace-file` with a `path` under
-`dir`. The server refuses more than 8, an image over 5 MiB, or images over
-10 MiB in all, with `invalid`; those are aide's limits.
+an `image` with base64 `data`, a `workspace-file` with a `path` under
+`dir`, or `pasted-text` with a `name` and `text`. They show on the
+`user-prompt` item and on a queued message. The provider gets each image
+as an image (Claude's stream-json `image` block, Codex's `image` input),
+and the text and files quoted after the prompt as aide's context
+preparation quotes them; a workspace file that is a PNG, JPEG or WebP goes
+as an image. The server reads workspace files when the turn starts.
+
+It refuses, with `invalid`, what aide refuses: more than 8, two with one
+`id`, an image that is not the PNG, JPEG or WebP its `mimeType` says, an
+image over 5 MiB or images over 10 MiB in all, pasted text over 256 KiB, a
+workspace file that is a link, outside `dir`, over 256 KiB or neither
+UTF-8 text nor an image, and pasted text and files over 1 MiB in all.
 
 ### send
 
@@ -755,8 +765,7 @@ speak on this connection.
    ([Web client](remote.md#web-client)).
 5. What the chat loop cannot do yet answers `unsupported`, and the
    commands without a socket message are left out of `capabilities`:
-   `unarchive`, and `attachments` in
-   `start` and `send` (after the limits are checked). `archive` with
+   `unarchive`. `archive` with
    `delete: true` archives a live chat as plain `archive` does, as
    `ChatArchive` does on the socket.
 6. A page the daemon serves gets its `hello` token from

@@ -51,6 +51,9 @@ type Message struct {
 	ID     string // the user-prompt item id; Claude's stdin uuid, Codex's clientUserMessageId
 	Text   string
 	Images []Image
+	// Attachments are aide's, for the transcript and the queue. The daemon
+	// turns them into Images and Text before a driver sees the message.
+	Attachments []Attachment
 }
 
 type Image struct {
@@ -113,4 +116,6 @@ type QueuedMessage struct {
 	ID        string   `json:"id"`
 	Text      string   `json:"text"`
 	Images    []string `json:"images,omitempty"` // paths under the chat's images/ folder
+	// shortcut: images ride inline in config.json; move them to images/ if big queued images make config writes slow.
+	Attachments []Attachment `json:"attachments,omitempty"`
 }

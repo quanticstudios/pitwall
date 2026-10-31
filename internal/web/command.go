@@ -7,7 +7,6 @@ package web
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -23,13 +22,6 @@ import (
 // commands are the ones chatCommand runs. TODO: unarchive with
 // ChatUnarchive.
 var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import"}
-
-// aide's attachment limits.
-const (
-	maxAttachments = 8
-	maxImage       = 5 << 20
-	maxImages      = 10 << 20
-)
 
 // frame is every command's keys; each reads its own.
 type frame struct {
@@ -63,10 +55,7 @@ type frame struct {
 	CreatedAt        time.Time           `json:"createdAt"`
 	UpdatedAt        time.Time           `json:"updatedAt"`
 	Snapshot         json.RawMessage     `json:"snapshot"`
-	Attachments      []struct {
-		Kind string `json:"kind"`
-		Data string `json:"data"`
-	} `json:"attachments"`
+	Attachments      []chat.Attachment   `json:"attachments"`
 }
 
 // chatCommand runs a command of commands; false for any other.
@@ -139,19 +128,10 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 			c.reply(result(id, "invalid", "start needs a dir and a provider"))
 			return true
 		}
-		if err := attachments(f); err != "" {
-			c.reply(result(id, "invalid", err))
-			return true
-		}
-		if len(f.Attachments) > 0 {
-			// shortcut: the chat loop takes no attachments yet (ChatNew.Images is refused); pass them once it does.
-			c.reply(result(id, "unsupported", "attachments are not supported yet"))
-			return true
-		}
-		m = proto.ChatSend{Chat: f.SessionID, Text: f.Text, How: f.How}
+		m = proto.ChatSend{Chat: f.SessionID, Text: f.Text, Attachments: f.Attachments, How: f.How}
 		if typ == "start" {
 			m = proto.ChatNew{Dir: f.Dir, Provider: f.Provider, Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode,
-				FakeStartFailure: f.FakeStartFailure, Worktree: f.Worktree, Base: f.Base, Branch: f.Branch, Name: f.Name, Prompt: f.Prompt}
+				FakeStartFailure: f.FakeStartFailure, Worktree: f.Worktree, Base: f.Base, Branch: f.Branch, Name: f.Name, Prompt: f.Prompt, Attachments: f.Attachments}
 		}
 	case "updateQueue":
 		if f.Action == "" {
@@ -214,29 +194,6 @@ func (s *Server) importChat(id string, f frame) map[string]any {
 		return result(id, code(err), err.Error())
 	}
 	return ok(id, "", map[string]any{"imported": imported})
-}
-
-// attachments is why f's attachments break aide's limits, "" when they do
-// not.
-func attachments(f frame) string {
-	if len(f.Attachments) > maxAttachments {
-		return fmt.Sprintf("%d attachments: at most %d", len(f.Attachments), maxAttachments)
-	}
-	total := 0
-	for _, a := range f.Attachments {
-		if a.Kind != "image" {
-			continue
-		}
-		n := base64.StdEncoding.DecodedLen(len(a.Data))
-		if n > maxImage {
-			return "an image over 5 MiB"
-		}
-		total += n
-	}
-	if total > maxImages {
-		return "images over 10 MiB in all"
-	}
-	return ""
 }
 
 // projects groups the tabs by repo root, in the order the first of each

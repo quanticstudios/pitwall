@@ -165,9 +165,9 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 		id = m.Chat
 		run = func(c *chat) (string, string, error) {
 			if len(m.Images) > 0 {
-				return "", "", chatError{"unsupported", "images are not supported yet"}
+				return "", "", chatError{"unsupported", "image paths are not supported yet: send attachments"}
 			}
-			return d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Text}, m.How)
+			return d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Text, Attachments: m.Attachments}, m.How)
 		}
 	case proto.ChatInterrupt:
 		id = m.Chat
@@ -256,7 +256,10 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 		return chatResult("", "", "", chatError{"unsupported", fmt.Sprintf("pitwall cannot run %s chats", m.Provider)})
 	}
 	if len(m.Images) > 0 {
-		return chatResult("", "", "", chatError{"unsupported", "images are not supported yet"})
+		return chatResult("", "", "", chatError{"unsupported", "image paths are not supported yet: send attachments"})
+	}
+	if err := checkAttachments(m.Attachments); err != nil {
+		return chatResult("", "", "", err)
 	}
 	dir := m.Dir
 	var root, note string
@@ -327,8 +330,8 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 				c.forget("the turn left no point the provider can continue from", true)
 			}
 		}
-		if err = d.chatStart(c); err == nil && m.Prompt != "" {
-			turn, _, err = d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Prompt}, "")
+		if err = d.chatStart(c); err == nil && (m.Prompt != "" || len(m.Attachments) > 0) {
+			turn, _, err = d.chatSend(ctx, c, session.Message{ID: newUUID(), Text: m.Prompt, Attachments: m.Attachments}, "")
 		}
 		d.chatChanged(c)
 	})
@@ -995,12 +998,16 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 	default:
 		return "", "", invalid("unknown send %q: want steer or queue", how)
 	}
-	if strings.TrimSpace(m.Text) == "" {
+	if strings.TrimSpace(m.Text) == "" && len(m.Attachments) == 0 {
 		return "", "", invalid("nothing to send")
+	}
+	sent, err := provide(c.cfg.Cwd, m) // refuse bad attachments before queueing them
+	if err != nil {
+		return "", "", err
 	}
 	c.cfg.Held = false
 	if how == "steer" && busy(c.snap) && c.drv != nil {
-		switch err := c.drv.Steer(ctx, m); {
+		switch err := c.drv.Steer(ctx, sent); {
 		case err == nil:
 			c.prompt(m, true)
 			return "", "", nil
@@ -1011,7 +1018,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 		}
 	}
 	if how != "" || busy(c.snap) {
-		c.cfg.Queue = append(c.cfg.Queue, session.QueuedMessage{ID: m.ID, Text: m.Text, CreatedAt: session.Stamp(time.Now())})
+		c.cfg.Queue = append(c.cfg.Queue, queued(m))
 		d.chatNext(ctx, c)
 		return "", cmp.Or(note, "queued"), nil
 	}
@@ -1038,9 +1045,14 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		}
 	}
 	c.resumed, c.limit = false, nil
-	sent := m
+	sent, err := provide(c.cfg.Cwd, m)
+	if err != nil {
+		c.prompt(m, false)
+		c.reduce(session.Event{Type: session.EventError, Message: "The turn did not start: " + err.Error()})
+		return "", "", err
+	}
 	if c.recap != "" {
-		sent.Text = c.recap + "\n\n" + m.Text
+		sent.Text = c.recap + "\n\n" + sent.Text
 	}
 	turn, err := c.drv.Send(ctx, sent)
 	if err == nil {
@@ -1050,7 +1062,7 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		}
 	}
 	if errors.Is(err, session.ErrBusy) {
-		c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, session.QueuedMessage{ID: m.ID, Text: m.Text, CreatedAt: session.Stamp(time.Now())})
+		c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, queued(m))
 		return "", "queued", nil
 	}
 	c.prompt(m, false)
@@ -1074,7 +1086,7 @@ func (c *chat) prompt(m session.Message, steer bool) {
 		return // sent again after a fallback
 	}
 	stamp := session.Stamp(time.Now())
-	it := session.Item{ID: m.ID, Kind: session.KindUserPrompt, Text: m.Text, UpdatedAt: stamp, Attachments: []session.Attachment{}}
+	it := session.Item{ID: m.ID, Kind: session.KindUserPrompt, Text: m.Text, UpdatedAt: stamp, Attachments: nonNil(m.Attachments)}
 	if i := slices.IndexFunc(c.snap.Turns, func(t session.TurnSummary) bool { return t.State == session.TurnRunning }); steer && i >= 0 {
 		it.TurnID = optional(c.snap.Turns[i].ID)
 	}
@@ -1089,9 +1101,21 @@ func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 	}
 	q := c.cfg.Queue[0]
 	c.cfg.Queue = c.cfg.Queue[1:]
-	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text}); err != nil {
+	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments}); err != nil {
 		log.Printf("chat %s: queued message: %q", c.id, err)
 	}
+}
+
+// queued is m as the queue keeps it.
+func queued(m session.Message) session.QueuedMessage {
+	return session.QueuedMessage{ID: m.ID, Text: m.Text, CreatedAt: session.Stamp(time.Now()), Attachments: m.Attachments}
+}
+
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // recentPrompt bounds summaries without splitting UTF-8 characters.
@@ -1104,7 +1128,7 @@ func recentPrompt(text string) string {
 func (c *chat) syncQueue() {
 	inputs := make([]session.QueuedInput, 0, len(c.cfg.Queue))
 	for _, q := range c.cfg.Queue {
-		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: []session.Attachment{}, Recipients: []string{}})
+		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: nonNil(q.Attachments), Recipients: []string{}})
 	}
 	if slices.EqualFunc(inputs, c.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
 		return a.ID == b.ID && a.Text == b.Text && a.CreatedAt == b.CreatedAt
@@ -1145,7 +1169,7 @@ func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (str
 		// Keep the original queue on a refused steer.
 		queue, held := slices.Clone(c.cfg.Queue), c.cfg.Held
 		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
-		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text}, "steer")
+		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text, Attachments: q.Attachments}, "steer")
 		if err != nil {
 			c.cfg.Queue, c.cfg.Held = queue, held
 		}
