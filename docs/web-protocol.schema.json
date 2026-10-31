@@ -71,6 +71,9 @@
         },
         {
           "$ref": "#/$defs/listWorktrees"
+        },
+        {
+          "$ref": "#/$defs/import"
         }
       ]
     },
@@ -602,6 +605,64 @@
       },
       "additionalProperties": false
     },
+    "import": {
+      "description": "Stores an old aide session as an archived chat. Answers data.imported: false when the id is a live chat or one pitwall archived, which it leaves as they are.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "dir",
+        "provider",
+        "snapshot"
+      ],
+      "properties": {
+        "type": {
+          "const": "import"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "aide's session id, which becomes the chat id."
+        },
+        "dir": {
+          "type": "string",
+          "description": "The session's folder."
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex"
+          ]
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "permissionMode": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "RFC 3339"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "RFC 3339"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        }
+      },
+      "additionalProperties": false
+    },
     "listProjects": {
       "description": "The repos of the open tabs.",
       "type": "object",
@@ -762,6 +823,10 @@
               "items": {
                 "$ref": "#/$defs/worktree"
               }
+            },
+            "imported": {
+              "type": "boolean",
+              "description": "import: false when the id was a live chat or one pitwall archived, left as it is."
             }
           },
           "additionalProperties": false
@@ -1119,6 +1184,30 @@
               "type": "string"
             },
             "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "id",
+            "name",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "const": "pasted-text"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "text": {
               "type": "string"
             }
           },

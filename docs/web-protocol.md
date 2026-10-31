@@ -91,7 +91,7 @@ for logs only.
 The server answers with `welcome`:
 
 ```json
-{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "listProjects", "listWorktrees"]}
+{"type": "welcome", "protocol": 1, "server": {"name": "pitwall", "version": "0.31.0"}, "deltaVersion": 1, "capabilities": ["subscribeSessions", "unsubscribeSessions", "listSessions", "subscribe", "unsubscribe", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "unarchive", "import", "listProjects", "listWorktrees"]}
 ```
 
 `capabilities` lists every command type this server accepts. A command
@@ -182,7 +182,9 @@ stops them:
 ```
 
 `listSessions` is the one-shot form, and the only way to see archived
-chats:
+chats. An archived chat's entry comes from its `config.json` alone: the
+title and time it had when it was archived or [imported](#import), state
+`ready`, and 0 for the counts.
 
 ```json
 {"type": "listSessions", "id": "2", "archived": true}
@@ -323,6 +325,7 @@ CLI only.
 | `rewind` | `ChatRewind` | none |
 | `archive` | `ChatArchive` | none |
 | `unarchive` | `ChatUnarchive` | `workspaceId` |
+| `import` | none: it writes an archived chat's folder | `imported` |
 | `listProjects` | the daemon's `State` | `projects` |
 | `listWorktrees` | `gitstat.ListWorktrees` | `worktrees` |
 
@@ -439,6 +442,35 @@ checkpoint of `turnId` and drops the turns from it on
 
 `delete: true` removes an archived chat for good. Archive is refused with
 `conflict` for a pinned tab.
+
+<a id="import"></a>
+### import
+
+aide moves the sessions of its own store into pitwall with `import`
+([ENG-2707](https://linear.app/quantic/issue/ENG-2707)). Each one becomes
+an archived chat: `chats/archive/<sessionId>/` with `config.json` and the
+snapshot at seq 1 ([storage](managed-sessions.md#storage)). The chat
+keeps aide's session id, so aide finds it under the id it already has.
+
+```json
+{"type": "import", "id": "21", "sessionId": "5d0e8a4c-7f3b-4b2a-9c1d-2e6f8a0b4c7d", "dir": "/home/me/src/app", "provider": "claude", "model": "claude-opus-5-5", "title": "Fix the login form", "createdAt": "2026-08-30T09:00:00.000Z", "updatedAt": "2026-09-01T10:00:00.000Z", "snapshot": {"sessionId": "5d0e8a4c-7f3b-4b2a-9c1d-2e6f8a0b4c7d", "paneId": "pane-1", "workspaceId": "aide-ws-1", "provider": "claude", "content": [{"id": "u1", "kind": "user-prompt", "text": "Fix the login form", "provider": "claude", "turnId": "t1", "updatedAt": "2026-09-01T10:00:00.000Z"}], "turns": [], "pendingApprovals": [], "pendingUserInputs": [], "planApproval": null, "sessionState": "stopped", "running": false, "detail": null, "lastCompletedAt": null, "lastError": null, "lastErrorAt": null, "model": null, "effort": null, "serviceTier": null, "permissionMode": "default", "interactionMode": "build", "selectionNotice": null, "runtimeGeneration": 1, "revision": 7, "updatedAt": "2026-09-01T10:00:00.000Z"}}
+```
+
+```json
+{"type": "result", "id": "21", "ok": true, "data": {"imported": true}}
+```
+
+- `sessionId`, `dir`, `provider` and `snapshot` are required, and the
+  snapshot's `sessionId` must be `sessionId`; otherwise `invalid`.
+- Import is idempotent. Sending a session again replaces the copy an
+  earlier import made while that chat stays archived, so aide's newer copy
+  wins. A live chat with the id, or one pitwall archived itself, stays as
+  it is, and the answer is `imported: false`.
+- The folder is written beside the archive and renamed into place, so a
+  crash leaves the earlier copy or none, never half of one.
+- The chat is read-only history: `read` returns it, `listSessions` with
+  `archived: true` lists it. A daemon that keeps no chats on disk answers
+  `unsupported`.
 
 ### listProjects and listWorktrees
 
@@ -572,11 +604,10 @@ speak on this connection.
    ([Web client](remote.md#web-client)).
 5. What the chat loop cannot do yet answers `unsupported`, and the
    commands without a socket message are left out of `capabilities`:
-   `fork` and `rewind` (ENG-2691), `unarchive`, `listSessions` with
-   `archived: true`, and `attachments` in `start` and `send` (after the
-   limits are checked). `read` of an archived chat answers `not-found`, and
-   `archive` with `delete: true` archives a live chat as plain `archive`
-   does, as `ChatArchive` does on the socket.
+   `fork` and `rewind` (ENG-2691), `unarchive`, and `attachments` in
+   `start` and `send` (after the limits are checked). `archive` with
+   `delete: true` archives a live chat as plain `archive` does, as
+   `ChatArchive` does on the socket.
 6. A page the daemon serves gets its `hello` token from
    `/_pitwall/bootstrap` with a session cookie, never from `web.json` or a
    URL ([Web client](remote.md#web-client)).

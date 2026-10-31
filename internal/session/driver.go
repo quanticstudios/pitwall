@@ -90,6 +90,13 @@ type Config struct {
 	// a restart, for the limit on those sends.
 	Continued []time.Time `json:"continued,omitempty"`
 	Created   time.Time   `json:"created"`
+	// Title and Updated keep an archived chat's title and last change,
+	// which a live chat's tab and snapshot hold; archive and import set them.
+	Title   string    `json:"title,omitempty"`
+	Updated time.Time `json:"updated,omitzero"`
+	// Imported marks a chat imported from aide's own store (ENG-2707);
+	// while it stays archived, a later import replaces it.
+	Imported bool `json:"imported,omitempty"`
 	// Env is what the process gets on top of the daemon's environment;
 	// rebuilt from the tab on every start, never saved.
 	Env []string `json:"-"`

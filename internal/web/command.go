@@ -12,15 +12,17 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	chat "github.com/quanticstudios/pitwall/internal/session"
 )
 
 // commands are the ones chatCommand runs. TODO(ENG-2691): fork and rewind
 // once their socket messages land; unarchive with ChatUnarchive.
-var commands = []string{"listSessions", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "archive", "listProjects", "listWorktrees"}
+var commands = []string{"listSessions", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "archive", "listProjects", "listWorktrees", "import"}
 
 // aide's attachment limits.
 const (
@@ -52,6 +54,10 @@ type frame struct {
 	Answers        map[string][]string `json:"answers"`
 	Delete         bool                `json:"delete"`
 	Root           string              `json:"root"`
+	Title          string              `json:"title"`
+	CreatedAt      time.Time           `json:"createdAt"`
+	UpdatedAt      time.Time           `json:"updatedAt"`
+	Snapshot       json.RawMessage     `json:"snapshot"`
 	Attachments    []struct {
 		Kind string `json:"kind"`
 		Data string `json:"data"`
@@ -79,11 +85,14 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	var m any
 	switch typ {
 	case "listSessions":
+		chats := s.Chats.List()
 		if f.Archived {
-			c.reply(result(id, "unsupported", "pitwall does not list archived chats yet"))
-			return true
+			chats = s.Chats.Archived()
 		}
-		c.reply(ok(id, "", map[string]any{"chats": nonNil(s.Chats.List())}))
+		c.reply(ok(id, "", map[string]any{"chats": nonNil(chats)}))
+		return true
+	case "import":
+		c.reply(s.importChat(id, f))
 		return true
 	case "read":
 		if f.After < 0 {
@@ -168,6 +177,28 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 	}
 	c.reply(ok(id, r.Message, data))
 	return true
+}
+
+// importChat stores f's snapshot as an archived chat (docs/web-protocol.md,
+// import), so aide's history outlives its own store.
+func (s *Server) importChat(id string, f frame) map[string]any {
+	var snap chat.Snapshot
+	if f.Dir == "" || f.Provider == "" || len(f.Snapshot) == 0 {
+		return result(id, "invalid", "import needs a dir, a provider and a snapshot")
+	}
+	if err := json.Unmarshal(f.Snapshot, &snap); err != nil {
+		return result(id, "invalid", fmt.Sprintf("import: snapshot: %v", err))
+	}
+	if snap.SessionID != f.SessionID {
+		return result(id, "invalid", fmt.Sprintf("import: the snapshot is session %q, not %q", snap.SessionID, f.SessionID))
+	}
+	cfg := chat.Config{Format: 1, ID: f.SessionID, Provider: f.Provider, Workspace: snap.WorkspaceID, Cwd: f.Dir,
+		Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode, Created: f.CreatedAt, Title: f.Title, Updated: f.UpdatedAt}
+	imported, err := s.Chats.Import(cfg, snap)
+	if err != nil {
+		return result(id, code(err), err.Error())
+	}
+	return ok(id, "", map[string]any{"imported": imported})
 }
 
 // attachments is why f's attachments break aide's limits, "" when they do

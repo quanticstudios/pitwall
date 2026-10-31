@@ -14,6 +14,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	chat "github.com/quanticstudios/pitwall/internal/session"
 )
 
 // Chats is what the server streams; the daemon implements it.
@@ -33,6 +34,11 @@ type Chats interface {
 	Do(m any) any
 	// Workspaces are the daemon's tabs, for listProjects.
 	Workspaces() []model.Workspace
+	// Archived is the archived chats, newest first; Read reads them too.
+	Archived() []model.Chat
+	// Import stores an archived chat from aide's own store, false when
+	// the id is taken by a chat that is not an earlier import.
+	Import(cfg chat.Config, s chat.Snapshot) (bool, error)
 }
 
 // Sink is a connection's end of its subscriptions. The daemon calls it on

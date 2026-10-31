@@ -1,7 +1,11 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
+	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +16,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/session/eventlog"
 	"github.com/quanticstudios/pitwall/internal/web"
 )
 
@@ -87,9 +93,52 @@ func (h chatHub) Unsubscribe(id string, s web.Sink) {
 	h.on(id, func(c *chat) { delete(c.subs, s) })
 }
 
+// Read reads a live chat on its loop, else an archived one from its
+// folder, which always answers with its snapshot.
 func (h chatHub) Read(id string, after int64) (out proto.ChatDeltas, err error) {
 	err = h.on(id, func(c *chat) { out = c.read(after) })
-	return out, err
+	if chatCode(err) != "not-found" || h.d.o.Chats == "" {
+		return out, err
+	}
+	_, s, seq, rerr := eventlog.ReadArchived(h.d.o.Chats, id)
+	if rerr != nil {
+		if !errors.Is(rerr, fs.ErrNotExist) {
+			log.Printf("chat %s: read archived: %q", id, rerr)
+		}
+		return out, err
+	}
+	snap, _ := json.Marshal(s)
+	return proto.ChatDeltas{Chat: id, Seq: seq, Snapshot: snap}, nil
+}
+
+// Archived lists the archived chats from their config.json alone.
+func (h chatHub) Archived() []model.Chat {
+	if h.d.o.Chats == "" {
+		return nil
+	}
+	var out []model.Chat
+	for _, c := range eventlog.Archived(h.d.o.Chats) {
+		out = append(out, model.Chat{ID: c.ID, WorkspaceID: c.Workspace, Provider: c.Provider, Model: c.Model, Effort: c.Effort, Mode: c.Mode,
+			Title: c.Title, State: session.StateReady, UpdatedAt: cmp.Or(c.Updated, c.Created)})
+	}
+	slices.SortFunc(out, func(a, b model.Chat) int { return cmp.Or(b.UpdatedAt.Compare(a.UpdatedAt), cmp.Compare(a.ID, b.ID)) })
+	return out
+}
+
+// Import stores an archived chat from aide's store, unless a live chat
+// has its id.
+func (h chatHub) Import(cfg session.Config, s session.Snapshot) (bool, error) {
+	if h.d.o.Chats == "" {
+		return false, chatError{"unsupported", "this daemon keeps no chats on disk"}
+	}
+	if _, err := h.d.chat(cfg.ID); err == nil {
+		return false, nil
+	}
+	ok, err := eventlog.Import(h.d.o.Chats, cfg, s)
+	if err != nil {
+		return false, invalid("import %s: %v", cfg.ID, err)
+	}
+	return ok, nil
 }
 
 // on runs f on chat id's loop.

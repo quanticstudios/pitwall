@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -305,4 +307,106 @@ func checkID(id string) error {
 		return fmt.Errorf("eventlog: bad chat id %q", id)
 	}
 	return nil
+}
+
+// importMu keeps two imports of one chat from racing over its folders.
+var importMu sync.Mutex
+
+// Import writes an archived chat from aide's own store (ENG-2707):
+// config.json and snapshot.json at seq 1 in chats/archive/<id>, through a
+// folder renamed into place, so a crash leaves the old copy or none. A live
+// chat, or an archived one pitwall made itself, stays as it is and Import
+// reports false; an archived import is replaced, so aide's newer copy wins.
+func Import(root string, cfg session.Config, s session.Snapshot) (bool, error) {
+	if err := checkID(cfg.ID); err != nil {
+		return false, err
+	}
+	importMu.Lock()
+	defer importMu.Unlock()
+	if _, err := os.Lstat(filepath.Join(root, cfg.ID)); !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	dir := filepath.Join(root, "archive", cfg.ID)
+	old, err := ReadConfig(dir)
+	switch {
+	case err == nil && !old.Imported:
+		return false, nil
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
+		return false, err
+	}
+	tmp := filepath.Join(root, "archive", ".import-"+cfg.ID)
+	gone := filepath.Join(root, "archive", ".replaced-"+cfg.ID)
+	for _, p := range []string{tmp, gone} { // what a crash left
+		if err := os.RemoveAll(p); err != nil {
+			return false, err
+		}
+	}
+	if err := os.MkdirAll(tmp, 0700); err != nil {
+		return false, err
+	}
+	l := &Log{dir: tmp}
+	cfg.Imported = true
+	if err := l.WriteConfig(cfg); err != nil {
+		return false, err
+	}
+	snap, err := json.Marshal(s)
+	if err != nil {
+		return false, err
+	}
+	b, err := json.Marshal(snapshotFile{format, 1, snap})
+	if err != nil {
+		return false, err
+	}
+	if err := store.WriteAtomic(filepath.Join(tmp, "snapshot.json"), append(b, '\n')); err != nil {
+		return false, err
+	}
+	if old.ID != "" {
+		if err := os.Rename(dir, gone); err != nil {
+			return false, err
+		}
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		return false, err
+	}
+	return true, os.RemoveAll(gone)
+}
+
+// ReadArchived loads archived chat id to read it; fs.ErrNotExist when
+// there is none.
+func ReadArchived(root, id string) (session.Config, session.Snapshot, int64, error) {
+	if err := checkID(id); err != nil {
+		return session.Config{}, session.Snapshot{}, 0, err
+	}
+	dir := filepath.Join(root, "archive", id)
+	// Open makes the folder it is given, so look first.
+	if _, err := os.Lstat(filepath.Join(dir, "config.json")); err != nil {
+		return session.Config{}, session.Snapshot{}, 0, err
+	}
+	l, cfg, s, seq, err := Open(dir)
+	if err != nil {
+		return cfg, s, seq, err
+	}
+	return cfg, s, seq, l.Close()
+}
+
+// Archived reads config.json of each archived chat. One that does not
+// read is left out and logged.
+func Archived(root string) []session.Config {
+	entries, err := os.ReadDir(filepath.Join(root, "archive"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Printf("eventlog: archived chats: %q", err)
+	}
+	var out []session.Config
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") { // an import under way
+			continue
+		}
+		cfg, err := ReadConfig(filepath.Join(root, "archive", e.Name()))
+		if err != nil || cfg.ID != e.Name() {
+			log.Printf("eventlog: archived chat %s: %q", e.Name(), err)
+			continue
+		}
+		out = append(out, cfg)
+	}
+	return out
 }
