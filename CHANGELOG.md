@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- A custom theme's long name no longer runs into its "custom" tag in Settings, Appearance. The name ends in "…" instead.
 - A built-in `dracula` theme.
 - The phone page answers chat tabs: it shows an approval's tool and command or file, a plan's full text and an input request's questions, and sends Allow, Allow for session, Deny with a reason, Approve plan and typed or tapped answers to the chat as the GUI does. The first answer from any client wins. Push notifications cover chat tabs as they do terminal tabs.
 - Web clients can drive chats, not only watch them: `start`, `send` (steer and queue included), `interrupt`, `resolveApproval`, `resolveInput`, `set`, `archive`, `read`, `listSessions`, `listProjects` and `listWorktrees` run the same chat-loop operations as `pitwall chat` and answer the same result codes. The first answer to an approval wins, and a second client gets `conflict`. Fork, rewind, unarchive, archived chats and attachments answer `unsupported` for now.
