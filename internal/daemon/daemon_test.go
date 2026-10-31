@@ -218,6 +218,13 @@ func run(t testing.TB, f *fakes) (string, func()) {
 // runWith is run with Options changed by edit.
 func runWith(t testing.TB, f *fakes, edit func(*Options)) (string, func()) {
 	t.Helper()
+	_, sock, stop := runDaemon(t, f, edit)
+	return sock, stop
+}
+
+// runDaemon is runWith that also returns the daemon.
+func runDaemon(t testing.TB, f *fakes, edit func(*Options)) (*Daemon, string, func()) {
+	t.Helper()
 	o := f.options()
 	edit(&o)
 	d, err := NewWith(o)
@@ -246,7 +253,7 @@ func runWith(t testing.TB, f *fakes, edit func(*Options)) (string, func()) {
 		}
 	}
 	t.Cleanup(func() { cancel() })
-	return sock, stop
+	return d, sock, stop
 }
 
 type testClient struct {

@@ -251,11 +251,14 @@ func TestLocalImagePaste(t *testing.T) {
 	}
 }
 
+// waitPasteRead waits for the started read to finish. The frame that
+// started it may already have taken its result, so it waits on busy, not
+// done.
 func waitPasteRead(t *testing.T, u *ui) {
 	t.Helper()
 	for end := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
 		u.pastes.mu.Lock()
-		ready := len(u.pastes.done) > 0
+		ready := len(u.pastes.busy) == 0
 		u.pastes.mu.Unlock()
 		if ready {
 			return

@@ -18,10 +18,13 @@ import (
 	"time"
 )
 
+// writeTimeout is how long a client may take to read a frame; a var for
+// tests.
+var writeTimeout = 30 * time.Second
+
 const (
-	wsGUID       = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	maxMessage   = 16 << 20
-	writeTimeout = 30 * time.Second
+	wsGUID     = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	maxMessage = 16 << 20
 
 	opContinue = 0x0
 	opText     = 0x1
@@ -49,6 +52,16 @@ type conn struct {
 	nc  net.Conn
 	br  *bufio.Reader
 	wmu sync.Mutex
+
+	// The outgoing queue and the subscriptions, see stream.go.
+	mu       sync.Mutex
+	q        []out
+	held     int // pushed delta batches in q
+	bytes    int // and their size
+	subs     map[string]*sub
+	list     bool // subscribed to the session list
+	listFull bool // the next list frame is the whole list
+	wake     chan struct{}
 }
 
 // upgrade answers a WebSocket upgrade request and takes the connection
@@ -69,9 +82,9 @@ func upgrade(w http.ResponseWriter, r *http.Request) (*conn, error) {
 	}
 	sum := sha1.Sum([]byte(key + wsGUID))
 	nc.SetDeadline(time.Time{}) // drop the server's header timeout
-	c := &conn{nc: nc, br: brw.Reader}
-	_, err = c.writeRaw([]byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
-		base64.StdEncoding.EncodeToString(sum[:]) + "\r\n\r\n"))
+	c := &conn{nc: nc, br: brw.Reader, subs: map[string]*sub{}, wake: make(chan struct{}, 1)}
+	_, err = c.writeRaw(writeTimeout, []byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "+
+		base64.StdEncoding.EncodeToString(sum[:])+"\r\n\r\n"))
 	if err != nil {
 		nc.Close()
 		return nil, err
@@ -168,21 +181,23 @@ func (c *conn) write(op byte, p []byte) error {
 	default:
 		hdr = binary.BigEndian.AppendUint64(append(hdr, 127), uint64(n))
 	}
-	_, err := c.writeRaw(hdr, p)
+	_, err := c.writeRaw(writeTimeout, hdr, p)
 	return err
 }
 
-func (c *conn) writeRaw(bufs ...[]byte) (int64, error) {
+func (c *conn) writeRaw(timeout time.Duration, bufs ...[]byte) (int64, error) {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	c.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
+	c.nc.SetWriteDeadline(time.Now().Add(timeout))
 	b := net.Buffers(bufs)
 	return b.WriteTo(c.nc)
 }
 
 // close sends a close frame with code and reason, and closes the
-// connection without waiting for the client's.
+// connection without waiting for the client's. A client that does not
+// read gets a second to take the frame.
 func (c *conn) close(code int, reason string) {
-	c.write(opClose, append(binary.BigEndian.AppendUint16(nil, uint16(code)), reason...))
+	p := append(binary.BigEndian.AppendUint16(nil, uint16(code)), reason...)
+	c.writeRaw(time.Second, []byte{0x80 | opClose, byte(len(p))}, p)
 	c.nc.Close()
 }

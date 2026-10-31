@@ -23,8 +23,8 @@ const (
 var helloTimeout = 10 * time.Second // a var for tests
 
 // Server serves the web protocol at /ws: it checks Host and Origin before
-// the upgrade, then the token in hello. Every command gets unsupported
-// until ENG-2695 and ENG-2696 add them.
+// the upgrade, then the token in hello. Commands other than the
+// subscriptions get unsupported until ENG-2696 adds them.
 type Server struct {
 	// Token is the token hello must carry. It is read on every hello, so
 	// a rotated token works at once. nil takes only Client's tokens.
@@ -35,6 +35,7 @@ type Server struct {
 	Client *Client
 	// OpenPath is the code file /_pitwall/open redeems for a session.
 	OpenPath string
+	Chats    Chats // what subscriptions stream; nil serves none
 
 	mu     sync.Mutex
 	conns  map[*conn]bool
@@ -120,7 +121,20 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("web: %q connected from %s", name, r.RemoteAddr)
+	done := make(chan struct{})
+	go func() {
+		err := s.writer(c, done)
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			c.close(1008, "client too slow")
+		} else if err != nil {
+			c.nc.Close()
+		}
+	}()
 	err = s.serve(c)
+	close(done)
+	if s.Chats != nil {
+		s.unsubscribeAll(c)
+	}
 	log.Printf("web: %q disconnected: %v", name, err)
 }
 
@@ -191,7 +205,7 @@ func (s *Server) hello(c *conn) (string, error) {
 	err = s.send(c, map[string]any{
 		"type": "welcome", "protocol": Protocol, "deltaVersion": DeltaVersion,
 		"server":       map[string]string{"name": "pitwall", "version": s.Version},
-		"capabilities": []string{}, // the commands, as ENG-2695 and ENG-2696 add them
+		"capabilities": s.capabilities(),
 	})
 	return h.Client.Name, err
 }
@@ -211,7 +225,16 @@ func (s *Server) check(token string) bool {
 	return err == nil && want != "" && subtle.ConstantTimeCompare([]byte(token), []byte(want)) == 1
 }
 
-// serve reads commands until the connection ends.
+// capabilities are the commands this server accepts.
+func (s *Server) capabilities() []string {
+	if s.Chats == nil {
+		return []string{}
+	}
+	return []string{"subscribeSessions", "unsubscribeSessions", "subscribe", "unsubscribe"} // ENG-2696 adds the rest
+}
+
+// serve reads commands until the connection ends; the writer sends what
+// they answer.
 func (s *Server) serve(c *conn) error {
 	for {
 		msg, err := c.read()
@@ -229,15 +252,12 @@ func (s *Server) serve(c *conn) error {
 		}
 		switch {
 		case json.Unmarshal(msg, &f) != nil:
-			err = s.send(c, map[string]any{"type": "error", "code": "invalid", "message": "frame is not a JSON object"})
+			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame is not a JSON object"})
 		case f.ID == "":
-			err = s.send(c, map[string]any{"type": "error", "code": "invalid", "message": "frame has no id"})
+			c.reply(map[string]any{"type": "error", "code": "invalid", "message": "frame has no id"})
+		case s.Chats != nil && s.command(c, f.Type, f.ID, msg):
 		default:
-			err = s.send(c, map[string]any{"type": "result", "id": f.ID, "ok": false, "code": "unsupported",
-				"message": fmt.Sprintf("pitwall does not serve %q yet", f.Type)})
-		}
-		if err != nil {
-			return err
+			c.reply(result(f.ID, "unsupported", fmt.Sprintf("pitwall does not serve %q yet", f.Type)))
 		}
 	}
 }
