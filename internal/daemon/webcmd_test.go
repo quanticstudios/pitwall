@@ -18,6 +18,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/quanticstudios/pitwall/internal/session/fake"
 	"github.com/quanticstudios/pitwall/internal/web"
@@ -424,5 +425,138 @@ func TestWebFork(t *testing.T) {
 	}
 	if r := c.call(map[string]any{"type": "rewind", "sessionId": chat, "turnId": turn}); r["code"] != "unsupported" {
 		t.Errorf("rewind without a checkpoint: %v", r)
+	}
+}
+
+// Exercise every snapshot field and queue command over the actual web protocol.
+func TestWebSnapshotFields(t *testing.T) {
+	c := dialWeb(t, webDaemon(t), "snapshot-fields")
+	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "approval"})
+	id, _ := at(r, "data.sessionId").(string)
+	if r["ok"] != true || id == "" {
+		t.Fatal(r)
+	}
+	read := func() map[string]any { return c.call(map[string]any{"type": "read", "sessionId": id}) }
+	waitUntil(t, "approval", func() bool { return at(read(), "data.snapshot.sessionState") == "waiting" })
+	for _, text := range []string{"first", "second", "doomed"} {
+		r = c.call(map[string]any{"type": "send", "sessionId": id, "text": text, "how": "queue"})
+		if r["ok"] != true {
+			t.Fatal(r)
+		}
+	}
+	snap := read()
+	inputs, _ := at(snap, "data.snapshot.queuedInputs").([]any)
+	if len(inputs) != 3 {
+		t.Fatalf("queue: %v", snap)
+	}
+	ids := []string{}
+	for _, q := range inputs {
+		ids = append(ids, at(q, "id").(string))
+		if at(q, "createdAt") == "" || at(q, "attachments") == nil || at(q, "recipients") == nil {
+			t.Fatal(q)
+		}
+	}
+	action := func(kind, id string, fields map[string]any) map[string]any {
+		frame := map[string]any{"type": "updateQueue", "sessionId": at(snap, "data.snapshot.sessionId"), "action": kind, "messageId": id}
+		for k, v := range fields {
+			frame[k] = v
+		}
+		return c.call(frame)
+	}
+	for _, x := range []struct {
+		kind, id string
+		fields   map[string]any
+	}{
+		{"edit", ids[0], map[string]any{"text": "first edited"}},
+		{"move", ids[1], map[string]any{"index": 0}},
+		{"remove", ids[2], nil},
+	} {
+		if r := action(x.kind, x.id, x.fields); r["ok"] != true {
+			t.Fatal(r)
+		}
+	}
+	got := read()
+	if at(got, "data.snapshot.queuedInputs.0.text") != "second" || at(got, "data.snapshot.queuedInputs.1.text") != "first edited" {
+		t.Fatal(got)
+	}
+	before, _ := json.Marshal(at(got, "data.snapshot.queuedInputs"))
+	for _, x := range []struct {
+		kind, id string
+		fields   map[string]any
+	}{
+		{"edit", ids[0], map[string]any{"text": " "}}, {"move", ids[0], map[string]any{"index": 99}}, {"remove", "gone", nil}, {"unknown", ids[0], nil},
+	} {
+		if r := action(x.kind, x.id, x.fields); r["code"] != "invalid" {
+			t.Fatal(r)
+		}
+	}
+	after, _ := json.Marshal(at(read(), "data.snapshot.queuedInputs"))
+	if string(before) != string(after) {
+		t.Fatal("invalid queue edit mutated it")
+	}
+	if r := c.call(map[string]any{"type": "interrupt", "sessionId": id}); r["ok"] != true {
+		t.Fatal(r)
+	}
+	waitUntil(t, "paused queue", func() bool { return at(read(), "data.snapshot.queuePaused") == true })
+	if r := action("resume", "", nil); r["ok"] != true {
+		t.Fatal(r)
+	}
+	waitUntil(t, "drained", func() bool {
+		return at(read(), "data.snapshot.sessionState") == "ready" && at(read(), "data.snapshot.queuedInputs.0") == nil
+	})
+	// The summary excerpt remains the first prompt after more turns.
+	listed := c.call(map[string]any{"type": "listSessions"})
+	if at(listed, "data.chats.0.recentPrompt") != "approval" {
+		t.Fatal(listed)
+	}
+	// A rejected limit survives its failed turn, and a new turn clears it.
+	reset := time.Now().Add(time.Hour).Unix()
+	c.call(map[string]any{"type": "send", "sessionId": id, "text": fmt.Sprintf("usage limit %d", reset)})
+	waitUntil(t, "limit", func() bool { return at(read(), "data.snapshot.usageLimit.label") == "5-hour limit" })
+	if at(read(), "data.snapshot.usageLimit.resetsAt") == nil {
+		t.Fatal("missing reset")
+	}
+	c.call(map[string]any{"type": "send", "sessionId": id, "text": "continue"})
+	waitUntil(t, "limit cleared", func() bool { return at(read(), "data.snapshot.usageLimit") == nil })
+}
+
+func TestWebPerStartFailure(t *testing.T) {
+	c := dialWeb(t, webDaemon(t), "start-failure")
+	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "fakeStartFailure": "missing-cli"})
+	if r["ok"] != false || !strings.Contains(fmt.Sprint(r["message"]), `Configured executable "claude" was not found in PATH.`) {
+		t.Fatal(r)
+	}
+	r = c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "hello"})
+	if r["ok"] != true {
+		t.Fatalf("another start inherited the failure: %v", r)
+	}
+}
+
+func TestWebQueueSteer(t *testing.T) {
+	c := dialWeb(t, webDaemon(t), "queue-steer")
+	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "approval"})
+	id := at(r, "data.sessionId")
+	read := func() map[string]any { return c.call(map[string]any{"type": "read", "sessionId": id}) }
+	waitUntil(t, "waiting", func() bool { return at(read(), "data.snapshot.sessionState") == "waiting" })
+	c.call(map[string]any{"type": "send", "sessionId": id, "text": "promote me", "how": "queue"})
+	q := at(read(), "data.snapshot.queuedInputs.0.id")
+	r = c.call(map[string]any{"type": "updateQueue", "sessionId": id, "action": "steer", "messageId": q})
+	if r["ok"] != true {
+		t.Fatal(r)
+	}
+	waitUntil(t, "steer", func() bool {
+		return strings.Contains(fmt.Sprint(at(read(), "data.snapshot.content")), "Steered: promote me")
+	})
+	if at(read(), "data.snapshot.queuedInputs.0") != nil {
+		t.Fatal("promoted entry stayed in queue")
+	}
+}
+
+func TestRecentPrompt(t *testing.T) {
+	if got := recentPrompt("  hello\nworld \n"); got != "hello\nworld" {
+		t.Fatal(got)
+	}
+	if got := recentPrompt(strings.Repeat("界", 501)); len([]rune(got)) != 500 || !utf8.ValidString(got) {
+		t.Fatal("excerpt split or exceeded 500 runes")
 	}
 }

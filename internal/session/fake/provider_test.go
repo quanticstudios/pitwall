@@ -514,3 +514,26 @@ func TestQueuedApprovalsDenialReasonAndUsageLimit(t *testing.T) {
 		t.Fatalf("got %+v", e)
 	}
 }
+
+func TestPerStartFailure(t *testing.T) {
+	p := New(testOptions())
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+		for _, failure := range []string{"missing-cli", "fail-start"} {
+			emitted := false
+			drv, err := p.Start(context.Background(), session.Config{Provider: provider, FakeStartFailure: failure}, session.Origin{}, func(session.Event) { emitted = true })
+			if err == nil || drv != nil || emitted {
+				t.Fatalf("failure %q: %v %v", failure, drv, err)
+			}
+			if failure == "missing-cli" && !strings.Contains(err.Error(), "was not found in PATH") {
+				t.Fatal(err)
+			}
+		}
+		drv, err := p.Start(context.Background(), session.Config{Provider: provider}, session.Origin{}, func(session.Event) {})
+		if err != nil {
+			t.Fatalf("another start inherited failure: %v", err)
+		}
+		if err := drv.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

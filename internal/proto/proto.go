@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 41 added chat prompt excerpts, queue actions and per-start fake failures.
 // Level 40 added ChatFork and ChatRewind.
 // Level 39 added ChatProviders and ChatProviderList for configured chat agents.
 // Level 38 added Task.NextStart and Task.Repeat: scheduled queued tasks.
@@ -139,7 +140,7 @@ import (
 const Version = 16
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 40
+const Level = 41
 
 // ChatForkLevel added ChatFork and ChatRewind.
 const ChatForkLevel = 40
@@ -820,6 +821,7 @@ type ChatNew struct {
 	Provider               model.Provider
 	Model, Effort, Mode    string
 	Prompt                 string
+	FakeStartFailure       string   // fake providers only
 	Images                 []string // paths the daemon reads and copies into images/
 	Name                   string   // the tab's name, "" for none
 	ParentPane             string   // as NewSession.ParentPane
@@ -859,8 +861,10 @@ type ChatSet struct{ Chat, Model, Effort, Mode string }
 
 // ChatQueue reorders, edits or drops queued messages.
 type ChatQueue struct {
-	Chat  string
-	Queue []session.QueuedMessage // the whole queue as it should be; unknown ids are refused
+	Chat             string
+	Queue            []session.QueuedMessage // whole queue when Action is empty; unknown ids are refused
+	Action, ID, Text string                  // edit, move, remove, steer or resume
+	Index            int                     // move destination
 }
 
 // ChatRead asks for a chat's transcript.

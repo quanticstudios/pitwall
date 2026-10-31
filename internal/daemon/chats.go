@@ -196,6 +196,9 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 	case proto.ChatQueue:
 		id = m.Chat
 		run = func(c *chat) (string, string, error) {
+			if m.Action != "" {
+				return d.chatQueue(ctx, c, m)
+			}
 			for _, q := range m.Queue {
 				if !slices.ContainsFunc(c.cfg.Queue, func(o session.QueuedMessage) bool { return o.ID == q.ID }) {
 					return "", "", invalid("no queued message %s", q.ID)
@@ -294,7 +297,7 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 		}
 		w.Chat = c.id
 		c.cfg = session.Config{Format: 1, ID: c.id, Provider: m.Provider, Workspace: w.ID, Cwd: w.Path, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Created: time.Now(),
-			Env: append(portEnv(w.Ports), "PITWALL_PANE="+c.id)}
+			FakeStartFailure: m.FakeStartFailure, Env: append(portEnv(w.Ports), "PITWALL_PANE="+c.id)}
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: m.Provider, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Title: c.title, State: session.StateReady, UpdatedAt: time.Now()}
 		d.chats[c.id] = c
 		d.st.Chats = append(d.st.Chats, c.sum)
@@ -548,7 +551,7 @@ func (d *Daemon) loadChats() {
 		c.cfg = cfg
 		c.saved, _ = json.Marshal(cfg)
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode,
-			Title: w.Label, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
+			Title: w.Label, RecentPrompt: cfg.RecentPrompt, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
 		d.chats[c.id] = c
 		d.st.Chats = append(d.st.Chats, c.sum)
 		go c.loop(d)
@@ -568,6 +571,15 @@ func (c *chat) open() {
 		return
 	}
 	c.log, c.snap, c.seq, c.published = l, snap, seq, seq
+	c.syncQueue()
+	if c.cfg.RecentPrompt == "" {
+		for _, it := range c.snap.Content {
+			if it.Kind == session.KindUserPrompt {
+				c.cfg.RecentPrompt = recentPrompt(it.Text)
+				break
+			}
+		}
+	}
 	c.cut = c.reconcile("pitwall restarted during this turn", "Expired: pitwall restarted before anyone answered")
 }
 
@@ -592,6 +604,7 @@ func (c *chat) reconcile(cut, expired string) bool {
 
 // save writes config.json when the config changed.
 func (c *chat) save() {
+	c.syncQueue()
 	if c.log == nil {
 		return
 	}
@@ -719,8 +732,9 @@ func (d *Daemon) chatEvent(c *chat, e session.Event) {
 		c.resuming, c.sent = false, nil
 		return
 	case session.EventLimit:
-		d.chatLimit(c, *e.Limit)
-		return
+		if e.Limit != nil {
+			d.chatLimit(c, *e.Limit)
+		}
 	case session.EventTurnCompleted:
 		if e.Point != "" {
 			if c.cfg.Points == nil {
@@ -997,7 +1011,7 @@ func (d *Daemon) chatSend(ctx context.Context, c *chat, m session.Message, how s
 		}
 	}
 	if how != "" || busy(c.snap) {
-		c.cfg.Queue = append(c.cfg.Queue, session.QueuedMessage{ID: m.ID, Text: m.Text})
+		c.cfg.Queue = append(c.cfg.Queue, session.QueuedMessage{ID: m.ID, Text: m.Text, CreatedAt: session.Stamp(time.Now())})
 		d.chatNext(ctx, c)
 		return "", cmp.Or(note, "queued"), nil
 	}
@@ -1036,7 +1050,7 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 		}
 	}
 	if errors.Is(err, session.ErrBusy) {
-		c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, session.QueuedMessage{ID: m.ID, Text: m.Text})
+		c.cfg.Queue = slices.Insert(c.cfg.Queue, 0, session.QueuedMessage{ID: m.ID, Text: m.Text, CreatedAt: session.Stamp(time.Now())})
 		return "", "queued", nil
 	}
 	c.prompt(m, false)
@@ -1053,6 +1067,9 @@ func (d *Daemon) chatTurn(ctx context.Context, c *chat, m session.Message) (stri
 // provider, and no turn until one starts, unless it steers the running
 // one.
 func (c *chat) prompt(m session.Message, steer bool) {
+	if c.cfg.RecentPrompt == "" {
+		c.cfg.RecentPrompt = recentPrompt(m.Text)
+	}
 	if slices.ContainsFunc(c.snap.Content, func(it session.Item) bool { return it.ID == m.ID }) {
 		return // sent again after a fallback
 	}
@@ -1075,6 +1092,69 @@ func (d *Daemon) chatNext(ctx context.Context, c *chat) {
 	if _, _, err := d.chatTurn(ctx, c, session.Message{ID: q.ID, Text: q.Text}); err != nil {
 		log.Printf("chat %s: queued message: %q", c.id, err)
 	}
+}
+
+// recentPrompt bounds summaries without splitting UTF-8 characters.
+func recentPrompt(text string) string {
+	runes := []rune(strings.TrimSpace(text))
+	return string(runes[:min(500, len(runes))])
+}
+
+// syncQueue publishes the durable config's queue in aide's snapshot shape.
+func (c *chat) syncQueue() {
+	inputs := make([]session.QueuedInput, 0, len(c.cfg.Queue))
+	for _, q := range c.cfg.Queue {
+		inputs = append(inputs, session.QueuedInput{ID: q.ID, Text: q.Text, CreatedAt: q.CreatedAt, Attachments: []session.Attachment{}, Recipients: []string{}})
+	}
+	if slices.EqualFunc(inputs, c.snap.QueuedInputs, func(a, b session.QueuedInput) bool {
+		return a.ID == b.ID && a.Text == b.Text && a.CreatedAt == b.CreatedAt
+	}) && c.snap.QueuePaused == c.cfg.Held {
+		return
+	}
+	set, _ := json.Marshal(map[string]any{"queuedInputs": inputs, "queuePaused": c.cfg.Held})
+	c.commit([]session.Delta{{Type: session.DeltaSessionPatch, Set: set}}, session.Stamp(time.Now()))
+}
+
+// chatQueue applies one queue action on the owning chat loop.
+func (d *Daemon) chatQueue(ctx context.Context, c *chat, m proto.ChatQueue) (string, string, error) {
+	if m.Action == "resume" {
+		c.cfg.Held = false
+		d.chatNext(ctx, c)
+		return "", "", nil
+	}
+	i := slices.IndexFunc(c.cfg.Queue, func(q session.QueuedMessage) bool { return q.ID == m.ID })
+	if i < 0 {
+		return "", "", invalid("no queued message %s", m.ID)
+	}
+	q := c.cfg.Queue[i]
+	switch m.Action {
+	case "edit":
+		if strings.TrimSpace(m.Text) == "" {
+			return "", "", invalid("nothing to send")
+		}
+		c.cfg.Queue[i].Text = m.Text
+	case "move":
+		if m.Index < 0 || m.Index >= len(c.cfg.Queue) {
+			return "", "", invalid("queue index out of range")
+		}
+		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
+		c.cfg.Queue = slices.Insert(c.cfg.Queue, m.Index, q)
+	case "remove":
+		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
+	case "steer":
+		// Keep the original queue on a refused steer.
+		queue, held := slices.Clone(c.cfg.Queue), c.cfg.Held
+		c.cfg.Queue = slices.Delete(c.cfg.Queue, i, i+1)
+		turn, note, err := d.chatSend(ctx, c, session.Message{ID: q.ID, Text: q.Text}, "steer")
+		if err != nil {
+			c.cfg.Queue, c.cfg.Held = queue, held
+		}
+		return turn, note, err
+	default:
+		return "", "", invalid("unknown queue action %q", m.Action)
+	}
+	d.chatNext(ctx, c)
+	return "", "", nil
 }
 
 // chatApprove answers a pending approval; Request "" names the only one.
@@ -1196,12 +1276,13 @@ func interactionMode(mode string) string {
 // date. Only a change of a field other than Seq pushes a new State, so
 // streamed text does not.
 func (d *Daemon) chatChanged(c *chat) {
+	c.syncQueue()
 	s := model.Chat{
 		ID: c.id, WorkspaceID: c.cfg.Workspace, Provider: c.cfg.Provider,
 		Model: c.cfg.Model, Effort: c.cfg.Effort, Mode: c.cfg.Mode,
 		State: c.snap.SessionState, Pending: len(c.snap.PendingApprovals) + len(c.snap.PendingUserInputs),
 		Queued: len(c.cfg.Queue), Turns: len(c.snap.Turns), Seq: c.seq,
-		UpdatedAt: c.sum.UpdatedAt, Title: c.sum.Title,
+		UpdatedAt: c.sum.UpdatedAt, Title: c.sum.Title, RecentPrompt: c.cfg.RecentPrompt,
 	}
 	same := s
 	same.Seq = c.sum.Seq

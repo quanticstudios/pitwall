@@ -120,13 +120,14 @@ type Chat struct {
 	Mode        string   `json:"mode"` // permission mode: default, acceptEdits, plan, bypassPermissions
 	// Title is the first prompt (first line, whitespace collapsed, cut to 48
 	// runes, as Pane.Prompt) until someone renames the tab.
-	Title     string    `json:"title"`
-	State     string    `json:"state"`   // aide's sessionState: connecting, ready, running, waiting, stopped, error
-	Pending   int       `json:"pending"` // approvals and input requests waiting on someone
-	Queued    int       `json:"queued"`  // messages waiting for the running turn to end
-	Turns     int       `json:"turns"`
-	Seq       int64     `json:"seq"` // the seq of the chat's latest delta
-	UpdatedAt time.Time `json:"updatedAt"`
+	Title        string    `json:"title"`
+	RecentPrompt string    `json:"recentPrompt,omitempty"` // first prompt, at most 500 runes
+	State        string    `json:"state"`                  // aide's sessionState: connecting, ready, running, waiting, stopped, error
+	Pending      int       `json:"pending"`                // approvals and input requests waiting on someone
+	Queued       int       `json:"queued"`                 // messages waiting for the running turn to end
+	Turns        int       `json:"turns"`
+	Seq          int64     `json:"seq"` // the seq of the chat's latest delta
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // Lane is a fleet worker's lane and what pitwall did about it: at most

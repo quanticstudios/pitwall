@@ -86,6 +86,9 @@
         },
         {
           "$ref": "#/$defs/mergePR"
+        },
+        {
+          "$ref": "#/$defs/updateQueue"
         }
       ]
     },
@@ -342,6 +345,10 @@
           "items": {
             "$ref": "#/$defs/attachment"
           }
+        },
+        "fakeStartFailure": {
+          "type": "string",
+          "description": "Only scripted fake providers use this per-start failure, e.g. missing-cli. Real providers ignore it."
         }
       },
       "additionalProperties": false
@@ -1104,6 +1111,10 @@
         },
         "pr": {
           "$ref": "#/$defs/pr"
+        },
+        "recentPrompt": {
+          "type": "string",
+          "description": "First prompt excerpt, at most 500 Unicode code points; optional for older chats."
         }
       },
       "additionalProperties": false
@@ -1635,6 +1646,18 @@
         },
         "usageSummary": {
           "$ref": "#/$defs/usageSummary"
+        },
+        "queuedInputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/queuedInput"
+          }
+        },
+        "queuePaused": {
+          "type": "boolean"
+        },
+        "usageLimit": {
+          "$ref": "#/$defs/usageLimit"
         }
       }
     },
@@ -2182,7 +2205,8 @@
             "usage",
             "usage.reports",
             "error",
-            "session.patch"
+            "session.patch",
+            "limit"
           ]
         },
         "snapshot": {
@@ -2292,6 +2316,16 @@
           "items": {
             "type": "string"
           }
+        },
+        "limit": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/usageLimit"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
@@ -2737,6 +2771,104 @@
         }
       },
       "additionalProperties": false
+    },
+    "updateQueue": {
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "action"
+      ],
+      "properties": {
+        "type": {
+          "const": "updateQueue"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "action": {
+          "enum": [
+            "edit",
+            "move",
+            "remove",
+            "steer",
+            "resume"
+          ]
+        },
+        "messageId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "queuedInput": {
+      "type": "object",
+      "required": [
+        "id",
+        "text",
+        "createdAt",
+        "attachments",
+        "recipients"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        },
+        "recipients": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "usageLimit": {
+      "type": "object",
+      "required": [
+        "provider",
+        "limitId",
+        "label",
+        "resetsAt"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "limitId": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "resetsAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   }
 }
