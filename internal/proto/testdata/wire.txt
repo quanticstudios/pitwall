@@ -1,4 +1,4 @@
-16.45
+16.46
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -43,6 +43,7 @@ proto.ChatResult{Chat string; Turn string; Code string; Message string}
 proto.ChatRewind{Chat string; Turn string; KeepFiles bool}
 proto.ChatSend{Chat string; Text string; Images []string; Attachments []session.Attachment; How string}
 proto.ChatSet{Chat string; Model string; Effort string; Mode string; Provider model.Provider}
+proto.ChatUnarchive{Chat string}
 proto.ClosePane{Pane string}
 proto.CloseTab{WorkspaceID string; TabID string}
 proto.DeleteGroup{GroupID string}

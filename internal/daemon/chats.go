@@ -163,6 +163,8 @@ func (d *Daemon) chatRequest(ctx context.Context, m any) (any, bool) {
 		return d.chatFork(ctx, m), true
 	case proto.ChatArchive:
 		return chatResult(m.Chat, "", "", d.chatArchive(m)), true
+	case proto.ChatUnarchive:
+		return d.chatUnarchive(ctx, m), true
 	case proto.ChatRename:
 		return chatResult(m.Chat, "", "", d.chatRename(m)), true
 	case proto.ChatPin:
@@ -377,8 +379,7 @@ func (d *Daemon) chatRename(m proto.ChatRename) error {
 
 // chatArchive closes the chat's tab as CloseTab does, which closes the
 // chat (removeWorkspace) and archives its folder. shortcut: Delete changes
-// nothing yet; ChatArchive{Delete} of an archived chat comes with
-// ChatUnarchive.
+// nothing yet; remove an archived chat's folder once a client needs it.
 func (d *Daemon) chatArchive(m proto.ChatArchive) error {
 	c, err := d.chat(m.Chat)
 	if err != nil {
@@ -388,6 +389,65 @@ func (d *Daemon) chatArchive(m proto.ChatArchive) error {
 		return chatError{"conflict", err.Error()}
 	}
 	return nil
+}
+
+// chatUnarchive moves an archived chat's folder back and opens a tab for
+// it in its Cwd. The chat keeps its id and its provider session, which
+// resumes when the next message needs the provider, as after a restart.
+func (d *Daemon) chatUnarchive(ctx context.Context, m proto.ChatUnarchive) proto.ChatResult {
+	if d.o.Chats == "" {
+		return chatResult(m.Chat, "", "", chatError{"unsupported", "this daemon keeps no chats on disk"})
+	}
+	d.mu.Lock()
+	closing := d.archiving[m.Chat]
+	d.mu.Unlock()
+	if closing != nil { // closed a moment ago: its folder is still moving
+		select {
+		case <-closing:
+		case <-ctx.Done():
+			return chatResult(m.Chat, "", "", ctx.Err())
+		}
+	}
+	if _, err := d.chat(m.Chat); err == nil {
+		return chatResult(m.Chat, "", "", chatError{"conflict", "chat " + m.Chat + " is not archived"})
+	}
+	if err := eventlog.Unarchive(d.o.Chats, m.Chat); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return chatResult(m.Chat, "", "", chatError{"not-found", "no archived chat " + m.Chat})
+		}
+		return chatResult(m.Chat, "", "", invalid("unarchive %s: %v", m.Chat, err))
+	}
+	cfg, err := eventlog.ReadConfig(filepath.Join(d.o.Chats, m.Chat))
+	if err == nil && cfg.ID != m.Chat {
+		err = fmt.Errorf("its config.json is chat %s", cfg.ID)
+	}
+	c := d.newChat(m.Chat, d.o.Providers[cfg.Provider], cfg.Title)
+	if err == nil {
+		err = d.addSession(ctx, proto.NewSession{Cwd: cfg.Cwd}, "", nil, func(w *model.Workspace) {
+			w.Chat = c.id
+			// An imported chat is pitwall's from here: an import no longer replaces it.
+			cfg.Workspace, cfg.Imported, cfg.Updated = w.ID, false, time.Now()
+			c.cfg = cfg
+			c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: cfg.Provider, Model: cfg.Model, Effort: cfg.Effort, Mode: cfg.Mode,
+				Title: c.title, RecentPrompt: cfg.RecentPrompt, Pinned: cfg.Pinned, State: session.StateReady, Queued: len(cfg.Queue), UpdatedAt: time.Now()}
+			d.chats[c.id] = c
+			d.st.Chats = append(d.st.Chats, c.sum)
+			go c.loop(d)
+		})
+	}
+	if err != nil {
+		if aerr := eventlog.Archive(d.o.Chats, m.Chat); aerr != nil {
+			log.Printf("chat %s: archive again: %q", m.Chat, aerr)
+		}
+		return chatResult(m.Chat, "", "", invalid("unarchive %s: %v", m.Chat, err))
+	}
+	// The new tab goes in config.json now: a restart drops a chat whose tab is not its Workspace.
+	c.do(func() {
+		c.open()
+		c.save()
+		d.chatChanged(c)
+	})
+	return chatResult(c.id, "", "", nil)
 }
 
 // chatFork opens a chat that continues m.Chat from the end of m.Turn
@@ -673,7 +733,18 @@ func (d *Daemon) dropChat(id string) {
 	d.st.Chats = slices.DeleteFunc(d.st.Chats, func(s model.Chat) bool { return s.ID == id })
 	d.dropPane(id) // its activity, attention, resume and decisions, as a pane's
 	if c != nil {
+		done := make(chan struct{})
+		if d.archiving == nil {
+			d.archiving = map[string]chan struct{}{}
+		}
+		d.archiving[id] = done
 		go func() {
+			defer func() {
+				d.mu.Lock()
+				delete(d.archiving, id)
+				d.mu.Unlock()
+				close(done)
+			}()
 			// The tab that held the title goes; an archived chat lists from config.json.
 			c.do(func() { c.cfg.Title, c.cfg.Updated = title, time.Now() })
 			c.close()

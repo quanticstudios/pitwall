@@ -632,7 +632,7 @@
       "additionalProperties": false
     },
     "unarchive": {
-      "description": "ChatUnarchive.",
+      "description": "ChatUnarchive: brings an archived chat back in a new tab, with its id, transcript and provider session. Answers data.sessionId and data.workspaceId.",
       "type": "object",
       "required": [
         "type",

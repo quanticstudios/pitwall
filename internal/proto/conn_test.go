@@ -80,7 +80,7 @@ func allMessages() []any {
 		ChatRead{Chat: "c", After: 3},
 		ChatArchive{Chat: "c", Delete: true},
 		ChatFork{Chat: "c", Turn: "2", Worktree: "try"}, ChatRewind{Chat: "c", Turn: "t1"},
-		ChatRename{Chat: "c", Title: "Daily review"}, ChatPin{Chat: "c", Pinned: true},
+		ChatRename{Chat: "c", Title: "Daily review"}, ChatPin{Chat: "c", Pinned: true}, ChatUnarchive{Chat: "c"},
 		ChatResult{Chat: "c", Turn: "t", Code: "busy", Message: "a turn is running"},
 		ChatDeltas{Chat: "c", Snapshot: []byte(`{}`), Seq: 1, Deltas: [][]byte{[]byte(`{"seq":2}`)}},
 		Answer{Pane: "a", At: 1 << 60, Allow: true},
