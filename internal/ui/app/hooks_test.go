@@ -31,7 +31,8 @@ func TestHookChanges(t *testing.T) {
 }
 
 // The dialog shows the dry run first and installs only on confirm; with
-// nothing to change, confirm closes it. An install hides the pane notices.
+// nothing to change, confirm closes it. An install, or closing a dialog
+// with nothing to install, hides the pane notices.
 // The statusline box goes to both runs.
 func TestHooksDialog(t *testing.T) {
 	for _, tc := range []struct {
@@ -102,6 +103,9 @@ func TestHooksDialog(t *testing.T) {
 			defer mu.Unlock()
 			if u.modal.kind != modalNone || !reflect.DeepEqual(calls, tc.want) {
 				t.Fatalf("dialog %v, calls %v, want %v", u.modal.kind, calls, tc.want)
+			}
+			if u.hooksNotice() {
+				t.Fatal("the notice still shows after the dialog closed")
 			}
 		})
 	}
