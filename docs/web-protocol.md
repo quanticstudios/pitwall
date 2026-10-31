@@ -328,6 +328,7 @@ CLI only.
 | `import` | none: it writes an archived chat's folder | `imported` |
 | `listProjects` | the daemon's `State` | `projects` |
 | `listWorktrees` | `gitstat.ListWorktrees` | `worktrees` |
+| `readUsage` | `internal/flow`, as Settings, Usage reads it | `usage` |
 
 ### start
 
@@ -495,6 +496,31 @@ is true when pitwall made the tab's folder as a worktree.
 ```json
 {"type": "result", "id": "18", "ok": true, "data": {"worktrees": [{"path": "/home/me/src/pitwall", "branch": "main", "head": "05cf8bd1c0de"}, {"path": "/home/me/src/pitwall/.worktrees/fix-resize", "branch": "fix-resize", "head": "eb7213d2f00d"}]}}
 ```
+
+### readUsage
+
+What Settings, Usage shows: each plan limit as its agent last reported it,
+and the tokens and cost of every agent's session files on this machine,
+by day and by session, over `days` days ending today (1 to 90, 30 when
+left out). The limits come from pitwall statusline's files and 8 days of
+Codex rollouts; the calls from the files `flow.Sources` names. Reading
+them can take seconds, so the result may come after later commands'.
+
+```json
+{"type": "readUsage", "id": "19", "days": 2}
+```
+
+```json
+{"type": "result", "id": "19", "ok": true, "data": {"usage": {"showCost": false, "pricesAsOf": "2026-10-22", "limits": [{"provider": "claude", "profile": "", "profileLabel": "", "name": "", "seen": "2026-10-31T09:12:00Z", "windows": [{"minutes": 300, "used": 42, "resets": "2026-10-31T12:00:00Z"}, {"minutes": 10080, "used": 18.5}]}], "days": [{"date": "2026-10-30", "tokens": 1200000, "cost": 3.1}, {"date": "2026-10-31", "tokens": 450000, "cost": 0.9}], "sessions": [{"provider": "claude", "sessionId": "5f0e9c2a-1b7d-4e63-a0c8-9d2f4b6e1a37", "last": "2026-10-31T09:10:00Z", "tokens": 900000, "cost": 2.4}], "total": {"sessions": 3, "tokens": 1650000, "cost": 4.0, "unpriced": 0}}}}
+```
+
+`used` is a percent as the agent reported it, so a window whose `resets`
+has passed is unused now; `resets` is left out when unknown. `sessions`
+are the 10 with the most tokens, by the agent's own session id. Costs are
+at the API's list prices of `pricesAsOf`, count priced models only, and
+are sent either way: `showCost` is `[usage] show_cost`, and a client shows
+them only when it is on. A server without the scan leaves `readUsage` out
+of `capabilities`.
 
 <a id="results"></a>
 ## Results and errors

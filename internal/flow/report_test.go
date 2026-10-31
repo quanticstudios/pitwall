@@ -9,7 +9,8 @@ import (
 
 // TestReport: calls fall on their local day, a day before the window drops
 // out, sessions count per agent, unpriced models add tokens and no cost,
-// and cache savings are the reads at input price less read price.
+// cache savings are the reads at input price less read price, and each
+// session adds up its own calls, most tokens first.
 func TestReport(t *testing.T) {
 	loc := time.FixedZone("UTC-5", -5*3600)
 	now := time.Date(2026, 10, 8, 9, 0, 0, 0, loc)
@@ -49,5 +50,19 @@ func TestReport(t *testing.T) {
 	if len(r.Models) != 3 || r.Models[0].Model != "claude-opus-5-5" || r.Models[1].Model != "gpt-6.1-sol" ||
 		r.Models[2].Model != "gpt-mystery" || r.Models[2].Priced || !r.Models[0].Priced {
 		t.Errorf("models = %+v", r.Models)
+	}
+	// Claude's a and Codex's a are two sessions; Codex's a used a priced and an unpriced model.
+	if len(r.BySession) != 3 {
+		t.Fatalf("sessions = %+v", r.BySession)
+	}
+	s0, s1, s2 := r.BySession[0], r.BySession[1], r.BySession[2]
+	if s0.Provider != model.ProviderClaude || s0.Session != "a" || s0.Tokens.Total() != 2e6 || !near(s0.Cost, 4.2) {
+		t.Errorf("first = %+v", s0)
+	}
+	if s1.Provider != model.ProviderCodex || s1.Session != "a" || s1.Tokens.Total() != 1e6+1000 || !near(s1.Cost, 2) || !s1.Last.Equal(at(8, 2)) {
+		t.Errorf("second = %+v", s1)
+	}
+	if s2.Session != "b" || !near(s2.Cost, 20) {
+		t.Errorf("third = %+v", s2)
 	}
 }
