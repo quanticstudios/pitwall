@@ -148,9 +148,10 @@ func (f *fakeChats) WatchList(s Sink, on bool) {
 	}
 }
 
-func (f *fakeChats) Do(m any) any                  { return proto.ChatResult{Code: "unsupported"} }
-func (f *fakeChats) Workspaces() []model.Workspace { return nil }
-func (f *fakeChats) Archived() []model.Chat        { return nil }
+func (f *fakeChats) Do(m any) any                       { return proto.ChatResult{Code: "unsupported"} }
+func (f *fakeChats) Workspaces() []model.Workspace      { return nil }
+func (f *fakeChats) Tab(string) (string, string, error) { return "", "", codeErr{"unsupported"} }
+func (f *fakeChats) Archived() []model.Chat             { return nil }
 func (f *fakeChats) Import(chat.Config, chat.Snapshot) (bool, error) {
 	return false, codeErr{"unsupported"}
 }

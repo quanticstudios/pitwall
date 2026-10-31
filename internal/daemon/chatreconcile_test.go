@@ -108,7 +108,7 @@ func TestChatReconcile(t *testing.T) {
 					t.Fatalf("tool %s still running", it.ID)
 				}
 			}
-			if len(s.PendingApprovals)+len(s.PendingUserInputs) > 0 || busy(s) {
+			if len(s.PendingApprovals)+len(s.PendingUserInputs) > 0 || s.Busy() {
 				t.Fatalf("pending %v %v, state %s", s.PendingApprovals, s.PendingUserInputs, s.SessionState)
 			}
 			if got := systemLines(s); !slices.Equal(got, c.lines) {

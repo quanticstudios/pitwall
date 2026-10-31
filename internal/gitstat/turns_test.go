@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -363,4 +364,43 @@ func readFile(t *testing.T, dir, name string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestCheckpointDiff: a turn renames a file, edits one and adds one; the
+// diff from its checkpoint to the next, and to the files now, names each
+// in aide's words, and Checkpoints lists both checkpoints.
+func TestCheckpointDiff(t *testing.T) {
+	dir := repo(t)
+	ctx := context.Background()
+	writeFile(t, dir, "f.txt", "0\n")
+	writeFile(t, dir, "old.txt", "a\nb\nc\nd\ne\n")
+	commit(t, dir)
+	first, err := Checkpoint(ctx, dir, "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "f.txt", "1\n")
+	runGit(t, dir, "mv", "old.txt", "moved.txt")
+	writeFile(t, dir, "new.txt", "n\n")
+	second, err := Checkpoint(ctx, dir, "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Change{{Path: "f.txt", Status: "modified"}, {Path: "moved.txt", From: "old.txt", Status: "renamed"}, {Path: "new.txt", Status: "added"}}
+	patch, files, err := CheckpointDiff(ctx, dir, first, second)
+	if err != nil || !reflect.DeepEqual(files, want) {
+		t.Fatalf("CheckpointDiff = %+v, %v; want %+v", files, err, want)
+	}
+	if !strings.Contains(patch, "diff --git a/f.txt b/f.txt\n") || !strings.Contains(patch, "-0\n+1\n") {
+		t.Errorf("patch:\n%s", patch)
+	}
+	if _, now, err := CheckpointDiff(ctx, dir, first, ""); err != nil || !reflect.DeepEqual(now, want) {
+		t.Errorf("CheckpointDiff to now = %+v, %v", now, err)
+	}
+	if _, back, err := CheckpointDiff(ctx, dir, "", first); err != nil || !slices.Contains(back, Change{Path: "new.txt", Status: "deleted"}) || !slices.Contains(back, Change{Path: "old.txt", From: "moved.txt", Status: "renamed"}) {
+		t.Errorf("CheckpointDiff from now = %+v, %v", back, err)
+	}
+	if revs, err := Checkpoints(ctx, dir, "w"); err != nil || !reflect.DeepEqual(revs, []string{first, second}) {
+		t.Errorf("Checkpoints = %v, %v", revs, err)
+	}
 }

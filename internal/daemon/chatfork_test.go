@@ -218,3 +218,74 @@ func TestChatRewind(t *testing.T) {
 		t.Errorf("a refused rewind changed the chat %q or the files %q", got, read("f.txt"))
 	}
 }
+
+// TestWebCheckpoints: two turns edit a repo; over the web protocol each
+// turn lists its checkpoint and diff, the rewind preview of turn 1 lists
+// what putting its files back changes, and a rewind with keepFiles cuts
+// the transcript and leaves the files alone.
+func TestWebCheckpoints(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "init", "--initial-branch=main")
+	gitIn(t, repo, "config", "core.autocrlf", "false")
+	write := func(name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("f.txt", "0\n")
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-m", "init")
+	d := forkDaemon(t, &spyProvider{}, true)
+	id := chatDo(t, d, proto.ChatNew{Dir: repo}).Chat
+	chatTurns(t, d, id, func(n int) {
+		if n == 1 {
+			write("f.txt", "x\n")
+		} else {
+			write("new.txt", "made by turn 2\n")
+		}
+	}, "one", "two")
+	one, two := chatTurnID(t, d, id, 0), chatTurnID(t, d, id, 1)
+	c := dialWeb(t, webOn(t, d), "aide")
+
+	r := c.call(map[string]any{"type": "checkpoints", "sessionId": id})
+	if r["ok"] != true || at(r, "data.checkpoints.0.turnId") != one || at(r, "data.checkpoints.1.turnId") != two || at(r, "data.checkpoints.1.checkpointId") == "" {
+		t.Fatalf("checkpoints: %v", r)
+	}
+	r = c.call(map[string]any{"type": "checkpointDiff", "sessionId": id, "turnId": one})
+	if patch, _ := at(r, "data.patch").(string); !strings.Contains(patch, "-0\n+x\n") || at(r, "data.files.0.path") != "f.txt" || at(r, "data.files.1") != nil {
+		t.Errorf("turn 1's diff: %v", r)
+	}
+	r = c.call(map[string]any{"type": "checkpointDiff", "sessionId": id, "turnId": two})
+	if at(r, "data.files.0.path") != "new.txt" || at(r, "data.files.0.status") != "added" {
+		t.Errorf("turn 2's diff: %v", r)
+	}
+	write("f.txt", "edited after\n")
+	r = c.call(map[string]any{"type": "rewindPreview", "sessionId": id, "turnId": one})
+	if at(r, "data.files.0.path") != "f.txt" || at(r, "data.files.1.path") != "new.txt" || at(r, "data.files.1.status") != "deleted" ||
+		at(r, "data.turnFiles.0.path") != "f.txt" || at(r, "data.turnFiles.1") != nil {
+		t.Errorf("rewindPreview: %v", r)
+	}
+	if patch, _ := at(r, "data.patch").(string); !strings.Contains(patch, "-edited after\n+0\n") {
+		t.Errorf("rewindPreview patch:\n%s", patch)
+	}
+	for _, m := range []map[string]any{{"type": "checkpointDiff", "sessionId": id}, {"type": "rewindPreview", "sessionId": id, "turnId": "nope"}} {
+		if r := c.call(m); r["ok"] == true {
+			t.Errorf("%v: %v", m, r)
+		}
+	}
+
+	if r := c.call(map[string]any{"type": "rewind", "sessionId": id, "turnId": two, "keepFiles": true}); r["ok"] != true {
+		t.Fatalf("rewind keepFiles: %v", r)
+	}
+	if b, err := os.ReadFile(filepath.Join(repo, "new.txt")); err != nil || string(b) != "made by turn 2\n" {
+		t.Errorf("new.txt after a rewind that keeps files: %q, %v", b, err)
+	}
+	want := []string{"user-prompt: one", "assistant-text: Handled: one", "system: Rewound to before turn 2; the files stay as they are"}
+	if got := chatItems(t, d, id); !slices.Equal(got, want) {
+		t.Errorf("transcript %q, want %q", got, want)
+	}
+}

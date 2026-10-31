@@ -302,3 +302,10 @@ func nonNil[T any](s []T) []T {
 	}
 	return s
 }
+
+// Busy reports a turn running or about to: the loop sent one, the driver
+// started one, or it waits on an answer.
+func (s Snapshot) Busy() bool {
+	return s.SessionState == StateRunning || s.SessionState == StateWaiting ||
+		slices.ContainsFunc(s.Turns, func(t TurnSummary) bool { return t.State == TurnRunning })
+}
