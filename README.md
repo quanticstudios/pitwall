@@ -285,7 +285,7 @@ four themes and your own fonts, and rebind any key in Settings or
 | Claude Code | Every state, Allow and Deny, resume, side panel, cost, plan limits   |
 | Codex       | Its state, Allow and Deny, resume, side panel, cost, plan limits     |
 | Gemini CLI  | Every state but Error, resume, side panel, cost                      |
-| OpenCode    | Working, Input, Approval, Done and Error, resume                     |
+| OpenCode    | Working, Input, Approval, Done and Error, resume; [managed driver](internal/session/opencode/README.md) |
 | pi          | Working, Done and Error, resume, side panel, cost                    |
 | Oh My Pi    | Working, Done and Error, resume, side panel                          |
 | Cursor CLI  | Working, Done and Error, resume                                      |

@@ -139,6 +139,9 @@ const usage = `usage:
                              vim at the edge of its windows (see docs/keys.md)
   pitwall config <cmd>       path, default, init, check, schema (see pitwall config)
   pitwall doctor             check the install, the daemon, hooks and config; changes nothing
+  pitwall update             install the latest release over this binary, then hand the
+                             running daemon's panes to it, their programs still running;
+                             if that fails, restart the daemon (see docs/usage.md)
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
   pitwall remote <cmd>       pair, devices, revoke: answer agents from a phone (see pitwall remote)
@@ -178,7 +181,13 @@ func main() {
 	case "remote-start":
 		err = runRemoteStart(os.Args[2:], os.Stdout)
 	case "daemon":
-		err = runDaemon()
+		if len(os.Args) == 3 && os.Args[2] == "--handoff" {
+			err = runHandoffDaemon(os.NewFile(3, "handoff answer"))
+		} else {
+			err = runDaemon()
+		}
+	case "update":
+		err = runUpdate(os.Args[2:], os.Stdout)
 	case "hook":
 		// why: pi's final report runs detached, with no one left to kill a hook stuck on a busy daemon.
 		time.AfterFunc(5*time.Second, func() { os.Exit(0) })
@@ -283,6 +292,19 @@ func runDaemon() (err error) {
 	if err != nil {
 		return err
 	}
+	daemonSetup(path)
+	d, err := daemon.New()
+	if err != nil {
+		ln.Close()
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return d.Serve(ctx, ln)
+}
+
+// daemonSetup prepares this process to serve path as the daemon.
+func daemonSetup(path string) {
 	// Panes inherit this, so their hooks reach this daemon even when the
 	// shell inside changes XDG_RUNTIME_DIR.
 	os.Setenv("PITWALL_SOCKET", path)
@@ -293,10 +315,56 @@ func runDaemon() (err error) {
 		}
 	}
 	daemon.Build = versionString()
-	d, err := daemon.New()
+}
+
+// runHandoffDaemon takes over the panes of the daemon running, as
+// docs/handoff.md describes, and serves them. It writes "ok" or why it
+// could not to answer, which handOff passes as fd 3, and closes it before
+// any pane can start and inherit it.
+func runHandoffDaemon(answer *os.File) (err error) {
+	w, _ := logs.Start(filepath.Join(stateDir(), "daemon.log"), "daemon", versionString(), term.IsTerminal(os.Stderr.Fd()))
+	defer w.Close(time.Second)
+	log.Printf("daemon starting, taking over the running one")
+	defer func() {
+		log.Printf("daemon stopped: %s", outcome(err))
+	}()
+	path, err := proto.SocketPath()
+	if err == nil {
+		daemonSetup(path)
+	}
+	var d *daemon.Daemon
+	var ln net.Listener
+	if err == nil {
+		d, ln, err = daemon.Takeover(path, daemon.Defaults())
+	}
+	msg := "ok"
 	if err != nil {
-		ln.Close()
+		msg = err.Error()
+	}
+	fmt.Fprint(answer, msg)
+	answer.Close()
+	if err != nil {
 		return err
+	}
+	// The old daemon holds the lock until it exits, right after the
+	// handoff; until then a daemon starting finds this one on the socket.
+	// Nothing here may fail the daemon now: the panes would go down with it.
+	if lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600); err != nil {
+		log.Printf("daemon lock: %q", err)
+	} else {
+		defer lock.Close()
+		go func() {
+			err := waitLock(lock)
+			if err == nil {
+				err = lock.Truncate(0)
+			}
+			if err == nil {
+				_, err = fmt.Fprintf(lock, "%d\n", os.Getpid())
+			}
+			if err != nil {
+				log.Printf("daemon lock: %q", err)
+			}
+		}()
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -433,6 +501,15 @@ func runGUI(session string) error {
 		log.Printf("crash output: %q", err)
 	}
 	app.Version, app.Relaunch, app.InstallHooks = versionString(), launchGUI, installHooks
+	if runtime.GOOS != "windows" { // Windows keeps the restart
+		app.HandOff = func() error {
+			exe, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			return handOff(exe)
+		}
+	}
 	app.NoteFirstRun() // before the daemon starts and saves its state
 	conn, initial, err := guiDial(session, false)
 	var b *backend
@@ -597,28 +674,44 @@ func startDaemon(path string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	crashPath := filepath.Join(stateDir(), "crash.log")
-	crash, err := logs.OpenFile(crashPath, logs.MaxSize)
+	return startDaemonOf(path, bin)
+}
+
+// startDaemonOf is startDaemon running bin.
+func startDaemonOf(path, bin string) (net.Conn, error) {
+	log.Printf("starting a daemon")
+	cmd, err := daemonCmd(bin)
 	if err != nil {
 		return nil, err
 	}
-	defer crash.Close()
-	log.Printf("starting a daemon")
-	cmd := exec.Command(bin, "daemon")
-	// The daemon logs events to daemon.log itself; what it prints, a start
-	// failure or a crash trace, goes to crash.log.
-	cmd.Stdout, cmd.Stderr = crash, crash
-	detach(cmd) // outlive the window
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	cmd.Stdout.(io.Closer).Close()
+	if err != nil {
 		return nil, err
 	}
 	go cmd.Wait() // reap it if it exits while the window is open
+	crashPath := filepath.Join(stateDir(), "crash.log")
 	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if c, err := net.Dial("unix", path); err == nil {
 			return c, nil
 		}
 	}
 	return nil, fmt.Errorf("daemon did not come up; see %s and daemon.log next to it", crashPath)
+}
+
+// daemonCmd runs bin's daemon with args, detached to outlive this process.
+// The daemon logs events to daemon.log itself; what it prints, a start
+// failure or a crash trace, goes to crash.log, open as Stdout until the
+// caller closes it after Start.
+func daemonCmd(bin string, args ...string) (*exec.Cmd, error) {
+	crash, err := logs.OpenFile(filepath.Join(stateDir(), "crash.log"), logs.MaxSize)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(bin, append([]string{"daemon"}, args...)...)
+	cmd.Stdout, cmd.Stderr = crash, crash
+	detach(cmd)
+	return cmd, nil
 }
 
 func stateDir() string { return config.StateDir() }

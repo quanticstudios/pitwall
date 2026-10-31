@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,9 @@ func Items(st model.State) []Item {
 			it.Advice = fmt.Sprintf("%s %.0f%%", a.Advice, a.AdviceP*100)
 		}
 		it.Answer = Answerable(a)
+		if slices.ContainsFunc(st.Chats, func(c model.Chat) bool { return c.ID == a.PaneID }) {
+			it.Answer, it.Reply = false, false // shortcut: the phone answers chats with ENG-2692
+		}
 		for _, w := range st.Workspaces {
 			if w.ID == a.WorkspaceID {
 				it.Tab = w.Label

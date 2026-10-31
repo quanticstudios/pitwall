@@ -1,0 +1,21 @@
+: v1.19.4 public /event transcript, synthetic IDs and tool output
+
+data: {"type":"message.updated","properties":{"info":{"id":"msg_assistant","sessionID":"ses_fake","role":"assistant","modelID":"test","providerID":"fake","time":{"created":1}}}}
+
+data: {"type":"message.part.updated","properties":{"sessionID":"ses_fake","time":1,"part":{"id":"prt_reason","sessionID":"ses_fake","messageID":"msg_assistant","type":"reasoning","text":"Thinking"}}}
+
+data: {"type":"message.part.updated","properties":{"sessionID":"ses_fake","time":1,"part":{"id":"prt_text","sessionID":"ses_fake","messageID":"msg_assistant","type":"text","text":"Hel"}}}
+
+data: {"type":"message.part.delta","properties":{"sessionID":"ses_fake","messageID":"msg_assistant","partID":"prt_text","field":"text","delta":"lo"}}
+
+data: {"type":"message.part.updated","properties":{"sessionID":"ses_fake","time":2,"part":{"id":"prt_text","sessionID":"ses_fake","messageID":"msg_assistant","type":"text","text":"Hello"}}}
+
+data: {"type":"message.part.updated","properties":{"sessionID":"ses_fake","time":2,"part":{"id":"prt_tool","sessionID":"ses_fake","messageID":"msg_assistant","type":"tool","callID":"call_1","tool":"bash","state":{"status":"running","input":{"command":"pwd"},"time":{"start":1}}}}}
+
+data: {"type":"message.part.updated","properties":{"sessionID":"ses_fake","time":3,"part":{"id":"prt_tool","sessionID":"ses_fake","messageID":"msg_assistant","type":"tool","callID":"call_1","tool":"bash","state":{"status":"completed","input":{"command":"pwd"},"output":"/workspace","title":"pwd","metadata":{"exit":0},"time":{"start":1,"end":2}}}}}
+
+data: {"type":"message.updated","properties":{"info":{"id":"msg_assistant","sessionID":"ses_fake","role":"assistant","modelID":"test","providerID":"fake","time":{"created":1,"completed":3},"tokens":{"input":12,"output":7,"reasoning":2,"cache":{"read":3,"write":0}}}}}
+
+data: {"type":"session.status","properties":{"sessionID":"ses_fake","status":{"type":"idle"}}}
+
+: end of transcript

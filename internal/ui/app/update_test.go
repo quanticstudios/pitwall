@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,36 @@ func TestUpdateButton(t *testing.T) {
 	}
 	if !up.click("main", "w1", invalidate) || to != [2]string{"main", "w1"} {
 		t.Fatalf("restart did not relaunch on main/w1: %v", to)
+	}
+}
+
+// TestUpdateHandOff: after the install the daemon is handed off, and a
+// failed handoff leaves "Restart to finish" with a note saying why.
+func TestUpdateHandOff(t *testing.T) {
+	install := installRelease
+	installRelease = func(context.Context, update.Release) error { return nil }
+	t.Cleanup(func() { installRelease, HandOff = install, nil })
+	for _, c := range []struct {
+		err  error
+		note string
+	}{{nil, ""}, {errors.New("handoff: refused"), "could not take over the panes (handoff: refused)"}} {
+		calls := 0
+		HandOff = func() error { calls++; return c.err }
+		up := updater{rel: update.Release{Tag: "v0.1.0"}}
+		up.on.Store(true)
+		done := make(chan struct{}, 1)
+		up.click("main", "w1", func() { done <- struct{}{} })
+		<-done
+		if calls != 1 || up.label() != updated {
+			t.Fatalf("handoffs %d, label %q", calls, up.label())
+		}
+		note := up.takeNote()
+		if c.note == "" && note != "" || !strings.Contains(note, c.note) {
+			t.Fatalf("note %q, want %q in it", note, c.note)
+		}
+		if up.takeNote() != "" {
+			t.Fatal("the note showed twice")
+		}
 	}
 }
 
