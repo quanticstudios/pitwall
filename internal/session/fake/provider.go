@@ -529,7 +529,22 @@ func (d *driver) script(prompt string) ([]Step, error) {
 			expanded[i*2+1].Text = strings.Join(lines, sep)
 		}
 	}
-	return expanded, nil
+	return slices.DeleteFunc(expanded, func(s Step) bool { return granted(d.cfg.Mode, s.Event) }), nil
+}
+
+// granted reports whether permission mode lets a real CLI go ahead without
+// asking for e, so the fake leaves the request out as the CLI would.
+func granted(mode string, e session.Event) bool {
+	if e.Type != session.EventRequestOpened {
+		return false
+	}
+	switch mode {
+	case "bypassPermissions":
+		return e.RequestType == session.RequestCommand || e.RequestType == session.RequestFileChange || e.RequestType == session.RequestFileRead
+	case "acceptEdits":
+		return e.RequestType == session.RequestFileChange
+	}
+	return false
 }
 
 func replaceStrings(v any, r *strings.Replacer) {

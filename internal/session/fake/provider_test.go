@@ -537,3 +537,30 @@ func TestPerStartFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionModeLeavesOutTheRequestsItGrants(t *testing.T) {
+	for _, tc := range []struct {
+		mode, prompt string
+		asks         bool
+	}{
+		{"bypassPermissions", "approval", false},
+		{"bypassPermissions", "edit approval", false},
+		{"bypassPermissions", "plan approval", true},
+		{"acceptEdits", "edit approval", false},
+		{"acceptEdits", "approval", true},
+		{"default", "edit approval", true},
+	} {
+		t.Run(tc.mode+"/"+tc.prompt, func(t *testing.T) {
+			d, ch := start(t, session.Config{ID: "chat", Provider: model.ProviderClaude, Cwd: t.TempDir(), Mode: tc.mode}, testOptions())
+			receive(t, ch)
+			receive(t, ch)
+			if _, err := d.Send(context.Background(), session.Message{Text: tc.prompt}); err != nil {
+				t.Fatal(err)
+			}
+			receive(t, ch) // turn.started
+			if e := receive(t, ch); (e.Type == session.EventRequestOpened) != tc.asks {
+				t.Fatalf("got %+v, want a request: %v", e, tc.asks)
+			}
+		})
+	}
+}

@@ -37,6 +37,10 @@ An empty mode works for both providers. Each runtime event may add:
 - `repeat` and `events`: repeat an event group, substituting `${index}` or
   `${paddedIndex}`. This keeps 2,000-item transcripts small on disk.
 
+A chat in `bypassPermissions` never opens command, file-change or file-read
+approvals, and one in `acceptEdits` never opens file-change approvals, as a
+real CLI in that mode goes ahead without asking.
+
 `${provider}` and `${prompt}` substitute string values without breaking JSON
 escaping. Runtime item, tool and request IDs are prefixed per turn. Turn IDs
 use a fresh namespace per Start, so resume never reuses an old ID. Explicit
