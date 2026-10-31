@@ -84,6 +84,12 @@ func (p *Provider) Start(ctx context.Context, cfg session.Config, from session.O
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if cfg.FakeStartFailure == "missing-cli" {
+		return nil, &session.ProviderError{Op: "start", Message: fmt.Sprintf("Configured executable %q was not found in PATH.", cfg.Provider)}
+	}
+	if cfg.FakeStartFailure != "" {
+		return nil, &session.ProviderError{Op: "start", Message: "Fake managed provider failed to start"}
+	}
 	if p.options.FailStart || p.options.Script == nil && p.options.ScriptName == "fail-start" {
 		return nil, &session.ProviderError{Op: "start", Message: "Fake managed provider failed to start"}
 	}

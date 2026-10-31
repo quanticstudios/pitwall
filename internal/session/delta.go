@@ -30,6 +30,7 @@ const (
 	DeltaInputResolve     DeltaType = "input.resolve"
 	DeltaTurn             DeltaType = "turn"
 	DeltaStatus           DeltaType = "status"
+	DeltaLimit            DeltaType = "limit"
 	DeltaUsage            DeltaType = "usage"
 	DeltaUsageReports     DeltaType = "usage.reports"
 	DeltaError            DeltaType = "error"
@@ -68,6 +69,7 @@ type Delta struct {
 	Detail          *string `json:"detail"`
 	LastCompletedAt *string `json:"lastCompletedAt"`
 
+	Limit        *UsageLimit   `json:"limit"`
 	Usage        *Usage        `json:"usage"`
 	UsageReports []UsageReport `json:"usageReports"`
 	UsageSummary *UsageSummary `json:"usageSummary"`
@@ -111,6 +113,8 @@ func (d Delta) MarshalJSON() ([]byte, error) {
 	case DeltaStatus:
 		f = append(f, "status", d.Status, "sessionState", d.SessionState, "running", d.Running,
 			"detail", d.Detail, "lastCompletedAt", d.LastCompletedAt)
+	case DeltaLimit:
+		f = append(f, "limit", d.Limit)
 	case DeltaUsage:
 		f = append(f, "usage", d.Usage)
 	case DeltaUsageReports:
@@ -270,6 +274,8 @@ func Apply(s *Snapshot, seq int64, d Delta) (Snapshot, error) {
 		n.Running = d.Running
 		n.Detail = d.Detail
 		n.LastCompletedAt = d.LastCompletedAt
+	case DeltaLimit:
+		n.UsageLimit = d.Limit
 	case DeltaUsage:
 		n.Usage = d.Usage
 	case DeltaUsageReports:

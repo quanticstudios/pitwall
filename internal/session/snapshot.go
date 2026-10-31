@@ -41,6 +41,9 @@ type Snapshot struct {
 	RuntimeGeneration int            `json:"runtimeGeneration"` // +1 each time a process starts
 	Revision          int64          `json:"revision"`
 	UpdatedAt         string         `json:"updatedAt"`
+	QueuedInputs      []QueuedInput  `json:"queuedInputs,omitempty"`
+	QueuePaused       bool           `json:"queuePaused,omitempty"`
+	UsageLimit        *UsageLimit    `json:"usageLimit,omitempty"`
 	Usage             *Usage         `json:"usage,omitempty"`
 	UsageReports      []UsageReport  `json:"usageReports,omitempty"`
 	UsageSummary      *UsageSummary  `json:"usageSummary,omitempty"`
@@ -226,6 +229,23 @@ type PromptOption struct {
 	Description string `json:"description,omitempty"`
 	ID          string `json:"id"`
 	Label       string `json:"label"`
+}
+
+// QueuedInput is aide's ManagedSessionQueuedInput.
+type QueuedInput struct {
+	ID          string       `json:"id"`
+	Text        string       `json:"text"`
+	CreatedAt   string       `json:"createdAt"`
+	Attachments []Attachment `json:"attachments"`
+	Recipients  []string     `json:"recipients"`
+}
+
+// UsageLimit is the rejected limit aide's thread banner displays.
+type UsageLimit struct {
+	Provider model.Provider `json:"provider"`
+	LimitID  string         `json:"limitId"`
+	Label    string         `json:"label"`
+	ResetsAt *string        `json:"resetsAt"`
 }
 
 // Usage is aide's ManagedSessionUsage.

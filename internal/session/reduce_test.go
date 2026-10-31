@@ -3,7 +3,9 @@ package session
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -165,5 +167,31 @@ func TestSummarize(t *testing.T) {
 	if got.InputTokens != 35 || got.OutputTokens != 2 || *got.CachedInputTokens != 35 || got.EstimatedCostUSD != 0.3 || got.IsCostComplete || len(got.Models) != 1 || got.Models[0].EstimatedCostUSD != nil {
 		b, _ := json.Marshal(got)
 		t.Errorf("summary %s", b)
+	}
+}
+
+func TestReduceUsageLimit(t *testing.T) {
+	reset := time.Date(2030, 1, 1, 19, 0, 0, 0, time.UTC)
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+		s := base(provider)
+		n, types := step(t, s, Event{Type: EventLimit, CreatedAt: Stamp(reset), Limit: &Limit{Rejected: true, Resets: reset, Windows: []LimitWindow{{Minutes: 300, Used: 100, Resets: reset}}}})
+		if n.UsageLimit == nil || n.UsageLimit.Provider != provider || n.UsageLimit.Label != "5-hour limit" || n.UsageLimit.ResetsAt == nil || *n.UsageLimit.ResetsAt != Stamp(reset) || !slices.Equal(types, []DeltaType{DeltaLimit}) {
+			t.Fatalf("limit: %+v %v", n.UsageLimit, types)
+		}
+		if s.UsageLimit != nil {
+			t.Fatal("mutated previous snapshot")
+		}
+		n, _ = step(t, n, Event{Type: EventTurnCompleted, State: TurnFailed, CreatedAt: Stamp(reset)})
+		if n.UsageLimit == nil {
+			t.Fatal("lost the limit at the failed turn")
+		}
+		n, _ = step(t, n, Event{Type: EventTurnStarted, TurnID: "resume", CreatedAt: Stamp(reset)})
+		if n.UsageLimit != nil {
+			t.Fatal("next turn kept the limit")
+		}
+		n, _ = step(t, n, Event{Type: EventLimit, CreatedAt: Stamp(reset), Limit: &Limit{Rejected: true}})
+		if n.UsageLimit == nil || n.UsageLimit.ResetsAt != nil {
+			t.Fatal("unknown reset must be null")
+		}
 	}
 }

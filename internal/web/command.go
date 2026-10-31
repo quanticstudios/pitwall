@@ -22,7 +22,7 @@ import (
 
 // commands are the ones chatCommand runs. TODO: unarchive with
 // ChatUnarchive.
-var commands = []string{"listSessions", "read", "start", "send", "interrupt", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import"}
+var commands = []string{"listSessions", "read", "start", "send", "interrupt", "updateQueue", "resolveApproval", "resolveInput", "set", "fork", "rewind", "archive", "listProjects", "listWorktrees", "import"}
 
 // aide's attachment limits.
 const (
@@ -33,33 +33,37 @@ const (
 
 // frame is every command's keys; each reads its own.
 type frame struct {
-	SessionID      string              `json:"sessionId"`
-	TurnID         string              `json:"turnId"`
-	After          int64               `json:"after"`
-	Archived       bool                `json:"archived"`
-	Dir            string              `json:"dir"`
-	Provider       model.Provider      `json:"provider"`
-	Model          string              `json:"model"`
-	Effort         string              `json:"effort"`
-	PermissionMode string              `json:"permissionMode"`
-	Worktree       string              `json:"worktree"`
-	Base           string              `json:"base"`
-	Branch         string              `json:"branch"`
-	Name           string              `json:"name"`
-	Prompt         string              `json:"prompt"`
-	Text           string              `json:"text"`
-	How            string              `json:"how"`
-	RequestID      string              `json:"requestId"`
-	Decision       string              `json:"decision"`
-	Reason         string              `json:"reason"`
-	Answers        map[string][]string `json:"answers"`
-	Delete         bool                `json:"delete"`
-	Root           string              `json:"root"`
-	Title          string              `json:"title"`
-	CreatedAt      time.Time           `json:"createdAt"`
-	UpdatedAt      time.Time           `json:"updatedAt"`
-	Snapshot       json.RawMessage     `json:"snapshot"`
-	Attachments    []struct {
+	FakeStartFailure string              `json:"fakeStartFailure"`
+	Action           string              `json:"action"`
+	MessageID        string              `json:"messageId"`
+	Index            int                 `json:"index"`
+	SessionID        string              `json:"sessionId"`
+	TurnID           string              `json:"turnId"`
+	After            int64               `json:"after"`
+	Archived         bool                `json:"archived"`
+	Dir              string              `json:"dir"`
+	Provider         model.Provider      `json:"provider"`
+	Model            string              `json:"model"`
+	Effort           string              `json:"effort"`
+	PermissionMode   string              `json:"permissionMode"`
+	Worktree         string              `json:"worktree"`
+	Base             string              `json:"base"`
+	Branch           string              `json:"branch"`
+	Name             string              `json:"name"`
+	Prompt           string              `json:"prompt"`
+	Text             string              `json:"text"`
+	How              string              `json:"how"`
+	RequestID        string              `json:"requestId"`
+	Decision         string              `json:"decision"`
+	Reason           string              `json:"reason"`
+	Answers          map[string][]string `json:"answers"`
+	Delete           bool                `json:"delete"`
+	Root             string              `json:"root"`
+	Title            string              `json:"title"`
+	CreatedAt        time.Time           `json:"createdAt"`
+	UpdatedAt        time.Time           `json:"updatedAt"`
+	Snapshot         json.RawMessage     `json:"snapshot"`
+	Attachments      []struct {
 		Kind string `json:"kind"`
 		Data string `json:"data"`
 	} `json:"attachments"`
@@ -147,8 +151,14 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		m = proto.ChatSend{Chat: f.SessionID, Text: f.Text, How: f.How}
 		if typ == "start" {
 			m = proto.ChatNew{Dir: f.Dir, Provider: f.Provider, Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode,
-				Worktree: f.Worktree, Base: f.Base, Branch: f.Branch, Name: f.Name, Prompt: f.Prompt}
+				FakeStartFailure: f.FakeStartFailure, Worktree: f.Worktree, Base: f.Base, Branch: f.Branch, Name: f.Name, Prompt: f.Prompt}
 		}
+	case "updateQueue":
+		if f.Action == "" {
+			c.reply(result(id, "invalid", "updateQueue needs an action"))
+			return true
+		}
+		m = proto.ChatQueue{Chat: f.SessionID, Action: f.Action, ID: f.MessageID, Text: f.Text, Index: f.Index}
 	case "interrupt":
 		m = proto.ChatInterrupt{Chat: f.SessionID}
 	case "resolveApproval":

@@ -150,6 +150,7 @@ Go fields in camelCase; ENG-2684 gives `model.Chat` these JSON tags.
 | `title` | the tab's title |
 | `state` | aide's `sessionState`: `connecting`, `ready`, `running`, `waiting`, `stopped`, `error` |
 | `pending` | approvals and input requests waiting |
+| `recentPrompt` | optional first-prompt excerpt, at most 500 Unicode code points; also available after restart or archive |
 | `queued` | messages waiting for the running turn to end |
 | `turns` | turns so far |
 | `seq` | the seq of the chat's latest delta |
@@ -321,6 +322,7 @@ CLI only.
 | `start` | `ChatNew` | `sessionId`, `workspaceId` |
 | `send` | `ChatSend` | `turnId` when it started a turn |
 | `interrupt` | `ChatInterrupt` | none |
+| `updateQueue` | `ChatQueue` | `turnId` if steering starts a turn |
 | `resolveApproval` | `ChatApprove` | none |
 | `resolveInput` | `ChatAnswer` | none |
 | `set` | `ChatSet` | none |
@@ -379,6 +381,53 @@ queued instead (with a `message` saying so) when the provider cannot.
 ```json
 {"type": "result", "id": "7", "ok": true, "message": "Claude cannot steer yet; queued for the next turn"}
 ```
+
+### updateQueue
+
+Queue actions run atomically on the chat loop. `messageId` identifies a
+`queuedInputs` entry. `edit` needs nonblank `text`; `move` needs a zero-based
+`index` within the current queue; `remove` drops the entry. Unknown message
+ids and invalid indices answer
+`invalid` without changing the queue. `steer` promotes the message to the
+running turn, or sends it when idle; a provider that cannot steer queues it.
+`resume` needs no message id and releases a queue paused by interrupt.
+
+```json
+{"type":"updateQueue","id":"queue-edit","sessionId":"c1","action":"edit","messageId":"m1","text":"revised prompt"}
+```
+
+```json
+{"type":"updateQueue","id":"queue-move","sessionId":"c1","action":"move","messageId":"m1","index":0}
+```
+
+```json
+{"type":"updateQueue","id":"queue-remove","sessionId":"c1","action":"remove","messageId":"m1"}
+```
+
+```json
+{"type":"updateQueue","id":"queue-steer","sessionId":"c1","action":"steer","messageId":"m1"}
+```
+
+```json
+{"type":"updateQueue","id":"queue-resume","sessionId":"c1","action":"resume"}
+```
+
+The snapshot carries `queuedInputs` in queue order, with `id`, `text`,
+`createdAt`, `attachments` and `recipients`, and `queuePaused`. Changes use
+`session.patch`, including an empty array when the last message leaves.
+The config remains the durable queue; loading an older config-only queue
+publishes it into the snapshot before a read.
+
+A rejected provider limit sets `usageLimit` on the snapshot with `provider`,
+`limitId`, a display `label`, and `resetsAt` as an ISO timestamp or null.
+A `limit` delta carries this object in `limit`, or null to clear it.
+It survives the failed turn and clears on the next `turn.started`.
+Non-rejected quota observations do not replace it.
+
+For tests with `PITWALL_FAKE_PROVIDERS=1`, `start` may carry
+`fakeStartFailure: "missing-cli"` to fail that start with a missing-executable
+message. Any other nonempty value requests a generic start failure. Real
+providers ignore it. It is never persisted or applied to another chat.
 
 ### interrupt
 

@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -15,7 +16,7 @@ import (
 //
 // The rules are aide's ManagedSessionManager and its runtime projector.
 // An event that changes nothing still returns an empty session.patch, as
-// aide publishes a revision for it; limit, session.resume-id and unknown
+// aide publishes a revision for it; session.resume-id and unknown
 // types return nil. When a change has no delta form, the one delta is a
 // snapshot; the loop sets that snapshot's Revision and UpdatedAt too.
 func Reduce(s Snapshot, e Event) []Delta {
@@ -89,6 +90,7 @@ func next(s Snapshot, e Event) (Snapshot, bool) {
 			n.SessionState = StateError
 		}
 	case EventTurnStarted:
+		n.UsageLimit = nil
 		n.LastError, n.LastErrorAt = nil, nil
 		n.SessionState = StateRunning
 		turn := TurnSummary{ID: e.TurnID, Provider: s.Provider, StartedAt: e.CreatedAt, State: TurnRunning}
@@ -149,6 +151,35 @@ func next(s Snapshot, e Event) (Snapshot, bool) {
 		n.LastError, n.LastErrorAt = ptr(e.Message), ptr(e.CreatedAt)
 		n.Detail = ptr(e.Message)
 		n.SessionState = StateError
+	case EventLimit:
+		if e.Limit == nil || !e.Limit.Rejected {
+			return s, false
+		}
+		limit := &UsageLimit{Provider: s.Provider, LimitID: "usage", Label: "Usage limit"}
+		if !e.Limit.Resets.IsZero() {
+			limit.ResetsAt = ptr(Stamp(e.Limit.Resets))
+		}
+		for _, w := range e.Limit.Windows {
+			if w.Used < 100 {
+				continue
+			}
+			limit.LimitID = fmt.Sprintf("%d_minutes", w.Minutes)
+			limit.Label = fmt.Sprintf("%d-minute limit", w.Minutes)
+			if w.Minutes%60 == 0 {
+				limit.Label = fmt.Sprintf("%d-hour limit", w.Minutes/60)
+			}
+			if w.Minutes == 300 {
+				limit.LimitID = "five_hour"
+			}
+			if w.Minutes == 10080 {
+				limit.Label, limit.LimitID = "Weekly limit", "seven_day"
+			}
+			if !w.Resets.IsZero() {
+				limit.ResetsAt = ptr(Stamp(w.Resets))
+			}
+			break
+		}
+		n.UsageLimit = limit
 	case EventUsage:
 		n.Usage = &Usage{
 			InputTokens:       e.InputTokens,
@@ -290,6 +321,7 @@ func diff(s, n Snapshot) ([]Delta, bool) {
 	}
 	// Everything diff does not handle must be unchanged.
 	rest := func(x Snapshot) Snapshot {
+		x.UsageLimit = nil
 		x.Content, x.Turns, x.PendingApprovals, x.PendingUserInputs, x.PlanApproval = nil, nil, nil, nil, nil
 		x.SessionState, x.Running, x.Detail, x.LastCompletedAt = "", false, nil, nil
 		x.Usage, x.UsageReports, x.UsageSummary, x.LastError, x.LastErrorAt = nil, nil, nil, nil, nil
@@ -300,6 +332,9 @@ func diff(s, n Snapshot) ([]Delta, bool) {
 	}
 
 	var ds []Delta
+	if !reflect.DeepEqual(s.UsageLimit, n.UsageLimit) {
+		ds = append(ds, Delta{Type: DeltaLimit, Limit: n.UsageLimit})
+	}
 	for i, it := range n.Content {
 		if i >= len(s.Content) {
 			t := DeltaItemAdd

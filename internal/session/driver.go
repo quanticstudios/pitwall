@@ -87,9 +87,11 @@ type Config struct {
 	// with the first turn). The new id clears it.
 	From *Origin `json:"from,omitempty"`
 	// Points maps a turn id to Event.Point, for fork and rewind.
-	Points map[string]string `json:"points,omitempty"`
-	Queue  []QueuedMessage   `json:"queue,omitempty"`
-	Held   bool              `json:"held,omitempty"` // the queue waits for the next send (after an interrupt)
+	Points           map[string]string `json:"points,omitempty"`
+	RecentPrompt     string            `json:"recentPrompt,omitempty"`
+	FakeStartFailure string            `json:"-"` // fake provider only; never persisted
+	Queue            []QueuedMessage   `json:"queue,omitempty"`
+	Held             bool              `json:"held,omitempty"` // the queue waits for the next send (after an interrupt)
 	// Continued is when the loop sent "Continue where you left off" after
 	// a restart, for the limit on those sends.
 	Continued []time.Time `json:"continued,omitempty"`
@@ -107,7 +109,8 @@ type Config struct {
 }
 
 type QueuedMessage struct {
-	ID     string   `json:"id"`
-	Text   string   `json:"text"`
-	Images []string `json:"images,omitempty"` // paths under the chat's images/ folder
+	CreatedAt string   `json:"createdAt,omitempty"`
+	ID        string   `json:"id"`
+	Text      string   `json:"text"`
+	Images    []string `json:"images,omitempty"` // paths under the chat's images/ folder
 }

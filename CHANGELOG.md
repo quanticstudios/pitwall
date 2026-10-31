@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Web chat summaries carry recent prompts, snapshots expose queued messages and usage-limit banners, and queue commands edit, reorder, remove, resume or steer pending messages.
+
 - Timing ends a turn you interrupted or whose pane closed at most ten minutes after the agent's last call. A Claude Code session that hung after starting `true` showed a 4.5-hour command. Old turns in `timing.jsonl` keep their numbers.
 - `pitwall chat fork <chat> <turn>` opens a new chat that goes on from the end of a turn through the agent's own fork (Claude's `--fork-session` with `--resume-session-at`, Codex's `thread/fork`), beside the chat or in a new worktree with `--worktree`; the chat it forks does not change. `pitwall chat rewind <chat> <turn>` drops that turn and the ones after it, puts the files back as the turn found them, and refuses as Undo turn does when HEAD moved. An agent that cannot fork gets a text recap of the chat instead, and the transcript says so. Web clients get both as the `fork` and `rewind` commands.
 - A Claude subagent's text and tool calls no longer show in the chat as if the main agent made them. They go on the Task call as `subagentTools`, which aide shows as "Explore · 2 tool calls". The fake providers gain the scenarios aide's e2e still lacked on the daemon: `three approvals` (several open at once), `empty reply`, `think-stream`, `tool kinds`, `auth error` and `usage limit <unix seconds>`. A deny with a reason now replies with it.

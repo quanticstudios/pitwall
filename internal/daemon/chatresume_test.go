@@ -293,3 +293,45 @@ func TestRecap(t *testing.T) {
 		t.Fatalf("a long recap keeps %d runes of the start", len(got))
 	}
 }
+
+func TestChatSnapshotFieldsAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	f := &fakes{statsCalls: map[string]int{}}
+	opts := func(o *Options) { o.Chats = root; chatProvider(fake.Options{})(o) }
+	hello := proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()}
+	sock, stop := runWith(t, f, opts)
+	gui := dialHello(t, sock, hello)
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Dir: t.TempDir(), Provider: model.ProviderClaude, Prompt: "approval"})
+	if r.Code != "" {
+		t.Fatal(r)
+	}
+	waitChat(gui, "approval", func(s model.State) bool { return chatOf(s).Pending == 1 })
+	chatCall[proto.ChatResult](gui, proto.ChatSend{Chat: r.Chat, Text: "later", How: "queue"})
+	chatCall[proto.ChatResult](gui, proto.ChatInterrupt{Chat: r.Chat})
+	stop()
+	// Simulate the previous version, whose queue existed only in config.json.
+	dir := filepath.Join(root, r.Chat)
+	log, cfg, snap, seq, err := eventlog.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.QueuedInputs, snap.QueuePaused = nil, false
+	if err := log.Compact(snap, seq); err != nil {
+		t.Fatal(err)
+	}
+	log.Close()
+	if cfg.RecentPrompt != "approval" {
+		t.Fatalf("persisted excerpt: %q", cfg.RecentPrompt)
+	}
+	sock, stop = runWith(t, f, opts)
+	defer stop()
+	gui = dialHello(t, sock, hello)
+	waitChat(gui, "summary restored", func(s model.State) bool { return chatOf(s).RecentPrompt == "approval" })
+	d := chatCall[proto.ChatDeltas](gui, proto.ChatRead{Chat: r.Chat})
+	if err := json.Unmarshal(d.Snapshot, &snap); err != nil {
+		t.Fatal(err)
+	}
+	if !snap.QueuePaused || len(snap.QueuedInputs) != 1 || snap.QueuedInputs[0].Text != "later" {
+		t.Fatalf("restored queue: %+v", snap)
+	}
+}

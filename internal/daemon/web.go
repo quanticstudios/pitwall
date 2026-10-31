@@ -145,7 +145,7 @@ func (h chatHub) Archived() []model.Chat {
 	var out []model.Chat
 	for _, c := range eventlog.Archived(h.d.o.Chats) {
 		out = append(out, model.Chat{ID: c.ID, WorkspaceID: c.Workspace, Provider: c.Provider, Model: c.Model, Effort: c.Effort, Mode: c.Mode,
-			Title: c.Title, State: session.StateReady, UpdatedAt: cmp.Or(c.Updated, c.Created)})
+			Title: c.Title, RecentPrompt: c.RecentPrompt, State: session.StateReady, UpdatedAt: cmp.Or(c.Updated, c.Created)})
 	}
 	slices.SortFunc(out, func(a, b model.Chat) int { return cmp.Or(b.UpdatedAt.Compare(a.UpdatedAt), cmp.Compare(a.ID, b.ID)) })
 	return out
