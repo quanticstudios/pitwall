@@ -40,6 +40,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/timelog"
 	"github.com/quanticstudios/pitwall/internal/vt"
+	"github.com/quanticstudios/pitwall/internal/web"
 )
 
 const (
@@ -108,8 +109,12 @@ type Options struct {
 	Timing *timelog.Log
 	// Remote reads [remote]; nil never serves the phone page. RemoteDir
 	// holds its pairings, devices and certificate.
-	Remote        func() config.RemoteSettings
-	RemoteDir     string
+	Remote    func() config.RemoteSettings
+	RemoteDir string
+	// Web reads [web]; nil never serves the web protocol. WebPath is
+	// web.json, which holds the listener's address and token.
+	Web           func() config.WebSettings
+	WebPath       string
 	Save          func(model.State) error
 	Load          func() (model.State, error)
 	RestoreCmd    func(model.Pane) []string
@@ -290,6 +295,8 @@ func New() (*Daemon, error) {
 		RemoteControl:     setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
 		Remote:            func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
 		RemoteDir:         remote.Dir(),
+		Web:               func() config.WebSettings { return config.LoadWeb(config.Path()) },
+		WebPath:           web.Path(),
 		Split:             layout.Split,
 		Remove:            layout.Remove,
 		Checkpoint:        gitstat.Checkpoint,
@@ -424,6 +431,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	var wg sync.WaitGroup
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
+	wg.Go(func() { d.webLoop(ctx) })
 
 	var acceptErr error
 	for {

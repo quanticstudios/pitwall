@@ -22,6 +22,7 @@ build. Either step takes `--dry-run`.
 - Managed-session tests and aide e2e can use scripted Claude and Codex providers without starting agents. The provider registry opts in with `PITWALL_FAKE_PROVIDERS=1` and logs a warning; daemon wiring comes with the chat-loop work.
 
 - `docs/web-protocol.md` specifies the protocol aide will use to drive chats over a localhost WebSocket, with a JSON Schema (`docs/web-protocol.schema.json`) tested against aide's delta fixtures. Nothing serves it yet.
+- `[web] enabled = true` serves the web protocol's handshake on `127.0.0.1` for local clients such as aide. The address and token go in `web.json` (mode 0600) in the state folder, and `pitwall web token --rotate` replaces the token. Requests from another site's page or through a rebound DNS name are refused. Commands answer `unsupported` until later releases add them.
 - A new daemon can take over a running daemon's panes, PTYs and socket on Linux and macOS without the processes noticing, with output, queued input, scrollback and held tabs intact. A failure at any step leaves the old daemon serving. `pitwall update` does not use it yet.
 - The phone page retries a port that is in use every 2 seconds. It waited for the settings to change.
 - Pane exit tracking can follow transferred processes on Linux and macOS, including processes started by the previous daemon. Older Linux kernels report an unknown exit code for these processes.

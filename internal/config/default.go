@@ -30,6 +30,7 @@ func defaults() Config {
 	c.Worktrees = defaultWorktrees()
 	c.Git = defaultGit()
 	c.Remote = defaultRemote()
+	c.Web = defaultWeb()
 	c.Notify = defaultNotifications()
 	none := 0.0
 	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit, c.Agents.GuardWorkers = &none, &on, &off

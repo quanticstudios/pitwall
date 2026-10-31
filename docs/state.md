@@ -12,6 +12,7 @@
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
 | Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
 | Paired phones       | `~/.local/state/pitwall/remote/` (token hashes, mode 0600)    |
+| Web client token    | `~/.local/state/pitwall/web.json` (mode 0600, `pitwall web token --rotate`) |
 | Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
 
 macOS uses the same paths. On Windows, config and themes live in

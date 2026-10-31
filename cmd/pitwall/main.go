@@ -142,6 +142,7 @@ const usage = `usage:
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
   pitwall remote <cmd>       pair, devices, revoke: answer agents from a phone (see pitwall remote)
+  pitwall web <cmd>          token: the token local web clients such as aide connect with (see pitwall web)
 `
 
 func main() {
@@ -202,6 +203,8 @@ func main() {
 		err = runLogs(os.Args[2:], os.Stdout)
 	case "remote":
 		os.Exit(runRemote(os.Args[2:], os.Stdout, os.Stderr))
+	case "web":
+		os.Exit(runWeb(os.Args[2:], os.Stdout, os.Stderr))
 	case "worktree":
 		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
 	case "completion":
