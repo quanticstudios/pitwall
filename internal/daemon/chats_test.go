@@ -24,7 +24,7 @@ type stubProvider struct {
 }
 
 func (p *stubProvider) Start(_ context.Context, cfg session.Config, _ session.Origin, emit func(session.Event)) (session.Driver, error) {
-	d := &stubDriver{emit: emit, steer: session.ErrUnsupported}
+	d := &stubDriver{emit: emit, steer: session.ErrUnsupported, cfg: cfg}
 	p.mu.Lock()
 	p.drivers = append(p.drivers, d)
 	p.mu.Unlock()
@@ -43,6 +43,7 @@ func (p *stubProvider) driver(t *testing.T) *stubDriver {
 
 type stubDriver struct {
 	mu     sync.Mutex
+	cfg    session.Config // what Start got
 	emit   func(session.Event)
 	steer  error
 	turn   string
