@@ -394,10 +394,13 @@ func (d *Daemon) chatArchive(m proto.ChatArchive) error {
 // chatUnarchive moves an archived chat's folder back and opens a tab for
 // it in its Cwd. The chat keeps its id and its provider session, which
 // resumes when the next message needs the provider, as after a restart.
+// A live chat stays as it is, so two clients that both reopen it agree.
 func (d *Daemon) chatUnarchive(ctx context.Context, m proto.ChatUnarchive) proto.ChatResult {
 	if d.o.Chats == "" {
 		return chatResult(m.Chat, "", "", chatError{"unsupported", "this daemon keeps no chats on disk"})
 	}
+	d.unarchiveMu.Lock()
+	defer d.unarchiveMu.Unlock()
 	d.mu.Lock()
 	closing := d.archiving[m.Chat]
 	d.mu.Unlock()
@@ -409,7 +412,7 @@ func (d *Daemon) chatUnarchive(ctx context.Context, m proto.ChatUnarchive) proto
 		}
 	}
 	if _, err := d.chat(m.Chat); err == nil {
-		return chatResult(m.Chat, "", "", chatError{"conflict", "chat " + m.Chat + " is not archived"})
+		return chatResult(m.Chat, "", "", nil)
 	}
 	if err := eventlog.Unarchive(d.o.Chats, m.Chat); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

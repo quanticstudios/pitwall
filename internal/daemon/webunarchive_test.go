@@ -17,8 +17,8 @@ import (
 // TestWebUnarchive archives a chat and unarchives it at once, while its
 // folder may still be moving: it comes back in a new tab with its id and
 // transcript, and the next message resumes the same provider session. A
-// live chat, an unknown one and a bad id are refused; an imported chat
-// unarchives as a live chat an import no longer replaces.
+// live chat stays in its tab; an unknown one and a bad id are refused. An
+// imported chat unarchives as a live chat an import no longer replaces.
 func TestWebUnarchive(t *testing.T) {
 	root := t.TempDir()
 	spy := &spyProvider{}
@@ -28,7 +28,8 @@ func TestWebUnarchive(t *testing.T) {
 		o.Gates = decide.FakeGates()
 	})
 	t.Cleanup(stop)
-	c := dialWeb(t, webOn(t, d), "unarchive")
+	addr := webOn(t, d)
+	c, other := dialWeb(t, addr, "unarchive"), dialWeb(t, addr, "unarchive-too")
 	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "hello"})
 	id, _ := at(r, "data.sessionId").(string)
 	tab := at(r, "data.workspaceId")
@@ -38,15 +39,20 @@ func TestWebUnarchive(t *testing.T) {
 	if err != nil || cfg.Resume == "" {
 		t.Fatalf("config after the first turn: %+v, %v", cfg, err)
 	}
-	if r := c.call(map[string]any{"type": "unarchive", "sessionId": id}); r["code"] != "conflict" {
+	if r := c.call(map[string]any{"type": "unarchive", "sessionId": id}); r["ok"] != true || at(r, "data.workspaceId") != tab {
 		t.Fatalf("unarchive a live chat: %v", r)
 	}
 
 	if r := c.call(map[string]any{"type": "archive", "sessionId": id}); r["ok"] != true {
 		t.Fatalf("archive: %v", r)
 	}
+	again := make(chan map[string]any, 1)
+	go func() { again <- other.call(map[string]any{"type": "unarchive", "sessionId": id}) }()
 	r = c.call(map[string]any{"type": "unarchive", "sessionId": id})
 	back, _ := at(r, "data.workspaceId").(string)
+	if r2 := <-again; r2["ok"] != true || at(r2, "data.workspaceId") != back {
+		t.Fatalf("a second unarchive at once: %v, the first %v", r2, r)
+	}
 	if r["ok"] != true || at(r, "data.sessionId") != id || back == "" || back == tab {
 		t.Fatalf("unarchive: %v (the old tab was %v)", r, tab)
 	}

@@ -597,8 +597,9 @@ answer carries the chat's `sessionId`, unchanged, and that tab's
 so the next message that needs the provider resumes the session it had, as
 after a daemon restart. An [imported](#import) chat unarchives too and is
 pitwall's from then on: a later `import` with its id leaves it alone. A
-live chat answers `conflict`, an id with no archived chat `not-found`, and
-a daemon that keeps no chats on disk `unsupported`. A chat archived a
+live chat stays where it is and answers with its tab, so two clients that
+both reopen a chat agree. An id with no archived chat answers `not-found`,
+and a daemon that keeps no chats on disk `unsupported`. A chat archived a
 moment ago may still be closing; `unarchive` waits for it.
 
 <a id="rename"></a>
