@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- The web protocol's `import` takes `pinned`, so an imported chat keeps aide's pin (ENG-2707).
 - The web protocol's `start` and `send` take a provider `skill`, which a queued message keeps: Claude runs it as its slash command and Codex as a skill input item, as aide's built-in backend did. The fake providers answer `Handled with <provider> skill <id>: <text>` (ENG-2942).
 - The fake providers have a `codex commentary` script: a Codex turn whose commentary and final answer are separate items with their `phase`, so aide's commentary spec runs on the daemon (ENG-2941).
 - Web clients bring an archived chat back with `unarchive`, as aide's Restore and its reopening of a closed Agent pane do (ENG-2940). The chat returns in a new tab in its folder with its id, transcript and provider session, so the next message resumes the session it had. An imported chat unarchives too. On the socket it is `ChatUnarchive` at Level 46.

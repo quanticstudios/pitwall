@@ -267,7 +267,7 @@ func (s *Server) importChat(id string, f frame) map[string]any {
 		return result(id, "invalid", fmt.Sprintf("import: the snapshot is session %q, not %q", snap.SessionID, f.SessionID))
 	}
 	cfg := chat.Config{Format: 1, ID: f.SessionID, Provider: f.Provider, Workspace: snap.WorkspaceID, Cwd: f.Dir,
-		Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode, Created: f.CreatedAt, Title: f.Title, Updated: f.UpdatedAt}
+		Model: f.Model, Effort: f.Effort, Mode: f.PermissionMode, Created: f.CreatedAt, Title: f.Title, Pinned: f.Pinned, Updated: f.UpdatedAt}
 	imported, err := s.Chats.Import(cfg, snap)
 	if err != nil {
 		return result(id, code(err), err.Error())

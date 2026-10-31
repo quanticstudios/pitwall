@@ -43,13 +43,13 @@ func TestWebImport(t *testing.T) {
 	c := dialWeb(t, strings.TrimPrefix(hs.URL, "http://"), "aide")
 
 	frame := map[string]any{"type": "import", "sessionId": "old-1", "dir": "/src/app", "provider": "claude", "model": "claude-opus-5-5",
-		"title": "Fix the login form", "createdAt": "2026-08-30T09:00:00.000Z", "updatedAt": "2026-09-01T10:00:00.000Z",
+		"title": "Fix the login form", "pinned": true, "createdAt": "2026-08-30T09:00:00.000Z", "updatedAt": "2026-09-01T10:00:00.000Z",
 		"snapshot": importSnapshot("old-1", "Fix the login form")}
 	if r := c.call(frame); r["ok"] != true || at(r, "data.imported") != true {
 		t.Fatalf("import: %v", r)
 	}
 	r := c.call(map[string]any{"type": "listSessions", "archived": true})
-	if at(r, "data.chats.0.id") != "old-1" || at(r, "data.chats.0.title") != "Fix the login form" ||
+	if at(r, "data.chats.0.id") != "old-1" || at(r, "data.chats.0.title") != "Fix the login form" || at(r, "data.chats.0.pinned") != true ||
 		at(r, "data.chats.0.updatedAt") != "2026-09-01T10:00:00Z" || at(r, "data.chats.0.workspaceId") != "aide-ws" {
 		t.Fatalf("listSessions archived: %v", r)
 	}
