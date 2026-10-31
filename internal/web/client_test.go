@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -42,15 +43,15 @@ func body(resp *http.Response) string {
 	return string(b)
 }
 
-// newBundle serves dir with web.json's token tok, and returns the open
-// code file's path.
-func newBundle(t *testing.T, dir string, tok *string) (*httptest.Server, string) {
+// newBundle serves dir with web.json's token tok, a string the test may
+// rotate while the server reads it, and returns the open code file's path.
+func newBundle(t *testing.T, dir string, tok *atomic.Value) (*httptest.Server, string) {
 	t.Helper()
 	open := filepath.Join(t.TempDir(), "web-open.json")
 	s := &Server{
-		Token:    func() (string, error) { return *tok, nil },
+		Token:    func() (string, error) { return tok.Load().(string), nil },
 		Version:  "test",
-		Client:   &Client{Dir: dir, Live: func(owner string) bool { return owner == *tok }},
+		Client:   &Client{Dir: dir, Live: func(owner string) bool { return owner == tok.Load().(string) }},
 		OpenPath: open,
 	}
 	hs := httptest.NewServer(s.Handler())
@@ -81,7 +82,8 @@ func openSession(t *testing.T, hs *httptest.Server, open string) string {
 }
 
 func TestOpenCode(t *testing.T) {
-	tok := goodToken
+	var tok atomic.Value
+	tok.Store(goodToken)
 	hs, open := newBundle(t, "testdata/bundle", &tok)
 	if resp := get(t, hs, "/", ""); resp.StatusCode != 401 {
 		t.Fatalf("no session: %d", resp.StatusCode)
@@ -129,7 +131,8 @@ func TestBundleFiles(t *testing.T) {
 	}
 	secret, _ := filepath.Abs("testdata/secret.txt")
 	links := os.Symlink(secret, filepath.Join(dir, "link.txt")) == nil
-	tok := goodToken
+	var tok atomic.Value
+	tok.Store(goodToken)
 	hs, open := newBundle(t, dir, &tok)
 	ck := openSession(t, hs, open)
 
@@ -177,7 +180,8 @@ func TestBundleFiles(t *testing.T) {
 }
 
 func TestFixtureBundle(t *testing.T) {
-	tok := goodToken
+	var tok atomic.Value
+	tok.Store(goodToken)
 	hs, open := newBundle(t, "testdata/bundle", &tok)
 	ck := openSession(t, hs, open)
 	for _, p := range []string{"/", "/assets/app.js", "/assets/app.css"} {
@@ -197,7 +201,8 @@ func TestFixtureBundle(t *testing.T) {
 }
 
 func TestBootstrap(t *testing.T) {
-	tok := goodToken
+	var tok atomic.Value
+	tok.Store(goodToken)
 	hs, open := newBundle(t, "testdata/bundle", &tok)
 	if resp := get(t, hs, "/_pitwall/bootstrap", ""); resp.StatusCode != 401 {
 		t.Fatalf("no session: %d", resp.StatusCode)
@@ -232,7 +237,7 @@ func TestBootstrap(t *testing.T) {
 	}
 
 	// A rotated web.json token ends the session: bundle, bootstrap and hello.
-	tok = strings.Repeat("1", 64)
+	tok.Store(strings.Repeat("1", 64))
 	for _, p := range []string{"/", "/_pitwall/bootstrap"} {
 		if resp := get(t, hs, p, ck); resp.StatusCode != 401 {
 			t.Errorf("%s after rotate: %d", p, resp.StatusCode)
