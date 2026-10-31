@@ -77,6 +77,15 @@
         },
         {
           "$ref": "#/$defs/readUsage"
+        },
+        {
+          "$ref": "#/$defs/reviewThreads"
+        },
+        {
+          "$ref": "#/$defs/prPrompt"
+        },
+        {
+          "$ref": "#/$defs/mergePR"
         }
       ]
     },
@@ -798,7 +807,8 @@
             "busy",
             "unsupported",
             "provider",
-            "invalid"
+            "invalid",
+            "forge"
           ]
         },
         "message": {
@@ -855,6 +865,22 @@
             },
             "usage": {
               "$ref": "#/$defs/planUsage"
+            },
+            "threads": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/thread"
+              }
+            },
+            "changeRequests": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/comment"
+              }
+            },
+            "text": {
+              "type": "string",
+              "description": "prPrompt: the message, \"\" with nothing to send."
             }
           },
           "additionalProperties": false
@@ -1075,6 +1101,9 @@
         },
         "updatedAt": {
           "type": "string"
+        },
+        "pr": {
+          "$ref": "#/$defs/pr"
         }
       },
       "additionalProperties": false
@@ -2496,6 +2525,218 @@
           ]
         }
       ]
+    },
+    "reviewThreads": {
+      "description": "The unresolved review threads and change requests of the chat's pull request.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "reviewThreads"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "prPrompt": {
+      "description": "pitwall's message asking the chat's agent to fix its pull request's failed checks or address its review.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId",
+        "what"
+      ],
+      "properties": {
+        "type": {
+          "const": "prPrompt"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        },
+        "what": {
+          "enum": [
+            "failures",
+            "review"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "mergePR": {
+      "description": "Merges the chat's pull request by [git] merge_method.",
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "sessionId"
+      ],
+      "properties": {
+        "type": {
+          "const": "mergePR"
+        },
+        "id": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "A chat id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "comment": {
+      "description": "A review comment, or a change request's text.",
+      "type": "object",
+      "required": [
+        "author",
+        "body"
+      ],
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "thread": {
+      "description": "forge.Thread: an unresolved review thread.",
+      "type": "object",
+      "required": [
+        "path",
+        "line",
+        "comments",
+        "more"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0 when the thread is on the file, not a line."
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/comment"
+          }
+        },
+        "more": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Comments on GitHub past the ones listed."
+        }
+      },
+      "additionalProperties": false
+    },
+    "pr": {
+      "description": "model.PR: the pull request of the chat's tab's branch, as pitwall's poll last saw it.",
+      "type": "object",
+      "required": [
+        "number",
+        "state",
+        "draft",
+        "url",
+        "review",
+        "checks",
+        "conflicts",
+        "head",
+        "reason",
+        "detail"
+      ],
+      "properties": {
+        "number": {
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "open",
+            "merged",
+            "closed"
+          ]
+        },
+        "draft": {
+          "type": "boolean"
+        },
+        "url": {
+          "type": "string"
+        },
+        "review": {
+          "enum": [
+            "",
+            "required",
+            "approved",
+            "changes"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "state"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "",
+                  "pending",
+                  "pass",
+                  "fail",
+                  "skip"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "conflicts": {
+          "type": "boolean"
+        },
+        "head": {
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "",
+            "conflicting",
+            "checks_failing",
+            "changes_requested",
+            "checks_pending",
+            "review_required",
+            "ready",
+            "merged",
+            "closed"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

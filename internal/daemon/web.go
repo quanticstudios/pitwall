@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -206,4 +209,81 @@ func (h chatHub) WatchList(s web.Sink, on bool) {
 		h.d.listSinks = map[web.Sink]bool{}
 	}
 	h.d.listSinks[s] = true
+}
+
+var _ web.Forge = chatHub{}
+
+func (h chatHub) PRs() map[string]model.PR {
+	h.d.mu.Lock()
+	defer h.d.mu.Unlock()
+	return maps.Clone(h.d.st.PRs)
+}
+
+// pr is the folder and pull request of tab ws, or why there is none.
+func (h chatHub) pr(ws string) (string, model.PR, error) {
+	h.d.mu.Lock()
+	defer h.d.mu.Unlock()
+	w := h.d.workspace(ws)
+	pr, ok := h.d.st.PRs[ws]
+	if w == nil || !ok {
+		return "", model.PR{}, chatError{"not-found", "this tab's branch has no pull request"}
+	}
+	return h.d.st.LivePath(*w), pr, nil
+}
+
+func (h chatHub) Reviews(ctx context.Context, ws string) ([]forge.Thread, []forge.Comment, error) {
+	if h.d.o.Reviews == nil {
+		return nil, nil, chatError{"unsupported", "this pitwall cannot read reviews"}
+	}
+	dir, pr, err := h.pr(ws)
+	if err != nil {
+		return nil, nil, err
+	}
+	threads, changes, err := h.d.o.Reviews(ctx, dir, pr.Number)
+	return threads, changes, forgeError(err)
+}
+
+func (h chatHub) Prompt(ctx context.Context, ws, what string) (string, error) {
+	if h.d.o.Reviews == nil || h.d.o.Failures == nil {
+		return "", chatError{"unsupported", "this pitwall cannot read checks or reviews"}
+	}
+	dir, pr, err := h.pr(ws)
+	if err != nil {
+		return "", err
+	}
+	act := "send_review"
+	if what == "failures" {
+		act = "send_failures"
+	}
+	text, err := forge.SendPrompt(ctx, dir, pr.Number, act, h.d.o.Failures, h.d.o.Reviews)
+	return text, forgeError(err)
+}
+
+func (h chatHub) Merge(ctx context.Context, ws string) error {
+	if h.d.o.Merge == nil {
+		return chatError{"unsupported", "this pitwall cannot merge"}
+	}
+	dir, pr, err := h.pr(ws)
+	if err != nil {
+		return err
+	}
+	if pr.State != model.PROpen {
+		return chatError{"conflict", fmt.Sprintf("pull request #%d is %s", pr.Number, pr.State)}
+	}
+	if err := h.d.o.Merge(ctx, dir, pr.Number); err != nil {
+		return forgeError(err)
+	}
+	h.d.mu.Lock()
+	h.d.pokePR(ws)
+	h.d.mu.Unlock()
+	return nil
+}
+
+// forgeError is a failed gh call as the web answers it: code forge, with
+// gh's words.
+func forgeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return chatError{"forge", err.Error()}
 }

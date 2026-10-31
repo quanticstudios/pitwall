@@ -90,7 +90,7 @@ func (s *Server) chatCommand(c *conn, typ, id string, msg []byte) bool {
 		if f.Archived {
 			chats = s.Chats.Archived()
 		}
-		c.reply(ok(id, "", map[string]any{"chats": nonNil(chats)}))
+		c.reply(ok(id, "", map[string]any{"chats": s.entries(chats)}))
 		return true
 	case "import":
 		c.reply(s.importChat(id, f))

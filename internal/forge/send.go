@@ -1,6 +1,9 @@
 package forge
 
-import "context"
+import (
+	"context"
+	"strconv"
+)
 
 // SendPrompt fetches the prompt for Send failures or Send review comments.
 // The window's startSend and daemon automation share this path. Fetchers
@@ -21,4 +24,11 @@ func SendPrompt(ctx context.Context, dir string, number int, act string,
 		return "", err
 	}
 	return ReviewPrompt(number, threads, changes), nil
+}
+
+// Merge merges pull request number of the repository at dir by method,
+// squash, merge or rebase, as the merge dialog's gh pr merge does.
+func Merge(ctx context.Context, dir string, number int, method string) error {
+	_, err := gh(ctx, dir, "pr", "merge", strconv.Itoa(number), "--"+method)
+	return err
 }
