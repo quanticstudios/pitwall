@@ -499,3 +499,60 @@ func TestSessionList(t *testing.T) {
 	c.send(t, map[string]any{"type": "unsubscribe", "id": "3", "sessionId": "chat-1"})
 	expectResult(t, &v, c, "3", true) // and no sessionsChanged before it
 }
+
+// TestManyImages: a chat holding 30 MB of images, as 10 MB prompts
+// (attach.go's cap for one message), reaches a client whole: as the
+// subscribe snapshot, as a prompt pushed live past the queue's byte
+// limit, and as a read. Outgoing frames have no cap; aide's
+// DaemonTransport reads them with the browser's WebSocket (ENG-2936).
+func TestManyImages(t *testing.T) {
+	f := newFakeChats(t)
+	image := strings.Repeat("A", 10<<20*4/3) // 10 MB, as base64
+	prompt := func(i int) chat.Item {
+		id := fmt.Sprint("prompt-", i)
+		return chat.Item{ID: id, Kind: chat.KindUserPrompt, Text: "look", UpdatedAt: chat.Stamp(time.Now()),
+			Attachments: []chat.Attachment{{ID: id, Kind: "image", Data: image, MimeType: "image/png", Name: "a.png", SizeBytes: 10 << 20}}}
+	}
+	withPrompts := func(n int) []chat.Delta {
+		s := f.snap
+		s.Content = nil
+		for i := range n {
+			s.Content = append(s.Content, prompt(i))
+		}
+		return []chat.Delta{{Type: chat.DeltaSnapshot, Snapshot: &s}}
+	}
+	images := func(s *chat.Snapshot) int {
+		n := 0
+		for _, it := range s.Content {
+			for _, a := range it.Attachments {
+				if a.Data == image {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	f.push(t, withPrompts(3))
+	_, c := streamServer(t, f)
+	var v viewer
+
+	c.send(t, subscribe("1", 0))
+	expectResult(t, &v, c, "1", true)
+	if m := v.next(t, c); m["snapshot"] == nil || images(v.snap) != 3 {
+		t.Fatalf("subscribe: %d images, want 3", images(v.snap))
+	}
+	f.push(t, withPrompts(4))
+	v.until(t, c, f.seq)
+	if images(v.snap) != 4 {
+		t.Fatalf("live: %d images, want 4", images(v.snap))
+	}
+
+	c.send(t, map[string]any{"type": "read", "id": "2", "sessionId": "chat-1", "after": 0})
+	m := expectResult(t, &v, c, "2", true)
+	var r struct {
+		Snapshot chat.Snapshot `json:"snapshot"`
+	}
+	if err := json.Unmarshal(mustJSON(m["data"]), &r); err != nil || images(&r.Snapshot) != 4 {
+		t.Fatalf("read: %d images, %v", images(&r.Snapshot), err)
+	}
+}
