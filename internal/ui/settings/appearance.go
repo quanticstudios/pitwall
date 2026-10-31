@@ -67,9 +67,18 @@ func (p *Page) themeCard(gtx gl.Context, t config.NamedTheme, w int, hover bool)
 	pad := gtx.Dp(8)
 	tw := w - 2*pad
 	thH := tw * 10 / 16
-	m := op.Record(gtx.Ops)
+	// A custom theme's tag sits right of the name, which shortens to fit.
+	var tag op.CallOp
+	var tagD gl.Dimensions
 	g := gtx
 	g.Constraints.Max.X = tw
+	if t.Custom {
+		m := op.Record(gtx.Ops)
+		tagD = p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, "custom")
+		tag = m.Stop()
+		g.Constraints.Max.X = max(0, tw-tagD.Size.X-gtx.Dp(8))
+	}
+	m := op.Record(gtx.Ops)
 	name := p.text(g, weight(th.UIFont, font.Medium), p.th.Sp(theme.Body), th.Fg, t.Name)
 	call := m.Stop()
 	h := pad + thH + gtx.Dp(8) + name.Size.Y + pad
@@ -93,11 +102,8 @@ func (p *Page) themeCard(gtx gl.Context, t config.NamedTheme, w int, hover bool)
 	call.Add(gtx.Ops)
 	o.Pop()
 	if t.Custom {
-		m := op.Record(gtx.Ops)
-		d := p.text(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, "custom")
-		c := m.Stop()
-		o := op.Offset(image.Pt(w-pad-d.Size.X, pad+thH+gtx.Dp(8))).Push(gtx.Ops)
-		c.Add(gtx.Ops)
+		o := op.Offset(image.Pt(w-pad-tagD.Size.X, pad+thH+gtx.Dp(8))).Push(gtx.Ops)
+		tag.Add(gtx.Ops)
 		o.Pop()
 	}
 	defer clip.Rect{Max: sz}.Push(gtx.Ops).Pop()
