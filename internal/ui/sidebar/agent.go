@@ -76,8 +76,8 @@ const (
 func isAgent(p model.Provider) bool { return model.IsAgent(p) }
 
 // AgentOf is the agent running in tab ws, idle or busy: the one with the
-// tab's highest-priority agent activity, else the first pane's agent, else
-// "".
+// tab's highest-priority agent activity, else its chat's provider, else the
+// first pane's agent, else "".
 func AgentOf(st *model.State, ws model.Workspace) model.Provider {
 	var acts []model.Activity
 	for _, a := range st.Activities {
@@ -87,6 +87,11 @@ func AgentOf(st *model.State, ws model.Workspace) model.Provider {
 	}
 	if a := model.Aggregate(acts); a != nil {
 		return a.Provider
+	}
+	for _, c := range st.Chats {
+		if c.ID == ws.Chat {
+			return c.Provider
+		}
 	}
 	for _, p := range st.Panes {
 		if p.WorkspaceID == ws.ID && isAgent(p.Provider) {
@@ -184,7 +189,7 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 // the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
-		"x": icX, "circle-alert": icCircleAlert}[name]
+		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}

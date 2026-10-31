@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- A chat tab shows its transcript instead of a placeholder: prompts, replies, one line per tool call that a click opens, reasoning folded, Allow, Allow for session and Deny on an approval it waits on, and an Open in aide button where aide is installed. The sidebar marks the tab with its agent, and the agent panel (Ctrl+Shift+L) shows the chat's plan, timeline and the changes in its folder.
 - New `pitwall update` installs the latest release, then hands the running daemon's panes to the new binary on Linux and macOS, so agents, dev servers and test loops keep running with their scrollback. The Update button does the same after its install. If the handoff fails, `pitwall update` restarts the daemon as before and says why; the button shows why and leaves the restart to "Restart to finish". Windows keeps the restart.
 - `pitwall chat` starts and drives chats: agents pitwall runs over their own protocol rather than in a terminal, each in a tab of its own. `chat new`, `send`, `approve`, `interrupt`, `set`, `read`, `wait` and `archive` work over the daemon's socket, and `pitwall ls` lists chats in their own section. The daemon starts no agent driver yet, so `chat new` says pitwall cannot run that agent until one is wired in. Chats do not survive a daemon restart yet.
 - Add an OpenCode managed-session driver with streamed text and tool calls, permission replies, questions, interrupt and session-ID resume. The daemon's provider selection is separate work.

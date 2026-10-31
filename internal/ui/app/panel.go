@@ -150,11 +150,15 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 		return
 	}
 	in := panel.Input{Pane: findPane(st, u.nav.focused()), Decide: st.Decide.Provider, Now: gtx.Now, ShowCost: u.cfg.ShowCost}
-	dir := ""
+	dir, chat := "", ""
 	if ws := findWorkspace(st, u.nav.workspace); ws != nil {
 		in.Branch = st.Stats[ws.ID]
 		in.Ports, in.Listening = ws.Ports, st.Listening[ws.ID]
 		dir = ws.Path
+		if c := findChat(st, ws.Chat); c != nil {
+			// A chat has no pane; the panel follows it as one that runs its agent.
+			in.Pane, chat = &model.Pane{ID: c.ID, WorkspaceID: ws.ID, Provider: c.Provider, Prompt: c.Title, Cwd: ws.Path}, c.ID
+		}
 	}
 	if in.Pane != nil {
 		for i := range st.Activities {
@@ -180,6 +184,14 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	in.WaitGit = u.panel.filesDir != "" && !u.panel.listed
 	in.WaitFeed = u.panel.watching != "" && u.panel.feed == nil
 	u.panel.mu.Unlock()
+	if ch, ok := u.b.(Chatter); ok && chat != "" {
+		s, read := ch.Chat(chat)
+		if read {
+			f := flow.Chat(s)
+			in.Feed = &f
+		}
+		in.WaitFeed = !read
+	}
 
 	paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: r.Min, Max: image.Pt(r.Min.X+1, r.Max.Y)}.Op())
 	r.Min.X++

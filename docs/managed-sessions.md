@@ -1071,6 +1071,15 @@ assistant text, one line per tool call, approvals with their ids.
 - ENG-2684 adds a placeholder in place of the transcript ("Chat: read it
   with pitwall chat read <id>"), so a GUI at `ChatLevel` handles a chat tab
   before ENG-2689 lands.
+- As built in ENG-2689: no `ChatSubscribe` exists yet, so the window reads
+  the chat on screen with `ChatRead` after its last seq every 150 ms while
+  the chat is connecting, running or waiting, and on any State change
+  otherwise. It keeps only that chat's snapshot. An approval has Allow,
+  Allow for session and Deny (`ChatApprove` with `By` "gui"); an input
+  request shows the `pitwall chat answer` command instead, and there is no
+  reason field or send box. "Open in aide" opens or focuses aide, found as
+  aIDE.app on macOS or an `aide.desktop` entry on Linux; aide cannot open
+  one chat until its bridge (M6).
 
 <a id="web"></a>
 ## Web protocol constraints
