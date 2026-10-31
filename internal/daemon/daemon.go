@@ -180,8 +180,9 @@ type Options struct {
 	Scrollback func() int
 	// Checkpoint snapshots a tab's work tree when its agent starts a turn,
 	// and DropTurns deletes the tab's snapshots when it closes
-	// (gitstat.Checkpoint); nil takes none.
-	Checkpoint func(ctx context.Context, worktree, ws string) error
+	// (gitstat.Checkpoint); nil takes none. Checkpoint returns the
+	// snapshot's commit.
+	Checkpoint func(ctx context.Context, worktree, ws string) (string, error)
 	DropTurns  func(ctx context.Context, dir, ws string) error
 	// Providers run chats, by provider; a provider missing here refuses
 	// ChatNew.
@@ -1527,36 +1528,38 @@ const turnWait = 2 * time.Second
 
 // checkpointWait takes tab ws's turn checkpoint at dir, waiting for it at
 // most turnWait; past that the turn goes on and the checkpoint finishes
-// on its own.
-func (d *Daemon) checkpointWait(dir, ws string) {
-	done := make(chan struct{})
-	go func() {
-		d.checkpoint(dir, ws)
-		close(done)
-	}()
+// on its own. It returns the checkpoint's commit, "" for none or past
+// turnWait.
+func (d *Daemon) checkpointWait(dir, ws string) string {
+	done := make(chan string, 1)
+	go func() { done <- d.checkpoint(dir, ws) }()
 	select {
-	case <-done:
+	case rev := <-done:
+		return rev
 	case <-time.After(turnWait):
+		return ""
 	}
 }
 
 // checkpoint snapshots tab ws's work tree at dir, unless the tab closed
 // while it waited: its refs are dropped then, and a checkpoint would make
 // them again.
-func (d *Daemon) checkpoint(dir, ws string) {
+func (d *Daemon) checkpoint(dir, ws string) string {
 	d.turnMu.Lock()
 	defer d.turnMu.Unlock()
 	d.mu.Lock()
 	open := d.workspace(ws) != nil
 	d.mu.Unlock()
 	if !open {
-		return
+		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := d.o.Checkpoint(ctx, dir, ws); err != nil {
+	rev, err := d.o.Checkpoint(ctx, dir, ws)
+	if err != nil {
 		log.Printf("tab %s: checkpoint: %q", ws, err)
 	}
+	return rev
 }
 
 // nextWorkspaceName is "workspace-N", the first N not taken in the project,

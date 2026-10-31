@@ -31,8 +31,11 @@ const chatUsage = `usage:
   pitwall chat set <chat> [--model M] [--effort E] [--mode M]
   pitwall chat read <chat> [--json]
   pitwall chat wait <chat> [--until done|blocked] [--timeout D]
+  pitwall chat fork <chat> <turn> [--worktree NAME]
+  pitwall chat rewind <chat> <turn>
   pitwall chat archive <chat>
-A chat is its id, a unique id prefix, or its tab (#N or name).`
+A chat is its id, a unique id prefix, or its tab (#N or name). A turn is
+its id or its number, 1 for the first.`
 
 // chatCommand is pitwall chat; wait exits as pitwall wait does.
 func chatCommand(args []string, out, errOut io.Writer) int {
@@ -78,7 +81,9 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 	case "wait":
 		flags.StringVar(&until, "until", "done", "")
 		flags.DurationVar(&timeout, "timeout", 0, "")
-	case "interrupt", "archive":
+	case "fork":
+		flags.StringVar(&worktree, "worktree", "", "")
+	case "interrupt", "archive", "rewind":
 	default:
 		return waitError, fmt.Errorf("unknown chat command %q\n%s", sub, chatUsage)
 	}
@@ -90,6 +95,7 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 	case sub == "new" || sub == "send" && len(args) >= 2:
 	case (sub == "ls" || sub == "providers") && len(args) == 0:
 	case sub == "approve" && (len(args) == 2 || len(args) == 3):
+	case (sub == "fork" || sub == "rewind") && len(args) == 2:
 	case sub == "wait" && len(args) == 1 && (until == "done" || until == "blocked"):
 	case (sub == "interrupt" || sub == "set" || sub == "read" || sub == "archive") && len(args) == 1:
 	default:
@@ -113,6 +119,9 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 	}
 	if m.Level < proto.ChatLevel {
 		return waitError, errors.New("the running pitwall daemon predates chats; restart it to update it (pitwall doctor)")
+	}
+	if (sub == "fork" || sub == "rewind") && m.Level < proto.ChatForkLevel {
+		return waitError, errors.New("restart the daemon to fork or rewind chats")
 	}
 	if sub == "providers" {
 		if m.Level < proto.ChatProvidersLevel {
@@ -196,6 +205,17 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 		request = proto.ChatSet{Chat: c.ID, Model: modelName, Effort: effort, Mode: mode}
 	case "archive":
 		request = proto.ChatArchive{Chat: c.ID}
+	case "fork":
+		r, err := chatCall(conn, proto.ChatFork{Chat: c.ID, Turn: args[1], Worktree: worktree})
+		if r.Chat != "" && err == nil {
+			fmt.Fprintln(out, r.Chat)
+			if r.Message != "" {
+				fmt.Fprintln(errOut, r.Message)
+			}
+		}
+		return code(err), err
+	case "rewind":
+		request = proto.ChatRewind{Chat: c.ID, Turn: args[1]}
 	case "read":
 		if err := conn.Send(proto.ChatRead{Chat: c.ID}); err != nil {
 			return waitError, err

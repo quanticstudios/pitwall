@@ -484,9 +484,9 @@ type Provider interface {
 
 // Origin is where a started provider session comes from.
 type Origin struct {
-	Resume string // a provider session to continue; "" starts a new one
-	At     string // a Config.Points value: continue from there, dropping what came after
-	Fork   bool   // continue under a new provider id, leaving Resume as it was
+	Resume string `json:"resume,omitempty"` // a provider session to continue; "" starts a new one
+	At     string `json:"at,omitempty"`     // a Config.Points value: continue from there, dropping what came after
+	Fork   bool   `json:"fork,omitempty"`   // continue under a new provider id, leaving Resume as it was
 }
 
 // Driver is one running provider process for one chat. Every method is
@@ -547,6 +547,10 @@ type Config struct {
 	// Resume is the provider session id: Claude's session_id, Codex's
 	// thread id. A fork's new id replaces it as soon as the driver says.
 	Resume string `json:"resume,omitempty"`
+	// From is where the next start continues instead of Resume: a fork or
+	// rewind whose new provider id has not arrived yet (Claude reports it
+	// with the first turn). The new id clears it.
+	From *Origin `json:"from,omitempty"`
 	// Points maps a turn id to Event.Point, for fork and rewind.
 	Points  map[string]string `json:"points,omitempty"`
 	Queue   []QueuedMessage   `json:"queue,omitempty"`
@@ -705,8 +709,7 @@ generate-json-schema --out DIR`). aide uses only the ones marked "aide".
 | `Start` | `initialize` `{clientInfo:{name:"pitwall",title:"pitwall",version}, capabilities:{experimentalApi:true}}`, then the `initialized` notification (aide) |
 | `Start`, `Origin{}` | `thread/start` `{cwd, model?, approvalPolicy: "on-request" (or "never" for bypassPermissions), sandbox: "workspace-write" (or "read-only" for plan)}`; the response's `thread.id` is the resume id (aide) |
 | `Start`, `Origin{Resume}` | `thread/resume` `{threadId, cwd, model?, approvalPolicy, sandbox}`; on an archived thread, `thread/unarchive` first |
-| `Start`, `Origin{Fork}` | `thread/fork` `{threadId, beforeTurnId or lastTurnId}`; the response's `thread.id` replaces the resume id |
-| rewind in place | `thread/revert` `{threadId, beforeTurnId}` ([fork and rewind](#fork-rewind)) |
+| `Start`, `Origin{Resume, At, Fork}` | `thread/fork` `{threadId: Resume, lastTurnId: At, cwd, model?, approvalPolicy, sandbox}`; `lastTurnId` keeps the turns through it, inclusive, and the response's `thread.id` replaces the resume id. `At` without `Fork` is `ErrUnsupported`: 0.166.0's `thread/revert` cuts history only before a turn, and the driver does not know the next one |
 | `Send` | `turn/start` `{threadId, input:[{type:"text",text},{type:"image",url:"data:<mime>;base64,..."}], clientUserMessageId: m.ID, effort?}`; the response's `turn.id` is the turn id (aide, without the id) |
 | `Steer` | `turn/steer` `{threadId, expectedTurnId, input, clientUserMessageId}` (aide) |
 | `Interrupt` | `turn/interrupt` `{threadId, turnId}` (aide) |
@@ -857,9 +860,9 @@ new id replaces it when `session.resume-id` arrives.
   message with a short summary of the last turns before it (the last
   assistant text of each, cut to 2,000 characters in all). The new id
   replaces `Config.Resume`.
-- `Event.Point` values in `Config.Points` survive a fallback but point at
-  the old provider session; a fork or rewind to one of them says so and
-  refuses.
+- A fallback drops `Config.Points` with the session they point into, so a
+  later fork or rewind to one of those turns takes the text recap of
+  [fork and rewind](#fork-rewind).
 
 <a id="reconcile"></a>
 ## Restart reconciliation
@@ -892,28 +895,57 @@ continued: ...".
 <a id="fork-rewind"></a>
 ## Fork and rewind
 
-Both name a turn of the chat. The driver's point for "the end of turn T"
-is `Config.Points[T]`; for "before turn T" it is the point of the turn
-before T, or a new provider session when T is the first.
+Both name a turn of the chat, by id or by number from 1. The driver's
+point for "the end of turn T" is `Config.Points[T]`, which
+`turn.completed` sets; a turn that failed or was interrupted has none.
+Both go through a fork of the provider session, so the session they
+start from never changes:
 
-| | Claude | Codex |
-| --- | --- | --- |
-| Fork after T | `--resume <Resume> --resume-session-at <Points[T]> --fork-session` | `thread/fork` `{threadId, lastTurnId: T}` (ENG-2691 confirms that `lastTurnId` cuts after T and `beforeTurnId` before it) |
-| Rewind to before T | `--resume <Resume> --resume-session-at <Points[T-1]> --fork-session`; the new id replaces `Resume` | `thread/revert` `{threadId, beforeTurnId: T}` |
+| | Origin | Claude | Codex |
+| --- | --- | --- | --- |
+| Fork after T | `{Resume, At: Points[T], Fork: true}` | `--resume <Resume> --resume-session-at <At> --fork-session` | `thread/fork` `{threadId, lastTurnId: At}` |
+| Rewind to before T | `{Resume, At: Points[T-1], Fork: true}`, or `{}` when T is the first | the same flags | the same request |
 
-- Fork makes a new chat (and tab) whose `config.json` copies the old one's
-  settings, with `Origin{Resume, At, Fork: true}`. Its first delta is a
-  snapshot holding the old chat's items up to the end of T and a `system`
-  item "Forked from <title>". The old chat does not change. A fork can ask
-  for a new worktree, made from the old tab's branch.
-- Rewind restores files with the Undo turn logic in
-  `internal/gitstat/turns.go` to T's checkpoint and refuses in the same
-  cases (HEAD moved, files changed since). Then it restarts the provider at
-  the point and appends a `snapshot` delta with the items after T's start
-  removed.
-- A provider that cannot (Codex without `thread/fork`, a point from before
-  a resume fallback) gets the replay fallback of [resume](#resume), with a
-  `system` item that says history was replayed as text.
+Codex's `lastTurnId` is inclusive ("turns after `last_turn_id` are
+omitted"), so the fork keeps T. `thread/revert` would cut in place, but
+it takes the turn after the point, and one fork path serves both.
+
+The origin waits in `Config.From` until the provider reports the new
+session's id (`session.resume-id`): Codex does in the `thread/fork`
+response, Claude only in the `system/init` of the next turn. A daemon
+restart before then starts from `From` again, so a fork never resumes the
+session it forked in place.
+
+- Fork (`ChatFork`) makes a new chat and tab, in the same session as the
+  old tab, or in a new worktree made from the old tab's branch when
+  `Worktree` is set. Its `config.json` copies the old one's settings and
+  the points of the turns it keeps. Its first delta is a snapshot holding
+  the old chat's turns through T and the items before the first item of
+  a later turn, then a `system` item "Forked from <title>"; the copied
+  turns lose their `checkpointId`, which names the old tab's checkpoints.
+  The provider starts at once. The old chat does not change. A fork of a
+  running turn is `busy`.
+- Each turn's checkpoint ([attach](#attach)) is its summary's
+  `checkpointId`: the loop takes it before `Driver.Send` and sets it with
+  a `turn` delta when `turn.started` arrives. A checkpoint that takes
+  longer than the prompt hook's 2 s leaves the turn without one.
+- Rewind (`ChatRewind`) refuses while a turn runs (`busy`) and for a turn
+  without a `checkpointId` (`unsupported`). It restores the files with
+  `gitstat.RewindTurn`, Undo turn's code aimed at T's checkpoint, and
+  refuses (`conflict`) in the same cases: HEAD moved since the checkpoint,
+  a `.gitignore` changed while files would be removed, a file in the way
+  that no snapshot has. Then it drops the checkpoints after T and keeps
+  the files it replaced as the redo snapshot, so Redo turn puts them
+  back; files that already match T's checkpoint are no refusal. Only once
+  the files are back does it close the provider, append a `snapshot`
+  delta with T and the turns after it removed and a `system` item
+  "Rewound to before turn N", and drop the removed turns' points. The
+  provider starts with the next command that needs it.
+- A provider that cannot fork (refuses `Start` from the origin), and a
+  turn without a point, get the replay fallback of [resume](#resume): a
+  new provider session, a `system` item "The provider continues from a
+  text recap of this chat, not its history: <why>", and the recap before
+  the next message.
 
 <a id="approvals"></a>
 ## Who answers approvals
@@ -1025,7 +1057,7 @@ type ChatRead struct {
 type ChatSubscribe struct{ Chat string; After int64 } // ChatRead, then every new delta as ChatDeltas
 type ChatUnsubscribe struct{ Chat string }
 
-type ChatFork struct{ Chat, Turn, Worktree string }
+type ChatFork struct{ Chat, Turn, Worktree string } // ChatFork and ChatRewind are at proto.ChatForkLevel (40)
 type ChatRewind struct{ Chat, Turn string }
 type ChatArchive struct{ Chat string; Delete bool }
 type ChatUnarchive struct{ Chat string }

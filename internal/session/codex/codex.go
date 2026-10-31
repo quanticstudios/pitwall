@@ -34,8 +34,8 @@ const maxRestarts = 3
 type Provider struct{}
 
 func (Provider) Start(ctx context.Context, cfg session.Config, from session.Origin, emit func(session.Event)) (session.Driver, error) {
-	if from.Fork || from.At != "" {
-		return nil, session.ErrUnsupported // fork and rewind: ENG-2691
+	if from.At != "" && !from.Fork || from.Fork && from.Resume == "" {
+		return nil, session.ErrUnsupported // thread/fork cuts a copy; nothing cuts a thread in place
 	}
 	d := &driver{cfg: cfg, events: make(chan session.Event, 64), emitted: make(chan struct{}), requests: map[string]request{}}
 	go func() {
@@ -45,7 +45,7 @@ func (Provider) Start(ctx context.Context, cfg session.Config, from session.Orig
 		}
 	}()
 	d.cmdMu.Lock()
-	err := d.start(ctx, from.Resume)
+	err := d.start(ctx, from)
 	d.cmdMu.Unlock()
 	if err != nil {
 		d.Close(context.Background())
@@ -123,9 +123,9 @@ func (d *driver) post(e session.Event) {
 	d.events <- e
 }
 
-// start runs a server and opens the thread: a new one, or resume. The
-// caller holds cmdMu.
-func (d *driver) start(ctx context.Context, resume string) error {
+// start runs a server and opens the thread: a new one, a resumed one, or a
+// fork. The caller holds cmdMu.
+func (d *driver) start(ctx context.Context, from session.Origin) error {
 	cmd := exec.Command(cmp.Or(os.Getenv("PITWALL_CODEX_COMMAND"), "codex"), "app-server")
 	cmd.Dir = d.cfg.Cwd
 	cmd.Env = append(os.Environ(), d.cfg.Env...)
@@ -155,7 +155,7 @@ func (d *driver) start(ctx context.Context, resume string) error {
 	d.post(session.Event{Type: session.EventStarted})
 	go d.read(p, stdout)
 
-	if err := d.open(ctx, p, resume); err != nil {
+	if err := d.open(ctx, p, from); err != nil {
 		kill, cancel := context.WithCancel(context.Background())
 		cancel()
 		d.stop(kill, p)
@@ -164,7 +164,7 @@ func (d *driver) start(ctx context.Context, resume string) error {
 	return nil
 }
 
-func (d *driver) open(ctx context.Context, p *proc, resume string) error {
+func (d *driver) open(ctx context.Context, p *proc, from session.Origin) error {
 	res, err := d.call(ctx, p, "initialize", map[string]any{
 		"clientInfo":   map[string]string{"name": "pitwall", "title": "pitwall", "version": "0"},
 		"capabilities": map[string]bool{"experimentalApi": true},
@@ -192,9 +192,18 @@ func (d *driver) open(ctx context.Context, p *proc, resume string) error {
 		params["model"] = d.cfg.Model
 	}
 	method := "thread/start"
-	if resume != "" {
+	switch {
+	case from.Fork:
+		// lastTurnId keeps the turns through it; the new thread's id
+		// replaces the resume id below.
+		method = "thread/fork"
+		params["threadId"] = from.Resume
+		if from.At != "" {
+			params["lastTurnId"] = from.At
+		}
+	case from.Resume != "":
 		method = "thread/resume"
-		params["threadId"] = resume
+		params["threadId"] = from.Resume
 	}
 	if res, err = d.call(ctx, p, method, params); err != nil {
 		return err
@@ -453,7 +462,7 @@ func (d *driver) restart(ctx context.Context) error {
 	d.mu.Lock()
 	thread := d.thread
 	d.mu.Unlock()
-	return d.start(ctx, thread)
+	return d.start(ctx, session.Origin{Resume: thread})
 }
 
 func (d *driver) Steer(ctx context.Context, m session.Message) error {

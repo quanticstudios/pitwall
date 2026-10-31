@@ -46,6 +46,8 @@ optional name act on the pane's own tab.
 | `pitwall chat set <chat> [--model M] [--effort E] [--mode M]` | Change the chat's model, effort or permission mode |
 | `pitwall chat read <chat> [--json]`   | Print the transcript: prompts, replies, a line per tool call, and pending approvals with their ids; `--json` prints the snapshot |
 | `pitwall chat wait <chat> [--until done\|blocked] [--timeout D]` | Block until the chat's turn ends or it waits on an answer; exit codes as `pitwall wait` |
+| `pitwall chat fork <chat> <turn> [--worktree NAME]` | Open a new chat that continues from the end of a turn (its id, or its number from 1), through the agent's own fork, beside the chat or in a new worktree made from its branch; print the new chat's id. The chat does not change |
+| `pitwall chat rewind <chat> <turn>`   | Drop the turn and every turn after it: the files go back to the turn's checkpoint, refused as Undo turn refuses (HEAD moved, a file in the way), and the agent continues from the turn before |
 | `pitwall chat archive <chat>`         | Close the chat and its tab, as `pitwall kill` does |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
 | `pitwall doctor`                      | Check that the `pitwall` on PATH is this one, the daemon runs this version, each installed agent's hooks and skill are in place, and the config loads; prints `ok`, `FAIL` or `info` per check, with the fix under each FAIL, and exits 1 on a FAIL. It changes nothing |

@@ -158,6 +158,10 @@ func TestChatCLI(t *testing.T) {
 			return proto.ChatResult{Chat: m.Chat, Message: "queued"}
 		case proto.ChatApprove:
 			return proto.ChatResult{Chat: m.Chat, Code: "conflict", Message: "someone answered first"}
+		case proto.ChatFork:
+			return proto.ChatResult{Chat: "fork-id"}
+		case proto.ChatRewind:
+			return proto.ChatResult{Chat: m.Chat, Message: "rewound to before turn 2"}
 		case proto.ChatRead:
 			b, _ := json.Marshal(session.Snapshot{Content: []session.Item{{Kind: session.KindAssistantText, Text: "Hi."}}})
 			return proto.ChatDeltas{Chat: m.Chat, Snapshot: b, Seq: 3}
@@ -179,6 +183,8 @@ func TestChatCLI(t *testing.T) {
 		{[]string{"chat", "approve", "0f3e", "r1", "deny", "--reason", "no"}, 1, "",
 			proto.ChatApprove{Chat: id, Request: "r1", Decision: "deny", Reason: "no", By: "cli"}, "conflict: someone answered first"},
 		{[]string{"chat", "read", "0f3e"}, 0, "Hi.\n\n", proto.ChatRead{Chat: id}, ""},
+		{[]string{"chat", "fork", "0f3e", "1", "--worktree", "try"}, 0, "fork-id\n", proto.ChatFork{Chat: id, Turn: "1", Worktree: "try"}, ""},
+		{[]string{"chat", "rewind", "#2", "2"}, 0, "rewound to before turn 2\n", proto.ChatRewind{Chat: id, Turn: "2"}, ""},
 		{[]string{"chat", "ls", "--json"}, 0, "", nil, ""},
 		{[]string{"chat", "providers"}, 0, "acp:grok\tgrok\n", proto.ChatProviders{}, ""},
 		{[]string{"chat", "providers", "--json"}, 0, "[{\"id\":\"acp:grok\",\"name\":\"grok\"}]\n", proto.ChatProviders{}, ""},

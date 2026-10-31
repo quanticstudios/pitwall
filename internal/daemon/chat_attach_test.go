@@ -93,14 +93,14 @@ func TestChatCheckpoint(t *testing.T) {
 	var got []string
 	var prov *stubProvider
 	d, prov := chatDaemon(t, func(o *Options) {
-		o.Checkpoint = func(_ context.Context, dir, ws string) error {
+		o.Checkpoint = func(_ context.Context, dir, ws string) (string, error) {
 			prov.mu.Lock()
 			sent := len(prov.drivers[0].got())
 			prov.mu.Unlock()
 			mu.Lock()
 			got = append(got, fmt.Sprintf("%s %s after %d sends", dir, ws, sent))
 			mu.Unlock()
-			return nil
+			return "", nil
 		}
 	})
 	dir := t.TempDir()
