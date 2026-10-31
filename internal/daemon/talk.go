@@ -98,9 +98,9 @@ func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 var (
 	// sendSettle is how long after a hook a message waits, so that after a
 	// Stop the agent's TUI has redrawn its input box.
-	sendSettle = 500 * time.Millisecond
+	sendSettle = newTiming(500 * time.Millisecond)
 	// sendQuiet is how long a key of the user's holds messages to its pane.
-	sendQuiet = 3 * time.Second
+	sendQuiet = newTiming(3 * time.Second)
 	// sendStart is how long the next message waits for the turn the last
 	// one started to report; past it, the agent dropped that one.
 	sendStart = 30 * time.Second
@@ -191,7 +191,7 @@ func (d *Daemon) deliver(pane string) {
 		return
 	}
 	now, hook := time.Now(), d.live.hookAt[pane]
-	wait := max(hook.Add(sendSettle).Sub(now), d.mail.keyAt[pane].Add(sendQuiet).Sub(now))
+	wait := max(hook.Add(sendSettle.get()).Sub(now), d.mail.keyAt[pane].Add(sendQuiet.get()).Sub(now))
 	// why: Windows' clock can stamp a fast hook with the time of the typing
 	// itself; the hook before the typing is at least sendSettle older.
 	if t := d.mail.typed[pane]; hook.Before(t) {

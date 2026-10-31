@@ -26,8 +26,7 @@ import (
 // device's token.
 func remoteDaemon(t *testing.T) (*Daemon, *fakes, func(method, path, body string) (int, string)) {
 	t.Helper()
-	oldDelay, oldStill := settleDelay, stillFor
-	settleDelay, stillFor = 20*time.Millisecond, 10*time.Millisecond
+	oldDelay, oldStill := settleDelay.set(20*time.Millisecond), stillFor.set(10*time.Millisecond)
 	f := &fakes{statsCalls: map[string]int{}}
 	f.saved = model.State{
 		Sessions: []model.Session{{ID: "s", Name: "work"}},
@@ -44,10 +43,11 @@ func remoteDaemon(t *testing.T) (*Daemon, *fakes, func(method, path, body string
 	t.Cleanup(func() {
 		// why: a key starts settle, which reads these, then takes d.mu; taking
 		// d.mu after it has run orders those reads before the restore.
-		time.Sleep(4 * settleDelay)
+		time.Sleep(4 * settleDelay.get())
 		d.mu.Lock()
 		d.mu.Unlock()
-		settleDelay, stillFor = oldDelay, oldStill
+		settleDelay.set(oldDelay)
+		stillFor.set(oldStill)
 	})
 	for i, p := range []struct {
 		id string
