@@ -155,6 +155,12 @@ func TestGraphicsQuery(t *testing.T) {
 	// An upload cut off by a new command is dropped, not joined to it.
 	e.Write([]byte("\x1b_Ga=t,f=24,s=1,v=1,i=33,m=1;AA\x1b\\\x1b_Ga=p,i=33\x1b\\"))
 	r.waitFor(t, "i=33;ENOENT")
+	// Ids use all of uint32; c= past every limit is capped, not wrapped.
+	e.Write([]byte("\x1b_Gi=4000000000,s=1,v=1,a=T,f=24,c=99999999999,r=1,C=1;AAAA\x1b\\"))
+	r.waitFor(t, "\x1b_Gi=4000000000;OK\x1b\\")
+	if g := e.Snapshot(); len(g.Images) != 1 || g.Images[0].Cols != maxPlaceCells {
+		t.Fatalf("placements %+v", g.Images)
+	}
 	e.Write([]byte("\x1b[16t"))
 	r.waitFor(t, "\x1b[6;20;10t")
 

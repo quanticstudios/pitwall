@@ -144,9 +144,18 @@ func (c *gcmd) str(k byte, def byte) byte {
 	return def
 }
 
+// num reads a numeric key: 0 when it is missing or malformed, clamped to
+// the int32 range, so the int it returns fits on every platform.
 func (c *gcmd) num(k byte) int {
-	n, _ := strconv.ParseInt(c.keys[k], 10, 64)
-	return int(max(min(n, 1<<32), -1<<32))
+	n, _ := strconv.ParseInt(c.keys[k], 10, 32)
+	return int(n)
+}
+
+// id reads an image or placement id, which may use all of uint32: 0 when
+// it is missing or malformed.
+func (c *gcmd) id(k byte) uint32 {
+	n, _ := strconv.ParseUint(c.keys[k], 10, 32)
+	return uint32(n)
 }
 
 // parseGraphics reads "key=value,..." control data.
@@ -241,14 +250,14 @@ func (g *graphics) cellSize() image.Point {
 
 // reply answers c unless it named no image or its q= silences msg.
 func (g *graphics) reply(e *xvt.Emulator, c *gcmd, msg string) {
-	id := c.num('i')
+	id := c.id('i')
 	q := c.num('q')
-	if id <= 0 || q >= 1 && msg == "OK" || q >= 2 {
+	if id == 0 || q >= 1 && msg == "OK" || q >= 2 {
 		return
 	}
 	pid := ""
-	if p := c.num('p'); p > 0 {
-		pid = ",p=" + strconv.Itoa(p)
+	if p := c.id('p'); p > 0 {
+		pid = ",p=" + strconv.FormatUint(uint64(p), 10)
 	}
 	_, _ = fmt.Fprintf(e.InputPipe(), "\x1b_Gi=%d%s;%s\x1b\\", id, pid, msg)
 }
@@ -281,14 +290,14 @@ func (g *graphics) run(e *xvt.Emulator, st *state, c *gcmd) {
 			g.reply(e, c, "OK")
 			return
 		}
-		p.id = uint32(max(0, c.num('i')))
+		p.id = c.id('i')
 		g.store(p)
 		if a == 'T' {
 			g.place(e, st, p, c)
 		}
 		g.reply(e, c, "OK")
 	case 'p':
-		p := g.find(c.num('i'))
+		p := g.find(c.id('i'))
 		if p == nil {
 			g.reply(e, c, "ENOENT:no image with this id")
 			return
@@ -300,12 +309,12 @@ func (g *graphics) run(e *xvt.Emulator, st *state, c *gcmd) {
 	}
 }
 
-func (g *graphics) find(id int) *picture {
-	if id <= 0 {
+func (g *graphics) find(id uint32) *picture {
+	if id == 0 {
 		return nil
 	}
 	for _, p := range slices.Backward(g.imgs) {
-		if p.id == uint32(id) && p.pix.Load() != nil {
+		if p.id == id && p.pix.Load() != nil {
 			return p
 		}
 	}
@@ -347,8 +356,10 @@ func (g *graphics) drop(gone func(*picture) bool) {
 
 // place puts p at the cursor and moves the cursor past it unless C=1.
 func (g *graphics) place(e *xvt.Emulator, st *state, p *picture, c *gcmd) {
-	src := image.Rect(c.num('x'), c.num('y'), 0, 0)
-	src.Max = src.Min.Add(image.Pt(c.num('w'), c.num('h')))
+	// Clamped first, so the sums below cannot overflow.
+	side := func(k byte) int { return min(max(c.num(k), 0), maxImageSide) }
+	src := image.Rect(side('x'), side('y'), 0, 0)
+	src.Max = src.Min.Add(image.Pt(side('w'), side('h')))
 	if src.Dx() <= 0 {
 		src.Max.X = p.w
 	}
@@ -360,7 +371,7 @@ func (g *graphics) place(e *xvt.Emulator, st *state, p *picture, c *gcmd) {
 		return
 	}
 	cell := g.cellSize()
-	cols, rows := c.num('c'), c.num('r')
+	cols, rows := min(c.num('c'), maxPlaceCells), min(c.num('r'), maxPlaceCells)
 	switch {
 	case cols <= 0 && rows <= 0:
 		cols, rows = ceilDiv(src.Dx(), cell.X), ceilDiv(src.Dy(), cell.Y)
@@ -371,7 +382,7 @@ func (g *graphics) place(e *xvt.Emulator, st *state, p *picture, c *gcmd) {
 	}
 	cols, rows = min(max(cols, 1), maxPlaceCells), min(max(rows, 1), maxPlaceCells)
 	pos := e.CursorPosition()
-	pl := &place{img: p, id: uint32(max(0, c.num('p'))), line: rowLine(e, st, pos.Y), col: pos.X,
+	pl := &place{img: p, id: c.id('p'), line: rowLine(e, st, pos.Y), col: pos.X,
 		cols: cols, rows: rows, src: src, alt: e.IsAltScreen()}
 	if pl.id != 0 {
 		g.places = slices.DeleteFunc(g.places, func(o *place) bool { return o.img == p && o.id == pl.id })
@@ -434,7 +445,7 @@ func (g *graphics) delete(e *xvt.Emulator, st *state, c *gcmd) {
 			return pl.alt == alt && int64(pl.line)+int64(pl.rows) > int64(top) && pl.line < top+uint64(e.Height())
 		}
 	case 'i':
-		id, pid := uint32(max(0, c.num('i'))), uint32(max(0, c.num('p')))
+		id, pid := c.id('i'), c.id('p')
 		gone = func(pl *place) bool { return pl.img.id == id && (pid == 0 || pl.id == pid) }
 		named = func(p *picture) bool { return p.id == id }
 	case 'c':
@@ -446,7 +457,7 @@ func (g *graphics) delete(e *xvt.Emulator, st *state, c *gcmd) {
 	case 'y':
 		gone = func(pl *place) bool { return pl.alt == alt && at(pl, 0, c.num('y')) }
 	case 'r':
-		lo, hi := uint32(max(0, c.num('x'))), uint32(max(0, c.num('y')))
+		lo, hi := c.id('x'), c.id('y')
 		gone = func(pl *place) bool { return pl.img.id >= lo && pl.img.id <= hi }
 		named = func(p *picture) bool { return p.id >= lo && p.id <= hi }
 	default:
