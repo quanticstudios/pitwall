@@ -25,6 +25,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/daemon"
+	"github.com/quanticstudios/pitwall/internal/logind"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -147,6 +148,9 @@ const usage = `usage:
                              if that fails, restart the daemon (see docs/usage.md)
   pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
+  pitwall snapshots [restore <name>]
+                             list the saved tabs' snapshots, or stop the daemon
+                             and put one back (see docs/state.md)
   pitwall remote <cmd>       pair, devices, revoke: answer agents from a phone (see pitwall remote)
   pitwall web <cmd>          open: the web client in a browser; token: the token local web clients connect with (see pitwall web)
 `
@@ -215,6 +219,8 @@ func main() {
 		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "logs":
 		err = runLogs(os.Args[2:], os.Stdout)
+	case "snapshots":
+		err = runSnapshots(os.Args[2:], os.Stdout)
 	case "remote":
 		os.Exit(runRemote(os.Args[2:], os.Stdout, os.Stderr))
 	case "web":
@@ -303,8 +309,33 @@ func runDaemon() (err error) {
 		ln.Close()
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	return serveDaemon(d, ln)
+}
+
+// serveDaemon serves d until a stop signal, and has logind wait for it to
+// save before the system shuts down or sleeps. SIGHUP comes with SIGTERM when
+// a login session ends; a daemon started with SIGHUP ignored, as under
+// nohup, keeps ignoring it.
+func serveDaemon(d *daemon.Daemon, ln net.Listener) error {
+	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if !signal.Ignored(syscall.SIGHUP) {
+		signals = append(signals, syscall.SIGHUP)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
+	go func() {
+		err := logind.Watch(ctx, func(shutdown bool) {
+			if shutdown {
+				log.Printf("the system is shutting down: saving tabs")
+				d.Freeze()
+			} else {
+				d.Save()
+			}
+		}, d.Thaw)
+		if err != nil && !errors.Is(err, errors.ErrUnsupported) {
+			log.Printf("logind: %q; tabs are saved at shutdown only when the daemon gets SIGTERM or SIGHUP", err)
+		}
+	}()
 	return d.Serve(ctx, ln)
 }
 
@@ -371,9 +402,7 @@ func runHandoffDaemon(answer *os.File) (err error) {
 			}
 		}()
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return d.Serve(ctx, ln)
+	return serveDaemon(d, ln)
 }
 
 // runHook never fails loudly: an agent must not stall or print errors because
