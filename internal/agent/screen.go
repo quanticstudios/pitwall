@@ -31,17 +31,19 @@ var spinner = regexp.MustCompile(`^\s*[*·✢✳✶✻✽]\s+\S.*…(?:\s+\(\d+[
 //
 // Claude Code 2.1.287 hides its spinner while a reply streams, so ScreenNone
 // does not prove a turn ended; the caller also checks the screen is still.
-func ReadScreen(g vt.Grid) Screen {
+func ReadScreen(g vt.Grid) Screen { return readScreen(g, nil) }
+
+func readScreen(g vt.Grid, trace *ScreenTrace) Screen {
 	lines := bottomLines(g, screenLines)
 	busy := false
 	for _, l := range lines {
 		low := strings.ToLower(l)
 		// "esc back" is the footer of Codex's folder trust dialog, which a
 		// worker started in a new folder stops at.
-		if strings.Contains(low, "esc to cancel") || strings.Contains(low, "esc back") || strings.Contains(low, "do you want to proceed") || strings.Contains(low, "would you like to proceed") {
+		if trace.contains("form", "esc to cancel", l, low) || trace.contains("form", "esc back", l, low) || trace.contains("form", "do you want to proceed", l, low) || trace.contains("form", "would you like to proceed", l, low) {
 			return ScreenForm
 		}
-		busy = busy || strings.Contains(low, "esc to interrupt") || spinner.MatchString(l)
+		busy = busy || trace.contains("busy", "esc to interrupt", l, low) || trace.check("busy/spinner", spinner.String(), l, spinner.MatchString(l))
 	}
 	if busy {
 		return ScreenBusy
@@ -53,9 +55,12 @@ func ReadScreen(g vt.Grid) Screen {
 // pending-approval, plan-ready or awaiting-input. It is "" for a screen with
 // none of them, which is an idle prompt or a reply streaming without a
 // spinner; the caller tells those apart by whether the screen still moves.
-func State(g vt.Grid) model.AgentState {
-	switch ReadScreen(g) {
+func State(g vt.Grid) model.AgentState { return state(g, nil) }
+
+func state(g vt.Grid, trace *ScreenTrace) model.AgentState {
+	switch readScreen(g, trace) {
 	case ScreenBusy:
+		trace.decide("busy")
 		return model.StateWorking
 	case ScreenNone:
 		return ""
@@ -63,13 +68,16 @@ func State(g vt.Grid) model.AgentState {
 	for _, l := range bottomLines(g, screenLines) {
 		low := strings.ToLower(l)
 		switch {
-		case strings.Contains(low, "would you like to proceed"):
+		case trace.contains("plan", "would you like to proceed", l, low):
+			trace.decide("plan")
 			return model.StatePlanReady
 		// Claude's AskUserQuestion and MCP input forms, Codex's question form.
-		case strings.Contains(low, "enter to select"), strings.Contains(low, "requests your input"), strings.Contains(low, "enter to submit"):
+		case trace.contains("input", "enter to select", l, low), trace.contains("input", "requests your input", l, low), trace.contains("input", "enter to submit", l, low):
+			trace.decide("input")
 			return model.StateAwaitingInput
 		}
 	}
+	trace.decide("form")
 	return model.StatePendingApproval
 }
 
@@ -109,11 +117,16 @@ var screens = map[model.Provider]screenText{
 
 // StateOf is State for agent p: Claude's, Codex's and pi's screens by
 // State's rules, the agents in screens by their text, and "" for any other.
-func StateOf(p model.Provider, g vt.Grid) model.AgentState {
+func StateOf(p model.Provider, g vt.Grid) model.AgentState { return stateOf(p, g, nil) }
+
+func stateOf(p model.Provider, g vt.Grid, trace *ScreenTrace) model.AgentState {
 	s, ok := screens[p]
 	if !ok {
 		if p == model.ProviderClaude || p == model.ProviderCodex || p == model.ProviderPi {
-			return State(g)
+			return state(g, trace)
+		}
+		if trace != nil {
+			trace.Rule = "no-screen-rules"
 		}
 		return ""
 	}
@@ -130,7 +143,8 @@ func StateOf(p model.Provider, g vt.Grid) model.AgentState {
 		for _, l := range lines {
 			low := strings.ToLower(l)
 			for _, sub := range m.subs {
-				if strings.Contains(low, sub) {
+				if trace.contains(string(m.state), sub, l, low) {
+					trace.decide(string(m.state))
 					return m.state
 				}
 			}

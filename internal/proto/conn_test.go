@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -102,6 +103,13 @@ func allMessages() []any {
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},
 		AgentEvent{Pane: "a", Provider: model.ProviderCodex, Payload: []byte(`{"x":1}`)},
+		AgentExplain{Pane: "a", Provider: model.ProviderCodex},
+		AgentExplanation{SchemaVersion: 1, Pane: "a", Provider: model.ProviderCodex, State: model.StateWorking, Rule: "busy/esc to interrupt",
+			Screen: agent.ScreenTrace{Provider: model.ProviderCodex, State: model.StateWorking, Rule: "busy/esc to interrupt",
+				Matched: &agent.ScreenCheck{Name: "busy/esc to interrupt", Pattern: "esc to interrupt", Matched: true, Line: "esc to interrupt"},
+				Checks:  []agent.ScreenCheck{{Name: "form/esc back", Pattern: "esc back"}, {Name: "busy/esc to interrupt", Pattern: "esc to interrupt", Matched: true, Line: "esc to interrupt"}}},
+			Process: &AgentProcess{Foreground: 42, Provider: model.ProviderCodex, Comm: "codex"},
+			Hook:    &AgentHook{Provider: model.ProviderCodex, State: model.StateWorking, At: now, AgeMS: 1500}},
 		StateMsg{State: st, Level: Level},
 		Frame{Pane: "a", Grid: bigGrid(200, 60), Modes: vt.Modes{AppCursorKeys: true, Mouse: vt.MouseAny, MouseSGR: true, KittyKeyboard: 3},
 			ScrollOffset: 2, ScrollMax: 9, ScrollPushed: 1 << 40},

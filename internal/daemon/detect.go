@@ -112,6 +112,7 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	var prov model.Provider
 	var comm string
 	var g vt.Grid
+	var trace agent.ScreenTrace
 	var screen model.AgentState // an agent's state read from its screen, without hooks
 	switch {
 	case own && l.shell != "" && commOf(fg) == l.shell: // the shell at its prompt, not exec'd into something else
@@ -121,7 +122,8 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		prov, comm = identify(fg)
 		if prov != "" && !l.hooked {
 			g = l.p.Snapshot()
-			screen = agent.StateOf(prov, g)
+			trace = agent.ExplainScreen(prov, g)
+			screen = trace.State
 		}
 	}
 	var cwd string
@@ -159,21 +161,28 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 		// Another agent took the foreground after this poll's exit check:
 		// never a terminal command, and the next poll reads its screen.
 		d.setActivity(ctx, l.id, "", "", "")
+		d.recordExplanation(l.id, prov, "", "hook-process-changed", agent.ScreenTrace{})
 	case prov != "":
 		s := screen
+		rule := trace.Rule
 		if s == "" && prev == model.StateWorking && !slices.Equal(det.cells, g.Cells) {
+			rule = "screen-moving"
 			s = model.StateWorking // a reply streaming with the spinner hidden
 		} else if s == "" && (prev == model.StateWorking || prev == model.StateCompleted) {
+			rule = "screen-still"
 			s = model.StateCompleted
 		}
 		det.cells = g.Cells
 		d.setActivity(ctx, l.id, prov, s, "")
+		d.recordExplanation(l.id, prov, s, rule, trace)
 	case !own || l.shell == "": // a job, or the command the pane was opened with
 		det.cells = nil
 		d.setActivity(ctx, l.id, model.ProviderTerminal, model.StateTerminalRunning, comm)
+		d.recordExplanation(l.id, model.ProviderTerminal, model.StateTerminalRunning, "terminal-process", agent.ScreenTrace{})
 	default:
 		det.cells = nil
 		d.setActivity(ctx, l.id, "", "", "")
+		d.recordExplanation(l.id, "", "", "shell-prompt", agent.ScreenTrace{})
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id }); i >= 0 && cwd != "" && d.st.Panes[i].Cwd != cwd {
 			d.st.Panes[i].Cwd = cwd
 			d.changed()

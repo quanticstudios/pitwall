@@ -796,6 +796,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(reply) // a reply to this client alone
 			continue
 		}
+		if r, ok := m.(proto.AgentExplain); ok {
+			c.queue(d.agentExplain(r))
+			continue
+		}
 		if r, ok := m.(proto.Read); ok {
 			c.queue(d.read(r)) // a reply to this client alone
 			continue
@@ -1349,6 +1353,8 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.holds, id)
 	delete(d.views, id)
 	delete(d.resumed, id)
+	delete(d.live.explanations, id)
+	delete(d.live.lastHook, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.fg, id)
 	delete(d.live.started, id)
@@ -1458,7 +1464,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		log.Printf("pane %s: pi shut down; held, keeping %q", p.ID, prev.State)
 	}
 
-	if next, ok := d.o.Derive(prev, m.Provider, m.Payload, now); ok && !keep {
+	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
+	if derived {
+		if d.live.lastHook == nil {
+			d.live.lastHook = map[string]proto.AgentHook{}
+		}
+		d.live.lastHook[p.ID] = proto.AgentHook{Provider: m.Provider, State: next.State, At: now}
+	}
+	if derived && !keep {
+		d.recordExplanation(p.ID, m.Provider, next.State, "hook", agent.ScreenTrace{})
 		changed = true
 		clearDecisions(&next) // a new state needs new answers
 		if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {

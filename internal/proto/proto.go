@@ -118,6 +118,7 @@ import (
 // matching Version enough. Daemons of Version 16 and earlier refuse every
 // Version but their own and ignore Level.
 //
+// Version 17 added AgentExplain and AgentExplanation.
 // Version 16 added NewSession.Loose, a tab outside every group.
 // Version 15 added Pane.Transcript, the agent session's own file.
 // Version 14 added Pane.Held and ExitUnknown: a held pane survives a daemon
@@ -145,7 +146,7 @@ import (
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames.
-const Version = 16
+const Version = 17
 
 // Level is the count of additive changes within Version; see Version.
 const Level = 47
@@ -828,6 +829,7 @@ var Messages = []any{
 	ChatFork{}, ChatRewind{},
 	ChatRename{}, ChatPin{},
 	ChatUnarchive{},
+	AgentExplain{}, AgentExplanation{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
