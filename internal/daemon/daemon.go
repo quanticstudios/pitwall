@@ -449,6 +449,10 @@ func NewWith(o Options) (*Daemon, error) {
 	}
 	d.loadChats()
 	d.tidy()
+	d.st.Closed = model.PruneClosed(d.st.Closed, time.Now())
+	for i := range d.st.Closed {
+		d.st.Closed[i].Gone = !isDir(d.st.Closed[i].Folder())
+	}
 	d.restoring.saved = saved
 	d.orderRestores()
 	d.restoreNext()
@@ -933,6 +937,10 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.setTabOptions(m)
 	case proto.SetTabInbox:
 		return d.setTabInbox(m)
+	case proto.ReopenTab:
+		return d.reopenTab(ctx, m)
+	case proto.ForgetTab:
+		return d.forgetTab(m)
 	case proto.DetachSession:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Detached = m.Detached; return nil })
 	case proto.KillSession:
@@ -1723,6 +1731,7 @@ func (d *Daemon) statsLoop(ctx context.Context) {
 	defer t.Stop()
 	for {
 		d.refreshStats(ctx, "")
+		d.checkClosed()
 		select {
 		case <-ctx.Done():
 			return
@@ -2200,7 +2209,8 @@ func (d *Daemon) snapshot() model.State {
 	s.Overlaps = maps.Clone(s.Overlaps) // the radar replaces a tab's list whole
 	s.Decide = d.decideInfo()
 	s.Tasks = slices.Clone(s.Tasks)
-	s.Chats = slices.Clone(s.Chats) // chatChanged updates entries in place
+	s.Chats = slices.Clone(s.Chats)   // chatChanged updates entries in place
+	s.Closed = slices.Clone(s.Closed) // checkClosed sets Gone in place
 	s.Queued = nil
 	for id, q := range d.mail.queue {
 		if s.Queued == nil {

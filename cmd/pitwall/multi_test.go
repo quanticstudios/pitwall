@@ -77,10 +77,15 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 func TestMultiRoutes(t *testing.T) {
 	local, ld := localBackend(t, hostState("ls", "lw", "lp"))
 	conns := make(chan end, 1)
-	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	box := hostState("rs", "rw", "rp")
+	box.Closed = []model.ClosedTab{{ID: "rc", Tab: model.Workspace{ID: "old", SessionID: "gone"}}}
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
 	rd := <-conns
 	t.Cleanup(func() { rd.nc.Close() })
 	waitFor(t, "box's state", func() bool { st := m.State(); return st.Session("rs") != nil })
+	if st := m.State(); len(st.Closed) != 1 || m.SessionHost("rc") != "box" {
+		t.Fatalf("closed tabs %+v on %q", st.Closed, m.SessionHost("rc"))
+	}
 	if h := m.Hosts(); len(h) != 2 || !h[1].Up || h[1].Name != "box" || h[1].Sessions[0] != "rs" {
 		t.Fatalf("hosts %+v", h)
 	}
@@ -100,6 +105,12 @@ func TestMultiRoutes(t *testing.T) {
 	m.Send(proto.Send{Pane: "lp", Text: "rp"})
 	if s, ok := recv(ld).(proto.Send); !ok || s.Pane != "lp" {
 		t.Fatalf("local got %#v", s)
+	}
+
+	// A closed tab reopens on the host that recorded it.
+	m.Send(proto.ReopenTab{ID: "rc"})
+	if r, ok := recv(rd).(proto.ReopenTab); !ok || r.ID != "rc" {
+		t.Fatalf("box got %#v", r)
 	}
 
 	m.Send(proto.SeePane{Pane: "lp"})

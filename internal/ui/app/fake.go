@@ -128,6 +128,15 @@ func NewFakeBackend() *FakeBackend {
 			w.Name = "" // like the daemon, tabs carry only names a person set
 		}
 	}
+	// The handbook draft is done and settled; psql is snoozed until tonight.
+	for i := range f.st.Workspaces {
+		switch w := &f.st.Workspaces[i]; w.ID {
+		case "w12":
+			w.Settled = now.Add(-time.Hour)
+		case "w11":
+			w.SnoozedAt, w.SnoozedUntil = now.Add(-time.Hour), now.Add(5*time.Hour)
+		}
+	}
 	f.st.Stats = map[string]model.BranchStats{
 		"w1":  {Additions: 412, Deletions: 38, Ahead: 3, MergeStatus: model.MergeClean, Base: "refs/remotes/origin/main"},
 		"w1b": {Additions: 412, Deletions: 38}, "w1c": {Additions: 412, Deletions: 38},
@@ -146,10 +155,28 @@ func NewFakeBackend() *FakeBackend {
 		}
 	}
 	f.setActivities()
+	f.st.Closed = fakeClosed(now)
 	f.stray = fakeStray(now)
 	f.st.Decide = fakeDecide()
 	f.st.Version = 1
 	return f
+}
+
+// fakeClosed are three closed tabs for tab search: a Claude whose pull
+// request is open, a Codex whose worktree Archive removed, and a shell.
+func fakeClosed(now time.Time) []model.ClosedTab {
+	web := fakeHome + "/src/web-app"
+	tree := web + "/.worktrees/fix-flaky-checkout"
+	return []model.ClosedTab{
+		{ID: "c3", Tab: model.Workspace{ID: "old3", SessionID: "s3", Label: "~/src/acme-api", Path: fakeHome + "/src/acme-api", RepoRoot: fakeHome + "/src/acme-api", Branch: "main"},
+			Pane: model.Pane{Cwd: fakeHome + "/src/acme-api"}, Session: "brave-lynx", ClosedAt: now.Add(-74 * time.Hour)},
+		{ID: "c2", Tab: model.Workspace{ID: "old2", SessionID: "s1", ProjectID: "g2", Label: "Fix the flaky checkout test", Branch: "fix-flaky-checkout", Path: tree, RepoRoot: tree, WorktreeRoot: web},
+			Pane:    model.Pane{Cwd: tree, Provider: model.ProviderCodex, SessionID: "019a2b", Prompt: "Fix the flaky checkout test"},
+			Session: "swift-otter", Group: model.Project{ID: "g2", Name: "web-app", Root: web, Kind: model.ProjectGit}, PR: 38, ClosedAt: now.Add(-26 * time.Hour), Gone: true},
+		{ID: "c1", Tab: model.Workspace{ID: "old1", SessionID: "s1", ProjectID: "g2", Label: "Add OAuth login", Branch: "oauth-login", Path: web, RepoRoot: web},
+			Pane:    model.Pane{Cwd: web, Provider: model.ProviderClaude, SessionID: "7f3c", Prompt: "Add OAuth login with GitHub"},
+			Session: "swift-otter", Group: model.Project{ID: "g2", Name: "web-app", Root: web, Kind: model.ProjectGit}, PR: 41, ClosedAt: now.Add(-2 * time.Hour)},
+	}
 }
 
 // fakeDecide is a connected Jev with a day's calls.
@@ -250,6 +277,7 @@ func (f *FakeBackend) State() model.State {
 		s.Sessions[i].Order = slices.Clone(s.Sessions[i].Order)
 	}
 	s.Projects = append([]model.Project(nil), s.Projects...)
+	s.Closed = slices.Clone(s.Closed)
 	s.Panes = append([]model.Pane(nil), s.Panes...)
 	s.Activities = append([]model.Activity(nil), s.Activities...)
 	s.Workspaces = append([]model.Workspace(nil), s.Workspaces...)
@@ -577,6 +605,30 @@ func (f *FakeBackend) Send(msg any) error {
 		if w := ws(m.WorkspaceID); w != nil {
 			w.Detached = m.Detached
 		}
+	case proto.ReopenTab:
+		i := slices.IndexFunc(f.st.Closed, func(c model.ClosedTab) bool { return c.ID == m.ID })
+		if i < 0 {
+			return nil
+		}
+		c := f.st.Closed[i]
+		f.st.Closed = slices.Delete(f.st.Closed, i, i+1)
+		w := c.Tab
+		w.ID, w.UpdatedAt = c.ID, time.Now()
+		if f.st.Session(w.SessionID) == nil {
+			w.SessionID = f.st.Sessions[0].ID
+		}
+		if m.AtRoot {
+			w.Path, w.WorktreeRoot = c.Root(), ""
+		}
+		f.nextID++
+		pane := fmt.Sprintf("r%d", f.nextID)
+		w.Tabs = []model.Tab{{ID: pane + "t", Layout: &layout.Node{Pane: pane}}}
+		w.ActiveTab = pane + "t"
+		f.st.Workspaces = append(f.st.Workspaces, w)
+		f.st.Panes = append(f.st.Panes, model.Pane{ID: pane, WorkspaceID: w.ID, Cwd: w.Path, Provider: c.Pane.Provider})
+		f.setActivities()
+	case proto.ForgetTab:
+		f.st.Closed = slices.DeleteFunc(f.st.Closed, func(c model.ClosedTab) bool { return c.ID == m.ID })
 	case proto.KillSession:
 		f.st.Workspaces = slices.DeleteFunc(f.st.Workspaces, func(w model.Workspace) bool { return w.ID == m.WorkspaceID })
 		f.st.Panes = slices.DeleteFunc(f.st.Panes, func(p model.Pane) bool { return p.WorkspaceID == m.WorkspaceID })

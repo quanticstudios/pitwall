@@ -187,6 +187,9 @@ func (m *multi) merge() {
 		for _, x := range s.Tasks {
 			own(x.ID)
 		}
+		for _, x := range s.Closed {
+			own(x.ID)
+		}
 		st.Version += s.Version
 		st.Sessions = append(st.Sessions, s.Sessions...)
 		st.Projects = append(st.Projects, s.Projects...)
@@ -195,6 +198,7 @@ func (m *multi) merge() {
 		st.Activities = append(st.Activities, s.Activities...)
 		st.Tasks = append(st.Tasks, s.Tasks...)
 		st.Chats = append(st.Chats, s.Chats...)
+		st.Closed = append(st.Closed, s.Closed...)
 		st.Stats = join(st.Stats, s.Stats)
 		st.PRs = join(st.PRs, s.PRs)
 		st.Overlaps = join(st.Overlaps, s.Overlaps)

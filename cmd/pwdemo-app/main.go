@@ -2,6 +2,8 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -12,6 +14,11 @@ import (
 )
 
 func main() {
+	size := flag.String("size", "1280x800", "window size WxH in dp")
+	flag.Parse()
+	if _, err := fmt.Sscanf(*size, "%dx%d", &app.WindowSize.X, &app.WindowSize.Y); err != nil {
+		log.Fatalf("-size %q: want WxH", *size)
+	}
 	b := app.NewFakeBackend()
 	// A canned install: the demo never touches an agent's config.
 	app.InstallHooks = func(dry, statusline bool) (string, error) {

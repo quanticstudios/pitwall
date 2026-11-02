@@ -61,7 +61,8 @@ func (d *Daemon) removePane(id string) []Pane {
 	if i < 0 {
 		return nil
 	}
-	ws := d.st.Panes[i].WorkspaceID
+	gone := d.liveCwd(d.st.Panes[i])
+	ws := gone.WorkspaceID
 	d.st.Panes = slices.Delete(d.st.Panes, i, i+1)
 	out := []Pane{d.dropPane(id)}
 	w := d.workspace(ws)
@@ -70,23 +71,27 @@ func (d *Daemon) removePane(id string) []Pane {
 	}
 	if ti := paneTab(w, id); ti >= 0 {
 		if w.Tabs[ti].Layout = d.o.Remove(w.Tabs[ti].Layout, id); w.Tabs[ti].Layout == nil {
-			out = append(out, d.removeTab(w, ti)...)
+			out = append(out, d.removeTab(w, ti, gone)...)
 		}
 	}
 	return out
 }
 
 // removeTab closes a tab's panes and drops it, and its session when it was
-// the last. Callers hold d.mu.
-func (d *Daemon) removeTab(w *model.Workspace, ti int) []Pane {
+// the last. gone are panes of it already taken out of st.Panes, for the
+// closed tab's record. Callers hold d.mu.
+func (d *Daemon) removeTab(w *model.Workspace, ti int, gone ...model.Pane) []Pane {
 	var out []Pane
 	for _, id := range layout.Panes(w.Tabs[ti].Layout) {
-		d.st.Panes = slices.DeleteFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 {
+			gone = append(gone, d.liveCwd(d.st.Panes[i]))
+			d.st.Panes = slices.Delete(d.st.Panes, i, i+1)
+		}
 		out = append(out, d.dropPane(id))
 	}
 	w.Tabs = slices.Delete(w.Tabs, ti, ti+1)
 	if len(w.Tabs) == 0 {
-		return append(out, d.removeWorkspace(w.ID)...)
+		return append(out, d.removeWorkspace(w.ID, gone...)...)
 	}
 	if tabIndex(w, w.ActiveTab) < 0 {
 		w.ActiveTab = w.Tabs[min(ti, len(w.Tabs)-1)].ID
@@ -95,13 +100,15 @@ func (d *Daemon) removeTab(w *model.Workspace, ti int) []Pane {
 }
 
 // removeWorkspace drops a tab and its panes, and its session when it was
-// the last tab. It removes saved images and deletes checkpoints in the
-// background. Callers hold d.mu.
-func (d *Daemon) removeWorkspace(id string) []Pane {
+// the last tab, and records it in State.Closed. gone are its panes already
+// taken out of st.Panes. It removes saved images and deletes checkpoints in
+// the background. Callers hold d.mu.
+func (d *Daemon) removeWorkspace(id string, gone ...model.Pane) []Pane {
 	if err := os.RemoveAll(pasteDir(id)); err != nil {
 		log.Printf("tab %s: remove pasted images: %v", id, err)
 	}
 	if w := d.workspace(id); w != nil {
+		d.recordClosed(*w, gone)
 		d.tabClosed(*w)
 		if w.Chat != "" {
 			d.dropChat(w.Chat)

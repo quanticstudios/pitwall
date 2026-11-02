@@ -323,6 +323,9 @@ type State struct {
 	// Chats are the live (not archived) chats of every session. The daemon
 	// fills it in; it is not saved in state.json.
 	Chats []Chat `json:"-"`
+	// Closed are the tabs that closed, oldest first, within PruneClosed's
+	// bounds, for tab search to reopen.
+	Closed []ClosedTab `json:",omitempty"`
 }
 
 // Overlap is another tab whose branch, in the same repository, changes

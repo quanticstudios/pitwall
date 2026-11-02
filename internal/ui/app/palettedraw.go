@@ -50,9 +50,23 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		}
 		count = u.searchStatus()
 	}
+	var hits []tabHit
+	if p.tabs {
+		hits = u.tabSearchRows(st)
+		title, hint = "Tabs", "Type a name, branch, group, folder, agent or PR"
+		total := len(tabRows(st, "", false))
+		rows = make([]paletteEntry, len(hits))
+		n := len(hits)
+		if n > 0 && hits[n-1].all {
+			n--
+		}
+		count = fmt.Sprintf("%d of %d", n, total)
+	}
 	for i := range min(len(rows), len(d.rows)) {
 		if d.rows[i].Clicked(gtx) {
-			if p.search && u.all.preview == nil {
+			if p.tabs {
+				u.pickTab(st, hits[i])
+			} else if p.search && u.all.preview == nil {
 				u.pickSearchAll(st, u.all.matches[i])
 			} else if !p.search {
 				if r := p.pick(rows, i); r != nil {
@@ -96,14 +110,18 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	tc.Add(gtx.Ops)
 	o.Pop()
 	label := fmt.Sprint(len(all))
-	if p.search {
+	if p.search || p.tabs {
 		label = ""
 	}
 	cc, _ := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, label)
 	o = op.Offset(image.Pt(pad+tsz.X+gtx.Dp(8), y+gtx.Dp(2))).Push(gtx.Ops)
 	cc.Add(gtx.Ops)
 	o.Pop()
-	if k := firstChord(b.Global["command_palette"]); k != "" {
+	own := "command_palette"
+	if p.tabs {
+		own = "tab_search"
+	}
+	if k := firstChord(b.Global[own]); k != "" {
 		kc, ks := keycap(gtx, th, k)
 		o := op.Offset(image.Pt(pad+inner-ks.X, y)).Push(gtx.Ops)
 		kc.Add(gtx.Ops)
@@ -139,7 +157,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 			continue
 		}
 		o := op.Offset(image.Pt(pad, ry)).Push(gtx.Ops)
-		if p.search {
+		if p.tabs {
+			u.tabRow(gtx, st, &d.rows[i], hits[i], p.query, i == sel, image.Pt(inner, rowH))
+		} else if p.search {
 			m := u.all.preview
 			first := true
 			if m == nil {
@@ -157,7 +177,12 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	}
 	if len(rows) == 0 {
 		msg := "Nothing matches \"" + p.query + "\". Try part of a name, a group like Panes, or a key like Ctrl+T."
-		if p.search {
+		if p.tabs {
+			msg = "Nothing matches \"" + p.query + "\"."
+			if p.query == "" {
+				msg = "No tabs yet."
+			}
+		} else if p.search {
 			msg = "No matches"
 			if p.query == "" || !u.all.done {
 				msg = ""
@@ -178,7 +203,11 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 			verb = "close"
 		}
 	}
-	u.drawHints(gtx, footH, [][2]string{{"↑↓", "move"}, {"Enter", verb}, {"Esc", "close"}})
+	hints := [][2]string{{"↑↓", "move"}, {"Enter", verb}, {"Esc", "close"}}
+	if p.tabs {
+		hints = tabHints(hits, sel)
+	}
+	u.drawHints(gtx, footH, hints)
 	o.Pop()
 }
 

@@ -59,9 +59,9 @@ func TestShortcutSearch(t *testing.T) {
 	}
 	var p Page
 	p.s.Keys = config.Preset("conventional")
-	p.keySearch.SetText("ctrl+shift+k")
-	if secs, msg := p.keyResults(); len(secs) != 0 || msg != "Nothing uses Ctrl+Shift+K." {
-		t.Errorf("ctrl+shift+k: %v, %q", shown(secs), msg)
+	p.keySearch.SetText("ctrl+shift+j")
+	if secs, msg := p.keyResults(); len(secs) != 0 || msg != "Nothing uses Ctrl+Shift+J." {
+		t.Errorf("ctrl+shift+j: %v, %q", shown(secs), msg)
 	}
 	// The settings search finds the chord too, among every category.
 	if n := p.counts("ctrl+shift+d"); n[catKeys] != 1 || n[catTerminal] != 0 {
@@ -134,14 +134,14 @@ func TestRecordSearch(t *testing.T) {
 	if want := map[string][]string{"Tab mode": {"new"}, "Pane mode": {"new"}}; !reflect.DeepEqual(results(), want) {
 		t.Fatalf("N: %v", results())
 	}
-	press("K", key.ModCtrl|key.ModShift)
-	if secs, msg := p.keyResults(); len(secs) != 0 || msg != "Nothing uses Ctrl+Shift+K." {
-		t.Fatalf("Ctrl+Shift+K: %v, %q", shown(secs), msg)
+	press("J", key.ModCtrl|key.ModShift)
+	if secs, msg := p.keyResults(); len(secs) != 0 || msg != "Nothing uses Ctrl+Shift+J." {
+		t.Fatalf("Ctrl+Shift+J: %v, %q", shown(secs), msg)
 	}
 	if press(key.NameEscape, 0) == Closed || p.keyRec {
 		t.Fatalf("Escape closed the page or kept recording: %v", p.keyRec)
 	}
-	if p.keySearch.Text() != "Ctrl+Shift+K" || !r.Source().Focused(&p.keySearch) {
+	if p.keySearch.Text() != "Ctrl+Shift+J" || !r.Source().Focused(&p.keySearch) {
 		t.Errorf("stopping lost the search %q, or left it without focus", p.keySearch.Text())
 	}
 	// Escape then clears the search, and only then closes the page.

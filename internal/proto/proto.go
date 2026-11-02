@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 50 added State.Closed, ReopenTab and ForgetTab: tab search
+// reopens closed tabs.
 // Level 49 added SetTabInbox and Workspace.Settled, SnoozedUntil and
 // SnoozedAt: the sidebar inbox's settled and snoozed tabs.
 // Level 48 added images (the kitty graphics protocol): vt.Grid.Images,
@@ -155,7 +157,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 49
+const Level = 50
+
+// ClosedLevel added State.Closed, ReopenTab and ForgetTab.
+const ClosedLevel = 50
 
 // InboxLevel added SetTabInbox.
 const InboxLevel = 49
@@ -188,6 +193,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case ReopenTab, ForgetTab:
+		return ClosedLevel
 	case SetTabInbox:
 		return InboxLevel
 	case Image, ImageResult:

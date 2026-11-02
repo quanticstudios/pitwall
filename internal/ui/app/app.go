@@ -70,13 +70,16 @@ const (
 	minRatio     = 0.05
 )
 
+// WindowSize is the size in dp Run opens the window at; the demo changes it.
+var WindowSize = image.Pt(1280, 800)
+
 // Run opens the window and blocks until it closes.
 //
 // No client-side decorations: Hyprland tiles the window and draws its own
 // border, and Gio asks Wayland compositors for server-side decorations.
 func Run(b Backend) error {
 	w := new(app.Window)
-	w.Option(app.Title("pitwall"), app.Size(1280, 800), app.MinSize(640, 360))
+	w.Option(app.Title("pitwall"), app.Size(unit.Dp(WindowSize.X), unit.Dp(WindowSize.Y)), app.MinSize(640, 360))
 	u := &ui{b: b, panes: map[string]*paneUI{}, invalidate: w.Invalidate}
 	defer u.panel.stop()
 	defer u.usage.prune(nil)
@@ -440,13 +443,19 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 	if u.nav.palette {
 		u.nav.palette = false
 		u.stopSearchAll()
-		u.pal.search = false
+		u.pal.search, u.pal.tabs = false, false
+		u.pal.openAt(now)
+	}
+	if u.nav.tabSearch {
+		u.nav.tabSearch = false
+		u.stopSearchAll()
+		u.pal.search, u.pal.tabs = false, true
 		u.pal.openAt(now)
 	}
 	if u.nav.searchAll {
 		u.nav.searchAll = false
 		u.pal.openAt(now)
-		u.pal.search = true
+		u.pal.search, u.pal.tabs = true, false
 		u.all.preview = nil
 		u.all.sent = ""
 	}

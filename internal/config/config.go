@@ -100,6 +100,7 @@ type Keys struct {
 	ScrollPageUp    Binding `toml:"scroll_page_up" group:"Terminal" doc:"Scroll back a page"`
 	ScrollPageDown  Binding `toml:"scroll_page_down" group:"Terminal" doc:"Scroll forward a page"`
 	Find            Binding `toml:"find" group:"Terminal" doc:"Find in the focused pane's scrollback. Enter or F3 goes to the next match up, Shift with either back down, Esc closes"`
+	TabSearch       Binding `toml:"tab_search" group:"Tabs" doc:"Search tabs: find a tab of any session by its name, branch, group, folder, agent, pull request or first prompt, and reopen a closed one"`
 	SearchAll       Binding `toml:"search_all" group:"Terminal" doc:"Search all sessions. Search every pane's scrollback and agent transcript, including detached tabs"`
 	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see docs/usage.md"`
 	NextPrompt      Binding `toml:"next_prompt" group:"Terminal" doc:"Scroll forward to the next shell prompt (OSC 133)"`

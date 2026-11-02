@@ -35,6 +35,10 @@ type nav struct {
 	// find asks the window to open the find bar on the focused pane.
 	find      bool
 	searchAll bool
+	// tabSearch asks the window to open tab search; reopen is the id a
+	// ReopenTab gives the tab it opens, which is selected once it shows.
+	tabSearch bool
+	reopen    string
 	// prAct asks the window to run open_pr, merge_pr, rerun_checks,
 	// send_failures, send_review or second_opinion on the open tab: a
 	// browser, a dialog, a fetch or a CLI lookup, which nav has no hold of.
@@ -314,6 +318,11 @@ func (n *nav) sync(st *model.State) {
 		n.focus, n.attach = map[string]string{}, map[string]bool{}
 	}
 	n.patch(st)
+	if id := n.reopen; id != "" && findWorkspace(st, id) != nil {
+		n.reopen = ""
+		n.selectWorkspace(st, id, "")
+		return
+	}
 	n.pickSession(st)
 	if n.sessions != nil {
 		for _, w := range n.ordered(st) {
@@ -932,6 +941,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.find = n.focused() != ""
 	case "search_all":
 		n.searchAll = true
+	case "tab_search":
+		n.tabSearch = true
 	case "cleanup_worktrees":
 		n.cleanup = true
 	case "jump_attention":

@@ -836,6 +836,37 @@ tab or delete. Their branches stay. The daemon prunes on start too, and
 says when it finds such worktrees. `pitwall worktree` does the same from a
 terminal (see [Command line](cli.md)).
 
+### Tab search
+
+Ctrl+Shift+K (Cmd+K in the mac preset) searches every tab of every
+session, on every host the window shows, and the tabs you closed. Plain
+Ctrl+K stays with the terminal, where shells and agent prompts delete to the
+end of the line with it. Rebind it with `tab_search` under `[keys]`; the
+command palette lists it as **Search tabs**.
+
+Type part of a tab's name, branch, group, repo or folder, agent, pull request
+(`#41`) or the first prompt of its agent or chat. Letters may be left out,
+as in the palette, and a word of four letters or more may have one typo.
+Open tabs come before closed ones, best match first. With nothing typed, the
+list starts with the tabs used most recently.
+
+Each row shows the tab's agent and status glyph as the sidebar does, then
+its group, session and host. Settled, snoozed and detached tabs say so on
+the right, and a closed tab says when it closed. Enter or a click shows the
+tab, switching session or host when it is elsewhere. The last row hands the
+query to **Search all sessions**, which searches scrollback and transcripts
+instead.
+
+pitwall keeps the tabs that close: the last 200 of the last 30 days, in the
+background service's saved state, so they survive a restart. Choosing one
+opens it again as a new tab in its session, group and folder, and resumes
+its agent in the session it had, as a restart does. A session or group that
+ended with it comes back under its name. A tab that ran a command other than
+an agent comes back as a shell in its folder, without running the command
+again. When its folder is gone, as after Archive removed its worktree, the
+row says so and Enter opens it in the repository instead. Delete forgets
+the highlighted closed tab, and reopening one takes it off the list.
+
 ### The inbox
 
 The sidebar has a second view for when the question is "what needs me?"
