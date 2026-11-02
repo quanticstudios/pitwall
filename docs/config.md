@@ -74,6 +74,13 @@ name = "Quick"
 agent = "codex"
 args = ["-m", "gpt-x", "-c", "model_reasoning_effort=low"]
 
+[[popups]]                              # see usage.md, Popups
+name = "lazygit"
+key = "Ctrl+Alt+G"                      # a free chord: no action or other popup has it
+command = ["lazygit"]
+width = "90%"                           # cells, or a % of the tab; 80% by default
+height = "90%"                          # 70% by default
+
 [fleet]                                 # see usage.md, Fleet mode
 enabled = false                         # pitwall worktree new --lane and the timeboxes
 contract = ""                           # a file that goes before every --lane brief

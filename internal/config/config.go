@@ -41,6 +41,7 @@ type Config struct {
 	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
 	Remote    Remote      `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Web       Web         `toml:"web" doc:"Local web clients such as aide: a WebSocket on 127.0.0.1 that pitwall's background service serves. Off until enabled; see docs/web-protocol.md."`
+	Popups    []Popup     `toml:"popups" doc:"Commands that open in a popup over the tab, each a [[popups]] table with name, key and command, such as lazygit on a key. See docs/usage.md, Popups."`
 	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name, ssh and window. A name not listed here goes to ssh as it is."`
 
 	Profiles map[string]Profile `toml:"profiles" doc:"Named Claude Code and Codex accounts. See docs/config.md."`
@@ -342,6 +343,8 @@ type Settings struct {
 	ConflictRadar bool
 	// Hosts is [[hosts]] as written.
 	Hosts []Host
+	// Popups is [[popups]] without the entries with problems.
+	Popups []Popup
 	// Notes are things that work but should change, like an action under
 	// its old name. They are not problems: the GUI stays quiet about them.
 	Notes []Problem
@@ -418,6 +421,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	sort.SliceStable(s.Notes, func(i, j int) bool { return s.Notes[i].Line < s.Notes[j].Line })
 	var issues []issue
 	s.Keys, issues = resolveKeys(c.Keys)
+	probs = append(probs, locate("config.toml", data, issues)...)
+	s.Popups, issues = resolvePopups(c.Popups, s.Keys)
 	probs = append(probs, locate("config.toml", data, issues)...)
 
 	s.ThemeName = c.Theme.Name

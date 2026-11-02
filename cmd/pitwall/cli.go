@@ -119,6 +119,8 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 			stdin = in // why: a nil *os.File in an io.Reader is not nil
 		}
 		return promptCommand(args[1:], stdin, out, errOut)
+	case len(args) > 0 && args[0] == "popup":
+		return popupCommand(args[1:], errOut)
 	case len(args) > 0 && args[0] == "split":
 		err = splitCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "review":

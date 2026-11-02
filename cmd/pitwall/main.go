@@ -96,6 +96,12 @@ const usage = `usage:
                              open a pane running cmd, else a shell, right of
                              the tab's last pane (--down: below it); prints
                              its address, as #3.2
+  pitwall popup [--width 80%] [--height 70%] [--title T] [--dir D] [--wait] [tab] [-- cmd args...]
+                             run cmd, else a shell, in a floating pane over
+                             the tab's splits, in the tab's folder or D; it
+                             closes when cmd exits. Sizes are cells or a % of
+                             the tab. --wait returns cmd's exit code, 130 when
+                             the popup closed first
   pitwall prompt <pane> [--wait] [--timeout 10m] [-- text]
                              type text (- or none: stdin) into the pane's
                              agent once it is idle or done, and press Enter.
@@ -247,7 +253,7 @@ func main() {
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":
 		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
+	case "ls", "new", "wait", "split", "popup", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

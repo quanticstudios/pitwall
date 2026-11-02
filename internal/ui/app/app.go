@@ -345,6 +345,8 @@ type ui struct {
 	sideKeys  sidebarKeys      // focus_sidebar's mode, see sidebarfocus.go
 	dismissed string           // the State.Notice closed here, hidden before the daemon clears it
 	noticeTag int              // State.Notice's box, which keeps presses off the pane under it
+
+	popupBack int // the backdrop under a popup, which keeps presses off the splits
 }
 
 // resizes keeps a window drag to a log line a second per pane.
@@ -575,7 +577,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.reviewKeys(gtx, &st)
 	}
 	for u.modal.kind == modalNone {
-		filters := u.nav.keyFilters(&st)
+		filters := append(u.nav.keyFilters(&st), u.popupFilters()...)
 		if u.sw.open || u.pal.open || u.sidebar.Focused() && !u.sidebar.Editing() {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 			filters = append(filters, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
@@ -601,6 +603,9 @@ func (u *ui) layout(gtx gl.Context) {
 			continue
 		}
 		if u.settingsShortcut(ev.(key.Event)) || u.sidebarKey(&st, ev.(key.Event)) {
+			continue
+		}
+		if u.popupKey(&st, ev.(key.Event)) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
@@ -1018,17 +1023,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	sole := root.Pane != "" && m == 0
 	for id, r := range rectsOf(root, area, gap) {
 		live[id] = true
-		p := u.panes[id]
-		if p == nil {
-			p = &paneUI{}
-			u.panes[id] = p
-		}
-		p.view.Keys = u.nav.bind()
-		p.view.CopyOnSelect = u.cfg.CopyOnSelect
-		p.view.Links = u.cfg.Links
-		pn := findPane(st, id)
-		p.view.PasteImages = pn != nil && (pn.Provider == model.ProviderClaude || pn.Provider == model.ProviderCodex)
-		p.view.HostPaste = true // save local and remote clipboard images through the daemon
+		p, pn := u.paneView(st, id), findPane(st, id)
 		var att *model.Activity
 		if a, ok := unseen[id]; ok {
 			att = &a
@@ -1044,6 +1039,10 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			u.drawZoomHint(gtx, r)
 		}
 	}
+	pop := u.nav.popup()
+	if pop != "" && ws.Popup != nil && ws.Popup.Pane == pop {
+		live[pop] = true
+	}
 	for id, p := range u.panes {
 		if !live[id] {
 			p.view.DropImages()
@@ -1053,6 +1052,25 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		}
 	}
 	u.layoutDividers(gtx, ws.ID, tabID, root, area, gap)
+	if live[pop] {
+		u.layoutPopup(gtx, st, *ws.Popup, area, pop == focused, findFocus && pop == u.find.pane)
+	}
+}
+
+// paneView is pane id's view, set up for this frame.
+func (u *ui) paneView(st *model.State, id string) *paneUI {
+	p := u.panes[id]
+	if p == nil {
+		p = &paneUI{}
+		u.panes[id] = p
+	}
+	p.view.Keys = u.nav.bind()
+	p.view.CopyOnSelect = u.cfg.CopyOnSelect
+	p.view.Links = u.cfg.Links
+	pn := findPane(st, id)
+	p.view.PasteImages = pn != nil && (pn.Provider == model.ProviderClaude || pn.Provider == model.ProviderCodex)
+	p.view.HostPaste = true // save local and remote clipboard images through the daemon
+	return p
 }
 
 func findPane(st *model.State, id string) *model.Pane {

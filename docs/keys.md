@@ -58,7 +58,7 @@ conventional:
 | Keys                                    | Action                                                    |
 | --------------------------------------- | --------------------------------------------------------- |
 | Ctrl+Shift+T                            | New tab below this one, in its folder                     |
-| Ctrl+Shift+W                            | Close the pane (the tab with its last one)                |
+| Ctrl+Shift+W                            | Close the pane (the tab with its last one), or the tab's [popup](usage.md#popups) |
 | Ctrl+Tab / Ctrl+Shift+Tab               | Next / previous tab, across groups                        |
 | Ctrl+PageDown / Ctrl+PageUp             | Next / previous tab, across groups                        |
 | Ctrl+Shift+PageDown / Ctrl+Shift+PageUp | First tab of the next / previous group                    |

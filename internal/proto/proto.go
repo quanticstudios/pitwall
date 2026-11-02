@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 54 added OpenPopup and Workspace.Popup: a floating pane over a
+// tab's splits, from pitwall popup.
 // Level 53 added OpenForm, FormAnswer and State.Forms: `pitwall form`
 // shows a form or a dashboard over the caller's tab.
 // Level 52 added Pane.Program: what a program reported with OSC 7501 or
@@ -162,7 +164,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 53
+const Level = 54
+
+// PopupLevel added OpenPopup.
+const PopupLevel = 54
 
 // ClosedLevel added State.Closed, ReopenTab and ForgetTab.
 const ClosedLevel = 50
@@ -201,6 +206,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case OpenPopup:
+		return PopupLevel
 	case ReopenTab, ForgetTab:
 		return ClosedLevel
 	case Tmux, TmuxResult:
@@ -436,6 +443,21 @@ type OpenPane struct {
 	Target      string
 	Dir         layout.Dir
 	Cmd         []string // empty means the user's shell
+}
+
+// OpenPopup opens a floating pane over WorkspaceID's splits, running Cmd
+// (the user's shell when empty) in Dir, else the tab's live folder. Pane is
+// the id the caller picks for it, so it can wait for the PaneExited, "" for
+// one the daemon picks. Width, Height and Title are as model.Popup's. The
+// popup closes when its command exits. The daemon answers Error while the
+// tab has a popup open already: it never replaces one a script waits on.
+type OpenPopup struct {
+	WorkspaceID   string
+	Pane          string
+	Cmd           []string
+	Dir           string
+	Width, Height string
+	Title         string
 }
 
 // Scroll moves the pane's view into scrollback. Lines > 0 goes back in
@@ -912,6 +934,7 @@ var Messages = []any{
 	AgentExplain{}, AgentExplanation{},
 	Image{}, ImageResult{},
 	OpenForm{}, FormAnswer{},
+	OpenPopup{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon
