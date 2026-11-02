@@ -65,6 +65,11 @@ type Sidebar struct {
 	// Pane is the focused pane of the active tab, whose agent sub-row is
 	// marked.
 	Pane string
+	// Hosts are the machines of a window that shows more than one, this
+	// one first: their sessions and the agents waiting anywhere show above
+	// the tabs. One or none draws nothing.
+	Hosts   []HostInfo
+	hostBtn map[string]*widget.Clickable // the host list's rows, "s:" session or "a:" pane
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -285,6 +290,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	if ss := st.Session(session); ss != nil {
 		name = ss.Name
 	}
+	all := st
 	view := st.View(session)
 	st = &view
 	v := newView(gtx, th, st, session, activeWorkspace)
@@ -350,6 +356,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	}
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		bar(func(gtx layout.Context) layout.Dimensions { return s.header(gtx, th, name) }),
+		bar(func(gtx layout.Context) layout.Dimensions { return s.hostList(gtx, th, all) }),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			// px-2: rows and group headers keep clear of both edges.
 			return layout.Inset{Left: listPad, Right: listPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

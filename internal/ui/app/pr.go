@@ -78,7 +78,7 @@ func (n *nav) prBlocked(st *model.State, act string) (why string, ok bool) {
 // sendBlocked is sidebar.SendBlocked, and on a Host "on a host" for both:
 // gh would run here, away from the tab's folder.
 func sendBlocked(st *model.State, ws model.Workspace) (failures, review string) {
-	if Host != "" {
+	if curHost() != "" {
 		return "on a host", "on a host"
 	}
 	return sidebar.SendBlocked(st, ws, ghInstalled())

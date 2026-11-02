@@ -174,7 +174,7 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	if invalidate == nil {
 		invalidate = func() {}
 	}
-	if Host != "" { // the transcript and the folder are on the host
+	if curHost() != "" { // the transcript and the folder are on the host
 		u.panel.follow(nil, "", invalidate)
 	} else {
 		u.panel.follow(in.Pane, dir, invalidate)
@@ -201,7 +201,7 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	u.panel.view.Layout(pgtx, u.th, in)
 	off.Pop()
 	if f, ok := u.panel.view.Diff(); ok && dir != "" && in.Base != "" {
-		if Host == "" {
+		if curHost() == "" {
 			u.openReview(st, u.nav.workspace, f.Path)
 		} else {
 			u.nav.expectPane(st)

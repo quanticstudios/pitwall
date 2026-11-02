@@ -40,15 +40,16 @@ type Config struct {
 	Git       Git         `toml:"git" doc:"Branches and pull requests: how Merge PR merges, whether a merged worktree tab archives itself, and the conflict radar."`
 	Remote    Remote      `toml:"remote" doc:"Answer agents from your phone: a page served by pitwall's background service that a paired phone opens. Off until enabled; see docs/phone.md."`
 	Web       Web         `toml:"web" doc:"Local web clients such as aide: a WebSocket on 127.0.0.1 that pitwall's background service serves. Off until enabled; see docs/web-protocol.md."`
-	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name and ssh. A name not listed here goes to ssh as it is."`
+	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name, ssh and window. A name not listed here goes to ssh as it is."`
 
 	Profiles map[string]Profile `toml:"profiles" doc:"Named Claude Code and Codex accounts. See docs/config.md."`
 }
 
 // Host is one [[hosts]] entry.
 type Host struct {
-	Name string `toml:"name" doc:"What pitwall --host takes, and what the window title and sidebar show"`
-	SSH  string `toml:"ssh" doc:"The ssh destination as you would type it after ssh: user@box, or a Host from ~/.ssh/config, which sets the port, key and jump host. Empty means name"`
+	Name   string `toml:"name" doc:"What pitwall --host takes, and what the window title and sidebar show"`
+	SSH    string `toml:"ssh" doc:"The ssh destination as you would type it after ssh: user@box, or a Host from ~/.ssh/config, which sets the port, key and jump host. Empty means name"`
+	Window bool   `toml:"window" doc:"true shows this host's sessions in every pitwall window, under its own heading below this machine's, connecting in the background. pitwall --host still opens a window on the host alone. See docs/remote.md."`
 }
 
 // Keys is [keys]. Every Binding field is an action; its group tag heads

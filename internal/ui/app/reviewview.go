@@ -629,7 +629,7 @@ func (u *ui) openReview(st *model.State, id, file string) {
 	if ws == nil {
 		return
 	}
-	if Host != "" {
+	if curHost() != "" {
 		if m := u.nav.review(st, id, "diff_pager"); m != nil {
 			u.send(m)
 		}

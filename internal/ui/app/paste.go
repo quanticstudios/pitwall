@@ -118,8 +118,8 @@ func (u *ui) pasteBusy(id string) bool {
 func (u *ui) startPaste(gtx gl.Context, id string, r image.Rectangle, read func(context.Context) ([]byte, error)) {
 	if u.link().Level < proto.Since(proto.PasteImage{}) {
 		message := "Can't paste the image: pitwall's background service is too old; restart pitwall"
-		if Host != "" {
-			message = "Can't paste the image: pitwall on " + Host + " is too old; update it there"
+		if curHost() != "" {
+			message = "Can't paste the image: pitwall on " + curHost() + " is too old; update it there"
 		}
 		u.showError(gtx, message, r)
 		return
@@ -253,7 +253,7 @@ func (u *ui) dropFiles(e app.FileDropEvent) {
 			continue
 		}
 		pn := findPane(&st, id)
-		if Host != "" && model.IsAgent(pn.Provider) {
+		if curHost() != "" && model.IsAgent(pn.Provider) {
 			p.dropFiles = append(p.dropFiles, e.Paths...)
 		} else {
 			_, m, _ := u.b.Frame(id)

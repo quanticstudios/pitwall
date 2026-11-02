@@ -24,7 +24,7 @@ func Behind(level int, build string) bool {
 // as old.
 func (u *ui) daemonBehind() bool {
 	l, ok := u.b.(Linker)
-	if !ok || Host != "" {
+	if !ok || curHost() != "" {
 		return false
 	}
 	lk := l.Link()

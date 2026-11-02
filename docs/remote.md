@@ -53,6 +53,41 @@ laptop does, deletes the runtime folder that holds the daemon's socket, and
 the next window can no longer reach the daemon your agents run in.
 `pitwall doctor`, run on the host over ssh, says whether linger is on.
 
+### Several hosts in one window
+
+To see a host's sessions in every plain `pitwall` window, next to this
+machine's, set `window = true` on its entry:
+
+```toml
+[[hosts]]
+name = "box"
+ssh = "me@box.example.com"
+window = true
+```
+
+The sidebar then lists `local` and `box` above the tabs, each with its
+sessions, and a click on one shows it. Below them, Waiting on you lists the
+agents on any host that wait on an approval, a question, a plan or an
+error; a click goes to the tab. The tabs below are those of the session the
+window shows, and the header tags it with its host. The session switcher,
+desktop notifications and session search in the palette cover every host
+and name the host of a session on another machine.
+
+The window opens on this machine at once and connects to each host in the
+background, as `pitwall --host` does, retrying with backoff from half a
+second up to 30 seconds. A host that is down keeps its last sessions in the
+list, dimmed, with the reason in its heading, and never blocks this
+machine's sessions or another host's. Only this machine's daemon going
+down covers the window, and only while it shows one of its sessions. A host
+whose daemon runs another major version stays down: open `pitwall --host
+box` once to restart it there.
+
+Every action goes to the daemon that owns the tab, pane or session it
+names. A new session or tab opens on the host of the session the window
+shows. `pitwall --host box` still opens a window on that host alone, and
+`pitwall ls`, `new` and the other commands still talk to the daemon of the
+machine they run on.
+
 ### Keep the daemon running across reboots
 
 A window starts the host's daemon when none runs, so after the host reboots

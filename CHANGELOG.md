@@ -21,7 +21,7 @@ build. Either step takes `--dry-run`.
 - `pitwall agent explain` explains a live pane's state or a saved screen with the matched pattern, unsuccessful checks, process detection and hook history; `--json` prints evidence for bug reports.
 
 - Screen-detection patterns update from pitwall's repository at daemon start and daily without a binary release. Each update must pass the bundled screen fixtures; `[updates] screen_patterns = false` turns fetching off.
-
+- One window can show this machine's sessions and those of the `[[hosts]]` that set `window = true`, each under its own heading in the sidebar, with a Waiting on you list of the agents blocked on any of them. Each host connects and reconnects in the background, and one that is down shows why in its heading while the rest keep working. The switcher, notifications and session search cover every host, and each action goes to the daemon that owns its tab or pane. `pitwall --host` still opens a window on one host.
 - The web protocol's `import` takes `pinned`, so an imported chat keeps aide's pin (ENG-2707).
 - The web protocol's `start` and `send` take a provider `skill`, which a queued message keeps: Claude runs it as its slash command and Codex as a skill input item, as aide's built-in backend did. The fake providers answer `Handled with <provider> skill <id>: <text>` (ENG-2942).
 - The fake providers have a `codex commentary` script: a Codex turn whose commentary and final answer are separate items with their `phase`, so aide's commentary spec runs on the daemon (ENG-2941).

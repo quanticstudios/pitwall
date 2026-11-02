@@ -251,7 +251,7 @@ func (u *ui) openTask(st *model.State, group string) {
 	if len(t.projects) == 0 {
 		return
 	}
-	if Host == "" {
+	if curHost() == "" {
 		home, _ := os.UserHomeDir()
 		t.agents = findAgents(home)
 	} else { // the agents on the host are not on this PATH
@@ -270,7 +270,7 @@ func (u *ui) openTask(st *model.State, group string) {
 	t.picked, t.modes = make([]bool, len(t.agents)), make([]int, len(t.agents))
 	t.models = make([]taskModel, len(t.agents))
 	home, _ := os.UserHomeDir()
-	if Host != "" { // the local cache does not describe the host
+	if curHost() != "" { // the local cache does not describe the host
 		home = ""
 	}
 	for i, a := range t.agents {
@@ -327,7 +327,7 @@ func (t *taskDialog) pickProject(i int, invalidate func()) {
 		t.where = whereHere
 		return
 	}
-	if Host == "" { // the repo is on the host otherwise
+	if curHost() == "" { // the repo is on the host otherwise
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		r, _ := gitstat.ListRefs(ctx, p.dir)
 		cancel()
@@ -462,7 +462,7 @@ func (t *taskDialog) tasks() ([]model.Task, error) {
 			continue
 		}
 		path := a.cmd
-		if Host == "" {
+		if curHost() == "" {
 			// why: the daemon runs it with its own PATH, as pitwall new does.
 			if found, err := exec.LookPath(a.cmd); err == nil {
 				path, _ = filepath.Abs(found)

@@ -389,8 +389,8 @@ func (u *ui) applyFocus(st *model.State) {
 // on a Host.
 func (u *ui) windowTitle() string {
 	t := "pitwall"
-	if Host != "" {
-		t = Host + " · " + t
+	if curHost() != "" {
+		t = curHost() + " · " + t
 	}
 	st := u.b.State()
 	if s := st.Session(u.nav.session); s != nil {
@@ -522,6 +522,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	u.applyJump(&st)
+	u.showHost()
 	u.openRequested(&st, gtx.Now)
 	u.keepSidebarKeys()
 
@@ -579,6 +580,7 @@ func (u *ui) layout(gtx gl.Context) {
 		log.Printf("session %s ended; the window shows %s", prev, u.nav.session)
 	}
 	u.keepSidebarKeys()
+	u.showHost()
 	u.sessionChanged(gtx)
 	u.markSeen(&st)
 	u.writeClipboard(gtx, st.Clipboard)
@@ -681,7 +683,11 @@ func (u *ui) layout(gtx gl.Context) {
 		so := op.Offset(image.Pt(edge-sw-1, 0)).Push(gtx.Ops)
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
-		u.sidebar.Update, u.sidebar.Host, u.sidebar.RepoIcons = u.updateLabel(), Host, u.repoIcons()
+		u.sidebar.Update, u.sidebar.Host, u.sidebar.RepoIcons = u.updateLabel(), curHost(), u.repoIcons()
+		u.sidebar.Hosts = nil
+		if h, ok := u.b.(Hoster); ok {
+			u.sidebar.Hosts = h.Hosts()
+		}
 		u.sidebar.Window = gtx.Constraints.Max
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
@@ -807,6 +813,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 				u.invalidate()
 			}
 		})
+	case sidebar.ShowSession:
+		u.settings.Hide()
+		u.review.hide()
+		u.nav.switchSession(st, e.SessionID)
 	case sidebar.OpenSessions:
 		u.sw.openAt(st, u.nav.session, "pick", time.Now())
 	case sidebar.NewWorktreeSession:
@@ -853,7 +863,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		}
 	case sidebar.ViewFileDiff:
 		u.nav.selectWorkspace(st, e.WorkspaceID, "")
-		if Host == "" {
+		if curHost() == "" {
 			u.openReview(st, e.WorkspaceID, e.Path)
 		} else if m := u.nav.fileDiff(st, e.WorkspaceID, e.Path); m != nil {
 			u.send(m)

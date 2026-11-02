@@ -309,11 +309,11 @@ func TestMacPreset(t *testing.T) {
 
 func TestHosts(t *testing.T) {
 	dir := t.TempDir()
-	s, probs := LoadFile(write(t, dir, "config.toml", "[[hosts]]\nname = \"box\"\nssh = \"me@box\"\n\n[[hosts]]\nname = \"gpu\"\nport = 22\n"))
+	s, probs := LoadFile(write(t, dir, "config.toml", "[[hosts]]\nname = \"box\"\nssh = \"me@box\"\nwindow = true\n\n[[hosts]]\nname = \"gpu\"\nport = 22\n"))
 	if got := msgs(probs); !strings.Contains(got, `hosts.port: unknown key "port"`) {
 		t.Fatalf("problems: %q", got)
 	}
-	if want := []Host{{"box", "me@box"}, {Name: "gpu"}}; !slices.Equal(s.Hosts, want) {
+	if want := []Host{{"box", "me@box", true}, {Name: "gpu"}}; !slices.Equal(s.Hosts, want) {
 		t.Fatalf("hosts %v, want %v", s.Hosts, want)
 	}
 	if _, probs = LoadFile(write(t, dir, "config.toml", "hosts = \"box\"\n")); msgs(probs) != "config.toml:1: hosts: want an array of tables" {

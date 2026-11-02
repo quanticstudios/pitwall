@@ -606,7 +606,7 @@ func splitPath(in string) (dir, prefix string) {
 // dirMatches lists the subdirectories of in's directory whose names start
 // with its last segment, hidden ones only when that segment starts with ".".
 func dirMatches(in string) []string {
-	if Host != "" { // the folders are on the host
+	if curHost() != "" { // the folders are on the host
 		return nil
 	}
 	dir, prefix := splitPath(in)
@@ -660,9 +660,9 @@ func resolveDir(in string) (string, error) {
 	if in == "" {
 		return "", errors.New("Type a folder path.")
 	}
-	if Host != "" { // the folder is on the host, whose daemon checks it
+	if curHost() != "" { // the folder is on the host, whose daemon checks it
 		if !strings.HasPrefix(in, "/") {
-			return "", errors.New("Type the folder's full path on " + Host + ".")
+			return "", errors.New("Type the folder's full path on " + curHost() + ".")
 		}
 		return path.Clean(in), nil
 	}

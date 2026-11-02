@@ -1,12 +1,62 @@
 package app
 
-import "github.com/quanticstudios/pitwall/internal/proto"
+import (
+	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
+)
 
 // Host is the ssh host whose daemon the window shows, set by main for
 // pitwall --host; "" is this machine. Paths in the state are the host's
 // then, so the window reads no files, runs no git and opens no file links
 // for them here.
 var Host string
+
+// shownHost is the host of the session a window of several hosts shows,
+// "" for this machine. The window's goroutine sets it every frame and is
+// the only one to read it.
+var shownHost string
+
+// curHost is the host the window's session is on: Host, else shownHost.
+// Paths, repos and agents of a session there are not on this machine.
+func curHost() string {
+	if Host != "" {
+		return Host
+	}
+	return shownHost
+}
+
+// Hoster is optionally implemented by a Backend whose sessions are on
+// several machines: this one and the [[hosts]] with window = true.
+type Hoster interface {
+	SessionHost(session string) string // "" for this machine
+	Hosts() []sidebar.HostInfo         // this machine first
+}
+
+// showHost sets shownHost to the host of the session the window shows.
+func (u *ui) showHost() {
+	if _, ok := u.b.(Hoster); ok {
+		shownHost = u.sessionHost(u.nav.session)
+	}
+}
+
+// hostPrefix is "<host> · " for a session on another machine in a window
+// of several machines, so the switcher and notifications say where it is.
+func hostPrefix(b Backend, session string) string {
+	if h, ok := b.(Hoster); ok {
+		if name := h.SessionHost(session); name != "" {
+			return name + " · "
+		}
+	}
+	return ""
+}
+
+// sessionHost is the host session is on, "" for this machine.
+func (u *ui) sessionHost(session string) string {
+	if h, ok := u.b.(Hoster); ok {
+		return h.SessionHost(session)
+	}
+	return Host
+}
 
 // Iconer is optionally implemented by a Backend: the daemon's answer to
 // a proto.Favicon for dir, asked for the first time it is wanted.
@@ -17,7 +67,7 @@ type Iconer interface {
 // repoIcons is the sidebar's RepoIcons: the daemon's lookup when the
 // repos are on Host, nil when they are on this machine's disk.
 func (u *ui) repoIcons() func(dir string) (proto.FaviconResult, bool) {
-	if ic, ok := u.b.(Iconer); ok && Host != "" {
+	if ic, ok := u.b.(Iconer); ok && curHost() != "" {
 		return ic.Favicon
 	}
 	return nil
