@@ -243,11 +243,15 @@ func omarchyHex(s string) (rgb8, bool) {
 	if len(s) == 3 {
 		s = string([]byte{s[0], s[0], s[1], s[1], s[2], s[2]})
 	}
-	v, err := strconv.ParseUint(s, 16, 32)
-	if err != nil {
-		return rgb8{}, false
+	var c rgb8
+	for i := range c {
+		v, err := strconv.ParseUint(s[2*i:2*i+2], 16, 8)
+		if err != nil {
+			return rgb8{}, false
+		}
+		c[i] = uint8(v)
 	}
-	return rgb8{uint8(v >> 16), uint8(v >> 8), uint8(v)}, true
+	return c, true
 }
 
 // The resolver below is a port of Omarchy's bin/omarchy-theme-color, which
