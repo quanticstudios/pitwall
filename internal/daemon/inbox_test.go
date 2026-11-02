@@ -52,26 +52,29 @@ func TestIdleSettles(t *testing.T) {
 	}
 	base := model.Workspace{ID: "w", UpdatedAt: old}
 	for _, tc := range []struct {
-		name string
-		w    model.Workspace
-		acts []model.Activity
-		days int
-		want bool
+		name  string
+		w     model.Workspace
+		acts  []model.Activity
+		agent bool
+		days  int
+		want  bool
 	}{
-		{"idle 4 of 3 days", base, done, 3, true},
-		{"failed and idle", base, with(model.StateError), 3, true},
-		{"idle 4 of 5 days", base, done, 5, false},
-		{"off", base, done, 0, false},
-		{"pinned", model.Workspace{ID: "w", UpdatedAt: old, Pinned: true}, done, 3, false},
-		{"settled", model.Workspace{ID: "w", UpdatedAt: old, Settled: old}, done, 3, false},
-		{"snoozed", model.Workspace{ID: "w", UpdatedAt: old, SnoozedUntil: now.Add(time.Hour)}, done, 3, false},
-		{"woke a day ago", model.Workspace{ID: "w", UpdatedAt: old, SnoozedUntil: now.Add(-24 * time.Hour)}, done, 3, false},
-		{"working", base, with(model.StateWorking), 3, false},
-		{"asking", base, with(model.StatePendingApproval), 3, false},
-		{"a shell", base, []model.Activity{{WorkspaceID: "w", Provider: model.ProviderTerminal, State: model.StateCompleted}}, 3, false},
-		{"no activity", base, nil, 3, false},
+		{"idle 4 of 3 days", base, done, false, 3, true},
+		{"failed and idle", base, with(model.StateError), false, 3, true},
+		{"idle 4 of 5 days", base, done, false, 5, false},
+		{"off", base, done, false, 0, false},
+		{"pinned", model.Workspace{ID: "w", UpdatedAt: old, Pinned: true}, done, false, 3, false},
+		{"settled", model.Workspace{ID: "w", UpdatedAt: old, Settled: old}, done, false, 3, false},
+		{"snoozed", model.Workspace{ID: "w", UpdatedAt: old, SnoozedUntil: now.Add(time.Hour)}, done, false, 3, false},
+		{"woke a day ago", model.Workspace{ID: "w", UpdatedAt: old, SnoozedUntil: now.Add(-24 * time.Hour)}, done, false, 3, false},
+		{"working", base, with(model.StateWorking), false, 3, false},
+		{"asking", base, with(model.StatePendingApproval), false, 3, false},
+		{"a shell", base, []model.Activity{{WorkspaceID: "w", Provider: model.ProviderTerminal, State: model.StateCompleted}}, false, 3, false},
+		{"no activity", base, nil, false, 3, false},
+		{"an agent at its first prompt, no activity", base, nil, true, 3, true},
+		{"an agent pane, working", base, with(model.StateWorking), true, 3, false},
 	} {
-		if got := idleSettles(tc.w, tc.acts, now, tc.days); got != tc.want {
+		if got := idleSettles(tc.w, tc.acts, tc.agent, now, tc.days); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -139,5 +142,49 @@ func TestSettleOnMerge(t *testing.T) {
 		if settled := !d.st.Workspaces[0].Settled.IsZero(); settled == pinned {
 			t.Fatalf("pinned %v: settled %v", pinned, settled)
 		}
+	}
+}
+
+// The daemon's settle loop settles a tab whose agent pane has sat idle
+// past settle_after_days, with no activity reported, and leaves a fresh
+// tab alone.
+func TestSettleLoop(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, err := NewWith(f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.o.Settle = func() config.SidebarSettings { return config.SidebarSettings{SettleAfterDays: 3} }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for range 2 {
+		must(t, d.handle(ctx, proto.NewSession{Cwd: t.TempDir()}))
+	}
+	d.mu.Lock()
+	old, fresh := d.st.Workspaces[0].ID, d.st.Workspaces[1].ID
+	d.st.Workspaces[0].UpdatedAt = time.Now().Add(-4 * 24 * time.Hour)
+	for _, id := range []string{old, fresh} {
+		d.st.Panes = append(d.st.Panes, model.Pane{ID: "p-" + id, WorkspaceID: id, Provider: model.ProviderCodex})
+	}
+	d.mu.Unlock()
+	done := make(chan struct{})
+	go func() { d.settleLoop(ctx); close(done) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		d.mu.Lock()
+		settled := !d.st.Workspace(old).Settled.IsZero()
+		d.mu.Unlock()
+		if settled {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the idle tab did not settle")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if !d.st.Workspace(fresh).Settled.IsZero() {
+		t.Fatal("the fresh tab settled")
 	}
 }

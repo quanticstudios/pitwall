@@ -852,7 +852,8 @@ into sections:
 - **Active**: the rest. Approvals, questions and failures come first, then
   finished turns you have not looked at, then the others.
 - **Working**: tabs whose agent works now. pitwall fills it; you cannot drop
-  a tab there. `working_shelf = false` keeps these tabs in Active.
+  a tab there. A pinned or settled tab stays where you put it while its
+  agent works. `working_shelf = false` keeps these tabs in Active.
 - **Snoozed**: tabs hidden until a time you pick, which the row shows. An
   approval, a question, a plan or a failure wakes the tab early.
 - **Settled**: done tabs, still open. A tab settles when you settle it,
@@ -862,6 +863,8 @@ into sections:
 - **Shells**: tabs without an agent sit at the end, so Alt navigation and the
   switcher still reach them, without crowding the agents.
 
+Queued tasks show below the sections.
+
 A row shows the same status the tree does, in this order: approval, input,
 working, failed or usage limit, ready. Working rows and ready rows you have
 seen dim; approvals and questions never do.
@@ -869,7 +872,8 @@ seen dim; approvals and questions never do.
 Drag a row into Pinned to pin it, into Settled to settle it, or into Active
 to unpin, unsettle or wake it. Its menu has the same actions, with Snooze
 offering in an hour, this evening, tomorrow morning and Monday. A notice
-with Undo follows each move for a few seconds. Snooze and settle live in the
+with Undo follows each move for a few seconds, and Undo puts a pinned or
+unpinned tab back in its old place. Snooze and settle live in the
 daemon, so they survive a restart and every window sees them.
 
 Clicking a row shows its tab, as in the tree, and next tab, previous tab,

@@ -1,18 +1,24 @@
 package app
 
 import (
+	"image"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"gioui.org/io/key"
+	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 func press(n key.Name, m key.Modifiers) key.Event {
@@ -448,5 +454,19 @@ func TestNavFollowsInbox(t *testing.T) {
 	n.cycleWorkspace(&st, 1)
 	if n.workspace != "o" {
 		t.Fatalf("next from x in the tree went to %s, want o", n.workspace)
+	}
+}
+
+// TestHiddenSidebarFollowsInbox: [sidebar] view reaches the sidebar every
+// frame, so with the sidebar hidden the keys still follow the inbox.
+func TestHiddenSidebarFollowsInbox(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
+	u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf = true, true
+	u.nav.sidebarHidden = true
+	var ops op.Ops
+	u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1200, 800)), Now: time.Now()})
+	if !u.sidebar.Inbox || !u.sidebar.WorkingShelf || u.nav.inbox == nil || !u.nav.inbox() {
+		t.Fatalf("hidden sidebar: inbox %v, shelf %v", u.sidebar.Inbox, u.sidebar.WorkingShelf)
 	}
 }

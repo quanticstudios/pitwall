@@ -512,7 +512,7 @@ func (s *Sidebar) toggleGroupMenu(id string) {
 // shelve moves the tabs a menu action on id applies to by change, and
 // closes the menu.
 func (s *Sidebar) shelve(v *view, id, what string, change func(shelf) shelf) {
-	s.reshelve(v, s.targets(v, id), what, change)
+	s.reshelve(v, s.targets(v, id), what, func(_ string, sh shelf) shelf { return change(sh) })
 	s.closeMenus()
 	clear(s.selected)
 }

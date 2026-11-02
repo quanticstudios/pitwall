@@ -517,6 +517,9 @@ func (u *ui) layout(gtx gl.Context) {
 	if u.nav.inbox == nil {
 		u.nav.inbox = func() bool { return u.sidebar.Inbox }
 	}
+	// Before navigation reads the order, and while the sidebar is hidden.
+	u.sidebar.Inbox, u.sidebar.WorkingShelf = u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf
+	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
 	for _, p := range u.panes {
 		p.rect = image.Rectangle{}
@@ -717,8 +720,6 @@ func (u *ui) layout(gtx gl.Context) {
 			u.sidebar.Limits = u.limits.get()
 		}
 		u.sidebar.Answers = u.canAnswer()
-		u.sidebar.Inbox, u.sidebar.WorkingShelf = u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf
-		u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.Hints = u.sidebarHints()
 		u.usage.prune(&st)

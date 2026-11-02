@@ -78,14 +78,15 @@ func (d *Daemon) wakeTabs() {
 }
 
 // idleSettles reports whether w, whose agents' activities are acts, has
-// gone days without agent activity and should settle. A pinned, settled
-// or snoozed tab never does, nor one whose agent works or waits for an
-// answer. The end of a snooze counts as activity.
-func idleSettles(w model.Workspace, acts []model.Activity, now time.Time, days int) bool {
+// gone days without agent activity and should settle. agent says whether
+// a pane or chat of w runs an agent, which may sit at its first prompt
+// without an activity. A pinned, settled or snoozed tab never settles,
+// nor one whose agent works or waits for an answer. The end of a snooze
+// counts as activity.
+func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.Time, days int) bool {
 	if days <= 0 || w.Pinned || w.Detached || !w.Settled.IsZero() || w.SnoozedUntil.After(now) {
 		return false
 	}
-	agent := false
 	for _, a := range acts {
 		if a.WorkspaceID != w.ID || a.Provider == model.ProviderTerminal {
 			continue
@@ -111,9 +112,16 @@ func (d *Daemon) settleIdle(now time.Time) {
 	days := d.o.Settle().SettleAfterDays
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	agents := map[string]bool{}
+	for _, p := range d.st.Panes {
+		if model.IsAgent(p.Provider) {
+			agents[p.WorkspaceID] = true
+		}
+	}
 	changed := false
 	for i := range d.st.Workspaces {
-		if w := &d.st.Workspaces[i]; idleSettles(*w, d.st.Activities, now, days) {
+		w := &d.st.Workspaces[i]
+		if idleSettles(*w, d.st.Activities, agents[w.ID] || w.Chat != "", now, days) {
 			w.Settled, changed = now, true
 		}
 	}

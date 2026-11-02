@@ -108,20 +108,21 @@ func statusOf(acts []model.Activity, now time.Time) (status, *model.Activity) {
 	return best, at
 }
 
-// sectionOf is the section of tab w: shells apart, then snoozed, working
-// (with the shelf on), settled, pinned, the rest active.
+// sectionOf is the section of tab w: shells apart, then snoozed, settled,
+// pinned, working (with the shelf on), the rest active. A tab you put
+// somewhere stays there while its agent works.
 func sectionOf(w model.Workspace, isAgent bool, st status, now time.Time, shelf bool) section {
 	switch {
 	case !isAgent:
 		return secShells
 	case w.SnoozedUntil.After(now):
 		return secSnoozed
-	case shelf && st == statusWorking:
-		return secWorking
 	case !w.Settled.IsZero():
 		return secSettled
 	case w.Pinned:
 		return secPinned
+	case shelf && st == statusWorking:
+		return secWorking
 	}
 	return secActive
 }
@@ -307,9 +308,12 @@ func droppable(sec section) bool { return sec == secPinned || sec == secActive |
 
 // placeInbox lays the inbox out as place does the tree: each section that
 // shows as a header elem ('h', its id the section's number) whose bottom
-// takes in the empty placeholder, then its rows with their sub-rows.
+// takes in the empty placeholder, then its rows with their sub-rows, then
+// the queued tasks. It replaces the tree's queue blocks, whose indexes
+// point into the tree's elems.
 func (s *Sidebar) placeInbox(gtx layout.Context, v *view) ([]elem, int) {
 	var out []elem
+	s.queue = s.queue[:0]
 	rowH := rowHeight(gtx, v.th)
 	dragging := s.drag.active && s.drag.kind == 's'
 	y := 0
@@ -344,6 +348,19 @@ func (s *Sidebar) placeInbox(gtx layout.Context, v *view) ([]elem, int) {
 			if len(subs) > 0 {
 				y += gtx.Dp(2)
 			}
+		}
+	}
+	// The queued tasks follow the rows, flush, the loose ones first.
+	y += gtx.Dp(4)
+	groups := []string{""}
+	for _, p := range v.st.Projects {
+		groups = append(groups, p.ID)
+	}
+	for _, g := range groups {
+		n := len(s.queue)
+		y = s.placeQueue(gtx, v, g, len(out)-1, y)
+		for i := n; i < len(s.queue); i++ {
+			s.queue[i].x = 0
 		}
 	}
 	return out, y + gtx.Dp(6)
@@ -388,25 +405,28 @@ func sectionBand(elems []elem, sec section) (top, bot int, ok bool) {
 	return 0, 0, false
 }
 
-// dropInbox sends the moves for a drop into d.sec, or reports false when
-// it moves nothing.
+// dropInbox sends the moves for a drop into d.sec, each tab by the verb
+// from its own section, or reports false when it moves nothing.
 func (s *Sidebar) dropInbox(v *view, d drop) bool {
-	vb := verbNone
+	verbs := map[string]verb{}
+	var ids []string
+	what := ""
 	for _, id := range s.drag.ids {
-		if vb = dropVerb(v.secOf[id], d.sec); vb != verbNone {
-			break
+		vb := dropVerb(v.secOf[id], d.sec)
+		if vb == verbNone || !s.Shelves && vb != verbPin && vb != verbUnpin {
+			continue
+		}
+		verbs[id], ids = vb, append(ids, id)
+		if what == "" || what == verbText[vb] {
+			what = verbText[vb]
+		} else {
+			what = "Moved"
 		}
 	}
-	if vb == verbNone || !s.Shelves && vb != verbPin && vb != verbUnpin {
+	if len(ids) == 0 {
 		return false
 	}
-	var ids []string
-	for _, id := range s.drag.ids {
-		if dropVerb(v.secOf[id], d.sec) == vb {
-			ids = append(ids, id)
-		}
-	}
-	s.reshelve(v, ids, verbText[vb], func(sh shelf) shelf { return sh.apply(vb) })
+	s.reshelve(v, ids, what, func(id string, sh shelf) shelf { return sh.apply(verbs[id]) })
 	return true
 }
 
@@ -418,17 +438,18 @@ type undoNote struct {
 	at     time.Time
 }
 
-// reshelve moves tabs ids to change of their shelf, and offers to undo
-// it in a notice that says what.
-func (s *Sidebar) reshelve(v *view, ids []string, what string, change func(shelf) shelf) {
-	var back []Event
+// reshelve moves each tab of ids to change of its shelf, and offers to
+// undo it in a notice that says what. Pinning moves a tab, so the undo
+// puts it back where it was too.
+func (s *Sidebar) reshelve(v *view, ids []string, what string, change func(id string, sh shelf) shelf) {
+	var back, places []Event
 	for _, id := range ids {
 		w := v.st.Workspace(id)
 		if w == nil {
 			continue
 		}
 		from := shelfOf(*w)
-		to := change(from)
+		to := change(id, from)
 		s.events = append(s.events, shelfEvents(*w, to)...)
 		after := *w
 		after.Pinned, after.Settled, after.SnoozedUntil = to.pinned, time.Time{}, to.until
@@ -436,7 +457,11 @@ func (s *Sidebar) reshelve(v *view, ids []string, what string, change func(shelf
 			after.Settled = s.now
 		}
 		back = append(back, shelfEvents(after, from)...)
+		if from.pinned != to.pinned && w.Parent == "" {
+			places = append(places, placeOf(v, *w))
+		}
 	}
+	back = append(back, places...)
 	if len(back) == 0 {
 		return
 	}
@@ -445,6 +470,27 @@ func (s *Sidebar) reshelve(v *view, ids []string, what string, change func(shelf
 		text = what + " " + Title(*v.st.Workspace(ids[0]))
 	}
 	s.undo = &undoNote{text: text, events: back, at: s.now}
+}
+
+// placeOf is the move that puts tab w back where it is now: before the
+// next tab of its group, or before the next top-level item.
+func placeOf(v *view, w model.Workspace) MoveSession {
+	next := func(ids []string) string {
+		if i := slices.Index(ids, w.ID); i >= 0 && i+1 < len(ids) {
+			return ids[i+1]
+		}
+		return ""
+	}
+	if v.groups[w.ProjectID] {
+		var ids []string
+		for _, x := range v.st.Workspaces {
+			if x.ProjectID == w.ProjectID {
+				ids = append(ids, x.ID)
+			}
+		}
+		return MoveSession{WorkspaceID: w.ID, GroupID: w.ProjectID, Before: next(ids)}
+	}
+	return MoveSession{WorkspaceID: w.ID, Before: next(v.st.TopOrder(v.session))}
 }
 
 // sectionHeader draws sec's header in gtx's width: its name in small

@@ -40,8 +40,8 @@ func TestStatusOf(t *testing.T) {
 	}
 }
 
-// Snoozed beats working, working beats settled, settled beats pinned,
-// and a tab without an agent is a shell whatever its flags.
+// Snoozed beats settled, settled beats pinned, pinned beats working, and
+// a tab without an agent is a shell whatever its flags.
 func TestSectionOf(t *testing.T) {
 	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	later, earlier := now.Add(time.Hour), now.Add(-time.Hour)
@@ -56,7 +56,9 @@ func TestSectionOf(t *testing.T) {
 		{"plain", model.Workspace{}, true, statusReady, true, secActive},
 		{"pinned", model.Workspace{Pinned: true}, true, statusReady, true, secPinned},
 		{"settled and pinned", model.Workspace{Pinned: true, Settled: earlier}, true, statusReady, true, secSettled},
-		{"working and settled", model.Workspace{Settled: earlier}, true, statusWorking, true, secWorking},
+		{"working and settled", model.Workspace{Settled: earlier}, true, statusWorking, true, secSettled},
+		{"working and pinned", model.Workspace{Pinned: true}, true, statusWorking, true, secPinned},
+		{"working", model.Workspace{}, true, statusWorking, true, secWorking},
 		{"working without the shelf", model.Workspace{}, true, statusWorking, false, secActive},
 		{"snoozed and working", model.Workspace{SnoozedUntil: later}, true, statusWorking, true, secSnoozed},
 		{"snooze over", model.Workspace{SnoozedUntil: earlier}, true, statusReady, true, secActive},
@@ -214,7 +216,7 @@ func TestReshelveUndo(t *testing.T) {
 	st.Workspace("a").Pinned, st.Workspace("a").Color = true, "teal"
 	s := Sidebar{Inbox: true, Shelves: true, now: now}
 	v := s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
-	s.reshelve(v, []string{"a"}, "Settled", func(sh shelf) shelf { return sh.apply(verbSettle) })
+	s.reshelve(v, []string{"a"}, "Settled", func(_ string, sh shelf) shelf { return sh.apply(verbSettle) })
 	if want := []Event{SetInbox{WorkspaceID: "a", Settled: true}}; !slices.Equal(s.events, want) {
 		t.Fatalf("settle sent %v", s.events)
 	}
@@ -224,12 +226,13 @@ func TestReshelveUndo(t *testing.T) {
 	s.events, s.undo = nil, nil
 	wake := now.Add(time.Hour)
 	st.Workspace("b").SnoozedUntil = wake
-	s.reshelve(v, []string{"a", "b"}, "Moved", func(sh shelf) shelf { return sh.apply(verbWake) })
+	s.reshelve(v, []string{"a", "b"}, "Moved", func(_ string, sh shelf) shelf { return sh.apply(verbWake) })
 	want := []Event{SetTabOptions{WorkspaceID: "a", Color: "teal"}, SetInbox{WorkspaceID: "b"}}
 	if !slices.Equal(s.events, want) {
 		t.Fatalf("to Active sent %v, want %v", s.events, want)
 	}
-	back := []Event{SetTabOptions{WorkspaceID: "a", Pinned: true, Color: "teal"}, SetInbox{WorkspaceID: "b", SnoozedUntil: wake}}
+	back := []Event{SetTabOptions{WorkspaceID: "a", Pinned: true, Color: "teal"}, SetInbox{WorkspaceID: "b", SnoozedUntil: wake},
+		MoveSession{WorkspaceID: "a", GroupID: "g1", Before: "b"}}
 	if s.undo.text != "Moved 2 tabs" || !slices.Equal(s.undo.events, back) {
 		t.Fatalf("undo %+v, want %v", s.undo, back)
 	}
@@ -296,5 +299,79 @@ func TestInboxDrag(t *testing.T) {
 	h.pointer(pointer.Drag, h.at("a", 10))
 	if evs := h.pointer(pointer.Release, h.at("a", 10)); len(evs) != 0 {
 		t.Fatalf("a drop into Working sent %v", evs)
+	}
+}
+
+// Undoing a pin or an unpin puts the tab back where it was, in its group
+// or at the top level, as the daemon moved it to the pinned ones.
+func TestUndoKeepsOrder(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	st := inboxState(now)
+	s := Sidebar{Inbox: true, Shelves: true, now: now}
+	v := s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
+	for _, tc := range []struct {
+		id   string
+		want MoveSession
+	}{
+		{"b", MoveSession{WorkspaceID: "b", GroupID: "g1", Before: "k"}},
+		{"s", MoveSession{WorkspaceID: "s", Before: "d"}}, // the detached tab keeps its place
+		{"u", MoveSession{WorkspaceID: "u", Before: "s"}},
+	} {
+		s.events, s.undo = nil, nil
+		s.reshelve(v, []string{tc.id}, "Pinned", func(_ string, sh shelf) shelf { return sh.apply(verbPin) })
+		if got := s.undo.events; len(got) != 2 || got[1] != Event(tc.want) {
+			t.Errorf("pin %s: undo %v, want it to end with %v", tc.id, got, tc.want)
+		}
+	}
+	s.events, s.undo = nil, nil
+	s.reshelve(v, []string{"k"}, "Pinned", func(_ string, sh shelf) shelf { return sh.apply(verbPin) })
+	if len(s.undo.events) != 1 {
+		t.Errorf("a worker, which pinning does not move: undo %v", s.undo.events)
+	}
+}
+
+// Dropping a selection of a pinned and a settled tab into Active unpins
+// one and unsettles the other, and one undo puts both back.
+func TestDropMixedSelection(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	st := inboxState(now)
+	st.Workspace("u").Pinned = true
+	st.Workspace("b").Settled = now
+	s := Sidebar{Inbox: true, Shelves: true, now: now}
+	v := s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
+	s.drag.ids = []string{"u", "b"}
+	if !s.dropInbox(v, drop{ok: true, into: true, sec: secActive}) {
+		t.Fatal("nothing moved")
+	}
+	want := []Event{SetTabOptions{WorkspaceID: "u"}, SetInbox{WorkspaceID: "b"}}
+	if !slices.Equal(s.events, want) {
+		t.Fatalf("sent %v, want %v", s.events, want)
+	}
+	back := []Event{SetTabOptions{WorkspaceID: "u", Pinned: true}, SetInbox{WorkspaceID: "b", Settled: true}, MoveSession{WorkspaceID: "u", Before: "s"}}
+	if s.undo.text != "Moved 2 tabs" || !slices.Equal(s.undo.events, back) {
+		t.Fatalf("undo %+v, want %v", s.undo, back)
+	}
+}
+
+// Switching to the inbox with queued tasks in two groups lays the queue
+// out again for the inbox's rows instead of reusing the tree's indexes.
+func TestInboxQueue(t *testing.T) {
+	h := &dragHarness{t: t, now: time.Unix(1e9, 0)}
+	h.st = inboxState(h.now)
+	h.st.Projects = append(h.st.Projects, model.Project{ID: "g2", Name: "two"})
+	h.st.Workspaces = append(h.st.Workspaces, model.Workspace{ID: "x1", ProjectID: "g2"}, model.Workspace{ID: "x2", ProjectID: "g2"})
+	h.st.Tasks = []model.Task{{ID: "t1", GroupID: "g1", Cmd: []string{"codex", "one"}}, {ID: "t2", GroupID: "g2", Cmd: []string{"codex", "two"}}}
+	h.frame()
+	h.s.expanded["g1"], h.s.expanded["g2"] = true, true
+	h.frame()
+	h.s.Inbox = true
+	h.frame()
+	if len(h.s.queue) != 2 {
+		t.Fatalf("%d queue blocks, want 2", len(h.s.queue))
+	}
+	for _, b := range h.s.queue {
+		if b.after >= len(h.s.elems) || b.x != 0 {
+			t.Errorf("block %+v with %d elems", b, len(h.s.elems))
+		}
 	}
 }
