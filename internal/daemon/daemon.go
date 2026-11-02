@@ -56,9 +56,12 @@ const (
 	maxQueued = 1024
 )
 
-// writeTimeout is how long one message may take to reach a client before it
-// is disconnected; tests shorten it.
-var writeTimeout = 10 * time.Second
+// writeTimeout is how long, in nanoseconds, one message may take to reach a
+// client before it is disconnected. It is atomic because a test shortens it
+// while write loops of earlier tests' daemons may still read it.
+var writeTimeout atomic.Int64
+
+func init() { writeTimeout.Store(int64(10 * time.Second)) }
 
 // Build is this binary's version, set by main; StateMsg carries it.
 var Build string
@@ -650,7 +653,7 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 			sent[id] = f
 		}
 		for _, m := range append(out, msgs...) {
-			c.nc.SetWriteDeadline(time.Now().Add(writeTimeout))
+			c.nc.SetWriteDeadline(time.Now().Add(time.Duration(writeTimeout.Load())))
 			if err := c.conn.Send(m); err != nil {
 				c.conn.Close()
 				return
