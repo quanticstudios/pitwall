@@ -1013,7 +1013,10 @@ seen dim; approvals and questions never do.
 
 Drag a row into Pinned to pin it, into Settled to settle it, or into Active
 to unpin, unsettle or wake it. Its menu has the same actions, with Snooze
-offering in an hour, this evening, tomorrow morning and Monday. A notice
+offering in an hour, this evening, tomorrow morning and Monday. Settling
+takes one click too: hover an agent's row and a double check shows left of
+"…" and "×". On a settled row an undo arrow in the same place unsettles it.
+A row showing Allow and Deny or a plan's button leaves it out. A notice
 with Undo follows each move for a few seconds, and Undo puts a pinned or
 unpinned tab back in its old place. Snooze and settle live in the
 daemon, so they survive a restart and every window sees them.

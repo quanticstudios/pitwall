@@ -390,3 +390,64 @@ func TestInboxQueue(t *testing.T) {
 		}
 	}
 }
+
+// A hovered agent row in the inbox has Settle left of "…", Unsettle once
+// settled; a shell's row and the tree's rows have none, and a click on
+// the row itself still selects the tab.
+func TestSettleButton(t *testing.T) {
+	h := &dragHarness{t: t, now: time.Unix(1e9, 0)}
+	h.st = inboxState(h.now)
+	h.st.Workspace("u").Settled = h.now
+	h.s.Inbox, h.s.Shelves = true, true
+	h.frame()
+	h.frame()
+	// line 2's centre, two buttons left of the ×'s, or the name
+	click := func(id string, x float32) []Event {
+		p := h.at(id, 40)
+		if x < 100 {
+			p = h.at(id, 20) // the name, on line 1
+		}
+		p.X = x
+		h.s.closeMenus()
+		h.r.Queue(pointer.Event{Kind: pointer.Move, Position: p, Source: pointer.Mouse})
+		h.frame()
+		return append(h.pointer(pointer.Press, p), append(h.pointer(pointer.Release, p), h.frame()...)...)
+	}
+	settleX := float32(288 - listPad - 16 - 2*24)
+	shelved := func(evs []Event) []Event {
+		var out []Event
+		for _, e := range evs {
+			if _, ok := e.(SetInbox); ok {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	selects := func(evs []Event, id string) bool {
+		return slices.ContainsFunc(evs, func(e Event) bool { sel, ok := e.(SelectWorkspace); return ok && sel.WorkspaceID == id })
+	}
+	evs := click("b", settleX)
+	if got := shelved(evs); !slices.Equal(got, []Event{SetInbox{WorkspaceID: "b", Settled: true}}) {
+		t.Fatalf("Settle on an Active row sent %v", evs)
+	}
+	if selects(evs, "b") {
+		t.Fatal("Settle selected the row too")
+	}
+	if h.s.undo == nil || h.s.undo.text != "Settled b" {
+		t.Fatalf("undo %+v, want Settled b", h.s.undo)
+	}
+	if got := shelved(click("u", settleX)); !slices.Equal(got, []Event{SetInbox{WorkspaceID: "u"}}) {
+		t.Fatalf("Unsettle on a Settled row sent %v", got)
+	}
+	if got := shelved(click("s", settleX)); len(got) != 0 {
+		t.Fatalf("a shell's row settled: %v", got)
+	}
+	if evs := click("b", 60); len(shelved(evs)) != 0 || !selects(evs, "b") {
+		t.Fatalf("a click on the row's name sent %v, want it selected", evs)
+	}
+	h.s.Inbox = false
+	h.frame()
+	if got := shelved(click("u", settleX)); len(got) != 0 {
+		t.Fatalf("the tree's row settled: %v", got)
+	}
+}

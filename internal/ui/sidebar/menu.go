@@ -75,7 +75,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 		}
 		settle := menuEntry{c: &s.menuItem[actSettle], icon: icSettle, text: "Settle tab"}
 		if !ws.Settled.IsZero() {
-			settle.text = "Unsettle tab"
+			settle.icon, settle.text = icUnsettle, "Unsettle tab"
 		}
 		entries = append(entries, settle)
 	}

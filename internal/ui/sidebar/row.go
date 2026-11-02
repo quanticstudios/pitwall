@@ -101,6 +101,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	own := v.ownActivity(ws.ID)
 	answering := s.answering(v, ws.ID, ghost, own)
 	planning := s.planning(v, ws.ID, ghost, own)
+	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning
 	answerW := 0
 	if answering || planning {
 		answerW = answerSize(gtx, th, *own, base, planning).X
@@ -240,6 +241,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			if merged {
 				n++ // Archive
 			}
+			if settle {
+				n++
+			}
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(n*btn-x, 0)}
 			}})
@@ -326,6 +330,16 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		op.Defer(gtx.Ops, m.Stop())
 	}
 	off.Pop()
+	if settle {
+		pos.X -= btn
+		icon := icSettle
+		if !ws.Settled.IsZero() {
+			icon = icUnsettle
+		}
+		off := op.Offset(pos).Push(gtx.Ops)
+		iconButton(gtx, th, &r.settle, icon, btn, glyph, true)
+		off.Pop()
+	}
 	if showMore && merged {
 		pos.X -= btn
 		off := op.Offset(pos).Push(gtx.Ops)
