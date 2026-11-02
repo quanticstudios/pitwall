@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.8
 
 - When an update's handoff fails after the panes went over, the old daemon now waits for the new one to read why, instead of closing after a second, so `pitwall update` reports the real reason rather than a broken pipe.
 - On Windows, `pitwall logs -f` keeps following a log that is replaced while it opens it, instead of stopping on the error.
