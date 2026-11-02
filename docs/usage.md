@@ -836,6 +836,45 @@ tab or delete. Their branches stay. The daemon prunes on start too, and
 says when it finds such worktrees. `pitwall worktree` does the same from a
 terminal (see [Command line](cli.md)).
 
+### The inbox
+
+The sidebar has a second view for when the question is "what needs me?"
+rather than "where is it?". The inbox button left of + in the sidebar's
+header switches to it and back. Settings, Appearance, Sidebar and
+`[sidebar] view` in `config.toml` hold the same choice; the tree stays the
+default.
+
+The inbox lists every agent tab of the session in one list, groups and
+workers included, each row with its group's icon and name. It sorts them
+into sections:
+
+- **Pinned**: the tabs you pinned, in their order.
+- **Active**: the rest. Approvals, questions and failures come first, then
+  finished turns you have not looked at, then the others.
+- **Working**: tabs whose agent works now. pitwall fills it; you cannot drop
+  a tab there. `working_shelf = false` keeps these tabs in Active.
+- **Snoozed**: tabs hidden until a time you pick, which the row shows. An
+  approval, a question, a plan or a failure wakes the tab early.
+- **Settled**: done tabs, still open. A tab settles when you settle it,
+  after `settle_after_days` days (3) without agent activity, or when its pull
+  request merges (`settle_on_merge`). Pinned tabs never settle on their own.
+  A new turn or a request from its agent brings it back.
+- **Shells**: tabs without an agent sit at the end, so Alt navigation and the
+  switcher still reach them, without crowding the agents.
+
+A row shows the same status the tree does, in this order: approval, input,
+working, failed or usage limit, ready. Working rows and ready rows you have
+seen dim; approvals and questions never do.
+
+Drag a row into Pinned to pin it, into Settled to settle it, or into Active
+to unpin, unsettle or wake it. Its menu has the same actions, with Snooze
+offering in an hour, this evening, tomorrow morning and Monday. A notice
+with Undo follows each move for a few seconds. Snooze and settle live in the
+daemon, so they survive a restart and every window sees them.
+
+Clicking a row shows its tab, as in the tree, and next tab, previous tab,
+goto_tab and the switcher follow the inbox's order while it shows.
+
 ### Worktree ports and setup
 
 Each worktree tab pitwall makes gets its own block of 10 ports, so two

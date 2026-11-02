@@ -66,7 +66,20 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 	if ws.Pinned {
 		pin.icon, pin.text = icPinOff, "Unpin tab"
 	}
-	entries = append(entries, pin, menuEntry{swatches: "color:" + ws.Color})
+	entries = append(entries, pin)
+	if v.inbox && s.Shelves {
+		if ws.SnoozedUntil.After(v.now) {
+			entries = append(entries, menuEntry{c: &s.menuItem[actWake], icon: icClock, text: "Wake", hint: wakeText(v.now, ws.SnoozedUntil)})
+		} else {
+			entries = append(entries, menuEntry{c: &s.menuItem[actSnooze], icon: icClock, text: "Snooze", sub: true})
+		}
+		settle := menuEntry{c: &s.menuItem[actSettle], icon: icSettle, text: "Settle tab"}
+		if !ws.Settled.IsZero() {
+			settle.text = "Unsettle tab"
+		}
+		entries = append(entries, settle)
+	}
+	entries = append(entries, menuEntry{swatches: "color:" + ws.Color})
 	move := -1
 	if len(groups) > 0 {
 		move = len(entries)
@@ -98,23 +111,38 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 	if ws.WorktreeRoot != "" { // only a worktree pitwall made has a folder to delete
 		entries = append(entries, menuEntry{c: &s.menuItem[actDelete], icon: icTrash, text: "Delete…", danger: true})
 	}
-	// Hovering "Move to group" opens its flyout; hovering another entry
-	// closes it.
-	was := s.moveOpen
-	for i, e := range entries {
+	// Hovering "Move to group" or "Snooze" opens its flyout; hovering
+	// another entry closes it.
+	was, wasAct := s.moveOpen, s.flyAct
+	for _, e := range entries {
 		if e.c != nil && e.c.Hovered() {
-			s.moveOpen = i == move
+			s.moveOpen = e.sub
+			if e.sub {
+				s.flyAct = s.subAct(e.c)
+			}
 		}
 	}
-	if s.moveOpen && !was {
+	if s.moveOpen && (!was || wasAct != s.flyAct) {
 		s.subAt = gtx.Now
 	}
 	at, tops := s.menuList(gtx, th, anchor, entries)
-	if move < 0 {
+	if !s.moveOpen {
 		return
 	}
-	w := gtx.Dp(220)
-	if !s.moveOpen {
+	sub := slices.IndexFunc(entries, func(e menuEntry) bool { return e.c == &s.menuItem[s.flyAct] })
+	if sub < 0 {
+		return
+	}
+	if s.flyAct == actSnooze {
+		s.presets = snoozePresets(v.now)
+		var rows []flyRow
+		for i, p := range s.presets {
+			rows = append(rows, flyRow{c: &s.snoozeBtn[i], icon: icClock, iconCol: th.Muted, text: p.label, hint: p.when})
+		}
+		s.flyout(gtx, th, anchor, at, tops[sub], rows)
+		return
+	}
+	if move < 0 {
 		return
 	}
 	for id := range s.moveBtn {
@@ -122,25 +150,54 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 			delete(s.moveBtn, id)
 		}
 	}
-	sw, itemH, p := gtx.Dp(200), gtx.Dp(32), gtx.Dp(4)
-	size := image.Pt(sw, 2*p+len(groups)*itemH)
-	// Beside the menu, level with its entry.
-	row := image.Rectangle{Min: at.Add(image.Pt(0, tops[move]-p)), Max: at.Add(image.Pt(w, tops[move]-p+itemH))}
-	sub := kit.Place(row.Add(anchor.Min), size, s.bounds(), kit.Beside, gtx.Dp(2), gtx.Dp(8)).Sub(anchor.Min)
-	defer op.Offset(sub).Push(gtx.Ops).Pop()
-	defer s.popIn(gtx, s.subAt, size)()
-	floatingSurface(gtx, th, size)
-	s.blockClicks(gtx, size)
-	fly := make([]*widget.Clickable, len(groups))
-	defer s.noteFlyout(fly)
-	for i, g := range groups {
+	var rows []flyRow
+	for _, g := range groups {
 		c := s.moveBtn[g.ID]
 		if c == nil {
 			c = &widget.Clickable{}
 			s.moveBtn[g.ID] = c
 		}
-		fly[i] = c
-		s.menuRow(gtx, th, c, image.Pt(p, p+i*itemH), image.Pt(sw-2*p, itemH), projectIcon(g.Icon), th.ProjectColor(g.Color), g.Name, th.Fg, "", false)
+		rows = append(rows, flyRow{c: c, icon: projectIcon(g.Icon), iconCol: th.ProjectColor(g.Color), text: g.Name})
+	}
+	s.flyout(gtx, th, anchor, at, tops[move], rows)
+}
+
+// flyRow is one entry of a menu's flyout.
+type flyRow struct {
+	c          *widget.Clickable
+	icon       string
+	iconCol    color.NRGBA
+	text, hint string
+}
+
+// subAct is the action of the menu entry c that has a flyout.
+func (s *Sidebar) subAct(c *widget.Clickable) int {
+	if c == &s.menuItem[actSnooze] {
+		return actSnooze
+	}
+	return actMove
+}
+
+// flyout draws rows beside the menu at at, level with its entry at top.
+func (s *Sidebar) flyout(gtx layout.Context, th *theme.Theme, anchor image.Rectangle, at image.Point, top int, rows []flyRow) {
+	w := gtx.Dp(220)
+	sw, itemH, p := gtx.Dp(200), gtx.Dp(32), gtx.Dp(4)
+	if s.flyAct == actSnooze {
+		sw = gtx.Dp(220)
+	}
+	size := image.Pt(sw, 2*p+len(rows)*itemH)
+	// Beside the menu, level with its entry.
+	row := image.Rectangle{Min: at.Add(image.Pt(0, top-p)), Max: at.Add(image.Pt(w, top-p+itemH))}
+	sub := kit.Place(row.Add(anchor.Min), size, s.bounds(), kit.Beside, gtx.Dp(2), gtx.Dp(8)).Sub(anchor.Min)
+	defer op.Offset(sub).Push(gtx.Ops).Pop()
+	defer s.popIn(gtx, s.subAt, size)()
+	floatingSurface(gtx, th, size)
+	s.blockClicks(gtx, size)
+	fly := make([]*widget.Clickable, len(rows))
+	defer s.noteFlyout(fly)
+	for i, r := range rows {
+		fly[i] = r.c
+		s.menuRow(gtx, th, r.c, image.Pt(p, p+i*itemH), image.Pt(sw-2*p, itemH), r.icon, r.iconCol, r.text, th.Fg, r.hint, false)
 	}
 }
 

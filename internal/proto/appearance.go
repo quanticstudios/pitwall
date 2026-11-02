@@ -1,6 +1,9 @@
 package proto
 
-import "encoding/gob"
+import (
+	"encoding/gob"
+	"time"
+)
 
 // SetProjectAppearance sets a project's lucide icon name and aide color id,
 // from the sidebar's project popover.
@@ -18,10 +21,20 @@ type SetTabOptions struct {
 	Color       string
 }
 
+// SetTabInbox settles or unsettles tab WorkspaceID and snoozes it until
+// SnoozedUntil, or wakes it with a zero SnoozedUntil, from the sidebar's
+// inbox. Unsettling restarts the tab's idle time for settle_after_days.
+type SetTabInbox struct {
+	WorkspaceID  string
+	Settled      bool
+	SnoozedUntil time.Time
+}
+
 func init() {
-	Messages = append(Messages, SetProjectAppearance{}, SetTabOptions{})
+	Messages = append(Messages, SetProjectAppearance{}, SetTabOptions{}, SetTabInbox{})
 	// conn.go's init registers Messages too; registering here as well keeps
 	// this independent of file init order. Same type, same name: no panic.
 	gob.Register(SetProjectAppearance{})
 	gob.Register(SetTabOptions{})
+	gob.Register(SetTabInbox{})
 }

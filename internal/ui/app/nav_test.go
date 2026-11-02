@@ -420,3 +420,33 @@ func TestNavSkipsFoldedWorkers(t *testing.T) {
 		t.Fatalf("next from a folded worker that is open went to %s, want x", n.workspace)
 	}
 }
+
+// TestNavFollowsInbox: while the sidebar shows its inbox, next, prev and
+// the switcher follow its rows, workers of folded tabs included, and
+// with the tree back they follow the tree.
+func TestNavFollowsInbox(t *testing.T) {
+	st := model.State{
+		Sessions:   []model.Session{{ID: "s"}},
+		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}, {ID: "x", SessionID: "s"}},
+	}
+	inbox := true
+	n := nav{session: "s", workspace: "x", folded: func(id string) bool { return id == "o" },
+		rows: func(*model.State) []string { return []string{"x", "w", "o"} }, inbox: func() bool { return inbox }}
+	var ids []string
+	for _, w := range n.visible(&st) {
+		ids = append(ids, w.ID)
+	}
+	if !slices.Equal(ids, []string{"x", "w", "o"}) {
+		t.Fatalf("visible %v", ids)
+	}
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "w" {
+		t.Fatalf("next from x in the inbox went to %s, want w", n.workspace)
+	}
+	inbox = false
+	n.workspace = "x"
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "o" {
+		t.Fatalf("next from x in the tree went to %s, want o", n.workspace)
+	}
+}

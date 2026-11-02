@@ -57,6 +57,9 @@ type nav struct {
 	// rows are the tab ids the sidebar lists in st, top to bottom, which
 	// goto_N counts; nil counts every tab (n.ordered).
 	rows func(st *model.State) []string
+	// inbox reports whether the sidebar shows its inbox, whose rows next,
+	// prev and the switcher then follow; nil for never.
+	inbox func() bool
 	// folded reports whether the sidebar folds the workers of the tab with
 	// that id away; next and prev skip them. nil folds none.
 	folded func(id string) bool
@@ -180,6 +183,21 @@ func (n *nav) switcherVisible() bool { return n.altHeld || n.pinned }
 // ordered is the tabs of the window's session in sidebar order
 // (model.State.Ordered), without detached ones.
 func (n *nav) ordered(st *model.State) []model.Workspace { return orderedIn(st, n.session) }
+
+// visible is the session's tabs in the order the sidebar's view shows
+// them: the inbox's rows while it shows, else ordered.
+func (n *nav) visible(st *model.State) []model.Workspace {
+	if n.inbox == nil || !n.inbox() || n.rows == nil {
+		return n.ordered(st)
+	}
+	var out []model.Workspace
+	for _, id := range n.rows(st) {
+		if w := findWorkspace(st, id); w != nil {
+			out = append(out, *w)
+		}
+	}
+	return out
+}
 
 // orderedIn is session's tabs in sidebar order without detached ones.
 func orderedIn(st *model.State, session string) []model.Workspace {
@@ -390,13 +408,15 @@ func (n *nav) selectWorkspace(st *model.State, id, pane string) {
 // cycleWorkspace moves d tabs in sidebar order, wrapping, past the workers
 // of a tab whose workers the sidebar folds. With a hold
 // modifier and the switcher hidden it stays in the tab's group, as aide's
-// Alt+J/K do; otherwise it crosses groups.
+// Alt+J/K do; otherwise it crosses groups. The inbox, which folds nothing
+// and mixes groups, cycles through all its rows.
 func (n *nav) cycleWorkspace(st *model.State, d int) {
-	ws := slices.DeleteFunc(n.ordered(st), func(w model.Workspace) bool {
+	inbox := n.inbox != nil && n.inbox()
+	ws := slices.DeleteFunc(n.visible(st), func(w model.Workspace) bool {
 		r := st.Root(w)
-		return r != "" && w.ID != n.workspace && n.folded != nil && n.folded(r)
+		return !inbox && r != "" && w.ID != n.workspace && n.folded != nil && n.folded(r)
 	})
-	if n.bind().Hold != 0 && !n.switcherVisible() {
+	if n.bind().Hold != 0 && !n.switcherVisible() && !inbox {
 		cur := findWorkspace(st, n.workspace)
 		var local []model.Workspace
 		for _, w := range ws {

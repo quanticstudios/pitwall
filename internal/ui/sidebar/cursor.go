@@ -57,9 +57,11 @@ type cursor struct {
 	page       int    // how many rows a page of the list holds, as last drawn
 
 	// The open menu: the entry the keys are on, the enabled entries as last
-	// drawn, the Move to group entry and its flyout's entries.
+	// drawn, the entries with a flyout (Move to group, Snooze), the one
+	// whose flyout the keys opened, and that flyout's entries.
 	item  *widget.Clickable
 	items []*widget.Clickable
+	subs  []*widget.Clickable
 	move  *widget.Clickable
 	fly   []*widget.Clickable
 	inFly bool
@@ -256,8 +258,9 @@ func (s *Sidebar) menuKeys(e key.Event) {
 	case key.NameRightArrow, "L", key.NameReturn, key.NameEnter, key.NameSpace:
 		switch {
 		case c.item == nil:
-		case c.item == c.move && !c.inFly:
-			s.moveOpen, s.subAt, c.inFly, c.item = true, s.now, true, nil
+		case slices.Contains(c.subs, c.item) && !c.inFly:
+			c.move = c.item
+			s.moveOpen, s.flyAct, s.subAt, c.inFly, c.item = true, s.subAct(c.move), s.now, true, nil
 		case e.Name != key.NameRightArrow && e.Name != "L":
 			c.item.Click()
 		}
@@ -281,13 +284,13 @@ func (s *Sidebar) noteMenu(entries []menuEntry) {
 	if !s.cur.on {
 		return
 	}
-	s.cur.items, s.cur.move = s.cur.items[:0], nil
+	s.cur.items, s.cur.subs = s.cur.items[:0], s.cur.subs[:0]
 	for _, e := range entries {
 		if !e.off && e.c != nil {
 			s.cur.items = append(s.cur.items, e.c)
 		}
 		if e.sub {
-			s.cur.move = e.c
+			s.cur.subs = append(s.cur.subs, e.c)
 		}
 	}
 	if !s.cur.inFly && !slices.Contains(s.cur.items, s.cur.item) && len(s.cur.items) > 0 {
@@ -354,7 +357,7 @@ func (s *Sidebar) cursorFrame(gtx layout.Context, v *view, elems []elem, total i
 // through.
 func (s *Sidebar) cursorView(st *model.State, session, active string) (*view, []elem) {
 	view := st.View(session)
-	v := newView(layout.Context{}, nil, &view, session, active)
+	v := s.viewOf(layout.Context{}, nil, &view, session, active)
 	s.follow(v)
 	return v, s.rowsOf(v)
 }
@@ -368,6 +371,12 @@ func (s *Sidebar) rowsOf(v *view) []elem {
 		for _, ap := range s.shownSubs(v, id) {
 			out = append(out, elem{kind: 'a', id: ap.Pane.ID, parent: id, group: g})
 		}
+	}
+	if v.inbox {
+		for _, id := range inboxOrder(v) {
+			tab(id, "")
+		}
+		return out
 	}
 	for _, id := range v.top {
 		if !v.groups[id] {

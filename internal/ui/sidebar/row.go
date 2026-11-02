@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"slices"
 	"time"
 
 	"gioui.org/f32"
@@ -175,11 +176,18 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return s.foldChip(gtx, v, ws.ID, muted, ghost, answering)
 			}})
 		}
+		// The inbox mixes groups: each row names its own.
+		if g := v.groupOf(ws.ID); v.inbox && g != "" {
+			if i := slices.IndexFunc(v.st.Projects, func(p model.Project) bool { return p.ID == g }); i >= 0 {
+				line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return s.groupTag(gtx, v, v.st.Projects[i], muted) }})
+			}
+		}
 		// Allow and Deny or the agent count leave it a few letters at most,
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
 		if !answering && !planning && v.agents[ws.ID] == nil && where != title {
-			line = append(line, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+			// Beside the inbox's group tag it shows whole or not at all.
+			line = append(line, item{shrink: !v.inbox, opt: v.inbox, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
 			}})
 		}
@@ -235,6 +243,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(n*btn-x, 0)}
+			}})
+		case v.inbox && ws.SnoozedUntil.After(v.now):
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, "Wakes "+wakeText(v.now, ws.SnoozedUntil))
 			}})
 		case inRepo && merged:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {

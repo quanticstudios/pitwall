@@ -87,6 +87,16 @@ type Workspace struct {
 	// KillSession for it, and an automatic archive skips it, until it is
 	// unpinned.
 	Pinned bool
+	// Settled is when the tab moved to the inbox's Settled section: by
+	// hand, after [sidebar] settle_after_days without agent activity, or
+	// when its pull request merged. Zero while it is not settled. A new
+	// turn or a request from its agent after that time clears it.
+	Settled time.Time `json:",omitzero"`
+	// SnoozedUntil hides the tab in the inbox's Snoozed section until that
+	// time; SnoozedAt is when it was snoozed. An approval, question, plan
+	// or failure from its agent after SnoozedAt clears both. Zero for none.
+	SnoozedUntil time.Time `json:",omitzero"`
+	SnoozedAt    time.Time `json:",omitzero"`
 	// Color is the tab's color id ("red", "sky", see theme.ProjectColor),
 	// "" for none.
 	Color string

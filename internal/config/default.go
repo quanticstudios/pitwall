@@ -30,6 +30,7 @@ func defaults() Config {
 	c.Decisions = defaultDecisions()
 	c.Worktrees = defaultWorktrees()
 	c.Git = defaultGit()
+	c.Sidebar = defaultSidebar()
 	c.Remote = defaultRemote()
 	c.Web = defaultWeb()
 	c.Notify = defaultNotifications()

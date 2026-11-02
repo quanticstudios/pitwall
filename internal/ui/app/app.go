@@ -514,6 +514,9 @@ func (u *ui) layout(gtx gl.Context) {
 	if u.nav.folded == nil {
 		u.nav.folded = u.sidebar.KidsFolded
 	}
+	if u.nav.inbox == nil {
+		u.nav.inbox = func() bool { return u.sidebar.Inbox }
+	}
 	st := u.b.State()
 	for _, p := range u.panes {
 		p.rect = image.Rectangle{}
@@ -714,6 +717,8 @@ func (u *ui) layout(gtx gl.Context) {
 			u.sidebar.Limits = u.limits.get()
 		}
 		u.sidebar.Answers = u.canAnswer()
+		u.sidebar.Inbox, u.sidebar.WorkingShelf = u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf
+		u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.Hints = u.sidebarHints()
 		u.usage.prune(&st)
@@ -845,6 +850,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.sendOrAsk(st, proto.CloseTab{WorkspaceID: e.WorkspaceID})
 	case sidebar.SetTabOptions:
 		u.send(proto.SetTabOptions{WorkspaceID: e.WorkspaceID, Pinned: e.Pinned, Color: e.Color})
+	case sidebar.SetInbox:
+		u.send(proto.SetTabInbox{WorkspaceID: e.WorkspaceID, Settled: e.Settled, SnoozedUntil: e.SnoozedUntil})
+	case sidebar.SetView:
+		u.setSidebarView(e.Inbox)
 	case sidebar.RenameTab:
 		u.send(proto.RenameTab{WorkspaceID: e.WorkspaceID, Name: e.Name})
 	case sidebar.ViewDiff:

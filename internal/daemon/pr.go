@@ -92,8 +92,10 @@ func (d *Daemon) hidden() bool {
 // whose answer forge.Next says is due at now, then sets State.PRs. A tab
 // whose PR it sees go from open to merged is archived, as the delete dialog
 // does with its branch box ticked, when [git] archive_on_merge is on and
-// the tab is a worktree pitwall made. With [git] auto_send_failures on,
-// a branch's failed checks go to its tab's agent; see sendAgent.
+// the tab is a worktree pitwall made. It settles in the sidebar's inbox
+// when [sidebar] settle_on_merge is on and it is not pinned. With [git]
+// auto_send_failures on, a branch's failed checks go to its tab's agent;
+// see sendAgent.
 // send_review_on_request sends reviews through the same path. In
 // fleet mode, a lane worker past those sends is escalated; see escalate.
 func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
@@ -157,6 +159,7 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	if failures {
 		fleet, fleetOn = d.fleetOn()
 	}
+	settle := len(answers) > 0 && d.o.Settle != nil && d.o.Settle().SettleOnMerge
 	d.mu.Lock()
 	for k, a := range answers {
 		s := d.prs.seen[k]
@@ -191,8 +194,12 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 			changed = true
 		case pr != nil && (!had || !reflect.DeepEqual(old, *pr)):
 			d.prMilestones(w, old, had, *pr, now)
-			if had && old.Number == pr.Number && old.State == model.PROpen && pr.State == model.PRMerged && w.WorktreeRoot != "" && !w.Pinned {
+			merged := had && old.Number == pr.Number && old.State == model.PROpen && pr.State == model.PRMerged
+			if merged && w.WorktreeRoot != "" && !w.Pinned {
 				archive = append(archive, w.ID)
+			}
+			if merged && settle && !w.Pinned && w.Settled.IsZero() {
+				d.workspace(w.ID).Settled = now
 			}
 			d.st.PRs[w.ID] = *pr
 			changed = true

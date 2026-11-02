@@ -47,6 +47,8 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) la
 		}})
 	}
 	hrow(gtx, h-1, gtx.Dp(6), append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+		return s.viewButton(gtx, th)
+	}}, item{w: func(gtx layout.Context) layout.Dimensions {
 		return iconButton(gtx, th, &s.newTab, icPlus, gtx.Dp(28), gtx.Dp(16), true)
 	}})...)
 	off.Pop()
@@ -100,5 +102,31 @@ func (s *Sidebar) sessionButton(gtx layout.Context, th *theme.Theme, name string
 		call.Add(gtx.Ops)
 		o.Pop()
 		return layout.Dimensions{Size: size}
+	})
+}
+
+// viewButton switches between the tree and the inbox: an inbox glyph,
+// primary on a tinted fill while the inbox shows.
+func (s *Sidebar) viewButton(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	size := gtx.Dp(28)
+	gtx.Constraints = layout.Exact(image.Pt(size, size))
+	return clickable(gtx, &s.viewBtn, func(gtx layout.Context) layout.Dimensions {
+		rr := clip.UniformRRect(image.Rect(0, 0, size, size), gtx.Dp(6))
+		col := th.Muted
+		switch {
+		case s.Inbox:
+			fill := theme.Mix(th.Sidebar, th.Primary, 0.14)
+			if s.viewBtn.Hovered() {
+				fill = theme.Mix(th.Sidebar, th.Primary, 0.22)
+			}
+			paint.FillShape(gtx.Ops, fill, rr.Op(gtx.Ops))
+			col = th.Primary
+		case s.viewBtn.Hovered():
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
+			col = th.Fg
+		}
+		return drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions {
+			return drawIcon(gtx, icInbox, gtx.Dp(16), col, 0)
+		})
 	})
 }
