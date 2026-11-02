@@ -134,6 +134,11 @@ func TestGraphicsPut(t *testing.T) {
 	if img, _ := e.Image(g.Images[0].Image); !bytes.Equal(img.Pix[:4], []byte{1, 2, 3, 0xff}) {
 		t.Errorf("RGB pixel %v", img.Pix[:4])
 	}
+	// A crop that starts right of the image's left edge keeps its start.
+	e.Write([]byte("\x1b_Ga=p,i=3,p=2,x=2,w=2,C=1\x1b\\"))
+	if g = e.Snapshot(); len(g.Images) != 2 || g.Images[1].Src != image.Rect(2, 0, 4, 2) {
+		t.Fatalf("cropped placement %+v", g.Images)
+	}
 	e.Write([]byte("\x1b[2J"))
 	if g = e.Snapshot(); len(g.Images) != 0 {
 		t.Fatalf("ED 2 kept %+v", g.Images)
@@ -231,4 +236,26 @@ func TestGraphicsCaps(t *testing.T) {
 		o.st.gfx.releaseAll()
 	}
 	e.st.gfx.releaseAll()
+}
+
+// TestGraphicsReflow widens a pane: the soft-wrapped line above an image
+// joins into one row, and the image moves up with the text under it.
+func TestGraphicsReflow(t *testing.T) {
+	e, _ := newGfx(t)
+	e.Write([]byte(strings.Repeat("a", 30) + "\r\n")) // two rows at 20 columns
+	e.Write([]byte(" \x1b_Ga=T,f=24,s=1,v=1,c=2,r=1,q=2;AAAA\x1b\\\r\nafter"))
+	g := e.Snapshot()
+	if len(g.Images) != 1 || g.Images[0].Y != 2 || g.Images[0].X != 1 || row(g, 3) != "after" {
+		t.Fatalf("before: %+v, %q", g.Images, screenText(g))
+	}
+	e.Resize(40, 6)
+	g = e.Snapshot()
+	if row(g, 2) != "after" || len(g.Images) != 1 || g.Images[0].Y != 1 || g.Images[0].X != 1 {
+		t.Fatalf("after widening: %+v, %q", g.Images, screenText(g))
+	}
+	e.Resize(10, 6) // three rows of a's now, then the image's row
+	g = e.Snapshot()
+	if row(g, 4) != "after" || len(g.Images) != 1 || g.Images[0].Y != 3 {
+		t.Fatalf("after narrowing: %+v, %q", g.Images, screenText(g))
+	}
 }

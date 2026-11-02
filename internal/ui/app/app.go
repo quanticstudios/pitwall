@@ -994,7 +994,10 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			u.drawZoomHint(gtx, r)
 		}
 	}
-	for id := range u.panes {
+	for id, p := range u.panes {
+		if !live[id] {
+			p.view.DropImages()
+		}
 		if !live[id] && findPane(st, id) == nil {
 			delete(u.panes, id)
 		}

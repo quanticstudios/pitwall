@@ -461,7 +461,7 @@ func (b *backend) recvLoop() {
 		case proto.PasteImageResult:
 			b.pastes[m.Pane] = m
 		case proto.ImageResult:
-			b.imgs.put(m.Image, b.frames)
+			b.imgs.put(m.Image, b.keepImages)
 			pane = m.Pane
 		case proto.ChatDeltas:
 			if !b.chat.take(m) {

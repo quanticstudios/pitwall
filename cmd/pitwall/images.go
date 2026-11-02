@@ -29,9 +29,9 @@ func (c *images) ask(key uint64) bool {
 	return true
 }
 
-// put stores img. Past imageCap it drops the images no frame in frames
-// places; one scrolled back into view is asked for again.
-func (c *images) put(img vt.Image, frames map[string]proto.Frame) {
+// put stores img. Past imageCap it drops the images keep leaves out; one
+// that comes back into view is asked for again.
+func (c *images) put(img vt.Image, keep func() map[uint64]bool) {
 	if c.m == nil {
 		c.m = map[uint64]*vt.Image{}
 	}
@@ -43,12 +43,8 @@ func (c *images) put(img vt.Image, frames map[string]proto.Frame) {
 	if c.bytes <= imageCap {
 		return
 	}
-	used := map[uint64]bool{img.Key: true}
-	for _, f := range frames {
-		for _, p := range f.Grid.Images {
-			used[p.Image] = true
-		}
-	}
+	used := keep()
+	used[img.Key] = true
 	for k, i := range c.m {
 		if i != nil && !used[k] {
 			c.bytes -= len(i.Pix)
@@ -72,6 +68,19 @@ func (c *images) forget() {
 			delete(c.m, k)
 		}
 	}
+}
+
+// keepImages is the images the panes the window draws place. Frames of
+// panes in other tabs stay in b.frames but go stale, so they protect
+// nothing. Callers hold b.mu.
+func (b *backend) keepImages() map[uint64]bool {
+	keep := map[uint64]bool{}
+	for id := range b.view {
+		for _, p := range b.frames[id].Grid.Images {
+			keep[p.Image] = true
+		}
+	}
+	return keep
 }
 
 // Image implements app.Imager: the pixels of an image pane's frame

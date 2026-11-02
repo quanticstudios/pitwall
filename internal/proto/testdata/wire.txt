@@ -131,6 +131,6 @@ vt.Grid{Cols int; Rows int; Cells []vt.Cell; Cursor vt.Cursor; Title string; Alt
 vt.Image{Key uint64; W int; H int; Pix []uint8}
 vt.Match{Line uint64; Col int; Cols int}
 vt.Modes{AppCursorKeys bool; AppKeypad bool; BracketedPaste bool; FocusEvents bool; Mouse vt.MouseMode; MouseSGR bool; KittyKeyboard uint8}
-vt.Placement{Image uint64; X int; Y int; Cols int; Rows int; Src image.Rectangle}
+vt.Placement{Image uint64; X int; Y int; Cols int; Rows int; Src image.Rectangle; Natural bool}
 vt.Pos{Line uint64; Col int}
 vt.Selection{A vt.Pos; B vt.Pos; Mode vt.SelectMode}

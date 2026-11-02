@@ -21,13 +21,16 @@ import (
 
 // Placement is an image drawn over the grid, from the kitty graphics
 // protocol. Its top left corner is cell (X, Y), Y below 0 when it starts
-// above the view; it covers Cols x Rows cells, with Src, the part of the
-// image shown, scaled to fill them.
+// above the view, and it takes Cols x Rows cells. Src, the part of the
+// image shown, keeps its aspect ratio: it is drawn at its own pixel size
+// when Natural (the program gave no c= or r=), else scaled to fit the
+// cells, from their top left corner.
 type Placement struct {
 	Image      uint64 // Image.Key
 	X, Y       int
 	Cols, Rows int
 	Src        image.Rectangle
+	Natural    bool
 }
 
 // Image is a picture a program sent: W*H pixels of non-premultiplied RGBA
@@ -114,6 +117,7 @@ type place struct {
 	col        int
 	cols, rows int
 	src        image.Rectangle
+	natural    bool // sized by the image, not by c= or r=
 	alt        bool // on the alt screen
 }
 
@@ -358,7 +362,8 @@ func (g *graphics) drop(gone func(*picture) bool) {
 func (g *graphics) place(e *xvt.Emulator, st *state, p *picture, c *gcmd) {
 	// Clamped first, so the sums below cannot overflow.
 	side := func(k byte) int { return min(max(c.num(k), 0), maxImageSide) }
-	src := image.Rect(side('x'), side('y'), 0, 0)
+	// Not image.Rect, which would swap a corner past (0, 0) to the front.
+	src := image.Rectangle{Min: image.Pt(side('x'), side('y'))}
 	src.Max = src.Min.Add(image.Pt(side('w'), side('h')))
 	if src.Dx() <= 0 {
 		src.Max.X = p.w
@@ -372,8 +377,9 @@ func (g *graphics) place(e *xvt.Emulator, st *state, p *picture, c *gcmd) {
 	}
 	cell := g.cellSize()
 	cols, rows := min(c.num('c'), maxPlaceCells), min(c.num('r'), maxPlaceCells)
+	natural := cols <= 0 && rows <= 0
 	switch {
-	case cols <= 0 && rows <= 0:
+	case natural:
 		cols, rows = ceilDiv(src.Dx(), cell.X), ceilDiv(src.Dy(), cell.Y)
 	case rows <= 0:
 		rows = ceilDiv(cols*cell.X*src.Dy(), src.Dx()*cell.Y)
@@ -383,7 +389,7 @@ func (g *graphics) place(e *xvt.Emulator, st *state, p *picture, c *gcmd) {
 	cols, rows = min(max(cols, 1), maxPlaceCells), min(max(rows, 1), maxPlaceCells)
 	pos := e.CursorPosition()
 	pl := &place{img: p, id: c.id('p'), line: rowLine(e, st, pos.Y), col: pos.X,
-		cols: cols, rows: rows, src: src, alt: e.IsAltScreen()}
+		cols: cols, rows: rows, src: src, natural: natural, alt: e.IsAltScreen()}
 	if pl.id != 0 {
 		g.places = slices.DeleteFunc(g.places, func(o *place) bool { return o.img == p && o.id == pl.id })
 	}
@@ -530,7 +536,7 @@ func (g *graphics) view(e *xvt.Emulator, st *state, off, rows int) []Placement {
 		if pl.alt != alt || y >= int64(rows) || y+int64(pl.rows) <= 0 || pl.img.pix.Load() == nil {
 			continue
 		}
-		out = append(out, Placement{Image: pl.img.key, X: pl.col, Y: int(y), Cols: pl.cols, Rows: pl.rows, Src: pl.src})
+		out = append(out, Placement{Image: pl.img.key, X: pl.col, Y: int(y), Cols: pl.cols, Rows: pl.rows, Src: pl.src, Natural: pl.natural})
 	}
 	return out
 }

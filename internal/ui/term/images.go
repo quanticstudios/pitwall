@@ -18,6 +18,10 @@ type picKey struct {
 	src image.Rectangle
 }
 
+// DropImages releases the image ops the view holds. The window calls it
+// for a pane it did not draw this frame, so a hidden tab keeps no copies.
+func (v *View) DropImages() { clear(v.pics) }
+
 // drawImages paints g's image placements over rows [0,h), n cells wide,
 // each scaled to its cells and clipped to the grid, then the selection
 // over them. Ops are kept while the grid shows them, so an image is
@@ -46,13 +50,20 @@ func (v *View) drawImages(ops *op.Ops, g *vt.Grid, n, h int) {
 			v.pics[k] = pic
 		}
 		shown[k] = true
+		// The image keeps its aspect ratio: its own pixels when Natural,
+		// else as large as its cells take. Either way it stays in them.
 		sz := pic.Size()
-		scale := f32.Pt(float32(p.Cols*cw)/float32(sz.X), float32(p.Rows*ch)/float32(sz.Y))
-		at := f32.Pt(float32(v.pad+p.X*cw), float32(v.pad+p.Y*ch))
-		t := op.Affine(f32.AffineId().Scale(f32.Point{}, scale).Offset(at)).Push(ops)
+		box := image.Rectangle{Max: image.Pt(p.Cols*cw, p.Rows*ch)}.Add(image.Pt(v.pad+p.X*cw, v.pad+p.Y*ch))
+		scale := float32(1)
+		if !p.Natural {
+			scale = min(float32(box.Dx())/float32(sz.X), float32(box.Dy())/float32(sz.Y))
+		}
+		cl := clip.Rect(box).Push(ops)
+		t := op.Affine(f32.AffineId().Scale(f32.Point{}, f32.Pt(scale, scale)).Offset(f32.Pt(float32(box.Min.X), float32(box.Min.Y)))).Push(ops)
 		pic.Add(ops)
 		paint.PaintOp{}.Add(ops)
 		t.Pop()
+		cl.Pop()
 	}
 	for k := range v.pics {
 		if !shown[k] {
