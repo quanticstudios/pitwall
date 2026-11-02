@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -21,29 +20,25 @@ const (
 // the prompt box, its footer, the spinner and a short todo list above it.
 const screenLines = 12
 
-// Adapted from tuios (MIT): internal/harness/manifests/claude-code.toml
-// The spinner line above Claude's prompt box, as "✢ Nesting… (9s · ↓ 232
-// tokens)". A finished turn's "✻ Worked for 5s" has no ellipsis.
-var spinner = regexp.MustCompile(`^\s*[*·✢✳✶✻✽]\s+\S.*…(?:\s+\(\d+[smh]|\s*$)`)
-
 // ReadScreen classifies the bottom of a Claude Code or Codex screen. A form
 // outranks a spinner, as an approval box can sit under a running turn.
 //
 // Claude Code 2.1.287 hides its spinner while a reply streams, so ScreenNone
 // does not prove a turn ended; the caller also checks the screen is still.
-func ReadScreen(g vt.Grid) Screen { return readScreen(g, nil) }
+func ReadScreen(g vt.Grid) Screen { return activePatterns.Load().readScreen(g, nil) }
 
-func readScreen(g vt.Grid, trace *ScreenTrace) Screen {
+func (p *screenPatterns) readScreen(g vt.Grid, trace *ScreenTrace) Screen {
 	lines := bottomLines(g, screenLines)
 	busy := false
 	for _, l := range lines {
 		low := strings.ToLower(l)
-		// "esc back" is the footer of Codex's folder trust dialog, which a
-		// worker started in a new folder stops at.
-		if trace.contains("form", "esc to cancel", l, low) || trace.contains("form", "esc back", l, low) || trace.contains("form", "do you want to proceed", l, low) || trace.contains("form", "would you like to proceed", l, low) {
+		if trace.containsAny("form", p.Common.Form, l, low) {
 			return ScreenForm
 		}
-		busy = busy || trace.contains("busy", "esc to interrupt", l, low) || trace.check("busy/spinner", spinner.String(), l, spinner.MatchString(l))
+		busy = busy || trace.containsAny("busy", p.Common.Busy, l, low)
+		for _, re := range p.spinner {
+			busy = busy || trace.check("busy/spinner", re.String(), l, re.MatchString(l))
+		}
 	}
 	if busy {
 		return ScreenBusy
@@ -55,10 +50,10 @@ func readScreen(g vt.Grid, trace *ScreenTrace) Screen {
 // pending-approval, plan-ready or awaiting-input. It is "" for a screen with
 // none of them, which is an idle prompt or a reply streaming without a
 // spinner; the caller tells those apart by whether the screen still moves.
-func State(g vt.Grid) model.AgentState { return state(g, nil) }
+func State(g vt.Grid) model.AgentState { return activePatterns.Load().state(g, nil) }
 
-func state(g vt.Grid, trace *ScreenTrace) model.AgentState {
-	switch readScreen(g, trace) {
+func (p *screenPatterns) state(g vt.Grid, trace *ScreenTrace) model.AgentState {
+	switch p.readScreen(g, trace) {
 	case ScreenBusy:
 		trace.decide("busy")
 		return model.StateWorking
@@ -68,11 +63,11 @@ func state(g vt.Grid, trace *ScreenTrace) model.AgentState {
 	for _, l := range bottomLines(g, screenLines) {
 		low := strings.ToLower(l)
 		switch {
-		case trace.contains("plan", "would you like to proceed", l, low):
+		case trace.containsAny("plan", p.Common.Plan, l, low):
 			trace.decide("plan")
 			return model.StatePlanReady
 		// Claude's AskUserQuestion and MCP input forms, Codex's question form.
-		case trace.contains("input", "enter to select", l, low), trace.contains("input", "requests your input", l, low), trace.contains("input", "enter to submit", l, low):
+		case trace.containsAny("input", p.Common.Input, l, low):
 			trace.decide("input")
 			return model.StateAwaitingInput
 		}
@@ -81,49 +76,17 @@ func state(g vt.Grid, trace *ScreenTrace) model.AgentState {
 	return model.StatePendingApproval
 }
 
-// screenText is what marks each state on an agent's screen, as lowercase
-// substrings of its bottom rows.
-type screenText struct {
-	plan, input, approval, busy []string
+// StateOf is State for Claude, Codex and pi, provider-specific text rules
+// for other supported agents, and "" for an agent without rules.
+func StateOf(p model.Provider, g vt.Grid) model.AgentState {
+	return activePatterns.Load().stateOf(p, g, nil)
 }
 
-// screens are the agents whose screens StateOf reads by their text rather
-// than ReadScreen's Claude and Codex rules. Cursor CLI and Amp are missing:
-// no source or docs give their screens' text.
-var screens = map[model.Provider]screenText{
-	// Gemini CLI's confirmation queue titles, its tool approval options,
-	// and its loading line, "(esc to cancel, 5s)".
-	model.ProviderGemini: {
-		plan:     []string{"ready to start implementation?"},
-		input:    []string{"answer questions"},
-		approval: []string{"allow once", "action required", "waiting for user confirmation"},
-		busy:     []string{"esc to cancel"},
-	},
-	// OpenCode's question dialog footer, plan_exit's question header, its
-	// permission prompt, and the prompt's "esc interrupt" while a run goes.
-	model.ProviderOpenCode: {
-		plan:     []string{"build agent"},
-		input:    []string{"esc dismiss"},
-		approval: []string{"permission required"},
-		busy:     []string{"esc interrupt", "again to interrupt"},
-	},
-	// aider's confirm_ask, "Add file to the chat? (Y)es/(N)o [Yes]:", and
-	// its spinner while the model answers, "Waiting for <model>".
-	model.ProviderAider: {
-		input: []string{"(y)es/(n)o"},
-		busy:  []string{"waiting for "},
-	},
-}
-
-// StateOf is State for agent p: Claude's, Codex's and pi's screens by
-// State's rules, the agents in screens by their text, and "" for any other.
-func StateOf(p model.Provider, g vt.Grid) model.AgentState { return stateOf(p, g, nil) }
-
-func stateOf(p model.Provider, g vt.Grid, trace *ScreenTrace) model.AgentState {
-	s, ok := screens[p]
+func (rules *screenPatterns) stateOf(p model.Provider, g vt.Grid, trace *ScreenTrace) model.AgentState {
+	s, ok := rules.Providers[p]
 	if !ok {
 		if p == model.ProviderClaude || p == model.ProviderCodex || p == model.ProviderPi {
-			return state(g, trace)
+			return rules.state(g, trace)
 		}
 		if trace != nil {
 			trace.Rule = "no-screen-rules"
@@ -135,10 +98,10 @@ func stateOf(p model.Provider, g vt.Grid, trace *ScreenTrace) model.AgentState {
 		subs  []string
 		state model.AgentState
 	}{
-		{s.plan, model.StatePlanReady},
-		{s.input, model.StateAwaitingInput},
-		{s.approval, model.StatePendingApproval},
-		{s.busy, model.StateWorking},
+		{s.Plan, model.StatePlanReady},
+		{s.Input, model.StateAwaitingInput},
+		{s.Approval, model.StatePendingApproval},
+		{s.Busy, model.StateWorking},
 	} {
 		for _, l := range lines {
 			low := strings.ToLower(l)

@@ -23,6 +23,7 @@ func defaults() Config {
 	sb := float64(DefaultScrollback)
 	c.Term.Scrollback = &sb
 	c.Updates.Check = &on
+	c.Updates.ScreenPatterns = &on
 	off := false
 	c.Usage.ShowCost, c.Usage.LimitsInSidebar = &off, &off
 	c.Appear.ReduceMotion, c.Appear.RemoteControl = &off, &on

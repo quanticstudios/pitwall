@@ -20,7 +20,7 @@ carries a `// Adapted from tuios (MIT): <path>` comment:
 | `internal/pane/pane.go` | `internal/ptyspawn/spawn.go` (PTY spawn retry on EPERM) |
 | `internal/store/store.go` | `internal/session/agent_resume.go` (agent resume commands) |
 | `internal/daemon/detect.go` | `internal/session/agent_detect_linux.go` (finding an agent in a pane's process group) |
-| `internal/agent/screen.go` | `internal/harness/manifests/claude-code.toml` (Claude Code screen patterns) |
+| `internal/agent/patterns.go`, `internal/agent/screen_patterns.json` | `internal/harness/manifests/claude-code.toml` (Claude Code screen patterns) |
 | `internal/agent/testdata/tuios-*.txt` | `internal/session/testdata/` (screen fixtures; tuios derived some of them from [herdr](https://github.com/herdrdev/herdr)) |
 
 ```text

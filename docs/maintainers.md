@@ -45,6 +45,39 @@ approval of pull requests disabled. Require workflow approval for all
 external contributors. Inspect their workflow and build-script changes
 before approving a run. Use GitHub-hosted runners for public contributions.
 
+## Ship a screen-pattern fix
+
+1. Edit [screen_patterns.json](../internal/agent/screen_patterns.json).
+   Increase `patterns_version`, a positive integer, for every fix. Keep
+   `schema_version` at `1` unless the loader and format change together.
+2. Add a screen fixture under `internal/agent/testdata` and an entry in
+   `screen_checks.json` with the provider and expected state. The optional
+   `screen` value checks the common classifier: `0` means none, `1` busy,
+   and `2` form. Keep existing fixtures and expectations passing.
+3. Run `go test ./internal/agent` with the build environment described in
+   [CONTRIBUTING.md](../CONTRIBUTING.md), then merge through a pull request.
+
+Running daemons fetch the raw file on `main` at start and every 24 hours.
+Using `main` lets a merged fix reach users without a binary release or a
+release asset. Each daemon checks the downloaded file against fixtures
+bundled in its binary, then saves and activates a newer version. Old binaries
+cannot run fixtures added after their release. A fix that needs new matching
+logic or a new schema needs a binary release.
+
+The file holds only substring lists and Go regular expressions. Substrings
+are lowercase and match against lowercase screen text. `common.busy_regex`
+matches original text. Common forms outrank busy matches; within a form,
+the bottommost plan or input line wins. Provider rules try plan, input,
+approval, then busy across the last 12 non-empty rows.
+
+The loader accepts at most 256 matchers, 4096 bytes per matcher, and 256 KiB
+per file. It rejects unknown fields, unsupported schemas, invalid regexes
+and failed fixtures. Versions must increase above both the embedded and
+active rules. To undo a bad fix, restore the correct patterns with another
+version increase. See [configuration](config.md#screen-detection-updates)
+for disabling fetches and [troubleshooting](troubleshooting.md#screen-detection-patterns)
+for checking the version in use.
+
 ## Publish a release
 
 `scripts/release.sh` runs steps 1 and 3: it opens the release pull request
