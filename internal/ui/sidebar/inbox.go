@@ -442,26 +442,38 @@ type undoNote struct {
 }
 
 // reshelve moves each tab of ids to change of its shelf, and offers to
-// undo it in a notice that says what. Pinning moves a tab, so the undo
-// puts it back where it was too.
+// undo it in a notice that says what. Its workers follow it, keeping their
+// own pins, and the undo puts back each one's own shelf. Pinning moves a
+// tab, so the undo puts it back where it was too.
 func (s *Sidebar) reshelve(v *view, ids []string, what string, change func(id string, sh shelf) shelf) {
 	var back, places []Event
-	for _, id := range ids {
-		w := v.st.Workspace(id)
-		if w == nil {
-			continue
+	seen := map[string]bool{}
+	for _, fid := range ids {
+		family := []string{fid}
+		for _, k := range v.kids[fid] {
+			family = append(family, k.ID)
 		}
-		from := shelfOf(*w)
-		to := change(id, from)
-		s.events = append(s.events, shelfEvents(*w, to)...)
-		after := *w
-		after.Pinned, after.Settled, after.SnoozedUntil = to.pinned, time.Time{}, to.until
-		if to.settled {
-			after.Settled = s.now
-		}
-		back = append(back, shelfEvents(after, from)...)
-		if from.pinned != to.pinned && w.Parent == "" {
-			places = append(places, placeOf(v, *w))
+		for _, id := range family {
+			w := v.st.Workspace(id)
+			if w == nil || seen[id] {
+				continue
+			}
+			seen[id] = true
+			from := shelfOf(*w)
+			to := change(fid, from)
+			if id != fid {
+				to.pinned = from.pinned
+			}
+			s.events = append(s.events, shelfEvents(*w, to)...)
+			after := *w
+			after.Pinned, after.Settled, after.SnoozedUntil = to.pinned, time.Time{}, to.until
+			if to.settled {
+				after.Settled = s.now
+			}
+			back = append(back, shelfEvents(after, from)...)
+			if from.pinned != to.pinned && w.Parent == "" {
+				places = append(places, placeOf(v, *w))
+			}
 		}
 	}
 	back = append(back, places...)

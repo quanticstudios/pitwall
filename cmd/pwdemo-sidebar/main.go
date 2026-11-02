@@ -189,13 +189,10 @@ func apply(st *model.State, active *string, ev sidebar.Event) {
 	case sidebar.SetTabOptions:
 		ws(ev.WorkspaceID).Pinned, ws(ev.WorkspaceID).Color = ev.Pinned, ev.Color
 	case sidebar.SetInbox:
-		for i := range st.Workspaces { // the daemon settles a tab's workers with it
-			if w := &st.Workspaces[i]; w.ID == ev.WorkspaceID || st.Root(*w) == ev.WorkspaceID {
-				w.Settled, w.SnoozedUntil = time.Time{}, ev.SnoozedUntil
-				if ev.Settled {
-					w.Settled = time.Now()
-				}
-			}
+		w := ws(ev.WorkspaceID)
+		w.Settled, w.SnoozedUntil = time.Time{}, ev.SnoozedUntil
+		if ev.Settled {
+			w.Settled = time.Now()
 		}
 	case sidebar.DeleteWorkspace:
 		for i := range st.Workspaces {

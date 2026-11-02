@@ -252,8 +252,9 @@ func TestReshelveUndo(t *testing.T) {
 	}
 }
 
-// Dragging a row into Settled sends SetInbox; into Working it does
-// nothing; the inbox's header offers the toggle back to the tree.
+// Dragging a row into Settled sends SetInbox for it and its worker; into
+// Working it does nothing; the inbox's header offers the toggle back to
+// the tree.
 func TestInboxDrag(t *testing.T) {
 	h := &dragHarness{t: t, now: time.Unix(1e9, 0)}
 	h.st = inboxState(h.now)
@@ -294,14 +295,14 @@ func TestInboxDrag(t *testing.T) {
 		t.Fatalf("over u: %+v", d)
 	}
 	evs := h.pointer(pointer.Release, h.at("u", 10).Sub(row))
-	if !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b", Settled: true}}) {
-		t.Fatalf("drop sent %v", evs)
+	if !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b", Settled: true}, SetInbox{WorkspaceID: "k", Settled: true}}) {
+		t.Fatalf("drop sent %v, want b and its worker k settled", evs)
 	}
 	if h.s.undo == nil {
 		t.Fatal("no undo notice")
 	}
 	h.s.undoBtn.Click()
-	if evs := h.frame(); !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b"}}) {
+	if evs := h.frame(); !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b"}, SetInbox{WorkspaceID: "k"}}) {
 		t.Fatalf("undo sent %v", evs)
 	}
 	h.now = h.now.Add(time.Second)

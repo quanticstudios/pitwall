@@ -32,10 +32,13 @@ func (s *Sidebar) click(v *view, id string, mods key.Modifiers) {
 		if from == "" {
 			from = v.active
 		}
-		order := s.order(v)
+		order := s.withWorkers(v, s.order(v))
 		i, j := slices.Index(order, from), slices.Index(order, id)
 		if i < 0 {
 			i = j
+		}
+		if j < 0 {
+			return
 		}
 		clear(s.selected)
 		for _, w := range order[min(i, j) : max(i, j)+1] {
@@ -45,11 +48,26 @@ func (s *Sidebar) click(v *view, id string, mods key.Modifiers) {
 		clear(s.selected)
 		s.anchor = id
 		e := SelectWorkspace{WorkspaceID: id}
-		if a := v.activity[id]; a != nil {
+		if a := v.ownActivity(id); a != nil {
 			e.PaneID = a.PaneID
 		}
 		s.events = append(s.events, e)
 	}
+}
+
+// withWorkers is order with each row's shown workers after it, the order
+// a Shift+click selects a range in.
+func (s *Sidebar) withWorkers(v *view, order []string) []string {
+	var out []string
+	for _, id := range order {
+		out = append(out, id)
+		for _, e := range s.shownSubs(v, id) {
+			if e.worker != nil {
+				out = append(out, e.worker.ID)
+			}
+		}
+	}
+	return out
 }
 
 // targets are the tabs a menu action on id applies to: the selection
@@ -84,8 +102,8 @@ func (s *Sidebar) startRename(ws, group, name string) {
 	s.renameFrom = name
 }
 
-// startReply opens an empty field on tab ws's row for a reply to the plan
-// pane shows.
+// startReply opens an empty field on row ws, a tab's or a sub-row's, for
+// a reply to the plan pane shows.
 func (s *Sidebar) startReply(ws, pane string) {
 	s.startRename("", "", "")
 	s.replying, s.replyPane = ws, pane

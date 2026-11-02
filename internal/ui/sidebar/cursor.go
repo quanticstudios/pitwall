@@ -68,13 +68,16 @@ type cursor struct {
 }
 
 // Focus gives the sidebar the keyboard: the cursor starts on the
-// sub-row of active that asks for an answer, else on active's row, else on
-// the header of its collapsed group.
+// sub-row of active that asks for an answer, else on active's row or, for
+// a worker, its sub-row, else on the header of its collapsed group.
 func (s *Sidebar) Focus(st *model.State, session, active string) {
 	v, rows := s.cursorView(st, session, active)
 	s.cur = cursor{on: true, kind: 's', id: active, moved: true, page: s.cur.page}
+	if r := v.rootOf[active]; r != "" {
+		s.cur.kind, s.cur.parent = 'a', r
+	}
 	for _, e := range s.shownSubs(v, active) {
-		if a := v.act(e); a != nil && (a.State == model.StatePendingApproval || a.State == model.StateAwaitingInput) {
+		if a := v.prompt(e); s.cur.kind == 's' && a != nil && (a.State == model.StatePendingApproval || a.State == model.StateAwaitingInput) {
 			s.cur.kind, s.cur.id, s.cur.parent = 'a', e.id(), active
 			break
 		}
@@ -110,7 +113,7 @@ func (s *Sidebar) Asking(st *model.State, session, active string) *model.Activit
 	a := v.ownActivity(s.cur.id)
 	if s.cur.kind == 'a' {
 		e, _ := v.sub(s.cur.parent, s.cur.id)
-		a = v.act(e)
+		a = v.prompt(e)
 	}
 	if s.cur.kind == 'g' || a == nil || !remote.Answerable(*a) {
 		return nil

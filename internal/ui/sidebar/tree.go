@@ -92,7 +92,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 func (s *Sidebar) placeSubs(gtx layout.Context, v *view, id, g string, x, y int, out *[]elem) int {
 	subs := s.shownSubs(v, id)
 	for _, e := range subs {
-		h := subHeight(gtx, v.th, s.subAnswering(v, e))
+		h := subHeight(gtx, v.th, s.subAsks(v, e))
 		*out = append(*out, elem{kind: 'a', id: e.id(), parent: id, worker: e.worker != nil, group: g, x: x, top: y, bot: y + h})
 		y += h
 	}

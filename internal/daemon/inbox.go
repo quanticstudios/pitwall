@@ -13,9 +13,8 @@ import (
 // settle_after_days. Days are the unit, so minutes late is on time.
 const settleTick = 10 * time.Minute
 
-// setTabInbox settles, unsettles, snoozes or wakes a tab and the workers
-// that hang under it, which the inbox shows on its row. Unsettling counts
-// as activity, so settle_after_days starts over.
+// setTabInbox settles, unsettles, snoozes or wakes a tab. Unsettling
+// counts as activity, so settle_after_days starts over.
 func (d *Daemon) setTabInbox(m proto.SetTabInbox) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -24,18 +23,6 @@ func (d *Daemon) setTabInbox(m proto.SetTabInbox) error {
 		return fmt.Errorf("no workspace %s", m.WorkspaceID)
 	}
 	now := time.Now()
-	shelve(w, m, now)
-	for i := range d.st.Workspaces {
-		if k := &d.st.Workspaces[i]; d.st.Root(*k) == w.ID {
-			shelve(k, m, now)
-		}
-	}
-	d.changed()
-	return nil
-}
-
-// shelve gives w m's settle and snooze at now.
-func shelve(w *model.Workspace, m proto.SetTabInbox, now time.Time) {
 	switch {
 	case m.Settled && w.Settled.IsZero():
 		w.Settled = now
@@ -48,6 +35,8 @@ func shelve(w *model.Workspace, m proto.SetTabInbox, now time.Time) {
 			w.SnoozedAt = time.Time{}
 		}
 	}
+	d.changed()
+	return nil
 }
 
 // asks reports a state that wakes a snoozed tab: the agent wants an
@@ -111,14 +100,20 @@ func (d *Daemon) workers() map[string]map[string]bool {
 // a pane or chat of w runs an agent, which may sit at its first prompt
 // without an activity. A pinned, settled or snoozed tab never settles,
 // nor one whose agent or one of whose workers works or waits for an
-// answer. The end of a snooze counts as activity.
+// answer. The end of a snooze and its workers' turns count as activity.
 func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.Time, days int, workers map[string]bool) bool {
 	if days <= 0 || w.Pinned || w.Detached || !w.Settled.IsZero() || w.SnoozedUntil.After(now) {
 		return false
 	}
+	last := w.UpdatedAt
 	for _, a := range acts {
-		if workers[a.WorkspaceID] && (model.Pulses(&a) || asks(a.State) && a.State != model.StateError) {
-			return false
+		if workers[a.WorkspaceID] {
+			if model.Pulses(&a) || asks(a.State) && a.State != model.StateError {
+				return false
+			}
+			if a.UpdatedAt.After(last) {
+				last = a.UpdatedAt
+			}
 		}
 		if a.WorkspaceID != w.ID || a.Provider == model.ProviderTerminal {
 			continue
@@ -128,7 +123,6 @@ func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.
 			return false
 		}
 	}
-	last := w.UpdatedAt
 	if w.SnoozedUntil.After(last) {
 		last = w.SnoozedUntil
 	}

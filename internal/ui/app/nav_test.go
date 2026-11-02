@@ -433,7 +433,7 @@ func TestNavSkipsFoldedWorkers(t *testing.T) {
 func TestNavFollowsInbox(t *testing.T) {
 	st := model.State{
 		Sessions:   []model.Session{{ID: "s"}},
-		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}, {ID: "x", SessionID: "s"}},
+		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}, {ID: "d", SessionID: "s", Parent: "o", Detached: true}, {ID: "x", SessionID: "s"}},
 	}
 	inbox, folded := true, false
 	n := nav{session: "s", workspace: "x", folded: func(id string) bool { return id == "o" && folded },
@@ -443,12 +443,16 @@ func TestNavFollowsInbox(t *testing.T) {
 		ids = append(ids, w.ID)
 	}
 	if !slices.Equal(ids, []string{"x", "o", "w"}) {
-		t.Fatalf("visible %v", ids)
+		t.Fatalf("visible %v, want the detached worker d left out", ids)
 	}
 	n.workspace = "o"
 	n.cycleWorkspace(&st, 1)
 	if n.workspace != "w" {
 		t.Fatalf("next from o in the inbox went to %s, want its worker w", n.workspace)
+	}
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "x" {
+		t.Fatalf("next from w in the inbox went to %s, want x past the detached d", n.workspace)
 	}
 	folded = true
 	n.workspace = "o"

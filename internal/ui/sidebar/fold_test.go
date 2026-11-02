@@ -1,11 +1,13 @@
 package sidebar
 
 import (
+	"maps"
 	"slices"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/unit"
@@ -104,10 +106,14 @@ func TestFoldBubbles(t *testing.T) {
 	}
 }
 
-// TestFoldClick: a click on a worker's sub-row shows that worker, Allow
-// answers its prompt, and a right click opens its tab menu.
+// TestFoldClick: a click on a parent's row focuses its own pane, one on a
+// worker's sub-row shows that worker, Allow answers its prompt, a right
+// click opens its tab menu, and Ctrl and Shift select workers.
 func TestFoldClick(t *testing.T) {
 	h := newFoldHarness(t)
+	if evs := h.click(h.at("o", 10)); !slices.Contains(evs, Event(SelectWorkspace{WorkspaceID: "o", PaneID: "po"})) {
+		t.Fatalf("click on o's row sent %v, want its own pane focused", evs)
+	}
 	e := h.elem('a', "w1")
 	evs := h.click(f32.Pt(150, float32(56+e.top+4)))
 	if !slices.Contains(evs, Event(SelectWorkspace{WorkspaceID: "w1", PaneID: "p1"})) {
@@ -138,6 +144,43 @@ func TestFoldClick(t *testing.T) {
 	h.frame()
 	if h.s.menuWS != "w3" {
 		t.Fatalf("right click on w3's sub-row opened %q's menu", h.s.menuWS)
+	}
+	h.s.menuWS = ""
+	h.frame()
+	// Ctrl and Shift select the worker, not its parent, so the menu acts
+	// on it.
+	h.clickMods(f32.Pt(150, float32(56+h.elem('a', "w3").top+4)), key.ModShortcut)
+	if !h.s.selected["w3"] || h.s.selected["o"] {
+		t.Fatalf("Ctrl+click on w3 selected %v", h.s.selected)
+	}
+	h.clickMods(f32.Pt(150, float32(56+h.elem('a', "w2").top+4)), key.ModShift)
+	if got := slices.Sorted(maps.Keys(h.s.selected)); !slices.Equal(got, []string{"w2", "w3"}) {
+		t.Fatalf("Shift+click from w3 to w2 selected %v", got)
+	}
+	if got := h.s.targets(newView(layout.Context{}, nil, &h.st, "", "u1"), "w2"); !slices.Equal(got, []string{"w2", "w3"}) {
+		t.Fatalf("the menu acts on %v", got)
+	}
+}
+
+// clickMods clicks at p with mods held.
+func (h *dragHarness) clickMods(p f32.Point, mods key.Modifiers) {
+	for _, k := range []pointer.Kind{pointer.Press, pointer.Release} {
+		ev := pointer.Event{Kind: k, Position: p, Source: pointer.Mouse, Modifiers: mods}
+		if k == pointer.Press {
+			ev.Buttons = pointer.ButtonPrimary
+		}
+		h.r.Queue(ev)
+		h.frame()
+	}
+}
+
+// TestFoldFocus: focusing the sidebar from a worker puts the cursor on
+// its sub-row.
+func TestFoldFocus(t *testing.T) {
+	h := newFoldHarness(t)
+	h.s.Focus(&h.st, "", "w1")
+	if cursorAt(&h.s) != "a:w1" || h.s.cur.parent != "o" {
+		t.Fatalf("focused from w1 the cursor is on %s under %q", cursorAt(&h.s), h.s.cur.parent)
 	}
 }
 
@@ -188,5 +231,83 @@ func TestFleetRootWatching(t *testing.T) {
 	st.Activities[1].State = model.StateCompleted
 	if a := newView(gtx, theme.Dark(), &st, "", "").activity["o"]; a.State != model.StateCompleted {
 		t.Fatalf("with every worker done the orchestrator shows %s", a.State)
+	}
+}
+
+// TestFoldAsksBehindError: a worker whose row shows one agent's error
+// while another asks for approval stays shown folded, with Allow and Deny
+// for the one asking.
+func TestFoldAsksBehindError(t *testing.T) {
+	h := newFoldHarness(t)
+	h.st.Activities = append(h.st.Activities, model.Activity{PaneID: "p2e", WorkspaceID: "w2", Provider: model.ProviderClaude, State: model.StateError, UpdatedAt: time.Unix(6, 0)})
+	h.s.folded = map[string]bool{"o": true}
+	v := newView(layout.Context{}, theme.Dark(), &h.st, "", "u1")
+	if a := v.activity["w2"]; a == nil || a.State != model.StateError {
+		t.Fatalf("w2's row shows %+v, want its error", a)
+	}
+	got := h.s.shownSubs(v, "o")
+	if len(got) != 1 || got[0].id() != "w2" {
+		t.Fatalf("folded o shows %v, want w2", got)
+	}
+	if !h.s.subAnswering(v, got[0]) || v.prompt(got[0]).PaneID != "p2" {
+		t.Fatalf("w2's sub-row answers %+v", v.prompt(got[0]))
+	}
+}
+
+// TestFoldPlan: an agent sub-row with a plan has Request changes…, folded
+// too, and it opens the field for the reply to that pane.
+func TestFoldPlan(t *testing.T) {
+	h := &dragHarness{t: t, now: time.Unix(1e9, 0)}
+	h.st = cursorState()
+	h.st.Activities[2].State = model.StatePlanReady // p3
+	h.s.Answers = true
+	h.s.folded = map[string]bool{"m": true}
+	h.frame()
+	h.frame()
+	if got, want := h.keys(), []string{"su1", "sm", "ap2", "ap3"}; !slices.Equal(got[:4], want) {
+		t.Fatalf("laid out %v, want the plan shown folded", got)
+	}
+	e := h.elem('a', "p3")
+	gtx := layout.Context{Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}}
+	th := theme.Dark()
+	y := float32(56 + e.top + 3 + gtx.Sp(th.Sp(theme.Small)*1.5) + 3 + answerHeight(gtx, th)/2)
+	r := h.s.sub("p3")
+	var at f32.Point
+	for x := float32(280); x > 100 && at == (f32.Point{}); x -= 2 {
+		h.move(f32.Pt(x, y))
+		if r.plan.Hovered() {
+			at = f32.Pt(x, y)
+		}
+	}
+	if at == (f32.Point{}) {
+		t.Fatal("no Request changes… on p3's sub-row")
+	}
+	h.click(at)
+	h.frame()
+	if h.s.replying != "p3" || h.s.replyPane != "p3" {
+		t.Fatalf("Request changes… opened the reply on %q for %q", h.s.replying, h.s.replyPane)
+	}
+}
+
+// TestFoldReshelve: snoozing a tab snoozes its workers, which keep their
+// pins, and the undo puts back each one's own snooze.
+func TestFoldReshelve(t *testing.T) {
+	h := newFoldHarness(t)
+	now, wake := h.now, h.now.Add(time.Hour)
+	own := now.Add(48 * time.Hour)
+	h.st.Workspace("w1").Pinned = true
+	h.st.Workspace("w2").SnoozedUntil = own
+	h.s.now = now
+	v := newView(layout.Context{Now: now}, theme.Dark(), &h.st, "", "u1")
+	h.s.events = nil
+	h.s.reshelve(v, []string{"o"}, "Snoozed", func(_ string, sh shelf) shelf { return shelf{pinned: sh.pinned, until: wake} })
+	want := []Event{SetInbox{WorkspaceID: "o", SnoozedUntil: wake}, SetInbox{WorkspaceID: "w1", SnoozedUntil: wake},
+		SetInbox{WorkspaceID: "w2", SnoozedUntil: wake}, SetInbox{WorkspaceID: "w3", SnoozedUntil: wake}}
+	if !slices.Equal(h.s.events, want) {
+		t.Fatalf("snooze sent %v, want %v", h.s.events, want)
+	}
+	back := []Event{SetInbox{WorkspaceID: "o"}, SetInbox{WorkspaceID: "w1"}, SetInbox{WorkspaceID: "w2", SnoozedUntil: own}, SetInbox{WorkspaceID: "w3"}}
+	if h.s.undo == nil || h.s.undo.text != "Snoozed orch" || !slices.Equal(h.s.undo.events, back) {
+		t.Fatalf("undo %+v, want %v", h.s.undo, back)
 	}
 }

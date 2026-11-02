@@ -28,7 +28,7 @@ import (
 // A tab lists under its row, one compact sub-row each, its agent panes
 // when it has two or more, then the worker tabs that hang under it
 // (model.State.Root): the agent's mark, the pane's or worker's title, its
-// state pill, and Allow and Deny on the one asking.
+// state pill, and Allow and Deny or Request changes… on the one asking.
 
 // subIndent is where a sub-row starts in its tab's width, past the tab's
 // mark, so the sub-rows' marks line up with the tab's title.
@@ -40,8 +40,8 @@ const chevronDur = 150 * time.Millisecond
 // subRow is a sub-row's input state: its click area, Allow and Deny, its
 // tag for a right click, and its eased fill.
 type subRow struct {
-	click, allow, deny widget.Clickable
-	ctx                int
+	click, allow, deny, plan widget.Clickable
+	ctx                      int
 	easedFill
 }
 
@@ -65,6 +65,25 @@ func (v *view) act(e subEntry) *model.Activity {
 		return v.activity[e.worker.ID]
 	}
 	return e.pane.Activity
+}
+
+// prompt is what e's sub-row answers: a pane's activity, or for a worker
+// the most urgent of its agents' that asks for an answer, which its row's
+// state, an error say, may outrank. Else the row's activity.
+func (v *view) prompt(e subEntry) *model.Activity {
+	if e.worker == nil {
+		return e.pane.Activity
+	}
+	var p *model.Activity
+	for i := range v.st.Activities {
+		if a := &v.st.Activities[i]; a.WorkspaceID == e.worker.ID && asking(a) {
+			p = urgent(p, a)
+		}
+	}
+	if p == nil {
+		return v.act(e)
+	}
+	return p
 }
 
 // subsOf is tab id's sub-rows, folded or not: its agent panes when it has
@@ -99,7 +118,9 @@ func subTab(e elem) string {
 	return e.parent
 }
 
-func (r *subRow) hovered() bool { return r.click.Hovered() || r.allow.Hovered() || r.deny.Hovered() }
+func (r *subRow) hovered() bool {
+	return r.click.Hovered() || r.allow.Hovered() || r.deny.Hovered() || r.plan.Hovered()
+}
 
 func (s *Sidebar) sub(pane string) *subRow {
 	if s.subs == nil {
@@ -123,7 +144,7 @@ func (s *Sidebar) shownSubs(v *view, id string) []subEntry {
 	}
 	var out []subEntry
 	for _, e := range all {
-		if asking(v.act(e)) || e.worker != nil && e.worker.ID == v.active {
+		if asking(v.prompt(e)) || e.worker != nil && e.worker.ID == v.active {
 			out = append(out, e)
 		}
 	}
@@ -138,8 +159,21 @@ func asking(a *model.Activity) bool {
 
 // subAnswering reports whether e's sub-row shows Allow and Deny.
 func (s *Sidebar) subAnswering(v *view, e subEntry) bool {
-	a := v.act(e)
+	a := v.prompt(e)
 	return s.Answers && a != nil && remote.Answerable(*a)
+}
+
+// subPlanning reports whether e's sub-row shows Request changes… for its
+// agent's plan.
+func subPlanning(v *view, e subEntry) bool {
+	a := v.prompt(e)
+	return a != nil && a.State == model.StatePlanReady
+}
+
+// subAsks reports whether e's sub-row has a second line, for Allow and
+// Deny or Request changes….
+func (s *Sidebar) subAsks(v *view, e subEntry) bool {
+	return s.subAnswering(v, e) || subPlanning(v, e)
 }
 
 // answerHeight is the Allow and Deny buttons' height: answerH, or more
@@ -250,8 +284,9 @@ func (v *view) familyCount(id string) string {
 func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, ghost bool) (layout.Dimensions, bool) {
 	th := v.th
 	r := s.sub(e.id())
-	a := v.act(e)
-	answering := !ghost && s.subAnswering(v, e)
+	a, p := v.act(e), v.prompt(e)
+	answering := !ghost && s.subAsks(v, e)
+	plan := answering && !s.subAnswering(v, e)
 	w := gtx.Constraints.Max.X
 	h := subHeight(gtx, th, answering)
 	line, pad, inset := gtx.Sp(th.Sp(theme.Small)*1.5), gtx.Dp(3), gtx.Dp(8)
@@ -269,6 +304,8 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 		base = th.SurfaceSecondary
 	case focused:
 		base = theme.Mix(th.Sidebar, th.Primary, 0.08)
+	case e.worker != nil && s.selected[e.worker.ID]:
+		base = theme.Mix(th.Sidebar, th.Primary, 0.07)
 	}
 	cursor := !ghost && s.cursorOn('a', e.id())
 	if cursor {
@@ -289,7 +326,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	}
 	answerW := 0
 	if answering {
-		answerW = answerSize(gtx, th, *a, base, false).X
+		answerW = answerSize(gtx, th, *p, base, plan).X
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		g := gtx
@@ -302,7 +339,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 		items := []item{
 			{w: func(gtx layout.Context) layout.Dimensions { return s.subMark(gtx, v, e, base) }},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				if e.worker != nil && s.renaming == e.worker.ID && !ghost {
+				if (e.worker != nil && s.renaming == e.worker.ID || s.replying == e.id()) && !ghost {
 					return s.renameField(gtx, th)
 				}
 				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, subTitle(e))
@@ -320,7 +357,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 			o := op.Offset(image.Pt(inset, pad+line+pad)).Push(gtx.Ops)
 			hrow(g, ah, gtx.Dp(6),
 				item{shrink: true, ml: gtx.Dp(18), w: func(gtx layout.Context) layout.Dimensions {
-					return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(th.Muted, base), clampDetail(a.Detail))
+					return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(th.Muted, base), clampDetail(p.Detail))
 				}},
 				item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 					return layout.Dimensions{Size: image.Pt(answerW, 0)}
@@ -341,7 +378,11 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	area.Pop()
 	if answering {
 		o := op.Offset(image.Pt(size.X-inset-answerW, pad+line+pad)).Push(gtx.Ops)
-		answerButtons(gtx, th, &r.allow, &r.deny, *a, base)
+		if plan {
+			planButton(gtx, th, &r.plan, base)
+		} else {
+			answerButtons(gtx, th, &r.allow, &r.deny, *p, base)
+		}
 		o.Pop()
 	}
 	if e.worker != nil && s.menuWS == e.worker.ID {
@@ -450,10 +491,11 @@ func chevron(gtx layout.Context, t *anim.Value, open bool, size int, col color.N
 	return drawIcon(gtx, icChevronRight, size, col, t.Get(gtx)*math.Pi/2)
 }
 
-// subEvents turns clicks on the sub-rows into events: a plain click
-// focuses that pane in its tab or shows that worker, Allow and Deny
-// answer its prompt, a right click opens a worker's tab menu. It forgets
-// the sub-rows no longer listed.
+// subEvents turns clicks on the sub-rows into events: a click on a worker
+// is a click on its tab's row, a plain click on a pane focuses it in its
+// tab, Allow and Deny answer its prompt, Request changes… opens the field
+// for a reply to its plan, a right click opens a worker's tab menu. It
+// forgets the sub-rows no longer listed.
 func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 	live := map[string]bool{}
 	for _, ws := range v.st.Workspaces {
@@ -469,8 +511,8 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 				}
 				switch {
 				case dropped:
-				case e.worker != nil && !c.Modifiers.Contain(key.ModShortcut) && !c.Modifiers.Contain(key.ModShift):
-					s.click(v, id, 0)
+				case e.worker != nil:
+					s.click(v, id, c.Modifiers)
 				default:
 					s.clickPane(v, tab, id, c.Modifiers)
 				}
@@ -481,9 +523,14 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 			}{{&r.allow, true}, {&r.deny, false}} {
 				for b.c.Clicked(gtx) {
 					if s.subAnswering(v, e) {
-						a := v.act(e)
+						a := v.prompt(e)
 						s.events = append(s.events, Answer{PaneID: a.PaneID, At: a.UpdatedAt.UnixNano(), Allow: b.allow})
 					}
+				}
+			}
+			for r.plan.Clicked(gtx) {
+				if subPlanning(v, e) {
+					s.startReply(id, v.prompt(e).PaneID)
 				}
 			}
 			for {
@@ -502,7 +549,7 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 			delete(s.subs, id)
 			continue
 		}
-		for _, c := range []*widget.Clickable{&r.click, &r.allow, &r.deny} {
+		for _, c := range []*widget.Clickable{&r.click, &r.allow, &r.deny, &r.plan} {
 			for {
 				if _, ok := c.Update(gtx); !ok {
 					break

@@ -63,7 +63,8 @@ func TestWakeTabByWorker(t *testing.T) {
 	}
 }
 
-// A tab whose worker works or asks does not settle for being idle itself.
+// A tab whose worker works or asks, or finished a turn within the days,
+// does not settle for being idle itself.
 func TestIdleSettlesWithWorkers(t *testing.T) {
 	now := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
 	old := now.Add(-4 * 24 * time.Hour)
@@ -77,6 +78,14 @@ func TestIdleSettlesWithWorkers(t *testing.T) {
 	}
 	if !idleSettles(w, acts, true, now, 3, nil) {
 		t.Error("another tab's work kept it from settling")
+	}
+	acts[1].State, acts[1].UpdatedAt = model.StateCompleted, now.Add(-time.Hour)
+	if idleSettles(w, acts, true, now, 3, map[string]bool{"k": true}) {
+		t.Error("settled an hour after its worker finished")
+	}
+	acts[1].UpdatedAt = old
+	if !idleSettles(w, acts, true, now, 3, map[string]bool{"k": true}) {
+		t.Error("a worker done for days kept it from settling")
 	}
 }
 
@@ -162,24 +171,17 @@ func TestSetTabInbox(t *testing.T) {
 		t.Fatal("no error for a missing tab")
 	}
 
-	// Settling and snoozing a tab applies to the workers under it, and
-	// waking it wakes them; a tab beside it stays.
+	// SetTabInbox shelves one tab, its workers too: an older window shows
+	// them as rows of their own and moves them on its own. The sidebar
+	// sends one for each tab of a family.
 	d.mu.Lock()
-	parent := *d.st.Workspace(ws)
-	kid, other := parent, parent
-	kid.ID, kid.Parent, other.ID = "kid", ws, "other"
-	d.st.Workspaces = append(d.st.Workspaces, kid, other)
+	kid := *d.st.Workspace(ws)
+	kid.ID, kid.Parent = "kid", ws
+	d.st.Workspaces = append(d.st.Workspaces, kid)
 	d.mu.Unlock()
 	must(t, d.handle(ctx, proto.SetTabInbox{WorkspaceID: ws, Settled: true, SnoozedUntil: wake}))
-	if k := d.st.Workspace("kid"); k.Settled.IsZero() || !k.SnoozedUntil.Equal(wake) {
-		t.Fatalf("the worker did not follow its parent: %+v", k)
-	}
-	if o := d.st.Workspace("other"); !o.Settled.IsZero() || !o.SnoozedUntil.IsZero() {
-		t.Fatalf("a tab beside it settled too: %+v", o)
-	}
-	must(t, d.handle(ctx, proto.SetTabInbox{WorkspaceID: ws}))
 	if k := d.st.Workspace("kid"); !k.Settled.IsZero() || !k.SnoozedUntil.IsZero() {
-		t.Fatalf("the worker stayed settled after its parent woke: %+v", k)
+		t.Fatalf("the worker followed its parent: %+v", k)
 	}
 }
 

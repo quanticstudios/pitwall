@@ -304,7 +304,8 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	st = &view
 	v := s.viewOf(gtx, th, st, session, activeWorkspace)
 	for _, id := range []string{s.renaming, s.replying} {
-		if _, ok := v.activity[id]; id != "" && !ok {
+		_, ok := v.activity[id]
+		if id != "" && !ok && !slices.ContainsFunc(st.Panes, func(p model.Pane) bool { return p.ID == id }) {
 			s.cancelRename()
 		}
 	}

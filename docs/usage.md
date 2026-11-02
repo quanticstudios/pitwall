@@ -132,7 +132,8 @@ the row showed, so a click never lands on a newer question. With a decision
 model, its advice stays in the pill above them, and the button it
 recommends is outlined.
 
-A Plan row has **Request changes…**. It opens a field on the row: type
+A Plan row has **Request changes…**, on the planning pane's or worker's own
+row when the tab lists them. It opens a field on that row: type
 what should change and press Enter, or Esc to cancel. pitwall never
 answers the plan dialog. It queues your text and types it, as your reply,
 the next time the agent waits for input, so choose No in the dialog
@@ -939,8 +940,9 @@ theirs. Each row remembers its fold, in the tree and the inbox alike, until
 the window closes. Next tab and previous tab visit a worker only while its
 row is unfolded.
 
-Click a worker's row to show its tab, and right-click it, or press the Menu
-key on it with the sidebar focused, for the tab menu. A worker stays a tab
+Click a worker's row to show its tab, Ctrl+click or Shift+click it to
+select it with other tabs, and right-click it, or press the Menu key on it
+with the sidebar focused, for the tab menu. A worker stays a tab
 of its own everywhere else: its worktree and panes, `pitwall ls --tree`,
 the switcher and goto_tab, which counts only the rows. Close the agent's
 tab and its workers become rows of their own again.
@@ -957,8 +959,9 @@ The inbox lists every agent tab of the session in one list, groups
 included, each row with its group's icon and name. A worker has no row of
 its own: it rides under its agent's row as in the tree, and the agent's row
 sorts by the most urgent of the two. Settling or snoozing that row does the
-same to its workers, and a worker that asks for an answer wakes or
-unsettles it. It sorts the rows into sections:
+same to its workers, Undo puts back each worker's own snooze, and a worker
+that asks for an answer wakes or unsettles it. An agent tab settles for
+idle days only once its workers have been quiet that long too. It sorts the rows into sections:
 
 - **Pinned**: the tabs you pinned, in their order.
 - **Active**: the rest. Approvals, questions and failures come first, then
