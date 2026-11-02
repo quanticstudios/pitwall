@@ -4,6 +4,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -86,12 +87,16 @@ func TestHintURL(t *testing.T) {
 	}
 	u := &ui{}
 	u.nav.workspace = "w"
+	want := "file://" + filepath.ToSlash(filepath.Join(dir, "main.go"))
+	if runtime.GOOS == "windows" {
+		want = "file:///" + filepath.ToSlash(filepath.Join(dir, "main.go")) // file:///C:/...
+	}
 	for _, c := range []struct{ kind, text, want string }{
 		{term.HintURL, "https://example.com/a", "https://example.com/a"},
 		{term.HintURL, "www.example.com", "https://www.example.com"},
 		{term.HintURL, "file:///etc/hosts", ""},
-		{term.HintPath, "main.go:12:3", "file://" + filepath.ToSlash(filepath.Join(dir, "main.go"))},
-		{term.HintPath, filepath.Join(dir, "main.go"), "file://" + filepath.ToSlash(filepath.Join(dir, "main.go"))},
+		{term.HintPath, "main.go:12:3", want},
+		{term.HintPath, filepath.Join(dir, "main.go"), want},
 		{term.HintPath, "missing.go:1", ""},
 		{term.HintNumber, "#279", "https://github.com/o/r/pull/279"},
 		{term.HintHash, "e5965229", "https://github.com/o/r/commit/e5965229"},
@@ -254,5 +259,18 @@ func TestHintsPopup(t *testing.T) {
 	}
 	if got := sentOf[proto.Input](b); len(got) != 0 {
 		t.Fatalf("popup got hint keys: %+v", got)
+	}
+}
+
+// TestFileURL checks a Windows drive path gets the slash a file URL needs
+// before its drive, and a Unix path keeps its own.
+func TestFileURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"/home/me/a b.go": "file:///home/me/a%20b.go",
+		"C:/Users/me/x":   "file:///C:/Users/me/x",
+	} {
+		if got := fileURL(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
 	}
 }

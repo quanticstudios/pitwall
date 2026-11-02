@@ -234,7 +234,7 @@ func (u *ui) hintURL(st *model.State, t hintTarget) string {
 			cwd = p.Cwd
 		}
 		if p := localPath(t.Text, cwd); p != "" {
-			return (&url.URL{Scheme: "file", Path: p}).String()
+			return fileURL(p)
 		}
 	case term.HintNumber:
 		if repo := u.repoURL(st); repo != "" {
@@ -246,6 +246,16 @@ func (u *ui) hintURL(st *model.State, t hintTarget) string {
 		}
 	}
 	return ""
+}
+
+// fileURL is the file URL of absolute path p, with forward slashes and a
+// leading slash before a Windows drive: file:///C:/Users/x.
+func fileURL(p string) string {
+	p = filepath.ToSlash(p)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return (&url.URL{Scheme: "file", Path: p}).String()
 }
 
 // localPath is path, without a :line or :line:col, as an absolute path
