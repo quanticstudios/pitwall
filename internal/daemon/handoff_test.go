@@ -52,9 +52,10 @@ func TestHandoffHelper(t *testing.T) {
 		return
 	}
 	// FAULT is a step, which fails; with "!" the process dies there, and
-	// with "~" it starts shutting down there and carries on.
+	// with "~" it starts shutting down there and carries on. With "+slow"
+	// the new daemon also takes 1.5 seconds to restore the panes.
 	fault := os.Getenv("PITWALL_HANDOFF_FAULT")
-	want := strings.TrimRight(fault, "!~")
+	want, slow := strings.CutSuffix(strings.TrimRight(fault, "!~"), "+slow")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	signals := make(chan os.Signal, 1)
@@ -62,6 +63,9 @@ func TestHandoffHelper(t *testing.T) {
 	go func() { <-signals; cancel() }()
 	var ln net.Listener
 	handoffFault = func(step string) error {
+		if step == "new:prepare" && slow {
+			time.Sleep(1500 * time.Millisecond)
+		}
 		if step == "old:freeze" {
 			f, err := os.OpenFile(filepath.Join(dir, "burst"), os.O_WRONLY, 0)
 			if err != nil {
@@ -274,7 +278,7 @@ func TestHandoff(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts daemon processes")
 	}
-	for _, fault := range []string{"", "old:freeze", "old:send", "old:ready", "new:receive", "new:prepare", "new:ready", "new:commit", "new:ready!", "new:commit!", "old:ready~"} {
+	for _, fault := range []string{"", "old:freeze", "old:send", "old:ready", "new:receive", "new:prepare", "new:ready", "new:commit", "new:ready!", "new:commit!", "old:ready~", "old:send+slow"} {
 		name := fault
 		if name == "" {
 			name = "ok"
@@ -356,7 +360,7 @@ func testHandoff(t *testing.T, fault string) {
 		if moves {
 			t.Fatal(err)
 		}
-		if !strings.HasSuffix(fault, "!") && !strings.Contains(err.Error(), fault) {
+		if !strings.HasSuffix(fault, "!") && !strings.Contains(err.Error(), strings.TrimSuffix(fault, "+slow")) {
 			t.Fatalf("new daemon failed with %v, want %s", err, fault)
 		}
 		survivor = old
