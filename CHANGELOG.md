@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.9
 
 - The sidebar has a second view, the inbox (ENG-2957): every agent tab of the session in one list, in sections by what it needs from you: Pinned, Active (requests and failures first), Working, Snoozed and Settled, then shells on their own. Drag a row between sections or use its menu to pin, settle, snooze (in an hour, this evening, tomorrow morning, Monday) or wake it, with an undo notice after each move. A snoozed tab wakes early on an approval, question, plan or failure; a tab settles by hand, after `settle_after_days` (3) without agent activity, or when its pull request merges. The daemon keeps settle and snooze, so they survive a restart and show in every window, at proto Level 49. The button left of + in the sidebar's header, Settings and `[sidebar] view` switch views; the tree stays the default.
 
