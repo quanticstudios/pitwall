@@ -222,6 +222,40 @@ func TestInboxOrder(t *testing.T) {
 	}
 }
 
+// A shell tab whose script waits on a pitwall form sits in Active with the
+// questions; a dashboard leaves it with the shells.
+func TestInboxFormShell(t *testing.T) {
+	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	st := inboxState(now)
+	st.Forms = []model.Form{{ID: "dash", WorkspaceID: "s"}}
+	st.Activities = append(st.Activities, model.Activity{PaneID: "ps", WorkspaceID: "s", Provider: model.ProviderTerminal, State: model.StateAwaitingInput, UpdatedAt: now})
+	s := Sidebar{Inbox: true, WorkingShelf: true}
+	if v := s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", ""); v.secOf["s"] != secShells {
+		t.Fatalf("a dashboard moved the shell to %s", sectionTitle[v.secOf["s"]])
+	}
+	st.Forms[0].Waits = true
+	v := s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
+	if v.secOf["s"] != secActive || !slices.Contains(s.order(v)[:2], "s") {
+		t.Fatalf("a waiting form: %s, order %v", sectionTitle[v.secOf["s"]], s.order(v))
+	}
+
+	st.Workspaces = append(st.Workspaces, model.Workspace{ID: "parent"})
+	st.Workspace("s").Parent = "parent"
+	v = s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
+	if v.secOf["parent"] != secActive {
+		t.Fatalf("worker form's parent in %s", sectionTitle[v.secOf["parent"]])
+	}
+	if _, ok := v.secOf["s"]; ok {
+		t.Fatal("worker form has its own inbox row")
+	}
+
+	s.SeparateWorkers = true
+	v = s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
+	if v.secOf["s"] != secActive || v.secOf["parent"] != secShells {
+		t.Fatalf("separate worker form: worker %s, parent %s", sectionTitle[v.secOf["s"]], sectionTitle[v.secOf["parent"]])
+	}
+}
+
 // Moving tabs sends the events that land them, and its undo sends the
 // ones that put them back.
 func TestReshelveUndo(t *testing.T) {

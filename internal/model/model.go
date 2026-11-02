@@ -365,6 +365,21 @@ type State struct {
 	// Closed are the tabs that closed, oldest first, within PruneClosed's
 	// bounds, for tab search to reopen.
 	Closed []ClosedTab `json:",omitempty"`
+	// Forms are the open forms of `pitwall form`, oldest first. The daemon
+	// fills it in; it is not saved.
+	Forms []Form `json:"-"`
+}
+
+// Form is a form or dashboard from `pitwall form`, shown over the tab of
+// its pane until the user answers it or its command ends.
+type Form struct {
+	ID          string
+	WorkspaceID string
+	PaneID      string
+	Spec        string // internal/form markup
+	Title       string
+	Waits       bool // it asks the user something; a dashboard does not
+	OpenedAt    time.Time
 }
 
 // Overlap is another tab whose branch, in the same repository, changes

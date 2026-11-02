@@ -1011,6 +1011,88 @@ on the line under it. See
 [Programs and scripts](agent-report.md#programs-and-scripts) for the states
 and when a report goes.
 
+### Forms
+
+<img src="media/form-dark.webp" alt="A form over a tab: a title, a line of text, a radio choice of environment, checkboxes of who to tell, a release note field and Deploy and Not now buttons; the tab's row in the sidebar reads Input" width="800">
+
+`pitwall form` shows the user a form or a small dashboard in a panel over the
+calling pane's tab. A script or an agent asks with it the way it would ask in
+its own terminal, and the tab's row shows that it waits on you: the inbox
+puts it in Waiting on you with the questions, and a snoozed tab wakes. The spec comes
+from a file or stdin:
+
+```sh
+answer=$(pitwall form <<'EOF'
+<form title="Deploy the release?">
+  <text>Tests passed on 4 of 4 runners. Pick where it goes.</text>
+  <choice id="env" label="Environment">
+    <option>staging</option>
+    <option selected>production</option>
+  </choice>
+  <choice id="notify" label="Tell" multi>
+    <option selected>#releases</option>
+    <option>on-call</option>
+  </choice>
+  <input id="note" label="Release note" lines="3" placeholder="Optional"/>
+  <button>Deploy</button>
+  <button cancel>Not now</button>
+</form>
+EOF
+) || exit
+echo "$answer"
+# {"button":"Deploy","env":"production","note":"","notify":["#releases"]}
+```
+
+When you press a button the command prints the answers as one JSON object
+and exits 0. `button` names the button you pressed (its `id`, else its
+label), each `input` gives its text, a `choice` its option's `value` (else
+its label), and a `multi` choice the list of them. Escape or a `cancel`
+button exits 1 with nothing printed, and a spec that does not parse exits 2
+with the line and the fix. Enter in a one-line field presses the first
+button. A form with fields and no buttons gets Submit and Cancel.
+
+The markup is a small XML subset in the spirit of tuios's TML. The root is
+`<form title="...">`, and it holds, top to bottom:
+
+| Element | Attributes | What it is |
+| --- | --- | --- |
+| `<text>` | | A paragraph, or several split by a blank line |
+| `<input>` | `id`, `label`, `value`, `placeholder`, `lines` | A text field; `lines="3"` makes it multi-line |
+| `<choice>` | `id`, `label`, `multi` | Radio buttons, or checkboxes with `multi`, one `<option>` each (`value`, `selected`) |
+| `<button>` | `id`, `cancel` | A button; `cancel` makes it cancel |
+| `<progress>` | `label`, `value`, `max` | A progress bar (`max` 100 unless set); its text replaces the percent |
+| `<status>` | `label`, `state` | A status line with a dot: `idle`, `run`, `ok`, `warn` or `fail` |
+
+A form without fields or buttons is a dashboard. It sits in the tab's top
+right corner and leaves the keys to the panes, and it never marks the tab
+as waiting. Give it an `--id`, run it in the background, and send it again
+with `--update` as the work moves; `--close` takes it away. The `pitwall
+form` that showed it exits when you close it with its x or the script
+closes it.
+
+```sh
+dash() { # $1 tests done, $2 lint state
+  cat <<EOF
+<form title="Release 1.4">
+  <progress label="Tests" value="$1" max="40">$1 of 40</progress>
+  <status label="Lint" state="$2"/>
+  <status label="Deploy" state="idle">waits for tests</status>
+</form>
+EOF
+}
+dash 0 run | pitwall form --id rel >/dev/null &
+dash 12 ok | pitwall form --id rel --update
+dash 40 ok | pitwall form --id rel --update
+pitwall form --id rel --close
+```
+
+<img src="media/form-dashboard-light.webp" alt="A dashboard in the top right corner of a tab: progress bars for tests and build, and status lines for lint, integration, docs and deploy" width="600">
+
+An update keeps what you typed or picked in fields whose `id` stays. A form
+lives as long as the `pitwall form` that showed it: stop that and the form
+goes. Close the tab and the form ends too, and its `pitwall form` exits 1.
+Every window shows it over the tab; the first answer counts.
+
 ### The inbox
 
 The sidebar has a second view for when the question is "what needs me?"

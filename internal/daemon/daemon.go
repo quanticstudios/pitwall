@@ -229,6 +229,7 @@ type Daemon struct {
 	views       map[string]*view            // scroll positions, see scroll.go
 	clients     map[*client]struct{}        // gui clients only
 	watchers    map[*client]struct{}        // watch clients: StateMsg and PaneExited, no frames
+	formOwner   map[string]*client          // form id: the connection of its pitwall form, see forms.go
 	closing     bool
 	frozen      bool // see Freeze
 	savePending bool
@@ -724,6 +725,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	}
 
 	c := &client{conn: conn, nc: nc, level: hello.Level, wake: make(chan struct{}, 1), frames: map[string]proto.Frame{}}
+	defer d.dropForms(c)
 	cid := newID()[:6]
 	// errs keeps an input flood into a pane that stopped reading from
 	// logging a line per message.
@@ -850,6 +852,12 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if r, ok := m.(proto.Read); ok {
 			c.queue(d.read(r)) // a reply to this client alone
+			continue
+		}
+		if f, ok := m.(proto.OpenForm); ok {
+			if err := d.openForm(c, f); err != nil {
+				c.queue(proto.Error{Message: err.Error()})
+			}
 			continue
 		}
 		if v, ok := m.(proto.View); ok {
@@ -1063,6 +1071,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.secondOpinion(m)
 	case proto.SetStatus:
 		return d.setStatus(m)
+	case proto.FormAnswer:
+		return d.answerForm(m)
 	case proto.NewSession:
 		return d.newSession(ctx, m)
 	case proto.SessionNew:
@@ -2115,6 +2125,7 @@ func (d *Daemon) changed() {
 	d.syncTurns(time.Now())
 	d.pumpQueue(time.Now())
 	d.pruneNotices()
+	d.dropOrphanForms()
 	d.wakeTabs()
 	d.retitle()
 	d.fixOrders()
@@ -2235,6 +2246,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Tasks = slices.Clone(s.Tasks)
 	s.Chats = slices.Clone(s.Chats)   // chatChanged updates entries in place
 	s.Closed = slices.Clone(s.Closed) // checkClosed sets Gone in place
+	s.Forms = slices.Clone(s.Forms)
 	s.Queued = nil
 	for id, q := range d.mail.queue {
 		if s.Queued == nil {

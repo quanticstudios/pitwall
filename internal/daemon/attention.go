@@ -274,6 +274,7 @@ func (d *Daemon) attended() []model.Activity {
 			out = append(out, *a.notice)
 		}
 	}
+	out = d.formActivities(out)
 	for i := range out {
 		var seen time.Time
 		if a := d.attn[out[i].PaneID]; a != nil {

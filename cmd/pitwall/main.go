@@ -120,6 +120,13 @@ const usage = `usage:
   pitwall status <state> [--app name] [--progress N] [--message text]
                              report a script's state to its pane: working,
                              blocked, done, error or idle (see docs/agent-report.md)
+  pitwall form [--id id] [file]
+                             show a form or a dashboard (file, - or none:
+                             stdin) over the calling pane's tab and print
+                             the answers as JSON; exits 1 on cancel, 2 on
+                             an error (see docs/usage.md, Forms)
+  pitwall form --id id --update [file] | --close
+                             change an open form, or close it
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes
@@ -240,7 +247,7 @@ func main() {
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":
 		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent":
+	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

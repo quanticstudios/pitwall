@@ -125,6 +125,12 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 		err = reviewCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "status":
 		err = statusCommand(args[1:])
+	case len(args) > 0 && args[0] == "form":
+		var stdin io.Reader
+		if in != nil {
+			stdin = in
+		}
+		return formCommand(args[1:], stdin, out, errOut)
 	case len(args) > 0 && args[0] == "read":
 		err = readCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "send":

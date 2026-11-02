@@ -253,6 +253,9 @@ type ui struct {
 	modeTag  int // holds key focus in tab mode, so typed text skips the pane
 	closeTag int // a press anywhere closes a pinned switcher
 
+	forms     map[string]*formUI // pitwall form's forms, by id, see form.go
+	formFocus string             // the form that last took the keys
+
 	// A reloaded config waits in next for the UI goroutine; watchTheme is
 	// the theme name whose file the watcher polls.
 	cfgMu      sync.Mutex
@@ -696,6 +699,7 @@ func (u *ui) layout(gtx gl.Context) {
 	} else {
 		u.layoutPanes(pgtx, &st)
 		u.drawWelcome(pgtx, &st)
+		u.layoutForm(pgtx, &st)
 	}
 	fo.Pop()
 	u.takeSends(pgtx, &st)
@@ -998,8 +1002,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline {
-		focused = "" // a dialog, a rename field, tab mode or the palette holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) {
+		focused = "" // a dialog, a rename field, tab mode, the palette or a form holds key focus
 	}
 	findFocus := focused != "" && focused == u.find.pane
 	if u.find.pane != "" {
