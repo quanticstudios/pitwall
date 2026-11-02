@@ -916,9 +916,8 @@ func TestDeleteWorkspaceBranchKept(t *testing.T) {
 // A GUI client that stops reading is disconnected; the others keep getting
 // state.
 func TestSlowClientDisconnected(t *testing.T) {
-	old := writeTimeout
-	writeTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { writeTimeout = old })
+	old := writeTimeout.Swap(int64(200 * time.Millisecond))
+	t.Cleanup(func() { writeTimeout.Store(old) })
 	f := &fakes{statsCalls: map[string]int{}}
 	d, err := NewWith(f.options())
 	if err != nil {
