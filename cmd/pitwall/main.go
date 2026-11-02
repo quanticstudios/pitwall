@@ -47,6 +47,7 @@ const usage = `usage:
   pitwall agent explain [pane | --file path] [--provider name] [--json]
                              explain the agent state and the screen patterns checked
   pitwall hook <provider>    forward an agent hook event (claude, codex, pi, omp, gemini, opencode)
+  pitwall report-agent [options] [-- cmd...]  report this pane's agent state, name and resume command
   pitwall guard              exit 2 when the guard denies the command in {"tool_input":...} on stdin
   pitwall hooks              print the hook config for every agent
   pitwall hooks install      add hooks, pi's and omp's extensions, OpenCode's plugin and the
@@ -198,6 +199,8 @@ func main() {
 		os.Exit(runGuard(os.Stdin, os.Stdout, os.Stderr))
 	case "hooks":
 		err = runHooks(os.Args[2:], os.Stdout)
+	case "report-agent":
+		err = runReportAgent(os.Args[2:])
 	case "statusline":
 		os.Exit(runStatusline(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "config":

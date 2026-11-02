@@ -48,6 +48,7 @@ type liveness struct {
 	lastHook     map[string]proto.AgentHook
 	hookAt       map[string]time.Time // pane: when its agent last sent a hook
 	fg           map[string]int       // pane: its foreground process group at that hook
+	hookSeq      map[string]uint64    // pane: reports received, independent of clock precision
 	// started marks a pane whose agent sends SessionStart (pitwall's hooks
 	// since alpha.14), fresh one whose agent process started and has not
 	// reported a permission mode yet, and resumeSeen a pane NewWith resumed
@@ -74,6 +75,10 @@ func (d *Daemon) sawHook(id string) {
 		d.live.hookAt, d.live.fg = map[string]time.Time{}, map[string]int{}
 	}
 	d.live.hookAt[id] = time.Now()
+	if d.live.hookSeq == nil {
+		d.live.hookSeq = map[string]uint64{}
+	}
+	d.live.hookSeq[id]++
 	d.setHooksMissing(id, false)
 	if f, ok := d.panes[id].(foregrounder); ok {
 		if pg := f.Foreground(); pg > 0 {
@@ -89,6 +94,7 @@ func (d *Daemon) sawHook(id string) {
 func (d *Daemon) noteInput(id string, b []byte) {
 	d.mu.Lock()
 	i := d.activityIndex(id)
+	reported := i >= 0 && model.ReportedName(d.st.Activities[i].Provider) != ""
 	var s model.AgentState
 	if i >= 0 {
 		s = d.st.Activities[i].State
@@ -98,6 +104,9 @@ func (d *Daemon) noteInput(id string, b []byte) {
 		d.noteInterrupt(id, time.Now())
 	}
 	d.mu.Unlock()
+	if reported {
+		return // only reports change a self-reported agent's state
+	}
 	switch {
 	case s == model.StateWorking && isInterrupt(b):
 	case s == model.StatePendingApproval, s == model.StateAwaitingInput, s == model.StatePlanReady:
@@ -196,6 +205,7 @@ func (d *Daemon) checkForeground() {
 		if d.panes[id] == nil {
 			delete(d.live.fg, id)
 			delete(d.live.hookAt, id)
+			delete(d.live.hookSeq, id)
 		}
 	}
 	for id := range d.live.explanations {
@@ -222,6 +232,9 @@ func (d *Daemon) checkForeground() {
 	// Hooks own a pane only while their agent's group is in the foreground.
 	// Once it leaves, an agent started later without hooks is detect's.
 	for id, want := range d.live.fg {
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 && model.ReportedName(d.st.Panes[i].Provider) != "" {
+			continue // detect releases self-reports only at an idle shell
+		}
 		select {
 		case <-d.panes[id].Done():
 			continue // why: the process ended; exited decides what its activity does

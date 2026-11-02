@@ -40,6 +40,11 @@ session first. Shells and other non-agent panes start immediately. Set
 agents at once. Closing a queued pane cancels its launch. Stopping the daemon
 cancels the queue and saves the remaining panes for the next restart.
 
+Self-reported agents can supply an exact resume command with
+[`pitwall report-agent`](agent-report.md). pitwall stores that argv in
+`state.json` format 10 and clears it when the agent releases the pane or
+the pane returns to an idle shell.
+
 pitwall never deletes saved tabs it cannot read. Before it upgrades
 `state.json` to a newer format, it copies the old file to `state.json.prev`,
 so you can copy it back for an older pitwall. A damaged `state.json`, or one a

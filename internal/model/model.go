@@ -172,9 +172,17 @@ const (
 // them show.
 var Agents = []Provider{ProviderClaude, ProviderCodex, ProviderPi, ProviderOmp, ProviderGemini, ProviderOpenCode, ProviderCursor, ProviderAmp, ProviderAider}
 
-// IsAgent reports whether p is one of Agents: not a terminal command, and
-// not a program only a decision model reads.
-func IsAgent(p Provider) bool { return slices.Contains(Agents, p) }
+// ReportedName is the label of a self-reported provider, or "" for a built-in.
+// Self-reports use the agent: prefix so labels cannot impersonate built-ins.
+func ReportedName(p Provider) string {
+	if name, ok := strings.CutPrefix(string(p), "agent:"); ok {
+		return name
+	}
+	return ""
+}
+
+// IsAgent reports whether p is a built-in or self-reported agent.
+func IsAgent(p Provider) bool { return slices.Contains(Agents, p) || ReportedName(p) != "" }
 
 type Pane struct {
 	ID          string
@@ -194,6 +202,8 @@ type Pane struct {
 	Held      bool
 	Provider  Provider // "" until a hook reports or detection sees an agent
 	SessionID string   // agent session id from hooks, used to resume
+	// ResumeCmd is the argv a self-reported agent supplies for its exact session.
+	ResumeCmd []string
 	// Prompt is the first prompt of the agent session (SessionID), first
 	// line only, whitespace collapsed and cut to 48 runes. A new session
 	// clears it; the next prompt fills it.
@@ -713,6 +723,14 @@ func (s *State) Summary(session string) SessionSummary {
 			out.Agents = append(out.Agents, p)
 		}
 	}
+	var reported []Provider
+	for p := range agents {
+		if ReportedName(p) != "" {
+			reported = append(reported, p)
+		}
+	}
+	slices.Sort(reported)
+	out.Agents = append(out.Agents, reported...)
 	return out
 }
 

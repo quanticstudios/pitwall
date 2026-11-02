@@ -103,6 +103,9 @@ func AgentOf(st *model.State, ws model.Workspace) model.Provider {
 
 // AgentName is the agent's display name.
 func AgentName(p model.Provider) string {
+	if name := model.ReportedName(p); name != "" {
+		return name
+	}
 	switch p {
 	case model.ProviderClaude:
 		return "Claude"

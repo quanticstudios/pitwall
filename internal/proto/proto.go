@@ -120,6 +120,8 @@ import (
 // matching Version enough. Daemons of Version 16 and earlier refuse every
 // Version but their own and ignore Level.
 //
+// Version 18 added Pane.ResumeCmd for self-reported agents. Levels through
+// 48 remain available so clients keep the existing feature gates.
 // Version 17 added AgentExplain and AgentExplanation.
 // Version 16 added NewSession.Loose, a tab outside every group.
 // Version 15 added Pane.Transcript, the agent session's own file.
@@ -148,7 +150,7 @@ import (
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames.
-const Version = 17
+const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
 const Level = 48

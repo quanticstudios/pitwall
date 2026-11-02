@@ -417,6 +417,9 @@ func NewWith(o Options) (*Daemon, error) {
 		}
 		// why: argv cannot tell, since `claude --resume s` restores to the same argv.
 		resumes := store.Resumes(*p)
+		if model.ReportedName(p.Provider) != "" && !resumes {
+			d.clearReported(p)
+		}
 		if p.Held && (p.Exited || !resumes) {
 			d.panes[p.ID] = d.stoppedPane(p)
 			d.sizes[p.ID] = [2]int{defaultCols, defaultRows}
@@ -1376,6 +1379,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.explanations, id)
 	delete(d.live.lastHook, id)
 	delete(d.live.hookAt, id)
+	delete(d.live.hookSeq, id)
 	delete(d.live.fg, id)
 	delete(d.live.started, id)
 	delete(d.live.fresh, id)
@@ -1435,6 +1439,44 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
+	if m.Provider == "report" {
+		r, err := agent.DecodeReport(m.Payload)
+		if err != nil {
+			d.mu.Unlock()
+			return err
+		}
+		// Built-in hooks and detection keep authority over built-in agents.
+		known := model.IsAgent(p.Provider) && model.ReportedName(p.Provider) == ""
+		if f, ok := d.panes[p.ID].(foregrounder); ok {
+			prov, _ := identify(f.Foreground())
+			known = known || prov != ""
+		}
+		if known {
+			d.mu.Unlock()
+			return nil
+		}
+		m.Provider = model.Provider("agent:" + r.Name)
+		if r.Release {
+			if p.Provider == m.Provider {
+				d.clearReported(p)
+			}
+			d.mu.Unlock()
+			return nil
+		}
+		if p.Provider != m.Provider {
+			p.ResumeCmd, p.SessionID, p.AgentMode, p.Prompt, p.Transcript = nil, "", "", "", ""
+			d.dropActivity(p.ID)
+		}
+		if r.ResumeCmd != nil {
+			p.ResumeCmd = slices.Clone(r.ResumeCmd)
+		}
+		d.changed()
+	} else if model.ReportedName(m.Provider) != "" {
+		d.mu.Unlock()
+		return errors.New("self-reported agents must use report-agent")
+	} else if model.ReportedName(p.Provider) != "" {
+		p.ResumeCmd = nil // a built-in hook takes authority from a self-report
+	}
 	// The pane's pi runtime is the one of its latest session_start; a report
 	// from any other, such as one /reload replaced, changes nothing, and
 	// neither does one a runtime sends after its session_shutdown.
@@ -1959,6 +2001,7 @@ func (d *Daemon) exited(id string, p Pane) {
 			d.sizes[id] = size
 		}
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
+		sp.ResumeCmd = nil
 		err := d.start(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID), sp.Env)
 		if err == nil {
 			d.changed()
@@ -1969,6 +2012,7 @@ func (d *Daemon) exited(id string, p Pane) {
 	}
 	var closing []Pane
 	if sp.Held {
+		sp.ResumeCmd = nil
 		// why: the tab keeps the command's output on screen, and pitwall wait reads its status.
 		d.st.Panes[i].Exited, d.st.Panes[i].ExitCode = true, code
 		log.Printf("pane %s: exited %d; held", id, code)
