@@ -47,6 +47,9 @@ func allMessages() []any {
 		Decide: model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}}},
 		Tasks:  []model.Task{{ID: "t", SessionID: "s", GroupID: "p", Dir: "/r", Branch: "fix", Cmd: []string{"claude", "fix it"}}},
 		Queued: map[string]int{"a": 2},
+		Closed: []model.ClosedTab{{ID: "c", Tab: model.Workspace{ID: "w0", Name: "fix", Branch: "fix", Path: "/r/.worktrees/fix", WorktreeRoot: "/r"},
+			Pane:    model.Pane{ID: "a0", Cwd: "/r/.worktrees/fix", Provider: model.ProviderClaude, SessionID: "s0", AgentMode: "plan"},
+			Session: "work", Group: model.Project{ID: "p", Name: "n", Root: "/r", Kind: model.ProjectGit}, PR: 7, ClosedAt: now, Gone: true}},
 	}
 	return []any{
 		Hello{Version: Version, Level: Level, Kind: "gui", Session: "work"},
@@ -120,6 +123,8 @@ func allMessages() []any {
 		SetProjectAppearance{ProjectID: "p", Icon: "code", Color: "sky"},
 		SetTabOptions{WorkspaceID: "w", Pinned: true, Color: "teal"},
 		SetTabInbox{WorkspaceID: "w", Settled: true, SnoozedUntil: now},
+		ReopenTab{ID: "c", AtRoot: true},
+		ForgetTab{ID: "c"},
 		WorktreeQuery{ProjectID: "p", Orphans: true},
 		WorktreeInfo{Query: WorktreeQuery{WorkspaceID: "w"}, Default: "origin/main", Local: []string{"main"}, Remote: []string{"origin/fix"}, GitHub: true,
 			Changed: []string{"a.go"}, Unmerged: true, Orphans: []model.Orphan{{Root: "/r", Path: "/r/.worktrees/x", Branch: "x", Committed: now, Dirty: true}}},

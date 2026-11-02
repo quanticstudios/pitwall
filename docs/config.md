@@ -27,6 +27,7 @@ preset = "conventional"
 new_tab = ["Ctrl+Shift+T", "Super+T"]  # a chord or a list of chords
 toggle_sidebar = "Ctrl+B"
 tab_prefix = []                         # [] unbinds
+tab_search = "Ctrl+Shift+K"             # search open and closed tabs: usage.md, Tab search
 
 [keys.tab]                              # tab mode, after tab_prefix
 rename = "F2"

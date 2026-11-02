@@ -387,6 +387,12 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 	return stateGlyph(gtx, th, a.State, base, v.t(s))
 }
 
+// StateGlyph draws the 12px glyph the sidebar shows for state, unanimated,
+// for lists outside the sidebar.
+func StateGlyph(gtx layout.Context, th *theme.Theme, state model.AgentState, base color.NRGBA) layout.Dimensions {
+	return stateGlyph(gtx, th, state, base, 0)
+}
+
 // stateGlyph is the 12px glyph for state, at t seconds into its pulse or
 // spin.
 func stateGlyph(gtx layout.Context, th *theme.Theme, state model.AgentState, base color.NRGBA, t float64) layout.Dimensions {

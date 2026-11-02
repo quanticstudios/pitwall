@@ -534,6 +534,41 @@ func TestChatTabs(t *testing.T) {
 	}
 }
 
+// TestClosedTabs loads a version 10 file without closed tabs, keeps
+// State.Closed across a save, and does not save Gone, which the daemon
+// works out again.
+func TestClosedTabs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v10 := `{"format_version":10,"state":{"Sessions":[{"ID":"s","Name":"main"}],"Workspaces":[{"ID":"w","SessionID":"s"}]}}`
+	if err := os.WriteFile(path, []byte(v10), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil || s.Closed != nil {
+		t.Fatalf("load: %#v, %v", s.Closed, err)
+	}
+	if _, err := os.Stat(path + ".prev"); err == nil {
+		t.Fatal("closed tabs need no migration, but the file was kept as .prev")
+	}
+	at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	want := model.ClosedTab{ID: "c", Tab: model.Workspace{ID: "w0", Name: "fix", NameSet: true, Branch: "fix", Path: "/r/.worktrees/fix", WorktreeRoot: "/r"},
+		Pane:    model.Pane{ID: "p0", Cwd: "/r/.worktrees/fix", Provider: model.ProviderCodex, SessionID: "019a", AgentMode: "plan"},
+		Session: "main", Group: model.Project{ID: "g", Name: "pitwall", Root: "/r", Kind: model.ProjectGit}, PR: 12, ClosedAt: at}
+	gone := want
+	gone.Gone = true
+	s.Closed = []model.ClosedTab{gone}
+	if err := Save(path, s); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = Load(path); err != nil || len(s.Closed) != 1 || !reflect.DeepEqual(s.Closed[0], want) {
+		t.Fatalf("round trip: %#v, %v", s.Closed, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || bytes.Contains(data, []byte("Gone")) {
+		t.Fatalf("Gone was saved: %v", err)
+	}
+}
+
 // badFiles is the names of the files Open set aside next to path.
 func badFiles(t *testing.T, path string) []string {
 	t.Helper()
