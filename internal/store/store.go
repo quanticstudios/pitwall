@@ -172,8 +172,12 @@ func keep(path string, data []byte) error {
 	name := ""
 	for {
 		name = "state-" + at.Format("20060102-150405.000") + ".json"
-		if _, err := os.Lstat(filepath.Join(dir, name)); errors.Is(err, os.ErrNotExist) {
+		_, err := os.Lstat(filepath.Join(dir, name))
+		if errors.Is(err, os.ErrNotExist) {
 			break
+		}
+		if err != nil {
+			return err
 		}
 		at = at.Add(time.Millisecond)
 	}

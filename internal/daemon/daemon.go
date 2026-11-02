@@ -268,6 +268,7 @@ type Daemon struct {
 	// marks one that a new daemon took over. See handoff.go.
 	ln        net.Listener
 	stop      context.CancelFunc
+	served    context.Context // Serve's, ended when the daemon stops
 	gate      acceptGate
 	handedOff bool
 }
@@ -488,15 +489,12 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	d.mu.Lock()
-	d.ln, d.stop = ln, cancel
+	d.ln, d.stop, d.served = ln, cancel, ctx
 	d.mu.Unlock()
 	context.AfterFunc(ctx, func() {
 		ln.Close()
 		d.mu.Lock()
 		d.stopRestores()
-		// why: at session end SIGTERM reaches every agent with this daemon, and
-		// an agent's exit must not close its tab before shutdown saves it.
-		d.frozen = true
 		d.mu.Unlock()
 	})
 	d.radar.mu.Lock()
@@ -1983,7 +1981,10 @@ var resumeGrace = 3 * time.Second
 // closes the pane like any other command's.
 func (d *Daemon) exited(id string, p Pane) {
 	d.mu.Lock()
-	if d.closing || d.frozen || d.panes[id] != p {
+	// why: at session end SIGTERM reaches every agent with this daemon, and
+	// an agent's exit must not close its tab before shutdown saves it.
+	stopping := d.served != nil && d.served.Err() != nil
+	if d.closing || d.frozen || stopping || d.panes[id] != p {
 		d.mu.Unlock()
 		return // closed on purpose: by ClosePane, DeleteWorkspace or shutdown; Thaw runs it again when frozen
 	}
@@ -2095,7 +2096,7 @@ func (d *Daemon) changed() {
 
 // Freeze saves the state now and keeps the panes that exit from then on, so
 // that agents the system stops on its way down come back after the reboot.
-// Serve keeps them the same way, without this save, once its context ends.
+// Serve's panes are kept the same way, without this save, once its context ends.
 func (d *Daemon) Freeze() {
 	d.mu.Lock()
 	d.frozen = true

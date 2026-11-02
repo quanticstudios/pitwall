@@ -775,3 +775,27 @@ func TestRestoreSnapshotRefuses(t *testing.T) {
 		t.Fatalf("state after refused restores = %q", got)
 	}
 }
+
+// TestKeepFailsOnBadFolder checks a snapshot folder that cannot be read,
+// here a file in its place, fails the snapshot at once instead of looping,
+// and the save still lands.
+func TestKeepFailsOnBadFolder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(SnapshotDir(path), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- keep(path, []byte("{}")) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("keep into a file returned no error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("keep loops on a folder it cannot read")
+	}
+	tabs := model.State{Sessions: []model.Session{{ID: "s", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}}}
+	if err := Save(path, tabs); err != nil {
+		t.Fatal(err)
+	}
+}
