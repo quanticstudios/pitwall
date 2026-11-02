@@ -4,8 +4,8 @@ import "fmt"
 
 // Sidebar is [sidebar]: the tree or the inbox, and how the inbox sorts.
 type Sidebar struct {
-	View            string   `toml:"view" enum:"tree,inbox" doc:"tree lists tabs under their groups; inbox lists every agent tab in one list by what it needs from you: Pinned, Active, Working, Snoozed and Settled. The sidebar's header switches between them too. See docs/usage.md, The inbox"`
-	WorkingShelf    *bool    `toml:"working_shelf" doc:"In the inbox, move tabs whose agent works now to their own Working section, out of Active"`
+	View            string   `toml:"view" enum:"tree,inbox" doc:"tree lists tabs under their groups; inbox lists every agent tab in one list by what it needs from you: Pinned, Waiting on you, Working, Snoozed and Settled. The sidebar's header switches between them too. See docs/usage.md, The inbox"`
+	WorkingShelf    *bool    `toml:"working_shelf" doc:"In the inbox, move tabs whose agent works now to their own Working section, out of Waiting on you"`
 	SettleAfterDays *float64 `toml:"settle_after_days" min:"0" max:"365" doc:"Settle a tab after this many days without agent activity: it moves to the inbox's Settled section. 0 never settles one on its own. Pinned and snoozed tabs stay"`
 	SettleOnMerge   *bool    `toml:"settle_on_merge" doc:"Settle a tab once pitwall sees its pull request merge. Pinned tabs stay"`
 }

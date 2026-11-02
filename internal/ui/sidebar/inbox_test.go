@@ -268,7 +268,7 @@ func TestInboxDrag(t *testing.T) {
 			heads = append(heads, sectionTitle[headerSection(e)])
 		}
 	}
-	if want := []string{"Active", "Working", "Settled", "Shells"}; !slices.Equal(heads, want) {
+	if want := []string{"Waiting on you", "Working", "Settled", "Shells"}; !slices.Equal(heads, want) {
 		t.Fatalf("sections %v, want %v", heads, want)
 	}
 	p := h.at("b", 20)
@@ -281,7 +281,7 @@ func TestInboxDrag(t *testing.T) {
 			heads = append(heads, sectionTitle[headerSection(e)])
 		}
 	}
-	if want := []string{"Pinned", "Active", "Working", "Settled", "Shells"}; !slices.Equal(heads, want) {
+	if want := []string{"Pinned", "Waiting on you", "Working", "Settled", "Shells"}; !slices.Equal(heads, want) {
 		t.Fatalf("while dragging %v, want the empty Pinned too", heads)
 	}
 	// The rows below b close up under the pointer as it lifts.
@@ -428,7 +428,7 @@ func TestSettleButton(t *testing.T) {
 	}
 	evs := click("b", settleX)
 	if got := shelved(evs); !slices.Equal(got, []Event{SetInbox{WorkspaceID: "b", Settled: true}}) {
-		t.Fatalf("Settle on an Active row sent %v", evs)
+		t.Fatalf("Settle on a Waiting on you row sent %v", evs)
 	}
 	if selects(evs, "b") {
 		t.Fatal("Settle selected the row too")

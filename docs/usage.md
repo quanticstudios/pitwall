@@ -991,11 +991,11 @@ that asks for an answer wakes or unsettles it. An agent tab settles for
 idle days only once its workers have been quiet that long too. It sorts the rows into sections:
 
 - **Pinned**: the tabs you pinned, in their order.
-- **Active**: the rest. Approvals, questions and failures come first, then
+- **Waiting on you**: the rest. Approvals, questions and failures come first, then
   finished turns you have not looked at, then the others.
 - **Working**: tabs whose agent works now. pitwall fills it; you cannot drop
   a tab there. A pinned or settled tab stays where you put it while its
-  agent works. `working_shelf = false` keeps these tabs in Active.
+  agent works. `working_shelf = false` keeps these tabs in Waiting on you.
 - **Snoozed**: tabs hidden until a time you pick, which the row shows. An
   approval, a question, a plan or a failure wakes the tab early.
 - **Settled**: done tabs, still open. A tab settles when you settle it,
@@ -1011,8 +1011,8 @@ A row shows the same status the tree does, in this order: approval, input,
 working, failed or usage limit, ready. Working rows and ready rows you have
 seen dim; approvals and questions never do.
 
-Drag a row into Pinned to pin it, into Settled to settle it, or into Active
-to unpin, unsettle or wake it. Its menu has the same actions, with Snooze
+Drag a row into Pinned to pin it, into Settled to settle it, or into
+Waiting on you to unpin, unsettle or wake it. Its menu has the same actions, with Snooze
 offering in an hour, this evening, tomorrow morning and Monday. Settling
 takes one click too: hover an agent's row and a double check shows left of
 "…" and "×". On a settled row an undo arrow in the same place unsettles it.

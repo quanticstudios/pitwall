@@ -60,10 +60,10 @@ const (
 	secCount
 )
 
-var sectionTitle = [secCount]string{"Pinned", "Active", "Working", "Snoozed", "Settled", "Shells"}
+var sectionTitle = [secCount]string{"Pinned", "Waiting on you", "Working", "Snoozed", "Settled", "Shells"}
 
-// sectionEmpty is what an empty section says while it shows: Active
-// always, Pinned and Settled while a tab is dragged.
+// sectionEmpty is what an empty section says while it shows: Waiting on
+// you always, Pinned and Settled while a tab is dragged.
 var sectionEmpty = [secCount]string{"Drop a tab here to pin it", "No tab needs you", "", "", "Drop a tab here to settle it", ""}
 
 // status is what an inbox row says its agent needs, least urgent first.
