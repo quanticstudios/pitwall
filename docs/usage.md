@@ -975,6 +975,19 @@ of its own everywhere else: its worktree and panes, `pitwall ls --tree`,
 the switcher and goto_tab, which counts only the rows. Close the agent's
 tab and its workers become rows of their own again.
 
+### Programs
+
+A long build, a test run or a deploy can tell pitwall what it is doing.
+A program that writes OSC 7501, the Program Status Protocol, or a script
+that runs `pitwall status working --app cargo --progress 40`, shows on its
+tab's row: a line with the program's name, its message and a progress bar.
+Where no agent owns the pane, the row's glyph and pill take the program's
+state too, and the inbox puts a failed program in Waiting on you and a running one
+in Working. An agent in the same pane keeps its own state; its build shows
+on the line under it. See
+[Programs and scripts](agent-report.md#programs-and-scripts) for the states
+and when a report goes.
+
 ### The inbox
 
 The sidebar has a second view for when the question is "what needs me?"

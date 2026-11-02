@@ -92,3 +92,7 @@ func devMatches(field string, dev uint64) bool {
 
 func devMajor(dev uint64) uint32 { return uint32((dev>>32)&0xfffff000) | uint32((dev>>8)&0x00000fff) }
 func devMinor(dev uint64) uint32 { return uint32((dev>>12)&0xffffff00) | uint32(dev&0x000000ff) }
+
+// processGroup is the calling process's group, which pitwall status reports
+// so the daemon can tell when the program that called it has exited.
+func processGroup() int { return syscall.Getpgrp() }

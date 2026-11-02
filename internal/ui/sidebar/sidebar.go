@@ -430,6 +430,7 @@ type view struct {
 	own           map[string]*model.Activity   // a tab with workers: its own activity, which activity mixes theirs into
 	rootOf        map[string]string            // a live worker's root, the tab it hangs under
 	status        map[string]string            // a live tab's status line (pitwall status)
+	program       map[string]*model.Program    // a live tab's program report, its most urgent
 	session       string
 	acts          map[string][]model.Activity // a tab's activities
 
@@ -453,7 +454,7 @@ func (s *Sidebar) viewOf(gtx layout.Context, th *theme.Theme, st *model.State, s
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
 	v := &view{th: th, st: st, now: gtx.Now, active: active, session: session,
 		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{},
-		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}, status: map[string]string{}}
+		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}, status: map[string]string{}, program: map[string]*model.Program{}}
 	if v.now.IsZero() {
 		v.now = time.Now()
 	}
@@ -509,6 +510,9 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 		}
 		if aps := st.AgentPanes(ws); len(aps) > 1 {
 			v.agents[ws.ID] = aps
+		}
+		if p := tabProgram(st, ws, v.agents[ws.ID]); p != nil {
+			v.program[ws.ID] = p
 		}
 	}
 	v.own = map[string]*model.Activity{}

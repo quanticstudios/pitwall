@@ -306,6 +306,16 @@ func fakeState(now time.Time) model.State {
 			st.Workspaces[i].SnoozedUntil, st.Workspaces[i].SnoozedAt = now.Add(3*time.Hour), ago(time.Minute)
 		}
 	}
+	// Programs that report with OSC 7501 or pitwall status: a build with
+	// progress, a failed deploy, and builds that two agents run.
+	add("ws-build", "", "Release build", "", 20*time.Second, model.ProviderTerminal, model.StateWorking)
+	add("ws-deploy", "", "Deploy staging", "", 3*time.Minute, model.ProviderTerminal, model.StateError)
+	st.Activities[len(st.Activities)-2].Detail, st.Activities[len(st.Activities)-1].Detail = "Compiling 112/280", "Apply failed: 2 errors"
+	st.Panes = append(st.Panes,
+		model.Pane{ID: "ws-build-pane", WorkspaceID: "ws-build", Program: &model.Program{App: "cargo", State: "working", Progress: 40, Message: "Compiling 112/280", UpdatedAt: ago(20 * time.Second)}},
+		model.Pane{ID: "ws-deploy-pane", WorkspaceID: "ws-deploy", Program: &model.Program{App: "terraform", State: "error", Progress: -1, Message: "Apply failed: 2 errors", UpdatedAt: ago(3 * time.Minute)}},
+		model.Pane{ID: "ws-sidebar-pane", WorkspaceID: "ws-sidebar", Provider: model.ProviderClaude, Program: &model.Program{App: "make", State: "working", Progress: 65, Message: "Running tests", UpdatedAt: ago(time.Minute)}})
+	st.Panes[0].Program = &model.Program{App: "go", State: "working", Progress: 30, UpdatedAt: ago(time.Minute)} // trio-1, a sub-row
 	add("ws-notes", "p-notes", "notes", "", 4*24*time.Hour, "", "")
 	add("ws-old", "p-web", "Old spike", "spike/new-router", 9*24*time.Hour, "", "")
 	st.Workspaces[len(st.Workspaces)-1].Detached = true

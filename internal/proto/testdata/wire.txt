@@ -1,4 +1,4 @@
-18.51
+18.52
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -16,8 +16,9 @@ model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
 model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; ChangeRequests []string; Conflicts bool; Checks []model.Check; Head string; Reason model.Reason; Detail string}
-model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; ResumeCmd []string; Prompt string; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string}
+model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; ResumeCmd []string; Prompt string; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string; Program *model.Program}
 model.PortBlock{First int; Last int}
+model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
 model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Listening map[string][]int; Chats []model.Chat; Closed []model.ClosedTab}

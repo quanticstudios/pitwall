@@ -345,6 +345,16 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, subTitle(e))
 			}},
 		}
+		prog := e.pane.Pane.Program
+		if e.worker != nil {
+			prog = v.program[e.worker.ID]
+		}
+		if prog != nil {
+			// A build the agent runs: its name and progress, before the agent's pill.
+			items = append(items, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(StateColor(th, prog.Activity()), base), ProgramChip(*prog))
+			}})
+		}
 		if a != nil {
 			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
 		}

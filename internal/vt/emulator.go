@@ -18,6 +18,8 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	xvt "github.com/charmbracelet/x/vt"
+
+	"github.com/quanticstudios/pitwall/internal/progstatus"
 )
 
 var _ NewFunc = New
@@ -69,6 +71,9 @@ type state struct {
 	cwd       string        // the local folder the last OSC 7 named
 	gfx       graphics      // kitty graphics: images and placements
 	pal       Palette       // what color queries report; see SetPalette
+
+	// prog gets OSC 7501 reports; set by SetProgramStatusFunc.
+	prog func(progstatus.Report)
 }
 
 // New returns an Emulator backed by github.com/charmbracelet/x/vt.
@@ -145,6 +150,7 @@ func New(cols, rows int, reply io.Writer) Emulator {
 
 	go pumpReplies(e, reply, &st.dropped)
 	t := &emulator{e: e, st: st}
+	t.osc.prog = func(payload []byte, bel bool) { programStatus(e, st, payload, bel) }
 	runtime.AddCleanup(t, func(w io.Writer) { _ = w.(*io.PipeWriter).Close() }, e.InputPipe())
 	runtime.AddCleanup(t, (*graphics).releaseAll, &st.gfx)
 	return t
@@ -171,6 +177,33 @@ func (t *emulator) SetNotifyFunc(f func(Notification)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.notify = f
+}
+
+// SetProgramStatusFunc sets f to be called for each OSC 7501 report that
+// passes the Program Status Protocol's checks, under the same conditions as
+// SetNotifyFunc. The protocol's query is answered whether or not f is set.
+func (t *emulator) SetProgramStatusFunc(f func(progstatus.Report)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.st.prog = f
+}
+
+// programStatus reads one OSC 7501 payload: the query gets the fixed answer,
+// with the terminator it came with, and a report goes to st.prog. It takes
+// e and st, not the emulator, so the filter does not point back at it.
+func programStatus(e *xvt.Emulator, st *state, payload []byte, bel bool) {
+	body := payload[len("7501;"):]
+	if progstatus.IsQuery(body) {
+		term := "\x1b\\"
+		if bel {
+			term = "\x07"
+		}
+		_, _ = io.WriteString(e.InputPipe(), progstatus.QueryReply+term)
+		return
+	}
+	if r, ok := progstatus.Parse(body, progstatus.SequenceLen(len(payload), bel)); ok && st.prog != nil {
+		st.prog(r)
+	}
 }
 
 // SetBellFunc sets f to be called for each BEL in the output, under the

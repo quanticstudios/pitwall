@@ -242,6 +242,43 @@ type Pane struct {
 	// environment: a preset's variables and the guard's. A restart starts
 	// the pane with it again.
 	Env []string
+	// Program is what a program in the pane says it is doing, with OSC
+	// 7501 or pitwall status: its most urgent report. Nil when none
+	// reported or the reports ended. The daemon fills it in; it is not
+	// saved.
+	Program *Program `json:"-"`
+}
+
+// Program is one report of the Program Status Protocol (OSC 7501), the
+// one a pane shows.
+type Program struct {
+	App   string // the program's own name, "" when it gave none
+	State string // working, blocked, done or error
+	Kind  string // what a blocked program waits for: permission, question, auth or ""
+	// Progress is 0 to 100, or -1 when the program reports none.
+	Progress  int
+	Message   string // its title and message, joined with ": "
+	UpdatedAt time.Time
+}
+
+// Activity is p as an agent's activity: blocked is awaiting input, or a
+// pending approval for kind=permission; error, done and working map to
+// their own states.
+func (p Program) Activity() AgentState {
+	switch p.State {
+	case "working":
+		return StateWorking
+	case "blocked":
+		if p.Kind == "permission" {
+			return StatePendingApproval
+		}
+		return StateAwaitingInput
+	case "done":
+		return StateCompleted
+	case "error":
+		return StateError
+	}
+	return ""
 }
 
 type MergeStatus string

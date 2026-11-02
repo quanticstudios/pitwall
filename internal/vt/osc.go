@@ -26,12 +26,16 @@ const oscMax = 64 << 10
 // why: x/ansi treats byte 0x9C as the C1 string terminator even inside a
 // UTF-8 character, so an OSC whose payload holds one (Claude Code's "✳"
 // title prefix is E2 9C B3) is cut short and its tail is printed on screen.
-// Titles (OSC 0, 1, 2) and notifications (OSC 9, 99, 777) are handled here;
+// Titles (OSC 0, 1, 2), notifications (OSC 9, 99, 777) and program status
+// (OSC 7501) are handled here;
 // other OSCs go through unless their payload holds 0x9C, in which case they
 // are dropped.
 type oscFilter struct {
 	state int // 0 text, 1 after ESC, 2 in OSC, 3 in OSC after ESC
 	buf   []byte
+	// prog gets each OSC 7501 (program status) payload, "7501;" included,
+	// and whether BEL ended it. Nil drops them.
+	prog func(payload []byte, bel bool)
 }
 
 // feed returns the bytes x/vt should parse and calls title for each title
@@ -101,6 +105,11 @@ func (f *oscFilter) end(out []byte, title func(string), notify func(Notification
 		// Nothing on screen depends on these, so they never reach x/vt.
 		if n, ok := parseNotification(string(cmd), string(payload)); ok && notify != nil {
 			notify(n)
+		}
+		return out
+	case "7501":
+		if f.prog != nil {
+			f.prog(f.buf, term == "\x07")
 		}
 		return out
 	}
