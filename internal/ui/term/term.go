@@ -59,7 +59,11 @@ type View struct {
 	// machine or needs a saved image path: a paste finding no text asks the window,
 	// through ImageWanted, instead of sending Ctrl+V.
 	HostPaste bool
+	// Images looks up the pixels of the grid's image placements
+	// (vt.Grid.Images); nil draws none.
+	Images func(key uint64) (vt.Image, bool)
 
+	pics     map[picKey]paint.ImageOp // the images drawn last frame
 	th       *theme.Theme
 	ppem     fixed.Int26_6
 	cell     image.Point
@@ -185,6 +189,7 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 
 	n, h := min(g.Cols, cols), min(g.Rows, rows)
 	v.drawRows(gtx.Ops, g, n, h)
+	v.drawImages(gtx.Ops, g, n, h)
 	if v.cm.on {
 		v.copyCursor(gtx.Ops, g, n, h)
 	}

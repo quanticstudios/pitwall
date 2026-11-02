@@ -46,6 +46,15 @@ func TestDiffApply(t *testing.T) {
 	if r, ok := Diff(&f, moved).(FrameRows); !ok || len(r.Rows) != 0 {
 		t.Fatalf("a cursor move: %#v", Diff(&f, moved))
 	}
+	pic := f
+	pic.Grid.Images = []vt.Placement{{Image: 5, X: 1, Cols: 2, Rows: 1}}
+	r, ok = Diff(&f, pic).(FrameRows)
+	if !ok || len(r.Rows) != 0 {
+		t.Fatalf("an image placed: %#v", Diff(&f, pic))
+	}
+	if got, _ := r.Apply(f); !reflect.DeepEqual(got, pic) {
+		t.Fatalf("applied image: %#v", got.Grid.Images)
+	}
 	for name, n := range map[string]Frame{
 		"no old frame":   {},
 		"scrolled":       textFrame("bbb", "ccc", "ddd", "eee"),

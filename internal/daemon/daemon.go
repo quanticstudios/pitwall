@@ -191,6 +191,9 @@ type Options struct {
 	// Scrollback is the lines of history a new pane keeps ([terminal]
 	// scrollback); nil leaves the emulator's default.
 	Scrollback func() int
+	// Graphics reports whether new panes show images ([terminal]
+	// graphics); nil leaves the emulator's default, on.
+	Graphics func() bool
 	// Checkpoint snapshots a tab's work tree when its agent starts a turn,
 	// and DropTurns deletes the tab's snapshots when it closes
 	// (gitstat.Checkpoint); nil takes none. Checkpoint returns the
@@ -325,6 +328,7 @@ func Defaults() Options {
 		Decisions:         loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
 		Bell:              setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
 		Scrollback:        setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
+		Graphics:          setting(config.Path(), func(s config.Settings) bool { return s.Graphics }),
 		Radar:             setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
 		Changes:           gitstat.Changed,
 		Conflicts:         gitstat.Conflicts,
@@ -797,6 +801,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(favicon(f)) // a reply to this client alone
 			continue
 		}
+		if i, ok := m.(proto.Image); ok {
+			c.queue(d.image(i)) // a reply to this client alone
+			continue
+		}
 		if p, ok := m.(proto.PasteImage); ok {
 			c.queue(d.pasteImage(p)) // a reply to this client alone
 			continue
@@ -970,6 +978,9 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		p, err := d.pane(m.Pane)
 		if err != nil {
 			return err
+		}
+		if s, ok := p.(interface{ SetCellSize(w, h int) }); ok && m.CellW > 0 && m.CellH > 0 {
+			s.SetCellSize(m.CellW, m.CellH)
 		}
 		if err := p.Resize(m.Cols, m.Rows); err != nil {
 			return err

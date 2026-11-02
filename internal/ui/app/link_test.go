@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"image"
+	"maps"
 	"testing"
 	"time"
 
@@ -18,8 +19,9 @@ import (
 // linked is the fake with a connection whose Link the test sets.
 type linked struct {
 	*FakeBackend
-	link  Link
-	shows int
+	link    Link
+	shows   int
+	resizes map[string]int // per pane
 }
 
 func (l *linked) Link() Link { return l.link }
@@ -29,6 +31,12 @@ func (l *linked) Restart()   {}
 func (l *linked) Send(msg any) error {
 	if _, ok := msg.(proto.SessionShow); ok {
 		l.shows++
+	}
+	if r, ok := msg.(proto.Resize); ok {
+		if l.resizes == nil {
+			l.resizes = map[string]int{}
+		}
+		l.resizes[r.Pane]++
 	}
 	return l.FakeBackend.Send(msg)
 }
@@ -58,14 +66,16 @@ func TestLinkChanges(t *testing.T) {
 			t.Fatal("a pane's size was not sent")
 		}
 	}
+	before := maps.Clone(b.resizes)
 	b.link = Link{Epoch: 2}
 	frame()
 	if b.shows != 2 {
 		t.Fatalf("%d SessionShows, want one more on a new connection", b.shows)
 	}
-	for id, p := range u.panes {
-		if p.sentCols != 0 { // the fake's frames fit already; a new daemon's would not
-			t.Fatalf("pane %s keeps the size sent on the old connection", id)
+	for id := range u.panes {
+		// The fake's frames fit already: the size goes again for its cell size.
+		if b.resizes[id] != before[id]+1 {
+			t.Fatalf("pane %s: %d resizes on the new connection, want 1", id, b.resizes[id]-before[id])
 		}
 	}
 

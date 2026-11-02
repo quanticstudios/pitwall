@@ -146,7 +146,9 @@ func (p *Pane) Master() (*os.File, int, error) {
 
 func (p *Pane) setSize(cols, rows int) error {
 	return p.control(func(fd int) error {
-		return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
+		px := func(n, cell int) uint16 { return uint16(min(n*cell, 0xffff)) }
+		return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows),
+			Xpixel: px(cols, p.cell[0]), Ypixel: px(rows, p.cell[1])})
 	})
 }
 

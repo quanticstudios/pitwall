@@ -225,6 +225,7 @@ type Term struct {
 	OSC52        string   `toml:"osc52" enum:"write,off" doc:"write lets programs (Neovim, tmux, anything over ssh) set the clipboard with OSC 52, up to 1 MB; off ignores them. Programs can never read the clipboard this way"`
 	Bell         string   `toml:"bell" enum:"attention,off" doc:"attention: a bell (BEL) in a pane you are not looking at rings the pane and marks its tab, with a desktop notification, as an agent waiting for you does; off ignores bells"`
 	Scrollback   *float64 `toml:"scrollback" min:"1000" max:"200000" doc:"Lines of history each new pane keeps. Every 10,000 lines of agent output take about 2 MB per pane"`
+	Graphics     string   `toml:"graphics" enum:"kitty,off" doc:"kitty shows images programs print with the kitty graphics protocol (kitten icat, chafa, timg); off answers their queries as a terminal without images does, so they print text instead. New panes take the change"`
 }
 
 // Updates is [updates].
@@ -272,6 +273,8 @@ type Settings struct {
 	Bell bool
 	// Scrollback is the lines of history a new pane keeps.
 	Scrollback int
+	// Graphics shows kitty graphics protocol images in new panes.
+	Graphics bool
 	// CheckUpdates looks for a newer release on GitHub.
 	CheckUpdates bool
 	// UpdateScreenPatterns fetches screen-detection patterns at start and daily.
@@ -476,13 +479,14 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
-	s.OSC52, s.Bell = true, true
+	s.OSC52, s.Bell, s.Graphics = true, true, true
 	for _, o := range []struct {
 		v             *bool
 		name, val, on string
 	}{
 		{&s.OSC52, "terminal.osc52", c.Term.OSC52, "write"},
 		{&s.Bell, "terminal.bell", c.Term.Bell, "attention"},
+		{&s.Graphics, "terminal.graphics", c.Term.Graphics, "kitty"},
 	} {
 		switch o.val {
 		case "", o.on:

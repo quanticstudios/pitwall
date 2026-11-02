@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 48 added images (the kitty graphics protocol): vt.Grid.Images,
+// FrameRows.Images, Image and ImageResult, and Resize.CellW and CellH.
 // Level 46 added ChatUnarchive: a chat archived back to a tab, as aide's
 // Restore does.
 // Level 45 added ChatRename, ChatPin and model.Chat.Pinned: rename and
@@ -149,7 +151,10 @@ import (
 const Version = 17
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 47
+const Level = 48
+
+// ImageLevel added images: Image, ImageResult and the placements on frames.
+const ImageLevel = 48
 
 // ChatSkillLevel added the provider Skill on ChatNew and ChatSend.
 const ChatSkillLevel = 47
@@ -176,6 +181,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Image, ImageResult:
+		return ImageLevel
 	case ChatUnarchive:
 		return ChatUnarchiveLevel
 	case ChatRename, ChatPin:
@@ -304,6 +311,10 @@ type Input struct {
 type Resize struct {
 	Pane       string
 	Cols, Rows int
+	// CellW and CellH are a cell's size in the window's pixels, which
+	// size images and go to the PTY as its pixel size; 0 from windows
+	// below ImageLevel.
+	CellW, CellH int
 }
 
 type AddProject struct {
@@ -491,6 +502,7 @@ type FrameRows struct {
 	Modes        vt.Modes
 	ScrollMax    int
 	ScrollPushed uint64
+	Images       []vt.Placement // the whole Grid's
 }
 
 // SearchResult answers a Search: the newest matches of Query, oldest
@@ -522,6 +534,20 @@ type FaviconResult struct {
 type FaviconFile struct {
 	Name string
 	Data []byte
+}
+
+// Image asks for the pixels of an image a frame of Pane places
+// (vt.Placement.Image). The daemon answers this client alone with an
+// ImageResult. A window asks once per key: keys never name other pixels.
+type Image struct {
+	Pane string
+	Key  uint64
+}
+
+// ImageResult answers Image. Image.W is 0 when the pane no longer has it.
+type ImageResult struct {
+	Pane  string
+	Image vt.Image
 }
 
 // MaxPasteImage is the largest image a PasteImage carries.
@@ -830,6 +856,7 @@ var Messages = []any{
 	ChatRename{}, ChatPin{},
 	ChatUnarchive{},
 	AgentExplain{}, AgentExplanation{},
+	Image{}, ImageResult{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

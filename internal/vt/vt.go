@@ -58,6 +58,9 @@ type Grid struct {
 	// Wrapped[y] reports that row y soft-wraps into row y+1. Nil from
 	// daemons below proto Level 8.
 	Wrapped []bool
+	// Images are the kitty graphics placements in view, drawn over the
+	// cells, oldest first. Nil from daemons below proto Level 48.
+	Images []Placement
 }
 
 func (g *Grid) At(x, y int) Cell { return g.Cells[y*g.Cols+x] }

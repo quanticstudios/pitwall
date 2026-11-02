@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"image"
 	"image/color"
 	"log"
 	"time"
@@ -69,7 +70,7 @@ func (u *ui) syncLink(l Link) {
 		u.all.sent = "" // resend an open search to the replacement connection
 	}
 	for _, p := range u.panes {
-		p.sentCols, p.sentRows = 0, 0
+		p.sentCols, p.sentRows, p.sentCell = 0, 0, image.Point{}
 	}
 	u.showSent = ""
 }

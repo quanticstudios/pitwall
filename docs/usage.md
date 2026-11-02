@@ -664,6 +664,31 @@ the clipboard this way: pitwall leaves OSC 52 read requests unanswered, so a
 program cannot see what you copied elsewhere. Set `osc52 = "off"` under
 `[terminal]` to ignore the writes.
 
+Panes show images that programs print with the kitty graphics protocol,
+such as `kitten icat`, `chafa`, `timg` and agents that preview a
+screenshot. Try it with a PNG file:
+
+```sh
+printf '\e_Ga=T,f=100;%s\e\\' "$(base64 -w0 picture.png)"; echo
+```
+
+An image sits on the cells it was placed on and scrolls with them into the
+history; clearing the screen (`clear`) or the program's delete command
+removes it. Each pane keeps up to 64 MB of decoded images and all panes
+together 256 MB; past that the oldest go. pitwall takes images sent in the
+escape sequence itself, in chunks or whole, as PNG, RGB or RGBA, zlib
+compressed or not. It refuses a program's request to read an image from a
+file, a temporary file or shared memory, because a program in a pane must
+not make the daemon read paths for it; programs that ask first, as
+`kitten icat` does, then send the image in the sequence. pitwall does not
+do animation, Unicode placeholders, relative placements or images under
+the text (negative z-index), and images on the alt screen stay where they
+were placed when the program scrolls. The web protocol carries no pane
+screens, so it has no images either. Set `graphics = "off"` under
+`[terminal]` to turn images off for new panes: pitwall then answers
+graphics queries as a terminal without images does, so programs print
+text instead.
+
 Ctrl+Shift+Up and Ctrl+Shift+Down scroll the pane back and forward to the
 previous and next shell prompt, putting it at the top of the pane; past the
 last prompt the pane is back at the live screen. This needs a shell that

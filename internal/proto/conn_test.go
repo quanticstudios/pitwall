@@ -99,6 +99,8 @@ func allMessages() []any {
 		FaviconResult{Dir: "/r/src", Root: "/r", Files: []FaviconFile{{Name: "/r/favicon.svg", Data: []byte("<svg/>")}}},
 		PasteImage{Pane: "a", Data: []byte("\x89PNG")},
 		PasteImageResult{Pane: "a", Path: "/s/paste/image-1.png", Err: "e"},
+		Image{Pane: "a", Key: 7},
+		ImageResult{Pane: "a", Image: vt.Image{Key: 7, W: 1, H: 1, Pix: []byte{1, 2, 3, 4}}},
 		FrameRows{Pane: "a", Rows: []int{2}, Cells: []vt.Cell{{Content: "x", Width: 1}}, Wrapped: []bool{false, false, true}, Title: "t", ScrollPushed: 1 << 40},
 		ClosePane{Pane: "a"},
 		SetLayout{WorkspaceID: "w", Layout: tree},

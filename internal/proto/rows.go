@@ -12,7 +12,7 @@ func Diff(old *Frame, f Frame) any {
 		old.ScrollOffset != f.ScrollOffset || len(old.Grid.Cells) != len(g.Cells) || len(g.Cells) != g.Cols*g.Rows {
 		return f
 	}
-	r := FrameRows{Pane: f.Pane, Wrapped: g.Wrapped, Cursor: g.Cursor, Title: g.Title, Modes: f.Modes, ScrollMax: f.ScrollMax, ScrollPushed: f.ScrollPushed}
+	r := FrameRows{Pane: f.Pane, Wrapped: g.Wrapped, Cursor: g.Cursor, Title: g.Title, Modes: f.Modes, ScrollMax: f.ScrollMax, ScrollPushed: f.ScrollPushed, Images: g.Images}
 	for y := range g.Rows {
 		row := g.Cells[y*g.Cols : (y+1)*g.Cols]
 		if !slices.Equal(row, old.Grid.Cells[y*g.Cols:(y+1)*g.Cols]) {
@@ -24,7 +24,7 @@ func Diff(old *Frame, f Frame) any {
 		return f // as small, and the client copies nothing
 	}
 	if len(r.Rows) == 0 && slices.Equal(g.Wrapped, old.Grid.Wrapped) && g.Cursor == old.Grid.Cursor && g.Title == old.Grid.Title &&
-		f.Modes == old.Modes && f.ScrollMax == old.ScrollMax && f.ScrollPushed == old.ScrollPushed {
+		f.Modes == old.Modes && f.ScrollMax == old.ScrollMax && f.ScrollPushed == old.ScrollPushed && slices.Equal(g.Images, old.Grid.Images) {
 		return nil
 	}
 	return r
@@ -46,7 +46,7 @@ func (r FrameRows) Apply(f Frame) (Frame, bool) {
 	for i, y := range r.Rows {
 		copy(g.Cells[y*g.Cols:(y+1)*g.Cols], r.Cells[i*g.Cols:(i+1)*g.Cols])
 	}
-	g.Wrapped, g.Cursor, g.Title = r.Wrapped, r.Cursor, r.Title
+	g.Wrapped, g.Cursor, g.Title, g.Images = r.Wrapped, r.Cursor, r.Title, r.Images
 	f.Modes, f.ScrollMax, f.ScrollPushed = r.Modes, r.ScrollMax, r.ScrollPushed
 	return f, true
 }
