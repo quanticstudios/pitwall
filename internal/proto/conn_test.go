@@ -52,6 +52,8 @@ func allMessages() []any {
 			Session: "work", Group: model.Project{ID: "p", Name: "n", Root: "/r", Kind: model.ProjectGit}, PR: 7, ClosedAt: now, Gone: true}},
 	}
 	return []any{
+		Tmux{From: "a", Args: []string{"list-panes", "-F", "#{pane_id}"}, Env: []string{"PATH=/bin", "TMUX=/run/test,1,0"}},
+		TmuxResult{Output: "%1\n", Error: "example error"},
 		Hello{Version: Version, Level: Level, Kind: "gui", Session: "work"},
 		Input{Pane: "a", Data: []byte("ls\r")},
 		Resize{Pane: "a", Cols: 80, Rows: 24},
@@ -63,7 +65,7 @@ func allMessages() []any {
 		OpenPane{WorkspaceID: "w", Target: "a", Dir: layout.Vertical, Cmd: []string{"codex"}},
 		NewTab{WorkspaceID: "w", FromPane: "a"}, CloseTab{WorkspaceID: "w", TabID: "t"}, RenameTab{Pane: "a", Name: "fix auth"},
 		SelectTab{WorkspaceID: "w", TabID: "t"}, DetachSession{WorkspaceID: "w", Detached: true}, KillSession{WorkspaceID: "w"},
-		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t", SessionID: "s"},
+		GroupByFolder{WorkspaceID: "w"}, Sync{}, FocusSession{WorkspaceID: "w", TabID: "t", SessionID: "s", Pane: "a"},
 		MoveSession{WorkspaceID: "w", GroupID: "g", Before: "x"}, MoveGroup{GroupID: "g", Before: "h"}, SeePane{Pane: "a"}, DismissNotice{Notice: "n"},
 		SessionNew{Name: "work", Cwd: "/tmp", FromPane: "a"}, SessionRename{SessionID: "s", Name: "play"},
 		SessionKill{SessionID: "s"}, SessionShow{SessionID: "s"},

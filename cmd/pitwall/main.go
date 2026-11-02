@@ -34,6 +34,8 @@ import (
 )
 
 const usage = `usage:
+  pitwall tmux-shim -- <cmd...>
+                             run cmd with tmux calls mapped to this tab
   pitwall --version          print the version
   pitwall                    open a window: on the most recent session no
                              window shows, else on a new session here
@@ -156,6 +158,10 @@ const usage = `usage:
 `
 
 func main() {
+	if filepath.Base(os.Args[0]) == "tmux" {
+		exit("tmux", runTmux(os.Args[1:], os.Stdout))
+		return
+	}
 	cmd := ""
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
@@ -229,6 +235,8 @@ func main() {
 		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
 	case "completion":
 		err = runCompletion(os.Args[2:], os.Stdout)
+	case "tmux-shim":
+		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:

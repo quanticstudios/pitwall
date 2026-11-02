@@ -60,6 +60,7 @@ optional name act on the pane's own tab.
 | `pitwall remote pair` / `devices` / `revoke` | Pair a phone, list paired phones, unpair one (see [Phone](phone.md)) |
 | `pitwall web open`                    | Open the web client (`[web] bundle`) in the default browser, with a link that works once, within a minute (see [Web client](remote.md#web-client)) |
 | `pitwall web token --rotate`          | Give local web clients a new token in `web.json`; the old one stops working at once (see [Web protocol](web-protocol.md#connection)) |
+| `pitwall tmux-shim -- <cmd...>` | Run a command with tmux calls mapped to split panes in its tab; see [Claude Code agent teams](usage.md#claude-code-agent-teams) |
 | `pitwall --version`                   | Print the version                                             |
 
 `new --model ID` and `queue add --model ID` pass `--model ID` to the agent,
