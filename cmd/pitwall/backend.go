@@ -28,6 +28,9 @@ type backend struct {
 	// lost. name is the session the window was opened on, -s's.
 	redial func(session string, restart bool) (*proto.Conn, proto.StateMsg, error)
 	name   string
+	// guest is a host of a window that shows several: connecting does not
+	// pick the window's session, which this machine's backend does.
+	guest bool
 
 	mu      sync.Mutex
 	session string // the session the window shows, from SessionShow
@@ -316,7 +319,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.dialing = false
 	maps.DeleteFunc(b.icons, func(_ string, r *proto.FaviconResult) bool { return r == nil }) // asked of the old connection: ask again
 	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level, Build: initial.Build}
-	first := b.session == ""
+	first := b.session == "" && !b.guest
 	b.mu.Unlock()
 	log.Printf("connected to the daemon")
 	if first { // the window had nothing to show until now

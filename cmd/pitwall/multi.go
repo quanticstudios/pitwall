@@ -24,7 +24,8 @@ import (
 type multi struct {
 	hosts   []*hostLink // hosts[0] is this machine
 	changed chan struct{}
-	mergeMu sync.Mutex // one merge at a time, so an older one never lands last
+	focus   chan proto.FocusSession // every host's, newest first
+	mergeMu sync.Mutex              // one merge at a time, so an older one never lands last
 
 	mu    sync.Mutex
 	state model.State
@@ -35,6 +36,11 @@ type multi struct {
 	// sent its last batch.
 	searching map[*hostLink]bool
 	seen      *hostLink // the host told of the pane the window shows
+	// clipSeq is each host's last Clipboard.Seq, clip the window's, and
+	// clipFrom the host whose write it is.
+	clipSeq  map[*hostLink]uint64
+	clip     model.Clipboard
+	clipFrom *hostLink
 }
 
 // hostLink is one daemon of a multi.
@@ -95,12 +101,20 @@ func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 // newMulti joins local, this machine's backend, and a backend per host in
 // remotes, which connect in the background.
 func newMulti(local *backend, remotes []hostDial) *multi {
-	m := &multi{changed: make(chan struct{}, 1), owner: map[string]*hostLink{}}
+	m := &multi{changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), owner: map[string]*hostLink{}, clipSeq: map[*hostLink]uint64{}}
 	m.hosts = append(m.hosts, &hostLink{b: local})
+	// The window takes its first session before its first frame.
+	select {
+	case f := <-local.focus:
+		m.focus <- f
+	default:
+	}
 	for _, r := range remotes {
 		b := newBackend(nil, "")
-		// why: the window's first session and pitwall attach are this
-		// machine's; a host connecting must not take the window over.
+		// why: the window's first session is this machine's; a host
+		// connecting must not take the window over. pitwall attach run on
+		// the host still focuses its tab.
+		b.guest = true
 		select {
 		case <-b.focus:
 		default:
@@ -116,6 +130,19 @@ func newMulti(local *backend, remotes []hostDial) *multi {
 			for range h.b.changed {
 				m.merge()
 				m.notify()
+			}
+		}()
+		go func() {
+			for f := range h.b.focus {
+				// The newest request wins, as in a backend.
+				select {
+				case <-m.focus:
+				default:
+				}
+				select {
+				case m.focus <- f:
+				default:
+				}
 			}
 		}()
 	}
@@ -179,13 +206,18 @@ func (m *multi) merge() {
 		if st.Notice == "" {
 			st.Notice = s.Notice
 		}
-		// ponytail: a clipboard write on any host bumps the sum; two hosts
-		// writing in the same state change keep the first one's text.
-		st.Clipboard.Seq += s.Clipboard.Seq
-		if st.Clipboard.Text == "" {
-			st.Clipboard.Text = s.Clipboard.Text
+		// A host whose Seq moved wrote last; the text is its own, which its
+		// daemon later leaves out of its states.
+		if s.Clipboard.Seq != m.clipSeq[h] {
+			m.clipSeq[h] = s.Clipboard.Seq
+			m.clip.Seq++
+			m.clipFrom = h
+		}
+		if h == m.clipFrom {
+			m.clip.Text = s.Clipboard.Text
 		}
 	}
+	st.Clipboard = m.clip
 	m.mu.Lock()
 	m.state, m.owner = st, owner
 	m.mu.Unlock()
@@ -216,7 +248,7 @@ func (m *multi) State() model.State {
 }
 
 func (m *multi) Changed() <-chan struct{}         { return m.changed }
-func (m *multi) Focus() <-chan proto.FocusSession { return m.hosts[0].b.focus }
+func (m *multi) Focus() <-chan proto.FocusSession { return m.focus }
 
 // of is the host that owns id, nil for none.
 func (m *multi) of(id string) *hostLink {

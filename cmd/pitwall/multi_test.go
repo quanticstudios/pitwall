@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -162,10 +163,68 @@ func TestMultiHostDown(t *testing.T) {
 	}
 }
 
+// pitwall attach run on a host focuses its tab in the window, but the
+// host connecting does not pick the window's session.
+func TestMultiForwardsHostFocus(t *testing.T) {
+	local, _ := localBackend(t, hostState("ls", "lw", "lp"))
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's state", func() bool { st := m.State(); return st.Session("rs") != nil })
+	select {
+	case f := <-m.Focus():
+		if f.SessionID == "rs" {
+			t.Fatalf("connecting took the window over: %+v", f)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
+	want := proto.FocusSession{WorkspaceID: "rw", SessionID: "rs"}
+	rd.c.Send(want)
+	select {
+	case f := <-m.Focus():
+		if f != want {
+			t.Fatalf("focus %+v, want %+v", f, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("box's pitwall attach never reached the window")
+	}
+}
+
+// A host's clipboard write gives the window that host's text, even while
+// another host's earlier write is still in its state.
+func TestMultiClipboardFollowsWriter(t *testing.T) {
+	lst := hostState("ls", "lw", "lp")
+	lst.Clipboard = model.Clipboard{Seq: 5, Text: "local"}
+	local, _ := localBackend(t, lst)
+	rst := hostState("rs", "rw", "rp")
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(rst, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's state", func() bool { st := m.State(); return st.Session("rs") != nil })
+	before := m.State().Clipboard
+	if before.Text != "local" {
+		t.Fatalf("clipboard %+v before box writes", before)
+	}
+	rst.Version, rst.Clipboard = 2, model.Clipboard{Seq: 1, Text: "remote"}
+	rd.c.Send(proto.StateMsg{State: rst, Level: proto.Level})
+	waitFor(t, "box's write", func() bool { return m.State().Clipboard.Seq != before.Seq })
+	if c := m.State().Clipboard; c.Text != "remote" {
+		t.Fatalf("clipboard %+v after box wrote", c)
+	}
+}
+
 func TestWindowHosts(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	hosts, closeAll := windowHosts([]config.Host{{Name: "box", Window: true}, {Name: "gpu"}, {Name: "web", SSH: "me@web", Window: true}})
 	defer closeAll()
+	if runtime.GOOS == "windows" { // its ssh cannot share a connection
+		if len(hosts) != 0 {
+			t.Fatalf("hosts on Windows %+v", hosts)
+		}
+		return
+	}
 	if len(hosts) != 2 || hosts[0].name != "box" || hosts[1].name != "web" {
 		t.Fatalf("hosts %+v", hosts)
 	}
