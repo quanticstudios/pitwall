@@ -34,8 +34,10 @@ func (d *Daemon) serveHandoff(nc net.Conn, conn *proto.Conn) {
 		log.Printf("handoff: %q; still serving", err)
 		conn.Send(handoffAbort{Reason: err.Error()}) // the new daemon may be gone
 		// why: closing first would fail the new daemon's next write with
-		// EPIPE before it reads why.
-		nc.SetReadDeadline(time.Now().Add(time.Second))
+		// EPIPE before it reads why, and it writes only once it has
+		// restored every pane, which can take seconds. It closes the
+		// connection once it reads the abort.
+		nc.SetReadDeadline(time.Now().Add(handoffTimeout))
 		io.Copy(io.Discard, nc)
 		return
 	}
