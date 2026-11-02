@@ -42,12 +42,12 @@ func (c ClosedTab) Folder() string {
 	return c.Tab.Path
 }
 
-// Root is the repository a tab whose Folder is gone can reopen in
-// instead: the repo pitwall made its worktree from, its group's folder,
+// Root is where a tab whose Folder is gone can reopen instead: the repo
+// pitwall made its worktree from, its group's folder, the tab's own folder
 // or its repo root, the first that is not Folder. "" for none.
 func (c ClosedTab) Root() string {
-	for _, r := range []string{c.Tab.WorktreeRoot, c.Group.Root, c.Tab.RepoRoot} {
-		if r != "" && r != c.Folder() && r != c.Tab.Path {
+	for _, r := range []string{c.Tab.WorktreeRoot, c.Group.Root, c.Tab.Path, c.Tab.RepoRoot} {
+		if r != "" && r != c.Folder() {
 			return r
 		}
 	}

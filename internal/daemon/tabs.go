@@ -61,7 +61,7 @@ func (d *Daemon) removePane(id string) []Pane {
 	if i < 0 {
 		return nil
 	}
-	gone := d.st.Panes[i]
+	gone := d.liveCwd(d.st.Panes[i])
 	ws := gone.WorkspaceID
 	d.st.Panes = slices.Delete(d.st.Panes, i, i+1)
 	out := []Pane{d.dropPane(id)}
@@ -84,7 +84,7 @@ func (d *Daemon) removeTab(w *model.Workspace, ti int, gone ...model.Pane) []Pan
 	var out []Pane
 	for _, id := range layout.Panes(w.Tabs[ti].Layout) {
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 {
-			gone = append(gone, d.st.Panes[i])
+			gone = append(gone, d.liveCwd(d.st.Panes[i]))
 			d.st.Panes = slices.Delete(d.st.Panes, i, i+1)
 		}
 		out = append(out, d.dropPane(id))

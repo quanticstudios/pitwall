@@ -46,6 +46,10 @@ func TestClosedFolderRoot(t *testing.T) {
 	if c.Root() != "/repo" {
 		t.Fatalf("group root: %q", c.Root())
 	}
+	c = ClosedTab{Tab: Workspace{Path: "/repo", RepoRoot: "/repo"}, Pane: Pane{Cwd: "/repo/sub"}}
+	if c.Root() != "/repo" {
+		t.Fatalf("pane in a subfolder: %q", c.Root())
+	}
 	c = ClosedTab{Tab: Workspace{Path: "/w", RepoRoot: "/w"}}
 	if c.Root() != "" {
 		t.Fatalf("no root: %q", c.Root())

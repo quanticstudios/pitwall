@@ -161,3 +161,76 @@ func TestClosedSurvivesRestart(t *testing.T) {
 		t.Fatalf("after restart: %+v", d2.st.Closed)
 	}
 }
+
+// moveTo puts the newest fake pane's process in dir, as an unpolled cd would.
+func (f *fakes) moveTo(dir string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.panes[len(f.panes)-1].cfg.Cwd = dir
+}
+
+// reopenedPane is the pane of reopened tab id.
+func reopenedPane(d *Daemon, id string) model.Pane {
+	return d.st.Panes[slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.WorkspaceID == id })]
+}
+
+// TestClosedRecordsLiveCwd records where the pane's process is when its last
+// pane closes, not the directory last polled.
+func TestClosedRecordsLiveCwd(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "api")
+	must(t, os.Mkdir(sub, 0o755))
+	d, f, _ := closedDaemon(t, dir)
+	f.moveTo(sub)
+	must(t, d.handle(context.Background(), proto.ClosePane{Pane: d.st.Panes[0].ID}))
+	if got := d.st.Closed[0].Folder(); got != sub {
+		t.Fatalf("recorded folder %q, want %q", got, sub)
+	}
+}
+
+// TestReopenWorktreeSubfolder keeps a worktree tab's own folder, which
+// Archive removes, and puts only its pane back in the subfolder it was in.
+func TestReopenWorktreeSubfolder(t *testing.T) {
+	repo := t.TempDir()
+	tree := filepath.Join(repo, ".worktrees", "fix")
+	sub := filepath.Join(tree, "api")
+	must(t, os.MkdirAll(sub, 0o755))
+	d, f, ws := closedDaemon(t, tree)
+	ctx := context.Background()
+	d.mu.Lock()
+	d.st.Workspace(ws).WorktreeRoot = repo
+	d.mu.Unlock()
+	f.moveTo(sub)
+	must(t, d.handle(ctx, proto.ClosePane{Pane: d.st.Panes[0].ID}))
+	c := d.st.Closed[0]
+	must(t, d.handle(ctx, proto.ReopenTab{ID: c.ID}))
+	w := d.st.Workspace(c.ID)
+	if w.Path != tree || w.WorktreeRoot != repo {
+		t.Fatalf("reopened worktree tab: path %q, worktree root %q", w.Path, w.WorktreeRoot)
+	}
+	if p := reopenedPane(d, c.ID); p.Cwd != sub {
+		t.Fatalf("pane cwd %q, want %q", p.Cwd, sub)
+	}
+}
+
+// TestReopenGoneSubfolder opens a tab whose pane's subfolder is gone in the
+// tab's own folder, which survives.
+func TestReopenGoneSubfolder(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "api")
+	must(t, os.Mkdir(sub, 0o755))
+	d, f, _ := closedDaemon(t, dir)
+	ctx := context.Background()
+	f.moveTo(sub)
+	must(t, d.handle(ctx, proto.ClosePane{Pane: d.st.Panes[0].ID}))
+	must(t, os.RemoveAll(sub))
+	d.checkClosed()
+	c := d.st.Closed[0]
+	if !c.Gone || c.Root() != dir {
+		t.Fatalf("record: gone %v, root %q", c.Gone, c.Root())
+	}
+	must(t, d.handle(ctx, proto.ReopenTab{ID: c.ID, AtRoot: true}))
+	if w, p := d.st.Workspace(c.ID), reopenedPane(d, c.ID); w.Path != dir || p.Cwd != dir {
+		t.Fatalf("at root: path %q, pane cwd %q", w.Path, p.Cwd)
+	}
+}

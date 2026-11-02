@@ -26,7 +26,7 @@ func (d *Daemon) recordClosed(w model.Workspace, gone []model.Pane) {
 	panes := slices.Clone(gone)
 	for _, p := range d.st.Panes {
 		if p.WorkspaceID == w.ID {
-			panes = append(panes, p)
+			panes = append(panes, d.liveCwd(p))
 		}
 	}
 	if len(panes) == 0 {
@@ -35,11 +35,6 @@ func (d *Daemon) recordClosed(w model.Workspace, gone []model.Pane) {
 	p := panes[0]
 	if i := slices.IndexFunc(panes, store.Resumes); i >= 0 {
 		p = panes[i]
-	}
-	if h := d.panes[p.ID]; h != nil && !p.Exited {
-		if cwd := h.Cwd(); cwd != "" {
-			p.Cwd = cwd
-		}
 	}
 	c := model.ClosedTab{ID: newID(), Pane: p, PR: d.st.PRs[w.ID].Number, ClosedAt: time.Now()}
 	w.Tabs, w.ActiveTab = nil, ""
@@ -52,6 +47,17 @@ func (d *Daemon) recordClosed(w model.Workspace, gone []model.Pane) {
 	}
 	c.Gone = !isDir(c.Folder())
 	d.st.Closed = model.PruneClosed(append(d.st.Closed, c), c.ClosedAt)
+}
+
+// liveCwd is p with the directory its process is in now, while its handle is
+// still open. Callers hold d.mu.
+func (d *Daemon) liveCwd(p model.Pane) model.Pane {
+	if h := d.panes[p.ID]; h != nil && !p.Exited {
+		if cwd := h.Cwd(); cwd != "" {
+			p.Cwd = cwd
+		}
+	}
+	return p
 }
 
 // closedTitle names closed tab w in an error: its name, else what it showed.
@@ -116,9 +122,15 @@ func (d *Daemon) reopenTab(ctx context.Context, m proto.ReopenTab) error {
 		}
 		return fmt.Errorf("%s is gone", dir)
 	}
-	branch, _ := d.o.Branch(ctx, dir)
-	root := d.repoRoot(ctx, dir)
-	worktree := c.Tab.WorktreeRoot != "" && !m.AtRoot
+	// why: the tab keeps its own folder, the worktree root Archive removes,
+	// and only the pane goes back to the subfolder it was in.
+	path := dir
+	if !m.AtRoot && isDir(c.Tab.Path) {
+		path = c.Tab.Path
+	}
+	branch, _ := d.o.Branch(ctx, path)
+	root := d.repoRoot(ctx, path)
+	worktree := c.Tab.WorktreeRoot != "" && path == c.Tab.Path
 	var base, step int
 	if worktree && d.o.Worktrees != nil {
 		wt, _ := d.o.Worktrees(c.Tab.WorktreeRoot)
@@ -133,7 +145,7 @@ func (d *Daemon) reopenTab(ctx context.Context, m proto.ReopenTab) error {
 	w := c.Tab
 	w.ID, w.SessionID = c.ID, d.reopenSession(c)
 	w.ProjectID = d.reopenGroup(c, w.SessionID)
-	w.Path, w.Branch, w.RepoRoot = dir, branch, root
+	w.Path, w.Branch, w.RepoRoot = path, branch, root
 	w.Detached, w.Pinned, w.Chat, w.Status, w.Lane = false, false, "", "", model.Lane{}
 	w.Settled, w.SnoozedUntil, w.SnoozedAt = time.Time{}, time.Time{}, time.Time{}
 	w.UpdatedAt = time.Now()
