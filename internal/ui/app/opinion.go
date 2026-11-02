@@ -14,13 +14,16 @@ import (
 // reviewerPaths are the reviewers' CLIs, found once as New task finds the
 // agents, "" when missing. On a Host they are the bare names, which the
 // daemon looks up there.
-var reviewerPaths = sync.OnceValue(func() map[model.Provider]string {
+func reviewerPaths() map[model.Provider]string {
+	if curHost() == "" {
+		return localReviewers()
+	}
+	return map[model.Provider]string{model.ProviderClaude: string(model.ProviderClaude), model.ProviderCodex: string(model.ProviderCodex)}
+}
+
+var localReviewers = sync.OnceValue(func() map[model.Provider]string {
 	out := map[model.Provider]string{}
 	for _, r := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
-		out[r] = string(r)
-		if Host != "" {
-			continue
-		}
 		out[r] = ""
 		if found, err := exec.LookPath(string(r)); err == nil {
 			// why: the daemon runs it with its own PATH, as pitwall new does.

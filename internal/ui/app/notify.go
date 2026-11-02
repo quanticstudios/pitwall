@@ -177,7 +177,7 @@ func (n *notifier) run(ctx context.Context, b Backend, initial model.State, inva
 			show, sound := notifyRule(rules, a, now)
 			if show && !viewing && ws != nil && !ws.Detached && notifies(&st, session, ws.SessionID) {
 				h.Sent(a.WorkspaceID, time.Now())
-				nt := notification{activity: a, title: notificationTitle(&st, *ws), answer: remote.Answerable(a) && linkLevel(b) >= proto.Since(proto.Answer{})}
+				nt := notification{activity: a, title: hostPrefix(b, ws.SessionID) + notificationTitle(&st, *ws), answer: remote.Answerable(a) && linkLevel(b) >= proto.Since(proto.Answer{})}
 				if sound {
 					nt.sound = rules.Sound
 				}

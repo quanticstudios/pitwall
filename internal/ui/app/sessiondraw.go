@@ -299,7 +299,7 @@ func (u *ui) sessionRow(gtx gl.Context, st *model.State, x model.Session, i int,
 	} else {
 		ng := gtx
 		ng.Constraints.Max.X = max(0, nameMax)
-		nc, nsz := textCall(ng, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, x.Name)
+		nc, nsz := textCall(ng, th, semibold(th.UIFont), th.Sp(theme.Large), th.Fg, hostPrefix(u.b, x.ID)+x.Name)
 		o := op.Offset(image.Pt(nx, l1)).Push(gtx.Ops)
 		nc.Add(gtx.Ops)
 		o.Pop()

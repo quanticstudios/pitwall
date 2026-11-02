@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -98,8 +99,13 @@ func newSSHHost(name string, hosts []config.Host) (*sshHost, error) {
 		return nil, err
 	}
 	dir := filepath.Dir(path)
-	return &sshHost{name: name, ssh: ssh, dest: dest, dir: dir, local: filepath.Join(dir, fmt.Sprintf("remote-%d.sock", os.Getpid()))}, nil
+	// One window can forward several hosts' sockets.
+	local := filepath.Join(dir, fmt.Sprintf("remote-%d-%d.sock", os.Getpid(), forwards.Add(1)))
+	return &sshHost{name: name, ssh: ssh, dest: dest, dir: dir, local: local}, nil
 }
+
+// forwards counts the sshHosts this process made.
+var forwards atomic.Int32
 
 // sshArgs are ssh's arguments: the shared connection's options, opts, the
 // destination, then command. The first call opens the connection, the
@@ -151,7 +157,7 @@ func (r *sshHost) dial(session string, restart bool) (*proto.Conn, proto.StateMs
 	if err != nil {
 		return nil, proto.StateMsg{}, err
 	}
-	conn, initial, err := guiHandshake(nc, session)
+	conn, initial, err := guiHandshake(nc, "", session)
 	if err != nil && !errors.As(err, new(incompatible)) {
 		err = fmt.Errorf("daemon handshake on %s failed: %w; see daemon.log there (pitwall logs)", r.name, err)
 	}

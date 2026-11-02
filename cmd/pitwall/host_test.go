@@ -41,6 +41,7 @@ func TestRemoteSSHArgs(t *testing.T) {
 		"-o", "ConnectTimeout=10",
 	}
 	hosts := []config.Host{{Name: "box", SSH: "me@box.example"}, {Name: "gpu", SSH: "gpu-alias"}, {Name: "bare"}}
+	locals := map[string]bool{} // one window forwards each host to its own socket
 	for _, c := range []struct {
 		name, dest string
 		restart    bool
@@ -55,9 +56,10 @@ func TestRemoteSSHArgs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := filepath.Join(dir, fmt.Sprintf("remote-%d.sock", os.Getpid())); r.local != want {
-			t.Errorf("%s: local socket %s, want %s", c.name, r.local, want)
+		if want := filepath.Join(dir, fmt.Sprintf("remote-%d-", os.Getpid())); !strings.HasPrefix(r.local, want) || locals[r.local] {
+			t.Errorf("%s: local socket %s, want a new one under %s", c.name, r.local, want)
 		}
+		locals[r.local] = true
 		if got, want := r.sshArgs(nil, startCommand(c.restart)), append(slices.Clone(shared), "--", c.dest, c.start); !slices.Equal(got, want) {
 			t.Errorf("%s: start\n got %q\nwant %q", c.name, got, want)
 		}

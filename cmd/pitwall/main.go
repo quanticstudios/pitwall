@@ -539,7 +539,14 @@ func runGUI(session string) error {
 		go b.sendLoop()
 	}
 	b.name, b.redial = session, guiDial
-	err = app.Run(b)
+	var ab app.Backend = b
+	if s, _ := config.Load(); app.Host == "" {
+		if hosts, closeHosts := windowHosts(s.Hosts); len(hosts) > 0 {
+			defer closeHosts()
+			ab = newMulti(b, hosts)
+		}
+	}
+	err = app.Run(ab)
 	log.Printf("window closed: %s", outcome(err))
 	return err
 }
@@ -567,7 +574,7 @@ func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, err
 			return nil, proto.StateMsg{}, err
 		}
 	}
-	conn, initial, err := guiHandshake(nc, session)
+	conn, initial, err := guiHandshake(nc, cwd(), session)
 	switch {
 	case err == nil && restart && app.Behind(initial.Level, initial.Build):
 		// Same Version, older Level or release: the user asked to finish
@@ -590,14 +597,14 @@ func dialOrStart(session string, restart bool) (*proto.Conn, proto.StateMsg, err
 	if err != nil {
 		return nil, proto.StateMsg{}, err
 	}
-	conn, initial, err = guiHandshake(nc, session)
+	conn, initial, err = guiHandshake(nc, cwd(), session)
 	if err != nil {
 		return nil, proto.StateMsg{}, fmt.Errorf("replacement daemon handshake failed: %w", err)
 	}
 	return conn, initial, nil
 }
 
-func guiHandshake(nc net.Conn, session string) (*proto.Conn, proto.StateMsg, error) {
+func guiHandshake(nc net.Conn, cwd, session string) (*proto.Conn, proto.StateMsg, error) {
 	conn := proto.NewConn(nc)
 	fail := func(err error) (*proto.Conn, proto.StateMsg, error) {
 		conn.Close()
@@ -606,7 +613,7 @@ func guiHandshake(nc net.Conn, session string) (*proto.Conn, proto.StateMsg, err
 	if err := nc.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		return fail(err)
 	}
-	if err := conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: cwd(), Session: session}); err != nil {
+	if err := conn.Send(proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: cwd, Session: session}); err != nil {
 		return fail(err)
 	}
 	for {
@@ -738,11 +745,8 @@ func crashOutput() error {
 }
 
 // cwd is where the GUI was launched; the daemon opens the first session
-// there. A host's daemon opens it in the home folder there.
+// there. A host's daemon, which gets "", opens it in the home folder there.
 func cwd() string {
-	if app.Host != "" {
-		return ""
-	}
 	d, _ := os.Getwd()
 	return d
 }

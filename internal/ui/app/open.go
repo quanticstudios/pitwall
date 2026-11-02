@@ -9,8 +9,8 @@ import (
 // The URL goes in as an argument of its own, never as shell text. A file
 // link on a Host names a file there, which this machine cannot open.
 func openLink(url string) {
-	if Host != "" && strings.HasPrefix(url, "file:") {
-		log.Printf("open link: %q is on %s", url, Host)
+	if curHost() != "" && strings.HasPrefix(url, "file:") {
+		log.Printf("open link: %q is on %s", url, curHost())
 		return
 	}
 	if err := OpenURL(url); err != nil {

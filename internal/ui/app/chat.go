@@ -35,7 +35,7 @@ func (u *ui) layoutChat(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	}
 	s, ok := ch.Chat(ws.Chat)
 	if ok {
-		aide := Host == "" && findAide() != nil
+		aide := curHost() == "" && findAide() != nil
 		u.transcript.Layout(gtx, u.th, &s, aide)
 		for _, a := range u.transcript.Answers() {
 			u.send(proto.ChatApprove{Chat: ws.Chat, Request: a.Request, Decision: a.Decision, By: "gui"})
