@@ -101,10 +101,16 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	own := v.ownActivity(ws.ID)
 	answering := s.answering(v, ws.ID, ghost, own)
 	planning := s.planning(v, ws.ID, ghost, own)
-	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning
+	asking := s.replyable(v, ws.ID, ghost, own)
+	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning && !asking
 	answerW := 0
 	if answering || planning {
 		answerW = answerSize(gtx, th, *own, base, planning).X
+	}
+	if asking {
+		m := op.Record(gtx.Ops)
+		answerW = replyButton(gtx, th, nil, base).Size.X
+		m.Stop()
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
@@ -185,7 +191,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// Allow and Deny or the agent count leave it a few letters at most,
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
-		if !answering && !planning && !subs && where != title {
+		if !answering && !planning && !asking && !subs && where != title {
 			// Beside the inbox's group tag it shows whole or not at all.
 			line = append(line, item{shrink: !v.inbox, opt: v.inbox, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
@@ -232,7 +238,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}})
 		}
 		switch {
-		case answering || planning: // drawn over the row below, with room for "…" and "×"
+		case answering || planning || asking: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(answerW+gtx.Dp(6)+2*btn-x, 0)}
 			}})
@@ -309,6 +315,12 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		planButton(gtx, th, &r.plan, base)
 		off.Pop()
 	}
+	if asking {
+		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
+		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		replyButton(gtx, th, &r.reply, base)
+		off.Pop()
+	}
 	if showMore {
 		off := op.Offset(pos).Push(gtx.Ops)
 		iconButton(gtx, th, &r.close, icX, btn, glyph, true)
@@ -342,6 +354,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		off := op.Offset(pos).Push(gtx.Ops)
 		iconButton(gtx, th, &r.settle, icon, btn, glyph, true)
 		off.Pop()
+	}
+	if s.reply.ws == ws.ID {
+		m := op.Record(gtx.Ops)
+		s.replySheet(gtx, v, ws, own, rect.Add(s.rowAt))
+		op.Defer(gtx.Ops, m.Stop())
 	}
 	if showMore && merged {
 		pos.X -= btn

@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Reply to an agent from the sidebar (ENG-2964). A row whose agent asks a question shows Reply beside its pill, and every agent row's menu has Reply…. Both open a small editor under the row: Enter sends, Shift+Enter adds a line, Escape closes it and keeps the draft for that tab, and Up brings back earlier replies. A paste of more than three lines or 800 characters stands in the draft as one block, `[Pasted text #1 · 42 lines]`, which Backspace removes whole. Ctrl+V with an image and no text on the clipboard attaches the image, saved by the daemon as a pane's pasted image is. The reply goes in the way Request changes does: pasted once the agent waits for input, images first, then Enter.
+
 - Tab search lists the current session's tabs first, and another session's tab names its session and host before its group, so a long group name no longer hides it.
 
 ## v0.1.10

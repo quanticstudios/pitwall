@@ -311,3 +311,13 @@ func TestFoldReshelve(t *testing.T) {
 		t.Fatalf("undo %+v, want %v", h.s.undo, back)
 	}
 }
+
+func TestFoldReplyTargetsOwnAgent(t *testing.T) {
+	h := newFoldHarness(t)
+	h.s.menuWS = "o"
+	h.s.menuItem[actReply].Click()
+	h.frame()
+	if h.s.reply.ws != "o" || h.s.reply.pane != "po" {
+		t.Fatalf("reply targets %q/%q, want o/po", h.s.reply.ws, h.s.reply.pane)
+	}
+}

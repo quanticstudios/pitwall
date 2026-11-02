@@ -39,6 +39,8 @@ type agentSend struct {
 	ws, act, text string
 	pane          string // the agent's pane, "" for the tab's first
 	err           error
+
+	images []string // a reply's images, pasted before its text
 }
 
 // startSend fetches what act, send_failures or send_review, sends to tab
@@ -100,6 +102,8 @@ func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 		switch {
 		case res.err != nil:
 			u.sendFailed(what + ": " + res.err.Error())
+		case res.act == "reply":
+			u.queueReply(gtx, st, p, res, area)
 		case res.text == "" && res.act == "send_review":
 			u.showNotice(gtx, "No unresolved review comments", area)
 		case res.text == "":

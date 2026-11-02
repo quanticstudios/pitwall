@@ -1025,6 +1025,34 @@ daemon, so they survive a restart and every window sees them.
 Clicking a row shows its tab, as in the tree, and next tab, previous tab,
 goto_tab and the switcher follow the inbox's order while it shows.
 
+### Replying from the sidebar
+
+An agent that asks a question shows Reply beside its pill, in the inbox and
+in the tree, so you can answer without opening its tab. Reply… in any
+agent row's menu does the same for an agent that is working or done; the
+reply then waits until the agent stops for input.
+
+Reply opens a small editor under the row, with the agent's question above
+the field:
+
+- Enter sends. Shift+Enter starts a new line.
+- Escape closes the editor and keeps what you wrote for that tab. Reply on
+  the same tab brings it back. A click outside the editor does the same.
+- Up on the first line brings back your earlier replies, newest first, and
+  Down goes forward again. pitwall keeps the last 50 while the window is
+  open.
+- A paste of more than three lines or 800 characters shows as one block,
+  such as `[Pasted text #1 · 42 lines]`, and goes out whole. Backspace right
+  after a block removes all of it.
+- Ctrl+V with an image and no text on the clipboard attaches the image as
+  `[Image #1]`. pitwall reads it the way it pastes an image into a pane:
+  the daemon saves it and the agent gets the file's path.
+
+pitwall types the reply into the agent the way Request changes and the
+review view's comments go in: once the agent waits for input, it pastes
+each image's path, then the text as one bracketed paste, then presses
+Enter. A notice under the panes says whether it went now or waits.
+
 ### Worktree ports and setup
 
 Each worktree tab pitwall makes gets its own block of 10 ports, so two

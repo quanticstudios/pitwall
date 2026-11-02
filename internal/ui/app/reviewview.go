@@ -66,6 +66,9 @@ type delivery struct {
 	text  string
 	notes []*note
 	send  bool
+	// images are paths pasted before text, as a pasted image is: a
+	// reply's attached images.
+	images []string
 }
 
 // reviewView is the review view: one tab's changes from the merge base
@@ -596,7 +599,12 @@ func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 		if !m.BracketedPaste {
 			text = strings.ReplaceAll(text, "\n", " ") // a bare newline would send the first line alone
 		}
-		if !u.send(proto.Input{Pane: d.pane, Data: input.Paste(text, m)}) {
+		for _, img := range d.images {
+			if !u.send(proto.Input{Pane: d.pane, Data: input.PastePaths([]string{img}, m)}) {
+				return time.Time{}
+			}
+		}
+		if text != "" && !u.send(proto.Input{Pane: d.pane, Data: input.Paste(text, m)}) {
 			return time.Time{}
 		}
 		log.Printf("review: sent %d comments, %d bytes, to pane %s", len(d.notes), len(text), d.pane)

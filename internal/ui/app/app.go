@@ -331,6 +331,8 @@ type ui struct {
 	sends  agentSends // Send failures and Send review comments, fetching
 	pastes hostPastes // a --host window's image pastes
 
+	replyImg *replyImage // the reply sheet's image on its way, see reply.go
+
 	notice    string          // the copy notice on screen, "" for none
 	noticeAt  time.Time       // when it was shown
 	noticeIn  image.Rectangle // the pane that copied, in the pane area
@@ -696,6 +698,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	fo.Pop()
 	u.takeSends(pgtx, &st)
+	u.tickReplyImage()
 	if n := u.updates.takeNote(); n != "" {
 		u.sendFailed(n)
 	}
@@ -751,6 +754,8 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 		paint.FillShape(gtx.Ops, u.th.Border, clip.Rect{Min: image.Pt(sw, 0), Max: image.Pt(sw+1, area.Max.Y)}.Op())
 		so.Pop()
+	} else {
+		u.sidebar.CloseReply() // a hidden sheet would keep the keys from the panes
 	}
 
 	u.layoutModal(gtx, &st)
@@ -888,6 +893,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 				u.invalidate()
 			}
 		}
+	case sidebar.Reply:
+		u.reply(st, e)
+	case sidebar.AttachImage:
+		u.attachImage(st, e)
 	case sidebar.CancelResume:
 		for _, a := range st.Activities {
 			if a.WorkspaceID == e.WorkspaceID && !a.Resumes.IsZero() {

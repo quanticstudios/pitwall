@@ -208,6 +208,18 @@ An agent's row acts for its tab with F2, Delete and the menu. Other
 bound keys work as usual. A click in a pane, a dialog, the palette or a
 switcher also ends it.
 
+The reply editor under a row (Reply, or Reply… in the row's menu, see
+usage.md, Replying from the sidebar) takes these keys:
+
+| Keys        | Action                                                       |
+| ----------- | ------------------------------------------------------------ |
+| Enter       | Send the reply                                               |
+| Shift+Enter | New line                                                     |
+| Esc         | Close and keep the draft for the tab                         |
+| Up / Down   | On the first / last line: earlier / later replies            |
+| Backspace   | Right after a pasted block: remove the whole block           |
+| Ctrl+V      | Paste; with an image and no text on the clipboard, attach it |
+
 Ctrl+Shift+F (Cmd+F in mac) opens a find bar at the top right of the focused pane. It
 searches the pane's history (10,000 lines unless `scrollback` says otherwise) and screen as you type,
 ignoring case unless the query has a capital letter. Enter or F3 goes to the

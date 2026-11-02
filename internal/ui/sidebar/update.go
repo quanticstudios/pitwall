@@ -88,7 +88,7 @@ func (s *Sidebar) targets(v *view, id string) []string {
 // Editing reports whether an inline rename holds key focus, so the window
 // keeps its panes from taking it back.
 func (s *Sidebar) Editing() bool {
-	return s.renaming != "" || s.renamingGroup != "" || s.replying != ""
+	return s.renaming != "" || s.renamingGroup != "" || s.replying != "" || s.reply.ws != ""
 }
 
 // StartRename opens the inline editor on tab ws's row, starting from name.
@@ -125,6 +125,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		}
 		if _, ok := ev.(pointer.Event); ok {
 			s.closeMenus()
+			s.closeReply()
 		}
 	}
 	for {
@@ -286,6 +287,13 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.events = append(s.events, CloseTab{WorkspaceID: id})
 			s.closeMenus()
 		}
+		if s.menuItem[actReply].Clicked(gtx) {
+			pane := ""
+			if a := v.ownActivity(id); a != nil {
+				pane = a.PaneID
+			}
+			s.openReply(id, pane)
+		}
 		if s.menuItem[actCancelResume].Clicked(gtx) {
 			s.events = append(s.events, CancelResume{WorkspaceID: id})
 			s.closeMenus()
@@ -409,6 +417,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.cancelRename()
 		}
 	}
+	s.replyEvents(gtx)
 	s.queueEvents(gtx, v.st)
 	s.subEvents(gtx, v, dropped)
 	for s.undoBtn.Clicked(gtx) {
@@ -477,6 +486,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		drain(&r.close)
 		drain(&r.allow)
 		drain(&r.deny)
+		drain(&r.reply)
 		drain(&r.pr)
 		drain(&r.archive)
 		drain(&r.settle)
@@ -491,7 +501,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for i := range s.snoozeBtn {
 		drain(&s.snoozeBtn[i])
 	}
-	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions, &s.upgrade, &s.undoBtn, &s.viewBtn} {
+	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions, &s.upgrade, &s.undoBtn, &s.viewBtn, &s.reply.send} {
 		drain(c)
 	}
 }
