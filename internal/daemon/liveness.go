@@ -9,6 +9,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
 // timing is a duration tests shorten while an earlier test's timers may
@@ -43,8 +44,10 @@ var (
 // liveness is what the daemon keeps to catch an activity no hook will end:
 // a Claude turn the user interrupted and an agent that died. Guarded by d.mu.
 type liveness struct {
-	hookAt map[string]time.Time // pane: when its agent last sent a hook
-	fg     map[string]int       // pane: its foreground process group at that hook
+	explanations map[string]proto.AgentExplanation
+	lastHook     map[string]proto.AgentHook
+	hookAt       map[string]time.Time // pane: when its agent last sent a hook
+	fg           map[string]int       // pane: its foreground process group at that hook
 	// started marks a pane whose agent sends SessionStart (pitwall's hooks
 	// since alpha.14), fresh one whose agent process started and has not
 	// reported a permission mode yet, and resumeSeen a pane NewWith resumed
@@ -126,15 +129,20 @@ func (d *Daemon) settle(id string, at time.Time) {
 	if d.closing || d.panes[id] != p || d.live.hookAt[id].After(at) || i < 0 {
 		return
 	}
+	trace := agent.ExplainScreen(model.ProviderClaude, g)
+	trace.Provider = d.st.Activities[i].Provider // settle uses the common ReadScreen rules for every provider
 	switch agent.ReadScreen(g) {
 	case agent.ScreenForm:
 		return
 	case agent.ScreenNone:
 		if slices.Equal(before.Cells, g.Cells) {
+			provider := d.st.Activities[i].Provider
 			d.dropActivity(id)
+			d.recordExplanation(id, provider, "", "settle-still", trace)
 			return
 		}
 	}
+	d.recordExplanation(id, d.st.Activities[i].Provider, model.StateWorking, "settle-working", trace)
 	if a := &d.st.Activities[i]; a.State != model.StateWorking {
 		a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", time.Now()
 		clearDecisions(a)
@@ -190,6 +198,12 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.hookAt, id)
 		}
 	}
+	for id := range d.live.explanations {
+		if d.panes[id] == nil {
+			delete(d.live.explanations, id)
+			delete(d.live.lastHook, id)
+		}
+	}
 	for id := range d.live.det {
 		if d.panes[id] == nil {
 			delete(d.live.det, id)
@@ -218,6 +232,7 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.hookAt, id)
 			d.dropActivity(id)
 			d.setProvider(id, "") // detect names the next agent, if one took over
+			d.recordExplanation(id, "", "", "hook-process-left", agent.ScreenTrace{})
 		}
 	}
 }

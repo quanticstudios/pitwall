@@ -44,6 +44,8 @@ const usage = `usage:
                              (starts the daemon there if needed)
   pitwall session <cmd>      ls, new, attach, rename, kill (see pitwall session)
   pitwall daemon             run the daemon in the foreground
+  pitwall agent explain [pane | --file path] [--provider name] [--json]
+                             explain the agent state and the screen patterns checked
   pitwall hook <provider>    forward an agent hook event (claude, codex, pi, omp, gemini, opencode)
   pitwall guard              exit 2 when the guard denies the command in {"tool_input":...} on stdin
   pitwall hooks              print the hook config for every agent
@@ -218,7 +220,7 @@ func main() {
 		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
 	case "completion":
 		err = runCompletion(os.Args[2:], os.Stdout)
-	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat":
+	case "ls", "new", "wait", "split", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

@@ -21,6 +21,7 @@ optional name act on the pane's own tab.
 | `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
 | `pitwall send <pane> -- text`         | Queue a message for the pane's agent and return; pitwall types it, under a header naming the sender, at the agent's next prompt |
 | `pitwall read <pane> [--screen]`      | Print the last reply of the pane's agent, or with `--screen` the text on its screen |
+| `pitwall agent explain <pane> [--provider name] [--json]` | Explain the daemon's agent state, screen rules, foreground process and last hook; `--file path` instead of a pane reads a saved screen locally |
 | `pitwall review [tab] [--agent claude\|codex]` | Second opinion: open the other agent read only beside the tab's agent to review its changes, and print its address; its first reply goes to the tab's agent |
 | `pitwall attach [name]`               | Show a tab in the window, opening the window if needed        |
 | `pitwall detach [name]`               | Hide a tab; its processes keep running                        |
@@ -79,6 +80,55 @@ pitwall new -s billing -n api -d               # a tab in it
 pitwall ls -s billing
 pitwall session attach billing                 # open a window on it
 ```
+
+## Explaining agent detection
+
+```sh
+pitwall agent explain '#3.2'
+pitwall agent explain -s main @pane-id --json
+pitwall agent explain --file screen.txt --provider codex --json
+```
+
+The live command reads the running daemon without sending input or changing
+the pane. Its top-level provider, state and rule describe the daemon's
+decision. `screen` gives the screen classification separately, since hooks
+can own the state even when the screen matches another state. Screen-driven
+decisions keep the trace from the poll that chose the state. Hook-driven
+decisions evaluate the current screen for comparison. `process` gives the
+foreground process group, command name and detected provider, without
+arguments. `hook` gives the last state a hook reported and its age, including
+after the agent leaves the foreground. Hook history starts with this daemon
+and does not survive a restart.
+
+`--file` needs no daemon. The dump can contain plain text or terminal escape
+sequences. Pitwall infers the provider from a file name such as
+`codex-working.txt`; pass `--provider` when the name does not identify one.
+Providers are `claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
+`cursor`, `amp` and `aider`. A live `--provider` supplies only a missing
+screen provider; it does not override the daemon's decision.
+
+Each screen trace names the deciding pattern and its matched line, then
+lists the checks reached by the detector, including unsuccessful checks.
+Checks stop where the detector stops. Detection reads the last 12 non-empty
+screen rows. `no-screen-match` means that no checked rule matches;
+`no-screen-rules` means that the provider has no screen rules. A blank state
+prints as `none` in text. A live rule such as `hook`, `screen-moving`,
+`screen-still` or `settle-still` explains a decision beyond one screen
+pattern. `daemon-activity` means another activity source owns the state,
+or the daemon has no saved detection evidence for it.
+
+`--json` returns an object with `schema_version: 1` and these stable fields:
+
+| Field                               | Value                                                                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `pane`                              | Pane id, or `""` for a file                                                                                              |
+| `provider`, `state`, `rule`         | Final decision; an empty state is `""`                                                                                   |
+| `screen`                            | `provider`, `state`, `rule`, `matched` and `checks`                                                                      |
+| `screen.checks[]`, `screen.matched` | `name`, `pattern`, `matched` and `line`; an unmatched check has an empty line; `matched` is null when no pattern decides |
+| `process`                           | `foreground`, `provider`, `comm`, or null for a file or an unavailable process reader                                    |
+| `hook`                              | `provider`, `state`, `at` as an RFC 3339 timestamp, and `age_ms`, or null when no state hook is known                    |
+
+Review matched lines for private text before sharing a bug report.
 
 ## Driving tabs from agents and scripts
 

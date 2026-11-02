@@ -18,6 +18,7 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - Restored agents start 100 milliseconds apart, with the most recently used session first. `[agents] startup_per_agent_delay_ms` changes the gap; 0 starts all at once. Shells start immediately.
+- `pitwall agent explain` explains a live pane's state or a saved screen with the matched pattern, unsuccessful checks, process detection and hook history; `--json` prints evidence for bug reports.
 - The web protocol's `import` takes `pinned`, so an imported chat keeps aide's pin (ENG-2707).
 - The web protocol's `start` and `send` take a provider `skill`, which a queued message keeps: Claude runs it as its slash command and Codex as a skill input item, as aide's built-in backend did. The fake providers answer `Handled with <provider> skill <id>: <text>` (ENG-2942).
 - The fake providers have a `codex commentary` script: a Codex turn whose commentary and final answer are separate items with their `phase`, so aide's commentary spec runs on the daemon (ENG-2941).

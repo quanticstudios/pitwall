@@ -33,6 +33,40 @@ Codex still needs `/hooks` once to trust its hooks, which doctor cannot see.
   frames slower than 250 ms, split into layout and rendering time.
 - **Something else.** Look at the logs (below).
 
+## An agent shows the wrong state
+
+Use the pane address from `pitwall ls` to ask the daemon why it chose the
+state:
+
+```sh
+pitwall agent explain '#3.2'
+pitwall agent explain '#3.2' --json > detection.json
+```
+
+The output shows the provider, state and deciding rule, the screen pattern
+and matched line, and the checks that did not match. For a live pane it also
+shows the detected foreground process and the last hook-reported state with
+its age. `rule: hook` means hooks own the decision; the separate `screen`
+state may differ. `screen-moving` keeps a streaming reply working without a
+spinner; `screen-still` marks that reply completed once its screen stops
+changing. The command sends no input and changes no state.
+
+To explain a saved screen without connecting to a daemon:
+
+```sh
+pitwall agent explain --file screen.txt --provider codex --json
+```
+
+A file name such as `codex-working.txt` supplies the provider without
+`--provider`. File mode explains screen rules alone; it has no process,
+hook or earlier screen to compare. Live mode needs a daemon that supports
+the command. See [Command line](cli.md#explaining-agent-detection) for the
+JSON fields and fallback rules.
+
+Include the JSON, pitwall and agent versions, and the expected state in a
+bug report. Matched lines can contain prompts, project paths and other
+private text. Review the JSON before sharing it.
+
 ## Hooks after an upgrade
 
 Agent hooks run the `pitwall` on your PATH, not the daemon's binary. After an

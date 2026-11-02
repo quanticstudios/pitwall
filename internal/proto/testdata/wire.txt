@@ -1,4 +1,6 @@
-16.47
+17.47
+agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
+agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -22,6 +24,10 @@ model.Workspace{Profile string; ID string; SessionID string; ProjectID string; N
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
 proto.AddProject{Path string; SessionID string}
 proto.AgentEvent{Pane string; Provider model.Provider; Payload []uint8}
+proto.AgentExplain{Pane string; Provider model.Provider}
+proto.AgentExplanation{SchemaVersion int; Pane string; Provider model.Provider; State model.AgentState; Rule string; Screen agent.ScreenTrace; Process *proto.AgentProcess; Hook *proto.AgentHook}
+proto.AgentHook{Provider model.Provider; State model.AgentState; At time.Time; AgeMS int64}
+proto.AgentProcess{Foreground int; Provider model.Provider; Comm string}
 proto.Answer{Pane string; At int64; Allow bool}
 proto.ArchiveWorkspace{WorkspaceID string; Archived bool}
 proto.CancelResume{Pane string}

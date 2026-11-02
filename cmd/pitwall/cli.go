@@ -107,6 +107,8 @@ func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 	var err error
 	switch {
+	case len(args) > 0 && args[0] == "agent":
+		err = agentCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "wait":
 		return waitCommand(args[1:], out, errOut)
 	case len(args) > 0 && args[0] == "chat":
