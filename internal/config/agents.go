@@ -20,10 +20,26 @@ type AgentLimits struct {
 	GuardWorkers      *bool         `toml:"guard_workers" doc:"Turn the guard on in every tab an agent opens with pitwall worktree new, as --guard does. See docs/usage.md"`
 	GuardDeny         []string      `toml:"guard_deny" doc:"Shell commands the guard denies on top of its own list (git push, gh pr merge, terraform apply and the like), as patterns: * is any run, ? one character, and a trailing \" *\" also matches the bare command, as in \"npm publish *\". It cannot lift a built-in one"`
 	Preset            []AgentPreset `toml:"preset" doc:"Named agent setups, each a [[agents.preset]] table, that the New task dialog lists after the plain agents and pitwall new --preset starts"`
+
+	StartupPerAgentDelayMS *float64 `toml:"startup_per_agent_delay_ms" min:"0" max:"60000" doc:"Milliseconds between agent launches after a daemon restart. 100 by default; 0 starts all at once. Shells start immediately"`
 }
 
 // DefaultQuietAfter is [agents] quiet_after's default, in minutes.
 const DefaultQuietAfter = 20
+
+// DefaultStartupPerAgentDelayMS adds 1.1 seconds of gaps to a dozen launches.
+const DefaultStartupPerAgentDelayMS = 100
+
+func resolveStartupDelay(c AgentLimits) (time.Duration, []issue) {
+	switch v := c.StartupPerAgentDelayMS; {
+	case v == nil:
+		return DefaultStartupPerAgentDelayMS * time.Millisecond, nil
+	case !(*v >= 0 && *v <= 60000) || *v != float64(int(*v)):
+		return DefaultStartupPerAgentDelayMS * time.Millisecond, []issue{{"agents.startup_per_agent_delay_ms", fmt.Sprintf("%g is not a whole number from 0 to 60000", *v)}}
+	default:
+		return time.Duration(*v) * time.Millisecond, nil
+	}
+}
 
 // resolveQuiet is c's quiet_after, DefaultQuietAfter when unset or bad,
 // which is reported.
