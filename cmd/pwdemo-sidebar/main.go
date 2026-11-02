@@ -15,6 +15,9 @@
 //	-answers       show Allow and Deny on approvals
 //	-pane id       the focused pane of the active tab
 //	-gh            act as if the gh CLI is installed, for the PR menu entries
+//	-inbox         start on the inbox in place of the tree
+//	-no-shelf      keep working tabs in the inbox's Active section
+//	-settle-all    settle every agent tab, for the inbox's empty Active
 package main
 
 import (
@@ -54,7 +57,11 @@ func main() {
 	flag.BoolVar(&sb.Answers, "answers", false, "show Allow and Deny on approvals")
 	flag.StringVar(&sb.Pane, "pane", "", "the focused pane of the active tab")
 	flag.BoolVar(&sb.GH, "gh", false, "act as if the gh CLI is installed, for the PR menu entries")
+	flag.BoolVar(&sb.Inbox, "inbox", false, "start on the inbox in place of the tree")
+	noShelf := flag.Bool("no-shelf", false, "keep working tabs in the inbox's Active section")
+	settleAll := flag.Bool("settle-all", false, "settle every agent tab")
 	flag.Parse()
+	sb.WorkingShelf, sb.Shelves = !*noShelf, true
 	tc, ok := config.Builtin(*themeName)
 	if !ok {
 		log.Fatalf("-theme %q: no such built-in theme", *themeName)
@@ -72,6 +79,11 @@ func main() {
 		sb.Numbers = [9]bool{true, true, true, true, true, true, true, true, true}
 	}
 	st := fakeState(time.Now())
+	if *settleAll {
+		for i := range st.Workspaces {
+			st.Workspaces[i].Settled, st.Workspaces[i].SnoozedUntil = time.Now(), time.Time{}
+		}
+	}
 	if *unseen {
 		for i := range st.Activities {
 			st.Activities[i].Unseen = model.NeedsYou(st.Activities[i].State)
@@ -174,6 +186,14 @@ func apply(st *model.State, active *string, ev sidebar.Event) {
 				st.Workspaces[i].ProjectID = ""
 			}
 		}
+	case sidebar.SetTabOptions:
+		ws(ev.WorkspaceID).Pinned, ws(ev.WorkspaceID).Color = ev.Pinned, ev.Color
+	case sidebar.SetInbox:
+		w := ws(ev.WorkspaceID)
+		w.Settled, w.SnoozedUntil = time.Time{}, ev.SnoozedUntil
+		if ev.Settled {
+			w.Settled = time.Now()
+		}
 	case sidebar.DeleteWorkspace:
 		for i := range st.Workspaces {
 			if st.Workspaces[i].ID == ev.WorkspaceID {
@@ -262,6 +282,14 @@ func fakeState(now time.Time) model.State {
 	add("ws-hotkeys", "p-web", "Fix the checkout race", "fix/checkout-race", 12*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
 	add("ws-release", "p-web", "Release 2.3", "release/2.3", 26*time.Hour, model.ProviderCodex, model.StateCompleted)
 	add("ws-ci", "", "CI watch", "", 30*time.Second, model.ProviderTerminal, model.StateTerminalRunning)
+	// The inbox's pinned, settled and snoozed tabs.
+	st.Workspaces[len(st.Workspaces)-3].Pinned = true // ws-hotkeys
+	st.Workspaces[len(st.Workspaces)-2].Settled = ago(2 * time.Hour)
+	for i := range st.Workspaces {
+		if st.Workspaces[i].ID == "ws-pi" {
+			st.Workspaces[i].SnoozedUntil, st.Workspaces[i].SnoozedAt = now.Add(3*time.Hour), ago(time.Minute)
+		}
+	}
 	add("ws-notes", "p-notes", "notes", "", 4*24*time.Hour, "", "")
 	add("ws-old", "p-web", "Old spike", "spike/new-router", 9*24*time.Hour, "", "")
 	st.Workspaces[len(st.Workspaces)-1].Detached = true

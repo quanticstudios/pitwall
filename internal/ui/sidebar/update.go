@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"gioui.org/io/event"
@@ -275,7 +276,29 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		}
 		if ws := v.st.Workspace(id); ws != nil {
 			if s.menuItem[actPin].Clicked(gtx) {
-				s.tabOptions(v, id, func(o *SetTabOptions) { o.Pinned = !ws.Pinned })
+				switch {
+				case !v.inbox:
+					s.tabOptions(v, id, func(o *SetTabOptions) { o.Pinned = !ws.Pinned })
+				case ws.Pinned:
+					s.shelve(v, id, "Unpinned", func(sh shelf) shelf { sh.pinned = false; return sh })
+				default:
+					s.shelve(v, id, "Pinned", func(sh shelf) shelf { return sh.apply(verbPin) })
+				}
+			}
+			if s.menuItem[actSettle].Clicked(gtx) {
+				if ws.Settled.IsZero() {
+					s.shelve(v, id, "Settled", func(sh shelf) shelf { return sh.apply(verbSettle) })
+				} else {
+					s.shelve(v, id, "Unsettled", func(sh shelf) shelf { sh.settled = false; return sh })
+				}
+			}
+			if s.menuItem[actWake].Clicked(gtx) {
+				s.shelve(v, id, "Woke", func(sh shelf) shelf { sh.until = time.Time{}; return sh })
+			}
+			for i, p := range s.presets {
+				if s.snoozeBtn[i].Clicked(gtx) {
+					s.shelve(v, id, "Snoozed until "+wakeText(s.now, p.at), func(sh shelf) shelf { return shelf{pinned: sh.pinned, until: p.at} })
+				}
 			}
 			for i := range s.tabColor {
 				if s.tabColor[i].Clicked(gtx) {
@@ -284,7 +307,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			}
 		}
 		if s.menuItem[actMove].Clicked(gtx) {
-			s.moveOpen = true
+			s.moveOpen, s.flyAct = true, actMove
+		}
+		if s.menuItem[actSnooze].Clicked(gtx) {
+			s.moveOpen, s.flyAct = true, actSnooze
 		}
 		for g, c := range s.moveBtn {
 			if c.Clicked(gtx) {
@@ -373,6 +399,18 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	}
 	s.queueEvents(gtx, v.st)
 	s.subEvents(gtx, v, dropped)
+	for s.undoBtn.Clicked(gtx) {
+		if s.undo != nil {
+			s.events = append(s.events, s.undo.events...)
+			s.undo = nil
+		}
+	}
+	for s.viewBtn.Clicked(gtx) {
+		s.Inbox = !s.Inbox
+		s.closeMenus()
+		clear(s.selected)
+		s.events = append(s.events, SetView{Inbox: s.Inbox})
+	}
 	for s.newTab.Clicked(gtx) {
 		s.events = append(s.events, NewTab{Loose: true})
 	}
@@ -437,7 +475,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for i := range s.groupItem {
 		drain(&s.groupItem[i])
 	}
-	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions, &s.upgrade} {
+	for i := range s.snoozeBtn {
+		drain(&s.snoozeBtn[i])
+	}
+	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions, &s.upgrade, &s.undoBtn, &s.viewBtn} {
 		drain(c)
 	}
 }
@@ -466,6 +507,14 @@ func (s *Sidebar) toggleGroupMenu(id string) {
 	if open {
 		s.groupMenu = id
 	}
+}
+
+// shelve moves the tabs a menu action on id applies to by change, and
+// closes the menu.
+func (s *Sidebar) shelve(v *view, id, what string, change func(shelf) shelf) {
+	s.reshelve(v, s.targets(v, id), what, func(_ string, sh shelf) shelf { return change(sh) })
+	s.closeMenus()
+	clear(s.selected)
 }
 
 // tabOptions applies set to the options of tab id, or of the whole

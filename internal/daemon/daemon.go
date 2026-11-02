@@ -138,6 +138,9 @@ type Options struct {
 	// archive_on_merge; nil means off.
 	PR             func(ctx context.Context, dir string) (*model.PR, error)
 	ArchiveOnMerge func() bool
+	// Settle reads [sidebar]: settle_after_days for settleLoop and
+	// settle_on_merge for pollPRs. nil settles nothing on its own.
+	Settle func() config.SidebarSettings
 	// AutoSendFailures reads [git] send_failures_on_fail or its older name
 	// auto_send_failures; nil means off. It
 	// compares the commit at a dir (Head) with the pull request's and
@@ -321,6 +324,7 @@ func Defaults() Options {
 		RemoveWorktree:    gitstat.RemoveWorktree,
 		PR:                forge.View,
 		ArchiveOnMerge:    func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
+		Settle:            func() config.SidebarSettings { s, _ := config.Load(); return s.Sidebar },
 		AutoSendFailures:  func() bool { s, _ := config.Load(); return s.AutoSendFailures },
 		Head:              gitHead,
 		Failures:          forge.Failures,
@@ -505,6 +509,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	d.radar.mu.Unlock()
 	go d.statsLoop(ctx)
 	go d.prLoop(ctx)
+	go d.settleLoop(ctx)
 	go d.noteOrphans(ctx)
 	var wg sync.WaitGroup
 	if d.o.UpdateScreenPatterns != nil {
@@ -926,6 +931,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.setAppearance(m)
 	case proto.SetTabOptions:
 		return d.setTabOptions(m)
+	case proto.SetTabInbox:
+		return d.setTabInbox(m)
 	case proto.DetachSession:
 		return d.editWorkspace(m.WorkspaceID, func(w *model.Workspace) error { w.Detached = m.Detached; return nil })
 	case proto.KillSession:
@@ -2075,6 +2082,7 @@ func (d *Daemon) changed() {
 	d.syncTurns(time.Now())
 	d.pumpQueue(time.Now())
 	d.pruneNotices()
+	d.wakeTabs()
 	d.retitle()
 	d.fixOrders()
 	d.st.Version++

@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 49 added SetTabInbox and Workspace.Settled, SnoozedUntil and
+// SnoozedAt: the sidebar inbox's settled and snoozed tabs.
 // Level 48 added images (the kitty graphics protocol): vt.Grid.Images,
 // FrameRows.Images, Image and ImageResult, and Resize.CellW and CellH.
 // Level 46 added ChatUnarchive: a chat archived back to a tab, as aide's
@@ -153,7 +155,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 48
+const Level = 49
+
+// InboxLevel added SetTabInbox.
+const InboxLevel = 49
 
 // ImageLevel added images: Image, ImageResult and the placements on frames.
 const ImageLevel = 48
@@ -183,6 +188,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case SetTabInbox:
+		return InboxLevel
 	case Image, ImageResult:
 		return ImageLevel
 	case ChatUnarchive:

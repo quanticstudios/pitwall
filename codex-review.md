@@ -1,0 +1,8 @@
+Verdict: fix first
+[major] internal/ui/sidebar/inbox.go:311 placeInbox retains s.queue from the tree; switching views with two queued groups can panic at tree.go:226 when an old queue index exceeds the inbox's elements. Clear and rebuild queue blocks for the current layout.
+[major] internal/ui/sidebar/inbox.go:405 Dropping a selection containing Pinned and Settled tabs into Active only moves tabs matching the first tab's verb. Apply each selected tab's own drop verb and include every move in Undo.
+[major] internal/daemon/inbox.go:102 An idle agent pane without an Activity never settles, even after settle_after_days; Codex can remain at its initial prompt without reporting an activity. Identify agent tabs from their panes or chats before checking activity states.
+[minor] internal/ui/sidebar/inbox.go:119 Working takes precedence over Pinned, so pinning or dropping a working agent into Pinned leaves it in Working with the default configuration. Give pinned tabs precedence over the Working section.
+[minor] internal/ui/sidebar/inbox.go:438 Undo restores pin flags without restoring tab order; pinning c in [a,b,c] and undoing leaves [c,a,b]. Save the original position and restore it after reversing the pin.
+[minor] internal/ui/app/app.go:720 Inbox and WorkingShelf settings only reach the sidebar while it renders; starting hidden or changing configuration while hidden leaves keyboard navigation using stale ordering. Apply these settings before handling navigation, regardless of sidebar visibility.
+[minor] internal/daemon/inbox_test.go:74 TestIdleSettles only checks the predicate; deleting the settleLoop startup or settleIdle mutation leaves the new tests green. Add a daemon-level test that observes an idle tab becoming settled through the running loop.

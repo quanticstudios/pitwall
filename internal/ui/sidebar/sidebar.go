@@ -68,7 +68,18 @@ type Sidebar struct {
 	// Hosts are the machines of a window that shows more than one, this
 	// one first: their sessions and the agents waiting anywhere show above
 	// the tabs. One or none draws nothing.
-	Hosts   []HostInfo
+	Hosts []HostInfo
+	// Inbox shows the inbox in place of the tree; WorkingShelf gives
+	// working tabs their own section in it. Shelves is whether the daemon
+	// takes SetInbox, to settle and snooze; pinning works without it.
+	Inbox, WorkingShelf, Shelves bool
+	undo                         *undoNote
+	undoBtn, viewBtn             widget.Clickable
+	snoozeBtn                    [4]widget.Clickable
+	presets                      []snoozePreset // the Snooze flyout's, as drawn
+	flyAct                       int            // the menu entry whose flyout shows: actMove or actSnooze
+	inboxDrawn                   bool           // the elems are the inbox's
+
 	hostBtn map[string]*widget.Clickable // the host list's rows, "s:" session or "a:" pane
 
 	epoch         time.Time
@@ -214,6 +225,9 @@ const (
 	actOpinionClaude
 	actOpinionCodex
 	actCompare
+	actSettle
+	actSnooze
+	actWake
 	actCount
 )
 
@@ -293,7 +307,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	all := st
 	view := st.View(session)
 	st = &view
-	v := newView(gtx, th, st, session, activeWorkspace)
+	v := s.viewOf(gtx, th, st, session, activeWorkspace)
 	for _, id := range []string{s.renaming, s.replying} {
 		if _, ok := v.activity[id]; id != "" && !ok {
 			s.cancelRename()
@@ -359,11 +373,13 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 		bar(func(gtx layout.Context) layout.Dimensions { return s.hostList(gtx, th, all) }),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			// px-2: rows and group headers keep clear of both edges.
-			return layout.Inset{Left: listPad, Right: listPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			d := layout.Inset{Left: listPad, Right: listPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				d, a, m := s.tree(gtx, v)
 				animating, moving = a, m
 				return d
 			})
+			s.undoBar(gtx, th, d.Size.X, d.Size.Y)
+			return d
 		}),
 		bar(func(gtx layout.Context) layout.Dimensions { return s.footer(gtx, v) }),
 	)
@@ -408,10 +424,28 @@ type view struct {
 	kids          map[string][]model.Workspace // a live tab's workers, which hang under it (model.State.Root)
 	rootOf        map[string]string            // a live worker's root, the tab it hangs under
 	status        map[string]string            // a live tab's status line (pitwall status)
+	session       string
+	acts          map[string][]model.Activity // a tab's activities
+
+	// The inbox, when it shows (toInbox): each section's tabs in order,
+	// and each tab's section and status.
+	inbox    bool
+	sections [secCount][]string
+	secOf    map[string]section
+	need     map[string]status
+}
+
+// viewOf is newView sorted into the inbox when the sidebar shows it.
+func (s *Sidebar) viewOf(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
+	v := newView(gtx, th, st, session, active)
+	if s.Inbox && !s.TreeOnly {
+		s.toInbox(v)
+	}
+	return v
 }
 
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
-	v := &view{th: th, st: st, now: gtx.Now, active: active,
+	v := &view{th: th, st: st, now: gtx.Now, active: active, session: session,
 		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{},
 		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}, status: map[string]string{}}
 	if v.now.IsZero() {
@@ -424,6 +458,7 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 			unseen[a.WorkspaceID] = append(unseen[a.WorkspaceID], a)
 		}
 	}
+	v.acts = acts
 	groups := map[string]bool{}
 	for _, p := range st.Projects {
 		groups[p.ID] = true
@@ -516,8 +551,11 @@ func (v *view) groupOf(id string) string {
 }
 
 // order is the sessions top to bottom as drawn: the top-level items in
-// order, an expanded group's sessions at its place.
+// order, an expanded group's sessions at its place; or the inbox's.
 func (s *Sidebar) order(v *view) []string {
+	if v.inbox {
+		return inboxOrder(v)
+	}
 	var out []string
 	add := func(id string) {
 		out = append(out, id)
@@ -555,11 +593,12 @@ func (s *Sidebar) follow(v *view) {
 
 // Rows is session's tabs top to bottom as the sidebar lists them, without
 // detached tabs and the tabs of collapsed groups: the rows goto_tab_N
-// counts. Like Layout, it expands the active tab's group when the active
-// tab moved to another one, so the count holds while the sidebar is hidden.
+// counts; the inbox's rows while it shows. Like Layout, it expands the
+// active tab's group when the active tab moved to another one, so the
+// count holds while the sidebar is hidden.
 func (s *Sidebar) Rows(st *model.State, session, active string) []string {
 	view := st.View(session)
-	v := newView(layout.Context{}, nil, &view, session, active)
+	v := s.viewOf(layout.Context{}, nil, &view, session, active)
 	s.follow(v)
 	return s.order(v)
 }

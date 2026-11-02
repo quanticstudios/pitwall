@@ -23,6 +23,9 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// The sidebar inbox adds optional Workspace.Settled, SnoozedUntil and
+// SnoozedAt to version 10; files without them load as neither settled nor
+// snoozed, and an older pitwall ignores them.
 // Queue schedules add optional Task.NextStart and Task.Repeat fields.
 // Missing fields decode to zero for immediate, one-shot tasks.
 // Account profiles add optional Workspace.Profile and Task.Profile fields

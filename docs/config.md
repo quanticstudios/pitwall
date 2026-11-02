@@ -50,6 +50,12 @@ mono_fallback = ["Noto Sans Mono CJK SC"]
 pane_gap = 4
 pane_margin = 4
 
+[sidebar]
+view = "tree"                           # or "inbox": see usage.md, The inbox
+working_shelf = true                    # working tabs get their own inbox section
+settle_after_days = 3                   # settle a tab this many days idle; 0 never
+settle_on_merge = true                  # settle a tab once its pull request merges
+
 [git]
 merge_method = "squash"                 # or "merge", "rebase": Merge PR's gh pr merge flag
 archive_on_merge = false                # archive a merged worktree tab without a click

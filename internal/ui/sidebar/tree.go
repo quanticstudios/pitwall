@@ -126,8 +126,12 @@ func (s *Sidebar) noteExpands(now time.Time, v *view) {
 // under the pointer instead. It reports whether an agent animation runs
 // and whether rows or a drag are moving.
 func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bool) {
-	elems, total := s.place(gtx, v)
-	s.elems = elems
+	place := s.place
+	if v.inbox {
+		place = s.placeInbox
+	}
+	elems, total := place(gtx, v)
+	s.elems, s.inboxDrawn = elems, v.inbox
 	s.noteExpands(gtx.Now, v)
 	s.cardAt = ""
 	s.cursorFrame(gtx, v, elems, total)
@@ -152,6 +156,15 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 				continue
 			}
 			y := e.top + int(offs[i]+0.5)
+			if e.kind == 'h' {
+				o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+				hg := gtx
+				hg.Constraints = layout.Exact(image.Pt(w, e.bot-e.top))
+				sec := headerSection(e)
+				s.sectionHeader(hg, v, sec, len(v.sections[sec]))
+				o.Pop()
+				continue
+			}
 			if e.kind == 'g' {
 				if e.head > e.top {
 					sy := y + gtx.Dp(6)
@@ -174,6 +187,13 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 				t = anim.At(gtx, at, anim.Expand)
 			}
 			o := op.Offset(image.Pt(e.x, y-int(float32(gtx.Dp(4))*(1-t)))).Push(gtx.Ops)
+			tab := e.id
+			if e.kind == 'a' {
+				tab = e.parent
+			}
+			if s.receded(v, tab) {
+				t *= recede
+			}
 			fade := paint.PushOpacity(gtx.Ops, t)
 			rg := gtx
 			rg.Constraints.Max.X = w - e.x

@@ -61,6 +61,7 @@ type drop struct {
 	into          bool // onto a group header: last in that group, no gap
 	at            int  // index in the flow the gap opens before
 	ok            bool
+	sec           section // the inbox's section it drops into
 }
 
 // dragState is a press on a tab row or group header, a drag once it has
@@ -308,9 +309,12 @@ func (s *Sidebar) dragFrame(gtx layout.Context, elems []elem, total int) (offset
 				dwell = hover
 			}
 		}
-		if s.drag.kind == 'g' {
+		switch {
+		case s.inboxDrawn:
+			s.drag.target = drop{into: true, at: -1, ok: true, sec: sectionAt(flow, y)}
+		case s.drag.kind == 'g':
 			s.drag.target = groupDrop(flow, y)
-		} else {
+		default:
 			s.drag.target = tabDrop(flow, y, s.isExpanded, dwell)
 		}
 	}
@@ -331,8 +335,11 @@ func (s *Sidebar) dragFrame(gtx layout.Context, elems []elem, total int) (offset
 	case !d.ok:
 	case d.into:
 		for _, e := range flow {
-			if e.kind == 'g' && e.id == d.group {
+			if e.kind == 'g' && e.id == d.group && !s.inboxDrawn {
 				s.drag.toY = float32(e.head)
+			}
+			if e.kind == 'h' && headerSection(e) == d.sec && s.inboxDrawn {
+				s.drag.toY = float32(e.top + gtx.Dp(sectionH))
 			}
 		}
 	case d.at < len(flow):
@@ -451,7 +458,7 @@ func (s *Sidebar) dragEvents(gtx layout.Context, v *view) bool {
 				case 's':
 					tab = el.top
 				}
-				if y >= top && y < el.bot && int(e.Position.X) >= el.x {
+				if el.kind != 'h' && y >= top && y < el.bot && int(e.Position.X) >= el.x {
 					s.drag = dragState{kind: el.kind, id: el.id, start: e.Position, pos: e.Position, grab: y - el.top}
 					if el.kind == 'a' { // a sub-row lifts its tab
 						s.drag.kind, s.drag.id, s.drag.grab = 's', el.parent, y-tab
@@ -511,13 +518,15 @@ func (s *Sidebar) startDrag(gtx layout.Context, v *view) {
 func (s *Sidebar) dropNow(gtx layout.Context, v *view) {
 	d := s.drag.target
 	from := s.ghostY(gtx.Now)
-	if !d.ok || s.noop(v, d) {
+	if !d.ok || !v.inbox && s.noop(v, d) || v.inbox && !s.dropInbox(v, d) {
 		s.CancelDrag()
 		return
 	}
-	if s.drag.kind == 'g' {
+	switch {
+	case v.inbox:
+	case s.drag.kind == 'g':
 		s.events = append(s.events, MoveGroup{GroupID: s.drag.id, Before: d.before})
-	} else {
+	default:
 		for _, id := range s.drag.ids {
 			s.events = append(s.events, MoveSession{WorkspaceID: id, GroupID: d.group, Before: d.before})
 		}
@@ -573,7 +582,15 @@ func (s *Sidebar) dragOverlay(gtx layout.Context, v *view, size image.Point) boo
 	th := v.th
 	now := gtx.Now
 	d := s.drag.target
-	if d.ok && d.into {
+	if top, bot, ok := sectionBand(s.elems, d.sec); ok && d.ok && v.inbox && dropVerb(v.secOf[s.drag.id], d.sec) != verbNone {
+		// The section taking the drop, its header and rows.
+		rect := image.Rect(0, top-s.scroll, size.X, bot-s.scroll+gtx.Dp(2)).Intersect(image.Rectangle{Max: size})
+		tint := th.Primary
+		tint.A = 20 // the rows show through
+		paint.FillShape(gtx.Ops, tint, clip.UniformRRect(rect, gtx.Dp(8)).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.7), clip.Stroke{Path: clip.UniformRRect(rect, gtx.Dp(8)).Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
+	}
+	if d.ok && d.into && !v.inbox {
 		for _, e := range s.elems {
 			if e.kind == 'g' && e.id == d.group {
 				y := e.head - s.scroll + int(s.drawnOff(e))

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -172,5 +173,21 @@ func saveGUIState(g guiState) {
 	data, _ := json.Marshal(g)
 	if err := writeAtomic(guiStatePath(), append(data, '\n')); err != nil {
 		log.Printf("%q", err)
+	}
+}
+
+// setSidebarView keeps the header's choice of tree or inbox in
+// config.toml's [sidebar] view, and shows it now.
+func (u *ui) setSidebarView(inbox bool) {
+	u.cfg.Sidebar.Inbox = inbox
+	path := cmp.Or(u.cfg.Path, config.Path())
+	var err error
+	if inbox {
+		err = config.SetKey(path, "sidebar", "view", config.Quote("inbox"))
+	} else {
+		err = config.RemoveKey(path, "sidebar", "view")
+	}
+	if err != nil {
+		log.Printf("sidebar view: %q", err)
 	}
 }

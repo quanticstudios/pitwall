@@ -1,18 +1,24 @@
 package app
 
 import (
+	"image"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"gioui.org/io/key"
+	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 func press(n key.Name, m key.Modifiers) key.Event {
@@ -418,5 +424,49 @@ func TestNavSkipsFoldedWorkers(t *testing.T) {
 	n.cycleWorkspace(&st, 1)
 	if n.workspace != "x" {
 		t.Fatalf("next from a folded worker that is open went to %s, want x", n.workspace)
+	}
+}
+
+// TestNavFollowsInbox: while the sidebar shows its inbox, next, prev and
+// the switcher follow its rows, workers of folded tabs included, and
+// with the tree back they follow the tree.
+func TestNavFollowsInbox(t *testing.T) {
+	st := model.State{
+		Sessions:   []model.Session{{ID: "s"}},
+		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}, {ID: "x", SessionID: "s"}},
+	}
+	inbox := true
+	n := nav{session: "s", workspace: "x", folded: func(id string) bool { return id == "o" },
+		rows: func(*model.State) []string { return []string{"x", "w", "o"} }, inbox: func() bool { return inbox }}
+	var ids []string
+	for _, w := range n.visible(&st) {
+		ids = append(ids, w.ID)
+	}
+	if !slices.Equal(ids, []string{"x", "w", "o"}) {
+		t.Fatalf("visible %v", ids)
+	}
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "w" {
+		t.Fatalf("next from x in the inbox went to %s, want w", n.workspace)
+	}
+	inbox = false
+	n.workspace = "x"
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "o" {
+		t.Fatalf("next from x in the tree went to %s, want o", n.workspace)
+	}
+}
+
+// TestHiddenSidebarFollowsInbox: [sidebar] view reaches the sidebar every
+// frame, so with the sidebar hidden the keys still follow the inbox.
+func TestHiddenSidebarFollowsInbox(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
+	u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf = true, true
+	u.nav.sidebarHidden = true
+	var ops op.Ops
+	u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1200, 800)), Now: time.Now()})
+	if !u.sidebar.Inbox || !u.sidebar.WorkingShelf || u.nav.inbox == nil || !u.nav.inbox() {
+		t.Fatalf("hidden sidebar: inbox %v, shelf %v", u.sidebar.Inbox, u.sidebar.WorkingShelf)
 	}
 }
