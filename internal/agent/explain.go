@@ -27,12 +27,21 @@ type ScreenTrace struct {
 // ExplainScreen runs StateOf with evidence collection enabled.
 func ExplainScreen(p model.Provider, g vt.Grid) ScreenTrace {
 	t := ScreenTrace{Provider: p, Rule: "no-screen-match", Checks: []ScreenCheck{}}
-	t.State = stateOf(p, g, &t)
+	t.State = activePatterns.Load().stateOf(p, g, &t)
 	return t
 }
 
 func (t *ScreenTrace) contains(kind, pattern, line, low string) bool {
 	return t.check(kind+"/"+pattern, pattern, line, strings.Contains(low, pattern))
+}
+
+func (t *ScreenTrace) containsAny(kind string, patterns []string, line, low string) bool {
+	for _, pattern := range patterns {
+		if t.contains(kind, pattern, line, low) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *ScreenTrace) check(name, pattern, line string, matched bool) bool {
@@ -44,7 +53,7 @@ func (t *ScreenTrace) check(name, pattern, line string, matched bool) bool {
 		c.Line = line
 	}
 	for i, old := range t.Checks {
-		if old.Name == name {
+		if old.Name == name && old.Pattern == pattern {
 			if matched && !old.Matched {
 				t.Checks[i] = c
 			}

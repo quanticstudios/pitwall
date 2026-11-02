@@ -163,7 +163,8 @@ func TestAutoSendReviews(t *testing.T) {
 	}
 	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
 	waitNotice(t, d, "Sent review comments to claude")
-	if got := f.pane(0).got(); !strings.Contains(got, "Fix the test") {
+	// The notice follows queuing input; the pane's writer runs separately.
+	if got := gotAfter(t, f.pane(0), 0, len("Fix the test")); !strings.Contains(got, "Fix the test") {
 		t.Fatalf("review prompt %q", got)
 	}
 	answer.Head = "h2"

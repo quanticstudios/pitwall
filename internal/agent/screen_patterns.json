@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "patterns_version": 1,
+  "common": {
+    "form": [
+      "esc to cancel",
+      "esc back",
+      "do you want to proceed",
+      "would you like to proceed"
+    ],
+    "busy": [
+      "esc to interrupt"
+    ],
+    "busy_regex": [
+      "^\\s*[*·✢✳✶✻✽]\\s+\\S.*…(?:\\s+\\(\\d+[smh]|\\s*$)"
+    ],
+    "plan": [
+      "would you like to proceed"
+    ],
+    "input": [
+      "enter to select",
+      "requests your input",
+      "enter to submit"
+    ]
+  },
+  "providers": {
+    "gemini": {
+      "plan": [
+        "ready to start implementation?"
+      ],
+      "input": [
+        "answer questions"
+      ],
+      "approval": [
+        "allow once",
+        "action required",
+        "waiting for user confirmation"
+      ],
+      "busy": [
+        "esc to cancel"
+      ]
+    },
+    "opencode": {
+      "plan": [
+        "build agent"
+      ],
+      "input": [
+        "esc dismiss"
+      ],
+      "approval": [
+        "permission required"
+      ],
+      "busy": [
+        "esc interrupt",
+        "again to interrupt"
+      ]
+    },
+    "aider": {
+      "input": [
+        "(y)es/(n)o"
+      ],
+      "busy": [
+        "waiting for "
+      ]
+    }
+  }
+}

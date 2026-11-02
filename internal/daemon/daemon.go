@@ -81,6 +81,9 @@ type Pane interface {
 // Options are the daemon's collaborators. New wires the real packages; tests
 // pass fakes to NewWith.
 type Options struct {
+	// UpdateScreenPatterns refreshes detection rules until ctx ends; nil
+	// leaves the active rules alone without reading a cache or using the network.
+	UpdateScreenPatterns func(ctx context.Context)
 	// Profiles reads account profiles for new tabs; nil has none.
 	Profiles       func() map[string]config.Profile
 	StartPane      func(pane.Config) (Pane, error)
@@ -285,6 +288,9 @@ func Defaults() Options {
 		log.Printf("timing log: %q", err)
 	}
 	return Options{
+		UpdateScreenPatterns: func(ctx context.Context) {
+			agent.UpdateScreenPatterns(ctx, config.StateDir(), setting(config.Path(), func(s config.Settings) bool { return s.UpdateScreenPatterns }))
+		},
 		Providers: configuredProviders(),
 		Gates:     gatesFromEnv(),
 		Journal:   journal,
@@ -489,6 +495,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	go d.prLoop(ctx)
 	go d.noteOrphans(ctx)
 	var wg sync.WaitGroup
+	if d.o.UpdateScreenPatterns != nil {
+		wg.Go(func() { d.o.UpdateScreenPatterns(ctx) })
+	}
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
 	wg.Go(func() { d.webLoop(ctx) })

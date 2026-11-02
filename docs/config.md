@@ -89,6 +89,19 @@ recently used session first. The gaps add 1.1 seconds for a dozen agents.
 60000 and takes effect on the next daemon restart. Set it to 0 to start all
 agents at once. Shells and other non-agent panes start immediately.
 
+## Screen-detection updates
+
+`[updates] screen_patterns` defaults to `true`. The daemon fetches
+`internal/agent/screen_patterns.json` from pitwall's GitHub `main` at start
+and every 24 hours, with a 10-second timeout. Set it to `false` to stop
+fetching. The daemon reads this setting before each fetch.
+
+Validated rules in `screen-patterns.json` in the state directory still apply
+when fetching is off. The daemon rereads the cache every 24 hours, including
+files downloaded by another daemon. A failed check keeps the active rules.
+See [Troubleshooting](troubleshooting.md#screen-detection-patterns) for the
+version in use. `[updates] check` controls binary releases separately.
+
 ## Account profiles
 
 <img src="media/profiles.png" alt="New task and New tab offer Default, Personal, and Work account profiles" width="900">

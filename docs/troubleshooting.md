@@ -67,6 +67,23 @@ Include the JSON, pitwall and agent versions, and the expected state in a
 bug report. Matched lines can contain prompts, project paths and other
 private text. Review the JSON before sharing it.
 
+## Screen-detection patterns
+
+`daemon.log` records `screen patterns: version N in use` at start and at
+each daily check. An accepted update adds `download` or `cache` to the line.
+`pitwall logs` prints the log's path. Look for the newest version line for
+the daemon's process id.
+
+The daemon uses embedded rules until a newer file passes its schema, regex
+and bundled fixture checks. Downloads have a 10-second timeout and a 256 KiB
+limit. `screen patterns update:` or `screen patterns cache:` lines explain
+a rejection. The active rules keep working after a failure.
+
+The cache is `screen-patterns.json` in the state directory, next to
+`daemon.log`. To return to embedded rules, set `screen_patterns = false`
+under `[updates]`, remove that cache, and restart pitwall when your sessions can stop.
+Removing the cache alone does not replace the rules already in memory.
+
 ## Hooks after an upgrade
 
 Agent hooks run the `pitwall` on your PATH, not the daemon's binary. After an

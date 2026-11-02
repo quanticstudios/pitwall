@@ -30,7 +30,7 @@ type Config struct {
 	Font      Font        `toml:"font" doc:"Fonts: any installed family (see fc-list : family)."`
 	Layout    Layout      `toml:"layout" doc:"Spacing around panes, in dp."`
 	Term      Term        `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
-	Updates   Updates     `toml:"updates" doc:"Release updates."`
+	Updates   Updates     `toml:"updates" doc:"Release and screen-detection updates."`
 	Usage     Usage       `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Agents    AgentLimits `toml:"agents" doc:"Agents started from the task queue, and agents a usage limit stopped."`
 	Fleet     Fleet       `toml:"fleet" doc:"Fleet mode: lanes that start a preset by a task's size, a contract before every worker's brief, a timebox per lane, and what happens when a worker's CI keeps failing. See docs/usage.md."`
@@ -229,7 +229,8 @@ type Term struct {
 
 // Updates is [updates].
 type Updates struct {
-	Check *bool `toml:"check" doc:"Check GitHub for a newer release at start, every hour, and on regaining focus half an hour after the last check, and offer it with an Update button at the bottom of the sidebar. Release builds on Linux and macOS only"`
+	Check          *bool `toml:"check" doc:"Check GitHub for a newer release at start, every hour, and on regaining focus half an hour after the last check, and offer it with an Update button at the bottom of the sidebar. Release builds on Linux and macOS only"`
+	ScreenPatterns *bool `toml:"screen_patterns" doc:"Fetch screen-detection patterns from pitwall's GitHub repository at daemon start and daily. Cached patterns still apply when fetching is off"`
 }
 
 // Usage is [usage].
@@ -273,6 +274,8 @@ type Settings struct {
 	Scrollback int
 	// CheckUpdates looks for a newer release on GitHub.
 	CheckUpdates bool
+	// UpdateScreenPatterns fetches screen-detection patterns at start and daily.
+	UpdateScreenPatterns bool
 	// ShowCost shows token use in dollars next to the tokens.
 	ShowCost bool
 	// ReduceMotion turns the window's transitions off.
@@ -498,6 +501,7 @@ func LoadFile(path string) (Settings, []Problem) {
 		}
 	}
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check
+	s.UpdateScreenPatterns = c.Updates.ScreenPatterns == nil || *c.Updates.ScreenPatterns
 	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
 	s.ReduceMotion = c.Appear.ReduceMotion != nil && *c.Appear.ReduceMotion
 	s.RemoteControl = c.Appear.RemoteControl == nil || *c.Appear.RemoteControl

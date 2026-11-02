@@ -44,7 +44,7 @@ func TestExplainScreenEvidence(t *testing.T) {
 		rule     string
 		pattern  string
 	}{
-		{model.ProviderClaude, "✢ Nesting… (9s · ↓ 232 tokens)", model.StateWorking, "busy/spinner", spinner.String()},
+		{model.ProviderClaude, "✢ Nesting… (9s · ↓ 232 tokens)", model.StateWorking, "busy/spinner", activePatterns.Load().Common.BusyRegex[0]},
 		{model.ProviderCodex, "Do you want to proceed?\nEsc to cancel", model.StatePendingApproval, "form/esc to cancel", "esc to cancel"},
 		{model.ProviderPi, "Would you like to proceed?\nEsc to cancel", model.StatePlanReady, "plan/would you like to proceed", "would you like to proceed"},
 		{model.ProviderClaude, "Requests your input\nEsc to cancel", model.StateAwaitingInput, "input/requests your input", "requests your input"},
