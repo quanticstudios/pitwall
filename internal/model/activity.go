@@ -139,6 +139,10 @@ func SortActivities(a []Activity) {
 	})
 }
 
+// StateRank is state's rank in Aggregate's order, higher first: an error
+// above an approval above work above a finished turn.
+func StateRank(s AgentState) int { return statePriority[s] }
+
 // Aggregate returns the activity a workspace row shows, or nil.
 func Aggregate(a []Activity) *Activity {
 	if len(a) == 0 {

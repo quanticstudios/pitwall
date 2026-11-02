@@ -70,29 +70,31 @@ func (h *dragHarness) click(p f32.Point) []Event {
 }
 
 func TestAgentCount(t *testing.T) {
-	ap := func(s model.AgentState) model.AgentPane {
-		if s == "" {
-			return model.AgentPane{}
+	acts := func(ss ...model.AgentState) []model.Activity {
+		var out []model.Activity
+		for _, s := range ss {
+			out = append(out, model.Activity{State: s})
 		}
-		return model.AgentPane{Activity: &model.Activity{State: s}}
+		return out
 	}
 	for _, c := range []struct {
-		aps  []model.AgentPane
+		n    int
+		acts []model.Activity
 		want string
 	}{
-		{[]model.AgentPane{ap(model.StateWorking), ap(model.StatePendingApproval), ap(model.StateCompleted)}, "3 agents · 1 approval"},
-		{[]model.AgentPane{ap(model.StateWorking), ap(model.StateConnecting)}, "2 agents · 2 working"},
-		{[]model.AgentPane{ap(model.StateError), ap(model.StateError), ap("")}, "3 agents · 2 errors"},
-		{[]model.AgentPane{ap(""), ap("")}, "2 agents"},
+		{3, acts(model.StateWorking, model.StatePendingApproval, model.StateCompleted), "3 agents · 1 approval"},
+		{2, acts(model.StateWorking, model.StateConnecting), "2 agents · 2 working"},
+		{3, acts(model.StateError, model.StateError), "3 agents · 2 errors"},
+		{2, nil, "2 agents"},
 	} {
-		if got := agentCount(c.aps); got != c.want {
+		if got := subCount(c.n, 0, c.acts); got != c.want {
 			t.Errorf("%q, want %q", got, c.want)
 		}
 	}
 }
 
 // TestSubRows: only the tab with two or more agents gets sub-rows, in its
-// layout's order, shells left out; folding hides them.
+// layout's order, shells left out; folding hides them but the one asking.
 func TestSubRows(t *testing.T) {
 	h := newSubHarness(t)
 	var got []string
@@ -102,7 +104,7 @@ func TestSubRows(t *testing.T) {
 	if want := []string{"su1", "sm", "ap1", "ap2", "ap3", "su2"}; !slices.Equal(got, want) {
 		t.Fatalf("laid out %v, want %v", got, want)
 	}
-	if paneTitle(h.s.shownSubs(newView(layout.Context{}, nil, &h.st, "", ""), "m")[2]) != "write the docs" {
+	if subTitle(h.s.shownSubs(newView(layout.Context{}, nil, &h.st, "", ""), "m")[2]) != "write the docs" {
 		t.Error("an untitled pane is not named by its prompt")
 	}
 	chip := h.at("m", 40).Add(f32.Pt(-100+8+32+6, 0)) // the fold chip on line 2, past listPad
@@ -114,7 +116,7 @@ func TestSubRows(t *testing.T) {
 	for _, e := range h.s.elems {
 		got = append(got, e.key())
 	}
-	if want := []string{"su1", "sm", "su2"}; !slices.Equal(got, want) {
+	if want := []string{"su1", "sm", "ap2", "su2"}; !slices.Equal(got, want) {
 		t.Fatalf("folded: %v, want %v", got, want)
 	}
 }
@@ -131,8 +133,9 @@ func TestSubRowClick(t *testing.T) {
 }
 
 // TestSubRowAnswers: with sub-rows, Allow and Deny sit on the asking
-// pane's sub-row and answer that pane; the tab row has none. A tab with
-// one agent, or with its sub-rows folded, answers on its own row.
+// pane's sub-row and answer that pane; the tab row has none, folded or
+// not, as the asking sub-row stays. A tab with one agent answers on its
+// own row.
 func TestSubRowAnswers(t *testing.T) {
 	h := newSubHarness(t)
 	v := newView(layout.Context{}, theme.Dark(), &h.st, "", "u1")
@@ -142,11 +145,11 @@ func TestSubRowAnswers(t *testing.T) {
 	if !h.s.answering(v, "u2", false, v.activity["u2"]) {
 		t.Error("a tab with one asking agent has no Allow on its row")
 	}
-	ap, _ := v.agentPane("m", "p2")
-	if !h.s.subAnswering(ap) {
+	e2, _ := v.sub("m", "p2")
+	if !h.s.subAnswering(v, e2) {
 		t.Fatal("the asking sub-row has no Allow")
 	}
-	if ap, _ := v.agentPane("m", "p1"); h.s.subAnswering(ap) {
+	if e1, _ := v.sub("m", "p1"); h.s.subAnswering(v, e1) {
 		t.Error("a working sub-row has Allow")
 	}
 	// Find Allow on p2's second line and click it.
@@ -171,8 +174,8 @@ func TestSubRowAnswers(t *testing.T) {
 		t.Fatalf("Allow sent %v, want %v", evs, want)
 	}
 	h.s.folded = map[string]bool{"m": true}
-	if !h.s.answering(v, "m", false, v.activity["m"]) {
-		t.Error("a folded tab does not answer on its row")
+	if h.s.answering(v, "m", false, v.activity["m"]) || len(h.s.shownSubs(v, "m")) != 1 {
+		t.Error("a folded tab answers on its row, or hides the asking sub-row")
 	}
 }
 

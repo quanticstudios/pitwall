@@ -41,10 +41,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	pad := gtx.Dp(8)
 	l1, l2 := rowLines(gtx, th)
 	h := rowHeight(gtx, th) + statusHeight(gtx, th, ws.Status)
-	fleet := len(v.kids[ws.ID]) > 0
-	if fleet {
-		h += fleetHeight(gtx, th)
-	}
+	subs := len(v.subsOf(ws.ID)) > 0
 	rect := image.Rect(0, 0, w, h)
 	rr := gtx.Dp(8)
 
@@ -100,11 +97,13 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	showMore := !ghost && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
 	x := (btn-glyph)/2 + glyph/4 // the button's edge to the ×'s edge
-	answering := s.answering(v, ws.ID, ghost, a)
-	planning := s.planning(v, ws.ID, ghost, a)
+	// Allow and Deny answer the tab's own agent, not a worker folded in.
+	own := v.ownActivity(ws.ID)
+	answering := s.answering(v, ws.ID, ghost, own)
+	planning := s.planning(v, ws.ID, ghost, own)
 	answerW := 0
 	if answering || planning {
-		answerW = answerSize(gtx, th, *a, base, planning).X
+		answerW = answerSize(gtx, th, *own, base, planning).X
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
@@ -171,7 +170,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			where = model.ShortPath(v.st.LivePath(ws))
 		}
 		var line []item
-		if v.agents[ws.ID] != nil {
+		if subs {
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions {
 				return s.foldChip(gtx, v, ws.ID, muted, ghost, answering)
 			}})
@@ -185,7 +184,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// Allow and Deny or the agent count leave it a few letters at most,
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
-		if !answering && !planning && v.agents[ws.ID] == nil && where != title {
+		if !answering && !planning && !subs && where != title {
 			// Beside the inbox's group tag it shows whole or not at all.
 			line = append(line, item{shrink: !v.inbox, opt: v.inbox, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
@@ -276,12 +275,6 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			off.Pop()
 			y += l2
 		}
-		if fleet {
-			off = op.Offset(image.Pt(left, y)).Push(gtx.Ops)
-			gtx.Constraints = layout.Exact(image.Pt(inner, fleetHeight(gtx, th)))
-			s.fleetStrip(gtx, v, ws.ID, base, ghost)
-			off.Pop()
-		}
 		return layout.Dimensions{Size: rect.Size()}
 	}
 	cg := gtx
@@ -303,7 +296,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		// never move under the pointer.
 		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
 		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
-		answerButtons(gtx, th, &r.allow, &r.deny, *a, base)
+		answerButtons(gtx, th, &r.allow, &r.deny, *own, base)
 		off.Pop()
 	}
 	if planning {

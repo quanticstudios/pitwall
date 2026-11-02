@@ -191,12 +191,12 @@ keys.
 
 | Keys                       | Action                                                        |
 | -------------------------- | ------------------------------------------------------------- |
-| Up / Down, k / j           | Previous / next row: group headers, tabs and their agents     |
+| Up / Down, k / j           | Previous / next row: group headers, tabs, their agents and workers |
 | Home / End                 | First / last row                                              |
 | PageUp / PageDown          | A page up / down                                              |
-| Right, l                   | Open a closed group or a tab's folded agents, else go into it |
-| Left, h                    | Close an open group or fold a tab's agents, else go up a level |
-| Enter                      | Show the tab, or focus the agent's pane, and go back to it; on a group, open or close it |
+| Right, l                   | Open a closed group or a tab's folded agents and workers, else go into it |
+| Left, h                    | Close an open group or fold a tab's agents and workers, else go up a level |
+| Enter                      | Show the tab or worker, or focus the agent's pane, and go back to it; on a group, open or close it |
 | Space                      | Show the tab and stay in the sidebar                          |
 | Shift+F10, Menu            | The row's menu; Up / Down, Enter, Right into Move to group, Esc |
 | F2                         | Rename the tab or group                                       |

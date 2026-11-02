@@ -189,15 +189,17 @@ func (n *nav) switcherVisible() bool { return n.altHeld || n.pinned }
 func (n *nav) ordered(st *model.State) []model.Workspace { return orderedIn(st, n.session) }
 
 // visible is the session's tabs in the order the sidebar's view shows
-// them: the inbox's rows while it shows, else ordered.
+// them: the inbox's rows while it shows, each followed by its workers,
+// else ordered.
 func (n *nav) visible(st *model.State) []model.Workspace {
 	if n.inbox == nil || !n.inbox() || n.rows == nil {
 		return n.ordered(st)
 	}
+	kids := st.Workers(n.session)
 	var out []model.Workspace
 	for _, id := range n.rows(st) {
 		if w := findWorkspace(st, id); w != nil {
-			out = append(out, *w)
+			out = append(append(out, *w), kids[id]...)
 		}
 	}
 	return out
@@ -417,13 +419,13 @@ func (n *nav) selectWorkspace(st *model.State, id, pane string) {
 // cycleWorkspace moves d tabs in sidebar order, wrapping, past the workers
 // of a tab whose workers the sidebar folds. With a hold
 // modifier and the switcher hidden it stays in the tab's group, as aide's
-// Alt+J/K do; otherwise it crosses groups. The inbox, which folds nothing
-// and mixes groups, cycles through all its rows.
+// Alt+J/K do; otherwise it crosses groups. The inbox, which mixes groups,
+// cycles through all its rows and their unfolded workers.
 func (n *nav) cycleWorkspace(st *model.State, d int) {
 	inbox := n.inbox != nil && n.inbox()
 	ws := slices.DeleteFunc(n.visible(st), func(w model.Workspace) bool {
 		r := st.Root(w)
-		return !inbox && r != "" && w.ID != n.workspace && n.folded != nil && n.folded(r)
+		return r != "" && w.ID != n.workspace && n.folded != nil && n.folded(r)
 	})
 	if n.bind().Hold != 0 && !n.switcherVisible() && !inbox {
 		cur := findWorkspace(st, n.workspace)

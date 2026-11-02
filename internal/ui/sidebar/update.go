@@ -182,8 +182,8 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	}
 	for _, ws := range v.st.Workspaces {
 		r := s.row(ws.ID)
-		// The agent count folds the sub-rows; the row under it takes the
-		// same click, which must not also open the tab.
+		// The count folds the sub-rows; the row under it takes the same
+		// click, which must not also open the tab.
 		folding := false
 		for r.fold.Clicked(gtx) {
 			if !dropped {
@@ -191,15 +191,6 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 					s.folded = map[string]bool{}
 				}
 				s.folded[ws.ID] = !s.folded[ws.ID]
-				folding = true
-			}
-		}
-		for r.kids.Clicked(gtx) {
-			if !dropped {
-				if s.kidsOpen == nil {
-					s.kidsOpen = map[string]bool{}
-				}
-				s.kidsOpen[ws.ID] = !s.kidsOpen[ws.ID]
 				folding = true
 			}
 		}

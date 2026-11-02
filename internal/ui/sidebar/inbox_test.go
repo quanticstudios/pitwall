@@ -179,28 +179,42 @@ func inboxState(now time.Time) model.State {
 	}
 }
 
-// The inbox lists every live tab once, workers too, in sections; Active
-// puts what needs the user first; the shell sits last on its own.
+// The inbox lists every live tab once in sections, a worker under its
+// parent's row rather than as one of its own; Active puts what needs the
+// user first, the parent of an asking worker among it; the shell sits
+// last on its own.
 func TestInboxOrder(t *testing.T) {
 	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	st := inboxState(now)
 	st.Workspace("u").Settled = now
 	s := Sidebar{Inbox: true, WorkingShelf: true}
 	v := s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
-	if got, want := s.order(v), []string{"k", "b", "a", "u", "s"}; !slices.Equal(got, want) {
+	if got, want := s.order(v), []string{"b", "a", "u", "s"}; !slices.Equal(got, want) {
 		t.Fatalf("order %v, want %v", got, want)
 	}
-	for id, want := range map[string]section{"k": secActive, "b": secActive, "a": secWorking, "u": secSettled, "s": secShells} {
+	for id, want := range map[string]section{"b": secActive, "a": secWorking, "u": secSettled, "s": secShells} {
 		if v.secOf[id] != want {
 			t.Errorf("%s in %s, want %s", id, sectionTitle[v.secOf[id]], sectionTitle[want])
 		}
 	}
-	if len(v.kids) != 0 {
-		t.Error("workers still hang under their tab")
+	if _, ok := v.secOf["k"]; ok {
+		t.Error("the worker k has a row of its own")
 	}
+	if v.need["b"] != statusApproval || v.activity["b"].WorkspaceID != "k" {
+		t.Errorf("b, done over its asking worker, needs %d with %+v", v.need["b"], v.activity["b"])
+	}
+	if subs := s.shownSubs(v, "b"); len(subs) != 1 || subs[0].id() != "k" {
+		t.Errorf("b's sub-rows %v, want its worker k", subs)
+	}
+	st.Activities[3].State = model.StateWorking // k works, b is done
+	v = s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
+	if v.secOf["b"] != secWorking {
+		t.Errorf("b, done over its working worker, in %s, want Working", sectionTitle[v.secOf["b"]])
+	}
+	st.Activities[3].State = model.StatePendingApproval
 	s.WorkingShelf = false
 	v = s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
-	if got, want := s.order(v), []string{"k", "a", "b", "u", "s"}; !slices.Equal(got, want) {
+	if got, want := s.order(v), []string{"b", "a", "u", "s"}; !slices.Equal(got, want) {
 		t.Fatalf("without the shelf: %v, want %v", got, want)
 	}
 	if rows := s.Rows(&st, "", ""); !slices.Equal(rows, s.order(v)) {

@@ -276,7 +276,7 @@ scoop install pitwall</code></pre>
       <div class="feature">
         <div class="text">
           <h3>Run a fleet of workers</h3>
-          <p><strong>Ask Claude Code or Codex to split a job and it starts one worker per task, each in its own worktree, under its own tab.</strong> The orchestrator's row gets a bar with a segment per worker in its state's color, and counts of how many need you, failed, are working and are done. The workers start folded into that row, so ten of them take one row; click the bar to open the tree and watch or type into any of them.</p>
+          <p><strong>Ask Claude Code or Codex to split a job and it starts one worker per task, each in its own worktree, under its own tab.</strong> Each worker gets a small row under the orchestrator's, with its state and Allow and Deny when it asks. The orchestrator's row counts them, as in "3 workers · 1 approval", and takes the most urgent state among them. Click the count to fold them away; a worker that asks for you stays. Click a worker's row to watch or type into it.</p>
           <p>The orchestrator waits with <code>pitwall wait --children</code>. It stops at the first worker that asks a question, and <kbd>Ctrl+Shift+U</kbd> takes you to it. When a worker's pull request merges, Archive removes its tab, worktree and branch.</p>
           <p><code>pitwall hooks install</code> teaches both agents these commands, so "split this across three workers" is all you have to say.</p>
           <pre class="term"><code>pitwall worktree new invoice-pdf -- \

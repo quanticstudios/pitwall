@@ -67,15 +67,15 @@ type cursor struct {
 	inFly bool
 }
 
-// Focus gives the sidebar the keyboard: the cursor starts on the agent
+// Focus gives the sidebar the keyboard: the cursor starts on the
 // sub-row of active that asks for an answer, else on active's row, else on
 // the header of its collapsed group.
 func (s *Sidebar) Focus(st *model.State, session, active string) {
 	v, rows := s.cursorView(st, session, active)
 	s.cur = cursor{on: true, kind: 's', id: active, moved: true, page: s.cur.page}
-	for _, ap := range s.shownSubs(v, active) {
-		if a := ap.Activity; a != nil && (a.State == model.StatePendingApproval || a.State == model.StateAwaitingInput) {
-			s.cur.kind, s.cur.id, s.cur.parent = 'a', ap.Pane.ID, active
+	for _, e := range s.shownSubs(v, active) {
+		if a := v.act(e); a != nil && (a.State == model.StatePendingApproval || a.State == model.StateAwaitingInput) {
+			s.cur.kind, s.cur.id, s.cur.parent = 'a', e.id(), active
 			break
 		}
 	}
@@ -107,10 +107,10 @@ func (s *Sidebar) Asking(st *model.State, session, active string) *model.Activit
 	if s.find(rows) < 0 {
 		return nil
 	}
-	a := v.activity[s.cur.id]
+	a := v.ownActivity(s.cur.id)
 	if s.cur.kind == 'a' {
-		ap, _ := v.agentPane(s.cur.parent, s.cur.id)
-		a = ap.Activity
+		e, _ := v.sub(s.cur.parent, s.cur.id)
+		a = v.act(e)
 	}
 	if s.cur.kind == 'g' || a == nil || !remote.Answerable(*a) {
 		return nil
@@ -145,7 +145,7 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 	r := rows[i]
 	tab := r.id // the tab F2, Delete and the menu act on
 	if r.kind == 'a' {
-		tab = r.parent
+		tab = subTab(r)
 	}
 	page := cmp.Or(s.cur.page, 10) // before the first frame
 	switch e.Name {
@@ -165,7 +165,7 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 		switch {
 		case r.kind == 'g' && !s.isExpanded(r.id):
 			s.setExpanded(r.id, true)
-		case r.kind == 's' && v.agents[r.id] != nil && s.folded[r.id]:
+		case r.kind == 's' && s.folded[r.id] && len(v.subsOf(r.id)) > 0:
 			delete(s.folded, r.id)
 		case i+1 < len(rows) && s.childOf(rows[i+1], r):
 			s.moveTo(rows, i+1)
@@ -174,7 +174,7 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 		switch {
 		case r.kind == 'g' && s.isExpanded(r.id):
 			s.setExpanded(r.id, false)
-		case r.kind == 's' && len(s.shownSubs(v, r.id)) > 0:
+		case r.kind == 's' && !s.folded[r.id] && len(s.shownSubs(v, r.id)) > 0:
 			if s.folded == nil {
 				s.folded = map[string]bool{}
 			}
@@ -192,7 +192,11 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 			s.click(v, r.id, 0)
 			back = e.Name != key.NameSpace
 		case 'a':
-			s.clickPane(v, r.parent, r.id, 0)
+			if r.worker {
+				s.click(v, r.id, 0)
+			} else {
+				s.clickPane(v, r.parent, r.id, 0)
+			}
 			back = e.Name != key.NameSpace
 		}
 	case key.NameF10, MenuKey:
@@ -368,8 +372,8 @@ func (s *Sidebar) rowsOf(v *view) []elem {
 	var out []elem
 	tab := func(id, g string) {
 		out = append(out, elem{kind: 's', id: id, group: g})
-		for _, ap := range s.shownSubs(v, id) {
-			out = append(out, elem{kind: 'a', id: ap.Pane.ID, parent: id, group: g})
+		for _, e := range s.shownSubs(v, id) {
+			out = append(out, elem{kind: 'a', id: e.id(), parent: id, worker: e.worker != nil, group: g})
 		}
 	}
 	if v.inbox {

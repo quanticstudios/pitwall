@@ -183,13 +183,10 @@ type Sidebar struct {
 	queue    []queueBlock
 	taskRows map[string]*taskRow
 
-	// Agent sub-rows: each agent pane's row state by pane id, and the tabs
-	// whose sub-rows are folded away.
-	subs   map[string]*subRow
-	folded map[string]bool
-	// The fleets whose workers hang under their strip; the rest are folded
-	// into it (fleet.go).
-	kidsOpen map[string]bool
+	// Sub-rows: each agent pane's or worker's row state by its id, and
+	// the tabs whose sub-rows are folded away.
+	subs     map[string]*subRow
+	folded   map[string]bool
 	favicons map[string]*favicon // repo root: its icon, nil when it has none
 	roots    map[string]string   // folder: the repo root above it, "" outside one
 
@@ -253,10 +250,8 @@ type rowState struct {
 	plan               widget.Clickable // a plan's Request changes…
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	port               widget.Clickable // the port chip: opens the dev server
-	fold               widget.Clickable // the agent count, which folds the sub-rows
+	fold               widget.Clickable // the count, which folds the sub-rows
 	foldT              anim.Value       // its chevron's turn
-	kids               widget.Clickable // a fleet's strip, which folds its workers
-	kidsT              anim.Value       // its chevron's turn
 	ctx                int              // tag for right- and middle-click
 	easedFill
 }
@@ -421,7 +416,8 @@ type view struct {
 	agents        map[string][]model.AgentPane // a live tab's agent panes, when it has two or more
 	queued        map[string][]model.Task      // the session's queued tasks by the group they show under, "" for none
 	remote        map[string]bool              // a tab with an agent under remote control
-	kids          map[string][]model.Workspace // a live tab's workers, which hang under it (model.State.Root)
+	kids          map[string][]model.Workspace // a live tab's workers, its sub-rows after its agents' (model.State.Root)
+	own           map[string]*model.Activity   // a tab with workers: its own activity, which activity mixes theirs into
 	rootOf        map[string]string            // a live worker's root, the tab it hangs under
 	status        map[string]string            // a live tab's status line (pitwall status)
 	session       string
@@ -505,17 +501,26 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 			v.agents[ws.ID] = aps
 		}
 	}
+	v.own = map[string]*model.Activity{}
 	for r, kids := range v.kids {
 		// An orchestrator whose own turn ended reads as Watching while a
 		// worker works, not as a green Done above blue workers.
 		a := v.activity[r]
-		if a == nil || a.State != model.StateCompleted || !slices.ContainsFunc(kids, func(k model.Workspace) bool { return model.Pulses(v.activity[k.ID]) }) {
-			continue
+		v.own[r] = a
+		if a != nil && a.State == model.StateCompleted && slices.ContainsFunc(kids, func(k model.Workspace) bool { return model.Pulses(v.activity[k.ID]) }) {
+			w := *a
+			w.State, w.Review = model.StateWatching, false
+			v.activity[r] = &w
+			delete(v.unseen, r)
 		}
-		w := *a
-		w.State, w.Review = model.StateWatching, false
-		v.activity[r] = &w
-		delete(v.unseen, r)
+		// Then the row shows the most urgent of it and its workers, so a
+		// worker that asks shows on it folded or not; a tie stays its own.
+		for _, k := range kids {
+			v.activity[r] = urgent(v.activity[r], v.activity[k.ID])
+			if u := urgent(v.unseen[r], v.unseen[k.ID]); u != nil {
+				v.unseen[r] = u
+			}
+		}
 	}
 	for _, id := range st.TopOrder(session) {
 		if _, live := v.activity[id]; live && v.rootOf[id] == "" || groups[id] {
@@ -535,6 +540,23 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 	return v
 }
 
+// urgent is b when its state ranks above a's (model.StateRank), else a.
+func urgent(a, b *model.Activity) *model.Activity {
+	if b != nil && (a == nil || model.StateRank(b.State) > model.StateRank(a.State)) {
+		return b
+	}
+	return a
+}
+
+// ownActivity is tab id's own agents' activity: v.activity, which for a
+// tab with workers shows theirs too, before they were folded in.
+func (v *view) ownActivity(id string) *model.Activity {
+	if a, ok := v.own[id]; ok {
+		return a
+	}
+	return v.activity[id]
+}
+
 // groupOf is the group a live session shows under, "" when ungrouped.
 func (v *view) groupOf(id string) string {
 	if r := v.rootOf[id]; r != "" {
@@ -550,26 +572,21 @@ func (v *view) groupOf(id string) string {
 	return ""
 }
 
-// order is the sessions top to bottom as drawn: the top-level items in
-// order, an expanded group's sessions at its place; or the inbox's.
+// order is the tab rows top to bottom as drawn: the top-level items in
+// order, an expanded group's tabs at its place; or the inbox's. Workers
+// are sub-rows, not rows, and are left out.
 func (s *Sidebar) order(v *view) []string {
 	if v.inbox {
 		return inboxOrder(v)
 	}
 	var out []string
-	add := func(id string) {
-		out = append(out, id)
-		for _, k := range s.kidsShown(v, id) {
-			out = append(out, k.ID)
-		}
-	}
 	for _, id := range v.top {
 		switch {
 		case !v.groups[id]:
-			add(id)
+			out = append(out, id)
 		case s.isExpanded(id):
 			for _, ws := range v.byProject[id] {
-				add(ws.ID)
+				out = append(out, ws.ID)
 			}
 		}
 	}
@@ -592,7 +609,7 @@ func (s *Sidebar) follow(v *view) {
 }
 
 // Rows is session's tabs top to bottom as the sidebar lists them, without
-// detached tabs and the tabs of collapsed groups: the rows goto_tab_N
+// detached tabs, workers and the tabs of collapsed groups: the rows goto_tab_N
 // counts; the inbox's rows while it shows. Like Layout, it expands the
 // active tab's group when the active tab moved to another one, so the
 // count holds while the sidebar is hidden.
@@ -602,6 +619,10 @@ func (s *Sidebar) Rows(st *model.State, session, active string) []string {
 	s.follow(v)
 	return s.order(v)
 }
+
+// KidsFolded reports whether tab id's sub-rows, its workers among them,
+// are folded into its row.
+func (s *Sidebar) KidsFolded(id string) bool { return s.folded[id] }
 
 func (s *Sidebar) isExpanded(projectID string) bool { return s.expanded[projectID] }
 
@@ -617,7 +638,7 @@ func (s *Sidebar) project(id string) *projectState {
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
 	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() ||
-		r.pr.Hovered() || r.archive.Hovered() || r.fold.Hovered() || r.kids.Hovered()
+		r.pr.Hovered() || r.archive.Hovered() || r.fold.Hovered()
 }
 
 func (s *Sidebar) row(id string) *rowState {

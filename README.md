@@ -101,11 +101,12 @@ your own network.
 ### Run a fleet of workers
 
 **Ask Claude Code or Codex to split a job and it starts one worker per
-task, each in its own worktree, under its own tab.** The orchestrator's row
-gets a bar with a segment per worker in its state's color, and counts of
-how many need you, failed, are working and are done. The workers start
-folded into that row, so ten of them take one row; click the bar to open
-the tree and watch or type into any of them.
+task, each in its own worktree, under its own tab.** Each worker gets a
+small row under the orchestrator's, with its state and Allow and Deny when
+it asks. The orchestrator's row counts them, as in "3 workers · 1
+approval", and takes the most urgent state among them. Click the count to
+fold them away; a worker that asks for you stays. Click a worker's row to
+watch or type into it.
 
 The orchestrator waits with `pitwall wait --children`. It stops at the
 first worker that asks a question, and Ctrl+Shift+U takes you to it. When a

@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/io/event"
 	"gioui.org/io/key"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -23,9 +25,10 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// A tab with two or more agent panes lists them under its row, one
-// compact sub-row each: the agent's mark, the pane's own title, its state
-// pill, and Allow and Deny on the one asking.
+// A tab lists under its row, one compact sub-row each, its agent panes
+// when it has two or more, then the worker tabs that hang under it
+// (model.State.Root): the agent's mark, the pane's or worker's title, its
+// state pill, and Allow and Deny on the one asking.
 
 // subIndent is where a sub-row starts in its tab's width, past the tab's
 // mark, so the sub-rows' marks line up with the tab's title.
@@ -34,11 +37,66 @@ const subIndent unit.Dp = 24
 // chevronDur is how long a disclosure chevron takes to turn.
 const chevronDur = 150 * time.Millisecond
 
-// subRow is an agent pane's sub-row: its click area, Allow and Deny, and
-// its eased fill.
+// subRow is a sub-row's input state: its click area, Allow and Deny, its
+// tag for a right click, and its eased fill.
 type subRow struct {
 	click, allow, deny widget.Clickable
+	ctx                int
 	easedFill
+}
+
+// subEntry is one sub-row: an agent pane of its tab, or a worker tab.
+type subEntry struct {
+	pane   model.AgentPane
+	worker *model.Workspace // nil for an agent pane
+}
+
+// id is the pane's id, or the worker tab's.
+func (e subEntry) id() string {
+	if e.worker != nil {
+		return e.worker.ID
+	}
+	return e.pane.Pane.ID
+}
+
+// act is the entry's activity: the pane's, or the worker tab's row's.
+func (v *view) act(e subEntry) *model.Activity {
+	if e.worker != nil {
+		return v.activity[e.worker.ID]
+	}
+	return e.pane.Activity
+}
+
+// subsOf is tab id's sub-rows, folded or not: its agent panes when it has
+// two or more, then its workers.
+func (v *view) subsOf(id string) []subEntry {
+	var out []subEntry
+	for _, ap := range v.agents[id] {
+		out = append(out, subEntry{pane: ap})
+	}
+	for i := range v.kids[id] {
+		out = append(out, subEntry{worker: &v.kids[id][i]})
+	}
+	return out
+}
+
+// sub is tab tab's sub-row id.
+func (v *view) sub(tab, id string) (subEntry, bool) {
+	for _, e := range v.subsOf(tab) {
+		if e.id() == id {
+			return e, true
+		}
+	}
+	return subEntry{}, false
+}
+
+// subTab is the tab a sub-row's keys and menu act on: the worker itself,
+// or an agent pane's tab.
+func subTab(e elem) string {
+	if e.worker {
+		return e.id
+	}
+	return e.parent
 }
 
 func (r *subRow) hovered() bool { return r.click.Hovered() || r.allow.Hovered() || r.deny.Hovered() }
@@ -55,18 +113,33 @@ func (s *Sidebar) sub(pane string) *subRow {
 	return r
 }
 
-// shownSubs is tab id's sub-rows as drawn: its agent panes, unless it has
-// fewer than two or the user folded them.
-func (s *Sidebar) shownSubs(v *view, id string) []model.AgentPane {
-	if s.folded[id] {
-		return nil
+// shownSubs is tab id's sub-rows as drawn: all of them, or while the
+// user folded them only those that ask for an answer and the worker on
+// screen.
+func (s *Sidebar) shownSubs(v *view, id string) []subEntry {
+	all := v.subsOf(id)
+	if !s.folded[id] {
+		return all
 	}
-	return v.agents[id]
+	var out []subEntry
+	for _, e := range all {
+		if asking(v.act(e)) || e.worker != nil && e.worker.ID == v.active {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
-// subAnswering reports whether ap's sub-row shows Allow and Deny.
-func (s *Sidebar) subAnswering(ap model.AgentPane) bool {
-	return s.Answers && ap.Activity != nil && remote.Answerable(*ap.Activity)
+// asking reports whether a waits on the user's answer: an approval, a
+// question or a plan.
+func asking(a *model.Activity) bool {
+	return a != nil && (a.State == model.StatePendingApproval || a.State == model.StateAwaitingInput || a.State == model.StatePlanReady)
+}
+
+// subAnswering reports whether e's sub-row shows Allow and Deny.
+func (s *Sidebar) subAnswering(v *view, e subEntry) bool {
+	a := v.act(e)
+	return s.Answers && a != nil && remote.Answerable(*a)
 }
 
 // answerHeight is the Allow and Deny buttons' height: answerH, or more
@@ -124,16 +197,11 @@ var stateNouns = map[model.AgentState][2]string{
 	model.StateCompleted:       {"done", "done"},
 }
 
-// agentCount is a tab row's summary of its agent panes: how many, and how
-// many share the most urgent state, "3 agents · 1 approval".
-func agentCount(aps []model.AgentPane) string {
-	out := fmt.Sprintf("%d agents", len(aps))
-	var acts []model.Activity
-	for _, ap := range aps {
-		if ap.Activity != nil {
-			acts = append(acts, *ap.Activity)
-		}
-	}
+// subCount is a tab row's summary of its sub-rows' activities acts: how
+// many agent panes and workers, and how many of them all share the most
+// urgent state, "2 agents · 3 workers · 1 approval".
+func subCount(agents, workers int, acts []model.Activity) string {
+	out := subTotals(agents, workers)
 	top := model.Aggregate(acts)
 	if top == nil {
 		return out
@@ -154,31 +222,47 @@ func agentCount(aps []model.AgentPane) string {
 	return fmt.Sprintf("%s · %d %s", out, n, noun[1])
 }
 
-// agentPane is pane of tab id from the view.
-func (v *view) agentPane(id, pane string) (model.AgentPane, bool) {
-	for _, ap := range v.agents[id] {
-		if ap.Pane.ID == pane {
-			return ap, true
-		}
+// subTotals is "2 agents · 3 workers", either left out at zero.
+func subTotals(agents, workers int) string {
+	var parts []string
+	if agents > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s", agents, plural(agents, "agent", "agents")))
 	}
-	return model.AgentPane{}, false
+	if workers > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s", workers, plural(workers, "worker", "workers")))
+	}
+	return strings.Join(parts, " · ")
 }
 
-// subRowAt draws agent pane ap's sub-row under tab, the lifted copy when
-// ghost, and reports whether its pill animates.
-func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, ap model.AgentPane, ghost bool) (layout.Dimensions, bool) {
+// familyCount is subCount for tab id's sub-rows.
+func (v *view) familyCount(id string) string {
+	var acts []model.Activity
+	for _, e := range v.subsOf(id) {
+		if a := v.act(e); a != nil {
+			acts = append(acts, *a)
+		}
+	}
+	return subCount(len(v.agents[id]), len(v.kids[id]), acts)
+}
+
+// subRowAt draws sub-row e under tab, the lifted copy when ghost, and
+// reports whether its pill animates.
+func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, ghost bool) (layout.Dimensions, bool) {
 	th := v.th
-	r := s.sub(ap.Pane.ID)
-	a := ap.Activity
-	answering := !ghost && s.subAnswering(ap)
+	r := s.sub(e.id())
+	a := v.act(e)
+	answering := !ghost && s.subAnswering(v, e)
 	w := gtx.Constraints.Max.X
 	h := subHeight(gtx, th, answering)
 	line, pad, inset := gtx.Sp(th.Sp(theme.Small)*1.5), gtx.Dp(3), gtx.Dp(8)
 	rect := image.Rect(gtx.Dp(subIndent), 0, w, h)
 	size := rect.Size()
 	rr := gtx.Dp(theme.RadiusControl)
-	focused := !ghost && tab == v.active && ap.Pane.ID == s.Pane
-	hovered := !ghost && r.hovered()
+	focused := !ghost && tab == v.active && e.id() == s.Pane
+	if e.worker != nil {
+		focused = !ghost && e.worker.ID == v.active
+	}
+	hovered := !ghost && (r.hovered() || s.menuWS == e.id())
 	base := th.Sidebar
 	switch {
 	case ghost, hovered:
@@ -186,7 +270,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, ap model.Age
 	case focused:
 		base = theme.Mix(th.Sidebar, th.Primary, 0.08)
 	}
-	cursor := !ghost && s.cursorOn('a', ap.Pane.ID)
+	cursor := !ghost && s.cursorOn('a', e.id())
 	if cursor {
 		base = cursorFill(th, base, focused)
 	}
@@ -216,11 +300,12 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, ap model.Age
 			col = th.Fg
 		}
 		items := []item{
-			{w: func(gtx layout.Context) layout.Dimensions {
-				return AgentMark(gtx, paneAgent(ap), gtx.Dp(12), th.Fg)
-			}},
+			{w: func(gtx layout.Context) layout.Dimensions { return s.subMark(gtx, v, e, base) }},
 			{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, paneTitle(ap))
+				if e.worker != nil && s.renaming == e.worker.ID && !ghost {
+					return s.renameField(gtx, th)
+				}
+				return label(gtx, th, medium(th.UIFont), th.Sp(theme.Small), col, subTitle(e))
 			}},
 		}
 		if a != nil {
@@ -250,13 +335,52 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, ap model.Age
 		content(cg)
 		return layout.Dimensions{Size: image.Pt(w, h)}, false
 	}
+	area := clip.Rect{Max: size}.Push(gtx.Ops)
+	event.Op(gtx.Ops, &r.ctx)
 	clickable(cg, &r.click, content)
+	area.Pop()
 	if answering {
 		o := op.Offset(image.Pt(size.X-inset-answerW, pad+line+pad)).Push(gtx.Ops)
 		answerButtons(gtx, th, &r.allow, &r.deny, *a, base)
 		o.Pop()
 	}
+	if e.worker != nil && s.menuWS == e.worker.ID {
+		// A worker's menu is its tab's, below its sub-row's right end; the
+		// menu places itself from where it is drawn, at the anchor.
+		btn := gtx.Dp(24)
+		pos := image.Pt(size.X-btn, 0)
+		at := s.rowAt.Add(rect.Min).Add(pos)
+		o := op.Offset(pos).Push(gtx.Ops)
+		m := op.Record(gtx.Ops)
+		s.menu(gtx, v, *e.worker, image.Rectangle{Min: at, Max: at.Add(image.Pt(btn, line+2*pad))})
+		op.Defer(gtx.Ops, m.Stop())
+		o.Pop()
+	}
 	return layout.Dimensions{Size: image.Pt(w, h)}, model.Pulses(a)
+}
+
+// subTitle is what a sub-row calls its pane or worker.
+func subTitle(e subEntry) string {
+	if e.worker != nil {
+		return Title(*e.worker)
+	}
+	return paneTitle(e.pane)
+}
+
+// subMark is a sub-row's 12dp mark: the agent's, or for a worker
+// without one its state's glyph or a shell's.
+func (s *Sidebar) subMark(gtx layout.Context, v *view, e subEntry, base color.NRGBA) layout.Dimensions {
+	th := v.th
+	if e.worker == nil {
+		return AgentMark(gtx, paneAgent(e.pane), gtx.Dp(12), th.Fg)
+	}
+	if ag := v.agent[e.worker.ID]; ag != "" {
+		return AgentMark(gtx, ag, gtx.Dp(12), th.Fg)
+	}
+	if a := v.act(e); a != nil {
+		return stateGlyph(gtx, th, a.State, base, v.t(s))
+	}
+	return drawIcon(gtx, icTerminal, gtx.Dp(12), th.Muted, 0)
 }
 
 // subGuide draws the tree line from a tab's mark down to sub-row e, h
@@ -276,25 +400,25 @@ func subGuide(gtx layout.Context, th *theme.Theme, h int, last bool) {
 // their height.
 func (s *Sidebar) ghostSubs(gtx layout.Context, v *view, id string) int {
 	y := 0
-	for _, ap := range s.shownSubs(v, id) {
+	for _, e := range s.shownSubs(v, id) {
 		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-		d, _ := s.subRowAt(gtx, v, id, ap, true)
+		d, _ := s.subRowAt(gtx, v, id, e, true)
 		o.Pop()
 		y += d.Size.Y
 	}
 	return y
 }
 
-// foldChip is the agent count on line 2 of a tab with sub-rows, after a
+// foldChip is the count on line 2 of a tab with sub-rows, after a
 // chevron that turns as clicking it folds and unfolds them. Short, beside
 // Allow and Deny, it only counts them; the pill names the state.
 func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRGBA, ghost, short bool) layout.Dimensions {
 	th := v.th
 	r := s.row(id)
 	_, l2 := rowLines(gtx, th)
-	text := agentCount(v.agents[id])
+	text := v.familyCount(id)
 	if short {
-		text = fmt.Sprintf("%d agents", len(v.agents[id]))
+		text = subTotals(len(v.agents[id]), len(v.kids[id]))
 	}
 	draw := func(gtx layout.Context) layout.Dimensions {
 		c := col
@@ -327,21 +451,28 @@ func chevron(gtx layout.Context, t *anim.Value, open bool, size int, col color.N
 }
 
 // subEvents turns clicks on the sub-rows into events: a plain click
-// focuses that pane in its tab, Allow and Deny answer that pane's prompt.
-// It forgets the sub-rows of panes no longer shown.
+// focuses that pane in its tab or shows that worker, Allow and Deny
+// answer its prompt, a right click opens a worker's tab menu. It forgets
+// the sub-rows no longer listed.
 func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 	live := map[string]bool{}
-	for tab, aps := range v.agents {
-		for _, ap := range aps {
-			live[ap.Pane.ID] = true
-			r := s.sub(ap.Pane.ID)
+	for _, ws := range v.st.Workspaces {
+		tab := ws.ID
+		for _, e := range v.subsOf(tab) {
+			id := e.id()
+			live[id] = true
+			r := s.sub(id)
 			for {
 				c, ok := r.click.Update(gtx)
 				if !ok {
 					break
 				}
-				if !dropped {
-					s.clickPane(v, tab, ap.Pane.ID, c.Modifiers)
+				switch {
+				case dropped:
+				case e.worker != nil && !c.Modifiers.Contain(key.ModShortcut) && !c.Modifiers.Contain(key.ModShift):
+					s.click(v, id, 0)
+				default:
+					s.clickPane(v, tab, id, c.Modifiers)
 				}
 			}
 			for _, b := range []struct {
@@ -349,9 +480,19 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 				allow bool
 			}{{&r.allow, true}, {&r.deny, false}} {
 				for b.c.Clicked(gtx) {
-					if s.subAnswering(ap) {
-						s.events = append(s.events, Answer{PaneID: ap.Pane.ID, At: ap.Activity.UpdatedAt.UnixNano(), Allow: b.allow})
+					if s.subAnswering(v, e) {
+						a := v.act(e)
+						s.events = append(s.events, Answer{PaneID: a.PaneID, At: a.UpdatedAt.UnixNano(), Allow: b.allow})
 					}
+				}
+			}
+			for {
+				ev, ok := gtx.Event(pointer.Filter{Target: &r.ctx, Kinds: pointer.Press})
+				if !ok {
+					break
+				}
+				if pe, ok := ev.(pointer.Event); ok && pe.Buttons == pointer.ButtonSecondary && e.worker != nil {
+					s.toggleMenu(id)
 				}
 			}
 		}
@@ -370,7 +511,7 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 		}
 	}
 	for id := range s.folded {
-		if v.agents[id] == nil {
+		if len(v.subsOf(id)) == 0 {
 			delete(s.folded, id)
 		}
 	}
