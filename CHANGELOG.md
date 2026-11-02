@@ -23,6 +23,7 @@ build. Either step takes `--dry-run`.
 - On Omarchy, `theme = "omarchy"` takes the colors of the Omarchy theme in force and follows a theme switch live, without a restart (ENG-2963). It is the default where Omarchy runs and the config names no theme. Programs in panes get the theme's colors from OSC 4, 10, 11 and 12 queries, and a light or dark report when they turned on mode 2031. Text and status colors too faint on the theme's background are lifted until they read.
 - Hovering an agent's row in the inbox shows a settle button left of "…" and "×", one click in place of a drag or the menu; on a settled row it unsettles. It does what the menu's Settle and Unsettle do, Undo notice included. Rows with Allow and Deny or a plan's button leave it out, and the tree's rows are unchanged.
 - The inbox's Active section is now called Waiting on you. Working keeps its name.
+- In the inbox view, a window of several hosts lists its waiting agents under Waiting elsewhere, leaving out the current session's, which the inbox already shows; the tree view's Waiting on you list is unchanged.
 
 ## v0.1.9
 

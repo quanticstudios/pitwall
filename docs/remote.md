@@ -68,7 +68,10 @@ window = true
 The sidebar then lists `local` and `box` above the tabs, each with its
 sessions, and a click on one shows it. Below them, Waiting on you lists the
 agents on any host that wait on an approval, a question, a plan or an
-error; a click goes to the tab. The tabs below are those of the session the
+error; a click goes to the tab. In the inbox view, which already shows the
+session the window shows, that list is Waiting elsewhere instead: only the
+agents of other sessions and hosts, and nothing when none of them waits.
+The tabs below are those of the session the
 window shows, and the header tags it with its host. The session switcher,
 desktop notifications and session search in the palette cover every host
 and name the host of a session on another machine.
