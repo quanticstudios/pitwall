@@ -9,10 +9,11 @@ import (
 	"testing"
 )
 
-// Main runs m with XDG_STATE_HOME, XDG_CONFIG_HOME and XDG_RUNTIME_DIR in a
-// new temporary directory and PITWALL_SOCKET and PITWALL_PANE cleared, so no
-// test logs, saves or dials outside it, then exits with m's code. A test can
-// still point them elsewhere with t.Setenv.
+// Main runs m with XDG_STATE_HOME, XDG_CONFIG_HOME, XDG_RUNTIME_DIR and
+// PITWALL_OMARCHY_DIR in a new temporary directory and PITWALL_SOCKET and
+// PITWALL_PANE cleared, so no test logs, saves, dials or reads the desktop's
+// theme outside it, then exits with m's code. A test can still point them
+// elsewhere with t.Setenv.
 func Main(m *testing.M) {
 	dir, err := os.MkdirTemp("", "pitwall-test")
 	if err != nil {
@@ -28,6 +29,8 @@ func Main(m *testing.M) {
 		"PITWALL_PROFILE":   "",
 		"CLAUDE_CONFIG_DIR": "",
 		"CODEX_HOME":        "",
+		// No Omarchy theme: a missing folder, so the defaults stay aide's.
+		"PITWALL_OMARCHY_DIR": filepath.Join(dir, "omarchy"),
 	} {
 		os.Setenv(k, v)
 	}

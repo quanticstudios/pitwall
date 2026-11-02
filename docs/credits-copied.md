@@ -24,6 +24,7 @@ carries a `// Adapted from tuios (MIT): <path>` comment:
 | `internal/daemon/detect.go` | `internal/session/agent_detect_linux.go` (finding an agent in a pane's process group) |
 | `internal/agent/patterns.go`, `internal/agent/screen_patterns.json` | `internal/harness/manifests/claude-code.toml` (Claude Code screen patterns) |
 | `internal/agent/testdata/tuios-*.txt` | `internal/session/testdata/` (screen fixtures; tuios derived some of them from [herdr](https://github.com/herdrdev/herdr)) |
+| `internal/config/omarchy.go` | `swatch/omarchy/colors.go` (the port of Omarchy's `omarchy-theme-color`) and `internal/overlay/contrast.go` (lifting a color until it reads), at commit `6c31c3c101fc110b2773d3dc0dc446a2326f0d11` |
 
 ```text
 MIT License
@@ -48,6 +49,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+### Omarchy
+
+<https://github.com/basecamp/omarchy>, MIT License, Copyright (c) David
+Heinemeier Hansson. `internal/config/testdata/omarchy/` holds the
+`colors.toml` of three themes Omarchy ships (Tokyo Night, Flexoki Light,
+Hackerman), as tuios's `swatch/omarchy/testdata` has them, with Omarchy's
+license in `LICENSE.omarchy` beside them.
 
 ### forge
 

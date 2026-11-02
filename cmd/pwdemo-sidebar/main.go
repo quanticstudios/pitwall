@@ -10,7 +10,7 @@
 //	-expand-all    start every group expanded
 //	-unseen        mark every needs-you activity unseen
 //	-size WxH      window size in dp (default 900x860)
-//	-theme name    a built-in theme (default aide-dark)
+//	-theme name    a built-in theme, or omarchy (default aide-dark)
 //	-ui-size n     [font] ui_size
 //	-answers       show Allow and Deny on approvals
 //	-pane id       the focused pane of the active tab
@@ -52,7 +52,7 @@ func main() {
 	unseen := flag.Bool("unseen", false, "mark every needs-you activity unseen")
 	size := flag.String("size", "900x860", "window size WxH in dp")
 	flag.BoolVar(&sb.ShowCost, "cost", false, "show token use in hover cards in dollars, as [usage] show_cost does")
-	themeName := flag.String("theme", "aide-dark", "built-in theme")
+	themeName := flag.String("theme", "aide-dark", "built-in theme, or omarchy")
 	uiSize := flag.Float64("ui-size", 0, "[font] ui_size; 0 for the default")
 	flag.BoolVar(&sb.Answers, "answers", false, "show Allow and Deny on approvals")
 	flag.StringVar(&sb.Pane, "pane", "", "the focused pane of the active tab")
@@ -63,6 +63,13 @@ func main() {
 	flag.Parse()
 	sb.WorkingShelf, sb.Shelves = !*noShelf, true
 	tc, ok := config.Builtin(*themeName)
+	if *themeName == config.OmarchyName {
+		var err error
+		if tc, _, err = config.LoadOmarchy(); err != nil {
+			log.Fatalf("-theme omarchy: %v", err)
+		}
+		ok = true
+	}
 	if !ok {
 		log.Fatalf("-theme %q: no such built-in theme", *themeName)
 	}

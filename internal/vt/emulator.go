@@ -34,6 +34,10 @@ const replyCap = 1 << 20
 
 var modeSync = ansi.DECMode(2026)
 
+// modeColorScheme is mode 2031: the program wants a color scheme report
+// whenever the background turns light or dark.
+var modeColorScheme = ansi.DECMode(2031)
+
 type emulator struct {
 	mu  sync.Mutex
 	e   *xvt.Emulator
@@ -64,6 +68,7 @@ type state struct {
 	clip      func(string)  // set by SetClipboardFunc
 	cwd       string        // the local folder the last OSC 7 named
 	gfx       graphics      // kitty graphics: images and placements
+	pal       Palette       // what color queries report; see SetPalette
 }
 
 // New returns an Emulator backed by github.com/charmbracelet/x/vt.
@@ -75,10 +80,8 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	// x/vt's scrollback only collects lines until Write moves them into
 	// st.hist, so it never drops one.
 	e.SetScrollbackSize(math.MaxInt)
-	e.SetDefaultForegroundColor(rgb(DefaultPalette.Fg))
-	e.SetDefaultBackgroundColor(rgb(DefaultPalette.Bg))
-	e.SetDefaultCursorColor(rgb(DefaultPalette.Cursor))
-	st := &state{modes: map[ansi.Mode]bool{}}
+	st := &state{modes: map[ansi.Mode]bool{}, pal: currentPalette()}
+	setDefaults(e, st.pal)
 	e.SetCallbacks(xvt.Callbacks{
 		Title:            func(s string) { st.title = s },
 		CursorVisibility: func(v bool) { st.hidden = !v },
@@ -128,9 +131,17 @@ func New(cols, rows int, reply io.Writer) Emulator {
 		_, _ = io.WriteString(e.InputPipe(), "\x1b[0n")
 		return true
 	})
-	// Puts 2026 in the mode table so DECRQM reports it as supported (reset)
-	// instead of unrecognized.
-	_, _ = e.WriteString("\x1b[?2026l")
+	e.RegisterCsiHandler(ansi.Command('?', 0, 'n'), func(p ansi.Params) bool {
+		// CSI ? 996 n asks for the color scheme (light or dark).
+		if n, _, _ := p.Param(0, 0); n != 996 {
+			return false
+		}
+		_, _ = io.WriteString(e.InputPipe(), st.pal.schemeReport())
+		return true
+	})
+	// Puts 2026 and 2031 in the mode table so DECRQM reports them as
+	// supported (reset) instead of unrecognized.
+	_, _ = e.WriteString("\x1b[?2026l\x1b[?2031l")
 
 	go pumpReplies(e, reply, &st.dropped)
 	t := &emulator{e: e, st: st}
@@ -203,6 +214,30 @@ func (t *emulator) SetGraphics(on bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.st.gfx.off = !on
+}
+
+// SetPalette changes the colors color queries report and the default
+// colors. When the background turns from dark to light or back, a program
+// that turned on mode 2031 gets a color scheme report. Callers find it
+// through an interface check.
+func (t *emulator) SetPalette(p Palette) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	old := t.st.pal
+	if p == old {
+		return
+	}
+	t.st.pal = p
+	setDefaults(t.e, p)
+	if t.st.modes[modeColorScheme] && p.Light() != old.Light() {
+		_, _ = io.WriteString(t.e.InputPipe(), p.schemeReport())
+	}
+}
+
+func setDefaults(e *xvt.Emulator, p Palette) {
+	e.SetDefaultForegroundColor(rgb(p.Fg))
+	e.SetDefaultBackgroundColor(rgb(p.Bg))
+	e.SetDefaultCursorColor(rgb(p.Cursor))
 }
 
 // SetCellSize sets the pixel size of a cell in the window that shows the
@@ -542,8 +577,8 @@ func registerColorQueries(e *xvt.Emulator, st *state) {
 		}
 		for _, n := range idx {
 			c := color.Color(ansi.IndexedColor(n))
-			if n < len(DefaultPalette.ANSI) {
-				c = rgb(DefaultPalette.ANSI[n])
+			if n < len(st.pal.ANSI) {
+				c = rgb(st.pal.ANSI[n])
 			}
 			reply("4;"+strconv.Itoa(n), c)
 		}

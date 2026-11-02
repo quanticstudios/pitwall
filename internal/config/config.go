@@ -167,7 +167,7 @@ type Color string
 
 // Theme is [theme], and the whole of a themes/<name>.toml file.
 type Theme struct {
-	Name     string   `toml:"name" enum:"@themes" doc:"A built-in theme, or a custom one from themes/<name>.toml next to this file. In a theme file: the built-in it starts from (default aide-dark)."`
+	Name     string   `toml:"name" enum:"@themes" doc:"A built-in theme, omarchy for the colors of the theme Omarchy has applied (the default where Omarchy runs), or a custom one from themes/<name>.toml next to this file. In a theme file: the built-in it starts from (default aide-dark)."`
 	Colors   Colors   `toml:"colors" doc:"Window colors; each replaces the theme's."`
 	Terminal Terminal `toml:"terminal" doc:"Terminal colors. The daemon answers programs' color queries from them; a running daemon picks changes up on its next start."`
 }
@@ -257,15 +257,18 @@ const (
 
 // Settings is a loaded config with every value filled in.
 type Settings struct {
-	Profiles   map[string]Profile
-	Path       string
-	Keys       *Bindings
-	ThemeName  string
-	Theme      Theme  // every color set
-	ThemeFile  string // the custom theme file, "" for a built-in
-	Font       Font   // every field but MonoFallback set
-	PaneGap    float64
-	PaneMargin float64
+	Profiles  map[string]Profile
+	Path      string
+	Keys      *Bindings
+	ThemeName string
+	Theme     Theme  // every color set
+	ThemeFile string // the custom theme file, "" for a built-in
+	// OmarchyTheme is the name of the Omarchy theme the omarchy theme
+	// read, such as "Tokyo Night"; "" for any other theme.
+	OmarchyTheme string
+	Font         Font // every field but MonoFallback set
+	PaneGap      float64
+	PaneMargin   float64
 	// CopyOnSelect copies a mouse selection when it is made.
 	CopyOnSelect bool
 	// Links underlines links in panes and opens them on Ctrl+click.
@@ -420,8 +423,23 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.ThemeName = c.Theme.Name
 	if s.ThemeName == "" {
 		s.ThemeName = "aide-dark"
+		if OmarchyInstalled() {
+			s.ThemeName = OmarchyName // no choice made: match the desktop
+		}
 	}
 	base, ok := builtins[s.ThemeName]
+	if s.ThemeName == OmarchyName {
+		t, name, err := LoadOmarchy()
+		switch {
+		case err == nil:
+			base, ok, s.OmarchyTheme = t, true, name
+		case c.Theme.Name == OmarchyName:
+			probs = append(probs, locate("config.toml", data, []issue{{"theme.name", "omarchy: " + err.Error() + "; using aide-dark"}})...)
+			fallthrough
+		default:
+			s.ThemeName, base, ok = "aide-dark", builtins["aide-dark"], true
+		}
+	}
 	if !ok {
 		base = builtins["aide-dark"]
 		dir := filepath.Join(filepath.Dir(path), "themes")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -117,7 +118,7 @@ func fieldSchema(f field) map[string]any {
 	case "@themes":
 		// Custom theme names are free-form; the enum still drives completion.
 		delete(s, "type")
-		s["anyOf"] = []any{map[string]any{"enum": Themes}, map[string]any{"type": "string", "pattern": `^[^/\\]+$`}}
+		s["anyOf"] = []any{map[string]any{"enum": append(slices.Clone(Themes), OmarchyName)}, map[string]any{"type": "string", "pattern": `^[^/\\]+$`}}
 	default:
 		s["enum"] = strings.Split(e, ",")
 	}
