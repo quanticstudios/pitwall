@@ -15,7 +15,7 @@ preset = "conventional"
 
 [[popups]]
 name = "lazygit"
-key = "Ctrl+Shift+G"
+key = "Ctrl+Alt+G"
 command = ["lazygit"]
 width = "90%"
 height = "40"
@@ -44,7 +44,7 @@ command = ["x"]
 
 [[popups]]
 name = "twice"
-key = "Ctrl+Shift+G"
+key = "Ctrl+Alt+G"
 command = ["x"]
 
 [[popups]]
@@ -69,7 +69,7 @@ command = ["x"]
 			t.Errorf("problem %d: %+v, want %q", i, probs[i], w)
 		}
 	}
-	p, ok := s.PopupFor(key.Event{Name: "G", Modifiers: key.ModCtrl | key.ModShift})
+	p, ok := s.PopupFor(key.Event{Name: "G", Modifiers: key.ModCtrl | key.ModAlt})
 	if !ok || p.Name != "lazygit" || p.Width != "90%" || p.Height != "40" || !slices.Equal(p.Command, []string{"lazygit"}) {
 		t.Fatalf("PopupFor: %+v %v", p, ok)
 	}

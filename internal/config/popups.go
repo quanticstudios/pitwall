@@ -14,7 +14,7 @@ import (
 // the shown tab on a key.
 type Popup struct {
 	Name    string   `toml:"name" doc:"Names the popup in problems, and is its title unless title is set"`
-	Key     string   `toml:"key" doc:"The chord that opens it over the shown tab, such as \"Ctrl+Shift+G\". It must be free: no action and no other popup has it"`
+	Key     string   `toml:"key" doc:"The chord that opens it over the shown tab, such as \"Ctrl+Alt+G\". It must be free: no action and no other popup has it"`
 	Command []string `toml:"command" doc:"The command and its arguments, such as [\"lazygit\"]. It runs in the tab's folder, and the popup closes when it exits"`
 	Width   string   `toml:"width" doc:"A number of cells, or a percentage of the tab's area such as \"90%\". 80% by default"`
 	Height  string   `toml:"height" doc:"As width. 70% by default"`

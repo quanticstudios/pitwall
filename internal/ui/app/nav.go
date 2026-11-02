@@ -41,6 +41,9 @@ type nav struct {
 	reopen    string
 	// pathPick asks the window to open the path picker on the focused pane.
 	pathPick bool
+	// hints asks the window to open hints mode: "hints" on the focused
+	// pane, "hints_all" on every pane the tab shows.
+	hints string
 	// prAct asks the window to run open_pr, merge_pr, rerun_checks,
 	// send_failures, send_review or second_opinion on the open tab: a
 	// browser, a dialog, a fetch or a CLI lookup, which nav has no hold of.
@@ -1011,6 +1014,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.tabSearch = true
 	case "insert_path":
 		n.pathPick = n.focused() != ""
+	case "hints", "hints_all":
+		n.hints = act
 	case "cleanup_worktrees":
 		n.cleanup = true
 	case "picture_in_picture":

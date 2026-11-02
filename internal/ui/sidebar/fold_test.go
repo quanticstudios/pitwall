@@ -321,3 +321,12 @@ func TestFoldReplyTargetsOwnAgent(t *testing.T) {
 		t.Fatalf("reply targets %q/%q, want o/po", h.s.reply.ws, h.s.reply.pane)
 	}
 }
+
+func TestFoldReplyShowsForOwnQuestion(t *testing.T) {
+	h := newFoldHarness(t)
+	h.st.Activities[0].State = model.StateAwaitingInput
+	v := newView(layout.Context{}, theme.Dark(), &h.st, "", "u1")
+	if !h.s.replyable(v, "o", false, v.ownActivity("o")) {
+		t.Fatal("worker sub-rows hide the parent's own Reply button")
+	}
+}

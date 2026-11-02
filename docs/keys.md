@@ -87,6 +87,8 @@ conventional:
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Ctrl+Shift+F                            | Find in the pane's scrollback                             |
 | Ctrl+Shift+I                            | Insert file paths at the cursor                           |
+| Ctrl+Shift+G                            | Hints: label URLs, paths, hashes, #numbers and IPs to copy or open |
+| Ctrl+Alt+Shift+G                        | Hints in every pane the tab shows                         |
 | Ctrl+Shift+Up / Ctrl+Shift+Down         | Scroll back / forward to the previous / next shell prompt |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
@@ -142,6 +144,8 @@ aide:
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
 | Ctrl+Shift+F                      | Find in the pane's scrollback                  |
 | Ctrl+Shift+I                      | Insert file paths at the cursor                |
+| Ctrl+Shift+G                      | Hints in the focused pane                      |
+| Ctrl+Alt+Shift+G                  | Hints in every pane the tab shows              |
 | Ctrl+Shift+Up / Ctrl+Shift+Down   | Scroll back / forward to the previous / next shell prompt |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 
@@ -175,6 +179,8 @@ mac:
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Cmd+F                                   | Find in the pane's scrollback                             |
 | Cmd+Shift+I                             | Insert file paths at the cursor                           |
+| Cmd+Shift+G                             | Hints in the focused pane                                 |
+| Cmd+Option+Shift+G                      | Hints in every pane the tab shows                         |
 | Cmd+Up / Cmd+Down                       | Scroll back / forward to the previous / next shell prompt |
 
 Like conventional, mac leaves tab mode and pane mode unbound.
