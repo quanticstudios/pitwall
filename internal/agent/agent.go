@@ -172,6 +172,18 @@ type payload struct {
 // the user interrupts fires no hook; the daemon ends it from the keys it
 // forwards and ReadScreen.
 func Derive(prev *model.Activity, provider model.Provider, payload []byte, now time.Time) (next model.Activity, ok bool) {
+	if model.ReportedName(provider) != "" {
+		r, err := DecodeReport(payload)
+		if err != nil || r.State == "" {
+			return model.Activity{}, false
+		}
+		state := map[string]model.AgentState{"working": model.StateWorking, "blocked": model.StateAwaitingInput, "done": model.StateCompleted}[r.State]
+		detail := Summary(r.Message)
+		if prev != nil && prev.Provider == provider && prev.State == state && prev.Detail == detail {
+			return model.Activity{}, false
+		}
+		return model.Activity{Provider: provider, State: state, Detail: detail, UpdatedAt: now}, true
+	}
 	p, err := decode(payload)
 	if err != nil {
 		return model.Activity{}, false

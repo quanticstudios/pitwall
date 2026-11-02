@@ -51,6 +51,7 @@ optional name act on the pane's own tab.
 | `pitwall chat rewind <chat> <turn>`   | Drop the turn and every turn after it: the files go back to the turn's checkpoint, refused as Undo turn refuses (HEAD moved, a file in the way), and the agent continues from the turn before |
 | `pitwall chat archive <chat>`         | Close the chat and its tab, as `pitwall kill` does |
 | `pitwall hooks install` / `uninstall` | Add or remove agent hooks (`--dry-run` to preview; `install --statusline`, see [Hooks](hooks.md#plan-limits)) |
+| `pitwall report-agent --name LABEL [--state working\|blocked\|done\|idle] [--message TEXT] [--no-resume\|--release] [-- cmd...]` | Report this pane's agent identity, state and resume command; see [Add pitwall support to your agent](agent-report.md) |
 | `pitwall doctor`                      | Check that the `pitwall` on PATH is this one, the daemon runs this version, each installed agent's hooks and skill are in place, and the config loads; prints `ok`, `FAIL` or `info` per check, with the fix under each FAIL, and exits 1 on a FAIL. It changes nothing |
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |

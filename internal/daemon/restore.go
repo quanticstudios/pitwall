@@ -37,6 +37,9 @@ func (d *Daemon) restorePane(p model.Pane, saved []model.Activity) error {
 	}
 	if store.Resumes(p) {
 		d.resumed[p.ID] = time.Now()
+		if model.ReportedName(p.Provider) != "" {
+			d.sawHook(p.ID)
+		}
 		log.Printf("pane %s: resuming %q, mode %q", p.ID, p.Provider, p.AgentMode)
 		d.restartNudge(p.ID, saved)
 	}

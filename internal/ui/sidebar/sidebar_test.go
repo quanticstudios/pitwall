@@ -216,6 +216,9 @@ func TestParsePathArc(t *testing.T) {
 
 // Every agent pitwall recognizes has a name and a mark the parser reads.
 func TestAgentMarks(t *testing.T) {
+	if got := AgentName("agent:My agent"); got != "My agent" {
+		t.Errorf("self-reported label = %q", got)
+	}
 	for _, d := range []string{icClaude, icOpenAI, icGemini, icCursor, icOpenCode, icAmp, icAider, icOmp} {
 		if len(parsePath(d)) == 0 { // panics on a command the parser lacks
 			t.Errorf("empty path %.20s", d)

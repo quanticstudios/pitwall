@@ -68,12 +68,14 @@ type detected struct {
 
 // look is one pane's poll, read under d.mu and run outside it.
 type look struct {
-	id     string
-	p      Pane
-	shell  string // the comm of the shell the pane runs, or "" for a command
-	hooked bool   // a hook has reported from the pane: hooks own its agent
-	hookFg int    // the foreground group of the last hook
-	sid    int
+	id        string
+	p         Pane
+	shell     string // the comm of the shell the pane runs, or "" for a command
+	hooked    bool   // a hook has reported from the pane: hooks own its agent
+	hookFg    int    // the foreground group of the last hook
+	reportSeq uint64 // the report seen before reading the foreground
+	reported  bool
+	sid       int
 }
 
 // detect polls every live pane. A pane whose foreground is its own shell
@@ -88,6 +90,7 @@ func (d *Daemon) detect(ctx context.Context) {
 			continue
 		}
 		l := look{id: sp.ID, p: p, shell: paneShell(sp.Cmd), hooked: !d.live.hookAt[sp.ID].IsZero(), hookFg: d.live.fg[sp.ID]}
+		l.reported, l.reportSeq = model.ReportedName(sp.Provider) != "", d.live.hookSeq[sp.ID]
 		if det := d.live.det[sp.ID]; det != nil {
 			l.sid = det.sid
 		}
@@ -114,8 +117,12 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	var g vt.Grid
 	var trace agent.ScreenTrace
 	var screen model.AgentState // an agent's state read from its screen, without hooks
+	idleShell := own && l.shell != "" && commOf(fg) == l.shell
+	if l.reported && !idleShell {
+		return // a tool can take the foreground while the agent still runs
+	}
 	switch {
-	case own && l.shell != "" && commOf(fg) == l.shell: // the shell at its prompt, not exec'd into something else
+	case idleShell: // the shell at its prompt, not exec'd into something else
 	case l.hooked && fg == l.hookFg:
 		return // the hooked agent: hooks own it
 	default:
@@ -135,6 +142,15 @@ func (d *Daemon) lookAt(ctx context.Context, l look) {
 	defer d.mu.Unlock()
 	if hooked := !d.live.hookAt[l.id].IsZero(); d.closing || d.panes[l.id] != l.p || hooked != l.hooked {
 		return // closed, or a hook came during the read
+	}
+	if l.reported {
+		if d.live.hookSeq[l.id] != l.reportSeq {
+			return // a report arrived after the idle shell was read
+		}
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id }); i >= 0 {
+			d.clearReported(&d.st.Panes[i])
+		}
+		l.hooked = false
 	}
 	if d.live.det == nil {
 		d.live.det = map[string]*detected{}

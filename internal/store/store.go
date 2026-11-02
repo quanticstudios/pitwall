@@ -27,6 +27,7 @@ import (
 // Missing fields decode to zero for immediate, one-shot tasks.
 // Account profiles add optional Workspace.Profile and Task.Profile fields
 // to version 8. Missing fields decode to "", preserving older state files.
+// formatVersion 10 added Pane.ResumeCmd for self-reported agents;
 // formatVersion 9 added Workspace.Chat;
 // formatVersion 8 added Pane.Held;
 // formatVersion 7 added sessions, which own the tabs, groups and order;
@@ -35,7 +36,7 @@ import (
 // 3 moved Workspace.Layout into Tabs and renamed Archived to Detached;
 // version 2 added Workspace.WorktreeRoot. Older files are migrated once on
 // load.
-const formatVersion = 9
+const formatVersion = 10
 
 type snapshot struct {
 	FormatVersion int          `json:"format_version"`
@@ -282,6 +283,9 @@ func migrateHeld(s *model.State) {
 // Resumes reports whether RestoreCmd brings p back as a resumed agent
 // session rather than its original command.
 func Resumes(p model.Pane) bool {
+	if model.ReportedName(p.Provider) != "" {
+		return len(p.ResumeCmd) > 0
+	}
 	switch p.Provider {
 	case model.ProviderClaude, model.ProviderCodex, model.ProviderPi, model.ProviderOmp, model.ProviderGemini, model.ProviderOpenCode, model.ProviderCursor:
 		return p.SessionID != ""
@@ -326,6 +330,9 @@ func migrateSessions(data []byte, version int, s *model.State) error {
 // command already sets its permissions.
 // Adapted from tuios (MIT): internal/session/agent_resume.go
 func RestoreCmd(p model.Pane) []string {
+	if model.ReportedName(p.Provider) != "" && Resumes(p) {
+		return slices.Clone(p.ResumeCmd)
+	}
 	if !Resumes(p) {
 		return p.Cmd
 	}

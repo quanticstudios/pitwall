@@ -5,6 +5,9 @@ tell pitwall exactly what they are doing. Amp and Aider have no hooks;
 pitwall recognizes them and reads what it can from their screens (see
 [Watching agents](usage.md#watching-agents)).
 
+Agent authors can report state and a resume command through the same hook
+path. See [Add pitwall support to your agent](agent-report.md).
+
 | Agent      | What `pitwall hooks install` writes                                            | Installed when                                |
 | ---------- | ------------------------------------------------------------------------------ | --------------------------------------------- |
 | Claude     | hooks in `~/.claude/settings.json`, the skill                                  | always                                        |

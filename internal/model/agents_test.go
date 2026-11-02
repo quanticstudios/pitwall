@@ -3,6 +3,7 @@ package model
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 )
@@ -42,5 +43,33 @@ func TestAgentPanes(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Errorf("%s: %v, want %v", s.Workspaces[i].ID, got, want)
 		}
+	}
+}
+
+func TestReportedAgentSummary(t *testing.T) {
+	s := State{
+		Workspaces: []Workspace{{ID: "w", SessionID: "s", Tabs: []Tab{{Layout: &layout.Node{Pane: "p"}}}}},
+		Panes:      []Pane{{ID: "p", WorkspaceID: "w", Provider: "agent:My agent"}},
+		Activities: []Activity{{PaneID: "p", WorkspaceID: "w", Provider: "agent:My agent", State: StateWorking}},
+	}
+	if !IsAgent("agent:My agent") || IsAgent("agent:") || IsAgent(ProviderTerminal) || ReportedName(ProviderCodex) != "" {
+		t.Fatal("incorrect provider classification")
+	}
+	if panes := s.AgentPanes(s.Workspaces[0]); len(panes) != 1 || panes[0].Activity == nil {
+		t.Fatalf("agent panes: %+v", panes)
+	}
+	if summary := s.Summary("s"); summary.Working != 1 || !slices.Equal(summary.Agents, []Provider{"agent:My agent"}) {
+		t.Fatalf("summary: %+v", summary)
+	}
+	now := time.Unix(100, 0)
+	s.Activities[0].UpdatedAt = now
+	prev, _ := DecideNotifications(Notifications{}, s.Activities, false, "", now)
+	s.Activities[0].State, s.Activities[0].Unseen = StateAwaitingInput, true
+	s.Activities[0].UpdatedAt = now.Add(time.Second)
+	if summary := s.Summary("s"); summary.NeedsYou != 1 {
+		t.Fatalf("attention: %+v", summary)
+	}
+	if _, deliveries := DecideNotifications(prev, s.Activities, false, "", now.Add(5*time.Second)); len(deliveries) != 1 {
+		t.Fatalf("notifications: %+v", deliveries)
 	}
 }
