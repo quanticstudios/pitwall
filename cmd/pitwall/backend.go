@@ -36,6 +36,7 @@ type backend struct {
 	session string // the session the window shows, from SessionShow
 	state   model.State
 	frames  map[string]proto.Frame
+	cmds    []proto.CommandResult
 	found   map[string]proto.SearchResult // per pane, the reply to its last Search
 	allID   uint64
 	all     []proto.SearchAllResult           // unconsumed batches of the current session search
@@ -336,6 +337,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.mu.Lock()
 	b.state, b.frames, b.found = initial.State, map[string]proto.Frame{}, map[string]proto.SearchResult{}
 	b.all, b.chat = nil, chatCache{}
+	b.cmds = nil
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
 	maps.DeleteFunc(b.icons, func(_ string, r *proto.FaviconResult) bool { return r == nil }) // asked of the old connection: ask again
@@ -470,6 +472,8 @@ func (b *backend) recvLoop() {
 			}
 		case proto.FocusDir:
 			b.moves = append(b.moves, m)
+		case proto.CommandResult:
+			b.cmds = append(b.cmds, m)
 		case proto.SearchResult:
 			b.found[m.Pane] = m
 		case proto.SearchAllResult:

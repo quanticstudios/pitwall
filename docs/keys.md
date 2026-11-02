@@ -101,6 +101,7 @@ conventional:
 | Ctrl+Shift+G                            | Hints: label URLs, paths, hashes, #numbers and IPs to copy or open |
 | Ctrl+Alt+Shift+G                        | Hints in every pane the tab shows                         |
 | Ctrl+Shift+Up / Ctrl+Shift+Down         | Scroll back / forward to the previous / next shell prompt |
+| Ctrl+Shift+J                            | Browse command blocks in the focused pane                 |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
 conventional leaves tab mode and pane mode unbound so Ctrl+T and Ctrl+P
@@ -158,6 +159,7 @@ aide:
 | Ctrl+Shift+G                      | Hints in the focused pane                      |
 | Ctrl+Alt+Shift+G                  | Hints in every pane the tab shows              |
 | Ctrl+Shift+Up / Ctrl+Shift+Down   | Scroll back / forward to the previous / next shell prompt |
+| Ctrl+Shift+J                      | Browse command blocks in the focused pane       |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 
 mac:
@@ -193,6 +195,7 @@ mac:
 | Cmd+Shift+G                             | Hints in the focused pane                                 |
 | Cmd+Option+Shift+G                      | Hints in every pane the tab shows                         |
 | Cmd+Up / Cmd+Down                       | Scroll back / forward to the previous / next shell prompt |
+| Cmd+Shift+J                             | Browse command blocks in the focused pane                 |
 
 Like conventional, mac leaves tab mode and pane mode unbound.
 
@@ -343,3 +346,12 @@ checks what each pane runs once a second, so a key pressed in the first
 second after vim starts can move focus instead of reaching vim. While the
 background service runs a pitwall from before `pitwall focus`, the command
 fails and focus stays in vim until the service restarts.
+
+### Command scrollback browser
+
+`scrollback_browser` opens a snapshot of the focused pane's OSC 133 command
+blocks. Up/Down or k/j moves between blocks. Home/End goes to the oldest or
+newest block. PageUp/PageDown scrolls the output. c copies the command, y
+copies the output, and Shift+Y copies both.
+Escape or q closes. See [shell integration](usage.md#shell-integration) for
+shell setup and [the browser](usage.md#command-scrollback-browser) for limits.

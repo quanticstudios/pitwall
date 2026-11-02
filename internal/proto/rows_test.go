@@ -74,3 +74,13 @@ func TestDiffApply(t *testing.T) {
 		t.Error("applied a row past the grid")
 	}
 }
+
+func TestPromptMarksForceWholeFrame(t *testing.T) {
+	old := Frame{}
+	f := old
+	f.PromptMarks = true
+	got, ok := Diff(&old, f).(Frame)
+	if !ok || !got.PromptMarks {
+		t.Fatalf("prompt metadata was lost: %T", Diff(&old, f))
+	}
+}

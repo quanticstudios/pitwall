@@ -324,6 +324,7 @@ type ui struct {
 	usage      usageWatch       // token use for the tabs' hover cards
 	invalidate func()           // the window's Invalidate; nil in tests
 
+	browser  commandBrowser
 	paneMenu paneMenu
 
 	find findBar // the find bar, on the focused pane while open
@@ -486,6 +487,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.all.preview = nil
 		u.all.sent = ""
 	}
+	if u.nav.browse {
+		u.nav.browse = false
+		u.openCommandBrowser()
+	}
 	if u.nav.find {
 		u.nav.find = false
 		u.openFind()
@@ -590,13 +595,13 @@ func (u *ui) layout(gtx gl.Context) {
 	}()
 	// A dialog takes every key: none of the window's shortcuts run behind it.
 	dialog := u.modal.kind != modalNone
-	if !u.sw.open && !u.pal.open && !dialog && !u.sidebar.Focused() {
+	if !u.sw.open && !u.pal.open && !u.browser.open && !dialog && !u.sidebar.Focused() {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 		u.reviewKeys(gtx, &st)
 	}
 	for u.modal.kind == modalNone {
 		filters := append(u.nav.keyFilters(&st), u.popupFilters()...)
-		if u.sw.open || u.pal.open || u.hints.on || u.sidebar.Focused() && !u.sidebar.Editing() {
+		if u.sw.open || u.pal.open || u.hints.on || u.browser.open || u.sidebar.Focused() && !u.sidebar.Editing() {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 			filters = append(filters, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
 		}
@@ -607,6 +612,10 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.HideHover() // keyboard navigation
 		mods, _ := gotoKeys(u.nav.bind())
 		u.hint.key(ev.(key.Event), mods, gtx.Now)
+		if u.browser.open {
+			u.commandBrowserKey(gtx, ev.(key.Event))
+			continue
+		}
 		if u.pal.open {
 			u.paletteKey(&st, ev.(key.Event))
 			st = u.b.State()
@@ -800,6 +809,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.tickReview(gtx, &st)
 	u.drawSessions(gtx, &st)
 	u.drawPalette(gtx, &st)
+	u.drawCommandBrowser(gtx)
 	if u.nav.switcherVisible() {
 		u.drawSwitcher(gtx, &st)
 		if u.nav.pinned {
@@ -1044,8 +1054,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on || u.paneMenu.pane != "" {
-		focused = "" // a dialog, a rename field, tab mode, the palette, a form, hints mode or a pane menu holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on || u.paneMenu.pane != "" || u.browser.open {
+		focused = "" // a dialog, a rename field, tab mode, the palette, a form, hints mode, a pane menu or the browser holds key focus
 	}
 	findFocus := focused != "" && focused == u.find.pane
 	if u.find.pane != "" {
@@ -1245,7 +1255,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		u.send(proto.Input{Pane: id, Data: input})
 	}
 	if d, n := p.view.ScrollDelta(), p.view.PromptDelta(); d != 0 || n != 0 {
-		u.send(proto.Scroll{Pane: id, Lines: d, Prompts: n})
+		u.scrollPane(id, d, n)
 	}
 	cell := p.view.CellSize(gtx, u.th)
 	if (cols != g.Cols || rows != g.Rows || cell != p.sentCell) && (cols != p.sentCols || rows != p.sentRows || cell != p.sentCell) {

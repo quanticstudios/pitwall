@@ -104,7 +104,11 @@ func (d *Daemon) view(id string, p Pane) (*view, int) {
 // those lines; the next frame corrects it.
 func (d *Daemon) frame(id string, p Pane) proto.Frame {
 	v, hist := d.view(id, p)
-	return proto.Frame{Pane: id, Grid: p.SnapshotAt(v.off), Modes: p.Modes(), ScrollOffset: v.off, ScrollMax: hist, ScrollPushed: v.pushed}
+	marked := false
+	if shell, ok := p.(interface{ HasPromptMarks() bool }); ok {
+		marked = shell.HasPromptMarks()
+	}
+	return proto.Frame{PromptMarks: marked, Pane: id, Grid: p.SnapshotAt(v.off), Modes: p.Modes(), ScrollOffset: v.off, ScrollMax: hist, ScrollPushed: v.pushed}
 }
 
 // frameFor is id's frame for c: at the live screen for a pane c asked to
@@ -114,7 +118,11 @@ func (d *Daemon) frameFor(c *client, id string, p Pane) proto.Frame {
 		return d.frame(id, p)
 	}
 	v, hist := d.view(id, p)
-	return proto.Frame{Pane: id, Grid: p.SnapshotAt(0), Modes: p.Modes(), ScrollMax: hist, ScrollPushed: v.pushed}
+	marked := false
+	if shell, ok := p.(interface{ HasPromptMarks() bool }); ok {
+		marked = shell.HasPromptMarks()
+	}
+	return proto.Frame{PromptMarks: marked, Pane: id, Grid: p.SnapshotAt(0), Modes: p.Modes(), ScrollMax: hist, ScrollPushed: v.pushed}
 }
 
 // scroll moves the view m.Lines into history (negative goes back toward the
@@ -126,6 +134,12 @@ func (d *Daemon) scroll(m proto.Scroll) error {
 	if p == nil {
 		d.mu.Unlock()
 		return fmt.Errorf("no pane %s", m.Pane)
+	}
+	if m.Prompts != 0 {
+		if shell, ok := p.(interface{ HasPromptMarks() bool }); ok && !shell.HasPromptMarks() {
+			d.mu.Unlock()
+			return fmt.Errorf("prompt jumps need shell integration: https://github.com/quanticstudios/pitwall/blob/main/docs/usage.md#shell-integration")
+		}
 	}
 	v, hist := d.view(m.Pane, p)
 	v.off = max(0, min(v.off+m.Lines, hist))

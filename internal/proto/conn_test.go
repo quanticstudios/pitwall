@@ -73,6 +73,8 @@ func allMessages() []any {
 		NewGroup{Name: "agents", WorkspaceIDs: []string{"w", "x"}}, RenameGroup{GroupID: "g", Name: "n"}, DeleteGroup{GroupID: "g"},
 		Scroll{Pane: "a", Lines: -3},
 		Search{Pane: "a", Query: "Error"},
+		Commands{Pane: "a", ID: 12},
+		CommandResult{Pane: "a", ID: 12, Integrated: true, More: true, Blocks: []vt.CommandBlock{{Command: "false", Output: "failed\n", ExitCode: 1, Finished: true, StatusKnown: true}}},
 		SearchAll{ID: 123, Query: "Error"},
 		SearchAllResult{ID: 123, Done: true, More: true, Matches: []SessionMatch{{Workspace: "w", Pane: "a", Match: vt.Match{Line: 42}, Snippet: "Error in a transcript", Transcript: true}}},
 		ChatNew{SessionID: "s", Dir: "/repo", Worktree: "fix", Provider: model.ProviderCodex, Model: "m", Prompt: "fix it", Images: []string{"/a.png"}},
