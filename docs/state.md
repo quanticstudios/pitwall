@@ -4,6 +4,7 @@
 | ------------------- | ------------------------------------------------------------- |
 | Saved tabs          | `~/.local/state/pitwall/state.json` (`$XDG_STATE_HOME`)       |
 | Saved tab backups   | `state.json.prev`, `state.json.bad-<time>` and `state.json.restored-<time>` next to it |
+| Saved tab snapshots | `~/.local/state/pitwall/snapshots/state-<time>.json`, the newest 48 (`pitwall snapshots`) |
 | Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
 | Decisions log       | `~/.local/state/pitwall/decisions.jsonl` (`pitwall jev report`) |
 | Agent errors log    | `~/.local/state/pitwall/errors.jsonl` (Settings, Agent errors) |
@@ -54,6 +55,49 @@ notice. When a later pitwall can read a `state.json.bad-<time>` file, as
 after you update past the version that saved it, it adds that file's tabs to
 the ones you have and renames it to `state.json.restored-<time>`. A damaged
 file stays where it is for you to fix or delete.
+
+## Shutdown
+
+The daemon saves your tabs a second after each change, and again when it
+stops on SIGTERM, SIGINT or SIGHUP, which is how a login session ends.
+From the moment it gets one of them, a pane whose program exits keeps its
+tab, so an agent the shutdown stops first still resumes after the reboot.
+
+On Linux with systemd-logind, the daemon also takes a delay lock on
+shutdown and sleep over the system bus, the one `systemd-inhibit --list`
+shows as pitwall's "Save open tabs". Before the system shuts down, logind
+waits for the daemon to save and stop closing tabs, up to its
+`InhibitDelayMaxSec`, 5 seconds by default; before it sleeps, logind waits
+for a save. Without a system bus or logind, as in a container or a minimal
+server, `daemon.log` says so once and the signals above still save.
+macOS and Windows save on the signals only.
+
+## Snapshots
+
+The `snapshots` folder next to `state.json` keeps up to 48 copies of your
+saved tabs, named by the time they were taken, as
+`state-20261102-153012.250.json`, and the oldest goes when a 49th comes.
+pitwall takes one:
+
+- every 15 minutes while it saves a state with tabs, so the folder holds
+  about 12 hours of them,
+- each time the daemon starts with saved tabs, before it restores them,
+- before a save with no tabs replaces a file with tabs, as after a failed
+  restore or closing your last tab.
+
+A snapshot without tabs, or one that does not load, never replaces your saved tabs. To go back to one:
+
+```sh
+pitwall snapshots                  # lists them, oldest first, with their tab counts
+pitwall snapshots restore state-20261102-153012.250.json
+pitwall
+```
+
+`restore` stops the daemon first, as Restart now does: programs in panes
+stop, and agents resume when pitwall starts again with the restored tabs.
+It copies the state it replaces to the folder before it writes, so you can
+restore that one in turn. By hand, stop the daemon and copy a snapshot over
+`state.json`.
 
 ## Upgrades
 

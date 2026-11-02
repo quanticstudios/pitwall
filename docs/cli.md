@@ -56,6 +56,7 @@ optional name act on the pane's own tab.
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
 | `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](troubleshooting.md#logs)) |
+| `pitwall snapshots [restore <name>]`  | List the snapshots of your saved tabs, or stop the daemon and put one back (see [Snapshots](state.md#snapshots)) |
 | `pitwall remote pair` / `devices` / `revoke` | Pair a phone, list paired phones, unpair one (see [Phone](phone.md)) |
 | `pitwall web open`                    | Open the web client (`[web] bundle`) in the default browser, with a link that works once, within a minute (see [Web client](remote.md#web-client)) |
 | `pitwall web token --rotate`          | Give local web clients a new token in `web.json`; the old one stops working at once (see [Web protocol](web-protocol.md#connection)) |

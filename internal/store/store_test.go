@@ -81,7 +81,7 @@ func TestSaveLoad(t *testing.T) {
 		t.Fatal("snapshot is not indented")
 	}
 	entries, err := os.ReadDir(filepath.Dir(Path()))
-	if err != nil || len(entries) != 1 || entries[0].Name() != "state.json" {
+	if err != nil || len(entries) != 2 || entries[0].Name() != "snapshots" || entries[1].Name() != "state.json" {
 		t.Fatalf("unexpected files after save: %v, %v", entries, err)
 	}
 	for path, mode := range map[string]os.FileMode{filepath.Dir(Path()): 0700, Path(): 0600} {
@@ -668,5 +668,110 @@ func TestOpenRestores(t *testing.T) {
 	// A file already merged before a crash adds nothing again.
 	if n := merge(&s, old); n != 0 || len(s.Workspaces) != 3 {
 		t.Fatalf("merge again added %d", n)
+	}
+}
+
+// TestSnapshots checks Save takes a snapshot of a state with tabs at most
+// every SnapshotEvery, and the folder keeps the newest Snapshots of them.
+func TestSnapshots(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	tabs := model.State{Sessions: []model.Session{{ID: "s", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}}}
+	for range 3 {
+		if err := Save(path, tabs); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := ListSnapshots(path)
+	if len(names) != 1 {
+		t.Fatalf("snapshots after three quick saves: %v", names)
+	}
+	old := time.Now().Add(-SnapshotEvery - time.Minute)
+	if err := os.Chtimes(filepath.Join(SnapshotDir(path), names[0]), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, tabs); err != nil {
+		t.Fatal(err)
+	}
+	if names = ListSnapshots(path); len(names) != 2 {
+		t.Fatalf("snapshots after a save %v later: %v", SnapshotEvery, names)
+	}
+	for i := range Snapshots {
+		if err := keep(path, []byte(fmt.Sprint(i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names = ListSnapshots(path)
+	if len(names) != Snapshots {
+		t.Fatalf("%d snapshots, want %d", len(names), Snapshots)
+	}
+	for i, n := range []int{0, Snapshots - 1} {
+		got, err := os.ReadFile(filepath.Join(SnapshotDir(path), names[n]))
+		if want := fmt.Sprint([]int{0, Snapshots - 1}[i]); err != nil || string(got) != want {
+			t.Fatalf("snapshot %d = %q, %v; want %q", n, got, err, want)
+		}
+	}
+}
+
+// TestSaveEmptyKeepsGood checks a save without tabs, as after a failed
+// restore, never replaces the last good state without a snapshot of it, and
+// a start keeps a copy of the file it restores.
+func TestSaveEmptyKeepsGood(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	good := model.State{Sessions: []model.Session{{ID: "s", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}}}
+	if err := Save(path, good); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(path)
+	if _, err := Open(path); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(ListSnapshots(path)); n != 2 {
+		t.Fatalf("%d snapshots after a start, want 2", n)
+	}
+	for range 2 {
+		if err := Save(path, model.State{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := ListSnapshots(path)
+	if len(names) != 3 {
+		t.Fatalf("snapshots %v, want 3: one more for the first empty save only", names)
+	}
+	if got, err := os.ReadFile(filepath.Join(SnapshotDir(path), names[2])); err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("newest snapshot = %q, %v", got, err)
+	}
+	if n, err := SnapshotTabs(path, names[2]); n != 1 || err != nil {
+		t.Fatalf("SnapshotTabs = %d, %v", n, err)
+	}
+	if err := RestoreSnapshot(path, names[2]); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := Load(path); err != nil || len(s.Workspaces) != 1 {
+		t.Fatalf("restored state %#v, %v", s, err)
+	}
+}
+
+// TestRestoreSnapshotRefuses checks a restore never puts a snapshot without
+// tabs, a damaged one or a path outside the folder over the state.
+func TestRestoreSnapshotRefuses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	good := model.State{Sessions: []model.Session{{ID: "s", Name: "main"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s"}}}
+	if err := Save(path, good); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(path)
+	empty, _ := json.Marshal(snapshot{formatVersion, &model.State{}})
+	for name, data := range map[string]string{"state-1-empty.json": string(empty), "state-2-bad.json": "{"} {
+		if err := os.WriteFile(filepath.Join(SnapshotDir(path), name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"state-1-empty.json", "state-2-bad.json", "../state.json", "state-none.json"} {
+		if err := RestoreSnapshot(path, name); err == nil {
+			t.Errorf("restore %s: no error", name)
+		}
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, want) {
+		t.Fatalf("state after refused restores = %q", got)
 	}
 }

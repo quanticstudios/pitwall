@@ -224,6 +224,7 @@ type Daemon struct {
 	clients     map[*client]struct{}        // gui clients only
 	watchers    map[*client]struct{}        // watch clients: StateMsg and PaneExited, no frames
 	closing     bool
+	frozen      bool // see Freeze
 	savePending bool
 	live        liveness
 	turns       timelog.Tracker       // each pane's running turn, for timing.jsonl
@@ -493,6 +494,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 		ln.Close()
 		d.mu.Lock()
 		d.stopRestores()
+		// why: at session end SIGTERM reaches every agent with this daemon, and
+		// an agent's exit must not close its tab before shutdown saves it.
+		d.frozen = true
 		d.mu.Unlock()
 	})
 	d.radar.mu.Lock()
@@ -1979,9 +1983,9 @@ var resumeGrace = 3 * time.Second
 // closes the pane like any other command's.
 func (d *Daemon) exited(id string, p Pane) {
 	d.mu.Lock()
-	if d.closing || d.panes[id] != p {
+	if d.closing || d.frozen || d.panes[id] != p {
 		d.mu.Unlock()
-		return // closed on purpose: by ClosePane, DeleteWorkspace or shutdown
+		return // closed on purpose: by ClosePane, DeleteWorkspace or shutdown; Thaw runs it again when frozen
 	}
 	i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id })
 	if i < 0 {
@@ -2088,6 +2092,38 @@ func (d *Daemon) changed() {
 		time.AfterFunc(saveDelay, d.save)
 	}
 }
+
+// Freeze saves the state now and keeps the panes that exit from then on, so
+// that agents the system stops on its way down come back after the reboot.
+// Serve keeps them the same way, without this save, once its context ends.
+func (d *Daemon) Freeze() {
+	d.mu.Lock()
+	d.frozen = true
+	d.mu.Unlock()
+	d.save()
+}
+
+// Thaw undoes Freeze, for a shutdown called off, and closes the panes that
+// exited meanwhile as it would have then.
+func (d *Daemon) Thaw() {
+	d.mu.Lock()
+	d.frozen = false
+	gone := map[string]Pane{}
+	for id, p := range d.panes {
+		select {
+		case <-p.Done():
+			gone[id] = p
+		default:
+		}
+	}
+	d.mu.Unlock()
+	for id, p := range gone {
+		d.exited(id, p)
+	}
+}
+
+// Save writes the state now, as before the system sleeps.
+func (d *Daemon) Save() { d.save() }
 
 func (d *Daemon) save() {
 	d.saveMu.Lock()

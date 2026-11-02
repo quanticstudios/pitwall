@@ -46,13 +46,147 @@ type snapshot struct {
 // Path is state.json in config.StateDir.
 func Path() string { return filepath.Join(config.StateDir(), "state.json") }
 
-// Save writes atomically (temp file + rename).
+// Save writes atomically (temp file + rename). It also copies a save with
+// tabs to SnapshotDir at most every SnapshotEvery, and before a save without
+// tabs replaces one with tabs, it copies the one on disk there, so a failed
+// restore or a bad start cannot leave no good copy.
 func Save(path string, s model.State) error {
 	data, err := json.MarshalIndent(snapshot{formatVersion, &s}, "", "  ")
 	if err != nil {
 		return err
 	}
-	return WriteAtomic(path, append(data, '\n'))
+	data = append(data, '\n')
+	// why: a snapshot is a spare copy; failing one must not stop the save.
+	if len(s.Workspaces) > 0 {
+		if newest(path).Before(time.Now().Add(-SnapshotEvery)) {
+			if err := keep(path, data); err != nil {
+				log.Printf("state snapshot: %q", err)
+			}
+		}
+	} else if err := KeepFile(path); err != nil {
+		log.Printf("state snapshot: %q", err)
+	}
+	return WriteAtomic(path, data)
+}
+
+// Snapshots is how many copies of saved state SnapshotDir keeps, and
+// SnapshotEvery how far apart Save takes them: 12 hours' worth.
+const (
+	Snapshots     = 48
+	SnapshotEvery = 15 * time.Minute
+)
+
+// SnapshotDir holds the snapshots of the state file at path, named
+// state-<time>.json, oldest first by name.
+func SnapshotDir(path string) string { return filepath.Join(filepath.Dir(path), "snapshots") }
+
+// ListSnapshots returns the snapshot file names in SnapshotDir(path),
+// oldest first.
+func ListSnapshots(path string) []string {
+	entries, _ := os.ReadDir(SnapshotDir(path))
+	var names []string
+	for _, e := range entries {
+		if n := e.Name(); strings.HasPrefix(n, "state-") && strings.HasSuffix(n, ".json") {
+			names = append(names, n)
+		}
+	}
+	return names // ReadDir sorts by name, and names sort by time
+}
+
+// newest is when the newest snapshot was taken, zero when there is none.
+// ponytail: a clock set back holds off snapshots until it passes the newest again.
+func newest(path string) time.Time {
+	names := ListSnapshots(path)
+	if len(names) == 0 {
+		return time.Time{}
+	}
+	fi, err := os.Stat(filepath.Join(SnapshotDir(path), names[len(names)-1]))
+	if err != nil {
+		return time.Time{}
+	}
+	return fi.ModTime()
+}
+
+// KeepFile copies the state file at path to SnapshotDir when it loads and
+// has tabs; a missing, empty or unreadable file is not copied.
+func KeepFile(path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if s, _, err := parse(data); err != nil || len(s.Workspaces) == 0 {
+		return nil
+	}
+	return keep(path, data)
+}
+
+// SnapshotTabs is how many tabs the snapshot name holds, or why it does not load.
+func SnapshotTabs(path, name string) (int, error) {
+	data, err := readSnapshot(path, name)
+	if err != nil {
+		return 0, err
+	}
+	s, _, err := parse(data)
+	return len(s.Workspaces), err
+}
+
+// RestoreSnapshot replaces the state file at path with the snapshot name,
+// after KeepFile copies the file it replaces. It refuses a snapshot that does
+// not load or has no tabs. The daemon must not be running: its next save
+// would replace the restored file.
+func RestoreSnapshot(path, name string) error {
+	data, err := readSnapshot(path, name)
+	if err != nil {
+		return err
+	}
+	s, _, err := parse(data)
+	if err != nil {
+		return err
+	}
+	if len(s.Workspaces) == 0 {
+		return fmt.Errorf("%s has no tabs", name)
+	}
+	if err := KeepFile(path); err != nil {
+		return fmt.Errorf("keep the current state: %w", err)
+	}
+	return WriteAtomic(path, data)
+}
+
+// readSnapshot reads the snapshot name, which must be one ListSnapshots
+// returns, so it cannot name a file outside SnapshotDir.
+func readSnapshot(path, name string) ([]byte, error) {
+	if !slices.Contains(ListSnapshots(path), name) {
+		return nil, fmt.Errorf("no snapshot %q in %s", name, SnapshotDir(path))
+	}
+	return os.ReadFile(filepath.Join(SnapshotDir(path), name))
+}
+
+// keep writes data to SnapshotDir(path) atomically and removes the oldest
+// snapshots past Snapshots.
+func keep(path string, data []byte) error {
+	dir := SnapshotDir(path)
+	at := time.Now()
+	name := ""
+	for {
+		name = "state-" + at.Format("20060102-150405.000") + ".json"
+		if _, err := os.Lstat(filepath.Join(dir, name)); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		at = at.Add(time.Millisecond)
+	}
+	if err := WriteAtomic(filepath.Join(dir, name), data); err != nil {
+		return err
+	}
+	names := ListSnapshots(path)
+	for _, n := range names[:max(0, len(names)-Snapshots)] {
+		if err := os.Remove(filepath.Join(dir, n)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // WriteAtomic writes data to path through a temp file and a rename, so a
@@ -127,6 +261,13 @@ func Load(path string) (model.State, error) {
 func Open(path string) (model.State, error) {
 	s, err := Load(path)
 	if err == nil {
+		// why: the panes this start restores may fail and close their tabs,
+		// and the next save would replace the file they came from.
+		if len(s.Workspaces) > 0 {
+			if err := KeepFile(path); err != nil {
+				log.Printf("state snapshot: %q", err)
+			}
+		}
 		s.Notice = restore(path, &s)
 		return s, nil
 	}
