@@ -20,3 +20,6 @@
 
 # Promo video project (Remotion), kept out of the repository.
 promo/
+
+# Local review notes from agent runs
+codex-review.md
