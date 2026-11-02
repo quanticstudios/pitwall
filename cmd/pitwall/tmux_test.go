@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/daemon"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -121,6 +122,30 @@ exec cat
 		t.Fatal(st.Panes)
 	}
 	lead := st.Panes[0]
+	defer func() {
+		if t.Failed() {
+			screen, err := readPane(conn, proto.Read{Pane: lead.ID, Screen: true})
+			t.Logf("fake team screen: %s\nread error: %v", screen, err)
+		}
+	}()
+	// The team starts a new process for each tmux call, so allow CI startup time.
+	waitTeam := func(what string, ready func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(30 * time.Second); !ready(); time.Sleep(10 * time.Millisecond) {
+			state, err := syncCLI(conn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range state.Panes {
+				if p.ID == lead.ID && p.Exited && !ready() {
+					t.Fatalf("fake team exited with code %d while waiting for %s", p.ExitCode, what)
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+		}
+	}
 	// A second tab must stay outside the shim's tmux window.
 	st, err = syncCLI(conn, proto.NewSession{Name: "unrelated", Cwd: dir})
 	if err != nil {
@@ -133,7 +158,7 @@ exec cat
 		}
 	}
 	var worker string
-	waitFor(t, "team panes", func() bool {
+	waitTeam("team panes", func() bool {
 		data, e := os.ReadFile(filepath.Join(dir, "ready"))
 		if e != nil {
 			return false
@@ -162,7 +187,10 @@ exec cat
 		}
 		return strings.TrimSpace(string(data))
 	}
-	waitFor(t, "worker input", func() bool { _, e := os.Stat(filepath.Join(dir, "received")); return e == nil })
+	waitTeam("worker input", func() bool {
+		data, err := os.ReadFile(filepath.Join(dir, "received"))
+		return err == nil && strings.TrimSpace(string(data)) == "hello team"
+	})
 	if got := read("worker-id"); got != worker {
 		t.Fatalf("worker identity %q, want %q", got, worker)
 	}
@@ -192,7 +220,7 @@ exec cat
 	if err := gate.Close(); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "team cleanup", func() bool {
+	waitTeam("team cleanup", func() bool {
 		var e error
 		st, e = syncCLI(conn)
 		if e != nil {
