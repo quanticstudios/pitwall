@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -54,10 +55,19 @@ func follow(paths []string, out io.Writer, stop <-chan struct{}, interval time.D
 	}
 }
 
+// openLog opens a followed file; tests make it fail.
+var openLog = os.Open
+
+// retryOpen has follow try a file again at the next poll after any open
+// error, not only a missing file: Windows refuses to open a file while
+// another file is renamed over it, as when a log is replaced.
+// ponytail: a log Windows never lets pitwall open is skipped silently.
+var retryOpen = runtime.GOOS == "windows"
+
 func followOne(path string, off *int64, seen *os.FileInfo, out io.Writer) error {
-	f, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil // not written yet, or between a rotation's rename and create
+	f, err := openLog(path)
+	if errors.Is(err, os.ErrNotExist) || err != nil && retryOpen {
+		return nil // not written yet, between a rotation's rename and create, or mid-rename on Windows
 	} else if err != nil {
 		return err
 	}
