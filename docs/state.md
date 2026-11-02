@@ -34,6 +34,12 @@ as `--model`, are not restored. If a resume fails within 3 seconds, the pane fal
 in the same folder. A restored agent in a pane that was a shell also drops to a shell in the same
 folder whenever it exits. Running processes and scrollback do not survive a reboot.
 
+Agent launches queue 100 milliseconds apart, with the most recently used
+session first. Shells and other non-agent panes start immediately. Set
+`[agents] startup_per_agent_delay_ms` to change the gap, or 0 to start all
+agents at once. Closing a queued pane cancels its launch. Stopping the daemon
+cancels the queue and saves the remaining panes for the next restart.
+
 pitwall never deletes saved tabs it cannot read. Before it upgrades
 `state.json` to a newer format, it copies the old file to `state.json.prev`,
 so you can copy it back for an older pitwall. A damaged `state.json`, or one a

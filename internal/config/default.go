@@ -34,6 +34,8 @@ func defaults() Config {
 	c.Notify = defaultNotifications()
 	none := 0.0
 	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit, c.Agents.GuardWorkers = &none, &on, &off
+	startup := float64(DefaultStartupPerAgentDelayMS)
+	c.Agents.StartupPerAgentDelayMS = &startup
 	quiet := float64(DefaultQuietAfter)
 	c.Agents.QuietAfter, c.Agents.ContinueWhenQuiet, c.Agents.ChatContinue = &quiet, &off, &off
 	c.Fleet = defaultFleet()

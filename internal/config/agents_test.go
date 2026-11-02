@@ -4,7 +4,38 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestStartupPerAgentDelay(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  time.Duration
+		bad   bool
+	}{
+		{"", 100 * time.Millisecond, false},
+		{"0", 0, false},
+		{"250", 250 * time.Millisecond, false},
+		{"60000", time.Minute, false},
+		{"-1", 100 * time.Millisecond, true},
+		{"60001", 100 * time.Millisecond, true},
+		{"0.5", 100 * time.Millisecond, true},
+		{"nan", 100 * time.Millisecond, true},
+		{`"100"`, 100 * time.Millisecond, true},
+	} {
+		body := "[agents]\n"
+		if tc.value != "" {
+			body += "startup_per_agent_delay_ms = " + tc.value + "\n"
+		}
+		s, problems := LoadFile(write(t, t.TempDir(), "config.toml", body))
+		if s.StartupPerAgentDelay != tc.want || (len(problems) > 0) != tc.bad {
+			t.Errorf("%q: gap %s, problems %v", tc.value, s.StartupPerAgentDelay, problems)
+		}
+	}
+	if !strings.Contains(Default(), "# startup_per_agent_delay_ms = 100") || !strings.Contains(string(Schema()), `"startup_per_agent_delay_ms"`) {
+		t.Fatal("startup delay missing from defaults or schema")
+	}
+}
 
 func TestAgentPresets(t *testing.T) {
 	p := write(t, t.TempDir(), "config.toml", `[agents]

@@ -285,6 +285,8 @@ type Settings struct {
 	Decisions DecideSettings
 	// MaxRunning is [agents] max_running: 0 for no limit.
 	MaxRunning int
+	// StartupPerAgentDelay is the gap between restored agent launches.
+	StartupPerAgentDelay time.Duration
 	// ResumeAfterLimit types continue into an agent its usage limit
 	// stopped, once the limit resets.
 	ResumeAfterLimit bool
@@ -521,6 +523,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ai...)
 	s.ACPAgents, ai = resolveACP(c.Agents.ACP)
 	s.ResumeAfterLimit = c.Agents.ResumeAfterLimit == nil || *c.Agents.ResumeAfterLimit
+	s.StartupPerAgentDelay, ri = resolveStartupDelay(c.Agents)
+	fi = append(fi, ri...)
 	s.GuardWorkers = c.Agents.GuardWorkers != nil && *c.Agents.GuardWorkers
 	s.GuardDeny = c.Agents.GuardDeny
 	fi = append(fi, ai...)

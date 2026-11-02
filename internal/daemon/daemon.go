@@ -122,6 +122,11 @@ type Options struct {
 	Split         func(root *layout.Node, target, newPane string, dir layout.Dir) *layout.Node
 	Remove        func(root *layout.Node, pane string) *layout.Node
 	StatsInterval time.Duration // 0 means 30s
+
+	// StartupPerAgentDelay reads [agents] startup_per_agent_delay_ms once
+	// at startup; nil or 0 launches every pane immediately.
+	StartupPerAgentDelay func() time.Duration
+
 	// PR is the pull request of the branch checked out at dir, nil for
 	// none (forge.View); nil never asks. ArchiveOnMerge reads [git]
 	// archive_on_merge; nil means off.
@@ -217,6 +222,7 @@ type Daemon struct {
 	live        liveness
 	turns       timelog.Tracker       // each pane's running turn, for timing.jsonl
 	resumed     map[string]time.Time  // pane: when NewWith relaunched it with a resume command
+	restoring   startupRestores       // see restore.go
 	attn        map[string]*attention // pane: seen time and OSC notification, see attention.go
 	clip        model.Clipboard       // the latest OSC 52 write, see attention.go
 	clipAt      time.Time             // when it came
@@ -336,6 +342,8 @@ func Defaults() Options {
 		Checkpoint:        gitstat.Checkpoint,
 		DropTurns:         gitstat.DropTurns,
 
+		StartupPerAgentDelay: setting(config.Path(), func(s config.Settings) time.Duration { return s.StartupPerAgentDelay }),
+
 		SendReviewOnRequest: func() bool { s, _ := config.Load(); return s.SendReviewOnRequest },
 		Reviews:             forge.Reviews,
 		Merge: func(ctx context.Context, dir string, number int) error {
@@ -380,6 +388,9 @@ func NewWith(o Options) (*Daemon, error) {
 	cancel()
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
+	if o.StartupPerAgentDelay != nil {
+		d.restoring.delay = o.StartupPerAgentDelay()
+	}
 	for i := range d.st.Workspaces {
 		w := &d.st.Workspaces[i]
 		w.Tabs = slices.DeleteFunc(w.Tabs, func(t model.Tab) bool { return t.Layout == nil })
@@ -401,16 +412,14 @@ func NewWith(o Options) (*Daemon, error) {
 			d.sizes[p.ID] = [2]int{defaultCols, defaultRows}
 			continue
 		}
-		cmd := o.RestoreCmd(*p)
-		if err := d.start(p.ID, cmd, p.Cwd, d.portsOf(p.WorkspaceID), p.Env); err != nil {
+		if d.restoring.delay > 0 && (resumes || model.IsAgent(p.Provider) && len(p.Cmd) > 0) {
+			d.restoring.pending = append(d.restoring.pending, p.ID)
+			continue
+		}
+		if err := d.restorePane(*p, saved); err != nil {
 			log.Printf("restore pane %s: %q", p.ID, err)
 			gone = append(gone, p.ID)
 			continue
-		}
-		if resumes {
-			d.resumed[p.ID] = time.Now()
-			log.Printf("pane %s: resuming %q, mode %q", p.ID, p.Provider, p.AgentMode)
-			d.restartNudge(p.ID, saved)
 		}
 	}
 	for _, id := range gone {
@@ -418,6 +427,9 @@ func NewWith(o Options) (*Daemon, error) {
 	}
 	d.loadChats()
 	d.tidy()
+	d.restoring.saved = saved
+	d.orderRestores()
+	d.restoreNext()
 	return d, nil
 }
 
@@ -464,7 +476,12 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	d.mu.Lock()
 	d.ln, d.stop = ln, cancel
 	d.mu.Unlock()
-	context.AfterFunc(ctx, func() { ln.Close() })
+	context.AfterFunc(ctx, func() {
+		ln.Close()
+		d.mu.Lock()
+		d.stopRestores()
+		d.mu.Unlock()
+	})
 	d.radar.mu.Lock()
 	d.radar.ctx = ctx
 	d.radar.mu.Unlock()
@@ -497,6 +514,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 func (d *Daemon) shutdown() {
+	d.mu.Lock()
+	d.stopRestores()
+	d.mu.Unlock()
 	d.closeChats()
 	d.saveMu.Lock()
 	d.mu.Lock()
@@ -927,6 +947,13 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		d.noteInput(m.Pane, m.Data)
 		return nil
 	case proto.Resize:
+		d.mu.Lock()
+		if slices.Contains(d.restoring.pending, m.Pane) {
+			d.sizes[m.Pane] = [2]int{m.Cols, m.Rows}
+			d.mu.Unlock()
+			return nil
+		}
+		d.mu.Unlock()
 		p, err := d.pane(m.Pane)
 		if err != nil {
 			return err
@@ -1311,6 +1338,10 @@ func (d *Daemon) closePane(id string) error {
 // dropPane forgets a pane's handle and activity; the caller removes it from
 // st.Panes and closes the returned handle outside the lock.
 func (d *Daemon) dropPane(id string) Pane {
+	d.restoring.pending = slices.DeleteFunc(d.restoring.pending, func(p string) bool { return p == id })
+	if len(d.restoring.pending) == 0 {
+		d.stopRestores()
+	}
 	h := d.panes[id]
 	delete(d.panes, id)
 	delete(d.sizes, id)
@@ -2000,6 +2031,7 @@ func (d *Daemon) save() {
 // restart relaunches the shell where the user left it.
 func (d *Daemon) saveSnapshot() model.State {
 	s := d.snapshot()
+	s.Activities = append(s.Activities, d.restoreActivities()...)
 	for i, p := range s.Panes {
 		if h := d.panes[p.ID]; h != nil && !p.Exited {
 			if cwd := h.Cwd(); cwd != "" {

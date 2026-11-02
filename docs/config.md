@@ -58,6 +58,9 @@ send_review_on_request = false          # send requested changes once per review
 # auto_send_failures = false            # older name; send_failures_on_fail overrides it
 conflict_radar = true                   # mark tabs whose branches change the same files
 
+[agents]
+startup_per_agent_delay_ms = 100         # gap after each restored agent; 0 starts all at once
+
 [[agents.preset]]                       # Settings, Agents adds and edits these
 name = "Quick"
 agent = "codex"
@@ -79,6 +82,12 @@ on macOS. Keys are a printable character, `Space`, `Tab`, `Enter`,
 `Esc`, `Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, `Up`,
 `Down`, `Left`, `Right` or `F1`-`F12`. Two actions on one chord is an error
 naming both.
+
+Restored agents start 100 milliseconds apart by default, with the most
+recently used session first. The gaps add 1.1 seconds for a dozen agents.
+`[agents] startup_per_agent_delay_ms` accepts whole milliseconds from 0 to
+60000 and takes effect on the next daemon restart. Set it to 0 to start all
+agents at once. Shells and other non-agent panes start immediately.
 
 ## Account profiles
 
