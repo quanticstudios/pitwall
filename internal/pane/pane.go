@@ -29,8 +29,9 @@ type Config struct {
 type Pane struct {
 	sys // the PTY as tty, and the process
 
-	mu sync.Mutex // guards vt: the reader writes while clients snapshot and resize
-	vt vt.Emulator
+	mu   sync.Mutex // guards vt and cell: the reader writes while clients snapshot and resize
+	vt   vt.Emulator
+	cell [2]int // a cell's pixel size in the window, 0 until SetCellSize
 
 	dirty     chan struct{}
 	exited    chan struct{} // closed once the process exits
@@ -230,6 +231,27 @@ func (p *Pane) Resize(cols, rows int) error {
 	p.vt.Resize(cols, rows)
 	p.signal() // the snapshot changed size: a program that does not redraw sends no output
 	return nil
+}
+
+// SetCellSize sets the pixel size of a cell in the window, which the next
+// Resize reports to the PTY, and passes it to the emulator for images.
+func (p *Pane) SetCellSize(w, h int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cell = [2]int{w, h}
+	if s, ok := p.vt.(interface{ SetCellSize(w, h int) }); ok {
+		s.SetCellSize(w, h)
+	}
+}
+
+// Image returns an image a frame's placement names; see vt.Image.
+func (p *Pane) Image(key uint64) (vt.Image, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s, ok := p.vt.(interface{ Image(uint64) (vt.Image, bool) }); ok {
+		return s.Image(key)
+	}
+	return vt.Image{}, false
 }
 
 func (p *Pane) Snapshot() vt.Grid {

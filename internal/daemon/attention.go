@@ -73,6 +73,9 @@ func (d *Daemon) notifyingVT(id string, newVT vt.NewFunc) vt.NewFunc {
 		if s, ok := e.(interface{ SetScrollback(int) }); ok && d.o.Scrollback != nil {
 			s.SetScrollback(d.o.Scrollback())
 		}
+		if s, ok := e.(interface{ SetGraphics(bool) }); ok && d.o.Graphics != nil {
+			s.SetGraphics(d.o.Graphics())
+		}
 		if s, ok := e.(interface{ SetClipboardFunc(func(string)) }); ok {
 			s.SetClipboardFunc(func(text string) {
 				seq := d.clipSeq.Add(1) // the order they arrived in, whichever goroutine runs first

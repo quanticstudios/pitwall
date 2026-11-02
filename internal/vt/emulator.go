@@ -3,6 +3,7 @@ package vt
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"image/color"
 	"io"
 	"math"
@@ -62,6 +63,7 @@ type state struct {
 	bell      func()        // set by SetBellFunc
 	clip      func(string)  // set by SetClipboardFunc
 	cwd       string        // the local folder the last OSC 7 named
+	gfx       graphics      // kitty graphics: images and placements
 }
 
 // New returns an Emulator backed by github.com/charmbracelet/x/vt.
@@ -87,6 +89,7 @@ func New(cols, rows int, reply io.Writer) Emulator {
 			}
 		},
 		EnableMode: func(m ansi.Mode) {
+			st.gfx.leaveAlt(m)
 			if m == modeSync && !st.syncing {
 				st.syncStart = time.Now()
 				st.armSync()
@@ -95,6 +98,7 @@ func New(cols, rows int, reply io.Writer) Emulator {
 			st.syncing = st.modes[modeSync]
 		},
 		DisableMode: func(m ansi.Mode) {
+			st.gfx.leaveAlt(m)
 			if m == modeSync && st.syncTimer != nil {
 				st.syncTimer.Stop()
 			}
@@ -105,9 +109,14 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	registerKitty(e, st)
 	registerColorQueries(e, st)
 	registerShell(e, st)
+	registerGraphics(e, st)
 	e.RegisterCsiHandler('J', func(p ansi.Params) bool {
-		if n, _, _ := p.Param(0, 0); n == 3 && !e.IsAltScreen() {
+		switch n, _, _ := p.Param(0, 0); {
+		case n == 2:
+			st.gfx.clear(e, st, "screen") // so clear clears images too, as kitty
+		case n == 3 && !e.IsAltScreen():
 			st.hist.clear()
+			st.gfx.clear(e, st, "history")
 		}
 		return false // x/vt clears the screen and its own scrollback
 	})
@@ -126,6 +135,7 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	go pumpReplies(e, reply, &st.dropped)
 	t := &emulator{e: e, st: st}
 	runtime.AddCleanup(t, func(w io.Writer) { _ = w.(*io.PipeWriter).Close() }, e.InputPipe())
+	runtime.AddCleanup(t, (*graphics).releaseAll, &st.gfx)
 	return t
 }
 
@@ -186,6 +196,32 @@ func (t *emulator) Cwd() string {
 	return t.st.cwd
 }
 
+// SetGraphics turns the kitty graphics protocol on (the default) or off.
+// Off, graphics commands get no reply, so programs fall back to text. Call
+// it before the first Write; callers find it through an interface check.
+func (t *emulator) SetGraphics(on bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.st.gfx.off = !on
+}
+
+// SetCellSize sets the pixel size of a cell in the window that shows the
+// pane, which sizes images placed without c= and r= and answers CSI 14 t
+// and 16 t. Callers find it through an interface check.
+func (t *emulator) SetCellSize(w, h int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.st.gfx.cell = image.Pt(w, h)
+}
+
+// Image returns the image a Grid's Placement names, while the pane keeps
+// it. Callers find it through an interface check.
+func (t *emulator) Image(key uint64) (Image, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.st.gfx.image(key)
+}
+
 // Close stops the reply goroutines; the screen stays readable. Panes find it
 // through an interface check and call it once their process is gone.
 func (t *emulator) Close() error {
@@ -214,9 +250,15 @@ func (t *emulator) Write(p []byte) (int, error) {
 		if i == 0 {
 			i = len(p)
 		}
+		if t.st.term == ansi.ESC && p[0] == '\\' {
+			i = 1 // ends a sequence, which may have placed an image
+		}
 		t.st.term = p[i-1]
 		if _, err := t.e.Write(p[:i]); err != nil {
 			return n - len(p), err
+		}
+		if t.st.term != ansi.ESC {
+			t.st.gfx.applyMove(t.e)
 		}
 		p = p[i:]
 	}
@@ -228,6 +270,7 @@ func (t *emulator) Write(p []byte) (int, error) {
 		clear(lines) // Clear keeps the backing array, which would pin the lines
 		sb.Clear()
 	}
+	t.st.gfx.prune(t.e, t.st)
 	return n, nil
 }
 
@@ -282,6 +325,7 @@ func (t *emulator) SnapshotAt(off int) Grid {
 			out.Wrapped[y] = l.wrapped()
 		}
 	}
+	out.Images = t.st.gfx.view(t.e, t.st, off, g.Rows)
 	out.Cursor.Y += off
 	if out.Cursor.Y >= g.Rows {
 		out.Cursor.Visible = false
@@ -405,6 +449,7 @@ func snapshot(e *xvt.Emulator, st *state) Grid {
 	}
 	p := e.CursorPosition()
 	g.Cursor = Cursor{X: p.X, Y: p.Y, Visible: !st.hidden, Shape: st.shape}
+	g.Images = st.gfx.view(e, st, 0, h)
 	return g
 }
 
@@ -602,6 +647,7 @@ func registerKitty(e *xvt.Emulator, st *state) {
 	})
 	e.RegisterEscHandler('c', func() bool {
 		st.kitty = [2][]uint8{}
+		st.gfx.clear(e, st, "all")
 		return false // let x/vt's own RIS run too
 	})
 }

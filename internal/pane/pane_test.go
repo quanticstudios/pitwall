@@ -373,3 +373,20 @@ func TestClosedPanesAreFreed(t *testing.T) {
 		t.Fatalf("%d of %d emulators freed, goroutines %d after, %d before", f, n, g, before)
 	}
 }
+
+// TestPixelSize checks the PTY reports the window's cell size times the
+// grid, which image tools read with TIOCGWINSZ.
+func TestPixelSize(t *testing.T) {
+	p, _ := start(t, "p1", "sleep", "100")
+	p.SetCellSize(9, 18)
+	if err := p.Resize(10, 5); err != nil {
+		t.Fatal(err)
+	}
+	var ws *unix.Winsize
+	if err := p.control(func(fd int) (err error) { ws, err = unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); return }); err != nil {
+		t.Fatal(err)
+	}
+	if ws.Xpixel != 90 || ws.Ypixel != 90 {
+		t.Errorf("pixels %dx%d, want 90x90", ws.Xpixel, ws.Ypixel)
+	}
+}

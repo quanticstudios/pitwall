@@ -43,6 +43,7 @@ type backend struct {
 	texts   map[string]proto.TextResult       // per pane, a Text reply not yet taken
 	icons   map[string]*proto.FaviconResult   // per folder, the daemon's FaviconResult, nil while it is out
 	pastes  map[string]proto.PasteImageResult // per pane, a PasteImage reply not yet taken
+	imgs    images                            // the images frames place
 	moves   []proto.FocusDir                  // not yet taken by the window
 	chat    chatCache                         // the transcript of the chat on screen
 	link    app.Link
@@ -100,6 +101,7 @@ var (
 	_ app.Texter    = (*backend)(nil)
 	_ app.Viewer    = (*backend)(nil)
 	_ app.Chatter   = (*backend)(nil)
+	_ app.Imager    = (*backend)(nil)
 )
 
 func (b *backend) State() model.State {
@@ -318,6 +320,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.view, b.waits = map[string]bool{}, map[string]chan struct{}{} // the new daemon sends no frames before a View
 	b.dialing = false
 	maps.DeleteFunc(b.icons, func(_ string, r *proto.FaviconResult) bool { return r == nil }) // asked of the old connection: ask again
+	b.imgs.forget()
 	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level, Build: initial.Build}
 	first := b.session == "" && !b.guest
 	b.mu.Unlock()
@@ -460,6 +463,9 @@ func (b *backend) recvLoop() {
 			b.texts[m.Pane] = m
 		case proto.PasteImageResult:
 			b.pastes[m.Pane] = m
+		case proto.ImageResult:
+			b.imgs.put(m.Image, b.keepImages)
+			pane = m.Pane
 		case proto.ChatDeltas:
 			if !b.chat.take(m) {
 				b.mu.Unlock()

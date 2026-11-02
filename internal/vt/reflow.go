@@ -49,13 +49,38 @@ func (t *emulator) reflow(w, h int) {
 		rows = append(rows, hist.line(lines[y], flags[y], keep))
 	}
 	c, s, top := pos{n + cur.Y, cur.X}, pos{n + saved.Y, saved.X}, pos{n, 0}
+	// Images move with the cell at their top left, as the cursors do. Row
+	// i of rows is line base+i, as kitty graphics placements number them.
+	base, old := int64(hist.pushed)-int64(n), len(rows)
+	var placed, under []*place
+	marks := []*pos{&c, &s, &top}
+	for _, pl := range t.st.gfx.places {
+		switch r := int64(pl.line) - base; {
+		case pl.alt:
+		case r >= int64(old):
+			under = append(under, pl)
+		case r >= 0:
+			placed = append(placed, pl)
+			marks = append(marks, &pos{int(r), pl.col})
+		}
+	}
 	if w != len(lines[0]) {
-		rows = rewrap(rows, w, &c, &s, &top)
+		rows = rewrap(rows, w, marks...)
 	}
 
 	below := min(trail, max(0, h-(len(rows)-top.row)))
 	start := min(max(0, len(rows)+below-h), c.row)
 	hist.set(rows[:start])
+	// Row i is now line pushed-start+i, the same line number as before
+	// unless history dropped its oldest rows.
+	at := func(row int64) uint64 { return uint64(max(0, int64(hist.pushed)-int64(start)+row)) }
+	for i, pl := range placed {
+		m := marks[3+i]
+		pl.line, pl.col = at(int64(m.row)), min(m.col, w-1)
+	}
+	for _, pl := range under { // on blank rows under the text: as far below it
+		pl.line = at(int64(pl.line) - base + int64(len(rows)-old))
+	}
 	screen, soft := make([]uv.Line, h), make([]xvt.LineFlags, h)
 	for y := range screen {
 		if i := start + y; i < len(rows) {
@@ -65,6 +90,7 @@ func (t *emulator) reflow(w, h int) {
 		}
 	}
 	t.e.ResizeMain(w, h, screen, soft, uv.Pos(c.col, c.row-start), uv.Pos(s.col, max(0, s.row-start)))
+	t.st.gfx.prune(t.e, t.st)
 }
 
 func blank(l uv.Line) bool {

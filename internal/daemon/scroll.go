@@ -45,6 +45,22 @@ func (d *Daemon) text(m proto.Text) any {
 	return r
 }
 
+// image answers m with the pixels of an image m.Pane's frames place. A
+// Pane without Image, like a test fake, has none.
+func (d *Daemon) image(m proto.Image) proto.ImageResult {
+	d.mu.Lock()
+	p := d.panes[m.Pane]
+	d.mu.Unlock()
+	r := proto.ImageResult{Pane: m.Pane}
+	if i, ok := p.(interface {
+		Image(key uint64) (vt.Image, bool)
+	}); ok {
+		r.Image, _ = i.Image(m.Key)
+	}
+	r.Image.Key = m.Key
+	return r
+}
+
 // view is where a pane's view sits in its scrollback. It is view state shared
 // by every client and never saved.
 type view struct {

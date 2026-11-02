@@ -212,11 +212,18 @@ type Scroller interface {
 	Scroll(pane string) (offset, max int, pushed uint64)
 }
 
+// Imager is optionally implemented by a Backend: the pixels of an image
+// a pane's frame places (vt.Placement.Image), false until they come.
+type Imager interface {
+	Image(pane string, key uint64) (vt.Image, bool)
+}
+
 type paneUI struct {
 	rect       image.Rectangle // last visible pane bounds, in window pixels
 	dropFiles  []string
 	sentCols   int
 	sentRows   int
+	sentCell   image.Point
 	copyWant   *vt.Selection // the selection whose proto.Text reply is awaited
 	pasteWait  bool          // a proto.PasteImage was sent; its reply is awaited
 	focusClick bool          // its address is the click-to-focus pointer tag
@@ -997,7 +1004,10 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			u.drawZoomHint(gtx, r)
 		}
 	}
-	for id := range u.panes {
+	for id, p := range u.panes {
+		if !live[id] {
+			p.view.DropImages()
+		}
 		if !live[id] && findPane(st, id) == nil {
 			delete(u.panes, id)
 		}
@@ -1073,6 +1083,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	if s, ok := u.b.(Scroller); ok {
 		p.view.SetScroll(s.Scroll(id))
 	}
+	if im, ok := u.b.(Imager); ok {
+		p.view.Images = func(key uint64) (vt.Image, bool) { return im.Image(id, key) }
+	}
 	finding := id == u.find.pane
 	q, cur := "", image.Pt(0, -1)
 	if finding {
@@ -1122,13 +1135,14 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	if d, n := p.view.ScrollDelta(), p.view.PromptDelta(); d != 0 || n != 0 {
 		u.send(proto.Scroll{Pane: id, Lines: d, Prompts: n})
 	}
-	if (cols != g.Cols || rows != g.Rows) && (cols != p.sentCols || rows != p.sentRows) {
+	cell := p.view.CellSize(gtx, u.th)
+	if (cols != g.Cols || rows != g.Rows || cell != p.sentCell) && (cols != p.sentCols || rows != p.sentRows || cell != p.sentCell) {
 		if ok, held := resizes.Allow(id, gtx.Now); ok {
 			log.Printf("pane %s: sending size %dx%d (frame %dx%d; %d more since the last line)", id, cols, rows, g.Cols, g.Rows, held)
 		}
 		// A size that failed to send is sent again on the next frame.
-		if u.send(proto.Resize{Pane: id, Cols: cols, Rows: rows}) {
-			p.sentCols, p.sentRows = cols, rows
+		if u.send(proto.Resize{Pane: id, Cols: cols, Rows: rows, CellW: cell.X, CellH: cell.Y}) {
+			p.sentCols, p.sentRows, p.sentCell = cols, rows, cell
 		}
 	}
 }

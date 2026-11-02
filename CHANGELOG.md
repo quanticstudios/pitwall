@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Panes show images printed with the kitty graphics protocol, as `kitten icat`, `chafa` and `timg` print them: PNG, RGB and RGBA sent in the escape sequence, placed at the cursor, scrolled with the text into the history and capped at 64 MB a pane and 256 MB in all. Reading images from files or shared memory is refused. The PTY now reports its size in pixels. `graphics = "off"` under `[terminal]` turns images off. On the socket, frames carry the placements and the window asks for each image's pixels once with `Image`, at Level 48.
 - Restored agents start 100 milliseconds apart, with the most recently used session first. `[agents] startup_per_agent_delay_ms` changes the gap; 0 starts all at once. Shells start immediately.
 - `pitwall agent explain` explains a live pane's state or a saved screen with the matched pattern, unsuccessful checks, process detection and hook history; `--json` prints evidence for bug reports.
 

@@ -19,7 +19,7 @@ func defaults() Config {
 	c.Layout = Layout{&gap, &margin}
 	on := true
 	c.Term.CopyOnSelect, c.Term.Links = &on, &on
-	c.Term.OSC52, c.Term.Bell = "write", "attention"
+	c.Term.OSC52, c.Term.Bell, c.Term.Graphics = "write", "attention", "kitty"
 	sb := float64(DefaultScrollback)
 	c.Term.Scrollback = &sb
 	c.Updates.Check = &on

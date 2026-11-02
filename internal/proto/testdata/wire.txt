@@ -1,6 +1,8 @@
-17.47
+17.48
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
+image.Point{X int; Y int}
+image.Rectangle{Min image.Point; Max image.Point}
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
 model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
@@ -65,9 +67,11 @@ proto.FaviconResult{Dir string; Root string; Files []proto.FaviconFile}
 proto.FocusDir{Pane string; Dir layout.Direction}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string}
 proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64}
-proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64}
+proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64; Images []vt.Placement}
 proto.GroupByFolder{WorkspaceID string}
 proto.Hello{Version int; Level int; Kind string; Cwd string; Session string}
+proto.Image{Pane string; Key uint64}
+proto.ImageResult{Pane string; Image vt.Image}
 proto.Input{Pane string; Data []uint8}
 proto.KillSession{WorkspaceID string}
 proto.MoveGroup{GroupID string; Before string}
@@ -87,7 +91,7 @@ proto.ReadResult{Pane string; Text string; Err string}
 proto.RenameGroup{GroupID string; Name string}
 proto.RenameTab{WorkspaceID string; TabID string; Pane string; Name string}
 proto.RenameWorkspace{WorkspaceID string; Name string}
-proto.Resize{Pane string; Cols int; Rows int}
+proto.Resize{Pane string; Cols int; Rows int; CellW int; CellH int}
 proto.Scroll{Pane string; Lines int; Prompts int}
 proto.Search{Pane string; Query string}
 proto.SearchAll{ID uint64; Query string}
@@ -123,8 +127,10 @@ time.zone{name string; offset int; isDST bool}
 time.zoneTrans{when int64; index uint8; isstd bool; isutc bool}
 vt.Cell{Content string; Width uint8; FG vt.Color; BG vt.Color; Attrs vt.Attr; Link string}
 vt.Cursor{X int; Y int; Visible bool; Shape vt.CursorShape}
-vt.Grid{Cols int; Rows int; Cells []vt.Cell; Cursor vt.Cursor; Title string; AltScreen bool; Wrapped []bool}
+vt.Grid{Cols int; Rows int; Cells []vt.Cell; Cursor vt.Cursor; Title string; AltScreen bool; Wrapped []bool; Images []vt.Placement}
+vt.Image{Key uint64; W int; H int; Pix []uint8}
 vt.Match{Line uint64; Col int; Cols int}
 vt.Modes{AppCursorKeys bool; AppKeypad bool; BracketedPaste bool; FocusEvents bool; Mouse vt.MouseMode; MouseSGR bool; KittyKeyboard uint8}
+vt.Placement{Image uint64; X int; Y int; Cols int; Rows int; Src image.Rectangle; Natural bool}
 vt.Pos{Line uint64; Col int}
 vt.Selection{A vt.Pos; B vt.Pos; Mode vt.SelectMode}

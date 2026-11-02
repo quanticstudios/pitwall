@@ -73,7 +73,7 @@ says it is ready, so exactly one daemon ever reads the PTYs.
 | PTY master, one per running pane | fd over `SCM_RIGHTS` |
 | listening socket | fd over `SCM_RIGHTS` |
 | pane id, PID, size | `handoffPane` |
-| screen, scrollback, modes, parser state | `vt.Save` snapshot |
+| screen, scrollback, modes, parser state | `vt.Save` snapshot; kitty graphics images are not kept, so they vanish from the panes |
 | input a client sent that is not written yet | `handoffPane.Input`, in order |
 | layout, tabs, sessions, held panes, activities, tasks | `model.State` |
 | managed sessions' stdio pipes | `handoffBundle.Chats`, the seam for M4; empty, and a non-empty one is refused |
