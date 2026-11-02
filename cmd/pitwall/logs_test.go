@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -110,6 +111,56 @@ func TestFollowWriteError(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("follow kept polling after a write error")
+		}
+	}
+}
+
+// TestFollowRetriesOpen: with retryOpen, as on Windows, a file follow cannot
+// open for a few polls is read again once it opens, instead of follow
+// ending on the first error.
+func TestFollowRetriesOpen(t *testing.T) {
+	open, retry := openLog, retryOpen
+	t.Cleanup(func() { openLog, retryOpen = open, retry })
+	var fails atomic.Int32
+	openLog = func(p string) (*os.File, error) {
+		if fails.Add(-1) >= 0 {
+			return nil, os.ErrPermission
+		}
+		return os.Open(p)
+	}
+	retryOpen = true
+	path := filepath.Join(t.TempDir(), "gui.log")
+	appendTo := func(s string) {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.WriteString(s)
+		f.Close()
+	}
+	var out syncBuf
+	stop, done := make(chan struct{}), make(chan error, 1)
+	go func() { done <- follow([]string{path}, &out, stop, time.Millisecond) }()
+	t.Cleanup(func() {
+		close(stop)
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	for !strings.Contains(out.String(), "tick") {
+		appendTo("tick\n")
+		time.Sleep(5 * time.Millisecond)
+	}
+	fails.Store(5)
+	for deadline := time.Now().Add(5 * time.Second); fails.Load() >= 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("follow stopped opening the file after %d failed opens", 5-fails.Load())
+		}
+	}
+	appendTo("after the failed opens\n")
+	for deadline := time.Now().Add(5 * time.Second); !strings.Contains(out.String(), "after the failed opens"); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("follow printed %q", out.String())
 		}
 	}
 }
