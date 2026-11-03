@@ -331,6 +331,8 @@ func serveDaemon(d *daemon.Daemon, ln net.Listener) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
+	// Programs in panes get the new colors when Omarchy switches theme.
+	go config.WatchOmarchy(ctx.Done(), func() { d.SetPalette(config.Palette()) })
 	go func() {
 		err := logind.Watch(ctx, func(shutdown bool) {
 			if shutdown {
@@ -352,7 +354,7 @@ func daemonSetup(path string) {
 	// Panes inherit this, so their hooks reach this daemon even when the
 	// shell inside changes XDG_RUNTIME_DIR.
 	os.Setenv("PITWALL_SOCKET", path)
-	vt.DefaultPalette = config.Palette() // color queries answer with the theme the GUI draws
+	vt.SetPalette(config.Palette()) // color queries answer with the theme the GUI draws
 	if home, err := os.UserHomeDir(); err == nil {
 		for _, p := range agent.RefreshSkill(home) {
 			log.Printf("updated the pitwall skill at %s", p)

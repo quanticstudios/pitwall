@@ -177,7 +177,9 @@ being scanned until the profile is configured again.
 <img src="media/appearance.webp" alt="Settings, Appearance: the four built-in themes as cards with aide-dark picked, then the interface and terminal fonts, their sizes and the line height" width="800">
 
 Built in: `aide-dark` (the default), `aide-light`, `tokyo-night`,
-`catppuccin-mocha`, `dracula`. A custom theme is `~/.config/pitwall/themes/<name>.toml`
+`catppuccin-mocha`, `dracula`, and on Omarchy `omarchy` (the default there
+when `[theme] name` is not set; see [Omarchy theme](usage.md#omarchy-theme)).
+A custom theme is `~/.config/pitwall/themes/<name>.toml`
 with the same keys as `[theme]`; its `name` picks the built-in it starts
 from, so it only lists what differs. Add `#:schema
 ~/.config/pitwall/theme.schema.json` as its first line for completion.
@@ -203,8 +205,10 @@ from, so it only lists what differs. Add `#:schema
 `[theme.terminal]` has `foreground`, `background`, `cursor` and `ansi`, an
 array of the 16 ANSI colors (black, red, green, yellow, blue, magenta, cyan,
 white, then the bright ones). Colors are `#rrggbb` or `#rrggbbaa`. The
-daemon answers programs' color queries (OSC 10, 11 and 4) from the terminal
-colors; a running daemon picks a change up the next time it starts.
+daemon answers programs' color queries (OSC 4, 10, 11 and 12) and the color
+scheme query (`CSI ? 996 n`) from the terminal colors; a running daemon picks
+a change in config.toml up the next time it starts, and an Omarchy theme
+switch at once.
 
 ## Fonts and spacing
 

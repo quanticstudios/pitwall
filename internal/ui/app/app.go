@@ -97,17 +97,19 @@ func Run(b Backend) error {
 	defer close(stop)
 	go u.updates.watch(stop, w.Invalidate)
 	go u.limits.watch(stop, w.Invalidate)
-	go watchConfig(stop, func() []string {
-		u.cfgMu.Lock()
-		defer u.cfgMu.Unlock()
-		return []string{config.Path(), filepath.Join(config.Dir(), "themes", u.watchTheme+".toml")}
-	}, func() {
+	reload := func() {
 		l := loadConfig()
 		u.cfgMu.Lock()
 		u.next = &l
 		u.cfgMu.Unlock()
 		w.Invalidate()
-	})
+	}
+	go watchConfig(stop, func() []string {
+		u.cfgMu.Lock()
+		defer u.cfgMu.Unlock()
+		return []string{config.Path(), filepath.Join(config.Dir(), "themes", u.watchTheme+".toml")}
+	}, reload)
+	go config.WatchOmarchy(stop, reload) // follows an Omarchy theme switch
 	u.watchTheme = l.s.ThemeName
 	u.report = func(probs []string) { reportProblems(probs, &reported) }
 	u.notifications = newNotifier(b, w.Invalidate, desktopSender(), func(a model.Activity) {

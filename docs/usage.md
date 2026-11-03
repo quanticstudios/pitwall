@@ -849,6 +849,33 @@ unknown commands and unknown flags fail with a message and a nonzero exit
 code. Cell sizes on `split-window` produce equal halves. Command chaining,
 control mode, buffers and creating or killing sessions are unsupported.
 
+### Omarchy theme
+
+On [Omarchy](https://omarchy.org), pitwall takes the colors of the Omarchy
+theme in force when config.toml names no theme. `[theme] name = "omarchy"`
+asks for it by name, and any other name keeps that theme. pitwall reads
+`~/.local/state/omarchy/current/theme/colors.toml` (Omarchy 4) or
+`~/.config/omarchy/current/theme/colors.toml` (Omarchy 3), resolving its keys
+the way `omarchy-theme-color` does for the rest of the desktop.
+
+Switch the Omarchy theme and the window, the panes and the daemon follow
+within a fraction of a second. pitwall watches the current-theme folder with
+inotify, so an unchanged theme costs nothing. Programs in panes see the new
+colors the next time they query them (OSC 4, 10, 11, 12). One that turned on
+mode 2031, as Claude Code does, gets `CSI ? 997 ; 1 n` when the
+background turns dark and `CSI ? 997 ; 2 n` when it turns light.
+
+Panes use the theme's terminal colors as Omarchy's own terminals do. The
+window builds its grounds from the theme's background and its text from the
+foreground and `muted`. The accent becomes `primary`, and red, yellow, green,
+blue and magenta become the status colors. A text color below 4.5:1 on the
+sidebar or a selected row, or a status color or the accent below 3:1, is
+mixed toward white on a dark theme (black on a light one) in steps of 1/16
+until it reads. Hackerman's `muted`, `#2d3450`, measures 1.6:1 on its
+background, so pitwall draws muted text lighter than the theme asks.
+`[theme.colors]` entries still override any color. Omarchy installed after
+pitwall started needs a restart to be followed.
+
 ### Grouping
 
 <img src="media/drag.webp" alt="Dragging a tab into the web-app group while the other rows slide apart, then dragging the billing group above the loose tabs" width="800">

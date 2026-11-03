@@ -103,7 +103,7 @@ type NamedTheme struct {
 	Theme  Theme
 }
 
-// AllThemes lists the built-in themes, then the custom ones in dir (the
+// AllThemes lists the built-in themes, omarchy where Omarchy runs, then the custom ones in dir (the
 // themes folder next to config.toml). A custom file with mistakes still
 // shows, with whatever of it loads.
 func AllThemes(dir string) []NamedTheme {
@@ -112,8 +112,11 @@ func AllThemes(dir string) []NamedTheme {
 		t, _ := Builtin(n)
 		out = append(out, NamedTheme{Name: n, Theme: t})
 	}
+	if t, _, err := LoadOmarchy(); err == nil {
+		out = append(out, NamedTheme{Name: OmarchyName, Theme: t})
+	}
 	for _, n := range customThemes(dir) {
-		if _, ok := builtins[n]; ok {
+		if _, ok := builtins[n]; ok || n == OmarchyName {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, n+".toml"))

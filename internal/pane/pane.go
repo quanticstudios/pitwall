@@ -244,6 +244,15 @@ func (p *Pane) SetCellSize(w, h int) {
 	}
 }
 
+// SetPalette passes a new terminal palette to the emulator.
+func (p *Pane) SetPalette(pal vt.Palette) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s, ok := p.vt.(interface{ SetPalette(vt.Palette) }); ok {
+		s.SetPalette(pal)
+	}
+}
+
 // Image returns an image a frame's placement names; see vt.Image.
 func (p *Pane) Image(key uint64) (vt.Image, bool) {
 	p.mu.Lock()
