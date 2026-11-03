@@ -817,7 +817,7 @@ func (p *Page) appearance() []section {
 		{title: "Sidebar", rows: []row{
 			{label: "View", desc: "The tree lists tabs under their groups. The inbox lists every agent tab by what it needs from you. The button left of + in the sidebar's header switches too.",
 				extra: "inbox tree list view sections", control: p.choice("sidebar", "view", []string{"tree", "inbox"}, []string{"Tree", "Inbox"}, !p.s.Sidebar.Inbox)},
-			{label: "Working section", desc: "In the inbox, move tabs whose agent works now out of Active into a section of their own.",
+			{label: "Working section", desc: "In the inbox, move tabs whose agent works now out of Waiting on you into a section of their own.",
 				extra: "inbox working shelf working_shelf", control: p.toggle("sidebar", "working_shelf", p.s.Sidebar.WorkingShelf)},
 			{label: "Settle after days", desc: "Move a tab to the inbox's Settled section after this many days without agent activity. 0 never does. Pinned and snoozed tabs stay.",
 				extra: "inbox settle idle settle_after_days", control: p.stepper("sidebar", "settle_after_days", float64(p.s.Sidebar.SettleAfterDays), 0, 365, 1, config.DefaultSettleAfterDays)},

@@ -231,6 +231,13 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		for r.close.Clicked(gtx) {
 			s.events = append(s.events, CloseTab{WorkspaceID: ws.ID})
 		}
+		for r.settle.Clicked(gtx) {
+			// A tab that started waiting, or moved, under the press is not
+			// the one the user meant to settle.
+			if r.settleSaw == v.rowKey(ws.ID) {
+				s.toggleSettled(v, ws.ID)
+			}
+		}
 		s.answerClicks(gtx, v, ws.ID, r)
 		s.prClicks(gtx, v, ws)
 		right, middle := press(&r.ctx)
@@ -295,11 +302,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 				}
 			}
 			if s.menuItem[actSettle].Clicked(gtx) {
-				if ws.Settled.IsZero() {
-					s.shelve(v, id, "Settled", func(sh shelf) shelf { return sh.apply(verbSettle) })
-				} else {
-					s.shelve(v, id, "Unsettled", func(sh shelf) shelf { sh.settled = false; return sh })
-				}
+				s.toggleSettled(v, id)
 			}
 			if s.menuItem[actWake].Clicked(gtx) {
 				s.shelve(v, id, "Woke", func(sh shelf) shelf { sh.until = time.Time{}; return sh })
@@ -476,6 +479,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		drain(&r.deny)
 		drain(&r.pr)
 		drain(&r.archive)
+		drain(&r.settle)
 		drain(&r.fold)
 	}
 	for i := range s.menuItem {
@@ -515,6 +519,19 @@ func (s *Sidebar) toggleGroupMenu(id string) {
 	s.closeMenus()
 	if open {
 		s.groupMenu = id
+	}
+}
+
+// toggleSettled settles tab id, or unsettles it once settled, with the
+// selection when id is part of it: the menu's Settle and the row's button.
+func (s *Sidebar) toggleSettled(v *view, id string) {
+	ws := v.st.Workspace(id)
+	switch {
+	case ws == nil:
+	case ws.Settled.IsZero():
+		s.shelve(v, id, "Settled", func(sh shelf) shelf { return sh.apply(verbSettle) })
+	default:
+		s.shelve(v, id, "Unsettled", func(sh shelf) shelf { sh.settled = false; return sh })
 	}
 }
 

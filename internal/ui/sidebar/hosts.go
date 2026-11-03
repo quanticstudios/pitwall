@@ -61,7 +61,8 @@ func hostName(h string) string {
 
 // hostList draws, when the window shows more than one machine, each
 // machine's heading and sessions, then the agents that wait on someone
-// anywhere. st is every session's state.
+// anywhere, or in the inbox anywhere but the current session. st is every
+// session's state.
 func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State) layout.Dimensions {
 	if len(s.Hosts) < 2 {
 		return layout.Dimensions{}
@@ -187,8 +188,9 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"))
 		}
 	}
-	if blocked := Blocked(st); len(blocked) > 0 {
-		heading("Waiting on you", "", th.Muted)
+	blocked, head := s.waiting(st, sessionOf)
+	if len(blocked) > 0 {
+		heading(head, "", th.Muted)
 		for i := range blocked {
 			a := blocked[i]
 			ws := findWS(st, a.WorkspaceID)
@@ -204,6 +206,18 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 	y += gtx.Dp(6)
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, y-1), Max: image.Pt(w, y)}.Op())
 	return layout.Dimensions{Size: image.Pt(w, y)}
+}
+
+// waiting is the host list's agents that wait on someone, and their
+// heading. The inbox already shows the current session's, so there the
+// list keeps only those of other sessions and hosts. sessionOf maps a tab
+// to its session.
+func (s *Sidebar) waiting(st *model.State, sessionOf map[string]string) ([]model.Activity, string) {
+	blocked := Blocked(st)
+	if !s.Inbox {
+		return blocked, "Waiting on you"
+	}
+	return slices.DeleteFunc(blocked, func(a model.Activity) bool { return sessionOf[a.WorkspaceID] == s.session }), "Waiting elsewhere"
 }
 
 func firstLine(s string) string {

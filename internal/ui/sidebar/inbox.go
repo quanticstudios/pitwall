@@ -38,12 +38,13 @@ type SetInbox struct {
 type SetView struct{ Inbox bool }
 
 const (
-	icInbox   = "M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"
-	icSettle  = "M18 6 7 17l-5-5M22 10l-7.5 7.5L13 16" // lucide check-check
-	recede    = 0.55                                   // a receded row's opacity
-	undoFor   = 8 * time.Second                        // how long the undo notice stays
-	sectionH  = 28                                     // a section header's height, dp
-	emptyRowH = 32                                     // an empty section's placeholder, dp
+	icInbox    = "M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"
+	icSettle   = "M18 6 7 17l-5-5M22 10l-7.5 7.5L13 16"                                  // lucide check-check
+	icUnsettle = "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" // lucide undo-2
+	recede     = 0.55                                                                    // a receded row's opacity
+	undoFor    = 8 * time.Second                                                         // how long the undo notice stays
+	sectionH   = 28                                                                      // a section header's height, dp
+	emptyRowH  = 32                                                                      // an empty section's placeholder, dp
 )
 
 // section is where a tab sits in the inbox, in drawing order.
@@ -59,10 +60,10 @@ const (
 	secCount
 )
 
-var sectionTitle = [secCount]string{"Pinned", "Active", "Working", "Snoozed", "Settled", "Shells"}
+var sectionTitle = [secCount]string{"Pinned", "Waiting on you", "Working", "Snoozed", "Settled", "Shells"}
 
-// sectionEmpty is what an empty section says while it shows: Active
-// always, Pinned and Settled while a tab is dragged.
+// sectionEmpty is what an empty section says while it shows: Waiting on
+// you always, Pinned and Settled while a tab is dragged.
 var sectionEmpty = [secCount]string{"Drop a tab here to pin it", "No tab needs you", "", "", "Drop a tab here to settle it", ""}
 
 // status is what an inbox row says its agent needs, least urgent first.
@@ -545,6 +546,27 @@ func upper(s string) string {
 		}
 	}
 	return string(b)
+}
+
+// settleShows reports whether tab id's hovered row offers Settle, or
+// Unsettle once settled: an agent's row in the inbox, with the shelves on.
+func (s *Sidebar) settleShows(v *view, id string) bool {
+	return v.inbox && s.Shelves && v.secOf[id] != secShells
+}
+
+// rowKey is what a settle click decides on: the row's section and its
+// agent's state.
+type rowKey struct {
+	sec   section
+	state model.AgentState
+}
+
+func (v *view) rowKey(id string) rowKey {
+	k := rowKey{sec: v.secOf[id]}
+	if a := v.ownActivity(id); a != nil {
+		k.state = a.State
+	}
+	return k
 }
 
 // receded reports whether tab id's inbox row dims this frame.
