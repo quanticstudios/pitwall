@@ -306,6 +306,8 @@ type Pane struct {
 	// environment: a preset's variables and the guard's. A restart starts
 	// the pane with it again.
 	Env []string
+	// History holds compressed text and SGR colors for a restart. Live states omit it.
+	History *PaneHistory `json:",omitempty"`
 	// Program is what a program in the pane says it is doing, with OSC
 	// 7501 or pitwall status: its most urgent report. Nil when none
 	// reported or the reports ended. The daemon fills it in; it is not
@@ -343,6 +345,13 @@ func (p Program) Activity() AgentState {
 		return StateError
 	}
 	return ""
+}
+
+// PaneHistory is the main screen and recent scrollback, with no terminal modes.
+type PaneHistory struct {
+	Cols    int
+	SavedAt time.Time
+	Data    []byte // gzip of UTF-8 text with SGR colors
 }
 
 type MergeStatus string

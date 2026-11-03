@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Panes keep their most recent 2000 rows across daemon restarts and reboots, with colors and a dim restore-time divider. `[terminal] persist_scrollback` changes the limit or disables it with 0; guarded tabs and panes with `PITWALL_NO_HISTORY=1` save no history.
+
 - Browse a pane's OSC 133 command blocks with Ctrl+Shift+J, including exit status, start time, output size and copies of the command, output or both. Prompt jumps and the browser link to shell integration docs when marks are missing (ENG-2965).
 
 - Picture in picture keeps one pane in view over the other tabs: a live, read-only card in a corner of the pane area with the tab's name, agent and status. Turn it on from a tab's menu or the `picture_in_picture` key (unbound by default), drag it to another corner, click it to go to its tab, close it with its ×. The card shows the live screen even when its tab is scrolled back. Proto Level 55 adds `View.Live`.

@@ -176,3 +176,32 @@ func (d *Daemon) portInUse(id string) {
 		d.notice(id, vt.Notification{Body: "Port in use: this worktree's ports are " + ports.String()})
 	}
 }
+
+// HistoryText forwards capture through the port watcher.
+func (w *portWatch) HistoryText(limit int) (int, string) { return vt.HistoryText(w.Emulator, limit) }
+
+// Commands forwards the emulator's OSC 133 command blocks.
+func (w *portWatch) Commands() ([]vt.CommandBlock, bool) {
+	if e, ok := w.Emulator.(interface {
+		Commands() ([]vt.CommandBlock, bool)
+	}); ok {
+		return e.Commands()
+	}
+	return nil, false
+}
+
+// HasPromptMarks forwards shell integration detection.
+func (w *portWatch) HasPromptMarks() bool {
+	if e, ok := w.Emulator.(interface{ HasPromptMarks() bool }); ok {
+		return e.HasPromptMarks()
+	}
+	return false
+}
+
+// PromptOffset forwards jumps to shell prompts.
+func (w *portWatch) PromptOffset(off, n int) int {
+	if e, ok := w.Emulator.(interface{ PromptOffset(int, int) int }); ok {
+		return e.PromptOffset(off, n)
+	}
+	return off
+}

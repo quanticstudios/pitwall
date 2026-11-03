@@ -24,6 +24,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -507,4 +508,42 @@ func TestScrollbackHandoff(t *testing.T) {
 	c := dial(t, filepath.Join(dir, "d.sock"), "cli")
 	typeIn(c, "sh0", "exit\n")
 	waitUntil(t, "scrollback file removed after handoff", func() bool { _, err := os.Stat(path); return os.IsNotExist(err) })
+}
+
+func TestHandoffClearsRestoreHistoryAndKeepsHeldOutput(t *testing.T) {
+	st := restoreState(t)
+	st.Panes, st.Workspaces = st.Panes[5:], st.Workspaces[5:]
+	st.Panes[0].Held, st.Panes[0].Exited = true, true
+	h, err := store.PackHistory(80, "held before handoff\r\n", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Panes[0].History = h
+	f := &fakes{saved: st}
+	_, sock, stop := runDaemon(t, f, historyOptions)
+	defer stop()
+	if fi, err := os.Stat(sock); err != nil || fi.Mode()&os.ModeSocket == 0 {
+		t.Fatal("temporary daemon socket missing")
+	}
+	o := f.options()
+	historyOptions(&o)
+	d, ln, err := Takeover(sock, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	defer d.shutdown()
+	for _, p := range d.st.Panes {
+		if p.History != nil {
+			t.Fatal("adopted pane retains cold-restore history")
+		}
+	}
+	d.Save()
+	f.mu.Lock()
+	saved := f.saved.Panes[0].History
+	f.mu.Unlock()
+	text, err := store.UnpackHistory(saved)
+	if err != nil || !strings.Contains(text, "held before handoff") || strings.Contains(text, "Restored from") {
+		t.Fatalf("handoff lost source output: %q, %v", text, err)
+	}
 }

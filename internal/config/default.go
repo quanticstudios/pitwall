@@ -22,6 +22,8 @@ func defaults() Config {
 	c.Term.OSC52, c.Term.Bell, c.Term.Graphics = "write", "attention", "kitty"
 	sb := float64(DefaultScrollback)
 	c.Term.Scrollback = &sb
+	persist := float64(DefaultPersistScrollback)
+	c.Term.PersistLines = &persist
 	c.Updates.Check = &on
 	c.Updates.ScreenPatterns = &on
 	off := false

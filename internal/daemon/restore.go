@@ -32,7 +32,7 @@ func (d *Daemon) orderRestores() {
 // restorePane keeps command selection and restart nudges the same for
 // immediate and queued launches. Callers hold d.mu.
 func (d *Daemon) restorePane(p model.Pane, saved []model.Activity) error {
-	if err := d.start(p.ID, d.o.RestoreCmd(p), p.Cwd, d.portsOf(p.WorkspaceID), p.Env); err != nil {
+	if err := d.startVT(p.ID, d.o.RestoreCmd(p), p.Cwd, d.portsOf(p.WorkspaceID), p.Env, d.restoredVT(p, d.o.NewVT)); err != nil {
 		return err
 	}
 	if store.Resumes(p) {

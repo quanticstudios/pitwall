@@ -398,6 +398,7 @@ func takeover(uc *net.UnixConn, conn *proto.Conn, o Options) (*Daemon, *net.Unix
 		return nil, nil, err
 	}
 	d := fromState(o, b.State)
+	d.loadHistory()
 	var ln *net.UnixListener
 	var in []arrival
 	release := func() {
@@ -444,6 +445,9 @@ func takeover(uc *net.UnixConn, conn *proto.Conn, o Options) (*Daemon, *net.Unix
 	}
 	// Committed: nothing below fails.
 	d.mu.Lock()
+	for i := range d.st.Panes {
+		d.st.Panes[i].History = nil
+	}
 	for _, a := range in {
 		size := [2]int{a.Cols, a.Rows}
 		if a.s != nil {
@@ -514,7 +518,7 @@ func (d *Daemon) prepare(b handoffBundle, panes []handoffPane, files []*os.File)
 			if err != nil {
 				return ln, in, fmt.Errorf("pane %s: %w", hp.ID, err)
 			}
-			a.s = &stopped{vt: e, done: make(chan struct{}), code: hp.ExitCode}
+			a.s = &stopped{vt: e, done: make(chan struct{}), code: hp.ExitCode, history: d.st.Panes[i].History}
 			close(a.s.done)
 			in = append(in, a)
 			continue

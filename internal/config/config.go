@@ -236,6 +236,7 @@ type Term struct {
 	Links        *bool    `toml:"links" doc:"Underline web and file links in panes, plain URLs and OSC 8 hyperlinks alike, and open them with Ctrl+click"`
 	OSC52        string   `toml:"osc52" enum:"write,off" doc:"write lets programs (Neovim, tmux, anything over ssh) set the clipboard with OSC 52, up to 1 MB; off ignores them. Programs can never read the clipboard this way"`
 	Bell         string   `toml:"bell" enum:"attention,off" doc:"attention: a bell (BEL) in a pane you are not looking at rings the pane and marks its tab, with a desktop notification, as an agent waiting for you does; off ignores bells"`
+	PersistLines *float64 `toml:"persist_scrollback" min:"0" max:"200000" doc:"Recent lines of scrollback and screen saved per pane across restarts, 2000 by default; 0 saves none. Guarded tabs and panes with PITWALL_NO_HISTORY=1 save none"`
 	Scrollback   *float64 `toml:"scrollback" min:"1000" max:"200000" doc:"Lines of history each new pane keeps. Every 10,000 lines of agent output take about 2 MB per pane"`
 	HintPatterns []string `toml:"hint_patterns" doc:"More patterns for hints mode, as Go regular expressions, such as 'ENG-\\d+'. A pattern with a group labels the first group's text. They win over the built-in patterns"`
 	Graphics     string   `toml:"graphics" enum:"kitty,off" doc:"kitty shows images programs print with the kitty graphics protocol (kitten icat, chafa, timg); off answers their queries as a terminal without images does, so they print text instead. New panes take the change"`
@@ -252,6 +253,9 @@ type Usage struct {
 	ShowCost        *bool `toml:"show_cost" doc:"Show what the tokens would cost at the API's list prices next to them. Off by default: a subscription does not bill per token. Models pitwall has no price for show tokens only"`
 	LimitsInSidebar *bool `toml:"limits_in_sidebar" doc:"Show the fullest plan-limit window of Claude Code and Codex at the bottom of the sidebar, yellow from 80% and red from 95%"`
 }
+
+// DefaultPersistScrollback is the number of recent rows saved per pane.
+const DefaultPersistScrollback = 2000
 
 // Font defaults.
 const (
@@ -292,6 +296,8 @@ type Settings struct {
 	HintPatterns []*regexp.Regexp
 	// Scrollback is the lines of history a new pane keeps.
 	Scrollback int
+	// PersistScrollback is the most recent lines saved across restarts; 0 disables it.
+	PersistScrollback int
 	// Graphics shows kitty graphics protocol images in new panes.
 	Graphics bool
 	// CheckUpdates looks for a newer release on GitHub.
@@ -552,6 +558,14 @@ func LoadFile(path string) (Settings, []Problem) {
 			fi = append(fi, issue{"terminal.scrollback", fmt.Sprintf("%g is not a whole number from 1000 to %d", *p, MaxScrollback)})
 		} else {
 			s.Scrollback = int(*p)
+		}
+	}
+	s.PersistScrollback = DefaultPersistScrollback
+	if p := c.Term.PersistLines; p != nil {
+		if *p < 0 || *p > MaxScrollback || *p != float64(int(*p)) {
+			fi = append(fi, issue{"terminal.persist_scrollback", fmt.Sprintf("%g is not a whole number from 0 to %d", *p, MaxScrollback)})
+		} else {
+			s.PersistScrollback = int(*p)
 		}
 	}
 	s.CheckUpdates = c.Updates.Check == nil || *c.Updates.Check

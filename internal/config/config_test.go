@@ -632,3 +632,24 @@ func TestHintPatterns(t *testing.T) {
 		}
 	}
 }
+
+func TestPersistScrollback(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want int
+		bad  bool
+	}{
+		{"", 2000, false}, {"persist_scrollback = 0", 0, false},
+		{"persist_scrollback = 42", 42, false}, {"persist_scrollback = 200000", 200000, false},
+		{"persist_scrollback = -1", 2000, true}, {"persist_scrollback = 1.5", 2000, true},
+		{"persist_scrollback = 200001", 2000, true},
+	} {
+		s, probs := LoadFile(write(t, t.TempDir(), "config.toml", "[terminal]\n"+tc.body+"\n"))
+		if s.PersistScrollback != tc.want || (len(probs) > 0) != tc.bad {
+			t.Errorf("%s: got %d, problems %v", tc.body, s.PersistScrollback, probs)
+		}
+	}
+	if !strings.Contains(Default(), "persist_scrollback = 2000") || !strings.Contains(string(Schema()), "persist_scrollback") {
+		t.Fatal("generated config or schema omits persist_scrollback")
+	}
+}

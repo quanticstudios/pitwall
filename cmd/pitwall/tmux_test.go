@@ -37,7 +37,8 @@ tmux respawn-pane -k -t "$p" -- "sh '$TEAM_DIR/worker.sh'"
 tmux send-keys -t "$p" 'hello team' Enter
 tmux list-panes -t "$window" -F '#{pane_id} #{pane_title}' > "$TEAM_DIR/panes"
 printf '%s\n' "$p" > "$TEAM_DIR/ready"
-cat "$TEAM_DIR/gate" > /dev/null
+while [ ! -e "$TEAM_DIR/gate-sent" ]; do sleep 0.01; done
+IFS= read -r release < "$TEAM_DIR/gate"
 tmux capture-pane -p -t "$p" > "$TEAM_DIR/capture"
 tmux kill-pane -t "$p"
 [ "$(tmux list-panes -t "$window" -F '#{pane_id}')" = "$before" ]
@@ -217,7 +218,8 @@ exec cat
 	if _, err := gate.WriteString("go\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := gate.Close(); err != nil {
+	// Keep the FIFO open until the late reader consumes the buffered release.
+	if err := os.WriteFile(filepath.Join(dir, "gate-sent"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	waitTeam("team cleanup", func() bool {
