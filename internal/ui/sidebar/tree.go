@@ -131,7 +131,7 @@ func (s *Sidebar) noteExpands(now time.Time, v *view) {
 // tree draws the elements, each at its slide offset, the carried ones
 // under the pointer instead. It reports whether an agent animation runs
 // and whether rows or a drag are moving.
-func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bool) {
+func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions, bool, bool) {
 	place := s.place
 	if v.inbox {
 		place = s.placeInbox
@@ -176,7 +176,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 					sy := y + gtx.Dp(6)
 					paint.FillShape(gtx.Ops, theme.Mix(v.th.Sidebar, v.th.Border, 0.6), clip.Rect{Min: image.Pt(0, sy), Max: image.Pt(w, sy+1)}.Op())
 				}
-				s.rowAt = image.Pt(gtx.Dp(listPad), gtx.Dp(56)+y+e.head-e.top-s.list.Position.Offset)
+				s.rowAt = image.Pt(gtx.Dp(listPad), top+y+e.head-e.top-s.list.Position.Offset)
 				o := op.Offset(image.Pt(0, y+e.head-e.top)).Push(gtx.Ops)
 				for _, p := range v.st.Projects {
 					if p.ID == e.id {
@@ -186,7 +186,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 				o.Pop()
 				continue
 			}
-			s.rowAt = image.Pt(gtx.Dp(listPad)+e.x, gtx.Dp(56)+y-s.list.Position.Offset)
+			s.rowAt = image.Pt(gtx.Dp(listPad)+e.x, top+y-s.list.Position.Offset)
 			// A group's rows fade in as it opens, from 4dp up.
 			t := float32(1)
 			if at, ok := s.expandAt[e.group]; ok {
@@ -240,7 +240,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 	if s.list.Position.Offset != s.scroll {
 		s.hover.dismiss() // the rows moved under the pointer
 	}
-	s.cardY += gtx.Dp(56) - s.list.Position.Offset // under the header
+	s.cardY += top - s.list.Position.Offset
 	s.scroll = s.list.Position.Offset
 	if s.dragOverlay(gtx, v, d.Size) {
 		moving = true
