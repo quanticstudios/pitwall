@@ -427,7 +427,7 @@ func TestSettleButton(t *testing.T) {
 		return slices.ContainsFunc(evs, func(e Event) bool { sel, ok := e.(SelectWorkspace); return ok && sel.WorkspaceID == id })
 	}
 	evs := click("b", settleX)
-	if got := shelved(evs); !slices.Equal(got, []Event{SetInbox{WorkspaceID: "b", Settled: true}}) {
+	if got, want := shelved(evs), []Event{SetInbox{WorkspaceID: "b", Settled: true}, SetInbox{WorkspaceID: "k", Settled: true}}; !slices.Equal(got, want) {
 		t.Fatalf("Settle on a Waiting on you row sent %v", evs)
 	}
 	if selects(evs, "b") {
@@ -449,5 +449,26 @@ func TestSettleButton(t *testing.T) {
 	h.frame()
 	if got := shelved(click("u", settleX)); len(got) != 0 {
 		t.Fatalf("the tree's row settled: %v", got)
+	}
+}
+
+// A settle press on a Working row does nothing when the tab starts waiting
+// before the release: the user aimed at the row they saw.
+func TestSettleStaleClick(t *testing.T) {
+	h := &dragHarness{t: t, now: time.Unix(1e9, 0)}
+	h.st = inboxState(h.now)
+	h.s.Inbox, h.s.Shelves = true, true
+	h.frame()
+	p := h.at("a", 40)
+	p.X = float32(288 - listPad - 16 - 2*24)
+	h.r.Queue(pointer.Event{Kind: pointer.Move, Position: p, Source: pointer.Mouse})
+	h.frame()
+	h.frame()
+	h.pointer(pointer.Press, p)
+	h.st.Activities[1].State = model.StateCompleted // a stops working: it waits now
+	for _, e := range h.pointer(pointer.Release, p) {
+		if _, ok := e.(SetInbox); ok {
+			t.Fatalf("a stale settle click sent %v", e)
+		}
 	}
 }

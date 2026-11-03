@@ -232,7 +232,11 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			s.events = append(s.events, CloseTab{WorkspaceID: ws.ID})
 		}
 		for r.settle.Clicked(gtx) {
-			s.toggleSettled(v, ws.ID)
+			// A tab that started waiting, or moved, under the press is not
+			// the one the user meant to settle.
+			if r.settleSaw == v.rowKey(ws.ID) {
+				s.toggleSettled(v, ws.ID)
+			}
 		}
 		s.answerClicks(gtx, v, ws.ID, r)
 		s.prClicks(gtx, v, ws)

@@ -554,6 +554,21 @@ func (s *Sidebar) settleShows(v *view, id string) bool {
 	return v.inbox && s.Shelves && v.secOf[id] != secShells
 }
 
+// rowKey is what a settle click decides on: the row's section and its
+// agent's state.
+type rowKey struct {
+	sec   section
+	state model.AgentState
+}
+
+func (v *view) rowKey(id string) rowKey {
+	k := rowKey{sec: v.secOf[id]}
+	if a := v.ownActivity(id); a != nil {
+		k.state = a.State
+	}
+	return k
+}
+
 // receded reports whether tab id's inbox row dims this frame.
 func (s *Sidebar) receded(v *view, id string) bool {
 	return v.inbox && s.menuWS != id && !s.row(id).hovered() &&

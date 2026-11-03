@@ -336,6 +336,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		if !ws.Settled.IsZero() {
 			icon = icUnsettle
 		}
+		if !r.settle.Pressed() {
+			r.settleSaw = v.rowKey(ws.ID)
+		}
 		off := op.Offset(pos).Push(gtx.Ops)
 		iconButton(gtx, th, &r.settle, icon, btn, glyph, true)
 		off.Pop()

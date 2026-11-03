@@ -250,6 +250,7 @@ type rowState struct {
 	plan               widget.Clickable // a plan's Request changes…
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	settle             widget.Clickable // the inbox's Settle or Unsettle
+	settleSaw          rowKey           // the row as drawn when that press began
 	port               widget.Clickable // the port chip: opens the dev server
 	fold               widget.Clickable // the count, which folds the sub-rows
 	foldT              anim.Value       // its chevron's turn
