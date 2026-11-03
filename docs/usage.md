@@ -293,6 +293,15 @@ sessions without the switcher, and Ctrl+Shift+N makes one. Ctrl+Shift+U
 crosses sessions: it switches to the session of the pane that needs you.
 Desktop notifications start with the session's name.
 
+With `[[hosts]] window = true`, the host list above the tabs shows each
+session's most urgent error, approval, question or plan, even while another
+agent works. Otherwise its dot shows an unseen Done or PR open, then work,
+or nothing. Looking at a finished agent in the focused pane of a focused
+window clears its unseen mark. The tab count adds how many agents need you,
+or how many are done and unseen, when the count fits beside the session name.
+
+<img src="media/session-dots.webp" alt="Host lists in dark and light themes show plans and unseen finished turns above work, and clear seen finished turns" width="576">
+
 Each window shows one session, and you can open as many windows as you like.
 Running `pitwall` again opens another window: on the most recent session no
 window shows, else on a new session in the folder you ran it from.

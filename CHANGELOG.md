@@ -31,6 +31,7 @@ build. Either step takes `--dry-run`.
 - Ctrl+Shift+I (Cmd+Shift+I in mac) opens a path picker over the focused pane's folder: type to filter, Tab to mark several, Enter to type their paths at the cursor. Rebind it with `insert_path`.
 
 - The review view's Staging scope stages and unstages single hunks or whole files, with s and u or a click, in Unstaged and Staged groups, so you can commit part of an agent's work. On a `pitwall --host` tab, Stage hunks in terminal runs `git add -p` on the host; `stage_terminal` gives it a key.
+- Session dots in the host list show waiting agents before unseen finished turns, then work; the tab count adds how many need you or are done when there is room.
 - Tab search lists the current session's tabs first, and another session's tab names its session and host before its group, so a long group name no longer hides it.
 
 ## v0.1.10

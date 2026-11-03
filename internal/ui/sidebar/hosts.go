@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -57,6 +58,29 @@ func hostName(h string) string {
 		return "local"
 	}
 	return h
+}
+
+// sessionActivity keeps waiting agents and unseen finished turns above work.
+func sessionActivity(acts []model.Activity) (dot *model.Activity, waiting, done int) {
+	var wait, finished, work *model.Activity
+	for i := range acts {
+		a := &acts[i]
+		switch a.State {
+		case model.StateError, model.StatePendingApproval, model.StateAwaitingInput, model.StatePlanReady:
+			wait = urgent(wait, a)
+			waiting++
+		case model.StateCompleted, model.StatePROpen:
+			if a.Unseen {
+				finished = urgent(finished, a)
+				done++
+			}
+		default:
+			if model.Pulses(a) {
+				work = urgent(work, a)
+			}
+		}
+	}
+	return cmp.Or(wait, finished, work), waiting, done
 }
 
 // hostList draws, when the window shows more than one machine, each
@@ -122,7 +146,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 				}})
 		})
 	}
-	row := func(c *widget.Clickable, current, dim bool, dot *model.Activity, name, right string) {
+	row := func(c *widget.Clickable, current, dim bool, dot *model.Activity, name, right, count string) {
 		place(gtx.Dp(28), func(gtx layout.Context) {
 			pad := gtx.Dp(listPad)
 			size := image.Pt(w-2*pad, gtx.Constraints.Max.Y)
@@ -130,12 +154,14 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			gtx.Constraints = layout.Exact(size)
 			clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 				rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6))
+				bg := th.Sidebar
 				switch {
 				case current:
-					paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.14), rr.Op(gtx.Ops))
+					bg = theme.Mix(th.Sidebar, th.Primary, 0.14)
 				case c.Hovered():
-					paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
+					bg = th.SurfaceSecondary
 				}
+				paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
 				fg := th.Fg
 				if dim {
 					fg = th.Muted
@@ -143,12 +169,27 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 				in := gtx.Dp(10)
 				g := gtx
 				g.Constraints = layout.Exact(image.Pt(size.X-2*in, size.Y))
+				if count != "" {
+					// The extra count must not shorten the session name.
+					m := op.Record(gtx.Ops)
+					n := label(g, th, th.UIFont, th.Sp(theme.Body), fg, name)
+					r := label(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, right+" · "+count)
+					m.Stop()
+					if n.Size.X+r.Size.X+3*gtx.Dp(8) <= g.Constraints.Max.X {
+						right += " · " + count
+					}
+				}
 				o := op.Offset(image.Pt(in, 0)).Push(gtx.Ops)
 				hrow(g, size.Y, gtx.Dp(8),
 					item{w: func(gtx layout.Context) layout.Dimensions {
 						d := gtx.Dp(8)
 						if dot != nil {
-							paint.FillShape(gtx.Ops, StateColor(th, dot.State), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
+							col := StateColor(th, dot.State)
+							if model.Pulses(dot) {
+								col = theme.Mix(bg, col, pulse(gtx.Now.Sub(s.epoch).Seconds()))
+								gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
+							}
+							paint.FillShape(gtx.Ops, col, clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
 						}
 						return layout.Dimensions{Size: image.Pt(d, d)}
 					}},
@@ -181,11 +222,14 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			for btn("s:" + id).Clicked(gtx) {
 				s.events = append(s.events, ShowSession{SessionID: id})
 			}
-			dot := model.Aggregate(acts[id])
-			if dot != nil && !model.NeedsYou(dot.State) && !model.Pulses(dot) {
-				dot = nil
+			dot, waiting, done := sessionActivity(acts[id])
+			count := ""
+			if waiting > 0 {
+				count = strconv.Itoa(waiting) + " " + plural(waiting, "needs you", "need you")
+			} else if done > 0 {
+				count = strconv.Itoa(done) + " " + stateNouns[model.StateCompleted][0]
 			}
-			row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"))
+			row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"), count)
 		}
 	}
 	blocked, head := s.waiting(st, sessionOf)
@@ -200,7 +244,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			for btn("a:" + a.PaneID).Clicked(gtx) {
 				s.events = append(s.events, SelectWorkspace{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID})
 			}
-			row(btn("a:"+a.PaneID), false, down[ws.SessionID], &a, Title(*ws), hostName(hostOf[ws.SessionID])+" · "+model.PillLabel(a))
+			row(btn("a:"+a.PaneID), false, down[ws.SessionID], &a, Title(*ws), hostName(hostOf[ws.SessionID])+" · "+model.PillLabel(a), "")
 		}
 	}
 	y += gtx.Dp(6)

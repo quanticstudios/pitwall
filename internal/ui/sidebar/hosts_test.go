@@ -4,6 +4,7 @@ import (
 	"image"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,6 +18,93 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
+
+func TestSessionActivity(t *testing.T) {
+	work := model.Activity{State: model.StateWorking}
+	done := model.Activity{State: model.StateCompleted, Unseen: true}
+	seen := model.Activity{State: model.StateCompleted}
+	pr := model.Activity{State: model.StatePROpen, Unseen: true}
+	plan := model.Activity{State: model.StatePlanReady}
+	input := model.Activity{State: model.StateAwaitingInput}
+	approval := model.Activity{State: model.StatePendingApproval}
+	err := model.Activity{State: model.StateError}
+	for _, tt := range []struct {
+		name          string
+		acts          []model.Activity
+		state         model.AgentState
+		waiting, done int
+	}{
+		{"working and plan", []model.Activity{work, plan}, model.StatePlanReady, 1, 0},
+		{"working and unseen done", []model.Activity{work, done}, model.StateCompleted, 0, 1},
+		{"working and seen done", []model.Activity{work, seen}, model.StateWorking, 0, 0},
+		{"only seen done", []model.Activity{seen}, "", 0, 0},
+		{"working and unseen PR", []model.Activity{work, pr}, model.StatePROpen, 0, 1},
+		{"only seen PR", []model.Activity{{State: model.StatePROpen}}, "", 0, 0},
+		{"input above plan and done", []model.Activity{plan, input, done}, model.StateAwaitingInput, 2, 1},
+		{"approval above input", []model.Activity{input, approval}, model.StatePendingApproval, 2, 0},
+		{"error above approval", []model.Activity{approval, err, work, plan, input, done, seen, pr}, model.StateError, 4, 2},
+		{"PR above done", []model.Activity{done, pr}, model.StatePROpen, 0, 2},
+		{"connecting", []model.Activity{{State: model.StateConnecting}}, model.StateConnecting, 0, 0},
+		{"terminal and watching", []model.Activity{{State: model.StateTerminalRunning}, {State: model.StateWatching}}, "", 0, 0},
+		{"empty", nil, "", 0, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dot, waiting, done := sessionActivity(tt.acts)
+			var state model.AgentState
+			if dot != nil {
+				state = dot.State
+			}
+			if state != tt.state || waiting != tt.waiting || done != tt.done {
+				t.Fatalf("sessionActivity = %q, %d waiting, %d done; want %q, %d waiting, %d done", state, waiting, done, tt.state, tt.waiting, tt.done)
+			}
+		})
+	}
+}
+
+func TestHostListCounts(t *testing.T) {
+	for _, tt := range []struct {
+		name, session, count string
+		acts                 []model.Activity
+	}{
+		{"plan", "main", "23 tabs · 1 needs you", []model.Activity{{State: model.StateWorking}, {State: model.StatePlanReady}}},
+		{"waiting", "main", "23 tabs · 2 need you", []model.Activity{{State: model.StateError}, {State: model.StateAwaitingInput}}},
+		{"done", "main", "23 tabs · 2 done", []model.Activity{{State: model.StateCompleted, Unseen: true}, {State: model.StatePROpen, Unseen: true}}},
+		{"seen", "main", "23 tabs", []model.Activity{{State: model.StateCompleted}}},
+		{"long name", "do-not-truncate-this-name", "23 tabs", []model.Activity{{State: model.StateCompleted, Unseen: true}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			st := model.State{Sessions: []model.Session{{ID: "s", Name: tt.session}}}
+			for i := range 23 {
+				st.Workspaces = append(st.Workspaces, model.Workspace{ID: strconv.Itoa(i), SessionID: "s"})
+			}
+			for _, a := range tt.acts {
+				a.WorkspaceID = "0"
+				st.Activities = append(st.Activities, a)
+			}
+			st.Workspaces = append(st.Workspaces, model.Workspace{ID: "detached", SessionID: "s", Detached: true})
+			st.Activities = append(st.Activities, model.Activity{WorkspaceID: "detached", State: model.StateCompleted, Unseen: true})
+			s := Sidebar{Hosts: []HostInfo{{Up: true, Sessions: []string{"s"}}, {Name: "box", Up: true}}}
+			var r input.Router
+			var ops op.Ops
+			gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+				Constraints: layout.Exact(image.Pt(288, 800)), Now: time.Now()}
+			s.hostList(gtx, theme.Dark(), &st)
+			r.Frame(&ops)
+			var labels []string
+			var collect func([]input.SemanticNode)
+			collect = func(nodes []input.SemanticNode) {
+				for _, n := range nodes {
+					labels = append(labels, n.Desc.Label)
+					collect(n.Children)
+				}
+			}
+			collect(r.AppendSemantics(nil))
+			if !slices.Contains(labels, tt.count) {
+				t.Fatalf("host list labels %q do not contain %q", labels, tt.count)
+			}
+		})
+	}
+}
 
 // A window of two machines lists each one's sessions under its heading,
 // and a click on the other machine's session asks to show it. The agents
