@@ -54,7 +54,7 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	if p.tabs {
 		hits = u.tabSearchRows(st)
 		title, hint = "Tabs", "Type a name, branch, group, folder, agent or PR"
-		total := len(tabRows(st, "", false))
+		total := len(tabRows(st, "", "", false))
 		rows = make([]paletteEntry, len(hits))
 		n := len(hits)
 		if n > 0 && hits[n-1].all {

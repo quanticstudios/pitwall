@@ -927,11 +927,12 @@ command palette lists it as **Search tabs**.
 Type part of a tab's name, branch, group, repo or folder, agent, pull request
 (`#41`) or the first prompt of its agent or chat. Letters may be left out,
 as in the palette, and a word of four letters or more may have one typo.
-Open tabs come before closed ones, best match first. With nothing typed, the
-list starts with the tabs used most recently.
+Open tabs come before closed ones, and the current session's tabs before
+other sessions', best match first. With nothing typed, the list starts with
+the tabs used most recently.
 
-Each row shows the tab's agent and status glyph as the sidebar does, then
-its group, session and host. Settled, snoozed and detached tabs say so on
+Each row shows the tab's agent and status glyph as the sidebar does, then,
+for a tab of another session, that session and its host, then its group. Settled, snoozed and detached tabs say so on
 the right, and a closed tab says when it closed. Enter or a click shows the
 tab, switching session or host when it is elsewhere. The last row hands the
 query to **Search all sessions**, which searches scrollback and transcripts

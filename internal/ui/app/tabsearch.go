@@ -23,23 +23,25 @@ type tabHit struct {
 	all    bool
 }
 
-// tabRows is what tab search lists for query in st: the tabs, then the
-// closed tabs, each best match first, and with all set a last row for
-// Search all sessions. With no query, the most recently used come first.
+// tabRows is what tab search lists for query in st: the tabs, those of
+// session here first, then the closed tabs, each best match first, and with
+// all set a last row for Search all sessions. With no query, the most
+// recently used come first.
 // Each word of query must match, as rank's do, the tab's title or the rest
 // of what tabText gives, or be one typo away from a word of it.
-func tabRows(st *model.State, query string, all bool) []tabHit {
+func tabRows(st *model.State, here, query string, all bool) []tabHit {
 	words := strings.Fields(strings.ToLower(query))
 	type scored struct {
 		h    tabHit
 		n    int
 		at   time.Time
 		live bool
+		here bool
 	}
 	var out []scored
 	add := func(h tabHit, title, rest string, at time.Time) {
 		if n := tabScore(words, title, rest); n >= 0 {
-			out = append(out, scored{h, n, at, h.ws != nil})
+			out = append(out, scored{h, n, at, h.ws != nil, h.ws != nil && h.ws.SessionID == here})
 		}
 	}
 	for i := range st.Workspaces {
@@ -55,6 +57,12 @@ func tabRows(st *model.State, query string, all bool) []tabHit {
 	slices.SortStableFunc(out, func(a, b scored) int {
 		if a.live != b.live {
 			if a.live {
+				return -1
+			}
+			return 1
+		}
+		if a.here != b.here {
+			if a.here {
 				return -1
 			}
 			return 1
@@ -189,7 +197,7 @@ func tabUsed(st *model.State, w model.Workspace) time.Time {
 
 // tabSearchRows is what the open tab search lists now.
 func (u *ui) tabSearchRows(st *model.State) []tabHit {
-	return tabRows(st, u.pal.query, u.canSearchAll())
+	return tabRows(st, u.nav.session, u.pal.query, u.canSearchAll())
 }
 
 // tabSearchKey runs one key in the open tab search. Its own shortcut and
