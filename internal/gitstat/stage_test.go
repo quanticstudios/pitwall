@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -109,15 +110,18 @@ func TestStageHunks(t *testing.T) {
 
 // TestStageOddPaths stages files whose names git quotes, pads or could
 // read as patterns: a hunk of each through review.Patch, and whole files
-// by their literal names, so *.txt never takes secret.txt with it.
+// by their literal names, so [a].txt never takes a.txt with it.
 func TestStageOddPaths(t *testing.T) {
 	dir := repo(t)
-	odd := []string{"a b.txt", "a\r.txt", "e\x1b\n.txt", `q"\.txt`}
-	for _, name := range append([]string{"*.txt", "secret.txt"}, odd...) {
+	odd := []string{"a b.txt"}
+	if runtime.GOOS != "windows" { // which forbids these bytes in names
+		odd = append(odd, "a\r.txt", "e\x1b\n.txt", `q"\.txt`)
+	}
+	for _, name := range append([]string{"[a].txt", "a.txt"}, odd...) {
 		writeFile(t, dir, name, "one\n")
 	}
 	commit(t, dir)
-	for _, name := range append([]string{"*.txt", "secret.txt"}, odd...) {
+	for _, name := range append([]string{"[a].txt", "a.txt"}, odd...) {
 		writeFile(t, dir, name, "two\n")
 	}
 	ctx := context.Background()
@@ -126,20 +130,20 @@ func TestStageOddPaths(t *testing.T) {
 		return strings.ReplaceAll(runGit(t, dir, "diff", "--cached", "--name-only", "-z"), "\x00", "|")
 	}
 
-	if err := StageFiles(ctx, dir, []string{"*.txt"}, false); err != nil {
+	if err := StageFiles(ctx, dir, []string{"[a].txt"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := staged(); got != "*.txt|" {
-		t.Fatalf("staging *.txt staged %q", got)
+	if got := staged(); got != "[a].txt|" {
+		t.Fatalf("staging [a].txt staged %q", got)
 	}
-	if err := StageFiles(ctx, dir, []string{"secret.txt"}, false); err != nil {
+	if err := StageFiles(ctx, dir, []string{"a.txt"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := StageFiles(ctx, dir, []string{"*.txt"}, true); err != nil {
+	if err := StageFiles(ctx, dir, []string{"[a].txt"}, true); err != nil {
 		t.Fatal(err)
 	}
-	if got := staged(); got != "secret.txt|" {
-		t.Fatalf("unstaging *.txt left %q", got)
+	if got := staged(); got != "a.txt|" {
+		t.Fatalf("unstaging [a].txt left %q", got)
 	}
 
 	s, err := ReadStaging(ctx, dir)
@@ -159,7 +163,7 @@ func TestStageOddPaths(t *testing.T) {
 			t.Errorf("stage a hunk of %q: %v", name, err)
 		}
 	}
-	if got := runGit(t, dir, "diff", "--name-only", "-z"); got != "*.txt\x00" { // unstaged above
+	if got := runGit(t, dir, "diff", "--name-only", "-z"); got != "[a].txt\x00" { // unstaged above
 		t.Errorf("still unstaged: %q", got)
 	}
 	s, _ = ReadStaging(ctx, dir)
@@ -170,7 +174,7 @@ func TestStageOddPaths(t *testing.T) {
 			}
 		}
 	}
-	if got := runGit(t, dir, "diff", "--name-only"); got != "*.txt\na b.txt" {
+	if got := runGit(t, dir, "diff", "--name-only"); got != "[a].txt\na b.txt" {
 		t.Errorf("unstaged after unstaging a b.txt's hunk: %q", got)
 	}
 }
@@ -188,7 +192,10 @@ func TestStageUnmerged(t *testing.T) {
 	runGit(t, dir, "checkout", "-q", "main")
 	writeFile(t, dir, "file.txt", "main\n")
 	commit(t, dir)
-	exec.Command("git", "-C", dir, "merge", "-q", "side").Run() // conflicts: exits 1
+	merge := exec.Command("git", "-C", dir, "-c", "user.name=Gitstat Test", "-c", "user.email=gitstat@example.invalid", "merge", "side")
+	if out, _ := merge.CombinedOutput(); !strings.Contains(string(out), "CONFLICT") {
+		t.Fatalf("the merge did not conflict:\n%s", out)
+	}
 	writeFile(t, dir, "a.txt", "y\n")
 
 	ctx := context.Background()
