@@ -351,3 +351,25 @@ func (p *Pane) Scrollback() string {
 	p.mu.Unlock()
 	return build()
 }
+
+// Commands returns the emulator's OSC 133 command blocks.
+func (p *Pane) Commands() ([]vt.CommandBlock, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if e, ok := p.vt.(interface {
+		Commands() ([]vt.CommandBlock, bool)
+	}); ok {
+		return e.Commands()
+	}
+	return nil, false
+}
+
+// HasPromptMarks reports whether shell integration marks remain in history.
+func (p *Pane) HasPromptMarks() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if e, ok := p.vt.(interface{ HasPromptMarks() bool }); ok {
+		return e.HasPromptMarks()
+	}
+	return false
+}

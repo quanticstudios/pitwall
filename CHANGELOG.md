@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Browse a pane's OSC 133 command blocks with Ctrl+Shift+J, including exit status, start time, output size and copies of the command, output or both. Prompt jumps and the browser link to shell integration docs when marks are missing (ENG-2965).
+
 - Picture in picture keeps one pane in view over the other tabs: a live, read-only card in a corner of the pane area with the tab's name, agent and status. Turn it on from a tab's menu or the `picture_in_picture` key (unbound by default), drag it to another corner, click it to go to its tab, close it with its ×. The card shows the live screen even when its tab is scrolled back. Proto Level 55 adds `View.Live`.
 
 - Hints mode (ENG-2962): Ctrl+Shift+G (Cmd+Shift+G in mac) labels every URL, path, git hash, `#number` and IPv4 address in the focused pane, and Ctrl+Alt+Shift+G every pane the tab shows. Type a label to copy its text, Shift and the label to open it (a URL in the browser, a path with the desktop opener, a number or hash on the tab's GitHub repo), Esc to cancel. `[terminal] hint_patterns` adds your own patterns. See docs/usage.md, Hints.

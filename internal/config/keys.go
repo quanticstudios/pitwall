@@ -176,6 +176,8 @@ var presets = map[string]struct {
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
 			"hints": {"Ctrl+Shift+G"}, "hints_all": {"Ctrl+Alt+Shift+G"},
 			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
+			"scrollback_browser": {"Ctrl+Shift+J"},
+
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"tab_prefix": {"Ctrl+T"}, "toggle_sidebar": {"Ctrl+B"}, "focus_sidebar": {"Ctrl+Shift+B"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
 			"view_diff":        {"Ctrl+Shift+R"},
@@ -201,6 +203,8 @@ var presets = map[string]struct {
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Ctrl+Shift+F"},
 			"hints": {"Ctrl+Shift+G"}, "hints_all": {"Ctrl+Alt+Shift+G"},
 			"prev_prompt": {"Ctrl+Shift+Up"}, "next_prompt": {"Ctrl+Shift+Down"},
+			"scrollback_browser": {"Ctrl+Shift+J"},
+
 			"allow_prompt": {"Ctrl+Shift+Y"}, "deny_prompt": {"Ctrl+Shift+D"},
 			"toggle_sidebar": {"Ctrl+Shift+B"}, "focus_sidebar": {"Ctrl+Shift+H"}, "toggle_panel": {"Ctrl+Shift+L"}, "open_settings": {"Ctrl+,"},
 			"view_diff":        {"Ctrl+Shift+R"},
@@ -229,6 +233,8 @@ var presets = map[string]struct {
 			"scroll_page_up": {"Shift+PageUp"}, "scroll_page_down": {"Shift+PageDown"}, "find": {"Super+F"},
 			"hints": {"Super+Shift+G"}, "hints_all": {"Super+Alt+Shift+G"},
 			"prev_prompt": {"Super+Up"}, "next_prompt": {"Super+Down"},
+			"scrollback_browser": {"Super+Shift+J"},
+
 			"toggle_sidebar": {"Super+B"}, "focus_sidebar": {"Super+Shift+B"}, "toggle_panel": {"Super+L"}, "open_settings": {"Super+,"},
 			"view_diff":    {"Super+Shift+R"},
 			"allow_prompt": {"Super+Shift+Y"}, "deny_prompt": {"Super+Shift+N"},

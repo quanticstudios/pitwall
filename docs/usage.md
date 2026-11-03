@@ -751,6 +751,8 @@ screens, so it has no images either. Set `graphics = "off"` under
 graphics queries as a terminal without images does, so programs print
 text instead.
 
+#### Shell integration
+
 Ctrl+Shift+Up and Ctrl+Shift+Down scroll the pane back and forward to the
 previous and next shell prompt, putting it at the top of the pane; past the
 last prompt the pane is back at the live screen. This needs a shell that
@@ -776,7 +778,8 @@ PS0='\e]133;C\a'
 
 Only the prompt start (`133;A`) is needed to jump; pitwall keeps the
 other marks on their rows too. The keys are `prev_prompt` and
-`next_prompt` in config.toml.
+`next_prompt` in config.toml. Without prompt marks, a jump opens the
+[browser's shell integration help](#command-scrollback-browser).
 
 ### Picture in picture
 
@@ -963,6 +966,41 @@ until it reads. Hackerman's `muted`, `#2d3450`, measures 1.6:1 on its
 background, so pitwall draws muted text lighter than the theme asks.
 `[theme.colors]` entries still override any color. Omarchy installed after
 pitwall started needs a restart to be followed.
+
+### Command scrollback browser
+
+<img src="media/scrollback-dark-wide.png" alt="Command blocks with exit status, start time, output size and copy buttons" width="800">
+
+Press Ctrl+Shift+J in aide or conventional, or Cmd+Shift+J in mac, to browse
+commands in the focused pane. The command palette lists **Browse command
+blocks in the focused pane** with its current key.
+
+The browser takes a snapshot of commands retained in the pane's scrollback.
+Each block shows the command, exit status, local start time and output size
+in bytes. The preview shows the selected block's output. Start time is when
+pitwall receives the command-start mark. Output size counts rendered UTF-8
+text, without terminal escape sequences.
+
+- Up/Down or k/j selects a block. Home/End selects the oldest/newest block.
+- PageUp/PageDown scrolls the output preview. The mouse wheel scrolls each list.
+- c copies the command, y copies its output, and Shift+Y copies both.
+  The buttons do the same. Copies omit the shell prompt and preserve output
+  line breaks. A command with no output copies only its command with **Both**.
+- Escape or q closes the browser.
+
+The browser needs [OSC 133 shell integration](#shell-integration), with A,
+B, C and D marks for prompt start, input start, command start and command end.
+Without marks, the browser says that the shell needs integration and offers
+the docs link. pitwall does not guess commands from prompt-like text.
+A command-start mark without an end mark shows **running**. An end mark
+without an exit code shows **exit unknown**.
+
+Only retained commands have blocks. A command whose prompt has left
+scrollback has no block. The browser shows at most 16 MiB of the newest
+blocks and reports when older blocks exceed that limit. Fullscreen apps
+have no command blocks. Close and reopen the browser to refresh its snapshot.
+The daemon keeps marks through an update handoff. Marks do not survive a
+restart that starts a new shell.
 
 ### Grouping
 

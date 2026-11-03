@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 57 added Commands, CommandResult and Frame.PromptMarks.
 // Level 56 added EditScrollback, Scrollback, ScrollbackResult and Pane.ScrollbackFile.
 // Level 55 added View.Live: panes a GUI wants at the live screen whatever
 // the shared scroll position, as picture in picture shows them.
@@ -167,10 +168,13 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 56
+const Level = 57
 
 // PopupLevel added OpenPopup.
 const PopupLevel = 54
+
+// CommandsLevel adds OSC 133 command blocks.
+const CommandsLevel = 57
 
 // ClosedLevel added State.Closed, ReopenTab and ForgetTab.
 const ClosedLevel = 50
@@ -219,6 +223,8 @@ func Since(msg any) int {
 		return TmuxLevel
 	case OpenForm, FormAnswer:
 		return FormLevel
+	case Commands, CommandResult:
+		return CommandsLevel
 	case SetTabInbox:
 		return InboxLevel
 	case Image, ImageResult:
@@ -544,6 +550,8 @@ type Frame struct {
 	// of Grid shows line ScrollPushed-ScrollOffset+y, as vt.Match numbers
 	// lines. 0 from daemons below Level 4.
 	ScrollPushed uint64
+	// PromptMarks reports retained OSC 133 prompts, from Level 57.
+	PromptMarks bool
 }
 
 // FrameRows brings the client's last Frame of Pane up to date: row Rows[i]
@@ -921,6 +929,7 @@ var Messages = []any{
 	AgentEvent{}, StateMsg{}, Frame{}, PaneExited{}, Error{},
 	DismissNotice{},
 	Search{}, SearchResult{},
+	Commands{}, CommandResult{},
 	Answer{},
 	WorktreeQuery{}, WorktreeInfo{}, DeleteWorktree{},
 	Text{}, TextResult{},

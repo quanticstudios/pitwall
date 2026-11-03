@@ -63,6 +63,7 @@ type state struct {
 	syncTimer *time.Timer // fires wake when a frame outlives syncTimeout
 	wake      func()      // set by SetDirtyFunc
 	last      *Grid       // the previous Snapshot, shown while syncing
+	shell     []shellMark
 	hist      history
 	term      byte          // the last byte of the chunk x/vt is parsing: BEL or ESC when it ends an OSC
 	dropped   atomic.Uint64 // reply bytes dropped at replyCap
@@ -121,6 +122,10 @@ func New(cols, rows int, reply io.Writer) Emulator {
 	e.RegisterCsiHandler('J', func(p ansi.Params) bool {
 		switch n, _, _ := p.Param(0, 0); {
 		case n == 2:
+			if !e.IsAltScreen() {
+				top := st.hist.pushed + uint64(e.Scrollback().Len())
+				st.shell = slices.DeleteFunc(st.shell, func(m shellMark) bool { return m.At.Line >= top })
+			}
 			st.gfx.clear(e, st, "screen") // so clear clears images too, as kitty
 		case n == 3 && !e.IsAltScreen():
 			st.hist.clear()
@@ -339,6 +344,7 @@ func (t *emulator) Write(p []byte) (int, error) {
 		sb.Clear()
 	}
 	t.st.gfx.prune(t.e, t.st)
+	t.pruneShell()
 	return n, nil
 }
 
@@ -631,7 +637,8 @@ func registerShell(e *xvt.Emulator, st *state) {
 	})
 	e.RegisterOscHandler(133, func(data []byte) bool {
 		_, args, _ := strings.Cut(string(data), ";")
-		mark, _, _ := strings.Cut(args, ";")
+		mark, status, _ := strings.Cut(args, ";")
+		status, _, _ = strings.Cut(status, ";")
 		var f xvt.LineFlags
 		switch mark {
 		case "A":
@@ -641,12 +648,17 @@ func registerShell(e *xvt.Emulator, st *state) {
 		case "C":
 			f = xvt.LineOutput
 		case "D":
-			f = xvt.LineEnd // the exit code after it is not kept
+			f = xvt.LineEnd
 		default:
 			return true
 		}
 		y := e.CursorPosition().Y
 		e.SetLineFlags(y, e.LineFlags(y)|f)
+		if !e.IsAltScreen() {
+			code, err := strconv.Atoi(status)
+			_, _, cur, _ := e.MainLines()
+			st.shell = append(st.shell, shellMark{At: Pos{Line: st.hist.pushed + uint64(e.Scrollback().Len()+y), Col: cur.X}, Kind: mark, Time: time.Now(), Code: code, Known: status != "" && err == nil})
+		}
 		return true
 	})
 	e.RegisterOscHandler(52, func(data []byte) bool {

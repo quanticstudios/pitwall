@@ -2,6 +2,7 @@ package vt
 
 import (
 	"image/color"
+	"slices"
 	"strings"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -64,6 +65,15 @@ func (t *emulator) reflow(w, h int) {
 			marks = append(marks, &pos{int(r), pl.col})
 		}
 	}
+	shellStart := len(marks)
+	var shell []*shellMark
+	for i := range t.st.shell {
+		m := &t.st.shell[i]
+		if r := int64(m.At.Line) - base; r >= 0 && r < int64(old) {
+			shell = append(shell, m)
+			marks = append(marks, &pos{int(r), m.At.Col})
+		}
+	}
 	if w != len(lines[0]) {
 		rows = rewrap(rows, w, marks...)
 	}
@@ -81,6 +91,11 @@ func (t *emulator) reflow(w, h int) {
 	for _, pl := range under { // on blank rows under the text: as far below it
 		pl.line = at(int64(pl.line) - base + int64(len(rows)-old))
 	}
+	for i, m := range shell {
+		p := marks[shellStart+i]
+		m.At = Pos{Line: at(int64(p.row)), Col: p.col}
+	}
+	t.pruneShell()
 	screen, soft := make([]uv.Line, h), make([]xvt.LineFlags, h)
 	for y := range screen {
 		if i := start + y; i < len(rows) {
@@ -110,34 +125,47 @@ func blank(l uv.Line) bool {
 func rewrap(rows []line, w int, marks ...*pos) []line {
 	out := make([]line, 0, len(rows))
 	moved := make([]pos, len(marks))
-	at := make([]int, len(marks)) // a mark's column in the line being split, or -1
+	at := make([]int, len(marks)) // a mark's column in the logical line
+	order := make([]int, len(marks))
 	for k, m := range marks {
 		moved[k] = *m
+		order[k] = k
 	}
+	// Shell marks can number in the thousands; visit only the current line's.
+	slices.SortFunc(order, func(a, b int) int { return marks[a].row - marks[b].row })
+	next := 0
 	for i := 0; i < len(rows); {
 		j := i
 		for j < len(rows)-1 && rows[j].wrapped() {
 			j++
 		}
+		for next < len(order) && marks[order[next]].row < i {
+			next++
+		}
+		first := next
+		for next < len(order) && marks[order[next]].row <= j {
+			next++
+		}
+		group := order[first:next]
 		if i == j && rows[i].width() <= w {
-			for k, m := range marks {
-				if m.row == i {
-					moved[k].row = len(out)
-				}
+			for _, k := range group {
+				moved[k].row = len(out)
 			}
 			out = append(out, rows[i])
 			i++
 			continue
 		}
-		for k, m := range marks {
-			at[k] = -1
-			if m.row >= i && m.row <= j {
-				at[k] = m.col
-				for _, r := range rows[i:m.row] {
-					at[k] += r.width()
-				}
+		row, offset := i, 0
+		for _, k := range group {
+			m := marks[k]
+			for row < m.row {
+				offset += rows[row].width()
+				row++
 			}
+			at[k] = offset + m.col
 		}
+		slices.SortFunc(group, func(a, b int) int { return at[a] - at[b] })
+		markNext := 0
 		l := join(rows[i : j+1])
 		var shell xvt.LineFlags // the OSC 133 marks of the line's rows go on its first
 		for _, r := range rows[i : j+1] {
@@ -180,10 +208,12 @@ func rewrap(rows []line, w int, marks ...*pos) []line {
 					r.runs = append(r.runs, rn.withCol(rn.col-uint32(a)))
 				}
 			}
-			for k := range marks {
-				if at[k] >= a && (at[k] < b || b == n) {
-					moved[k], at[k] = pos{len(out), at[k] - a}, -1
+			for markNext < len(group) && (at[group[markNext]] < b || b == n) {
+				k := group[markNext]
+				if at[k] >= a {
+					moved[k] = pos{len(out), at[k] - a}
 				}
+				markNext++
 			}
 			out = append(out, r)
 			if a = b; a >= n {

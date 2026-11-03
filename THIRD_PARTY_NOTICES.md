@@ -20,6 +20,8 @@ carries a `// Adapted from tuios (MIT): <path>` comment:
 | `internal/tmuxshim/args.go`, `internal/tmuxshim/keys.go`, `internal/tmuxshim/format.go` | `internal/tmuxcompat/args.go`, `keys.go`, `format.go` (argument parsing, key bytes and format aliases) |
 | `cmd/pitwall/tmux_test.go`, `internal/tmuxshim/tmux_test.go` | `internal/tmuxcompat/shim_test.go`, `args_test.go` (recorded teammate calls and parsing cases) |
 | `internal/daemon/scrollback.go` | `internal/app/os_selection.go` (temporary file for scrollback and cleanup) |
+| `internal/ui/app/commands.go` | `internal/input/scrollback_browser.go` (command navigation and copy keys) |
+| `internal/ui/app/commandsdraw.go` | `internal/app/render_scrollback_browser.go` (command list and output preview) |
 | `internal/pane/pane.go` | `internal/ptyspawn/spawn.go` (PTY spawn retry on EPERM) |
 | `internal/store/store.go` | `internal/session/agent_resume.go` (agent resume commands) |
 | `internal/daemon/detect.go` | `internal/session/agent_detect_linux.go` (finding an agent in a pane's process group) |

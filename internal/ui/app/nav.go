@@ -32,6 +32,8 @@ type nav struct {
 	palette bool
 	// task asks the window to open the New task dialog.
 	task bool
+	// browse asks for the focused pane's command blocks.
+	browse bool
 	// find asks the window to open the find bar on the focused pane.
 	find      bool
 	searchAll bool
@@ -1008,6 +1010,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.panelOpen = !n.panelOpen
 	case "find":
 		n.find = n.focused() != ""
+	case "scrollback_browser":
+		n.browse = n.focused() != ""
 	case "search_all":
 		n.searchAll = true
 	case "tab_search":

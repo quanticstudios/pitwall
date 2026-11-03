@@ -9,7 +9,7 @@ import "slices"
 func Diff(old *Frame, f Frame) any {
 	g := f.Grid
 	if old == nil || old.Grid.Cols != g.Cols || old.Grid.Rows != g.Rows || old.Grid.AltScreen != g.AltScreen ||
-		old.ScrollOffset != f.ScrollOffset || len(old.Grid.Cells) != len(g.Cells) || len(g.Cells) != g.Cols*g.Rows {
+		old.PromptMarks != f.PromptMarks || old.ScrollOffset != f.ScrollOffset || len(old.Grid.Cells) != len(g.Cells) || len(g.Cells) != g.Cols*g.Rows {
 		return f
 	}
 	r := FrameRows{Pane: f.Pane, Wrapped: g.Wrapped, Cursor: g.Cursor, Title: g.Title, Modes: f.Modes, ScrollMax: f.ScrollMax, ScrollPushed: f.ScrollPushed, Images: g.Images}

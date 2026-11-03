@@ -43,6 +43,7 @@ type savedMode struct {
 }
 
 type savedState struct {
+	Shell         []shellMark
 	Backend       []byte
 	History       []savedLine
 	HistoryMax    int
@@ -78,7 +79,7 @@ func (t *emulator) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 	st := t.st
-	s := savedState{Backend: backend, HistoryMax: st.hist.max, Pushed: st.hist.pushed,
+	s := savedState{Shell: st.shell, Backend: backend, HistoryMax: st.hist.max, Pushed: st.hist.pushed,
 		Title: st.title, Cwd: st.cwd, Hidden: st.hidden, Shape: st.shape, Kitty: st.kitty,
 		OSCState: t.osc.state, OSCBuffer: t.osc.buf, Term: st.term, Last: st.last}
 	if st.syncing {
@@ -166,6 +167,7 @@ func Restore(data []byte, reply io.Writer) (Emulator, error) {
 		return nil, err
 	}
 	st := t.st
+	st.shell = s.Shell
 	st.hist, st.title, st.cwd = h, s.Title, s.Cwd
 	st.hidden, st.shape, st.kitty, st.term, st.last = s.Hidden, s.Shape, s.Kitty, s.Term, s.Last
 	st.modes = make(map[ansi.Mode]bool)

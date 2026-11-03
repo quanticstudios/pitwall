@@ -1,4 +1,4 @@
-18.56
+18.57
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -58,6 +58,8 @@ proto.ChatSet{Chat string; Model string; Effort string; Mode string; Provider mo
 proto.ChatUnarchive{Chat string}
 proto.ClosePane{Pane string}
 proto.CloseTab{WorkspaceID string; TabID string}
+proto.CommandResult{Pane string; ID uint64; Blocks []vt.CommandBlock; Integrated bool; More bool}
+proto.Commands{Pane string; ID uint64}
 proto.DeleteGroup{GroupID string}
 proto.DeleteWorkspace{WorkspaceID string; RemoveBranch bool; Force bool}
 proto.DeleteWorktree{Root string; Path string; Force bool}
@@ -73,7 +75,7 @@ proto.FocusDir{Pane string; Dir layout.Direction}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string; Pane string}
 proto.ForgetTab{ID string}
 proto.FormAnswer{ID string; Answers string; Cancel bool; Closed bool}
-proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64}
+proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64; PromptMarks bool}
 proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64; Images []vt.Placement}
 proto.GroupByFolder{WorkspaceID string}
 proto.Hello{Version int; Level int; Kind string; Cwd string; Session string}
@@ -141,6 +143,7 @@ time.Time{wall uint64; ext int64; loc *time.Location}
 time.zone{name string; offset int; isDST bool}
 time.zoneTrans{when int64; index uint8; isstd bool; isutc bool}
 vt.Cell{Content string; Width uint8; FG vt.Color; BG vt.Color; Attrs vt.Attr; Link string}
+vt.CommandBlock{Prompt vt.Pos; Command string; Output string; Started time.Time; ExitCode int; Finished bool; StatusKnown bool}
 vt.Cursor{X int; Y int; Visible bool; Shape vt.CursorShape}
 vt.Grid{Cols int; Rows int; Cells []vt.Cell; Cursor vt.Cursor; Title string; AltScreen bool; Wrapped []bool; Images []vt.Placement}
 vt.Image{Key uint64; W int; H int; Pix []uint8}

@@ -56,11 +56,13 @@ func (d *Daemon) openForm(c *client, m proto.OpenForm) error {
 	d.formOwner[m.ID] = c
 	if w := d.workspace(ws); w != nil && nf.Waits {
 		w.UpdatedAt = nf.OpenedAt
-		acts := []model.Activity{formActivity(nf, model.ProviderTerminal)}
+		// This new question wakes its family even when clock timestamps tie.
 		workers := d.workers()
 		for i := range d.st.Workspaces {
 			w := &d.st.Workspaces[i]
-			wakeTab(w, acts, workers[w.ID])
+			if w.ID == ws || workers[w.ID][ws] {
+				w.Settled, w.SnoozedAt, w.SnoozedUntil = time.Time{}, time.Time{}, time.Time{}
+			}
 		}
 	}
 	d.changed()

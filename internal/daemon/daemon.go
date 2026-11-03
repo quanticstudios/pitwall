@@ -829,6 +829,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			}
 			continue
 		}
+		if q, ok := m.(proto.Commands); ok {
+			c.queue(d.commands(q))
+			continue
+		}
 		if s, ok := m.(proto.Search); ok {
 			c.queue(d.search(s)) // a reply to this client alone
 			continue

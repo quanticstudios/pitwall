@@ -242,3 +242,15 @@ func TestReflowKeepsPromptMarks(t *testing.T) {
 		}
 	}
 }
+
+func TestRewrapUnorderedMarks(t *testing.T) {
+	rows := []line{{text: "abcd", runs: []run{{}}, flags: xvt.LineWrapped}, {text: "efgh", runs: []run{{}}}, {text: "xy", runs: []run{{}}}}
+	marks := []*pos{{2, 1}, {0, 4}, {1, 0}, {0, 0}, {1, 4}, {6, 0}, {-1, 0}}
+	rewrap(rows, 3, marks...)
+	want := []pos{{3, 1}, {1, 1}, {1, 1}, {0, 0}, {2, 2}, {6, 0}, {-1, 0}}
+	for i, m := range marks {
+		if *m != want[i] {
+			t.Errorf("mark %d: %+v, want %+v", i, *m, want[i])
+		}
+	}
+}
