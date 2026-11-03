@@ -73,12 +73,16 @@ type Sidebar struct {
 	// working tabs their own section in it. Shelves is whether the daemon
 	// takes SetInbox, to settle and snooze; pinning works without it.
 	Inbox, WorkingShelf, Shelves bool
-	undo                         *undoNote
-	undoBtn, viewBtn             widget.Clickable
-	snoozeBtn                    [4]widget.Clickable
-	presets                      []snoozePreset // the Snooze flyout's, as drawn
-	flyAct                       int            // the menu entry whose flyout shows: actMove or actSnooze
-	inboxDrawn                   bool           // the elems are the inbox's
+	// SeparateWorkers gives each worker tab (model.State.Root) a row of
+	// its own: under its parent behind a fleet strip in the tree, sorted on
+	// its own in the inbox. Off, workers are sub-rows of their parent's row.
+	SeparateWorkers  bool
+	undo             *undoNote
+	undoBtn, viewBtn widget.Clickable
+	snoozeBtn        [4]widget.Clickable
+	presets          []snoozePreset // the Snooze flyout's, as drawn
+	flyAct           int            // the menu entry whose flyout shows: actMove or actSnooze
+	inboxDrawn       bool           // the elems are the inbox's
 
 	hostBtn map[string]*widget.Clickable // the host list's rows, "s:" session or "a:" pane
 
@@ -185,8 +189,11 @@ type Sidebar struct {
 
 	// Sub-rows: each agent pane's or worker's row state by its id, and
 	// the tabs whose sub-rows are folded away.
-	subs     map[string]*subRow
-	folded   map[string]bool
+	subs   map[string]*subRow
+	folded map[string]bool
+	// With SeparateWorkers, the fleets whose workers hang under their
+	// strip; the rest are folded into it (fleet.go).
+	kidsOpen map[string]bool
 	favicons map[string]*favicon // repo root: its icon, nil when it has none
 	roots    map[string]string   // folder: the repo root above it, "" outside one
 
@@ -258,6 +265,8 @@ type rowState struct {
 	port               widget.Clickable // the port chip: opens the dev server
 	fold               widget.Clickable // the count, which folds the sub-rows
 	foldT              anim.Value       // its chevron's turn
+	kids               widget.Clickable // a fleet's strip, which folds its workers
+	kidsT              anim.Value       // its chevron's turn
 	ctx                int              // tag for right- and middle-click
 	easedFill
 }
@@ -431,6 +440,7 @@ type view struct {
 	rootOf        map[string]string            // a live worker's root, the tab it hangs under
 	status        map[string]string            // a live tab's status line (pitwall status)
 	program       map[string]*model.Program    // a live tab's program report, its most urgent
+	separate      bool                         // workers have rows of their own (Sidebar.SeparateWorkers)
 	session       string
 	acts          map[string][]model.Activity // a tab's activities
 
@@ -444,15 +454,22 @@ type view struct {
 
 // viewOf is newView sorted into the inbox when the sidebar shows it.
 func (s *Sidebar) viewOf(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
-	v := newView(gtx, th, st, session, active)
+	v := buildView(gtx, th, st, session, active, s.SeparateWorkers)
 	if s.Inbox && !s.TreeOnly {
 		s.toInbox(v)
 	}
 	return v
 }
 
+// newView is st indexed with workers folded into their parents' rows.
 func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string) *view {
-	v := &view{th: th, st: st, now: gtx.Now, active: active, session: session,
+	return buildView(gtx, th, st, session, active, false)
+}
+
+// buildView is st indexed for one frame, workers on rows of their own
+// when separate.
+func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, active string, separate bool) *view {
+	v := &view{th: th, st: st, now: gtx.Now, active: active, session: session, separate: separate,
 		byProject: map[string][]model.Workspace{}, activity: map[string]*model.Activity{}, unseen: map[string]*model.Activity{}, agent: map[string]model.Provider{},
 		agents: map[string][]model.AgentPane{}, kids: map[string][]model.Workspace{}, rootOf: map[string]string{}, status: map[string]string{}, program: map[string]*model.Program{}}
 	if v.now.IsZero() {
@@ -527,8 +544,12 @@ func newView(gtx layout.Context, th *theme.Theme, st *model.State, session, acti
 			v.activity[r] = &w
 			delete(v.unseen, r)
 		}
-		// Then the row shows the most urgent of it and its workers, so a
-		// worker that asks shows on it folded or not; a tie stays its own.
+		// Folded, the row then shows the most urgent of it and its
+		// workers, so a worker that asks shows on it folded or not; a tie
+		// stays its own. Separate, each worker's row shows its own.
+		if separate {
+			continue
+		}
 		for _, k := range kids {
 			v.activity[r] = urgent(v.activity[r], v.activity[k.ID])
 			if u := urgent(v.unseen[r], v.unseen[k.ID]); u != nil {
@@ -587,20 +608,27 @@ func (v *view) groupOf(id string) string {
 }
 
 // order is the tab rows top to bottom as drawn: the top-level items in
-// order, an expanded group's tabs at its place; or the inbox's. Workers
-// are sub-rows, not rows, and are left out.
+// order, an expanded group's tabs at its place; or the inbox's. Folded,
+// workers are sub-rows, not rows, and are left out; separate, the shown
+// ones follow their parent.
 func (s *Sidebar) order(v *view) []string {
 	if v.inbox {
 		return inboxOrder(v)
 	}
 	var out []string
+	add := func(id string) {
+		out = append(out, id)
+		for _, k := range s.kidsShown(v, id) {
+			out = append(out, k.ID)
+		}
+	}
 	for _, id := range v.top {
 		switch {
 		case !v.groups[id]:
-			out = append(out, id)
+			add(id)
 		case s.isExpanded(id):
 			for _, ws := range v.byProject[id] {
-				out = append(out, ws.ID)
+				add(ws.ID)
 			}
 		}
 	}
@@ -623,7 +651,7 @@ func (s *Sidebar) follow(v *view) {
 }
 
 // Rows is session's tabs top to bottom as the sidebar lists them, without
-// detached tabs, workers and the tabs of collapsed groups: the rows goto_tab_N
+// detached tabs, folded workers and the tabs of collapsed groups: the rows goto_tab_N
 // counts; the inbox's rows while it shows. Like Layout, it expands the
 // active tab's group when the active tab moved to another one, so the
 // count holds while the sidebar is hidden.
@@ -634,9 +662,15 @@ func (s *Sidebar) Rows(st *model.State, session, active string) []string {
 	return s.order(v)
 }
 
-// KidsFolded reports whether tab id's sub-rows, its workers among them,
-// are folded into its row.
-func (s *Sidebar) KidsFolded(id string) bool { return s.folded[id] }
+// KidsFolded reports whether tab id's workers are folded away: into its
+// row's count, or with SeparateWorkers into its fleet strip in the tree.
+// The inbox gives separate workers rows of their own, folded never.
+func (s *Sidebar) KidsFolded(id string) bool {
+	if s.SeparateWorkers {
+		return !s.Inbox && !s.kidsOpen[id]
+	}
+	return s.folded[id]
+}
 
 func (s *Sidebar) isExpanded(projectID string) bool { return s.expanded[projectID] }
 
@@ -652,7 +686,7 @@ func (s *Sidebar) project(id string) *projectState {
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
 	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() || r.reply.Hovered() ||
-		r.pr.Hovered() || r.archive.Hovered() || r.settle.Hovered() || r.fold.Hovered()
+		r.pr.Hovered() || r.archive.Hovered() || r.settle.Hovered() || r.fold.Hovered() || r.kids.Hovered()
 }
 
 func (s *Sidebar) row(id string) *rowState {

@@ -270,14 +270,15 @@ func wakeText(now, at time.Time) string {
 }
 
 // toInbox sorts v's tabs into the inbox's sections and makes each row's
-// activity the one its status names. A worker has no row of its own: it
-// rides under its parent's, which sorts by the most urgent of the two.
+// activity the one its status names. Folded, a worker has no row of its
+// own: it rides under its parent's, which sorts by the most urgent of the
+// two. Separate, a worker is a row like any other.
 func (s *Sidebar) toInbox(v *view) {
 	v.inbox = true
 	v.secOf, v.need = map[string]section{}, map[string]status{}
 	for _, ws := range v.st.Ordered(v.session) {
-		if _, live := v.activity[ws.ID]; !live || v.rootOf[ws.ID] != "" {
-			continue // detached, or a worker
+		if _, live := v.activity[ws.ID]; !live || v.rootOf[ws.ID] != "" && !v.separate {
+			continue // detached, or a folded worker
 		}
 		acts, isAgent := v.family(ws.ID)
 		st, a := statusOf(acts, v.now)
@@ -296,11 +297,11 @@ func (s *Sidebar) toInbox(v *view) {
 	slices.SortStableFunc(v.sections[secSettled], func(a, b string) int { return ws(b).Settled.Compare(ws(a).Settled) })
 }
 
-// family is the activities of tab id and its workers, and whether any of
-// them runs an agent.
+// family is the activities of tab id and its folded workers, and whether
+// any of them runs an agent.
 func (v *view) family(id string) ([]model.Activity, bool) {
 	acts, isAgent := v.acts[id], v.agent[id] != "" || v.program[id] != nil
-	for _, k := range v.kids[id] {
+	for _, k := range v.subKids(id) {
 		acts = append(slices.Clip(acts), v.acts[k.ID]...)
 		isAgent = isAgent || v.agent[k.ID] != "" || v.program[k.ID] != nil
 	}

@@ -190,18 +190,19 @@ func (n *nav) ordered(st *model.State) []model.Workspace { return orderedIn(st, 
 
 // visible is the session's tabs in the order the sidebar's view shows
 // them: the inbox's rows while it shows, each followed by its workers
-// that are not detached, else ordered.
+// that are not detached and not rows of their own, else ordered.
 func (n *nav) visible(st *model.State) []model.Workspace {
 	if n.inbox == nil || !n.inbox() || n.rows == nil {
 		return n.ordered(st)
 	}
 	kids := st.Workers(n.session)
+	rows := n.rows(st)
 	var out []model.Workspace
-	for _, id := range n.rows(st) {
+	for _, id := range rows {
 		if w := findWorkspace(st, id); w != nil {
 			out = append(out, *w)
 			for _, k := range kids[id] {
-				if !k.Detached {
+				if !k.Detached && !slices.Contains(rows, k.ID) {
 					out = append(out, k)
 				}
 			}

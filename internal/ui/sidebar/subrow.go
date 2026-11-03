@@ -87,16 +87,26 @@ func (v *view) prompt(e subEntry) *model.Activity {
 }
 
 // subsOf is tab id's sub-rows, folded or not: its agent panes when it has
-// two or more, then its workers.
+// two or more, then its workers unless they have rows of their own.
 func (v *view) subsOf(id string) []subEntry {
 	var out []subEntry
 	for _, ap := range v.agents[id] {
 		out = append(out, subEntry{pane: ap})
 	}
-	for i := range v.kids[id] {
-		out = append(out, subEntry{worker: &v.kids[id][i]})
+	kids := v.subKids(id)
+	for i := range kids {
+		out = append(out, subEntry{worker: &kids[i]})
 	}
 	return out
+}
+
+// subKids is tab id's workers that are its sub-rows: none when workers
+// have rows of their own.
+func (v *view) subKids(id string) []model.Workspace {
+	if v.separate {
+		return nil
+	}
+	return v.kids[id]
 }
 
 // sub is tab tab's sub-row id.
@@ -276,7 +286,7 @@ func (v *view) familyCount(id string) string {
 			acts = append(acts, *a)
 		}
 	}
-	return subCount(len(v.agents[id]), len(v.kids[id]), acts)
+	return subCount(len(v.agents[id]), len(v.subKids(id)), acts)
 }
 
 // subRowAt draws sub-row e under tab, the lifted copy when ghost, and
@@ -469,7 +479,7 @@ func (s *Sidebar) foldChip(gtx layout.Context, v *view, id string, col color.NRG
 	_, l2 := rowLines(gtx, th)
 	text := v.familyCount(id)
 	if short {
-		text = subTotals(len(v.agents[id]), len(v.kids[id]))
+		text = subTotals(len(v.agents[id]), len(v.subKids(id)))
 	}
 	draw := func(gtx layout.Context) layout.Dimensions {
 		c := col

@@ -460,6 +460,16 @@ func TestNavFollowsInbox(t *testing.T) {
 	if n.workspace != "x" {
 		t.Fatalf("next from o in the inbox with its workers folded went to %s, want x", n.workspace)
 	}
+	// Separate, a worker is an inbox row of its own and shows once.
+	folded = false
+	n.rows = func(*model.State) []string { return []string{"w", "x", "o"} }
+	ids = nil
+	for _, w := range n.visible(&st) {
+		ids = append(ids, w.ID)
+	}
+	if !slices.Equal(ids, []string{"w", "x", "o"}) {
+		t.Fatalf("visible with separate workers %v, want the rows as they are", ids)
+	}
 	inbox = false
 	n.workspace = "x"
 	n.cycleWorkspace(&st, 1)

@@ -817,6 +817,8 @@ func (p *Page) appearance() []section {
 		{title: "Sidebar", rows: []row{
 			{label: "View", desc: "The tree lists tabs under their groups. The inbox lists every agent tab by what it needs from you. The button left of + in the sidebar's header switches too.",
 				extra: "inbox tree list view sections", control: p.choice("sidebar", "view", []string{"tree", "inbox"}, []string{"Tree", "Inbox"}, !p.s.Sidebar.Inbox)},
+			{label: "Workers", desc: "The tabs an agent opened. Folded lists them as small rows under its tab's row. Separate gives each a row of its own: under its tab behind a bar of their states in the tree, sorted on its own in the inbox.",
+				extra: "workers fleet fold folded separate subagents", control: p.choice("sidebar", "workers", []string{"folded", "separate"}, []string{"Folded", "Separate"}, !p.s.Sidebar.SeparateWorkers)},
 			{label: "Working section", desc: "In the inbox, move tabs whose agent works now out of Waiting on you into a section of their own.",
 				extra: "inbox working shelf working_shelf", control: p.toggle("sidebar", "working_shelf", p.s.Sidebar.WorkingShelf)},
 			{label: "Settle after days", desc: "Move a tab to the inbox's Settled section after this many days without agent activity. 0 never does. Pinned and snoozed tabs stay.",
