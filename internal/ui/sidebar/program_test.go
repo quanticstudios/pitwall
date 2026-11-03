@@ -67,3 +67,29 @@ func TestProgramWorkerInbox(t *testing.T) {
 		t.Fatal("worker has its own inbox row")
 	}
 }
+
+// A report from the pane's own agent, as Codex sends naming itself, is left
+// to the agent's mark and pill; a build the agent runs still shows.
+func TestAgentReport(t *testing.T) {
+	codex := &model.Program{App: "codex", State: "done"}
+	build := &model.Program{App: "make", State: "working"}
+	st := &model.State{
+		Panes: []model.Pane{
+			{ID: "a", WorkspaceID: "w", Provider: model.ProviderCodex, Program: codex},
+			{ID: "b", WorkspaceID: "w", Provider: model.ProviderTerminal, Program: codex},
+			{ID: "c", WorkspaceID: "x", Provider: model.ProviderCodex, Program: build},
+		},
+		Activities: []model.Activity{{PaneID: "b", WorkspaceID: "w", Provider: model.ProviderCodex}},
+	}
+	for i, want := range []bool{true, true, false} {
+		if got := agentReport(st, st.Panes[i]); got != want {
+			t.Errorf("pane %s: %v, want %v", st.Panes[i].ID, got, want)
+		}
+	}
+	if p := tabProgram(st, model.Workspace{ID: "w"}, nil); p != nil {
+		t.Errorf("tab w shows %+v, want no program", *p)
+	}
+	if p := tabProgram(st, model.Workspace{ID: "x"}, nil); p != build {
+		t.Errorf("tab x shows %v, want the build", p)
+	}
+}
