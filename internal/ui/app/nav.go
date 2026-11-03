@@ -1018,7 +1018,7 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		return n.tabOp(st, "new_in_group")
 	case "view_diff":
 		n.diff = true
-	case "diff_pager", "create_pr":
+	case "diff_pager", "create_pr", "stage_terminal":
 		return n.review(st, ws, act)
 	case "open_pr", "merge_pr", "rerun_checks", "send_failures", "send_review", "second_opinion":
 		n.prAct = act

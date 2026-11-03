@@ -373,6 +373,21 @@ between lines, Shift+arrows select a range. A binary file, an untracked file
 over 1 MiB and a file with over 3,000 changed lines show a line about
 themselves instead; the last has a button to show its diff anyway.
 
+Staging, next to Branch and This turn in the header, is for committing
+part of an agent's work. It lists the uncommitted files in two groups:
+Unstaged, the work tree against the index, with untracked files at the
+end, and Staged, the index against HEAD. A file staged in part shows in
+both. s stages the hunk the selected line is in, or the next one below
+it, so pressing s again moves down the file; u unstages a staged file's
+hunk. Shift+S and Shift+U, the Stage file and Unstage file buttons, and
+the checkbox in the file list do the whole file. Each hunk's header has a
+Stage hunk or Unstage hunk button too. A hunk goes in through
+`git apply --cached` (with `-R` to unstage) and a whole file through
+`git add` or `git restore --staged`; the list reads again after each.
+Untracked, added, deleted, renamed and binary files, and files over 3,000
+changed lines, stage whole. A file a merge left in conflict heads Unstaged;
+staging it, once you have resolved it, marks it resolved.
+
 Click a line number, or press c on the selected lines, to comment;
 Shift+click a second line number to comment on the lines between. Enter
 saves the comment under its last line. "Send N comments to claude" types
@@ -394,6 +409,9 @@ same diff through `git diff` in your pager in a new pane: `$GIT_PAGER`, else
 `core.pager`, else delta when it is installed, else `less -R`. Press q to
 close it. The palette's Open diff in pager does the same. With `pitwall
 --host`, the worktree is on the host, so View diff opens the pager there.
+To stage hunks there, the palette's Stage hunks in terminal runs
+`git add -p` and then `git reset -p`, to take a hunk back, in a new pane in
+the tab's worktree; q ends either one.
 Create pull request opens a tab in the tab's folder that runs
 `git push -u origin HEAD` when the branch has no upstream, then
 `gh pr create --fill`, so you see both commands and answer gh's questions
@@ -401,7 +419,8 @@ there; the tab stays when gh exits, with the pull request's link. It never
 force-pushes. The menu greys the entry out and says why when gh is not
 installed, the tab is on the default branch, or the branch has no commits
 ahead of it. Create pull request and Open diff in pager have no key by
-default; set `create_pr` or `diff_pager` under `[keys]` to give them one.
+default; set `create_pr` or `diff_pager` under `[keys]` to give them one,
+and `stage_terminal` for Stage hunks in terminal.
 
 Second opinion has another agent review the tab's changes and send its
 findings to the tab's agent. The tab's "…" menu has it as Second opinion

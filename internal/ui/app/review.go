@@ -49,6 +49,13 @@ func diffCmd(dir, base string, file *gitstat.FileStat) []string {
 	return append(cmd, "--merge-base", base, "--", file.Path)
 }
 
+// stageScript runs git add -p at the top of the repository holding $1,
+// then git reset -p to take back a hunk staged by mistake.
+const stageScript = `cd -- "$1" && cd -- "$(git rev-parse --show-toplevel)" || exit
+git add -p
+git reset -p
+`
+
 // prScript pushes the branch at $1 when it has no upstream, never with
 // force, then runs gh pr create --fill, printing each command first.
 const prScript = `cd -- "$1" || exit
@@ -63,8 +70,9 @@ exec gh pr create --fill
 // prCmd is the argv of a tab opening a pull request for the branch at dir.
 func prCmd(dir string) []string { return []string{"sh", "-c", prScript, "sh", dir} }
 
-// review runs act, "diff_pager" or "create_pr", for tab id: the diff in a
-// pane beside the tab's panes, which q closes, or gh in a tab of its own
+// review runs act, "diff_pager", "stage_terminal" or "create_pr", for tab
+// id: the diff or git add -p in a pane beside the tab's panes, which q
+// closes, or gh in a tab of its own
 // in id's group, which stays when gh exits with its output on screen, and
 // which a daemon restart never runs again. It returns nil when
 // sidebar.ReviewBlocked says the tab cannot.
@@ -81,6 +89,11 @@ func (n *nav) review(st *model.State, id, act string) any {
 			n.expectPane(st)
 		}
 		return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: diffCmd(dir, st.Stats[id].Base, nil)}
+	case act == "stage_terminal" && diff == "":
+		if id == n.workspace {
+			n.expectPane(st)
+		}
+		return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: []string{"sh", "-c", stageScript, "sh", dir}}
 	case act == "create_pr" && pr == "":
 		n.expectSession(st)
 		return proto.NewSession{Name: "PR " + ws.Branch, Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: prCmd(dir)}
@@ -109,10 +122,10 @@ func (n *nav) fileDiff(st *model.State, id, path string) any {
 	return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: diffCmd(st.LivePath(*ws), st.Stats[id].Base, &gitstat.FileStat{Path: path, Status: 'M'})}
 }
 
-// reviewBlocked is why the palette's view_diff, diff_pager, create_pr,
-// open_pr, merge_pr, rerun_checks, send_failures, send_review or
-// second_opinion cannot run on the open tab, "" when it can or for any
-// other action.
+// reviewBlocked is why the palette's view_diff, diff_pager,
+// stage_terminal, create_pr, open_pr, merge_pr, rerun_checks,
+// send_failures, send_review or second_opinion cannot run on the open tab,
+// "" when it can or for any other action.
 func (n *nav) reviewBlocked(st *model.State, act string) string {
 	if act == "second_opinion" {
 		return opinionBlocked(st, findWorkspace(st, n.workspace), "")
@@ -120,7 +133,7 @@ func (n *nav) reviewBlocked(st *model.State, act string) string {
 	if why, ok := n.prBlocked(st, act); ok {
 		return why
 	}
-	if act != "view_diff" && act != "diff_pager" && act != "create_pr" {
+	if act != "view_diff" && act != "diff_pager" && act != "stage_terminal" && act != "create_pr" {
 		return ""
 	}
 	ws := findWorkspace(st, n.workspace)

@@ -51,6 +51,9 @@ func (u *ui) drawReview(gtx gl.Context, st *model.State) {
 	if turn, in, _ := r.turnState(); state == reviewEmpty && in {
 		line = fmt.Sprintf("No changes since turn %d started.", turn.N)
 	}
+	if state == reviewEmpty && r.staged() {
+		line = "No uncommitted changes."
+	}
 	switch state {
 	case reviewFailed:
 		u.reviewMessage(gtx, body, th.Red, line)
@@ -228,30 +231,37 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	call.Add(gtx.Ops)
 	o.Pop()
 	left += sz.X + gtx.Dp(12)
-	if turn.Rev != "" { // Branch and This turn
-		for r.branchScope.Clicked(gtx) {
-			r.setScope(false)
-		}
-		for r.thisTurn.Clicked(gtx) {
-			r.setScope(true)
-		}
-		for _, b := range []struct {
-			c     *widget.Clickable
-			label string
-			on    bool
-		}{{&r.branchScope, "Branch", !r.turnScope}, {&r.thisTurn, "This turn", r.turnScope}} {
-			m := op.Record(gtx.Ops)
-			gg := gtx
-			gg.Constraints.Min = image.Point{}
-			d := kit.Button(gg, th, b.c, map[bool]kit.Kind{true: kit.Primary, false: kit.Secondary}[b.on], kit.Small, b.label)
-			call := m.Stop()
-			o := op.Offset(image.Pt(left, pad+(rowH-d.Size.Y)/2)).Push(gtx.Ops)
-			call.Add(gtx.Ops)
-			o.Pop()
-			left += d.Size.X + gtx.Dp(4)
-		}
-		left += gtx.Dp(8)
+	// Branch, This turn when there is one, and Staging.
+	for r.branchScope.Clicked(gtx) {
+		r.setScope(false, false)
 	}
+	for r.thisTurn.Clicked(gtx) {
+		r.setScope(true, false)
+	}
+	for r.staging.Clicked(gtx) {
+		r.setScope(false, true)
+	}
+	type scope struct {
+		c     *widget.Clickable
+		label string
+		on    bool
+	}
+	scopes := []scope{{&r.branchScope, "Branch", !r.stageScope && !(r.turnScope && turn.Rev != "")}}
+	if turn.Rev != "" {
+		scopes = append(scopes, scope{&r.thisTurn, "This turn", r.turnScope && !r.stageScope})
+	}
+	for _, b := range append(scopes, scope{&r.staging, "Staging", r.stageScope}) {
+		m := op.Record(gtx.Ops)
+		gg := gtx
+		gg.Constraints.Min = image.Point{}
+		d := kit.Button(gg, th, b.c, map[bool]kit.Kind{true: kit.Primary, false: kit.Secondary}[b.on], kit.Small, b.label)
+		call := m.Stop()
+		o := op.Offset(image.Pt(left, pad+(rowH-d.Size.Y)/2)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		left += d.Size.X + gtx.Dp(4)
+	}
+	left += gtx.Dp(8)
 	type part struct {
 		c color.NRGBA
 		s string
@@ -288,6 +298,9 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	}
 	if status == "" && inTurn && turn.Moved {
 		status = "Undo is off: HEAD moved since the turn started, and undo never touches commits."
+	}
+	if status == "" && r.staged() {
+		status = "s stages the hunk, u unstages it, Shift for the whole file · j/k file · n/p hunk · ↑/↓ line · Esc closes"
 	}
 	if status == "" {
 		status = "j/k file · n/p hunk · ↑/↓ line, Shift for a range · c or a line number comments · Esc closes"
@@ -348,7 +361,7 @@ func (u *ui) statusColor(s byte) color.NRGBA {
 	switch s {
 	case 'A', '?':
 		return u.th.Green
-	case 'D':
+	case 'D', 'U':
 		return u.th.Red
 	case 'R':
 		return u.th.Blue
@@ -357,7 +370,9 @@ func (u *ui) statusColor(s byte) color.NRGBA {
 }
 
 // reviewFiles is the file list: a reviewed checkbox, the status, the path
-// and the counts of each file.
+// and the counts of each file. In Staging the files sit under Unstaged and
+// Staged headings, and the checkbox says staged and stages or unstages the
+// file.
 func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 	th, r := u.th, &u.review
 	if r.fileClick == nil {
@@ -365,17 +380,38 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 	}
 	rowH := gtx.Dp(30)
 	w := gtx.Constraints.Max.X
+	stage := r.staged()
+	items := stageItems(files, stage)
 	gl.UniformInset(8).Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 		w = gtx.Constraints.Max.X
-		return r.fileList.Layout(gtx, len(files), func(gtx gl.Context, i int) gl.Dimensions {
+		return r.fileList.Layout(gtx, len(items), func(gtx gl.Context, item int) gl.Dimensions {
+			i := items[item]
+			if i < 0 {
+				label, n := "Unstaged", stageCount(files, false)
+				if i == stagedHeading {
+					label, n = "Staged", stageCount(files, true)
+				}
+				sz := image.Pt(w, gtx.Dp(26))
+				x := gtx.Dp(8)
+				x += drawMid(gtx, th, image.Pt(x, sz.Y), medium(th.UIFont), th.Sp(theme.Small), th.Muted, label, w) + gtx.Dp(6)
+				drawMid(gtx, th, image.Pt(x, sz.Y), th.UIFont, th.Sp(theme.Small), th.Muted, fmt.Sprint(n), w)
+				return gl.Dimensions{Size: sz}
+			}
 			f := &files[i]
-			c, chk := r.fileClick[f.Path], r.checkClick[f.Path]
+			c, chk := r.fileClick[f.Key()], r.checkClick[f.Key()]
 			if c == nil {
 				c, chk = new(widget.Clickable), new(widget.Clickable)
-				r.fileClick[f.Path], r.checkClick[f.Path] = c, chk
+				r.fileClick[f.Key()], r.checkClick[f.Key()] = c, chk
 			}
 			done := u.reviewed(root, f)
+			if stage {
+				done = f.Staged
+			}
 			for chk.Clicked(gtx) {
+				if stage {
+					u.stageHunk(f, f.Staged, true)
+					continue
+				}
 				u.markReviewed(root, files, f, !done)
 				done = !done
 			}
@@ -416,7 +452,7 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 				}
 				dir, name := path.Split(f.Path)
 				fg := th.Fg
-				if done {
+				if done && !stage { // a staged file is not done with
 					fg = th.Muted
 				}
 				g := gtx
@@ -431,6 +467,40 @@ func (u *ui) reviewFiles(gtx gl.Context, files []review.File, root string) {
 			})
 		})
 	})
+}
+
+// The headings stageItems puts among the file indexes.
+const (
+	unstagedHeading = -1
+	stagedHeading   = -2
+)
+
+// stageItems is the file list's rows: the file indexes, and in Staging a
+// heading over the unstaged files and one over the staged ones, which
+// stagedFiles puts last.
+func stageItems(files []review.File, stage bool) []int {
+	items := make([]int, 0, len(files)+2)
+	for i, f := range files {
+		if stage && i == 0 && !f.Staged {
+			items = append(items, unstagedHeading)
+		}
+		if stage && f.Staged && (i == 0 || !files[i-1].Staged) {
+			items = append(items, stagedHeading)
+		}
+		items = append(items, i)
+	}
+	return items
+}
+
+// stageCount is how many of files are staged, or with staged false not.
+func stageCount(files []review.File, staged bool) int {
+	n := 0
+	for _, f := range files {
+		if f.Staged == staged {
+			n++
+		}
+	}
+	return n
 }
 
 // drawMid draws s left-aligned at at.X, centered in a row at.Y tall, cut
@@ -483,12 +553,15 @@ func statusWord(f *review.File) string {
 		return "Renamed from " + f.OldPath
 	case '?':
 		return "Untracked"
+	case 'U':
+		return "Unmerged"
 	}
 	return "Modified"
 }
 
 // reviewDiff draws the selected file: its header with Mark reviewed and
-// Discard changes, then its rows, laid out only as far as they show.
+// Discard changes, or in Staging Stage file or Unstage file, then its
+// rows, laid out only as far as they show.
 func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, root string) {
 	th, r := u.th, &u.review
 	w := gtx.Constraints.Max.X
@@ -502,9 +575,13 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 		done = !done
 	}
 	_, inTurn, _ := r.turnState()
+	stage := r.staged()
 	for r.discard.Clicked(gtx) {
 		r.discarding = *f
 		u.modal.open(modalDiscard, r.ws)
+	}
+	for r.stageFile.Clicked(gtx) {
+		u.stageHunk(f, f.Staged, true)
 	}
 	paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.Rect{Max: image.Pt(w, headH)}.Op())
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, headH), Max: image.Pt(w, headH+1)}.Op())
@@ -512,8 +589,12 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 	for _, b := range []struct {
 		c     *widget.Clickable
 		label string
-	}{{&r.discard, "Discard changes"}, {&r.mark, map[bool]string{false: "Mark reviewed", true: "Reviewed"}[done]}} {
-		if b.c == &r.discard && inTurn { // Undo turn is This turn's way back
+	}{{&r.discard, "Discard changes"}, {&r.mark, map[bool]string{false: "Mark reviewed", true: "Reviewed"}[done]},
+		{&r.stageFile, map[bool]string{false: "Stage file", true: "Unstage file"}[f.Staged]}} {
+		switch {
+		case b.c == &r.discard && (inTurn || stage): // Undo turn is This turn's way back
+			continue
+		case (b.c == &r.stageFile) != stage:
 			continue
 		}
 		m := op.Record(gtx.Ops)
@@ -544,16 +625,18 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 		top += gtx.Dp(8)
 	}
 	body := image.Rect(0, top, w, gtx.Constraints.Max.Y)
-	if f.Binary || r.huge(f) {
+	if f.Binary || r.huge(f) || f.Status == 'U' {
 		msg := "Binary file, not shown."
 		switch {
+		case f.Status == 'U':
+			msg = "A merge left this file in conflict. Resolve it in the file, then Stage file marks it resolved."
 		case f.Status == '?' && f.Binary:
 			msg = "Binary, or larger than 1 MiB: not shown."
 		case !f.Binary:
 			msg = fmt.Sprintf("%d changed lines.", f.Add+f.Del)
 		}
 		u.reviewMessage(gtx, body, th.Muted, msg)
-		if !f.Binary {
+		if !f.Binary && f.Status != 'U' {
 			for r.showHuge.Clicked(gtx) {
 				if r.shownHuge == nil {
 					r.shownHuge = map[string]bool{}
@@ -611,8 +694,15 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 	switch row.Kind {
 	case 'h':
 		sz := image.Pt(w, m.h+gtx.Dp(6))
+		stage := r.staged() && f.Status == 'M'
+		if stage {
+			sz.Y = max(sz.Y, gtx.Dp(30)) // room for the Small button
+		}
 		paint.FillShape(gtx.Ops, theme.Mix(th.Surface, th.Blue, 0.08), clip.Rect{Max: sz}.Op())
 		drawMid(gtx, th, image.Pt(gutter+m.mark, sz.Y), th.MonoFont, u.monoSize(), th.Muted, row.Text, w)
+		if stage {
+			u.hunkButton(gtx, f, row.Line, sz)
+		}
 		return gl.Dimensions{Size: sz}
 	case 'f':
 		c := r.foldClick[row.Line]
@@ -624,7 +714,7 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 			r.foldClick[row.Line] = c
 		}
 		for c.Clicked(gtx) {
-			r.openFold(f.Path, row.Line)
+			r.openFold(f.Key(), row.Line)
 		}
 		return c.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 			sz := image.Pt(w, m.h+gtx.Dp(6))
@@ -734,6 +824,35 @@ func (u *ui) reviewRow(gtx gl.Context, f *review.File, row review.Row, m lineMet
 		y += gtx.Dp(6)
 	}
 	return gl.Dimensions{Size: image.Pt(w, y)}
+}
+
+// hunkButton is Stage hunk, or Unstage hunk for a staged file, at the
+// right of the header row of the hunk whose first line is first, sz big.
+func (u *ui) hunkButton(gtx gl.Context, f *review.File, first int, sz image.Point) {
+	r := &u.review
+	c := r.hunkClick[first]
+	if c == nil {
+		if r.hunkClick == nil {
+			r.hunkClick = map[int]*widget.Clickable{}
+		}
+		c = new(widget.Clickable)
+		r.hunkClick[first] = c
+	}
+	for c.Clicked(gtx) {
+		r.setLine(first, false)
+		u.stageHunk(f, f.Staged, false)
+	}
+	label := "Stage hunk"
+	if f.Staged {
+		label = "Unstage hunk"
+	}
+	m := op.Record(gtx.Ops)
+	g := gtx
+	g.Constraints.Min = image.Point{}
+	d := kit.Button(g, u.th, c, kit.Ghost.When(!r.restoring()), kit.Small, label)
+	call := m.Stop()
+	defer op.Offset(image.Pt(sz.X-d.Size.X-gtx.Dp(8), (sz.Y-d.Size.Y)/2)).Push(gtx.Ops).Pop()
+	call.Add(gtx.Ops)
 }
 
 // reviewEditor handles the comment field's submit.

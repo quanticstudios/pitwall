@@ -767,16 +767,8 @@ func Diff(ctx context.Context, worktree string) (Patch, error) {
 		return p, err
 	}
 	p.Base, p.Root, p.Diff = base, root, []byte(out)
-	out, err = git(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
-	if err != nil {
-		return p, err
-	}
-	for _, path := range strings.Split(out, "\x00") {
-		if path != "" {
-			p.Untracked = append(p.Untracked, path)
-		}
-	}
-	return p, nil
+	p.Untracked, err = untracked(ctx, root)
+	return p, err
 }
 
 // ReadUntracked is the content of the untracked file path under root, and

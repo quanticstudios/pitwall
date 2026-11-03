@@ -27,6 +27,8 @@ build. Either step takes `--dry-run`.
 - `[sidebar] workers = "separate"`, also under Settings, Appearance, Sidebar, brings back a row of its own for each worker tab: under its agent's row behind the bar of their states in the tree, and sorted on its own in the inbox. `folded`, the compact sub-rows, stays the default. It applies without a restart.
 - A tab whose workers or agent panes you folded stays folded after the window switches to another session or host and back. They used to unfold again each time.
 - Ctrl+Shift+I (Cmd+Shift+I in mac) opens a path picker over the focused pane's folder: type to filter, Tab to mark several, Enter to type their paths at the cursor. Rebind it with `insert_path`.
+
+- The review view's Staging scope stages and unstages single hunks or whole files, with s and u or a click, in Unstaged and Staged groups, so you can commit part of an agent's work. On a `pitwall --host` tab, Stage hunks in terminal runs `git add -p` on the host; `stage_terminal` gives it a key.
 - Tab search lists the current session's tabs first, and another session's tab names its session and host before its group, so a long group name no longer hides it.
 
 ## v0.1.10

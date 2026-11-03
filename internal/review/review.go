@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -25,6 +26,19 @@ type File struct {
 	Lines    []Line
 	// Hash names the change: it differs once the file changes again.
 	Hash string
+	// NoEOL indexes the lines git marks with "\ No newline at end of file".
+	NoEOL []int
+	// Staged says the file is from the index's diff against HEAD, in the
+	// Staging scope, where a file can show twice.
+	Staged bool
+}
+
+// Key names the file in a list where it can show twice, staged and not.
+func (f *File) Key() string {
+	if f.Staged {
+		return "staged\x00" + f.Path
+	}
+	return f.Path
 }
 
 // Line is one line of a file's diff.
@@ -75,6 +89,11 @@ func Parse(patch []byte) []File {
 			f, start, inHunk = &File{Path: headerPath(line)}, lineAt, false
 			continue
 		}
+		if strings.HasPrefix(line, "diff ") { // an unmerged path's diff --cc: skipped
+			finish(lineAt)
+			f, inHunk = nil, false
+			continue
+		}
 		if f == nil {
 			continue
 		}
@@ -99,6 +118,9 @@ func Parse(patch []byte) []File {
 				f.Lines = append(f.Lines, Line{Kind: '-', Old: old, Text: line[1:]})
 				continue
 			case '\\': // "\ No newline at end of file"
+				if n := len(f.Lines); n > 0 {
+					f.NoEOL = append(f.NoEOL, n-1)
+				}
 				continue
 			}
 			inHunk = false
@@ -122,11 +144,11 @@ func Parse(patch []byte) []File {
 		case strings.HasPrefix(line, "Binary files ") || line == "GIT binary patch":
 			f.Binary = true
 		case strings.HasPrefix(line, "+++ ") && f.Status != 'D':
-			if p := strings.TrimPrefix(unquote(strings.TrimPrefix(line, "+++ ")), "b/"); p != "/dev/null" {
+			if p := strings.TrimPrefix(fieldPath(strings.TrimPrefix(line, "+++ ")), "b/"); p != "/dev/null" {
 				f.Path = p
 			}
 		case strings.HasPrefix(line, "--- ") && f.Status == 'D':
-			f.Path = strings.TrimPrefix(unquote(strings.TrimPrefix(line, "--- ")), "a/")
+			f.Path = strings.TrimPrefix(fieldPath(strings.TrimPrefix(line, "--- ")), "a/")
 		}
 	}
 	finish(len(patch))
@@ -158,6 +180,16 @@ func headerPath(line string) string {
 		return rest[2 : 2+n]
 	}
 	return strings.TrimPrefix(strings.SplitN(rest, " ", 2)[0], "a/")
+}
+
+// fieldPath is the path of a ---, +++ line: git ends an unquoted path
+// that has a space with a tab, which is not part of it. A path with a tab
+// of its own comes quoted.
+func fieldPath(s string) string {
+	if strings.HasPrefix(s, `"`) {
+		return unquote(s)
+	}
+	return strings.TrimSuffix(s, "\t")
 }
 
 // unquote undoes git's C-style quoting of a path with unusual bytes.
@@ -242,6 +274,76 @@ func Header(lines []Line, h Hunk) string {
 		n = before(lines[:h.Start], func(l Line) int { return l.New })
 	}
 	return fmt.Sprintf("@@ -%d,%d +%d,%d @@", o, oc, n, nc)
+}
+
+// HunkAt is the hunk of hunks that line is in, else the first one after
+// it, else the last: what s stages when the selected line is between
+// hunks, so pressing it again moves down the file. ok is false for none.
+func HunkAt(hunks []Hunk, line int) (h Hunk, ok bool) {
+	for _, h := range hunks {
+		if line < h.End {
+			return h, true
+		}
+	}
+	if len(hunks) == 0 {
+		return Hunk{}, false
+	}
+	return hunks[len(hunks)-1], true
+}
+
+// Patch is hunk h of f, a modified text file, as git apply --cached takes
+// it: the file's diff header, then the hunk. A patch of one hunk of an
+// unstaged diff stages it; of a staged one, applied with -R, unstages it.
+// git apply finds the hunk by its context, so the other hunks' lines
+// shifting the numbers does not matter.
+func Patch(f *File, h Hunk) []byte {
+	var b bytes.Buffer
+	a, bb := patchPath("a/"+f.Path), patchPath("b/"+f.Path)
+	end := "" // git's tab after an unquoted path with a space
+	if !strings.HasPrefix(a, `"`) && strings.Contains(a, " ") {
+		end = "\t"
+	}
+	fmt.Fprintf(&b, "diff --git %s %s\n--- %s%s\n+++ %s%s\n%s\n", a, bb, a, end, bb, end, Header(f.Lines, h))
+	for i := h.Start; i < h.End; i++ {
+		b.WriteByte(f.Lines[i].Kind)
+		b.WriteString(f.Lines[i].Text)
+		b.WriteByte('\n')
+		if slices.Contains(f.NoEOL, i) {
+			b.WriteString("\\ No newline at end of file\n")
+		}
+	}
+	return b.Bytes()
+}
+
+// patchPath quotes p the way git does when it has a quote, a backslash
+// or a control byte: C escapes, octal for the bytes without one. Other
+// bytes, UTF-8 included, go as they are, which git reads back.
+func patchPath(p string) string {
+	var b strings.Builder
+	quote := false
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c < 0x20 || c == 0x7f:
+			if e := strings.IndexByte("\a\b\t\n\v\f\r", c); e >= 0 {
+				b.WriteByte('\\')
+				b.WriteByte("abtnvfr"[e])
+			} else {
+				fmt.Fprintf(&b, "\\%03o", c)
+			}
+		default:
+			b.WriteByte(c)
+			continue
+		}
+		quote = true
+	}
+	if !quote {
+		return p
+	}
+	return `"` + b.String() + `"`
 }
 
 // before is the last non-zero number num gives a line of lines, 0 for none.
