@@ -36,6 +36,11 @@ func (s *Sidebar) planning(v *view, id string, ghost bool, a *model.Activity) bo
 // for the prompt the row shows now, and one on Request changes… into the
 // field for the reply.
 func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowState) {
+	for r.reply.Clicked(gtx) {
+		if a := v.ownActivity(ws); s.replyable(v, ws, false, a) {
+			s.openReply(ws, a.PaneID)
+		}
+	}
 	for r.plan.Clicked(gtx) {
 		if a := v.ownActivity(ws); s.planning(v, ws, false, a) {
 			s.startReply(ws, a.PaneID)

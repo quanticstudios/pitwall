@@ -195,6 +195,8 @@ type Sidebar struct {
 	Hints layout.Widget
 	cur   cursor // the keyboard cursor, see cursor.go
 
+	reply replyState // the reply sheet, see reply.go
+
 	events []Event
 }
 
@@ -225,6 +227,7 @@ const (
 	actSettle
 	actSnooze
 	actWake
+	actReply
 	actCount
 )
 
@@ -248,6 +251,7 @@ type rowState struct {
 	click, more, close widget.Clickable
 	allow, deny        widget.Clickable // a pending approval's answers
 	plan               widget.Clickable // a plan's Request changes…
+	reply              widget.Clickable // a question's Reply
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	settle             widget.Clickable // the inbox's Settle or Unsettle
 	settleSaw          rowKey           // the row as drawn when that press began
@@ -359,7 +363,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 
 	gtx.Constraints = layout.Exact(image.Pt(w-1, h))
 	animating, moving := false, false
-	s.editorLaidOut = false
+	s.editorLaidOut, s.reply.laidOut = false, false
 	bar := func(f func(gtx layout.Context) layout.Dimensions) layout.FlexChild {
 		if s.TreeOnly {
 			f = func(layout.Context) layout.Dimensions { return layout.Dimensions{} }
@@ -383,6 +387,9 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	)
 	if !s.editorLaidOut {
 		s.cancelRename()
+	}
+	if !s.reply.laidOut {
+		s.closeReply() // its row scrolled away or left
 	}
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(w-1, 0), Max: size}.Op())
 	s.drawHover(gtx, v, w, h)
@@ -640,7 +647,7 @@ func (s *Sidebar) project(id string) *projectState {
 
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
-	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() ||
+	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() || r.reply.Hovered() ||
 		r.pr.Hovered() || r.archive.Hovered() || r.settle.Hovered() || r.fold.Hovered()
 }
 

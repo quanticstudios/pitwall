@@ -61,6 +61,9 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 	if resuming(v.st, ws.ID) {
 		entries = append(entries, menuEntry{c: &s.menuItem[actCancelResume], icon: icX, text: "Cancel resume"})
 	}
+	if v.agent[ws.ID] != "" {
+		entries = append(entries, menuEntry{c: &s.menuItem[actReply], icon: icReply, text: "Reply…"})
+	}
 	entries = append(entries, menuEntry{c: &s.menuItem[actNewBelow], icon: icPlus, text: "New tab below"}, menuEntry{c: &s.menuItem[actRename], icon: icPencil, text: "Rename tab"})
 	pin := menuEntry{c: &s.menuItem[actPin], icon: icPin, text: "Pin tab"}
 	if ws.Pinned {
