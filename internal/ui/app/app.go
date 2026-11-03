@@ -565,6 +565,7 @@ func (u *ui) layout(gtx gl.Context) {
 	// Before navigation reads the order, and while the sidebar is hidden.
 	u.sidebar.Inbox, u.sidebar.WorkingShelf = u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf
 	u.sidebar.SeparateWorkers = u.cfg.Sidebar.SeparateWorkers
+	u.sidebar.HideSessions = !u.cfg.Sidebar.Sessions
 	u.sidebar.SessionPreview = u.cfg.Sidebar.SessionPreview
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()

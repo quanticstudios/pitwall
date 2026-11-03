@@ -18,6 +18,7 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - A program report that only names the pane's own agent, as Codex sends one, no longer shows as a chip such as "codex" beside the tab's name; the agent's mark and pill already say it.
+- Hide the sidebar's host headings and session rows with `[sidebar] sessions = false` or Settings > Appearance > Sidebar > Sessions. Waiting agents stay visible with links to tabs on every host.
 
 ## v0.1.11
 

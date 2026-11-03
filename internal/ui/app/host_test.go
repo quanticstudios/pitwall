@@ -80,6 +80,20 @@ func TestShownSessionPicksHost(t *testing.T) {
 		t.Fatalf("on this machine's session: host %q, title %q", curHost(), u.windowTitle())
 	}
 	st := b.State()
+	if !u.sidebar.HideSessions {
+		t.Fatal("session list remains visible with sessions off")
+	}
+	if rows := u.sw.rows(&st); len(rows) != len(st.Sessions) {
+		t.Fatalf("switcher omits sessions with the list hidden: %v", rows)
+	}
+	u.nav.cycleSession(&st, 1)
+	if u.nav.session != "s2" {
+		t.Fatalf("next session skips box: %q", u.nav.session)
+	}
+	u.nav.cycleSession(&st, -1)
+	if u.nav.session != "s1" {
+		t.Fatalf("previous session skips local: %q", u.nav.session)
+	}
 	u.nav.switchSession(&st, "s2")
 	frame()
 	if curHost() != "box" || !strings.HasSuffix(u.windowTitle(), " · box · pitwall") {

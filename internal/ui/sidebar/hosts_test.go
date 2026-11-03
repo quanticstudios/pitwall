@@ -245,3 +245,68 @@ func TestHostListWaitingPerView(t *testing.T) {
 		t.Fatalf("tree: host list %ddp, want %ddp with the current session's agent listed", h, want)
 	}
 }
+
+func TestHostListSessionsHidden(t *testing.T) {
+	for _, inbox := range []bool{false, true} {
+		t.Run(map[bool]string{false: "tree", true: "inbox"}[inbox], func(t *testing.T) {
+			st := model.State{
+				Sessions:   []model.Session{{ID: "ls", Name: "local-session"}, {ID: "rs", Name: "remote-session"}},
+				Workspaces: []model.Workspace{{ID: "rw", SessionID: "rs", Name: "remote-tab"}},
+				Activities: []model.Activity{{PaneID: "rp", WorkspaceID: "rw", State: model.StatePendingApproval}},
+			}
+			s := Sidebar{Inbox: inbox, SessionPreview: true, session: "ls", Hosts: []HostInfo{
+				{Up: true, Sessions: []string{"ls"}}, {Name: "box", Up: true, Sessions: []string{"rs"}},
+			}}
+			var r input.Router
+			var ops op.Ops
+			frame := func() (int, []string) {
+				ops.Reset()
+				s.events = nil
+				gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+					Constraints: layout.Exact(image.Pt(288, 800)), Now: time.Now()}
+				h := s.hostList(gtx, theme.Dark(), &st).Size.Y
+				r.Frame(&ops)
+				var labels []string
+				var collect func([]input.SemanticNode)
+				collect = func(nodes []input.SemanticNode) {
+					for _, n := range nodes {
+						labels = append(labels, n.Desc.Label)
+						collect(n.Children)
+					}
+				}
+				collect(r.AppendSemantics(nil))
+				return h, labels
+			}
+			for _, hidden := range []bool{false, true, false, true} {
+				s.HideSessions = hidden
+				s.preview.hover.shown, s.preview.inside = "rs", true
+				h, labels := frame()
+				for _, name := range []string{"local", "box", "local-session", "remote-session"} {
+					if slices.Contains(labels, name) == hidden {
+						t.Fatalf("hidden %v: labels %q, checking %q", hidden, labels, name)
+					}
+				}
+				head := map[bool]string{false: "Waiting on you", true: "Waiting elsewhere"}[inbox]
+				if !slices.Contains(labels, head) || !slices.Contains(labels, "remote-tab") {
+					t.Fatalf("hidden %v: waiting list missing from %q", hidden, labels)
+				}
+				if hidden {
+					if h != 6+26+28+6 || s.preview.hover.shown != "" || s.preview.inside {
+						t.Fatalf("hidden: height %d, preview %+v", h, s.preview)
+					}
+					at := f32.Pt(100, 6+26+14)
+					r.Queue(pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: at},
+						pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: at})
+					frame()
+					if !reflect.DeepEqual(s.events, []Event{SelectWorkspace{WorkspaceID: "rw", PaneID: "rp"}}) {
+						t.Fatalf("waiting click: %#v", s.events)
+					}
+				}
+			}
+			st.Activities = nil
+			if h, _ := frame(); h != 0 {
+				t.Fatalf("empty waiting list takes %ddp", h)
+			}
+		})
+	}
+}

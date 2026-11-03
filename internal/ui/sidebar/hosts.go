@@ -145,6 +145,11 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			hostOf[id], down[id] = h.Name, !h.Up
 		}
 	}
+	blocked, head := s.waiting(st, sessionOf)
+	if s.HideSessions && len(blocked) == 0 {
+		s.preview = sessionPreview{}
+		return layout.Dimensions{}
+	}
 	w := gtx.Constraints.Max.X
 	y := 0
 	place := func(h int, f func(gtx layout.Context)) {
@@ -229,38 +234,39 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 	}
 	y += gtx.Dp(6)
 	over := ""
-	for _, h := range s.Hosts {
-		note, c := "", th.Muted
-		if !h.Up {
-			note, c = firstLine(h.Note), th.Red
-			if note == "" || strings.HasSuffix(note, "ing…") {
-				note, c = cmp.Or(note, "Disconnected"), th.Muted
+	if !s.HideSessions {
+		for _, h := range s.Hosts {
+			note, c := "", th.Muted
+			if !h.Up {
+				note, c = firstLine(h.Note), th.Red
+				if note == "" || strings.HasSuffix(note, "ing…") {
+					note, c = cmp.Or(note, "Disconnected"), th.Muted
+				}
 			}
-		}
-		heading(hostName(h.Name), note, c)
-		for _, id := range h.Sessions {
-			ss := st.Session(id)
-			if ss == nil {
-				continue
+			heading(hostName(h.Name), note, c)
+			for _, id := range h.Sessions {
+				ss := st.Session(id)
+				if ss == nil {
+					continue
+				}
+				for btn("s:" + id).Clicked(gtx) {
+					s.HideHover()
+					s.events = append(s.events, ShowSession{SessionID: id})
+				}
+				if btn("s:" + id).Hovered() {
+					over = id
+					s.preview.rowAnchor = image.Rect(0, gtx.Dp(56)+y, w, gtx.Dp(56)+y+gtx.Dp(28))
+				}
+				dot := sessionActivity(acts[id])
+				sum := st.Summary(id)
+				count := ""
+				if sum.NeedsYou > 0 {
+					count = strconv.Itoa(sum.NeedsYou) + " " + plural(sum.NeedsYou, "needs you", "need you")
+				}
+				row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"), count)
 			}
-			for btn("s:" + id).Clicked(gtx) {
-				s.HideHover()
-				s.events = append(s.events, ShowSession{SessionID: id})
-			}
-			if btn("s:" + id).Hovered() {
-				over = id
-				s.preview.rowAnchor = image.Rect(0, gtx.Dp(56)+y, w, gtx.Dp(56)+y+gtx.Dp(28))
-			}
-			dot := sessionActivity(acts[id])
-			sum := st.Summary(id)
-			count := ""
-			if sum.NeedsYou > 0 {
-				count = strconv.Itoa(sum.NeedsYou) + " " + plural(sum.NeedsYou, "needs you", "need you")
-			}
-			row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"), count)
 		}
 	}
-	blocked, head := s.waiting(st, sessionOf)
 	if len(blocked) > 0 {
 		heading(head, "", th.Muted)
 		for i := range blocked {
