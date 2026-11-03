@@ -62,9 +62,18 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		}
 		count = fmt.Sprintf("%d of %d", n, total)
 	}
+	var paths []string
+	if p.files {
+		paths = u.pathRows()
+		title, hint = "Insert path", "Type part of a path"
+		rows = make([]paletteEntry, len(paths))
+		count = fmt.Sprintf("%d of %d", u.paths.n, len(u.paths.files))
+	}
 	for i := range min(len(rows), len(d.rows)) {
 		if d.rows[i].Clicked(gtx) {
-			if p.tabs {
+			if p.files {
+				u.clickPath(paths[i])
+			} else if p.tabs {
 				u.pickTab(st, hits[i])
 			} else if p.search && u.all.preview == nil {
 				u.pickSearchAll(st, u.all.matches[i])
@@ -113,6 +122,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	if p.search || p.tabs {
 		label = ""
 	}
+	if p.files {
+		label = model.ShortPath(u.paths.dir)
+	}
 	cc, _ := textCall(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, label)
 	o = op.Offset(image.Pt(pad+tsz.X+gtx.Dp(8), y+gtx.Dp(2))).Push(gtx.Ops)
 	cc.Add(gtx.Ops)
@@ -120,6 +132,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	own := "command_palette"
 	if p.tabs {
 		own = "tab_search"
+	}
+	if p.files {
+		own = "insert_path"
 	}
 	if k := firstChord(b.Global[own]); k != "" {
 		kc, ks := keycap(gtx, th, k)
@@ -157,7 +172,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 			continue
 		}
 		o := op.Offset(image.Pt(pad, ry)).Push(gtx.Ops)
-		if p.tabs {
+		if p.files {
+			u.pathRow(gtx, &d.rows[i], paths[i], p.query, i == sel, image.Pt(inner, rowH))
+		} else if p.tabs {
 			u.tabRow(gtx, st, &d.rows[i], hits[i], p.query, i == sel, image.Pt(inner, rowH))
 		} else if p.search {
 			m := u.all.preview
@@ -190,6 +207,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		} else if c, ok := config.KeyQuery(p.query); ok {
 			msg = "Nothing uses " + c.String() + "."
 		}
+		if p.files {
+			msg = u.pathEmpty()
+		}
 		drawText(gtx, th, image.Pt(pad+gtx.Dp(12), listTop+(rowH-gtx.Dp(18))/2), th.UIFont, th.Sp(theme.Body), th.Muted, msg)
 	}
 	lc.Pop()
@@ -206,6 +226,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	hints := [][2]string{{"↑↓", "move"}, {"Enter", verb}, {"Esc", "close"}}
 	if p.tabs {
 		hints = tabHints(hits, sel)
+	}
+	if p.files {
+		hints = pathHints(len(u.paths.marked))
 	}
 	u.drawHints(gtx, footH, hints)
 	o.Pop()

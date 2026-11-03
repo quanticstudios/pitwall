@@ -45,6 +45,7 @@ const (
 
 const (
 	icX            = "M18 6 6 18M6 6l12 12"
+	icFile         = "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7ZM14 2v4a2 2 0 0 0 2 2h4" // lucide file
 	icChevronRight = "M9 18l6-6-6-6"
 	icChevronDown  = "M6 9l6 6 6-6"
 	// lucide file-diff and git-pull-request

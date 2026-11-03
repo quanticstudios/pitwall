@@ -84,6 +84,7 @@ conventional:
 | Ctrl+Backspace                          | Delete the word before the cursor (sends Ctrl+W)          |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Ctrl+Shift+F                            | Find in the pane's scrollback                             |
+| Ctrl+Shift+I                            | Insert file paths at the cursor                           |
 | Ctrl+Shift+Up / Ctrl+Shift+Down         | Scroll back / forward to the previous / next shell prompt |
 | Escape                                  | Close a dialog or settings, cancel a drag                 |
 
@@ -138,6 +139,7 @@ aide:
 | Ctrl+Backspace                    | Delete the word before the cursor (sends Ctrl+W) |
 | Shift+PageUp / Shift+PageDown     | Scroll back / forward one page                 |
 | Ctrl+Shift+F                      | Find in the pane's scrollback                  |
+| Ctrl+Shift+I                      | Insert file paths at the cursor                |
 | Ctrl+Shift+Up / Ctrl+Shift+Down   | Scroll back / forward to the previous / next shell prompt |
 | Escape                            | Close a dialog or settings, cancel a drag      |
 
@@ -170,6 +172,7 @@ mac:
 | Cmd+Shift+X                             | Copy mode                                                 |
 | Shift+PageUp / Shift+PageDown           | Scroll back / forward one page                            |
 | Cmd+F                                   | Find in the pane's scrollback                             |
+| Cmd+Shift+I                             | Insert file paths at the cursor                           |
 | Cmd+Up / Cmd+Down                       | Scroll back / forward to the previous / next shell prompt |
 
 Like conventional, mac leaves tab mode and pane mode unbound.
@@ -230,6 +233,12 @@ live screen. A line that wrapped matches
 only within each of its rows. While the background service runs a pitwall
 from before find, the bar says "Search needs the background service
 restarted" and searches nothing; it searches once the service restarts.
+
+Ctrl+Shift+I (Cmd+Shift+I in mac) opens the path picker on the focused
+pane: the files under its folder, filtered as you type, in the palette's
+card. Enter types the highlighted file's path at the cursor, Tab or
+Ctrl+Space marks several for one Enter, Esc closes. See
+[Insert a path](usage.md#insert-a-path).
 
 Copy mode (Ctrl+Shift+X, Cmd+Shift+X in mac) selects and copies with the
 keyboard, as in tmux. A block cursor starts on the terminal's cursor and a

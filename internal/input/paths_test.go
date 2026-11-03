@@ -54,3 +54,21 @@ func TestQuotePath(t *testing.T) {
 		}
 	}
 }
+
+// TestTypePaths leaves plain paths bare and quotes the rest, and a real
+// shell reads every one back unchanged.
+func TestTypePaths(t *testing.T) {
+	paths := []string{"internal/ui/app.go", "docs/画像.png", "a b.txt", "~x", "$HOME", "it's"}
+	if runtime.GOOS == "windows" {
+		return // PowerShell quoting is TestQuotePath's
+	}
+	got := string(TypePaths(paths, vt.Modes{}))
+	want := `internal/ui/app.go docs/画像.png 'a b.txt' '~x' '$HOME' 'it'\''s'`
+	if got != want {
+		t.Errorf("TypePaths = %q, want %q", got, want)
+	}
+	out, err := exec.Command("sh", "-c", "printf '%s\\000' "+got).Output()
+	if err != nil || !slices.Equal(strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00"), paths) {
+		t.Errorf("shell decoded %q, %v; want %q", out, err, paths)
+	}
+}

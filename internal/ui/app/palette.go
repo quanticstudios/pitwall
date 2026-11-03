@@ -21,6 +21,7 @@ type palette struct {
 	open     bool
 	search   bool // the same palette searches session contents
 	tabs     bool // or tabs, live and closed (tabsearch.go)
+	files    bool // or files to type the paths of (pathpick.go)
 	query    string
 	sel      int // the highlighted row of rank's result
 	openedAt time.Time
@@ -43,7 +44,7 @@ func (p *palette) openAt(now time.Time) {
 	p.open, p.query, p.sel = true, "", 0
 }
 
-func (p *palette) close() { p.open = false }
+func (p *palette) close() { p.open, p.files = false, false }
 
 // paletteEntries is every action, grouped in the order the groups first
 // appear in the config, with the chords b binds to it. A tab- or pane-mode
@@ -245,6 +246,10 @@ func (p *palette) pick(rows []paletteEntry, i int) *paletteEntry {
 func (u *ui) paletteKey(st *model.State, e key.Event) {
 	if u.pal.tabs {
 		u.tabSearchKey(st, e)
+		return
+	}
+	if u.pal.files {
+		u.pathPickKey(e)
 		return
 	}
 	if u.pal.search {
