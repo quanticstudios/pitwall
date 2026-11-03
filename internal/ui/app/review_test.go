@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -114,8 +116,8 @@ func TestDiffCmd(t *testing.T) {
 }
 
 // TestStageScript answers stageScript's git add -p and git reset -p from
-// a subfolder: one hunk of two goes in, and the second question, to take
-// it back, is declined.
+// a subfolder: both hunks go in, then git reset -p takes the first back
+// and keeps the second.
 func TestStageScript(t *testing.T) {
 	gitEnv(t)
 	dir := t.TempDir()
@@ -125,12 +127,30 @@ func TestStageScript(t *testing.T) {
 	gitIn(t, dir, "commit", "-m", "base")
 	write(t, filepath.Join(dir, "sub", "a.txt"), "one\n2\n3\n4\n5\n6\n7\n8\n9\nten\n")
 	cmd := exec.Command("sh", "-c", stageScript, "sh", filepath.Join(dir, "sub"))
-	cmd.Stdin = strings.NewReader("y\nn\nn\n")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%v\n%s", err, out)
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// why: git add -p reads stdin buffered, so git reset -p's answers go in
+	// only once both hunks are staged.
+	io.WriteString(in, "y\ny\n")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if strings.Contains(gitIn(t, dir, "diff", "--cached"), "+ten") {
+			break
+		}
+	}
+	io.WriteString(in, "y\nn\n")
+	in.Close()
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
 	}
 	staged := gitIn(t, dir, "diff", "--cached")
-	if !strings.Contains(staged, "+one") || strings.Contains(staged, "+ten") {
+	if strings.Contains(staged, "+one") || !strings.Contains(staged, "+ten") {
 		t.Errorf("staged:\n%s", staged)
 	}
 }

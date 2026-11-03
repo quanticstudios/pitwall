@@ -344,7 +344,8 @@ func TestReviewTurnScope(t *testing.T) {
 // TestReviewStaging: Staging lists the unstaged files under one heading
 // and the staged ones under another, a.go in both; s on the unstaged copy
 // applies its selected hunk alone to the index, Shift+U on the staged copy
-// unstages the whole file, and s on a staged file does nothing.
+// unstages the whole file, s on a staged file does nothing, and an
+// unmerged file comes first and stages whole.
 func TestReviewStaging(t *testing.T) {
 	oldRead, oldApply, oldFiles, oldTurn := readStaging, applyCached, stageFiles, readTurn
 	t.Cleanup(func() { readStaging, applyCached, stageFiles, readTurn = oldRead, oldApply, oldFiles, oldTurn })
@@ -357,7 +358,7 @@ func TestReviewStaging(t *testing.T) {
 	unstaged := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1,12 +1,12 @@\n" + strings.Join(lines, "\n") + "\n"
 	staged := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-p\n+q\n"
 	readStaging = func(context.Context, string) (gitstat.Staging, error) {
-		return gitstat.Staging{Root: "/repo", Unstaged: []byte(unstaged), Staged: []byte(staged), Untracked: []string{"new.go"}}, nil
+		return gitstat.Staging{Root: "/repo", Unstaged: []byte(unstaged), Staged: []byte(staged), Untracked: []string{"new.go"}, Unmerged: []string{"c.go"}}, nil
 	}
 	var mu sync.Mutex
 	var calls []string
@@ -381,13 +382,14 @@ func TestReviewStaging(t *testing.T) {
 	u.review.setScope(false, true)
 	var files []review.File
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
-		if files, _, _, _, _ = u.review.snapshot(); len(files) == 3 && u.review.staged() {
+		if files, _, _, _, _ = u.review.snapshot(); len(files) == 4 && u.review.staged() {
 			break
 		}
 	}
-	if len(files) != 3 || files[0].Key() != "a.go" || files[1].Path != "new.go" || !files[2].Staged {
+	if len(files) != 4 || files[0].Status != 'U' || files[1].Key() != "a.go" || files[2].Path != "new.go" || !files[3].Staged {
 		t.Fatalf("files %+v", files)
 	}
+	files = files[1:] // c.go is checked last
 	if got := stageItems(files, true); fmt.Sprint(got) != "[-1 0 1 -2 2]" {
 		t.Errorf("stageItems %v", got)
 	}
@@ -415,5 +417,9 @@ func TestReviewStaging(t *testing.T) {
 	u.stageHunk(&files[2], true, true)
 	if got := wait(2)[1]; got != "files /repo [a.go] true" {
 		t.Errorf("Shift+U ran %s", got)
+	}
+	u.stageHunk(&review.File{Path: "c.go", Status: 'U'}, false, false) // s on an unmerged file: whole
+	if got := wait(3)[2]; got != "files /repo [c.go] false" {
+		t.Errorf("s on an unmerged file ran %s", got)
 	}
 }

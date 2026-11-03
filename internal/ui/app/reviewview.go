@@ -319,13 +319,18 @@ func sameFiles(a, b []review.File) bool {
 }
 
 // stagedFiles reads dir's Staging as the Staging scope lists it: the
-// unstaged files, the untracked ones, then the staged ones.
+// unmerged files, the unstaged ones, the untracked ones, then the staged
+// ones.
 func stagedFiles(ctx context.Context, dir string) (gitstat.Patch, []review.File, string) {
 	s, err := readStaging(ctx, dir)
 	if err != nil {
 		return gitstat.Patch{}, nil, err.Error()
 	}
-	files := review.Parse(s.Unstaged)
+	var files []review.File
+	for _, path := range s.Unmerged {
+		files = append(files, review.File{Path: path, Status: 'U'})
+	}
+	files = append(files, review.Parse(s.Unstaged)...)
 	for _, path := range s.Untracked {
 		b, ok := gitstat.ReadUntracked(s.Root, path)
 		files = append(files, review.Untracked(path, b, !ok))
@@ -816,8 +821,8 @@ func (u *ui) undoTurnFiles(redo bool) {
 // stageHunk stages the selected file's hunk the selected line is in, or
 // the one review.HunkAt picks, in the Staging scope; with unstage it
 // unstages it, and with whole it does all of the file. A file whose hunks
-// git cannot apply alone, such as an untracked, added, deleted, renamed,
-// binary or huge one, goes whole. The files are read again before the
+// git cannot apply alone, such as an unmerged, untracked, added, deleted,
+// renamed, binary or huge one, goes whole. The files are read again before the
 // next one can run, so a quick second press stages the next hunk.
 func (u *ui) stageHunk(f *review.File, unstage, whole bool) {
 	r := &u.review

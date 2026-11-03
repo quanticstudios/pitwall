@@ -3,7 +3,6 @@ package gitstat
 import (
 	"context"
 	"fmt"
-	"strings"
 )
 
 // Staging is a work tree's uncommitted change in the two parts git add -p
@@ -14,6 +13,9 @@ type Staging struct {
 	Unstaged  []byte // git diff, with a/ and b/ prefixes, every line as context
 	Staged    []byte // git diff --cached, likewise, renames found
 	Untracked []string
+	// Unmerged is the paths a merge left in conflict, which neither diff
+	// has: they stage whole, which marks them resolved.
+	Unmerged []string
 }
 
 // ReadStaging returns worktree's Staging, in the format Diff uses.
@@ -37,23 +39,16 @@ func ReadStaging(ctx context.Context, worktree string) (Staging, error) {
 		return s, err
 	}
 	s.Root = root
-	s.Untracked, err = untracked(ctx, root)
+	if s.Untracked, err = untracked(ctx, root); err != nil {
+		return s, err
+	}
+	s.Unmerged, err = names(ctx, root, "diff", "--name-only", "--diff-filter=U", "-z")
 	return s, err
 }
 
 // untracked is the files under root git does not track or ignore.
 func untracked(ctx context.Context, root string) ([]string, error) {
-	out, err := git(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
-	if err != nil {
-		return nil, err
-	}
-	var paths []string
-	for _, p := range strings.Split(out, "\x00") {
-		if p != "" {
-			paths = append(paths, p)
-		}
-	}
-	return paths, nil
+	return names(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
 }
 
 // ApplyCached applies patch, as review.Patch builds it, to worktree's
@@ -80,11 +75,13 @@ func StageFiles(ctx context.Context, worktree string, paths []string, unstage bo
 	if !ok {
 		return fmt.Errorf("%s is not in a git repository", worktree)
 	}
-	args := []string{"add", "-A", "--"}
+	// why: a path is a file's name, never a pattern; *.txt must not take
+	// secret.txt along.
+	args := []string{"--literal-pathspecs", "add", "-A", "--"}
 	if unstage {
 		// ponytail: restore needs HEAD, so a repository with no commit yet
 		// cannot unstage; git rm --cached would cover it.
-		args = []string{"restore", "--staged", "--"}
+		args = []string{"--literal-pathspecs", "restore", "--staged", "--"}
 	}
 	_, err := git(ctx, root, append(args, paths...)...)
 	return err

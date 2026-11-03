@@ -385,7 +385,8 @@ Stage hunk or Unstage hunk button too. A hunk goes in through
 `git apply --cached` (with `-R` to unstage) and a whole file through
 `git add` or `git restore --staged`; the list reads again after each.
 Untracked, added, deleted, renamed and binary files, and files over 3,000
-changed lines, stage whole.
+changed lines, stage whole. A file a merge left in conflict heads Unstaged;
+staging it, once you have resolved it, marks it resolved.
 
 Click a line number, or press c on the selected lines, to comment;
 Shift+click a second line number to comment on the lines between. Enter

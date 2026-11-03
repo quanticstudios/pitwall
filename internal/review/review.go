@@ -89,6 +89,11 @@ func Parse(patch []byte) []File {
 			f, start, inHunk = &File{Path: headerPath(line)}, lineAt, false
 			continue
 		}
+		if strings.HasPrefix(line, "diff ") { // an unmerged path's diff --cc: skipped
+			finish(lineAt)
+			f, inHunk = nil, false
+			continue
+		}
 		if f == nil {
 			continue
 		}
@@ -139,11 +144,11 @@ func Parse(patch []byte) []File {
 		case strings.HasPrefix(line, "Binary files ") || line == "GIT binary patch":
 			f.Binary = true
 		case strings.HasPrefix(line, "+++ ") && f.Status != 'D':
-			if p := strings.TrimPrefix(unquote(strings.TrimPrefix(line, "+++ ")), "b/"); p != "/dev/null" {
+			if p := strings.TrimPrefix(fieldPath(strings.TrimPrefix(line, "+++ ")), "b/"); p != "/dev/null" {
 				f.Path = p
 			}
 		case strings.HasPrefix(line, "--- ") && f.Status == 'D':
-			f.Path = strings.TrimPrefix(unquote(strings.TrimPrefix(line, "--- ")), "a/")
+			f.Path = strings.TrimPrefix(fieldPath(strings.TrimPrefix(line, "--- ")), "a/")
 		}
 	}
 	finish(len(patch))
@@ -175,6 +180,16 @@ func headerPath(line string) string {
 		return rest[2 : 2+n]
 	}
 	return strings.TrimPrefix(strings.SplitN(rest, " ", 2)[0], "a/")
+}
+
+// fieldPath is the path of a ---, +++ line: git ends an unquoted path
+// that has a space with a tab, which is not part of it. A path with a tab
+// of its own comes quoted.
+func fieldPath(s string) string {
+	if strings.HasPrefix(s, `"`) {
+		return unquote(s)
+	}
+	return strings.TrimSuffix(s, "\t")
 }
 
 // unquote undoes git's C-style quoting of a path with unusual bytes.
@@ -284,7 +299,11 @@ func HunkAt(hunks []Hunk, line int) (h Hunk, ok bool) {
 func Patch(f *File, h Hunk) []byte {
 	var b bytes.Buffer
 	a, bb := patchPath("a/"+f.Path), patchPath("b/"+f.Path)
-	fmt.Fprintf(&b, "diff --git %s %s\n--- %s\n+++ %s\n%s\n", a, bb, a, bb, Header(f.Lines, h))
+	end := "" // git's tab after an unquoted path with a space
+	if !strings.HasPrefix(a, `"`) && strings.Contains(a, " ") {
+		end = "\t"
+	}
+	fmt.Fprintf(&b, "diff --git %s %s\n--- %s%s\n+++ %s%s\n%s\n", a, bb, a, end, bb, end, Header(f.Lines, h))
 	for i := h.Start; i < h.End; i++ {
 		b.WriteByte(f.Lines[i].Kind)
 		b.WriteString(f.Lines[i].Text)
@@ -296,13 +315,35 @@ func Patch(f *File, h Hunk) []byte {
 	return b.Bytes()
 }
 
-// patchPath quotes p as git does when it holds a quote, a backslash, a tab
-// or a newline, which a patch header cannot carry bare.
+// patchPath quotes p the way git does when it has a quote, a backslash
+// or a control byte: C escapes, octal for the bytes without one. Other
+// bytes, UTF-8 included, go as they are, which git reads back.
 func patchPath(p string) string {
-	if strings.ContainsAny(p, "\"\\\t\n") {
-		return strconv.Quote(p)
+	var b strings.Builder
+	quote := false
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c == '"' || c == '\\':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c < 0x20 || c == 0x7f:
+			if e := strings.IndexByte("\a\b\t\n\v\f\r", c); e >= 0 {
+				b.WriteByte('\\')
+				b.WriteByte("abtnvfr"[e])
+			} else {
+				fmt.Fprintf(&b, "\\%03o", c)
+			}
+		default:
+			b.WriteByte(c)
+			continue
+		}
+		quote = true
 	}
-	return p
+	if !quote {
+		return p
+	}
+	return `"` + b.String() + `"`
 }
 
 // before is the last non-zero number num gives a line of lines, 0 for none.

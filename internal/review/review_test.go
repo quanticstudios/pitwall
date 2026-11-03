@@ -249,3 +249,31 @@ Return the error.`
 		t.Errorf("long comment:\n%s", got)
 	}
 }
+
+// TestParseSkipsCombined: an unmerged path's diff --cc after a file is
+// skipped, so its +++ line does not rename that file, and a path with a
+// space loses the tab git ends its ---, +++ lines with.
+func TestParseSkipsCombined(t *testing.T) {
+	p := "diff --git a/a b.txt b/a b.txt\n--- a/a b.txt\t\n+++ b/a b.txt\t\n@@ -1 +1 @@\n-x\n+y\n" +
+		"diff --cc file.txt\nindex 1,2..0\n--- a/file.txt\n+++ b/file.txt\n@@@ -1,1 -1,1 +1,5 @@@\n++<<<<<<< HEAD\n"
+	files := Parse([]byte(p))
+	if len(files) != 1 || files[0].Path != "a b.txt" || len(files[0].Lines) != 2 {
+		t.Fatalf("files %+v", files)
+	}
+}
+
+// TestPatchPath quotes as git does: C escapes and octal for control
+// bytes, nothing for UTF-8 or a space.
+func TestPatchPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"a b.txt":    "a b.txt",
+		"té.go":      "té.go",
+		"a\r.txt":    `"a\r.txt"`,
+		"e\x1b\n.go": `"e\033\n.go"`,
+		`q"\`:        `"q\"\\"`,
+	} {
+		if got := patchPath(in); got != want {
+			t.Errorf("patchPath(%q) = %s, want %s", in, got, want)
+		}
+	}
+}

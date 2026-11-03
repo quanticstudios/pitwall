@@ -361,7 +361,7 @@ func (u *ui) statusColor(s byte) color.NRGBA {
 	switch s {
 	case 'A', '?':
 		return u.th.Green
-	case 'D':
+	case 'D', 'U':
 		return u.th.Red
 	case 'R':
 		return u.th.Blue
@@ -553,6 +553,8 @@ func statusWord(f *review.File) string {
 		return "Renamed from " + f.OldPath
 	case '?':
 		return "Untracked"
+	case 'U':
+		return "Unmerged"
 	}
 	return "Modified"
 }
@@ -623,16 +625,18 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 		top += gtx.Dp(8)
 	}
 	body := image.Rect(0, top, w, gtx.Constraints.Max.Y)
-	if f.Binary || r.huge(f) {
+	if f.Binary || r.huge(f) || f.Status == 'U' {
 		msg := "Binary file, not shown."
 		switch {
+		case f.Status == 'U':
+			msg = "A merge left this file in conflict. Resolve it in the file, then Stage file marks it resolved."
 		case f.Status == '?' && f.Binary:
 			msg = "Binary, or larger than 1 MiB: not shown."
 		case !f.Binary:
 			msg = fmt.Sprintf("%d changed lines.", f.Add+f.Del)
 		}
 		u.reviewMessage(gtx, body, th.Muted, msg)
-		if !f.Binary {
+		if !f.Binary && f.Status != 'U' {
 			for r.showHuge.Clicked(gtx) {
 				if r.shownHuge == nil {
 					r.shownHuge = map[string]bool{}
