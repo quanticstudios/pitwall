@@ -356,6 +356,9 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 			}},
 		}
 		prog := e.pane.Pane.Program
+		if prog != nil && agentReport(v.st, e.pane.Pane) {
+			prog = nil
+		}
 		if e.worker != nil {
 			prog = v.program[e.worker.ID]
 		}

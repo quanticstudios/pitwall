@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"slices"
 	"strconv"
+	"strings"
 
 	"gioui.org/layout"
 	"gioui.org/op/clip"
@@ -29,7 +30,7 @@ func tabProgram(st *model.State, ws model.Workspace, subs []model.AgentPane) *mo
 	var best *model.Program
 	for i := range st.Panes {
 		p := st.Panes[i].Program
-		if p == nil || st.Panes[i].WorkspaceID != ws.ID || slices.ContainsFunc(subs, func(ap model.AgentPane) bool { return ap.Pane.ID == st.Panes[i].ID }) {
+		if p == nil || st.Panes[i].WorkspaceID != ws.ID || slices.ContainsFunc(subs, func(ap model.AgentPane) bool { return ap.Pane.ID == st.Panes[i].ID }) || agentReport(st, st.Panes[i]) {
 			continue
 		}
 		if best == nil || progstatus.Urgency(progstatus.State(p.State)) > progstatus.Urgency(progstatus.State(best.State)) {
@@ -37,6 +38,22 @@ func tabProgram(st *model.State, ws model.Workspace, subs []model.AgentPane) *mo
 		}
 	}
 	return best
+}
+
+// agentReport reports whether pane's program report comes from the pane's
+// own agent, as Codex sends one naming itself: the agent's mark and pill
+// already show that, so no row repeats it as a program.
+func agentReport(st *model.State, pane model.Pane) bool {
+	if pane.Program == nil || pane.Program.App == "" {
+		return false
+	}
+	is := func(p model.Provider) bool {
+		return model.IsAgent(p) && (strings.EqualFold(pane.Program.App, string(p)) || strings.EqualFold(pane.Program.App, AgentName(p)))
+	}
+	if is(pane.Provider) {
+		return true
+	}
+	return slices.ContainsFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == pane.ID && is(a.Provider) })
 }
 
 // linesHeight is what tab id's program and status lines add to its row.
