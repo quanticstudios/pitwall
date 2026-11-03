@@ -369,15 +369,20 @@ func (m *multi) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 
 // Show implements app.Viewer: each host hears which of its panes the
 // window draws, so a host the window does not show sends no frames.
-func (m *multi) Show(panes []string) {
-	by := map[*hostLink][]string{}
+func (m *multi) Show(panes, live []string) {
+	by, lv := map[*hostLink][]string{}, map[*hostLink][]string{}
 	for _, p := range panes {
 		if h := m.of(p); h != nil {
 			by[h] = append(by[h], p)
 		}
 	}
+	for _, p := range live {
+		if h := m.of(p); h != nil {
+			lv[h] = append(lv[h], p)
+		}
+	}
 	for _, h := range m.hosts {
-		h.b.Show(by[h])
+		h.b.Show(by[h], lv[h])
 	}
 }
 

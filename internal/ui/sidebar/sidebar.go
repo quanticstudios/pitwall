@@ -65,6 +65,9 @@ type Sidebar struct {
 	// Pane is the focused pane of the active tab, whose agent sub-row is
 	// marked.
 	Pane string
+	// PiP is the tab whose pane shows in picture in picture, "" for none:
+	// its menu offers to close it.
+	PiP string
 	// Hosts are the machines of a window that shows more than one, this
 	// one first: their sessions and the agents waiting anywhere show above
 	// the tabs. One or none draws nothing.
@@ -235,6 +238,7 @@ const (
 	actSnooze
 	actWake
 	actReply
+	actPiP
 	actCount
 )
 

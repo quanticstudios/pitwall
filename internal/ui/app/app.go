@@ -325,6 +325,7 @@ type ui struct {
 	invalidate func()           // the window's Invalidate; nil in tests
 
 	find findBar // the find bar, on the focused pane while open
+	pip  pipView // picture in picture, see pip.go
 
 	hooks hooksDialog // the Install hooks dialog and the pane notices
 
@@ -712,6 +713,7 @@ func (u *ui) layout(gtx gl.Context) {
 	} else {
 		u.layoutPanes(pgtx, &st)
 		u.drawWelcome(pgtx, &st)
+		u.drawPiP(pgtx, &st)
 		u.layoutForm(pgtx, &st)
 	}
 	fo.Pop()
@@ -758,6 +760,10 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 		u.sidebar.Answers = u.canAnswer()
 		u.sidebar.Pane = u.nav.focused()
+		u.sidebar.PiP = ""
+		if p := findPane(&st, u.nav.pip); p != nil {
+			u.sidebar.PiP = p.WorkspaceID
+		}
 		u.sidebar.Hints = u.sidebarHints()
 		u.usage.prune(&st)
 		u.sidebar.Usage = func(ws string) *flow.Usage {
@@ -888,6 +894,12 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.MoveGroup{GroupID: e.GroupID, Before: e.Before})
 	case sidebar.CloseTab:
 		u.sendOrAsk(st, proto.CloseTab{WorkspaceID: e.WorkspaceID})
+	case sidebar.PictureInPicture:
+		if p := findPane(st, u.nav.pip); p != nil && p.WorkspaceID == e.WorkspaceID {
+			u.nav.pip = ""
+		} else {
+			u.nav.pip = u.nav.focusIn(st, e.WorkspaceID)
+		}
 	case sidebar.SetTabOptions:
 		u.send(proto.SetTabOptions{WorkspaceID: e.WorkspaceID, Pinned: e.Pinned, Color: e.Color})
 	case sidebar.SetInbox:

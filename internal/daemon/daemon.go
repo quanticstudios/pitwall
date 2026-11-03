@@ -595,8 +595,10 @@ type client struct {
 	session string   // the session a GUI shows, from SessionShow; guarded by Daemon.mu
 	focus   string   // the pane a GUI shows focused in a focused window, from SeePane; guarded by Daemon.mu
 	// view is the panes a GUI draws, from proto.View, nil for one below
-	// that Level, which gets every pane's frames; guarded by Daemon.mu.
+	// that Level, which gets every pane's frames; live is those of them it
+	// gets at the live screen, from View.Live. Both guarded by Daemon.mu.
 	view   map[string]bool
+	live   map[string]bool
 	level  int  // the client's Hello.Level
 	diffs  bool // the GUI takes FrameRows
 	moves  bool // the GUI takes FocusDir
@@ -754,7 +756,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.state = true
 			for id, p := range d.panes {
 				if c.shows(id) {
-					c.frames[id] = d.frame(id, p)
+					c.frames[id] = d.frameFor(c, id, p)
 				}
 			}
 		})
@@ -862,7 +864,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		}
 		if v, ok := m.(proto.View); ok {
 			if hello.Kind == "gui" {
-				d.setView(c, v.Panes)
+				d.setView(c, v.Panes, v.Live)
 			}
 			continue
 		}
@@ -1966,16 +1968,24 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 	if d.panes[id] != p {
 		return "", false
 	}
-	var f *proto.Frame
+	var f, lf *proto.Frame // the shared scroll's frame and the live one, built once each
 	for c := range d.clients {
 		if !c.shows(id) {
 			continue
 		}
-		if f == nil {
-			fr := d.frame(id, p)
-			f = &fr
+		at := &f
+		if c.live[id] {
+			at = &lf
 		}
-		c.push(func() { c.frames[id] = *f })
+		if *at == nil {
+			fr := d.frameFor(c, id, p)
+			*at = &fr
+		}
+		fr := *at
+		c.push(func() { c.frames[id] = *fr })
+	}
+	if f == nil {
+		f = lf
 	}
 	if f == nil {
 		return "", false
@@ -1986,14 +1996,22 @@ func (d *Daemon) pushFrame(id string, p Pane) (string, bool) {
 // shows reports whether c draws pane id. Callers hold d.mu.
 func (c *client) shows(id string) bool { return c.view == nil || c.view[id] }
 
-// setView makes panes what c draws, and queues a frame of each pane it
-// did not draw before: its last frame may be long stale.
-func (d *Daemon) setView(c *client, panes []string) {
+// setView makes panes what c draws, live the ones it draws at the live
+// screen, and queues a frame of each pane it did not draw before, or now
+// draws at another scroll: its last frame may be long stale.
+func (d *Daemon) setView(c *client, panes, live []string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	view := map[string]bool{}
 	for _, id := range panes {
 		view[id] = true
+	}
+	was := c.live
+	c.live = map[string]bool{}
+	for _, id := range live {
+		if view[id] {
+			c.live[id] = true
+		}
 	}
 	old := c.view
 	c.view = view
@@ -2008,8 +2026,8 @@ func (d *Daemon) setView(c *client, panes []string) {
 			}
 		}
 		for id := range view {
-			if p := d.panes[id]; p != nil && (old == nil || !old[id]) {
-				c.frames[id] = d.frame(id, p)
+			if p := d.panes[id]; p != nil && (old == nil || !old[id] || was[id] != c.live[id]) {
+				c.frames[id] = d.frameFor(c, id, p)
 				c.fresh[id] = true
 			}
 		}

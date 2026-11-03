@@ -119,6 +119,7 @@ type Keys struct {
 	SendFailures    Binding `toml:"send_failures" group:"Review" doc:"Send failures to agent: the failed checks of the tab's pull request, with the end of each GitHub Actions job's log, as a prompt to its agent"`
 	SendReview      Binding `toml:"send_review" group:"Review" doc:"Send review comments to agent: the unresolved review threads and change requests of the tab's pull request, as a prompt to its agent"`
 	SecondOpinion   Binding `toml:"second_opinion" group:"Review" doc:"Second opinion: the other agent, Codex for Claude Code and Claude Code for the rest, reviews the tab's changes read only in a split, and its reply goes to the tab's agent"`
+	PiP             Binding `toml:"picture_in_picture" group:"Panes" doc:"Picture in picture: show the focused pane small in a corner over the other tabs, or hide it when it shows already. Drag it to another corner, click it to go to its tab"`
 	CleanWorktrees  Binding `toml:"cleanup_worktrees" group:"Review" doc:"Clean up worktrees: forget deleted ones and list those under .worktrees that no tab uses, to open or delete"`
 	OpenSettings    Binding `toml:"open_settings" group:"Window" doc:"Show or hide the settings page"`
 	CommandPalette  Binding `toml:"command_palette" group:"Window" doc:"Show the command palette: every action with its keys, to find and run one"`

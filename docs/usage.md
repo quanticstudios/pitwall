@@ -732,6 +732,29 @@ Only the prompt start (`133;A`) is needed to jump; pitwall keeps the
 other marks on their rows too. The keys are `prev_prompt` and
 `next_prompt` in config.toml.
 
+### Picture in picture
+
+Picture in picture keeps one pane in view while you work in another tab.
+Right-click a tab and choose **Picture in picture**, or press
+`picture_in_picture`, which no preset binds; the command palette lists it
+too. The tab's focused pane then shows as a small card in the bottom right
+corner of the pane area, live but read only: typing and scrolling still go
+to the pane you are in. The card's header shows the tab's name, the pane's
+agent and its status glyph, as the sidebar does.
+
+Drag the card to move it to another corner. Click it to go to its tab,
+where the pane shows in full and the card hides until you leave. The ×,
+**Close picture in picture** in the tab's menu, or the key again in that
+pane closes it. Pinning another pane replaces it, and closing the pane
+closes the card. The card belongs to the window: it is not saved, and
+another window does not show it.
+
+The card shows the pane's live screen even when its tab is scrolled back
+in history; the tab keeps its place in the scrollback for when you go back.
+A pane too wide or too tall for the card shows its left part and its rows
+down to the cursor or the last line of text, whichever is lower, where an
+agent's prompt is.
+
 ### Agent errors
 
 Settings, Agent errors shows where your agents waste steps and tokens. From

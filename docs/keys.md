@@ -32,6 +32,8 @@ Transcript times come from the agent's file. Scrollback times say when it was
 captured, since terminal lines have no timestamps. Broad queries show up to 100
 matches per pane and source, 10,000 total; narrow the query when more exist.
 `search_all` is unbound in every preset. Bind it under `[keys]` if wanted.
+`picture_in_picture`, which keeps the focused pane in a corner over the
+other tabs, is unbound too; see [Picture in picture](usage.md#picture-in-picture).
 
 Ctrl+Shift+K (Cmd+K in mac) opens tab search in the same card: every tab of
 every session and host, and the tabs you closed, by name, branch, group,
