@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 55 added View.Live: panes a GUI wants at the live screen whatever
+// the shared scroll position, as picture in picture shows them.
 // Level 54 added OpenPopup and Workspace.Popup: a floating pane over a
 // tab's splits, from pitwall popup.
 // Level 53 added OpenForm, FormAnswer and State.Forms: `pitwall form`
@@ -164,7 +166,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 54
+const Level = 55
 
 // PopupLevel added OpenPopup.
 const PopupLevel = 54
@@ -491,9 +493,12 @@ type Text struct {
 // View names the panes a GUI draws now. The daemon sends that GUI frames
 // of these panes alone, and a full Frame of each one it adds, so a pane
 // shows current once it is drawn again; the others keep running unseen. A
-// GUI of this Level gets no frames until its first View.
+// GUI of this Level gets no frames until its first View. Live are the
+// panes of Panes it gets at the live screen, whatever the scroll position
+// every client shares; a daemon below Level 55 ignores it.
 type View struct {
 	Panes []string
+	Live  []string
 }
 
 type ClosePane struct {

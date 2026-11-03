@@ -2,6 +2,7 @@ package app
 
 import (
 	"image"
+	"slices"
 	"testing"
 	"time"
 
@@ -94,10 +95,19 @@ func TestPiPLastRow(t *testing.T) {
 	}
 }
 
-// The card shows over another tab, a drag moves it to the nearest corner,
-// a click goes to its tab, where the pane shows in place of the card.
+// viewRec is a backend that records its last Show.
+type viewRec struct {
+	*FakeBackend
+	panes, live []string
+}
+
+func (v *viewRec) Show(panes, live []string) { v.panes, v.live = panes, live }
+
+// The card shows over another tab, its pane in the view at the live screen,
+// a drag moves it to the nearest corner, a click goes to its tab with the
+// keys for its pane, where the pane shows in place of the card.
 func TestPiPCard(t *testing.T) {
-	b := NewFakeBackend()
+	b := &viewRec{FakeBackend: NewFakeBackend()}
 	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: conventional}}
 	var r input.Router
 	var ops op.Ops
@@ -115,6 +125,9 @@ func TestPiPCard(t *testing.T) {
 	if card.Empty() {
 		t.Fatal("no card over w1")
 	}
+	if !slices.Contains(b.panes, "d") || !slices.Equal(b.live, []string{"d"}) {
+		t.Fatalf("showing %v, live %v; want d in both", b.panes, b.live)
+	}
 	at := func(p image.Point) f32.Point { return f32.Pt(float32(p.X), float32(p.Y)) }
 	mid := card.Min.Add(card.Max).Div(2)
 	r.Queue(pointer.Event{Kind: pointer.Press, Position: at(mid), Buttons: pointer.ButtonPrimary, Source: pointer.Mouse})
@@ -127,18 +140,27 @@ func TestPiPCard(t *testing.T) {
 	if u.pip.corner != pipTopLeft || u.nav.workspace != "w1" {
 		t.Fatalf("dragged up left: corner %d, tab %s", u.pip.corner, u.nav.workspace)
 	}
+	st := b.State()
+	u.toggleSidebarKeys(&st) // focus_sidebar
+	frame()
+	if !u.sidebar.Focused() {
+		t.Fatal("focus_sidebar left the sidebar unfocused")
+	}
 	card = u.pip.card.Add(u.contentOrigin)
 	mid = card.Min.Add(card.Max).Div(2)
 	r.Queue(pointer.Event{Kind: pointer.Press, Position: at(mid), Buttons: pointer.ButtonPrimary, Source: pointer.Mouse})
 	frame()
 	r.Queue(pointer.Event{Kind: pointer.Release, Position: at(mid), Source: pointer.Mouse})
 	frame()
-	if u.nav.workspace != "w2" || u.nav.focused() != "d" {
-		t.Fatalf("click: at %s/%s, want w2/d", u.nav.workspace, u.nav.focused())
+	if u.nav.workspace != "w2" || u.nav.focused() != "d" || u.sidebar.Focused() {
+		t.Fatalf("click: at %s/%s, sidebar focused %v; want w2/d and the keys for d", u.nav.workspace, u.nav.focused(), u.sidebar.Focused())
 	}
 	u.pip.card = image.Rectangle{}
 	frame()
 	if !u.pip.card.Empty() || u.nav.pip != "d" {
 		t.Fatalf("card %v drawn over its own pane, pinned %q", u.pip.card, u.nav.pip)
+	}
+	if !slices.Contains(b.panes, "d") || b.live != nil {
+		t.Fatalf("d on screen: showing %v, live %v; want d at its tab's scroll", b.panes, b.live)
 	}
 }

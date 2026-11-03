@@ -257,6 +257,7 @@ func (u *ui) pipPointer(gtx gl.Context, st *model.State, pn *model.Pane, ws *mod
 	}
 	u.settings.Hide()
 	u.review.hide()
+	u.leaveSidebar() // the keys go to the pane, as after a click on it
 	if ws.Detached {
 		u.send(proto.DetachSession{WorkspaceID: ws.ID, Detached: false})
 		u.nav.attachSession(st, ws.ID)

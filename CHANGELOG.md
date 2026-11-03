@@ -17,7 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- Picture in picture keeps one pane in view over the other tabs: a live, read-only card in a corner of the pane area with the tab's name, agent and status. Turn it on from a tab's menu or the `picture_in_picture` key (unbound by default), drag it to another corner, click it to go to its tab, close it with its ×.
+- Picture in picture keeps one pane in view over the other tabs: a live, read-only card in a corner of the pane area with the tab's name, agent and status. Turn it on from a tab's menu or the `picture_in_picture` key (unbound by default), drag it to another corner, click it to go to its tab, close it with its ×. The card shows the live screen even when its tab is scrolled back. Proto Level 55 adds `View.Live`.
 
 - `pitwall popup [--width P] [--height P] [--title T] [--dir D] [--wait] [tab] -- cmd` runs a command in a floating pane over the tab's splits, in the tab's folder, and closes it when the command exits (ENG-2966). Escape goes to the program; the close pane key closes the popup. `--wait` returns the command's exit code, so a script can use a picker such as fzf. `[[popups]]` in config.toml binds commands such as lazygit to keys. A tab has one popup at a time and refuses a second. The daemon never saves a popup, at proto Level 54.
 

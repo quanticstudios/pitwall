@@ -169,3 +169,45 @@ func TestFrameRows(t *testing.T) {
 		t.Fatalf("scrolled frame at offset %d", held.ScrollOffset)
 	}
 }
+
+// A GUI that names a pane in View.Live gets it at the live screen while
+// another GUI has it scrolled back, as picture in picture shows it, and
+// the shared scroll position again once it stops naming it.
+func TestViewLive(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}, saved: fanoutState(4)}
+	sock, stop := run(t, f)
+	defer stop()
+	id := "p00-0"
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Session: "bench"})
+	pip := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Session: "bench"})
+	gui.waitState("state", func(model.State) bool { return true })
+	pip.waitState("state", func(model.State) bool { return true })
+	gui.send(proto.View{Panes: []string{id}})
+	gui.frameOf(id)
+	pip.send(proto.View{Panes: []string{id}, Live: []string{id}})
+	pip.frameOf(id)
+	p := f.paneNamed(id)
+	p.mu.Lock()
+	p.hist = 10
+	p.mu.Unlock()
+	gui.send(proto.Scroll{Pane: id, Lines: 3})
+	if fr := gui.frameOf(id); fr.ScrollOffset != 3 {
+		t.Fatalf("scrolled GUI at offset %d, want 3", fr.ScrollOffset)
+	}
+	// The live GUI's next news of the pane is the output, rows of the live
+	// frame it has, not a frame scrolled back with the other GUI.
+	p.draw("output")
+	m := pip.waitFor("news of "+id, func(m any) bool {
+		f, isFrame := m.(proto.Frame)
+		r, isRows := m.(proto.FrameRows)
+		return isFrame && f.Pane == id || isRows && r.Pane == id
+	})
+	if fr, ok := m.(proto.Frame); ok && fr.ScrollOffset != 0 {
+		t.Fatalf("live GUI got a frame at offset %d, want the live screen", fr.ScrollOffset)
+	}
+	pip.send(proto.View{Panes: []string{id}})
+	pip.waitFor(id+" at the shared offset", func(m any) bool {
+		f, ok := m.(proto.Frame)
+		return ok && f.Pane == id && f.ScrollOffset == 3
+	})
+}

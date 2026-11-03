@@ -107,6 +107,16 @@ func (d *Daemon) frame(id string, p Pane) proto.Frame {
 	return proto.Frame{Pane: id, Grid: p.SnapshotAt(v.off), Modes: p.Modes(), ScrollOffset: v.off, ScrollMax: hist, ScrollPushed: v.pushed}
 }
 
+// frameFor is id's frame for c: at the live screen for a pane c asked to
+// see live (View.Live), else at the shared scroll offset. Callers hold d.mu.
+func (d *Daemon) frameFor(c *client, id string, p Pane) proto.Frame {
+	if !c.live[id] {
+		return d.frame(id, p)
+	}
+	v, hist := d.view(id, p)
+	return proto.Frame{Pane: id, Grid: p.SnapshotAt(0), Modes: p.Modes(), ScrollMax: hist, ScrollPushed: v.pushed}
+}
+
 // scroll moves the view m.Lines into history (negative goes back toward the
 // live screen), clamped to [0, ScrollbackLen], then m.Prompts shell prompts,
 // and pushes a frame.

@@ -51,6 +51,7 @@ type backend struct {
 	// view is the panes the last proto.View named, and waits a channel
 	// per pane added to it, closed when its first frame comes.
 	view  map[string]bool
+	live  map[string]bool // the panes of view asked for at the live screen (View.Live)
 	waits map[string]chan struct{}
 
 	// Send queues for sendLoop, so a daemon busy in a slow request never
@@ -121,7 +122,7 @@ func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 		b.view[pane] = true
 		wait := make(chan struct{})
 		b.waits[pane] = wait
-		v := proto.View{Panes: slices.Sorted(maps.Keys(b.view))}
+		v := b.viewMsg()
 		b.mu.Unlock()
 		b.Send(v)
 		select {
@@ -139,23 +140,41 @@ func (b *backend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 const frameWait = 50 * time.Millisecond
 
 // Show implements app.Viewer: the daemon stops sending frames of the panes
-// in the view but not in panes. It adds none; Frame does.
-func (b *backend) Show(panes []string) {
+// in the view but not in panes, and sends those of live at the live screen.
+// It adds none; Frame does.
+func (b *backend) Show(panes, live []string) {
 	b.mu.Lock()
-	view := map[string]bool{}
+	view, lv := map[string]bool{}, map[string]bool{}
 	for _, id := range panes {
 		if b.view[id] {
 			view[id] = true
 		}
 	}
-	send := !maps.Equal(view, b.view)
-	if send {
-		b.view = view
+	for _, id := range live {
+		if view[id] {
+			lv[id] = true
+		}
 	}
+	send := !maps.Equal(view, b.view) || !maps.Equal(lv, b.live)
+	if send {
+		b.view, b.live = view, lv
+	}
+	v := b.viewMsg()
 	b.mu.Unlock()
 	if send {
-		b.Send(proto.View{Panes: slices.Sorted(maps.Keys(view))})
+		b.Send(v)
 	}
+}
+
+// viewMsg is the View of b.view and b.live. Callers hold b.mu.
+func (b *backend) viewMsg() proto.View {
+	v := proto.View{Panes: slices.Sorted(maps.Keys(b.view))}
+	for _, id := range v.Panes {
+		if b.live[id] {
+			v.Live = append(v.Live, id)
+		}
+	}
+	return v
 }
 
 // Send queues msg for sendLoop and returns at once; the error is the one

@@ -730,6 +730,8 @@ pane closes it. Pinning another pane replaces it, and closing the pane
 closes the card. The card belongs to the window: it is not saved, and
 another window does not show it.
 
+The card shows the pane's live screen even when its tab is scrolled back
+in history; the tab keeps its place in the scrollback for when you go back.
 A pane too wide or too tall for the card shows its left part and its rows
 down to the cursor or the last line of text, whichever is lower, where an
 agent's prompt is.
