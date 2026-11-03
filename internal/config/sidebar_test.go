@@ -10,6 +10,8 @@ func TestSidebar(t *testing.T) {
 	}{
 		{"", SidebarSettings{WorkingShelf: true, SettleAfterDays: 3, SettleOnMerge: true}, ""},
 		{"view = \"inbox\"\nworking_shelf = false\nsettle_after_days = 0\nsettle_on_merge = false", SidebarSettings{Inbox: true}, ""},
+		{`workers = "separate"`, SidebarSettings{SeparateWorkers: true, WorkingShelf: true, SettleAfterDays: 3, SettleOnMerge: true}, ""},
+		{`workers = "nested"`, SidebarSettings{WorkingShelf: true, SettleAfterDays: 3, SettleOnMerge: true}, `config.toml:2: sidebar.workers: "nested" is not folded or separate; using folded`},
 		{`view = "list"`, SidebarSettings{WorkingShelf: true, SettleAfterDays: 3, SettleOnMerge: true}, `config.toml:2: sidebar.view: "list" is not tree or inbox; using tree`},
 		{`settle_after_days = 1.5`, SidebarSettings{WorkingShelf: true, SettleAfterDays: 3, SettleOnMerge: true}, `config.toml:2: sidebar.settle_after_days: 1.5 is not a whole number from 0 to 365`},
 	} {

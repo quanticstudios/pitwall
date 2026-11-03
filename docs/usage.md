@@ -964,8 +964,8 @@ small row.
 
 Click the count to fold the small rows away and again to bring them back.
 Folded, a worker that asks for an answer and the worker on screen keep
-theirs. Each row remembers its fold, in the tree and the inbox alike, until
-the window closes. Next tab and previous tab visit a worker only while its
+theirs. Each row remembers its fold, in the tree and the inbox alike and
+across switches to other sessions and hosts, until the window closes. Next tab and previous tab visit a worker only while its
 row is unfolded.
 
 Click a worker's row to show its tab, Ctrl+click or Shift+click it to
@@ -974,6 +974,29 @@ with the sidebar focused, for the tab menu. A worker stays a tab
 of its own everywhere else: its worktree and panes, `pitwall ls --tree`,
 the switcher and goto_tab, which counts only the rows. Close the agent's
 tab and its workers become rows of their own again.
+
+#### Separate worker rows
+
+Settings, Appearance, Sidebar, Workers, or `[sidebar] workers = "separate"`
+in `config.toml`, gives each worker a row of its own instead. It applies at
+once; `folded`, the small rows above, is the default.
+
+In the tree, the agent's row grows a bar with one segment per worker in its
+state's color and, under it, a count each of the workers that need you,
+failed, work, have a pull request open, are done and stopped. A stopped
+worker, grey in the bar, has no agent running in its tab: the agent exited
+or never started. The workers start folded into the agent's row, all but
+the one on screen. Click the bar, or press Right on the row with the
+sidebar focused, to list them under it a step further in, and again, or
+Left, to fold them. The agent's row shows its own state, and each worker
+answers on its own row.
+
+In the inbox each worker is a row like any other tab and sorts by its own
+state. Settling or snoozing the agent's row still does the same to its
+workers, with each worker's own snooze back on Undo, and a worker that asks
+for an answer still wakes or unsettles it. Each worker row has its own
+Settle and Snooze too. Next tab, previous tab, the switcher, goto_tab and
+the sidebar's keyboard cursor visit the worker rows the sidebar shows.
 
 ### Programs
 
@@ -998,7 +1021,8 @@ default.
 
 The inbox lists every agent tab of the session in one list, groups
 included, each row with its group's icon and name. A worker has no row of
-its own: it rides under its agent's row as in the tree, and the agent's row
+its own (unless [separate](#separate-worker-rows)): it rides under its
+agent's row as in the tree, and the agent's row
 sorts by the most urgent of the two. Settling or snoozing that row does the
 same to its workers, Undo puts back each worker's own snooze, and a worker
 that asks for an answer wakes or unsettles it. An agent tab settles for

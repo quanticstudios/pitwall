@@ -70,7 +70,7 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 		pin.icon, pin.text = icPinOff, "Unpin tab"
 	}
 	entries = append(entries, pin)
-	if v.inbox && s.Shelves && v.rootOf[ws.ID] == "" { // a worker shares its parent's shelf
+	if v.inbox && s.Shelves && (v.separate || v.rootOf[ws.ID] == "") { // a folded worker shares its parent's shelf
 		if ws.SnoozedUntil.After(v.now) {
 			entries = append(entries, menuEntry{c: &s.menuItem[actWake], icon: icClock, text: "Wake", hint: wakeText(v.now, ws.SnoozedUntil)})
 		} else {

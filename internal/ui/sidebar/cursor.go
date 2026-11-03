@@ -73,7 +73,7 @@ type cursor struct {
 func (s *Sidebar) Focus(st *model.State, session, active string) {
 	v, rows := s.cursorView(st, session, active)
 	s.cur = cursor{on: true, kind: 's', id: active, moved: true, page: s.cur.page}
-	if r := v.rootOf[active]; r != "" {
+	if r := v.rootOf[active]; r != "" && !v.separate {
 		s.cur.kind, s.cur.parent = 'a', r
 	}
 	for _, e := range s.shownSubs(v, active) {
@@ -170,6 +170,8 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 			s.setExpanded(r.id, true)
 		case r.kind == 's' && s.folded[r.id] && len(v.subsOf(r.id)) > 0:
 			delete(s.folded, r.id)
+		case r.kind == 's' && s.fleet(v, r.id) && !s.kidsOpen[r.id]:
+			s.setKidsOpen(r.id, true)
 		case i+1 < len(rows) && s.childOf(rows[i+1], r):
 			s.moveTo(rows, i+1)
 		}
@@ -182,7 +184,9 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 				s.folded = map[string]bool{}
 			}
 			s.folded[r.id] = true
-		case r.kind == 'a':
+		case r.kind == 's' && s.fleet(v, r.id) && s.kidsOpen[r.id]:
+			s.setKidsOpen(r.id, false)
+		case r.kind == 'a', r.kind == 's' && r.parent != "":
 			s.moveTo(rows, slices.IndexFunc(rows, func(e elem) bool { return e.kind == 's' && e.id == r.parent }))
 		case r.kind == 's' && r.group != "":
 			s.moveTo(rows, slices.IndexFunc(rows, func(e elem) bool { return e.kind == 'g' && e.id == r.group }))
@@ -370,30 +374,35 @@ func (s *Sidebar) cursorView(st *model.State, session, active string) (*view, []
 }
 
 // rowsOf is the rows the cursor moves through, in the order place draws
-// them: group headers, tabs and the agent sub-rows under each tab.
+// them: group headers, tabs and the sub-rows under each tab, then its
+// shown separate workers' rows.
 func (s *Sidebar) rowsOf(v *view) []elem {
 	var out []elem
-	tab := func(id, g string) {
-		out = append(out, elem{kind: 's', id: id, group: g})
+	var tab func(id, g, root string)
+	tab = func(id, g, root string) {
+		out = append(out, elem{kind: 's', id: id, parent: root, group: g})
 		for _, e := range s.shownSubs(v, id) {
 			out = append(out, elem{kind: 'a', id: e.id(), parent: id, worker: e.worker != nil, group: g})
+		}
+		for _, k := range s.kidsShown(v, id) {
+			tab(k.ID, g, id)
 		}
 	}
 	if v.inbox {
 		for _, id := range inboxOrder(v) {
-			tab(id, "")
+			tab(id, "", "")
 		}
 		return out
 	}
 	for _, id := range v.top {
 		if !v.groups[id] {
-			tab(id, "")
+			tab(id, "", "")
 			continue
 		}
 		out = append(out, elem{kind: 'g', id: id, group: id})
 		if s.isExpanded(id) {
 			for _, ws := range v.byProject[id] {
-				tab(ws.ID, id)
+				tab(ws.ID, id, "")
 			}
 		}
 	}
@@ -443,9 +452,9 @@ func (s *Sidebar) moveTo(rows []elem, i int) {
 }
 
 // childOf reports whether row c hangs under row p: a tab of group p, or a
-// sub-row of tab p.
+// sub-row or separate worker row of tab p.
 func (s *Sidebar) childOf(c, p elem) bool {
-	return p.kind == 'g' && c.kind != 'g' && c.group == p.id || p.kind == 's' && c.kind == 'a' && c.parent == p.id
+	return p.kind == 'g' && c.kind != 'g' && c.group == p.id || p.kind == 's' && c.kind != 'g' && c.parent == p.id
 }
 
 func (s *Sidebar) setExpanded(id string, on bool) {

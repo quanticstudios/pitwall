@@ -425,6 +425,13 @@ func TestNavSkipsFoldedWorkers(t *testing.T) {
 	if n.workspace != "x" {
 		t.Fatalf("next from a folded worker that is open went to %s, want x", n.workspace)
 	}
+	// Its parent detached, w is a row of its own in the sidebar even while
+	// the parent's workers count as folded.
+	st.Workspaces[0].Detached = true
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "w" {
+		t.Fatalf("next from x with o detached went to %s, want its worker w", n.workspace)
+	}
 }
 
 // TestNavFollowsInbox: while the sidebar shows its inbox, next, prev and
@@ -459,6 +466,16 @@ func TestNavFollowsInbox(t *testing.T) {
 	n.cycleWorkspace(&st, 1)
 	if n.workspace != "x" {
 		t.Fatalf("next from o in the inbox with its workers folded went to %s, want x", n.workspace)
+	}
+	// Separate, a worker is an inbox row of its own and shows once.
+	folded = false
+	n.rows = func(*model.State) []string { return []string{"w", "x", "o"} }
+	ids = nil
+	for _, w := range n.visible(&st) {
+		ids = append(ids, w.ID)
+	}
+	if !slices.Equal(ids, []string{"w", "x", "o"}) {
+		t.Fatalf("visible with separate workers %v, want the rows as they are", ids)
 	}
 	inbox = false
 	n.workspace = "x"

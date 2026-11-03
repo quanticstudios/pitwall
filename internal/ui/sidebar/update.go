@@ -213,6 +213,12 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 				folding = true
 			}
 		}
+		for r.kids.Clicked(gtx) {
+			if !dropped {
+				s.setKidsOpen(ws.ID, !s.kidsOpen[ws.ID])
+				folding = true
+			}
+		}
 		for {
 			c, ok := r.click.Update(gtx)
 			if !ok {
