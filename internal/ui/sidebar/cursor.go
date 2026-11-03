@@ -452,9 +452,9 @@ func (s *Sidebar) moveTo(rows []elem, i int) {
 }
 
 // childOf reports whether row c hangs under row p: a tab of group p, or a
-// sub-row of tab p.
+// sub-row or separate worker row of tab p.
 func (s *Sidebar) childOf(c, p elem) bool {
-	return p.kind == 'g' && c.kind != 'g' && c.group == p.id || p.kind == 's' && c.kind == 'a' && c.parent == p.id
+	return p.kind == 'g' && c.kind != 'g' && c.group == p.id || p.kind == 's' && c.kind != 'g' && c.parent == p.id
 }
 
 func (s *Sidebar) setExpanded(id string, on bool) {

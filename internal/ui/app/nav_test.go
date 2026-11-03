@@ -425,6 +425,13 @@ func TestNavSkipsFoldedWorkers(t *testing.T) {
 	if n.workspace != "x" {
 		t.Fatalf("next from a folded worker that is open went to %s, want x", n.workspace)
 	}
+	// Its parent detached, w is a row of its own in the sidebar even while
+	// the parent's workers count as folded.
+	st.Workspaces[0].Detached = true
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "w" {
+		t.Fatalf("next from x with o detached went to %s, want its worker w", n.workspace)
+	}
 }
 
 // TestNavFollowsInbox: while the sidebar shows its inbox, next, prev and

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/unit"
 
@@ -161,5 +162,30 @@ func TestFoldSurvivesSwitch(t *testing.T) {
 	}
 	if got, want := h.tabElems(), []string{"so", "sx"}; !slices.Equal(got, want) {
 		t.Fatalf("laid out %v, want o folded", got)
+	}
+}
+
+// TestFleetKeys: separate, Right on a fleet's row opens its workers, a
+// second Right steps onto the first worker's row, and Left goes back up
+// to the parent, then folds the fleet.
+func TestFleetKeys(t *testing.T) {
+	h := newWorkersHarness(t, false, true)
+	h.s.Focus(&h.st, "", "o")
+	for _, step := range []struct {
+		k    key.Name
+		want string
+	}{
+		{key.NameRightArrow, "s:o"}, // opens the strip
+		{key.NameRightArrow, "s:w1"},
+		{key.NameLeftArrow, "s:o"},
+		{key.NameLeftArrow, "s:o"}, // folds the strip
+	} {
+		h.s.Key(&h.st, "", "o", key.Event{Name: step.k, State: key.Press})
+		if got := cursorAt(&h.s); got != step.want {
+			t.Fatalf("%s: cursor on %s, want %s", step.k, got, step.want)
+		}
+	}
+	if !h.s.KidsFolded("o") {
+		t.Fatal("Left on the parent did not fold its workers")
 	}
 }
