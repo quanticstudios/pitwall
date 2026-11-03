@@ -1,4 +1,4 @@
-18.52
+18.53
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -12,6 +12,7 @@ model.Clipboard{Seq uint64; Text string}
 model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string; Group model.Project; PR int; ClosedAt time.Time; Gone bool}
 model.DecideCount{Feature string; Calls int; Errors int}
 model.DecideInfo{Provider string; Counts []model.DecideCount}
+model.Form{ID string; WorkspaceID string; PaneID string; Spec string; Title string; Waits bool; OpenedAt time.Time}
 model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
@@ -21,7 +22,7 @@ model.PortBlock{First int; Last int}
 model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Listening map[string][]int; Chats []model.Chat; Closed []model.ClosedTab}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Listening map[string][]int; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string}
@@ -69,6 +70,7 @@ proto.FaviconResult{Dir string; Root string; Files []proto.FaviconFile}
 proto.FocusDir{Pane string; Dir layout.Direction}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string; Pane string}
 proto.ForgetTab{ID string}
+proto.FormAnswer{ID string; Answers string; Cancel bool; Closed bool}
 proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64}
 proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64; Images []vt.Placement}
 proto.GroupByFolder{WorkspaceID string}
@@ -84,6 +86,7 @@ proto.NewSession{Profile string; Name string; Cwd string; GroupID string; Sessio
 proto.NewTab{Profile string; WorkspaceID string; Cwd string; FromPane string}
 proto.NewTask{Task model.Task; Queue bool; FromPane string}
 proto.NewWorkspace{ProjectID string; Name string; From model.WorktreeFrom; Cmd []string; ParentPane string; Root string; Env []string; Lane string}
+proto.OpenForm{ID string; Pane string; Spec string; Update bool}
 proto.OpenPane{WorkspaceID string; TabID string; Target string; Dir layout.Dir; Cmd []string}
 proto.PaneExited{Pane string; ExitCode int}
 proto.PasteImage{Pane string; Data []uint8}

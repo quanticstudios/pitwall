@@ -300,12 +300,18 @@ func (s *Sidebar) toInbox(v *view) {
 // family is the activities of tab id and its folded workers, and whether
 // any of them runs an agent.
 func (v *view) family(id string) ([]model.Activity, bool) {
-	acts, isAgent := v.acts[id], v.agent[id] != "" || v.program[id] != nil
+	acts, isAgent := v.acts[id], v.agent[id] != "" || v.program[id] != nil || asksForm(v.st, id)
 	for _, k := range v.subKids(id) {
 		acts = append(slices.Clip(acts), v.acts[k.ID]...)
-		isAgent = isAgent || v.agent[k.ID] != "" || v.program[k.ID] != nil
+		isAgent = isAgent || v.agent[k.ID] != "" || v.program[k.ID] != nil || asksForm(v.st, k.ID)
 	}
 	return acts, isAgent
+}
+
+// asksForm reports whether a form from pitwall form waits on the user
+// over tab ws: a script asking from a shell tab sits with the agents.
+func asksForm(st *model.State, ws string) bool {
+	return slices.ContainsFunc(st.Forms, func(f model.Form) bool { return f.WorkspaceID == ws && f.Waits })
 }
 
 // inboxOrder is the inbox's tabs top to bottom.

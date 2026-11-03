@@ -411,3 +411,15 @@ have its script call `pitwall status working --app make --progress 40`,
 then `pitwall status done` or `pitwall status error --message 'Tests
 failed'`. It shows under your own state and never replaces it. See
 [Programs and scripts](agent-report.md#programs-and-scripts).
+
+## Asking the user
+
+`pitwall form` asks the user in a panel over your tab and prints the
+answers as JSON; the tab shows as waiting on the user until they answer.
+Pipe it a spec such as `<form title="Which database?"><choice id="db">
+<option>postgres</option><option>sqlite</option></choice></form>`. It exits
+1 when the user cancels and 2 on a spec error, which names the line. It
+waits as long as the user takes, so give it a long timeout. A form without
+fields is a dashboard: show it in the background with `--id`, change it
+with `--id <id> --update`, and end it with `--close`. The markup is in
+[Forms](usage.md#forms).

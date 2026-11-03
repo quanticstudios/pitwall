@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 53 added OpenForm, FormAnswer and State.Forms: `pitwall form`
+// shows a form or a dashboard over the caller's tab.
 // Level 52 added Pane.Program: what a program reported with OSC 7501 or
 // pitwall status.
 // Level 51 added Tmux, TmuxResult, Pane.TmuxTitle, Pane.TmuxHoldFailed and FocusSession.Pane.
@@ -160,10 +162,13 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 52
+const Level = 53
 
 // ClosedLevel added State.Closed, ReopenTab and ForgetTab.
 const ClosedLevel = 50
+
+// FormLevel added OpenForm, FormAnswer and State.Forms.
+const FormLevel = 53
 
 // InboxLevel added SetTabInbox.
 const InboxLevel = 49
@@ -200,6 +205,8 @@ func Since(msg any) int {
 		return ClosedLevel
 	case Tmux, TmuxResult:
 		return TmuxLevel
+	case OpenForm, FormAnswer:
+		return FormLevel
 	case SetTabInbox:
 		return InboxLevel
 	case Image, ImageResult:
@@ -848,6 +855,30 @@ type SetStatus struct {
 	Text        string
 }
 
+// OpenForm shows Spec, the markup of internal/form, as form ID over the
+// tab of Pane, from `pitwall form`. The connection that opens a form owns
+// it: the daemon sends it the FormAnswer and drops the form when it
+// disconnects. With Update it replaces the Spec of the open form ID, from
+// any connection, and Pane is unused. The daemon answers Error for a spec
+// that does not parse, an ID already open without Update, and an Update of
+// an ID that is not open.
+type OpenForm struct {
+	ID     string
+	Pane   string
+	Spec   string
+	Update bool
+}
+
+// FormAnswer ends form ID. A window sends the user's Answers, the JSON
+// of form.Answer, or Cancel; `pitwall form --close` sends Closed. The
+// daemon passes the first one to the form's owner and drops the form.
+type FormAnswer struct {
+	ID      string
+	Answers string
+	Cancel  bool
+	Closed  bool
+}
+
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
 	Tmux{}, TmuxResult{},
@@ -880,6 +911,7 @@ var Messages = []any{
 	ChatUnarchive{},
 	AgentExplain{}, AgentExplanation{},
 	Image{}, ImageResult{},
+	OpenForm{}, FormAnswer{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

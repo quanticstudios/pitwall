@@ -281,6 +281,7 @@ func (f *FakeBackend) State() model.State {
 	s.Panes = append([]model.Pane(nil), s.Panes...)
 	s.Activities = append([]model.Activity(nil), s.Activities...)
 	s.Workspaces = append([]model.Workspace(nil), s.Workspaces...)
+	s.Forms = slices.Clone(s.Forms)
 	for i := range s.Workspaces {
 		w := &s.Workspaces[i]
 		w.Tabs = append([]model.Tab(nil), w.Tabs...)
@@ -762,9 +763,19 @@ func (f *FakeBackend) Send(msg any) error {
 				f.st.Projects[i].Icon, f.st.Projects[i].Color = m.Icon, m.Color
 			}
 		}
+	case proto.FormAnswer:
+		f.st.Forms = slices.DeleteFunc(f.st.Forms, func(x model.Form) bool { return x.ID == m.ID })
 	default:
 		return nil // Input and the rest change nothing here
 	}
 	f.bump()
 	return nil
+}
+
+// AddForm opens a form from pitwall form, as the daemon does for OpenForm.
+func (f *FakeBackend) AddForm(fm model.Form) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.st.Forms = append(f.st.Forms, fm)
+	f.bump()
 }
