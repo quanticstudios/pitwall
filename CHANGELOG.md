@@ -17,7 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- Fleet escalation and pi/omp hook tests wait for completed delivery; chat snapshot load timing runs as a benchmark instead of a shared-runner deadline.
+- Fleet tests inspect queued messages under a delivery lock; pi/omp hook tests wait for completed delivery with a deadline. Chat snapshot tests limit allocations, and a benchmark measures load time.
 
 - A program report from the pane's own agent, as Codex ("codex") and Claude Code ("claude-code") send, no longer repeats the agent's name: the row keeps the agent's update message and drops the name, and a report with no message is left to the agent's pill.
 - Tab hover cards and row menus align with their rows when the sidebar shows hosts, sessions or waiting agents above the tabs.

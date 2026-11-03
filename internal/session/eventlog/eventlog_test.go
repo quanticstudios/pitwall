@@ -398,13 +398,21 @@ func largeSnapshot(t testing.TB) string {
 
 func TestLoadTime(t *testing.T) {
 	dir := largeSnapshot(t)
-	l, _, got, seq, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l.Close()
-	if seq != 50_000 || len(got.Content) != 25_000 {
-		t.Fatalf("seq %d, %d items", seq, len(got.Content))
+	allocs := testing.AllocsPerRun(1, func() {
+		l, _, got, seq, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if seq != 50_000 || len(got.Content) != 25_000 {
+			t.Fatalf("seq %d, %d items", seq, len(got.Content))
+		}
+	})
+	// About two allocations per item; allow four without depending on runner speed.
+	if allocs > 4*25_000 {
+		t.Fatalf("snapshot load allocated %.0f times, want at most 100000", allocs)
 	}
 }
 

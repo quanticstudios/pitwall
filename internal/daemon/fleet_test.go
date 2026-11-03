@@ -60,63 +60,57 @@ func snapshot(d *Daemon) model.State {
 	return d.snapshot()
 }
 
-// quiet fails when p got more than n bytes within a moment.
-func quiet(t *testing.T, p *fakePane, n int, what string) {
-	t.Helper()
-	time.Sleep(50 * time.Millisecond)
-	if got := p.got(); len(got) != n {
-		t.Fatalf("%s: typed %q", what, got[n:])
-	}
-}
-
 // TestFleetTimebox: a lane worker past its timebox with no pull request
 // gets one nudge, its parent one line past twice the timebox, and an open
 // pull request stops both.
 func TestFleetTimebox(t *testing.T) {
 	t0 := time.Now()
 	s := fleetSettings()
-	d, f := fleetDaemon(t, t0, &s)
-	worker, parent := f.paneNamed("wa"), f.paneNamed("pa")
-
-	d.checkFleet(t0.Add(10 * time.Minute))
-	quiet(t, worker, 0, "inside the timebox")
-	d.checkFleet(t0.Add(31 * time.Minute))
-	want := "[pitwall: message from a script] Wrap up now."
-	if got := gotAfter(t, worker, 0, len(want)); !strings.HasPrefix(got, want) {
-		t.Fatalf("worker got %q, want %q", got, want)
+	d, _ := fleetDaemon(t, t0, &s)
+	// Hold delivery so every note stays queued for inspection after checkFleet.
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	check := func(d *Daemon, now time.Time, worker, parent string) {
+		t.Helper()
+		d.checkFleet(now)
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		for pane, text := range map[string]string{"wa": worker, "pa": parent} {
+			var want []letter
+			if text != "" {
+				want = []letter{{text: text}}
+			}
+			if got := d.mail.queue[pane]; !slices.Equal(got, want) {
+				t.Fatalf("at %s, pane %s: queue %+v, want %+v", now.Sub(t0), pane, got, want)
+			}
+		}
 	}
-	claudeHook(t, d, "wa", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
-	n := len(worker.got())
-	d.checkFleet(t0.Add(40 * time.Minute))
-	quiet(t, worker, n, "a second nudge")
-	quiet(t, parent, 0, "the parent before twice the timebox")
 
-	d.checkFleet(t0.Add(61 * time.Minute))
-	if got := gotAfter(t, parent, 0, 120); !strings.Contains(got, "fix-login on the small lane is past twice its 30m timebox with no pull request open.") {
-		t.Fatalf("parent got %q", got)
-	}
-	m := len(parent.got())
-	d.checkFleet(t0.Add(90 * time.Minute))
-	quiet(t, parent, m, "a second parent message")
-	quiet(t, worker, n, "a nudge after the parent's")
+	check(d, t0.Add(10*time.Minute), "", "")
+	check(d, t0.Add(31*time.Minute), s.Fleet.Nudge, "")
+	check(d, t0.Add(40*time.Minute), s.Fleet.Nudge, "")
+	parent := "pitwall: worker #2.1 fix-login on the small lane is past twice its 30m timebox with no pull request open."
+	check(d, t0.Add(61*time.Minute), s.Fleet.Nudge, parent)
+	check(d, t0.Add(90*time.Minute), s.Fleet.Nudge, parent)
 	if l := snapshot(d).Workspaces[1].Lane; !l.Nudged || !l.Told {
 		t.Fatalf("lane %+v: want Nudged and Told kept for a restart", l)
 	}
 
 	// With a pull request open, nothing goes to either.
-	d2, f2 := fleetDaemon(t, t0, &s)
+	d2, _ := fleetDaemon(t, t0, &s)
+	d2.sendMu.Lock()
+	defer d2.sendMu.Unlock()
 	d2.mu.Lock()
 	d2.st.PRs["w"] = model.PR{Number: 3, State: model.PROpen}
 	d2.mu.Unlock()
-	d2.checkFleet(t0.Add(3 * time.Hour))
-	quiet(t, f2.paneNamed("wa"), 0, "a worker with a pull request")
-	quiet(t, f2.paneNamed("pa"), 0, "the parent of a worker with a pull request")
+	check(d2, t0.Add(3*time.Hour), "", "")
 
 	// Fleet mode off: nothing.
 	s.Fleet.On = false
-	d3, f3 := fleetDaemon(t, t0, &s)
-	d3.checkFleet(t0.Add(3 * time.Hour))
-	quiet(t, f3.paneNamed("wa"), 0, "fleet mode off")
+	d3, _ := fleetDaemon(t, t0, &s)
+	d3.sendMu.Lock()
+	defer d3.sendMu.Unlock()
+	check(d3, t0.Add(3*time.Hour), "", "")
 }
 
 // TestFleetEscalate: once auto_send_failures has sent a lane worker's

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,11 +78,13 @@ childProcess.spawn = (...args) => {
 };
 syncBuiltinESMExports();
 const drain = async () => {
-	while (children.size) {
+	do {
 		const batch = [...children];
 		children.clear();
 		await Promise.all(batch);
-	}
+		// Let close callbacks finish scheduling the next queued hook.
+		await new Promise((resolve) => setImmediate(resolve));
+	} while (children.size);
 };
 // The extension unrefs its children; the harness must stay until they close.
 const keepAlive = setInterval(() => {}, 0x7fffffff);
@@ -108,13 +111,20 @@ clearInterval(keepAlive);
 `), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(node, "--experimental-strip-types", "--no-warnings", harness, ext)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		cmd := exec.CommandContext(ctx, node, "--experimental-strip-types", "--no-warnings", harness, ext)
 		cmd.Env = append(os.Environ(), "PITWALL_PANE=p1", "OUT="+out, "TITLE="+tt.title)
 		cmd.WaitDelay = 15 * time.Second
-		if b, err := cmd.CombinedOutput(); err != nil {
+		b, err := cmd.CombinedOutput()
+		timedOut := ctx.Err()
+		cancel()
+		if timedOut != nil {
+			t.Fatalf("%s: node harness did not finish within 30s: %v\n%s", tt.name, timedOut, b)
+		}
+		if err != nil {
 			t.Fatalf("%s: node: %v\n%s", tt.name, err, b)
 		}
-		b, err := os.ReadFile(out)
+		b, err = os.ReadFile(out)
 		if err != nil {
 			t.Fatal(err)
 		}
