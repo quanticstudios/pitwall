@@ -78,7 +78,7 @@ func sessionPreviewTabs(st *model.State, session string) []sessionTab {
 
 func (s *Sidebar) sessionPreviewFrame(gtx layout.Context, over string) {
 	p := &s.preview
-	if !s.SessionPreview || s.TreeOnly || s.drag.kind != 0 || s.menuOpen() || s.Editing() {
+	if s.HideSessions || !s.SessionPreview || s.TreeOnly || s.drag.kind != 0 || s.menuOpen() || s.Editing() {
 		*p = sessionPreview{}
 		return
 	}
@@ -138,7 +138,7 @@ func (p *sessionPreview) tabs(st *model.State, session string) []sessionTab {
 
 func (s *Sidebar) drawSessionPreview(gtx layout.Context, th *theme.Theme, st *model.State) {
 	p := &s.preview
-	if !s.SessionPreview || s.TreeOnly || len(s.Hosts) < 2 || p.hover.shown == "" {
+	if s.HideSessions || !s.SessionPreview || s.TreeOnly || len(s.Hosts) < 2 || p.hover.shown == "" {
 		return
 	}
 	ss := st.Session(p.hover.shown)

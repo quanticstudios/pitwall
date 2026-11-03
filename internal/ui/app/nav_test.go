@@ -491,19 +491,19 @@ func TestHiddenSidebarFollowsInbox(t *testing.T) {
 	b := NewFakeBackend()
 	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}}
 	u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf = true, true
-	u.cfg.Sidebar.SessionPreview = true
+	u.cfg.Sidebar.Sessions, u.cfg.Sidebar.SessionPreview = true, true
 	u.nav.sidebarHidden = true
 	var ops op.Ops
 	u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1200, 800)), Now: time.Now()})
 	if !u.sidebar.Inbox || !u.sidebar.WorkingShelf || u.nav.inbox == nil || !u.nav.inbox() {
 		t.Fatalf("hidden sidebar: inbox %v, shelf %v", u.sidebar.Inbox, u.sidebar.WorkingShelf)
 	}
-	if !u.sidebar.SessionPreview {
+	if u.sidebar.HideSessions || !u.sidebar.SessionPreview {
 		t.Fatal("session preview setting did not reach the sidebar")
 	}
-	u.cfg.Sidebar.SessionPreview = false
+	u.cfg.Sidebar.Sessions, u.cfg.Sidebar.SessionPreview = false, false
 	u.layout(gl.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1200, 800)), Now: time.Now()})
-	if u.sidebar.SessionPreview {
+	if !u.sidebar.HideSessions || u.sidebar.SessionPreview {
 		t.Fatal("session preview setting did not turn off live")
 	}
 }

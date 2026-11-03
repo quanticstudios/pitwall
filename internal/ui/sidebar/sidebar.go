@@ -72,6 +72,8 @@ type Sidebar struct {
 	// one first: their sessions and the agents waiting anywhere show above
 	// the tabs. One or none draws nothing.
 	Hosts []HostInfo
+	// HideSessions hides the host headings and sessions, keeping waiting agents.
+	HideSessions bool
 	// SessionPreview opens a session's tab list when its host row is hovered.
 	SessionPreview bool
 	// Inbox shows the inbox in place of the tree; WorkingShelf gives

@@ -440,31 +440,41 @@ func TestDecisionsCommandShownRedacted(t *testing.T) {
 	}
 }
 
-func TestSessionPreviewSetting(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var p Page
-	p.s, _ = config.LoadFile(path)
-	p.th = theme.Dark()
-	var ops op.Ops
-	gtx := gl.Context{Ops: &ops, Constraints: gl.Exact(image.Pt(800, 600))}
-	for _, want := range []bool{false, true} {
-		found := false
-		for _, sec := range p.appearance() {
-			for _, row := range sec.rows {
-				if sec.title == "Sidebar" && row.label == "Session preview" {
-					p.btn("sidebar.session_preview").Click()
-					row.control(gtx)
-					found = true
+func TestSidebarSessionSettings(t *testing.T) {
+	for _, tc := range []struct {
+		label, key string
+		value      func(config.SidebarSettings) bool
+	}{
+		{"Sessions", "sessions", func(s config.SidebarSettings) bool { return s.Sessions }},
+		{"Session preview", "session_preview", func(s config.SidebarSettings) bool { return s.SessionPreview }},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var p Page
+			p.s, _ = config.LoadFile(path)
+			p.th = theme.Dark()
+			var ops op.Ops
+			gtx := gl.Context{Ops: &ops, Constraints: gl.Exact(image.Pt(800, 600))}
+			for _, want := range []bool{false, true} {
+				found := false
+				for _, sec := range p.appearance() {
+					for _, row := range sec.rows {
+						if sec.title == "Sidebar" && row.label == tc.label {
+							p.btn("sidebar." + tc.key).Click()
+							row.control(gtx)
+							found = true
+						}
+					}
+				}
+				p.s, _ = config.LoadFile(path)
+				if !found || p.err != "" || tc.value(p.s.Sidebar) != want {
+					t.Fatalf("setting = %v, want %v; found %v, error %q", tc.value(p.s.Sidebar), want, found, p.err)
 				}
 			}
-		}
-		p.s, _ = config.LoadFile(path)
-		if !found || p.err != "" || p.s.Sidebar.SessionPreview != want {
-			t.Fatalf("session preview = %v, want %v; found %v, error %q", p.s.Sidebar.SessionPreview, want, found, p.err)
-		}
+		})
 	}
 }
 

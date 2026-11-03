@@ -76,6 +76,13 @@ window shows, and the header tags it with its host. The session switcher,
 desktop notifications and session search in the palette cover every host
 and name the host of a session on another machine.
 
+Set `[sidebar] sessions = false`, or turn off Sessions in Settings >
+Appearance > Sidebar, to hide the host headings, session rows and their
+hover previews. Waiting on you or Waiting elsewhere stays, with links to
+tabs on every host. The header keeps the session name and host tag. The
+session switcher, next/previous session keys and desktop notifications
+still cover every host. The setting applies live and defaults to true.
+
 The window opens on this machine at once and connects to each host in the
 background, as `pitwall --host` does, retrying with backoff from half a
 second up to 30 seconds. A host that is down keeps its last sessions in the
