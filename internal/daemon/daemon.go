@@ -271,6 +271,8 @@ type Daemon struct {
 	sendMu    sync.Mutex            // one deliver types at a time
 	turnMu    sync.Mutex            // one checkpoint at a time, so each gets its own number
 
+	history map[string]cachedHistory // guarded by mu; routine saves reuse these blobs
+
 	saveMu  sync.Mutex // serializes snapshot+write so an old save never lands last
 	helloMu sync.Mutex // see firstSession
 
@@ -411,6 +413,7 @@ func NewWith(o Options) (*Daemon, error) {
 	st.Activities = nil
 	st.PRs = map[string]model.PR{}
 	d := fromState(o, st)
+	d.loadHistory()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	for i := range d.st.Workspaces {
 		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
@@ -537,7 +540,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	if d.o.UpdateScreenPatterns != nil {
 		wg.Go(func() { d.o.UpdateScreenPatterns(ctx) })
 	}
-	wg.Go(func() { d.historyLoop(ctx, store.SnapshotEvery) })
+	wg.Go(func() { d.historyLoop(ctx, historyEvery) })
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
 	wg.Go(func() { d.webLoop(ctx) })
@@ -580,7 +583,12 @@ func (d *Daemon) shutdown() {
 	}
 	d.closing = true
 	s := withoutPopups(d.saveSnapshot())
+	sources := d.historySources(s)
 	panes := slices.Collect(maps.Values(d.panes))
+	d.mu.Unlock()
+	captureHistory(&s, sources)
+	d.mu.Lock()
+	d.cacheHistory(&s, sources)
 	d.mu.Unlock()
 	if err := d.o.Save(s); err != nil {
 		log.Printf("save state: %q", err)
@@ -1453,6 +1461,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	}
 	h := d.panes[id]
 	delete(d.panes, id)
+	delete(d.history, id)
 	delete(d.sizes, id)
 	delete(d.inputs, id)
 	delete(d.holds, id)
@@ -1872,14 +1881,13 @@ func (d *Daemon) refreshStats(ctx context.Context, only string) {
 // them in its environment, and its output is watched for a port conflict;
 // env comes after them. Callers hold d.mu.
 func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBlock, env []string) error {
+	return d.startVT(id, cmd, cwd, ports, env, d.o.NewVT)
+}
+
+func (d *Daemon) startVT(id string, cmd []string, cwd string, ports model.PortBlock, env []string, newVT vt.NewFunc) error {
 	size, ok := d.sizes[id]
 	if !ok || size[0] <= 0 || size[1] <= 0 {
 		size = [2]int{defaultCols, defaultRows}
-	}
-	newVT := d.o.NewVT
-	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
-	if pi >= 0 {
-		newVT = d.restoredVT(d.st.Panes[pi], newVT)
 	}
 	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portEnv(ports), env...), Cols: size[0], Rows: size[1], NewVT: d.paneVT(id, ports, newVT)})
 	if err != nil {
@@ -1891,11 +1899,9 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 	}
 	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id }); i >= 0 {
 		provider = d.st.Panes[i].Provider
+		d.st.Panes[i].History = nil
 	}
 	log.Printf("pane %s: started %q, provider %q, %dx%d", id, program, provider, size[0], size[1])
-	if pi >= 0 {
-		d.st.Panes[pi].History = nil
-	}
 	d.run(id, p, size, nil)
 	return nil
 }
@@ -2110,6 +2116,8 @@ func (d *Daemon) exited(id string, p Pane) {
 	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || !sp.Held && code != 0 && time.Since(at) < resumeGrace) {
 		log.Printf("pane %s: exited %d; resumed %q session, opening a shell", id, code, sp.Provider)
 		size, sized := d.sizes[id]
+		newVT := d.carryVT(*sp, p)
+		history := d.history[id]
 		closeAll([]Pane{d.dropPane(id)})
 		// why: the window sends no Resize for a size it already sent, so the
 		// shell must start at that size, not the default.
@@ -2118,8 +2126,11 @@ func (d *Daemon) exited(id string, p Pane) {
 		}
 		sp.Cmd, sp.Provider, sp.SessionID, sp.Title, sp.Prompt, sp.AgentMode, sp.Transcript = nil, "", "", "", "", "", ""
 		sp.ResumeCmd = nil
-		err := d.start(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID), sp.Env)
+		err := d.startVT(id, nil, sp.Cwd, d.portsOf(sp.WorkspaceID), sp.Env, newVT)
 		if err == nil {
+			if history.history != nil {
+				d.history[id] = history
+			}
 			d.changed()
 			d.mu.Unlock()
 			return
@@ -2218,7 +2229,7 @@ func (d *Daemon) Freeze() {
 	d.mu.Lock()
 	d.frozen = true
 	d.mu.Unlock()
-	d.save()
+	d.Save()
 }
 
 // Thaw undoes Freeze, for a shutdown called off, and closes the panes that
@@ -2241,9 +2252,11 @@ func (d *Daemon) Thaw() {
 }
 
 // Save writes the state now, as before the system sleeps.
-func (d *Daemon) Save() { d.save() }
+func (d *Daemon) Save() { d.saveState(true) }
 
-func (d *Daemon) save() {
+func (d *Daemon) save() { d.saveState(false) }
+
+func (d *Daemon) saveState(history bool) {
 	d.saveMu.Lock()
 	defer d.saveMu.Unlock()
 	d.mu.Lock()
@@ -2253,7 +2266,21 @@ func (d *Daemon) save() {
 	}
 	d.savePending = false
 	s := withoutPopups(d.saveSnapshot())
+	var sources map[string]historySource
+	if history {
+		sources = d.historySources(s)
+	}
 	d.mu.Unlock()
+	if history {
+		captureHistory(&s, sources)
+		d.mu.Lock()
+		if d.closing {
+			d.mu.Unlock()
+			return
+		}
+		d.cacheHistory(&s, sources)
+		d.mu.Unlock()
+	}
 	if err := d.o.Save(s); err != nil {
 		log.Printf("save state: %q", err)
 	}
@@ -2271,7 +2298,12 @@ func (d *Daemon) saveSnapshot() model.State {
 			}
 		}
 	}
-	d.captureHistory(&s)
+	for i := range s.Panes {
+		p := &s.Panes[i]
+		if h := d.history[p.ID]; h.limit > 0 && h.limit == d.historyLines(*p) {
+			p.History = h.history
+		}
+	}
 	return s
 }
 

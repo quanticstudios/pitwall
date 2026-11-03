@@ -67,3 +67,15 @@ func TestRestoredHistorySurvivesScreenClear(t *testing.T) {
 		t.Fatalf("history rows %d", e.ScrollbackLen())
 	}
 }
+
+func TestRestoredHistoryHonorsEraseScrollback(t *testing.T) {
+	e := New(80, 1, io.Discard)
+	defer e.(*emulator).Close()
+	e.Write([]byte("saved row\r\n"))
+	e.Resize(80, 24)
+	e.Write([]byte("divider\r\n\x1b[H\x1b[2J\x1b[3Jfresh"))
+	_, text := HistoryText(e, 2000)
+	if strings.Contains(text, "saved row") || strings.Contains(text, "divider") || !strings.Contains(text, "fresh") || e.ScrollbackLen() != 0 {
+		t.Fatalf("ED 3 must clear restored rows: %q, %d", text, e.ScrollbackLen())
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -20,6 +21,8 @@ type stopped struct {
 	vt   vt.Emulator
 	done chan struct{}
 	code int
+
+	history *model.PaneHistory // source output, without generated divider and exit notice
 }
 
 // stoppedPane marks p exited, ExitUnknown when its command was still
@@ -44,7 +47,7 @@ func (d *Daemon) stoppedPane(p *model.Pane) Pane {
 		newVT = vt.New
 	}
 	newVT = d.restoredVT(*p, newVT)
-	s := &stopped{vt: newVT(defaultCols, defaultRows, io.Discard), done: make(chan struct{}), code: p.ExitCode}
+	s := &stopped{vt: newVT(defaultCols, defaultRows, io.Discard), done: make(chan struct{}), code: p.ExitCode, history: p.History}
 	p.History = nil
 	close(s.done)
 	s.vt.Write([]byte(notice + "\r\n"))
@@ -127,7 +130,13 @@ func (p *stopped) HasPromptMarks() bool {
 }
 
 func (s *stopped) HistoryText(limit int) (int, string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return vt.HistoryText(s.vt, limit)
+	if s.history == nil {
+		return 0, ""
+	}
+	text, err := store.UnpackHistory(s.history)
+	if err != nil {
+		log.Printf("held pane history: %q", err)
+		return 0, ""
+	}
+	return s.history.Cols, recentHistory(text, limit)
 }

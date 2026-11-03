@@ -29,34 +29,95 @@ func (d *Daemon) historyLines(p model.Pane) int {
 	return d.o.PersistScrollback()
 }
 
-func (d *Daemon) captureHistory(s *model.State) {
+const historyEvery = 30 * time.Second
+
+type cachedHistory struct {
+	history *model.PaneHistory
+	limit   int
+}
+
+type historySource struct {
+	pane    Pane
+	history *model.PaneHistory
+	limit   int
+}
+
+// loadHistory validates saved rows before any panes or watchers start.
+func (d *Daemon) loadHistory() {
+	d.history = map[string]cachedHistory{}
+	for i := range d.st.Panes {
+		p := &d.st.Panes[i]
+		h, limit := p.History, d.historyLines(*p)
+		p.History = nil
+		if h == nil || limit <= 0 {
+			continue
+		}
+		text, err := store.UnpackHistory(h)
+		if err == nil {
+			p.History, err = store.PackHistory(h.Cols, recentHistory(text, limit), h.SavedAt)
+		}
+		if err != nil {
+			log.Printf("pane %s: load history: %q", p.ID, err)
+			continue
+		}
+		d.history[p.ID] = cachedHistory{p.History, limit}
+	}
+}
+
+// historySources copies handles and policy under d.mu; capture uses neither map.
+func (d *Daemon) historySources(s model.State) map[string]historySource {
+	sources := make(map[string]historySource, len(s.Panes))
+	for _, p := range s.Panes {
+		sources[p.ID] = historySource{d.panes[p.ID], d.history[p.ID].history, d.historyLines(p)}
+	}
+	return sources
+}
+
+// captureHistory runs with saveMu held and d.mu released.
+func captureHistory(s *model.State, sources map[string]historySource) {
 	now := time.Now()
 	for i := range s.Panes {
 		p := &s.Panes[i]
-		limit := d.historyLines(*p)
-		if limit <= 0 {
+		source := sources[p.ID]
+		p.History = nil
+		if source.limit <= 0 {
 			continue
 		}
-		if h, ok := d.panes[p.ID].(interface{ HistoryText(int) (int, string) }); ok {
-			cols, text := h.HistoryText(limit)
-			var err error
-			p.History, err = store.PackHistory(cols, text, now)
-			if err != nil {
-				log.Printf("pane %s: save history: %q", p.ID, err)
-			}
-		} else if j := slices.IndexFunc(d.st.Panes, func(old model.Pane) bool { return old.ID == p.ID }); j >= 0 {
-			// A queued agent still owns the history from the saved state.
-			old := d.st.Panes[j].History
-			if old != nil {
-				text, err := store.UnpackHistory(old)
-				if err == nil {
-					p.History, err = store.PackHistory(old.Cols, recentHistory(text, limit), old.SavedAt)
-				}
-				if err != nil {
-					log.Printf("pane %s: keep queued history: %q", p.ID, err)
-				}
-			}
+		var cols int
+		var text string
+		at := now
+		var err error
+		if h, ok := source.pane.(interface{ HistoryText(int) (int, string) }); ok {
+			cols, text = h.HistoryText(source.limit)
+		} else if h := source.history; h != nil {
+			cols, at = h.Cols, h.SavedAt
+			text, err = store.UnpackHistory(h)
+			text = recentHistory(text, source.limit)
 		}
+		if err == nil {
+			p.History, err = store.PackHistory(cols, text, at)
+		}
+		if err != nil {
+			log.Printf("pane %s: save history: %q", p.ID, err)
+		}
+	}
+}
+
+// cacheHistory rechecks policy and pane identity after capture. Callers hold d.mu.
+func (d *Daemon) cacheHistory(s *model.State, sources map[string]historySource) {
+	if d.history == nil {
+		d.history = map[string]cachedHistory{}
+	}
+	for i := range s.Panes {
+		p := &s.Panes[i]
+		source := sources[p.ID]
+		j := slices.IndexFunc(d.st.Panes, func(current model.Pane) bool { return current.ID == p.ID })
+		if j < 0 || source.limit <= 0 || d.historyLines(d.st.Panes[j]) != source.limit || d.panes[p.ID] != source.pane {
+			p.History = nil
+			delete(d.history, p.ID)
+			continue
+		}
+		d.history[p.ID] = cachedHistory{p.History, source.limit}
 	}
 }
 
@@ -73,14 +134,29 @@ func (d *Daemon) restoredVT(p model.Pane, newVT vt.NewFunc) vt.NewFunc {
 		return newVT
 	}
 	text = recentHistory(text, limit)
+	// Adapted from tuios (MIT): internal/session/scrollback_persist.go
+	banner := "\x1b[2mRestored from " + h.SavedAt.Local().Format("15:04, Jan 2") + "\x1b[0m\r\n"
+	return d.historyVT(h.Cols, text, banner, newVT)
+}
+
+// carryVT keeps a resumed agent's output when it returns to a shell.
+func (d *Daemon) carryVT(p model.Pane, live Pane) vt.NewFunc {
+	if h, ok := live.(interface{ HistoryText(int) (int, string) }); ok && d.historyLines(p) > 0 {
+		cols, text := h.HistoryText(d.historyLines(p))
+		if cols > 0 && text != "" {
+			return d.historyVT(cols, text, "", d.o.NewVT)
+		}
+	}
+	return d.o.NewVT
+}
+
+func (d *Daemon) historyVT(width int, text, banner string, newVT vt.NewFunc) vt.NewFunc {
 	return func(cols, rows int, reply io.Writer) vt.Emulator {
-		e := newVT(h.Cols, 1, reply)
+		e := newVT(width, 1, reply)
 		if s, ok := e.(interface{ SetScrollback(int) }); ok && d.o.Scrollback != nil {
 			s.SetScrollback(d.o.Scrollback())
 		}
-		e.Write([]byte(text))
-		// Adapted from tuios (MIT): internal/session/scrollback_persist.go
-		e.Write([]byte("\x1b[2mRestored from " + h.SavedAt.Local().Format("15:04, Jan 2") + "\x1b[0m\r\n"))
+		e.Write([]byte(text + banner))
 		e.Resize(cols, rows)
 		return e
 	}
@@ -96,7 +172,7 @@ func (d *Daemon) historyLoop(ctx context.Context, every time.Duration) {
 			return
 		case <-t.C:
 			if d.o.PersistScrollback != nil && d.o.PersistScrollback() > 0 {
-				d.save()
+				d.Save()
 			}
 		}
 	}

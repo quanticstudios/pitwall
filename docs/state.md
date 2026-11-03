@@ -37,8 +37,8 @@ folder whenever it exits. Running processes do not survive a reboot.
 
 ## Pane history
 
-Each state save includes the most recent 2000 rows of each pane's main
-screen and scrollback, including held commands. Restored panes show that
+Pane history is on by default. A checkpoint saves the most recent 2000
+rows of each pane's main screen and scrollback, including held commands. Restored panes show that
 text with its SGR colors, then a dim `Restored from 14:32, Nov 3` divider
 before the new process's output. Alternate-screen contents, images, links
 and terminal modes are not restored. State files without history still load.
@@ -48,14 +48,22 @@ change the row limit; 0 disables capture and restore. The daemon reads this
 setting at each save and restore. A byte limit of 4 MiB per pane can reduce
 the number of saved rows when lines contain long text or many colors.
 History uses gzip inside `state.json`, so rolling snapshots carry the same
-history as the state they copy. The daemon saves every 15 minutes even when
-only terminal output changes.
+history as the state they copy. The daemon captures history every 30 seconds
+and before shutdown or sleep. The one-second saves after tab changes reuse
+the last checkpoint. A daemon crash can lose output since that checkpoint.
+Capture and compression run outside the daemon's lock for client requests.
+
+A resumed agent that returns to a shell keeps its history and final output.
+Held commands keep their output without accumulating restore dividers or
+exit notices in the saved text. A command that clears scrollback with
+`CSI 3 J`, including `clear` in some shells, clears restored rows too.
 
 Guarded tabs save and restore no history, including their shell splits.
 To exclude an individual pane, add `env = ["PITWALL_NO_HISTORY=1"]` to its
 agent preset in `config.toml`. Existing snapshots and backup files retain
 the text saved when capture was enabled. These files can contain private
-terminal output and have the same owner-only permissions as `state.json`.
+terminal output, including any secrets a command prints, and have the same
+owner-only permissions as `state.json`.
 
 Agent launches queue 100 milliseconds apart, with the most recently used
 session first. Shells and other non-agent panes start immediately. Set

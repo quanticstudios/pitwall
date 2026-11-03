@@ -1,10 +1,15 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -211,5 +216,259 @@ func TestHistoryRestoreCorruptAndLowerLimit(t *testing.T) {
 	_, text = vt.HistoryText(e, 2000)
 	if strings.Contains(text, "Restored from") {
 		t.Fatal("corrupt history restored")
+	}
+}
+
+type resumedHistoryPane struct {
+	*emuPane
+	code int
+}
+
+func (p *resumedHistoryPane) ExitCode() int { return p.code }
+
+func TestResumeFallbackKeepsHistory(t *testing.T) {
+	for _, code := range []int{0, 1} {
+		t.Run(string(rune('0'+code)), func(t *testing.T) {
+			st := restoreState(t)
+			st.Panes, st.Workspaces, st.Sessions = st.Panes[:1], st.Workspaces[:1], st.Sessions[:1]
+			if code != 0 {
+				st.Panes[0].Cmd = []string{"claude"}
+			}
+			h, err := store.PackHistory(80, "precious old output\r\n", time.Unix(1, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			st.Panes[0].History = h
+			f := &fakes{saved: st}
+			started := make(chan *resumedHistoryPane, 2)
+			d, _, stop := runDaemon(t, f, func(o *Options) {
+				historyOptions(o)
+				o.StartPane = func(c pane.Config) (Pane, error) {
+					p := &resumedHistoryPane{emuPane: &emuPane{e: c.NewVT(c.Cols, c.Rows, io.Discard), dirty: make(chan struct{}, 1), done: make(chan struct{})}, code: code}
+					if len(c.Cmd) > 0 {
+						p.Write2("resume message\r\n")
+					} else {
+						p.Write2("shell ready\r\n")
+					}
+					started <- p
+					return p, nil
+				}
+			})
+			defer stop()
+			first := <-started
+			first.Close()
+			var shell *resumedHistoryPane
+			select {
+			case shell = <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("fallback shell did not start")
+			}
+			_, text := shell.HistoryText(2000)
+			for _, want := range []string{"precious old output", "resume message", "shell ready"} {
+				if !strings.Contains(text, want) {
+					t.Fatalf("fallback lost %q: %q", want, text)
+				}
+			}
+			if strings.Count(text, "Restored from") != 1 {
+				t.Fatalf("fallback added a divider: %q", text)
+			}
+			d.save()
+			f.mu.Lock()
+			checkpoint := f.saved.Panes[0].History
+			f.mu.Unlock()
+			persisted, err := store.UnpackHistory(checkpoint)
+			if err != nil || !strings.Contains(persisted, "precious old output") {
+				t.Fatalf("fallback dropped checkpoint: %q, %v", persisted, err)
+			}
+			d.Save()
+			f.mu.Lock()
+			saved := f.saved.Panes[0].History
+			f.mu.Unlock()
+			text, err = store.UnpackHistory(saved)
+			if err != nil || !strings.Contains(text, "precious old output") || !strings.Contains(text, "resume message") {
+				t.Fatalf("fallback save: %q, %v", text, err)
+			}
+		})
+	}
+}
+
+type blockedHistoryPane struct {
+	*emuPane
+	entered, release chan struct{}
+	once             sync.Once
+	calls            atomic.Int32
+}
+
+func (p *blockedHistoryPane) HistoryText(limit int) (int, string) {
+	p.calls.Add(1)
+	p.once.Do(func() { close(p.entered) })
+	<-p.release
+	return p.emuPane.HistoryText(limit)
+}
+
+func TestHistoryCaptureReleasesDaemonAndRoutineSaveReusesCache(t *testing.T) {
+	f := &fakes{}
+	o := f.options()
+	historyOptions(&o)
+	st := restoreState(t)
+	st.Panes, st.Workspaces, st.Sessions = st.Panes[:1], st.Workspaces[:1], st.Sessions[:1]
+	d := fromState(o, st)
+	p := &blockedHistoryPane{emuPane: &emuPane{e: vt.New(80, 24, io.Discard)}, entered: make(chan struct{}), release: make(chan struct{})}
+	p.Write2("cached output\r\n")
+	d.panes[st.Panes[0].ID] = p
+	done := make(chan struct{})
+	go func() { d.Save(); close(done) }()
+	var once sync.Once
+	release := func() { once.Do(func() { close(p.release) }) }
+	defer func() { release(); <-done }()
+	select {
+	case <-p.entered:
+	case <-time.After(time.Second):
+		t.Fatal("capture did not start")
+	}
+	locked := make(chan struct{})
+	go func() { d.mu.Lock(); d.mu.Unlock(); close(locked) }()
+	select {
+	case <-locked:
+	case <-time.After(time.Second):
+		t.Fatal("capture holds d.mu")
+	}
+	release()
+	<-done
+	f.mu.Lock()
+	cached := f.saved.Panes[0].History
+	f.mu.Unlock()
+	if cached == nil {
+		t.Fatal("checkpoint omitted history")
+	}
+	p.Write2("new output\r\n")
+	d.save()
+	f.mu.Lock()
+	routine := f.saved.Panes[0].History
+	f.mu.Unlock()
+	if p.calls.Load() != 1 || routine == nil || !bytes.Equal(cached.Data, routine.Data) {
+		t.Fatalf("routine save recaptures: calls %d", p.calls.Load())
+	}
+	d.Save()
+	f.mu.Lock()
+	fresh := f.saved.Panes[0].History
+	f.mu.Unlock()
+	text, err := store.UnpackHistory(fresh)
+	if err != nil || !strings.Contains(text, "new output") || p.calls.Load() != 2 {
+		t.Fatalf("fresh checkpoint: %q, %v, calls %d", text, err, p.calls.Load())
+	}
+}
+
+func TestHistoryCaptureRechecksPrivacy(t *testing.T) {
+	f := &fakes{}
+	o := f.options()
+	historyOptions(&o)
+	var limit atomic.Int32
+	limit.Store(2000)
+	o.PersistScrollback = func() int { return int(limit.Load()) }
+	st := restoreState(t)
+	st.Panes, st.Workspaces, st.Sessions = st.Panes[:1], st.Workspaces[:1], st.Sessions[:1]
+	d := fromState(o, st)
+	p := &blockedHistoryPane{emuPane: &emuPane{e: vt.New(80, 24, io.Discard)}, entered: make(chan struct{}), release: make(chan struct{})}
+	p.Write2("sensitive output\r\n")
+	d.panes[st.Panes[0].ID] = p
+	done := make(chan struct{})
+	go func() { d.Save(); close(done) }()
+	select {
+	case <-p.entered:
+	case <-time.After(time.Second):
+		t.Fatal("capture did not start")
+	}
+	limit.Store(0)
+	close(p.release)
+	<-done
+	f.mu.Lock()
+	saved := f.saved.Panes[0].History
+	f.mu.Unlock()
+	if saved != nil {
+		t.Fatal("capture saved history after policy disabled it")
+	}
+}
+
+func TestHeldHistoryDoesNotAccumulateNotices(t *testing.T) {
+	st := restoreState(t)
+	st.Panes, st.Workspaces = st.Panes[5:], st.Workspaces[5:]
+	st.Panes[0].Held, st.Panes[0].Exited = true, true
+	h, err := store.PackHistory(80, "held command output\r\n", time.Unix(1, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Panes[0].History = h
+	for range 3 {
+		f := &fakes{saved: st}
+		o := f.options()
+		historyOptions(&o)
+		d, err := NewWith(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := d.panes[st.Panes[0].ID].(*stopped)
+		_, screen := vt.HistoryText(p.vt, 2000)
+		if strings.Count(screen, "Restored from") != 1 || strings.Count(screen, "before pitwall restarted") != 1 {
+			t.Fatalf("stacked annotations: %q", screen)
+		}
+		d.Save()
+		f.mu.Lock()
+		st = f.saved
+		f.mu.Unlock()
+		text, err := store.UnpackHistory(st.Panes[0].History)
+		if err != nil || strings.Contains(text, "Restored from") || strings.Contains(text, "before pitwall restarted") || !strings.Contains(text, "held command output") {
+			t.Fatalf("saved annotations: %q, %v", text, err)
+		}
+		d.shutdown()
+	}
+}
+
+func BenchmarkPaneHistorySaves(b *testing.B) {
+	st := fanoutState(20)
+	o := (&fakes{}).options()
+	o.NewVT = vt.New
+	o.PersistScrollback = func() int { return 2000 }
+	path := filepath.Join(b.TempDir(), "state.json")
+	o.Save = func(s model.State) error { return store.Save(path, s) }
+	d := fromState(o, st)
+	var seed uint32 = 1
+	for _, sp := range st.Panes {
+		e := vt.New(200, 24, io.Discard)
+		for range 2200 {
+			var line strings.Builder
+			for segment := range 5 {
+				fmt.Fprintf(&line, "\x1b[38;5;%dm", segment+1)
+				for range 40 {
+					seed = seed*1664525 + 1013904223
+					line.WriteByte(byte(33 + seed%90))
+				}
+			}
+			line.WriteString("\x1b[0m\r\n")
+			e.Write([]byte(line.String()))
+		}
+		d.panes[sp.ID] = &emuPane{e: e}
+		b.Cleanup(func() { e.(io.Closer).Close() })
+	}
+	d.Save()
+	for _, checkpoint := range []bool{false, true} {
+		name := "routine"
+		if checkpoint {
+			name = "checkpoint"
+		}
+		b.Run(name, func(b *testing.B) {
+			for b.Loop() {
+				if checkpoint {
+					d.Save()
+				} else {
+					d.save()
+				}
+			}
+			fi, err := os.Stat(path)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportMetric(float64(fi.Size()), "state-bytes")
+		})
 	}
 }
