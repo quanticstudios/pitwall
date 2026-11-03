@@ -44,6 +44,7 @@ func (u *ui) openHints(all bool) {
 	if id == "" {
 		return
 	}
+	u.paneMenu.close()
 	u.hints = hintMode{on: true, all: all, ws: u.nav.workspace, pane: id}
 }
 

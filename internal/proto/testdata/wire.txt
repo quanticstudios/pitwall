@@ -1,4 +1,4 @@
-18.55
+18.56
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -17,7 +17,7 @@ model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
 model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; ChangeRequests []string; Conflicts bool; Checks []model.Check; Head string; Reason model.Reason; Detail string}
-model.Pane{ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; ResumeCmd []string; Prompt string; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string; Program *model.Program}
+model.Pane{ScrollbackFile string; ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; ResumeCmd []string; Prompt string; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string; Program *model.Program}
 model.Popup{Pane string; Width string; Height string; Title string}
 model.PortBlock{First int; Last int}
 model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}
@@ -64,6 +64,7 @@ proto.DeleteWorktree{Root string; Path string; Force bool}
 proto.DetachSession{WorkspaceID string; Detached bool}
 proto.DismissNotice{Notice string}
 proto.DropTask{ID string; Start bool}
+proto.EditScrollback{Pane string}
 proto.Error{Message string}
 proto.Favicon{Dir string}
 proto.FaviconFile{Name string; Data []uint8}
@@ -102,6 +103,8 @@ proto.RenameWorkspace{WorkspaceID string; Name string}
 proto.ReopenTab{ID string; AtRoot bool}
 proto.Resize{Pane string; Cols int; Rows int; CellW int; CellH int}
 proto.Scroll{Pane string; Lines int; Prompts int}
+proto.Scrollback{Pane string; Lines int}
+proto.ScrollbackResult{Pane string; Text string}
 proto.Search{Pane string; Query string}
 proto.SearchAll{ID uint64; Query string}
 proto.SearchAllResult{ID uint64; Matches []proto.SessionMatch; Done bool; More bool}

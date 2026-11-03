@@ -136,6 +136,9 @@ func allMessages() []any {
 		DeleteWorktree{Root: "/r", Path: "/r/.worktrees/x", Force: true},
 		NewTask{Task: model.Task{NextStart: now, Repeat: 24 * time.Hour, ID: "t", SessionID: "s", Dir: "/tmp", Worktree: "fix", Base: "main", Cmd: []string{"codex", "fix it"}}, Queue: true, FromPane: "a"},
 		DropTask{ID: "t", Start: true},
+		EditScrollback{Pane: "a"},
+		Scrollback{Pane: "a", Lines: 20},
+		ScrollbackResult{Pane: "a", Text: "history\nscreen\n"},
 	}
 }
 

@@ -2,6 +2,9 @@ package daemon
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -221,5 +224,40 @@ func TestStartupRestoreFailureKeepsGap(t *testing.T) {
 	defer d.mu.Unlock()
 	if len(d.st.Panes) != 2 {
 		t.Fatalf("failed panes remain in state: %+v", d.st.Panes)
+	}
+}
+
+func TestRestoreDropsScrollbackEditor(t *testing.T) {
+	for _, present := range []bool{false, true} {
+		t.Run(fmt.Sprint(present), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "scrollback.txt")
+			if present {
+				if err := os.WriteFile(path, []byte("history\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f := &fakes{saved: model.State{Sessions: []model.Session{{ID: "s"}}, Workspaces: []model.Workspace{{ID: "w", SessionID: "s", Path: dir, Tabs: []model.Tab{{ID: "t", Layout: layout.Split(layout.Leaf("shell"), "shell", "editor", layout.Horizontal)}}, ActiveTab: "t"}}, Panes: []model.Pane{{ID: "shell", WorkspaceID: "w", Cwd: dir}, {ID: "editor", WorkspaceID: "w", Cwd: dir, Cmd: []string{"nvim", path}, ScrollbackFile: path}}}}
+			saved := filepath.Join(dir, "state.json")
+			if err := store.Save(saved, f.saved); err != nil {
+				t.Fatal(err)
+			}
+			o := f.options()
+			o.Load = func() (model.State, error) { return store.Open(saved) }
+			d, err := NewWith(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.shutdown()
+			if len(f.panes) != 1 || f.panes[0].cfg.ID != "shell" {
+				t.Fatalf("restored editor: %+v", f.panes)
+			}
+			if len(d.st.Panes) != 1 || !slices.Equal(layout.Panes(d.st.Workspaces[0].Tabs[0].Layout), []string{"shell"}) {
+				t.Fatalf("editor stays in state: %+v", d.st.Panes)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("temporary file stays after restore: %v", err)
+			}
+		})
 	}
 }

@@ -328,6 +328,27 @@ windows move to the most recently used session, or close when none is left.
 
 ### Tabs and panes
 
+Right-click a pane and choose **Open scrollback in editor** to search or copy
+its history and screen in your editor. When a program owns the mouse, use
+Shift-right-click. The editor runs in a normal terminal split to the right.
+The daemon uses `$VISUAL`, else `$EDITOR`, else `vi`; quoted executable paths
+and arguments work. The file holds plain text with wrapped lines joined.
+Pitwall removes the temporary file when the editor process exits, including
+when you close its pane. Use a terminal editor, or your editor's wait flag,
+so the process stays open while you read the file.
+
+The `edit_scrollback` action is unbound by default. Bind it under `[keys]`
+or run **Open scrollback in editor** from the command palette. With a remote
+host, the file and editor are on that host.
+`pitwall scrollback <pane> [--lines N]` prints the same text to stdout
+without opening an editor.
+Full-screen programs that use the alternate screen export only their current
+screen. Editor panes close on a daemon restart or reboot.
+CLI exports above 63 MiB return an error; use `--lines N` for fewer lines.
+The editor action has no reply-size limit.
+
+<img src="media/scrollback-editor.png" alt="A pane's scrollback open in nvim in a split to its right" width="800">
+
 <img src="media/panemode.webp" alt="Pane mode: split down, move focus right, toggle fullscreen and leave with Esc, with the PANE hint showing the keys" width="800">
 
 The keyboard shortcuts are in [Keybindings](keys.md). With the mouse:

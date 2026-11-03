@@ -29,6 +29,7 @@ func (d *Daemon) recordClosed(w model.Workspace, gone []model.Pane) {
 			panes = append(panes, d.liveCwd(p))
 		}
 	}
+	panes = slices.DeleteFunc(panes, func(p model.Pane) bool { return p.ScrollbackFile != "" })
 	if len(panes) == 0 {
 		return
 	}

@@ -36,6 +36,8 @@ build. Either step takes `--dry-run`.
 - Session dots in the host list show waiting agents before unseen finished turns, then work; the tab count adds how many need you or are done when there is room.
 - Session dots in the host list prioritize waiting agents, unseen finished turns, then work. Counts show how many need you or are done when there is room. Hover a session to preview up to 12 tabs in urgency order. Click a tab to switch to it. Settings, Appearance, Sidebar turns the preview off or on live.
 - Session dots in the host list prioritize waiting agents, unseen finished turns, then work. Counts use the session switcher's needs-you rule when there is room. Hover a session to preview up to 12 tabs in urgency order. Click a tab to switch to it. Settings, Appearance, Sidebar turns the preview off or on live.
+- Open a pane's scrollback and screen in `$VISUAL`, `$EDITOR` or `vi` from its right-click menu or the unbound `edit_scrollback` action. The editor runs in a split to the right, and its temporary text file goes away when it exits. `pitwall scrollback <pane> [--lines N]` prints the same plain text with wrapped lines joined. Full-screen programs on the alternate screen give only their current screen. Editor panes close on a daemon restart or reboot.
+
 - Tab search lists the current session's tabs first, and another session's tab names its session and host before its group, so a long group name no longer hides it.
 
 ## v0.1.10

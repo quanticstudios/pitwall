@@ -343,3 +343,11 @@ func (p *Pane) ExitCode() int {
 		return -1
 	}
 }
+
+// Scrollback returns the pane's history and screen as plain text.
+func (p *Pane) Scrollback() string {
+	p.mu.Lock()
+	build := vt.CaptureScrollback(p.vt)
+	p.mu.Unlock()
+	return build()
+}

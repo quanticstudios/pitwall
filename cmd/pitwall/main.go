@@ -112,6 +112,8 @@ const usage = `usage:
                              agent and return; pitwall types it, under a
                              header naming this pane, at the agent's next
                              prompt
+  pitwall scrollback <pane> [--lines N]
+                             print scrollback and screen as plain text
   pitwall read <pane> [--screen]
                              print the last reply of the pane's agent
                              (--screen: the text on its screen)
@@ -253,7 +255,7 @@ func main() {
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":
 		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "wait", "split", "popup", "prompt", "send", "read", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
+	case "ls", "new", "wait", "split", "popup", "prompt", "send", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

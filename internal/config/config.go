@@ -87,6 +87,7 @@ type Keys struct {
 	NavigateRight   Binding `toml:"navigate_right" group:"Panes" doc:"Navigate right: focus the pane to the right, as navigate_left does"`
 	SplitRight      Binding `toml:"split_right" group:"Panes" doc:"Split the pane to the right"`
 	SplitDown       Binding `toml:"split_down" group:"Panes" doc:"Split the pane below"`
+	EditScrollback  Binding `toml:"edit_scrollback" group:"Panes" doc:"Open scrollback in editor"`
 	ClosePane       Binding `toml:"close_pane" group:"Panes" doc:"Close the pane (the tab with its last pane)"`
 	Switcher        Binding `toml:"switcher" group:"Tabs" doc:"Show or hide the tab switcher"`
 	PinSwitcher     Binding `toml:"pin_switcher" group:"Tabs" doc:"Keep the switcher open after the hold modifier is released"`

@@ -113,6 +113,14 @@ func TestHandoffHelper(t *testing.T) {
 	} else {
 		d, ln, err = Takeover(sock, o)
 	}
+	if role == "old" && err == nil {
+		path := filepath.Join(dir, "scrollback.txt")
+		if _, e := os.Stat(path); e == nil {
+			d.mu.Lock()
+			d.cleanScrollback("sh0", d.panes["sh0"], path)
+			d.mu.Unlock()
+		}
+	}
 	if err == nil {
 		fmt.Println("serving")
 		err = d.Serve(ctx, ln)
@@ -465,4 +473,38 @@ func mismatch(a, b []byte) int {
 		}
 	}
 	return min(len(a), len(b))
+}
+
+func TestScrollbackHandoff(t *testing.T) {
+	dir, err := os.MkdirTemp("", "pws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	for _, name := range []string{"burst", "input", "tui"} {
+		if err := syscall.Mkfifo(filepath.Join(dir, name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(dir, "scrollback.txt")
+	if err := os.WriteFile(path, []byte("history\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := startDaemonProc(t, dir, "old", "")
+	if err := old.serving(t); err != nil {
+		t.Fatal(err)
+	}
+	next := startDaemonProc(t, dir, "new", "")
+	if err := next.serving(t); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.waitExit(t); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("handoff removed the editor's file: %v", err)
+	}
+	c := dial(t, filepath.Join(dir, "d.sock"), "cli")
+	typeIn(c, "sh0", "exit\n")
+	waitUntil(t, "scrollback file removed after handoff", func() bool { _, err := os.Stat(path); return os.IsNotExist(err) })
 }

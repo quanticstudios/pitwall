@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 56 added EditScrollback, Scrollback, ScrollbackResult and Pane.ScrollbackFile.
 // Level 55 added View.Live: panes a GUI wants at the live screen whatever
 // the shared scroll position, as picture in picture shows them.
 // Level 54 added OpenPopup and Workspace.Popup: a floating pane over a
@@ -166,7 +167,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 55
+const Level = 56
 
 // PopupLevel added OpenPopup.
 const PopupLevel = 54
@@ -210,6 +211,8 @@ func Since(msg any) int {
 	switch msg.(type) {
 	case OpenPopup:
 		return PopupLevel
+	case EditScrollback, Scrollback, ScrollbackResult:
+		return 56
 	case ReopenTab, ForgetTab:
 		return ClosedLevel
 	case Tmux, TmuxResult:
@@ -940,6 +943,7 @@ var Messages = []any{
 	Image{}, ImageResult{},
 	OpenForm{}, FormAnswer{},
 	OpenPopup{},
+	EditScrollback{}, Scrollback{}, ScrollbackResult{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

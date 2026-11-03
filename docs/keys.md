@@ -42,6 +42,17 @@ highlighted tab, Delete forgets a closed one, and the last row searches all
 sessions for the query instead. Plain Ctrl+K reaches the terminal. See
 [Tab search](usage.md#tab-search).
 
+`edit_scrollback` opens the focused pane's history and screen in an editor
+split. It is unbound in every preset. For example:
+
+```toml
+[keys]
+edit_scrollback = "Ctrl+Shift+F12"
+```
+
+Choose a chord that is free in your preset. See [Tabs and panes](usage.md#tabs-and-panes)
+for editor selection and the right-click menu.
+
 To find what a key does, type it: in the palette, the settings search or the
 search field on the Keyboard shortcuts page, `ctrl+shift+d`, `shift ctrl d`
 and `⌃⇧D` all list only the actions bound to Ctrl+Shift+D. `+`, `-` and

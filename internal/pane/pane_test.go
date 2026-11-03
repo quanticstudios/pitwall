@@ -390,3 +390,32 @@ func TestPixelSize(t *testing.T) {
 		t.Errorf("pixels %dx%d, want 90x90", ws.Xpixel, ws.Ypixel)
 	}
 }
+
+type scrollbackVT struct {
+	fakeVT
+	entered, release chan struct{}
+}
+
+func (f *scrollbackVT) Snapshot() vt.Grid                 { return vt.Grid{Cols: 1, Rows: 1} }
+func (f *scrollbackVT) Text(vt.Selection) string          { return f.build() }
+func (f *scrollbackVT) ScrollbackSnapshot() func() string { return f.build }
+func (f *scrollbackVT) build() string                     { close(f.entered); <-f.release; return "history\n" }
+func TestScrollbackBuildReleasesPane(t *testing.T) {
+	f := &scrollbackVT{entered: make(chan struct{}), release: make(chan struct{})}
+	p := &Pane{vt: f}
+	built := make(chan string, 1)
+	go func() { built <- p.Scrollback() }()
+	defer func() { close(f.release); <-built }()
+	select {
+	case <-f.entered:
+	case <-time.After(time.Second):
+		t.Fatal("export never starts")
+	}
+	ready := make(chan struct{})
+	go func() { p.Snapshot(); close(ready) }()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("text building holds the pane lock")
+	}
+}

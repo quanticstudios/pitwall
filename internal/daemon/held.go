@@ -93,3 +93,11 @@ func (s *stopped) Done() <-chan struct{}  { return s.done }
 func (s *stopped) ExitCode() int          { return s.code }
 func (s *stopped) Cwd() string            { return "" }
 func (s *stopped) Close() error           { return nil }
+
+// Scrollback returns the pane's history and screen as plain text.
+func (p *stopped) Scrollback() string {
+	p.mu.Lock()
+	build := vt.CaptureScrollback(p.vt)
+	p.mu.Unlock()
+	return build()
+}

@@ -57,6 +57,8 @@ type (
 		Cols, Rows int
 		Snapshot   []byte   // vt.Save
 		Input      [][]byte // queued for the PTY and not written yet, in order
+
+		ScrollbackFile string // the editor pane's temporary file, removed on exit
 	}
 	// handoffChat is the seam for managed sessions (M4): each will move
 	// with its stdio pipes as FDs descriptors after the panes' masters.

@@ -22,6 +22,7 @@ optional name act on the pane's own tab.
 | `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
 | `pitwall send <pane> -- text`         | Queue a message for the pane's agent and return; pitwall types it, under a header naming the sender, at the agent's next prompt |
 | `pitwall form [--id id] [file]` / `--id id --update [file]` / `--id id --close` | Show a form or a dashboard (the file, or stdin) over this pane's tab and print the answers as JSON; exit 1 on cancel or close, 2 on an error. `--update` changes an open form, `--close` ends it (see [Forms](usage.md#forms)) |
+| `pitwall scrollback <pane> [--lines N]` | Print history and screen as plain text with wrapped lines joined; `--lines N` keeps the last N logical lines, 0 means all; alternate-screen programs give only their current screen; exports above 63 MiB return an error |
 | `pitwall read <pane> [--screen]`      | Print the last reply of the pane's agent, or with `--screen` the text on its screen |
 | `pitwall agent explain <pane> [--provider name] [--json]` | Explain the daemon's agent state, screen rules, foreground process and last hook; `--file path` instead of a pane reads a saved screen locally |
 | `pitwall review [tab] [--agent claude\|codex]` | Second opinion: open the other agent read only beside the tab's agent to review its changes, and print its address; its first reply goes to the tab's agent |
