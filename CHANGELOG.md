@@ -32,6 +32,7 @@ build. Either step takes `--dry-run`.
 
 - The review view's Staging scope stages and unstages single hunks or whole files, with s and u or a click, in Unstaged and Staged groups, so you can commit part of an agent's work. On a `pitwall --host` tab, Stage hunks in terminal runs `git add -p` on the host; `stage_terminal` gives it a key.
 - Session dots in the host list show waiting agents before unseen finished turns, then work; the tab count adds how many need you or are done when there is room.
+- Session dots in the host list prioritize waiting agents, unseen finished turns, then work. Counts show how many need you or are done when there is room. Hover a session to preview up to 12 tabs in urgency order. Click a tab to switch to it. Settings, Appearance, Sidebar turns the preview off or on live.
 - Tab search lists the current session's tabs first, and another session's tab names its session and host before its group, so a long group name no longer hides it.
 
 ## v0.1.10

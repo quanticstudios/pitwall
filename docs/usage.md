@@ -300,6 +300,16 @@ or nothing. Looking at a finished agent in the focused pane of a focused
 window clears its unseen mark. The tab count adds how many agents need you,
 or how many are done and unseen, when the count fits beside the session name.
 
+Hover a session for 400 ms to open its tab list beside the sidebar. Tabs
+follow the dot's urgency order, up to 12 rows, then `+N more`. Move into the
+popover to keep it open, or click a tab to switch to it. Leaving both the
+session row and the popover closes the list. **Settings > Appearance >
+Sidebar > Session preview** turns it off or on live. The setting is
+`[sidebar] session_preview`, on by default. The preview uses the state the
+window already has, including sessions on other hosts.
+
+<img src="media/session-preview.webp" alt="A session preview in dark and light themes lists waiting agents, unseen finished turns and working agents, with marks and state pills" width="900">
+
 <img src="media/session-dots.webp" alt="Host lists in dark and light themes show plans and unseen finished turns above work, and clear seen finished turns" width="576">
 
 Each window shows one session, and you can open as many windows as you like.

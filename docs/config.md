@@ -55,6 +55,7 @@ pane_margin = 4
 view = "tree"                           # or "inbox": see usage.md, The inbox
 workers = "folded"                      # or "separate": a row per worker, see usage.md, Workers
 working_shelf = true                    # working tabs get their own inbox section
+session_preview = true                  # hover a host-list session to see its tabs
 settle_after_days = 3                   # settle a tab this many days idle; 0 never
 settle_on_merge = true                  # settle a tab once its pull request merges
 

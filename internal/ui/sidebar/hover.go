@@ -34,16 +34,17 @@ const (
 const groupIndent unit.Dp = 12
 
 // hoverState decides which tab's card shows from the row under the pointer
-// and the clock. A card opens after hoverDelay on one row; while one is
-// open, another row takes it over at once; off the rows it closes after
-// hoverGrace. A dismissed card stays closed until the pointer is on another
-// row.
+// and the clock. A card opens after its delay, or hoverDelay when zero.
+// While one is open, another row takes it over at once. Off the rows it
+// closes after hoverGrace. A dismissed card stays closed until the pointer
+// is on another row.
 type hoverState struct {
-	over    string    // the row under the pointer, "" for none
-	since   time.Time // when over last changed
-	blocked string    // the row whose card was dismissed
-	shown   string    // the row whose card is open
-	shownAt time.Time // when it opened, for the fade
+	delay   time.Duration // zero uses hoverDelay
+	over    string        // the row under the pointer, "" for none
+	since   time.Time     // when over last changed
+	blocked string        // the row whose card was dismissed
+	shown   string        // the row whose card is open
+	shownAt time.Time     // when it opened, for the fade
 }
 
 // step moves the state to now with the pointer over row over, and returns
@@ -69,7 +70,11 @@ func (h *hoverState) step(now time.Time, over string) time.Time {
 	case h.shown != "":
 		h.shown = over
 	default:
-		if at := h.since.Add(hoverDelay); now.Before(at) {
+		delay := h.delay
+		if delay == 0 {
+			delay = hoverDelay
+		}
+		if at := h.since.Add(delay); now.Before(at) {
 			return at
 		}
 		h.shown, h.shownAt = over, now
@@ -83,9 +88,12 @@ func (h *hoverState) dismiss() {
 	h.shown, h.blocked = "", h.over
 }
 
-// HideHover closes a tab's hover card, for a key press or the window
+// HideHover closes hover cards, for a key press or the window
 // losing focus.
-func (s *Sidebar) HideHover() { s.hover.dismiss() }
+func (s *Sidebar) HideHover() {
+	s.hover.dismiss()
+	s.preview.hover.dismiss()
+}
 
 // hoverFrame feeds the row under the pointer to the hover state. A drag,
 // an open menu or a rename hides the card; the session switcher's preview

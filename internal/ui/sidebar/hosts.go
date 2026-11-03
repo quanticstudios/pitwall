@@ -89,6 +89,7 @@ func sessionActivity(acts []model.Activity) (dot *model.Activity, waiting, done 
 // session's state.
 func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State) layout.Dimensions {
 	if len(s.Hosts) < 2 {
+		s.preview = sessionPreview{}
 		return layout.Dimensions{}
 	}
 	if s.hostBtn == nil {
@@ -205,6 +206,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 		})
 	}
 	y += gtx.Dp(6)
+	over := ""
 	for _, h := range s.Hosts {
 		note, c := "", th.Muted
 		if !h.Up {
@@ -220,7 +222,12 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 				continue
 			}
 			for btn("s:" + id).Clicked(gtx) {
+				s.HideHover()
 				s.events = append(s.events, ShowSession{SessionID: id})
+			}
+			if btn("s:" + id).Hovered() {
+				over = id
+				s.preview.anchor = image.Rect(0, gtx.Dp(56)+y, w, gtx.Dp(56)+y+gtx.Dp(28))
 			}
 			dot, waiting, done := sessionActivity(acts[id])
 			count := ""
@@ -249,6 +256,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 	}
 	y += gtx.Dp(6)
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, y-1), Max: image.Pt(w, y)}.Op())
+	s.sessionPreviewFrame(gtx, over)
 	return layout.Dimensions{Size: image.Pt(w, y)}
 }
 
