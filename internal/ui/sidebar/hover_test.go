@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/io/input"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -204,5 +205,94 @@ func TestGroupIndent(t *testing.T) {
 	h.pointer(pointer.Press, h.at("u2", 20))
 	if h.s.hover.shown != "" {
 		t.Fatal("a press left the card open")
+	}
+}
+
+func TestHoverCardHostListOffset(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		hide, waiting, inbox bool
+		oneHost, treeOnly    bool
+	}{
+		{name: "hosts"},
+		{name: "hosts and waiting", waiting: true},
+		{name: "waiting only", hide: true, waiting: true},
+		{name: "hidden", hide: true},
+		{name: "inbox", waiting: true, inbox: true},
+		{name: "one host", oneHost: true},
+		{name: "tree only", treeOnly: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := model.State{
+				Sessions: []model.Session{{ID: "local", Name: "here"}, {ID: "remote", Name: "there"}},
+				Workspaces: []model.Workspace{
+					{ID: "target", SessionID: "local", Name: "hover-target"},
+					{ID: "other", SessionID: "remote", Name: "remote-tab"},
+				},
+			}
+			if tc.waiting {
+				st.Activities = []model.Activity{{PaneID: "rp", WorkspaceID: "other", State: model.StatePendingApproval}}
+			}
+			s := Sidebar{HideSessions: tc.hide, Inbox: tc.inbox, TreeOnly: tc.treeOnly, Hosts: []HostInfo{
+				{Up: true, Sessions: []string{"local"}}, {Name: "box", Up: true, Sessions: []string{"remote"}},
+			}}
+			if tc.oneHost {
+				s.Hosts = s.Hosts[:1]
+			}
+			var r input.Router
+			var ops op.Ops
+			now := time.Unix(1e9, 0)
+			frame := func() {
+				ops.Reset()
+				gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+					Constraints: layout.Exact(image.Pt(288, 800)), Now: now}
+				s.Layout(gtx, theme.Dark(), &st, "local", "target")
+				r.Frame(&ops)
+			}
+			frame()
+			var row image.Rectangle
+			label := "hover-target"
+			var find func(input.SemanticNode) bool
+			find = func(n input.SemanticNode) bool {
+				found := n.Desc.Label == label
+				for _, child := range n.Children {
+					found = find(child) || found
+				}
+				if found && n.Desc.Gestures&input.ClickGesture != 0 {
+					row = n.Desc.Bounds
+				}
+				return found
+			}
+			for _, n := range r.AppendSemantics(nil) {
+				find(n)
+			}
+			if row.Empty() {
+				t.Fatal("tab row is missing from the layout semantics")
+			}
+			for i := range 2 {
+				r.Queue(pointer.Event{Kind: pointer.Move, Source: pointer.Mouse,
+					Position: f32.Pt(float32(row.Min.X+30+i), float32(row.Min.Y+20))})
+				frame()
+			}
+			now = now.Add(hoverDelay)
+			frame()
+			if s.cardAt != "target" || s.hover.shown != "target" {
+				t.Fatalf("hover card is for %q, shown %q", s.cardAt, s.hover.shown)
+			}
+			if s.cardY != row.Min.Y || s.rowAt.Y != row.Min.Y {
+				t.Fatalf("card y %d, row anchor y %d, want drawn row y %d", s.cardY, s.rowAt.Y, row.Min.Y)
+			}
+			if !tc.inbox {
+				st.Projects = []model.Project{{ID: "group", SessionID: "local", Name: "hover-group"}}
+				frame()
+				label, row = "hover-group", image.Rectangle{}
+				for _, n := range r.AppendSemantics(nil) {
+					find(n)
+				}
+				if row.Empty() || s.rowAt.Y != row.Min.Y {
+					t.Fatalf("group anchor y %d, want drawn header %v", s.rowAt.Y, row)
+				}
+			}
+		})
 	}
 }

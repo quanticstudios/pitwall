@@ -382,6 +382,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	gtx.Constraints = layout.Exact(image.Pt(w-1, h))
 	animating, moving := false, false
 	s.editorLaidOut, s.reply.laidOut = false, false
+	top := 0
 	bar := func(f func(gtx layout.Context) layout.Dimensions) layout.FlexChild {
 		if s.TreeOnly {
 			f = func(layout.Context) layout.Dimensions { return layout.Dimensions{} }
@@ -389,12 +390,20 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 		return layout.Rigid(f)
 	}
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		bar(func(gtx layout.Context) layout.Dimensions { return s.header(gtx, th, name) }),
-		bar(func(gtx layout.Context) layout.Dimensions { return s.hostList(gtx, th, all) }),
+		bar(func(gtx layout.Context) layout.Dimensions {
+			d := s.header(gtx, th, name)
+			top += d.Size.Y
+			return d
+		}),
+		bar(func(gtx layout.Context) layout.Dimensions {
+			d := s.hostList(gtx, th, all)
+			top += d.Size.Y
+			return d
+		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			// px-2: rows and group headers keep clear of both edges.
 			d := layout.Inset{Left: listPad, Right: listPad}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				d, a, m := s.tree(gtx, v)
+				d, a, m := s.tree(gtx, v, top)
 				animating, moving = a, m
 				return d
 			})

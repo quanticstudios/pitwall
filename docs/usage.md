@@ -381,6 +381,9 @@ Rest the pointer on a tab for half a second and a card opens beside the
 sidebar with what the row cuts off: the full title, the group and folder, the
 branch with its diff stats, the agent's state and question, and the pane
 count. Move to another tab and the card follows at once.
+The card stays aligned with its tab below the host, session and waiting lists.
+
+<img src="media/tab-hovercards.webp" alt="Tab hover cards align with the tab below two hosts and a waiting agent in dark and light themes" width="1000">
 
 Drag a tab or a group header to reorder it: the other rows slide apart to
 show where it will land, and Escape puts it back. Groups and ungrouped tabs

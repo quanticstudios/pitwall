@@ -18,6 +18,8 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - A program report from the pane's own agent, as Codex ("codex") and Claude Code ("claude-code") send, no longer repeats the agent's name: the row keeps the agent's update message and drops the name, and a report with no message is left to the agent's pill.
+- Tab hover cards and row menus align with their rows when the sidebar shows hosts, sessions or waiting agents above the tabs.
+- A program report that only names the pane's own agent, as Codex sends one, no longer shows as a chip such as "codex" beside the tab's name; the agent's mark and pill already say it.
 - Hide the sidebar's host headings and session rows with `[sidebar] sessions = false` or Settings > Appearance > Sidebar > Sessions. Waiting agents stay visible with links to tabs on every host.
 
 ## v0.1.11
