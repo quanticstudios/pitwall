@@ -111,6 +111,7 @@ type Keys struct {
 	TogglePanel     Binding `toml:"toggle_panel" group:"Agents" doc:"Show or hide the agent panel. It follows the agent in the focused pane"`
 	ViewDiff        Binding `toml:"view_diff" group:"Review" doc:"View diff: the review view of the tab's changes since its default branch, committed or not, where you comment on lines and send the comments to the tab's agent"`
 	DiffPager       Binding `toml:"diff_pager" group:"Review" doc:"Open diff in pager: the same changes in your git pager in a new pane"`
+	StageTerminal   Binding `toml:"stage_terminal" group:"Review" doc:"Stage hunks in terminal: git add -p, then git reset -p to take hunks back, in a new pane in the tab's worktree, on the host for pitwall --host"`
 	CreatePR        Binding `toml:"create_pr" group:"Review" doc:"Create pull request: gh pr create --fill in a new tab in the tab's folder, after git push -u origin HEAD when the branch has no upstream"`
 	OpenPR          Binding `toml:"open_pr" group:"Review" doc:"Open PR: the tab's pull request in your browser"`
 	MergePR         Binding `toml:"merge_pr" group:"Review" doc:"Merge PR: gh pr merge in a new tab, by [git] merge_method, after you confirm, and again when checks failed"`

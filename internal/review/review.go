@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -25,6 +26,19 @@ type File struct {
 	Lines    []Line
 	// Hash names the change: it differs once the file changes again.
 	Hash string
+	// NoEOL indexes the lines git marks with "\ No newline at end of file".
+	NoEOL []int
+	// Staged says the file is from the index's diff against HEAD, in the
+	// Staging scope, where a file can show twice.
+	Staged bool
+}
+
+// Key names the file in a list where it can show twice, staged and not.
+func (f *File) Key() string {
+	if f.Staged {
+		return "staged\x00" + f.Path
+	}
+	return f.Path
 }
 
 // Line is one line of a file's diff.
@@ -99,6 +113,9 @@ func Parse(patch []byte) []File {
 				f.Lines = append(f.Lines, Line{Kind: '-', Old: old, Text: line[1:]})
 				continue
 			case '\\': // "\ No newline at end of file"
+				if n := len(f.Lines); n > 0 {
+					f.NoEOL = append(f.NoEOL, n-1)
+				}
 				continue
 			}
 			inHunk = false
@@ -242,6 +259,50 @@ func Header(lines []Line, h Hunk) string {
 		n = before(lines[:h.Start], func(l Line) int { return l.New })
 	}
 	return fmt.Sprintf("@@ -%d,%d +%d,%d @@", o, oc, n, nc)
+}
+
+// HunkAt is the hunk of hunks that line is in, else the first one after
+// it, else the last: what s stages when the selected line is between
+// hunks, so pressing it again moves down the file. ok is false for none.
+func HunkAt(hunks []Hunk, line int) (h Hunk, ok bool) {
+	for _, h := range hunks {
+		if line < h.End {
+			return h, true
+		}
+	}
+	if len(hunks) == 0 {
+		return Hunk{}, false
+	}
+	return hunks[len(hunks)-1], true
+}
+
+// Patch is hunk h of f, a modified text file, as git apply --cached takes
+// it: the file's diff header, then the hunk. A patch of one hunk of an
+// unstaged diff stages it; of a staged one, applied with -R, unstages it.
+// git apply finds the hunk by its context, so the other hunks' lines
+// shifting the numbers does not matter.
+func Patch(f *File, h Hunk) []byte {
+	var b bytes.Buffer
+	a, bb := patchPath("a/"+f.Path), patchPath("b/"+f.Path)
+	fmt.Fprintf(&b, "diff --git %s %s\n--- %s\n+++ %s\n%s\n", a, bb, a, bb, Header(f.Lines, h))
+	for i := h.Start; i < h.End; i++ {
+		b.WriteByte(f.Lines[i].Kind)
+		b.WriteString(f.Lines[i].Text)
+		b.WriteByte('\n')
+		if slices.Contains(f.NoEOL, i) {
+			b.WriteString("\\ No newline at end of file\n")
+		}
+	}
+	return b.Bytes()
+}
+
+// patchPath quotes p as git does when it holds a quote, a backslash, a tab
+// or a newline, which a patch header cannot carry bare.
+func patchPath(p string) string {
+	if strings.ContainsAny(p, "\"\\\t\n") {
+		return strconv.Quote(p)
+	}
+	return p
 }
 
 // before is the last non-zero number num gives a line of lines, 0 for none.

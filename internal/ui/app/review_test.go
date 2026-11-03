@@ -113,6 +113,28 @@ func TestDiffCmd(t *testing.T) {
 	}
 }
 
+// TestStageScript answers stageScript's git add -p and git reset -p from
+// a subfolder: one hunk of two goes in, and the second question, to take
+// it back, is declined.
+func TestStageScript(t *testing.T) {
+	gitEnv(t)
+	dir := t.TempDir()
+	gitIn(t, dir, "init", "--initial-branch=main")
+	write(t, filepath.Join(dir, "sub", "a.txt"), "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
+	gitIn(t, dir, "add", "-A")
+	gitIn(t, dir, "commit", "-m", "base")
+	write(t, filepath.Join(dir, "sub", "a.txt"), "one\n2\n3\n4\n5\n6\n7\n8\n9\nten\n")
+	cmd := exec.Command("sh", "-c", stageScript, "sh", filepath.Join(dir, "sub"))
+	cmd.Stdin = strings.NewReader("y\nn\nn\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	staged := gitIn(t, dir, "diff", "--cached")
+	if !strings.Contains(staged, "+one") || strings.Contains(staged, "+ten") {
+		t.Errorf("staged:\n%s", staged)
+	}
+}
+
 // TestPRCmd runs the pull request tab's command against a local origin
 // with a stub gh: a branch without an upstream is pushed first, one with
 // an upstream is not, and gh gets pr create --fill either way.
@@ -155,7 +177,7 @@ func TestPRCmd(t *testing.T) {
 	}
 }
 
-// TestReview: diff_pager splits the open tab, create_pr opens a tab in the
+// TestReview: diff_pager and stage_terminal split the open tab, create_pr opens a tab in the
 // tab's group, and a blocked action sends nothing.
 func TestReview(t *testing.T) {
 	old := ghInstalled
@@ -168,6 +190,9 @@ func TestReview(t *testing.T) {
 	n := nav{workspace: "w"}
 	if got, want := n.review(&st, "w", "diff_pager"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: diffCmd("/repo", "refs/remotes/origin/main", nil)}); !reflect.DeepEqual(got, want) {
 		t.Errorf("diff_pager = %+v, want %+v", got, want)
+	}
+	if got, want := n.review(&st, "w", "stage_terminal"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: []string{"sh", "-c", stageScript, "sh", "/repo"}}); !reflect.DeepEqual(got, want) {
+		t.Errorf("stage_terminal = %+v, want %+v", got, want)
 	}
 	if got, want := n.review(&st, "w", "create_pr"), (proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo")}); !reflect.DeepEqual(got, want) {
 		t.Errorf("create_pr = %+v, want %+v", got, want)

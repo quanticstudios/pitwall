@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"strings"
 	"sync"
@@ -308,7 +309,7 @@ func TestReviewTurnScope(t *testing.T) {
 	if turn, in, _ := u.review.turnState(); !in || turn.N != 3 {
 		t.Errorf("turn %+v, in %v", turn, in)
 	}
-	u.review.setScope(false)
+	u.review.setScope(false, false)
 	if got := paths(u); got != "branch.go" {
 		t.Errorf("Branch shows %q", got)
 	}
@@ -337,5 +338,82 @@ func TestReviewTurnScope(t *testing.T) {
 	t.Cleanup(u.review.hide)
 	if got := paths(u); got != "branch.go" {
 		t.Errorf("a working agent's tab opened on %q", got)
+	}
+}
+
+// TestReviewStaging: Staging lists the unstaged files under one heading
+// and the staged ones under another, a.go in both; s on the unstaged copy
+// applies its selected hunk alone to the index, Shift+U on the staged copy
+// unstages the whole file, and s on a staged file does nothing.
+func TestReviewStaging(t *testing.T) {
+	oldRead, oldApply, oldFiles, oldTurn := readStaging, applyCached, stageFiles, readTurn
+	t.Cleanup(func() { readStaging, applyCached, stageFiles, readTurn = oldRead, oldApply, oldFiles, oldTurn })
+	readTurn = func(context.Context, string, string) (gitstat.Turn, error) { return gitstat.Turn{}, nil }
+	var lines []string
+	for i := 1; i <= 12; i++ {
+		lines = append(lines, " l"+string(rune('a'+i)))
+	}
+	lines[1], lines[10] = "-old2\n+new2", "-old11\n+new11"
+	unstaged := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1,12 +1,12 @@\n" + strings.Join(lines, "\n") + "\n"
+	staged := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1 +1 @@\n-p\n+q\n"
+	readStaging = func(context.Context, string) (gitstat.Staging, error) {
+		return gitstat.Staging{Root: "/repo", Unstaged: []byte(unstaged), Staged: []byte(staged), Untracked: []string{"new.go"}}, nil
+	}
+	var mu sync.Mutex
+	var calls []string
+	applyCached = func(_ context.Context, dir string, patch []byte, reverse bool) error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, fmt.Sprintf("apply %s %v %q", dir, reverse, patch))
+		return nil
+	}
+	stageFiles = func(_ context.Context, dir string, paths []string, unstage bool) error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, fmt.Sprintf("files %s %v %v", dir, paths, unstage))
+		return nil
+	}
+	b := newAgentBackend(model.StateWorking)
+	u := &ui{b: b, th: theme.Dark()}
+	st := b.State()
+	u.openReview(&st, "w", "")
+	t.Cleanup(u.review.hide)
+	u.review.setScope(false, true)
+	var files []review.File
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if files, _, _, _, _ = u.review.snapshot(); len(files) == 3 && u.review.staged() {
+			break
+		}
+	}
+	if len(files) != 3 || files[0].Key() != "a.go" || files[1].Path != "new.go" || !files[2].Staged {
+		t.Fatalf("files %+v", files)
+	}
+	if got := stageItems(files, true); fmt.Sprint(got) != "[-1 0 1 -2 2]" {
+		t.Errorf("stageItems %v", got)
+	}
+	wait := func(n int) []string {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); u.review.restoring() && time.Now().Before(deadline); {
+			time.Sleep(5 * time.Millisecond)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if len(calls) != n {
+			t.Fatalf("calls %q", calls)
+		}
+		return calls
+	}
+
+	u.review.selectFile(files, 0)
+	u.review.setLine(12, false) // past the first hunk: the second
+	u.stageHunk(&files[0], false, false)
+	got := wait(1)[0]
+	if !strings.Contains(got, `apply /repo false`) || !strings.Contains(got, `+new11`) || strings.Contains(got, `new2`) {
+		t.Errorf("s applied %s", got)
+	}
+	u.stageHunk(&files[2], false, false) // s on a staged file
+	u.stageHunk(&files[2], true, true)
+	if got := wait(2)[1]; got != "files /repo [a.go] true" {
+		t.Errorf("Shift+U ran %s", got)
 	}
 }

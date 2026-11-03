@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"slices"
 	"strings"
@@ -32,11 +33,14 @@ const (
 	hugeLines = 3000
 )
 
-// readDiff, discardFiles and the turn functions are what the review view
-// runs git through; tests replace them.
+// readDiff, discardFiles, the turn and the staging functions are what the
+// review view runs git through; tests replace them.
 var (
 	readDiff     = gitstat.Diff
 	discardFiles = gitstat.Discard
+	readStaging  = gitstat.ReadStaging
+	applyCached  = gitstat.ApplyCached
+	stageFiles   = gitstat.StageFiles
 	readTurn     = gitstat.LatestTurn
 	readTurnDiff = gitstat.TurnDiff
 	undoTurn     = gitstat.UndoTurn
@@ -94,12 +98,16 @@ type reviewView struct {
 	// latest checkpoint, a zero one for none.
 	turnScope, inTurn bool
 	turn              gitstat.Turn
-	failed            string           // the last undo or redo's error, which a read does not clear
-	busy              bool             // an undo or redo runs
-	agentState        model.AgentState // the tab's agent's, which rereads This turn when it changes
+	// stageScope asks for Staging, the uncommitted change split into
+	// unstaged and staged files, over the other two; inStage says files
+	// are that.
+	stageScope, inStage bool
+	failed              string           // the last undo, redo or staging's error, which a read does not clear
+	busy                bool             // an undo, redo or staging runs
+	agentState          model.AgentState // the tab's agent's, which rereads This turn when it changes
 
 	sel         int    // the selected file
-	selPath     string // its path, which keeps the selection across reads
+	selPath     string // its File.Key, which keeps the selection across reads
 	cur, anchor int    // the selected lines of the selected file, both ends; -1 for none
 	opened      map[string]map[int]bool
 	shownHuge   map[string]bool
@@ -114,6 +122,7 @@ type reviewView struct {
 	gutterClick        map[int]*widget.Clickable
 	lineClick          map[int]*widget.Clickable
 	foldClick          map[int]*widget.Clickable
+	hunkClick          map[int]*widget.Clickable
 	tag                int // takes the view's keys
 	focus              bool
 
@@ -123,6 +132,7 @@ type reviewView struct {
 
 	send, pr, pager, opinion, mark, discard, showHuge widget.Clickable
 	branchScope, thisTurn, undo, redo                 widget.Clickable
+	staging, stageFile                                widget.Clickable
 	prChip                                            widget.Clickable // the PR status in the header: opens the pull request
 	status                                            string           // the line under the header: sent, queued, a failure
 
@@ -146,6 +156,7 @@ func (r *reviewView) show(ws, dir string, turn bool, invalidate func()) {
 	r.gen++
 	r.loaded, r.err, r.files = false, "", nil
 	r.turnScope, r.inTurn, r.turn = turn, false, gitstat.Turn{}
+	r.stageScope, r.inStage = false, false
 	ctx, cancel := context.WithCancel(context.Background())
 	r.stop, r.kick = cancel, make(chan struct{}, 1)
 	gen, kick := r.gen, r.kick
@@ -153,12 +164,12 @@ func (r *reviewView) show(ws, dir string, turn bool, invalidate func()) {
 	go r.load(ctx, gen, ws, dir, kick, invalidate)
 }
 
-// setScope shows This turn when turn is set, else Branch, from a fresh
-// read.
-func (r *reviewView) setScope(turn bool) {
+// setScope shows Staging when stage is set, else This turn when turn is,
+// else Branch, from a fresh read.
+func (r *reviewView) setScope(turn, stage bool) {
 	r.mu.Lock()
-	if r.turnScope != turn {
-		r.turnScope, r.loaded, r.files = turn, false, nil
+	if r.turnScope != turn || r.stageScope != stage {
+		r.turnScope, r.stageScope, r.loaded, r.files = turn, stage, false, nil
 	}
 	r.mu.Unlock()
 	r.reload()
@@ -172,7 +183,14 @@ func (r *reviewView) turnState() (turn gitstat.Turn, in bool, failed string) {
 	return r.turn, r.inTurn, r.failed
 }
 
-// restoring reports whether an undo or redo runs.
+// staged reports whether the files shown are Staging's.
+func (r *reviewView) staged() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.inStage
+}
+
+// restoring reports whether an undo, redo or staging runs.
 func (r *reviewView) restoring() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -229,17 +247,20 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 	for {
 		c, cancel := context.WithTimeout(ctx, filesWait)
 		r.mu.Lock()
-		want := r.turnScope
+		want, stage := r.turnScope, r.stageScope
 		r.mu.Unlock()
 		turn, err := readTurn(c, dir, ws)
 		if err != nil {
 			turn = gitstat.Turn{} // no checkpoint to show
 		}
-		in := want && turn.Rev != ""
-		// why: a turn's diff snapshots the files again, so a tick reads it
-		// only for a new turn; a kick, such as the agent changing state,
-		// reads it always.
-		if !in || kicked || turn.Rev != read {
+		in := want && turn.Rev != "" && !stage
+		if stage {
+			read, parsed = "", nil
+			p, files, errText = stagedFiles(c, dir)
+		} else if !in || kicked || turn.Rev != read {
+			// why: a turn's diff snapshots the files again, so a tick
+			// reads it only for a new turn; a kick, such as the agent
+			// changing state, reads it always.
 			read = ""
 			if in {
 				p, err = readTurnDiff(c, dir, turn.Rev)
@@ -267,7 +288,7 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 		if ctx.Err() != nil {
 			return
 		}
-		r.update(gen, p, files, errText, turn, in, invalidate)
+		r.update(gen, p, files, errText, turn, in, stage, invalidate)
 		kicked = false
 		select {
 		case <-ctx.Done():
@@ -279,13 +300,13 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 	}
 }
 
-func (r *reviewView) update(gen int, p gitstat.Patch, files []review.File, err string, turn gitstat.Turn, in bool, invalidate func()) {
+func (r *reviewView) update(gen int, p gitstat.Patch, files []review.File, err string, turn gitstat.Turn, in, stage bool, invalidate func()) {
 	r.mu.Lock()
 	// A read of the scope asked for before a switch is dropped.
-	current := r.gen == gen && in == (r.turnScope && turn.Rev != "")
-	changed := current && (!r.loaded || r.err != err || r.base != p.Base || r.turn != turn || r.inTurn != in || !sameFiles(r.files, files))
+	current := r.gen == gen && stage == r.stageScope && in == (r.turnScope && turn.Rev != "" && !stage)
+	changed := current && (!r.loaded || r.err != err || r.base != p.Base || r.turn != turn || r.inTurn != in || r.inStage != stage || !sameFiles(r.files, files))
 	if changed {
-		r.loaded, r.err, r.base, r.root, r.files, r.turn, r.inTurn = true, err, p.Base, p.Root, files, turn, in
+		r.loaded, r.err, r.base, r.root, r.files, r.turn, r.inTurn, r.inStage = true, err, p.Base, p.Root, files, turn, in, stage
 	}
 	r.mu.Unlock()
 	if changed {
@@ -294,7 +315,26 @@ func (r *reviewView) update(gen int, p gitstat.Patch, files []review.File, err s
 }
 
 func sameFiles(a, b []review.File) bool {
-	return slices.EqualFunc(a, b, func(x, y review.File) bool { return x.Path == y.Path && x.Hash == y.Hash })
+	return slices.EqualFunc(a, b, func(x, y review.File) bool { return x.Key() == y.Key() && x.Hash == y.Hash })
+}
+
+// stagedFiles reads dir's Staging as the Staging scope lists it: the
+// unstaged files, the untracked ones, then the staged ones.
+func stagedFiles(ctx context.Context, dir string) (gitstat.Patch, []review.File, string) {
+	s, err := readStaging(ctx, dir)
+	if err != nil {
+		return gitstat.Patch{}, nil, err.Error()
+	}
+	files := review.Parse(s.Unstaged)
+	for _, path := range s.Untracked {
+		b, ok := gitstat.ReadUntracked(s.Root, path)
+		files = append(files, review.Untracked(path, b, !ok))
+	}
+	for _, f := range review.Parse(s.Staged) {
+		f.Staged = true
+		files = append(files, f)
+	}
+	return gitstat.Patch{Root: s.Root}, files, ""
 }
 
 // snapshot is what the view draws this frame.
@@ -312,16 +352,16 @@ func (r *reviewView) selectFile(files []review.File, i int) {
 		return
 	}
 	i = min(max(i, 0), len(files)-1)
-	if files[i].Path != r.selPath {
+	if files[i].Key() != r.selPath {
 		r.cur, r.anchor, r.editing = -1, -1, false
 		r.diffList.Position = gl.Position{}
 	}
-	r.sel, r.selPath, r.rowsDirty = i, files[i].Path, true
+	r.sel, r.selPath, r.rowsDirty = i, files[i].Key(), true
 }
 
 // follow keeps the selection on its path in a fresh read.
 func (r *reviewView) follow(files []review.File) {
-	if i := slices.IndexFunc(files, func(f review.File) bool { return f.Path == r.selPath }); i >= 0 {
+	if i := slices.IndexFunc(files, func(f review.File) bool { return f.Key() == r.selPath }); i >= 0 {
 		if i != r.sel {
 			r.sel, r.rowsDirty = i, true
 		}
@@ -345,15 +385,15 @@ func (r *reviewView) huge(f *review.File) bool {
 
 // rowsOf is f's rows as the view draws them now.
 func (r *reviewView) rowsOf(f *review.File) []review.Row {
-	if key := f.Path + "\x00" + f.Hash; !r.rowsDirty && r.rows != nil && key == r.rowsKey {
+	if key := f.Key() + "\x00" + f.Hash; !r.rowsDirty && r.rows != nil && key == r.rowsKey {
 		return r.rows
 	}
-	r.rowsDirty, r.rowsKey = false, f.Path+"\x00"+f.Hash
+	r.rowsDirty, r.rowsKey = false, f.Key()+"\x00"+f.Hash
 	if f.Binary || r.huge(f) {
 		r.rows = []review.Row{}
 		return r.rows
 	}
-	open := r.opened[f.Path]
+	open := r.opened[f.Key()]
 	r.rows = review.Rows(f.Lines, reviewCtx, func(first int) bool { return open[first] })
 	return r.rows
 }
@@ -773,9 +813,72 @@ func (u *ui) undoTurnFiles(redo bool) {
 	}()
 }
 
+// stageHunk stages the selected file's hunk the selected line is in, or
+// the one review.HunkAt picks, in the Staging scope; with unstage it
+// unstages it, and with whole it does all of the file. A file whose hunks
+// git cannot apply alone, such as an untracked, added, deleted, renamed,
+// binary or huge one, goes whole. The files are read again before the
+// next one can run, so a quick second press stages the next hunk.
+func (u *ui) stageHunk(f *review.File, unstage, whole bool) {
+	r := &u.review
+	if f == nil || !r.staged() || f.Staged != unstage {
+		return
+	}
+	h, ok := review.HunkAt(review.Hunks(f.Lines, reviewCtx), r.cur)
+	whole = whole || !ok || f.Status != 'M' || f.Binary || r.huge(f)
+	verb := "Stage"
+	if unstage {
+		verb = "Unstage"
+	}
+	dir, invalidate := r.dir, u.invalidate
+	if invalidate == nil {
+		invalidate = func() {}
+	}
+	run := func(ctx context.Context) error {
+		paths := []string{f.Path}
+		if f.OldPath != "" {
+			paths = append(paths, f.OldPath)
+		}
+		return stageFiles(ctx, dir, paths, unstage)
+	}
+	status := verb + "d " + f.Path
+	if !whole {
+		patch := review.Patch(f, h)
+		run = func(ctx context.Context) error { return applyCached(ctx, dir, patch, unstage) }
+		status = fmt.Sprintf("%sd a hunk of %s", verb, f.Path)
+	}
+	r.mu.Lock()
+	if r.busy {
+		r.mu.Unlock()
+		return
+	}
+	r.busy, r.failed = true, ""
+	gen, turn := r.gen, r.turn
+	r.mu.Unlock()
+	r.status = status
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), filesWait)
+		defer cancel()
+		err := run(ctx)
+		if err != nil {
+			log.Printf("review: %s %s: %q", strings.ToLower(verb), f.Path, err)
+		}
+		p, files, errText := stagedFiles(ctx, dir)
+		r.update(gen, p, files, errText, turn, false, true, invalidate)
+		r.mu.Lock()
+		r.busy = false
+		if err != nil {
+			r.failed = verb + " failed: " + err.Error()
+		}
+		r.mu.Unlock()
+		invalidate()
+	}()
+}
+
 // reviewKeys takes the view's keys before the window's shortcuts: Escape
 // closes the comment field or the view, j/k pick a file, n/p a hunk, the
-// arrows a line (Shift extends) and c comments on it.
+// arrows a line (Shift extends), c comments on it, and in Staging s and u
+// stage and unstage its hunk, with Shift the whole file.
 func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 	r := &u.review
 	if !r.on || u.nav.switcherVisible() || u.modal.kind != modalNone {
@@ -799,6 +902,8 @@ func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 		filters = append(filters, key.Filter{Focus: &r.tag, Name: k})
 	}
 	filters = append(filters,
+		key.Filter{Focus: &r.tag, Name: "S", Optional: key.ModShift},
+		key.Filter{Focus: &r.tag, Name: "U", Optional: key.ModShift},
 		key.Filter{Focus: &r.tag, Name: key.NameUpArrow, Optional: key.ModShift},
 		key.Filter{Focus: &r.tag, Name: key.NameDownArrow, Optional: key.ModShift})
 	for {
@@ -850,6 +955,8 @@ func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 			r.moveLine(rows, d, e.Modifiers.Contain(key.ModShift))
 		case "C":
 			r.startComment()
+		case "S", "U":
+			u.stageHunk(f, e.Name == "U", e.Modifiers.Contain(key.ModShift))
 		}
 	}
 }
