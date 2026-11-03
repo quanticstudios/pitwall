@@ -37,6 +37,7 @@ func (d *Daemon) recordClosed(w model.Workspace, gone []model.Pane) {
 	if i := slices.IndexFunc(panes, store.Resumes); i >= 0 {
 		p = panes[i]
 	}
+	p.History = nil
 	c := model.ClosedTab{ID: newID(), Pane: p, PR: d.st.PRs[w.ID].Number, ClosedAt: time.Now()}
 	w.Tabs, w.ActiveTab = nil, ""
 	c.Tab = w

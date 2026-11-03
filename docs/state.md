@@ -33,7 +33,29 @@ agent's hooks last reported: Claude gets `--dangerously-skip-permissions` or `--
 bypass; Codex's other modes are left to its config. Other flags of an agent started in a shell, such
 as `--model`, are not restored. If a resume fails within 3 seconds, the pane falls back to a shell
 in the same folder. A restored agent in a pane that was a shell also drops to a shell in the same
-folder whenever it exits. Running processes and scrollback do not survive a reboot.
+folder whenever it exits. Running processes do not survive a reboot.
+
+## Pane history
+
+Each state save includes the most recent 2000 rows of each pane's main
+screen and scrollback, including held commands. Restored panes show that
+text with its SGR colors, then a dim `Restored from 14:32, Nov 3` divider
+before the new process's output. Alternate-screen contents, images, links
+and terminal modes are not restored. State files without history still load.
+
+Set `[terminal] persist_scrollback` to a whole number from 0 to 200000 to
+change the row limit; 0 disables capture and restore. The daemon reads this
+setting at each save and restore. A byte limit of 4 MiB per pane can reduce
+the number of saved rows when lines contain long text or many colors.
+History uses gzip inside `state.json`, so rolling snapshots carry the same
+history as the state they copy. The daemon saves every 15 minutes even when
+only terminal output changes.
+
+Guarded tabs save and restore no history, including their shell splits.
+To exclude an individual pane, add `env = ["PITWALL_NO_HISTORY=1"]` to its
+agent preset in `config.toml`. Existing snapshots and backup files retain
+the text saved when capture was enabled. These files can contain private
+terminal output and have the same owner-only permissions as `state.json`.
 
 Agent launches queue 100 milliseconds apart, with the most recently used
 session first. Shells and other non-agent panes start immediately. Set

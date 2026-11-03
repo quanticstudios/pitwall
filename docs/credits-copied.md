@@ -20,6 +20,7 @@ carries a `// Adapted from tuios (MIT): <path>` comment:
 | `internal/tmuxshim/args.go`, `internal/tmuxshim/keys.go`, `internal/tmuxshim/format.go` | `internal/tmuxcompat/args.go`, `keys.go`, `format.go` (argument parsing, key bytes and format aliases) |
 | `cmd/pitwall/tmux_test.go`, `internal/tmuxshim/tmux_test.go` | `internal/tmuxcompat/shim_test.go`, `args_test.go` (recorded teammate calls and parsing cases) |
 | `internal/pane/pane.go` | `internal/ptyspawn/spawn.go` (PTY spawn retry on EPERM) |
+| `internal/store/history.go`, `internal/daemon/history.go` | `internal/session/scrollback_persist.go` (gzip storage and restore divider), at commit `6c31c3c101fc110b2773d3dc0dc446a2326f0d11` |
 | `internal/store/store.go` | `internal/session/agent_resume.go` (agent resume commands) |
 | `internal/daemon/detect.go` | `internal/session/agent_detect_linux.go` (finding an agent in a pane's process group) |
 | `internal/agent/patterns.go`, `internal/agent/screen_patterns.json` | `internal/harness/manifests/claude-code.toml` (Claude Code screen patterns) |

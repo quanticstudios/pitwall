@@ -197,6 +197,8 @@ type Options struct {
 	// Scrollback is the lines of history a new pane keeps ([terminal]
 	// scrollback); nil leaves the emulator's default.
 	Scrollback func() int
+	// PersistScrollback reads [terminal] persist_scrollback; nil saves no history.
+	PersistScrollback func() int
 	// Graphics reports whether new panes show images ([terminal]
 	// graphics); nil leaves the emulator's default, on.
 	Graphics func() bool
@@ -344,6 +346,7 @@ func Defaults() Options {
 		RestoreCmd:        store.RestoreCmd,
 		Decisions:         loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
 		Bell:              setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
+		PersistScrollback: setting(config.Path(), func(s config.Settings) int { return s.PersistScrollback }),
 		Scrollback:        setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
 		Graphics:          setting(config.Path(), func(s config.Settings) bool { return s.Graphics }),
 		Radar:             setting(config.Path(), func(s config.Settings) bool { return s.ConflictRadar }),
@@ -534,6 +537,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	if d.o.UpdateScreenPatterns != nil {
 		wg.Go(func() { d.o.UpdateScreenPatterns(ctx) })
 	}
+	wg.Go(func() { d.historyLoop(ctx, store.SnapshotEvery) })
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
 	wg.Go(func() { d.webLoop(ctx) })
@@ -1872,7 +1876,12 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 	if !ok || size[0] <= 0 || size[1] <= 0 {
 		size = [2]int{defaultCols, defaultRows}
 	}
-	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portEnv(ports), env...), Cols: size[0], Rows: size[1], NewVT: d.paneVT(id, ports, d.o.NewVT)})
+	newVT := d.o.NewVT
+	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id })
+	if pi >= 0 {
+		newVT = d.restoredVT(d.st.Panes[pi], newVT)
+	}
+	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portEnv(ports), env...), Cols: size[0], Rows: size[1], NewVT: d.paneVT(id, ports, newVT)})
 	if err != nil {
 		return err
 	}
@@ -1884,6 +1893,9 @@ func (d *Daemon) start(id string, cmd []string, cwd string, ports model.PortBloc
 		provider = d.st.Panes[i].Provider
 	}
 	log.Printf("pane %s: started %q, provider %q, %dx%d", id, program, provider, size[0], size[1])
+	if pi >= 0 {
+		d.st.Panes[pi].History = nil
+	}
 	d.run(id, p, size, nil)
 	return nil
 }
@@ -2259,6 +2271,7 @@ func (d *Daemon) saveSnapshot() model.State {
 			}
 		}
 	}
+	d.captureHistory(&s)
 	return s
 }
 
@@ -2285,6 +2298,9 @@ func (d *Daemon) snapshot() model.State {
 		s.Workspaces[i].Tabs = tabs
 	}
 	s.Panes = slices.Clone(s.Panes)
+	for i := range s.Panes {
+		s.Panes[i].History = nil
+	}
 	s.Activities = d.attended()
 	for i, a := range s.Activities {
 		s.Activities[i] = s.AwaitPR(a)
@@ -2297,6 +2313,9 @@ func (d *Daemon) snapshot() model.State {
 	s.Chats = slices.Clone(s.Chats)   // chatChanged updates entries in place
 	s.Closed = slices.Clone(s.Closed) // checkClosed sets Gone in place
 	s.Forms = slices.Clone(s.Forms)
+	for i := range s.Closed {
+		s.Closed[i].Pane.History = nil
+	}
 	s.Queued = nil
 	for id, q := range d.mail.queue {
 		if s.Queued == nil {

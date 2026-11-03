@@ -34,16 +34,18 @@ func (d *Daemon) stoppedPane(p *model.Pane) Pane {
 	} else {
 		log.Printf("pane %s: restored %q, exit unknown; held, not run again", p.ID, prog)
 	}
-	notice := fmt.Sprintf("[pitwall] %s exited with code %d before pitwall restarted. Its output was not saved.", prog, p.ExitCode)
+	notice := fmt.Sprintf("[pitwall] %s exited with code %d before pitwall restarted.", prog, p.ExitCode)
 	if !p.Exited || p.ExitUnknown {
 		p.Exited, p.ExitCode, p.ExitUnknown = true, 0, true
-		notice = fmt.Sprintf("[pitwall] pitwall restarted while %s ran, so it was not run again. Its exit code and output are lost.", prog)
+		notice = fmt.Sprintf("[pitwall] pitwall restarted while %s ran, so it was not run again. Its exit code is lost.", prog)
 	}
 	newVT := d.o.NewVT
 	if newVT == nil {
 		newVT = vt.New
 	}
+	newVT = d.restoredVT(*p, newVT)
 	s := &stopped{vt: newVT(defaultCols, defaultRows, io.Discard), done: make(chan struct{}), code: p.ExitCode}
+	p.History = nil
 	close(s.done)
 	s.vt.Write([]byte(notice + "\r\n"))
 	return s
@@ -122,4 +124,10 @@ func (p *stopped) HasPromptMarks() bool {
 		return e.HasPromptMarks()
 	}
 	return false
+}
+
+func (s *stopped) HistoryText(limit int) (int, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return vt.HistoryText(s.vt, limit)
 }

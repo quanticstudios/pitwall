@@ -373,3 +373,10 @@ func (p *Pane) HasPromptMarks() bool {
 	}
 	return false
 }
+
+// HistoryText captures the main screen and recent scrollback under the reader's lock.
+func (p *Pane) HistoryText(limit int) (int, string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return vt.HistoryText(p.vt, limit)
+}

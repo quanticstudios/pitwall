@@ -23,6 +23,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// Pane.History is optional in format 10; files without it restore without history.
 // Tab search adds an optional State.Closed to version 10: files without it
 // load with no closed tabs, and an older pitwall ignores it.
 // The sidebar inbox adds optional Workspace.Settled, SnoozedUntil and

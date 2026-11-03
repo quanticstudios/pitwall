@@ -54,6 +54,7 @@ pane_margin = 4
 
 [terminal]
 hint_patterns = ['ENG-\d+', 'branch: (\S+)']  # more for hints mode; see usage.md, Hints
+persist_scrollback = 2000              # recent screen and history rows saved per pane; 0 disables
 
 [stats]
 exclude = ["dependency-bot", "bot/*"]  # leave matching tab names or branches out of Timing and Agent errors

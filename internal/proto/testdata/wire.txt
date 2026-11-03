@@ -1,4 +1,4 @@
-18.57
+18.58
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -17,7 +17,8 @@ model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
 model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; ChangeRequests []string; Conflicts bool; Checks []model.Check; Head string; Reason model.Reason; Detail string}
-model.Pane{ScrollbackFile string; ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; ResumeCmd []string; Prompt string; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string; Program *model.Program}
+model.Pane{ScrollbackFile string; ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; ResumeCmd []string; Prompt string; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string; History *model.PaneHistory; Program *model.Program}
+model.PaneHistory{Cols int; SavedAt time.Time; Data []uint8}
 model.Popup{Pane string; Width string; Height string; Title string}
 model.PortBlock{First int; Last int}
 model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}

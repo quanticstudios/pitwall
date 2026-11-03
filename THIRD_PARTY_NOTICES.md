@@ -23,6 +23,7 @@ carries a `// Adapted from tuios (MIT): <path>` comment:
 | `internal/ui/app/commands.go` | `internal/input/scrollback_browser.go` (command navigation and copy keys) |
 | `internal/ui/app/commandsdraw.go` | `internal/app/render_scrollback_browser.go` (command list and output preview) |
 | `internal/pane/pane.go` | `internal/ptyspawn/spawn.go` (PTY spawn retry on EPERM) |
+| `internal/store/history.go`, `internal/daemon/history.go` | `internal/session/scrollback_persist.go` (gzip storage and restore divider), at commit `6c31c3c101fc110b2773d3dc0dc446a2326f0d11` |
 | `internal/store/store.go` | `internal/session/agent_resume.go` (agent resume commands) |
 | `internal/daemon/detect.go` | `internal/session/agent_detect_linux.go` (finding an agent in a pane's process group) |
 | `internal/agent/patterns.go`, `internal/agent/screen_patterns.json` | `internal/harness/manifests/claude-code.toml` (Claude Code screen patterns) |

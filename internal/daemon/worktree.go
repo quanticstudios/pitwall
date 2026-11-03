@@ -176,3 +176,6 @@ func (d *Daemon) portInUse(id string) {
 		d.notice(id, vt.Notification{Body: "Port in use: this worktree's ports are " + ports.String()})
 	}
 }
+
+// HistoryText forwards capture through the port watcher.
+func (w *portWatch) HistoryText(limit int) (int, string) { return vt.HistoryText(w.Emulator, limit) }
