@@ -147,13 +147,25 @@ func TestFleetEscalate(t *testing.T) {
 	d, f := setup(&s)
 	d.pollPRs(context.Background(), t0)
 	parent := f.paneNamed("pa")
-	if got := gotAfter(t, parent, 0, 140); !strings.Contains(got, "fix-login: CI failed again on pull request #7 after pitwall sent it the failures twice (test).") {
+	waitUntil(t, "the escalation's Enter", func() bool { return strings.HasSuffix(parent.got(), "\r") })
+	if got := parent.got(); !strings.Contains(got, "fix-login: CI failed again on pull request #7 after pitwall sent it the failures twice (test).") {
 		t.Fatalf("parent got %q", got)
 	}
 	n := len(parent.got())
-	d.pollPRs(context.Background(), t0.Add(time.Hour))
-	quiet(t, parent, n, "a second escalation")
-	quiet(t, f.paneNamed("wa"), 0, "a third send of the failures")
+	// Hold delivery so a duplicate stays in the queue for inspection.
+	func() {
+		d.sendMu.Lock()
+		defer d.sendMu.Unlock()
+		d.pollPRs(context.Background(), t0.Add(time.Hour))
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if got := parent.got(); len(got) != n || len(d.mail.queue["pa"]) != 0 {
+			t.Fatalf("a second escalation: input %q, queue %+v", got, d.mail.queue["pa"])
+		}
+		if got := f.paneNamed("wa").got(); got != "" || len(d.mail.queue["wa"]) != 0 {
+			t.Fatalf("a third send of the failures: input %q, queue %+v", got, d.mail.queue["wa"])
+		}
+	}()
 
 	// The snapshot shows the worker's finished turn as PR open.
 	claudeHook(t, d, "wa", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
@@ -168,6 +180,8 @@ func TestFleetEscalate(t *testing.T) {
 	s.Fleet.Lanes[2].Preset = "Deep"
 	s.Presets = []config.AgentPreset{{Name: "Deep", Agent: "deepagent", Args: []string{"--effort", "max"}, Env: []string{"A=1"}, Guard: true}}
 	d, f = setup(&s)
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
 	f.paneNamed("wa").draw("$ go test ./...", "FAIL login_test.go:12")
 	d.pollPRs(context.Background(), t0)
 	snap := snapshot(d)
@@ -196,5 +210,9 @@ func TestFleetEscalate(t *testing.T) {
 	if l := snap.Workspaces[1].Lane; l.Name != "big" || !l.Escalated {
 		t.Errorf("lane %+v: want big, escalated", l)
 	}
-	quiet(t, f.paneNamed("pa"), 0, "the parent of a respawned worker")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if got := f.paneNamed("pa").got(); got != "" || len(d.mail.queue["pa"]) != 0 {
+		t.Fatalf("the parent of a respawned worker: input %q, queue %+v", got, d.mail.queue["pa"])
+	}
 }
