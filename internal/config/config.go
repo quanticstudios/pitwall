@@ -103,6 +103,7 @@ type Keys struct {
 	Find            Binding `toml:"find" group:"Terminal" doc:"Find in the focused pane's scrollback. Enter or F3 goes to the next match up, Shift with either back down, Esc closes"`
 	TabSearch       Binding `toml:"tab_search" group:"Tabs" doc:"Search tabs: find a tab of any session by its name, branch, group, folder, agent, pull request or first prompt, and reopen a closed one"`
 	SearchAll       Binding `toml:"search_all" group:"Terminal" doc:"Search all sessions. Search every pane's scrollback and agent transcript, including detached tabs"`
+	InsertPath      Binding `toml:"insert_path" group:"Terminal" doc:"Insert a path. Pick files under the focused pane's folder and type their paths at its cursor. Tab marks several"`
 	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see docs/usage.md"`
 	NextPrompt      Binding `toml:"next_prompt" group:"Terminal" doc:"Scroll forward to the next shell prompt (OSC 133)"`
 	ToggleSidebar   Binding `toml:"toggle_sidebar" group:"Window" doc:"Show or hide the sidebar. aide's Ctrl+B then never reaches the shell (readline's backward-char, the tmux prefix); set toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back"`

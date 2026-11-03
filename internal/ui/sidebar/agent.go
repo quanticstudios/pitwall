@@ -193,7 +193,7 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
 		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown,
-		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch}[name]
+		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}

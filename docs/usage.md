@@ -948,6 +948,34 @@ again. When its folder is gone, as after Archive removed its worktree, the
 row says so and Enter opens it in the repository instead. Delete forgets
 the highlighted closed tab, and reopening one takes it off the list.
 
+### Insert a path
+
+Ctrl+Shift+I (Cmd+Shift+I in the mac preset) types file paths into the
+focused pane without leaving the keyboard, for a prompt to an agent or a
+shell command. It opens a picker in the command palette's card over the
+files under the pane's folder: in a git repository, the tracked files still
+in the folder and the untracked ones `.gitignore` does not hide; elsewhere, the files found
+by walking the folder, skipping folders whose names start with a dot, up to
+20,000 entries. A shell pane's folder follows `cd`; an agent's is where it
+started. Rebind it with `insert_path` under `[keys]`; the command palette
+lists it as **Insert a path**.
+
+Type part of a path to filter, letters left out as in the palette; a match
+in the file's name ranks above one only in its folder. Enter types the
+highlighted path at the cursor, relative to the pane's folder, and closes
+the picker. Tab or Ctrl+Space marks the highlighted file and moves down;
+with files marked, Enter types all of them, separated by spaces, in the
+order you marked them. A click types one file, or marks it while others are
+marked. Esc closes without typing.
+
+A path with only letters, digits and `_ - . / + :` goes in as it is; any
+other is single-quoted, so a space or `$` stays part of the path. A path
+that starts with `-` goes in as `./-name`, so the command reads the file
+instead of taking it as an option. When the
+program asked for bracketed paste, as shells and agent prompts do, the
+paths arrive as one paste. The picker shows the first 200 matches. It lists
+this machine's files only, so a pane on a `--host` says so instead.
+
 ### Workers
 
 The tabs an agent opened (its workers, and their workers in turn) list

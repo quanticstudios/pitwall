@@ -1,7 +1,9 @@
 package input
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -52,5 +54,43 @@ func TestQuotePath(t *testing.T) {
 		if got := quotePath(c.path, c.windows); got != c.want {
 			t.Errorf("quote %q: %q, want %q", c.path, got, c.want)
 		}
+	}
+}
+
+// TestTypePaths leaves plain paths bare and quotes the rest, and a real
+// shell reads every one back unchanged.
+func TestTypePaths(t *testing.T) {
+	paths := []string{"internal/ui/app.go", "docs/画像.png", "a b.txt", "~x", "$HOME", "it's"}
+	if runtime.GOOS == "windows" {
+		return // PowerShell quoting is TestQuotePath's
+	}
+	got := string(TypePaths(paths, vt.Modes{}))
+	want := `internal/ui/app.go docs/画像.png 'a b.txt' '~x' '$HOME' 'it'\''s'`
+	if got != want {
+		t.Errorf("TypePaths = %q, want %q", got, want)
+	}
+	out, err := exec.Command("sh", "-c", "printf '%s\\000' "+got).Output()
+	if err != nil || !slices.Equal(strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00"), paths) {
+		t.Errorf("shell decoded %q, %v; want %q", out, err, paths)
+	}
+}
+
+// TestTypePathsDash leads a path that starts with - with ./, so a real
+// command reads the files instead of taking their names as options.
+func TestTypePathsDash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh and cat")
+	}
+	dir := t.TempDir()
+	for name, body := range map[string]string{"--version": "a", "-n x": "b"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := string(TypePaths([]string{"--version", "-n x"}, vt.Modes{}))
+	cmd := exec.Command("sh", "-c", "cat "+got)
+	cmd.Dir = dir
+	if out, err := cmd.Output(); err != nil || string(out) != "ab" {
+		t.Errorf("cat %s printed %q, %v; want the files' text", got, out, err)
 	}
 }

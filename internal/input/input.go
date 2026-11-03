@@ -295,12 +295,27 @@ func Paste(s string, m vt.Modes) []byte {
 
 // PastePaths quotes file paths before pasting them, so spaces and shell
 // metacharacters belong to the path. Each path stays a separate argument.
-func PastePaths(paths []string, m vt.Modes) []byte {
+func PastePaths(paths []string, m vt.Modes) []byte { return pastePaths(paths, m, false) }
+
+// TypePaths is PastePaths with a path left unquoted when it holds only
+// characters every shell reads as themselves, such as internal/app.go,
+// and a relative path that starts with - led by ./, so the command that
+// gets it reads a file, not an option.
+func TypePaths(paths []string, m vt.Modes) []byte { return pastePaths(paths, m, true) }
+
+func pastePaths(paths []string, m vt.Modes, bare bool) []byte {
 	quoted := make([]string, 0, len(paths))
 	for _, path := range paths {
 		// Control characters cannot be represented literally in terminal
 		// input without risking another key or a paste boundary.
 		if strings.ContainsFunc(path, func(r rune) bool { return r < 32 || r == 127 }) {
+			continue
+		}
+		if bare && strings.HasPrefix(path, "-") {
+			path = "./" + path
+		}
+		if bare && plainPath(path) {
+			quoted = append(quoted, path)
 			continue
 		}
 		quoted = append(quoted, quotePath(path, runtime.GOOS == "windows"))
@@ -409,6 +424,17 @@ func mouseReport(code int, release bool, col, row int, mods key.Modifiers, m vt.
 		return nil
 	}
 	return []byte{'\x1b', '[', 'M', byte(code + 32), byte(col + 33), byte(row + 33)}
+}
+
+// plainPath reports whether path needs no quoting: letters, digits and
+// _ - . / + : only, and no ~ first, which a shell expands.
+func plainPath(path string) bool {
+	if path == "" || path[0] == '~' {
+		return false
+	}
+	return !strings.ContainsFunc(path, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("_-./+:", r)
+	})
 }
 
 func quotePath(path string, windows bool) string {

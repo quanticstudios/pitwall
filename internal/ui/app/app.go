@@ -286,6 +286,9 @@ type ui struct {
 	shownAt time.Time // switcher fade-in start
 	hint    gotoHint  // the goto_tab modifiers, for the sidebar's digits
 
+	// paths is the path picker, drawn in the palette's card.
+	paths pathPick
+
 	sw       sessionSwitcher
 	pal      palette // the command palette
 	all      sessionSearch
@@ -465,6 +468,11 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.stopSearchAll()
 		u.pal.search, u.pal.tabs = false, true
 		u.pal.openAt(now)
+	}
+	if u.nav.pathPick {
+		u.nav.pathPick = false
+		u.stopSearchAll()
+		u.openPathPick(st, now)
 	}
 	if u.nav.searchAll {
 		u.nav.searchAll = false
