@@ -807,6 +807,7 @@ type SessionSummary struct {
 // Summary sums up session.
 func (s *State) Summary(session string) SessionSummary {
 	var out SessionSummary
+	watching := s.Watching()
 	in := map[string]bool{}
 	for _, w := range s.Workspaces {
 		if w.SessionID != session {
@@ -831,6 +832,9 @@ func (s *State) Summary(session string) SessionSummary {
 	for _, a := range s.Activities {
 		if !in[a.WorkspaceID] {
 			continue
+		}
+		if watching[a.WorkspaceID] && a.State == StateCompleted {
+			a.State, a.Unseen = StateWatching, false
 		}
 		agent := IsAgent(a.Provider)
 		if agent {

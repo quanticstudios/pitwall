@@ -293,6 +293,31 @@ sessions without the switcher, and Ctrl+Shift+N makes one. Ctrl+Shift+U
 crosses sessions: it switches to the session of the pane that needs you.
 Desktop notifications start with the session's name.
 
+With `[[hosts]] window = true`, the host list above the tabs shows each
+session's most urgent error, approval, question or plan, even while another
+agent works. Otherwise its dot shows an unseen Done or PR open, then work,
+or nothing. Unseen Done and PR open dots are green. Looking at a finished
+agent in the focused pane of a focused window clears its unseen mark.
+A finished parent whose workers still work reads Watching, without an
+unseen completion. The count uses the session switcher's needs-you rule
+and excludes detached tabs. Errors, approvals and questions count while
+open. Plans and finished turns count while unseen. The count appears only
+when it fits beside the session name.
+
+Hover a session for 400 ms to open its tab list beside the sidebar. Tabs
+follow the dot's urgency order, up to 12 rows, then `+N more`. Move into the
+popover to keep it open, or click a tab to switch to it. Rows keep their
+order while the pointer is inside. Their pills keep updating. Another
+session opens after its own 400 ms hover delay. Leaving both the
+session row and the popover closes the list. **Settings > Appearance >
+Sidebar > Session preview** turns it off or on live. The setting is
+`[sidebar] session_preview`, on by default. The preview uses the state the
+window already has, including sessions on other hosts.
+
+<img src="media/session-preview.webp" alt="A session preview in dark and light themes lists waiting agents, unseen finished turns and working agents, with marks and state pills" width="900">
+
+<img src="media/session-dots.webp" alt="Host lists in dark and light themes show plans and unseen finished turns above work, and clear seen finished turns" width="576">
+
 Each window shows one session, and you can open as many windows as you like.
 Running `pitwall` again opens another window: on the most recent session no
 window shows, else on a new session in the folder you ran it from.

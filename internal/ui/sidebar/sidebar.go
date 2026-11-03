@@ -72,6 +72,8 @@ type Sidebar struct {
 	// one first: their sessions and the agents waiting anywhere show above
 	// the tabs. One or none draws nothing.
 	Hosts []HostInfo
+	// SessionPreview opens a session's tab list when its host row is hovered.
+	SessionPreview bool
 	// Inbox shows the inbox in place of the tree; WorkingShelf gives
 	// working tabs their own section in it. Shelves is whether the daemon
 	// takes SetInbox, to settle and snooze; pinning works without it.
@@ -88,6 +90,7 @@ type Sidebar struct {
 	inboxDrawn       bool           // the elems are the inbox's
 
 	hostBtn map[string]*widget.Clickable // the host list's rows, "s:" session or "a:" pane
+	preview sessionPreview
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -406,6 +409,7 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	}
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(w-1, 0), Max: size}.Op())
 	s.drawHover(gtx, v, w, h)
+	s.drawSessionPreview(gtx, th, all)
 
 	switch {
 	case moving:
@@ -537,14 +541,15 @@ func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, ac
 		}
 	}
 	v.own = map[string]*model.Activity{}
+	watching := st.Watching()
 	for r, kids := range v.kids {
 		// An orchestrator whose own turn ended reads as Watching while a
 		// worker works, not as a green Done above blue workers.
 		a := v.activity[r]
 		v.own[r] = a
-		if a != nil && a.State == model.StateCompleted && slices.ContainsFunc(kids, func(k model.Workspace) bool { return model.Pulses(v.activity[k.ID]) }) {
+		if watching[r] {
 			w := *a
-			w.State, w.Review = model.StateWatching, false
+			w.State, w.Review, w.Unseen = model.StateWatching, false, false
 			v.activity[r] = &w
 			delete(v.unseen, r)
 		}

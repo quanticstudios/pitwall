@@ -821,6 +821,8 @@ func (p *Page) appearance() []section {
 				extra: "workers fleet fold folded separate subagents", control: p.choice("sidebar", "workers", []string{"folded", "separate"}, []string{"Folded", "Separate"}, !p.s.Sidebar.SeparateWorkers)},
 			{label: "Working section", desc: "In the inbox, move tabs whose agent works now out of Waiting on you into a section of their own.",
 				extra: "inbox working shelf working_shelf", control: p.toggle("sidebar", "working_shelf", p.s.Sidebar.WorkingShelf)},
+			{label: "Session preview", desc: "Hover a session in the host list to see its tabs, most urgent first.",
+				extra: "host hover tabs session_preview", control: p.toggle("sidebar", "session_preview", p.s.Sidebar.SessionPreview)},
 			{label: "Settle after days", desc: "Move a tab to the inbox's Settled section after this many days without agent activity. 0 never does. Pinned and snoozed tabs stay.",
 				extra: "inbox settle idle settle_after_days", control: p.stepper("sidebar", "settle_after_days", float64(p.s.Sidebar.SettleAfterDays), 0, 365, 1, config.DefaultSettleAfterDays)},
 			{label: "Settle on merge", desc: "Move a tab to Settled once its pull request merges. Pinned tabs stay.",

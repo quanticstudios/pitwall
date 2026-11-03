@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -59,14 +60,60 @@ func hostName(h string) string {
 	return h
 }
 
+// sessionActivity keeps waiting agents and unseen finished turns above work.
+func sessionActivity(acts []model.Activity) *model.Activity {
+	var wait, finished, work *model.Activity
+	for i := range acts {
+		a := &acts[i]
+		switch a.State {
+		case model.StateError, model.StatePendingApproval, model.StateAwaitingInput, model.StatePlanReady:
+			wait = urgent(wait, a)
+		case model.StateCompleted, model.StatePROpen:
+			if a.Unseen {
+				finished = urgent(finished, a)
+			}
+		default:
+			if model.Pulses(a) {
+				work = urgent(work, a)
+			}
+		}
+	}
+	return cmp.Or(wait, finished, work)
+}
+
+// sessionState applies the tree's Watching state and excludes detached tabs.
+func sessionState(st *model.State) model.State {
+	out := *st
+	out.Workspaces = slices.DeleteFunc(slices.Clone(st.Workspaces), func(w model.Workspace) bool { return w.Detached })
+	out.Activities = slices.Clone(st.Activities)
+	watching := st.Watching()
+	for i := range out.Activities {
+		a := &out.Activities[i]
+		if watching[a.WorkspaceID] && a.State == model.StateCompleted {
+			a.State, a.Unseen, a.Review = model.StateWatching, false, false
+		}
+	}
+	return out
+}
+
+func sessionDotColor(th *theme.Theme, state model.AgentState) color.NRGBA {
+	if state == model.StatePROpen {
+		state = model.StateCompleted
+	}
+	return StateColor(th, state)
+}
+
 // hostList draws, when the window shows more than one machine, each
 // machine's heading and sessions, then the agents that wait on someone
 // anywhere, or in the inbox anywhere but the current session. st is every
 // session's state.
 func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State) layout.Dimensions {
 	if len(s.Hosts) < 2 {
+		s.preview = sessionPreview{}
 		return layout.Dimensions{}
 	}
+	live := sessionState(st)
+	st = &live
 	if s.hostBtn == nil {
 		s.hostBtn = map[string]*widget.Clickable{}
 	}
@@ -122,7 +169,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 				}})
 		})
 	}
-	row := func(c *widget.Clickable, current, dim bool, dot *model.Activity, name, right string) {
+	row := func(c *widget.Clickable, current, dim bool, dot *model.Activity, name, right, count string) {
 		place(gtx.Dp(28), func(gtx layout.Context) {
 			pad := gtx.Dp(listPad)
 			size := image.Pt(w-2*pad, gtx.Constraints.Max.Y)
@@ -130,12 +177,14 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			gtx.Constraints = layout.Exact(size)
 			clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 				rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(6))
+				bg := th.Sidebar
 				switch {
 				case current:
-					paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Primary, 0.14), rr.Op(gtx.Ops))
+					bg = theme.Mix(th.Sidebar, th.Primary, 0.14)
 				case c.Hovered():
-					paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
+					bg = th.SurfaceSecondary
 				}
+				paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
 				fg := th.Fg
 				if dim {
 					fg = th.Muted
@@ -143,12 +192,27 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 				in := gtx.Dp(10)
 				g := gtx
 				g.Constraints = layout.Exact(image.Pt(size.X-2*in, size.Y))
+				if count != "" {
+					// The extra count must not shorten the session name.
+					m := op.Record(gtx.Ops)
+					n := label(g, th, th.UIFont, th.Sp(theme.Body), fg, name)
+					r := label(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, right+" · "+count)
+					m.Stop()
+					if n.Size.X+r.Size.X+3*gtx.Dp(8) <= g.Constraints.Max.X {
+						right += " · " + count
+					}
+				}
 				o := op.Offset(image.Pt(in, 0)).Push(gtx.Ops)
 				hrow(g, size.Y, gtx.Dp(8),
 					item{w: func(gtx layout.Context) layout.Dimensions {
 						d := gtx.Dp(8)
 						if dot != nil {
-							paint.FillShape(gtx.Ops, StateColor(th, dot.State), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
+							col := sessionDotColor(th, dot.State)
+							if model.Pulses(dot) {
+								col = theme.Mix(bg, col, pulse(gtx.Now.Sub(s.epoch).Seconds()))
+								gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
+							}
+							paint.FillShape(gtx.Ops, col, clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
 						}
 						return layout.Dimensions{Size: image.Pt(d, d)}
 					}},
@@ -164,6 +228,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 		})
 	}
 	y += gtx.Dp(6)
+	over := ""
 	for _, h := range s.Hosts {
 		note, c := "", th.Muted
 		if !h.Up {
@@ -179,13 +244,20 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 				continue
 			}
 			for btn("s:" + id).Clicked(gtx) {
+				s.HideHover()
 				s.events = append(s.events, ShowSession{SessionID: id})
 			}
-			dot := model.Aggregate(acts[id])
-			if dot != nil && !model.NeedsYou(dot.State) && !model.Pulses(dot) {
-				dot = nil
+			if btn("s:" + id).Hovered() {
+				over = id
+				s.preview.rowAnchor = image.Rect(0, gtx.Dp(56)+y, w, gtx.Dp(56)+y+gtx.Dp(28))
 			}
-			row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"))
+			dot := sessionActivity(acts[id])
+			sum := st.Summary(id)
+			count := ""
+			if sum.NeedsYou > 0 {
+				count = strconv.Itoa(sum.NeedsYou) + " " + plural(sum.NeedsYou, "needs you", "need you")
+			}
+			row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"), count)
 		}
 	}
 	blocked, head := s.waiting(st, sessionOf)
@@ -200,11 +272,12 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			for btn("a:" + a.PaneID).Clicked(gtx) {
 				s.events = append(s.events, SelectWorkspace{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID})
 			}
-			row(btn("a:"+a.PaneID), false, down[ws.SessionID], &a, Title(*ws), hostName(hostOf[ws.SessionID])+" · "+model.PillLabel(a))
+			row(btn("a:"+a.PaneID), false, down[ws.SessionID], &a, Title(*ws), hostName(hostOf[ws.SessionID])+" · "+model.PillLabel(a), "")
 		}
 	}
 	y += gtx.Dp(6)
 	paint.FillShape(gtx.Ops, th.Border, clip.Rect{Min: image.Pt(0, y-1), Max: image.Pt(w, y)}.Op())
+	s.sessionPreviewFrame(gtx, over)
 	return layout.Dimensions{Size: image.Pt(w, y)}
 }
 

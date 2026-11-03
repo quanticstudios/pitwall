@@ -4,6 +4,7 @@ import (
 	"image"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,6 +18,128 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
+
+func TestSessionActivity(t *testing.T) {
+	work := model.Activity{State: model.StateWorking}
+	done := model.Activity{State: model.StateCompleted, Unseen: true}
+	seen := model.Activity{State: model.StateCompleted}
+	pr := model.Activity{State: model.StatePROpen, Unseen: true}
+	plan := model.Activity{State: model.StatePlanReady}
+	input := model.Activity{State: model.StateAwaitingInput}
+	approval := model.Activity{State: model.StatePendingApproval}
+	err := model.Activity{State: model.StateError}
+	for _, tt := range []struct {
+		name  string
+		acts  []model.Activity
+		state model.AgentState
+	}{
+		{"working and plan", []model.Activity{work, plan}, model.StatePlanReady},
+		{"working and unseen done", []model.Activity{work, done}, model.StateCompleted},
+		{"working and seen done", []model.Activity{work, seen}, model.StateWorking},
+		{"only seen done", []model.Activity{seen}, ""},
+		{"working and unseen PR", []model.Activity{work, pr}, model.StatePROpen},
+		{"only seen PR", []model.Activity{{State: model.StatePROpen}}, ""},
+		{"input above plan and done", []model.Activity{plan, input, done}, model.StateAwaitingInput},
+		{"approval above input", []model.Activity{input, approval}, model.StatePendingApproval},
+		{"error above approval", []model.Activity{approval, err, work, plan, input, done, seen, pr}, model.StateError},
+		{"PR above done", []model.Activity{done, pr}, model.StatePROpen},
+		{"connecting", []model.Activity{{State: model.StateConnecting}}, model.StateConnecting},
+		{"terminal and watching", []model.Activity{{State: model.StateTerminalRunning}, {State: model.StateWatching}}, ""},
+		{"empty", nil, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dot := sessionActivity(tt.acts)
+			var state model.AgentState
+			if dot != nil {
+				state = dot.State
+			}
+			if state != tt.state {
+				t.Fatalf("sessionActivity = %q, want %q", state, tt.state)
+			}
+		})
+	}
+}
+
+func TestHostListCounts(t *testing.T) {
+	for _, tt := range []struct {
+		name, session, count string
+		acts                 []model.Activity
+	}{
+		{"seen plan", "main", "23 tabs", []model.Activity{{State: model.StateWorking}, {State: model.StatePlanReady}}},
+		{"waiting", "main", "23 tabs · 2 need you", []model.Activity{{State: model.StateError}, {State: model.StateAwaitingInput}}},
+		{"mixed needs", "main", "23 tabs · 3 need you", []model.Activity{{State: model.StateError}, {State: model.StateAwaitingInput}, {State: model.StateCompleted, Unseen: true}}},
+		{"unseen plan", "main", "23 tabs · 1 needs you", []model.Activity{{State: model.StatePlanReady, Unseen: true}}},
+		{"done", "main", "23 tabs · 2 need you", []model.Activity{{State: model.StateCompleted, Unseen: true}, {State: model.StatePROpen, Unseen: true}}},
+		{"seen", "main", "23 tabs", []model.Activity{{State: model.StateCompleted}}},
+		{"long name", "do-not-truncate-this-name", "23 tabs", []model.Activity{{State: model.StateCompleted, Unseen: true}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			st := model.State{Sessions: []model.Session{{ID: "s", Name: tt.session}}}
+			for i := range 23 {
+				st.Workspaces = append(st.Workspaces, model.Workspace{ID: strconv.Itoa(i), SessionID: "s"})
+			}
+			for _, a := range tt.acts {
+				a.WorkspaceID = "0"
+				st.Activities = append(st.Activities, a)
+			}
+			st.Workspaces = append(st.Workspaces, model.Workspace{ID: "detached", SessionID: "s", Detached: true})
+			st.Activities = append(st.Activities, model.Activity{WorkspaceID: "detached", State: model.StateCompleted, Unseen: true})
+			s := Sidebar{Hosts: []HostInfo{{Up: true, Sessions: []string{"s"}}, {Name: "box", Up: true}}}
+			var r input.Router
+			var ops op.Ops
+			gtx := layout.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+				Constraints: layout.Exact(image.Pt(288, 800)), Now: time.Now()}
+			s.hostList(gtx, theme.Dark(), &st)
+			r.Frame(&ops)
+			var labels []string
+			var collect func([]input.SemanticNode)
+			collect = func(nodes []input.SemanticNode) {
+				for _, n := range nodes {
+					labels = append(labels, n.Desc.Label)
+					collect(n.Children)
+				}
+			}
+			collect(r.AppendSemantics(nil))
+			if !slices.Contains(labels, tt.count) {
+				t.Fatalf("host list labels %q do not contain %q", labels, tt.count)
+			}
+		})
+	}
+}
+
+func TestSessionWatching(t *testing.T) {
+	st := model.State{
+		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}},
+		Activities: []model.Activity{
+			{WorkspaceID: "o", State: model.StateCompleted, Unseen: true},
+			{WorkspaceID: "w", Provider: model.ProviderCodex, State: model.StateWorking},
+		},
+	}
+	live := sessionState(&st)
+	if dot := sessionActivity(live.Activities); dot == nil || dot.State != model.StateWorking {
+		t.Fatalf("watching session dot: %+v", dot)
+	}
+	tabs := sessionPreviewTabs(&st, "s")
+	if tabs[0].ws.ID != "w" || tabs[1].activity.State != model.StateWatching || tabs[1].activity.Unseen {
+		t.Fatalf("watching preview: %+v", tabs)
+	}
+	if sum := live.Summary("s"); sum.NeedsYou != 0 || sum.Working != 1 || sum.Unseen != 0 {
+		t.Fatalf("watching counts: %+v", sum)
+	}
+	if st.Activities[0].State != model.StateCompleted || !st.Activities[0].Unseen {
+		t.Fatal("session view changed source activity")
+	}
+}
+
+func TestSessionDotColor(t *testing.T) {
+	th := theme.Dark()
+	if got := sessionDotColor(th, model.StatePROpen); got != th.Green {
+		t.Fatalf("unseen PR dot = %v, want Done color %v", got, th.Green)
+	}
+	if got := sessionDotColor(th, model.StateWorking); got != th.Blue {
+		t.Fatalf("working dot = %v, want %v", got, th.Blue)
+	}
+}
 
 // A window of two machines lists each one's sessions under its heading,
 // and a click on the other machine's session asks to show it. The agents
