@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- Tab search lists the current session's tabs first, and another session's tab names its session and host before its group, so a long group name no longer hides it.
+
 ## v0.1.10
 
 - Tab search (ENG-2958): Ctrl+Shift+K (Cmd+K on macOS) finds any tab of any session and host by name, branch, group, folder, agent, pull request or first prompt, typos included, and reopens tabs you closed. The daemon keeps the last 200 closed tabs of the last 30 days; reopening one puts it back in its session, group and folder with its agent resumed, or in the repository when Archive removed its worktree. Delete forgets one. `tab_search` rebinds it; proto Level 50 adds `ReopenTab` and `ForgetTab`.

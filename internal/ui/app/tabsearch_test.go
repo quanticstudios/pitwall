@@ -92,15 +92,20 @@ func TestTabRows(t *testing.T) {
 		{"upgrd orm", false, []string{"old"}}, // letters left out, as the palette's matcher allows
 		{"nothing here", true, []string{"all"}},
 	} {
-		if got := hitIDs(tabRows(st, c.query, c.all)); !slices.Equal(got, c.want) {
+		if got := hitIDs(tabRows(st, "", c.query, c.all)); !slices.Equal(got, c.want) {
 			t.Errorf("%q: %v, want %v", c.query, got, c.want)
 		}
 	}
 	// A whole word of the title outranks a scattered match, and a tab still
 	// comes before any closed tab.
 	st.Closed = append(st.Closed, model.ClosedTab{ID: "c3", Tab: model.Workspace{Label: "orm"}, ClosedAt: now})
-	if got := hitIDs(tabRows(st, "orm", false)); !slices.Equal(got, []string{"old", "closed:c3"}) {
+	if got := hitIDs(tabRows(st, "", "orm", false)); !slices.Equal(got, []string{"old", "closed:c3"}) {
 		t.Errorf("orm: %v", got)
+	}
+	// The current session's tabs come first: "chat" of s2 outranks "old" of
+	// s1 from s2, though "old" is newer.
+	if got := hitIDs(tabRows(st, "s2", "", false)); !slices.Equal(got[:3], []string{"new", "chat", "old"}) {
+		t.Errorf("here s2: %v", got)
 	}
 }
 

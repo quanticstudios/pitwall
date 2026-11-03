@@ -59,13 +59,14 @@ func (u *ui) tabRow(gtx gl.Context, st *model.State, c *widget.Clickable, h tabH
 		case !ws.Settled.IsZero():
 			tags = append(tags, "Settled")
 		}
+		// Another session's tab names its session and host first, so a long
+		// group name is what gets cut.
+		if s := st.Session(ws.SessionID); s != nil && ws.SessionID != u.nav.session {
+			where = append(where, s.Name, strings.TrimSuffix(hostPrefix(u.b, ws.SessionID), " · "))
+		}
 		if ws.ProjectID != "" {
 			where = append(where, groupName(st, ws))
 		}
-		if s := st.Session(ws.SessionID); s != nil {
-			where = append(where, s.Name)
-		}
-		where = append(where, strings.TrimSuffix(hostPrefix(u.b, ws.SessionID), " · "))
 	} else {
 		cl := h.closed
 		ws, fg = cl.Tab, th.Muted
@@ -76,7 +77,7 @@ func (u *ui) tabRow(gtx gl.Context, st *model.State, c *widget.Clickable, h tabH
 		case cl.Gone:
 			where = append(where, "Folder and repository gone")
 		default:
-			where = append(where, cl.Group.Name, cl.Session, strings.TrimSuffix(hostPrefix(u.b, cl.ID), " · "))
+			where = append(where, cl.Session, strings.TrimSuffix(hostPrefix(u.b, cl.ID), " · "), cl.Group.Name)
 		}
 	}
 
