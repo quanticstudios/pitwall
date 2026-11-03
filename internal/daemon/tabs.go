@@ -385,7 +385,13 @@ func (d *Daemon) setTitle(id string, p Pane, raw string) {
 		return
 	}
 	i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id })
-	if i < 0 || d.st.Panes[i].Title == t {
+	if i < 0 {
+		return
+	}
+	if d.st.Panes[i].TmuxTitle != "" {
+		t = d.st.Panes[i].TmuxTitle
+	}
+	if d.st.Panes[i].Title == t {
 		return
 	}
 	d.st.Panes[i].Title = t

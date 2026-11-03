@@ -796,6 +796,62 @@ time from prompt to merge. Copy report puts it on the clipboard as Markdown
 to ask an agent what to speed up. At 10 MB the file moves to
 `timing.jsonl.1`.
 
+### Claude Code agent teams
+
+<img src="media/tmux-dark-large.png" alt="A team lead and its researcher teammate in native split panes opened through the tmux shim" width="800">
+
+Run this from a shell pane in pitwall:
+
+```sh
+pitwall tmux-shim -- env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude
+```
+
+Each teammate opens as a native split in the lead's tab. Native splits keep
+teammates in the same tmux window and use pitwall's pane input, agent detection
+and process cleanup. They do not create worker tabs or worktrees.
+
+The command gets a `tmux` link first on its `PATH`, with `TMUX` and `TMUX_PANE`
+set to this daemon and pane. Each split gets its own pane id and the shim's
+`PATH`. Your shell's environment and the real `tmux` stay unchanged. The link
+stays in the daemon's private runtime directory so workers can outlive the
+lead. The shim is off until you use this command. It requires a Unix PTY and
+a daemon at protocol Level 51 or above. An older daemon returns an error;
+the launcher does not restart it.
+
+Flags after `--` belong to the command. To keep the shim active in a shell:
+
+```sh
+pitwall tmux-shim -- sh
+```
+
+The supported commands are:
+
+| tmux command | pitwall behavior |
+| --- | --- |
+| `split-window` | Split the target pane, vertically or with `-h` horizontally. `-d` preserves focus, `-c` sets the directory, `-e NAME=value` sets environment variables, and `-P -F` prints the new pane. `-l 70%` or `-p 70` gives the new pane 70 percent of the split |
+| `respawn-pane -k` | Replace a shim pane's process, keeping its id, title and place. One command argument runs through `/bin/sh -c`; several form an argv. An empty command repeats the pane's command |
+| `send-keys` | Type text and tmux key names such as `Enter`, `C-c` and `Up`. `-l` sends literal text, `-H` sends hex bytes, and `-N` repeats |
+| `list-panes`, `display-message -p` | Expand `-F` formats and print pane ids, titles, indices, sizes, directories and commands. `display-message -p '#{window_id}'` names this tab |
+| `kill-pane` | Close the pane and its processes |
+| `select-pane` | Focus the pane, or name it with `-T` without moving focus |
+| `capture-pane -p` | Print the screen. `-S` and `-E` include history using tmux line numbers; `-` means either end |
+| `has-session`, `list-sessions`, `list-windows`, `rename-window` | Query or name the caller's session and tab |
+| `set-option`, `set-window-option` | Accept pane styles and border formats while pitwall keeps its own appearance. `remain-on-exit` accepts `off`, `on` and `failed` |
+| `select-layout`, `resize-pane` | Accept the named layouts and `-x` or `-y` sizes used by agent teams. The native split tree keeps its layout and ratios |
+| `-V` | Print `tmux 3.4` |
+
+Targets accept `%N` pane ids, `@N` window ids and `session:0.pane` addresses.
+Every query and mutation stays inside the caller's tab, including
+`list-panes -a`. A target in another tab fails. `-S` must name this daemon's
+socket; another server or `-L` fails.
+
+Formats support `#{variable}`, tmux's short aliases such as `#D` and `#T`,
+`##`, `#,`, `#}`, `#{?condition,yes,no}`, `#{==:a,b}` and `#{!=:a,b}`.
+Unknown variables expand to empty, as in tmux. Other format expressions,
+unknown commands and unknown flags fail with a message and a nonzero exit
+code. Cell sizes on `split-window` produce equal halves. Command chaining,
+control mode, buffers and creating or killing sessions are unsupported.
+
 ### Grouping
 
 <img src="media/drag.webp" alt="Dragging a tab into the web-app group while the other rows slide apart, then dragging the billing group above the loose tabs" width="800">

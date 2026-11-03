@@ -791,6 +791,15 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(proto.StateMsg{State: forLevel(s, c.level), Level: proto.Level, Build: Build})
 			continue
 		}
+		if request, ok := m.(proto.Tmux); ok {
+			output, err := d.tmux(request)
+			result := proto.TmuxResult{Output: output}
+			if err != nil {
+				result.Error = err.Error()
+			}
+			c.queue(result)
+			continue
+		}
 		if s, ok := m.(proto.SearchAll); ok {
 			if cancelSearch != nil {
 				cancelSearch()
@@ -2035,6 +2044,9 @@ func (d *Daemon) exited(id string, p Pane) {
 		log.Printf("pane %s: shell after failed resume: %q", id, err)
 	}
 	var closing []Pane
+	if code != 0 && sp.TmuxHoldFailed {
+		sp.Held = true
+	}
 	if sp.Held {
 		sp.ResumeCmd = nil
 		// why: the tab keeps the command's output on screen, and pitwall wait reads its status.

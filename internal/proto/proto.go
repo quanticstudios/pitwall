@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 51 added Tmux, TmuxResult, Pane.TmuxTitle, Pane.TmuxHoldFailed and FocusSession.Pane.
 // Level 50 added State.Closed, ReopenTab and ForgetTab: tab search
 // reopens closed tabs.
 // Level 49 added SetTabInbox and Workspace.Settled, SnoozedUntil and
@@ -157,7 +158,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 50
+const Level = 51
 
 // ClosedLevel added State.Closed, ReopenTab and ForgetTab.
 const ClosedLevel = 50
@@ -195,6 +196,8 @@ func Since(msg any) int {
 	switch msg.(type) {
 	case ReopenTab, ForgetTab:
 		return ClosedLevel
+	case Tmux, TmuxResult:
+		return TmuxLevel
 	case SetTabInbox:
 		return InboxLevel
 	case Image, ImageResult:
@@ -706,6 +709,7 @@ type FocusSession struct {
 	WorkspaceID string
 	TabID       string
 	SessionID   string
+	Pane        string // focus this split pane; ignored below TmuxLevel
 }
 
 // FocusDir asks the GUIs that show Pane focused to focus the pane next to
@@ -844,6 +848,7 @@ type SetStatus struct {
 
 // Messages lists every type that crosses the socket, for gob registration.
 var Messages = []any{
+	Tmux{}, TmuxResult{},
 	Hello{}, Input{}, Resize{}, AddProject{}, NewWorkspace{}, RenameWorkspace{},
 	ArchiveWorkspace{}, DeleteWorkspace{}, OpenPane{}, Scroll{}, ClosePane{}, SetLayout{},
 	NewSession{}, SetSessionGroup{}, NewGroup{}, RenameGroup{}, DeleteGroup{},

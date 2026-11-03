@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"log"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -376,7 +377,8 @@ func (u *ui) applyFocus(st *model.State) {
 	u.focusMu.Lock()
 	fs := u.focusReq
 	ws := fs != nil && findWorkspace(st, fs.WorkspaceID) != nil
-	if fs != nil && (ws || fs.WorkspaceID == "" && st.Session(fs.SessionID) != nil) {
+	paneReady := fs == nil || fs.Pane == "" || findPane(st, fs.Pane) != nil
+	if fs != nil && paneReady && (ws || fs.WorkspaceID == "" && st.Session(fs.SessionID) != nil) {
 		u.focusReq = nil
 	} else if fs != nil && st.Session(fs.SessionID) != nil {
 		u.nav.switchSession(st, fs.SessionID) // its tab is still on the way
@@ -389,6 +391,9 @@ func (u *ui) applyFocus(st *model.State) {
 		u.nav.tabMode, u.nav.paneMode = false, false
 		if ws {
 			u.nav.attachSession(st, fs.WorkspaceID)
+			if fs.Pane != "" && slices.Contains(u.nav.panes(st), fs.Pane) {
+				u.nav.setFocus(fs.Pane)
+			}
 		} else {
 			u.nav.switchSession(st, fs.SessionID)
 		}
