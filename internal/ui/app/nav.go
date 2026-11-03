@@ -54,6 +54,7 @@ type nav struct {
 	workspace string            // active tab (workspace) id
 	tab       string            // its model.Tab, "" when it has none
 	focus     map[string]string // focusKey(workspace, tab) -> focused pane
+	popups    map[string]string // workspace -> its popup's pane, from the last sync
 	keys      *config.Bindings  // nil: the default preset
 	altHeld   bool              // the hold modifier is down on its own: the switcher shows
 	pinned    bool              // the switcher stays open without the hold
@@ -314,8 +315,17 @@ func (n *nav) panes(st *model.State) []string {
 	return nil
 }
 
-// focused is the focused pane of the shown tab, or "".
-func (n *nav) focused() string { return n.focus[focusKey(n.workspace, n.tab)] }
+// focused is the pane keys go to: the shown tab's popup while it has one,
+// else its focused pane, or "".
+func (n *nav) focused() string {
+	if p := n.popup(); p != "" {
+		return p
+	}
+	return n.focus[focusKey(n.workspace, n.tab)]
+}
+
+// popup is the shown tab's popup pane, "" for none.
+func (n *nav) popup() string { return n.popups[n.workspace] }
 
 // sync applies the overrides to st and repairs the selection after a state
 // change. A session that went away hands over to the next one in sidebar
@@ -332,6 +342,12 @@ func (n *nav) sync(st *model.State) {
 		return
 	}
 	n.pickSession(st)
+	n.popups = map[string]string{}
+	for _, w := range st.Workspaces {
+		if w.Popup != nil && findPane(st, w.Popup.Pane) != nil {
+			n.popups[w.ID] = w.Popup.Pane
+		}
+	}
 	if n.sessions != nil {
 		for _, w := range n.ordered(st) {
 			if !n.sessions[w.ID] {
@@ -357,7 +373,7 @@ func (n *nav) sync(st *model.State) {
 	ps := n.panes(st)
 	defer func() {
 		n.prevKey, n.prevPanes = k, ps
-		if n.zoom != n.focused() {
+		if n.zoom != n.focus[k] {
 			n.zoom = ""
 		}
 	}()
@@ -682,6 +698,9 @@ func (n *nav) paneKey(st *model.State, e key.Event) (any, bool) {
 
 // paneOp runs a [keys.pane] action.
 func (n *nav) paneOp(st *model.State, a string) any {
+	if n.popup() != "" && a != "close" {
+		return nil // the splits under a popup stay as they are
+	}
 	root := n.root(st)
 	area := n.layoutArea()
 	switch a {
@@ -978,7 +997,7 @@ func (n *nav) globalOp(st *model.State, act string) any {
 			n.pinned = true
 		}
 	case "split_right", "split_down":
-		if ws == "" {
+		if ws == "" || n.popup() != "" {
 			return nil
 		}
 		dir := layout.Horizontal

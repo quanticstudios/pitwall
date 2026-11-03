@@ -20,7 +20,7 @@ func pinnedClose(st *model.State, msg any) *model.Workspace {
 	case proto.KillSession:
 		id = m.WorkspaceID
 	case proto.ClosePane:
-		if p := findPane(st, m.Pane); p != nil && st.PaneCount(p.WorkspaceID) == 1 {
+		if p := findPane(st, m.Pane); p != nil && !st.IsPopup(p.ID) && st.PaneCount(p.WorkspaceID) == 1 {
 			id = p.WorkspaceID
 		}
 	}

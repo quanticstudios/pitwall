@@ -69,6 +69,9 @@ func (d *Daemon) removePane(id string) []Pane {
 	if w == nil {
 		return out
 	}
+	if w.Popup != nil && w.Popup.Pane == id {
+		w.Popup = nil
+	}
 	if ti := paneTab(w, id); ti >= 0 {
 		if w.Tabs[ti].Layout = d.o.Remove(w.Tabs[ti].Layout, id); w.Tabs[ti].Layout == nil {
 			out = append(out, d.removeTab(w, ti, gone)...)

@@ -1093,6 +1093,43 @@ lives as long as the `pitwall form` that showed it: stop that and the form
 goes. Close the tab and the form ends too, and its `pitwall form` exits 1.
 Every window shows it over the tab; the first answer counts.
 
+### Popups
+
+A popup is a pane that floats over the tab's splits for one command, such
+as a picker or lazygit, and closes when the command exits. The splits under
+it keep their sizes and keep running.
+
+```sh
+pitwall popup -- lazygit
+pitwall popup --width 60% --height 20 --title branches -- sh -c 'git branch | fzf'
+```
+
+It starts in the tab's folder, the live folder of its first pane, or in
+`--dir`. `--width` and `--height` are a number of cells or a percentage of
+the tab's area, 80% and 70% by default; a popup never grows past the area.
+`--title` goes on its border, the command's name without one. Outside a pane,
+name the tab as `pitwall split` does.
+
+Every key goes to the popup's program, Escape too, so fzf and lazygit
+behave as in a terminal. pitwall's own keys still work, and the close pane
+key (Ctrl+Shift+W) closes the popup. Clicks on the tab outside it do
+nothing. A tab has one popup at a time: a second `pitwall popup` on it
+fails until the first closes. Another tab can have its own.
+
+`--wait` blocks until the command exits and returns its exit code, or 130
+when the popup closed first, so a script can ask with a picker. The command's
+output stays on the popup's screen; write the answer to a file to keep it:
+
+```sh
+if pitwall popup --wait -- sh -c 'git branch --format="%(refname:short)" | fzf > /tmp/pick'; then
+  git switch "$(cat /tmp/pick)"
+fi
+```
+
+`[[popups]]` in config.toml puts a command on a key (see
+[Configuration](config.md)); the key opens it over the shown tab. A daemon
+restart drops popups, and a window older than Level 54 does not show them.
+
 ### The inbox
 
 The sidebar has a second view for when the question is "what needs me?"

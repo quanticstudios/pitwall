@@ -3,6 +3,7 @@
 package model
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -116,6 +117,66 @@ type Workspace struct {
 	// Chat is the id of the managed session this tab shows (State.Chats),
 	// "" for a tab of panes. A chat tab has no Tabs and no panes.
 	Chat string
+	// Popup is the floating pane over the tab's splits that pitwall popup
+	// opened, nil for none. It is not saved: a restart drops it.
+	Popup *Popup `json:"-"`
+}
+
+// Popup is a floating pane over a tab's splits. Its pane is in
+// State.Panes but in no layout, and closes when its command exits.
+type Popup struct {
+	Pane string
+	// Width and Height are as pitwall popup took them: "80%" of the
+	// tab's area, or "100" cells; "" for the default.
+	Width, Height string
+	Title         string // shown on its border, "" for the command's name
+}
+
+// Popup sizes when pitwall popup names none, and the smallest box a popup
+// gets while its tab's area can hold it.
+const (
+	PopupWidth     = "80%"
+	PopupHeight    = "70%"
+	PopupMinWidth  = 20
+	PopupMinHeight = 5
+)
+
+// Adapted from tuios (MIT): internal/session/popup.go
+
+// ParsePopupSize reads a --width or --height: a whole number of cells, or
+// with a trailing % a share of the tab's area from 1% to 100%.
+func ParsePopupSize(spec string) (value int, percent bool, err error) {
+	s := strings.TrimSpace(spec)
+	num, percent := strings.CutSuffix(s, "%")
+	value, err = strconv.Atoi(num)
+	switch {
+	case err != nil || value <= 0:
+		return 0, false, fmt.Errorf("size %q is not a number of cells or a percentage such as 80%%", spec)
+	case percent && value > 100:
+		return 0, false, fmt.Errorf("size %q is more than 100%%", spec)
+	}
+	return value, percent, nil
+}
+
+// ResolvePopupSize is spec in cells, of extent cells: fallback when spec
+// is empty or bad, cut to extent, and at least floor while extent holds it.
+func ResolvePopupSize(spec, fallback string, extent, floor int) int {
+	if extent <= 0 {
+		return 0
+	}
+	value, percent, err := ParsePopupSize(spec)
+	if err != nil {
+		value, percent, _ = ParsePopupSize(fallback)
+	}
+	if percent {
+		value = extent * value / 100
+	}
+	return max(min(value, extent), min(floor, extent), 1)
+}
+
+// IsPopup reports whether pane is a tab's popup.
+func (s *State) IsPopup(pane string) bool {
+	return slices.ContainsFunc(s.Workspaces, func(w Workspace) bool { return w.Popup != nil && w.Popup.Pane == pane })
 }
 
 // Chat is a managed session's summary. The daemon keeps it current; the
@@ -813,9 +874,12 @@ func (s *State) Workspace(id string) *Workspace {
 
 // PaneCount is how many panes tab id has.
 func (s *State) PaneCount(id string) int {
-	n := 0
+	n, popup := 0, ""
+	if w := s.Workspace(id); w != nil && w.Popup != nil {
+		popup = w.Popup.Pane
+	}
 	for _, p := range s.Panes {
-		if p.WorkspaceID == id {
+		if p.WorkspaceID == id && p.ID != popup {
 			n++
 		}
 	}

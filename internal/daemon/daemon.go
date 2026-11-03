@@ -566,7 +566,7 @@ func (d *Daemon) shutdown() {
 		return
 	}
 	d.closing = true
-	s := d.saveSnapshot()
+	s := withoutPopups(d.saveSnapshot())
 	panes := slices.Collect(maps.Values(d.panes))
 	d.mu.Unlock()
 	if err := d.o.Save(s); err != nil {
@@ -989,6 +989,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.deleteWorktree(ctx, m)
 	case proto.OpenPane:
 		return d.openPane(m)
+	case proto.OpenPopup:
+		return d.openPopup(m)
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
@@ -1395,7 +1397,7 @@ func (d *Daemon) closePane(id string) error {
 		d.mu.Unlock()
 		return fmt.Errorf("no pane %s", id)
 	}
-	if w := d.workspace(d.st.Panes[i].WorkspaceID); w != nil && w.Pinned && d.st.PaneCount(w.ID) == 1 {
+	if w := d.workspace(d.st.Panes[i].WorkspaceID); w != nil && w.Pinned && !d.st.IsPopup(id) && d.st.PaneCount(w.ID) == 1 {
 		d.mu.Unlock()
 		return fmt.Errorf("tab %q is pinned; unpin it to close its last pane", w.Name)
 	}
@@ -2190,7 +2192,7 @@ func (d *Daemon) save() {
 		return
 	}
 	d.savePending = false
-	s := d.saveSnapshot()
+	s := withoutPopups(d.saveSnapshot())
 	d.mu.Unlock()
 	if err := d.o.Save(s); err != nil {
 		log.Printf("save state: %q", err)

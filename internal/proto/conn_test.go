@@ -39,7 +39,7 @@ func allMessages() []any {
 	st := model.State{
 		Version:    7,
 		Projects:   []model.Project{{ID: "p", Name: "n", Root: "/r", Kind: model.ProjectGit, Color: "red"}},
-		Workspaces: []model.Workspace{{ID: "w", ProjectID: "p", Name: "x", Branch: "x", Path: "/r/x", UpdatedAt: now, Tabs: []model.Tab{{ID: "t", Layout: tree}}, ActiveTab: "t"}},
+		Workspaces: []model.Workspace{{ID: "w", ProjectID: "p", Name: "x", Branch: "x", Path: "/r/x", UpdatedAt: now, Tabs: []model.Tab{{ID: "t", Layout: tree}}, ActiveTab: "t", Popup: &model.Popup{Pane: "p", Width: "80%", Height: "20", Title: "pick"}}},
 		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cmd: []string{"claude"}, Cwd: "/r/x", Exited: true, ExitCode: 2, Provider: model.ProviderClaude, SessionID: "s"}},
 		Activities: []model.Activity{{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StatePendingApproval, UpdatedAt: now, Unseen: true,
 			Advice: "allow", AdviceP: 0.96, AdviceRule: "sudo", Urgency: "now", AutoContinues: true}},
@@ -129,6 +129,7 @@ func allMessages() []any {
 		ForgetTab{ID: "c"},
 		OpenForm{ID: "f", Pane: "a", Spec: "<form/>", Update: true},
 		FormAnswer{ID: "f", Answers: `{"button":"ok"}`, Cancel: true, Closed: true},
+		OpenPopup{WorkspaceID: "w", Pane: "p", Cmd: []string{"fzf"}, Dir: "/r", Width: "80%", Height: "20", Title: "pick"},
 		WorktreeQuery{ProjectID: "p", Orphans: true},
 		WorktreeInfo{Query: WorktreeQuery{WorkspaceID: "w"}, Default: "origin/main", Local: []string{"main"}, Remote: []string{"origin/fix"}, GitHub: true,
 			Changed: []string{"a.go"}, Unmerged: true, Orphans: []model.Orphan{{Root: "/r", Path: "/r/.worktrees/x", Branch: "x", Committed: now, Dirty: true}}},
