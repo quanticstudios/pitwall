@@ -133,6 +133,8 @@ func runCLI(args []string, in *os.File, out, errOut io.Writer) int {
 			stdin = in
 		}
 		return formCommand(args[1:], stdin, out, errOut)
+	case len(args) > 0 && args[0] == "scrollback":
+		err = scrollbackCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "read":
 		err = readCommand(args[1:], out)
 	case len(args) > 0 && args[0] == "send":

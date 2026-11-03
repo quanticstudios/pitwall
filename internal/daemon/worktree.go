@@ -142,6 +142,9 @@ func (w *portWatch) Write(p []byte) (int, error) {
 	return w.Emulator.Write(p)
 }
 
+// ScrollbackSnapshot forwards capture without flattening under the pane lock.
+func (w *portWatch) ScrollbackSnapshot() func() string { return vt.CaptureScrollback(w.Emulator) }
+
 // MarshalBinary forwards the handoff snapshot (vt.Save).
 func (w *portWatch) MarshalBinary() ([]byte, error) { return vt.Save(w.Emulator) }
 

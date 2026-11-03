@@ -118,7 +118,7 @@ func (d *Daemon) freeze(f *frozen) error {
 	f.files = append(f.files, lf)
 	for _, sp := range d.st.Panes {
 		size := d.sizes[sp.ID]
-		hp := handoffPane{ID: sp.ID, Cols: size[0], Rows: size[1]}
+		hp := handoffPane{ID: sp.ID, Cols: size[0], Rows: size[1], ScrollbackFile: d.scrollbackFiles[sp.ID]}
 		h := d.panes[sp.ID]
 		p, ok := h.(pausable)
 		switch s, held := h.(*stopped); {
@@ -452,6 +452,9 @@ func takeover(uc *net.UnixConn, conn *proto.Conn, o Options) (*Daemon, *net.Unix
 		}
 		a.p.Start()
 		d.run(a.ID, a.p, size, a.Input)
+		if a.ScrollbackFile != "" {
+			d.cleanScrollback(a.ID, a.p, a.ScrollbackFile)
+		}
 	}
 	// Chats come back from disk, as after a restart: the old daemon closes
 	// them as it exits. shortcut: a command in that window opens a chat

@@ -135,3 +135,9 @@ background service." It reconnects on its own, starting a daemon when none
 runs: at once, then 0.5 seconds after a failed try and twice as long after
 each further one, up to 30 seconds. The Reconnect button tries at once. A
 daemon started this way restores tabs as after a reboot.
+
+Scrollback editor panes keep their temporary file's path in the saved state.
+A daemon restart removes those panes and any remaining files instead of
+relaunching the editor on a missing file. A live daemon handoff keeps the
+editor process and transfers file cleanup to the new daemon. Closed tab
+history skips scrollback editor panes.

@@ -220,6 +220,8 @@ type Options struct {
 type Daemon struct {
 	o Options
 
+	scrollbackFiles map[string]string // editor pane: its temporary file; guarded by mu
+
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
@@ -426,6 +428,13 @@ func NewWith(o Options) (*Daemon, error) {
 	var gone []string
 	for i := range d.st.Panes {
 		p := &d.st.Panes[i]
+		if p.ScrollbackFile != "" {
+			if err := os.Remove(p.ScrollbackFile); err != nil && !os.IsNotExist(err) {
+				log.Printf("scrollback restore cleanup: %v", err)
+			}
+			gone = append(gone, p.ID)
+			continue
+		}
 		if p.Exited && !p.Held {
 			gone = append(gone, p.ID) // saved by an older daemon, which kept exited panes
 			continue
@@ -828,6 +837,14 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			c.queue(d.worktreeQuery(ctx, q)) // a reply to this client alone
 			continue
 		}
+		if s, ok := m.(proto.Scrollback); ok {
+			if hello.Level < proto.Since(s) {
+				c.queue(proto.Error{Message: "scrollback needs protocol level 56"})
+			} else {
+				c.queue(d.scrollback(s))
+			}
+			continue
+		}
 		if t, ok := m.(proto.Text); ok {
 			c.queue(d.text(t))
 			continue
@@ -989,6 +1006,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.deleteWorkspace(ctx, m)
 	case proto.DeleteWorktree:
 		return d.deleteWorktree(ctx, m)
+	case proto.EditScrollback:
+		return d.editScrollback(m)
 	case proto.OpenPane:
 		return d.openPane(m)
 	case proto.OpenPopup:
@@ -1344,6 +1363,10 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 }
 
 func (d *Daemon) openPane(m proto.OpenPane) error {
+	return d.openPaneFile(m, "")
+}
+
+func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w := d.workspace(m.WorkspaceID)
@@ -1375,7 +1398,10 @@ func (d *Daemon) openPane(m proto.OpenPane) error {
 	if err := d.start(id, m.Cmd, cwd, w.Ports, env); err != nil {
 		return err
 	}
-	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: cwd, Env: env})
+	if path != "" {
+		d.cleanScrollback(id, d.panes[id], path)
+	}
+	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: cwd, Env: env, ScrollbackFile: path})
 	leaf := &layout.Node{Pane: id}
 	switch {
 	case t == nil: // a project's workspace gets its first tab with its first pane

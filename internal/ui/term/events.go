@@ -304,6 +304,11 @@ func (v *View) pointer(e pointer.Event, g *vt.Grid, m vt.Modes, focused bool) []
 	case pointer.Scroll:
 		v.scroll(e)
 	case pointer.Press:
+		if e.Buttons == pointer.ButtonSecondary {
+			at := image.Pt(int(e.Position.X), int(e.Position.Y))
+			v.contextAt = &at
+			return nil
+		}
 		if e.Buttons != pointer.ButtonPrimary {
 			return nil
 		}
@@ -383,4 +388,15 @@ func (v *View) Blur() []byte {
 	}
 	v.focusIn = false
 	return input.Focus(false, v.focusMode)
+}
+
+// ContextMenu returns the position of a local right click once. Shift forces
+// a local click while the program owns the mouse.
+func (v *View) ContextMenu() (image.Point, bool) {
+	if v.contextAt == nil {
+		return image.Point{}, false
+	}
+	at := *v.contextAt
+	v.contextAt = nil
+	return at, true
 }

@@ -63,6 +63,8 @@ type View struct {
 	// (vt.Grid.Images); nil draws none.
 	Images func(key uint64) (vt.Image, bool)
 
+	contextAt *image.Point
+
 	pics     map[picKey]paint.ImageOp // the images drawn last frame
 	th       *theme.Theme
 	ppem     fixed.Int26_6

@@ -96,6 +96,7 @@ func (u *ui) sidebarKey(st *model.State, e key.Event) bool {
 // opens a tab or an agent's pane gives that pane the keyboard, as it does
 // outside the mode.
 func (u *ui) sidebarPointer(st *model.State, ev sidebar.Event) {
+	u.paneMenu.close()
 	if _, ok := ev.(sidebar.SelectWorkspace); ok {
 		u.leaveSidebar()
 	}

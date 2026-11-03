@@ -256,6 +256,9 @@ func ReportedName(p Provider) string {
 func IsAgent(p Provider) bool { return slices.Contains(Agents, p) || ReportedName(p) != "" }
 
 type Pane struct {
+	// ScrollbackFile marks an editor pane that a restart removes with its temporary file.
+	ScrollbackFile string
+
 	ID          string
 	WorkspaceID string
 	Cmd         []string // argv as launched; empty means the user's shell

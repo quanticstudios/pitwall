@@ -324,6 +324,8 @@ type ui struct {
 	usage      usageWatch       // token use for the tabs' hover cards
 	invalidate func()           // the window's Invalidate; nil in tests
 
+	paneMenu paneMenu
+
 	find findBar // the find bar, on the focused pane while open
 	pip  pipView // picture in picture, see pip.go
 
@@ -717,8 +719,10 @@ func (u *ui) layout(gtx gl.Context) {
 	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
 	u.keepFind(&st)
 	if u.settings.Shown() {
+		u.paneMenu.close()
 		u.layoutSettings(pgtx, &st)
 	} else if u.review.on {
+		u.paneMenu.close()
 		u.layoutReview(pgtx, &st)
 	} else {
 		u.layoutPanes(pgtx, &st)
@@ -993,6 +997,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}()
 	ws := findWorkspace(st, u.nav.workspace)
 	if ws == nil {
+		u.paneMenu.close()
 		if st.Session(u.nav.session) != nil { // every tab detached
 			u.emptyState(gtx, "Open a tab   "+firstChord(u.nav.bind().Global["new_tab"]), func() { u.send(u.nav.newTab(st, "", "")) })
 		}
@@ -1010,10 +1015,12 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		u.drag = nil
 	}
 	if ws.Chat != "" {
+		u.paneMenu.close()
 		u.layoutChat(gtx, st, ws)
 		return
 	}
 	if root == nil {
+		u.paneMenu.close()
 		u.emptyState(gtx, "Open a terminal   "+firstChord(u.nav.bind().Global["split_right"]), func() {
 			u.nav.expectPane(st)
 			u.send(proto.OpenPane{WorkspaceID: ws.ID, TabID: tabID})
@@ -1037,8 +1044,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on {
-		focused = "" // a dialog, a rename field, tab mode, the palette, a form or hints mode holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on || u.paneMenu.pane != "" {
+		focused = "" // a dialog, a rename field, tab mode, the palette, a form, hints mode or a pane menu holds key focus
 	}
 	findFocus := focused != "" && focused == u.find.pane
 	if u.find.pane != "" {
@@ -1092,6 +1099,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		u.paneView(st, pop).view.SetHints(u.hints.on && slices.Contains(u.hints.panes, pop), hints[pop])
 		u.layoutPopup(gtx, st, *ws.Popup, area, pop == focused, findFocus && pop == u.find.pane)
 	}
+	u.layoutPaneMenu(gtx, st)
 }
 
 // paneView is pane id's view, set up for this frame.
@@ -1108,6 +1116,7 @@ func (u *ui) paneView(st *model.State, id string) *paneUI {
 	p.view.PasteImages = pn != nil && (pn.Provider == model.ProviderClaude || pn.Provider == model.ProviderCodex)
 	p.view.HostPaste = true // save local and remote clipboard images through the daemon
 	return p
+
 }
 
 func findPane(st *model.State, id string) *model.Pane {
@@ -1222,6 +1231,11 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	pass.Pop()
 	cl.Pop()
 
+	if at, ok := p.view.ContextMenu(); ok {
+		u.closeHints()
+		u.paneMenu.close()
+		u.paneMenu.pane, u.paneMenu.at = id, rect.Min.Add(grid.Min).Add(at)
+	}
 	u.paneCopy(gtx, p, id, rect)
 	u.panePaste(gtx, p, id, rect, m)
 	if l := p.view.OpenLink(); l != "" {

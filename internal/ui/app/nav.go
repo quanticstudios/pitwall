@@ -1050,6 +1050,11 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		}
 		n.expectPane(st)
 		return proto.OpenPane{WorkspaceID: ws, TabID: n.tab, Target: n.focused(), Dir: dir}
+	case "edit_scrollback":
+		if n.focused() != "" {
+			n.expectPane(st)
+			return proto.EditScrollback{Pane: n.focused()}
+		}
 	case "close_pane":
 		if n.focused() != "" {
 			return proto.ClosePane{Pane: n.focused()}
