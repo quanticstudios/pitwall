@@ -8,7 +8,8 @@ import "github.com/quanticstudios/pitwall/internal/model"
 // Ungroup, NewWorktreeSession, MoveSession, MoveGroup, OpenSessions,
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
 // RerunChecks, SendFailures, SendReview, Archive, NewTaskIn, DropTask,
-// OpenPort, OpenCompare, CancelResume, SecondOpinion, RequestChanges.
+// OpenPort, OpenCompare, CancelResume, SecondOpinion, RequestChanges,
+// PictureInPicture.
 type Event any
 
 // CancelResume drops the resume after a usage limit of the tab's agents.
@@ -28,6 +29,10 @@ type NewTab struct {
 	After, GroupID string
 	Loose          bool // outside every group, in the active tab's folder
 }
+
+// PictureInPicture shows the tab's focused pane in picture in picture, or
+// closes it when it shows that tab's pane already.
+type PictureInPicture struct{ WorkspaceID string }
 
 // CloseTab closes a tab and all its panes.
 type CloseTab struct{ WorkspaceID string }

@@ -97,6 +97,10 @@ type nav struct {
 	zoom     string
 	area     layout.Rect
 
+	// pip is the pane picture in picture shows over other tabs, "" for
+	// none. It lives in this window only.
+	pip string
+
 	// Tabs attached here but still detached in the state, shown until the
 	// state agrees.
 	attach map[string]bool
@@ -329,6 +333,32 @@ func (n *nav) focused() string {
 // popup is the shown tab's popup pane, "" for none.
 func (n *nav) popup() string { return n.popups[n.workspace] }
 
+// focusIn is the pane tab id has focused, else its first pane, or "".
+func (n *nav) focusIn(st *model.State, id string) string {
+	t := shownTab(findWorkspace(st, id))
+	if t == nil {
+		return ""
+	}
+	all := panesOf(t.Layout)
+	if p := n.focus[focusKey(id, t.ID)]; slices.Contains(all, p) {
+		return p
+	}
+	if len(all) > 0 {
+		return all[0]
+	}
+	return ""
+}
+
+// togglePiP shows pane in picture in picture, in place of any other, or
+// hides it when it is the one shown.
+func (n *nav) togglePiP(pane string) {
+	if pane == n.pip {
+		n.pip = ""
+	} else {
+		n.pip = pane
+	}
+}
+
 // sync applies the overrides to st and repairs the selection after a state
 // change. A session that went away hands over to the next one in sidebar
 // order; a pane that went away to its neighbour in the tab; a tab that went
@@ -338,6 +368,9 @@ func (n *nav) sync(st *model.State) {
 		n.focus, n.attach = map[string]string{}, map[string]bool{}
 	}
 	n.patch(st)
+	if n.pip != "" && findPane(st, n.pip) == nil {
+		n.pip = ""
+	}
 	if id := n.reopen; id != "" && findWorkspace(st, id) != nil {
 		n.reopen = ""
 		n.selectWorkspace(st, id, "")
@@ -980,6 +1013,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.pathPick = n.focused() != ""
 	case "cleanup_worktrees":
 		n.cleanup = true
+	case "picture_in_picture":
+		n.togglePiP(n.focused())
 	case "jump_attention":
 		n.jumpAttention(st)
 	case "allow_prompt", "deny_prompt":

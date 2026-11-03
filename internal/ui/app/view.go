@@ -12,9 +12,14 @@ type Viewer interface {
 	Show(panes []string)
 }
 
-// showPanes tells the backend the panes layoutPanes drew this frame.
+// showPanes tells the backend the panes layoutPanes drew this frame, and
+// the picture in picture pane, which drawPiP draws after it.
 func (u *ui) showPanes(drawn map[string]bool) {
 	if v, ok := u.b.(Viewer); ok {
-		v.Show(slices.Sorted(maps.Keys(drawn)))
+		ids := slices.Sorted(maps.Keys(drawn))
+		if p := u.nav.pip; p != "" && !drawn[p] {
+			ids = append(ids, p)
+		}
+		v.Show(ids)
 	}
 }

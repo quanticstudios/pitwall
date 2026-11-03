@@ -494,8 +494,9 @@ func (b *backend) recvLoop() {
 			}
 			pane = m.Pane
 		}
-		if pane != "" && !shown(&b.state, b.session, pane) {
-			// Kept for when its tab is shown; no redraw for it now.
+		if pane != "" && !b.view[pane] && !shown(&b.state, b.session, pane) {
+			// Kept for when its tab is shown; no redraw for it now. A pane
+			// in the view, such as picture in picture's, redraws.
 			b.mu.Unlock()
 			continue
 		}

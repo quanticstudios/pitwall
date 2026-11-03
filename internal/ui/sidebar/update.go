@@ -300,6 +300,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			}
 			s.openReply(id, pane)
 		}
+		if s.menuItem[actPiP].Clicked(gtx) {
+			s.events = append(s.events, PictureInPicture{WorkspaceID: id})
+			s.closeMenus()
+		}
 		if s.menuItem[actCancelResume].Clicked(gtx) {
 			s.events = append(s.events, CancelResume{WorkspaceID: id})
 			s.closeMenus()
