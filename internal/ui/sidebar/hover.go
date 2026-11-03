@@ -39,12 +39,13 @@ const groupIndent unit.Dp = 12
 // closes after hoverGrace. A dismissed card stays closed until the pointer
 // is on another row.
 type hoverState struct {
-	delay   time.Duration // zero uses hoverDelay
-	over    string        // the row under the pointer, "" for none
-	since   time.Time     // when over last changed
-	blocked string        // the row whose card was dismissed
-	shown   string        // the row whose card is open
-	shownAt time.Time     // when it opened, for the fade
+	delay       time.Duration // zero uses hoverDelay
+	delaySwitch bool          // require the delay again on another row
+	over        string        // the row under the pointer, "" for none
+	since       time.Time     // when over last changed
+	blocked     string        // the row whose card was dismissed
+	shown       string        // the row whose card is open
+	shownAt     time.Time     // when it opened, for the fade
 }
 
 // step moves the state to now with the pointer over row over, and returns
@@ -67,7 +68,7 @@ func (h *hoverState) step(now time.Time, over string) time.Time {
 		h.shown = ""
 	case over == h.blocked:
 		h.shown = ""
-	case h.shown != "":
+	case h.shown != "" && (over == h.shown || !h.delaySwitch):
 		h.shown = over
 	default:
 		delay := h.delay

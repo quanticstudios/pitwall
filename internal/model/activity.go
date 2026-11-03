@@ -178,6 +178,28 @@ func Pulses(a *Activity) bool {
 	return a != nil && (a.State == StateWorking || a.State == StateConnecting)
 }
 
+// Watching identifies finished root tabs whose live workers still work.
+func (s *State) Watching() map[string]bool {
+	acts := map[string][]Activity{}
+	for _, a := range s.Activities {
+		acts[a.WorkspaceID] = append(acts[a.WorkspaceID], a)
+	}
+	activity := map[string]*Activity{}
+	live := map[string]bool{}
+	for _, ws := range s.Workspaces {
+		live[ws.ID] = !ws.Detached
+		activity[ws.ID] = Aggregate(acts[ws.ID])
+	}
+	out := map[string]bool{}
+	for _, ws := range s.Workspaces {
+		r := s.Root(ws)
+		if a := activity[r]; live[ws.ID] && live[r] && a != nil && a.State == StateCompleted && Pulses(activity[ws.ID]) {
+			out[r] = true
+		}
+	}
+	return out
+}
+
 // PillLabel is a state's short label, "Working" or "Approval". It names
 // no agent: every place that shows it also shows the agent's mark or name.
 func PillLabel(a Activity) string {

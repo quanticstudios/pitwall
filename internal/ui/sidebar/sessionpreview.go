@@ -15,6 +15,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/anim"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -22,11 +23,14 @@ import (
 const sessionPreviewDelay = 400 * time.Millisecond
 
 type sessionPreview struct {
-	hover  hoverState
-	anchor image.Rectangle
-	inside bool
-	tag    int
-	rows   map[string]*widget.Clickable
+	hover     hoverState
+	anchor    image.Rectangle
+	rowAnchor image.Rectangle
+	inside    bool
+	tag       int
+	surface   int
+	order     []string
+	rows      map[string]*widget.Clickable
 }
 
 type sessionTab struct {
@@ -36,6 +40,8 @@ type sessionTab struct {
 
 // sessionPreviewTabs orders live tabs by the host list's dot rule.
 func sessionPreviewTabs(st *model.State, session string) []sessionTab {
+	live := sessionState(st)
+	st = &live
 	acts := map[string][]model.Activity{}
 	for _, a := range st.Activities {
 		acts[a.WorkspaceID] = append(acts[a.WorkspaceID], a)
@@ -45,7 +51,7 @@ func sessionPreviewTabs(st *model.State, session string) []sessionTab {
 		if ws.SessionID != session || ws.Detached {
 			continue
 		}
-		dot, _, _ := sessionActivity(acts[ws.ID])
+		dot := sessionActivity(acts[ws.ID])
 		a := dot
 		if a == nil {
 			a = model.Aggregate(acts[ws.ID])
@@ -76,6 +82,7 @@ func (s *Sidebar) sessionPreviewFrame(gtx layout.Context, over string) {
 		*p = sessionPreview{}
 		return
 	}
+	row := over
 	for {
 		ev, ok := gtx.Event(pointer.Filter{Target: &p.tag, Kinds: pointer.Enter | pointer.Leave | pointer.Cancel})
 		if !ok {
@@ -89,12 +96,44 @@ func (s *Sidebar) sessionPreviewFrame(gtx layout.Context, over string) {
 		over = p.hover.shown
 	}
 	p.hover.delay = sessionPreviewDelay
+	p.hover.delaySwitch = true
+	shown := p.hover.shown
 	if wake := p.hover.step(gtx.Now, over); !wake.IsZero() {
 		gtx.Execute(op.InvalidateCmd{At: wake})
+	}
+	if p.hover.shown != shown {
+		p.order = nil
+	}
+	if row != "" && row == p.hover.shown {
+		p.anchor = p.rowAnchor
 	}
 	if p.hover.shown == "" {
 		p.inside = false
 	}
+}
+
+// tabs keeps the displayed order while the pointer is inside the preview.
+func (p *sessionPreview) tabs(st *model.State, session string) []sessionTab {
+	tabs := sessionPreviewTabs(st, session)
+	if p.inside && p.order != nil {
+		ranks := map[string]int{}
+		for i, id := range p.order {
+			ranks[id] = i
+		}
+		rank := func(id string) int {
+			if i, ok := ranks[id]; ok {
+				return i
+			}
+			return len(p.order)
+		}
+		slices.SortStableFunc(tabs, func(a, b sessionTab) int { return rank(a.ws.ID) - rank(b.ws.ID) })
+	} else {
+		p.order = p.order[:0]
+		for _, tab := range tabs {
+			p.order = append(p.order, tab.ws.ID)
+		}
+	}
+	return tabs
 }
 
 func (s *Sidebar) drawSessionPreview(gtx layout.Context, th *theme.Theme, st *model.State) {
@@ -106,7 +145,14 @@ func (s *Sidebar) drawSessionPreview(gtx layout.Context, th *theme.Theme, st *mo
 	if ss == nil {
 		return
 	}
-	tabs := sessionPreviewTabs(st, ss.ID)
+	for {
+		_, ok := gtx.Event(pointer.Filter{Target: &p.surface, Kinds: pointer.Press | pointer.Release | pointer.Scroll,
+			ScrollX: pointer.ScrollRange{Min: -1e6, Max: 1e6}, ScrollY: pointer.ScrollRange{Min: -1e6, Max: 1e6}})
+		if !ok {
+			break
+		}
+	}
+	tabs := p.tabs(st, ss.ID)
 	pad, header := gtx.Dp(6), gtx.Dp(28)
 	rh := max(gtx.Dp(32), gtx.Sp(th.Sp(theme.Body)*1.5)+gtx.Dp(8))
 	n := min(12, len(tabs), max(0, (s.height-gtx.Dp(16)-2*pad-2*header)/rh))
@@ -131,8 +177,14 @@ func (s *Sidebar) drawSessionPreview(gtx layout.Context, th *theme.Theme, st *mo
 		}
 	}
 	m := op.Record(gtx.Ops)
+	fade := paint.PushOpacity(gtx.Ops, anim.At(gtx, p.hover.shownAt, anim.Fade))
 	bg := th.SurfaceElevated
-	kit.Surface(gtx, image.Rectangle{Max: size}, gtx.Dp(theme.RadiusPopover), kit.Raised, th.Border, bg)
+	rect := image.Rectangle{Max: size}
+	radius := gtx.Dp(theme.RadiusPopover)
+	kit.Surface(gtx, rect.Inset(-1), radius+1, kit.Raised, theme.Mix(th.Border, th.Fg, 0.08), bg)
+	area := clip.Rect(rect).Push(gtx.Ops)
+	event.Op(gtx.Ops, &p.surface)
+	area.Pop()
 	y := pad
 	line := func(h int, draw layout.Widget) {
 		off := op.Offset(image.Pt(pad, y)).Push(gtx.Ops)
@@ -196,10 +248,11 @@ func (s *Sidebar) drawSessionPreview(gtx layout.Context, th *theme.Theme, st *mo
 		})
 	}
 	pass := pointer.PassOp{}.Push(gtx.Ops)
-	area := clip.Rect{Max: size}.Push(gtx.Ops)
+	area = clip.Rect{Max: size}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &p.tag)
 	area.Pop()
 	pass.Pop()
+	fade.Pop()
 	call := m.Stop()
 	defer op.Offset(kit.Place(p.anchor, size, s.bounds(), kit.Beside, gtx.Dp(6), gtx.Dp(8))).Push(gtx.Ops).Pop()
 	op.Defer(gtx.Ops, call)

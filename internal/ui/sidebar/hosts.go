@@ -61,18 +61,16 @@ func hostName(h string) string {
 }
 
 // sessionActivity keeps waiting agents and unseen finished turns above work.
-func sessionActivity(acts []model.Activity) (dot *model.Activity, waiting, done int) {
+func sessionActivity(acts []model.Activity) *model.Activity {
 	var wait, finished, work *model.Activity
 	for i := range acts {
 		a := &acts[i]
 		switch a.State {
 		case model.StateError, model.StatePendingApproval, model.StateAwaitingInput, model.StatePlanReady:
 			wait = urgent(wait, a)
-			waiting++
 		case model.StateCompleted, model.StatePROpen:
 			if a.Unseen {
 				finished = urgent(finished, a)
-				done++
 			}
 		default:
 			if model.Pulses(a) {
@@ -80,7 +78,29 @@ func sessionActivity(acts []model.Activity) (dot *model.Activity, waiting, done 
 			}
 		}
 	}
-	return cmp.Or(wait, finished, work), waiting, done
+	return cmp.Or(wait, finished, work)
+}
+
+// sessionState applies the tree's Watching state and excludes detached tabs.
+func sessionState(st *model.State) model.State {
+	out := *st
+	out.Workspaces = slices.DeleteFunc(slices.Clone(st.Workspaces), func(w model.Workspace) bool { return w.Detached })
+	out.Activities = slices.Clone(st.Activities)
+	watching := st.Watching()
+	for i := range out.Activities {
+		a := &out.Activities[i]
+		if watching[a.WorkspaceID] && a.State == model.StateCompleted {
+			a.State, a.Unseen, a.Review = model.StateWatching, false, false
+		}
+	}
+	return out
+}
+
+func sessionDotColor(th *theme.Theme, state model.AgentState) color.NRGBA {
+	if state == model.StatePROpen {
+		state = model.StateCompleted
+	}
+	return StateColor(th, state)
 }
 
 // hostList draws, when the window shows more than one machine, each
@@ -92,6 +112,8 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 		s.preview = sessionPreview{}
 		return layout.Dimensions{}
 	}
+	live := sessionState(st)
+	st = &live
 	if s.hostBtn == nil {
 		s.hostBtn = map[string]*widget.Clickable{}
 	}
@@ -185,7 +207,7 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 					item{w: func(gtx layout.Context) layout.Dimensions {
 						d := gtx.Dp(8)
 						if dot != nil {
-							col := StateColor(th, dot.State)
+							col := sessionDotColor(th, dot.State)
 							if model.Pulses(dot) {
 								col = theme.Mix(bg, col, pulse(gtx.Now.Sub(s.epoch).Seconds()))
 								gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second / 30)})
@@ -227,14 +249,13 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			}
 			if btn("s:" + id).Hovered() {
 				over = id
-				s.preview.anchor = image.Rect(0, gtx.Dp(56)+y, w, gtx.Dp(56)+y+gtx.Dp(28))
+				s.preview.rowAnchor = image.Rect(0, gtx.Dp(56)+y, w, gtx.Dp(56)+y+gtx.Dp(28))
 			}
-			dot, waiting, done := sessionActivity(acts[id])
+			dot := sessionActivity(acts[id])
+			sum := st.Summary(id)
 			count := ""
-			if waiting > 0 {
-				count = strconv.Itoa(waiting) + " " + plural(waiting, "needs you", "need you")
-			} else if done > 0 {
-				count = strconv.Itoa(done) + " " + stateNouns[model.StateCompleted][0]
+			if sum.NeedsYou > 0 {
+				count = strconv.Itoa(sum.NeedsYou) + " " + plural(sum.NeedsYou, "needs you", "need you")
 			}
 			row(btn("s:"+id), id == s.session, !h.Up, dot, ss.Name, strconv.Itoa(tabs[id])+" "+plural(tabs[id], "tab", "tabs"), count)
 		}

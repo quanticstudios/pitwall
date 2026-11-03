@@ -29,33 +29,32 @@ func TestSessionActivity(t *testing.T) {
 	approval := model.Activity{State: model.StatePendingApproval}
 	err := model.Activity{State: model.StateError}
 	for _, tt := range []struct {
-		name          string
-		acts          []model.Activity
-		state         model.AgentState
-		waiting, done int
+		name  string
+		acts  []model.Activity
+		state model.AgentState
 	}{
-		{"working and plan", []model.Activity{work, plan}, model.StatePlanReady, 1, 0},
-		{"working and unseen done", []model.Activity{work, done}, model.StateCompleted, 0, 1},
-		{"working and seen done", []model.Activity{work, seen}, model.StateWorking, 0, 0},
-		{"only seen done", []model.Activity{seen}, "", 0, 0},
-		{"working and unseen PR", []model.Activity{work, pr}, model.StatePROpen, 0, 1},
-		{"only seen PR", []model.Activity{{State: model.StatePROpen}}, "", 0, 0},
-		{"input above plan and done", []model.Activity{plan, input, done}, model.StateAwaitingInput, 2, 1},
-		{"approval above input", []model.Activity{input, approval}, model.StatePendingApproval, 2, 0},
-		{"error above approval", []model.Activity{approval, err, work, plan, input, done, seen, pr}, model.StateError, 4, 2},
-		{"PR above done", []model.Activity{done, pr}, model.StatePROpen, 0, 2},
-		{"connecting", []model.Activity{{State: model.StateConnecting}}, model.StateConnecting, 0, 0},
-		{"terminal and watching", []model.Activity{{State: model.StateTerminalRunning}, {State: model.StateWatching}}, "", 0, 0},
-		{"empty", nil, "", 0, 0},
+		{"working and plan", []model.Activity{work, plan}, model.StatePlanReady},
+		{"working and unseen done", []model.Activity{work, done}, model.StateCompleted},
+		{"working and seen done", []model.Activity{work, seen}, model.StateWorking},
+		{"only seen done", []model.Activity{seen}, ""},
+		{"working and unseen PR", []model.Activity{work, pr}, model.StatePROpen},
+		{"only seen PR", []model.Activity{{State: model.StatePROpen}}, ""},
+		{"input above plan and done", []model.Activity{plan, input, done}, model.StateAwaitingInput},
+		{"approval above input", []model.Activity{input, approval}, model.StatePendingApproval},
+		{"error above approval", []model.Activity{approval, err, work, plan, input, done, seen, pr}, model.StateError},
+		{"PR above done", []model.Activity{done, pr}, model.StatePROpen},
+		{"connecting", []model.Activity{{State: model.StateConnecting}}, model.StateConnecting},
+		{"terminal and watching", []model.Activity{{State: model.StateTerminalRunning}, {State: model.StateWatching}}, ""},
+		{"empty", nil, ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			dot, waiting, done := sessionActivity(tt.acts)
+			dot := sessionActivity(tt.acts)
 			var state model.AgentState
 			if dot != nil {
 				state = dot.State
 			}
-			if state != tt.state || waiting != tt.waiting || done != tt.done {
-				t.Fatalf("sessionActivity = %q, %d waiting, %d done; want %q, %d waiting, %d done", state, waiting, done, tt.state, tt.waiting, tt.done)
+			if state != tt.state {
+				t.Fatalf("sessionActivity = %q, want %q", state, tt.state)
 			}
 		})
 	}
@@ -66,9 +65,11 @@ func TestHostListCounts(t *testing.T) {
 		name, session, count string
 		acts                 []model.Activity
 	}{
-		{"plan", "main", "23 tabs · 1 needs you", []model.Activity{{State: model.StateWorking}, {State: model.StatePlanReady}}},
+		{"seen plan", "main", "23 tabs", []model.Activity{{State: model.StateWorking}, {State: model.StatePlanReady}}},
 		{"waiting", "main", "23 tabs · 2 need you", []model.Activity{{State: model.StateError}, {State: model.StateAwaitingInput}}},
-		{"done", "main", "23 tabs · 2 done", []model.Activity{{State: model.StateCompleted, Unseen: true}, {State: model.StatePROpen, Unseen: true}}},
+		{"mixed needs", "main", "23 tabs · 3 need you", []model.Activity{{State: model.StateError}, {State: model.StateAwaitingInput}, {State: model.StateCompleted, Unseen: true}}},
+		{"unseen plan", "main", "23 tabs · 1 needs you", []model.Activity{{State: model.StatePlanReady, Unseen: true}}},
+		{"done", "main", "23 tabs · 2 need you", []model.Activity{{State: model.StateCompleted, Unseen: true}, {State: model.StatePROpen, Unseen: true}}},
 		{"seen", "main", "23 tabs", []model.Activity{{State: model.StateCompleted}}},
 		{"long name", "do-not-truncate-this-name", "23 tabs", []model.Activity{{State: model.StateCompleted, Unseen: true}}},
 	} {
@@ -103,6 +104,40 @@ func TestHostListCounts(t *testing.T) {
 				t.Fatalf("host list labels %q do not contain %q", labels, tt.count)
 			}
 		})
+	}
+}
+
+func TestSessionWatching(t *testing.T) {
+	st := model.State{
+		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}},
+		Activities: []model.Activity{
+			{WorkspaceID: "o", State: model.StateCompleted, Unseen: true},
+			{WorkspaceID: "w", Provider: model.ProviderCodex, State: model.StateWorking},
+		},
+	}
+	live := sessionState(&st)
+	if dot := sessionActivity(live.Activities); dot == nil || dot.State != model.StateWorking {
+		t.Fatalf("watching session dot: %+v", dot)
+	}
+	tabs := sessionPreviewTabs(&st, "s")
+	if tabs[0].ws.ID != "w" || tabs[1].activity.State != model.StateWatching || tabs[1].activity.Unseen {
+		t.Fatalf("watching preview: %+v", tabs)
+	}
+	if sum := live.Summary("s"); sum.NeedsYou != 0 || sum.Working != 1 || sum.Unseen != 0 {
+		t.Fatalf("watching counts: %+v", sum)
+	}
+	if st.Activities[0].State != model.StateCompleted || !st.Activities[0].Unseen {
+		t.Fatal("session view changed source activity")
+	}
+}
+
+func TestSessionDotColor(t *testing.T) {
+	th := theme.Dark()
+	if got := sessionDotColor(th, model.StatePROpen); got != th.Green {
+		t.Fatalf("unseen PR dot = %v, want Done color %v", got, th.Green)
+	}
+	if got := sessionDotColor(th, model.StateWorking); got != th.Blue {
+		t.Fatalf("working dot = %v, want %v", got, th.Blue)
 	}
 }
 

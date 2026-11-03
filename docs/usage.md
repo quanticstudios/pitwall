@@ -296,13 +296,19 @@ Desktop notifications start with the session's name.
 With `[[hosts]] window = true`, the host list above the tabs shows each
 session's most urgent error, approval, question or plan, even while another
 agent works. Otherwise its dot shows an unseen Done or PR open, then work,
-or nothing. Looking at a finished agent in the focused pane of a focused
-window clears its unseen mark. The tab count adds how many agents need you,
-or how many are done and unseen, when the count fits beside the session name.
+or nothing. Unseen Done and PR open dots are green. Looking at a finished
+agent in the focused pane of a focused window clears its unseen mark.
+A finished parent whose workers still work reads Watching, without an
+unseen completion. The count uses the session switcher's needs-you rule
+and excludes detached tabs. Errors, approvals and questions count while
+open. Plans and finished turns count while unseen. The count appears only
+when it fits beside the session name.
 
 Hover a session for 400 ms to open its tab list beside the sidebar. Tabs
 follow the dot's urgency order, up to 12 rows, then `+N more`. Move into the
-popover to keep it open, or click a tab to switch to it. Leaving both the
+popover to keep it open, or click a tab to switch to it. Rows keep their
+order while the pointer is inside. Their pills keep updating. Another
+session opens after its own 400 ms hover delay. Leaving both the
 session row and the popover closes the list. **Settings > Appearance >
 Sidebar > Session preview** turns it off or on live. The setting is
 `[sidebar] session_preview`, on by default. The preview uses the state the
