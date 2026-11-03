@@ -68,20 +68,24 @@ func TestProgramWorkerInbox(t *testing.T) {
 	}
 }
 
-// A report from the pane's own agent, as Codex sends naming itself, is left
-// to the agent's mark and pill; a build the agent runs still shows.
+// A report from the pane's own agent, as Codex and Claude Code send naming
+// themselves, loses the name: with no message it is left to the agent's
+// pill, with one the row keeps the message. A build the agent runs still
+// shows in full.
 func TestAgentReport(t *testing.T) {
 	codex := &model.Program{App: "codex", State: "done"}
+	claude := &model.Program{App: "claude-code", State: "working", Message: "Key judge cache by snapshot"}
 	build := &model.Program{App: "make", State: "working"}
 	st := &model.State{
 		Panes: []model.Pane{
 			{ID: "a", WorkspaceID: "w", Provider: model.ProviderCodex, Program: codex},
 			{ID: "b", WorkspaceID: "w", Provider: model.ProviderTerminal, Program: codex},
 			{ID: "c", WorkspaceID: "x", Provider: model.ProviderCodex, Program: build},
+			{ID: "d", WorkspaceID: "y", Provider: model.ProviderClaude, Program: claude},
 		},
 		Activities: []model.Activity{{PaneID: "b", WorkspaceID: "w", Provider: model.ProviderCodex}},
 	}
-	for i, want := range []bool{true, true, false} {
+	for i, want := range []bool{true, true, false, true} {
 		if got := agentReport(st, st.Panes[i]); got != want {
 			t.Errorf("pane %s: %v, want %v", st.Panes[i].ID, got, want)
 		}
@@ -91,5 +95,16 @@ func TestAgentReport(t *testing.T) {
 	}
 	if p := tabProgram(st, model.Workspace{ID: "x"}, nil); p != build {
 		t.Errorf("tab x shows %v, want the build", p)
+	}
+	if p := tabProgram(st, model.Workspace{ID: "y"}, nil); p == nil || p.App != "" || p.Message != claude.Message {
+		t.Errorf("tab y shows %+v, want the message without the app", p)
+	}
+	for _, c := range []struct {
+		app, agent string
+		want       bool
+	}{{"claude-code", "claude", true}, {"Claude", "Claude", true}, {"codex-cli", "codex", true}, {"pip", "pi", false}, {"codexer", "codex", false}} {
+		if got := sameAgent(c.app, c.agent); got != c.want {
+			t.Errorf("sameAgent(%q, %q) = %v", c.app, c.agent, got)
+		}
 	}
 }
