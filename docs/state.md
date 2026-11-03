@@ -43,6 +43,9 @@ text with its SGR colors, then a dim `Restored from 14:32, Nov 3` divider
 before the new process's output. Alternate-screen contents, images, links
 and terminal modes are not restored. State files without history still load.
 
+Saved text does not retain OSC 133 command blocks. Prompt jumps and the
+command browser use marks from the new process's output.
+
 Set `[terminal] persist_scrollback` to a whole number from 0 to 200000 to
 change the row limit; 0 disables capture and restore. The daemon reads this
 setting at each save and restore. A byte limit of 4 MiB per pane can reduce
