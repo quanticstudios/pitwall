@@ -54,6 +54,9 @@ pane_margin = 4
 [terminal]
 hint_patterns = ['ENG-\d+', 'branch: (\S+)']  # more for hints mode; see usage.md, Hints
 
+[stats]
+exclude = ["dependency-bot", "bot/*"]  # leave matching tab names or branches out of Timing and Agent errors
+
 [sidebar]
 view = "tree"                           # or "inbox": see usage.md, The inbox
 workers = "folded"                      # or "separate": a row per worker, see usage.md, Workers
@@ -113,6 +116,21 @@ expressions (RE2 syntax). A pattern with a group labels the text of its first
 group, so `'branch: (\S+)'` labels the branch name and not the word branch.
 Your patterns win where they overlap a built-in one. `pitwall config check`
 names a pattern that does not compile, and hints mode leaves it out.
+
+## Timing and agent errors
+
+`[stats].exclude` defaults to `[]`. Each entry is a case-sensitive glob
+matched against the tab name and branch. `*` matches text except `/`,
+`?` matches one character, and `[abc]` matches a character from the set.
+Use `bot/*` for branches under `bot/`. Invalid patterns produce a config
+problem and are ignored.
+
+Settings, Timing and Agent errors leave matching tabs out of every total,
+chart and copied report. When the chosen window contains matching tabs,
+the page shows "Excluding N tabs" with the patterns. Timing's **Leave out
+of stats** action appends the tab's name to this list. Remove a pattern to
+include those tabs again. Logs keep every event. Old errors without tab
+names or branches cannot match these patterns.
 
 ## Screen-detection updates
 

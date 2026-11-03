@@ -30,7 +30,7 @@ func TestTimingPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	turn := func(end time.Time, tab string) timelog.Event {
-		return timelog.Event{T: end, Kind: timelog.Turn, Tab: tab, Provider: "claude", Start: end.Add(-10 * time.Minute), Ms: 600000, Model: 300000, Wait: 60000,
+		return timelog.Event{T: end, Kind: timelog.Turn, Tab: tab, Name: tab, Provider: "claude", Start: end.Add(-10 * time.Minute), Ms: 600000, Model: 300000, Wait: 60000,
 			Tools: map[string]int64{timelog.Test: 200000, timelog.Search: 40000}, Slow: []timelog.Cmd{{Command: "go test ./...", Kind: timelog.Test, Ms: 200000}}}
 	}
 	l.Add(turn(now.AddDate(0, 0, -20), "old"))
@@ -39,13 +39,14 @@ func TestTimingPage(t *testing.T) {
 	l.Add(timelog.Event{T: now.Add(-30 * time.Minute), Kind: timelog.PR, Tab: "t", PR: 4})
 	l.Close(time.Second)
 
+	cfg := p.s
 	var r input.Router
 	var ops op.Ops
 	draw := func() bool {
 		ops.Reset()
 		p.cat = catTiming
 		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1000, 700)), Now: time.Now()}
-		p.Layout(gtx, theme.Dark(), p.s, nil)
+		p.Layout(gtx, theme.Dark(), cfg, nil)
 		r.Frame(&ops)
 		_, again := r.WakeupTime()
 		return again
@@ -72,6 +73,17 @@ func TestTimingPage(t *testing.T) {
 	if s := sum(month); s.Turns != 3 || len(s.Tabs) != 2 {
 		t.Errorf("month %+v", s)
 	}
+	cfg.Stats.Exclude = []string{"t"}
+	for start := time.Now(); draw(); time.Sleep(time.Millisecond) {
+		if time.Since(start) > 5*time.Second {
+			t.Fatal("config change never finished reading")
+		}
+	}
+	p.tm.mu.Lock()
+	if p.tm.sum.Turns != 1 || p.tm.excluded != 1 {
+		t.Errorf("config reload: %+v, excluded %d", p.tm.sum, p.tm.excluded)
+	}
+	p.tm.mu.Unlock()
 	if got := timingNote(&timelog.Summary{}, true, false, week); got != "No turns in the last 7 days." {
 		t.Errorf("empty week note %q", got)
 	}

@@ -1630,7 +1630,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			}
 		}
 		if next.State == model.StateError {
-			d.o.Errors.Add(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: errlog.API, Output: next.Detail, Cwd: p.Cwd}, d.dec.cur.Secrets...)
+			d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: errlog.API, Output: next.Detail, Cwd: p.Cwd}, d.dec.cur.Secrets...)
 		}
 		switch {
 		case next.State == "" && ai >= 0:
@@ -1663,7 +1663,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if f.Shell {
 			kind = errlog.Command
 		}
-		d.o.Errors.Add(errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
+		d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
 			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd),
 			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms}, d.dec.cur.Secrets...)
 	}

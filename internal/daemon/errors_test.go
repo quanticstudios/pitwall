@@ -9,6 +9,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 // TestErrorsLogged: a failed command, one that exited 1 quietly and a
@@ -17,7 +18,7 @@ import (
 func TestErrorsLogged(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	f.saved = model.State{
-		Workspaces: []model.Workspace{{ID: "w", Path: "/home/u/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
+		Workspaces: []model.Workspace{{ID: "w", Name: "fix", Branch: "fix-x", Path: "/home/u/repo", Tabs: []model.Tab{{ID: "t", Layout: &layout.Node{Pane: "a"}}}, ActiveTab: "t"}},
 		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cwd: "/home/u/repo"}},
 	}
 	o := f.options()
@@ -45,6 +46,11 @@ func TestErrorsLogged(t *testing.T) {
 	if len(evs) != 3 {
 		t.Fatalf("events %+v", evs)
 	}
+	for _, e := range evs {
+		if e.Tab != "w" || e.Name != "fix" || e.Branch != "fix-x" {
+			t.Errorf("tab identity %+v", e)
+		}
+	}
 	c, q, a := evs[0], evs[1], evs[2]
 	if !q.Quiet || q.Exit != 1 || q.Command != "grep -q x f" || errlog.Signature(q) != "Exit 1 with no output: grep" {
 		t.Errorf("quiet %+v", q)
@@ -55,5 +61,36 @@ func TestErrorsLogged(t *testing.T) {
 	}
 	if a.Kind != errlog.API || a.Output != "API Error: Rate limit reached" || a.Provider != "claude" {
 		t.Errorf("api %+v", a)
+	}
+}
+
+func TestChatErrorsKeepTab(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	f.saved = model.State{Workspaces: []model.Workspace{{ID: "w", Name: "watcher", Branch: "bot/watch"}}}
+	o := f.options()
+	path := filepath.Join(t.TempDir(), "errors.jsonl")
+	l, err := errlog.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Errors = l
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail := "stream disconnected"
+	c := &chat{id: "c", cfg: session.Config{Workspace: "w", Provider: model.ProviderCodex},
+		snap: session.Snapshot{SessionState: session.StateError, LastError: &detail, Turns: []session.TurnSummary{{State: session.TurnFailed}}}}
+	d.mu.Lock()
+	after := d.chatActivity(c)
+	d.mu.Unlock()
+	after()
+	l.Close(time.Second)
+	evs, err := errlog.Read(path, time.Time{})
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("events %+v, err %v", evs, err)
+	}
+	if e := evs[0]; e.Tab != "w" || e.Name != "watcher" || e.Branch != "bot/watch" || e.Pane != "c" || e.Kind != errlog.API {
+		t.Errorf("chat error %+v", e)
 	}
 }

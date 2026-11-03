@@ -31,6 +31,7 @@ type Config struct {
 	Layout    Layout      `toml:"layout" doc:"Spacing around panes, in dp."`
 	Term      Term        `toml:"terminal" doc:"How panes behave. Terminal colors are under [theme.terminal]."`
 	Updates   Updates     `toml:"updates" doc:"Release and screen-detection updates."`
+	Stats     Stats       `toml:"stats" doc:"Timing and agent error statistics in Settings."`
 	Usage     Usage       `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Agents    AgentLimits `toml:"agents" doc:"Agents started from the task queue, and agents a usage limit stopped."`
 	Fleet     Fleet       `toml:"fleet" doc:"Fleet mode: lanes that start a preset by a task's size, a contract before every worker's brief, a timebox per lane, and what happens when a worker's CI keeps failing. See docs/usage.md."`
@@ -296,6 +297,8 @@ type Settings struct {
 	CheckUpdates bool
 	// UpdateScreenPatterns fetches screen-detection patterns at start and daily.
 	UpdateScreenPatterns bool
+	// Stats is [stats]: tabs left out of Timing and Agent errors.
+	Stats Stats
 	// ShowCost shows token use in dollars next to the tokens.
 	ShowCost bool
 	// ReduceMotion turns the window's transitions off.
@@ -565,6 +568,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.Decisions, di, dn = resolveDecisions(c.Decisions)
 	fi = append(fi, di...)
 	var ri []issue
+	s.Stats, ri = resolveStats(c.Stats)
+	fi = append(fi, ri...)
 	s.Remote, ri = resolveRemote(c.Remote)
 	fi = append(fi, ri...)
 	s.Web, ri = resolveWeb(c.Web)

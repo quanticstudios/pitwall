@@ -827,8 +827,9 @@ What each agent reports:
 The page groups the errors of the last 7 days, 30 days or all time by the
 line that says what went wrong, with numbers, paths and quoted text set
 aside, so `zsh: no matches found: --include=*.go` and `--include=*.ts` count
-as one. Each group shows how often it happened and about how many tokens its
-commands and output took, at four characters a token; Most frequent and
+as one. Each group names its latest error's tab when the log has its name,
+even after that tab closes. Each group shows how often it happened and about
+how many tokens its commands and output took, at four characters a token; Most frequent and
 Most tokens sort by either. A group with a known cause shows a Likely fix
 line: quote globs zsh would expand, quote words that start with `=`,
 install a missing command, read a file again before editing it, check
@@ -880,6 +881,18 @@ bar, agent hours per day, the commands that took longest and each task's
 time from prompt to merge. Copy report puts it on the clipboard as Markdown
 to ask an agent what to speed up. At 10 MB the file moves to
 `timing.jsonl.1`.
+
+Use **Leave out of stats** on a task row to append its tab name to
+`[stats].exclude` in `config.toml`. Timing and Agent errors leave out tabs
+whose name or branch matches any of these globs. Both pages show
+"Excluding N tabs" with the patterns when the window has matching tabs.
+The logs keep every event. Remove a pattern from the config to include
+those tabs again.
+
+The summary caps each turn's agent time at ten minutes, including turns in
+older logs. Waiting on you stays intact; model and tool time keep their
+recorded proportions. Old lines have no last-activity timestamp, so this
+also caps completed turns longer than ten minutes.
 
 ### Claude Code agent teams
 
