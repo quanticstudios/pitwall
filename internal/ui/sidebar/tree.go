@@ -47,7 +47,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		if g != "" {
 			x = gtx.Dp(groupIndent)
 		}
-		h := rowH + statusHeight(gtx, v.th, v.status[id])
+		h := rowH + v.linesHeight(gtx, id)
 		out = append(out, elem{kind: 's', id: id, group: g, x: x, top: y, bot: y + h})
 		y, run = y+h, true
 		y = s.placeSubs(gtx, v, id, g, x, y, &out)

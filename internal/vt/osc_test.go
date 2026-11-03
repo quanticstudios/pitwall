@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quanticstudios/pitwall/internal/progstatus"
 )
 
 func titleRow(g Grid, y int) string {
@@ -169,6 +171,50 @@ func TestCwd(t *testing.T) {
 		e.Write([]byte(c.in))
 		if got := cwd(); got != c.want {
 			t.Errorf("after %q: Cwd = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestEmulatorProgramStatus sends OSC 7501 through the emulator: a valid
+// report reaches the callback with either terminator and split across
+// writes, a malformed one does not, none of them shows on screen, and the
+// query gets the fixed answer with the terminator it used.
+func TestEmulatorProgramStatus(t *testing.T) {
+	reply := &replyBuf{}
+	e := New(80, 3, reply)
+	var got []progstatus.Report
+	e.(interface {
+		SetProgramStatusFunc(func(progstatus.Report))
+	}).SetProgramStatusFunc(func(r progstatus.Report) { got = append(got, r) })
+	msg := base64.StdEncoding.EncodeToString([]byte("Compiling"))
+	e.Write([]byte("a\x1b]7501;state=working:app=cargo:progress=40:msg=" + msg + "\x1b\\b"))
+	e.Write([]byte("\x1b]7501;state=done\x07c"))
+	split := []byte("\x1b]7501;state=blocked:kind=permission\x1b\\d")
+	for i := range split {
+		e.Write(split[i : i+1])
+	}
+	// Malformed: no state, an unknown state, bad base64, a bad id, too long.
+	e.Write([]byte("\x1b]7501;app=cargo\x07\x1b]7501;state=asleep\x07\x1b]7501;state=idle:msg=a\x07\x1b]7501;state=idle:id=a//b\x07"))
+	e.Write([]byte("\x1b]7501;state=idle:x=" + strings.Repeat("a", progstatus.MaxSequence) + "\x07e"))
+	e.Write([]byte("\x1b]7501;?\x07\x1b]7501;?\x1b\\"))
+	want := []progstatus.Report{
+		{State: progstatus.Working, App: "cargo", Progress: 40, Msg: "Compiling"},
+		{State: progstatus.Done, Progress: progstatus.NoProgress},
+		{State: progstatus.Blocked, Kind: progstatus.Permission, Progress: progstatus.NoProgress},
+	}
+	if g := e.Snapshot(); titleRow(g, 0) != "abcde" || !slices.Equal(got, want) {
+		t.Fatalf("row %q, got %+v", titleRow(g, 0), got)
+	}
+	answer := "\x1b]7501;?\x07\x1b]7501;?\x1b\\"
+	for deadline := time.Now().Add(time.Second); ; time.Sleep(time.Millisecond) {
+		reply.mu.Lock()
+		r := reply.b.String()
+		reply.mu.Unlock()
+		if r == answer {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("replies %q, want %q", r, answer)
 		}
 	}
 }

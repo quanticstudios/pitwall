@@ -100,6 +100,9 @@ func (d *Daemon) noteInput(id string, b []byte) {
 		s = d.st.Activities[i].State
 	}
 	d.noteKey(id, s, time.Now())
+	if !focusReport(b) {
+		d.programInput(id)
+	}
 	if s == model.StateWorking && isInterrupt(b) {
 		d.noteInterrupt(id, time.Now())
 	}

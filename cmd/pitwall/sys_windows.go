@@ -132,3 +132,6 @@ func startFailed(err error) {
 func lockHolder(*os.File) (int, error) {
 	return 0, errors.New("no process holds the daemon lock")
 }
+
+// processGroup is 0: Windows has no process groups to report.
+func processGroup() int { return 0 }

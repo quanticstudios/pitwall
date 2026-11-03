@@ -25,6 +25,7 @@ carries a `// Adapted from tuios (MIT): <path>` comment:
 | `internal/agent/patterns.go`, `internal/agent/screen_patterns.json` | `internal/harness/manifests/claude-code.toml` (Claude Code screen patterns) |
 | `internal/agent/testdata/tuios-*.txt` | `internal/session/testdata/` (screen fixtures; tuios derived some of them from [herdr](https://github.com/herdrdev/herdr)) |
 | `internal/config/omarchy.go` | `swatch/omarchy/colors.go` (the port of Omarchy's `omarchy-theme-color`) and `internal/overlay/contrast.go` (lifting a color until it reads), at commit `6c31c3c101fc110b2773d3dc0dc446a2326f0d11` |
+| `internal/progstatus/progstatus.go`, `internal/progstatus/progstatus_test.go` | `progstatus/progstatus.go`, `progstatus/progstatus_test.go` (the OSC 7501 parser, record store and summary) |
 
 ```text
 MIT License

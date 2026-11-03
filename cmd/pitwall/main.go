@@ -117,6 +117,9 @@ const usage = `usage:
   pitwall status [pane] [-- text]
                              show text under the tab's row, such as "CI
                              3/7"; no text or --clear clears it
+  pitwall status <state> [--app name] [--progress N] [--message text]
+                             report a script's state to its pane: working,
+                             blocked, done, error or idle (see docs/agent-report.md)
   pitwall attach [name]      show a tab in a window
   pitwall detach [name]      hide a tab, keeping its processes running
   pitwall kill [-f] <name>   close a tab and its processes

@@ -103,3 +103,85 @@ from a self-reported agent and clears its resume command.
 Custom labels use the `agent:` prefix internally. A label such as `codex`
 therefore cannot select Codex's built-in resume or detection rules.
 No hooks, config changes or plugin installation are needed.
+
+## Programs and scripts
+
+A build, a deploy script or any other program can report what it does
+without being an agent. pitwall reads the Program Status Protocol,
+OSC 7501 revision 0.2, which tuios, Rex and libghostty-vt also read. The
+specification is at
+[superlogical.com/rex/docs/build/program-status](https://www.superlogical.com/rex/docs/build/program-status).
+A program writes the sequence to its terminal, or a script runs
+`pitwall status` with a state:
+
+```sh
+pitwall status working --app cargo --progress 40 --message 'Compiling'
+pitwall status blocked --app deploy --message 'Approve the deploy?'
+pitwall status done --app cargo --message 'Built 12 crates'
+pitwall status error --app cargo --message 'Linker failed'
+pitwall status idle
+```
+
+```sh
+# The same report as a raw sequence; msg is base64 of "Compiling".
+printf '\e]7501;state=working:app=cargo:progress=40:msg=Q29tcGlsaW5n\e\\'
+```
+
+`pitwall status <state>` uses the same hook path as `report-agent`, with the
+same rules: it does nothing outside a pane or without a daemon, prints
+nothing and waits at most 500 milliseconds. An invalid argument returns an
+error. `--app` is 1 to 32 bytes of letters, digits and `_ . + -`,
+`--progress` 0 to 100 with `working` or `blocked`, and `--message` at most
+2048 bytes without control characters. The sequence also takes `id` for
+records under the pane's root record, `title`, and `kind` (`permission`,
+`question` or `auth`) for a blocked program. pitwall answers the protocol's
+query, `OSC 7501 ; ? ST`. A report that breaks a rule of the specification
+is dropped whole.
+
+`pitwall status` without a state, or with `--` and text, still sets the
+line of text under the tab's row, as before.
+
+### What the sidebar shows
+
+The row gets a line for the program: its name in the state's color, its
+message and a progress bar when it reports progress. A tab with several
+agents shows each agent's program on its sub-row instead, as `cargo 40%`.
+
+| Report    | The pane's state, where no agent owns it                |
+| --------- | ------------------------------------------------------- |
+| `working` | Working, in the inbox's Working section                 |
+| `blocked` | Input, or Approval with `kind=permission`; Active       |
+| `error`   | Error, Active; it waits on you                          |
+| `done`    | Done, like a finished turn                              |
+| `idle`    | Nothing; the line goes                                  |
+
+When a pane has several records, the most urgent one shows: blocked, then
+error, done, working and idle. `blocked` and `error` use the same attention
+and notification rules as an agent's.
+
+### An agent's state wins
+
+A built-in or self-reported agent in the pane keeps its own state on the
+row, its pill and the inbox. A build that the agent runs, which calls
+`pitwall status` from the agent's shell tool, shows on the program line
+under the agent's state, so the row says both: Claude is working, and
+`make` is at 65%. Once the agent leaves the pane, the program's state
+shows on the row again.
+
+### How long a report stays
+
+There is no heartbeat, and a program does not have to report again.
+
+- `working`, `blocked` and `idle` go once no process is left in the
+  process group that reported them, within about a second: the program
+  exited, finished or crashed. They also go when the pane's command exits.
+- `done` and `error` stay until you type into the pane.
+- A report sent while the shell itself holds the terminal, such as
+  `pitwall status working` typed at a prompt, has no group to watch. It
+  stays until it is replaced or cleared, or until the pane exits.
+
+On Windows, programs have no process groups, so `working` stays until the
+program reports again or the pane exits.
+
+Reports are not saved: after a daemon restart, a program reports again.
+

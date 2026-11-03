@@ -10,6 +10,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/progstatus"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -75,6 +76,14 @@ func (d *Daemon) notifyingVT(id string, newVT vt.NewFunc) vt.NewFunc {
 		}
 		if s, ok := e.(interface{ SetGraphics(bool) }); ok && d.o.Graphics != nil {
 			s.SetGraphics(d.o.Graphics())
+		}
+		if s, ok := e.(interface {
+			SetProgramStatusFunc(func(progstatus.Report))
+		}); ok {
+			s.SetProgramStatusFunc(func(r progstatus.Report) {
+				seq := d.progSeq.Add(1) // the order they arrived in, whichever goroutine runs first
+				go d.programFromVT(id, r, seq)
+			})
 		}
 		if s, ok := e.(interface{ SetClipboardFunc(func(string)) }); ok {
 			s.SetClipboardFunc(func(text string) {
@@ -232,13 +241,28 @@ func (d *Daemon) pruneNotices() {
 	}
 }
 
-// attended is st.Activities as clients see them: a pane's OSC notification
-// in place of its activity, Unseen set on each needs-you activity that
+// attended is st.Activities as clients see them: a pane's program status
+// where no agent owns the pane (programActivity), its OSC notification in
+// place of its activity, Unseen set on each needs-you activity that
 // changed since its pane was last seen, Resumes on each a usage limit
 // stopped, and QuietSince on each working one whose screen stays still.
 // Callers hold d.mu.
 func (d *Daemon) attended() []model.Activity {
 	out := slices.Clone(d.st.Activities)
+	for _, p := range d.st.Panes {
+		i := slices.IndexFunc(out, func(x model.Activity) bool { return x.PaneID == p.ID })
+		var cur *model.Activity
+		if i >= 0 {
+			cur = &out[i]
+		}
+		switch a, ok := programActivity(p, cur); {
+		case !ok:
+		case i >= 0:
+			out[i] = a
+		default:
+			out = append(out, a)
+		}
+	}
 	for _, p := range d.st.Panes {
 		a := d.attn[p.ID]
 		if a == nil || a.notice == nil {

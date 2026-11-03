@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 52 added Pane.Program: what a program reported with OSC 7501 or
+// pitwall status.
 // Level 51 added Tmux, TmuxResult, Pane.TmuxTitle, Pane.TmuxHoldFailed and FocusSession.Pane.
 // Level 50 added State.Closed, ReopenTab and ForgetTab: tab search
 // reopens closed tabs.
@@ -158,7 +160,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 51
+const Level = 52
 
 // ClosedLevel added State.Closed, ReopenTab and ForgetTab.
 const ClosedLevel = 50

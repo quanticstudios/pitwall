@@ -405,3 +405,9 @@ or `pitwall status 3 -- "waiting on review"` for tab 3. Without text, or
 with `--clear`, it removes the line. `ls --json` gives it as `status`, and
 `quiet_since` is when a working agent's screen last changed once it has
 stayed still for `[agents] quiet_after` (20 minutes), else `null`.
+
+A long build or test run you start can report its progress on your tab:
+have its script call `pitwall status working --app make --progress 40`,
+then `pitwall status done` or `pitwall status error --message 'Tests
+failed'`. It shows under your own state and never replaces it. See
+[Programs and scripts](agent-report.md#programs-and-scripts).

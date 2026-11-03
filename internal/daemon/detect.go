@@ -83,6 +83,7 @@ type look struct {
 // read, and a detected agent without hooks adds a screen snapshot.
 func (d *Daemon) detect(ctx context.Context) {
 	d.mu.Lock()
+	d.dropEndedPrograms()
 	var looks []look
 	for _, sp := range d.st.Panes {
 		p := d.panes[sp.ID]

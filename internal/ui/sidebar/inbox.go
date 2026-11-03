@@ -299,10 +299,10 @@ func (s *Sidebar) toInbox(v *view) {
 // family is the activities of tab id and its workers, and whether any of
 // them runs an agent.
 func (v *view) family(id string) ([]model.Activity, bool) {
-	acts, isAgent := v.acts[id], v.agent[id] != ""
+	acts, isAgent := v.acts[id], v.agent[id] != "" || v.program[id] != nil
 	for _, k := range v.kids[id] {
 		acts = append(slices.Clip(acts), v.acts[k.ID]...)
-		isAgent = isAgent || v.agent[k.ID] != ""
+		isAgent = isAgent || v.agent[k.ID] != "" || v.program[k.ID] != nil
 	}
 	return acts, isAgent
 }
@@ -349,7 +349,7 @@ func (s *Sidebar) placeInbox(gtx layout.Context, v *view) ([]elem, int) {
 			if i > 0 {
 				y += gtx.Dp(2)
 			}
-			h := rowH + statusHeight(gtx, v.th, v.status[id])
+			h := rowH + v.linesHeight(gtx, id)
 			out = append(out, elem{kind: 's', id: id, top: y, bot: y + h})
 			y = s.placeSubs(gtx, v, id, "", 0, y+h, &out)
 		}

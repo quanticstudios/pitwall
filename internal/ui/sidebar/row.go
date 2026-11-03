@@ -40,7 +40,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	w := gtx.Constraints.Max.X
 	pad := gtx.Dp(8)
 	l1, l2 := rowLines(gtx, th)
-	h := rowHeight(gtx, th) + statusHeight(gtx, th, ws.Status)
+	h := rowHeight(gtx, th) + v.linesHeight(gtx, ws.ID)
 	subs := len(v.subsOf(ws.ID)) > 0
 	rect := image.Rect(0, 0, w, h)
 	rr := gtx.Dp(8)
@@ -276,6 +276,14 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		hrow(gtx, l2, gtx.Dp(6), line...)
 		off.Pop()
 		y := pad + l1 + gtx.Dp(4) + l2
+		if p := v.program[ws.ID]; p != nil {
+			y += gtx.Dp(statusGap)
+			gtx.Constraints = layout.Exact(image.Pt(inner-gtx.Dp(20), l2))
+			off = op.Offset(image.Pt(left+gtx.Dp(20), y)).Push(gtx.Ops)
+			programLine(gtx, th, *p, base, muted, l2)
+			off.Pop()
+			y += l2
+		}
 		if ws.Status != "" {
 			// Under line 2, in its column and color.
 			y += gtx.Dp(statusGap)

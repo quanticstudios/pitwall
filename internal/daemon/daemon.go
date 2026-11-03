@@ -277,6 +277,11 @@ type Daemon struct {
 	served    context.Context // Serve's, ended when the daemon stops
 	gate      acceptGate
 	handedOff bool
+
+	// prog is, per pane, its OSC 7501 records, and progSeq numbers program
+	// reports as they arrive; see program.go. prog is guarded by mu.
+	prog    map[string]*paneProgram
+	progSeq atomic.Uint64
 }
 
 // New loads state from store.Path() with store.Open, which sets aside a file
@@ -1417,6 +1422,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.piRuntime, id)
 	delete(d.live.piRetired, id)
 	delete(d.attn, id)
+	delete(d.prog, id)
 	delete(d.replies, id)
 	delete(d.reviews, id)
 	if t := d.mail.wake[id]; t != nil {
@@ -1469,6 +1475,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	p := &d.st.Panes[pi]
 	if m.Provider == "report" {
+		if pp, ok := programHook(m.Payload); ok {
+			d.mu.Unlock()
+			d.programFromHook(m.Pane, pp)
+			return nil
+		}
 		r, err := agent.DecodeReport(m.Payload)
 		if err != nil {
 			d.mu.Unlock()
@@ -2059,6 +2070,7 @@ func (d *Daemon) exited(id string, p Pane) {
 		delete(d.live.started, id)
 		delete(d.live.fresh, id)
 		delete(d.live.resumeSeen, id)
+		d.programExited(id)
 		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id && !ended(a.State) })
 		d.pokePR(sp.WorkspaceID) // a gh pr create or merge may have changed it
 	} else {
