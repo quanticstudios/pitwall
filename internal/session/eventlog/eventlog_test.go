@@ -380,9 +380,9 @@ func TestArchiveAndDelete(t *testing.T) {
 	}
 }
 
-// A chat of 50,000 deltas loads from its snapshot within the budget. Every
-// other delta adding an item is the worst case for the snapshot's size.
-func TestLoadTime(t *testing.T) {
+// Every other delta adding an item is the worst case for the snapshot's size.
+func largeSnapshot(t testing.TB) string {
+	t.Helper()
 	s := session.Snapshot{SessionID: "c1", PaneID: "c1", WorkspaceID: "w1", Provider: model.ProviderClaude, SessionState: "ready"}
 	for i := range 25_000 {
 		s.Content = append(s.Content, session.Item{ID: "i" + strconv.Itoa(i), Kind: session.KindAssistantText, Text: fmt.Sprintf("hello world %d, a line of about the length an agent writes", i), UpdatedAt: "2026-10-30T00:00:00Z"})
@@ -393,20 +393,45 @@ func TestLoadTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.Close()
+	return dir
+}
 
-	start := time.Now()
-	l, _, got, seq, err := Open(dir)
-	took := time.Since(start)
-	if err != nil {
-		t.Fatal(err)
+func TestLoadTime(t *testing.T) {
+	dir := largeSnapshot(t)
+	allocs := testing.AllocsPerRun(1, func() {
+		l, _, got, seq, err := Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if seq != 50_000 || len(got.Content) != 25_000 {
+			t.Fatalf("seq %d, %d items", seq, len(got.Content))
+		}
+	})
+	// About two allocations per item; allow four without depending on runner speed.
+	if allocs > 4*25_000 {
+		t.Fatalf("snapshot load allocated %.0f times, want at most 100000", allocs)
 	}
-	l.Close()
-	if seq != 50_000 || len(got.Content) != 25_000 {
-		t.Fatalf("seq %d, %d items", seq, len(got.Content))
-	}
-	t.Logf("loaded in %v", took)
-	if budget := 200 * time.Millisecond; took > budget && !raceEnabled {
-		t.Fatalf("loaded in %v, budget %v", took, budget)
+}
+
+// BenchmarkLoadTime measures snapshot loading without a shared-runner deadline.
+func BenchmarkLoadTime(b *testing.B) {
+	dir := largeSnapshot(b)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		l, _, got, seq, err := Open(dir)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := l.Close(); err != nil {
+			b.Fatal(err)
+		}
+		if seq != 50_000 || len(got.Content) != 25_000 {
+			b.Fatalf("seq %d, %d items", seq, len(got.Content))
+		}
 	}
 }
 

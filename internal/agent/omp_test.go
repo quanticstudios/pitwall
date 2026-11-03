@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,14 +63,36 @@ func TestOmpExtension(t *testing.T) {
 			t.Fatal(err)
 		}
 		harness := filepath.Join(dir, "harness.mjs")
-		if err := os.WriteFile(harness, []byte(`import fs from "node:fs";
+		if err := os.WriteFile(harness, []byte(`import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+// Observe the real hook children so inspection follows every close event.
+const spawn = childProcess.spawn;
+const children = new Set();
+childProcess.spawn = (...args) => {
+	const child = spawn(...args);
+	children.add(new Promise((resolve, reject) => {
+		child.once("error", reject);
+		child.once("close", (code) => code === 0 ? resolve() : reject(new Error("hook exit " + code)));
+	}));
+	return child;
+};
+syncBuiltinESMExports();
+const drain = async () => {
+	do {
+		const batch = [...children];
+		children.clear();
+		await Promise.all(batch);
+		// Let close callbacks finish scheduling the next queued hook.
+		await new Promise((resolve) => setImmediate(resolve));
+	} while (children.size);
+};
+// The extension unrefs its children; the harness must stay until they close.
+const keepAlive = setInterval(() => {}, 0x7fffffff);
 if (process.env.TITLE) process.title = process.env.TITLE;
 const ext = (await import(process.argv[2])).default;
 const on = {};
 ext({ on: (name, fn) => { on[name] = fn; } });
 const ctx = { sessionManager: { getSessionFile: () => "/s/s1.jsonl", getSessionId: () => "s1" } };
-const lines = () => fs.existsSync(process.env.OUT) ? fs.readFileSync(process.env.OUT, "utf8").split("\n").filter(Boolean).length : 0;
-const wait = async (n) => { const end = Date.now() + 10000; while (lines() < n && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); };
 const reply = (stopReason, text) => ({ role: "assistant", stopReason, content: [{ type: "text", text }] });
 await on.session_start({}, ctx);
 await on.before_agent_start({ prompt: "fix it" }, ctx);
@@ -81,20 +104,27 @@ await on.tool_result({ toolName: "bash", input: { command: "make" }, content: [{
 await on.agent_end({ messages: [reply("stop", "Checking the tests.")], willContinue: true }, ctx);
 await on.agent_end({ messages: [reply("stop", "All done.")] }, ctx);
 `+tt.end+`
-await wait(6);
+await drain();
 await on.session_shutdown({}, ctx);
-await wait(7);
-await new Promise((r) => setTimeout(r, 200)); // nothing more may follow
+await drain();
+clearInterval(keepAlive);
 `), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(node, "--experimental-strip-types", "--no-warnings", harness, ext)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		cmd := exec.CommandContext(ctx, node, "--experimental-strip-types", "--no-warnings", harness, ext)
 		cmd.Env = append(os.Environ(), "PITWALL_PANE=p1", "OUT="+out, "TITLE="+tt.title)
 		cmd.WaitDelay = 15 * time.Second
-		if b, err := cmd.CombinedOutput(); err != nil {
+		b, err := cmd.CombinedOutput()
+		timedOut := ctx.Err()
+		cancel()
+		if timedOut != nil {
+			t.Fatalf("%s: node harness did not finish within 30s: %v\n%s", tt.name, timedOut, b)
+		}
+		if err != nil {
 			t.Fatalf("%s: node: %v\n%s", tt.name, err, b)
 		}
-		b, err := os.ReadFile(out)
+		b, err = os.ReadFile(out)
 		if err != nil {
 			t.Fatal(err)
 		}

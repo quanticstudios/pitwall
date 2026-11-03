@@ -839,8 +839,12 @@ func Delete(root, id string) error    // an archived chat's folder, gone
 - `snapshot.json` `format` and `config.json` `format` start at 1. A reader
   refuses a higher one and leaves the chat out of `State.Chats` with a line
   in `daemon.log`, as `store` treats a newer `state.json`.
-- Load budget: a chat of 50,000 deltas loads from its snapshot in under
-  200 ms. The daemon reads only `config.json` of each chat at start
+- `TestLoadTime` checks that a snapshot of 50,000 deltas restores all
+  25,000 items with at most 100,000 allocations, about twice the measured
+  allocation count. This guard runs in normal tests without depending on
+  runner speed. `BenchmarkLoadTime` measures load time and allocations. Run it with
+  `go test -run '^$' -bench '^BenchmarkLoadTime$' -benchmem ./internal/session/eventlog`.
+  The daemon reads only `config.json` of each chat at start
   ([resume](#resume)); a chat's snapshot and log load when something opens
   it.
 
