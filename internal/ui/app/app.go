@@ -327,6 +327,8 @@ type ui struct {
 	find findBar // the find bar, on the focused pane while open
 	pip  pipView // picture in picture, see pip.go
 
+	hints hintMode // hints mode, while on
+
 	hooks hooksDialog // the Install hooks dialog and the pane notices
 
 	gui     guiState      // gui.json as loaded, and as last saved
@@ -486,6 +488,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.find = false
 		u.openFind()
 	}
+	if a := u.nav.hints; a != "" {
+		u.nav.hints = ""
+		u.openHints(a == "hints_all")
+	}
 	if a := u.nav.prAct; a == "second_opinion" {
 		u.nav.prAct = ""
 		u.secondOpinion(st, u.nav.workspace, "")
@@ -587,7 +593,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	for u.modal.kind == modalNone {
 		filters := append(u.nav.keyFilters(&st), u.popupFilters()...)
-		if u.sw.open || u.pal.open || u.sidebar.Focused() && !u.sidebar.Editing() {
+		if u.sw.open || u.pal.open || u.hints.on || u.sidebar.Focused() && !u.sidebar.Editing() {
 			all := key.ModAlt | key.ModShift | key.ModCtrl | key.ModSuper | key.ModCommand
 			filters = append(filters, key.Filter{Optional: all}, key.Filter{Name: key.NameTab, Optional: all})
 		}
@@ -609,6 +615,9 @@ func (u *ui) layout(gtx gl.Context) {
 			u.switcherKey(&st, ev.(key.Event))
 			st = u.b.State()
 			u.nav.sync(&st)
+			continue
+		}
+		if u.hints.on && u.hintKey(gtx, &st, ev.(key.Event)) {
 			continue
 		}
 		if u.settingsShortcut(ev.(key.Event)) || u.sidebarKey(&st, ev.(key.Event)) {
@@ -663,7 +672,7 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	event.Op(gtx.Ops, &u.modeTag)
-	if (u.nav.tabMode || u.nav.paneMode || u.sw.open || u.pal.open || u.sidebar.Focused() && !u.sidebar.Editing()) && !gtx.Focused(&u.modeTag) {
+	if (u.nav.tabMode || u.nav.paneMode || u.sw.open || u.pal.open || u.hints.on || u.sidebar.Focused() && !u.sidebar.Editing()) && !gtx.Focused(&u.modeTag) {
 		gtx.Execute(key.FocusCmd{Tag: &u.modeTag})
 	}
 	paint.Fill(gtx.Ops, u.th.Bg)
@@ -1027,8 +1036,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) {
-		focused = "" // a dialog, a rename field, tab mode, the palette or a form holds key focus
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on {
+		focused = "" // a dialog, a rename field, tab mode, the palette, a form or hints mode holds key focus
 	}
 	findFocus := focused != "" && focused == u.find.pane
 	if u.find.pane != "" {
@@ -1041,9 +1050,15 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}
 	// A lone pane flush with the edges needs no frame.
 	sole := root.Pane != "" && m == 0
+	order := panesOf(root)
+	if pop := u.nav.popup(); pop != "" {
+		order = append(order, pop)
+	}
+	hints := u.layoutHints(st, ws.ID, order)
 	for id, r := range rectsOf(root, area, gap) {
 		live[id] = true
 		p, pn := u.paneView(st, id), findPane(st, id)
+		p.view.SetHints(u.hints.on && slices.Contains(u.hints.panes, id), hints[id])
 		var att *model.Activity
 		if a, ok := unseen[id]; ok {
 			att = &a
@@ -1073,6 +1088,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}
 	u.layoutDividers(gtx, ws.ID, tabID, root, area, gap)
 	if live[pop] {
+		u.paneView(st, pop).view.SetHints(u.hints.on && slices.Contains(u.hints.panes, pop), hints[pop])
 		u.layoutPopup(gtx, st, *ws.Popup, area, pop == focused, findFocus && pop == u.find.pane)
 	}
 }
@@ -1175,7 +1191,7 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	cl := clip.Rect{Max: rect.Size()}.Push(gtx.Ops)
 	// Pane mode and the find bar take the pane's keys; the frame shows it
 	// still has focus.
-	lit := focused || finding || u.nav.paneMode && id == u.nav.focused()
+	lit := focused || finding || (u.nav.paneMode || u.hints.on) && id == u.nav.focused()
 	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, p.border.Get(gtx, paneBorder(u.th, lit), anim.Focus), sole)
 	var input []byte
 	cols, rows := g.Cols, g.Rows
@@ -1195,6 +1211,9 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 		u.drawFind(gtx, grid, findFocus)
 	}
 	u.copyBadge(gtx, p, grid)
+	if u.hints.on && id == u.hints.pane {
+		u.badge(gtx, "HINTS", [][2]string{{"a-z", "copy"}, {"Shift", "open"}, {"Esc", "exit"}}, grid)
+	}
 	// Clicking anywhere in the frame focuses the pane, as aide's onMouseDown
 	// on the pane article does; PassOp lets the grid see the press too.
 	pass := pointer.PassOp{}.Push(gtx.Ops)

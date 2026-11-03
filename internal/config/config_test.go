@@ -614,3 +614,21 @@ func TestPaneKeys(t *testing.T) {
 		t.Error("aide's Ctrl+P is not pane_prefix")
 	}
 }
+
+// TestHintPatterns checks hint_patterns compiles each pattern, drops one
+// that does not compile with a problem, and that the hints keys are bound.
+func TestHintPatterns(t *testing.T) {
+	s, probs := LoadFile(write(t, t.TempDir(), "config.toml", "[terminal]\nhint_patterns = ['ENG-\\d+', '(']\n"))
+	if len(s.HintPatterns) != 1 || s.HintPatterns[0].String() != `ENG-\d+` {
+		t.Errorf("patterns %v", s.HintPatterns)
+	}
+	if len(probs) != 1 || !strings.Contains(probs[0].Msg, "does not compile") {
+		t.Errorf("problems %v", probs)
+	}
+	for _, p := range Presets {
+		b := Preset(p)
+		if len(b.Global["hints"]) == 0 || len(b.Global["hints_all"]) == 0 {
+			t.Errorf("%s: hints %v, hints_all %v", p, b.Global["hints"], b.Global["hints_all"])
+		}
+	}
+}

@@ -131,6 +131,11 @@ type View struct {
 	findCur image.Point // the current match's first cell; Y -1 for none
 	found   []vt.Match  // the matches on the row being drawn
 
+	hintsOn bool       // hints mode dims the pane but its matches
+	hints   []Hint     // the matches and labels SetHints gave
+	lit     []HintSpan // the hint spans on the row being drawn
+	chips   map[hintChip]paint.ImageOp
+
 	blinkAt    time.Time
 	wasFocused bool
 
@@ -190,6 +195,9 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 	n, h := min(g.Cols, cols), min(g.Rows, rows)
 	v.drawRows(gtx.Ops, g, n, h)
 	v.drawImages(gtx.Ops, g, n, h)
+	if v.hintsOn {
+		v.drawHintLabels(gtx.Ops, n, h)
+	}
 	if v.cm.on {
 		v.copyCursor(gtx.Ops, g, n, h)
 	}
@@ -206,7 +214,7 @@ func (v *View) Layout(gtx layout.Context, th *theme.Theme, g *vt.Grid, m vt.Mode
 		on = el/blink%2 == 0
 		gtx.Execute(op.InvalidateCmd{At: v.blinkAt.Add((el/blink + 1) * blink)})
 	}
-	if c := g.Cursor; c.Visible && on && !v.cm.on && c.X >= 0 && c.X < n && c.Y >= 0 && c.Y < h {
+	if c := g.Cursor; c.Visible && on && !v.cm.on && !v.hintsOn && c.X >= 0 && c.X < n && c.Y >= 0 && c.Y < h {
 		v.cursor(gtx.Ops, g, c, focused)
 	}
 	v.scrollbar(gtx, size, rows)
@@ -318,6 +326,7 @@ func (v *View) metrics(gtx layout.Context, th *theme.Theme) {
 	v.th, v.ppem = th, ppem
 	v.families = families(string(th.MonoFont.Typeface))
 	v.glyphs = map[glyphKey]*glyphImg{}
+	v.chips = nil
 	v.cur.key = glyphKey{}
 	for _, r := range v.rows {
 		v.free = append(v.free, r)
@@ -377,6 +386,10 @@ func (v *View) drawRows(ops *op.Ops, g *vt.Grid, n, h int) {
 		v.found = v.found[:0]
 		if v.find != nil {
 			v.found = v.find.Row(v.found, 0, cells)
+		}
+		v.lit = v.lit[:0]
+		if v.hintsOn {
+			v.lit = v.hintLit(v.lit, y)
 		}
 		cur := -1
 		if y == v.findCur.Y {
@@ -478,6 +491,9 @@ func (v *View) prepare(j *rowJob, s0, s1, y, cur int) {
 			}
 		}
 	}
+	if v.hintsOn {
+		dimHints(j.st, v.lit)
+	}
 	j.gl = j.gl[:0]
 	for x, c := range j.cells {
 		var g *glyphImg
@@ -519,6 +535,14 @@ func (v *View) hashRow(cells []vt.Cell, s0, s1 int, hov []link, cur int) uint64 
 		put(0, uint32(m.Col))
 		put(4, uint32(m.Cols))
 		h.Write(b[:8])
+	}
+	if v.hintsOn {
+		h.WriteByte(3) // apart from the find matches
+		for _, s := range v.lit {
+			put(0, uint32(s.X0))
+			put(4, uint32(s.X1))
+			h.Write(b[:8])
+		}
 	}
 	for _, c := range cells {
 		put(0, uint32(c.FG))

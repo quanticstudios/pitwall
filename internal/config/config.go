@@ -102,6 +102,8 @@ type Keys struct {
 	ScrollPageDown  Binding `toml:"scroll_page_down" group:"Terminal" doc:"Scroll forward a page"`
 	Find            Binding `toml:"find" group:"Terminal" doc:"Find in the focused pane's scrollback. Enter or F3 goes to the next match up, Shift with either back down, Esc closes"`
 	TabSearch       Binding `toml:"tab_search" group:"Tabs" doc:"Search tabs: find a tab of any session by its name, branch, group, folder, agent, pull request or first prompt, and reopen a closed one"`
+	Hints           Binding `toml:"hints" group:"Terminal" doc:"Hints: label every URL, path, git hash, #number and IP address in the focused pane. Type a label to copy its text, with Shift to open it. Esc cancels. See docs/usage.md"`
+	HintsAll        Binding `toml:"hints_all" group:"Terminal" doc:"Hints in all panes: label the matches in every pane the tab shows, as hints does in the focused one"`
 	SearchAll       Binding `toml:"search_all" group:"Terminal" doc:"Search all sessions. Search every pane's scrollback and agent transcript, including detached tabs"`
 	InsertPath      Binding `toml:"insert_path" group:"Terminal" doc:"Insert a path. Pick files under the focused pane's folder and type their paths at its cursor. Tab marks several"`
 	PrevPrompt      Binding `toml:"prev_prompt" group:"Terminal" doc:"Scroll back to the previous shell prompt. Needs a shell that marks its prompts (OSC 133); see docs/usage.md"`
@@ -232,6 +234,7 @@ type Term struct {
 	OSC52        string   `toml:"osc52" enum:"write,off" doc:"write lets programs (Neovim, tmux, anything over ssh) set the clipboard with OSC 52, up to 1 MB; off ignores them. Programs can never read the clipboard this way"`
 	Bell         string   `toml:"bell" enum:"attention,off" doc:"attention: a bell (BEL) in a pane you are not looking at rings the pane and marks its tab, with a desktop notification, as an agent waiting for you does; off ignores bells"`
 	Scrollback   *float64 `toml:"scrollback" min:"1000" max:"200000" doc:"Lines of history each new pane keeps. Every 10,000 lines of agent output take about 2 MB per pane"`
+	HintPatterns []string `toml:"hint_patterns" doc:"More patterns for hints mode, as Go regular expressions, such as 'ENG-\\d+'. A pattern with a group labels the first group's text. They win over the built-in patterns"`
 	Graphics     string   `toml:"graphics" enum:"kitty,off" doc:"kitty shows images programs print with the kitty graphics protocol (kitten icat, chafa, timg); off answers their queries as a terminal without images does, so they print text instead. New panes take the change"`
 }
 
@@ -281,6 +284,9 @@ type Settings struct {
 	OSC52 bool
 	// Bell lets a bell raise its pane's attention.
 	Bell bool
+	// HintPatterns is [terminal] hint_patterns, without the ones that do
+	// not compile.
+	HintPatterns []*regexp.Regexp
 	// Scrollback is the lines of history a new pane keeps.
 	Scrollback int
 	// Graphics shows kitty graphics protocol images in new panes.
@@ -526,6 +532,14 @@ func LoadFile(path string) (Settings, []Problem) {
 		default:
 			fi = append(fi, issue{o.name, fmt.Sprintf("%q is not %s or off; using %s", o.val, o.on, o.on)})
 		}
+	}
+	for i, p := range c.Term.HintPatterns {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			fi = append(fi, issue{fmt.Sprintf("terminal.hint_patterns[%d]", i), fmt.Sprintf("%q does not compile: %v", p, err)})
+			continue
+		}
+		s.HintPatterns = append(s.HintPatterns, re)
 	}
 	s.Scrollback = DefaultScrollback
 	if p := c.Term.Scrollback; p != nil {

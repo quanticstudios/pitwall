@@ -90,9 +90,9 @@ func TestPopupKey(t *testing.T) {
 	st := b.State()
 	u := &ui{b: b, panes: map[string]*paneUI{}, nav: nav{keys: aide}}
 	u.nav.sync(&st)
-	c, _ := config.ParseChord("Ctrl+Shift+G")
+	c, _ := config.ParseChord("Ctrl+Alt+G")
 	u.cfg.Popups = []config.Popup{{Name: "git", Chord: c, Command: []string{"lazygit"}, Width: "90%"}}
-	e := press("G", key.ModCtrl|key.ModShift)
+	e := press("G", key.ModCtrl|key.ModAlt)
 	if !u.popupKey(&st, e) {
 		t.Fatal("the popup key was not taken")
 	}

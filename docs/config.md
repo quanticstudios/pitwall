@@ -51,6 +51,9 @@ mono_fallback = ["Noto Sans Mono CJK SC"]
 pane_gap = 4
 pane_margin = 4
 
+[terminal]
+hint_patterns = ['ENG-\d+', 'branch: (\S+)']  # more for hints mode; see usage.md, Hints
+
 [sidebar]
 view = "tree"                           # or "inbox": see usage.md, The inbox
 workers = "folded"                      # or "separate": a row per worker, see usage.md, Workers
@@ -103,6 +106,12 @@ recently used session first. The gaps add 1.1 seconds for a dozen agents.
 `[agents] startup_per_agent_delay_ms` accepts whole milliseconds from 0 to
 60000 and takes effect on the next daemon restart. Set it to 0 to start all
 agents at once. Shells and other non-agent panes start immediately.
+
+`[terminal] hint_patterns` adds patterns to hints mode, as Go regular
+expressions (RE2 syntax). A pattern with a group labels the text of its first
+group, so `'branch: (\S+)'` labels the branch name and not the word branch.
+Your patterns win where they overlap a built-in one. `pitwall config check`
+names a pattern that does not compile, and hints mode leaves it out.
 
 ## Screen-detection updates
 

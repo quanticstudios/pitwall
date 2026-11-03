@@ -57,11 +57,15 @@ func (u *ui) copyText(gtx gl.Context, s string, r image.Rectangle) {
 // copyBadge shows copy mode's name and keys at the bottom right of the
 // pane's terminal, grid.
 func (u *ui) copyBadge(gtx gl.Context, p *paneUI, grid image.Rectangle) {
-	name := p.view.CopyMode()
-	if name == "" {
-		return
+	if name := p.view.CopyMode(); name != "" {
+		u.badge(gtx, name, [][2]string{{"v V ^V", "select"}, {"y", "copy"}, {"/", "find"}, {"Esc", "exit"}}, grid)
 	}
-	call, sz := pill(gtx, u.th, name, [][2]string{{"v V ^V", "select"}, {"y", "copy"}, {"/", "find"}, {"Esc", "exit"}})
+}
+
+// badge shows a pane mode's name and keys at the bottom right of the
+// pane's terminal, grid, and only its name when the keys do not fit.
+func (u *ui) badge(gtx gl.Context, name string, keys [][2]string, grid image.Rectangle) {
+	call, sz := pill(gtx, u.th, name, keys)
 	pad := gtx.Dp(6)
 	box := image.Rectangle{Max: sz.Add(image.Pt(2*pad, 2*pad))}
 	in := gtx.Dp(10)

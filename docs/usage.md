@@ -1200,6 +1200,61 @@ fi
 [Configuration](config.md)); the key opens it over the shown tab. A daemon
 restart drops popups, and a window older than Level 54 does not show them.
 
+### Hints
+
+Agents print commit hashes, file paths, URLs, pull request numbers and IP
+addresses all day. Hints mode copies or opens one without the mouse, as
+tmux-fingers and kitty's hints kitten do. Press Ctrl+Shift+G (Cmd+Shift+G in
+mac), or run Hints from the command palette. Each match in the focused pane
+gets a short label in the theme's accent color, the rest of the pane dims,
+and a HINTS badge at the bottom right lists the keys.
+
+| Keys                    | Action                                                   |
+| ----------------------- | -------------------------------------------------------- |
+| a label, such as `s`    | Copy the text and leave                                  |
+| Shift and the label     | Open the text and leave; text that cannot open is copied |
+| Backspace               | Take back the last letter typed                          |
+| Esc, or the hints key   | Leave                                                    |
+
+Ctrl+Alt+Shift+G (Cmd+Option+Shift+G in mac), Hints in all panes in the
+palette, labels every pane the tab shows at once. The focused pane gets the
+shortest labels, and the same text has the same label in every pane. Its key
+pressed again leaves; the other hints key switches between one pane and all.
+
+Hints mode labels:
+
+- URLs: `https://`, `http://`, `file://` and `www.` links, which end where
+  a Ctrl+click link ends.
+- Paths: `/etc/hosts`, `~/notes.md`, `./run.sh`, `internal/ui/app.go`, and
+  a file name with a line, `main.go:12` or `main.go:12:5`.
+- Git hashes: 7 to 40 hex digits with at least one digit and one letter.
+- `#123`: an issue or pull request number.
+- IPv4 addresses, with a port: `10.0.0.12:8080`.
+- Your own patterns from `[terminal] hint_patterns`; see
+  [Configuration](config.md).
+
+The labels use the home row first and leave out i, l and o, which read as
+1, I and 0. No label starts another, so a label is done when typed. The
+newest output, at the bottom, gets the shortest labels. While hints mode is
+on, a label stays on its text as long as the text stays on screen, even as
+other output arrives. A URL the
+terminal wrapped onto the next row is one match; a line that only fills its
+row is not joined to the next.
+
+Shift and a label opens:
+
+- a URL in your browser.
+- a path with your desktop's opener (xdg-open, open on macOS), without its
+  `:line`. A relative path is read from the pane's folder. A path that is not
+  on this machine, or a window on a `--host`, copies instead.
+- a `#number` or a hash on GitHub, as the tab's pull request or commit: the
+  repository comes from the tab's pull request, else from its `origin`
+  remote on github.com.
+- anything else, such as an IP address, is copied.
+
+Hints mode reads the screen the pane shows, so scroll back first to label
+older output.
+
 ### The inbox
 
 The sidebar has a second view for when the question is "what needs me?"
