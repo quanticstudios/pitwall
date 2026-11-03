@@ -19,6 +19,7 @@ build. Either step takes `--dry-run`.
 
 - Tab search (ENG-2958): Ctrl+Shift+K (Cmd+K on macOS) finds any tab of any session and host by name, branch, group, folder, agent, pull request or first prompt, typos included, and reopens tabs you closed. The daemon keeps the last 200 closed tabs of the last 30 days; reopening one puts it back in its session, group and folder with its agent resumed, or in the repository when Archive removed its worktree. Delete forgets one. `tab_search` rebinds it; proto Level 50 adds `ReopenTab` and `ForgetTab`.
 - `pitwall tmux-shim -- <cmd...>` maps Claude Code agent teams' tmux calls to native split panes in the lead's tab, with pane input, titles, queries, respawn and cleanup (ENG-2960).
+- Worker tabs fold into their parent's row (ENG-2959). In the tree and the inbox, the tabs an agent opened list under its row as compact sub-rows, after its agent panes, with a count such as "2 agents · 3 workers · 1 approval" in place of the fleet bar. The parent's pill and accent bar show the most urgent of it and its workers, and a worker that asks for an answer keeps its sub-row while folded. In the inbox a worker has no row of its own, and its parent sorts by the most urgent of the family. Settling or snoozing a parent does the same to its workers, and a worker that asks wakes or unsettles it. Click a worker's sub-row to show it; right-click it for its tab menu.
 
 ## v0.1.9
 

@@ -218,10 +218,10 @@ You stopped without a final DONE or BLOCKED line. If you are finished, end with 
 ## Workers
 
 A tab you open from your pane with `pitwall new` or `pitwall worktree new`
-is your worker: it hangs under your tab in the user's sidebar. Your row
-grows a bar with a segment per worker in its state's color and counts of
-how many need the user, failed, work and are done; the user can fold the
-workers into that row. A worker's own workers hang under the same row.
+is your worker: it shows as a small row under your tab in the user's
+sidebar, and your row counts your workers and shows the most urgent state
+of you and them; the user can fold the workers into that row. A worker's
+own workers hang under the same row.
 
 Workers are pitwall's subagents: when the user asks for subagents or
 workers, start them as tabs so the user can watch them, and tell the user

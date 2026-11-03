@@ -51,11 +51,13 @@ func asks(s model.AgentState) bool {
 
 // wakeTab clears w's snooze when one of its activities, acts, asks for
 // the user after w was snoozed, and its settle when one asks or starts a
-// turn after w settled. It reports whether it changed w.
-func wakeTab(w *model.Workspace, acts []model.Activity) bool {
+// turn after w settled. An activity of one of its workers counts when it
+// asks. It reports whether it changed w.
+func wakeTab(w *model.Workspace, acts []model.Activity, workers map[string]bool) bool {
 	changed := false
 	for _, a := range acts {
-		if a.WorkspaceID != w.ID {
+		own := a.WorkspaceID == w.ID
+		if !own && !(workers[a.WorkspaceID] && asks(a.State)) {
 			continue
 		}
 		if !w.SnoozedUntil.IsZero() && asks(a.State) && a.UpdatedAt.After(w.SnoozedAt) {
@@ -70,24 +72,49 @@ func wakeTab(w *model.Workspace, acts []model.Activity) bool {
 
 // wakeTabs runs wakeTab on every tab. Callers hold d.mu.
 func (d *Daemon) wakeTabs() {
+	workers := d.workers()
 	for i := range d.st.Workspaces {
 		if w := &d.st.Workspaces[i]; !w.SnoozedUntil.IsZero() || !w.Settled.IsZero() {
-			wakeTab(w, d.st.Activities)
+			wakeTab(w, d.st.Activities, workers[w.ID])
 		}
 	}
+}
+
+// workers is every tab's workers (model.State.Root) by that tab. Callers
+// hold d.mu.
+func (d *Daemon) workers() map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for _, w := range d.st.Workspaces {
+		if r := d.st.Root(w); r != "" {
+			if out[r] == nil {
+				out[r] = map[string]bool{}
+			}
+			out[r][w.ID] = true
+		}
+	}
+	return out
 }
 
 // idleSettles reports whether w, whose agents' activities are acts, has
 // gone days without agent activity and should settle. agent says whether
 // a pane or chat of w runs an agent, which may sit at its first prompt
 // without an activity. A pinned, settled or snoozed tab never settles,
-// nor one whose agent works or waits for an answer. The end of a snooze
-// counts as activity.
-func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.Time, days int) bool {
+// nor one whose agent or one of whose workers works or waits for an
+// answer. The end of a snooze and its workers' turns count as activity.
+func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.Time, days int, workers map[string]bool) bool {
 	if days <= 0 || w.Pinned || w.Detached || !w.Settled.IsZero() || w.SnoozedUntil.After(now) {
 		return false
 	}
+	last := w.UpdatedAt
 	for _, a := range acts {
+		if workers[a.WorkspaceID] {
+			if model.Pulses(&a) || asks(a.State) && a.State != model.StateError {
+				return false
+			}
+			if a.UpdatedAt.After(last) {
+				last = a.UpdatedAt
+			}
+		}
 		if a.WorkspaceID != w.ID || a.Provider == model.ProviderTerminal {
 			continue
 		}
@@ -96,7 +123,6 @@ func idleSettles(w model.Workspace, acts []model.Activity, agent bool, now time.
 			return false
 		}
 	}
-	last := w.UpdatedAt
 	if w.SnoozedUntil.After(last) {
 		last = w.SnoozedUntil
 	}
@@ -119,9 +145,10 @@ func (d *Daemon) settleIdle(now time.Time) {
 		}
 	}
 	changed := false
+	workers := d.workers()
 	for i := range d.st.Workspaces {
 		w := &d.st.Workspaces[i]
-		if idleSettles(*w, d.st.Activities, agents[w.ID] || w.Chat != "", now, days) {
+		if idleSettles(*w, d.st.Activities, agents[w.ID] || w.Chat != "", now, days, workers[w.ID]) {
 			w.Settled, changed = now, true
 		}
 	}

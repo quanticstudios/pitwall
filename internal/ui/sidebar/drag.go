@@ -41,9 +41,10 @@ const (
 // header's top includes the separator above it. A tab's sub-rows follow
 // it and move with it.
 type elem struct {
-	kind     byte   // 's' tab, 'a' agent sub-row, 'g' group header
-	id       string // a sub-row's pane
+	kind     byte   // 's' tab, 'a' sub-row, 'g' group header
+	id       string // a sub-row's pane or worker tab
 	parent   string // a sub-row's tab
+	worker   bool   // a sub-row is a worker tab's
 	group    string // a tab's group, a header's own id
 	x        int    // a grouped tab's indent
 	top, bot int

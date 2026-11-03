@@ -18,17 +18,18 @@ import (
 // answerH is the Allow and Deny buttons' height in dp.
 const answerH = 18
 
-// answering reports whether tab id's row, with activity a, shows Allow and
-// Deny. A tab whose agents show as sub-rows answers on the asking one's.
+// answering reports whether tab id's row, with its own activity a, shows
+// Allow and Deny. A tab with agent sub-rows answers on the asking one's,
+// and a worker on its own sub-row.
 func (s *Sidebar) answering(v *view, id string, ghost bool, a *model.Activity) bool {
-	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && len(s.shownSubs(v, id)) == 0
+	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && v.agents[id] == nil
 }
 
-// planning reports whether tab id's row, with activity a, shows Request
-// changes… for its agent's plan. A tab whose agents show as sub-rows has
+// planning reports whether tab id's row, with its own activity a, shows
+// Request changes… for its agent's plan. A tab with agent sub-rows has
 // none.
 func (s *Sidebar) planning(v *view, id string, ghost bool, a *model.Activity) bool {
-	return !ghost && a != nil && a.State == model.StatePlanReady && len(s.shownSubs(v, id)) == 0
+	return !ghost && a != nil && a.State == model.StatePlanReady && v.agents[id] == nil
 }
 
 // answerClicks turns clicks on row r's Allow and Deny into Answer events
@@ -36,7 +37,7 @@ func (s *Sidebar) planning(v *view, id string, ghost bool, a *model.Activity) bo
 // field for the reply.
 func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowState) {
 	for r.plan.Clicked(gtx) {
-		if a := v.activity[ws]; s.planning(v, ws, false, a) {
+		if a := v.ownActivity(ws); s.planning(v, ws, false, a) {
 			s.startReply(ws, a.PaneID)
 		}
 	}
@@ -45,7 +46,7 @@ func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowSta
 		allow bool
 	}{{&r.allow, true}, {&r.deny, false}} {
 		for b.c.Clicked(gtx) {
-			if a := v.activity[ws]; s.answering(v, ws, false, a) {
+			if a := v.ownActivity(ws); s.answering(v, ws, false, a) {
 				s.events = append(s.events, Answer{PaneID: a.PaneID, At: a.UpdatedAt.UnixNano(), Allow: b.allow})
 			}
 		}

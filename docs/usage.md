@@ -110,8 +110,9 @@ A tab with two or more agent panes keeps one row with its most urgent state
 and a count such as "3 agents · 1 approval". Under it, each agent pane gets
 a small row of its own with the agent's logo, the pane's title and its
 state. Click one to show the tab with that pane focused. Click the count to
-fold these rows away or bring them back. Plain shells and panes running a
-command get none.
+fold these rows away or bring them back; one that asks for an answer stays.
+Plain shells and panes running a command get none. A tab's workers list the
+same way, see [Workers](#workers).
 
 When an agent needs you (a question, an approval, a plan, an error, a
 finished turn) in a pane you are not looking at, that pane gets a ring in the
@@ -131,7 +132,8 @@ the row showed, so a click never lands on a newer question. With a decision
 model, its advice stays in the pill above them, and the button it
 recommends is outlined.
 
-A Plan row has **Request changes…**. It opens a field on the row: type
+A Plan row has **Request changes…**, on the planning pane's or worker's own
+row when the tab lists them. It opens a field on that row: type
 what should change and press Enter, or Esc to cancel. pitwall never
 answers the plan dialog. It queues your text and types it, as your reply,
 the next time the agent waits for input, so choose No in the dialog
@@ -322,17 +324,12 @@ in one of eight colors, or none.
 A tab an agent opens from its pane, with `pitwall new` or `pitwall
 worktree new`, is that agent's worker. It joins
 the agent's group, or stays out of groups with an ungrouped agent, even
-when its folder has a group of its own. The
-agent's row grows a bar with one segment per worker in its state's color
-and, under it, a count each of the workers that need you, failed, work,
-have a pull request open, are done and stopped. A stopped worker, grey in the bar, has no agent
-running in its tab: the agent exited or never started. When the agent's
-own turn ends while a worker still works, its pill reads Watching, a blue
-outline with an eye, until the last worker stops. The workers start
-folded into the agent's row, all but the one on screen; click the bar to
-list them under it, a step further in, and again to fold them. Ctrl+Shift+U still jumps to a folded worker that
-needs you. [The agent skill page](agent-skill.md#workers) has the
-commands an orchestrator runs.
+when its folder has a group of its own. The sidebar lists it under the
+agent's row as a small row of its own (see [Workers](#workers)). When the
+agent's own turn ends while a worker still works, its pill reads Watching,
+a blue outline with an eye, until the last worker stops. Ctrl+Shift+U
+still jumps to a folded worker that needs you. [The agent skill
+page](agent-skill.md#workers) has the commands an orchestrator runs.
 
 Rest the pointer on a tab for half a second and a card opens beside the
 sidebar with what the row cuts off: the full title, the group and folder, the
@@ -923,6 +920,33 @@ again. When its folder is gone, as after Archive removed its worktree, the
 row says so and Enter opens it in the repository instead. Delete forgets
 the highlighted closed tab, and reopening one takes it off the list.
 
+### Workers
+
+The tabs an agent opened (its workers, and their workers in turn) list
+under the agent's row, after its agent panes, one small row each: the
+worker's agent logo, its tab's name and its state, with Allow and Deny on
+one that asks for approval. The agent's row counts them, as in "2 agents ·
+3 workers · 1 approval": its agent panes, its workers, and how many of them
+all share the most urgent state.
+
+The agent's row shows the most urgent state of it and its workers, so a
+worker waiting on approval turns its pill and accent bar too. Allow and
+Deny on the row answer the agent's own prompt; a worker answers on its own
+small row.
+
+Click the count to fold the small rows away and again to bring them back.
+Folded, a worker that asks for an answer and the worker on screen keep
+theirs. Each row remembers its fold, in the tree and the inbox alike, until
+the window closes. Next tab and previous tab visit a worker only while its
+row is unfolded.
+
+Click a worker's row to show its tab, Ctrl+click or Shift+click it to
+select it with other tabs, and right-click it, or press the Menu key on it
+with the sidebar focused, for the tab menu. A worker stays a tab
+of its own everywhere else: its worktree and panes, `pitwall ls --tree`,
+the switcher and goto_tab, which counts only the rows. Close the agent's
+tab and its workers become rows of their own again.
+
 ### The inbox
 
 The sidebar has a second view for when the question is "what needs me?"
@@ -931,9 +955,13 @@ header switches to it and back. Settings, Appearance, Sidebar and
 `[sidebar] view` in `config.toml` hold the same choice; the tree stays the
 default.
 
-The inbox lists every agent tab of the session in one list, groups and
-workers included, each row with its group's icon and name. It sorts them
-into sections:
+The inbox lists every agent tab of the session in one list, groups
+included, each row with its group's icon and name. A worker has no row of
+its own: it rides under its agent's row as in the tree, and the agent's row
+sorts by the most urgent of the two. Settling or snoozing that row does the
+same to its workers, Undo puts back each worker's own snooze, and a worker
+that asks for an answer wakes or unsettles it. An agent tab settles for
+idle days only once its workers have been quiet that long too. It sorts the rows into sections:
 
 - **Pinned**: the tabs you pinned, in their order.
 - **Active**: the rest. Approvals, questions and failures come first, then

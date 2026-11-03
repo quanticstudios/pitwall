@@ -269,19 +269,21 @@ func wakeText(now, at time.Time) string {
 }
 
 // toInbox sorts v's tabs into the inbox's sections and makes each row's
-// activity the one its status names. Workers stand as rows of their own.
+// activity the one its status names. A worker has no row of its own: it
+// rides under its parent's, which sorts by the most urgent of the two.
 func (s *Sidebar) toInbox(v *view) {
 	v.inbox = true
 	v.secOf, v.need = map[string]section{}, map[string]status{}
 	for _, ws := range v.st.Ordered(v.session) {
-		if _, live := v.activity[ws.ID]; !live {
-			continue // detached
+		if _, live := v.activity[ws.ID]; !live || v.rootOf[ws.ID] != "" {
+			continue // detached, or a worker
 		}
-		st, a := statusOf(v.acts[ws.ID], v.now)
+		acts, isAgent := v.family(ws.ID)
+		st, a := statusOf(acts, v.now)
 		if a != nil {
 			v.activity[ws.ID] = a
 		}
-		sec := sectionOf(ws, v.agent[ws.ID] != "", st, v.now, s.WorkingShelf)
+		sec := sectionOf(ws, isAgent, st, v.now, s.WorkingShelf)
 		v.secOf[ws.ID], v.need[ws.ID] = sec, st
 		v.sections[sec] = append(v.sections[sec], ws.ID)
 	}
@@ -291,7 +293,17 @@ func (s *Sidebar) toInbox(v *view) {
 	})
 	slices.SortStableFunc(v.sections[secSnoozed], func(a, b string) int { return ws(a).SnoozedUntil.Compare(ws(b).SnoozedUntil) })
 	slices.SortStableFunc(v.sections[secSettled], func(a, b string) int { return ws(b).Settled.Compare(ws(a).Settled) })
-	v.kids = map[string][]model.Workspace{}
+}
+
+// family is the activities of tab id and its workers, and whether any of
+// them runs an agent.
+func (v *view) family(id string) ([]model.Activity, bool) {
+	acts, isAgent := v.acts[id], v.agent[id] != ""
+	for _, k := range v.kids[id] {
+		acts = append(slices.Clip(acts), v.acts[k.ID]...)
+		isAgent = isAgent || v.agent[k.ID] != ""
+	}
+	return acts, isAgent
 }
 
 // inboxOrder is the inbox's tabs top to bottom.
@@ -338,16 +350,7 @@ func (s *Sidebar) placeInbox(gtx layout.Context, v *view) ([]elem, int) {
 			}
 			h := rowH + statusHeight(gtx, v.th, v.status[id])
 			out = append(out, elem{kind: 's', id: id, top: y, bot: y + h})
-			y += h
-			subs := s.shownSubs(v, id)
-			for _, ap := range subs {
-				h := subHeight(gtx, v.th, s.subAnswering(ap))
-				out = append(out, elem{kind: 'a', id: ap.Pane.ID, parent: id, top: y, bot: y + h})
-				y += h
-			}
-			if len(subs) > 0 {
-				y += gtx.Dp(2)
-			}
+			y = s.placeSubs(gtx, v, id, "", 0, y+h, &out)
 		}
 	}
 	// The queued tasks follow the rows, flush, the loose ones first.
@@ -439,26 +442,38 @@ type undoNote struct {
 }
 
 // reshelve moves each tab of ids to change of its shelf, and offers to
-// undo it in a notice that says what. Pinning moves a tab, so the undo
-// puts it back where it was too.
+// undo it in a notice that says what. Its workers follow it, keeping their
+// own pins, and the undo puts back each one's own shelf. Pinning moves a
+// tab, so the undo puts it back where it was too.
 func (s *Sidebar) reshelve(v *view, ids []string, what string, change func(id string, sh shelf) shelf) {
 	var back, places []Event
-	for _, id := range ids {
-		w := v.st.Workspace(id)
-		if w == nil {
-			continue
+	seen := map[string]bool{}
+	for _, fid := range ids {
+		family := []string{fid}
+		for _, k := range v.kids[fid] {
+			family = append(family, k.ID)
 		}
-		from := shelfOf(*w)
-		to := change(id, from)
-		s.events = append(s.events, shelfEvents(*w, to)...)
-		after := *w
-		after.Pinned, after.Settled, after.SnoozedUntil = to.pinned, time.Time{}, to.until
-		if to.settled {
-			after.Settled = s.now
-		}
-		back = append(back, shelfEvents(after, from)...)
-		if from.pinned != to.pinned && w.Parent == "" {
-			places = append(places, placeOf(v, *w))
+		for _, id := range family {
+			w := v.st.Workspace(id)
+			if w == nil || seen[id] {
+				continue
+			}
+			seen[id] = true
+			from := shelfOf(*w)
+			to := change(fid, from)
+			if id != fid {
+				to.pinned = from.pinned
+			}
+			s.events = append(s.events, shelfEvents(*w, to)...)
+			after := *w
+			after.Pinned, after.Settled, after.SnoozedUntil = to.pinned, time.Time{}, to.until
+			if to.settled {
+				after.Settled = s.now
+			}
+			back = append(back, shelfEvents(after, from)...)
+			if from.pinned != to.pinned && w.Parent == "" {
+				places = append(places, placeOf(v, *w))
+			}
 		}
 	}
 	back = append(back, places...)

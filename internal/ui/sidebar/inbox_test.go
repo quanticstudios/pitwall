@@ -179,28 +179,42 @@ func inboxState(now time.Time) model.State {
 	}
 }
 
-// The inbox lists every live tab once, workers too, in sections; Active
-// puts what needs the user first; the shell sits last on its own.
+// The inbox lists every live tab once in sections, a worker under its
+// parent's row rather than as one of its own; Active puts what needs the
+// user first, the parent of an asking worker among it; the shell sits
+// last on its own.
 func TestInboxOrder(t *testing.T) {
 	now := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	st := inboxState(now)
 	st.Workspace("u").Settled = now
 	s := Sidebar{Inbox: true, WorkingShelf: true}
 	v := s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
-	if got, want := s.order(v), []string{"k", "b", "a", "u", "s"}; !slices.Equal(got, want) {
+	if got, want := s.order(v), []string{"b", "a", "u", "s"}; !slices.Equal(got, want) {
 		t.Fatalf("order %v, want %v", got, want)
 	}
-	for id, want := range map[string]section{"k": secActive, "b": secActive, "a": secWorking, "u": secSettled, "s": secShells} {
+	for id, want := range map[string]section{"b": secActive, "a": secWorking, "u": secSettled, "s": secShells} {
 		if v.secOf[id] != want {
 			t.Errorf("%s in %s, want %s", id, sectionTitle[v.secOf[id]], sectionTitle[want])
 		}
 	}
-	if len(v.kids) != 0 {
-		t.Error("workers still hang under their tab")
+	if _, ok := v.secOf["k"]; ok {
+		t.Error("the worker k has a row of its own")
 	}
+	if v.need["b"] != statusApproval || v.activity["b"].WorkspaceID != "k" {
+		t.Errorf("b, done over its asking worker, needs %d with %+v", v.need["b"], v.activity["b"])
+	}
+	if subs := s.shownSubs(v, "b"); len(subs) != 1 || subs[0].id() != "k" {
+		t.Errorf("b's sub-rows %v, want its worker k", subs)
+	}
+	st.Activities[3].State = model.StateWorking // k works, b is done
+	v = s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
+	if v.secOf["b"] != secWorking {
+		t.Errorf("b, done over its working worker, in %s, want Working", sectionTitle[v.secOf["b"]])
+	}
+	st.Activities[3].State = model.StatePendingApproval
 	s.WorkingShelf = false
 	v = s.viewOf(layout.Context{Now: now}, theme.Dark(), &st, "", "")
-	if got, want := s.order(v), []string{"k", "a", "b", "u", "s"}; !slices.Equal(got, want) {
+	if got, want := s.order(v), []string{"b", "a", "u", "s"}; !slices.Equal(got, want) {
 		t.Fatalf("without the shelf: %v, want %v", got, want)
 	}
 	if rows := s.Rows(&st, "", ""); !slices.Equal(rows, s.order(v)) {
@@ -238,8 +252,9 @@ func TestReshelveUndo(t *testing.T) {
 	}
 }
 
-// Dragging a row into Settled sends SetInbox; into Working it does
-// nothing; the inbox's header offers the toggle back to the tree.
+// Dragging a row into Settled sends SetInbox for it and its worker; into
+// Working it does nothing; the inbox's header offers the toggle back to
+// the tree.
 func TestInboxDrag(t *testing.T) {
 	h := &dragHarness{t: t, now: time.Unix(1e9, 0)}
 	h.st = inboxState(h.now)
@@ -280,14 +295,14 @@ func TestInboxDrag(t *testing.T) {
 		t.Fatalf("over u: %+v", d)
 	}
 	evs := h.pointer(pointer.Release, h.at("u", 10).Sub(row))
-	if !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b", Settled: true}}) {
-		t.Fatalf("drop sent %v", evs)
+	if !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b", Settled: true}, SetInbox{WorkspaceID: "k", Settled: true}}) {
+		t.Fatalf("drop sent %v, want b and its worker k settled", evs)
 	}
 	if h.s.undo == nil {
 		t.Fatal("no undo notice")
 	}
 	h.s.undoBtn.Click()
-	if evs := h.frame(); !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b"}}) {
+	if evs := h.frame(); !slices.Equal(evs, []Event{SetInbox{WorkspaceID: "b"}, SetInbox{WorkspaceID: "k"}}) {
 		t.Fatalf("undo sent %v", evs)
 	}
 	h.now = h.now.Add(time.Second)

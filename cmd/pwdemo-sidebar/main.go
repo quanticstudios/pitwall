@@ -267,6 +267,15 @@ func fakeState(now time.Time) model.State {
 		model.Activity{PaneID: "trio-2", WorkspaceID: "ws-trio", Provider: model.ProviderCodex, State: model.StatePendingApproval,
 			Detail: "Bash: go test ./internal/billing/...", UpdatedAt: ago(3 * time.Minute)},
 		model.Activity{PaneID: "trio-3", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, State: model.StateCompleted, UpdatedAt: ago(8 * time.Minute)})
+	// An orchestrator with three workers it opened, one asking.
+	add("ws-orch", "", "Ship the inbox and tab search", "", 2*time.Minute, model.ProviderClaude, model.StateWorking)
+	add("ws-w1", "", "settle-hover", "settle-hover", time.Minute, model.ProviderClaude, model.StateWorking)
+	add("ws-w2", "", "tab-search", "tab-search", 2*time.Minute, model.ProviderCodex, model.StatePendingApproval)
+	st.Activities[len(st.Activities)-1].Detail = "Bash: go test ./internal/ui/app/..."
+	add("ws-w3", "", "eng-2945-migrations", "eng-2945-migrations", 6*time.Minute, model.ProviderClaude, model.StateCompleted)
+	for i := len(st.Workspaces) - 3; i < len(st.Workspaces); i++ {
+		st.Workspaces[i].Parent = "ws-orch"
+	}
 	add("ws-sidebar", "p-api", "Add rate limiting to the public API", "rate-limit", 40*time.Second, model.ProviderClaude, model.StateWorking)
 	st.Workspaces[len(st.Workspaces)-1].Status = "CI 3/7 · waiting on review" // from pitwall status
 	add("ws-term", "p-api", "Paginate the orders endpoint", "orders-pagination", 2*time.Minute, model.ProviderCodex, model.StateConnecting)

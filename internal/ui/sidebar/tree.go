@@ -37,8 +37,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	y := 0
 	s.queue = s.queue[:0]
 	run := false // inside a run of tab rows
-	var row func(id, g, root string)
-	row = func(id, g, root string) {
+	row := func(id, g string) {
 		if run {
 			y += gtx.Dp(2)
 		} else {
@@ -48,28 +47,10 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		if g != "" {
 			x = gtx.Dp(groupIndent)
 		}
-		if root != "" {
-			x += gtx.Dp(kidIndent)
-		}
 		h := rowH + statusHeight(gtx, v.th, v.status[id])
-		if len(v.kids[id]) > 0 {
-			h += fleetHeight(gtx, v.th)
-		}
-		out = append(out, elem{kind: 's', id: id, parent: root, group: g, x: x, top: y, bot: y + h})
+		out = append(out, elem{kind: 's', id: id, group: g, x: x, top: y, bot: y + h})
 		y, run = y+h, true
-		// Its agents' sub-rows hang under it, 2dp of air after the last.
-		subs := s.shownSubs(v, id)
-		for _, ap := range subs {
-			h := subHeight(gtx, v.th, s.subAnswering(ap))
-			out = append(out, elem{kind: 'a', id: ap.Pane.ID, parent: id, group: g, x: x, top: y, bot: y + h})
-			y += h
-		}
-		if len(subs) > 0 {
-			y += gtx.Dp(2)
-		}
-		for _, k := range s.kidsShown(v, id) {
-			row(k.ID, g, id)
-		}
+		y = s.placeSubs(gtx, v, id, g, x, y, &out)
 	}
 	endRun := func() {
 		if run {
@@ -78,7 +59,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	}
 	for i, id := range v.top {
 		if !v.groups[id] {
-			row(id, "", "")
+			row(id, "")
 			continue
 		}
 		endRun()
@@ -92,7 +73,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		out = append(out, elem{kind: 'g', id: id, group: id, top: top, bot: y, head: head})
 		if s.isExpanded(id) {
 			for _, ws := range v.byProject[id] {
-				row(ws.ID, id, "")
+				row(ws.ID, id)
 			}
 			if len(v.byProject[id]) == 0 {
 				y += gtx.Dp(8) // an empty group keeps its pt-1 pb-1
@@ -104,6 +85,21 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	endRun()
 	y = s.placeQueue(gtx, v, "", len(out)-1, y)
 	return out, y + gtx.Dp(6) // pb-1.5
+}
+
+// placeSubs appends tab id's shown sub-rows from y, x in, in group g, to
+// out, 2dp of air after the last, and returns the y below them.
+func (s *Sidebar) placeSubs(gtx layout.Context, v *view, id, g string, x, y int, out *[]elem) int {
+	subs := s.shownSubs(v, id)
+	for _, e := range subs {
+		h := subHeight(gtx, v.th, s.subAsks(v, e))
+		*out = append(*out, elem{kind: 'a', id: e.id(), parent: id, worker: e.worker != nil, group: g, x: x, top: y, bot: y + h})
+		y += h
+	}
+	if len(subs) > 0 {
+		y += gtx.Dp(2)
+	}
+	return y
 }
 
 // noteExpands starts the entrance of a group's rows when it opens, after
@@ -189,7 +185,7 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 			o := op.Offset(image.Pt(e.x, y-int(float32(gtx.Dp(4))*(1-t)))).Push(gtx.Ops)
 			tab := e.id
 			if e.kind == 'a' {
-				tab = e.parent
+				tab = e.parent // a worker recedes with its parent
 			}
 			if s.receded(v, tab) {
 				t *= recede
@@ -201,18 +197,15 @@ func (s *Sidebar) tree(gtx layout.Context, v *view) (layout.Dimensions, bool, bo
 			if e.kind == 'a' {
 				last := i+1 == len(elems) || elems[i+1].parent != e.parent
 				subGuide(rg, v.th, e.bot-e.top, last)
-				if ap, ok := v.agentPane(e.parent, e.id); ok {
-					_, a = s.subRowAt(rg, v, e.parent, ap, false)
+				if se, ok := v.sub(e.parent, e.id); ok {
+					_, a = s.subRowAt(rg, v, e.parent, se, false)
 				}
 			} else {
-				if e.parent != "" {
-					workerGuide(rg, v.th, e.bot-e.top)
-				}
 				_, a = s.workspaceRow(rg, v, byID[e.id], false, digit)
 			}
 			fade.Pop()
 			o.Pop()
-			if e.kind == 's' && e.id == s.hover.shown {
+			if (e.kind == 's' || e.worker) && e.id == s.hover.shown {
 				s.cardAt, s.cardY = e.id, y
 			}
 			animating = animating || a

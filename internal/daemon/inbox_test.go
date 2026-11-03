@@ -33,10 +33,59 @@ func TestWakeTab(t *testing.T) {
 		{"another tab's question", model.Activity{WorkspaceID: "x", State: model.StateAwaitingInput, UpdatedAt: t0.Add(time.Minute)}, true, true},
 	} {
 		w := model.Workspace{ID: "w", Settled: t0, SnoozedUntil: t0.Add(time.Hour), SnoozedAt: t0}
-		changed := wakeTab(&w, []model.Activity{tc.a})
+		changed := wakeTab(&w, []model.Activity{tc.a}, nil)
 		if snoozed, settled := !w.SnoozedUntil.IsZero(), !w.Settled.IsZero(); snoozed != tc.snoozed || settled != tc.settle || changed != (!snoozed || !settled) {
 			t.Errorf("%s: snoozed %v settled %v changed %v", tc.name, snoozed, settled, changed)
 		}
+	}
+}
+
+// A worker that asks for the user wakes and unsettles the tab it hangs
+// under; a worker that works or finishes leaves it where it is.
+func TestWakeTabByWorker(t *testing.T) {
+	t0 := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	workers := map[string]bool{"k": true}
+	for _, tc := range []struct {
+		state model.AgentState
+		woke  bool
+	}{
+		{model.StatePendingApproval, true},
+		{model.StateAwaitingInput, true},
+		{model.StateWorking, false},
+		{model.StateCompleted, false},
+	} {
+		w := model.Workspace{ID: "w", Settled: t0, SnoozedUntil: t0.Add(time.Hour), SnoozedAt: t0}
+		a := model.Activity{WorkspaceID: "k", Provider: model.ProviderClaude, State: tc.state, UpdatedAt: t0.Add(time.Minute)}
+		changed := wakeTab(&w, []model.Activity{a}, workers)
+		if woke := w.SnoozedUntil.IsZero() && w.Settled.IsZero(); woke != tc.woke || changed != tc.woke {
+			t.Errorf("worker %s: woke %v changed %v, want %v", tc.state, woke, changed, tc.woke)
+		}
+	}
+}
+
+// A tab whose worker works or asks, or finished a turn within the days,
+// does not settle for being idle itself.
+func TestIdleSettlesWithWorkers(t *testing.T) {
+	now := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
+	old := now.Add(-4 * 24 * time.Hour)
+	w := model.Workspace{ID: "w", UpdatedAt: old}
+	acts := []model.Activity{
+		{WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StateCompleted, UpdatedAt: old},
+		{WorkspaceID: "k", Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: old},
+	}
+	if idleSettles(w, acts, true, now, 3, map[string]bool{"k": true}) {
+		t.Error("settled while its worker works")
+	}
+	if !idleSettles(w, acts, true, now, 3, nil) {
+		t.Error("another tab's work kept it from settling")
+	}
+	acts[1].State, acts[1].UpdatedAt = model.StateCompleted, now.Add(-time.Hour)
+	if idleSettles(w, acts, true, now, 3, map[string]bool{"k": true}) {
+		t.Error("settled an hour after its worker finished")
+	}
+	acts[1].UpdatedAt = old
+	if !idleSettles(w, acts, true, now, 3, map[string]bool{"k": true}) {
+		t.Error("a worker done for days kept it from settling")
 	}
 }
 
@@ -74,7 +123,7 @@ func TestIdleSettles(t *testing.T) {
 		{"an agent at its first prompt, no activity", base, nil, true, 3, true},
 		{"an agent pane, working", base, with(model.StateWorking), true, 3, false},
 	} {
-		if got := idleSettles(tc.w, tc.acts, tc.agent, now, tc.days); got != tc.want {
+		if got := idleSettles(tc.w, tc.acts, tc.agent, now, tc.days, nil); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -120,6 +169,19 @@ func TestSetTabInbox(t *testing.T) {
 	}
 	if err := d.handle(ctx, proto.SetTabInbox{WorkspaceID: "nope"}); err == nil {
 		t.Fatal("no error for a missing tab")
+	}
+
+	// SetTabInbox shelves one tab, its workers too: an older window shows
+	// them as rows of their own and moves them on its own. The sidebar
+	// sends one for each tab of a family.
+	d.mu.Lock()
+	kid := *d.st.Workspace(ws)
+	kid.ID, kid.Parent = "kid", ws
+	d.st.Workspaces = append(d.st.Workspaces, kid)
+	d.mu.Unlock()
+	must(t, d.handle(ctx, proto.SetTabInbox{WorkspaceID: ws, Settled: true, SnoozedUntil: wake}))
+	if k := d.st.Workspace("kid"); !k.Settled.IsZero() || !k.SnoozedUntil.IsZero() {
+		t.Fatalf("the worker followed its parent: %+v", k)
 	}
 }
 

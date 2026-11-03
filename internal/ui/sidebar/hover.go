@@ -103,7 +103,10 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 			over = e.id
 		}
 		if r := s.subs[e.id]; e.kind == 'a' && r != nil && r.hovered() {
-			over = e.parent // a sub-row shows its tab's card
+			over = e.parent // an agent's sub-row shows its tab's card
+			if e.worker {
+				over = e.id
+			}
 		}
 	}
 	s.radarInput(gtx)

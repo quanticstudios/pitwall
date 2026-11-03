@@ -428,26 +428,37 @@ func TestNavSkipsFoldedWorkers(t *testing.T) {
 }
 
 // TestNavFollowsInbox: while the sidebar shows its inbox, next, prev and
-// the switcher follow its rows, workers of folded tabs included, and
-// with the tree back they follow the tree.
+// the switcher follow its rows, each with its workers after it, folded
+// ones passed over, and with the tree back they follow the tree.
 func TestNavFollowsInbox(t *testing.T) {
 	st := model.State{
 		Sessions:   []model.Session{{ID: "s"}},
-		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}, {ID: "x", SessionID: "s"}},
+		Workspaces: []model.Workspace{{ID: "o", SessionID: "s"}, {ID: "w", SessionID: "s", Parent: "o"}, {ID: "d", SessionID: "s", Parent: "o", Detached: true}, {ID: "x", SessionID: "s"}},
 	}
-	inbox := true
-	n := nav{session: "s", workspace: "x", folded: func(id string) bool { return id == "o" },
-		rows: func(*model.State) []string { return []string{"x", "w", "o"} }, inbox: func() bool { return inbox }}
+	inbox, folded := true, false
+	n := nav{session: "s", workspace: "x", folded: func(id string) bool { return id == "o" && folded },
+		rows: func(*model.State) []string { return []string{"x", "o"} }, inbox: func() bool { return inbox }}
 	var ids []string
 	for _, w := range n.visible(&st) {
 		ids = append(ids, w.ID)
 	}
-	if !slices.Equal(ids, []string{"x", "w", "o"}) {
-		t.Fatalf("visible %v", ids)
+	if !slices.Equal(ids, []string{"x", "o", "w"}) {
+		t.Fatalf("visible %v, want the detached worker d left out", ids)
 	}
+	n.workspace = "o"
 	n.cycleWorkspace(&st, 1)
 	if n.workspace != "w" {
-		t.Fatalf("next from x in the inbox went to %s, want w", n.workspace)
+		t.Fatalf("next from o in the inbox went to %s, want its worker w", n.workspace)
+	}
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "x" {
+		t.Fatalf("next from w in the inbox went to %s, want x past the detached d", n.workspace)
+	}
+	folded = true
+	n.workspace = "o"
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != "x" {
+		t.Fatalf("next from o in the inbox with its workers folded went to %s, want x", n.workspace)
 	}
 	inbox = false
 	n.workspace = "x"

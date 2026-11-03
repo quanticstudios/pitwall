@@ -68,9 +68,10 @@ func TestCursorMoves(t *testing.T) {
 		want string
 	}{
 		{key.NameUpArrow, "a:p1"},
-		{key.NameLeftArrow, "s:m"},   // a sub-row's parent
-		{key.NameLeftArrow, "s:m"},   // folds m's sub-rows
-		{key.NameDownArrow, "g:g1"},  // the sub-rows are gone
+		{key.NameLeftArrow, "s:m"},  // a sub-row's parent
+		{key.NameLeftArrow, "s:m"},  // folds m's sub-rows
+		{key.NameDownArrow, "a:p2"}, // all but the one asking
+		{key.NameDownArrow, "g:g1"},
 		{key.NameRightArrow, "s:a"},  // an open group's first tab
 		{"H", "g:g1"},                // a tab's group
 		{"H", "g:g1"},                // collapses g1
