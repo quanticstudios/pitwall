@@ -15,7 +15,7 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
-## Unreleased
+## v0.1.11
 
 - Panes keep their most recent 2000 rows across daemon restarts and reboots, with colors and a dim restore-time divider. `[terminal] persist_scrollback` changes the limit or disables it with 0; guarded tabs and panes with `PITWALL_NO_HISTORY=1` save no history.
 
