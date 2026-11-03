@@ -180,16 +180,23 @@ func TestFormWakesWorkerParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-time.Minute)
+	snoozedAt := time.Now().Add(time.Minute)
 	d.st.Workspaces = []model.Workspace{
-		{ID: "parent", Settled: old, SnoozedAt: old, SnoozedUntil: time.Now().Add(time.Hour)},
-		{ID: "worker", Parent: "parent"},
+		{ID: "parent", Settled: snoozedAt, SnoozedAt: snoozedAt, SnoozedUntil: time.Now().Add(time.Hour)},
+		{ID: "worker", Parent: "parent", Settled: snoozedAt, SnoozedAt: snoozedAt, SnoozedUntil: time.Now().Add(time.Hour)},
+		{ID: "other", Settled: snoozedAt, SnoozedAt: snoozedAt, SnoozedUntil: time.Now().Add(time.Hour)},
 	}
 	d.st.Panes = []model.Pane{{ID: "p", WorkspaceID: "worker"}}
 	if err := d.openForm(&client{}, proto.OpenForm{ID: "q", Pane: "p", Spec: askSpec}); err != nil {
 		t.Fatal(err)
 	}
-	if w := d.st.Workspace("parent"); !w.Settled.IsZero() || !w.SnoozedUntil.IsZero() {
-		t.Fatalf("worker form left parent settled or snoozed: %+v", w)
+	for _, id := range []string{"parent", "worker"} {
+		if w := d.st.Workspace(id); !w.Settled.IsZero() || !w.SnoozedUntil.IsZero() {
+			t.Errorf("worker form left %s settled=%v snoozed=%v", id, !w.Settled.IsZero(), !w.SnoozedUntil.IsZero())
+		}
+	}
+
+	if w := d.st.Workspace("other"); w.Settled.IsZero() || w.SnoozedUntil.IsZero() {
+		t.Fatal("worker form woke an unrelated tab")
 	}
 }
