@@ -1,6 +1,7 @@
 package errlog
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -217,5 +218,20 @@ func TestTop(t *testing.T) {
 	}
 	if top, rest := Top(gs, 9); len(top) != 4 || rest.Count != 0 {
 		t.Errorf("Top(9) = %+v, %+v", top, rest)
+	}
+}
+
+func TestReadLegacyError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "errors.jsonl")
+	line := `{"v":1,"t":"2026-11-01T12:00:00Z","pane":"closed-pane","kind":"command","command":"go test ./...","output":"exit status 1"}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0600); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := Read(path, time.Time{})
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("read: %+v, %v", evs, err)
+	}
+	if e := evs[0]; e.Pane != "closed-pane" || e.Tab != "" || e.Name != "" || e.Branch != "" || e.Command != "go test ./..." {
+		t.Errorf("legacy event %+v", e)
 	}
 }

@@ -30,12 +30,13 @@ type timingPage struct {
 	window string // week, month or ever; "" is week
 	read   bool   // a read has started since the page opened
 
-	mu      sync.Mutex
-	gen     int // the latest read; an older one's result is dropped
-	loading bool
-	sum     *timelog.Summary
-	any     bool // the log has a turn at all
-	err     string
+	mu       sync.Mutex
+	gen      int // the latest read; an older one's result is dropped
+	loading  bool
+	sum      *timelog.Summary
+	excluded int  // tabs omitted from this window
+	any      bool // the log has a turn at all
+	err      string
 }
 
 // Lines the category shows instead of charts, and how many sinks and
@@ -61,7 +62,7 @@ func (p *Page) timingPath() string {
 // background. Frames poll for the result while it runs.
 func (p *Page) readTimingLog() {
 	p.tm.read = true
-	win, path := p.tm.window, p.timingPath()
+	win, path, stats := p.tm.window, p.timingPath(), p.s.Stats
 	p.tm.mu.Lock()
 	p.tm.gen++
 	gen := p.tm.gen
@@ -69,10 +70,11 @@ func (p *Page) readTimingLog() {
 	p.tm.mu.Unlock()
 	go func() {
 		evs, err := readTiming(path, time.Time{})
-		s, any := timingWindow(evs, win, time.Now())
+		s, any, excluded := timingWindow(evs, win, time.Now(), stats)
 		p.tm.mu.Lock()
 		if gen == p.tm.gen {
 			p.tm.sum, p.tm.any, p.tm.loading, p.tm.err = &s, any, false, ""
+			p.tm.excluded = excluded
 			if err != nil {
 				p.tm.err = err.Error()
 			}
@@ -83,13 +85,30 @@ func (p *Page) readTimingLog() {
 
 // timingWindow is the summary of win up to now, and whether evs, oldest
 // first, hold a turn at all.
-func timingWindow(evs []timelog.Event, win string, now time.Time) (timelog.Summary, bool) {
+func timingWindow(evs []timelog.Event, win string, now time.Time, stats config.Stats) (timelog.Summary, bool, int) {
 	i := slices.IndexFunc(evs, func(e timelog.Event) bool { return e.Kind == timelog.Turn })
 	first := now
 	if i >= 0 {
 		first = evs[i].T
 	}
-	return timelog.Summarize(evs, windowFrom(win, now, first), now, time.Local), i >= 0
+	from := windowFrom(win, now, first)
+	excluded, counted := map[string]bool{}, map[string]bool{}
+	for _, e := range evs {
+		if e.Tab != "" && stats.Excludes(e.Name, e.Branch) {
+			excluded[e.Tab] = true
+		}
+	}
+	var kept []timelog.Event
+	for _, e := range evs {
+		if excluded[e.Tab] || e.Tab == "" && stats.Excludes(e.Name, e.Branch) {
+			if e.Tab != "" && e.Kind == timelog.Turn && !e.T.Before(from) && !e.T.After(now) {
+				counted[e.Tab] = true
+			}
+		} else {
+			kept = append(kept, e)
+		}
+	}
+	return timelog.Summarize(kept, from, now, time.Local), i >= 0, len(counted)
 }
 
 // timingNote is the line shown instead of charts, "" when there are some.
@@ -151,6 +170,7 @@ func (p *Page) timing() []section {
 	th := p.th
 	p.tm.mu.Lock()
 	s, any, loading, err := p.tm.sum, p.tm.any, p.tm.loading || !p.tm.read, p.tm.err
+	excluded := p.tm.excluded
 	p.tm.mu.Unlock()
 	win := cmp.Or(p.tm.window, week)
 	note := timingNote(s, any, loading, win)
@@ -195,6 +215,7 @@ func (p *Page) timing() []section {
 				gl.Rigid(pick),
 			)
 		})}
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.excluding(gtx, excluded) }))
 		if err != "" {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Red, err)
@@ -481,6 +502,14 @@ func (p *Page) task(gtx gl.Context, t timelog.Tab) gl.Dimensions {
 		gl.Rigid(gl.Spacer{Height: 2}.Layout),
 		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Muted, steps)
+		}),
+		gl.Rigid(gl.Spacer{Height: 6}.Layout),
+		gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			c := p.btn("timing-exclude-" + t.ID)
+			for c.Clicked(gtx) {
+				p.excludeTab(cmp.Or(t.TabName, t.Name))
+			}
+			return p.button(gtx, c, ghost, "Leave out of stats")
 		}),
 	)
 }

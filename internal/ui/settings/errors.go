@@ -31,12 +31,13 @@ type errorsPage struct {
 	order  string // byCount or byTokens; "" is byCount
 	read   bool   // a read has started since the page opened
 
-	mu      sync.Mutex
-	gen     int // the latest read; an older one's result is dropped
-	loading bool
-	sum     *errorSum
-	any     bool // the log has an event at all
-	err     string
+	mu       sync.Mutex
+	gen      int // the latest read; an older one's result is dropped
+	loading  bool
+	sum      *errorSum
+	excluded int  // tabs omitted from this window
+	any      bool // the log has an event at all
+	err      string
 }
 
 // errorSum is one window of errors.jsonl.
@@ -73,7 +74,7 @@ func (p *Page) errorsPath() string {
 // background. Frames poll for the result while it runs.
 func (p *Page) readErrorLog() {
 	p.er.read = true
-	win, path := p.er.window, p.errorsPath()
+	win, path, stats := p.er.window, p.errorsPath(), p.s.Stats
 	p.er.mu.Lock()
 	p.er.gen++
 	gen := p.er.gen
@@ -81,10 +82,11 @@ func (p *Page) readErrorLog() {
 	p.er.mu.Unlock()
 	go func() {
 		evs, err := readErrors(path, time.Time{})
-		s := errorWindow(evs, win, time.Now())
+		s, excluded := errorWindow(evs, win, time.Now(), stats)
 		p.er.mu.Lock()
 		if gen == p.er.gen {
 			p.er.sum, p.er.any, p.er.loading, p.er.err = &s, len(evs) > 0, false, ""
+			p.er.excluded = excluded
 			if err != nil {
 				p.er.err = err.Error()
 			}
@@ -95,7 +97,7 @@ func (p *Page) readErrorLog() {
 
 // errorWindow counts and groups the events in win up to now. evs is
 // oldest first.
-func errorWindow(evs []errlog.Event, win string, now time.Time) errorSum {
+func errorWindow(evs []errlog.Event, win string, now time.Time, stats config.Stats) (errorSum, int) {
 	first := now
 	if len(evs) > 0 {
 		first = evs[0].T
@@ -103,8 +105,21 @@ func errorWindow(evs []errlog.Event, win string, now time.Time) errorSum {
 	from := windowFrom(win, now, first)
 	s := errorSum{Kinds: map[string]int{}, Providers: map[string]int{}}
 	var in []errlog.Event
+	excluded, counted := map[string]bool{}, map[string]bool{}
 	for _, e := range evs {
-		if !e.T.Before(from) {
+		if id := cmp.Or(e.Tab, e.Pane); id != "" && stats.Excludes(e.Name, e.Branch) {
+			excluded[id] = true
+		}
+	}
+	for _, e := range evs {
+		if !e.T.Before(from) && !e.T.After(now) {
+			id := cmp.Or(e.Tab, e.Pane)
+			if excluded[id] || id == "" && stats.Excludes(e.Name, e.Branch) {
+				if id != "" {
+					counted[id] = true
+				}
+				continue
+			}
 			in = append(in, e)
 			s.Total++
 			s.Tokens += e.Tokens()
@@ -114,7 +129,7 @@ func errorWindow(evs []errlog.Event, win string, now time.Time) errorSum {
 	}
 	s.Groups = errlog.Groups(in)
 	s.Days = errlog.Days(in, from, now, time.Local)
-	return s
+	return s, len(counted)
 }
 
 // errorsNote is the line shown instead of errors, "" when there are some.
@@ -164,6 +179,7 @@ func (p *Page) agentErrors() []section {
 	th := p.th
 	p.er.mu.Lock()
 	s, any, loading, err := p.er.sum, p.er.any, p.er.loading || !p.er.read, p.er.err
+	excluded := p.er.excluded
 	p.er.mu.Unlock()
 	win := p.er.window
 	if win == "" {
@@ -201,6 +217,7 @@ func (p *Page) agentErrors() []section {
 				})),
 			)
 		})}
+		kids = append(kids, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return p.excluding(gtx, excluded) }))
 		if err != "" {
 			kids = append(kids, gl.Rigid(gl.Spacer{Height: 8}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				return p.para(gtx, th.UIFont, p.th.Sp(theme.Small), th.Red, err)
@@ -302,6 +319,9 @@ func (p *Page) errorGroup(gtx gl.Context, g errlog.Group, causes []share) gl.Dim
 	var names []string
 	for _, pv := range g.Providers {
 		names = append(names, agentName(model.Provider(pv)))
+	}
+	if e.Name != "" {
+		names = append(names, e.Name)
 	}
 	meta := strings.Join(append(names, "about "+compact(int64(g.Tokens))+" tokens", ago(gtx.Now.Sub(g.Last))), " · ")
 	cmd := e.Command

@@ -45,6 +45,9 @@ type Event struct {
 	V        int       `json:"v"`
 	T        time.Time `json:"t"`
 	Pane     string    `json:"pane,omitempty"`
+	Tab      string    `json:"tab,omitempty"`
+	Name     string    `json:"name,omitempty"`
+	Branch   string    `json:"branch,omitempty"`
 	Provider string    `json:"provider,omitempty"`
 	Kind     string    `json:"kind"`
 	Tool     string    `json:"tool,omitempty"`

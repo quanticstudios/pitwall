@@ -364,6 +364,9 @@ func open(target string) {
 // Layout draws the page into the constraints (the pane area) and returns
 // what the window should do.
 func (p *Page) Layout(gtx gl.Context, th *theme.Theme, s config.Settings, probs []string) Result {
+	if !slices.Equal(p.s.Stats.Exclude, s.Stats.Exclude) {
+		p.tm.read, p.er.read = false, false
+	}
 	p.th, p.s, p.probs = th, s, probs
 	if p.s.Keys == nil {
 		p.s.Keys = config.Preset(config.DefaultPreset)

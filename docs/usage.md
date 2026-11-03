@@ -830,8 +830,9 @@ What each agent reports:
 The page groups the errors of the last 7 days, 30 days or all time by the
 line that says what went wrong, with numbers, paths and quoted text set
 aside, so `zsh: no matches found: --include=*.go` and `--include=*.ts` count
-as one. Each group shows how often it happened and about how many tokens its
-commands and output took, at four characters a token; Most frequent and
+as one. Each group names its latest error's tab when the log has its name,
+even after that tab closes. Each group shows how often it happened and about
+how many tokens its commands and output took, at four characters a token; Most frequent and
 Most tokens sort by either. A group with a known cause shows a Likely fix
 line: quote globs zsh would expand, quote words that start with `=`,
 install a missing command, read a file again before editing it, check
@@ -883,6 +884,21 @@ bar, agent hours per day, the commands that took longest and each task's
 time from prompt to merge. Copy report puts it on the clipboard as Markdown
 to ask an agent what to speed up. At 10 MB the file moves to
 `timing.jsonl.1`.
+
+Use **Leave out of stats** on a task row to append its tab name to
+`[stats].exclude` in `config.toml`. Timing and Agent errors leave out tabs
+whose name or branch matches any of these globs. Both pages show
+"Excluding N tabs" with the patterns when the window has matching tabs.
+The logs keep every event. Remove a pattern from the config to include
+those tabs again. The row action escapes glob characters in a tab name and
+preserves existing patterns and comments in the list.
+
+For turns ending before 2026-10-31 19:00:39 UTC, the summary caps agent time
+at ten minutes only when the turn was interrupted or its pane closed.
+Completed and failed turns, and turns ending at or after that cutoff, keep
+their recorded durations. Waiting on you stays intact; model, tool and slow
+command times keep their recorded proportions. This is an estimate for old
+abandoned turns because those lines have no last-activity timestamp.
 
 ### Claude Code agent teams
 

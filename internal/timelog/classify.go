@@ -96,7 +96,10 @@ func Classify(tool, command string) string {
 
 // segments splits a command line where one program ends and another may
 // start.
-var segments = regexp.MustCompile("&&|\\|\\||[;|\n(){}`]|\\$\\(")
+var segments = regexp.MustCompile("'[^']*'|\"(?:\\\\.|[^\"\\\\])*\"|&&|\\|\\||[;|\\n(){}`]|\\$\\(")
+
+// substitutions are commands that run inside double-quoted words.
+var substitutions = regexp.MustCompile("\\$\\(([^)]*)\\)|`([^`]*)`")
 
 // Ranks: a compound command is the kind of its highest-ranked part, so
 // "go build && go test" is a test and "sleep 30; gh pr checks" CI. A
@@ -106,16 +109,49 @@ var rank = map[string]int{CI: 7, Test: 6, Build: 5, Lint: 4, Install: 3, "sleep"
 // Command is the kind of a shell command line.
 // ponytail: a word list per tool; a command it does not know is Shell.
 func Command(line string) string {
+	k := command(line, true)
+	if k == "sleep" {
+		return CI
+	}
+	return k
+}
+
+func command(line string, unwrap bool) string {
 	best := Shell
-	for _, seg := range segments.Split(line, -1) {
-		k := program(strings.Fields(seg))
+	start := 0
+	take := func(end int) {
+		k := program(strings.Fields(line[start:end]), unwrap)
 		if rank[k] > rank[best] {
 			best = k
 		}
 	}
-	if best == "sleep" {
-		return CI
+	for _, m := range segments.FindAllStringIndex(line, -1) {
+		if q := line[m[0]]; q == '\'' || q == '"' {
+			if q == '"' {
+				text := line[m[0]:m[1]]
+				for _, sub := range substitutions.FindAllStringSubmatchIndex(text, -1) {
+					backslashes := 0
+					for i := sub[0] - 1; i >= 0 && text[i] == '\\'; i-- {
+						backslashes++
+					}
+					if backslashes%2 != 0 {
+						continue
+					}
+					from, to := sub[2], sub[3]
+					if from < 0 {
+						from, to = sub[4], sub[5]
+					}
+					if k := command(text[from:to], unwrap); rank[k] > rank[best] {
+						best = k
+					}
+				}
+			}
+			continue // literal text does not run commands
+		}
+		take(m[0])
+		start = m[1]
 	}
+	take(len(line))
 	return best
 }
 
@@ -123,11 +159,13 @@ func Command(line string) string {
 var wrappers = []string{"do", "then", "else", "if", "elif", "while", "until", "!", "time", "sudo", "exec", "command", "nohup", "nice", "xargs", "builtin", "noglob", "rtk", "npx", "bunx", "pnpx"}
 
 // program is the kind of one simple command, its words in w.
-func program(w []string) string {
+func program(w []string, unwrap bool) string {
 	for len(w) > 0 {
 		switch x := w[0]; {
 		case strings.Contains(x, "=") && !strings.HasPrefix(x, "-"): // FOO=bar
 			w = w[1:]
+		case x == "rtk" && len(w) > 1 && w[1] == "proxy":
+			w = w[2:]
 		case slices.Contains(wrappers, x):
 			w = w[1:]
 		case x == "env" || x == "timeout":
@@ -146,11 +184,38 @@ func program(w []string) string {
 			w = w[i+1:]
 		case (x == "uv" || x == "poetry" || x == "pipenv" || x == "bundle") && len(w) > 1 && (w[1] == "run" || w[1] == "exec"):
 			w = w[2:]
+		case slices.Contains([]string{"sh", "bash", "zsh", "dash"}, filepath.Base(x)) && len(w) > 1 && (w[1] == "-c" || w[1] == "-lc"):
+			if !unwrap {
+				return Shell
+			}
+			return command(shellScript(strings.Join(w[2:], " ")), false)
 		default:
 			return kind(strings.ToLower(filepath.Base(x)), w[1:])
 		}
 	}
 	return Shell
+}
+
+// shellScript removes one shell quote layer and ignores positional arguments.
+func shellScript(s string) string {
+	if len(s) == 0 || s[0] != '\'' && s[0] != '"' {
+		return s
+	}
+	q := s[0]
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		if s[i] == q {
+			break
+		}
+		if q == '"' && s[i] == '\\' && i+1 < len(s) && strings.ContainsRune("$`\"\\\n", rune(s[i+1])) {
+			i++
+			if s[i] == '\n' {
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 func kind(prog string, args []string) string {
@@ -232,10 +297,7 @@ func kind(prog string, args []string) string {
 			return script(sub)
 		}
 		return Shell
-	case "sh", "bash", "zsh":
-		if sub == "-c" || sub == "-lc" {
-			return Command(strings.Trim(strings.Join(args[1:], " "), `'"`))
-		}
+	case "sh", "bash", "zsh", "dash":
 		if sub != "" && !strings.HasPrefix(sub, "-") {
 			return script(sub)
 		}

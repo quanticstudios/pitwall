@@ -3,6 +3,7 @@ package timelog
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -42,6 +43,7 @@ type Sink struct {
 // log: zero times are ones it has not reached.
 type Tab struct {
 	ID, Name, Provider       string
+	TabName                  string    // the logged name, before the branch fallback
 	Last                     time.Time // its latest turn's end
 	Turns                    int
 	Agent, Tools, You        int64 // You is waiting on the user and the user's replies
@@ -102,6 +104,7 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 		if e.Kind != Turn || e.T.Before(from) || e.T.After(to) {
 			continue
 		}
+		e = capAgent(e)
 		s.Turns++
 		walls = append(walls, e.Ms)
 		if e.Reply > 0 {
@@ -141,6 +144,7 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 			tabs[e.Tab] = t
 		}
 		t.Name, t.Provider, t.Last = cmp.Or(e.Branch, e.Name, t.Name), cmp.Or(e.Provider, t.Provider), e.T
+		t.TabName = cmp.Or(e.Name, t.TabName)
 		t.Turns++
 		t.Agent += e.Agent()
 		t.Tools += tools
@@ -188,6 +192,30 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 	}
 	slices.SortFunc(s.Tabs, func(a, b Tab) int { return cmp.Or(b.Last.Compare(a.Last), strings.Compare(a.ID, b.ID)) })
 	return s
+}
+
+// idleCapSince is the cutoff for legacy estimates, from dd06be3b.
+var idleCapSince = time.Date(2026, 10, 31, 19, 0, 39, 0, time.UTC)
+
+// capAgent estimates abandoned legacy turns, which have no last-activity time.
+// Completed, failed and current turns keep their recorded durations.
+func capAgent(e Event) Event {
+	limit, agent := idleMax.Milliseconds(), e.Agent()
+	if agent <= limit || !e.T.Before(idleCapSince) || e.End != Interrupted && e.End != PaneClosed {
+		return e
+	}
+	scale := func(ms int64) int64 { return int64(float64(ms) * float64(limit) / float64(agent)) }
+	e.Ms, e.Model = e.Wait+limit, limit
+	e.Tools = maps.Clone(e.Tools)
+	for kind, ms := range e.Tools {
+		e.Tools[kind] = scale(ms)
+		e.Model -= e.Tools[kind]
+	}
+	e.Slow = slices.Clone(e.Slow)
+	for i := range e.Slow {
+		e.Slow[i].Ms = scale(e.Slow[i].Ms)
+	}
+	return e
 }
 
 // quantile is the q quantile of xs by nearest rank, 0 for none.

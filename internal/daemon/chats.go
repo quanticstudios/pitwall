@@ -1647,7 +1647,7 @@ func (d *Daemon) chatActivity(c *chat) func() {
 		}
 		switch state {
 		case model.StateError:
-			d.o.Errors.Add(errlog.Event{T: now, Pane: c.id, Provider: string(c.cfg.Provider), Kind: errlog.API, Output: detail, Cwd: c.cfg.Cwd}, secrets...)
+			d.logError(c.cfg.Workspace, errlog.Event{T: now, Pane: c.id, Provider: string(c.cfg.Provider), Kind: errlog.API, Output: detail, Cwd: c.cfg.Cwd}, secrets...)
 		case model.StateCompleted:
 			go d.refreshStats(context.Background(), c.cfg.Workspace)
 		}
