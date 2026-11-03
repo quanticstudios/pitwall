@@ -298,7 +298,9 @@ func Paste(s string, m vt.Modes) []byte {
 func PastePaths(paths []string, m vt.Modes) []byte { return pastePaths(paths, m, false) }
 
 // TypePaths is PastePaths with a path left unquoted when it holds only
-// characters every shell reads as themselves, such as internal/app.go.
+// characters every shell reads as themselves, such as internal/app.go,
+// and a relative path that starts with - led by ./, so the command that
+// gets it reads a file, not an option.
 func TypePaths(paths []string, m vt.Modes) []byte { return pastePaths(paths, m, true) }
 
 func pastePaths(paths []string, m vt.Modes, bare bool) []byte {
@@ -308,6 +310,9 @@ func pastePaths(paths []string, m vt.Modes, bare bool) []byte {
 		// input without risking another key or a paste boundary.
 		if strings.ContainsFunc(path, func(r rune) bool { return r < 32 || r == 127 }) {
 			continue
+		}
+		if bare && strings.HasPrefix(path, "-") {
+			path = "./" + path
 		}
 		if bare && plainPath(path) {
 			quoted = append(quoted, path)

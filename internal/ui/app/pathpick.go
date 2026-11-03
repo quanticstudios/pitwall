@@ -3,7 +3,9 @@ package app
 import (
 	"cmp"
 	"context"
+	"errors"
 	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -105,29 +107,59 @@ func (u *ui) pathRows() []string {
 	return pp.rows
 }
 
-// listPaths lists the files under dir, relative to it: git's tracked and
-// untracked but not ignored files in a repository, else a walk that skips
-// folders whose names start with a dot. Either stops at maxPathFiles.
+// listPaths lists the files under dir, relative to it: in a repository,
+// git's tracked and untracked but not ignored files that are in the
+// folder; elsewhere a walk that skips folders whose names start with a
+// dot. Either stops at maxPathFiles. A failure or a cancelled ctx is an
+// error, never a walk of a repository.
 func listPaths(ctx context.Context, dir string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.quotePath=false", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if out, err := gitOutput(ctx, dir, "rev-parse", "--is-inside-work-tree"); err != nil || strings.TrimSpace(string(out)) != "true" {
+		return walkPaths(ctx, dir, maxPathFiles)
+	}
+	out, err := gitOutput(ctx, dir, "-c", "core.quotePath=false", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, cmp.Or(ctx.Err(), err)
+	}
+	all := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
+	slices.Sort(all)          // untracked files come after the tracked ones
+	all = slices.Compact(all) // a conflict lists a file once per stage
+	var files []string
+	for _, f := range all {
+		if len(files) == maxPathFiles {
+			break
+		}
+		// --cached keeps a file deleted from the folder, or left out of a
+		// sparse checkout, until the deletion is staged.
+		if _, err := os.Lstat(filepath.Join(dir, f)); f != "" && err == nil {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}
+
+// gitOutput runs git with args in dir and returns its output, or its error
+// message as the error.
+func gitOutput(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	nowindow.Set(cmd)
-	if out, err := cmd.Output(); err == nil {
-		files := strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
-		files = slices.DeleteFunc(files, func(f string) bool { return f == "" })
-		slices.Sort(files)            // untracked files come after the tracked ones
-		files = slices.Compact(files) // a conflict lists a file once per stage
-		return files[:min(len(files), maxPathFiles)], nil
+	out, err := cmd.Output()
+	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+		err = errors.New(strings.TrimSpace(string(ee.Stderr)))
 	}
-	return walkPaths(dir, maxPathFiles)
+	return out, err
 }
 
 // walkPaths lists the files under dir, relative to it, skipping folders
-// whose names start with a dot, until it has seen limit entries.
-func walkPaths(dir string, limit int) ([]string, error) {
+// whose names start with a dot, until it has seen limit entries or ctx
+// ends.
+func walkPaths(ctx context.Context, dir string, limit int) ([]string, error) {
 	var files []string
 	seen := 0
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			if p == dir {
 				return err
@@ -151,7 +183,10 @@ func walkPaths(dir string, limit int) ([]string, error) {
 		}
 		return nil
 	})
-	return files, err
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 // rankPaths is the files every word of query matches, as rank's words

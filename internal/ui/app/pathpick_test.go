@@ -47,8 +47,9 @@ func TestRankPaths(t *testing.T) {
 }
 
 // TestListPaths lists a repository's tracked and untracked files but not
-// its ignored ones, relative to a subfolder, and walks a plain folder
-// past its dot folders, up to the cap.
+// its ignored ones or a deleted one, relative to a subfolder, fails rather
+// than walk a repository when git does, and walks a plain folder past its
+// dot folders, up to the cap.
 func TestListPaths(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
@@ -85,6 +86,24 @@ func TestListPaths(t *testing.T) {
 		t.Errorf("repo: %q, %v; want %q", got, err, want)
 	}
 
+	// A file deleted from the folder but not from the index is not offered.
+	write("sub/removed.go")
+	git("add", "sub/removed.go")
+	git("commit", "-qm", "x")
+	os.Remove(filepath.Join(repo, "sub", "removed.go"))
+	got, err = listPaths(context.Background(), filepath.Join(repo, "sub"))
+	if want := []string{"new file.go", "tracked.go"}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("after a deletion: %q, %v; want %q", got, err, want)
+	}
+
+	// A git that fails, here cancelled, is an error, not a walk that lists
+	// the ignored build.log.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got, err := listPaths(ctx, filepath.Join(repo, "sub")); err == nil || len(got) > 0 {
+		t.Errorf("cancelled: %q, %v; want an error and no files", got, err)
+	}
+
 	plain := t.TempDir()
 	for _, p := range []string{"a.txt", "d/b.txt", ".cache/c.txt", ".env"} {
 		os.MkdirAll(filepath.Join(plain, filepath.Dir(p)), 0o755)
@@ -95,7 +114,7 @@ func TestListPaths(t *testing.T) {
 		t.Errorf("walk: %q, %v; want %q", got, err, want)
 	}
 	// .cache counts as an entry: three entries are .env and a.txt.
-	if got, _ := walkPaths(plain, 3); !slices.Equal(got, []string{".env", "a.txt"}) {
+	if got, _ := walkPaths(context.Background(), plain, 3); !slices.Equal(got, []string{".env", "a.txt"}) {
 		t.Errorf("a cap of 3 entries listed %q", got)
 	}
 	if _, err := listPaths(context.Background(), filepath.Join(plain, "gone")); err == nil {
