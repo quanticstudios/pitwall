@@ -964,8 +964,8 @@ small row.
 
 Click the count to fold the small rows away and again to bring them back.
 Folded, a worker that asks for an answer and the worker on screen keep
-theirs. Each row remembers its fold, in the tree and the inbox alike, until
-the window closes. Next tab and previous tab visit a worker only while its
+theirs. Each row remembers its fold, in the tree and the inbox alike and
+across switches to other sessions and hosts, until the window closes. Next tab and previous tab visit a worker only while its
 row is unfolded.
 
 Click a worker's row to show its tab, Ctrl+click or Shift+click it to

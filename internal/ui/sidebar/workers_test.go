@@ -143,3 +143,23 @@ func TestFleetState(t *testing.T) {
 		t.Error("no activity is not idle")
 	}
 }
+
+// TestFoldSurvivesSwitch: a parent's folded workers stay folded after the
+// window shows another session or host and comes back, whose view lacks
+// the parent.
+func TestFoldSurvivesSwitch(t *testing.T) {
+	h := newWorkersHarness(t, false, false)
+	h.s.folded = map[string]bool{"o": true}
+	h.frame()
+	main := h.st
+	h.st = model.State{Workspaces: []model.Workspace{{ID: "b1", Name: "box"}}}
+	h.frame()
+	h.st = main
+	h.frame()
+	if !h.s.KidsFolded("o") {
+		t.Fatal("o's workers unfolded after switching away and back")
+	}
+	if got, want := h.tabElems(), []string{"so", "sx"}; !slices.Equal(got, want) {
+		t.Fatalf("laid out %v, want o folded", got)
+	}
+}

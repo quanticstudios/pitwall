@@ -577,11 +577,12 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 			}
 		}
 	}
-	for id := range s.folded {
-		if len(v.subsOf(id)) == 0 {
-			delete(s.folded, id)
-		}
-	}
+	// why: a fold is the user's choice and outlives the view. The view
+	// holds one session of one host, so a tab missing from it may only be
+	// on another session or host the window switched to, and forgetting
+	// its fold there unfolded it on the way back.
+	// ponytail: one entry per folded tab for the window's life; prune by
+	// tabs every host closed if that ever matters.
 }
 
 // clickPane is a click on pane's sub-row in tab: Ctrl and Shift select the
