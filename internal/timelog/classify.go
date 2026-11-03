@@ -98,6 +98,9 @@ func Classify(tool, command string) string {
 // start.
 var segments = regexp.MustCompile("'[^']*'|\"(?:\\\\.|[^\"\\\\])*\"|&&|\\|\\||[;|\\n(){}`]|\\$\\(")
 
+// substitutions are commands that run inside double-quoted words.
+var substitutions = regexp.MustCompile("\\$\\(([^)]*)\\)|`([^`]*)`")
+
 // Ranks: a compound command is the kind of its highest-ranked part, so
 // "go build && go test" is a test and "sleep 30; gh pr checks" CI. A
 // sleep alone is a poll, CI, but below everything that does work.
@@ -123,8 +126,27 @@ func command(line string, unwrap bool) string {
 		}
 	}
 	for _, m := range segments.FindAllStringIndex(line, -1) {
-		if line[m[0]] == '\'' || line[m[0]] == '"' {
-			continue // separators inside quoted scripts belong to the shell
+		if q := line[m[0]]; q == '\'' || q == '"' {
+			if q == '"' {
+				text := line[m[0]:m[1]]
+				for _, sub := range substitutions.FindAllStringSubmatchIndex(text, -1) {
+					backslashes := 0
+					for i := sub[0] - 1; i >= 0 && text[i] == '\\'; i-- {
+						backslashes++
+					}
+					if backslashes%2 != 0 {
+						continue
+					}
+					from, to := sub[2], sub[3]
+					if from < 0 {
+						from, to = sub[4], sub[5]
+					}
+					if k := command(text[from:to], unwrap); rank[k] > rank[best] {
+						best = k
+					}
+				}
+			}
+			continue // literal text does not run commands
 		}
 		take(m[0])
 		start = m[1]
@@ -166,20 +188,34 @@ func program(w []string, unwrap bool) string {
 			if !unwrap {
 				return Shell
 			}
-			script := strings.Join(w[2:], " ")
-			if len(script) > 0 && (script[0] == '\'' || script[0] == '"') {
-				quote := script[0]
-				script = script[1:]
-				if i := strings.IndexByte(script, quote); i >= 0 {
-					script = script[:i]
-				}
-			}
-			return command(script, false)
+			return command(shellScript(strings.Join(w[2:], " ")), false)
 		default:
 			return kind(strings.ToLower(filepath.Base(x)), w[1:])
 		}
 	}
 	return Shell
+}
+
+// shellScript removes one shell quote layer and ignores positional arguments.
+func shellScript(s string) string {
+	if len(s) == 0 || s[0] != '\'' && s[0] != '"' {
+		return s
+	}
+	q := s[0]
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		if s[i] == q {
+			break
+		}
+		if q == '"' && s[i] == '\\' && i+1 < len(s) && strings.ContainsRune("$`\"\\\n", rune(s[i+1])) {
+			i++
+			if s[i] == '\n' {
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 func kind(prog string, args []string) string {

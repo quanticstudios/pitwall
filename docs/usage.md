@@ -887,12 +887,15 @@ Use **Leave out of stats** on a task row to append its tab name to
 whose name or branch matches any of these globs. Both pages show
 "Excluding N tabs" with the patterns when the window has matching tabs.
 The logs keep every event. Remove a pattern from the config to include
-those tabs again.
+those tabs again. The row action escapes glob characters in a tab name and
+preserves existing patterns and comments in the list.
 
-The summary caps each turn's agent time at ten minutes, including turns in
-older logs. Waiting on you stays intact; model and tool time keep their
-recorded proportions. Old lines have no last-activity timestamp, so this
-also caps completed turns longer than ten minutes.
+For turns ending before 2026-10-31 19:00:39 UTC, the summary caps agent time
+at ten minutes only when the turn was interrupted or its pane closed.
+Completed and failed turns, and turns ending at or after that cutoff, keep
+their recorded durations. Waiting on you stays intact; model, tool and slow
+command times keep their recorded proportions. This is an estimate for old
+abandoned turns because those lines have no last-activity timestamp.
 
 ### Claude Code agent teams
 

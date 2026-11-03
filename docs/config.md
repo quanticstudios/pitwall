@@ -128,7 +128,8 @@ problem and are ignored.
 Settings, Timing and Agent errors leave matching tabs out of every total,
 chart and copied report. When the chosen window contains matching tabs,
 the page shows "Excluding N tabs" with the patterns. Timing's **Leave out
-of stats** action appends the tab's name to this list. Remove a pattern to
+of stats** action appends the tab's literal name to this list, escaping glob
+characters and preserving existing entries and comments. Remove a pattern to
 include those tabs again. Logs keep every event. Old errors without tab
 names or branches cannot match these patterns.
 

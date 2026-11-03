@@ -107,15 +107,17 @@ func errorWindow(evs []errlog.Event, win string, now time.Time, stats config.Sta
 	var in []errlog.Event
 	excluded, counted := map[string]bool{}, map[string]bool{}
 	for _, e := range evs {
-		if stats.Excludes(e.Name, e.Branch) {
-			excluded[cmp.Or(e.Tab, e.Pane)] = true
+		if id := cmp.Or(e.Tab, e.Pane); id != "" && stats.Excludes(e.Name, e.Branch) {
+			excluded[id] = true
 		}
 	}
 	for _, e := range evs {
 		if !e.T.Before(from) && !e.T.After(now) {
 			id := cmp.Or(e.Tab, e.Pane)
-			if excluded[id] {
-				counted[id] = true
+			if excluded[id] || id == "" && stats.Excludes(e.Name, e.Branch) {
+				if id != "" {
+					counted[id] = true
+				}
 				continue
 			}
 			in = append(in, e)

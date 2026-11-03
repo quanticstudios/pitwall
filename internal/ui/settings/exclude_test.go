@@ -94,6 +94,11 @@ func TestLeaveOutOfStatsSavesConfig(t *testing.T) {
 	if len(s.Stats.Exclude) != 2 {
 		t.Fatalf("duplicate patterns: %v", s.Stats.Exclude)
 	}
+	waitStatsReads(t, &p)
+}
+
+func waitStatsReads(t *testing.T, p *Page) {
+	t.Helper()
 	// Finish both reads before the temporary directory goes away.
 	for start := time.Now(); ; time.Sleep(time.Millisecond) {
 		p.tm.mu.Lock()
@@ -108,5 +113,73 @@ func TestLeaveOutOfStatsSavesConfig(t *testing.T) {
 		if time.Since(start) > 5*time.Second {
 			t.Fatal("stats read did not finish")
 		}
+	}
+}
+
+func TestLeaveOutOfStatsLiteralName(t *testing.T) {
+	for _, name := range []string{"fix [wip]", "fix [wip", "a*b", "a?b", `a\b`} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			var p Page
+			p.Show(filepath.Join(dir, "config.toml"))
+			p.tm.path, p.er.path = filepath.Join(dir, "timing.jsonl"), filepath.Join(dir, "errors.jsonl")
+			t.Cleanup(func() { waitStatsReads(t, &p) })
+			p.excludeTab(name)
+			s, probs := config.LoadFile(p.path())
+			if p.err != "" || len(probs) != 0 || !s.Stats.Excludes(name, "") {
+				t.Fatalf("name %q not excluded: %+v, %v, %s", name, s.Stats, probs, p.err)
+			}
+			if s.Stats.Excludes("aXb", "") {
+				t.Fatal("literal name excludes another tab")
+			}
+		})
+	}
+}
+
+func TestLeaveOutOfStatsPreservesRawArray(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "config.toml")
+	const source = "# my config\n[stats]\nexclude = [\n  \"bot/*\", # automation\n  \"[draft\" # todo fix\n] # keep trailing\n[font]\nui_size = 14\n"
+	if err := os.WriteFile(file, []byte(source), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var p Page
+	p.Show(file)
+	p.s, _ = config.LoadFile(file)
+	p.tm.path, p.er.path = filepath.Join(dir, "timing.jsonl"), filepath.Join(dir, "errors.jsonl")
+	t.Cleanup(func() { waitStatsReads(t, &p) })
+	p.excludeTab("watcher")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"bot/*"`, `"[draft"`, `"watcher"`, "# automation", "# todo fix", "# keep trailing", "# my config", "ui_size = 14"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("lost %q: %s", want, b)
+		}
+	}
+	if p.err != "" {
+		t.Fatal(p.err)
+	}
+}
+
+func TestStatsWindowsKeepUnrelatedTablessEvents(t *testing.T) {
+	now := time.Now()
+	stats := config.Stats{Exclude: []string{"watcher"}}
+	turns := []timelog.Event{
+		{T: now.Add(-time.Minute), Kind: timelog.Turn, Name: "watcher", Ms: 1000, Model: 1000},
+		{T: now.Add(-time.Minute), Kind: timelog.Turn, Ms: 2000, Model: 2000},
+	}
+	s, _, n := timingWindow(turns, week, now, stats)
+	if s.Turns != 1 || s.Agent != 2000 || n != 0 {
+		t.Errorf("timing: %+v, excluded %d", s, n)
+	}
+	errors := []errlog.Event{
+		{T: now.Add(-time.Minute), Kind: errlog.Tool, Name: "watcher", Size: 4},
+		{T: now.Add(-time.Minute), Kind: errlog.Tool, Size: 8},
+	}
+	e, n := errorWindow(errors, week, now, stats)
+	if e.Total != 1 || e.Tokens != 2 || n != 0 {
+		t.Errorf("errors: %+v, excluded %d", e, n)
 	}
 }

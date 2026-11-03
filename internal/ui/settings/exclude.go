@@ -21,18 +21,16 @@ func (p *Page) excluding(gtx gl.Context, n int) gl.Dimensions {
 }
 
 func (p *Page) excludeTab(name string) {
-	if name == "" || slices.Contains(p.s.Stats.Exclude, name) {
+	pattern := strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(name)
+	if name == "" || slices.Contains(p.s.Stats.Exclude, pattern) {
 		return
 	}
-	patterns := append(slices.Clone(p.s.Stats.Exclude), name)
-	values := make([]string, len(patterns))
-	for i, pattern := range patterns {
-		values[i] = config.Quote(pattern)
+	if err := config.AppendString(p.path(), "stats", "exclude", pattern); err != nil {
+		p.err = err.Error()
+		return
 	}
-	p.saveValue("stats", "exclude", "["+strings.Join(values, ", ")+"]")
-	if p.err == "" {
-		p.s.Stats.Exclude = patterns
-		p.readTimingLog()
-		p.readErrorLog()
-	}
+	p.err, p.result = "", Saved
+	p.s.Stats.Exclude = append(slices.Clone(p.s.Stats.Exclude), pattern)
+	p.readTimingLog()
+	p.readErrorLog()
 }

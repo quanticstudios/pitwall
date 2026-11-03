@@ -94,14 +94,14 @@ func timingWindow(evs []timelog.Event, win string, now time.Time, stats config.S
 	from := windowFrom(win, now, first)
 	excluded, counted := map[string]bool{}, map[string]bool{}
 	for _, e := range evs {
-		if stats.Excludes(e.Name, e.Branch) {
+		if e.Tab != "" && stats.Excludes(e.Name, e.Branch) {
 			excluded[e.Tab] = true
 		}
 	}
 	var kept []timelog.Event
 	for _, e := range evs {
-		if excluded[e.Tab] {
-			if e.Kind == timelog.Turn && !e.T.Before(from) && !e.T.After(now) {
+		if excluded[e.Tab] || e.Tab == "" && stats.Excludes(e.Name, e.Branch) {
+			if e.Tab != "" && e.Kind == timelog.Turn && !e.T.Before(from) && !e.T.After(now) {
 				counted[e.Tab] = true
 			}
 		} else {

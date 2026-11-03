@@ -194,11 +194,14 @@ func Summarize(evs []Event, from, to time.Time, loc *time.Location) Summary {
 	return s
 }
 
-// capAgent limits historical turns whose log has no last-activity timestamp.
-// Keep the recorded split in proportion and leave waiting on the user intact.
+// idleCapSince is the cutoff for legacy estimates, from dd06be3b.
+var idleCapSince = time.Date(2026, 10, 31, 19, 0, 39, 0, time.UTC)
+
+// capAgent estimates abandoned legacy turns, which have no last-activity time.
+// Completed, failed and current turns keep their recorded durations.
 func capAgent(e Event) Event {
 	limit, agent := idleMax.Milliseconds(), e.Agent()
-	if agent <= limit {
+	if agent <= limit || !e.T.Before(idleCapSince) || e.End != Interrupted && e.End != PaneClosed {
 		return e
 	}
 	scale := func(ms int64) int64 { return int64(float64(ms) * float64(limit) / float64(agent)) }

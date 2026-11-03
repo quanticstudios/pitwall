@@ -60,6 +60,49 @@ func BindingValue(cs []Chord) string {
 func Number(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
 func editFile(path, table, key string, value *string) error {
+	return changeFile(path, table, key, func(src string) (string, error) {
+		return editTOML(src, table, key, value), nil
+	})
+}
+
+// AppendString appends value to a string array, preserving its entries and comments.
+// A value already present leaves the array unchanged. A missing key starts an array.
+func AppendString(path, table, key, value string) error {
+	return changeFile(path, table, key, func(src string) (string, error) {
+		var err error
+		out := editValue(src, table, key, func(old string) *string {
+			var next string
+			next, err = appendString(old, value)
+			return &next
+		})
+		return out, err
+	})
+}
+
+func appendString(old, value string) (string, error) {
+	if old == "" {
+		return "[" + Quote(value) + "]", nil
+	}
+	var a struct{ V []string }
+	if _, err := toml.Decode("v = "+old, &a); err != nil {
+		return "", err
+	}
+	if slices.Contains(a.V, value) {
+		return old, nil
+	}
+	end := strings.LastIndexByte(old, ']')
+	if end < 0 {
+		return "", errors.New("expected a string array")
+	}
+	last := valueEnd(old[:end], 0)
+	if len(a.V) > 0 && old[last-1] != ',' {
+		old = old[:last] + "," + old[last:]
+		end++
+	}
+	return old[:end] + Quote(value) + old[end:], nil
+}
+
+func changeFile(path, table, key string, edit func(string) (string, error)) error {
 	target, err := resolveLinks(path)
 	if err != nil {
 		return err
@@ -72,7 +115,10 @@ func editFile(path, table, key string, value *string) error {
 	if fi, err := os.Stat(target); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	out := editTOML(string(old), table, key, value)
+	out, err := edit(string(old))
+	if err != nil {
+		return err
+	}
 	if out == string(old) {
 		return nil
 	}
@@ -141,6 +187,10 @@ var (
 
 // editTOML is SetKey (value set) or RemoveKey (nil) on the text src.
 func editTOML(src, table, key string, value *string) string {
+	return editValue(src, table, key, func(string) *string { return value })
+}
+
+func editValue(src, table, key string, change func(string) *string) string {
 	commentRe := regexp.MustCompile(`^(\s*)#\s*` + regexp.QuoteMeta(key) + `\s*=`)
 	cur := ""
 	tableSeen := table == ""
@@ -191,6 +241,14 @@ func editTOML(src, table, key string, value *string) string {
 		pos = lineEnd
 	}
 
+	old := ""
+	if keyStart >= 0 {
+		for valStart < valEnd && (src[valStart] == ' ' || src[valStart] == '\t') {
+			valStart++
+		}
+		old = src[valStart:valEnd]
+	}
+	value := change(old)
 	if value == nil {
 		if keyStart < 0 {
 			return src
@@ -198,9 +256,6 @@ func editTOML(src, table, key string, value *string) string {
 		return src[:keyStart] + src[stmtEnd:]
 	}
 	if keyStart >= 0 {
-		for valStart < valEnd && (src[valStart] == ' ' || src[valStart] == '\t') {
-			valStart++
-		}
 		return src[:valStart] + *value + src[valEnd:]
 	}
 	for _, c := range cands {
