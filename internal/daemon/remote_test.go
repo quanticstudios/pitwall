@@ -497,6 +497,50 @@ func TestNewCommandMovesTheRow(t *testing.T) {
 	}
 }
 
+// A window shows no request's error, so a refused answer shows as its notice
+// until one lands. The phone's page reads the error, and its state stays as it is.
+func TestRefusedAnswerShowsANotice(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	ctx := context.Background()
+	payload := `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"echo safe","description":"Run"}}`
+	if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+		t.Fatal(err)
+	}
+	notice := func() string {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Notice
+	}
+	d.mu.Lock()
+	at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+	d.mu.Unlock()
+	show := func(row string) {
+		f.pane(0).mu.Lock()
+		f.pane(0).screen, f.pane(0).input = commandForm(row), nil
+		f.pane(0).mu.Unlock()
+	}
+	show(" rm -rf ~")
+	if err := d.remoteAnswer("a", at, true); err == nil || notice() != "" {
+		t.Errorf("the phone's path: %v, notice %q", err, notice())
+	}
+	for name, refused := range map[string]any{
+		"answer": proto.Answer{Pane: "a", At: at, Allow: true},
+		"press":  proto.Press{Pane: "a", At: at, Label: agent.AllowAlways},
+	} {
+		d.mu.Lock()
+		d.st.Notice = ""
+		d.mu.Unlock()
+		if err := d.handle(ctx, refused); err == nil || !strings.Contains(notice(), "answer it in its tab") {
+			t.Errorf("%s: %v, notice %q", name, err, notice())
+		}
+	}
+	show(" echo safe")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil || notice() != "" {
+		t.Errorf("an answer that lands: %v, notice %q", err, notice())
+	}
+}
+
 // A coarse clock gives two reports one time, and UpdatedAt must still tell their
 // prompts apart. A clock set back does the same on every platform.
 func TestReportMovesTheTimestampForward(t *testing.T) {

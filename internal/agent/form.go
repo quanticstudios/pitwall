@@ -302,52 +302,83 @@ func CommandShown(p model.Provider, g vt.Grid, command string) bool {
 	if len(opts) == 0 {
 		return false
 	}
-	from, to, start := claudeCommand(rows[:opts[0].row])
+	spans := claudeCommand(rows[:opts[0].row])
 	if p == model.ProviderCodex {
-		from, to, start = codexCommand(rows[:opts[0].row])
+		spans = []commandSpan{codexCommand(rows[:opts[0].row])}
 	}
-	for from < to && rows[to-1] == "" {
-		to--
+	for _, c := range spans {
+		for c.from < c.to && rows[c.to-1] == "" {
+			c.to--
+		}
+		for c.from < c.to && rows[c.from] == "" {
+			c.from++
+		}
+		if commandFits(g, c.from, rows[c.from:c.to], c.start, want) {
+			return true
+		}
 	}
-	for from < to && rows[from] == "" {
-		from++
-	}
-	return commandFits(g, from, rows[from:to], start, want)
+	return false
 }
 
-// claudeCommand is the rows from up to to above a Claude Code prompt's options
-// that hold its command, between the two nearest rules. start is false when the
-// upper rule has scrolled off, so the first rows may be gone with it.
-func claudeCommand(above []string) (from, to int, start bool) {
-	lower := lastRule(above)
-	if lower < 0 {
-		return 0, 0, false
-	}
-	upper := lastRule(above[:lower])
-	return upper + 1, lower, upper >= 0
+// commandSpan is the rows from up to to that may hold a command. start is false
+// when its first rows may be off screen.
+type commandSpan struct {
+	from, to int
+	start    bool
 }
 
-func lastRule(rows []string) int {
-	for y := len(rows) - 1; y >= 0; y-- {
-		if rows[y] != "" && strings.Trim(rows[y], " ╌─") == "" {
+// claudeCommand is where a Claude Code prompt's command may be in the rows above
+// its options: right after the form's first dashed rule, up to the next, as
+// warnings may follow it in blocks of their own. The form starts below its top
+// rule or at its title, so the transcript above is not read. With neither on
+// screen the transcript has scrolled off, and the first dashed rule may be the
+// one below the command, whose first rows have gone too.
+func claudeCommand(above []string) []commandSpan {
+	top := -1
+	for y := len(above) - 1; y >= 0 && top < 0; y-- {
+		t := strings.TrimLeft(above[y], " ")
+		if ruleOf(t, "─") || strings.HasPrefix(t, "Bash command") || strings.HasPrefix(t, "Run command") {
+			top = y
+		}
+	}
+	first := nextRule(above, top+1)
+	if first < 0 {
+		return nil
+	}
+	var out []commandSpan
+	if next := nextRule(above, first+1); next >= 0 {
+		out = append(out, commandSpan{first + 1, next, true})
+	}
+	if top < 0 {
+		out = append(out, commandSpan{0, first, false})
+	}
+	return out
+}
+
+// nextRule is the first dashed rule in rows from y, or -1.
+func nextRule(rows []string, y int) int {
+	for ; y < len(rows); y++ {
+		if ruleOf(rows[y], "╌") {
 			return y
 		}
 	}
 	return -1
 }
 
-// codexCommand is the rows from up to to above a Codex prompt's options that hold
-// its command, from the one that starts with "$ ", which it blanks in above.
-// start is false with no such row: it has scrolled off, or this is not a command.
-func codexCommand(above []string) (from, to int, start bool) {
+func ruleOf(row, dash string) bool { return row != "" && strings.Trim(row, " "+dash) == "" }
+
+// codexCommand is where a Codex prompt's command may be in the rows above its
+// options: from the row that starts with "$ ", which it blanks in above. With no
+// such row, it has scrolled off or this is not a command.
+func codexCommand(above []string) commandSpan {
 	for y := len(above) - 1; y >= 0; y-- {
 		t := strings.TrimLeft(above[y], " ")
 		if s, ok := strings.CutPrefix(t, "$ "); ok {
 			above[y] = strings.Repeat(" ", len(above[y])-len(t)+2) + s
-			return y, len(above), true
+			return commandSpan{y, len(above), true}
 		}
 	}
-	return 0, len(above), false
+	return commandSpan{0, len(above), false}
 }
 
 // commandFits reports whether rows, which start at row y of g, show want. Without
@@ -362,6 +393,11 @@ func commandFits(g vt.Grid, y int, rows []string, start bool, want string) bool 
 			rows, end = rows[:n], false
 		} else if t, ok := strings.CutSuffix(rows[n], "…"); ok {
 			rows[n], end = strings.TrimRight(t, " "), false
+		}
+	}
+	for i, r := range rows {
+		if t, ok := strings.CutPrefix(strings.TrimLeft(r, " "), "│"); ok { // a gutter, as on a long command
+			rows[i] = strings.TrimPrefix(t, " ")
 		}
 	}
 	// A blank row is no part of a wrapped line.

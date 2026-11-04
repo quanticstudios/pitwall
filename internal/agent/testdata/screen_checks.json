@@ -19,6 +19,7 @@
   {"file": "claude-denied.txt", "provider": "claude", "screen": 0, "state": ""},
   {"file": "claude-spinner.txt", "provider": "claude", "screen": 1, "state": "working"},
   {"file": "claude-permission.txt", "provider": "claude", "screen": 2, "state": "pending-approval"},
+  {"file": "claude-permission-warning.txt", "provider": "claude", "screen": 2, "state": "pending-approval"},
   {"file": "claude-question.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "claude-plan.txt", "provider": "claude", "screen": 2, "state": "plan-ready"},
   {"file": "claude-empty-plan.txt", "provider": "claude", "screen": 2, "state": "plan-ready"},

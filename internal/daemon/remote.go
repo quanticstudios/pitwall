@@ -260,6 +260,24 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())})
 }
 
+// answerNotice shows a window why its answer pressed nothing, as a GUI shows no
+// request's error, and takes that back once one lands. The phone's page gets the
+// error itself.
+func (d *Daemon) answerNotice(err error) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err != nil {
+		d.st.Notice = answerRefused + err.Error()
+		d.changed()
+	} else if strings.HasPrefix(d.st.Notice, answerRefused) {
+		d.st.Notice = ""
+		d.changed()
+	}
+	return err
+}
+
+const answerRefused = "Not answered: "
+
 // pressOffer presses the key of label, an answer a GUI's row showed, on
 // pane's form. It reads the screen first, so a stale button cannot answer
 // another form or type into a prompt.

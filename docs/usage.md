@@ -208,8 +208,8 @@ compares, and the rest goes unchecked. pitwall cannot compare a command with a
 line break, which means any multi-line command, a tab, a space other than a
 plain one or a character that does not print, even at its very start or end, so
 it always refuses those. On a refusal, a mismatch or a prompt
-layout pitwall cannot read a command from, nothing is pressed and pitwall tells
-you to answer in the tab.
+layout pitwall cannot read a command from, nothing is pressed and a notice in the
+window says why, until you close it or an answer lands.
 
 An edit, a fetch or any other prompt with no reported command gets no such
 comparison, and neither does a row whose report came before a daemon restart.
