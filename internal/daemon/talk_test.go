@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -304,4 +305,192 @@ func TestSend(t *testing.T) {
 		t.Fatalf("a send to a closed pane: %v", err)
 	}
 	quiet(n)
+}
+
+// claudeBox is a Claude Code screen with text in its input box.
+var claudeBox = []string{"────────", "❯ half a thought", "────────"}
+
+// setScreen sets what pane p's screen shows.
+func setScreen(p *fakePane, rows []string) {
+	p.mu.Lock()
+	p.screen = rows
+	p.mu.Unlock()
+}
+
+// draftDaemon is talkDaemon with short message timings, and pane a's agent
+// past a first turn.
+func draftDaemon(t *testing.T) (*Daemon, *fakePane) {
+	t.Helper()
+	d, f := talkDaemon(t)
+	oldSettle, oldQuiet, oldLook := sendSettle.set(time.Millisecond), sendQuiet.set(50*time.Millisecond), sendLook.set(10*time.Millisecond)
+	t.Cleanup(func() {
+		// why: see TestSend; a look can outlive the test.
+		d.mu.Lock()
+		for _, w := range d.mail.wake {
+			w.Stop()
+		}
+		clear(d.mail.queue)
+		d.mu.Unlock()
+		d.sendMu.Lock()
+		sendSettle.set(oldSettle)
+		sendQuiet.set(oldQuiet)
+		sendLook.set(oldLook)
+		d.sendMu.Unlock()
+	})
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"plan"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	return d, f.pane(0)
+}
+
+func draftHeld(d *Daemon, pane string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.snapshot().DraftHeld[pane]
+}
+
+const scriptHeader = "[pitwall: message from a script] "
+
+// A message waits while the input box holds the user's text, however long ago
+// they stopped typing, and goes in queue order by itself once the box empties.
+func TestDraftHoldsMessages(t *testing.T) {
+	d, a := draftDaemon(t)
+	setScreen(a, claudeBox)
+	d.noteUserKey("a", []byte("t"))
+	for _, text := range []string{"one", "two"} {
+		if err := d.send(proto.Send{Pane: "a", Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(200 * time.Millisecond)
+	if got := a.got(); got != "" {
+		t.Fatalf("typed %q into the draft", got)
+	}
+	if !draftHeld(d, "a") {
+		t.Fatal("the row does not say the draft holds the message")
+	}
+	if err := d.prompt(proto.Prompt{Pane: "a", Text: "now"}); !errors.Is(err, errDraft) {
+		t.Fatalf("prompt over a draft: %v", err)
+	}
+
+	// The box empties with no key, hook or send: the next look finds it.
+	setScreen(a, []string{"────────", "❯ ", "────────"})
+	want := scriptHeader + "one\r"
+	if got := gotAfter(t, a, 0, len(want)); got != want {
+		t.Fatalf("typed %q, want %q", got, want)
+	}
+	if draftHeld(d, "a") {
+		t.Fatal("the row still waits on a draft that is gone")
+	}
+	n := len(want)
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"one"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	want = scriptHeader + "two\r"
+	if got := gotAfter(t, a, n, len(want)); got != want {
+		t.Fatalf("typed %q, want %q", got, want)
+	}
+}
+
+// The user sends the draft: the message follows the turn it started, not the
+// draft's own Enter.
+func TestDraftSentReleasesMessage(t *testing.T) {
+	d, a := draftDaemon(t)
+	setScreen(a, claudeBox)
+	d.noteUserKey("a", []byte("t"))
+	if err := d.send(proto.Send{Pane: "a", Text: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	d.noteUserKey("a", []byte("\r"))
+	setScreen(a, []string{"────────", "❯ ", "────────"})
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"half a thought"}`)
+	time.Sleep(100 * time.Millisecond)
+	if got := a.got(); got != "" {
+		t.Fatalf("typed %q during the user's turn", got)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	want := scriptHeader + "one\r"
+	if got := gotAfter(t, a, 0, len(want)); got != want {
+		t.Fatalf("typed %q, want %q", got, want)
+	}
+}
+
+// Without a box to read, or with text the user cannot have typed, a message
+// waits only for the pause after the last key.
+func TestDraftFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		screen []string
+		key    bool
+		prov   model.Provider
+	}{
+		{"no box on screen", []string{"something else entirely"}, true, model.ProviderClaude},
+		{"no key since the last prompt", claudeBox, false, model.ProviderClaude},
+		{"agent with no known box", claudeBox, true, model.ProviderGemini},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, a := draftDaemon(t)
+			d.mu.Lock()
+			d.setProvider("a", tc.prov)
+			d.mu.Unlock()
+			setScreen(a, tc.screen)
+			if tc.key {
+				d.noteUserKey("a", []byte("t"))
+			}
+			if err := d.send(proto.Send{Pane: "a", Text: "one"}); err != nil {
+				t.Fatal(err)
+			}
+			want := scriptHeader + "one\r"
+			if got := gotAfter(t, a, 0, len(want)); got != want {
+				t.Fatalf("typed %q, want %q", got, want)
+			}
+		})
+	}
+
+	// A misread box in a typed-in pane stops holding once the user's prompt goes in.
+	d, a := draftDaemon(t)
+	d.noteUserKey("a", []byte("\r"))
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"more"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	setScreen(a, claudeBox)
+	if err := d.send(proto.Send{Pane: "a", Text: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	want := scriptHeader + "one\r"
+	if got := gotAfter(t, a, 0, len(want)); got != want {
+		t.Fatalf("typed %q, want %q", got, want)
+	}
+}
+
+// A turn that starts long after the last key, as a background task's, leaves
+// the draft a draft.
+func TestDraftSurvivesOtherTurn(t *testing.T) {
+	d, a := draftDaemon(t)
+	setScreen(a, claudeBox)
+	d.noteUserKey("a", []byte("t"))
+	time.Sleep(100 * time.Millisecond) // past sendQuiet
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"task finished"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	if err := d.send(proto.Send{Pane: "a", Text: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := a.got(); got != "" {
+		t.Fatalf("typed %q into the draft", got)
+	}
+}
+
+// The phone's reply does not land in a draft either.
+func TestRemoteReplyRefusesDraft(t *testing.T) {
+	d, a := draftDaemon(t)
+	setScreen(a, claudeBox)
+	d.noteUserKey("a", []byte("t"))
+	d.mu.Lock()
+	at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+	d.mu.Unlock()
+	if err := d.remoteReply("a", at, "yes"); err == nil || !strings.Contains(err.Error(), "draft") {
+		t.Fatalf("reply over a draft: %v", err)
+	}
+	if got := a.got(); got != "" {
+		t.Fatalf("typed %q into the draft", got)
+	}
 }

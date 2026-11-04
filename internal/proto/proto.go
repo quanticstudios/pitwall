@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 59 added State.Drafting and DraftHeld: a message waits for the
+// user's draft in an agent's input box.
 // Level 58 added Pane.History for saved pane output; live StateMsg omits it.
 // Level 57 added Commands, CommandResult and Frame.PromptMarks.
 // Level 56 added EditScrollback, Scrollback, ScrollbackResult and Pane.ScrollbackFile.
@@ -169,7 +171,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 58
+const Level = 59
 
 // PopupLevel added OpenPopup.
 const PopupLevel = 54

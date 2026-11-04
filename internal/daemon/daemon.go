@@ -1490,6 +1490,8 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.typed, id)
 	delete(d.mail.keyAt, id)
 	delete(d.mail.sent, id)
+	delete(d.mail.drafting, id)
+	delete(d.mail.held, id)
 	d.dropResume(id)
 	delete(d.lim.seen, id)
 	d.forgetDecisions(id)
@@ -1726,6 +1728,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			turnDir, turnWS = d.st.LivePath(*w), w.ID
 		}
+	}
+	if agent.Prompt(m.Provider, m.Payload) != "" {
+		d.notePrompt(p.ID, now)
 	}
 	if len(d.mail.queue[p.ID]) > 0 {
 		d.wake(p.ID, 0) // a turn may have ended
@@ -2355,6 +2360,8 @@ func (d *Daemon) snapshot() model.State {
 		}
 		s.Queued[id] = len(q)
 	}
+	s.Drafting = maps.Clone(d.mail.drafting)
+	s.DraftHeld = maps.Clone(d.mail.held)
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {
 		s.Clipboard.Text = ""

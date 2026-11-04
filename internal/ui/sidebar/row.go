@@ -261,6 +261,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, "Wakes "+wakeText(v.now, ws.SnoozedUntil))
 			}})
+		case draftHeld(v.st, ws):
+			// A message waits for the user, which matters more than the time or Merged.
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), muted, "Waits: your draft")
+			}})
 		case inRepo && merged:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Purple, "Merged")
@@ -718,6 +723,11 @@ func statusHeight(gtx layout.Context, th *theme.Theme, status string) int {
 	}
 	_, l2 := rowLines(gtx, th)
 	return gtx.Dp(statusGap) + l2
+}
+
+// draftHeld reports whether the user's draft holds messages to an agent of ws.
+func draftHeld(st *model.State, ws model.Workspace) bool {
+	return slices.ContainsFunc(st.AgentPanes(ws), func(ap model.AgentPane) bool { return st.DraftHeld[ap.Pane.ID] })
 }
 
 // QuietText is "quiet 20m" for a working activity whose screen has been

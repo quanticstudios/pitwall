@@ -28,6 +28,7 @@ import (
 // bracketed paste on, and records what the window sends.
 type agentBackend struct {
 	mu   sync.Mutex
+	grid vt.Grid
 	st   model.State
 	sent []proto.Input
 }
@@ -48,7 +49,9 @@ func (b *agentBackend) State() model.State {
 	return b.st
 }
 func (b *agentBackend) Frame(string) (vt.Grid, vt.Modes, bool) {
-	return vt.Grid{}, vt.Modes{BracketedPaste: true}, true
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.grid, vt.Modes{BracketedPaste: true}, true
 }
 func (b *agentBackend) Send(msg any) error {
 	b.mu.Lock()
@@ -112,6 +115,29 @@ func TestSendNotes(t *testing.T) {
 	u.deliver(&st, now)
 	if len(u.review.queue) != 0 || len(u.review.pending("/repo")) != 1 || len(b.sent) != 2 {
 		t.Errorf("closed pane: queue %d, pending %d, sent %d", len(u.review.queue), len(u.review.pending("/repo")), len(b.sent))
+	}
+}
+
+// A delivery waits while the user's draft sits in the agent's input box.
+func TestDeliverWaitsForDraft(t *testing.T) {
+	b := newAgentBackend(model.StateCompleted)
+	u := &ui{b: b}
+	u.review.enqueue("p", "a comment", nil)
+	e := vt.New(40, 3, nil)
+	e.Write([]byte("─────\r\n❯ half a thought\r\n─────"))
+	b.grid = e.Snapshot()
+	b.st.Drafting = map[string]bool{"p": true}
+	st := b.State()
+	now := time.Now()
+	u.deliver(&st, now)
+	if len(b.sent) != 0 || len(u.review.queue) != 1 {
+		t.Fatalf("typed %q into the draft", b.sent)
+	}
+	b.st.Drafting = nil // the user's prompt went in
+	st = b.State()
+	u.deliver(&st, now)
+	if len(b.sent) != 1 || len(u.review.queue) != 0 {
+		t.Fatalf("after the draft: sent %q, queue %d", b.sent, len(u.review.queue))
 	}
 }
 

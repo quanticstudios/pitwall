@@ -42,8 +42,8 @@ func (d *Daemon) keepReply(pane, msg string) {
 
 // prompt types m.Text into an agent at its prompt and presses Enter. It
 // refuses a pane whose agent cannot tell pitwall when the turn ends, one
-// running a turn or waiting on the user, and one whose screen shows a
-// form, which the Enter would answer.
+// running a turn or waiting on the user, one whose screen shows a form,
+// which the Enter would answer, and one with the user's draft in its box.
 func (d *Daemon) prompt(m proto.Prompt) error {
 	p, _, err := d.ready(m.Pane)
 	if err != nil {
@@ -61,7 +61,7 @@ func (d *Daemon) prompt(m proto.Prompt) error {
 // ready returns pane's handle when its agent sits at its prompt, waiting
 // for a new one. Otherwise err says why, and busy reports a reason that
 // the end of a turn or the user clears: a turn running, a question
-// waiting, a form on screen.
+// waiting, a form on screen, the user's draft in the input box.
 func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 	d.mu.Lock()
 	p = d.panes[pane]
@@ -78,6 +78,7 @@ func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 	if ai := d.activityIndex(pane); ai >= 0 {
 		a = d.st.Activities[ai]
 	}
+	drafting := d.mail.drafting[pane]
 	d.mu.Unlock()
 	switch {
 	case sp.Provider == "" || sp.Provider == model.ProviderTerminal:
@@ -88,11 +89,18 @@ func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 		return nil, true, fmt.Errorf("%s waits on the user: %s", sp.Provider, a.Detail)
 	case a.State != "" && a.State != model.StateCompleted && a.State != model.StateError:
 		return nil, true, fmt.Errorf("%s is working on a turn", sp.Provider)
-	case agent.ReadScreen(p.Snapshot()) == agent.ScreenForm:
+	}
+	switch g := p.Snapshot(); {
+	case agent.ReadScreen(g) == agent.ScreenForm:
 		return nil, true, fmt.Errorf("%s shows a prompt to answer", sp.Provider)
+	case drafting && agent.Draft(sp.Provider, g):
+		return nil, true, errDraft
 	}
 	return p, false, nil
 }
+
+// errDraft is ready's reason while the user's draft sits in the input box.
+var errDraft = errors.New("the user has a draft in the agent's input box")
 
 // Message timings and the loop guard; tests shorten them.
 var (
@@ -101,6 +109,9 @@ var (
 	sendSettle = newTiming(500 * time.Millisecond)
 	// sendQuiet is how long a key of the user's holds messages to its pane.
 	sendQuiet = newTiming(3 * time.Second)
+	// sendLook is how often a draft that holds messages is read again.
+	// why: nothing reports a box going empty, and only such a pane is looked at.
+	sendLook = newTiming(time.Second)
 	// sendStart is how long the next message waits for the turn the last
 	// one started to report; past it, the agent dropped that one.
 	sendStart = 30 * time.Second
@@ -118,10 +129,18 @@ type mail struct {
 	keyAt map[string]time.Time   // pane: the user's last key
 	sent  map[string]int         // pane: agents' messages since the user's last key
 	wake  map[string]*time.Timer // pane: the next deliver
+	// drafting marks a pane the user typed in since a prompt of theirs went
+	// in. Box text counts as a draft only then, so a box pitwall misreads
+	// never holds messages in a pane nobody typed in.
+	// ponytail: in a typed-in pane a misread holds them until the user's next
+	// prompt; shipping the box patterns in screen_patterns.json would fix a
+	// misread without a release, once old binaries accept the new field.
+	drafting map[string]bool
+	held     map[string]bool // pane: a draft holds its messages
 }
 
 func newMail() mail {
-	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}}
+	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, held: map[string]bool{}}
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
@@ -180,8 +199,9 @@ func (d *Daemon) wake(pane string, wait time.Duration) {
 // deliver types pane's next message, under a header, once its agent sits
 // at its prompt: sendSettle after its last hook, sendQuiet after the
 // user's last key, and once the turn the last message started has
-// reported. A hold that ends at a known time wakes deliver then; for a
-// turn running or a question, the next hook or user key does.
+// reported, and not into the user's draft. A hold that ends at a known time
+// wakes deliver then; for a turn running or a question, the next hook or
+// user key does; for a draft, sendLook.
 func (d *Daemon) deliver(pane string) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
@@ -204,6 +224,20 @@ func (d *Daemon) deliver(pane string) {
 	}
 	d.mu.Unlock()
 	p, _, err := d.ready(pane)
+	d.mu.Lock()
+	held := errors.Is(err, errDraft)
+	if held != d.mail.held[pane] {
+		if held {
+			d.mail.held[pane] = true
+		} else {
+			delete(d.mail.held, pane)
+		}
+		d.changed()
+	}
+	if held && !d.closing && len(d.mail.queue[pane]) > 0 {
+		d.wake(pane, sendLook.get())
+	}
+	d.mu.Unlock()
 	if err != nil {
 		return
 	}
@@ -249,6 +283,10 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.mail.keyAt[pane] = time.Now()
+	if !d.mail.drafting[pane] {
+		d.mail.drafting[pane] = true
+		d.changed()
+	}
 	delete(d.mail.sent, pane)
 	if d.dropResume(pane) {
 		d.changed()
@@ -256,6 +294,22 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	if len(d.mail.queue[pane]) > 0 {
 		d.wake(pane, 0)
 	}
+}
+
+// notePrompt ends the user's typing in pane when a prompt goes in right after
+// a key of theirs: what they typed went with it. A turn that starts by itself
+// leaves their draft in place. Callers hold d.mu.
+func (d *Daemon) notePrompt(pane string, now time.Time) {
+	if d.mail.drafting[pane] && now.Sub(d.mail.keyAt[pane]) < sendQuiet.get() {
+		delete(d.mail.drafting, pane)
+		d.changed()
+	}
+}
+
+// drafted reports whether screen g of agent prov in pane holds the user's
+// draft. Callers hold d.mu.
+func (d *Daemon) drafted(pane string, prov model.Provider, g vt.Grid) bool {
+	return d.mail.drafting[pane] && agent.Draft(prov, g)
 }
 
 // header is the line typed above a message from pane from: who sent it

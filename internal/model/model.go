@@ -427,6 +427,13 @@ type State struct {
 	// Queued counts, per pane, the messages from pitwall send that wait to
 	// be typed into it. The daemon fills it in; it is not saved.
 	Queued map[string]int `json:"-"`
+	// Drafting marks the panes the user typed in since a prompt of theirs
+	// went in, which is when text in an input box counts as their draft.
+	// The daemon fills it in; it is not saved.
+	Drafting map[string]bool `json:"-"`
+	// DraftHeld marks the panes whose queued messages wait for the user's
+	// draft. The daemon fills it in; it is not saved.
+	DraftHeld map[string]bool `json:"-"`
 	// Listening is, per tab with Ports, the ports of its block that accept
 	// a connection on the daemon's machine, ascending; a tab with none is
 	// missing. The daemon fills it in and replaces it whole; it is not

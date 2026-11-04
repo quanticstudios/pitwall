@@ -44,6 +44,42 @@ func TestReadScreen(t *testing.T) {
 	}
 }
 
+// The draft fixtures are claude-idle.txt and codex-idle.txt with the box
+// changed. Claude's placeholder has the cursor on its first letter.
+func TestDraft(t *testing.T) {
+	for _, tc := range []struct {
+		p     model.Provider
+		file  string
+		draft bool
+	}{
+		{model.ProviderClaude, "claude-idle.txt", false},
+		{model.ProviderClaude, "claude-placeholder.txt", false},
+		{model.ProviderClaude, "claude-draft.txt", true},
+		{model.ProviderClaude, "claude-draft-multiline.txt", true},
+		{model.ProviderClaude, "claude-draft-second-line.txt", true},
+		{model.ProviderCodex, "codex-empty.txt", false},
+		{model.ProviderCodex, "codex-idle.txt", false}, // a screen with no styles shows the placeholder as text
+		{model.ProviderCodex, "codex-placeholder.txt", false},
+		{model.ProviderCodex, "codex-draft.txt", true},
+		{model.ProviderCodex, "codex-draft-multiline.txt", true},
+		{model.ProviderCodex, "codex-draft-second-line.txt", true},
+		{model.ProviderCodex, "codex-shell.txt", true},
+		// No known box, or no box on screen: nothing to hold for.
+		{model.ProviderGemini, "claude-draft.txt", false},
+		{model.ProviderPi, "codex-draft.txt", false},
+		{model.ProviderClaude, "codex-draft.txt", false},
+		{model.ProviderCodex, "claude-draft.txt", false},
+		{model.ProviderClaude, "tuios-claude-question.txt", false},
+	} {
+		if got := Draft(tc.p, screenFixture(t, tc.file)); got != tc.draft {
+			t.Errorf("%s %s: draft %v, want %v", tc.p, tc.file, got, tc.draft)
+		}
+	}
+	if Draft(model.ProviderClaude, vt.Grid{}) || Draft(model.ProviderCodex, vt.Grid{}) {
+		t.Error("an empty grid reads as a draft")
+	}
+}
+
 func TestState(t *testing.T) {
 	for file, want := range map[string]model.AgentState{
 		"claude-spinner.txt":        model.StateWorking,

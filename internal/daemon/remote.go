@@ -232,6 +232,13 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 	if !remote.Replies(a.State) {
 		return errors.New("that pane is not waiting for a reply")
 	}
+	g := p.Snapshot()
+	d.mu.Lock()
+	drafted := d.drafted(pane, a.Provider, g)
+	d.mu.Unlock()
+	if drafted {
+		return errors.New("you have a draft in that agent's input box: send or clear it first")
+	}
 	d.noteUserKey(pane, nil)
 	return d.typeLine(pane, p, text, "the reply is empty")
 }

@@ -16,6 +16,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -566,6 +567,14 @@ func agentReady(st *model.State, pane string) bool {
 	return true
 }
 
+// agentTakes is agentReady for pane p, and false while the user's draft sits
+// in its input box. A pane the window does not show keeps its last frame, and
+// the user cannot change a draft there without showing it.
+func (u *ui) agentTakes(st *model.State, p *model.Pane) bool {
+	g, _, have := u.b.Frame(p.ID)
+	return agentReady(st, p.ID) && !(have && st.Drafting[p.ID] && agent.Draft(p.Provider, g))
+}
+
 // sendNotes queues root's pending comments, as one prompt, for tab ws's
 // agent, and delivers it now when the agent is ready.
 func (u *ui) sendNotes(st *model.State, root string, now time.Time) {
@@ -636,7 +645,7 @@ func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 			r.status = "The agent's pane closed; the comments were not sent"
 			return now
 		}
-		if !agentReady(st, d.pane) {
+		if !u.agentTakes(st, p) {
 			continue
 		}
 		_, m, _ := u.b.Frame(d.pane)

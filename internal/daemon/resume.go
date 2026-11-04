@@ -12,6 +12,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // Resume after a usage limit: when Claude Code or Codex ends a turn on its
@@ -241,7 +242,11 @@ func limitReset(limits []flow.Limit, prov model.Provider, now time.Time) time.Ti
 func (d *Daemon) fireResume(id string, r *resume) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
-	busy := r.p != nil && agent.ReadScreen(r.p.Snapshot()) != agent.ScreenNone
+	var g vt.Grid
+	if r.p != nil {
+		g = r.p.Snapshot()
+	}
+	busy := r.p != nil && agent.ReadScreen(g) != agent.ScreenNone
 	d.mu.Lock()
 	if d.lim.pending[id] != r {
 		d.mu.Unlock()
@@ -252,6 +257,9 @@ func (d *Daemon) fireResume(id string, r *resume) {
 	why := d.resumeBlocked(id, r)
 	if why == "" && busy {
 		why = "its screen shows a turn or a prompt"
+	}
+	if why == "" && r.p != nil && d.drafted(id, r.prov, g) {
+		why = "the user has a draft in its input box"
 	}
 	d.mu.Unlock()
 	if why != "" {

@@ -119,7 +119,7 @@ func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 			if res.act == "request_changes" {
 				msg = "Queued: answer No in " + agentName(p) + "'s plan dialog to send it"
 			}
-			if agentReady(st, p.ID) {
+			if u.agentTakes(st, p) {
 				msg = "Sent to " + agentName(p)
 			}
 			u.showNotice(gtx, msg, area)
