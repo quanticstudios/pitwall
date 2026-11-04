@@ -82,10 +82,11 @@ func TestAgentReport(t *testing.T) {
 			{ID: "b", WorkspaceID: "w", Provider: model.ProviderTerminal, Program: codex},
 			{ID: "c", WorkspaceID: "x", Provider: model.ProviderCodex, Program: build},
 			{ID: "d", WorkspaceID: "y", Provider: model.ProviderClaude, Program: claude},
+			{ID: "e", WorkspaceID: "z", Program: claude}, // the foreground check lost the agent
 		},
 		Activities: []model.Activity{{PaneID: "b", WorkspaceID: "w", Provider: model.ProviderCodex}},
 	}
-	for i, want := range []bool{true, true, false, true} {
+	for i, want := range []bool{true, true, false, true, true} {
 		if got := agentReport(st, st.Panes[i]); got != want {
 			t.Errorf("pane %s: %v, want %v", st.Panes[i].ID, got, want)
 		}
@@ -98,6 +99,9 @@ func TestAgentReport(t *testing.T) {
 	}
 	if p := tabProgram(st, model.Workspace{ID: "y"}, nil); p == nil || p.App != "" || p.Message != claude.Message {
 		t.Errorf("tab y shows %+v, want the message without the app", p)
+	}
+	if p := tabProgram(st, model.Workspace{ID: "z"}, nil); p == nil || p.App != "" || p.Message != claude.Message {
+		t.Errorf("tab z shows %+v, want the message without the app", p)
 	}
 	for _, c := range []struct {
 		app, agent string
