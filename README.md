@@ -157,7 +157,7 @@ across three workers" is all you have to say.
 Settings, Appearance, Sidebar, Workers gives each worker a full row of its own
 instead, behind a bar of their states on the orchestrator's row, as here:
 
-<img src="docs/media/fleet-folded.webp" alt="The sidebar with the Billing epic fleet folded into one row: a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, above a rate limiting tab and a collapsed web-app group" width="240"> <img src="docs/media/workers.webp" alt="The same fleet unfolded: ten workers indented under the Billing epic tab, each on its own branch, among them Retry failed webhooks waiting for input, Refund flow waiting for approval and Mid-cycle plan change with an error" width="240">
+<img src="docs/media/fleet-folded.webp" alt="The sidebar with the Billing epic fleet folded into one row: a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, above a rate limiting tab and a collapsed web-app group" width="240"> <img src="docs/media/workers.webp" alt="The same fleet unfolded: ten workers indented under the Billing epic tab, among them Retry failed webhooks waiting for input with a Reply button, Refund flow waiting for approval with Allow and Deny, and Mid-cycle plan change with an error; the rest show their branches" width="240">
 
 ### Fleet mode
 
@@ -300,7 +300,7 @@ worktree or a branch, the agent and its permission mode. A task can start from
 an open GitHub issue, at a set time or on a repeat. Cap how many agents run at
 once, and the queue starts the next task as one finishes.
 
-<img src="docs/media/new-task.webp" alt="The New task dialog: a project, where to run (this folder, a new worktree or an existing branch), Claude Code or Codex in its default mode, the model and the prompt, with Queue and Start buttons" width="480">
+<img src="docs/media/new-task.webp" alt="The New task dialog: a project, where to run (this folder, a new worktree or an existing branch), Claude Code or Codex in its default mode, the model and the prompt, with Start at, Queue and Start buttons" width="480">
 
 ### Let one agent hand work to another
 
