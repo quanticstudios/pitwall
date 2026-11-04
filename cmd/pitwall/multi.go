@@ -270,6 +270,12 @@ func (m *multi) of(id string) *hostLink {
 func (m *multi) route(msg any) *hostLink {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, ok := msg.(proto.DeleteWorktree); ok {
+		if m.tree != nil {
+			return m.tree
+		}
+		return m.cur
+	}
 	var to *hostLink
 	eachString(reflect.ValueOf(msg), func(s string) bool {
 		to = m.owner[s]

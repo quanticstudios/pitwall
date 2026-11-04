@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/teardown"
 )
 
 // pruneOrphans is Options.Orphans over git.
@@ -43,6 +45,9 @@ func (d *Daemon) orphans(ctx context.Context) ([]model.Orphan, error) {
 		o, err := d.o.Orphans(ctx, root, func(p string) bool { return len(st.WorktreeUsers(p, "")) > 0 })
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", root, err))
+		}
+		for i := range o {
+			o[i].Teardown = d.repoTeardown(root)
 		}
 		out = append(out, o...)
 	}
@@ -114,6 +119,7 @@ func (d *Daemon) worktreeQuery(ctx context.Context, q proto.WorktreeQuery) proto
 		d.mu.Lock()
 		r.UsedBy = d.st.WorktreeUsers(ws.Path, ws.ID)
 		d.mu.Unlock()
+		r.Teardown = d.repoTeardown(ws.WorktreeRoot)
 		if r.Changed, err = gitstat.Status(ctx, ws.Path); err != nil {
 			break
 		}
@@ -138,6 +144,7 @@ func (d *Daemon) deleteWorktree(ctx context.Context, m proto.DeleteWorktree) err
 	d.mu.Lock()
 	known := slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.Kind == model.ProjectGit && p.Root == m.Root })
 	users := d.st.WorktreeUsers(path, "")
+	workspaces := slices.Clone(d.st.Workspaces)
 	d.mu.Unlock()
 	switch {
 	case !known:
@@ -152,5 +159,97 @@ func (d *Daemon) deleteWorktree(ctx context.Context, m proto.DeleteWorktree) err
 		d.mu.Unlock()
 		return err
 	}
-	return d.o.RemoveWorktree(ctx, m.Root, path, false, m.Force)
+	ports, err := teardown.PortsFor(path, workspaces)
+	if err != nil && !m.SkipTeardown {
+		return err
+	}
+	return d.removeWorktree(ctx, m.Root, path, ports, false, m.Force, m.SkipTeardown, m.Teardown)
+}
+
+// repoTeardown is the command the UI must show before it can approve it.
+func (d *Daemon) repoTeardown(root string) string {
+	if d.o.Worktrees != nil {
+		s, _ := d.o.Worktrees(root)
+		if s.TeardownFromRepo {
+			return s.Teardown
+		}
+	}
+	return ""
+}
+
+// removeWorktree runs outside mu, in a removal worker or the requesting
+// CLI client's goroutine. Only one removal of a path may run at a time.
+func (d *Daemon) removeWorktree(ctx context.Context, root, path string, ports model.PortBlock, branch, force, skip bool, approved string) error {
+	d.mu.Lock()
+	if d.worktreeDeletes[path] {
+		d.mu.Unlock()
+		return fmt.Errorf("worktree removal already running: %s", path)
+	}
+	if d.worktreeDeletes == nil {
+		d.worktreeDeletes = map[string]bool{}
+	}
+	d.worktreeDeletes[path] = true
+	d.mu.Unlock()
+	defer func() { d.mu.Lock(); delete(d.worktreeDeletes, path); d.mu.Unlock() }()
+
+	notice := ""
+	if !skip && d.o.Worktrees != nil {
+		s, _ := d.o.Worktrees(root)
+		if !force && s.Teardown != "" && s.TeardownProblem == "" && (!s.TeardownFromRepo || approved == s.Teardown) {
+			if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+				files, err := gitstat.Status(ctx, path)
+				if err == nil && len(files) > 0 {
+					err = fmt.Errorf("uncommitted files: %s", strings.Join(files, ", "))
+				}
+				if err != nil {
+					err = fmt.Errorf("worktree kept at %s; teardown not run: %w", path, err)
+					d.worktreeNotice(ctx, err.Error(), true)
+					return err
+				}
+			}
+		}
+		var err error
+		notice, err = teardown.Run(ctx, path, s, ports, approved)
+		if err != nil {
+			d.worktreeNotice(ctx, err.Error(), true)
+			return err
+		}
+	}
+	err := d.o.RemoveWorktree(ctx, root, path, branch, force)
+	if errors.Is(err, gitstat.ErrBranchKept) {
+		if notice != "" {
+			d.worktreeNotice(ctx, notice, false)
+		}
+		return fmt.Errorf("worktree removed at %s; %w", path, err)
+	}
+	if err != nil {
+		err = fmt.Errorf("worktree kept at %s: removal failed: %w", path, err)
+		if notice != "" {
+			err = fmt.Errorf("%w\n%s", err, notice)
+			d.worktreeNotice(ctx, err.Error(), true)
+		}
+		return err
+	}
+	if notice != "" {
+		d.worktreeNotice(ctx, notice, false)
+	}
+	return nil
+}
+
+type worktreeNoticeKey struct{}
+
+func (d *Daemon) worktreeNotice(ctx context.Context, text string, failed bool) {
+	if report, ok := ctx.Value(worktreeNoticeKey{}).(func(string, bool)); ok {
+		report(text, failed)
+		return
+	}
+	d.setWorktreeNotice(text)
+}
+
+func (d *Daemon) setWorktreeNotice(text string) {
+	log.Printf("%s", text)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.st.Notice = text
+	d.changed()
 }

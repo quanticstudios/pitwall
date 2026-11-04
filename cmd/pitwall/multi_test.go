@@ -126,6 +126,19 @@ func TestMultiRoutes(t *testing.T) {
 	recv(ld)
 	m.Send(proto.SessionShow{SessionID: "rs"})
 	recv(rd)
+	// Repo command text must not route orphan removal to a different host.
+	m.Send(proto.WorktreeQuery{Orphans: true})
+	if _, ok := recv(rd).(proto.WorktreeQuery); !ok {
+		t.Fatal("cleanup query did not reach the host")
+	}
+	m.Send(proto.DeleteWorkspace{WorkspaceID: "rw", Teardown: "lp"})
+	if got, ok := recv(rd).(proto.DeleteWorkspace); !ok || got.Teardown != "lp" {
+		t.Fatalf("remote teardown: %#v", got)
+	}
+	m.Send(proto.DeleteWorktree{Root: "/repo", Path: "/repo/.worktrees/feature", Teardown: "lp"})
+	if got, ok := recv(rd).(proto.DeleteWorktree); !ok || got.Teardown != "lp" {
+		t.Fatalf("remote orphan teardown: %#v", got)
+	}
 	m.Send(proto.SessionNew{Name: "new"}) // no id: the shown session's host
 	if n, ok := recv(rd).(proto.SessionNew); !ok || n.Name != "new" {
 		t.Fatalf("box got %#v for a new session", n)

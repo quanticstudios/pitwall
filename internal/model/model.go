@@ -224,6 +224,15 @@ func (b PortBlock) String() string {
 	return strconv.Itoa(b.First) + "-" + strconv.Itoa(b.Last)
 }
 
+// Env is the port environment shared by a worktree's panes and teardown.
+func (b PortBlock) Env() []string {
+	if b.First == 0 {
+		return nil
+	}
+	first := strconv.Itoa(b.First)
+	return []string{"PORT=" + first, "PITWALL_PORT_BASE=" + first, "PITWALL_PORTS=" + b.String()}
+}
+
 type Provider string
 
 const (

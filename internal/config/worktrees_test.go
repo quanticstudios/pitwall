@@ -21,12 +21,14 @@ func TestLoadWorktrees(t *testing.T) {
 port_base = 4000
 copy = [".env"]
 setup = "make"
+teardown = "make stop"
 `)
 	write(t, filepath.Join(repo, ".pitwall"), "worktree.toml", `link = ["node_modules", "../secrets"]
 setup = "pnpm install"
+teardown = "pnpm stop"
 `)
 	got, probs = LoadWorktrees(cfg, repo)
-	want := WorktreeSettings{PortBase: 4000, PortStep: 10, Copy: []string{".env"}, Link: []string{"node_modules"}, Setup: "pnpm install", SetupFromRepo: true}
+	want := WorktreeSettings{PortBase: 4000, PortStep: 10, Copy: []string{".env"}, Link: []string{"node_modules"}, Setup: "pnpm install", SetupFromRepo: true, Teardown: "pnpm stop", TeardownFromRepo: true}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("repo over user: %+v, want %+v", got, want)
 	}
@@ -36,7 +38,7 @@ setup = "pnpm install"
 
 	// The user's own setup stays theirs when the repo's file sets none.
 	write(t, filepath.Join(repo, ".pitwall"), "worktree.toml", `link = ["node_modules"]`)
-	if got, _ = LoadWorktrees(cfg, repo); got.Setup != "make" || got.SetupFromRepo {
+	if got, _ = LoadWorktrees(cfg, repo); got.Setup != "make" || got.SetupFromRepo || got.Teardown != "make stop" || got.TeardownFromRepo {
 		t.Errorf("user setup: %+v", got)
 	}
 

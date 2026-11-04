@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"image"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -40,7 +42,10 @@ type worktreeForm struct {
 	err       string
 
 	open, del []widget.Clickable // per orphan
-	armed     string             // the orphan with changes whose Delete asks again, by path
+	approved  string
+	teardown  widget.Clickable
+	scroll    widget.List
+	armed     string // the orphan with changes whose Delete asks again, by path
 }
 
 // maxPicks is how many matching branches the New worktree tab dialog lists.
@@ -395,7 +400,7 @@ func (u *ui) deleteChanges(ws string) []gl.FlexChild {
 	}
 	var used []gl.FlexChild
 	if len(r.UsedBy) > 0 {
-		used = append(used, note("warn", "Also used by "+strings.Join(r.UsedBy, ", ")+". Removing this folder leaves those tabs without their folder."))
+		used = append(used, note("warn", "Also used by "+strings.Join(r.UsedBy, ", ")+". Removing this folder leaves those tabs without their folder. Forced removal runs trusted teardown and any repo command you approve."))
 	}
 	if r.Err != "" {
 		return append(used, note("warn", r.Err))
@@ -487,16 +492,27 @@ func (u *ui) cleanupBody(gtx gl.Context, st *model.State) gl.Dimensions {
 		del := "Delete"
 		if f.armed == o.Path {
 			del = "Delete anyway"
+			if f.approved != "" {
+				del = "Run and delete"
+				if o.Dirty {
+					del = "Run and delete anyway"
+				}
+				lines = append(lines, "Repo teardown needs approval: "+fmt.Sprintf("%q", f.approved))
+			}
 		}
 		kids = append(kids, gl.Rigid(gl.Spacer{Height: 16}.Layout), text(func(gtx gl.Context) gl.Dimensions {
 			tg := gtx
-			tg.Constraints = gl.Constraints{Max: image.Pt(max(0, gtx.Constraints.Max.X-gtx.Dp(196)), gtx.Constraints.Max.Y)}
+			reserve := 196
+			if f.armed == o.Path && o.Dirty && f.approved != "" {
+				reserve = 260
+			}
+			tg.Constraints = gl.Constraints{Max: image.Pt(max(0, gtx.Constraints.Max.X-gtx.Dp(unit.Dp(reserve))), gtx.Constraints.Max.Y)}
 			rows := []gl.FlexChild{gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				return para(gtx, th, medium(th.UIFont), th.Sp(theme.Large), th.Fg, filepath.Base(o.Path))
 			})}
-			for j, l := range lines {
+			for _, l := range lines {
 				col := th.Muted
-				if o.Dirty && j == len(lines)-1 {
+				if o.Dirty && l == "Uncommitted files, lost on delete" {
 					col = th.Yellow
 				}
 				rows = append(rows, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), col, l) }))
@@ -510,19 +526,24 @@ func (u *ui) cleanupBody(gtx gl.Context, st *model.State) gl.Dimensions {
 		gl.Rigid(gl.Spacer{Height: 24}.Layout),
 		text(func(gtx gl.Context) gl.Dimensions { return u.buttons(gtx, "", "Close", kit.Primary) }),
 	)
-	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
+	f.scroll.Axis = gl.Vertical
+	return f.scroll.Layout(gtx, 1, func(gtx gl.Context, _ int) gl.Dimensions { return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...) })
 }
 
 // deleteOrphan is o's Delete button. One with changes asks again first,
 // its button then reading Delete anyway.
 func (u *ui) deleteOrphan(o model.Orphan) {
 	f := &u.modal.wt
-	if o.Dirty && f.armed != o.Path {
-		f.armed = o.Path
+	if (o.Dirty || o.Teardown != "") && f.armed != o.Path {
+		f.armed, f.approved = o.Path, o.Teardown
 		return
 	}
-	f.armed = ""
-	u.send(proto.DeleteWorktree{Root: o.Root, Path: o.Path, Force: o.Dirty})
+	approved := ""
+	if f.armed == o.Path {
+		approved = f.approved
+	}
+	f.armed, f.approved = "", ""
+	u.send(proto.DeleteWorktree{Root: o.Root, Path: o.Path, Force: o.Dirty, Teardown: approved})
 	u.send(proto.WorktreeQuery{Orphans: true}) // the list again, without it
 }
 
@@ -538,4 +559,20 @@ func (u *ui) openOrphan(st *model.State, o model.Orphan) {
 	u.nav.expectSession(st)
 	u.send(proto.NewSession{Cwd: o.Path, GroupID: group, SessionID: u.nav.session})
 	u.modal.close()
+}
+
+func (u *ui) teardownChoice(gtx gl.Context, ws string) gl.Dimensions {
+	r, ok := u.worktreeReply(proto.WorktreeQuery{WorkspaceID: ws})
+	if !ok || r.Teardown == "" {
+		return gl.Dimensions{}
+	}
+	f := &u.modal.wt
+	for f.teardown.Clicked(gtx) {
+		if f.approved == r.Teardown {
+			f.approved = ""
+		} else {
+			f.approved = r.Teardown
+		}
+	}
+	return u.checkbox(gtx, &f.teardown, f.approved == r.Teardown, "Run repo teardown before removal", fmt.Sprintf("%q", r.Teardown)+"\nUnchecked skips this command with a notice.")
 }

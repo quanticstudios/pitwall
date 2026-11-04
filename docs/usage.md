@@ -125,6 +125,8 @@ while another tab uses that folder or a folder inside it. The error names
 the other tab. The delete dialog warns before **Delete anyway**; the CLI
 requires `--force` and prints the same warning. Closing a tab alone keeps
 the worktree folder.
+This refusal happens before teardown. **Delete anyway** runs trusted teardown
+and any repo command you approve. `worktree rm --force` skips teardown.
 
 <img src="media/fork-delete-dark.png" alt="Shared-folder warning before deleting a worktree, dark theme" width="480"> <img src="media/fork-delete-light.png" alt="Shared-folder warning before deleting a worktree, light theme" width="480">
 
@@ -706,6 +708,7 @@ Set `archive_on_merge = true` under `[git]` to archive a merged worktree
 tab without the click. If another tab uses its folder or a subfolder,
 archiving refuses and shows a notice naming that tab. After closing the
 other tab, archive manually; closing it does not retry the automatic archive.
+Teardown does not run when archiving refuses a shared folder.
 
 In Settings, Agents, Pull requests, turn on **Send CI failures automatically**
 or **Send requested changes automatically**. Both are off by default. The
@@ -1722,6 +1725,7 @@ for every repo. Nothing is copied, linked or run without one.
 copy = [".env", ".env.local"] # copied from the main checkout
 link = ["node_modules"]       # symlinked to the main checkout's
 setup = "pnpm install"        # typed into the new tab's shell
+teardown = "docker compose down" # run before removing the worktree
 ```
 
 - `copy` takes files, not folders, and keeps their permissions. `.env`
@@ -1739,6 +1743,48 @@ setup = "pnpm install"        # typed into the new tab's shell
   in a repo you clone, so it waits on the prompt until you read it and
   press Enter. One with a line break or another control character is not
   typed at all.
+
+Windows needs `sh` on PATH to run teardown.
+
+`teardown` runs as a shell command in the worktree, with the same `PORT`,
+`PITWALL_PORT_BASE` and `PITWALL_PORTS` that setup gets. It runs before
+`pitwall worktree rm`, the UI's Delete or Archive, and `archive_on_merge`
+remove the folder. Clean up worktrees uses the same rule for orphan
+worktrees. `prune` only forgets missing folders and lists orphans, so it
+has no teardown to run. A remote tab runs teardown on its host.
+
+A teardown from your own `config.toml` runs as is. Anyone can put a command
+in a repo you clone, so a teardown from `.pitwall/worktree.toml` needs an
+explicit yes each time. The UI shows its full command and asks you to
+approve it. `worktree rm` shows the full command and prompts only on the caller's foreground terminal;
+`--teardown` approves the repo command for that invocation. Agent panes
+and PTYs without the caller's controlling terminal do not prompt. Without approval,
+including `archive_on_merge` and non-interactive calls without `--teardown`,
+pitwall skips the repo command, shows what it would have run, and continues
+removal.
+
+<img src="media/worktree-teardown-dark.png" alt="The worktree delete dialog shows the full repo teardown command and an unchecked approval box" width="800">
+
+Before teardown, pitwall checks uncommitted files unless removal is forced.
+If teardown itself creates an untracked file, removal reports that the worktree
+is kept. A missing folder skips teardown with a notice. Unrelated mistakes
+in the repo config do not block removal. A command that cannot be resolved
+from malformed config is skipped with a notice.
+
+Teardown has a two-minute limit. A timeout kills its process group. A
+successful command whose helper keeps stdout or stderr open still allows
+removal after a short drain. A
+failure or timeout keeps the worktree and tab, with the reason and output
+tail in a notice. CLI removal prints the notice to stderr. Successful
+commands also report their output tail. The notice names
+`$XDG_STATE_HOME/pitwall/teardown.log`, which records the full command and
+last 8 KiB of output and rotates at 1 MiB. `pitwall worktree rm <name> --force`
+skips teardown and removes the worktree anyway. Port assignments are also
+saved in the worktree's private git directory for cleanup after its tab is
+closed. Worktrees created before this metadata exists have ports only while
+their tab remains in daemon state. If a live tab holds an orphan's saved
+block, teardown gets no port variables for that orphan. Teardown never
+inherits port variables from the calling pane.
 
 Keys in the repo's file win over `config.toml`. A mistake in it shows as an
 error when you make the tab, and the tab is made anyway.

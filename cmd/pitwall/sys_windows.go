@@ -135,3 +135,11 @@ func lockHolder(*os.File) (int, error) {
 
 // processGroup is 0: Windows has no process groups to report.
 func processGroup() int { return 0 }
+
+func foregroundTerminal(in *os.File) bool {
+	if in == nil || in.Fd() != os.Stdin.Fd() {
+		return false
+	}
+	var mode uint32
+	return windows.GetConsoleMode(windows.Handle(in.Fd()), &mode) == nil
+}

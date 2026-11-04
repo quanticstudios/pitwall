@@ -28,8 +28,9 @@ func TestDeleteSharedWorktree(t *testing.T) {
 	st := b.State()
 	u.modal.kind = modalDelete
 	u.modal.ws = "w4"
+	u.modal.wt.approved = "stop-stack"
 	u.confirmModal(&st)
-	if got := b.Sent(); len(got) != 1 || got[0] != (proto.DeleteWorkspace{WorkspaceID: "w4", Force: true}) {
+	if got := b.Sent(); len(got) != 1 || got[0] != (proto.DeleteWorkspace{WorkspaceID: "w4", Force: true, Teardown: "stop-stack"}) {
 		t.Fatalf("delete %v", got)
 	}
 }

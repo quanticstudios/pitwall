@@ -26,6 +26,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/teardown"
 )
 
 var errNotRunning = errors.New("pitwall is not running")
@@ -78,7 +79,14 @@ func syncCLI(conn *cliConn, requests ...any) (model.State, error) {
 // syncMsg is syncCLI with the daemon's whole StateMsg, its Level too.
 func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 	// Confirmation can take longer than the socket timeout.
-	if err := conn.socket.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	wait := 5 * time.Second
+	for _, request := range requests {
+		switch request.(type) {
+		case proto.DeleteWorkspace, proto.DeleteWorktree:
+			wait = teardown.Timeout + time.Minute
+		}
+	}
+	if err := conn.socket.SetDeadline(time.Now().Add(wait)); err != nil {
 		return proto.StateMsg{}, err
 	}
 	for _, request := range append(requests, proto.Sync{}) {

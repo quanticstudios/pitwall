@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 63 added worktree teardown approval and command previews.
 // Level 62 added ForkPane for terminal agent forks and WorktreeInfo.UsedBy.
 // Level 61 added Press, Activity.Options, OptionNotes, Buttons and Menu:
 // a row presses an answer the form on its pane's screen offers.
@@ -176,7 +177,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 62
+const Level = 63
 
 // PopupPathLevel added OpenPopup.Path.
 const PopupPathLevel = 60
@@ -188,6 +189,9 @@ const ForkLevel = 62
 // ParentPane is the calling pane, empty for a fork from the menu or outside pitwall.
 // Worktree creates a branch and worktree from the source checkout's HEAD.
 type ForkPane struct{ Pane, Worktree, Name, ParentPane string }
+
+// TeardownLevel adds approval of the exact repo command before worktree removal.
+const TeardownLevel = 63
 
 // PopupLevel added OpenPopup.
 const PopupLevel = 54
@@ -437,6 +441,10 @@ type DeleteWorkspace struct {
 	// Force removes a worktree with changes and an unmerged branch, which
 	// git refuses otherwise. A daemon below Level 8 ignores it.
 	Force bool
+	// Teardown approves this exact repo command for this removal only.
+	Teardown string
+	// SkipTeardown is worktree rm --force: remove without running teardown.
+	SkipTeardown bool
 }
 
 // WorktreeQuery asks about worktrees. The daemon answers this client
@@ -466,14 +474,18 @@ type WorktreeInfo struct {
 	UsedBy   []string // other tabs whose folders are in this worktree
 	// For Orphans, every git group's in the daemon.
 	Orphans []model.Orphan
+	// Teardown is the repo command that needs approval for WorkspaceID.
+	Teardown string
 }
 
 // DeleteWorktree removes the worktree at Path under <Root>/.worktrees/,
 // where Root is a git group's, when no tab uses it, keeping its branch.
 // Force removes it with changes.
 type DeleteWorktree struct {
-	Root, Path string
-	Force      bool
+	Root, Path   string
+	Force        bool
+	Teardown     string
+	SkipTeardown bool
 }
 
 // OpenPane splits Target (or creates the first pane when Target is "").

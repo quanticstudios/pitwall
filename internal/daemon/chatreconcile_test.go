@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -161,10 +162,17 @@ func TestChatContinueAfterRestart(t *testing.T) {
 			o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: stub}
 			o.ChatContinue = func() bool { return true }
 		})
+		stop = sync.OnceFunc(stop)
+		t.Cleanup(stop)
 		gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()})
 		waitChat(gui, "chat back", func(s model.State) bool { return chatOf(s).ID == "chat-1" })
-		readChat(t, gui)
-		s := readChat(t, gui) // after the continue, which runs once the first read is done
+		var s session.Snapshot
+		// Read replies can precede queued provider events; cut off a recorded running turn.
+		waitChat(gui, "restart continuation", func(model.State) bool {
+			s = readChat(t, gui)
+			return slices.ContainsFunc(s.Turns, func(tr session.TurnSummary) bool { return tr.State == session.TurnRunning }) ||
+				slices.ContainsFunc(systemLines(s), func(l string) bool { return strings.HasPrefix(l, "Not continued: ") })
+		})
 		if got := sends(); got != step.sends {
 			t.Fatalf("restart %d at +%v: %d continues sent, want %d", i, step.at, got, step.sends)
 		}

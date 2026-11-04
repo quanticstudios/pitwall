@@ -127,7 +127,8 @@ jobs:
       # why: the macOS suite has never passed; drop continue-on-error after its first green run.
       - name: Test everything
         continue-on-error: ${{ runner.os == 'macOS' }}
-        run: go test -timeout 5m ./...
+        # why: Git-heavy packages competing on Windows overrun checkpoint and retrieval deadlines.
+        run: go test ${{ runner.os == 'Windows' && '-p=1' || '' }} -timeout 5m ./...
       - name: Stop leftover test processes
         if: always() && runner.os == 'Windows'
         shell: pwsh

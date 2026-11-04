@@ -79,5 +79,6 @@ func LocalOf(ref string) string {
 type Orphan struct {
 	Root, Path, Branch string
 	Committed          time.Time // its last commit; zero when git could not tell
+	Teardown           string    // the repo command that needs approval before removal
 	Dirty              bool      // it has uncommitted or untracked files
 }

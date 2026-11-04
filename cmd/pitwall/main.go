@@ -252,7 +252,7 @@ func main() {
 	case "web":
 		os.Exit(runWeb(os.Args[2:], os.Stdout, os.Stderr))
 	case "worktree":
-		os.Exit(runWorktree(os.Args[2:], os.Stdout, os.Stderr))
+		os.Exit(runWorktree(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "completion":
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":

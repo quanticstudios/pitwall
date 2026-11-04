@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Worktrees is [worktrees], and the whole of a repo's .pitwall/worktree.toml.
@@ -14,6 +16,7 @@ type Worktrees struct {
 	Copy     []string `toml:"copy" doc:"Files copied from the main checkout into a new worktree that lacks them, such as [\".env\", \".env.local\"]. Paths are relative to the repo root. Empty by default: .env files hold secrets"`
 	Link     []string `toml:"link" doc:"Paths linked (symlinked) from the main checkout into a new worktree that lacks them, such as [\"node_modules\"]. A shared node_modules breaks when branches need different dependencies"`
 	Setup    string   `toml:"setup" doc:"A command typed into the shell of a new worktree tab, such as \"pnpm install\", after copy and link. From config.toml it runs in that pane, in view; from a repo's .pitwall/worktree.toml it waits there for you to press Enter"`
+	Teardown string   `toml:"teardown" doc:"Shell command run in the worktree before removal, with its port environment. Commands from config.toml run as is; a repo command needs approval each time or is skipped with a notice. Failure keeps the worktree; worktree rm --force skips teardown. Limit: 2 minutes"`
 }
 
 // WorktreeSettings is [worktrees] with every value filled in.
@@ -25,6 +28,11 @@ type WorktreeSettings struct {
 	// which anyone who wrote the repo controls: it is typed in for the user
 	// to read and run, never run on its own.
 	SetupFromRepo bool
+	Teardown      string
+	// TeardownFromRepo requires approval of the command on every removal.
+	TeardownFromRepo bool
+	// TeardownProblem means the repo command could not be resolved safely.
+	TeardownProblem string
 }
 
 // Port defaults.
@@ -72,6 +80,9 @@ func resolveWorktrees(c Worktrees, base WorktreeSettings, prefix string) (Worktr
 	if c.Setup != "" {
 		base.Setup = c.Setup
 	}
+	if c.Teardown != "" {
+		base.Teardown = c.Teardown
+	}
 	return base, issues
 }
 
@@ -88,11 +99,21 @@ func LoadWorktrees(path, repo string) (WorktreeSettings, []Problem) {
 		return s.Worktrees, nil
 	}
 	if err != nil {
+		s.Worktrees.TeardownProblem = err.Error()
 		return s.Worktrees, []Problem{{File: WorktreeFile, Msg: err.Error()}}
 	}
 	var c Worktrees
 	probs := parse(WorktreeFile, data, &c, nil)
 	w, issues := resolveWorktrees(c, s.Worktrees, "")
 	w.SetupFromRepo = c.Setup != ""
+	w.TeardownFromRepo = c.Teardown != ""
+	if len(probs) > 0 {
+		var raw map[string]any
+		_, err := toml.Decode(string(data), &raw)
+		_, valid := raw["teardown"].(string)
+		if err != nil || raw["teardown"] != nil && !valid {
+			w.TeardownProblem = probs[0].String()
+		}
+	}
 	return w, append(probs, locate(WorktreeFile, data, issues)...)
 }

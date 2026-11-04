@@ -1,6 +1,10 @@
 package app
 
 import (
+	gl "gioui.org/layout"
+	"gioui.org/op"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
+	"image"
 	"reflect"
 	"slices"
 	"testing"
@@ -108,5 +112,59 @@ func TestWorktreeDialogs(t *testing.T) {
 	u.openOrphan(&st, orphans[0])
 	if !reflect.DeepEqual(sent(), []any{proto.NewSession{Cwd: orphans[0].Path, GroupID: "g2", SessionID: "s1"}}) || u.modal.kind != modalNone {
 		t.Errorf("open sent %+v", sent())
+	}
+}
+
+func TestTeardownDialogs(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b, th: theme.Dark()}
+	st := b.State()
+	u.nav.sync(&st)
+	command := "docker compose down --remove-orphans"
+	u.openDelete(&st, "w4")
+	b.mu.Lock()
+	b.tree.Teardown = command
+	b.mu.Unlock()
+	var ops op.Ops
+	gtx := gl.Context{Ops: &ops, Constraints: gl.Constraints{Max: image.Pt(500, 1000)}}
+	u.modal.wt.teardown.Click()
+	u.teardownChoice(gtx, "w4")
+	u.confirmModal(&st)
+	all := b.Sent()
+	if got := all[len(all)-1]; got != (proto.DeleteWorkspace{WorkspaceID: "w4", Force: true, Teardown: command}) {
+		t.Fatalf("approval: %+v", got)
+	}
+	u.openDelete(&st, "w4")
+	if u.modal.wt.approved != "" {
+		t.Fatal("approval carried into another removal")
+	}
+	u.confirmModal(&st)
+	all = b.Sent()
+	if got := all[len(all)-1]; got != (proto.DeleteWorkspace{WorkspaceID: "w4", Force: true}) {
+		t.Fatalf("unchecked teardown: %+v", got)
+	}
+	u.openCleanup()
+	orphan := b.Worktree().Orphans[0]
+	orphan.Teardown = command
+	n := len(b.Sent())
+	u.deleteOrphan(orphan)
+	if len(b.Sent()) != n {
+		t.Fatal("first click ran repo teardown")
+	}
+	if u.modal.wt.approved != command {
+		t.Fatal("confirmation lacks the full command")
+	}
+	u.deleteOrphan(orphan)
+	all = b.Sent()
+	if got := all[n]; got != (proto.DeleteWorktree{Root: orphan.Root, Path: orphan.Path, Teardown: command}) {
+		t.Fatalf("orphan approval: %+v", got)
+	}
+	// Arming one worktree does not approve a different worktree.
+	u.modal.wt.armed, u.modal.wt.approved = "another worktree", command
+	orphan.Teardown = ""
+	n = len(b.Sent())
+	u.deleteOrphan(orphan)
+	if got := b.Sent()[n]; got != (proto.DeleteWorktree{Root: orphan.Root, Path: orphan.Path}) {
+		t.Fatalf("approval crossed worktrees: %+v", got)
 	}
 }

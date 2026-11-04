@@ -5,10 +5,13 @@ import (
 	"errors"
 	"log"
 	"reflect"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/forge"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -232,9 +235,41 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	if len(archive) == 0 || d.o.ArchiveOnMerge == nil || !d.o.ArchiveOnMerge() {
 		return
 	}
-	for _, id := range archive {
+	d.worktreeJobs.Go(func() { d.archiveWorktrees(ctx, archive) })
+}
+
+func (d *Daemon) archiveWorktrees(ctx context.Context, ids []string) {
+	var failures, notices []string
+	ctx = context.WithValue(ctx, worktreeNoticeKey{}, func(text string, failed bool) {
+		if slices.Contains(failures, text) || slices.Contains(notices, text) {
+			return
+		}
+		if failed {
+			failures = append(failures, text)
+		} else {
+			notices = append(notices, text)
+		}
+		var lines []string
+		for _, failure := range failures {
+			summary, _, _ := strings.Cut(failure, "\n")
+			lines = append(lines, summary)
+		}
+		for _, failure := range failures {
+			if _, detail, ok := strings.Cut(failure, "\n"); ok {
+				lines = append(lines, detail)
+			}
+		}
+		d.setWorktreeNotice(strings.Join(append(lines, notices...), "\n"))
+	})
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return
+		}
 		log.Printf("tab %s: pull request merged; archiving", id)
 		if err := d.deleteWorkspace(ctx, proto.DeleteWorkspace{WorkspaceID: id, RemoveBranch: true}); err != nil {
+			if !errors.Is(err, gitstat.ErrBranchKept) {
+				d.worktreeNotice(ctx, err.Error(), true)
+			}
 			log.Printf("archive tab %s: %q", id, err)
 		}
 	}
