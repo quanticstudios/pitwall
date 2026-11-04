@@ -23,7 +23,7 @@ func ReadStaging(ctx context.Context, worktree string) (Staging, error) {
 	var s Staging
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return s, fmt.Errorf("%s is not in a git repository", worktree)
+		return s, notRepo(ctx, worktree)
 	}
 	diff := func(more ...string) ([]byte, error) {
 		args := append([]string{"-c", "core.quotePath=true", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
@@ -57,7 +57,10 @@ func untracked(ctx context.Context, root string) ([]string, error) {
 func ApplyCached(ctx context.Context, worktree string, patch []byte, reverse bool) error {
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return fmt.Errorf("%s is not in a git repository", worktree)
+		return notRepo(ctx, worktree)
+	}
+	if err := refuseRepoFilter(ctx, root); err != nil {
+		return err
 	}
 	args := []string{"apply", "--cached", "--whitespace=nowarn"}
 	if reverse {
@@ -73,7 +76,10 @@ func ApplyCached(ctx context.Context, worktree string, patch []byte, reverse boo
 func StageFiles(ctx context.Context, worktree string, paths []string, unstage bool) error {
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return fmt.Errorf("%s is not in a git repository", worktree)
+		return notRepo(ctx, worktree)
+	}
+	if err := refuseRepoFilter(ctx, root); err != nil {
+		return err
 	}
 	// why: a path is a file's name, never a pattern; *.txt must not take
 	// secret.txt along.

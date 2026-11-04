@@ -21,12 +21,13 @@ var ghInstalled = sync.OnceValue(func() bool {
 })
 
 // pagerScript runs the git command in "$@" at the top of the repository
-// holding $1, into the user's pager: $GIT_PAGER, else core.pager, else delta
-// when installed, else less -R. LESS gains -R and loses -F, so a short diff
+// holding $1, into the user's pager: $GIT_PAGER, else core.pager from the
+// global or system config, never the repository's, which this script would
+// eval, else delta when installed, else less -R. LESS gains -R and loses -F, so a short diff
 // stays until q closes the pane, unless the pager command sets -F itself.
 const pagerScript = `cd -- "$1" && cd -- "$(git rev-parse --show-toplevel)" || exit
 shift
-p=${GIT_PAGER:-$(git config core.pager)}
+p=${GIT_PAGER:-$(git config --global core.pager || git config --system core.pager)}
 if [ -z "$p" ]; then
 	if command -v delta >/dev/null 2>&1; then p=delta; else p='less -R'; fi
 fi
@@ -39,7 +40,7 @@ export LESS="$LESS -R -+F" DELTA_PAGER="${DELTA_PAGER:-less -R}"
 // branch's ref, to the work tree: of file only when it is not nil, as the
 // side panel's Changes lists it. An untracked file shows whole.
 func diffCmd(dir, base string, file *gitstat.FileStat) []string {
-	cmd := []string{"sh", "-c", pagerScript, "sh", dir, "git", "-c", "color.ui=always", "diff"}
+	cmd := []string{"sh", "-c", pagerScript, "sh", dir, "git", "-c", "core.fsmonitor=false", "-c", "color.ui=always", "diff"}
 	switch {
 	case file == nil:
 		return append(cmd, "--merge-base", base)

@@ -1061,6 +1061,51 @@ tab or delete. Their branches stay. The daemon prunes on start too, and
 says when it finds such worktrees. `pitwall worktree` does the same from a
 terminal (see [Command line](cli.md)).
 
+### What a repository's git config can run
+
+A repository's config can name programs that git runs, such as `core.fsmonitor`
+or a filter in `.git/config`. An agent can write that file, and pitwall runs git
+by itself: for branch stats, checkpoints and worktrees. So pitwall reads the
+repository's config just before each git command it starts, and before the
+daemon calls `gh`, and turns off what it finds. A program added in the moment
+between the two can still run, so this reduces the risk and is not a sandbox
+boundary. What it turns off:
+
+- hooks, in `.git/hooks`, under `core.hooksPath` or from `hook.<name>.command`,
+  your global ones too, so a worktree pitwall makes runs no `post-checkout`
+  hook; use `setup` instead
+- `core.fsmonitor` and automatic gc
+- external diff and textconv drivers, pagers and editors
+- filter and merge drivers, `core.sshCommand`, credential helpers, signing
+  programs and upload-pack paths, when the repository's own config sets them,
+  also in a file it includes under a condition that does not hold yet
+
+A file the repository's config includes, under a condition or not, that git
+cannot read or parse stops pitwall's git in that repository with an error naming
+the file. Fix or remove it to go on.
+
+The same keys from your global or system config still apply: a `filter.lfs`
+that `git lfs install` wrote to `~/.gitconfig` works, even when the repository
+sets its own value for it. pitwall does not look inside a submodule on status
+and diff, and reports only its moved commit, so a dirty submodule does not count
+as a change.
+
+A filter set only in `.git/config`, as git-crypt and `git lfs install --local`
+do, does not run for pitwall. Status and diffs read those files as they are on
+disk, and a checkpoint stores a changed one's raw bytes in `.git/objects` under
+`refs/pitwall/`. Stage, Discard, undo and redo from pitwall refuse in such a
+repository, since they would write those raw bytes into your index or work
+tree. Do those in a terminal, or set the filter in your global config.
+
+The actions that open a pane are your own git. Open diff in pager never takes a
+pager from the repository's config and turns fsmonitor off, but a diff driver or
+filter in `.git/config` still runs in it, as it does for a `git diff` you type.
+So do hooks on Create pull request, and what `git add -p` runs for Stage hunks in
+terminal.
+
+This does not contain an agent. One that runs without a sandbox or an approval
+prompt can already run any program, as you.
+
 ### Tab search
 
 Ctrl+Shift+K (Cmd+K in the mac preset) searches every tab of every

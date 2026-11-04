@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
-	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -268,9 +268,7 @@ func homeDir() string {
 // gitBranch reports whether path is in a git work tree and its branch there,
 // "" for a detached HEAD.
 func gitBranch(ctx context.Context, path string) (string, bool) {
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "symbolic-ref", "--short", "-q", "HEAD")
-	nowindow.Set(cmd)
-	out, err := cmd.Output()
+	out, err := gitstat.Command(ctx, path, "symbolic-ref", "--short", "-q", "HEAD").Output()
 	var exit *exec.ExitError
 	switch {
 	case err == nil:

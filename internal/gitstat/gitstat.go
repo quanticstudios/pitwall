@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
-	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
 
 type Worktree struct {
@@ -141,6 +140,10 @@ func AddWorktree(ctx context.Context, repoRoot, name string, from model.Worktree
 	if err != nil {
 		return "", "", err
 	}
+	// why: hasRef below would call a failed config read "no such branch".
+	if _, err := Env(ctx, repoRoot, nil); err != nil {
+		return "", "", err
+	}
 	var args []string
 	switch from.Kind {
 	case model.FromNew:
@@ -175,7 +178,7 @@ func AddWorktree(ctx context.Context, repoRoot, name string, from model.Worktree
 		}
 		branch = "pr-" + strconv.Itoa(from.PR)
 		// Without a leading +, a pr-N with commits of its own refuses the update.
-		if _, err := git(ctx, repoRoot, "fetch", "origin", fmt.Sprintf("pull/%d/head:refs/heads/%s", from.PR, branch)); err != nil {
+		if _, err := git(ctx, repoRoot, "fetch", "--no-recurse-submodules", "origin", fmt.Sprintf("pull/%d/head:refs/heads/%s", from.PR, branch)); err != nil {
 			return "", "", err
 		}
 		args = []string{"worktree", "add", path, branch}
@@ -376,7 +379,18 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch, fo
 	if force {
 		args = append(args, "--force")
 	}
-	if _, err := git(ctx, repoRoot, append(args, "--", path)...); err != nil {
+	args = append(args, "--", path)
+	cmd := Command(ctx, repoRoot, args...)
+	// why: without force git checks the folder with a git status run there, which
+	// also reads that worktree's own config. A folder that is gone has none.
+	if _, err := os.Stat(path); !force && !errors.Is(err, os.ErrNotExist) {
+		env, err := Env(ctx, path, cmd.Env)
+		if err != nil {
+			return err
+		}
+		cmd.Env = env
+	}
+	if _, err := output(ctx, cmd, args); err != nil {
 		return err
 	}
 	if branch != "" {
@@ -485,14 +499,16 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 
 // gitWith is git with env added to the environment and stdin as input.
 func gitWith(ctx context.Context, dir string, env []string, stdin string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	nowindow.Set(cmd)
-	if env != nil {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd := Command(ctx, dir, args...)
+	cmd.Env = append(cmd.Env, env...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
+	return output(ctx, cmd, args)
+}
+
+// output is cmd's stdout, and its stderr in the error of a failed git args.
+func output(ctx context.Context, cmd *exec.Cmd, args []string) (string, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -534,7 +550,7 @@ func Files(ctx context.Context, worktree string) (base string, files []FileStat,
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return "", nil, fmt.Errorf("%s is not in a git repository", worktree)
+		return "", nil, notRepo(ctx, worktree)
 	}
 	mb, err := mergeBase(ctx, root, base)
 	if err != nil {
@@ -755,7 +771,7 @@ func Diff(ctx context.Context, worktree string) (Patch, error) {
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return p, fmt.Errorf("%s is not in a git repository", worktree)
+		return p, notRepo(ctx, worktree)
 	}
 	mb, err := mergeBase(ctx, root, base)
 	if err != nil {
@@ -790,7 +806,7 @@ func ReadUntracked(root, path string) ([]byte, bool) {
 func Discard(ctx context.Context, worktree string, paths []string, untracked bool) error {
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return fmt.Errorf("%s is not in a git repository", worktree)
+		return notRepo(ctx, worktree)
 	}
 	if untracked {
 		for _, p := range paths {
@@ -802,6 +818,9 @@ func Discard(ctx context.Context, worktree string, paths []string, untracked boo
 			}
 		}
 		return nil
+	}
+	if err := refuseRepoFilter(ctx, root); err != nil {
+		return err
 	}
 	base, err := defaultRef(ctx, root)
 	if err != nil {

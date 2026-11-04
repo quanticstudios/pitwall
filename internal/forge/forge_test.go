@@ -16,6 +16,34 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
+// TestGHCmdGuardsItsGit: gh runs git, so its environment carries the settings
+// that keep a repository's config from running programs, fail closed.
+func TestGHCmdGuardsItsGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	dir := t.TempDir()
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(dir, "none"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "config", "filter.x.clean", "planted").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	cmd := ghCmd(context.Background(), dir, "pr", "view")
+	env := strings.Join(cmd.Env, "\n")
+	for _, want := range []string{"=core.fsmonitor\n", "=filter.x.clean\n", "GH_PROMPT_DISABLED=1", "GIT_TERMINAL_PROMPT=0"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("gh's environment has no %q", want)
+		}
+	}
+	cmd = ghCmd(context.Background(), filepath.Join(dir, "gone"), "pr", "view")
+	if cmd.Err == nil {
+		t.Error("gh would start though the folder's config cannot be read")
+	}
+}
+
 // TestParse reads gh pr view --json output, written by hand in the shapes
 // gh prints: check runs and commit statuses mixed, each state mapped.
 func TestParse(t *testing.T) {

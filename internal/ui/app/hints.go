@@ -1,11 +1,11 @@
 package app
 
 import (
+	"context"
 	"image"
 	"log"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -14,6 +14,7 @@ import (
 	"gioui.org/io/key"
 	gl "gioui.org/layout"
 
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/term"
 )
@@ -299,7 +300,7 @@ func (u *ui) repoURL(st *model.State) string {
 	if curHost() != "" {
 		return "" // git would read this machine's checkout
 	}
-	out, err := exec.Command("git", "-C", st.LivePath(*ws), "remote", "get-url", "origin").Output()
+	out, err := gitstat.Command(context.Background(), st.LivePath(*ws), "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
 	}

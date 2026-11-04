@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- pitwall's own git reads the repository's config just before each command and turns off the programs it finds: fsmonitor, hooks, filter, diff and merge drivers, ssh and credential programs. A program added in the moment between the two can still run, so this reduces the risk and is not a sandbox boundary. Filters from your global config, such as git-lfs, keep working. With a filter set only in `.git/config`, such as git-crypt's, staging, discarding and undo from pitwall refuse instead of writing raw bytes, and a worktree pitwall makes runs no `post-checkout` hook; use worktree `setup` for that.
+
 ## v0.1.13
 
 - Agent status rows no longer bring back the agent's name while it runs a command in the foreground.
