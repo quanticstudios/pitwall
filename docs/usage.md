@@ -100,6 +100,7 @@ names `fork` as the SessionStart source.
 The command names a missing session id or unsupported agent in its error;
 the menu hides Fork for those panes and for daemons that lack terminal forks.
 A failed menu fork shows a notice with the reason.
+A successful fork clears a fork failure notice and keeps any other notice.
 
 Codex keeps its source `--cd` selector for a same-folder fork. A new worktree
 fork explicitly sets `--cd` to the new folder. The source folder selects the
