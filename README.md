@@ -113,7 +113,11 @@ plan that offers manual approval shows Approve plan, which never raises the
 permission mode. Otherwise the row offers Open tab, or Reply for a question with
 no menu. An option, Always or Approve plan presses only if the screen still
 offers it. Allow and Deny check that the row is current and a permission prompt
-is on screen, not that the command is unchanged, so read it first.
+is on screen. When the agent's hook reported a shell command, Allow, Deny and
+Always also need the prompt to show that command, as much of it as fits on
+screen; otherwise nothing is pressed and pitwall tells you to answer in the tab.
+An edit, a fetch or any other prompt with no reported command gets no such
+comparison, so read it first.
 Ctrl+Shift+Y and Ctrl+Shift+D press them, and on Linux the notification has
 them too.
 

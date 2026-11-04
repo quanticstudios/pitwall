@@ -737,3 +737,62 @@ func TestDriveTabs(t *testing.T) {
 		t.Fatalf("wait on a finished agent: %d %q %s", code, out, stderr)
 	}
 }
+
+// Allow on a real pane, whose emulator wraps a long command: it goes through
+// when the prompt shows what the hook reported and is refused when it does not.
+func TestAnswerComparesCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the prompt script needs stty")
+	}
+	isolate(t)
+	startDaemon(t)
+	gui := connect(t, "gui")
+	hook := connect(t, "hook")
+	ws := newWorkspace(t, gui)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "prompt.sh")
+	if err := os.WriteFile(script, []byte(`cat "$1"; stty raw -echo; k=$(dd bs=1 count=1 2>/dev/null); stty sane; printf '\npressed:%s:\n' "$k"; exec sleep 60`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	long := "go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/remote ./internal/ui/sidebar ./internal/ui/app ./internal/proto"
+	ask := func(name, shown, reported string) string {
+		t.Helper()
+		form := filepath.Join(dir, name)
+		text := " Bash command\n╌╌╌╌╌╌\n " + shown + "\n╌╌╌╌╌╌\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel\n"
+		if err := os.WriteFile(form, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pane := openPane(t, gui, ws.ID, []string{"sh", script, form}).ID
+		gui.waitFor(t, timeout, frameContains(pane, "Esc to cancel"))
+		payload, err := json.Marshal(map[string]any{"hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": map[string]string{"command": reported}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		hook.send(t, proto.AgentEvent{Pane: pane, Provider: model.ProviderClaude, Payload: payload})
+		return pane
+	}
+	at := func(pane string) int64 {
+		t.Helper()
+		s := gui.waitFor(t, timeout, func(msg any) bool {
+			s, ok := msg.(proto.StateMsg)
+			return ok && slices.ContainsFunc(s.State.Activities, func(a model.Activity) bool {
+				return a.PaneID == pane && a.State == model.StatePendingApproval
+			})
+		}).(proto.StateMsg).State
+		return s.Activities[slices.IndexFunc(s.Activities, func(a model.Activity) bool { return a.PaneID == pane })].UpdatedAt.UnixNano()
+	}
+
+	changed := ask("changed", strings.Replace(long, "remote", "secret", 1), long)
+	gui.send(t, proto.Answer{Pane: changed, At: at(changed), Allow: true})
+	refused := gui.waitUntil(timeout, func(msg any) bool {
+		e, ok := msg.(proto.Error)
+		return ok && strings.Contains(e.Message, "answer it in its tab")
+	})
+	if !refused {
+		t.Fatal("no refusal of the changed command")
+	}
+
+	same := ask("same", long, long)
+	gui.send(t, proto.Answer{Pane: same, At: at(same), Allow: true})
+	gui.waitFor(t, timeout, frameContains(same, "pressed:1:"))
+}

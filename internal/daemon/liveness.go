@@ -49,6 +49,10 @@ type liveness struct {
 	hookAt       map[string]time.Time // pane: when its agent last sent a hook
 	fg           map[string]int       // pane: its foreground process group at that hook
 	hookSeq      map[string]uint64    // pane: reports received, independent of clock precision
+	// asked is, per pane, the command its pending approval's hook reported, to
+	// compare with the screen before answering. It stays here, unredacted: the
+	// activity goes to every client and to disk.
+	asked map[string]string
 	// started marks a pane whose agent sends SessionStart (pitwall's hooks
 	// since alpha.14), fresh one whose agent process started and has not
 	// reported a permission mode yet, and resumeSeen a pane NewWith resumed
@@ -216,6 +220,7 @@ func (d *Daemon) checkForeground() {
 		if d.panes[id] == nil {
 			delete(d.live.explanations, id)
 			delete(d.live.lastHook, id)
+			delete(d.live.asked, id)
 		}
 	}
 	for id := range d.live.det {

@@ -909,6 +909,26 @@ func Request(payload []byte) (event, tool string, input json.RawMessage, cwd str
 	return p.Event, p.ToolName, p.ToolInput, p.Cwd, true
 }
 
+// AskedCommand is the shell command a PermissionRequest hook asks to run. ok is
+// true for any permission request, with "" when it names no command: another
+// tool, or a command sent as argv. It is false for other payloads and for a
+// question or plan, which Allow and Deny do not answer.
+func AskedCommand(payload []byte) (command string, ok bool) {
+	ev, tool, input, _, ok := Request(payload)
+	if !ok || ev != "PermissionRequest" || NeedsInteraction(tool) {
+		return "", false
+	}
+	// why: apply_patch's command is a patch, and its prompt shows a diff.
+	if tool == "Bash" {
+		var in struct {
+			Command string `json:"command"`
+		}
+		_ = json.Unmarshal(input, &in)
+		command = in.Command
+	}
+	return command, true
+}
+
 // ToolRun is the shell command a PostToolUse or PostToolUseFailure hook
 // reports, with its output (stdout then stderr, or the failure's error)
 // and whether it failed: a failure event or a non-zero exit code. ok is

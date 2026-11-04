@@ -339,6 +339,75 @@ func TestAllowNeedsPermissionForm(t *testing.T) {
 	}
 }
 
+// The prompt screen for a command, rows being what the rules around it hold.
+func commandForm(rows ...string) []string {
+	form := append([]string{" Bash command", " Create a directory", " ╌╌╌╌╌╌"}, rows...)
+	return append(form, " ╌╌╌╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and don't ask again for mkdir", "   3. No", "", " Esc to cancel · Tab to amend")
+}
+
+// Allow, Deny and Always land only on the command the hook reported, which an
+// agent's next prompt can replace before its own hook arrives. Whichever way
+// the answer is sent, it goes through remoteAnswer or pressOffer.
+func TestAnswerNeedsTheCommand(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	ctx := context.Background()
+	report := func(payload string) int64 {
+		t.Helper()
+		if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+			t.Fatal(err)
+		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+	}
+	show := func(rows ...string) {
+		f.pane(0).mu.Lock()
+		f.pane(0).screen, f.pane(0).input = commandForm(rows...), nil
+		f.pane(0).mu.Unlock()
+	}
+	const asks = `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"mkdir /tmp/x/perm-test && chmod 700 /tmp/x/perm-test","description":"Create a directory"}}`
+	report(`{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash"}`)
+	at := report(asks)
+
+	show(" mkdir /tmp/x/perm-test && rm -rf ~")
+	for name, answer := range map[string]func() error{
+		"allow":  func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) },
+		"deny":   func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) },
+		"always": func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) },
+	} {
+		if err := answer(); err == nil || !strings.Contains(err.Error(), "answer it in its tab") || f.pane(0).got() != "" {
+			t.Errorf("%s on a changed command: %v %q", name, err, f.pane(0).got())
+		}
+	}
+
+	show(" mkdir /tmp/x/perm-test &&", " chmod 700 /tmp/x/perm-test")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil {
+		t.Fatalf("allow on the same command, wrapped: %v", err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+		t.Fatalf("allow sent %q", got)
+	}
+
+	// The Notification that follows the request is the same prompt.
+	at = report(`{"hook_event_name":"Notification","session_id":"s","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}`)
+	show(" rm -rf ~")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err == nil || f.pane(0).got() != "" {
+		t.Errorf("allow after the notification: %v %q", err, f.pane(0).got())
+	}
+
+	// With no command reported, what stands is today's check of the prompt.
+	report(`{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Bash"}`)
+	at = report(`{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Edit","tool_input":{"file_path":"a.go"}}`)
+	show(" anything")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil {
+		t.Fatalf("allow with no command to compare: %v", err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+		t.Fatalf("allow sent %q", got)
+	}
+}
+
 // A phone's reply on a menu is refused: its Enter would pick the highlighted
 // option, and what was typed would be lost.
 func TestReplyRefusesMenu(t *testing.T) {

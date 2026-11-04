@@ -540,17 +540,11 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 					s.clickPane(v, tab, id, c.Modifiers)
 				}
 			}
-			for _, b := range []struct {
-				c     *widget.Clickable
-				allow bool
-			}{{&r.allow, true}, {&r.deny, false}} {
-				for b.c.Clicked(gtx) {
-					if s.subAnswering(v, e) {
-						a := v.prompt(e)
-						s.events = append(s.events, Answer{PaneID: a.PaneID, At: a.UpdatedAt.UnixNano(), Allow: b.allow})
-					}
-				}
+			var asking *model.Activity
+			if s.subAnswering(v, e) {
+				asking = v.prompt(e)
 			}
+			s.promptClicks(gtx, &r.allow, &r.deny, &r.choices, asking)
 			for r.plan.Clicked(gtx) {
 				if subPlanning(v, e) {
 					s.startReply(id, v.prompt(e).PaneID)

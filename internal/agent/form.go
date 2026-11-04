@@ -27,6 +27,9 @@ var (
 	optionLine = regexp.MustCompile(`^\s*(?:[│┃]\s*)?([❯›>●]\s*)?(\d)\.\s+(\S.*?)\s*$`)
 	// codexLetter is the shortcut Codex prints after an option's text.
 	codexLetter = regexp.MustCompile(`\(([a-z])\)$`)
+	// hiddenRows is the row a Claude Code prompt ends a cut command with, such
+	// as "+3 lines, +2 above (ctrl+o to see more)".
+	hiddenRows = regexp.MustCompile(`^(?:\S )?\+?\d+ (?:lines?|above)\b`)
 )
 
 type formOption struct {
@@ -276,6 +279,109 @@ func optionText(rows []string, opts []formOption, i int) (text string, ok bool) 
 		text += " " + l
 	}
 	return text, true
+}
+
+// CommandShown reports whether the permission prompt on g's screen asks to run
+// command, as far as the screen shows it. A row must match the command exactly,
+// spaces included, and only a row's end may split it, with or without a space,
+// as wrapping does. A prompt that shows part of a long command is compared on
+// that part. A layout it does not know has no command to compare, so that is
+// false too.
+func CommandShown(p model.Provider, g vt.Grid, command string) bool {
+	rows := screenRows(g)
+	opts := formOptions(rows)
+	if len(opts) == 0 {
+		return false
+	}
+	above, start := claudeCommand(rows[:opts[0].row])
+	if p == model.ProviderCodex {
+		above, start = codexCommand(rows[:opts[0].row])
+	}
+	return commandFits(above, start, command)
+}
+
+// claudeCommand is the rows above a Claude Code prompt's options that hold its
+// command, between the two nearest rules. start is false when the upper rule
+// has scrolled off, so the first rows may be gone with it.
+func claudeCommand(above []string) (rows []string, start bool) {
+	lower := lastRule(above)
+	if lower < 0 {
+		return nil, false
+	}
+	upper := lastRule(above[:lower])
+	return above[upper+1 : lower], upper >= 0
+}
+
+func lastRule(rows []string) int {
+	for y := len(rows) - 1; y >= 0; y-- {
+		if rows[y] != "" && strings.Trim(rows[y], " ╌─") == "" {
+			return y
+		}
+	}
+	return -1
+}
+
+// codexCommand is the rows above a Codex prompt's options that hold its command,
+// from the one that starts with "$ ". start is false with no such row: it has
+// scrolled off, or this is not a command.
+func codexCommand(above []string) (rows []string, start bool) {
+	for y := len(above) - 1; y >= 0; y-- {
+		if t, ok := strings.CutPrefix(strings.TrimLeft(above[y], " "), "$ "); ok {
+			return append([]string{t}, above[y+1:]...), true
+		}
+	}
+	return above, false
+}
+
+// commandFits reports whether rows show command. Without start its first rows
+// may be off screen, and a count row or a final ellipsis says its last ones are
+// hidden.
+func commandFits(rows []string, start bool, command string) bool {
+	var shown []string
+	for _, r := range rows {
+		if f := strings.Fields(strings.TrimLeft(r, " │┃")); len(f) > 0 { // │ is the gutter of a multi-line command
+			shown = append(shown, strings.Join(f, " "))
+		}
+	}
+	end := true
+	if n := len(shown) - 1; n >= 0 {
+		if hiddenRows.MatchString(shown[n]) {
+			start = start && !strings.Contains(shown[n], "above")
+			shown, end = shown[:n], false
+		} else if t, ok := strings.CutSuffix(shown[n], "…"); ok {
+			shown[n], end = strings.TrimRight(t, " "), false
+		}
+	}
+	if len(shown) == 0 || shown[0] == "" {
+		return false
+	}
+	want := strings.Join(strings.Fields(command), " ")
+	for i := 0; i < len(want); i++ {
+		j := strings.Index(want[i:], shown[0])
+		if j < 0 || start && i+j != 0 {
+			return false
+		}
+		i += j
+		if e, ok := rowsFollow(want, i, shown); ok && (!end || e == len(want)) {
+			return true
+		}
+	}
+	return false
+}
+
+// rowsFollow matches rows against want from byte i and returns where they end.
+// A row's end may stand for a space of want.
+func rowsFollow(want string, i int, rows []string) (end int, ok bool) {
+	for _, r := range rows {
+		if strings.HasPrefix(want[i:], " ") {
+			i++
+		}
+		if !strings.HasPrefix(want[i:], r) {
+			return 0, false
+		}
+		i += len(r)
+	}
+	return i, true
 }
 
 // squeeze keeps s's letters and digits, lowercased: a terminal wraps and

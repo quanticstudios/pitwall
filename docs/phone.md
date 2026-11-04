@@ -62,8 +62,10 @@ closed or locked.
 
 Allow presses the first option of the agent's prompt, Yes: `1` for Claude
 Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
-the pane still shows the prompt the phone showed, and only when its screen
-has a permission prompt on it. A reply loses its control characters, so it
+the page's item is current and the pane's screen has a permission prompt on it.
+When the agent's hook reported a shell command, the prompt must also show that
+command, as much of it as fits on screen; [Usage](usage.md) has the details. A
+reply loses its control characters, so it
 cannot press keys or end a paste, and goes in as a paste followed by Enter.
 A terminal agent's screen that shows a form takes no reply here, as Enter
 would answer the form, so answer it in its tab or from the sidebar's buttons. The buttons for options, Always and Approve plan are

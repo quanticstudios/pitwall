@@ -35,9 +35,10 @@ func (s *Sidebar) planning(v *view, id string, ghost bool, a *model.Activity) bo
 }
 
 // answerClicks turns clicks on row r's Allow and Deny into Answer events
-// for the prompt the row shows now, one on its other answers into Press
-// events, one on Request changes… into the field for the reply, and one on
-// Reply into the sheet, or the tab when the screen shows a menu of options.
+// for the prompt the row showed when they were pressed, one on its other
+// answers into Press events, one on Request changes… into the field for the
+// reply, and one on Reply into the sheet, or the tab when the screen shows a
+// menu of options.
 func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowState) {
 	for r.reply.Clicked(gtx) {
 		if a := v.ownActivity(ws); s.replyable(v, ws, false, a) {
@@ -53,21 +54,30 @@ func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowSta
 			s.startReply(ws, a.PaneID)
 		}
 	}
-	for _, b := range []struct {
-		c     *widget.Clickable
-		allow bool
-	}{{&r.allow, true}, {&r.deny, false}} {
-		for b.c.Clicked(gtx) {
-			if a := v.ownActivity(ws); s.answering(v, ws, false, a) {
-				s.events = append(s.events, Answer{PaneID: a.PaneID, At: a.UpdatedAt.UnixNano(), Allow: b.allow})
-			}
-		}
-	}
 	var a *model.Activity
 	if v.agents[ws] == nil {
 		a = v.ownActivity(ws)
 	}
+	var asking *model.Activity
+	if s.answering(v, ws, false, a) {
+		asking = a
+	}
+	s.promptClicks(gtx, &r.allow, &r.deny, &r.choices, asking)
 	s.choiceClicks(gtx, &r.choices, a, func() { s.click(v, ws, 0) })
+}
+
+// promptClicks turns clicks on allow and deny into Answer events for a, which
+// is nil when the row offers neither. A click whose activity changed after the
+// press is dropped. Call it before choiceClicks, which updates c.shown.
+func (s *Sidebar) promptClicks(gtx layout.Context, allow, deny *widget.Clickable, c *choices, a *model.Activity) {
+	cur := choicesOf(a)
+	for i, b := range []*widget.Clickable{allow, deny} {
+		c.heldClicks(gtx, b, &c.prompt[i], func(from choiceSet) {
+			if a != nil && from.pane == cur.pane && from.at == cur.at {
+				s.events = append(s.events, Answer{PaneID: cur.pane, At: cur.at, Allow: i == 0})
+			}
+		})
+	}
 }
 
 // maxChoices is how many answers a row keeps buttons for: an agent's digit
@@ -80,9 +90,10 @@ type choices struct {
 	btn  [maxChoices]widget.Clickable
 	more widget.Clickable
 	// shown is the answers as last drawn, and held the one each button had
-	// when the pointer went down on it.
-	shown choiceSet
-	held  [maxChoices]choiceSet
+	// when the pointer went down on it; prompt is the same for Allow and Deny.
+	shown  choiceSet
+	held   [maxChoices]choiceSet
+	prompt [2]choiceSet
 }
 
 // choiceSet is the buttons of one activity, which a click belongs to.
@@ -124,28 +135,36 @@ func (c *choices) drain(gtx layout.Context) {
 	}
 }
 
+// heldClicks calls click for each click on b, with the set b showed when the
+// pointer went down on it, which held keeps across frames.
+func (c *choices) heldClicks(gtx layout.Context, b *widget.Clickable, held *choiceSet, click func(from choiceSet)) {
+	for b.Clicked(gtx) {
+		from := *held
+		if from.pane == "" { // pressed and released within this frame
+			from = c.shown
+		}
+		click(from)
+		*held = choiceSet{}
+	}
+	switch {
+	case !b.Pressed():
+		*held = choiceSet{}
+	case held.pane == "":
+		*held = c.shown
+	}
+}
+
 // choiceClicks turns clicks on c's buttons into Press events for a, which
 // may be nil, and one on +N into open. A click whose activity or label changed
 // after the press is dropped.
 func (s *Sidebar) choiceClicks(gtx layout.Context, c *choices, a *model.Activity, open func()) {
 	cur := choicesOf(a)
 	for i := range c.btn {
-		for c.btn[i].Clicked(gtx) {
-			from := c.held[i]
-			if from.pane == "" { // pressed and released within this frame
-				from = c.shown
-			}
+		c.heldClicks(gtx, &c.btn[i], &c.held[i], func(from choiceSet) {
 			if from.same(cur, i) {
 				s.events = append(s.events, Press{PaneID: cur.pane, At: cur.at, Label: cur.labels[i]})
 			}
-			c.held[i] = choiceSet{}
-		}
-		switch {
-		case !c.btn[i].Pressed():
-			c.held[i] = choiceSet{}
-		case c.held[i].pane == "":
-			c.held[i] = c.shown
-		}
+		})
 	}
 	c.shown = cur
 	for c.more.Clicked(gtx) {

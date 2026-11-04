@@ -197,10 +197,23 @@ A tab whose Claude Code or Codex asks permission shows Allow and Deny on
 its sidebar row, or on the asking pane's own row when the tab lists its
 agents, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
 focused pane, else for the shown tab. They press the same keys the
-[phone page](phone.md) does, and only while the pane still shows the prompt
-the row showed, so a click never lands on a newer question. With a decision
-model, its advice stays in the pill above them, and the button it
-recommends is outlined. Where the prompt offers to stop asking, such as
+[phone page](phone.md) does, and only while the row is current and the pane
+shows a permission prompt.
+
+When the agent's hook reported a shell command, Allow, Deny and Always also
+need the prompt to show that command. pitwall ignores wrapping and indentation
+but no other difference. If the prompt shows only part of a long command, the
+part it shows is what pitwall compares, and the rest goes unchecked. On a
+mismatch, or a prompt layout pitwall cannot read a command from, nothing is
+pressed and pitwall tells you to answer in the tab.
+
+An edit, a fetch or any other prompt with no reported command gets no such
+comparison, and neither does a row whose report came before a daemon restart.
+A newer prompt could take that answer, so read it first. A click counts only
+if the row showed the same prompt from pressing the button to releasing it.
+
+With a decision model, its advice stays in the pill above them, and the
+button it recommends is outlined. Where the prompt offers to stop asking, such as
 Claude Code's "Yes, and don't ask again" or Codex's "(a)" option, an
 **Always** button comes up beside them within a second and presses that
 option. A prompt with two such options gets no button.

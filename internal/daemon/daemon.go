@@ -1529,6 +1529,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.pathPopups, id)
 	delete(d.live.explanations, id)
 	delete(d.live.lastHook, id)
+	delete(d.live.asked, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.hookSeq, id)
 	delete(d.live.fg, id)
@@ -1688,6 +1689,14 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 
 	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
+	if cmd, ok := agent.AskedCommand(m.Payload); ok && cmd != "" {
+		if d.live.asked == nil {
+			d.live.asked = map[string]string{}
+		}
+		d.live.asked[p.ID] = cmd
+	} else if ok || derived && next.State != model.StatePendingApproval {
+		delete(d.live.asked, p.ID)
+	}
 	if derived {
 		if d.live.lastHook == nil {
 			d.live.lastHook = map[string]proto.AgentHook{}
