@@ -7,6 +7,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
@@ -22,6 +23,13 @@ func (d *Daemon) tryForkPane(ctx context.Context, m proto.ForkPane) error {
 		d.mu.Lock()
 		d.st.Notice = "Fork not started: " + err.Error()
 		d.changed()
+		d.mu.Unlock()
+	} else {
+		d.mu.Lock()
+		if strings.HasPrefix(d.st.Notice, "Fork not started: ") {
+			d.st.Notice = ""
+			d.changed()
+		}
 		d.mu.Unlock()
 	}
 	return err

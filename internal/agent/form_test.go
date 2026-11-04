@@ -52,6 +52,73 @@ func TestOffers(t *testing.T) {
 	}
 }
 
+func TestEmptyPlan(t *testing.T) {
+	g := screenFixture(t, "claude-empty-plan.txt")
+	if got := ReadScreen(g); got != ScreenForm {
+		t.Errorf("screen = %d, want form", got)
+	}
+	if got := StateOf(model.ProviderClaude, g); got != model.StatePlanReady {
+		t.Errorf("state = %q, want plan-ready", got)
+	}
+	if !FormUp(g, "1. Yes, and use auto mode\n2. No") {
+		t.Error("empty plan must hold typed text")
+	}
+	if got := Offers(model.Activity{Provider: model.ProviderClaude, State: model.StatePlanReady}, g); got != nil {
+		t.Errorf("auto mode has offers: %v", got)
+	}
+	for _, text := range []string{
+		"I will exit plan mode after writing the plan.",
+		"⏺ The dialog says Claude wants to exit plan mode.",
+		"When Claude wants to exit plan mode it calls ExitPlanMode.",
+		"The dialog asks Exit plan mode? before continuing.",
+	} {
+		chat := gridOf(text, "❯ ")
+		for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex, model.ProviderPi} {
+			if ReadScreen(chat) != ScreenNone || StateOf(provider, chat) != "" || FormUp(chat, "") {
+				t.Errorf("%s: chat text matches the empty plan screen: %q", provider, text)
+			}
+		}
+	}
+}
+
+func TestEmptyPlanTitles(t *testing.T) {
+	for _, title := range []string{
+		"Exit plan mode? · from a subagent",
+		"Exit plan mode? · from the planner agent",
+		"Exit plan mode?                                         2 of 2",
+	} {
+		t.Run(title, func(t *testing.T) {
+			g := gridOf(title, "", "Claude wants to exit plan mode", "",
+				"❯ 1. Yes, and use auto mode", "  2. No")
+			if ReadScreen(g) != ScreenForm || StateOf(model.ProviderClaude, g) != model.StatePlanReady {
+				t.Fatal("empty plan is not waiting")
+			}
+			trace := ExplainScreen(model.ProviderClaude, g)
+			if trace.Rule != "plan/claude wants to exit plan mode" {
+				t.Fatalf("rule = %q", trace.Rule)
+			}
+			if got := Offers(model.Activity{Provider: model.ProviderClaude, State: model.StatePlanReady}, g); got != nil {
+				t.Errorf("auto mode has offers: %v", got)
+			}
+		})
+	}
+}
+
+func TestEmptyPlanNarrow(t *testing.T) {
+	b, err := os.ReadFile("testdata/claude-empty-plan.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, width := range []int{20, 28, 29, 30, 40, 100} {
+		e := vt.New(width, 30, nil)
+		e.Write([]byte(strings.ReplaceAll(string(b), "\n", "\r\n")))
+		g := e.Snapshot()
+		if ReadScreen(g) != ScreenForm || State(g) != model.StatePlanReady || !FormUp(g, "") {
+			t.Errorf("width %d: empty plan is not waiting", width)
+		}
+	}
+}
+
 // The plan's other yeses raise the permission mode, and two ways to say
 // always are a guess, so neither gets a button.
 func TestOffersAmbiguous(t *testing.T) {

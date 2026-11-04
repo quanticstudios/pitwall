@@ -48,6 +48,7 @@ func TestExplainScreenEvidence(t *testing.T) {
 		{model.ProviderCodex, "Do you want to proceed?\nEsc to cancel", model.StatePendingApproval, "form/esc to cancel", "esc to cancel"},
 		{model.ProviderPi, "Would you like to proceed?\nEsc to cancel", model.StatePlanReady, "plan/would you like to proceed", "would you like to proceed"},
 		{model.ProviderClaude, "Requests your input\nEsc to cancel", model.StateAwaitingInput, "input/requests your input", "requests your input"},
+		{model.ProviderClaude, "  Exit PLAN mode?  ", model.StatePlanReady, "plan/exit plan mode?", "exit plan mode?"},
 		{model.ProviderGemini, "Action required\nEsc to cancel", model.StatePendingApproval, "pending-approval/action required", "action required"},
 		{model.ProviderOpenCode, "Permission required\nesc interrupt", model.StatePendingApproval, "pending-approval/permission required", "permission required"},
 		{model.ProviderAider, "Add file? (Y)es/(N)o\n❯", model.StateAwaitingInput, "awaiting-input/(y)es/(n)o", "(y)es/(n)o"},

@@ -158,6 +158,33 @@ func TestForkFailureNotice(t *testing.T) {
 	}
 }
 
+func TestForkSuccessNotice(t *testing.T) {
+	for _, notice := range []string{"", "A worktree has no tab."} {
+		t.Run(notice, func(t *testing.T) {
+			f := &fakes{statsCalls: map[string]int{}}
+			d := newDaemon(t, f.options())
+			must(t, d.handle(t.Context(), proto.NewSession{Cwd: t.TempDir(), Cmd: []string{"codex", "fork", "source"}}))
+			d.mu.Lock()
+			src := d.st.Panes[0].ID
+			d.st.Panes[0].Provider = model.ProviderCodex
+			d.mu.Unlock()
+			if err := d.handle(t.Context(), proto.ForkPane{Pane: src}); err == nil || !strings.HasPrefix(d.state().Notice, "Fork not started: ") {
+				t.Fatalf("fresh fork: error=%v, notice=%q", err, d.state().Notice)
+			}
+			d.mu.Lock()
+			d.st.Panes[0].SessionID = "child"
+			if notice != "" {
+				d.st.Notice = notice
+			}
+			d.mu.Unlock()
+			must(t, d.handle(t.Context(), proto.ForkPane{Pane: src}))
+			if got := d.state().Notice; got != notice {
+				t.Errorf("successful fork notice = %q, want %q", got, notice)
+			}
+		})
+	}
+}
+
 func TestPendingForkRestart(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	d := newDaemon(t, f.options())

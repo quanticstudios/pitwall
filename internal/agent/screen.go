@@ -27,12 +27,23 @@ const screenLines = 12
 // does not prove a turn ended; the caller also checks the screen is still.
 func ReadScreen(g vt.Grid) Screen { return activePatterns.Load().readScreen(g, nil) }
 
+// why: schema 1 has no whole-row list, so these rows are matched in code.
+func (trace *ScreenTrace) emptyPlan(kind, line, low string) bool {
+	low = strings.TrimSpace(low)
+	for _, pattern := range []string{"exit plan mode?", "claude wants to exit plan mode"} {
+		if trace.check(kind+"/"+pattern, pattern, line, low == pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *screenPatterns) readScreen(g vt.Grid, trace *ScreenTrace) Screen {
 	lines := bottomLines(g, screenLines)
 	busy := false
 	for _, l := range lines {
 		low := strings.ToLower(l)
-		if trace.containsAny("form", p.Common.Form, l, low) {
+		if trace.containsAny("form", p.Common.Form, l, low) || trace.emptyPlan("form", l, low) {
 			return ScreenForm
 		}
 		busy = busy || trace.containsAny("busy", p.Common.Busy, l, low)
@@ -63,7 +74,7 @@ func (p *screenPatterns) state(g vt.Grid, trace *ScreenTrace) model.AgentState {
 	for _, l := range bottomLines(g, screenLines) {
 		low := strings.ToLower(l)
 		switch {
-		case trace.containsAny("plan", p.Common.Plan, l, low):
+		case trace.containsAny("plan", p.Common.Plan, l, low) || trace.emptyPlan("plan", l, low):
 			trace.decide("plan")
 			return model.StatePlanReady
 		// Claude's AskUserQuestion and MCP input forms, Codex's question form.
