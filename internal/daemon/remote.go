@@ -232,7 +232,7 @@ func (d *Daemon) bindAsked(pane string, prev *model.Activity, next model.Activit
 // before that prompt's hook arrives. A prompt with no known command passes.
 func sameCommand(a model.Activity, asked string, g vt.Grid) error {
 	if a.State == model.StatePendingApproval && asked != "" && !agent.CommandShown(a.Provider, g, asked) {
-		return errors.New("the prompt on screen is not the one the row showed; answer it in its tab")
+		return errors.New("pitwall could not confirm the prompt on screen is the one the row showed; answer it in its tab")
 	}
 	return nil
 }
