@@ -404,7 +404,7 @@ func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.W
 		if !force {
 			return fmt.Errorf("%s; use --force to remove it", message)
 		}
-		fmt.Fprintln(errOut, "Warning: "+message)
+		fmt.Fprintln(errOut, "Warning: "+message+". Teardown is skipped with --force.")
 	}
 	_, pathErr := os.Stat(path)
 	if !force && !errors.Is(pathErr, os.ErrNotExist) {

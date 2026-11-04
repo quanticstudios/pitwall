@@ -187,19 +187,19 @@ func TestWorktreeRemoveSharedFolder(t *testing.T) {
 	}
 	before := model.State{Workspaces: []model.Workspace{{ID: "owner", Path: path, WorktreeRoot: repo}, {ID: "fork", Path: path, NameSet: true, Name: "side question"}}}
 	var stderr bytes.Buffer
-	if err := removeWorktree(context.Background(), nil, &stderr, before, repo, "shared", false); err == nil || !strings.Contains(err.Error(), "side question") {
+	if err := removeWorktree(context.Background(), nil, nil, &stderr, before, repo, "shared", false, false, proto.Level); err == nil || !strings.Contains(err.Error(), "side question") {
 		t.Fatalf("rm: %v", err)
 	}
-	fakeCLI(t, cliExchange{request: proto.DeleteWorkspace{WorkspaceID: "owner", Force: true}, state: model.State{}})
+	fakeCLI(t, cliExchange{request: proto.DeleteWorkspace{WorkspaceID: "owner", Force: true, SkipTeardown: true}, state: model.State{}})
 	conn, err := dialCLI()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	if err := removeWorktree(context.Background(), conn, &stderr, before, repo, "shared", true); err != nil {
+	if err := removeWorktree(context.Background(), conn, nil, &stderr, before, repo, "shared", true, false, proto.Level); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stderr.String(), "side question") || !strings.Contains(stderr.String(), "without their folder") {
+	if !strings.Contains(stderr.String(), "side question") || !strings.Contains(stderr.String(), "without their folder") || !strings.Contains(stderr.String(), "Teardown is skipped") {
 		t.Fatalf("warning %q", stderr.String())
 	}
 }

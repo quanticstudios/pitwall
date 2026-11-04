@@ -277,3 +277,47 @@ func TestGoneWorktreeCanBeDeletedWithTeardown(t *testing.T) {
 		t.Fatalf("notice %q", d.state().Notice)
 	}
 }
+
+func TestSharedWorktreeRefusesBeforeTeardown(t *testing.T) {
+	for _, mode := range []string{"delete", "archive", "orphan", "force", "force skips"} {
+		t.Run(mode, func(t *testing.T) {
+			d, repo, cfg := teardownRepo(t)
+			owner := reviewTree(t, d, "feature")
+			sub := filepath.Join(owner.Path, "sub")
+			must(t, os.Mkdir(sub, 0o700))
+			must(t, d.handle(t.Context(), proto.NewSession{Name: "side question", Cwd: sub}))
+			must(t, os.WriteFile(cfg, []byte("[worktrees]\nteardown = 'touch ../../stopped'"), 0o600))
+			if mode == "orphan" {
+				must(t, d.handle(t.Context(), proto.KillSession{WorkspaceID: owner.ID}))
+				if err := d.handle(t.Context(), proto.DeleteWorktree{Root: repo, Path: owner.Path, Force: true}); err == nil {
+					t.Fatal("shared orphan removed")
+				}
+			} else if mode == "archive" {
+				mergeReviewTrees(d, t.Context())
+				d.worktreeJobs.Wait()
+			} else if err := d.handle(t.Context(), proto.DeleteWorkspace{WorkspaceID: owner.ID}); err == nil {
+				t.Fatal("shared worktree removed")
+			}
+			if _, err := os.Stat(sub); err != nil {
+				t.Fatal("shared folder lost", err)
+			}
+			marker := filepath.Join(repo, "stopped")
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatal("teardown ran before the shared-folder refusal", err)
+			}
+			if !strings.Contains(d.state().Notice, "side question") {
+				t.Fatalf("missing shared-folder notice: %q", d.state().Notice)
+			}
+			if strings.HasPrefix(mode, "force") {
+				must(t, d.handle(t.Context(), proto.DeleteWorkspace{WorkspaceID: owner.ID, Force: true, SkipTeardown: mode == "force skips"}))
+				if _, err := os.Stat(owner.Path); !os.IsNotExist(err) {
+					t.Fatal("forced worktree remains", err)
+				}
+				_, err := os.Stat(marker)
+				if (err == nil) != (mode == "force") {
+					t.Fatalf("forced teardown: %v", err)
+				}
+			}
+		})
+	}
+}

@@ -125,6 +125,8 @@ while another tab uses that folder or a folder inside it. The error names
 the other tab. The delete dialog warns before **Delete anyway**; the CLI
 requires `--force` and prints the same warning. Closing a tab alone keeps
 the worktree folder.
+This refusal happens before teardown. **Delete anyway** runs trusted teardown
+and any repo command you approve. `worktree rm --force` skips teardown.
 
 <img src="media/fork-delete-dark.png" alt="Shared-folder warning before deleting a worktree, dark theme" width="480"> <img src="media/fork-delete-light.png" alt="Shared-folder warning before deleting a worktree, light theme" width="480">
 
@@ -706,6 +708,7 @@ Set `archive_on_merge = true` under `[git]` to archive a merged worktree
 tab without the click. If another tab uses its folder or a subfolder,
 archiving refuses and shows a notice naming that tab. After closing the
 other tab, archive manually; closing it does not retry the automatic archive.
+Teardown does not run when archiving refuses a shared folder.
 
 In Settings, Agents, Pull requests, turn on **Send CI failures automatically**
 or **Send requested changes automatically**. Both are off by default. The

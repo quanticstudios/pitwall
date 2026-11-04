@@ -400,7 +400,7 @@ func (u *ui) deleteChanges(ws string) []gl.FlexChild {
 	}
 	var used []gl.FlexChild
 	if len(r.UsedBy) > 0 {
-		used = append(used, note("warn", "Also used by "+strings.Join(r.UsedBy, ", ")+". Removing this folder leaves those tabs without their folder."))
+		used = append(used, note("warn", "Also used by "+strings.Join(r.UsedBy, ", ")+". Removing this folder leaves those tabs without their folder. Forced removal runs trusted teardown and any repo command you approve."))
 	}
 	if r.Err != "" {
 		return append(used, note("warn", r.Err))

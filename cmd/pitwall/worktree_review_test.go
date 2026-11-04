@@ -166,3 +166,44 @@ func TestWorktreeFailurePrintedOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestWorktreeLocalSharedTeardown(t *testing.T) {
+	repo := gitRepo(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, _, err := gitstat.AddWorktree(t.Context(), repo, "shared", model.WorktreeFrom{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(config.Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.Path(), []byte("[worktrees]\nteardown = 'touch ../../stopped'"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := model.State{Workspaces: []model.Workspace{{ID: "owner", Path: path}, {ID: "fork", Path: filepath.Join(path, "sub"), Name: "side question", NameSet: true}}}
+	var stderr strings.Builder
+	if err := removeWorktree(t.Context(), nil, nil, &stderr, state, repo, "shared", false, true, proto.Level); err == nil || !strings.Contains(err.Error(), "side question") {
+		t.Fatalf("shared removal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "stopped")); !os.IsNotExist(err) {
+		t.Fatal("teardown ran before shared-folder refusal", err)
+	}
+	fakeCLI(t, cliExchange{request: proto.KillSession{WorkspaceID: "owner"}, state: model.State{}})
+	conn, err := dialCLI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := removeWorktree(t.Context(), conn, nil, &stderr, state, repo, "shared", true, true, proto.Level); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("forced worktree remains", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "stopped")); !os.IsNotExist(err) {
+		t.Fatal("force ran teardown", err)
+	}
+	if !strings.Contains(stderr.String(), "side question") || !strings.Contains(stderr.String(), "Teardown is skipped") {
+		t.Fatalf("warning: %s", &stderr)
+	}
+}
