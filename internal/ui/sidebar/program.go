@@ -48,9 +48,10 @@ func tabProgram(st *model.State, ws model.Workspace, subs []model.AgentPane) *mo
 	return best
 }
 
-// agentReport reports whether pane's program report comes from the pane's
-// own agent, as Codex ("codex") and Claude Code ("claude-code") send one
-// naming themselves: the agent's mark and pill already say who it is.
+// agentReport reports whether pane's program report comes from an agent, as
+// Codex ("codex") and Claude Code ("claude-code") send one naming themselves:
+// the agent's mark and pill already say who it is. The report's own name
+// counts, since the pane's provider empties while the foreground is a command.
 func agentReport(st *model.State, pane model.Pane) bool {
 	if pane.Program == nil || pane.Program.App == "" {
 		return false
@@ -58,7 +59,7 @@ func agentReport(st *model.State, pane model.Pane) bool {
 	is := func(p model.Provider) bool {
 		return model.IsAgent(p) && (sameAgent(pane.Program.App, string(p)) || sameAgent(pane.Program.App, AgentName(p)))
 	}
-	if is(pane.Provider) {
+	if is(pane.Provider) || slices.ContainsFunc(model.Agents, is) {
 		return true
 	}
 	return slices.ContainsFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == pane.ID && is(a.Provider) })

@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- Agent status rows no longer bring back the agent's name while it runs a command in the foreground.
+
 ## v0.1.12
 
 - Fleet tests inspect queued messages under a delivery lock; pi/omp hook tests wait for completed delivery with a deadline. Chat snapshot tests limit allocations, and a benchmark measures load time.
