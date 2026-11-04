@@ -23,7 +23,7 @@ func TestWorktreeCLIConfigProblemsAllowRemoval(t *testing.T) {
 			repo := gitRepo(t)
 			t.Chdir(repo)
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-			t.Setenv("PITWALL_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
+			t.Setenv("PITWALL_SOCKET", sockPath(t, "none.sock"))
 			path, _, err := gitstat.AddWorktree(context.Background(), repo, "feature", model.WorktreeFrom{})
 			if err != nil {
 				t.Fatal(err)
@@ -148,7 +148,7 @@ func TestWorktreeFailurePrintedOnce(t *testing.T) {
 		t.Run(command, func(t *testing.T) {
 			repo := gitRepo(t)
 			t.Chdir(repo)
-			t.Setenv("PITWALL_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
+			t.Setenv("PITWALL_SOCKET", sockPath(t, "none.sock"))
 			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 			if _, _, err := gitstat.AddWorktree(context.Background(), repo, "feature", model.WorktreeFrom{}); err != nil {
 				t.Fatal(err)
