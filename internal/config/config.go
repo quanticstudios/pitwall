@@ -318,7 +318,7 @@ type Settings struct {
 	Decisions DecideSettings
 	// MaxRunning is [agents] max_running: 0 for no limit.
 	MaxRunning int
-	// KeepAwake prevents idle sleep while agents work and for KeepAwakeGrace afterward.
+	// KeepAwake blocks Linux sleep or macOS idle sleep during work and for KeepAwakeGrace afterward.
 	KeepAwake      bool
 	KeepAwakeGrace time.Duration
 	// StartupPerAgentDelay is the gap between restored agent launches.

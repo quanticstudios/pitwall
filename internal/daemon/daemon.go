@@ -85,9 +85,9 @@ type Pane interface {
 // Options are the daemon's collaborators. New wires the real packages; tests
 // pass fakes to NewWith.
 type Options struct {
-	// KeepAwake reads the live idle-sleep setting; nil leaves it off.
+	// KeepAwake reads [agents] keep_awake and keep_awake_grace live; nil leaves it off.
 	KeepAwake func() (bool, time.Duration)
-	// InhibitIdle holds idle sleep until its closer closes.
+	// InhibitIdle blocks Linux sleep or macOS idle sleep until its closer closes.
 	InhibitIdle func(context.Context) (io.Closer, error)
 	// UpdateScreenPatterns refreshes detection rules until ctx ends; nil
 	// leaves the active rules alone without reading a cache or using the network.

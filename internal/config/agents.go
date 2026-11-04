@@ -11,7 +11,7 @@ import (
 
 // AgentLimits is [agents].
 type AgentLimits struct {
-	KeepAwake         *bool         `toml:"keep_awake" doc:"Block sleep while an agent works, including chat turns. Screens can lock and sleep. Linux may refuse manual Suspend and the sleep key; a closed lid may still suspend. Off by default; Linux and macOS only"`
+	KeepAwake         *bool         `toml:"keep_awake" doc:"Block Linux sleep or macOS idle sleep while agents work, including chat turns. Screens can lock and sleep. Linux may refuse Suspend or the sleep key; macOS manual sleep works. A closed lid may still suspend. Off by default"`
 	KeepAwakeGrace    *string       `toml:"keep_awake_grace" doc:"How long to hold the sleep inhibitor after no agent works, as a duration such as 15m or 1h. Default 15m; 0s releases at once. Applies live"`
 	ACP               []ACPAgent    `toml:"acp" doc:"ACP v1 agents for managed chats, each a [[agents.acp]] table. See docs/acp.md"`
 	MaxRunning        *float64      `toml:"max_running" min:"0" max:"100" doc:"How many agents may run at once in a session before its queued tasks wait; a queued task starts when one of them finishes (done, failed or closed). 0 sets no limit: a queued task then waits for an agent of its session to finish, or starts at once when none runs"`

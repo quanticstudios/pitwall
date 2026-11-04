@@ -78,7 +78,7 @@ conflict_radar = true                   # mark tabs whose branches change the sa
 
 [agents]
 startup_per_agent_delay_ms = 100         # gap after each restored agent; 0 starts all at once
-keep_awake = false                      # block sleep while agents work, Linux and macOS
+keep_awake = false                      # block Linux sleep or macOS idle sleep during work
 keep_awake_grace = "15m"                 # duration after no agent works; 0s releases at once
 
 [[agents.preset]]                       # Settings, Agents adds and edits these
@@ -116,7 +116,7 @@ recently used session first. The gaps add 1.1 seconds for a dozen agents.
 60000 and takes effect on the next daemon restart. Set it to 0 to start all
 agents at once. Shells and other non-agent panes start immediately.
 
-`[agents] keep_awake` is off by default. When enabled, the daemon blocks
+`[agents] keep_awake` is off by default. It blocks Linux sleep or macOS idle
 sleep while any agent is Working, including a chat turn. Waiting for
 approval or at a prompt does not count. `keep_awake_grace` accepts a
 non-negative duration such as `15m`, `1h` or `0s`, with a default of `15m`.
@@ -132,15 +132,15 @@ while the lock is held. A closed lid may still suspend the machine; that
 follows the machine's settings. Compositor idle daemons may also need to
 honor sleep inhibitors.
 
-Systemd 262.1's [idle action](https://github.com/systemd/systemd/blob/v262.1/src/login/logind.c#L1062)
-passes idle suspend through the [sleep inhibitor check](https://github.com/systemd/systemd/blob/v262.1/src/login/logind-action.c#L220).
+Systemd 262.1's [idle action](https://github.com/systemd/systemd/blob/v262.1/src/login/logind.c#L1160)
+passes idle suspend through the [sleep inhibitor check](https://github.com/systemd/systemd/blob/v262.1/src/login/logind-action.c#L234).
 Real suspend, other `IdleAction` values and desktop overrides remain
 unverified.
 
 macOS runs `caffeinate -i -w <daemon pid>` only while the inhibitor is needed.
-Windows and other platforms do nothing. If taking the inhibitor fails, the
-daemon logs once and leaves agents running; it retries after a daemon
-restart.
+It prevents idle sleep only; it does not block manual sleep. Windows and
+other platforms do nothing. If taking the inhibitor fails, the daemon logs
+once and leaves agents running; it retries after a daemon restart.
 
 An agent stuck in Working keeps the machine awake without a time limit,
 even if its row says quiet. A failed turn that sends no hook can cause

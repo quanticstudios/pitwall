@@ -1259,7 +1259,7 @@ func (p *Page) agents() []section {
 		}})
 	rows = append(rows, row{label: "Agents at once", desc: "How many agents may run in a session before queued tasks wait for one to finish. 0 sets no limit: a queued task then waits for any agent of its session to finish.",
 		extra: "queue tasks max_running limit", control: p.stepper("agents", "max_running", float64(p.s.MaxRunning), 0, 100, 1, 0)})
-	rows = append(rows, row{label: "Keep awake", desc: "Block sleep during work. Screens can lock and sleep. Linux may refuse Suspend or the sleep key; a closed lid may suspend. Linux and macOS.",
+	rows = append(rows, row{label: "Keep awake", desc: "Linux blocks sleep; macOS blocks only idle sleep. Screens can lock and sleep. Linux may refuse Suspend or the sleep key; a closed lid may suspend.",
 		extra: "sleep inhibit keep_awake", control: p.toggle("agents", "keep_awake", p.s.KeepAwake)})
 	rows = append(rows, p.keepAwakeGraceRow())
 	rows = append(rows, row{label: "Resume after limit", desc: "When Claude Code or Codex stops on its plan's usage limit, types continue into it a minute after the limit resets. Defers to Claude's own auto-continue unless its user settings explicitly turn it off; managed or command-line overrides can differ, so keep only one enabled. The tab's pill shows when; typing in the pane or Cancel resume in the tab's menu drops it. A daemon restart drops it too.",
