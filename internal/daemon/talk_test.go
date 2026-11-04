@@ -342,6 +342,44 @@ func draftDaemon(t *testing.T) (*Daemon, *fakePane) {
 	return d, f.pane(0)
 }
 
+func TestEmptyPlanTitlesHoldMessages(t *testing.T) {
+	for _, title := range []string{
+		"Exit plan mode? · from a subagent",
+		"Exit plan mode? · from the planner agent",
+		"Exit plan mode?                                         2 of 2",
+	} {
+		t.Run(title, func(t *testing.T) {
+			d, p := draftDaemon(t)
+			setScreen(p, strings.Split(strings.Replace(emptyPlanScreen, "Exit plan mode?", title, 1), "\n"))
+			if err := d.send(proto.Send{Pane: "a", Text: "continue"}); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(200 * time.Millisecond)
+			if got := p.got(); got != "" {
+				t.Fatalf("typed %q into the empty plan", got)
+			}
+			d.mu.Lock()
+			queued := len(d.mail.queue["a"])
+			d.mu.Unlock()
+			if queued != 1 {
+				t.Fatalf("queue = %d, want 1", queued)
+			}
+		})
+	}
+}
+
+func TestPlanQuoteAcceptsMessage(t *testing.T) {
+	d, p := draftDaemon(t)
+	setScreen(p, []string{"The dialog says Claude wants to exit plan mode.", "❯ "})
+	if err := d.send(proto.Send{Pane: "a", Text: "continue"}); err != nil {
+		t.Fatal(err)
+	}
+	want := scriptHeader + "continue\r"
+	if got := gotAfter(t, p, 0, len(want)); got != want {
+		t.Fatalf("chat quote holds message: got %q, want %q", got, want)
+	}
+}
+
 func draftHeld(d *Daemon, pane string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()

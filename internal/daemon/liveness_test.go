@@ -57,9 +57,10 @@ func (p *livePane) show(s string, moving bool) {
 }
 
 const (
-	idleScreen    = "  ⎿  Interrupted · What should Claude do instead?\n❯"
-	spinnerScreen = "✢ Nesting… (9s · ↓ 232 tokens)\n❯"
-	formScreen    = " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n Esc to cancel · Tab to amend"
+	idleScreen      = "  ⎿  Interrupted · What should Claude do instead?\n❯"
+	spinnerScreen   = "✢ Nesting… (9s · ↓ 232 tokens)\n❯"
+	formScreen      = " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n Esc to cancel · Tab to amend"
+	emptyPlanScreen = "Exit plan mode?\n\nClaude wants to exit plan mode\n\n❯ 1. Yes, and use auto mode\n  2. No"
 )
 
 // liveDaemon opens one pane under a hooked agent in state whose foreground
@@ -188,6 +189,40 @@ func TestAnswerAtApproval(t *testing.T) {
 				t.Errorf("got %q, want %q", s, tc.want)
 			}
 		})
+	}
+}
+
+func TestEmptyPlanKeepsWaiting(t *testing.T) {
+	for _, title := range []string{
+		"Exit plan mode?",
+		"Exit plan mode? · from a subagent",
+		"Exit plan mode? · from the planner agent",
+		"Exit plan mode?                                         2 of 2",
+	} {
+		t.Run(title, func(t *testing.T) {
+			d, lp, id := liveDaemon(t, model.StatePlanReady)
+			lp.show(strings.Replace(emptyPlanScreen, "Exit plan mode?", title, 1), false)
+			d.settle(id, time.Now())
+			if s := d.stateOf(id); s != model.StatePlanReady {
+				t.Fatalf("empty plan settled to %q", s)
+			}
+			// The screen also holds queued messages if the hook's state is gone.
+			d.mu.Lock()
+			d.dropActivity(id)
+			d.mu.Unlock()
+			if _, busy, err := d.ready(id); !busy || err == nil {
+				t.Fatalf("empty plan accepts a queued message: busy=%v, err=%v", busy, err)
+			}
+		})
+	}
+}
+
+func TestPlanQuoteSettlesIdle(t *testing.T) {
+	d, lp, id := liveDaemon(t, model.StateWorking)
+	lp.show("⏺ The dialog says Claude wants to exit plan mode.\n❯", false)
+	d.settle(id, time.Now())
+	if s := d.stateOf(id); s != "" {
+		t.Fatalf("chat quote keeps state %q", s)
 	}
 }
 

@@ -221,6 +221,8 @@ so a typed reply could not go in. A question without a menu keeps **Reply**.
 A Plan row has **Approve plan** where Claude Code's dialog offers "Yes,
 manually approve edits". It presses that option, never one that also raises
 the permission mode, and a dialog without it gets no button.
+Claude Code's "Exit plan mode?" dialog for an empty plan keeps the row in
+Plan and holds queued messages until you answer it in the tab.
 
 The row's **Request changes…**, shortened to **Changes…** beside Approve plan,
 is on the planning pane's or worker's own row when the tab lists them. It

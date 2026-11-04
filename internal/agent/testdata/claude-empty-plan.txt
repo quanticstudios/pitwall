@@ -1,0 +1,6 @@
+Exit plan mode?
+
+Claude wants to exit plan mode
+
+❯ 1. Yes, and use auto mode
+  2. No

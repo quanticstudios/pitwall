@@ -38,6 +38,16 @@ func restorePatterns(t *testing.T) {
 	t.Cleanup(func() { activePatterns.Store(p) })
 }
 
+func TestEmbeddedScreenPatternsSchema1(t *testing.T) {
+	p, err := parseScreenPatterns(embeddedPatterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.SchemaVersion != 1 {
+		t.Fatalf("embedded schema = %d, want 1", p.SchemaVersion)
+	}
+}
+
 func TestParseScreenPatterns(t *testing.T) {
 	if _, err := parseScreenPatterns(embeddedPatterns); err != nil {
 		t.Fatal(err)
