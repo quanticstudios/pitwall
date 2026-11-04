@@ -205,8 +205,9 @@ need the prompt to show that command. pitwall allows for line wrapping and the
 prompt's own indent, and any other difference counts, spaces included. If the
 prompt shows only part of a long command, the part it shows is what pitwall
 compares, and the rest goes unchecked. pitwall cannot compare a command with a
-line break, which means any multi-line command, a tab or another character that
-does not print, so it always refuses those. On a refusal, a mismatch or a prompt
+line break, which means any multi-line command, a tab, a space other than a
+plain one or a character that does not print, even at its very start or end, so
+it always refuses those. On a refusal, a mismatch or a prompt
 layout pitwall cannot read a command from, nothing is pressed and pitwall tells
 you to answer in the tab.
 

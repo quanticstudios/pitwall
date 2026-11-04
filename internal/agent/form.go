@@ -291,12 +291,12 @@ const wrapSlack = 4
 // prompt that shows part of a long command is compared on that part. A layout it
 // does not know has no command to compare, so that is false too.
 func CommandShown(p model.Provider, g vt.Grid, command string) bool {
-	want := strings.TrimSpace(command)
-	// why: a newline or tab has no one way to look on screen, and part of the
-	// command may be off screen. A refusal costs one trip to the tab.
-	if strings.ContainsFunc(want, func(r rune) bool { return !unicode.IsGraphic(r) }) {
+	// why: a newline, tab or other space has no one way to look on screen, and
+	// part of the command may be off screen. A refusal costs one trip to the tab.
+	if strings.ContainsFunc(command, func(r rune) bool { return r != ' ' && (unicode.IsSpace(r) || !unicode.IsGraphic(r)) }) {
 		return false
 	}
+	want := strings.Trim(command, " ")
 	rows := screenRows(g)
 	opts := formOptions(rows)
 	if len(opts) == 0 {

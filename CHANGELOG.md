@@ -16,8 +16,8 @@ release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
 ## Unreleased
-- Claude Code's empty-plan dialog keeps its Plan status and holds queued messages; a successful fork clears a fork failure notice.
 
+- Claude Code's empty-plan dialog keeps its Plan status and holds queued messages; a successful fork clears a fork failure notice.
 - Allow, Deny and Always now press only if the permission prompt on screen shows the shell command the agent's hook reported, comparing as much of it as fits on screen; otherwise pitwall presses nothing and tells you to answer in the tab. A command with a line break or a tab is always refused this way. Prompts with no reported command, such as an edit or a fetch, keep the old check. A click on Allow or Deny also counts only if the row showed the same prompt from press to release.
 
 ## v0.1.14
