@@ -272,7 +272,7 @@ func fakeState(now time.Time) model.State {
 	st.Activities = append(st.Activities,
 		model.Activity{PaneID: "trio-1", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: ago(time.Minute)},
 		model.Activity{PaneID: "trio-2", WorkspaceID: "ws-trio", Provider: model.ProviderCodex, State: model.StatePendingApproval,
-			Detail: "Bash: go test ./internal/billing/...", UpdatedAt: ago(3 * time.Minute)},
+			Detail: "Bash: go test ./internal/billing/...", Buttons: []string{"Allow always"}, UpdatedAt: ago(3 * time.Minute)},
 		model.Activity{PaneID: "trio-3", WorkspaceID: "ws-trio", Provider: model.ProviderClaude, State: model.StateCompleted, UpdatedAt: ago(8 * time.Minute)})
 	// An orchestrator with three workers it opened, one asking.
 	add("ws-orch", "", "Ship the inbox and tab search", "", 2*time.Minute, model.ProviderClaude, model.StateWorking)
@@ -280,26 +280,44 @@ func fakeState(now time.Time) model.State {
 	add("ws-w2", "", "tab-search", "tab-search", 2*time.Minute, model.ProviderCodex, model.StatePendingApproval)
 	st.Activities[len(st.Activities)-1].Detail = "Bash: go test ./internal/ui/app/..."
 	add("ws-w3", "", "eng-2945-migrations", "eng-2945-migrations", 6*time.Minute, model.ProviderClaude, model.StateCompleted)
-	for i := len(st.Workspaces) - 3; i < len(st.Workspaces); i++ {
+	add("ws-w4", "", "cache-store", "cache-store", 3*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
+	st.Activities[len(st.Activities)-1].Detail = "Which database should the cache use?"
+	st.Activities[len(st.Activities)-1].Buttons = []string{"Redis", "SQLite"}
+	for i := len(st.Workspaces) - 4; i < len(st.Workspaces); i++ {
 		st.Workspaces[i].Parent = "ws-orch"
 	}
 	add("ws-sidebar", "p-api", "Add rate limiting to the public API", "rate-limit", 40*time.Second, model.ProviderClaude, model.StateWorking)
 	st.Workspaces[len(st.Workspaces)-1].Status = "CI 3/7 · waiting on review" // from pitwall status
 	add("ws-term", "p-api", "Paginate the orders endpoint", "orders-pagination", 2*time.Minute, model.ProviderCodex, model.StateConnecting)
 	add("ws-daemon", "p-api", "Rotate the signing keys", "key-rotation", 5*time.Minute, model.ProviderClaude, model.StatePendingApproval)
+	st.Activities[len(st.Activities)-1].Buttons = []string{"Allow always"}
 	add("ws-conflict", "p-api", "Retry failed webhooks", "webhook-retry", 9*time.Minute, model.ProviderClaude, model.StateError)
 	add("ws-pi", "p-api", "Port the parser", "parser-port", 7*time.Minute, model.ProviderPi, model.StateCompleted)
 	// A finished turn whose branch has an open pull request.
 	add("ws-propen", "p-api", "Cache the price lookups", "price-cache", 4*time.Minute, model.ProviderCodex, model.StatePROpen)
 	add("ws-plan", "p-api", "Split the billing service", "billing-split", 22*time.Minute, model.ProviderClaude, model.StatePlanReady)
+	st.Activities[len(st.Activities)-1].Buttons = []string{"Approve plan"}
 	// A working agent whose screen has been still for 24 minutes.
 	add("ws-quiet", "p-api", "Summarize the incident", "incident-notes", 25*time.Minute, model.ProviderGemini, model.StateWorking)
 	st.Activities[len(st.Activities)-1].QuietSince = ago(24 * time.Minute)
 	add("ws-hotkeys", "p-web", "Fix the checkout race", "fix/checkout-race", 12*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
+	// A question's options: short, long enough to cut, too many to fit, and a
+	// multi-select form, which only opens its tab.
+	add("ws-q-short", "p-web", "Pick the cache", "cache-store", 2*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
+	st.Activities[len(st.Activities)-1].Detail = "Which database should the cache use?"
+	st.Activities[len(st.Activities)-1].Buttons = []string{"Redis", "SQLite"}
+	add("ws-q-long", "p-web", "Pick the migration", "migrate-orders", 3*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
+	st.Activities[len(st.Activities)-1].Detail = "How should the orders table move?"
+	st.Activities[len(st.Activities)-1].Buttons = []string{"Copy it in one long transaction", "Backfill in batches behind a flag"}
+	add("ws-q-many", "p-web", "Pick the region", "region-pick", 4*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
+	st.Activities[len(st.Activities)-1].Detail = "Which region should it deploy to?"
+	st.Activities[len(st.Activities)-1].Buttons = []string{"Frankfurt", "Amsterdam", "Helsinki", "Warsaw", "Dublin", "Madrid"}
+	add("ws-q-menu", "p-web", "Pick the checks", "ci-checks", 5*time.Minute, model.ProviderClaude, model.StateAwaitingInput)
+	st.Activities[len(st.Activities)-1].Menu = true
 	add("ws-release", "p-web", "Release 2.3", "release/2.3", 26*time.Hour, model.ProviderCodex, model.StateCompleted)
 	add("ws-ci", "", "CI watch", "", 30*time.Second, model.ProviderTerminal, model.StateTerminalRunning)
 	// The inbox's pinned, settled and snoozed tabs.
-	st.Workspaces[len(st.Workspaces)-3].Pinned = true // ws-hotkeys
+	st.Workspaces[slices.IndexFunc(st.Workspaces, func(w model.Workspace) bool { return w.ID == "ws-hotkeys" })].Pinned = true
 	st.Workspaces[len(st.Workspaces)-2].Settled = ago(2 * time.Hour)
 	for i := range st.Workspaces {
 		if st.Workspaces[i].ID == "ws-pi" {

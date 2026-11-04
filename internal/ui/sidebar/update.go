@@ -497,6 +497,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 		drain(&r.allow)
 		drain(&r.deny)
 		drain(&r.reply)
+		r.choices.drain(gtx)
 		drain(&r.pr)
 		drain(&r.archive)
 		drain(&r.settle)

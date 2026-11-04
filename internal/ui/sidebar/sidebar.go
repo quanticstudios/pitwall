@@ -268,6 +268,7 @@ type rowState struct {
 	allow, deny        widget.Clickable // a pending approval's answers
 	plan               widget.Clickable // a plan's Request changes…
 	reply              widget.Clickable // a question's Reply
+	choices            choices          // the answers its Buttons name
 	pr, archive        widget.Clickable // the PR chip, and Archive once it merged
 	settle             widget.Clickable // the inbox's Settle or Unsettle
 	settleSaw          rowKey           // the row as drawn when that press began
@@ -705,7 +706,7 @@ func (s *Sidebar) project(id string) *projectState {
 
 // hovered reports whether the pointer is over the row or its buttons.
 func (r *rowState) hovered() bool {
-	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() || r.reply.Hovered() ||
+	return r.click.Hovered() || r.more.Hovered() || r.close.Hovered() || r.allow.Hovered() || r.deny.Hovered() || r.reply.Hovered() || r.choices.hovered() ||
 		r.pr.Hovered() || r.archive.Hovered() || r.settle.Hovered() || r.fold.Hovered() || r.kids.Hovered()
 }
 

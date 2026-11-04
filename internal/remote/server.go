@@ -88,6 +88,10 @@ func Replies(s model.AgentState) bool {
 	return s == model.StateAwaitingInput || s == model.StateCompleted || s == model.StateError || s == model.StatePROpen
 }
 
+// TakesReply reports whether a reply typed for a goes in: its state takes
+// one and its screen shows no menu, where Enter would pick an option.
+func TakesReply(a model.Activity) bool { return Replies(a.State) && !a.Menu }
+
 // Items lists st's panes that need you, most pressing first.
 func Items(st model.State) []Item {
 	acts := make([]model.Activity, 0, len(st.Activities))
@@ -100,7 +104,7 @@ func Items(st model.State) []Item {
 	out := make([]Item, 0, len(acts))
 	for _, a := range acts {
 		it := Item{Pane: a.PaneID, At: a.UpdatedAt.UnixNano(), Agent: string(a.Provider), State: string(a.State),
-			Label: model.PillLabel(a), Detail: a.Detail, Risk: a.AdviceRule, Reply: Replies(a.State)}
+			Label: model.PillLabel(a), Detail: a.Detail, Risk: a.AdviceRule, Reply: TakesReply(a)}
 		if a.Advice != "" {
 			it.Advice = fmt.Sprintf("%s %.0f%%", a.Advice, a.AdviceP*100)
 		}

@@ -157,3 +157,12 @@ func TestWireVerdict(t *testing.T) {
 		}
 	}
 }
+
+// A message's Since above Level never reaches a daemon of this same build.
+func TestSinceWithinLevel(t *testing.T) {
+	for _, m := range Messages {
+		if Since(m) > Level {
+			t.Errorf("%T needs level %d, Level is %d", m, Since(m), Level)
+		}
+	}
+}

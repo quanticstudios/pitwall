@@ -1116,6 +1116,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.seePane(m.Pane)
 	case proto.Answer:
 		return d.remoteAnswer(m.Pane, m.At, m.Allow)
+	case proto.Press:
+		return d.pressOffer(m.Pane, m.At, m.Label)
 	case proto.Prompt:
 		return d.prompt(m)
 	case proto.Send:

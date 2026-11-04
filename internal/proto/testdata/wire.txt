@@ -1,10 +1,10 @@
-18.60
+18.61
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
 image.Rectangle{Min image.Point; Max image.Point}
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
-model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time}
+model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time; Options []string; OptionNotes []string; Buttons []string; Menu bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
 model.Chat{ID string; WorkspaceID string; Provider model.Provider; Model string; Effort string; Mode string; Title string; RecentPrompt string; Pinned bool; State string; Pending int; Queued int; Turns int; Seq int64; UpdatedAt time.Time}
 model.Check{Name string; State model.CheckState}
@@ -98,6 +98,7 @@ proto.OpenPopup{WorkspaceID string; Pane string; Cmd []string; Dir string; Width
 proto.PaneExited{Pane string; ExitCode int}
 proto.PasteImage{Pane string; Data []uint8}
 proto.PasteImageResult{Pane string; Path string; Err string}
+proto.Press{Pane string; At int64; Label string}
 proto.Prompt{Pane string; Text string}
 proto.Read{Pane string; Screen bool}
 proto.ReadResult{Pane string; Text string; Err string}

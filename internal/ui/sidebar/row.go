@@ -107,14 +107,14 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	planning := s.planning(v, ws.ID, ghost, own)
 	asking := s.replyable(v, ws.ID, ghost, own)
 	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning && !asking
+	// Left of where "…" and "×" show, hovered or not, so the buttons never
+	// move under the pointer; line 2's fold chip or group tag keeps its room.
+	answerEnd := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
+	answerG := gtx
+	answerG.Constraints = layout.Constraints{Max: image.Pt(max(answerEnd-gtx.Dp(32)-answerRoom(gtx, v, ws.ID, subs), 0), answerHeight(gtx, th))}
 	answerW := 0
-	if answering || planning {
-		answerW = answerSize(gtx, th, *own, base, planning).X
-	}
-	if asking {
-		m := op.Record(gtx.Ops)
-		answerW = replyButton(gtx, th, nil, base).Size.X
-		m.Stop()
+	if answering || planning || asking {
+		answerW = answerSize(answerG, th, *own, base).X
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		// pl-3 pr-3
@@ -324,24 +324,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	// "×" at the right of line 2, centred on it, and "…" before it. The ×
 	// has no hidden hit area: a stray click there must not close the tab.
 	pos := image.Pt(w-gtx.Dp(12)+x-btn, pad+l1+gtx.Dp(4)+(l2-btn)/2)
-	if answering {
-		// Left of where "…" and "×" show, hovered or not, so the buttons
-		// never move under the pointer.
-		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
-		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
-		answerButtons(gtx, th, &r.allow, &r.deny, *own, base)
-		off.Pop()
-	}
-	if planning {
-		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
-		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
-		planButton(gtx, th, &r.plan, base)
-		off.Pop()
-	}
-	if asking {
-		end := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
-		off := op.Offset(image.Pt(end-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
-		replyButton(gtx, th, &r.reply, base)
+	if answering || planning || asking {
+		off := op.Offset(image.Pt(answerEnd-answerW, pad+l1+gtx.Dp(4)+(l2-answerHeight(gtx, th))/2)).Push(gtx.Ops)
+		answerArea(answerG, th, answerBtns{allow: &r.allow, deny: &r.deny, plan: &r.plan, reply: &r.reply, choices: &r.choices}, *own, base)
 		off.Pop()
 	}
 	if showMore {

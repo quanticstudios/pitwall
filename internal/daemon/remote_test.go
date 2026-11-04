@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -191,6 +193,9 @@ func TestRemoteReply(t *testing.T) {
 		st, _ := do("POST", "/api/reply", string(b))
 		return st
 	}
+	f.pane(0).mu.Lock()
+	f.pane(0).screen = []string{"> "}
+	f.pane(0).mu.Unlock()
 	evil := "yes\x1b[201~\x03rm -rf ~\r\nand more\x1b[200~"
 	f.pane(0).mu.Lock()
 	f.pane(0).modes = vt.Modes{BracketedPaste: true}
@@ -245,6 +250,205 @@ func TestGUIAnswer(t *testing.T) {
 	}
 	if got := gotAfter(t, f.pane(1), 0, 1); got != "\x1b" {
 		t.Fatalf("deny sent %q", got)
+	}
+}
+
+// setForm shows lines on pane i and gives its activity a's fields, as if a
+// hook had reported them.
+func setForm(t *testing.T, d *Daemon, f *fakes, i int, pane string, a model.Activity, lines ...string) int64 {
+	t.Helper()
+	p := f.pane(i)
+	p.mu.Lock()
+	p.screen, p.input = lines, nil
+	p.mu.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	cur := &d.st.Activities[d.activityIndex(pane)]
+	cur.State, cur.Detail, cur.Options = a.State, a.Detail, a.Options
+	return cur.UpdatedAt.UnixNano()
+}
+
+var questionForm = []string{"Which fruit do you prefer?", "> 1. apple", "  2. banana", "  3. Type something.", "Enter to select · ↑/↓ to navigate · Esc to cancel"}
+
+// A row's button presses the key the form on screen gives its label, and
+// only while that form is the one the activity is about.
+func TestPressOffer(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	ctx := context.Background()
+	q := model.Activity{State: model.StateAwaitingInput, Detail: "Which fruit do you prefer?", Options: []string{"apple", "banana"}}
+	at := setForm(t, d, f, 0, "a", q, questionForm...)
+	press := func(pane, label string, at int64) error {
+		return d.handle(ctx, proto.Press{Pane: pane, At: at, Label: label})
+	}
+	if err := press("a", "banana", at); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "2" {
+		t.Fatalf("banana sent %q", got)
+	}
+
+	// The same options under a newer question, and a screen that moved on.
+	for name, lines := range map[string][]string{
+		"another question": {"Which color?", "> 1. apple", "  2. banana", "Enter to select · Esc to cancel"},
+		"other options":    {"Which fruit do you prefer?", "> 1. pear", "  2. banana", "Enter to select · Esc to cancel"},
+		"cursor in field":  {"Which fruit do you prefer?", "  1. apple", "  2. banana", "> 3. Type something.", "Enter to select · Esc to cancel"},
+		"a prompt":         {"> "},
+		"a permission":     {"Do you want to proceed?", "> 1. Yes", "  2. No", "Esc to cancel"},
+	} {
+		at := setForm(t, d, f, 0, "a", q, lines...)
+		if err := press("a", "apple", at); err == nil || f.pane(0).got() != "" {
+			t.Errorf("%s: pressed: %v %q", name, err, f.pane(0).got())
+		}
+	}
+	at = setForm(t, d, f, 0, "a", q, questionForm...)
+	if err := press("a", "apple", at-1); err == nil || f.pane(0).got() != "" {
+		t.Errorf("stale At: %v %q", err, f.pane(0).got())
+	}
+	if err := press("a", "cherry", at); err == nil || f.pane(0).got() != "" {
+		t.Errorf("label not offered: %v %q", err, f.pane(0).got())
+	}
+
+	// Codex's Allow always is its letter, not its number.
+	at = setForm(t, d, f, 1, "b", model.Activity{State: model.StatePendingApproval, Detail: "x"},
+		"Would you like to run the following command?", "› 1. Yes, proceed (y)", "  2. Yes, and don't ask again for this command (a)", "  3. No, and tell Codex what to do differently (esc)", "Press enter to confirm or esc to cancel")
+	if err := press("b", agent.AllowAlways, at); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(1), 0, 1); got != "a" {
+		t.Fatalf("always sent %q", got)
+	}
+
+	// pi has no keys pitwall knows.
+	at = setForm(t, d, f, 2, "c", q, questionForm...)
+	if err := press("c", "apple", at); err == nil || f.pane(2).got() != "" {
+		t.Errorf("pi: %v %q", err, f.pane(2).got())
+	}
+}
+
+// Allow on a screen that shows a plan or question instead of the permission
+// prompt its row showed would pick that form's first option.
+func TestAllowNeedsPermissionForm(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := setForm(t, d, f, 0, "a", model.Activity{State: model.StatePendingApproval}, "Would you like to proceed?", "> 1. Yes, and use auto mode", "  2. No, keep planning")
+	if err := d.remoteAnswer("a", at, true); err == nil || f.pane(0).got() != "" {
+		t.Errorf("allowed a plan: %v %q", err, f.pane(0).got())
+	}
+	at = setForm(t, d, f, 0, "a", model.Activity{State: model.StatePendingApproval}, questionForm...)
+	if err := d.remoteAnswer("a", at, true); err == nil || f.pane(0).got() != "" {
+		t.Errorf("allowed a question: %v %q", err, f.pane(0).got())
+	}
+}
+
+// A phone's reply on a menu is refused: its Enter would pick the highlighted
+// option, and what was typed would be lost.
+func TestReplyRefusesMenu(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := setForm(t, d, f, 0, "a", model.Activity{State: model.StateAwaitingInput, Detail: "Which fruit?"}, questionForm...)
+	if err := d.remoteReply("a", at, "plum"); err == nil || f.pane(0).got() != "" {
+		t.Fatalf("typed into a menu: %v %q", err, f.pane(0).got())
+	}
+	// A free-text form takes it, and so does a finished turn.
+	at = setForm(t, d, f, 0, "a", model.Activity{State: model.StateAwaitingInput, Detail: "Your name?"}, "Claude requests your input", "Your name: ", "Enter to submit")
+	if err := d.remoteReply("a", at, "plum"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 5); got != "plum\r" {
+		t.Errorf("reply %q", got)
+	}
+}
+
+// checkForms puts on the activity what the screen offers, keeps its
+// UpdatedAt, and takes it back when the form goes.
+func TestCheckForms(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	q := model.Activity{State: model.StateAwaitingInput, Detail: "Which fruit do you prefer?", Options: []string{"apple", "banana"}}
+	at := setForm(t, d, f, 0, "a", q, questionForm...)
+	read := func() model.Activity {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex("a")]
+	}
+	d.checkForms()
+	if a := read(); !slices.Equal(a.Buttons, q.Options) || !a.Menu || a.UpdatedAt.UnixNano() != at {
+		t.Fatalf("with the form: %+v", a)
+	}
+	// A hook's announcement holds Menu until its form could be drawn; then the
+	// screen decides, and the buttons follow it from the start.
+	setForm(t, d, f, 0, "a", q, "> ")
+	d.checkForms()
+	if a := read(); len(a.Buttons) != 0 || !a.Menu {
+		t.Fatalf("form not drawn yet: %+v", a)
+	}
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex("a")].UpdatedAt = time.Now().Add(-formDraw)
+	d.mu.Unlock()
+	d.checkForms()
+	if a := read(); a.Menu {
+		t.Fatalf("form never came: %+v", a)
+	}
+	setForm(t, d, f, 0, "a", q, questionForm...)
+	d.checkForms()
+	if a := read(); !a.Menu {
+		t.Fatalf("form drawn: %+v", a)
+	}
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex("a")].State = model.StateWorking
+	d.mu.Unlock()
+	d.checkForms()
+	if a := read(); a.Menu {
+		t.Fatalf("no longer asking: %+v", a)
+	}
+}
+
+// A menu drawn between a reply's paste and its Enter does not get the Enter.
+func TestReplyHoldsEnterForMenu(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := setForm(t, d, f, 0, "a", model.Activity{State: model.StateAwaitingInput, Detail: "Your name?"}, "Claude requests your input", "Your name: ")
+	defer replyDelay.set(replyDelay.set(200 * time.Millisecond))
+	p := f.pane(0)
+	p.mu.Lock()
+	p.wrote = func() {
+		p.screen = []string{"Which database?", "> 1. Redis", "  2. SQLite", "Press enter to confirm or esc to cancel"}
+	}
+	p.mu.Unlock()
+	if err := d.remoteReply("a", at, "plum"); err == nil {
+		t.Error("no error for the held Enter")
+	}
+	if got := p.got(); got != "plum" {
+		t.Errorf("sent %q", got)
+	}
+}
+
+// A stale state does not let a reply into a form on screen.
+func TestReplyRefusesFormWhateverTheState(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := setForm(t, d, f, 0, "a", model.Activity{State: model.StateCompleted}, questionForm...)
+	if err := d.remoteReply("a", at, "plum"); err == nil || f.pane(0).got() != "" {
+		t.Errorf("typed into a form: %v %q", err, f.pane(0).got())
+	}
+}
+
+// A footer quoted in output is not a form, so Enter goes.
+func TestReplyEnterIgnoresOldHint(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := setForm(t, d, f, 0, "a", model.Activity{State: model.StateCompleted}, "The menu says Enter to select", "> ")
+	if err := d.remoteReply("a", at, "plum"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 5); got != "plum\r" {
+		t.Errorf("sent %q", got)
+	}
+}
+
+// A hook that announced a menu holds a reply before the menu is on screen.
+func TestReplyRefusesAnnouncedMenu(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	at := setForm(t, d, f, 0, "a", model.Activity{State: model.StateAwaitingInput, Detail: "Which?"}, "> ")
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex("a")].Menu = true
+	d.mu.Unlock()
+	if err := d.remoteReply("a", at, "plum"); err == nil || f.pane(0).got() != "" {
+		t.Errorf("typed before the menu: %v %q", err, f.pane(0).got())
 	}
 }
 

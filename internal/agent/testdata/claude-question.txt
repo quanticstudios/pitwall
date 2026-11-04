@@ -1,0 +1,16 @@
+⏺ I need to pick a store.
+
+────────────────────────────────────────────────────────────────────────────────
+ ☐ Cache
+
+Which database should the cache use?
+
+❯ 1. Redis
+     Fast, runs as a service
+  2. SQLite
+     One file, no service
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -77,9 +77,17 @@ type Answer struct {
 	Allow  bool
 }
 
+// Press is a click on one of a row's other answers: proto.Press for a form's
+// option, Allow always or Approve plan.
+type Press struct {
+	PaneID string
+	At     int64 // the activity's UpdatedAt in Unix nanoseconds
+	Label  string
+}
+
 // RequestChanges is a reply typed on a Plan row: the app queues Text for
-// the agent in PaneID, typed once it waits at its prompt. pitwall never
-// answers the plan dialog itself.
+// the agent in PaneID, typed once it waits at its prompt, after the user
+// answered the plan dialog.
 type RequestChanges struct {
 	PaneID string
 	Text   string

@@ -23,6 +23,8 @@ build. Either step takes `--dry-run`.
 
 - Keep awake in Settings blocks sleep on Linux and idle sleep on macOS while agents work, with a configurable grace period afterward.
 
+- A terminal Claude Code or Codex row answers more of what it asks: a question's options, Always on a permission prompt and Approve plan press their key, only while the screen still shows that form. A typed reply no longer goes into a menu of options, where its Enter picked the highlighted one.
+
 ## v0.1.13
 
 - Agent status rows no longer bring back the agent's name while it runs a command in the foreground.

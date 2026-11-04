@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -118,7 +119,7 @@ func TestStartupRestoreCloseAndStop(t *testing.T) {
 	d.mu.Lock()
 	snapshot := d.saveSnapshot()
 	d.mu.Unlock()
-	if !slices.Equal(snapshot.Activities, f.saved.Activities[:2]) {
+	if !reflect.DeepEqual(snapshot.Activities, f.saved.Activities[:2]) {
 		t.Fatalf("queued activities lost on save: %+v", snapshot.Activities)
 	}
 	d.mu.Lock()

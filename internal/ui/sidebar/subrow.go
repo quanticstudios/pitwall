@@ -41,6 +41,7 @@ const chevronDur = 150 * time.Millisecond
 // tag for a right click, and its eased fill.
 type subRow struct {
 	click, allow, deny, plan widget.Clickable
+	choices                  choices
 	ctx                      int
 	easedFill
 }
@@ -129,7 +130,7 @@ func subTab(e elem) string {
 }
 
 func (r *subRow) hovered() bool {
-	return r.click.Hovered() || r.allow.Hovered() || r.deny.Hovered() || r.plan.Hovered()
+	return r.click.Hovered() || r.allow.Hovered() || r.deny.Hovered() || r.plan.Hovered() || r.choices.hovered()
 }
 
 func (s *Sidebar) sub(pane string) *subRow {
@@ -181,12 +182,13 @@ func subPlanning(v *view, e subEntry) bool {
 }
 
 // subAsks reports whether e's sub-row has a second line, for Allow and
-// Deny or Request changes….
+// Deny, Request changes… or a question's options.
 func (s *Sidebar) subAsks(v *view, e subEntry) bool {
-	return s.subAnswering(v, e) || subPlanning(v, e)
+	a := v.prompt(e)
+	return s.subAnswering(v, e) || subPlanning(v, e) || a != nil && a.State == model.StateAwaitingInput && len(a.Buttons) > 0
 }
 
-// answerHeight is the Allow and Deny buttons' height: answerH, or more
+// answerHeight is the answer buttons' height: answerH, or more
 // for a large ui_size.
 func answerHeight(gtx layout.Context, th *theme.Theme) int {
 	return max(gtx.Dp(answerH), gtx.Sp(th.Sp(theme.Caption)*1.6))
@@ -296,7 +298,6 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	r := s.sub(e.id())
 	a, p := v.act(e), v.prompt(e)
 	answering := !ghost && s.subAsks(v, e)
-	plan := answering && !s.subAnswering(v, e)
 	w := gtx.Constraints.Max.X
 	h := subHeight(gtx, th, answering)
 	line, pad, inset := gtx.Sp(th.Sp(theme.Small)*1.5), gtx.Dp(3), gtx.Dp(8)
@@ -334,9 +335,12 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 			kit.FocusRing(gtx, th, image.Rectangle{Max: size}.Inset(g), max(rr-g, 0))
 		}
 	}
+	// What it asks to do keeps a few words beside them.
+	answerG := gtx
+	answerG.Constraints = layout.Constraints{Max: image.Pt(max(size.X-2*inset-gtx.Dp(18+6+36), 0), answerHeight(gtx, th))}
 	answerW := 0
 	if answering {
-		answerW = answerSize(gtx, th, *p, base, plan).X
+		answerW = answerSize(answerG, th, *p, base).X
 	}
 	content := func(gtx layout.Context) layout.Dimensions {
 		g := gtx
@@ -401,11 +405,7 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 	area.Pop()
 	if answering {
 		o := op.Offset(image.Pt(size.X-inset-answerW, pad+line+pad)).Push(gtx.Ops)
-		if plan {
-			planButton(gtx, th, &r.plan, base)
-		} else {
-			answerButtons(gtx, th, &r.allow, &r.deny, *p, base)
-		}
+		answerArea(answerG, th, answerBtns{allow: &r.allow, deny: &r.deny, plan: &r.plan, choices: &r.choices}, *p, base)
 		o.Pop()
 	}
 	if e.worker != nil && s.menuWS == e.worker.ID {
@@ -556,6 +556,13 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 					s.startReply(id, v.prompt(e).PaneID)
 				}
 			}
+			s.choiceClicks(gtx, &r.choices, v.prompt(e), func() {
+				if e.worker != nil {
+					s.click(v, id, 0)
+				} else {
+					s.clickPane(v, tab, id, 0)
+				}
+			})
 			for {
 				ev, ok := gtx.Event(pointer.Filter{Target: &r.ctx, Kinds: pointer.Press})
 				if !ok {

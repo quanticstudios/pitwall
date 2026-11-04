@@ -245,6 +245,10 @@ func cardFor(v *view, ws model.Workspace) card {
 	if a := v.activity[ws.ID]; a != nil {
 		c.state, c.detail, c.quiet = a.State, clampDetail(a.Detail), QuietText(v.now, a)
 		c.decision = AdviceText(*a, v.st.Decide.Provider)
+		// A pill on the row may cut its option short.
+		if a.State == model.StateAwaitingInput && len(a.Buttons) > 0 {
+			c.detail = clampDetail(a.Detail + " " + strings.Join(a.Buttons, " / "))
+		}
 	}
 	c.status = ws.Status
 	c.radar = radarEntries(v, ws)
