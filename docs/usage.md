@@ -1065,8 +1065,11 @@ terminal (see [Command line](cli.md)).
 
 A repository's config can name programs that git runs, such as `core.fsmonitor`
 or a filter in `.git/config`. An agent can write that file, and pitwall runs git
-by itself: for branch stats, checkpoints and worktrees. So the git pitwall
-starts, and the git inside `gh` when the daemon calls it, runs none of these:
+by itself: for branch stats, checkpoints and worktrees. So pitwall reads the
+repository's config just before each git command it starts, and before the
+daemon calls `gh`, and turns off what it finds. A program added in the moment
+between the two can still run, so this reduces the risk and is not a sandbox
+boundary. What it turns off:
 
 - hooks, in `.git/hooks`, under `core.hooksPath` or from `hook.<name>.command`,
   your global ones too, so a worktree pitwall makes runs no `post-checkout`
@@ -1074,7 +1077,8 @@ starts, and the git inside `gh` when the daemon calls it, runs none of these:
 - `core.fsmonitor` and automatic gc
 - external diff and textconv drivers, pagers and editors
 - filter and merge drivers, `core.sshCommand`, credential helpers, signing
-  programs and upload-pack paths, when the repository's own config sets them
+  programs and upload-pack paths, when the repository's own config sets them,
+  also in a file it includes under a condition that does not hold yet
 
 The same keys from your global or system config still apply: a `filter.lfs`
 that `git lfs install` wrote to `~/.gitconfig` works, even when the repository
@@ -1096,9 +1100,7 @@ So do hooks on Create pull request, and what `git add -p` runs for Stage hunks i
 terminal.
 
 This does not contain an agent. One that runs without a sandbox or an approval
-prompt can already run any program, as you. It stops such an agent's config edit
-from running a program later, through pitwall, after you have taken away its
-permission or stopped watching.
+prompt can already run any program, as you.
 
 ### Tab search
 

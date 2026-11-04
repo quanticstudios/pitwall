@@ -134,6 +134,7 @@ func poisonedRepo(t *testing.T, p *probes) string {
 			t.Fatal(err)
 		}
 		mustPlain(t, root, "config", "--add", "hook.planted.event", name)
+		mustPlain(t, root, "config", "--add", "hook..event", name)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".git", "info", "attributes"), []byte("*.txt filter=drv diff=drv merge=drv\n*.proc filter=proc\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -142,6 +143,7 @@ func poisonedRepo(t *testing.T, p *probes) string {
 		{"core.fsmonitor", p.script("fsmonitor")},
 		{"core.hooksPath", hooks},
 		{"hook.planted.command", p.script("hook-config")},
+		{"hook..command", p.script("hook-empty")},
 		{"diff.external", p.script("external")},
 		{"diff.drv.textconv", p.script("textconv")},
 		{"diff.drv.command", p.script("driver-command")},
@@ -188,7 +190,7 @@ func TestPoisonRunsUnderPlainGit(t *testing.T) {
 	want := []string{"clean", "driver-command", "external", "fsmonitor", "hook-file", "merge", "process", "smudge", "textconv"}
 	// An older git has no hooks in config, and no planted hook to list.
 	if out, err := exec.Command("git", "-C", root, "hook", "list", "reference-transaction").Output(); err == nil && strings.Contains(string(out), "planted") {
-		want = append(want, "hook-config")
+		want = append(want, "hook-config", "hook-empty")
 	}
 	for _, name := range want {
 		if !slices.Contains(got, name) {
@@ -457,8 +459,8 @@ func TestRepoFilterRefuses(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".git", "info", "attributes"), []byte("*.txt filter=crypt\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if name, err := repoFilter(ctx, root); err != nil || name != "crypt" {
-		t.Fatalf("repoFilter = %q, %v, want crypt", name, err)
+	if key, err := repoFilter(ctx, root); err != nil || key != "filter.crypt.clean" {
+		t.Fatalf("repoFilter = %q, %v, want filter.crypt.clean", key, err)
 	}
 	for name, err := range map[string]error{
 		"StageFiles":  StageFiles(ctx, root, []string{"a.txt"}, false),
@@ -467,7 +469,7 @@ func TestRepoFilterRefuses(t *testing.T) {
 		"UndoTurn":    UndoTurn(ctx, root, "w"),
 		"RedoTurn":    RedoTurn(ctx, root, "w"),
 	} {
-		if err == nil || !strings.Contains(err.Error(), "crypt filter") {
+		if err == nil || !strings.Contains(err.Error(), "filter.crypt.clean") {
 			t.Errorf("%s = %v, want a refusal naming the filter", name, err)
 		}
 	}
@@ -479,6 +481,183 @@ func TestRepoFilterRefuses(t *testing.T) {
 	}
 	if got := p.ran(); len(got) > 0 {
 		t.Errorf("ran the repository's programs: %v", got)
+	}
+}
+
+// TestEmptyNamesRunNothing: git takes an empty subsection as a name, and an
+// attribute's empty value picks it, so filter..clean runs for filter=.
+func TestEmptyNamesRunNothing(t *testing.T) {
+	p := newProbes(t)
+	isolate(t, p.dir, "")
+	root := filepath.Join(p.dir, "repo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, root, "init", "-q")
+	writeFile(t, root, "a.txt", "main\n")
+	mustPlain(t, root, "add", ".")
+	mustPlain(t, root, "commit", "-qm", "first")
+	mustPlain(t, root, "switch", "-qc", "feat")
+	writeFile(t, root, "a.txt", "feat\n")
+	mustPlain(t, root, "commit", "-qam", "feat")
+	mustPlain(t, root, "switch", "-q", "main")
+	writeFile(t, root, "a.txt", "mine\n")
+	mustPlain(t, root, "commit", "-qam", "mine")
+	if err := os.WriteFile(filepath.Join(root, ".git", "info", "attributes"), []byte("*.txt filter= merge= diff=\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range [][2]string{
+		{"filter..clean", p.script("clean")},
+		{"merge..driver", p.script("merge")},
+		{"diff..command", p.script("driver-command")},
+		{"diff..textconv", p.script("textconv")},
+	} {
+		mustPlain(t, root, "config", kv[0], kv[1])
+	}
+	staleStat(t, filepath.Join(root, "a.txt"), "edit\n")
+	plain(t, root, nil, "status", "--porcelain")
+	plain(t, root, nil, "diff", "HEAD", "--")
+	plain(t, root, nil, "diff", "--no-ext-diff", "HEAD", "--")
+	plain(t, root, nil, "merge-tree", "--write-tree", "main", "feat")
+	got := p.ran()
+	for _, name := range []string{"clean", "driver-command", "merge", "textconv"} {
+		if !slices.Contains(got, name) {
+			t.Errorf("plain git did not run the %s probe, so nothing here checks it; it ran %v", name, got)
+		}
+	}
+	ctx := context.Background()
+	if _, err := Status(ctx, root); err != nil {
+		t.Error(err)
+	}
+	if _, err := Diff(ctx, root); err != nil {
+		t.Error(err)
+	}
+	if _, err := Conflicts(ctx, root, "main", "feat"); err != nil {
+		t.Error(err)
+	}
+	if _, err := Checkpoint(ctx, root, "w"); err != nil {
+		t.Error(err)
+	}
+	if got := p.ran(); len(got) > 0 {
+		t.Errorf("ran the repository's programs: %v", got)
+	}
+	// The diff flags stop these two as well, so only the override can show here,
+	// for the git inside gh, which takes no flags from pitwall.
+	env, err := Env(ctx, root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"diff..command", "diff..textconv"} {
+		if !slices.ContainsFunc(env, func(kv string) bool { return strings.HasSuffix(kv, "="+key) }) {
+			t.Errorf("Env has no override for %s", key)
+		}
+	}
+	if err := StageFiles(ctx, root, []string{"a.txt"}, false); err == nil || !strings.Contains(err.Error(), "filter..clean") {
+		t.Errorf("StageFiles = %v, want a refusal naming filter..clean", err)
+	}
+}
+
+// TestConditionalConfigRunsNothing: a file the repository includes under a
+// condition that holds only in the new worktree names a filter and a hook. Env
+// reads config in the source worktree, where the condition does not hold.
+func TestConditionalConfigRunsNothing(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup func(t *testing.T, root, poison string)
+	}{
+		{"onbranch", func(t *testing.T, root, poison string) {
+			mustPlain(t, root, "config", "includeIf.onbranch:made.path", poison)
+		}},
+		{"gitdir", func(t *testing.T, root, poison string) {
+			mustPlain(t, root, "config", "includeIf.gitdir:**/worktrees/made.path", poison)
+		}},
+		{"relative and nested in an included file", func(t *testing.T, root, poison string) {
+			outer := filepath.Join(root, ".git", "outer-config")
+			if err := os.WriteFile(outer, []byte("[includeIf \"onbranch:made\"]\n\tpath = late-config\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			mustPlain(t, root, "config", "include.path", "outer-config")
+		}},
+		{"nested in a conditional file", func(t *testing.T, root, poison string) {
+			outer := filepath.Join(root, ".git", "outer-config")
+			if err := os.WriteFile(outer, []byte("[includeIf \"onbranch:made\"]\n\tpath = late-config\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			mustPlain(t, root, "config", "includeIf.onbranch:made.path", "outer-config")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := newProbes(t)
+			isolate(t, p.dir, "")
+			root := filepath.Join(p.dir, "repo")
+			if err := os.Mkdir(root, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			mustPlain(t, root, "init", "-q")
+			writeFile(t, root, ".gitattributes", "*.txt filter=late\n")
+			writeFile(t, root, "a.txt", "a\n")
+			mustPlain(t, root, "add", ".")
+			mustPlain(t, root, "commit", "-qm", "first")
+			poison := filepath.Join(root, ".git", "late-config")
+			body := "[filter \"late\"]\n\tsmudge = " + p.script("smudge") + "\n[hook \"late\"]\n\tcommand = " + p.script("hook") +
+				"\n\tevent = reference-transaction\n\tevent = post-checkout\n"
+			if err := os.WriteFile(poison, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			c.setup(t, root, poison)
+
+			wt := filepath.Join(p.dir, "made")
+			plain(t, root, nil, "worktree", "add", "-q", "-b", "made", wt)
+			if got := p.ran(); !slices.Contains(got, "smudge") {
+				t.Fatalf("plain git worktree add did not run the included filter, so nothing here can be checked; it ran %v", got)
+			}
+			plain(t, root, nil, "worktree", "remove", "--force", wt)
+			plain(t, root, nil, "branch", "-qD", "made")
+			p.ran()
+
+			ctx := context.Background()
+			path, _, err := AddWorktree(ctx, root, "made", model.WorktreeFrom{Kind: model.FromNew})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := p.ran(); len(got) > 0 {
+				t.Errorf("AddWorktree ran the included programs: %v", got)
+			}
+			if got := readFile(t, path, "a.txt"); got != "a\n" {
+				t.Errorf("a.txt in the worktree is %q, want its blob unfiltered", got)
+			}
+			if _, err := Status(ctx, path); err != nil {
+				t.Error(err)
+			}
+			if got := p.ran(); len(got) > 0 {
+				t.Errorf("Status in the worktree ran the included programs: %v", got)
+			}
+		})
+	}
+}
+
+// TestEnvReadsInactiveIncludes is the conditions and paths no command here makes
+// true: hasconfig, for a remote added later, and a path from home.
+func TestEnvReadsInactiveIncludes(t *testing.T) {
+	p := newProbes(t)
+	isolate(t, p.dir, "")
+	t.Setenv("HOME", p.dir)
+	root := filepath.Join(p.dir, "repo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, root, "init", "-q")
+	if err := os.WriteFile(filepath.Join(p.dir, "late-config"), []byte("[filter \"late\"]\n\tclean = planted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, root, "config", "includeIf.hasconfig:remote.*.url:https://late/**.path", "~/late-config")
+	mustPlain(t, root, "config", "includeIf.onbranch:gone.path", "does-not-exist")
+	env, err := Env(context.Background(), root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(env, func(kv string) bool { return strings.HasSuffix(kv, "=filter.late.clean") }) {
+		t.Error("Env has no override for a filter in a file included under a condition that does not hold")
 	}
 }
 

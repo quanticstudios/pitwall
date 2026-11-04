@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,9 +27,10 @@ import (
 //   - Fixed settings that turn the repository's own programs off. See
 //     fixedSettings.
 //   - For each config key that names a program and is set in the repository's
-//     own config (local or worktree scope, includes counted), the value the
-//     person's system, global or command-line config gives it, or a value that
-//     runs nothing. A filter git-lfs installed in ~/.gitconfig keeps working.
+//     own config (local or worktree scope, includes counted, also ones whose
+//     condition does not hold yet), the value the person's system, global or
+//     command-line config gives it, or a value that runs nothing. A filter
+//     git-lfs installed in ~/.gitconfig keeps working.
 //     A filter set only in .git/config does not run, so its files are read as
 //     they are on disk. See repoFilter for what must not do that.
 //   - On diff and status, flags config cannot override. See guardArgs.
@@ -58,9 +60,11 @@ func Command(ctx context.Context, dir string, args ...string) *exec.Cmd {
 // It drops the variables that would point git at another repository or index,
 // and sets git to never prompt, page or open an editor.
 //
-// ponytail: one more git per git, so a config edit counts on the next command.
-// A cache per folder would need to notice .git/config and every file it
-// includes changing.
+// why: the config is read just before each git and never cached, which keeps
+// this window small but cannot close it. A key added between this read and git's
+// own runs: overrides name their keys, so none can cover a driver not seen yet,
+// and no second read makes the two atomic. This reduces the risk; it is not a
+// sandbox boundary.
 func Env(ctx context.Context, dir string, env []string) ([]string, error) {
 	if env == nil {
 		env = os.Environ()
@@ -84,11 +88,12 @@ func Env(ctx context.Context, dir string, env []string) ([]string, error) {
 	if err != nil {
 		return out, err
 	}
+	config = append(config, conditionalConfig(ctx, dir, out, config)...)
 	return appendConfig(out, n, append(overridesFrom(config), fixedSettings()...)), nil
 }
 
-// repoFilter is a filter a config file of the repository at dir sets and the
-// person's config does not, "" for none. pitwall does not run it, so a command
+// repoFilter is the key of a filter a config file of the repository at dir sets
+// and the person's config does not, "" for none. pitwall does not run it, so a command
 // that writes the index or the work tree would store or write that file's raw
 // bytes: a plain secret where git-crypt keeps it encrypted. Those commands
 // refuse instead, through refuseRepoFilter.
@@ -98,16 +103,16 @@ func repoFilter(ctx context.Context, dir string) (string, error) {
 		return "", err
 	}
 	for _, e := range entries {
-		if e.trusted || e.value == "" || !strings.HasPrefix(e.key, "filter.") {
+		rest, isFilter := strings.CutPrefix(e.key, "filter.")
+		if e.trusted || e.value == "" || !isFilter {
 			continue
 		}
-		_, last := splitKey(e.key)
-		if last != "clean" && last != "smudge" && last != "process" {
+		_, last, named := splitKey(rest)
+		if !named || last != "clean" && last != "smudge" && last != "process" {
 			continue
 		}
 		if !slices.ContainsFunc(entries, func(t configEntry) bool { return t.trusted && t.key == e.key }) {
-			sub, _ := splitKey(strings.TrimPrefix(e.key, "filter."))
-			return sub, nil
+			return e.key, nil
 		}
 	}
 	return "", nil
@@ -115,12 +120,12 @@ func repoFilter(ctx context.Context, dir string) (string, error) {
 
 // refuseRepoFilter is the error of a command that would bypass repoFilter.
 func refuseRepoFilter(ctx context.Context, dir string) error {
-	name, err := repoFilter(ctx, dir)
+	key, err := repoFilter(ctx, dir)
 	if err != nil {
 		return err
 	}
-	if name != "" {
-		return fmt.Errorf("this repository's own config sets the %s filter, which pitwall does not run: do this in a terminal, or set the filter in your global git config", name)
+	if key != "" {
+		return fmt.Errorf("this repository's own config sets %s, which pitwall does not run: do this in a terminal, or set the filter in your global git config", key)
 	}
 	return nil
 }
@@ -164,31 +169,118 @@ func appendConfig(env []string, n int, kvs [][2]string) []string {
 // configEntry is one line of git config --list.
 type configEntry struct {
 	key, value string
-	trusted    bool // from the person's config, see trustedScope
+	origin     string // the file it is from, "" for no file
+	trusted    bool   // from the person's config, see trustedScope
 }
 
 // readConfig reads every config git would use in dir.
 func readConfig(ctx context.Context, dir string, env []string) ([]configEntry, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "config", "--show-scope", "-z", "--list")
+	out, err := gitOutput(ctx, dir, env, "config", "--show-origin", "--show-scope", "-z", "--list")
+	if err != nil {
+		return nil, err
+	}
+	return parseConfig(out), nil
+}
+
+// parseConfig reads git config --show-origin --show-scope -z --list. Each entry
+// is the scope, NUL, the origin, NUL, the key, a newline and the value, NUL; a
+// key with no value has no newline.
+func parseConfig(out []byte) []configEntry {
+	var entries []configEntry
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i+2 < len(fields); i += 3 {
+		key, value, _ := strings.Cut(fields[i+2], "\n")
+		origin := ""
+		if f, ok := strings.CutPrefix(fields[i+1], "file:"); ok {
+			origin = f
+		}
+		entries = append(entries, configEntry{key: key, value: value, origin: origin, trusted: trustedScope(fields[i])})
+	}
+	return entries
+}
+
+// gitOutput is the stdout of git args in dir, with its stderr in the error.
+func gitOutput(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	nowindow.Set(cmd)
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, fmt.Errorf("git config: %s", msg)
+			return nil, fmt.Errorf("git %s: %s", args[0], msg)
 		}
-		return nil, fmt.Errorf("git config: %w", err)
+		return nil, fmt.Errorf("git %s: %w", args[0], err)
 	}
-	// Each entry is the scope, NUL, the key, a newline and the value, NUL; a
-	// key with no value has no newline.
-	var entries []configEntry
-	fields := strings.Split(stdout.String(), "\x00")
-	for i := 0; i+1 < len(fields); i += 2 {
-		key, value, _ := strings.Cut(fields[i+1], "\n")
-		entries = append(entries, configEntry{key: key, value: value, trusted: trustedScope(fields[i])})
+	return stdout.Bytes(), nil
+}
+
+// conditionalConfig is the config in the files the repository's own config
+// includes under a condition, whether or not it holds in dir.
+//
+// why: the condition can hold for the very git being guarded and not for the
+// read before it: onbranch and gitdir for the new worktree of git worktree add,
+// hasconfig once a remote is added. Reading each file needs no condition checked.
+//
+// A file that cannot be read adds nothing: git ignores a missing one, and stops
+// on a malformed one when the condition holds, so neither can run a program.
+func conditionalConfig(ctx context.Context, dir string, env []string, entries []configEntry) []configEntry {
+	var found []configEntry
+	seen := map[string]bool{}
+	var walk func([]configEntry)
+	walk = func(list []configEntry) {
+		for _, e := range list {
+			section, rest, _ := strings.Cut(e.key, ".")
+			_, last, named := splitKey(rest)
+			if e.trusted || section != "includeif" || last != "path" || !named {
+				continue
+			}
+			path := includedFile(ctx, dir, env, e)
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			out, err := gitOutput(ctx, dir, env, "config", "--file", path, "--includes", "--show-origin", "--show-scope", "-z", "--list")
+			if err != nil {
+				continue
+			}
+			included := parseConfig(out)
+			// git calls a --file command scope; this file is the repository's.
+			for i := range included {
+				included[i].trusted = false
+			}
+			found = append(found, included...)
+			walk(included)
+		}
 	}
-	return entries, nil
+	walk(entries)
+	return found
+}
+
+// includedFile is the absolute path of the file include entry e names, as git
+// finds it: ~ and %(prefix) expanded, a relative one from the file e is in. It
+// is "" for a path git would not find.
+func includedFile(ctx context.Context, dir string, env []string, e configEntry) string {
+	p := e.value
+	if strings.HasPrefix(p, "~") || strings.HasPrefix(p, "%(") {
+		out, err := gitOutput(ctx, dir, env, "-c", "pitwall.include="+p, "config", "--type=path", "pitwall.include")
+		if err != nil {
+			return ""
+		}
+		p = strings.TrimSuffix(string(out), "\n")
+	}
+	p = filepath.FromSlash(p)
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	if e.origin == "" {
+		return ""
+	}
+	base := filepath.FromSlash(e.origin)
+	if !filepath.IsAbs(base) {
+		base = filepath.Join(dir, base)
+	}
+	return filepath.Join(filepath.Dir(base), p)
 }
 
 // overridesFrom is, for each key that names a program and has a value from the
@@ -200,12 +292,15 @@ func overridesFrom(entries []configEntry) [][2]string {
 	for _, e := range entries {
 		// why: core.hooksPath does not reach a hook config names. No hook
 		// runs here, the person's included, as with a hooks folder's.
-		if name, last := splitKey(strings.TrimPrefix(e.key, "hook.")); strings.HasPrefix(e.key, "hook.") && name != "" && (last == "command" || last == "event") {
-			if key := "hook." + name + ".enabled"; !done[key] {
-				done[key] = true
-				over = append(over, [2]string{key, "false"})
+		if rest, isHook := strings.CutPrefix(e.key, "hook."); isHook {
+			// An empty name is a name to git: hook..command runs.
+			if name, last, named := splitKey(rest); named && (last == "command" || last == "event") {
+				if key := "hook." + name + ".enabled"; !done[key] {
+					done[key] = true
+					over = append(over, [2]string{key, "false"})
+				}
+				continue
 			}
-			continue
 		}
 		if e.trusted || done[e.key] {
 			continue
@@ -237,14 +332,16 @@ func overridesFrom(entries []configEntry) [][2]string {
 	return over
 }
 
-// splitKey splits a key at its last dot: "x.clean" is "x" and "clean". git
-// prints a key's last part in lower case, and a subsection as written.
-func splitKey(key string) (rest, last string) {
-	i := strings.LastIndexByte(key, '.')
+// splitKey splits what follows a key's section at its last dot: "x.clean" is
+// "x", "clean" and true, ".clean" is the empty subsection git accepts, "clean"
+// has none. git prints a key's last part in lower case, and a subsection as
+// written.
+func splitKey(rest string) (sub, last string, hasSub bool) {
+	i := strings.LastIndexByte(rest, '.')
 	if i < 0 {
-		return "", key
+		return "", rest, false
 	}
-	return key[:i], key[i+1:]
+	return rest[:i], rest[i+1:], true
 }
 
 // trustedScope reports whether config of this scope is the person's: the
@@ -266,22 +363,22 @@ func programKey(key string) (neutral string, multi, ok bool) {
 	if !found {
 		return "", false, false
 	}
-	sub, name := splitKey(rest)
+	sub, name, hasSub := splitKey(rest)
 	switch section {
 	case "filter":
 		switch name {
 		case "clean", "smudge", "process":
-			return "", false, sub != ""
+			return "", false, hasSub
 		case "required":
-			return "false", false, sub != ""
+			return "false", false, hasSub
 		}
 	case "diff":
-		if sub == "" {
+		if !hasSub {
 			return "", false, name == "external"
 		}
 		return "", false, name == "textconv" || name == "command"
 	case "merge":
-		return "", false, sub != "" && name == "driver"
+		return "", false, hasSub && name == "driver"
 	case "gpg":
 		switch {
 		case name == "program":
@@ -296,7 +393,7 @@ func programKey(key string) (neutral string, multi, ok bool) {
 			return "", false, true
 		}
 	case "core":
-		if sub != "" {
+		if hasSub {
 			return "", false, false
 		}
 		switch name {
@@ -310,9 +407,9 @@ func programKey(key string) (neutral string, multi, ok bool) {
 	case "remote":
 		switch name {
 		case "uploadpack":
-			return "git-upload-pack", false, sub != ""
+			return "git-upload-pack", false, hasSub
 		case "receivepack":
-			return "git-receive-pack", false, sub != ""
+			return "git-receive-pack", false, hasSub
 		}
 	case "credential":
 		return "", true, name == "helper"
