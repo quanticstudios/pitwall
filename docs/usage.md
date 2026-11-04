@@ -1456,7 +1456,7 @@ with the path as its last argument and without its `:line` or `:line:col`.
 The daemon passes one absolute path without a shell, including spaces,
 quotes and leading dashes. In a `--host` tab the popup runs on that host,
 and `~/` means the host's home folder. The viewer must be installed there.
-Path popups need daemon Level 59 or newer. Quit the viewer or use the
+Path popups need daemon Level 60 or newer. Quit the viewer or use the
 Close pane action to close the popup; its current key appears on the border.
 Unset `open_path`, or set it to `[]`, to keep the desktop opener. Web links
 still open in the browser.

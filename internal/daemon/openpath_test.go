@@ -108,6 +108,14 @@ func TestPathPopupNotices(t *testing.T) {
 		t.Fatal(e)
 	}
 	st := watch.waitState("viewer", func(s model.State) bool { return s.Workspaces[0].Popup != nil })
+	plain := request
+	plain.Path = ""
+	if e := cli.request(plain); !strings.Contains(e, "popup open already") {
+		t.Fatalf("plain popup refusal: %q", e)
+	}
+	if notice := d.state().Notice; notice != "" {
+		t.Fatalf("plain popup sets a path notice: %q", notice)
+	}
 	if e := cli.request(request); !strings.Contains(e, "popup open already") {
 		t.Fatalf("second popup: %q", e)
 	}
@@ -115,9 +123,10 @@ func TestPathPopupNotices(t *testing.T) {
 	if e := cli.request(proto.DismissNotice{Notice: st.Notice}); e != "" {
 		t.Fatal(e)
 	}
+	f.pane(1).code = 1
 	f.pane(1).Close()
-	st = watch.waitState("instant exit notice", func(s model.State) bool {
-		return strings.Contains(s.Notice, "exited with status 0") && s.Workspaces[0].Popup == nil
+	st = watch.waitState("exit notice", func(s model.State) bool {
+		return strings.Contains(s.Notice, "exited with status 1") && s.Workspaces[0].Popup == nil
 	})
 	if e := cli.request(proto.DismissNotice{Notice: st.Notice}); e != "" {
 		t.Fatal(e)
@@ -137,17 +146,53 @@ func TestPathPopupNotices(t *testing.T) {
 	st = watch.waitState("second viewer", func(s model.State) bool { return s.Workspaces[0].Popup != nil })
 	id := st.Workspaces[0].Popup.Pane
 	d.mu.Lock()
-	d.pathPopups[id] = time.Now().Add(-time.Minute)
+	d.pathPopups[id] = time.Now().Add(-500 * time.Millisecond)
 	d.mu.Unlock()
 	f.pane(2).Close()
 	st = watch.waitState("normal exit", func(s model.State) bool { return s.Workspaces[0].Popup == nil })
 	if st.Notice != "" {
 		t.Fatalf("normal exit notice: %q", st.Notice)
 	}
+	if e := cli.request(request); e != "" {
+		t.Fatal(e)
+	}
+	st = watch.waitState("late viewer", func(s model.State) bool { return s.Workspaces[0].Popup != nil })
+	d.mu.Lock()
+	d.pathPopups[st.Workspaces[0].Popup.Pane] = time.Now().Add(-time.Minute)
+	d.mu.Unlock()
+	f.pane(3).code = 7
+	f.pane(3).Close()
+	st = watch.waitState("late failure notice", func(s model.State) bool {
+		return strings.Contains(s.Notice, "exited with status 7") && s.Workspaces[0].Popup == nil
+	})
+	if strings.Contains(st.Notice, "Use a viewer") {
+		t.Fatalf("a failed viewer gets paging advice: %q", st.Notice)
+	}
 	d.mu.Lock()
 	left := len(d.pathPopups)
 	d.mu.Unlock()
 	if left != 0 {
 		t.Fatalf("%d closed viewers remain", left)
+	}
+}
+
+func TestPathPopupExitNotice(t *testing.T) {
+	for _, c := range []struct {
+		viewer  string
+		code    int
+		elapsed time.Duration
+		want    string
+	}{
+		{"less", 0, 500 * time.Millisecond, ""},
+		{"less", 0, 100 * time.Millisecond, ""},
+		{"less", 0, 3 * time.Millisecond, "File viewer less exited with status 0."},
+		{"less", 1, time.Minute, "File viewer less exited with status 1."},
+		{"BAT.EXE", 0, 3 * time.Millisecond, "File viewer BAT.EXE exited with status 0."},
+		{"viewer", 1, time.Minute, "File viewer viewer exited with status 1."},
+		{"viewer", 0, 3 * time.Millisecond, "File viewer viewer exited with status 0. Use a viewer that waits, such as less or bat --paging=always."},
+	} {
+		if got := pathPopupExitNotice(c.viewer, c.code, c.elapsed); got != c.want {
+			t.Errorf("%s, %d, %v: %q, want %q", c.viewer, c.code, c.elapsed, got, c.want)
+		}
 	}
 }

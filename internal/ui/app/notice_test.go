@@ -3,6 +3,7 @@ package app
 import (
 	"image"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,19 +41,19 @@ func TestDismissStateNotice(t *testing.T) {
 	u := &ui{b: b, th: theme.Dark()}
 	var r input.Router
 	var ops op.Ops
-	frame := func() {
+	frame := func(notice string) {
 		ops.Reset()
 		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
 			Constraints: gl.Exact(image.Pt(800, 600)), Now: time.Now()}
-		u.drawStateNotice(gtx, text)
+		u.drawStateNotice(gtx, notice)
 		r.Frame(&ops)
 	}
 	click := func(at f32.Point) {
-		frame()
+		frame(text)
 		for _, k := range []pointer.Kind{pointer.Press, pointer.Release} {
 			r.Queue(pointer.Event{Kind: k, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: at})
 		}
-		frame()
+		frame(text)
 	}
 	sent := func() bool { return slices.Contains(b.Sent(), any(proto.DismissNotice{Notice: text})) }
 	// The 640dp box is centred 12dp down; its 16dp close button sits 14dp
@@ -64,5 +65,22 @@ func TestDismissStateNotice(t *testing.T) {
 	click(f32.Pt(80+640-14-8, 12+10+8))
 	if u.dismissed != text || !sent() {
 		t.Fatalf("close button: dismissed %q, sent %v", u.dismissed, b.Sent())
+	}
+	shown := func() bool {
+		for _, n := range r.AppendSemantics(nil) {
+			if strings.Contains(n.Desc.Label, text) {
+				return true
+			}
+		}
+		return false
+	}
+	frame(text)
+	if shown() {
+		t.Fatal("the dismissed notice stays visible before the daemon clears it")
+	}
+	frame("")
+	frame(text)
+	if !shown() {
+		t.Fatal("an identical notice stays hidden after an empty frame")
 	}
 }

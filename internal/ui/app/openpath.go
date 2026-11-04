@@ -25,7 +25,7 @@ func (u *ui) openPath(st *model.State, pane, path string) error {
 		return hintOpen(fileURL(path))
 	}
 	if u.link().Level < proto.PopupPathLevel {
-		return errors.New("path popups need daemon Level 59 or newer")
+		return errors.New("path popups need daemon Level 60 or newer")
 	}
 	if !u.send(proto.OpenPopup{WorkspaceID: pn.WorkspaceID, Cmd: u.cfg.OpenPath, Dir: pn.Cwd, Path: path}) {
 		return errors.New("could not send the path popup")

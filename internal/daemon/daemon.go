@@ -2138,8 +2138,10 @@ func (d *Daemon) exited(id string, p Pane) {
 	}
 	code := p.ExitCode()
 	sp := &d.st.Panes[i]
-	if at, ok := d.pathPopups[id]; ok && (code != 0 || time.Since(at) < time.Second) {
-		d.st.Notice = fmt.Sprintf("File viewer %s exited with status %d. Use a viewer that waits, such as less or bat --paging=always.", filepath.Base(sp.Cmd[0]), code)
+	if at, ok := d.pathPopups[id]; ok {
+		if notice := pathPopupExitNotice(sp.Cmd[0], code, time.Since(at)); notice != "" {
+			d.st.Notice = notice
+		}
 	}
 	// A held pane keeps a failed resume's exit, which pitwall wait reports.
 	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || !sp.Held && code != 0 && time.Since(at) < resumeGrace) {

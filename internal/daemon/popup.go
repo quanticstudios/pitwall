@@ -109,6 +109,19 @@ func (d *Daemon) openPopup(m proto.OpenPopup) error {
 	return nil
 }
 
+func pathPopupExitNotice(command string, code int, elapsed time.Duration) string {
+	if code == 0 && elapsed >= 100*time.Millisecond {
+		return ""
+	}
+	viewer := filepath.Base(command)
+	notice := fmt.Sprintf("File viewer %s exited with status %d.", viewer, code)
+	name := strings.TrimSuffix(strings.ToLower(viewer), ".exe")
+	if code == 0 && name != "less" && name != "bat" {
+		notice += " Use a viewer that waits, such as less or bat --paging=always."
+	}
+	return notice
+}
+
 // checkPathViewer refuses scripts whose interpreter parses the file argument.
 func checkPathViewer(viewer string) error {
 	ext := strings.ToLower(filepath.Ext(strings.TrimRight(viewer, " .")))

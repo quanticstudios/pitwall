@@ -1,6 +1,7 @@
 package app
 
 import (
+	"image"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,14 +9,18 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"gioui.org/io/input"
 	"gioui.org/io/key"
 	gl "gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/term"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 func TestHintOpenPath(t *testing.T) {
@@ -91,13 +96,43 @@ func TestOpenPathOlderDaemon(t *testing.T) {
 	u.pal.open = true
 	u.paths = pathPick{pane: "p", dir: st.Panes[0].Cwd, files: []string{"a.md"}, query: "\x00"}
 	u.pathPickKey(&st, press(key.NameReturn, key.ModShift))
-	if !strings.Contains(u.paths.openErr, "Level 59") || u.paths.err != "" || len(u.pathRows()) != 1 {
+	if !strings.Contains(u.paths.openErr, "Level 60") || u.paths.err != "" || len(u.pathRows()) != 1 {
 		t.Fatalf("older daemon picker: %+v", u.paths)
 	}
 	u.pathPickKey(&st, press(key.NameDownArrow, 0))
 	if u.paths.openErr != "" {
 		t.Fatalf("error stays after a key: %q", u.paths.openErr)
 	}
+	u.pathPickKey(&st, press(key.NameReturn, key.ModShift))
+	u.pal.query = "no match"
+	u.pathRows()
+	if u.paths.openErr != "" {
+		t.Fatalf("error stays after a query change: %q", u.paths.openErr)
+	}
+}
+
+func TestPathPickDrawsError(t *testing.T) {
+	b := NewFakeBackend()
+	st := b.State()
+	u := &ui{b: b, th: theme.Dark(), nav: nav{keys: conventional}}
+	u.pal.open, u.pal.files = true, true
+	u.pal.openedAt = time.Now().Add(-time.Second)
+	u.paths = pathPick{dir: t.TempDir(), files: []string{"file.md"}, query: "\x00"}
+	u.pathRows()
+	const message = "path popups need daemon Level 60 or newer"
+	u.paths.openErr = message
+	var r input.Router
+	var ops op.Ops
+	gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: gl.Exact(image.Pt(1280, 800)), Now: time.Now()}
+	u.drawPalette(gtx, &st)
+	r.Frame(&ops)
+	for _, n := range r.AppendSemantics(nil) {
+		if strings.Contains(n.Desc.Label, message) {
+			return
+		}
+	}
+	t.Fatal("the picker does not draw its error with a row present")
 }
 
 func TestPathPickOpener(t *testing.T) {
