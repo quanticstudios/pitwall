@@ -196,6 +196,25 @@ func (u *ui) hintAct(gtx gl.Context, st *model.State, t hintTarget, open bool) {
 	if p := u.panes[t.pane]; p != nil {
 		r = p.rect.Sub(u.contentOrigin)
 	}
+	if open && t.Kind == term.HintPath && len(u.cfg.OpenPath) > 0 {
+		path := lineSuffix.ReplaceAllString(t.Text, "")
+		if curHost() == "" {
+			cwd := ""
+			if pn := findPane(st, t.pane); pn != nil {
+				cwd = pn.Cwd
+			}
+			path = localPath(t.Text, cwd)
+			if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+				u.copyText(gtx, t.Text, r)
+				return
+			}
+		}
+		if err := u.openPath(st, t.pane, path); err != nil {
+			log.Printf("hints: open path %q: %v", t.Text, err)
+			u.copyText(gtx, t.Text, r)
+		}
+		return
+	}
 	target := ""
 	if open {
 		target = u.hintURL(st, t)

@@ -103,6 +103,9 @@ func (u *ui) drawNotice(gtx gl.Context) {
 // area gtx fills: an alert icon, the text wrapped to four lines and a close
 // button, which hides it here at once and sends DismissNotice.
 func (u *ui) drawStateNotice(gtx gl.Context, text string) {
+	if text != u.dismissed {
+		u.dismissed = ""
+	}
 	if text == "" || text == u.dismissed {
 		return
 	}

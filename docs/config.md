@@ -53,6 +53,7 @@ pane_gap = 4
 pane_margin = 4
 
 [terminal]
+open_path = ["bat", "--paging=always"]   # optional: path hints and Shift+Enter in the path picker open a popup
 hint_patterns = ['ENG-\d+', 'branch: (\S+)']  # more for hints mode; see usage.md, Hints
 persist_scrollback = 2000              # recent screen and history rows saved per pane; 0 disables
 
@@ -92,6 +93,11 @@ key = "Ctrl+Alt+G"                      # a free chord: no action or other popup
 command = ["lazygit"]
 width = "90%"                           # cells, or a % of the tab; 80% by default
 height = "90%"                          # 70% by default
+
+[[popups]]
+name = "files"
+key = "Ctrl+Alt+Y"
+command = ["yazi"]                      # a file tree in a popup, in the tab's folder
 
 [fleet]                                 # see usage.md, Fleet mode
 enabled = false                         # pitwall worktree new --lane and the timeboxes
@@ -152,6 +158,19 @@ expressions (RE2 syntax). A pattern with a group labels the text of its first
 group, so `'branch: (\S+)'` labels the branch name and not the word branch.
 Your patterns win where they overlap a built-in one. `pitwall config check`
 names a pattern that does not compile, and hints mode leaves it out.
+
+`[terminal] open_path` is a command and its arguments as an array, such as
+`["bat", "--paging=always"]` or `["less"]`. Shift and a path hint's label,
+or Shift+Enter in the path picker, runs it in a popup in the pane's folder.
+The daemon appends the absolute path as one argument, without a shell.
+Spaces, quotes, shell characters and leading dashes in the path stay data.
+The viewer must stay running to keep the popup open, so use a pager or
+`bat --paging=always`. Install the command on the machine that owns the tab.
+In a `--host` tab the popup runs on that host, including resolution of `~/`.
+This needs daemon Level 60 or newer. Omit `open_path` or set it to `[]` to
+use the desktop opener. Web links keep opening in the browser. Windows
+viewers must resolve to executables; path popups refuse `.bat` and `.cmd`
+files because cmd.exe can read file names as commands.
 
 ## Timing and agent errors
 

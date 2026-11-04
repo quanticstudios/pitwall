@@ -97,6 +97,10 @@ func TestMultiRoutes(t *testing.T) {
 	if in, ok := recv(rd).(proto.Input); !ok || in.Pane != "rp" {
 		t.Fatalf("box got %#v", in)
 	}
+	m.Send(proto.OpenPopup{WorkspaceID: "rw", Cmd: []string{"less"}, Dir: "/remote/folder", Path: "lw"})
+	if p, ok := recv(rd).(proto.OpenPopup); !ok || p.Dir != "/remote/folder" || p.Path != "lw" {
+		t.Fatalf("host popup went to the wrong daemon: %#v", p)
+	}
 	m.Send(proto.CloseTab{WorkspaceID: "lw"})
 	if c, ok := recv(ld).(proto.CloseTab); !ok || c.WorkspaceID != "lw" {
 		t.Fatalf("local got %#v", c)

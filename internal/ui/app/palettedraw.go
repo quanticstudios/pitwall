@@ -230,7 +230,12 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	if p.files {
 		hints = pathHints(len(u.paths.marked))
 	}
-	u.drawHints(gtx, footH, hints)
+	if p.files && u.paths.openErr != "" {
+		gtx.Constraints.Max.X = inner
+		drawText(gtx, th, image.Pt(0, (footH-gtx.Dp(18))/2), th.UIFont, th.Sp(theme.Small), th.Red, u.paths.openErr)
+	} else {
+		u.drawHints(gtx, footH, hints)
+	}
 	o.Pop()
 }
 

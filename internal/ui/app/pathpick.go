@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,8 @@ type pathPick struct {
 	err    string   // why there are no files
 	done   chan pathList
 	marked []string
+
+	openErr string // the last open failure, shown until the next key
 
 	query string   // the query rows were ranked for
 	rows  []string // its best matches, at most maxPathRows
@@ -101,6 +104,7 @@ func (u *ui) pathRows() []string {
 		}
 	}
 	if pp.query != u.pal.query {
+		pp.openErr = ""
 		pp.query = u.pal.query
 		pp.rows, pp.n = rankPaths(pp.files, pp.query, maxPathRows)
 	}
@@ -226,16 +230,27 @@ func rankPaths(files []string, query string, limit int) ([]string, int) {
 // pathPickKey runs one key in the open path picker. Its own shortcut and
 // Escape close it, Tab or Ctrl+Space marks the highlighted file and moves
 // on, Enter types the marked files' paths, or the highlighted one's, at the
-// pane's cursor, and the rest edit and move as in the command palette.
-func (u *ui) pathPickKey(e key.Event) {
+// pane's cursor, Shift+Enter opens the highlighted path, and the rest edit
+// and move as in the command palette.
+func (u *ui) pathPickKey(st *model.State, e key.Event) {
 	p, pp := &u.pal, &u.paths
 	if e.State != key.Press {
 		return
 	}
+	pp.openErr = ""
 	rows := u.pathRows()
 	switch {
 	case e.Name == key.NameEscape || u.nav.bind().Action(e) == "insert_path":
 		p.close()
+	case (e.Name == key.NameReturn || e.Name == key.NameEnter) && e.Modifiers == key.ModShift:
+		if p.sel < len(rows) {
+			if err := u.openPath(st, pp.pane, filepath.Join(pp.dir, rows[p.sel])); err != nil {
+				log.Printf("path picker: %v", err)
+				pp.openErr = err.Error()
+			} else {
+				p.close()
+			}
+		}
 	case e.Name == key.NameReturn || e.Name == key.NameEnter:
 		paths := pp.marked
 		if len(paths) == 0 && p.sel < len(rows) {

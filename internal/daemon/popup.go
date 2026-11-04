@@ -5,9 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -15,6 +19,18 @@ import (
 
 // popupID is the shape of a pane id a caller picks: newID's.
 var popupID = regexp.MustCompile(`^[0-9a-f]{16}$`)
+
+// tryPopup reports a path popup's refusal in the window, as tryTask does.
+func (d *Daemon) tryPopup(m proto.OpenPopup) error {
+	err := d.openPopup(m)
+	if err != nil && m.Path != "" {
+		d.mu.Lock()
+		d.st.Notice = "File not opened: " + err.Error()
+		d.changed()
+		d.mu.Unlock()
+	}
+	return err
+}
 
 // openPopup starts m's command in a pane over its tab's splits. The pane
 // is in no layout; exited closes it when the command ends, as any pane
@@ -50,13 +66,68 @@ func (d *Daemon) openPopup(m proto.OpenPopup) error {
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() || !filepath.IsAbs(cwd) {
 		return fmt.Errorf("%s is not a directory", cwd)
 	}
+	if m.Path != "" {
+		if len(m.Cmd) == 0 || m.Cmd[0] == "" {
+			return errors.New("a path popup needs a command")
+		}
+		p := m.Path
+		if rest, ok := strings.CutPrefix(p, "~/"); ok {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			p = filepath.Join(home, rest)
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(cwd, p)
+		}
+		m.Cmd = append(slices.Clone(m.Cmd), p)
+		if runtime.GOOS == "windows" {
+			viewer, err := exec.LookPath(m.Cmd[0])
+			if err != nil {
+				return err
+			}
+			if err := checkPathViewer(viewer); err != nil {
+				return err
+			}
+			m.Cmd[0] = viewer
+		}
+	}
 	env := d.profileEnv(w)
 	if err := d.start(id, m.Cmd, cwd, w.Ports, env); err != nil {
 		return err
 	}
 	d.st.Panes = append(d.st.Panes, model.Pane{ID: id, WorkspaceID: w.ID, Cmd: m.Cmd, Cwd: cwd, Env: env})
 	w.Popup = &model.Popup{Pane: id, Width: m.Width, Height: m.Height, Title: m.Title}
+	if m.Path != "" {
+		if d.pathPopups == nil {
+			d.pathPopups = map[string]time.Time{}
+		}
+		d.pathPopups[id] = time.Now()
+	}
 	d.changed()
+	return nil
+}
+
+func pathPopupExitNotice(command string, code int, elapsed time.Duration) string {
+	if code == 0 && elapsed >= 100*time.Millisecond {
+		return ""
+	}
+	viewer := filepath.Base(command)
+	notice := fmt.Sprintf("File viewer %s exited with status %d.", viewer, code)
+	name := strings.TrimSuffix(strings.ToLower(viewer), ".exe")
+	if code == 0 && name != "less" && name != "bat" {
+		notice += " Use a viewer that waits, such as less or bat --paging=always."
+	}
+	return notice
+}
+
+// checkPathViewer refuses scripts whose interpreter parses the file argument.
+func checkPathViewer(viewer string) error {
+	ext := strings.ToLower(filepath.Ext(strings.TrimRight(viewer, " .")))
+	if ext == ".bat" || ext == ".cmd" {
+		return errors.New("Windows path popups cannot use .bat or .cmd viewers; configure an .exe viewer")
+	}
 	return nil
 }
 
