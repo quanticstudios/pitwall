@@ -229,6 +229,8 @@ type Daemon struct {
 
 	scrollbackFiles map[string]string // editor pane: its temporary file; guarded by mu
 
+	pathPopups map[string]time.Time // file viewer pane: when it opened; guarded by mu
+
 	mu          sync.Mutex
 	st          model.State
 	panes       map[string]Pane
@@ -1041,7 +1043,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.OpenPane:
 		return d.openPane(m)
 	case proto.OpenPopup:
-		return d.openPopup(m)
+		return d.tryPopup(m)
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
@@ -1483,6 +1485,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.holds, id)
 	delete(d.views, id)
 	delete(d.resumed, id)
+	delete(d.pathPopups, id)
 	delete(d.live.explanations, id)
 	delete(d.live.lastHook, id)
 	delete(d.live.hookAt, id)
@@ -2135,6 +2138,9 @@ func (d *Daemon) exited(id string, p Pane) {
 	}
 	code := p.ExitCode()
 	sp := &d.st.Panes[i]
+	if at, ok := d.pathPopups[id]; ok && (code != 0 || time.Since(at) < time.Second) {
+		d.st.Notice = fmt.Sprintf("File viewer %s exited with status %d. Use a viewer that waits, such as less or bat --paging=always.", filepath.Base(sp.Cmd[0]), code)
+	}
 	// A held pane keeps a failed resume's exit, which pitwall wait reports.
 	if at, ok := d.resumed[id]; ok && (len(sp.Cmd) == 0 || !sp.Held && code != 0 && time.Since(at) < resumeGrace) {
 		log.Printf("pane %s: exited %d; resumed %q session, opening a shell", id, code, sp.Provider)

@@ -39,6 +39,8 @@ type pathPick struct {
 	done   chan pathList
 	marked []string
 
+	openErr string // the last open failure, shown until the next key
+
 	query string   // the query rows were ranked for
 	rows  []string // its best matches, at most maxPathRows
 	n     int      // how many matched
@@ -102,6 +104,7 @@ func (u *ui) pathRows() []string {
 		}
 	}
 	if pp.query != u.pal.query {
+		pp.openErr = ""
 		pp.query = u.pal.query
 		pp.rows, pp.n = rankPaths(pp.files, pp.query, maxPathRows)
 	}
@@ -234,15 +237,16 @@ func (u *ui) pathPickKey(st *model.State, e key.Event) {
 	if e.State != key.Press {
 		return
 	}
+	pp.openErr = ""
 	rows := u.pathRows()
 	switch {
 	case e.Name == key.NameEscape || u.nav.bind().Action(e) == "insert_path":
 		p.close()
 	case (e.Name == key.NameReturn || e.Name == key.NameEnter) && e.Modifiers == key.ModShift:
 		if p.sel < len(rows) {
-			if err := u.openPath(st, pp.pane, rows[p.sel]); err != nil {
+			if err := u.openPath(st, pp.pane, filepath.Join(pp.dir, rows[p.sel])); err != nil {
 				log.Printf("path picker: %v", err)
-				pp.err = err.Error()
+				pp.openErr = err.Error()
 			} else {
 				p.close()
 			}

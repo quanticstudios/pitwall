@@ -1456,9 +1456,15 @@ with the path as its last argument and without its `:line` or `:line:col`.
 The daemon passes one absolute path without a shell, including spaces,
 quotes and leading dashes. In a `--host` tab the popup runs on that host,
 and `~/` means the host's home folder. The viewer must be installed there.
-Path popups need daemon Level 59 or newer. Quit the viewer or press
-Ctrl+Shift+W to close the popup. Unset `open_path`, or set it to `[]`, to
-keep the desktop opener. Web links still open in the browser.
+Path popups need daemon Level 59 or newer. Quit the viewer or use the
+Close pane action to close the popup; its current key appears on the border.
+Unset `open_path`, or set it to `[]`, to keep the desktop opener. Web links
+still open in the browser.
+
+A local hint that names no regular file copies its text instead. A daemon
+refusal or a viewer that fails or closes immediately shows a notice.
+Windows path popups refuse viewers that resolve to `.bat` or `.cmd` files
+because cmd.exe can read file names as commands. Use an executable viewer.
 
 The path picker, Ctrl+Shift+I, also opens its highlighted file with
 Shift+Enter. Enter still inserts the highlighted or marked paths.

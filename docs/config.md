@@ -168,7 +168,9 @@ The viewer must stay running to keep the popup open, so use a pager or
 `bat --paging=always`. Install the command on the machine that owns the tab.
 In a `--host` tab the popup runs on that host, including resolution of `~/`.
 This needs daemon Level 59 or newer. Omit `open_path` or set it to `[]` to
-use the desktop opener. Web links keep opening in the browser.
+use the desktop opener. Web links keep opening in the browser. Windows
+viewers must resolve to executables; path popups refuse `.bat` and `.cmd`
+files because cmd.exe can read file names as commands.
 
 ## Timing and agent errors
 

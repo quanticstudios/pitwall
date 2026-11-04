@@ -1,14 +1,18 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/pane"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -63,5 +67,87 @@ func TestPopupPathArgument(t *testing.T) {
 	if os.Getenv("PITWALL_PATH_ARGUMENT_TEST") == "1" {
 		fmt.Print(os.Args[len(os.Args)-1])
 		os.Exit(0)
+	}
+}
+
+func TestPathViewer(t *testing.T) {
+	for _, name := range []string{"view.cmd", "view.BAT", `C:\tools\view.CmD`, "view.cmd. "} {
+		if err := checkPathViewer(name); err == nil || !strings.Contains(err.Error(), ".exe") {
+			t.Fatalf("batch viewer %q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"bat.exe", `C:\tools.cmd\view.exe`, "/bin/less"} {
+		if err := checkPathViewer(name); err != nil {
+			t.Fatalf("executable viewer %q: %v", name, err)
+		}
+	}
+}
+
+func TestPathPopupNotices(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d, sock, stop := runDaemon(t, f, func(o *Options) {
+		start := o.StartPane
+		o.StartPane = func(c pane.Config) (Pane, error) {
+			if len(c.Cmd) != 0 && c.Cmd[0] == "missing-viewer" {
+				return nil, errors.New("viewer not found")
+			}
+			return start(c)
+		}
+	})
+	defer stop()
+	cli, watch := dial(t, sock, "cli"), dial(t, sock, "watch")
+	dir := t.TempDir()
+	if e := cli.request(proto.NewSession{Cwd: dir}); e != "" {
+		t.Fatal(e)
+	}
+	w := watch.waitState("the tab", func(s model.State) bool { return len(s.Panes) == 1 }).Workspaces[0]
+	// The running test binary is an executable on every platform.
+	cmd := []string{os.Args[0]}
+	request := proto.OpenPopup{WorkspaceID: w.ID, Cmd: cmd, Path: "a.md"}
+	if e := cli.request(request); e != "" {
+		t.Fatal(e)
+	}
+	st := watch.waitState("viewer", func(s model.State) bool { return s.Workspaces[0].Popup != nil })
+	if e := cli.request(request); !strings.Contains(e, "popup open already") {
+		t.Fatalf("second popup: %q", e)
+	}
+	st = watch.waitState("refusal notice", func(s model.State) bool { return strings.Contains(s.Notice, "popup open already") })
+	if e := cli.request(proto.DismissNotice{Notice: st.Notice}); e != "" {
+		t.Fatal(e)
+	}
+	f.pane(1).Close()
+	st = watch.waitState("instant exit notice", func(s model.State) bool {
+		return strings.Contains(s.Notice, "exited with status 0") && s.Workspaces[0].Popup == nil
+	})
+	if e := cli.request(proto.DismissNotice{Notice: st.Notice}); e != "" {
+		t.Fatal(e)
+	}
+	watch.waitState("dismissed", func(s model.State) bool { return s.Notice == "" })
+	request.Cmd = []string{"missing-viewer"}
+	if e := cli.request(request); e == "" {
+		t.Fatal("missing viewer started")
+	}
+	st = watch.waitState("start failure notice", func(s model.State) bool { return strings.Contains(s.Notice, "File not opened:") })
+	cli.request(proto.DismissNotice{Notice: st.Notice})
+	watch.waitState("dismissed", func(s model.State) bool { return s.Notice == "" })
+	request.Cmd = cmd
+	if e := cli.request(request); e != "" {
+		t.Fatal(e)
+	}
+	st = watch.waitState("second viewer", func(s model.State) bool { return s.Workspaces[0].Popup != nil })
+	id := st.Workspaces[0].Popup.Pane
+	d.mu.Lock()
+	d.pathPopups[id] = time.Now().Add(-time.Minute)
+	d.mu.Unlock()
+	f.pane(2).Close()
+	st = watch.waitState("normal exit", func(s model.State) bool { return s.Workspaces[0].Popup == nil })
+	if st.Notice != "" {
+		t.Fatalf("normal exit notice: %q", st.Notice)
+	}
+	d.mu.Lock()
+	left := len(d.pathPopups)
+	d.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d closed viewers remain", left)
 	}
 }

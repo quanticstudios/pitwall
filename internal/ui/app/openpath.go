@@ -2,6 +2,8 @@ package app
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -14,11 +16,13 @@ func (u *ui) openPath(st *model.State, pane, path string) error {
 		return errors.New("the pane's folder is unknown")
 	}
 	if len(u.cfg.OpenPath) == 0 {
-		p := localPath(path, pn.Cwd)
-		if p == "" {
+		if curHost() != "" || !filepath.IsAbs(path) {
 			return errors.New("the path is not on this machine")
 		}
-		return hintOpen(fileURL(p))
+		if _, err := os.Stat(path); err != nil {
+			return err
+		}
+		return hintOpen(fileURL(path))
 	}
 	if u.link().Level < proto.PopupPathLevel {
 		return errors.New("path popups need daemon Level 59 or newer")
