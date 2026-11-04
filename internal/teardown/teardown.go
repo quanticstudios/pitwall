@@ -68,11 +68,11 @@ func Run(ctx context.Context, path string, s config.WorktreeSettings, ports mode
 	if len(out.data) > 0 {
 		notice += fmt.Sprintf("\nOutput tail: %q", strings.TrimSpace(string(out.data)))
 	}
-	notice = record(notice)
 	if err != nil {
-		return notice, fmt.Errorf("teardown failed; worktree kept: %w\n%s", err, notice)
+		notice = record(notice + "\nTeardown failed: " + err.Error())
+		return notice, fmt.Errorf("teardown failed; worktree kept: %s: %w\n%s", filepath.Base(path), err, notice)
 	}
-	return notice, nil
+	return record(notice), nil
 }
 
 type tail struct{ data []byte }

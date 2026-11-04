@@ -38,6 +38,10 @@ func TestRun(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "worktree kept") || !strings.Contains(notice, "failure-output") {
 		t.Fatalf("%q %v", notice, err)
 	}
+	log, readErr = os.ReadFile(filepath.Join(config.StateDir(), "teardown.log"))
+	if readErr != nil || !strings.Contains(string(log), "Teardown failed: exit status 7") {
+		t.Fatalf("failure reason missing from log: %q %v", log, readErr)
+	}
 	s.Teardown = "touch approved"
 	s.TeardownFromRepo = true
 	for _, approval := range []string{"", "touch another"} {

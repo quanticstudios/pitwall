@@ -110,7 +110,7 @@ func TestArchiveNoticesKeepFailuresFirst(t *testing.T) {
 	d, _, cfg := teardownRepo(t)
 	first, second := reviewTree(t, d, "first"), reviewTree(t, d, "second")
 	must(t, os.WriteFile(cfg, []byte(`[worktrees]
-teardown = 'case "$PWD" in */first) echo FIRST-FAILED; exit 7;; *) echo SECOND-OK;; esac'
+teardown = 'case "$PWD" in */second) echo SECOND-FAILED; exit 7;; *) echo FIRST-OK;; esac'
 `), 0o600))
 	mergeReviewTrees(d, context.Background())
 	d.worktreeJobs.Wait()
@@ -118,11 +118,98 @@ teardown = 'case "$PWD" in */first) echo FIRST-FAILED; exit 7;; *) echo SECOND-O
 	if !strings.HasPrefix(notice, "teardown failed; worktree kept") || !strings.Contains(notice, first.Path) || !strings.Contains(notice, second.Path) {
 		t.Fatalf("batch notice: %q", notice)
 	}
-	if _, err := os.Stat(first.Path); err != nil {
+	if _, err := os.Stat(second.Path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(second.Path); !os.IsNotExist(err) {
-		t.Fatal("second tree remains", err)
+	if _, err := os.Stat(first.Path); !os.IsNotExist(err) {
+		t.Fatal("first tree remains", err)
+	}
+}
+
+func TestArchiveNoticesSummarizeEveryFailure(t *testing.T) {
+	d, _, cfg := teardownRepo(t)
+	first, second := reviewTree(t, d, "first"), reviewTree(t, d, "second")
+	must(t, os.WriteFile(cfg, []byte("[worktrees]\nteardown = 'echo stopped; exit 7'"), 0o600))
+	mergeReviewTrees(d, context.Background())
+	d.worktreeJobs.Wait()
+	lines := strings.Split(d.state().Notice, "\n")
+	if len(lines) < 2 || !strings.Contains(lines[0], first.Name) || !strings.Contains(lines[1], second.Name) {
+		t.Fatalf("failures do not lead the notice: %q", d.state().Notice)
+	}
+	for _, line := range lines[:2] {
+		if !strings.Contains(line, "worktree kept") || !strings.Contains(line, "exit status 7") {
+			t.Fatalf("missing failure summary: %q", line)
+		}
+	}
+}
+
+func TestArchiveKeptBranch(t *testing.T) {
+	for _, remote := range []string{"never pushed", "no upstream", "pruned upstream", "upstream"} {
+		for _, command := range []string{"", "echo stopped"} {
+			t.Run(remote+"/"+command, func(t *testing.T) {
+				d, repo, cfg := teardownRepo(t)
+				w := reviewTree(t, d, "feature")
+				must(t, os.WriteFile(filepath.Join(w.Path, "feature.txt"), []byte("feature"), 0o600))
+				gitIn(t, w.Path, "add", "feature.txt")
+				gitIn(t, w.Path, "commit", "-m", "feature")
+				if remote != "never pushed" {
+					origin := filepath.Join(t.TempDir(), "origin.git")
+					gitIn(t, repo, "init", "--bare", origin)
+					gitIn(t, repo, "remote", "add", "origin", origin)
+					if remote == "no upstream" {
+						gitIn(t, repo, "push", "origin", "feature")
+					} else {
+						gitIn(t, repo, "push", "-u", "origin", "feature")
+					}
+					if remote == "pruned upstream" {
+						gitIn(t, repo, "push", "origin", "--delete", "feature")
+						gitIn(t, repo, "fetch", "--prune")
+					}
+				}
+				gitIn(t, repo, "merge", "--squash", "feature")
+				gitIn(t, repo, "commit", "-m", "squash feature")
+				must(t, os.WriteFile(cfg, []byte(fmt.Sprintf("[worktrees]\nteardown = %q", command)), 0o600))
+				mergeReviewTrees(d, context.Background())
+				d.worktreeJobs.Wait()
+				if _, err := os.Stat(w.Path); !os.IsNotExist(err) {
+					t.Fatalf("worktree remains: %v", err)
+				}
+				for _, live := range d.state().Workspaces {
+					if live.ID == w.ID {
+						t.Fatal("archived tab remains")
+					}
+				}
+				branches := strings.Fields(gitIn(t, repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/feature"))
+				if (len(branches) > 0) != (remote != "upstream") {
+					t.Fatalf("branches: %v", branches)
+				}
+				notice := d.state().Notice
+				if command == "" && notice != "" {
+					t.Fatalf("no teardown, new notice: %q", notice)
+				}
+				if command != "" && (!strings.Contains(notice, "stopped") || strings.Contains(notice, "branch kept")) {
+					t.Fatalf("successful teardown notice: %q", notice)
+				}
+			})
+		}
+	}
+}
+
+func TestArchiveKeptBranchDoesNotHideFailure(t *testing.T) {
+	d, _, cfg := teardownRepo(t)
+	first, second := reviewTree(t, d, "first"), reviewTree(t, d, "second")
+	gitIn(t, first.Path, "commit", "--allow-empty", "-m", "unmerged feature")
+	must(t, os.WriteFile(cfg, []byte(`[worktrees]
+teardown = 'case "$PWD" in */second) echo SECOND-FAILED; exit 7;; *) echo FIRST-OK;; esac'
+`), 0o600))
+	mergeReviewTrees(d, context.Background())
+	d.worktreeJobs.Wait()
+	firstLine, _, _ := strings.Cut(d.state().Notice, "\n")
+	if !strings.Contains(firstLine, second.Name) || !strings.Contains(firstLine, "exit status 7") {
+		t.Fatalf("branch kept hides teardown failure: %q", d.state().Notice)
+	}
+	if !strings.Contains(d.state().Notice, "FIRST-OK") || strings.Contains(d.state().Notice, "branch kept") {
+		t.Fatalf("successful teardown notice: %q", d.state().Notice)
 	}
 }
 

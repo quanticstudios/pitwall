@@ -11,6 +11,7 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/forge"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -248,7 +249,17 @@ func (d *Daemon) archiveWorktrees(ctx context.Context, ids []string) {
 		} else {
 			notices = append(notices, text)
 		}
-		d.setWorktreeNotice(strings.Join(append(slices.Clone(failures), notices...), "\n"))
+		var lines []string
+		for _, failure := range failures {
+			summary, _, _ := strings.Cut(failure, "\n")
+			lines = append(lines, summary)
+		}
+		for _, failure := range failures {
+			if _, detail, ok := strings.Cut(failure, "\n"); ok {
+				lines = append(lines, detail)
+			}
+		}
+		d.setWorktreeNotice(strings.Join(append(lines, notices...), "\n"))
 	})
 	for _, id := range ids {
 		if ctx.Err() != nil {
@@ -256,7 +267,9 @@ func (d *Daemon) archiveWorktrees(ctx context.Context, ids []string) {
 		}
 		log.Printf("tab %s: pull request merged; archiving", id)
 		if err := d.deleteWorkspace(ctx, proto.DeleteWorkspace{WorkspaceID: id, RemoveBranch: true}); err != nil {
-			d.worktreeNotice(ctx, err.Error(), true)
+			if !errors.Is(err, gitstat.ErrBranchKept) {
+				d.worktreeNotice(ctx, err.Error(), true)
+			}
 			log.Printf("archive tab %s: %q", id, err)
 		}
 	}

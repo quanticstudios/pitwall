@@ -216,12 +216,14 @@ func (d *Daemon) removeWorktree(ctx context.Context, root, path string, ports mo
 		}
 	}
 	err := d.o.RemoveWorktree(ctx, root, path, branch, force)
-	if err != nil {
-		if errors.Is(err, gitstat.ErrBranchKept) {
-			err = fmt.Errorf("worktree removed at %s; %w", path, err)
-		} else {
-			err = fmt.Errorf("worktree kept at %s: removal failed: %w", path, err)
+	if errors.Is(err, gitstat.ErrBranchKept) {
+		if notice != "" {
+			d.worktreeNotice(ctx, notice, false)
 		}
+		return fmt.Errorf("worktree removed at %s; %w", path, err)
+	}
+	if err != nil {
+		err = fmt.Errorf("worktree kept at %s: removal failed: %w", path, err)
 		if notice != "" {
 			err = fmt.Errorf("%w\n%s", err, notice)
 			d.worktreeNotice(ctx, err.Error(), true)
