@@ -318,6 +318,9 @@ type Settings struct {
 	Decisions DecideSettings
 	// MaxRunning is [agents] max_running: 0 for no limit.
 	MaxRunning int
+	// KeepAwake prevents idle sleep while agents work and for KeepAwakeGrace afterward.
+	KeepAwake      bool
+	KeepAwakeGrace time.Duration
 	// StartupPerAgentDelay is the gap between restored agent launches.
 	StartupPerAgentDelay time.Duration
 	// ResumeAfterLimit types continue into an agent its usage limit
@@ -599,6 +602,9 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ai...)
 	s.ACPAgents, ai = resolveACP(c.Agents.ACP)
 	s.ResumeAfterLimit = c.Agents.ResumeAfterLimit == nil || *c.Agents.ResumeAfterLimit
+	s.KeepAwake = c.Agents.KeepAwake != nil && *c.Agents.KeepAwake
+	s.KeepAwakeGrace, ri = resolveKeepAwakeGrace(c.Agents)
+	fi = append(fi, ri...)
 	s.StartupPerAgentDelay, ri = resolveStartupDelay(c.Agents)
 	fi = append(fi, ri...)
 	s.GuardWorkers = c.Agents.GuardWorkers != nil && *c.Agents.GuardWorkers

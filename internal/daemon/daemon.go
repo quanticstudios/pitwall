@@ -31,6 +31,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logind"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/pane"
@@ -84,6 +85,10 @@ type Pane interface {
 // Options are the daemon's collaborators. New wires the real packages; tests
 // pass fakes to NewWith.
 type Options struct {
+	// KeepAwake reads the live idle-sleep setting; nil leaves it off.
+	KeepAwake func() (bool, time.Duration)
+	// InhibitIdle holds idle sleep until its closer closes.
+	InhibitIdle func(context.Context) (io.Closer, error)
 	// UpdateScreenPatterns refreshes detection rules until ctx ends; nil
 	// leaves the active rules alone without reading a cache or using the network.
 	UpdateScreenPatterns func(ctx context.Context)
@@ -249,6 +254,7 @@ type Daemon struct {
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed bool
 	pushWake     chan struct{} // wakes pushLoop, nil when it is not running
+	awakeWake    chan struct{} // wakes keepAwakeLoop on activity changes
 	prs          prPoll        // see pr.go
 	radar        radar         // see radar.go
 	queue        taskQueue     // see task.go
@@ -310,7 +316,13 @@ func Defaults() Options {
 	if err != nil {
 		log.Printf("timing log: %q", err)
 	}
+	awake := setting(config.Path(), func(s config.Settings) config.Settings { return s })
 	return Options{
+		KeepAwake: func() (bool, time.Duration) {
+			s := awake()
+			return s.KeepAwake, s.KeepAwakeGrace
+		},
+		InhibitIdle: logind.InhibitIdle,
 		UpdateScreenPatterns: func(ctx context.Context) {
 			agent.UpdateScreenPatterns(ctx, config.StateDir(), setting(config.Path(), func(s config.Settings) bool { return s.UpdateScreenPatterns }))
 		},
@@ -522,6 +534,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	defer cancel()
 	d.mu.Lock()
 	d.ln, d.stop, d.served = ln, cancel, ctx
+	d.awakeWake = make(chan struct{}, 1)
 	d.mu.Unlock()
 	context.AfterFunc(ctx, func() {
 		ln.Close()
@@ -544,6 +557,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
 	wg.Go(func() { d.webLoop(ctx) })
+	wg.Go(func() { d.keepAwakeLoop(ctx) })
 
 	var acceptErr error
 	for {
@@ -2204,6 +2218,10 @@ func (d *Daemon) workspace(id string) *model.Workspace {
 // and a save runs saveDelay after the first unsaved change, so a steady
 // stream of agent events cannot postpone it forever.
 func (d *Daemon) changed() {
+	select {
+	case d.awakeWake <- struct{}{}:
+	default:
+	}
 	d.syncTurns(time.Now())
 	d.pumpQueue(time.Now())
 	d.pruneNotices()

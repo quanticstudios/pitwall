@@ -260,6 +260,21 @@ Cursor send nothing until their first prompt). Install lists what would
 change in each config, then installs on confirm. Settings > Agents has the
 same button. Agents already running load their hooks only when restarted.
 
+### Keep the machine awake
+
+Turn on **Keep awake** in Settings, Agents to prevent idle sleep while any
+agent is Working, including chat turns. The setting is off by default.
+Agents waiting for approval or at a prompt do not count. **Keep awake grace**
+keeps the inhibitor for 15 minutes after no agent works; set it to 0 to
+release at once. Both settings apply live. Turning Keep awake off releases
+the inhibitor without waiting. The config keys are `[agents] keep_awake`
+and `keep_awake_grace = "15m"`.
+
+This works on Linux through logind and on macOS through `caffeinate -i`.
+Windows and other platforms do nothing. The display may still sleep.
+Closing a lid may still suspend the machine; that follows the machine's
+settings. Compositor idle daemons may also need to honor inhibitors.
+
 ### Sessions
 
 <img src="media/sessions.webp" alt="The session switcher: three sessions with their agents and live counts on the left, the highlighted session's sidebar on the right" width="640">

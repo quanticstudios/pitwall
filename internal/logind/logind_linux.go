@@ -39,13 +39,45 @@ func Watch(ctx context.Context, prepare func(shutdown bool), cancelled func()) e
 type systemBus struct{ obj dbus.BusObject }
 
 func (b systemBus) inhibit() (io.Closer, error) {
+	return b.inhibitFor(context.Background(), "shutdown:sleep", "Save open tabs", "delay")
+}
+
+func (b systemBus) inhibitFor(ctx context.Context, what, why, mode string) (io.Closer, error) {
 	var fd dbus.UnixFD
-	if err := b.obj.Call(manager+".Inhibit", 0, "shutdown:sleep", "pitwall", "Save open tabs", "delay").Store(&fd); err != nil {
+	if err := b.obj.CallWithContext(ctx, manager+".Inhibit", 0, what, "pitwall", why, mode).Store(&fd); err != nil {
 		return nil, err
 	}
 	// why: the net package receives the fd close-on-exec, so no pane started
 	// later holds the lock after pitwall lets it go.
 	return os.NewFile(uintptr(fd), "logind inhibitor"), nil
+}
+
+// InhibitIdle blocks idle sleep until the returned lock closes. The display may sleep.
+func InhibitIdle(ctx context.Context) (io.Closer, error) {
+	conn, err := dbus.ConnectSystemBus()
+	if err != nil {
+		return nil, err
+	}
+	lock, err := (systemBus{conn.Object(dest, objPath)}).inhibitFor(ctx, "idle:sleep", "An agent works", "block")
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return idleInhibitor{lock, conn}, nil
+}
+
+type idleInhibitor struct {
+	lock io.Closer
+	bus  *dbus.Conn
+}
+
+func (i idleInhibitor) Close() error { return errors.Join(i.lock.Close(), i.bus.Close()) }
+
+func (i idleInhibitor) Err() error {
+	if !i.bus.Connected() {
+		return errors.New("the system bus connection closed")
+	}
+	return nil
 }
 
 // inhibitor takes a delay lock; closing it lets logind go ahead.

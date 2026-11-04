@@ -841,6 +841,10 @@ func (p *Page) appearance() []section {
 // stepper is aide-styled − value + with a reset arrow once the value is
 // not the default. The default is written by removing the key.
 func (p *Page) stepper(table, k string, v, lo, hi, step, def float64) gl.Widget {
+	return p.stepperValue(table, k, v, lo, hi, step, def, config.Number)
+}
+
+func (p *Page) stepperValue(table, k string, v, lo, hi, step, def float64, value func(float64) string) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
 		th := p.th
 		id := table + "." + k
@@ -849,7 +853,7 @@ func (p *Page) stepper(table, k string, v, lo, hi, step, def float64) gl.Widget 
 			if nv == def {
 				p.save(table, k, nil)
 			} else if nv != v {
-				p.saveValue(table, k, config.Number(nv))
+				p.saveValue(table, k, value(nv))
 			}
 		}
 		for p.btn(id + "-").Clicked(gtx) {
@@ -1258,6 +1262,12 @@ func (p *Page) agents() []section {
 		}})
 	rows = append(rows, row{label: "Agents at once", desc: "How many agents may run in a session before queued tasks wait for one to finish. 0 sets no limit: a queued task then waits for any agent of its session to finish.",
 		extra: "queue tasks max_running limit", control: p.stepper("agents", "max_running", float64(p.s.MaxRunning), 0, 100, 1, 0)})
+	rows = append(rows, row{label: "Keep awake", desc: "Prevent idle sleep while an agent works, including chat turns. Approvals and prompts do not count. The display may sleep. Linux and macOS only; closing the lid follows your machine's settings.",
+		extra: "sleep inhibit keep_awake", control: p.toggle("agents", "keep_awake", p.s.KeepAwake)})
+	rows = append(rows, row{label: "Keep awake grace", desc: "Minutes to keep preventing idle sleep after no agent works. 0 releases at once. Both settings apply live.",
+		extra: "sleep inhibit minutes keep_awake_grace", control: p.stepperValue("agents", "keep_awake_grace", p.s.KeepAwakeGrace.Minutes(), 0, 1440, 5, config.DefaultKeepAwakeGrace.Minutes(), func(v float64) string {
+			return config.Quote((time.Duration(v * float64(time.Minute))).String())
+		})})
 	rows = append(rows, row{label: "Resume after limit", desc: "When Claude Code or Codex stops on its plan's usage limit, types continue into it a minute after the limit resets. Defers to Claude's own auto-continue unless its user settings explicitly turn it off; managed or command-line overrides can differ, so keep only one enabled. The tab's pill shows when; typing in the pane or Cancel resume in the tab's menu drops it. A daemon restart drops it too.",
 		extra: "usage limit reset continue resume_after_limit", control: p.toggle("agents", "resume_after_limit", p.s.ResumeAfterLimit)})
 	rows = append(rows, row{label: "Quiet after", desc: "Minutes a working agent's screen may stay still before its row shows quiet 20m in place of the time. 0 turns it off.",

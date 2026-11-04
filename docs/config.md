@@ -78,6 +78,8 @@ conflict_radar = true                   # mark tabs whose branches change the sa
 
 [agents]
 startup_per_agent_delay_ms = 100         # gap after each restored agent; 0 starts all at once
+keep_awake = false                      # prevent idle sleep while agents work, Linux and macOS
+keep_awake_grace = "15m"                 # duration after no agent works; 0s releases at once
 
 [[agents.preset]]                       # Settings, Agents adds and edits these
 name = "Quick"
@@ -113,6 +115,22 @@ recently used session first. The gaps add 1.1 seconds for a dozen agents.
 `[agents] startup_per_agent_delay_ms` accepts whole milliseconds from 0 to
 60000 and takes effect on the next daemon restart. Set it to 0 to start all
 agents at once. Shells and other non-agent panes start immediately.
+
+`[agents] keep_awake` is off by default. When enabled, the daemon prevents
+idle sleep while any agent is Working, including a chat turn. Waiting for
+approval or at a prompt does not count. `keep_awake_grace` accepts a
+non-negative duration such as `15m`, `1h` or `0s`, with a default of `15m`.
+Settings, Agents has both controls; both apply within a second. Turning
+`keep_awake` off releases the inhibitor at once, without the grace period.
+After a daemon handoff, the new daemon re-evaluates current activity and
+starts a fresh grace period only after working agents stop.
+
+Linux uses a logind `idle:sleep` block inhibitor. macOS uses `caffeinate -i`
+while the daemon lives. Windows and other platforms do nothing. The display
+may still sleep. Closing a lid may still suspend the machine; that follows
+the machine's settings. Compositor idle daemons may also need to honor
+inhibitors. If taking the inhibitor fails, the daemon logs once and leaves
+agents running; it retries after a daemon restart.
 
 `[terminal] hint_patterns` adds patterns to hints mode, as Go regular
 expressions (RE2 syntax). A pattern with a group labels the text of its first
