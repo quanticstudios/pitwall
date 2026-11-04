@@ -193,6 +193,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		d.checkStuck(ctx)
 		d.checkLimits()
 		d.checkQuiet()
+		d.checkForms()
 		d.checkRemoteControl()
 		if time.Since(portsAt) >= portPoll {
 			portsAt = time.Now()

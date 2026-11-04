@@ -675,3 +675,64 @@ func TestRemoteReplyRefusesDraft(t *testing.T) {
 		t.Fatalf("typed %q into the draft", got)
 	}
 }
+
+// A form on the screen holds the window's Reply, Request changes and review
+// comments, whatever the state says, and they go once it is gone.
+func TestWindowDeliverWaitsForForm(t *testing.T) {
+	for _, state := range []model.AgentState{model.StateCompleted, model.StateAwaitingInput} {
+		d, a := draftDaemon(t)
+		d.mu.Lock()
+		d.st.Activities[d.activityIndex("a")].State = state
+		d.mu.Unlock()
+		setScreen(a, []string{"Which database?", "> 1. Redis", "  2. SQLite", "Press enter to confirm or esc to cancel"})
+		if err := d.handle(t.Context(), proto.Deliver{Pane: "a", Text: "use a.go", Seq: 1}); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(200 * time.Millisecond)
+		if got := a.got(); got != "" {
+			t.Fatalf("%s: typed %q into the form", state, got)
+		}
+		d.mu.Lock()
+		queued := len(d.mail.queue["a"])
+		d.mu.Unlock()
+		if queued != 1 {
+			t.Fatalf("%s: queue %d", state, queued)
+		}
+		setScreen(a, []string{"────────", "❯ ", "────────"})
+		if got := gotAfter(t, a, 0, 9); got != "use a.go\r" {
+			t.Fatalf("%s: typed %q", state, got)
+		}
+	}
+}
+
+// A form up by the time of the Enter does not get it, however the delivery
+// began, and neither a quote of a footer nor the paste's own echo counts.
+func TestWindowDeliverEnter(t *testing.T) {
+	defer replyDelay.set(replyDelay.set(150 * time.Millisecond))
+	const menu = "Which database?\n> 1. Redis\n  2. SQLite\n"
+	for _, tc := range []struct {
+		name          string
+		before, after string
+		text, want    string
+	}{
+		{"menu with another footer", "❯ ", menu + "Press enter to confirm or esc to cancel", "use a.go", "use a.go"},
+		{"gemini's form", "❯ ", "Answer Questions\nWhich?\n│ ● 1. Postgres │\n│   2. SQLite   │", "use a.go", "use a.go"},
+		{"menu after a quoted footer", "The menu says Enter to select\n❯ ", menu + "Enter to select · Esc to cancel", "use a.go", "use a.go"},
+		{"quoted footer", "The menu says Enter to select\n❯ ", "The menu says Enter to select\n❯ use a.go", "use a.go", "use a.go\r"},
+		{"numbered reply", "❯ ", "❯ 1. do a\n  2. do b", "1. do a\n2. do b", "1. do a 2. do b\r"},
+	} {
+		d, a := draftDaemon(t)
+		setScreen(a, strings.Split(tc.before, "\n"))
+		a.mu.Lock()
+		a.wrote = func() { a.screen = strings.Split(tc.after, "\n") }
+		a.mu.Unlock()
+		if err := d.handle(t.Context(), proto.Deliver{Pane: "a", Text: tc.text}); err != nil {
+			t.Fatal(err)
+		}
+		gotAfter(t, a, 0, len(tc.want))
+		time.Sleep(2 * replyDelay.get())
+		if got := a.got(); got != tc.want {
+			t.Errorf("%s: typed %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

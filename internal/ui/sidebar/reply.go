@@ -559,8 +559,3 @@ func (s *Sidebar) replySheet(gtx layout.Context, v *view, ws model.Workspace, a 
 func (s *Sidebar) replyable(v *view, id string, ghost bool, a *model.Activity) bool {
 	return !ghost && a != nil && a.State == model.StateAwaitingInput && v.agent[id] != "" && v.agents[id] == nil
 }
-
-// replyButton draws a question's Reply, a yellow pill like the state's.
-func replyButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, base color.NRGBA) layout.Dimensions {
-	return pillButton(c, th, base, answerHeight(gtx, th), "Reply", th.Yellow, false)(gtx)
-}

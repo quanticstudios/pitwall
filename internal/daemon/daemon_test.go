@@ -45,6 +45,7 @@ type fakePane struct {
 	off    int      // the last SnapshotAt offset
 	title  string   // the emulator's title
 	screen []string // rows Snapshot shows instead of "x"
+	wrote  func()   // runs under mu after a Write
 	modes  vt.Modes
 }
 
@@ -52,6 +53,9 @@ func (p *fakePane) Write(b []byte) (int, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.input = append(p.input, b...)
+	if p.wrote != nil {
+		p.wrote()
+	}
 	return len(b), nil
 }
 func (p *fakePane) Resize(c, r int) error {

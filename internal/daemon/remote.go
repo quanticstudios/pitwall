@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -210,17 +211,70 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	if a.State != model.StatePendingApproval || !known {
 		return errors.New("that pane is not asking permission")
 	}
-	// why: a hook can leave the state behind the screen; the key goes only to a prompt on it.
-	if agent.ReadScreen(p.Snapshot()) != agent.ScreenForm {
+	// why: a hook can leave the state behind the screen; the key goes only to a permission prompt on it, as 1 picks the first option of a plan or question too.
+	if agent.State(p.Snapshot()) != model.StatePendingApproval {
 		return errors.New("the pane shows no prompt to answer")
 	}
 	d.noteUserKey(pane, nil)
 	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())})
 }
 
+// pressOffer presses the key of label, an answer a GUI's row showed, on
+// pane's form. It reads the screen first, so a stale button cannot answer
+// another form or type into a prompt.
+func (d *Daemon) pressOffer(pane string, at int64, label string) error {
+	p, a, err := d.waiting(pane, at)
+	if err != nil {
+		return err
+	}
+	for _, o := range agent.Offers(a, p.Snapshot()) {
+		if o.Label == label {
+			d.noteUserKey(pane, nil)
+			return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(key.Name(o.Key), p.Modes())})
+		}
+	}
+	return errors.New("the pane no longer offers " + label + "; answer it in its tab")
+}
+
+// checkForms keeps each waiting agent's Buttons and Menu to what its screen
+// shows now. A hook fires before its form is drawn, so a row's buttons come
+// at most a poll after it.
+func (d *Daemon) checkForms() {
+	type check struct {
+		p Pane
+		a model.Activity
+	}
+	var checks []check
+	d.mu.Lock()
+	for _, a := range d.st.Activities {
+		waits := a.State == model.StatePendingApproval || a.State == model.StatePlanReady || a.State == model.StateAwaitingInput
+		if p := d.panes[a.PaneID]; p != nil && d.inputs[a.PaneID] != nil && (waits || len(a.Buttons) > 0 || a.Menu) {
+			checks = append(checks, check{p, a})
+		}
+	}
+	d.mu.Unlock()
+	for _, c := range checks {
+		g := c.p.Snapshot()
+		var buttons []string
+		for _, o := range agent.Offers(c.a, g) {
+			buttons = append(buttons, o.Label)
+		}
+		menu := c.a.State == model.StateAwaitingInput && (formAnnounced(c.a) || agent.Choosing(g))
+		d.mu.Lock()
+		// why: the screen was read outside d.mu; a newer activity waits for its own read.
+		if i := d.activityIndex(c.a.PaneID); i >= 0 && d.st.Activities[i].UpdatedAt.Equal(c.a.UpdatedAt) {
+			if a := &d.st.Activities[i]; !slices.Equal(a.Buttons, buttons) || a.Menu != menu {
+				a.Buttons, a.Menu = buttons, menu
+				d.changed()
+			}
+		}
+		d.mu.Unlock()
+	}
+}
+
 // replyDelay separates a reply's paste from its Enter.
 // why: a TUI may read an Enter that arrives in the same read as a paste as part of it.
-var replyDelay = 100 * time.Millisecond
+var replyDelay = newTiming(100 * time.Millisecond)
 
 // remoteReply pastes text into pane, cleaned of control characters, and
 // presses Enter.
@@ -238,6 +292,9 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 	d.mu.Unlock()
 	if drafted {
 		return errors.New("you have a draft in that agent's input box: send or clear it first")
+	}
+	if formHolds(a, g) {
+		return errors.New("that pane shows a form; answer it in its tab")
 	}
 	d.noteUserKey(pane, nil)
 	return d.typeLine(pane, p, text, "the reply is empty")
@@ -258,8 +315,31 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string) error {
 	if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.Paste(text, m)}); err != nil {
 		return err
 	}
-	time.Sleep(replyDelay)
-	return d.handle(ctx, proto.Input{Pane: pane, Data: press(key.NameReturn, m)})
+	return d.pressEnter(pane, p, text)
+}
+
+// pressEnter presses Enter on what was just pasted into pane p, after
+// replyDelay, unless a form came up since.
+func (d *Daemon) pressEnter(pane string, p Pane, pasted string) error {
+	time.Sleep(replyDelay.get())
+	// why: Enter would answer the form, whatever was pasted.
+	if agent.FormUp(p.Snapshot(), pasted) {
+		return errors.New("a form came up; what was typed stays in the agent's input")
+	}
+	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(key.NameReturn, p.Modes())})
+}
+
+// formDraw is how long after its hook a form may take to reach the screen.
+const formDraw = time.Second
+
+// formHolds reports whether typed text must wait for a's agent, whose screen
+// is g: a form shows, whatever a's state says, or a hook just announced one.
+func formHolds(a model.Activity, g vt.Grid) bool {
+	return formAnnounced(a) || agent.FormUp(g, "")
+}
+
+func formAnnounced(a model.Activity) bool {
+	return a.State == model.StateAwaitingInput && a.Menu && time.Since(a.UpdatedAt) < formDraw
 }
 
 // typeLetter pastes each image's path into pane p, then text, and presses
@@ -273,8 +353,7 @@ func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string) e
 		}
 	}
 	if len(images) > 0 && remote.Clean(text) == "" {
-		time.Sleep(replyDelay)
-		return d.handle(ctx, proto.Input{Pane: pane, Data: press(key.NameReturn, m)})
+		return d.pressEnter(pane, p, "")
 	}
 	return d.typeLine(pane, p, text, "the message is empty")
 }

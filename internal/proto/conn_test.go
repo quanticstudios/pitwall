@@ -92,6 +92,7 @@ func allMessages() []any {
 		ChatResult{Chat: "c", Turn: "t", Code: "busy", Message: "a turn is running"},
 		ChatDeltas{Chat: "c", Snapshot: []byte(`{}`), Seq: 1, Deltas: [][]byte{[]byte(`{"seq":2}`)}},
 		Answer{Pane: "a", At: 1 << 60, Allow: true},
+		Press{Pane: "a", At: 1 << 60, Label: "Redis"},
 		SearchResult{Pane: "a", Query: "Error", Matches: []vt.Match{{Line: 1 << 40, Col: 3, Cols: 5}}, More: true},
 		Text{Pane: "a", Sel: vt.Selection{A: vt.Pos{Line: 1 << 40, Col: 2}, B: vt.Pos{Line: 1<<40 + 3}, Mode: vt.SelectBlock}},
 		TextResult{Pane: "a", Sel: vt.Selection{B: vt.Pos{Col: 4}}, Text: "hello\nworld"},

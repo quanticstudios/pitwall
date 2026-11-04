@@ -219,8 +219,8 @@ func (d *Daemon) windowDeliver(m proto.Deliver) error {
 }
 
 // readyWindow is ready for a letter from the window: an agent the window may
-// reply to, question or no hooks included, unless a turn began since or the
-// user's draft sits in its box.
+// reply to, question or no hooks included, unless a turn began since, the
+// user's draft sits in its box or its screen shows a form Enter would answer.
 func (d *Daemon) readyWindow(pane string) (Pane, error) {
 	d.mu.Lock()
 	p := d.panes[pane]
@@ -228,19 +228,21 @@ func (d *Daemon) readyWindow(pane string) (Pane, error) {
 	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == pane }); i >= 0 {
 		prov = d.st.Panes[i].Provider
 	}
-	var state model.AgentState
+	var a model.Activity
 	if ai := d.activityIndex(pane); ai >= 0 {
-		state = d.st.Activities[ai].State
+		a = d.st.Activities[ai]
 	}
 	drafting := d.mail.drafting[pane]
 	d.mu.Unlock()
 	switch {
 	case p == nil:
 		return nil, fmt.Errorf("no running pane %s", pane)
-	case state != "" && !remote.Replies(state):
+	case a.State != "" && !remote.Replies(a.State):
 		return nil, fmt.Errorf("%s is busy", prov)
 	case drafting && agent.Draft(prov, p.Snapshot()):
 		return nil, errDraft
+	case formHolds(a, p.Snapshot()):
+		return nil, fmt.Errorf("%s shows a form to answer", prov)
 	}
 	return p, nil
 }

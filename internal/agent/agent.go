@@ -40,7 +40,12 @@ type payload struct {
 	ToolInput      struct {
 		Description string `json:"description"`
 		Questions   []struct {
-			Question string `json:"question"`
+			Question    string `json:"question"`
+			MultiSelect bool   `json:"multiSelect"`
+			Options     []struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+			} `json:"options"`
 		} `json:"questions"`
 	} `json:"tool_input"`
 	Message          string `json:"message"`
@@ -210,7 +215,27 @@ func Derive(prev *model.Activity, provider model.Provider, payload []byte, now t
 	next.State = state
 	next.Detail = detail
 	next.UpdatedAt = now
+	next.Options, next.OptionNotes = questionOptions(p)
+	// why: the hook fires before its form is drawn, and a reply in between would land on it.
+	next.Buttons, next.Menu = nil, state == model.StateAwaitingInput && p.ToolName == "AskUserQuestion"
 	return next, true
+}
+
+// questionOptions is the option labels and descriptions of an AskUserQuestion
+// that asks one single-choice question. Several questions or a multi-select
+// need more than one key on the form, so those have none.
+func questionOptions(p payload) (labels, notes []string) {
+	if p.ToolName != "AskUserQuestion" || len(p.ToolInput.Questions) != 1 || p.ToolInput.Questions[0].MultiSelect {
+		return nil, nil
+	}
+	for _, o := range p.ToolInput.Questions[0].Options {
+		l := strings.Join(strings.Fields(o.Label), " ")
+		if l == "" {
+			return nil, nil
+		}
+		labels, notes = append(labels, l), append(notes, o.Description)
+	}
+	return labels, notes
 }
 
 func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail string, remove, ok bool) {

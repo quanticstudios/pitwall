@@ -64,6 +64,19 @@ type Activity struct {
 	// QuietSince is when a working agent's screen last changed, once it
 	// has been still for [agents] quiet_after; zero otherwise.
 	QuietSince time.Time
+	// Options are the labels a hook named for a question with one
+	// single-choice answer.
+	Options []string
+	// OptionNotes are those options' descriptions, in the same order.
+	OptionNotes []string
+	// Buttons are the answers beyond Allow and Deny that the form on the
+	// pane's screen takes now, which the row draws; the daemon reads them
+	// off the screen each second and again before pressing one.
+	Buttons []string
+	// Menu marks a question with a menu of options, from the screen or just
+	// after the hook that announces one: Enter picks the highlighted option,
+	// so a typed reply cannot go in.
+	Menu bool
 }
 
 // ResumedDetail is the Detail of a working activity whose agent the

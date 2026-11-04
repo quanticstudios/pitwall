@@ -528,3 +528,26 @@ func TestReviewStaging(t *testing.T) {
 		t.Errorf("s on an unmerged file ran %s", got)
 	}
 }
+
+// Reply, Request changes and review comments all go through the daemon, which
+// holds them for a form; the note says so when the window knows of one.
+func TestDeliveriesReachTheDaemonPastAMenu(t *testing.T) {
+	b := newAgentBackend(model.StateAwaitingInput)
+	b.st.Activities[0].Menu = true
+	u := &ui{b: b}
+	st := b.State()
+	now := time.Now()
+	u.review.enqueue("p", "a reply", nil)
+	u.deliver(&st, now)
+	u.review.enqueue("p", "failed checks", nil).send = true
+	u.deliver(&st, now)
+	u.review.ws = "w"
+	u.review.notes = map[string][]*note{"/repo": {{Comment: review.Comment{Path: "a.go", Lines: []review.Line{{Kind: '+', New: 7, Text: "x"}}, Text: "Why?"}}}}
+	u.sendNotes(&st, "/repo", now)
+	if len(b.sent) != 0 || len(b.delivered) != 3 {
+		t.Fatalf("typed %q, delivered %+v", b.sent, b.delivered)
+	}
+	if want := "Goes to claude once its menu is answered"; u.review.status != want {
+		t.Errorf("status %q, want %q", u.review.status, want)
+	}
+}

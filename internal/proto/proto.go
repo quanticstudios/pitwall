@@ -41,6 +41,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 61 added Press, Activity.Options, OptionNotes, Buttons and Menu:
+// a row presses an answer the form on its pane's screen offers.
 // Level 60 added OpenPopup.Path, resolved and appended to Cmd by the daemon.
 // Level 59 added State.Drafting, DraftHeld and Delivered, and Deliver: a
 // message waits for the user's draft in an agent's input box, and the window's
@@ -173,7 +175,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 60
+const Level = 61
 
 // PopupPathLevel added OpenPopup.Path.
 const PopupPathLevel = 60
@@ -221,6 +223,8 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case Press:
+		return 61
 	case Deliver:
 		return 59
 	case OpenPopup:
@@ -846,6 +850,16 @@ type Answer struct {
 	Allow bool
 }
 
+// Press presses the key of Label, one of the Activity.Buttons a row showed,
+// on Pane's form. The daemon presses it only while the activity's UpdatedAt
+// is still At and the form on the screen offers Label. The phone page has no
+// such message.
+type Press struct {
+	Pane  string
+	At    int64
+	Label string
+}
+
 // Prompt types Text into Pane and presses Enter, as the phone page's reply
 // does, from `pitwall prompt`. The daemon does it only when Pane's agent
 // reports its turns through hooks, has no turn running and waits on
@@ -981,6 +995,7 @@ var Messages = []any{
 	OpenForm{}, FormAnswer{},
 	OpenPopup{},
 	EditScrollback{}, Scrollback{}, ScrollbackResult{},
+	Press{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

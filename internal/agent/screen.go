@@ -120,22 +120,27 @@ func (rules *screenPatterns) stateOf(p model.Provider, g vt.Grid, trace *ScreenT
 func bottomLines(g vt.Grid, n int) []string {
 	var out []string
 	for y := g.Rows - 1; y >= 0 && len(out) < n; y-- {
-		var b strings.Builder
-		for x := 0; x < g.Cols; x++ {
-			c := g.At(x, y)
-			switch {
-			case c.Width == 0:
-			case c.Content == "":
-				b.WriteByte(' ')
-			default:
-				b.WriteString(c.Content)
-			}
-		}
-		if l := strings.TrimRight(b.String(), " "); l != "" {
+		if l := rowText(g, y); l != "" {
 			out = append(out, l)
 		}
 	}
 	return out
+}
+
+// rowText is row y of g without its trailing spaces.
+func rowText(g vt.Grid, y int) string {
+	var b strings.Builder
+	for x := 0; x < g.Cols; x++ {
+		c := g.At(x, y)
+		switch {
+		case c.Width == 0:
+		case c.Content == "":
+			b.WriteByte(' ')
+		default:
+			b.WriteString(c.Content)
+		}
+	}
+	return strings.TrimRight(b.String(), " ")
 }
 
 // ScreenText is the last n non-empty rows of g, top to bottom, for a

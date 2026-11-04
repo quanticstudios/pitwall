@@ -607,10 +607,13 @@ func (r *reviewView) settle(st *model.State, now time.Time) time.Time {
 }
 
 // sentNote is what the window says of a delivery it gave p's ready agent: the
-// daemon holds it while the user's draft sits in the input box.
+// daemon holds it while the user's draft sits in the input box or a form shows.
 func sentNote(st *model.State, p *model.Pane) string {
 	if st.Drafting[p.ID] {
 		return "Goes to " + agentName(p) + " once its input box is empty"
+	}
+	if slices.ContainsFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == p.ID && a.Menu }) {
+		return "Goes to " + agentName(p) + " once its menu is answered"
 	}
 	return "Sent to " + agentName(p)
 }

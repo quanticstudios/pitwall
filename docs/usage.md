@@ -130,14 +130,35 @@ focused pane, else for the shown tab. They press the same keys the
 [phone page](phone.md) does, and only while the pane still shows the prompt
 the row showed, so a click never lands on a newer question. With a decision
 model, its advice stays in the pill above them, and the button it
-recommends is outlined.
+recommends is outlined. Where the prompt offers to stop asking, such as
+Claude Code's "Yes, and don't ask again" or Codex's "(a)" option, an
+**Always** button comes up beside them within a second and presses that
+option. A prompt with two such options gets no button.
 
-A Plan row has **Request changes…**, on the planning pane's or worker's own
-row when the tab lists them. It opens a field on that row: type
-what should change and press Enter, or Esc to cancel. pitwall never
-answers the plan dialog. It queues your text and types it, as your reply,
-the next time the agent waits for input, so choose No in the dialog
-yourself. A notice says when the text waits.
+A question from Claude Code's AskUserQuestion shows its options as buttons
+on the row, and a click presses that option's number. Long labels are cut
+short and the hover card has them whole; options that do not fit leave for a
+**+N** button that opens the tab. The buttons need one question with a single
+answer and a menu on screen that matches it in full: the whole question and
+every option with its description. pitwall reads the screen right before it
+presses, so if any of it changed, nothing is pressed and the buttons go within
+a second. A click also counts only if the question stayed the same from
+pressing the button to releasing it.
+
+Any other menu, such as a multi-select or several questions at once, shows
+**Open tab** in place of Reply. Enter on a menu picks the highlighted option,
+so a typed reply could not go in. A question without a menu keeps **Reply**.
+
+A Plan row has **Approve plan** where Claude Code's dialog offers "Yes,
+manually approve edits". It presses that option, never one that also raises
+the permission mode, and a dialog without it gets no button.
+
+The row's **Request changes…**, shortened to **Changes…** beside Approve plan,
+is on the planning pane's or worker's own row when the tab lists them. It
+opens a field on that row: type what should change and press Enter, or Esc to
+cancel. pitwall queues your text and types it, as your reply, the next time
+the agent waits for input, so choose No in the dialog yourself. A notice says
+when the text waits.
 
 A working agent whose screen has not changed for 20 minutes shows
 **quiet 20m** on its row in place of the time, and in its hover card. An
@@ -1519,7 +1540,7 @@ Waiting on you to unpin, unsettle or wake it. Its menu has the same actions, wit
 offering in an hour, this evening, tomorrow morning and Monday. Settling
 takes one click too: hover an agent's row and a double check shows left of
 "…" and "×". On a settled row an undo arrow in the same place unsettles it.
-A row showing Allow and Deny or a plan's button leaves it out. A notice
+A row showing answer buttons or a plan's buttons leaves it out. A notice
 with Undo follows each move for a few seconds, and Undo puts a pinned or
 unpinned tab back in its old place. Snooze and settle live in the
 daemon, so they survive a restart and every window sees them.
@@ -1553,8 +1574,11 @@ the field:
 pitwall types the reply into the agent the way Request changes and the
 review view's comments go in: once the agent waits for input, it pastes
 each image's path, then the text as one bracketed paste, then presses
-Enter. A notice under the panes says whether it went now or waits. If you typed
-in that pane, it says the reply goes once the input box is empty.
+Enter. While the screen shows a form the text waits, as Enter would answer
+the form, and a form that comes up after the paste does not get the Enter, so
+the text stays in the agent's input. A notice under the panes says whether it
+went now or waits. If you typed in that pane, it says the reply goes once the
+input box is empty.
 
 ### Your draft comes first
 

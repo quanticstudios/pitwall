@@ -65,6 +65,9 @@ Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
 the pane still shows the prompt the phone showed, and only when its screen
 has a permission prompt on it. A reply loses its control characters, so it
 cannot press keys or end a paste, and goes in as a paste followed by Enter.
+A terminal agent's screen that shows a form takes no reply here, as Enter
+would answer the form, so answer it in its tab or from the sidebar's buttons. The buttons for options, Always and Approve plan are
+on the sidebar only.
 pi has no permission prompts, so its tabs only take replies.
 
 A chat tab (one pitwall drives with `pitwall chat` rather than in a
