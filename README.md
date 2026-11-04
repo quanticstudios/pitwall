@@ -30,11 +30,12 @@ irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps
 ```
 
 Then run `pitwall`. The first window lists the agents on your `PATH` and
-sets up their status reporting with one button. pitwall runs every day on
-Linux; the macOS and Windows builds are newer. When a release is out, an
-Update button installs it, and your tabs and config carry over.
-[docs/install.md](docs/install.md) covers platforms, pinning a version,
-updates and building from source.
+sets up their status reporting with one button. `pitwall doctor` checks the
+install and prints the command that fixes each failure. pitwall runs every
+day on Linux; the macOS and Windows builds are newer and have had little use.
+When a release is out, an Update button installs it, and your tabs and config
+carry over. [docs/install.md](docs/install.md) covers platforms, pinning a
+version, updates and building from source.
 
 ## Try it in five minutes
 
@@ -45,21 +46,23 @@ are Cmd+U, Cmd+Shift+Y, Cmd+Shift+N, Cmd+Shift+R and Cmd+T.
    Install hooks on the welcome card (or in Settings, Agents), so the
    agents report their state.
    Ctrl+Shift+T opens a tab; run `claude` in one, `codex` in another, and
-   give each a task that runs a command.
+   give each a task that runs a command. In Codex, run `/hooks` once to trust
+   the new hooks.
 2. **Watch the sidebar.** Each tab's row reads Working, Input, Approval,
    Plan, Done or Error, with the branch and the lines changed.
 3. **Press Ctrl+Shift+U.** When an agent stops to ask, its row lights up
    and a desktop notification arrives. The key takes you to the agent that
    started waiting most recently; press it again for the next one.
-4. **Allow or Deny.** A Claude Code or Codex permission prompt puts Allow
-   and Deny on the row. Click them, or press Ctrl+Shift+Y or Ctrl+Shift+D.
+4. **Answer from the row.** A Claude Code or Codex permission prompt puts
+   Allow and Deny on the row. Click them, or press Ctrl+Shift+Y or
+   Ctrl+Shift+D. A single-choice Claude Code question puts its options there.
    To answer from a phone, turn it on in Settings, Phone, press Pair and
    scan the QR code; the phone has to reach your computer, for example over
    Tailscale
    ([docs/phone.md](docs/phone.md)).
 5. **Ask for a fleet.** Tell Claude Code or Codex "split this across three
-   workers". Each worker gets its own worktree and tab, folded into the
-   orchestrator's row as a bar of their states. Click the bar to list them.
+   workers". Each worker gets its own worktree and tab, and a small row under
+   the orchestrator's. Click the count on that row to fold them away.
 6. **Review and comment.** Ctrl+Shift+R opens the tab's changes. Click a
    line number, type a comment and press Enter. The Send comments button
    types them all into the agent as one prompt.
@@ -76,6 +79,12 @@ its own line. The row also shows the branch, the lines changed, and the pull
 request with its CI and review. Merge it from the tab's menu; once merged,
 Archive closes the tab and removes its worktree and branch.
 
+**The inbox view sorts agents by what they need from you.** The button left
+of + in the sidebar's header switches to it: Pinned, Waiting on you, Working,
+Snoozed, Settled, then shells. Snooze a tab until later, and an approval,
+question, plan or failure wakes it early. A tab settles when its pull request
+merges or after three days without agent activity.
+
 ### Get to the one that needs you
 
 **Ctrl+Shift+U jumps to the agent that started waiting most recently, in any
@@ -83,18 +92,37 @@ session.** Its pane gets a ring in the state's color and you get a desktop
 notification. Press the key again for the next one. Any command can ask
 too: `npm test && pitwall notify "tests passed"`.
 
+**Ctrl+Shift+K finds any tab,** in every session and on every host the window
+shows, by name, branch, folder, agent, pull request or first prompt. It lists
+the tabs you closed too, up to 200 from the last 30 days, and reopens one with
+its agent resumed.
+
 <br clear="right">
 
 ### Answer without switching windows
 
+<img src="docs/media/row-answers.webp" alt="Sidebar rows answering in place: a Codex pane's approval with Always, Allow and Deny, and under an orchestrator's row four workers, one with Allow and Deny and one asking which database to use with Redis and SQLite buttons" width="288" align="right">
+
+**Answer a prompt from its row, without opening the tab.** A Claude Code or
+Codex permission prompt shows Allow and Deny, plus Always when the prompt
+offers to stop asking. A single-choice Claude Code question shows its options
+as buttons. A Claude Code plan shows Approve plan, which never raises the
+permission mode, and a button to request changes. A question with no menu gets
+Reply, a small editor under the row. A multi-select or several questions at
+once show Open tab. pitwall reads the screen again right before a press, and
+if the form changed, it presses nothing. Ctrl+Shift+Y and Ctrl+Shift+D press
+Allow and Deny, and on Linux the notification has them too.
+
+<br clear="right">
+
 <img src="docs/media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box" width="240" align="right">
 
-**Allow or Deny a permission prompt from the sidebar or your phone.**
-Ctrl+Shift+Y and Ctrl+Shift+D press the row's buttons, and on Linux the
-notification has them too. Pair your phone by QR code and it lists what
-needs you, takes typed answers and gets push notifications while locked.
-There is no account and no relay: the phone talks to your computer over
-your own network.
+**Or answer from your phone.** Pair it by QR code and it lists what needs you,
+with Allow and Deny and a box for typed answers, and gets push notifications
+while locked. A menu on an agent's screen takes no typed reply, so answer that
+one in its tab or from the sidebar. There is no account and no relay: the
+phone talks to your computer over your own network. Push notifications go
+through the phone browser's push service, encrypted.
 
 <br clear="right">
 
@@ -120,6 +148,9 @@ pitwall wait --children --until done --timeout 30m
 
 `pitwall hooks install` teaches both agents these commands, so "split this
 across three workers" is all you have to say.
+
+Settings, Appearance, Sidebar, Workers gives each worker a full row of its own
+instead, behind a bar of their states on the orchestrator's row, as here:
 
 <img src="docs/media/fleet-folded.webp" alt="The sidebar with the Billing epic fleet folded into one row: a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, above a rate limiting tab and a collapsed web-app group" width="240"> <img src="docs/media/workers.webp" alt="The same fleet unfolded: ten workers indented under the Billing epic tab, each on its own branch, among them Retry failed webhooks waiting for input, Refund flow waiting for approval and Mid-cycle plan change with an error" width="240">
 
@@ -166,18 +197,62 @@ the comments to the agent as one prompt.** Untracked files are included.
 Tick off the files you have read; one the agent touches again comes back
 unticked. Throw away a file's changes with one button.
 
+The This turn scope shows what changed since the agent's latest turn started,
+and Undo turn puts those files back. The Staging scope stages single hunks with
+s and u, so you can commit part of an agent's work; on a `pitwall --host` tab,
+Stage hunks in terminal runs `git add -p` on the host. Second opinion starts
+the other agent read only in a split to review the changes, and sends its
+findings to the tab's agent.
+
 <img src="docs/media/review.webp" alt="The review view: three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and a Send 2 comments to claude button" width="800">
 
 ### Run agents side by side without collisions
 
-**Give each agent its own git worktree, and pitwall warns you when two of
-them edit the same file.** Start one from any branch or a pull request
-number. Each gets its own ports (3010-3019, then 3020-3029), so two dev
-servers stop fighting over 3000, and can copy `.env` and run your setup
-command. Rows turn amber when two branches touch the same files and red
-when merging would conflict; the hover card says which to merge first.
+**Give each agent its own git worktree, and pitwall warns you when their
+changes collide.** Start one from any branch or a pull request number. Each
+gets its own ports (3010-3019, then 3020-3029), so two dev servers stop
+fighting over 3000, and can copy `.env` and run your setup command. Once one of
+two branches has an open pull request, a row gets an amber triangle when they
+touch the same files and a red one when merging would conflict. The hover card
+lists every overlap and says which to merge first.
+
+**Fork a conversation to try a second approach.** Fork in a tab's menu, or
+`pitwall fork --worktree side`, continues a Claude Code or Codex conversation
+in a new tab while the source keeps running. With `--worktree` the fork gets a
+new branch from the source's HEAD, with its own ports and setup. Uncommitted
+changes stay in the source checkout.
+
+**Clean up what a worktree started.** Set `teardown`, such as
+`docker compose down`, under `[worktrees]`, and it runs with the worktree's
+ports before pitwall removes the folder. A failure keeps the worktree and says
+why. A command from a repo's `.pitwall/worktree.toml` needs your yes each time,
+since anyone can put code in a repo you clone. Without a yes, pitwall skips it,
+shows what it would have run and removes the worktree.
+`pitwall worktree rm --force` skips teardown.
+[Worktree ports and setup](docs/usage.md#worktree-ports-and-setup) has the rules.
 
 <img src="docs/media/conflict.webp" alt="The hover card of the Retry failed webhooks tab: its pull request with one check passed and one running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts, and its ports" width="600">
+
+### Limit what an agent can do by accident
+
+**`--guard` makes Claude Code, Codex, pi, Oh My Pi and OpenCode 1 refuse
+commands that are yours to run,** such as `git push`, `gh pr merge` and
+`terraform apply`, with a reason the agent reads. Turn it on for a tab with
+`pitwall new --guard`, in a preset, or for every worker with `guard_workers`.
+It reads the command's text, so a script that pushes gets through. It is a
+seatbelt, not a sandbox.
+
+**pitwall's own git turns off programs a repository's config names.** An agent
+can write `.git/config`, and pitwall runs git by itself for branch stats,
+checkpoints and worktrees. So it reads the config just before each git command
+and turns off hooks, `core.fsmonitor`, and the diff, filter, merge, ssh and
+credential programs set there. A program added in the moment between the two
+can still run, so this reduces the risk and is not a sandbox boundary. It does
+not contain an agent, which can already run any program as you when it has no
+sandbox or approval prompt.
+[What it turns off](docs/usage.md#what-a-repositorys-git-config-can-run) covers
+the exceptions and side effects: git-crypt, `post-checkout` hooks, and the actions
+that open a pane, which are your own git.
 
 ### Find where agents waste time and tokens
 
@@ -214,10 +289,11 @@ was asked.
 
 **New task (Ctrl+Shift+A) starts an agent on a prompt in a tab of its own,
 or queues it until a running agent finishes.** Pick the project, a fresh
-worktree or a branch, the agent and its permission mode. Cap how many
-agents run at once, and the queue starts the next task as one finishes.
+worktree or a branch, the agent and its permission mode. A task can start from
+an open GitHub issue, at a set time or on a repeat. Cap how many agents run at
+once, and the queue starts the next task as one finishes.
 
-<img src="docs/media/new-task.webp" alt="The New task dialog: project acme-api, a new worktree on a branch named from the prompt, Claude Code in its default mode, and the prompt, with Queue and Start buttons" width="480">
+<img src="docs/media/new-task.webp" alt="The New task dialog: a project, where to run (this folder, a new worktree or an existing branch), Claude Code or Codex in its default mode, the model and the prompt, with Queue and Start buttons" width="480">
 
 ### Let one agent hand work to another
 
@@ -225,13 +301,19 @@ agents run at once, and the queue starts the next task as one finishes.
 in it on a prompt, and wait for the result with `pitwall wait`.** The tab
 shows up in your sidebar, so you can watch the work and type into it. When
 the new agent asks permission, `wait` stops and reports the question, and
-you answer it in the tab. pitwall never answers for an agent. Hand
+you answer it in the tab or from its row. pitwall never answers for an agent.
+Hand
 [the agent skill page](docs/agent-skill.md) to your agent and it knows the
 commands.
 
 Agents can also talk to each other. `pitwall send` types a message into
 another agent at its next prompt, with a header saying who sent it and how
 to reply, so Claude Code and Codex can argue over a plan until they agree.
+
+**Nothing pitwall types lands in your draft.** `pitwall send`, review comments,
+sent CI failures and Reply wait while Claude Code's or Codex's input box holds
+your text or you typed in the pane in the last 3 seconds. The row reads "Waits:
+your draft". Send or clear the draft and they go in by themselves.
 
 <img src="docs/media/agents-talk.webp" alt="Claude Code and Codex in split panes of one pinned tab. Claude Code wrote plan.md and asked Codex to critique it with pitwall send; Codex's reply arrives under a pitwall header naming the sender and how to reply, raising three points. Claude Code accepts two, revises the plan, and Codex answers AGREE." width="800">
 
@@ -248,8 +330,17 @@ pitwall send "$pane" -- "Critique plan.md"
 **Close the window, reboot or upgrade, and your tabs come back in their
 folders with the agents resumed where they left off.** Sessions work like
 tmux, and the switcher (Ctrl+Shift+S) shows every session's agents before
-you switch. `pitwall --host box` runs them on another machine over ssh, so
-they keep going when the laptop closes.
+you switch. Panes keep their most recent 2000 rows across restarts, except in
+guarded tabs.
+`pitwall --host box` runs them on another machine over ssh, so they keep going
+when the laptop closes. With `window = true` under `[[hosts]]`, one window shows
+this machine's sessions and that host's under their own headings, with a Waiting
+on you list of the agents blocked on any of them.
+
+**Keep awake,** off by default, in Settings, Agents, stops Linux sleep and macOS
+idle sleep while any agent is Working and for a grace period after, 15 minutes
+unless you change it. A closed lid may still suspend the machine, and on Windows
+it does nothing.
 
 <img src="docs/media/sessions.webp" alt="The session switcher: sessions acme, billing and docs with their working and needs-you counts, and the billing session's tabs on the right" width="640">
 
@@ -273,9 +364,15 @@ phone.
 the scrollback, copy mode (Ctrl+Shift+X) selects with vi keys, and a
 selection stays on its text while new output scrolls past. Ctrl+Shift+H
 moves focus to the sidebar, where the arrow keys walk the tabs and Enter
-opens one. Search shortcuts by name or by the keys themselves, pick one of
-four themes and your own fonts, and rebind any key in Settings or
-`config.toml`.
+opens one. Pick one of five themes and your own fonts, and rebind any key in
+Settings or `config.toml`.
+
+**Ctrl+Shift+I types file paths into a prompt,** from a picker over the pane's
+folder. Ctrl+Shift+G labels every URL, path, hash and `#number` on screen; type
+a label to copy it, or Shift and the label to open it. With `open_path` under
+`[terminal]`, such as `["bat", "--paging=always"]`, a path opens in a popup
+over the panes. Picture in picture, in a tab's menu, keeps one pane live in a
+corner while you work in another tab.
 
 <img src="docs/media/palette.webp" alt="The command palette filtered by pr: Open PR and Merge PR first, then tab and pane actions with their keys" width="560">
 
@@ -283,8 +380,8 @@ four themes and your own fonts, and rebind any key in Settings or
 
 | Agent       | What pitwall shows                                                   |
 | ----------- | -------------------------------------------------------------------- |
-| Claude Code | Every state, Allow and Deny, resume, side panel, cost, plan limits   |
-| Codex       | Its state, Allow and Deny, resume, side panel, cost, plan limits     |
+| Claude Code | Every state, Allow, Deny and Always, question buttons, Approve plan, fork, resume, side panel, cost, plan limits |
+| Codex       | Its state, Allow, Deny and Always, fork, resume, side panel, cost, plan limits |
 | Gemini CLI  | Every state but Error, resume, side panel, cost                      |
 | OpenCode    | Working, Input, Approval, Done and Error, resume; [managed driver](internal/session/opencode/README.md) |
 | pi          | Working, Done and Error, resume, side panel, cost                    |
@@ -292,7 +389,8 @@ four themes and your own fonts, and rebind any key in Settings or
 | Cursor CLI  | Working, Done and Error, resume                                      |
 | Aider, Amp  | Aider's state read from its screen; Amp's logo, and its bell rings   |
 
-Builds for Linux, macOS and Windows 10 and 11, on x86_64 and arm64.
+Builds for Linux with glibc 2.35 or newer, macOS, and Windows 10 1809 or newer
+and 11, on x86_64 and arm64.
 
 ## Keys
 
@@ -303,13 +401,16 @@ Builds for Linux, macOS and Windows 10 and 11, on x86_64 and arm64.
 | Ctrl+Shift+R                | Cmd+Shift+R               | Review the tab's changes                   |
 | Ctrl+Shift+A                | Cmd+Shift+A               | New task, now or queued                    |
 | Ctrl+Shift+P                | Cmd+Shift+P               | Command palette: every action and its keys |
+| Ctrl+Shift+K                | Cmd+K                     | Search tabs, open and closed               |
+| Ctrl+Shift+I                | Cmd+Shift+I               | Insert file paths at the cursor            |
+| Ctrl+Shift+G                | Cmd+Shift+G               | Hints: copy or open what's on screen       |
 | Ctrl+Shift+T                | Cmd+T                     | New tab below this one, in its folder      |
 | Ctrl+Shift+O / Ctrl+Shift+E | Cmd+D / Cmd+Shift+D       | Split the pane to the right / below        |
 | Ctrl+Shift+S                | Cmd+S                     | Session switcher                           |
 | Ctrl+Shift+L                | Cmd+L                     | Agent panel: the turn, subagents, plan     |
 
-The aide preset puts these on Alt instead. [docs/keys.md](docs/keys.md) has
-every binding, and all of them can be changed.
+The aide preset moves the tab, pane, session and go-to keys to Alt.
+[docs/keys.md](docs/keys.md) has every binding, and all of them can be changed.
 
 ## For creators and press
 
@@ -328,8 +429,8 @@ Linux, macOS and Windows, built for running several coding agents at once.
 Each tab's row in the sidebar says whether its agent is working, waiting for
 input or approval, done or failed. When one stops to ask, Ctrl+Shift+U
 jumps to it, and Allow and Deny work from the sidebar or a paired phone. An
-agent can split a job across workers, each in its own git worktree, and the
-fleet shows as one row. A review view sends line comments back to the
+agent can split a job across workers, each in its own git worktree, listed
+under its row. A review view sends line comments back to the
 agent. It works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI,
 pi and Oh My Pi.
 

@@ -207,7 +207,7 @@ footer a { color: var(--muted); }
   <section id="install" class="install">
     <div class="wrap">
       <h2>Install</h2>
-      <p>pitwall runs every day on Linux; the macOS and Windows builds are newer. When a release is out, an Update button installs it, and your tabs and config carry over.</p>
+      <p>pitwall runs every day on Linux; the macOS and Windows builds are newer and have had little use. When a release is out, an Update button installs it, and your tabs and config carry over.</p>
       <div class="install-grid">
         <div>
           <p class="label">Homebrew, on macOS or Linux</p>
@@ -223,7 +223,7 @@ scoop install pitwall</code></pre>
           <pre><code>irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps1 | iex</code></pre>
         </div>
       </div>
-      <p>Then run <code>pitwall</code>. The first window lists the agents on your <code>PATH</code> and sets up their status reporting with one button. <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/install.md">The install page</a> covers platforms, pinning a version, updates and building from source.</p>
+      <p>Then run <code>pitwall</code>. The first window lists the agents on your <code>PATH</code> and sets up their status reporting with one button. <code>pitwall doctor</code> checks the install and prints the command that fixes each failure. <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/install.md">The install page</a> covers platforms, pinning a version, updates and building from source.</p>
     </div>
   </section>
 
@@ -232,11 +232,11 @@ scoop install pitwall</code></pre>
       <h2>Try it in five minutes</h2>
       <p>Use a git repo you don't mind agents changing. On macOS the keys below are <kbd>Cmd+U</kbd>, <kbd>Cmd+Shift+Y</kbd>, <kbd>Cmd+Shift+N</kbd>, <kbd>Cmd+Shift+R</kbd> and <kbd>Cmd+T</kbd>.</p>
       <ol class="steps">
-        <li><strong>Start two or three agents.</strong> Run <code>pitwall</code> in the repo and press Install hooks on the welcome card (or in Settings, Agents), so the agents report their state. <kbd>Ctrl+Shift+T</kbd> opens a tab; run <code>claude</code> in one, <code>codex</code> in another, and give each a task that runs a command.</li>
+        <li><strong>Start two or three agents.</strong> Run <code>pitwall</code> in the repo and press Install hooks on the welcome card (or in Settings, Agents), so the agents report their state. <kbd>Ctrl+Shift+T</kbd> opens a tab; run <code>claude</code> in one, <code>codex</code> in another, and give each a task that runs a command. In Codex, run <code>/hooks</code> once to trust the new hooks.</li>
         <li><strong>Watch the sidebar.</strong> Each tab's row reads Working, Input, Approval, Plan, Done or Error, with the branch and the lines changed.</li>
         <li><strong>Press <kbd>Ctrl+Shift+U</kbd>.</strong> When an agent stops to ask, its row lights up and a desktop notification arrives. The key takes you to the agent that started waiting most recently; press it again for the next one.</li>
-        <li><strong>Allow or Deny.</strong> A Claude Code or Codex permission prompt puts Allow and Deny on the row. Click them, or press <kbd>Ctrl+Shift+Y</kbd> or <kbd>Ctrl+Shift+D</kbd>. To answer from a phone, turn it on in Settings, Phone, press Pair and scan the QR code; the phone has to reach your computer, for example over Tailscale (<a href="https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md">the phone page</a>).</li>
-        <li><strong>Ask for a fleet.</strong> Tell Claude Code or Codex "split this across three workers". Each worker gets its own worktree and tab, folded into the orchestrator's row as a bar of their states. Click the bar to list them.</li>
+        <li><strong>Answer from the row.</strong> A Claude Code or Codex permission prompt puts Allow and Deny on the row. Click them, or press <kbd>Ctrl+Shift+Y</kbd> or <kbd>Ctrl+Shift+D</kbd>. A single-choice Claude Code question puts its options there. To answer from a phone, turn it on in Settings, Phone, press Pair and scan the QR code; the phone has to reach your computer, for example over Tailscale (<a href="https://github.com/quanticstudios/pitwall/blob/main/docs/phone.md">the phone page</a>).</li>
+        <li><strong>Ask for a fleet.</strong> Tell Claude Code or Codex "split this across three workers". Each worker gets its own worktree and tab, and a small row under the orchestrator's. Click the count on that row to fold them away.</li>
         <li><strong>Review and comment.</strong> <kbd>Ctrl+Shift+R</kbd> opens the tab's changes. Click a line number, type a comment and press Enter. The Send comments button types them all into the agent as one prompt.</li>
       </ol>
     </div>
@@ -250,11 +250,13 @@ scoop install pitwall</code></pre>
             <h3>See every agent at a glance</h3>
             <p><strong>Every tab's row says what its agent is doing: Working, Input, Approval, Plan, Done or Error.</strong> A tab with three agents in split panes lists each on its own line.</p>
             <p>The row also shows the branch, the lines changed, and the pull request with its CI and review. Merge it from the tab's menu; once merged, Archive closes the tab and removes its worktree and branch.</p>
+            <p><strong>The inbox view sorts agents by what they need from you.</strong> The button left of + in the sidebar's header switches to it: Pinned, Waiting on you, Working, Snoozed, Settled, then shells. Snooze a tab until later, and an approval, question, plan or failure wakes it early. A tab settles when its pull request merges or after three days without agent activity.</p>
           </div>
           <div>
             <h3>Get to the one that needs you</h3>
             <p><strong><kbd>Ctrl+Shift+U</kbd> jumps to the agent that started waiting most recently, in any session.</strong> Its pane gets a ring in the state's color and you get a desktop notification. Press the key again for the next one.</p>
             <p>Any command can ask too: <code>npm test &amp;&amp; pitwall notify "tests passed"</code>.</p>
+            <p><strong><kbd>Ctrl+Shift+K</kbd> finds any tab,</strong> in every session and on every host the window shows, by name, branch, folder, agent, pull request or first prompt. It lists the tabs you closed too, up to 200 from the last 30 days, and reopens one with its agent resumed.</p>
           </div>
         </div>
         <div class="media">
@@ -265,10 +267,12 @@ scoop install pitwall</code></pre>
       <div class="feature">
         <div class="text">
           <h3>Answer without switching windows</h3>
-          <p><strong>Allow or Deny a permission prompt from the sidebar or your phone.</strong> <kbd>Ctrl+Shift+Y</kbd> and <kbd>Ctrl+Shift+D</kbd> press the row's buttons, and on Linux the notification has them too.</p>
-          <p>Pair your phone by QR code and it lists what needs you, takes typed answers and gets push notifications while locked. There is no account and no relay: the phone talks to your computer over your own network.</p>
+          <p><strong>Answer a prompt from its row, without opening the tab.</strong> A Claude Code or Codex permission prompt shows Allow and Deny, plus Always when the prompt offers to stop asking. A single-choice Claude Code question shows its options as buttons. A Claude Code plan shows Approve plan, which never raises the permission mode, and a button to request changes. A question with no menu gets Reply, a small editor under the row. A multi-select or several questions at once show Open tab.</p>
+          <p>pitwall reads the screen again right before a press, and if the form changed, it presses nothing. <kbd>Ctrl+Shift+Y</kbd> and <kbd>Ctrl+Shift+D</kbd> press Allow and Deny, and on Linux the notification has them too.</p>
+          <p><strong>Or answer from your phone.</strong> Pair it by QR code and it lists what needs you, with Allow and Deny and a box for typed answers, and gets push notifications while locked. A menu on an agent's screen takes no typed reply, so answer that one in its tab or from the sidebar. There is no account and no relay: the phone talks to your computer over your own network. Push notifications go through the phone browser's push service, encrypted.</p>
         </div>
-        <div class="media">
+        <div class="media stack">
+          <div class="shot tall"><img src="media/row-answers.webp" width="288" height="354" loading="lazy" alt="Sidebar rows answering in place: a Codex pane's approval with Always, Allow and Deny, and under an orchestrator's row four workers, one with Allow and Deny and one asking which database to use with Redis and SQLite buttons"></div>
           <div class="shot tall"><img src="media/phone.webp" width="780" height="1688" loading="lazy" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box"></div>
         </div>
       </div>
@@ -279,6 +283,7 @@ scoop install pitwall</code></pre>
           <p><strong>Ask Claude Code or Codex to split a job and it starts one worker per task, each in its own worktree, under its own tab.</strong> Each worker gets a small row under the orchestrator's, with its state and Allow and Deny when it asks. The orchestrator's row counts them, as in "3 workers · 1 approval", and takes the most urgent state among them. Click the count to fold them away; a worker that asks for you stays. Click a worker's row to watch or type into it.</p>
           <p>The orchestrator waits with <code>pitwall wait --children</code>. It stops at the first worker that asks a question, and <kbd>Ctrl+Shift+U</kbd> takes you to it. When a worker's pull request merges, Archive removes its tab, worktree and branch.</p>
           <p><code>pitwall hooks install</code> teaches both agents these commands, so "split this across three workers" is all you have to say.</p>
+          <p>Settings, Appearance, Sidebar, Workers gives each worker a full row of its own instead, behind a bar of their states on the orchestrator's row, as in these pictures.</p>
           <pre class="term"><code>pitwall worktree new invoice-pdf -- \
   claude "Render invoices as PDFs"
 pitwall worktree new webhook-retry -- \
@@ -312,6 +317,7 @@ pitwall wait --children \
           <h3>Review what the agent changed</h3>
           <p><strong><kbd>Ctrl+Shift+R</kbd> opens the tab's changes. Comment on any line, then send all the comments to the agent as one prompt.</strong></p>
           <p>Untracked files are included. Tick off the files you have read; one the agent touches again comes back unticked. Throw away a file's changes with one button.</p>
+          <p>The This turn scope shows what changed since the agent's latest turn started, and Undo turn puts those files back. The Staging scope stages single hunks with s and u, so you can commit part of an agent's work; on a <code>pitwall --host</code> tab, Stage hunks in terminal runs <code>git add -p</code> on the host. Second opinion starts the other agent read only in a split to review the changes, and sends its findings to the tab's agent.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/review.webp" width="992" height="780" loading="lazy" alt="The review view: three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and a Send 2 comments to claude button"></div>
@@ -321,11 +327,23 @@ pitwall wait --children \
       <div class="feature">
         <div class="text">
           <h3>Run agents side by side without collisions</h3>
-          <p><strong>Give each agent its own git worktree, and pitwall warns you when two of them edit the same file.</strong> Start one from any branch or a pull request number.</p>
-          <p>Each gets its own ports (3010-3019, then 3020-3029), so two dev servers stop fighting over 3000, and can copy <code>.env</code> and run your setup command. Rows turn amber when two branches touch the same files and red when merging would conflict; the hover card says which to merge first.</p>
+          <p><strong>Give each agent its own git worktree, and pitwall warns you when their changes collide.</strong> Start one from any branch or a pull request number.</p>
+          <p>Each gets its own ports (3010-3019, then 3020-3029), so two dev servers stop fighting over 3000, and can copy <code>.env</code> and run your setup command. Once one of two branches has an open pull request, a row gets an amber triangle when they touch the same files and a red one when merging would conflict. The hover card lists every overlap and says which to merge first.</p>
+          <p><strong>Fork a conversation to try a second approach.</strong> Fork in a tab's menu, or <code>pitwall fork --worktree side</code>, continues a Claude Code or Codex conversation in a new tab while the source keeps running. With <code>--worktree</code> the fork gets a new branch from the source's HEAD, with its own ports and setup. Uncommitted changes stay in the source checkout.</p>
+          <p><strong>Clean up what a worktree started.</strong> Set <code>teardown</code>, such as <code>docker compose down</code>, under <code>[worktrees]</code>, and it runs with the worktree's ports before pitwall removes the folder. A failure keeps the worktree and says why. A command from a repo's <code>.pitwall/worktree.toml</code> needs your yes each time, since anyone can put code in a repo you clone. Without a yes, pitwall skips it, shows what it would have run and removes the worktree.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/conflict.webp" width="600" height="420" loading="lazy" alt="The hover card of the Retry failed webhooks tab: its pull request with one check passed and one running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts, and its ports"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <h3>Limit what an agent can do by accident</h3>
+          <p><strong><code>--guard</code> makes Claude Code, Codex, pi, Oh My Pi and OpenCode 1 refuse commands that are yours to run,</strong> such as <code>git push</code>, <code>gh pr merge</code> and <code>terraform apply</code>, with a reason the agent reads. Turn it on for a tab with <code>pitwall new --guard</code>, in a preset, or for every worker with <code>guard_workers</code>. It reads the command's text, so a script that pushes gets through. It is a seatbelt, not a sandbox.</p>
+        </div>
+        <div class="text">
+          <p><strong>pitwall's own git turns off programs a repository's config names.</strong> An agent can write <code>.git/config</code>, and pitwall runs git by itself for branch stats, checkpoints and worktrees. So it reads the config just before each git command and turns off hooks, <code>core.fsmonitor</code>, and the diff, filter, merge, ssh and credential programs set there. A program added in the moment between the two can still run, so this reduces the risk and is not a sandbox boundary. It does not contain an agent, which can already run any program as you when it has no sandbox or approval prompt. <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/usage.md#what-a-repositorys-git-config-can-run">What it turns off</a> covers the exceptions and side effects: git-crypt, <code>post-checkout</code> hooks, and the actions that open a pane, which are your own git.</p>
         </div>
       </div>
 
@@ -357,10 +375,10 @@ pitwall wait --children \
         <div class="text">
           <h3>Line up the next task</h3>
           <p><strong>New task (<kbd>Ctrl+Shift+A</kbd>) starts an agent on a prompt in a tab of its own, or queues it until a running agent finishes.</strong></p>
-          <p>Pick the project, a fresh worktree or a branch, the agent and its permission mode. Cap how many agents run at once, and the queue starts the next task as one finishes.</p>
+          <p>Pick the project, a fresh worktree or a branch, the agent and its permission mode. A task can start from an open GitHub issue, at a set time or on a repeat. Cap how many agents run at once, and the queue starts the next task as one finishes.</p>
         </div>
         <div class="media">
-          <div class="shot"><img src="media/new-task.webp" width="562" height="688" loading="lazy" alt="The New task dialog: project acme-api, a new worktree on a branch named from the prompt, Claude Code in its default mode, and the prompt, with Queue and Start buttons"></div>
+          <div class="shot"><img src="media/new-task.webp" width="562" height="624" loading="lazy" alt="The New task dialog: a project, where to run (this folder, a new worktree or an existing branch), Claude Code or Codex in its default mode, the model and the prompt, with Queue and Start buttons"></div>
         </div>
       </div>
 
@@ -369,7 +387,8 @@ pitwall wait --children \
           <h3>Let one agent hand work to another</h3>
           <p><strong>An agent can open a tab with <code>pitwall new</code>, start Codex or Claude Code in it on a prompt, and wait for the result with <code>pitwall wait</code>.</strong> The tab shows up in your sidebar, so you can watch the work and type into it.</p>
           <p>Agents can also talk to each other. <code>pitwall send</code> types a message into another agent at its next prompt, with a header saying who sent it and how to reply, so Claude Code and Codex can argue over a plan until they agree.</p>
-          <p>When the new agent asks permission, <code>wait</code> stops and reports the question, and you answer it in the tab. pitwall never answers for an agent. Hand <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">the agent skill page</a> to your agent and it knows the commands.</p>
+          <p><strong>Nothing pitwall types lands in your draft.</strong> <code>pitwall send</code>, review comments, sent CI failures and Reply wait while Claude Code's or Codex's input box holds your text or you typed in the pane in the last 3 seconds. The row reads "Waits: your draft". Send or clear the draft and they go in by themselves.</p>
+          <p>When the new agent asks permission, <code>wait</code> stops and reports the question, and you answer it in the tab or from its row. pitwall never answers for an agent. Hand <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md">the agent skill page</a> to your agent and it knows the commands.</p>
         </div>
         <div class="media stack">
           <div class="shot"><img src="media/agents-talk.webp" width="1280" height="800" loading="lazy" alt="Claude Code and Codex in split panes of one pinned tab. Claude Code wrote plan.md and asked Codex to critique it with pitwall send; Codex's reply arrives under a pitwall header naming the sender and how to reply, raising three points. Claude Code accepts two, revises the plan, and Codex answers AGREE."></div>
@@ -392,7 +411,8 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
         <div class="text">
           <h3>Never lose a session</h3>
           <p><strong>Close the window, reboot or upgrade, and your tabs come back in their folders with the agents resumed where they left off.</strong></p>
-          <p>Sessions work like tmux, and the switcher (<kbd>Ctrl+Shift+S</kbd>) shows every session's agents before you switch. <code>pitwall --host box</code> runs them on another machine over ssh, so they keep going when the laptop closes.</p>
+          <p>Sessions work like tmux, and the switcher (<kbd>Ctrl+Shift+S</kbd>) shows every session's agents before you switch. <code>pitwall --host box</code> runs them on another machine over ssh, so they keep going when the laptop closes. With <code>window = true</code> under <code>[[hosts]]</code>, one window shows this machine's sessions and that host's under their own headings, with a Waiting on you list of the agents blocked on any of them.</p>
+          <p>Panes keep their most recent 2000 rows across restarts, except in guarded tabs. <strong>Keep awake,</strong> off by default, in Settings, Agents, stops Linux sleep and macOS idle sleep while any agent is Working and for a grace period after, 15 minutes unless you change it. A closed lid may still suspend the machine, and on Windows it does nothing.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/sessions.webp" width="738" height="560" loading="lazy" alt="The session switcher: sessions acme, billing and docs with their working and needs-you counts, and the billing session's tabs on the right"></div>
@@ -414,7 +434,8 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
         <div class="text">
           <h3>Drive it from the keyboard</h3>
           <p><strong><kbd>Ctrl+Shift+P</kbd> lists every action with its keys.</strong> <kbd>Ctrl+Shift+F</kbd> searches the scrollback, copy mode (<kbd>Ctrl+Shift+X</kbd>) selects with vi keys, and a selection stays on its text while new output scrolls past.</p>
-          <p><kbd>Ctrl+Shift+H</kbd> moves focus to the sidebar, where the arrow keys walk the tabs and Enter opens one. Search shortcuts by name or by the keys themselves, pick one of four themes and your own fonts, and rebind any key in Settings or <code>config.toml</code>. On macOS the keys sit on Cmd.</p>
+          <p><kbd>Ctrl+Shift+H</kbd> moves focus to the sidebar, where the arrow keys walk the tabs and Enter opens one. Pick one of five themes and your own fonts, and rebind any key in Settings or <code>config.toml</code>. On macOS most of these sit on Cmd; <a href="https://github.com/quanticstudios/pitwall/blob/main/docs/keys.md">the keybindings page</a> lists them.</p>
+          <p><strong><kbd>Ctrl+Shift+I</kbd> types file paths into a prompt,</strong> from a picker over the pane's folder. <kbd>Ctrl+Shift+G</kbd> labels every URL, path, hash and <code>#number</code> on screen; type a label to copy it, or Shift and the label to open it. With <code>open_path</code> under <code>[terminal]</code>, such as <code>["bat", "--paging=always"]</code>, a path opens in a popup over the panes. Picture in picture, in a tab's menu, keeps one pane live in a corner while you work in another tab.</p>
         </div>
         <div class="media">
           <div class="shot"><img src="media/palette.webp" width="602" height="422" loading="lazy" alt="The command palette filtered by pr: Open PR and Merge PR first, then tab and pane actions with their keys"></div>
@@ -429,8 +450,8 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
       <table class="agents">
         <thead><tr><th>Agent</th><th>What pitwall shows</th></tr></thead>
         <tbody>
-          <tr><td>Claude Code</td><td>Every state, Allow and Deny, resume, side panel, cost, plan limits</td></tr>
-          <tr><td>Codex</td><td>Its state, Allow and Deny, resume, side panel, cost, plan limits</td></tr>
+          <tr><td>Claude Code</td><td>Every state, Allow, Deny and Always, question buttons, Approve plan, fork, resume, side panel, cost, plan limits</td></tr>
+          <tr><td>Codex</td><td>Its state, Allow, Deny and Always, fork, resume, side panel, cost, plan limits</td></tr>
           <tr><td>Gemini CLI</td><td>Every state but Error, resume, side panel, cost</td></tr>
           <tr><td>OpenCode</td><td>Working, Input, Approval, Done and Error, resume</td></tr>
           <tr><td>pi</td><td>Working, Done and Error, resume, side panel, cost</td></tr>
@@ -439,7 +460,7 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
           <tr><td>Aider, Amp</td><td>Aider's state read from its screen; Amp's logo, and its bell rings</td></tr>
         </tbody>
       </table>
-      <p>Builds for Linux, macOS and Windows 10 and 11, on x86_64 and arm64.</p>
+      <p>Builds for Linux with glibc 2.35 or newer, macOS, and Windows 10 1809 or newer and 11, on x86_64 and arm64.</p>
     </div>
   </section>
 
@@ -449,7 +470,7 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
       <p>Quantic Studios makes pitwall. We don't pay for coverage and don't expect any. If you review it, say what you think, including what is broken.</p>
       <p><strong>One line</strong>pitwall is a free desktop terminal that shows what each of your coding agents is doing and takes you to the one waiting on you.</p>
       <p><strong>One paragraph</strong>pitwall is a free, MIT-licensed desktop terminal for running several coding agents at once. A sidebar shows each agent's state, and one key jumps to the agent stuck on a question or a permission prompt.</p>
-      <p><strong>About 100 words</strong>pitwall is a free, MIT-licensed desktop terminal for Linux, macOS and Windows, built for running several coding agents at once. Each tab's row in the sidebar says whether its agent is working, waiting for input or approval, done or failed. When one stops to ask, Ctrl+Shift+U jumps to it, and Allow and Deny work from the sidebar or a paired phone. An agent can split a job across workers, each in its own git worktree, and the fleet shows as one row. A review view sends line comments back to the agent. It works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and Oh My Pi.</p>
+      <p><strong>About 100 words</strong>pitwall is a free, MIT-licensed desktop terminal for Linux, macOS and Windows, built for running several coding agents at once. Each tab's row in the sidebar says whether its agent is working, waiting for input or approval, done or failed. When one stops to ask, Ctrl+Shift+U jumps to it, and Allow and Deny work from the sidebar or a paired phone. An agent can split a job across workers, each in its own git worktree, listed under its row. A review view sends line comments back to the agent. It works with Claude Code, Codex, OpenCode, Gemini CLI, Cursor CLI, pi and Oh My Pi.</p>
       <p>The logo is <a href="https://github.com/quanticstudios/pitwall/blob/main/packaging/pitwall.svg">packaging/pitwall.svg</a>, and every screenshot and clip on this page is in <a href="https://github.com/quanticstudios/pitwall/tree/main/docs/media">docs/media</a>. Write to <a href="mailto:info@quanticstudios.io">info@quanticstudios.io</a>.</p>
     </div>
   </section>
