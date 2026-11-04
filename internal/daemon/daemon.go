@@ -1000,6 +1000,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	switch m := m.(type) {
 	case proto.AddProject:
 		return d.addProject(ctx, m)
+	case proto.ForkPane:
+		return d.forkPane(ctx, m)
 	case proto.NewWorkspace:
 		return d.newWorkspace(ctx, m)
 	case proto.RenameWorkspace:

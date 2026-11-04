@@ -480,7 +480,21 @@ func migrateSessions(data []byte, version int, s *model.State) error {
 // the permission mode its hooks last reported (Pane.AgentMode) unless its
 // command already sets its permissions.
 // Adapted from tuios (MIT): internal/session/agent_resume.go
-func RestoreCmd(p model.Pane) []string {
+func RestoreCmd(p model.Pane) []string { return restoreCmd(p, false) }
+
+// ForkCmd resumes a Claude Code or Codex conversation with a new session id.
+// The new pane chooses its directory, so Codex drops --cd and --worktree.
+func ForkCmd(p model.Pane) ([]string, error) {
+	if p.Provider != model.ProviderClaude && p.Provider != model.ProviderCodex {
+		return nil, fmt.Errorf("pane %s: cannot fork agent %q; only Claude Code and Codex support terminal forks", p.ID, p.Provider)
+	}
+	if p.SessionID == "" {
+		return nil, fmt.Errorf("pane %s: %s has no stored session id yet", p.ID, p.Provider)
+	}
+	return restoreCmd(p, true), nil
+}
+
+func restoreCmd(p model.Pane, fork bool) []string {
 	if model.ReportedName(p.Provider) != "" && Resumes(p) {
 		return slices.Clone(p.ResumeCmd)
 	}
@@ -510,6 +524,9 @@ func RestoreCmd(p model.Pane) []string {
 				cmd = append(cmd, "--permission-mode", p.AgentMode)
 			}
 		}
+		if fork {
+			cmd = append(cmd, "--fork-session")
+		}
 		return append(cmd, "--resume", p.SessionID)
 	}
 	switch p.Provider {
@@ -526,7 +543,11 @@ func RestoreCmd(p model.Pane) []string {
 		// why: the Cursor CLI's options are not documented in full, so none are carried over.
 		return append(cmd, "--resume", p.SessionID)
 	}
-	cmd = append(cmd, "resume")
+	if fork {
+		cmd = append(cmd, "fork")
+	} else {
+		cmd = append(cmd, "resume")
+	}
 	// codex resume accepts these options from codex --help. Positional
 	// prompts and old resume selectors must not select a different session.
 	for i := 0; i < len(args); i++ {
@@ -542,6 +563,12 @@ func RestoreCmd(p model.Pane) []string {
 			if !attached && (i+1 >= len(args) || args[i+1] == "--") {
 				break // the value flag would take the session id
 			}
+			if fork && (flag == "-C" || flag == "--cd") {
+				if !attached {
+					i++
+				}
+				continue
+			}
 			cmd = append(cmd, args[i])
 			if !attached {
 				i++
@@ -550,7 +577,9 @@ func RestoreCmd(p model.Pane) []string {
 		case "--oss", "--approve-for-me", "--dangerously-bypass-approvals-and-sandbox",
 			"--dangerously-bypass-hook-trust", "--search", "--no-alt-screen",
 			"--no-daemon", "--strict-config", "--worktree":
-			cmd = append(cmd, args[i])
+			if !fork || flag != "--worktree" {
+				cmd = append(cmd, args[i])
+			}
 		case "-i", "--image":
 			// Images belong to the initial prompt, not the restored session.
 			if !attached {
@@ -560,6 +589,9 @@ func RestoreCmd(p model.Pane) []string {
 			}
 		default:
 			// Clap also accepts attached short-option values, such as -mMODEL.
+			if fork && strings.HasPrefix(args[i], "-C") {
+				continue
+			}
 			if len(args[i]) > 2 && args[i][0] == '-' && strings.IndexByte("cmpsaC", args[i][1]) >= 0 {
 				cmd = append(cmd, args[i])
 			}

@@ -28,6 +28,8 @@ import (
 const Width unit.Dp = 288
 
 type Sidebar struct {
+	// Forks is whether the daemon supports terminal forks.
+	Forks    bool
 	Profiles map[string]config.Profile
 	// ExpandAll starts every group expanded, for a drawing of a session
 	// the window does not show (the session switcher's preview).
@@ -226,6 +228,7 @@ const (
 	actDetach
 	actDelete
 	actNewBelow
+	actFork
 	actDiff
 	actPR
 	actOpenPR

@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 62 added ForkPane for terminal agent forks.
 // Level 61 added Press, Activity.Options, OptionNotes, Buttons and Menu:
 // a row presses an answer the form on its pane's screen offers.
 // Level 60 added OpenPopup.Path, resolved and appended to Cmd by the daemon.
@@ -175,10 +176,17 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 61
+const Level = 62
 
 // PopupPathLevel added OpenPopup.Path.
 const PopupPathLevel = 60
+
+// ForkLevel added ForkPane.
+const ForkLevel = 62
+
+// ForkPane opens a terminal fork beside Pane, with the same group and parent.
+// Worktree creates a branch and worktree from the source checkout's HEAD.
+type ForkPane struct{ Pane, Worktree, Name string }
 
 // PopupLevel added OpenPopup.
 const PopupLevel = 54
@@ -227,6 +235,8 @@ func Since(msg any) int {
 		return 61
 	case Deliver:
 		return 59
+	case ForkPane:
+		return ForkLevel
 	case OpenPopup:
 		if m.Path != "" {
 			return PopupPathLevel
@@ -996,6 +1006,7 @@ var Messages = []any{
 	OpenPopup{},
 	EditScrollback{}, Scrollback{}, ScrollbackResult{},
 	Press{},
+	ForkPane{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

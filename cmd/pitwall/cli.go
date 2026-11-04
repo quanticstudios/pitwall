@@ -173,6 +173,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return errors.New(usage)
 	}
 	command := args[0]
+	if command == "fork" {
+		return forkCommand(args[1:], out)
+	}
 	if command == "tab" {
 		return tabCommand(args[1:])
 	}

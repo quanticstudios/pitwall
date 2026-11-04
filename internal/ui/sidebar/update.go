@@ -285,6 +285,14 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 				}
 			}
 		}
+		if s.menuItem[actFork].Clicked(gtx) && s.Forks {
+			if ws := v.st.Workspace(id); ws != nil {
+				if pane := s.forkPane(v.st, *ws); pane != "" {
+					s.events = append(s.events, ForkPane{Pane: pane})
+					s.closeMenus()
+				}
+			}
+		}
 		if s.menuItem[actNewBelow].Clicked(gtx) {
 			s.events = append(s.events, NewTab{After: id})
 			s.closeMenus()

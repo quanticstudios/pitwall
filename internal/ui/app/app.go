@@ -567,6 +567,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.SeparateWorkers = u.cfg.Sidebar.SeparateWorkers
 	u.sidebar.HideSessions = !u.cfg.Sidebar.Sessions
 	u.sidebar.SessionPreview = u.cfg.Sidebar.SessionPreview
+	u.sidebar.Forks = u.link().Level >= proto.ForkLevel
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
 	for _, p := range u.panes {
@@ -851,6 +852,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.settings.Hide()
 		u.review.hide()
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
+	case sidebar.ForkPane:
+		u.send(proto.ForkPane{Pane: e.Pane})
 	case sidebar.NewTab:
 		if e.Loose {
 			u.send(u.nav.looseTab(st))

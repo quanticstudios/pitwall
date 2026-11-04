@@ -76,6 +76,7 @@ proto.FaviconResult{Dir string; Root string; Files []proto.FaviconFile}
 proto.FocusDir{Pane string; Dir layout.Direction}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string; Pane string}
 proto.ForgetTab{ID string}
+proto.ForkPane{Pane string; Worktree string; Name string}
 proto.FormAnswer{ID string; Answers string; Cancel bool; Closed bool}
 proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64; PromptMarks bool}
 proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64; Images []vt.Placement}

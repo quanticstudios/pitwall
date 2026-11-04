@@ -30,6 +30,9 @@ type NewTab struct {
 	Loose          bool // outside every group, in the active tab's folder
 }
 
+// ForkPane opens a terminal fork of Pane in a new tab.
+type ForkPane struct{ Pane string }
+
 // PictureInPicture shows the tab's focused pane in picture in picture, or
 // closes it when it shows that tab's pane already.
 type PictureInPicture struct{ WorkspaceID string }

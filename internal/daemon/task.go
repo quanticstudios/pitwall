@@ -141,6 +141,11 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 	if err != nil || typed == nil && len(problems) == 0 {
 		return err
 	}
+	return d.worktreeSetup(id, typed, problems)
+}
+
+// worktreeSetup opens a shell below a command for setup and preparation errors.
+func (d *Daemon) worktreeSetup(id string, typed []byte, problems []error) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	w := d.workspace(id)

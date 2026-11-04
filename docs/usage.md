@@ -65,6 +65,43 @@ keeps running, and `pitwall` opens the most recently used one again.
 
 ## Everyday use
 
+### Forking terminal agents
+
+<img src="media/fork-dark.png" alt="Fork in a terminal tab menu, dark theme" width="288"> <img src="media/fork-light.png" alt="Fork in a terminal tab menu, light theme" width="288">
+
+Use **Fork** in a tab's menu to continue its Claude Code or Codex conversation
+in a new tab. The source agent keeps running. The fork uses the same folder,
+account profile, model and permission flags. With several agents in a tab,
+the menu forks the focused agent, or the first agent in layout order.
+
+```sh
+pitwall fork                         # the calling pane
+pitwall fork '#3' -n 'Second approach' # tab 3's main agent
+pitwall fork '#3.2' --worktree side   # pane 2 of tab 3, in a new worktree
+pitwall fork @pane-id                # a pane id from pitwall ls --json
+```
+
+The command prints the new tab's number. The fork shares the source tab's
+session, group and parent. Claude Code uses `--resume <id> --fork-session`;
+Codex uses `fork <id>`. Both need a stored session id from the source pane.
+The command names a missing session id or unsupported agent in its error;
+the menu hides Fork for those panes and for daemons that lack terminal forks.
+
+`--worktree name` creates a branch and worktree under the main checkout's
+`.worktrees`, starting at the source checkout's HEAD, including a detached
+HEAD. It uses the same copy, link, port allocation and setup rules as
+`pitwall worktree new`. Setup runs in a shell below the fork. Commands from
+a repo's setup file wait for Enter, as they do for other worktree tabs.
+
+Uncommitted changes do not carry into a new worktree. Copying staged,
+unstaged and untracked changes is deferred. Configured worktree copy and
+link paths still apply. Without `--worktree`, both agents share the existing
+files, including uncommitted changes.
+
+For a tab on a remote host, that host's daemon creates the fork and any
+worktree. The window sends Fork to the daemon that owns the source pane.
+Run the command on that host to use its daemon.
+
 ### Watching agents
 
 Each sidebar row shows a tab's state:

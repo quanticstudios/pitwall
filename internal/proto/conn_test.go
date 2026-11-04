@@ -143,6 +143,7 @@ func allMessages() []any {
 		EditScrollback{Pane: "a"},
 		Scrollback{Pane: "a", Lines: 20},
 		ScrollbackResult{Pane: "a", Text: "history\nscreen\n"},
+		ForkPane{Pane: "a", Worktree: "side", Name: "alternative"},
 	}
 }
 
