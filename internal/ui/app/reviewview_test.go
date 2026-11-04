@@ -31,6 +31,8 @@ type agentBackend struct {
 	grid vt.Grid
 	st   model.State
 	sent []proto.Input
+
+	delivered []proto.Deliver
 }
 
 func newAgentBackend(state model.AgentState) *agentBackend {
@@ -56,19 +58,30 @@ func (b *agentBackend) Frame(string) (vt.Grid, vt.Modes, bool) {
 func (b *agentBackend) Send(msg any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if in, ok := msg.(proto.Input); ok {
-		b.sent = append(b.sent, in)
+	switch m := msg.(type) {
+	case proto.Input:
+		b.sent = append(b.sent, m)
+	case proto.Deliver:
+		b.delivered = append(b.delivered, m)
 	}
 	return nil
 }
+
+// oldDaemon is agentBackend's daemon from before proto.Deliver.
+type oldDaemon struct{ *agentBackend }
+
+func (oldDaemon) Link() Link                     { return Link{Level: proto.Since(proto.Deliver{}) - 1} }
+func (oldDaemon) Reconnect()                     {}
+func (oldDaemon) Restart()                       {}
 func (b *agentBackend) Changed() <-chan struct{} { return nil }
 
-// TestSendNotes: comments to a busy agent wait; once it finishes its turn
-// they go in as one bracketed paste, then Enter, and read as sent. A
-// delivery whose pane closed puts its comments back to pending.
+// TestSendNotes: comments to a busy agent wait; once it finishes its turn a
+// daemon too old for proto.Deliver gets them as one bracketed paste, then
+// Enter, and they read as sent. A delivery whose pane closed puts its
+// comments back to pending.
 func TestSendNotes(t *testing.T) {
 	b := newAgentBackend(model.StateWorking)
-	u := &ui{b: b}
+	u := &ui{b: oldDaemon{b}}
 	u.review.ws = "w"
 	line := review.Line{Kind: '+', New: 7, Text: "x := 2"}
 	u.review.notes = map[string][]*note{"/repo": {
@@ -118,26 +131,39 @@ func TestSendNotes(t *testing.T) {
 	}
 }
 
-// A delivery waits while the user's draft sits in the agent's input box.
-func TestDeliverWaitsForDraft(t *testing.T) {
-	b := newAgentBackend(model.StateCompleted)
+// The window never types past a draft itself: a ready agent's delivery goes
+// to the daemon, whatever frame the window shows, and reads Queued while the
+// daemon holds it.
+func TestDeliverGoesThroughDaemon(t *testing.T) {
+	b := newAgentBackend(model.StateWorking)
 	u := &ui{b: b}
-	u.review.enqueue("p", "a comment", nil)
-	e := vt.New(40, 3, nil)
-	e.Write([]byte("─────\r\n❯ half a thought\r\n─────"))
-	b.grid = e.Snapshot()
-	b.st.Drafting = map[string]bool{"p": true}
+	u.review.ws = "w"
+	n := &note{Comment: review.Comment{Path: "a.go", Lines: []review.Line{{Kind: '+', New: 7, Text: "x"}}, Text: "Why?"}}
+	u.review.notes = map[string][]*note{"/repo": {n}}
 	st := b.State()
 	now := time.Now()
-	u.deliver(&st, now)
-	if len(b.sent) != 0 || len(u.review.queue) != 1 {
-		t.Fatalf("typed %q into the draft", b.sent)
+	u.sendNotes(&st, "/repo", now)
+	if len(b.delivered) != 0 || n.state != noteQueued {
+		t.Fatalf("busy agent: delivered %+v, state %d", b.delivered, n.state)
 	}
-	b.st.Drafting = nil // the user's prompt went in
+	b.st.Activities[0].State = model.StateCompleted
+	b.st.Drafting = map[string]bool{"p": true}
 	st = b.State()
 	u.deliver(&st, now)
-	if len(b.sent) != 1 || len(u.review.queue) != 0 {
-		t.Fatalf("after the draft: sent %q, queue %d", b.sent, len(u.review.queue))
+	if len(b.sent) != 0 || len(b.delivered) != 1 || b.delivered[0].Pane != "p" || !strings.Contains(b.delivered[0].Text, "Why?") {
+		t.Fatalf("typed %q, delivered %+v", b.sent, b.delivered)
+	}
+	if n.state != noteSent || n.to != "p" || len(u.review.queue) != 0 {
+		t.Fatalf("after the hand over: state %d, to %q, queue %d", n.state, n.to, len(u.review.queue))
+	}
+	if u.review.status != "Goes to claude once its input box is empty" {
+		t.Errorf("status %q", u.review.status)
+	}
+	b.st.Queued = map[string]int{"p": 1}
+	st = b.State()
+	u.deliver(&st, now)
+	if u.review.waiting[n.to] != 1 {
+		t.Errorf("the note does not know the daemon holds it: %v", u.review.waiting)
 	}
 }
 

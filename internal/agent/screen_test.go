@@ -57,12 +57,14 @@ func TestDraft(t *testing.T) {
 		{model.ProviderClaude, "claude-draft.txt", true},
 		{model.ProviderClaude, "claude-draft-multiline.txt", true},
 		{model.ProviderClaude, "claude-draft-second-line.txt", true},
+		{model.ProviderClaude, "claude-draft-rule.txt", true},
 		{model.ProviderCodex, "codex-empty.txt", false},
-		{model.ProviderCodex, "codex-idle.txt", false}, // a screen with no styles shows the placeholder as text
 		{model.ProviderCodex, "codex-placeholder.txt", false},
 		{model.ProviderCodex, "codex-draft.txt", true},
 		{model.ProviderCodex, "codex-draft-multiline.txt", true},
 		{model.ProviderCodex, "codex-draft-second-line.txt", true},
+		{model.ProviderCodex, "codex-draft-third-line.txt", true},
+		{model.ProviderCodex, "codex-placeholder-words.txt", true}, // typed, not faint
 		{model.ProviderCodex, "codex-shell.txt", true},
 		// No known box, or no box on screen: nothing to hold for.
 		{model.ProviderGemini, "claude-draft.txt", false},

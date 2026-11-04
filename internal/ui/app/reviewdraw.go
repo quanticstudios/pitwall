@@ -908,6 +908,9 @@ func (u *ui) reviewNote(gtx gl.Context, root string, n *note, lost bool) gl.Dime
 		state, col = "Queued", th.Blue
 	case noteSent:
 		state, col = "Sent", th.Green
+		if r.waiting[n.to] > 0 { // the daemon has it, behind a draft or a turn
+			state, col = "Queued", th.Blue
+		}
 	}
 	label := state
 	if lost {

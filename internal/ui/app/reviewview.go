@@ -16,7 +16,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/widget"
 
-	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -60,6 +59,7 @@ const (
 type note struct {
 	review.Comment
 	state noteState
+	to    string // the pane it went to, once sent
 	del   widget.Clickable
 }
 
@@ -139,7 +139,8 @@ type reviewView struct {
 
 	notes      map[string][]*note // by repository root
 	queue      []delivery
-	enterPane  string // the pane whose paste waits for its Enter
+	waiting    map[string]int // per pane, the messages the daemon has yet to type
+	enterPane  string         // the pane whose paste waits for its Enter
 	enterAt    time.Time
 	discarding review.File // the file the discard dialog is about
 	undoFiles  int         // the file count the undo dialog names
@@ -567,12 +568,13 @@ func agentReady(st *model.State, pane string) bool {
 	return true
 }
 
-// agentTakes is agentReady for pane p, and false while the user's draft sits
-// in its input box. A pane the window does not show keeps its last frame, and
-// the user cannot change a draft there without showing it.
-func (u *ui) agentTakes(st *model.State, p *model.Pane) bool {
-	g, _, have := u.b.Frame(p.ID)
-	return agentReady(st, p.ID) && !(have && st.Drafting[p.ID] && agent.Draft(p.Provider, g))
+// sentNote is what the window says of a delivery it gave p's ready agent: the
+// daemon holds it while the user's draft sits in the input box.
+func sentNote(st *model.State, p *model.Pane) string {
+	if st.Drafting[p.ID] {
+		return "Goes to " + agentName(p) + " once its input box is empty"
+	}
+	return "Sent to " + agentName(p)
 }
 
 // sendNotes queues root's pending comments, as one prompt, for tab ws's
@@ -620,13 +622,15 @@ func agentName(p *model.Pane) string {
 // part of it.
 const replyDelay = 100 * time.Millisecond
 
-// deliver types the first delivery whose agent is ready into its pane,
-// as a bracketed paste, and presses Enter replyDelay later, the way the
-// phone's replies go in. A delivery whose pane is gone is dropped and its
+// deliver gives the first delivery whose agent is ready to the daemon, which
+// types it past the user's draft. A daemon too old for that gets it typed
+// here, as a bracketed paste and Enter replyDelay later, the way the phone's
+// replies go in. A delivery whose pane is gone is dropped and its
 // comments are pending again. It returns when it next needs a frame, zero
 // for no need.
 func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 	r := &u.review
+	r.waiting = st.Queued
 	if r.enterPane != "" {
 		if now.Before(r.enterAt) {
 			return r.enterAt
@@ -645,8 +649,20 @@ func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 			r.status = "The agent's pane closed; the comments were not sent"
 			return now
 		}
-		if !u.agentTakes(st, p) {
+		if !agentReady(st, d.pane) {
 			continue
+		}
+		if u.link().Level >= proto.Since(proto.Deliver{}) {
+			if !u.send(proto.Deliver{Pane: d.pane, Text: d.text, Images: d.images}) {
+				return time.Time{}
+			}
+			log.Printf("review: gave %d comments, %d bytes, to the daemon for pane %s", len(d.notes), len(d.text), d.pane)
+			for _, n := range d.notes {
+				n.state, n.to = noteSent, d.pane
+			}
+			r.queue = slices.Delete(r.queue, i, i+1)
+			r.status = sentNote(st, p)
+			return now
 		}
 		_, m, _ := u.b.Frame(d.pane)
 		text := remote.Clean(d.text)

@@ -58,13 +58,13 @@ func TestSendToAgent(t *testing.T) {
 
 	u.sidebarEvent(&st, sidebar.SendFailures{WorkspaceID: "w"})
 	waitSends(t, u, &st)
-	if len(b.sent) != 1 || b.sent[0].Pane != "p" {
-		t.Fatalf("sent %q", b.sent)
+	if len(b.delivered) != 1 || b.delivered[0].Pane != "p" {
+		t.Fatalf("delivered %+v", b.delivered)
 	}
-	paste := string(b.sent[0].Data)
-	if !strings.HasPrefix(paste, "\x1b[200~These checks failed on pull request #12:") || !strings.Contains(paste, "--- FAIL: TestWidget") ||
-		!strings.HasSuffix(paste, "Fix these and push.\x1b[201~") {
-		t.Errorf("paste %q", paste)
+	paste := b.delivered[0].Text
+	if !strings.HasPrefix(paste, "These checks failed on pull request #12:") || !strings.Contains(paste, "--- FAIL: TestWidget") ||
+		!strings.HasSuffix(paste, "Fix these and push.") {
+		t.Errorf("text %q", paste)
 	}
 	if u.notice != "Sent to claude" {
 		t.Errorf("notice %q", u.notice)
@@ -129,7 +129,7 @@ func TestRequestChanges(t *testing.T) {
 	b.st.Activities[0].State = model.StateCompleted
 	st = b.State()
 	u.deliver(&st, time.Now())
-	if len(b.sent) != 1 || !strings.Contains(string(b.sent[0].Data), "split step 2") {
-		t.Fatalf("after the plan: sent %q", b.sent)
+	if len(b.delivered) != 1 || !strings.Contains(b.delivered[0].Text, "split step 2") {
+		t.Fatalf("after the plan: delivered %+v", b.delivered)
 	}
 }

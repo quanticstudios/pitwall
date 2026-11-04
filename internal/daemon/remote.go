@@ -262,6 +262,23 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string) error {
 	return d.handle(ctx, proto.Input{Pane: pane, Data: press(key.NameReturn, m)})
 }
 
+// typeLetter pastes each image's path into pane p, then text, and presses
+// Enter. Images with no text go in with no empty paste.
+func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string) error {
+	m := p.Modes()
+	ctx := context.Background()
+	for _, img := range images {
+		if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.PastePaths([]string{img}, m)}); err != nil {
+			return err
+		}
+	}
+	if len(images) > 0 && remote.Clean(text) == "" {
+		time.Sleep(replyDelay)
+		return d.handle(ctx, proto.Input{Pane: pane, Data: press(key.NameReturn, m)})
+	}
+	return d.typeLine(pane, p, text, "the message is empty")
+}
+
 // press is what pressing k alone sends to a pane in modes m, as the GUI
 // would send it.
 func press(k key.Name, m vt.Modes) []byte {

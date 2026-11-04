@@ -461,21 +461,106 @@ func TestDraftFallback(t *testing.T) {
 	}
 }
 
-// A turn that starts long after the last key, as a background task's, leaves
-// the draft a draft.
+// Only the user's own Return before a prompt hook ends their draft: another
+// turn's hook leaves it, however soon after a key it comes.
 func TestDraftSurvivesOtherTurn(t *testing.T) {
 	d, a := draftDaemon(t)
 	setScreen(a, claudeBox)
+	otherTurn := func() {
+		t.Helper()
+		claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"background task finished"}`)
+		claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+		if _, _, err := d.ready("a"); !errors.Is(err, errDraft) {
+			t.Fatalf("the draft remains on screen but ready returns %v", err)
+		}
+	}
 	d.noteUserKey("a", []byte("t"))
-	time.Sleep(100 * time.Millisecond) // past sendQuiet
-	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"task finished"}`)
-	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
-	if err := d.send(proto.Send{Pane: "a", Text: "one"}); err != nil {
+	otherTurn()
+	// A late hook of the prompt before: Return, then a new draft.
+	d.noteUserKey("a", []byte("\r"))
+	d.noteUserKey("a", []byte("t"))
+	otherTurn()
+	// Shift+Enter starts a new line and submits nothing.
+	d.noteUserKey("a", []byte("\x1b[13;2u"))
+	otherTurn()
+}
+
+// The window's deliveries pass the same check at typing time, from the live
+// screen, and show on the row.
+func TestWindowDeliverWaitsForDraft(t *testing.T) {
+	d, a := draftDaemon(t)
+	setScreen(a, claudeBox)
+	d.noteUserKey("a", []byte("t"))
+	if err := d.handle(t.Context(), proto.Deliver{Pane: "a", Text: "a comment", Images: []string{"/s/a.png"}}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(150 * time.Millisecond)
+	if err := d.send(proto.Send{Pane: "a", Text: "next"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
 	if got := a.got(); got != "" {
 		t.Fatalf("typed %q into the draft", got)
+	}
+	if !draftHeld(d, "a") {
+		t.Fatal("the row does not say the draft holds the delivery")
+	}
+	setScreen(a, []string{"────────", "❯ ", "────────"})
+	want := "'/s/a.png'a comment\r"
+	if got := gotAfter(t, a, 0, len(want)); got != want {
+		t.Fatalf("typed %q, want %q", got, want)
+	}
+	if draftHeld(d, "a") {
+		t.Fatal("the row still waits on a draft that is gone")
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"a comment"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"ok"}`)
+	next := scriptHeader + "next\r"
+	if got := gotAfter(t, a, len(want), len(next)); got != next {
+		t.Fatalf("typed %q, want %q", got, next)
+	}
+}
+
+// A delivery goes to the agents the window may reply to, which ready refuses:
+// one asking a question, one with no hooks. A turn that began since holds it.
+func TestWindowDeliverStates(t *testing.T) {
+	d, a := draftDaemon(t)
+	d.mu.Lock()
+	d.st.Activities[d.activityIndex("a")].State = model.StateAwaitingInput
+	d.mu.Unlock()
+	if err := d.handle(t.Context(), proto.Deliver{Pane: "a", Text: "yes"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, a, 0, 4); got != "yes\r" {
+		t.Fatalf("typed %q", got)
+	}
+
+	f := d.panes["b"].(*fakePane)
+	d.mu.Lock()
+	d.setProvider("b", model.ProviderAider)
+	d.st.Activities = append(d.st.Activities, model.Activity{PaneID: "b", WorkspaceID: "w", Provider: model.ProviderAider, State: model.StateWorking})
+	i := d.activityIndex("b")
+	d.mu.Unlock()
+	if err := d.handle(t.Context(), proto.Deliver{Images: []string{"/s/b.png"}, Pane: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got := f.got(); got != "" {
+		t.Fatalf("typed %q into a running turn", got)
+	}
+	// No hook reports this: the next look finds the turn over.
+	d.mu.Lock()
+	d.st.Activities[i].State = model.StateCompleted
+	d.mu.Unlock()
+	want := "'/s/b.png'\r"
+	if got := gotAfter(t, f, 0, len(want)); got != want {
+		t.Fatalf("image only: typed %q, want %q", got, want)
+	}
+
+	if err := d.handle(t.Context(), proto.Deliver{Pane: "b", Text: " "}); err == nil {
+		t.Fatal("an empty delivery was queued")
+	}
+	if err := d.handle(t.Context(), proto.Deliver{Pane: "gone", Text: "hi"}); err == nil {
+		t.Fatal("a delivery to no pane was queued")
 	}
 }
 

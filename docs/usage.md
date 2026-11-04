@@ -1480,7 +1480,8 @@ the field:
 pitwall types the reply into the agent the way Request changes and the
 review view's comments go in: once the agent waits for input, it pastes
 each image's path, then the text as one bracketed paste, then presses
-Enter. A notice under the panes says whether it went now or waits.
+Enter. A notice under the panes says whether it went now or waits. If you typed
+in that pane, it says the reply goes once the input box is empty.
 
 ### Your draft comes first
 
@@ -1488,17 +1489,18 @@ An agent at rest is also where you write your next prompt, so nothing pitwall
 types lands in text you left in the input box. That covers `pitwall send`,
 second opinions, review comments, sent CI failures, Reply and the line after a
 restart. They wait while you typed in the pane in the last 3 seconds, and
-while Claude Code's or Codex's input box holds your text. The row shows
-"Waits: your draft" where the time goes. Send or clear the draft and the
-message goes in by itself 3 seconds after your last key, in queue order.
+while Claude Code's or Codex's input box holds your text, even with the pane
+scrolled up. The row shows "Waits: your draft" where the time goes. Send or
+clear the draft and the message goes in by itself 3 seconds after your last
+key, in queue order.
 
 `pitwall prompt` and a reply from the phone are refused instead, with the
 reason. `continue` after a usage limit or a quiet stretch is not typed. A
 placeholder or a suggested prompt does not count, as both agents draw it faint.
 
-Text counts as your draft only if you typed in the pane since your last prompt
-went in, so a pane nobody typed in never waits. Other agents, and a screen that
-shows no input box, get the 3 second pause only.
+Text counts as your draft only if you typed in the pane since you last pressed
+Return on a prompt, so a pane nobody typed in never waits. Other agents, and a
+screen that shows no input box, get the 3 second pause only.
 
 ### Worktree ports and setup
 

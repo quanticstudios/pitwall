@@ -110,7 +110,7 @@ func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 			u.showNotice(gtx, "No failed checks", area)
 		case p == nil:
 			u.sendFailed(what + ": the tab has no agent to send to")
-		case slices.ContainsFunc(u.review.queue, func(d delivery) bool { return d.pane == p.ID && d.send }):
+		case st.DraftHeld[p.ID] || slices.ContainsFunc(u.review.queue, func(d delivery) bool { return d.pane == p.ID && d.send }):
 			// why: queued sends would add up to one paste of any size.
 			u.showNotice(gtx, "A message already waits for "+agentName(p)+"; this one was dropped", area)
 		default:
@@ -119,8 +119,8 @@ func (u *ui) takeSends(gtx gl.Context, st *model.State) {
 			if res.act == "request_changes" {
 				msg = "Queued: answer No in " + agentName(p) + "'s plan dialog to send it"
 			}
-			if u.agentTakes(st, p) {
-				msg = "Sent to " + agentName(p)
+			if agentReady(st, p.ID) {
+				msg = sentNote(st, p)
 			}
 			u.showNotice(gtx, msg, area)
 			u.deliver(st, gtx.Now)

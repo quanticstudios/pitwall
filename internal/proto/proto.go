@@ -41,8 +41,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
-// Level 59 added State.Drafting and DraftHeld: a message waits for the
-// user's draft in an agent's input box.
+// Level 59 added State.Drafting and DraftHeld, and Deliver: a message waits
+// for the user's draft in an agent's input box, and the window's go through
+// the daemon so that one check holds them all.
 // Level 58 added Pane.History for saved pane output; live StateMsg omits it.
 // Level 57 added Commands, CommandResult and Frame.PromptMarks.
 // Level 56 added EditScrollback, Scrollback, ScrollbackResult and Pane.ScrollbackFile.
@@ -216,6 +217,8 @@ const ProfileLevel = 35
 // Version knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch msg.(type) {
+	case Deliver:
+		return 59
 	case OpenPopup:
 		return PopupLevel
 	case EditScrollback, Scrollback, ScrollbackResult:
@@ -872,6 +875,15 @@ type Send struct {
 	Text string
 }
 
+// Deliver is the window's review comments, Reply or sent checks for Pane's
+// agent, which the window found ready. The daemon types each image's path,
+// then Text, then Enter, once the user's draft and typing allow it.
+type Deliver struct {
+	Pane   string
+	Text   string
+	Images []string
+}
+
 // CancelResume drops the continue the daemon would type into Pane when
 // its usage limit resets (Activity.Resumes).
 type CancelResume struct {
@@ -939,6 +951,7 @@ var Messages = []any{
 	View{}, FrameRows{},
 	Prompt{}, Read{}, ReadResult{},
 	Send{},
+	Deliver{},
 	FocusDir{},
 	CancelResume{},
 	SecondOpinion{},

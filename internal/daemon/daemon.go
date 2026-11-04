@@ -1104,6 +1104,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.prompt(m)
 	case proto.Send:
 		return d.send(m)
+	case proto.Deliver:
+		return d.windowDeliver(m)
 	case proto.CancelResume:
 		return d.cancelResume(m)
 	case proto.SecondOpinion:
@@ -1491,6 +1493,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.keyAt, id)
 	delete(d.mail.sent, id)
 	delete(d.mail.drafting, id)
+	delete(d.mail.returnAt, id)
 	delete(d.mail.held, id)
 	d.dropResume(id)
 	delete(d.lim.seen, id)

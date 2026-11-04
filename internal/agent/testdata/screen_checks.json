@@ -1,4 +1,7 @@
 [
+  {"file": "claude-draft-rule.txt", "provider": "claude", "screen": 0, "state": ""},
+  {"file": "codex-draft-third-line.txt", "provider": "codex", "screen": 0, "state": ""},
+  {"file": "codex-placeholder-words.txt", "provider": "codex", "screen": 0, "state": ""},
   {"file": "claude-placeholder.txt", "provider": "claude", "screen": 0, "state": ""},
   {"file": "claude-draft.txt", "provider": "claude", "screen": 0, "state": ""},
   {"file": "claude-draft-multiline.txt", "provider": "claude", "screen": 0, "state": ""},

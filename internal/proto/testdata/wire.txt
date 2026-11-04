@@ -64,6 +64,7 @@ proto.Commands{Pane string; ID uint64}
 proto.DeleteGroup{GroupID string}
 proto.DeleteWorkspace{WorkspaceID string; RemoveBranch bool; Force bool}
 proto.DeleteWorktree{Root string; Path string; Force bool}
+proto.Deliver{Pane string; Text string; Images []string}
 proto.DetachSession{WorkspaceID string; Detached bool}
 proto.DismissNotice{Notice string}
 proto.DropTask{ID string; Start bool}

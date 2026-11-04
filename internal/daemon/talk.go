@@ -1,12 +1,15 @@
 package daemon
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
 	"slices"
 	"strings"
 	"time"
+
+	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/decide"
@@ -130,17 +133,20 @@ type mail struct {
 	sent  map[string]int         // pane: agents' messages since the user's last key
 	wake  map[string]*time.Timer // pane: the next deliver
 	// drafting marks a pane the user typed in since a prompt of theirs went
-	// in. Box text counts as a draft only then, so a box pitwall misreads
-	// never holds messages in a pane nobody typed in.
+	// in, and returnAt when their last key there was Return, which is how a
+	// prompt hook is told from another turn's. Box text counts as a draft only
+	// while drafting, so a box pitwall misreads never holds messages in a pane
+	// nobody typed in.
 	// ponytail: in a typed-in pane a misread holds them until the user's next
 	// prompt; shipping the box patterns in screen_patterns.json would fix a
 	// misread without a release, once old binaries accept the new field.
 	drafting map[string]bool
+	returnAt map[string]time.Time
 	held     map[string]bool // pane: a draft holds its messages
 }
 
 func newMail() mail {
-	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, held: map[string]bool{}}
+	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}}
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
@@ -148,7 +154,9 @@ func newMail() mail {
 type letter struct {
 	from, text string
 	plain      bool
-	notice     string // success notice prefix, completed with the agent name
+	notice     string   // success notice prefix, completed with the agent name
+	images     []string // paths typed before the text
+	window     bool     // from the window, which judged the agent ready itself
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
@@ -187,6 +195,53 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	return nil
 }
 
+// windowDeliver queues what the window sends pane's agent. It counts as the
+// user's act for the loop guard and a resume, but as no key: nothing typed in
+// the pane holds it back.
+func (d *Daemon) windowDeliver(m proto.Deliver) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.panes[m.Pane] == nil {
+		return fmt.Errorf("no running pane %s", m.Pane)
+	}
+	if remote.Clean(m.Text) == "" && len(m.Images) == 0 {
+		return errors.New("the message is empty")
+	}
+	delete(d.mail.sent, m.Pane)
+	d.dropResume(m.Pane)
+	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true})
+	d.changed()
+	d.wake(m.Pane, 0)
+	return nil
+}
+
+// readyWindow is ready for a letter from the window: an agent the window may
+// reply to, question or no hooks included, unless a turn began since or the
+// user's draft sits in its box.
+func (d *Daemon) readyWindow(pane string) (Pane, error) {
+	d.mu.Lock()
+	p := d.panes[pane]
+	var prov model.Provider
+	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == pane }); i >= 0 {
+		prov = d.st.Panes[i].Provider
+	}
+	var state model.AgentState
+	if ai := d.activityIndex(pane); ai >= 0 {
+		state = d.st.Activities[ai].State
+	}
+	drafting := d.mail.drafting[pane]
+	d.mu.Unlock()
+	switch {
+	case p == nil:
+		return nil, fmt.Errorf("no running pane %s", pane)
+	case state != "" && !remote.Replies(state):
+		return nil, fmt.Errorf("%s is busy", prov)
+	case drafting && agent.Draft(prov, p.Snapshot()):
+		return nil, errDraft
+	}
+	return p, nil
+}
+
 // wake runs deliver for pane after wait, in place of an earlier wake:
 // deliver judges every hold anew. Callers hold d.mu.
 func (d *Daemon) wake(pane string, wait time.Duration) {
@@ -201,7 +256,8 @@ func (d *Daemon) wake(pane string, wait time.Duration) {
 // user's last key, and once the turn the last message started has
 // reported, and not into the user's draft. A hold that ends at a known time
 // wakes deliver then; for a turn running or a question, the next hook or
-// user key does; for a draft, sendLook.
+// user key does; for a draft or a letter from the window, whose agent may send
+// no hooks, sendLook.
 func (d *Daemon) deliver(pane string) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
@@ -222,8 +278,15 @@ func (d *Daemon) deliver(pane string) {
 		d.mu.Unlock()
 		return
 	}
+	window := d.mail.queue[pane][0].window
 	d.mu.Unlock()
-	p, _, err := d.ready(pane)
+	var p Pane
+	var err error
+	if window {
+		p, err = d.readyWindow(pane)
+	} else {
+		p, _, err = d.ready(pane)
+	}
 	d.mu.Lock()
 	held := errors.Is(err, errDraft)
 	if held != d.mail.held[pane] {
@@ -234,7 +297,7 @@ func (d *Daemon) deliver(pane string) {
 		}
 		d.changed()
 	}
-	if held && !d.closing && len(d.mail.queue[pane]) > 0 {
+	if (held || window && err != nil) && !d.closing && len(d.mail.queue[pane]) > 0 {
 		d.wake(pane, sendLook.get())
 	}
 	d.mu.Unlock()
@@ -261,7 +324,7 @@ func (d *Daemon) deliver(pane string) {
 	}
 	d.changed()
 	d.mu.Unlock()
-	if err := d.typeLine(pane, p, text, "the message is empty"); err != nil {
+	if err := d.typeLetter(pane, p, q[0].images, text); err != nil {
 		log.Printf("pane %s: a message was lost: %q", pane, err)
 	} else if q[0].notice != "" {
 		d.mu.Lock()
@@ -283,9 +346,15 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.mail.keyAt[pane] = time.Now()
-	if !d.mail.drafting[pane] {
-		d.mail.drafting[pane] = true
-		d.changed()
+	if len(b) > 0 { // a reply or an answer from the phone leaves no draft
+		if !d.mail.drafting[pane] {
+			d.mail.drafting[pane] = true
+			d.changed()
+		}
+		delete(d.mail.returnAt, pane)
+		if p := d.panes[pane]; p != nil && bytes.Equal(b, press(key.NameReturn, p.Modes())) {
+			d.mail.returnAt[pane] = time.Now()
+		}
 	}
 	delete(d.mail.sent, pane)
 	if d.dropResume(pane) {
@@ -297,10 +366,11 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 }
 
 // notePrompt ends the user's typing in pane when a prompt goes in right after
-// a key of theirs: what they typed went with it. A turn that starts by itself
-// leaves their draft in place. Callers hold d.mu.
+// they pressed Return with no key since: what they typed went with it. Any
+// other turn leaves their draft in place. Callers hold d.mu.
 func (d *Daemon) notePrompt(pane string, now time.Time) {
-	if d.mail.drafting[pane] && now.Sub(d.mail.keyAt[pane]) < sendQuiet.get() {
+	if t, ok := d.mail.returnAt[pane]; ok && now.Sub(t) < sendQuiet.get() {
+		delete(d.mail.returnAt, pane)
 		delete(d.mail.drafting, pane)
 		d.changed()
 	}

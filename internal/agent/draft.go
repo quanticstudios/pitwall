@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -77,22 +78,19 @@ func claudeDraft(raw, shown []string) bool {
 	return strings.TrimSpace(strings.TrimPrefix(text, "❯")) != ""
 }
 
-// isRule reports whether a row is a horizontal rule: at least three dashes,
-// with anything after them, as a session's name in a titled rule.
+// isRule reports whether a row is the box's border: dashes from the left edge
+// to the row's end, with at most a session's name between them. Claude indents
+// a draft's later rows, so a rule-like line typed in a draft is no border.
 func isRule(row string) bool {
-	n := 0
-	for _, r := range strings.TrimLeft(strings.TrimSpace(row), "╭╰┌└├┏┗┣") {
-		if r != '─' && r != '━' {
-			break
-		}
-		n++
-	}
-	return n >= 3
+	row = strings.TrimRight(row, " ")
+	return (strings.HasPrefix(row, "───") || strings.HasPrefix(row, "━━━")) &&
+		(strings.HasSuffix(row, "─") || strings.HasSuffix(row, "━"))
 }
 
 // codexDraft reads the box Codex opens with › at the left edge, or » at Ultra
 // effort, and ! in shell mode. Its last such row is the box, as the transcript
-// above repeats the glyph, and a blank row parts the box from the footer.
+// above repeats the glyph. The rows from there down to the footer, the last
+// block of rows after a blank one, are the box's, and any text in them counts.
 func codexDraft(raw, shown []string) bool {
 	i := len(raw) - 1
 	for i >= 0 && !codexGlyph(raw[i]) {
@@ -101,16 +99,24 @@ func codexDraft(raw, shown []string) bool {
 	if i < 0 {
 		return false
 	}
-	if strings.HasPrefix(raw[i], "!") {
+	if strings.HasPrefix(raw[i], "!") || !blank(strings.TrimLeft(shown[i], "›»")) {
 		return true
 	}
-	first := strings.TrimLeft(shown[i], "›»")
-	switch strings.TrimSpace(first) {
-	case "", "Ask Codex to do anything", "Ask a follow-up question":
-		return i+1 < len(shown) && strings.TrimSpace(shown[i+1]) != ""
+	end := len(raw)
+	for end > i+1 && blank(raw[end-1]) {
+		end--
 	}
-	return true
+	foot := end
+	for foot > i+1 && !blank(raw[foot-1]) {
+		foot--
+	}
+	if foot == i+1 { // no blank row under the glyph: these rows are the box's
+		foot = end
+	}
+	return slices.ContainsFunc(shown[i+1:foot], func(row string) bool { return !blank(row) })
 }
+
+func blank(row string) bool { return strings.TrimSpace(row) == "" }
 
 func codexGlyph(row string) bool {
 	row = strings.TrimRight(row, " ")
