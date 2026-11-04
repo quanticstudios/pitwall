@@ -196,9 +196,35 @@ func (d *Daemon) waiting(pane string, at int64) (Pane, model.Activity, string, e
 		return nil, model.Activity{}, "", errors.New("that pane no longer needs you")
 	}
 	if a := d.st.Activities[i]; a.UpdatedAt.UnixNano() == at {
-		return p, a, d.live.asked[pane], nil
+		return p, a, d.askedOf(a), nil
 	}
 	return nil, model.Activity{}, "", errors.New("that pane has moved on; refresh to see what it asks now")
+}
+
+// askedOf is the command a's hook asked to run, "" for none known. Callers hold
+// d.mu.
+func (d *Daemon) askedOf(a model.Activity) string {
+	if c := d.live.asked[a.PaneID]; c.at.Equal(a.UpdatedAt) {
+		return c.command
+	}
+	return ""
+}
+
+// bindAsked pairs pane's new activity next with command, from a permission
+// request when asks is set. A later report of the same prompt, such as its
+// Notification, keeps the command prev had. Callers hold d.mu.
+func (d *Daemon) bindAsked(pane string, prev *model.Activity, next model.Activity, command string, asks bool) {
+	if !asks && prev != nil && next.State == model.StatePendingApproval {
+		command = d.askedOf(*prev)
+	}
+	delete(d.live.asked, pane)
+	if command == "" {
+		return
+	}
+	if d.live.asked == nil {
+		d.live.asked = map[string]askedCommand{}
+	}
+	d.live.asked[pane] = askedCommand{command, next.UpdatedAt}
 }
 
 // sameCommand refuses a permission prompt on g's screen that does not show

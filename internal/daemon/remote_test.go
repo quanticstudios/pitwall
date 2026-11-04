@@ -366,11 +366,11 @@ func TestAnswerNeedsTheCommand(t *testing.T) {
 		f.pane(0).screen, f.pane(0).input = commandForm(rows...), nil
 		f.pane(0).mu.Unlock()
 	}
-	const asks = `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"mkdir /tmp/x/perm-test && chmod 700 /tmp/x/perm-test","description":"Create a directory"}}`
+	const asks = `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/remote ./internal/ui/sidebar","description":"Run the tests"}}`
 	report(`{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash"}`)
 	at := report(asks)
 
-	show(" mkdir /tmp/x/perm-test && rm -rf ~")
+	show(" go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/secret")
 	for name, answer := range map[string]func() error{
 		"allow":  func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) },
 		"deny":   func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) },
@@ -381,7 +381,7 @@ func TestAnswerNeedsTheCommand(t *testing.T) {
 		}
 	}
 
-	show(" mkdir /tmp/x/perm-test &&", " chmod 700 /tmp/x/perm-test")
+	show(" go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/remote", " ./internal/ui/sidebar")
 	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil {
 		t.Fatalf("allow on the same command, wrapped: %v", err)
 	}
@@ -405,6 +405,85 @@ func TestAnswerNeedsTheCommand(t *testing.T) {
 	}
 	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
 		t.Fatalf("allow sent %q", got)
+	}
+}
+
+// A hook that changes the command moves the row on, even when Derive sees no
+// change in it, so an answer to the old command cannot land on the new one.
+func TestNewCommandMovesTheRow(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	ctx := context.Background()
+	asks := func(command string) int64 {
+		t.Helper()
+		payload := fmt.Sprintf(`{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":%q,"description":"Run command"}}`, command)
+		if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+			t.Fatal(err)
+		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+	}
+	first := asks("echo safe")
+	if again := asks("echo safe"); again != first {
+		t.Errorf("the same command moved the row: %d, was %d", again, first)
+	}
+	second := asks("rm -rf /tmp/target")
+	if second == first {
+		t.Fatal("a new command kept the row's timestamp")
+	}
+	f.pane(0).mu.Lock()
+	f.pane(0).screen, f.pane(0).input = commandForm(" rm -rf /tmp/target"), nil
+	f.pane(0).mu.Unlock()
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: first, Allow: true}); err == nil || f.pane(0).got() != "" {
+		t.Fatalf("an answer to the old command: %v %q", err, f.pane(0).got())
+	}
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: second, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+		t.Fatalf("allow sent %q", got)
+	}
+}
+
+// A command belongs to its activity: a later agent in the same pane, which
+// reports none, is not held to it.
+func TestAskedEndsWithItsActivity(t *testing.T) {
+	const asks = `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"mkdir /tmp/old","description":"Create"}}`
+	const notifies = `{"hook_event_name":"Notification","session_id":"t","notification_type":"permission_prompt","message":"Permission needed"}`
+	for name, end := range map[string]func(d *Daemon){
+		"dropped": func(d *Daemon) { d.dropActivity("a") },
+		"replaced": func(d *Daemon) {
+			i := d.activityIndex("a")
+			d.st.Activities[i].State, d.st.Activities[i].UpdatedAt = model.StateWorking, time.Now()
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, f, _ := remoteDaemon(t)
+			d.o.Derive = agent.Derive
+			ctx := context.Background()
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(asks)}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			end(d)
+			d.mu.Unlock()
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(notifies)}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+			d.mu.Unlock()
+			f.pane(0).mu.Lock()
+			f.pane(0).screen, f.pane(0).input = commandForm(" npm test"), nil
+			f.pane(0).mu.Unlock()
+			if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil {
+				t.Fatalf("held to the old agent's command: %v", err)
+			}
+			if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+				t.Fatalf("allow sent %q", got)
+			}
+		})
 	}
 }
 

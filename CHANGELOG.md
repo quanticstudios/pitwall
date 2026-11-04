@@ -16,12 +16,12 @@ release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
 ## Unreleased
-
 - Claude Code's empty-plan dialog keeps its Plan status and holds queued messages; a successful fork clears a fork failure notice.
+
+- Allow, Deny and Always now press only if the permission prompt on screen shows the shell command the agent's hook reported, comparing as much of it as fits on screen; otherwise pitwall presses nothing and tells you to answer in the tab. Prompts with no reported command, such as an edit or a fetch, keep the old check. A click on Allow or Deny also counts only if the row showed the same prompt from press to release.
 
 ## v0.1.14
 
-- Allow, Deny and Always now press only if the permission prompt on screen shows the shell command the agent's hook reported, comparing as much of it as fits on screen; otherwise pitwall presses nothing and tells you to answer in the tab. Prompts with no reported command, such as an edit or a fetch, keep the old check. A click on Allow or Deny also counts only if the row showed the same prompt from press to release.
 - pitwall's own git reads the repository's config just before each command and turns off the programs it finds: fsmonitor, hooks, filter, diff and merge drivers, ssh and credential programs. A program added in the moment between the two can still run, so this reduces the risk and is not a sandbox boundary. Filters from your global config, such as git-lfs, keep working. With a filter set only in `.git/config`, such as git-crypt's, staging, discarding and undo from pitwall refuse instead of writing raw bytes, and a worktree pitwall makes runs no `post-checkout` hook; use worktree `setup` for that.
 - Messages, review comments and `continue` now wait while your draft sits in Claude Code's or Codex's input box, and the row shows "Waits: your draft".
 - `[terminal] open_path` opens file hints in a popup with a terminal viewer; Shift+Enter opens the path picker's highlighted file the same way, including host hints on their host.

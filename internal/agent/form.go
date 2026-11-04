@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
@@ -281,10 +282,14 @@ func optionText(rows []string, opts []formOption, i int) (text string, ok bool) 
 	return text, true
 }
 
+// wrapSlack is how many columns short of a pane's width a row may end and still
+// count as full: the agent's right margin.
+const wrapSlack = 4
+
 // CommandShown reports whether the permission prompt on g's screen asks to run
-// command, as far as the screen shows it. A row must match the command exactly,
-// spaces included, and only a row's end may split it, with or without a space,
-// as wrapping does. A prompt that shows part of a long command is compared on
+// command, as far as the screen shows it. Whitespace counts: only the prompt's
+// indent and gutter, and a row end where wrapping could have put one, are not
+// part of the command. A prompt that shows part of a long command is compared on
 // that part. A layout it does not know has no command to compare, so that is
 // false too.
 func CommandShown(p model.Provider, g vt.Grid, command string) bool {
@@ -297,7 +302,7 @@ func CommandShown(p model.Provider, g vt.Grid, command string) bool {
 	if p == model.ProviderCodex {
 		above, start = codexCommand(rows[:opts[0].row])
 	}
-	return commandFits(above, start, command)
+	return commandFits(above, start, command, g.Cols)
 }
 
 // claudeCommand is the rows above a Claude Code prompt's options that hold its
@@ -322,64 +327,130 @@ func lastRule(rows []string) int {
 }
 
 // codexCommand is the rows above a Codex prompt's options that hold its command,
-// from the one that starts with "$ ". start is false with no such row: it has
-// scrolled off, or this is not a command.
+// from the one that starts with "$ ", which blanks keep at its width. start is
+// false with no such row: it has scrolled off, or this is not a command.
 func codexCommand(above []string) (rows []string, start bool) {
 	for y := len(above) - 1; y >= 0; y-- {
-		if t, ok := strings.CutPrefix(strings.TrimLeft(above[y], " "), "$ "); ok {
-			return append([]string{t}, above[y+1:]...), true
+		t := strings.TrimLeft(above[y], " ")
+		if s, ok := strings.CutPrefix(t, "$ "); ok {
+			first := above[y][:len(above[y])-len(t)] + "  " + s
+			return append([]string{first}, above[y+1:]...), true
 		}
 	}
 	return above, false
 }
 
-// commandFits reports whether rows show command. Without start its first rows
-// may be off screen, and a count row or a final ellipsis says its last ones are
-// hidden.
-func commandFits(rows []string, start bool, command string) bool {
-	var shown []string
-	for _, r := range rows {
-		if f := strings.Fields(strings.TrimLeft(r, " │┃")); len(f) > 0 { // │ is the gutter of a multi-line command
-			shown = append(shown, strings.Join(f, " "))
-		}
+// commandFits reports whether rows, in a pane cols wide, show command. Without
+// start its first rows may be off screen, and a count row or a final ellipsis
+// says its last ones are hidden.
+func commandFits(rows []string, start bool, command string, cols int) bool {
+	for len(rows) > 0 && strings.Trim(rows[len(rows)-1], " │") == "" {
+		rows = rows[:len(rows)-1]
 	}
-	end := true
-	if n := len(shown) - 1; n >= 0 {
-		if hiddenRows.MatchString(shown[n]) {
-			start = start && !strings.Contains(shown[n], "above")
-			shown, end = shown[:n], false
-		} else if t, ok := strings.CutSuffix(shown[n], "…"); ok {
-			shown[n], end = strings.TrimRight(t, " "), false
-		}
+	for len(rows) > 0 && strings.Trim(rows[0], " │") == "" {
+		rows = rows[1:]
 	}
-	if len(shown) == 0 || shown[0] == "" {
+	if len(rows) == 0 {
 		return false
 	}
-	want := strings.Join(strings.Fields(command), " ")
+	rows = slices.Clone(rows)
+	end, n := true, len(rows)-1
+	if last := strings.TrimLeft(rows[n], " │"); hiddenRows.MatchString(last) {
+		start = start && !strings.Contains(last, "above")
+		rows, end = rows[:n], false
+	} else if t, ok := strings.CutSuffix(rows[n], "…"); ok {
+		rows[n], end = strings.TrimRight(t, " "), false
+	}
+	shown := commandText(rows)
+	if strings.TrimSpace(strings.Join(shown, "")) == "" {
+		return false
+	}
+	want := strings.TrimSpace(command)
 	for i := 0; i < len(want); i++ {
-		j := strings.Index(want[i:], shown[0])
-		if j < 0 || start && i+j != 0 {
-			return false
-		}
-		i += j
-		if e, ok := rowsFollow(want, i, shown); ok && (!end || e == len(want)) {
+		if e, ok := rowsFollow(want, i, shown, rows, cols); ok && (!end || e == len(want)) {
 			return true
+		}
+		if start {
+			return false
 		}
 	}
 	return false
 }
 
-// rowsFollow matches rows against want from byte i and returns where they end.
-// A row's end may stand for a space of want.
-func rowsFollow(want string, i int, rows []string) (end int, ok bool) {
-	for _, r := range rows {
-		if strings.HasPrefix(want[i:], " ") {
-			i++
+// commandText is rows without what the prompt adds to each: the gutter of a
+// multi-line command and the indent all rows share. An indent of the command's
+// own stays.
+func commandText(rows []string) []string {
+	out := make([]string, len(rows))
+	indent := -1
+	for i, r := range rows {
+		out[i] = r
+		if s, ok := strings.CutPrefix(strings.TrimLeft(r, " "), "│"); ok {
+			out[i] = strings.TrimPrefix(s, " ")
 		}
-		if !strings.HasPrefix(want[i:], r) {
+		if n := len(out[i]) - len(strings.TrimLeft(out[i], " ")); out[i] != "" && (indent < 0 || n < indent) {
+			indent = n
+		}
+	}
+	for i, r := range out {
+		if r != "" {
+			out[i] = r[indent:]
+		}
+	}
+	out[0] = strings.TrimLeft(out[0], " ") // a command starts with no space
+	return out
+}
+
+// rowsFollow matches shown, the text of rows, against want from byte i and
+// returns where they end.
+func rowsFollow(want string, i int, shown, rows []string, cols int) (end int, ok bool) {
+	for k, r := range shown {
+		if k > 0 {
+			if i, r, ok = crossRows(want, i, r, utf8.RuneCountInString(rows[k-1]), cols); !ok {
+				return 0, false
+			}
+		}
+		if i, ok = matchRow(want, i, r); !ok {
 			return 0, false
 		}
-		i += len(r)
+	}
+	return i, true
+}
+
+// crossRows moves past a row end at byte i of want, on a row prev columns wide,
+// and returns where next, the row after it, starts in want. A newline of the
+// command ends a row anywhere. Wrapping moves a word only if it would not fit,
+// and cuts one only on a full row, so any other row end is not in the command.
+func crossRows(want string, i int, next string, prev, cols int) (at int, row string, ok bool) {
+	j := i + len(want[i:]) - len(strings.TrimLeft(want[i:], " \t\r"))
+	switch {
+	case j == len(want) || want[j] == '\n':
+		return min(j+1, len(want)), next, true
+	case j == i:
+		return i, next, prev >= cols-wrapSlack
+	}
+	word := want[j:]
+	if e := strings.IndexFunc(word, unicode.IsSpace); e >= 0 {
+		word = word[:e]
+	}
+	return j, strings.TrimLeft(next, " "), prev+j-i+utf8.RuneCountInString(word) > cols-wrapSlack
+}
+
+// matchRow matches row against want from byte i and returns where it ends. A tab
+// is drawn as spaces.
+func matchRow(want string, i int, row string) (end int, ok bool) {
+	for row != "" {
+		switch {
+		case i == len(want):
+			return 0, false
+		case want[i] == '\t':
+			row = strings.TrimLeft(row, " ")
+		case want[i] == row[0]:
+			row = row[1:]
+		default:
+			return 0, false
+		}
+		i++
 	}
 	return i, true
 }

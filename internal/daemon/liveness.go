@@ -41,6 +41,13 @@ var (
 	hookGrace = 20 * time.Second
 )
 
+// askedCommand is a command a hook asked to run and the UpdatedAt of the
+// activity it belongs to: any other activity of the pane knows no command.
+type askedCommand struct {
+	command string
+	at      time.Time
+}
+
 // liveness is what the daemon keeps to catch an activity no hook will end:
 // a Claude turn the user interrupted and an agent that died. Guarded by d.mu.
 type liveness struct {
@@ -52,7 +59,7 @@ type liveness struct {
 	// asked is, per pane, the command its pending approval's hook reported, to
 	// compare with the screen before answering. It stays here, unredacted: the
 	// activity goes to every client and to disk.
-	asked map[string]string
+	asked map[string]askedCommand
 	// started marks a pane whose agent sends SessionStart (pitwall's hooks
 	// since alpha.14), fresh one whose agent process started and has not
 	// reported a permission mode yet, and resumeSeen a pane NewWith resumed
@@ -266,6 +273,7 @@ func (d *Daemon) activityIndex(id string) int {
 
 // dropActivity removes a pane's activity, if any. Callers hold d.mu.
 func (d *Daemon) dropActivity(id string) {
+	delete(d.live.asked, id)
 	if i := d.activityIndex(id); i >= 0 {
 		d.st.Activities = slices.Delete(d.st.Activities, i, i+1)
 		d.changed()

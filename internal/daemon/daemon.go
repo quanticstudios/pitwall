@@ -1689,15 +1689,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 
 	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
-	if cmd, ok := agent.AskedCommand(m.Payload); ok && cmd != "" {
-		if d.live.asked == nil {
-			d.live.asked = map[string]string{}
-		}
-		d.live.asked[p.ID] = cmd
-	} else if ok || derived && next.State != model.StatePendingApproval {
-		delete(d.live.asked, p.ID)
+	command, asks := agent.AskedCommand(m.Payload)
+	// why: Derive sees no change in two requests with one description, and an answer to the first must not land on the second.
+	if asks && !derived && prev != nil && prev.State == model.StatePendingApproval && command != d.askedOf(*prev) {
+		next, derived = *prev, true
+		next.UpdatedAt = now
+		next.Buttons, next.Menu = nil, false
 	}
 	if derived {
+		d.bindAsked(p.ID, prev, next, command, asks)
 		if d.live.lastHook == nil {
 			d.live.lastHook = map[string]proto.AgentHook{}
 		}
