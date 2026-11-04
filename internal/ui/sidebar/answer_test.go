@@ -38,8 +38,8 @@ func TestFitPills(t *testing.T) {
 // button, and returns where.
 func (h *replyHarness) findOn(over func() bool) f32.Point {
 	h.t.Helper()
-	for y := float32(56); y < 160; y += 2 {
-		for x := float32(20); x < 280; x += 4 {
+	for y := float32(56); y < 160; y += 8 { // an answer button is 18 high and wider than 24
+		for x := float32(20); x < 280; x += 12 {
 			h.r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(x, y), Source: pointer.Mouse})
 			h.frame()
 			if over() {

@@ -1680,6 +1680,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		prev = &cp
 	}
 	now := time.Now()
+	// why: UpdatedAt names the prompt an answer is for, and a coarse clock, as on Windows, gives two reports one time.
+	if prev != nil && !now.After(prev.UpdatedAt) {
+		now = prev.UpdatedAt.Add(time.Nanosecond)
+	}
 	changed := false
 	limit := func() {} // a turn that ended on a usage limit schedules its resume
 	// why: a held `pi -p` pane shuts down right after its result; the tab keeps showing it.

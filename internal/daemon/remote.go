@@ -214,7 +214,7 @@ func (d *Daemon) askedOf(a model.Activity) string {
 // request when asks is set. A later report of the same prompt, such as its
 // Notification, keeps the command prev had. Callers hold d.mu.
 func (d *Daemon) bindAsked(pane string, prev *model.Activity, next model.Activity, command string, asks bool) {
-	if !asks && prev != nil && next.State == model.StatePendingApproval {
+	if !asks && prev != nil && prev.State == model.StatePendingApproval && next.State == model.StatePendingApproval {
 		command = d.askedOf(*prev)
 	}
 	delete(d.live.asked, pane)

@@ -476,7 +476,7 @@ func TestNewCommandMovesTheRow(t *testing.T) {
 		t.Errorf("the same command moved the row: %d, was %d", again, first)
 	}
 	second := asks("rm -rf /tmp/target")
-	if second == first {
+	if second <= first {
 		t.Fatal("a new command kept the row's timestamp")
 	}
 	f.pane(0).mu.Lock()
@@ -493,6 +493,27 @@ func TestNewCommandMovesTheRow(t *testing.T) {
 	}
 }
 
+// A coarse clock gives two reports one time, and UpdatedAt must still tell their
+// prompts apart. A clock set back does the same on every platform.
+func TestReportMovesTheTimestampForward(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	d.mu.Lock()
+	i := d.activityIndex("a")
+	d.st.Activities[i].UpdatedAt = time.Now().Add(time.Hour)
+	before := d.st.Activities[i].UpdatedAt
+	d.mu.Unlock()
+	payload := `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"echo safe","description":"Run"}}`
+	if err := d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if got := d.st.Activities[d.activityIndex("a")].UpdatedAt; !got.After(before) {
+		t.Errorf("UpdatedAt %v, was %v", got, before)
+	}
+}
+
 // A command belongs to its activity: a later agent in the same pane, which
 // reports none, is not held to it.
 func TestAskedEndsWithItsActivity(t *testing.T) {
@@ -502,7 +523,10 @@ func TestAskedEndsWithItsActivity(t *testing.T) {
 		"dropped": func(d *Daemon) { d.dropActivity("a") },
 		"replaced": func(d *Daemon) {
 			i := d.activityIndex("a")
-			d.st.Activities[i].State, d.st.Activities[i].UpdatedAt = model.StateWorking, time.Now()
+			d.st.Activities[i].UpdatedAt = d.st.Activities[i].UpdatedAt.Add(time.Second)
+		},
+		"working in the same clock tick": func(d *Daemon) {
+			d.st.Activities[d.activityIndex("a")].State = model.StateWorking
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
