@@ -52,13 +52,13 @@ func (b systemBus) inhibitFor(ctx context.Context, what, why, mode string) (io.C
 	return os.NewFile(uintptr(fd), "logind inhibitor"), nil
 }
 
-// InhibitIdle blocks idle sleep until the returned lock closes. The display may sleep.
+// InhibitIdle blocks sleep until the returned lock closes. Screens may lock and sleep.
 func InhibitIdle(ctx context.Context) (io.Closer, error) {
-	conn, err := dbus.ConnectSystemBus()
+	conn, err := dbus.ConnectSystemBus(dbus.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
-	lock, err := (systemBus{conn.Object(dest, objPath)}).inhibitFor(ctx, "idle:sleep", "An agent works", "block")
+	lock, err := (systemBus{conn.Object(dest, objPath)}).inhibitFor(ctx, "sleep", "An agent works", "block")
 	if err != nil {
 		conn.Close()
 		return nil, err

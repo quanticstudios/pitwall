@@ -206,3 +206,32 @@ func TestServeKeepAwake(t *testing.T) {
 	d.mu.Unlock()
 	want("release")
 }
+
+func TestKeepAwakeDefaults(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := os.MkdirAll(config.Dir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	o := Defaults()
+	defer o.Journal.Close(time.Second)
+	defer o.Errors.Close(time.Second)
+	defer o.Timing.Close(time.Second)
+	for _, on := range []bool{false, true, false} {
+		text := "[agents]\nkeep_awake = false\nkeep_awake_grace = \"10s\"\n"
+		if on {
+			text = "[agents]\nkeep_awake = true\nkeep_awake_grace = \"48h\"\n"
+		}
+		if err := os.WriteFile(config.Path(), []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+		got, grace := o.KeepAwake()
+		wantGrace := 10 * time.Second
+		if on {
+			wantGrace = 48 * time.Hour
+		}
+		if got != on || grace != wantGrace {
+			t.Fatalf("Defaults reads %v, %s; want %v, %s", got, grace, on, wantGrace)
+		}
+	}
+}
