@@ -204,8 +204,11 @@ When the agent's hook reported a shell command, Allow, Deny and Always also
 need the prompt to show that command. pitwall allows for line wrapping and the
 prompt's own indent, and any other difference counts, spaces included. If the
 prompt shows only part of a long command, the part it shows is what pitwall
-compares, and the rest goes unchecked. On a mismatch, or a prompt layout pitwall cannot read a command from, nothing is
-pressed and pitwall tells you to answer in the tab.
+compares, and the rest goes unchecked. pitwall cannot compare a command with a
+line break, which means any multi-line command, a tab or another character that
+does not print, so it always refuses those. On a refusal, a mismatch or a prompt
+layout pitwall cannot read a command from, nothing is pressed and pitwall tells
+you to answer in the tab.
 
 An edit, a fetch or any other prompt with no reported command gets no such
 comparison, and neither does a row whose report came before a daemon restart.

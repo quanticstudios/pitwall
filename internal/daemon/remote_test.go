@@ -408,6 +408,53 @@ func TestAnswerNeedsTheCommand(t *testing.T) {
 	}
 }
 
+// What cannot be compared is refused through the whole answer path: a command
+// with a newline or tab, and a screen with no row of the command left.
+func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
+	for _, tc := range []struct {
+		name, command string
+		rows          []string
+		scrolled      bool // the upper rule is off screen
+	}{
+		{"only the count row", "echo safe", []string{" +3 lines, +2 above (ctrl+o to see more)"}, true},
+		{"a tab", "mkdir '/tmp/a\tb'", []string{" mkdir '/tmp/ab'"}, false},
+		{"a newline", "echo safe\nrm -rf /tmp/victim", []string{" echo safe", " rm -rf /tmp/victim"}, false},
+		{"spaces before a newline", "printf '%s' 'a  \nb'", []string{" printf '%s' 'a", " b'"}, false},
+		{"a newline off screen", "rm -rf /tmp/victim\necho safe", []string{" echo safe"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, f, _ := remoteDaemon(t)
+			d.o.Derive = agent.Derive
+			ctx := context.Background()
+			payload, err := json.Marshal(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s", "tool_name": "Bash", "tool_input": map[string]string{"command": tc.command, "description": "Run"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: payload}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+			d.mu.Unlock()
+			f.pane(0).mu.Lock()
+			f.pane(0).screen, f.pane(0).input = commandForm(tc.rows...), nil
+			if tc.scrolled {
+				f.pane(0).screen = f.pane(0).screen[3:]
+			}
+			f.pane(0).mu.Unlock()
+			for name, answer := range map[string]func() error{
+				"allow":  func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) },
+				"deny":   func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) },
+				"always": func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) },
+			} {
+				if err := answer(); err == nil || !strings.Contains(err.Error(), "answer it in its tab") || f.pane(0).got() != "" {
+					t.Errorf("%s: %v %q", name, err, f.pane(0).got())
+				}
+			}
+		})
+	}
+}
+
 // A hook that changes the command moves the row on, even when Derive sees no
 // change in it, so an answer to the old command cannot land on the new one.
 func TestNewCommandMovesTheRow(t *testing.T) {

@@ -64,7 +64,8 @@ Allow presses the first option of the agent's prompt, Yes: `1` for Claude
 Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
 the page's item is current and the pane's screen has a permission prompt on it.
 When the agent's hook reported a shell command, the prompt must also show that
-command, as much of it as fits on screen; [Usage](usage.md) has the details. A
+command, as much of it as fits on screen, and a command with a line break or a
+tab is always refused; [Usage](usage.md) has the details. A
 reply loses its control characters, so it
 cannot press keys or end a paste, and goes in as a paste followed by Enter.
 A terminal agent's screen that shows a form takes no reply here, as Enter

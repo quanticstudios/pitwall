@@ -116,6 +116,7 @@ offers it. Allow and Deny check that the row is current and a permission prompt
 is on screen. When the agent's hook reported a shell command, Allow, Deny and
 Always also need the prompt to show that command, as much of it as fits on
 screen; otherwise nothing is pressed and pitwall tells you to answer in the tab.
+A command with a line break or a tab is always refused this way.
 An edit, a fetch or any other prompt with no reported command gets no such
 comparison, so read it first.
 Ctrl+Shift+Y and Ctrl+Shift+D press them, and on Linux the notification has
