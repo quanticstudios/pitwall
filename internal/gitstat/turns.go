@@ -112,11 +112,59 @@ func snapshot(ctx context.Context, root string) (string, error) {
 	} else if _, err := gitWith(ctx, root, env, "", "read-tree", "HEAD"); err != nil {
 		return "", err
 	}
-	if _, err := gitWith(ctx, root, env, "", "add", "-A"); err != nil {
+	if err := addAll(ctx, root, env); err != nil {
 		return "", err
 	}
 	out, err := gitWith(ctx, root, env, "", "write-tree")
 	return strings.TrimSpace(out), err
+}
+
+// addAll is git add -A in the index env names, without looking inside a
+// submodule.
+//
+// why: add -A runs git status in each submodule it finds, and no flag or config
+// stops it. That git reads the submodule's own config, whose filter names the
+// settings in Command cannot know, and an agent can plant a submodule. Moving
+// its commit is all add -A would record about it, which is done here instead.
+func addAll(ctx context.Context, root string, env []string) error {
+	out, err := gitWith(ctx, root, env, "", "ls-files", "--stage", "-z")
+	if err != nil {
+		return err
+	}
+	args := []string{"add", "-A"}
+	var links []string
+	for _, e := range strings.Split(out, "\x00") {
+		p, ok := strings.CutPrefix(e, "160000 ")
+		if !ok {
+			continue
+		}
+		_, p, _ = strings.Cut(p, "\t")
+		// A submodule with no .git of its own holds nothing to look at: add -A
+		// keeps it, or drops one whose folder is gone.
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p), ".git")); err == nil {
+			links = append(links, p)
+		}
+	}
+	if len(links) > 0 {
+		args = append(args, "--", ".")
+		for _, p := range links {
+			args = append(args, ":(exclude,literal)"+p)
+		}
+	}
+	if _, err := gitWith(ctx, root, env, "", args...); err != nil {
+		return err
+	}
+	var moved strings.Builder
+	for _, p := range links {
+		if h, err := head(ctx, filepath.Join(root, filepath.FromSlash(p))); err == nil {
+			fmt.Fprintf(&moved, "160000 %s\t%s\x00", h, p)
+		}
+	}
+	if moved.Len() == 0 {
+		return nil
+	}
+	_, err = gitWith(ctx, root, env, moved.String(), "update-index", "--add", "-z", "--index-info")
+	return err
 }
 
 // unflag clears the assume-unchanged and skip-worktree flags in the index
@@ -348,6 +396,9 @@ func undo(ctx context.Context, worktree, ws, rev string) error {
 	if !ok {
 		return fmt.Errorf("%s is not in a git repository", worktree)
 	}
+	if err := refuseRepoFilter(ctx, root); err != nil {
+		return err
+	}
 	list, _, err := turns(ctx, root, prefix)
 	if err != nil {
 		return err
@@ -411,6 +462,9 @@ func RedoTurn(ctx context.Context, worktree, ws string) error {
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
 		return fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	if err := refuseRepoFilter(ctx, root); err != nil {
+		return err
 	}
 	list, redo, err := turns(ctx, root, prefix)
 	if err != nil {

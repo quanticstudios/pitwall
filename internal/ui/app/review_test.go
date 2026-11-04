@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +59,56 @@ func run(t *testing.T, argv []string, env ...string) string {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	return string(out)
+}
+
+// TestDiffPagerIgnoresRepoConfig: the diff pane's script evals the pager it
+// finds, so core.pager from the repository's own config must not reach it, nor
+// its fsmonitor run. The one from the person's config does.
+func TestDiffPagerIgnoresRepoConfig(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the probes are shell scripts")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	probe := func(name string) string {
+		script := filepath.Join(dir, name)
+		if err := os.WriteFile(script, []byte("#!/bin/sh\necho "+name+" >> '"+marker+"'\ncat >/dev/null\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return script
+	}
+	repo := filepath.Join(dir, "repo")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	global := filepath.Join(dir, "gitconfig")
+	if err := os.WriteFile(global, []byte("[user]\n\tname = t\n\temail = t@example.invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_PAGER", "")
+	git := func(args ...string) {
+		t.Helper()
+		run(t, append([]string{"git", "-C", repo}, args...))
+	}
+	git("init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(repo, "a"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "a")
+	git("commit", "-qm", "first")
+	git("config", "core.pager", probe("repo-pager"))
+	git("config", "core.fsmonitor", probe("fsmonitor"))
+	run(t, diffCmd(repo, "refs/heads/main", nil))
+	if b, _ := os.ReadFile(marker); len(b) > 0 {
+		t.Errorf("the diff pane ran the repository's programs: %s", b)
+	}
+	run(t, []string{"git", "config", "--file", global, "core.pager", probe("my-pager")})
+	run(t, diffCmd(repo, "refs/heads/main", nil))
+	if b, _ := os.ReadFile(marker); !strings.Contains(string(b), "my-pager") || strings.Contains(string(b), "repo-pager") {
+		t.Errorf("want the global pager and only it, ran: %q", b)
+	}
 }
 
 // TestDiffCmd runs the diff panes' commands in a real repository, from a

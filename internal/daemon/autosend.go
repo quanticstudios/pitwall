@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/forge"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
-	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -152,8 +151,6 @@ func (d *Daemon) sendAgent(ctx context.Context, a autoSend) {
 
 // gitHead is the commit checked out at dir.
 func gitHead(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD")
-	nowindow.Set(cmd)
-	out, err := cmd.Output()
+	out, err := gitstat.Command(ctx, dir, "rev-parse", "HEAD").Output()
 	return strings.TrimSpace(string(out)), err
 }

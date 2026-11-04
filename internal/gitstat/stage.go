@@ -59,6 +59,9 @@ func ApplyCached(ctx context.Context, worktree string, patch []byte, reverse boo
 	if !ok {
 		return fmt.Errorf("%s is not in a git repository", worktree)
 	}
+	if err := refuseRepoFilter(ctx, root); err != nil {
+		return err
+	}
 	args := []string{"apply", "--cached", "--whitespace=nowarn"}
 	if reverse {
 		args = append(args, "-R")
@@ -74,6 +77,9 @@ func StageFiles(ctx context.Context, worktree string, paths []string, unstage bo
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
 		return fmt.Errorf("%s is not in a git repository", worktree)
+	}
+	if err := refuseRepoFilter(ctx, root); err != nil {
+		return err
 	}
 	// why: a path is a file's name, never a pattern; *.txt must not take
 	// secret.txt along.

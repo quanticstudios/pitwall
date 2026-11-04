@@ -14,9 +14,9 @@ import (
 
 	"gioui.org/io/key"
 
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/model"
-	"github.com/quanticstudios/pitwall/internal/nowindow"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -140,10 +140,7 @@ func listPaths(ctx context.Context, dir string) ([]string, error) {
 // gitOutput runs git with args in dir and returns its output, or its error
 // message as the error.
 func gitOutput(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	nowindow.Set(cmd)
-	out, err := cmd.Output()
+	out, err := gitstat.Command(ctx, dir, args...).Output()
 	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
 		err = errors.New(strings.TrimSpace(string(ee.Stderr)))
 	}

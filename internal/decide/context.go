@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 )
 
 const (
@@ -263,8 +265,7 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 func gitRun(ctx context.Context, deadline time.Time, root string, args ...string) (string, string, error) {
 	cctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "git", args...)
-	cmd.Dir = root
+	cmd := gitstat.Command(cctx, root, args...)
 	var out cappedBuffer
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr
