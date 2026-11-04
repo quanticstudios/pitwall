@@ -41,6 +41,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/eventlog"
 	"github.com/quanticstudios/pitwall/internal/store"
+	"github.com/quanticstudios/pitwall/internal/teardown"
 	"github.com/quanticstudios/pitwall/internal/timelog"
 	"github.com/quanticstudios/pitwall/internal/vt"
 	"github.com/quanticstudios/pitwall/internal/web"
@@ -107,9 +108,9 @@ type Options struct {
 	// Orphans runs git worktree prune in repoRoot and lists the worktrees
 	// under its .worktrees that used says no tab uses; nil lists none.
 	Orphans func(ctx context.Context, repoRoot string, used func(path string) bool) ([]model.Orphan, error)
-	// Worktrees reads the settings for a new worktree of repoRoot and the
+	// Worktrees reads the settings for creation or removal in repoRoot and the
 	// problems in the repo's own file; nil gives worktrees no ports and no
-	// setup.
+	// setup or teardown.
 	Worktrees func(repoRoot string) (config.WorktreeSettings, []config.Problem)
 	// Decisions reads the decision settings and provider; nil leaves every
 	// decision feature off.
@@ -226,7 +227,8 @@ type Options struct {
 }
 
 type Daemon struct {
-	o Options
+	worktreeDeletes map[string]bool // guarded by mu
+	o               Options
 
 	scrollbackFiles map[string]string // editor pane: its temporary file; guarded by mu
 
@@ -929,6 +931,20 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			}
 			continue
 		}
+		if hello.Kind == "gui" {
+			switch request := m.(type) {
+			case proto.DeleteWorkspace, proto.DeleteWorktree:
+				go func() {
+					if err := d.handle(ctx, request); err != nil {
+						c.queue(proto.Error{Message: err.Error()})
+					}
+					if _, orphan := request.(proto.DeleteWorktree); orphan {
+						c.queue(d.worktreeQuery(ctx, proto.WorktreeQuery{Orphans: true}))
+					}
+				}()
+				continue
+			}
+		}
 		start := time.Now()
 		herr := d.handle(ctx, m)
 		if in, ok := m.(proto.Input); ok && herr == nil {
@@ -1259,6 +1275,11 @@ func (d *Daemon) newWorkspace(ctx context.Context, m proto.NewWorkspace) error {
 	}
 	if owned != "" {
 		w.Ports = portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
+		if _, statErr := os.Stat(filepath.Join(path, ".git")); statErr == nil {
+			if saveErr := teardown.SavePorts(path, w.Ports); saveErr != nil {
+				problems = append(problems, fmt.Errorf("save worktree ports: %w", saveErr))
+			}
+		}
 	}
 	d.st.Workspaces = append(d.st.Workspaces, w)
 	var err error
@@ -1401,7 +1422,7 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	if ws.WorktreeRoot != "" {
 		// A kept branch is still reported, but the worktree is gone, so the
 		// workspace goes too.
-		if err = d.o.RemoveWorktree(ctx, ws.WorktreeRoot, ws.Path, m.RemoveBranch, m.Force); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
+		if err = d.removeWorktree(ctx, ws.WorktreeRoot, ws.Path, ws.Ports, m.RemoveBranch, m.Force, m.SkipTeardown, m.Teardown); err != nil && !errors.Is(err, gitstat.ErrBranchKept) {
 			return err
 		}
 	}

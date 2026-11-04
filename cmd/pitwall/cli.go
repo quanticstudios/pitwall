@@ -78,7 +78,14 @@ func syncCLI(conn *cliConn, requests ...any) (model.State, error) {
 // syncMsg is syncCLI with the daemon's whole StateMsg, its Level too.
 func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 	// Confirmation can take longer than the socket timeout.
-	if err := conn.socket.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	wait := 5 * time.Second
+	for _, request := range requests {
+		switch request.(type) {
+		case proto.DeleteWorkspace, proto.DeleteWorktree:
+			wait = 2*time.Minute + 15*time.Second
+		}
+	}
+	if err := conn.socket.SetDeadline(time.Now().Add(wait)); err != nil {
 		return proto.StateMsg{}, err
 	}
 	for _, request := range append(requests, proto.Sync{}) {

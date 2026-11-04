@@ -3,14 +3,20 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/creack/pty"
+	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/teardown"
 )
 
 // gitRepo is a repo in a temp folder, by the name git prints for it: on
@@ -32,7 +38,7 @@ func gitRepo(t *testing.T) string {
 
 func worktreeOutput(args ...string) (int, string, string) {
 	var out, stderr bytes.Buffer
-	code := runWorktree(args, &out, &stderr)
+	code := runWorktree(args, nil, &out, &stderr)
 	return code, out.String(), stderr.String()
 }
 
@@ -208,5 +214,135 @@ func TestWorktreePruneKeepsNestedTab(t *testing.T) {
 	fakeCLI(t, cliExchange{state: model.State{Workspaces: []model.Workspace{{ID: "fork", Path: filepath.Join(tree, "sub")}}}})
 	if code, out, stderr := worktreeOutput("prune"); code != 0 || !strings.Contains(out, "Every worktree under .worktrees has a tab.") {
 		t.Fatalf("prune %d %q %s", code, out, stderr)
+	}
+}
+
+func TestWorktreeTeardownCLI(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	for _, mode := range []string{"user", "repo flag", "repo terminal yes", "repo terminal no", "repo noninteractive", "failure", "force"} {
+		t.Run(mode, func(t *testing.T) {
+			repo := gitRepo(t)
+			t.Chdir(repo)
+			t.Setenv("PITWALL_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			path, _, err := gitstat.AddWorktree(context.Background(), repo, "feature", model.WorktreeFrom{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := teardown.SavePorts(path, model.PortBlock{First: 4010, Last: 4019}); err != nil {
+				t.Fatal(err)
+			}
+			cmd := `printf '%s %s %s' "$PORT" "$PITWALL_PORT_BASE" "$PITWALL_PORTS" > ../../ran; echo stopped`
+			if mode == "failure" || mode == "force" {
+				cmd = "echo cli-failure; exit 9"
+			}
+			cfg, content := config.Path(), "[worktrees]\n"
+			if strings.HasPrefix(mode, "repo") {
+				cfg, content = filepath.Join(repo, config.WorktreeFile), ""
+			}
+			if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cfg, []byte(content+fmt.Sprintf("teardown = %q\n", cmd)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"rm", "feature"}
+			if mode == "repo flag" {
+				args = append(args, "--teardown")
+			}
+			if mode == "force" {
+				args = append(args, "--force")
+			}
+			var in *os.File
+			if strings.HasPrefix(mode, "repo terminal") {
+				if runtime.GOOS == "windows" {
+					t.Skip("no PTY on Windows")
+				}
+				master, slave, err := pty.Open()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer master.Close()
+				defer slave.Close()
+				in = slave
+				answer := "yes\n"
+				if mode == "repo terminal no" {
+					answer = "no\n"
+				}
+				if _, err := master.Write([]byte(answer)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var out, stderr bytes.Buffer
+			code := runWorktree(args, in, &out, &stderr)
+			_, statErr := os.Stat(path)
+			if mode == "failure" {
+				if code != 1 || statErr != nil || !strings.Contains(stderr.String(), "cli-failure") {
+					t.Fatalf("%d %v %s", code, statErr, &stderr)
+				}
+				return
+			}
+			if code != 0 || !os.IsNotExist(statErr) {
+				t.Fatalf("%d %v %s", code, statErr, &stderr)
+			}
+			data, err := os.ReadFile(filepath.Join(repo, "ran"))
+			if mode == "user" || mode == "repo flag" || mode == "repo terminal yes" {
+				if err != nil || string(data) != "4010 4010 4010-4019" {
+					t.Fatalf("ports %q %v", data, err)
+				}
+			} else if !os.IsNotExist(err) {
+				t.Fatal("unapproved teardown ran")
+			}
+			if mode == "repo terminal no" || mode == "repo noninteractive" {
+				if !strings.Contains(stderr.String(), "Teardown skipped") || !strings.Contains(stderr.String(), "printf") {
+					t.Fatalf("no skip notice: %s", &stderr)
+				}
+			}
+			if in != nil && (!strings.Contains(stderr.String(), "Run this command? [y/N]") || !strings.Contains(stderr.String(), "PITWALL_PORTS")) {
+				t.Fatalf("missing prompt: %s", &stderr)
+			}
+		})
+	}
+}
+
+func TestWorktreeTeardownRequest(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(fmt.Sprint(force), func(t *testing.T) {
+			repo := gitRepo(t)
+			t.Chdir(repo)
+			path, _, err := gitstat.AddWorktree(context.Background(), repo, "feature", model.WorktreeFrom{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := model.State{Workspaces: []model.Workspace{{ID: "w", Path: path, WorktreeRoot: repo}}}
+			after := model.State{Notice: "Teardown skipped: would run repo-stop"}
+			approved := "repo-stop"
+			if force {
+				approved = ""
+				after.Notice = ""
+			}
+			level := proto.Level
+			if force {
+				level = proto.TeardownLevel - 1
+			}
+			fakeCLI(t, cliExchange{state: before, level: level}, cliExchange{request: proto.DeleteWorkspace{WorkspaceID: "w", Force: force, SkipTeardown: force, Teardown: approved}, state: after})
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			if err := os.MkdirAll(filepath.Join(repo, ".pitwall"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, config.WorktreeFile), []byte("teardown = 'repo-stop'\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"rm", "feature", "--teardown"}
+			if force {
+				args = append(args, "--force")
+			}
+			code, _, stderr := worktreeOutput(args...)
+			if code != 0 || !force && !strings.Contains(stderr, after.Notice) {
+				t.Fatalf("%d %s", code, stderr)
+			}
+		})
 	}
 }

@@ -77,6 +77,12 @@ send_review_on_request = false          # send requested changes once per review
 # auto_send_failures = false            # older name; send_failures_on_fail overrides it
 conflict_radar = true                   # mark tabs whose branches change the same files
 
+[worktrees]
+# port_base = 3000
+# port_step = 10
+# setup = "pnpm install"
+# teardown = "docker compose down"       # runs before removing each worktree
+
 [agents]
 startup_per_agent_delay_ms = 100         # gap after each restored agent; 0 starts all at once
 keep_awake = false                      # block Linux sleep or macOS idle sleep during work
@@ -328,3 +334,20 @@ so a custom theme's chips stay readable too.
 Use `[[agents.acp]]` for managed agents that speak ACP v1 over stdio. Each entry
 sets `name`, `command`, `args` and `env`. See [ACP agents](acp.md) for configuration,
 provider discovery and capability limits.
+
+### Worktree teardown
+
+`[worktrees] teardown` is a shell command run in the worktree before pitwall
+removes it, with the worktree's port environment. Your own `config.toml`
+command runs as is. A repo's `.pitwall/worktree.toml` can set `teardown` too;
+that command needs explicit approval each time because anyone can put code
+in a repo you clone. The UI and terminal prompt show the full command.
+`pitwall worktree rm --teardown` approves it for that invocation.
+
+Without approval, pitwall skips the repo command and shows a notice with
+its text, including during `archive_on_merge` and non-interactive removal.
+Removal still proceeds. Failure or a two-minute timeout keeps the worktree
+and reports the reason and output tail. Notices name
+`$XDG_STATE_HOME/pitwall/teardown.log` for the full command and tail. A timeout kills the command's
+process group. `worktree rm --force` skips teardown. Remote tabs run teardown
+on their host. See [Worktree ports and setup](usage.md#worktree-ports-and-setup).

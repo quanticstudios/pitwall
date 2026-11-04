@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -37,13 +36,7 @@ func portBlock(ws []model.Workspace, base, step int) model.PortBlock {
 }
 
 // portEnv is what a pane in a tab with ports b adds to its environment.
-func portEnv(b model.PortBlock) []string {
-	if b.First == 0 {
-		return nil
-	}
-	first := strconv.Itoa(b.First)
-	return []string{"PORT=" + first, "PITWALL_PORT_BASE=" + first, "PITWALL_PORTS=" + b.String()}
-}
+func portEnv(b model.PortBlock) []string { return b.Env() }
 
 // portsOf is the Ports of tab id, none for a missing tab. Callers hold d.mu.
 func (d *Daemon) portsOf(id string) model.PortBlock {

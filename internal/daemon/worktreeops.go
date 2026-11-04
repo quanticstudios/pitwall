@@ -12,6 +12,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/teardown"
 )
 
 // pruneOrphans is Options.Orphans over git.
@@ -43,6 +44,9 @@ func (d *Daemon) orphans(ctx context.Context) ([]model.Orphan, error) {
 		o, err := d.o.Orphans(ctx, root, func(p string) bool { return len(st.WorktreeUsers(p, "")) > 0 })
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", root, err))
+		}
+		for i := range o {
+			o[i].Teardown = d.repoTeardown(root)
 		}
 		out = append(out, o...)
 	}
@@ -114,6 +118,7 @@ func (d *Daemon) worktreeQuery(ctx context.Context, q proto.WorktreeQuery) proto
 		d.mu.Lock()
 		r.UsedBy = d.st.WorktreeUsers(ws.Path, ws.ID)
 		d.mu.Unlock()
+		r.Teardown = d.repoTeardown(ws.WorktreeRoot)
 		if r.Changed, err = gitstat.Status(ctx, ws.Path); err != nil {
 			break
 		}
@@ -152,5 +157,63 @@ func (d *Daemon) deleteWorktree(ctx context.Context, m proto.DeleteWorktree) err
 		d.mu.Unlock()
 		return err
 	}
-	return d.o.RemoveWorktree(ctx, m.Root, path, false, m.Force)
+	ports, err := teardown.Ports(path)
+	if err != nil && !m.SkipTeardown {
+		return err
+	}
+	return d.removeWorktree(ctx, m.Root, path, ports, false, m.Force, m.SkipTeardown, m.Teardown)
+}
+
+// repoTeardown is the command the UI must show before it can approve it.
+func (d *Daemon) repoTeardown(root string) string {
+	if d.o.Worktrees != nil {
+		s, _ := d.o.Worktrees(root)
+		if s.TeardownFromRepo {
+			return s.Teardown
+		}
+	}
+	return ""
+}
+
+// removeWorktree runs outside mu, in the requesting client's goroutine or
+// the PR poller. Only one removal of a path may run at a time.
+func (d *Daemon) removeWorktree(ctx context.Context, root, path string, ports model.PortBlock, branch, force, skip bool, approved string) error {
+	d.mu.Lock()
+	if d.worktreeDeletes[path] {
+		d.mu.Unlock()
+		return fmt.Errorf("worktree removal already running: %s", path)
+	}
+	if d.worktreeDeletes == nil {
+		d.worktreeDeletes = map[string]bool{}
+	}
+	d.worktreeDeletes[path] = true
+	d.mu.Unlock()
+	defer func() { d.mu.Lock(); delete(d.worktreeDeletes, path); d.mu.Unlock() }()
+	if !skip && d.o.Worktrees != nil {
+		s, probs := d.o.Worktrees(root)
+		if len(probs) > 0 {
+			err := fmt.Errorf("worktree kept: %s", probs[0].String())
+			d.worktreeNotice(err.Error())
+			return err
+		}
+		notice, err := teardown.Run(ctx, path, s, ports, approved)
+		if err != nil {
+			notice = err.Error()
+		}
+		if notice != "" {
+			d.worktreeNotice(notice)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return d.o.RemoveWorktree(ctx, root, path, branch, force)
+}
+
+func (d *Daemon) worktreeNotice(text string) {
+	log.Printf("%s", text)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.st.Notice = text
+	d.changed()
 }

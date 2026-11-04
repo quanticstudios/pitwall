@@ -76,6 +76,8 @@ func (m *modal) open(kind modalKind, ws string) {
 	}
 	m.kind, m.ws, m.removeBranch, m.focus, m.pathErr, m.matches = kind, ws, false, true, "", nil
 	m.archive, m.armed = false, false
+	m.wt.approved = ""
+	m.wt.scroll.Position = gl.Position{}
 	if kind == modalAddProject {
 		m.path.SingleLine, m.path.Submit = true, true
 		m.path.SetText("~/")
@@ -269,7 +271,7 @@ func (u *ui) confirmModal(st *model.State) {
 				return
 			}
 		}
-		u.send(proto.DeleteWorkspace{WorkspaceID: m.ws, RemoveBranch: m.removeBranch, Force: u.deleteForce(m.ws)})
+		u.send(proto.DeleteWorkspace{WorkspaceID: m.ws, RemoveBranch: m.removeBranch, Force: u.deleteForce(m.ws), Teardown: m.wt.approved})
 		m.close()
 	case modalAddProject:
 		p, err := resolveDir(m.path.Text())
@@ -334,6 +336,9 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 			gl.Rigid(gl.Spacer{Height: 2}.Layout),
 		)
 		kids = append(kids, u.deleteChanges(ws.ID)...)
+		if r, ok := u.worktreeReply(proto.WorktreeQuery{WorkspaceID: ws.ID}); ok && r.Teardown != "" {
+			kids = append(kids, gl.Rigid(gl.Spacer{Height: 12}.Layout), gl.Rigid(func(gtx gl.Context) gl.Dimensions { return u.teardownChoice(gtx, ws.ID) }))
+		}
 		if ws.Branch != "" {
 			kids = append(kids,
 				gl.Rigid(gl.Spacer{Height: 12}.Layout),
@@ -353,7 +358,8 @@ func (u *ui) deleteBody(gtx gl.Context, st *model.State, ws *model.Workspace) gl
 			return u.buttons(gtx, "Cancel", ok, okKind)
 		}),
 	)
-	return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...)
+	u.modal.wt.scroll.Axis = gl.Vertical
+	return u.modal.wt.scroll.Layout(gtx, 1, func(gtx gl.Context, _ int) gl.Dimensions { return gl.Flex{Axis: gl.Vertical}.Layout(gtx, kids...) })
 }
 
 func (u *ui) addProjectBody(gtx gl.Context) gl.Dimensions {

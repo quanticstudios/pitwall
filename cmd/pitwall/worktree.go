@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"errors"
@@ -15,10 +16,12 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/teardown"
 )
 
 const worktreeUsage = `usage:
@@ -38,21 +41,22 @@ const worktreeUsage = `usage:
                                 contract before it. Prints the tab's #
   pitwall worktree lanes        the fleet lanes: small, normal and big, each with its
                                 preset and timebox
-  pitwall worktree rm <name> [--force]
+  pitwall worktree rm <name> [--force] [--teardown]
                                 remove the worktree and close its tab; --force when it
-                                has changes. Its branch stays
+                                has changes, skipping teardown. --teardown approves the
+                                repo teardown command this time. Its branch stays
   pitwall worktree prune        forget deleted worktrees and list the ones under
                                 .worktrees that no tab uses`
 
-func runWorktree(args []string, out, errOut io.Writer) int {
-	if err := worktreeCommand(context.Background(), args, out, errOut); err != nil {
+func runWorktree(args []string, in *os.File, out, errOut io.Writer) int {
+	if err := worktreeCommand(context.Background(), args, in, out, errOut); err != nil {
 		fmt.Fprintln(errOut, "pitwall:", err)
 		return 1
 	}
 	return 0
 }
 
-func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) error {
+func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOut io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(worktreeUsage)
 	}
@@ -64,7 +68,7 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	}
 	flags := flag.NewFlagSet("worktree "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var all, force, guarded bool
+	var all, force, guarded, approve bool
 	var from, branch, preset, lane string
 	var pr int
 	switch command {
@@ -79,6 +83,7 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		flags.BoolVar(&guarded, "guard", false, "")
 	case "rm":
 		flags.BoolVar(&force, "force", false, "")
+		flags.BoolVar(&approve, "teardown", false, "")
 	case "prune":
 	case "lanes":
 		if len(args) > 0 {
@@ -156,7 +161,10 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 		}
 		return newWorktree(conn, out, state, level, root, args[0], f, cmd, vars, lane)
 	case "rm":
-		return removeWorktree(ctx, conn, errOut, state, root, args[0], force)
+		if conn != nil && level < proto.TeardownLevel && !force {
+			return errors.New("worktree removal needs a daemon with teardown support; restart the daemon first")
+		}
+		return removeWorktree(ctx, conn, in, errOut, state, root, args[0], force, approve)
 	}
 	if err := gitstat.Prune(ctx, root); err != nil {
 		return err
@@ -373,7 +381,7 @@ func newWorktree(conn *cliConn, out io.Writer, state model.State, level int, roo
 // removeWorktree removes the worktree name of root: through the daemon
 // when a tab pitwall made it for uses it, else here, after closing any
 // other tab in it. Without force it lists the changes and stops.
-func removeWorktree(ctx context.Context, conn *cliConn, errOut io.Writer, state model.State, root, name string, force bool) error {
+func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.Writer, state model.State, root, name string, force, approve bool) error {
 	trees, err := gitstat.ListWorktrees(ctx, root)
 	if err != nil {
 		return err
@@ -409,11 +417,52 @@ func removeWorktree(ctx context.Context, conn *cliConn, errOut io.Writer, state 
 			return fmt.Errorf("%s has changes, listed above; --force removes them", path)
 		}
 	}
-	if w := tabAt(state, path); w != nil {
-		if w.WorktreeRoot != "" {
-			_, err := syncCLI(conn, proto.DeleteWorkspace{WorkspaceID: w.ID, Force: force})
+	var settings config.WorktreeSettings
+	approved := ""
+	if !force {
+		var probs []config.Problem
+		settings, probs = config.LoadWorktrees(config.Path(), root)
+		if len(probs) > 0 {
+			return fmt.Errorf("worktree kept: %s", probs[0].String())
+		}
+		if settings.TeardownFromRepo {
+			if approve {
+				approved = settings.Teardown
+			} else if in != nil && term.IsTerminal(in.Fd()) {
+				if _, err := fmt.Fprintf(errOut, "Repo teardown for %s:\n%q\nRun this command? [y/N] ", path, settings.Teardown); err != nil {
+					return err
+				}
+				answer, err := bufio.NewReader(in).ReadString('\n')
+				if err != nil {
+					return err
+				}
+				if answer = strings.ToLower(strings.TrimSpace(answer)); answer == "y" || answer == "yes" {
+					approved = settings.Teardown
+				}
+			}
+		}
+	}
+	if w := tabAt(state, path); w != nil && w.WorktreeRoot != "" {
+		after, err := syncCLI(conn, proto.DeleteWorkspace{WorkspaceID: w.ID, Force: force, SkipTeardown: force, Teardown: approved})
+		if after.Notice != state.Notice && after.Notice != "" {
+			fmt.Fprintln(errOut, after.Notice)
+		}
+		return err
+	}
+	if !force {
+		ports, err := teardown.Ports(path)
+		if err != nil {
 			return err
 		}
+		notice, err := teardown.Run(ctx, path, settings, ports, approved)
+		if notice != "" {
+			fmt.Fprintln(errOut, notice)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if w := tabAt(state, path); w != nil {
 		if _, err := syncCLI(conn, proto.KillSession{WorkspaceID: w.ID}); err != nil {
 			return err
 		}

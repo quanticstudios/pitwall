@@ -1722,6 +1722,7 @@ for every repo. Nothing is copied, linked or run without one.
 copy = [".env", ".env.local"] # copied from the main checkout
 link = ["node_modules"]       # symlinked to the main checkout's
 setup = "pnpm install"        # typed into the new tab's shell
+teardown = "docker compose down" # run before removing the worktree
 ```
 
 - `copy` takes files, not folders, and keeps their permissions. `.env`
@@ -1739,6 +1740,35 @@ setup = "pnpm install"        # typed into the new tab's shell
   in a repo you clone, so it waits on the prompt until you read it and
   press Enter. One with a line break or another control character is not
   typed at all.
+
+`teardown` runs as a shell command in the worktree, with the same `PORT`,
+`PITWALL_PORT_BASE` and `PITWALL_PORTS` that setup gets. It runs before
+`pitwall worktree rm`, the UI's Delete or Archive, and `archive_on_merge`
+remove the folder. Clean up worktrees uses the same rule for orphan
+worktrees. `prune` only forgets missing folders and lists orphans, so it
+has no teardown to run. A remote tab runs teardown on its host.
+
+A teardown from your own `config.toml` runs as is. Anyone can put a command
+in a repo you clone, so a teardown from `.pitwall/worktree.toml` needs an
+explicit yes each time. The UI shows its full command and asks you to
+approve it. `worktree rm` shows the full command and prompts on a terminal;
+`--teardown` approves the repo command for that invocation. Without approval,
+including `archive_on_merge` and non-interactive calls without `--teardown`,
+pitwall skips the repo command, shows what it would have run, and continues
+removal.
+
+<img src="media/worktree-teardown-dark.png" alt="The worktree delete dialog shows the full repo teardown command and an unchecked approval box" width="800">
+
+Teardown has a two-minute limit. A timeout kills its process group. A
+failure or timeout keeps the worktree and tab, with the reason and output
+tail in a notice. CLI removal prints the notice to stderr. Successful
+commands also report their output tail. The notice names
+`$XDG_STATE_HOME/pitwall/teardown.log`, which records the full command and
+last 8 KiB of output and rotates at 1 MiB. `pitwall worktree rm <name> --force`
+skips teardown and removes the worktree anyway. Port assignments are also
+saved in the worktree's private git directory for cleanup after its tab is
+closed. Worktrees created before this metadata exists have ports only while
+their tab remains in daemon state.
 
 Keys in the repo's file win over `config.toml`. A mistake in it shows as an
 error when you make the tab, and the tab is made anyway.
