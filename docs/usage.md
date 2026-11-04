@@ -525,7 +525,7 @@ is 432dp wide (scaled with the display), narrows to 320dp in a small window,
 then hides. Each window keeps its own open state until it closes. Ctrl+L still
 reaches the shell, to clear the screen.
 
-<img src="media/review.webp" alt="The review view: three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and a Send 2 comments to claude button" width="800">
+<img src="media/review.webp" alt="The review view: Branch, This turn and Staging scopes, three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and Second opinion and Send 2 comments to claude buttons" width="800">
 
 To review an agent's work, press Ctrl+Shift+R (Cmd+Shift+R in mac), pick
 View diff from the tab's "…" menu or the command palette, or click a file

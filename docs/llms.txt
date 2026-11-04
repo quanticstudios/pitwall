@@ -10,7 +10,7 @@ If you are an agent CHANGING pitwall: read AGENTS.md, then CONTRIBUTING.md. Ever
 
 ## Docs
 
-- [README](https://github.com/quanticstudios/pitwall/blob/main/README.md): what pitwall is, install, a five-minute tour
+- [README](https://github.com/quanticstudios/pitwall/blob/main/README.md): what pitwall is, install, a quick tour
 - [Concepts](https://github.com/quanticstudios/pitwall/blob/main/docs/concepts.md): session, tab, pane, group, worker, agent states
 - [Glossary](https://github.com/quanticstudios/pitwall/blob/main/GLOSSARY.md): one definition per term, and the words to avoid
 - [Agent skill](https://github.com/quanticstudios/pitwall/blob/main/docs/agent-skill.md): start agents in tabs, wait for them, talk to them
