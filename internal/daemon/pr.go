@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log"
 	"reflect"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
@@ -232,9 +234,29 @@ func (d *Daemon) pollPRs(ctx context.Context, now time.Time) {
 	if len(archive) == 0 || d.o.ArchiveOnMerge == nil || !d.o.ArchiveOnMerge() {
 		return
 	}
-	for _, id := range archive {
+	d.worktreeJobs.Go(func() { d.archiveWorktrees(ctx, archive) })
+}
+
+func (d *Daemon) archiveWorktrees(ctx context.Context, ids []string) {
+	var failures, notices []string
+	ctx = context.WithValue(ctx, worktreeNoticeKey{}, func(text string, failed bool) {
+		if slices.Contains(failures, text) || slices.Contains(notices, text) {
+			return
+		}
+		if failed {
+			failures = append(failures, text)
+		} else {
+			notices = append(notices, text)
+		}
+		d.setWorktreeNotice(strings.Join(append(slices.Clone(failures), notices...), "\n"))
+	})
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return
+		}
 		log.Printf("tab %s: pull request merged; archiving", id)
 		if err := d.deleteWorkspace(ctx, proto.DeleteWorkspace{WorkspaceID: id, RemoveBranch: true}); err != nil {
+			d.worktreeNotice(ctx, err.Error(), true)
 			log.Printf("archive tab %s: %q", id, err)
 		}
 	}

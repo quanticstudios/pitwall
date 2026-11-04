@@ -61,3 +61,17 @@ func Ports(path string) (model.PortBlock, error) {
 	}
 	return b, nil
 }
+
+// PortsFor omits a saved block that a different live tab now holds.
+func PortsFor(path string, ws []model.Workspace) (model.PortBlock, error) {
+	b, err := Ports(path)
+	if err != nil {
+		return b, err
+	}
+	for _, w := range ws {
+		if filepath.Clean(w.Path) != filepath.Clean(path) && b.First != 0 && w.Ports.First != 0 && b.First <= w.Ports.Last && w.Ports.First <= b.Last {
+			return model.PortBlock{}, nil
+		}
+	}
+	return b, nil
+}

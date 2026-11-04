@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,31 +20,49 @@ import (
 // Timeout is the maximum time a teardown command may run.
 const Timeout = 2 * time.Minute
 
+var errTimeout = errors.New("2 minute teardown limit reached")
+
 // Run returns a notice with the command and its output tail. A repo command
 // needs approval of its exact text. Skipping it still allows removal.
 func Run(ctx context.Context, path string, s config.WorktreeSettings, ports model.PortBlock, approved string) (string, error) {
+	if s.TeardownProblem != "" {
+		return record(fmt.Sprintf("Teardown skipped for %s: cannot resolve %s: %s", path, config.WorktreeFile, s.TeardownProblem)), nil
+	}
 	if s.Teardown == "" {
 		return "", nil
 	}
 	if s.TeardownFromRepo && approved != s.Teardown {
 		return record(fmt.Sprintf("Teardown skipped for %s: %s needs approval each time. Would run: %q", path, config.WorktreeFile, s.Teardown)), nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return record(fmt.Sprintf("Teardown skipped for %s: folder is gone. Would run: %q", path, s.Teardown)), nil
+	}
+	ctx, cancel := context.WithTimeoutCause(ctx, Timeout, errTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c", s.Teardown)
 	cmd.Dir = path
-	cmd.Env = append(os.Environ(), ports.Env()...)
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		key, _, _ := strings.Cut(kv, "=")
+		return key == "PORT" || key == "PITWALL_PORT_BASE" || key == "PITWALL_PORTS"
+	})
+	cmd.Env = append(cmd.Env, ports.Env()...)
 	ownGroup(cmd)
 	// A child that keeps stdout open must not extend the time limit.
 	cmd.WaitDelay = time.Second
 	out := &tail{}
 	cmd.Stdout, cmd.Stderr = out, out
 	err := cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	if err != nil && cmd.Process != nil {
 		_ = cmd.Cancel()
 	}
 	if ctx.Err() != nil {
 		err = ctx.Err()
+		if errors.Is(context.Cause(ctx), errTimeout) {
+			err = fmt.Errorf("2 minute teardown limit reached: %w", err)
+		}
 	}
 	notice := fmt.Sprintf("Teardown for %s: %q", path, s.Teardown)
 	if len(out.data) > 0 {

@@ -90,3 +90,41 @@ func TestTail(t *testing.T) {
 		t.Fatalf("tail len %d", len(out.data))
 	}
 }
+
+func TestWaitDelaySucceeds(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	notice, err := Run(ctx, t.TempDir(), config.WorktreeSettings{Teardown: "sleep 5 & echo helper-open"}, model.PortBlock{}, "")
+	if err != nil || !strings.Contains(notice, "helper-open") {
+		t.Fatalf("background output holder: %q %v", notice, err)
+	}
+}
+
+func TestEmptyPortsDoNotInherit(t *testing.T) {
+	for _, key := range []string{"PORT", "PITWALL_PORT_BASE", "PITWALL_PORTS"} {
+		t.Setenv(key, "other-stack")
+	}
+	notice, err := Run(context.Background(), t.TempDir(), config.WorktreeSettings{Teardown: `printf 'ports=<%s,%s,%s>' "$PORT" "$PITWALL_PORT_BASE" "$PITWALL_PORTS"`}, model.PortBlock{}, "")
+	if err != nil || !strings.Contains(notice, "ports=<,,>") {
+		t.Fatalf("inherited ports: %q %v", notice, err)
+	}
+}
+
+func TestMissingFolderSkips(t *testing.T) {
+	notice, err := Run(context.Background(), filepath.Join(t.TempDir(), "gone"), config.WorktreeSettings{Teardown: "true"}, model.PortBlock{}, "")
+	if err != nil || !strings.Contains(notice, "folder is gone") || !strings.Contains(notice, "true") {
+		t.Fatalf("%q %v", notice, err)
+	}
+}
+
+func TestTimeoutNamesLimit(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(errTimeout)
+	_, err := Run(ctx, t.TempDir(), config.WorktreeSettings{Teardown: "true"}, model.PortBlock{}, "")
+	if err == nil || !strings.Contains(err.Error(), "2 minute teardown limit reached") {
+		t.Fatalf("timeout reason: %v", err)
+	}
+}

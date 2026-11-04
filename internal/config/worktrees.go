@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Worktrees is [worktrees], and the whole of a repo's .pitwall/worktree.toml.
@@ -29,6 +31,8 @@ type WorktreeSettings struct {
 	Teardown      string
 	// TeardownFromRepo requires approval of the command on every removal.
 	TeardownFromRepo bool
+	// TeardownProblem means the repo command could not be resolved safely.
+	TeardownProblem string
 }
 
 // Port defaults.
@@ -95,6 +99,7 @@ func LoadWorktrees(path, repo string) (WorktreeSettings, []Problem) {
 		return s.Worktrees, nil
 	}
 	if err != nil {
+		s.Worktrees.TeardownProblem = err.Error()
 		return s.Worktrees, []Problem{{File: WorktreeFile, Msg: err.Error()}}
 	}
 	var c Worktrees
@@ -102,5 +107,13 @@ func LoadWorktrees(path, repo string) (WorktreeSettings, []Problem) {
 	w, issues := resolveWorktrees(c, s.Worktrees, "")
 	w.SetupFromRepo = c.Setup != ""
 	w.TeardownFromRepo = c.Teardown != ""
+	if len(probs) > 0 {
+		var raw map[string]any
+		_, err := toml.Decode(string(data), &raw)
+		_, valid := raw["teardown"].(string)
+		if err != nil || raw["teardown"] != nil && !valid {
+			w.TeardownProblem = probs[0].String()
+		}
+	}
 	return w, append(probs, locate(WorktreeFile, data, issues)...)
 }

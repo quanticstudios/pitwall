@@ -53,6 +53,7 @@ func TestPollPRs(t *testing.T) {
 		t.Helper()
 		calls = nil
 		d.pollPRs(ctx, t0.Add(after))
+		d.worktreeJobs.Wait()
 		if len(calls) != want {
 			t.Fatalf("at %v: %d gh calls %q, want %d", after, len(calls), calls, want)
 		}

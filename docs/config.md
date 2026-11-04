@@ -337,6 +337,8 @@ provider discovery and capability limits.
 
 ### Worktree teardown
 
+Windows needs `sh` on PATH for teardown.
+
 `[worktrees] teardown` is a shell command run in the worktree before pitwall
 removes it, with the worktree's port environment. Your own `config.toml`
 command runs as is. A repo's `.pitwall/worktree.toml` can set `teardown` too;
@@ -351,3 +353,9 @@ and reports the reason and output tail. Notices name
 `$XDG_STATE_HOME/pitwall/teardown.log` for the full command and tail. A timeout kills the command's
 process group. `worktree rm --force` skips teardown. Remote tabs run teardown
 on their host. See [Worktree ports and setup](usage.md#worktree-ports-and-setup).
+
+Before teardown, pitwall checks uncommitted files when removal is not forced.
+If teardown dirties the worktree, the removal failure says that the worktree
+is kept. Unrelated mistakes in the repo config do not block removal; malformed
+teardown config is skipped with a notice. Missing folders also skip teardown.
+An orphan gets no port variables if a live tab holds its saved block.

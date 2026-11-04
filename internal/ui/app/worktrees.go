@@ -15,6 +15,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -493,18 +494,25 @@ func (u *ui) cleanupBody(gtx gl.Context, st *model.State) gl.Dimensions {
 			del = "Delete anyway"
 			if f.approved != "" {
 				del = "Run and delete"
+				if o.Dirty {
+					del = "Run and delete anyway"
+				}
 				lines = append(lines, "Repo teardown needs approval: "+fmt.Sprintf("%q", f.approved))
 			}
 		}
 		kids = append(kids, gl.Rigid(gl.Spacer{Height: 16}.Layout), text(func(gtx gl.Context) gl.Dimensions {
 			tg := gtx
-			tg.Constraints = gl.Constraints{Max: image.Pt(max(0, gtx.Constraints.Max.X-gtx.Dp(196)), gtx.Constraints.Max.Y)}
+			reserve := 196
+			if f.armed == o.Path && o.Dirty && f.approved != "" {
+				reserve = 260
+			}
+			tg.Constraints = gl.Constraints{Max: image.Pt(max(0, gtx.Constraints.Max.X-gtx.Dp(unit.Dp(reserve))), gtx.Constraints.Max.Y)}
 			rows := []gl.FlexChild{gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 				return para(gtx, th, medium(th.UIFont), th.Sp(theme.Large), th.Fg, filepath.Base(o.Path))
 			})}
-			for j, l := range lines {
+			for _, l := range lines {
 				col := th.Muted
-				if o.Dirty && j == len(lines)-1 {
+				if o.Dirty && l == "Uncommitted files, lost on delete" {
 					col = th.Yellow
 				}
 				rows = append(rows, gl.Rigid(func(gtx gl.Context) gl.Dimensions { return para(gtx, th, th.UIFont, th.Sp(theme.Small), col, l) }))

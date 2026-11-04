@@ -255,18 +255,21 @@ func TestWorktreeTeardownCLI(t *testing.T) {
 			if mode == "force" {
 				args = append(args, "--force")
 			}
-			var in *os.File
-			if strings.HasPrefix(mode, "repo terminal") {
+			var out, stderr bytes.Buffer
+			code := 0
+			terminal := strings.HasPrefix(mode, "repo terminal")
+			if terminal {
 				if runtime.GOOS == "windows" {
 					t.Skip("no PTY on Windows")
 				}
-				master, slave, err := pty.Open()
+				command := exec.Command(os.Args[0], append([]string{"worktree"}, args...)...)
+				command.Env = append(os.Environ(), "PITWALL_TEST_MAIN=1")
+				command.Stderr = &stderr
+				master, err := pty.Start(command)
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer master.Close()
-				defer slave.Close()
-				in = slave
 				answer := "yes\n"
 				if mode == "repo terminal no" {
 					answer = "no\n"
@@ -274,9 +277,12 @@ func TestWorktreeTeardownCLI(t *testing.T) {
 				if _, err := master.Write([]byte(answer)); err != nil {
 					t.Fatal(err)
 				}
+				if err := command.Wait(); err != nil {
+					code = 1
+				}
+			} else {
+				code = runWorktree(args, nil, &out, &stderr)
 			}
-			var out, stderr bytes.Buffer
-			code := runWorktree(args, in, &out, &stderr)
 			_, statErr := os.Stat(path)
 			if mode == "failure" {
 				if code != 1 || statErr != nil || !strings.Contains(stderr.String(), "cli-failure") {
@@ -300,7 +306,7 @@ func TestWorktreeTeardownCLI(t *testing.T) {
 					t.Fatalf("no skip notice: %s", &stderr)
 				}
 			}
-			if in != nil && (!strings.Contains(stderr.String(), "Run this command? [y/N]") || !strings.Contains(stderr.String(), "PITWALL_PORTS")) {
+			if terminal && (!strings.Contains(stderr.String(), "Run this command? [y/N]") || !strings.Contains(stderr.String(), "PITWALL_PORTS")) {
 				t.Fatalf("missing prompt: %s", &stderr)
 			}
 		})

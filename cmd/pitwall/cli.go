@@ -26,6 +26,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/guard"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/teardown"
 )
 
 var errNotRunning = errors.New("pitwall is not running")
@@ -82,7 +83,7 @@ func syncMsg(conn *cliConn, requests ...any) (proto.StateMsg, error) {
 	for _, request := range requests {
 		switch request.(type) {
 		case proto.DeleteWorkspace, proto.DeleteWorktree:
-			wait = 2*time.Minute + 15*time.Second
+			wait = teardown.Timeout + time.Minute
 		}
 	}
 	if err := conn.socket.SetDeadline(time.Now().Add(wait)); err != nil {

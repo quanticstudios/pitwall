@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -16,7 +17,6 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/charmbracelet/x/term"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -49,7 +49,9 @@ const worktreeUsage = `usage:
                                 .worktrees that no tab uses`
 
 func runWorktree(args []string, in *os.File, out, errOut io.Writer) int {
-	if err := worktreeCommand(context.Background(), args, in, out, errOut); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := worktreeCommand(ctx, args, in, out, errOut); err != nil {
 		fmt.Fprintln(errOut, "pitwall:", err)
 		return 1
 	}
@@ -130,6 +132,8 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		return err
 	default:
 		defer conn.Close()
+		cancelSocket := context.AfterFunc(ctx, func() { conn.Close() })
+		defer cancelSocket()
 		m, err := syncMsg(conn)
 		if err != nil {
 			return err
@@ -161,10 +165,7 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		}
 		return newWorktree(conn, out, state, level, root, args[0], f, cmd, vars, lane)
 	case "rm":
-		if conn != nil && level < proto.TeardownLevel && !force {
-			return errors.New("worktree removal needs a daemon with teardown support; restart the daemon first")
-		}
-		return removeWorktree(ctx, conn, in, errOut, state, root, args[0], force, approve)
+		return removeWorktree(ctx, conn, in, errOut, state, root, args[0], force, approve, level)
 	}
 	if err := gitstat.Prune(ctx, root); err != nil {
 		return err
@@ -381,7 +382,7 @@ func newWorktree(conn *cliConn, out io.Writer, state model.State, level int, roo
 // removeWorktree removes the worktree name of root: through the daemon
 // when a tab pitwall made it for uses it, else here, after closing any
 // other tab in it. Without force it lists the changes and stops.
-func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.Writer, state model.State, root, name string, force, approve bool) error {
+func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.Writer, state model.State, root, name string, force, approve bool, level int) error {
 	trees, err := gitstat.ListWorktrees(ctx, root)
 	if err != nil {
 		return err
@@ -405,7 +406,8 @@ func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.W
 		}
 		fmt.Fprintln(errOut, "Warning: "+message)
 	}
-	if !force {
+	_, pathErr := os.Stat(path)
+	if !force && !errors.Is(pathErr, os.ErrNotExist) {
 		files, err := gitstat.Status(ctx, path)
 		if err != nil {
 			return err
@@ -420,21 +422,29 @@ func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.W
 	var settings config.WorktreeSettings
 	approved := ""
 	if !force {
-		var probs []config.Problem
-		settings, probs = config.LoadWorktrees(config.Path(), root)
-		if len(probs) > 0 {
-			return fmt.Errorf("worktree kept: %s", probs[0].String())
-		}
+		settings, _ = config.LoadWorktrees(config.Path(), root)
 		if settings.TeardownFromRepo {
 			if approve {
 				approved = settings.Teardown
-			} else if in != nil && term.IsTerminal(in.Fd()) {
+			} else if teardownTerminal(in, state) {
 				if _, err := fmt.Fprintf(errOut, "Repo teardown for %s:\n%q\nRun this command? [y/N] ", path, settings.Teardown); err != nil {
 					return err
 				}
-				answer, err := bufio.NewReader(in).ReadString('\n')
-				if err != nil {
-					return err
+				type response struct {
+					answer string
+					err    error
+				}
+				replies := make(chan response, 1)
+				go func() { answer, err := bufio.NewReader(in).ReadString('\n'); replies <- response{answer, err} }()
+				var answer string
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case reply := <-replies:
+					if reply.err != nil {
+						return reply.err
+					}
+					answer = reply.answer
 				}
 				if answer = strings.ToLower(strings.TrimSpace(answer)); answer == "y" || answer == "yes" {
 					approved = settings.Teardown
@@ -443,23 +453,37 @@ func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.W
 		}
 	}
 	if w := tabAt(state, path); w != nil && w.WorktreeRoot != "" {
+		if !force && level < proto.TeardownLevel && settings.Teardown != "" && settings.TeardownProblem == "" {
+			return errors.New("this tab's teardown needs a daemon with teardown support; restart the daemon first")
+		}
+		if !force && level < proto.TeardownLevel && settings.TeardownProblem != "" {
+			notice, _ := teardown.Run(ctx, path, settings, model.PortBlock{}, "")
+			fmt.Fprintln(errOut, notice)
+		}
 		after, err := syncCLI(conn, proto.DeleteWorkspace{WorkspaceID: w.ID, Force: force, SkipTeardown: force, Teardown: approved})
-		if after.Notice != state.Notice && after.Notice != "" {
+		if err == nil && after.Notice != state.Notice && after.Notice != "" {
 			fmt.Fprintln(errOut, after.Notice)
 		}
 		return err
 	}
+	notice := ""
 	if !force {
-		ports, err := teardown.Ports(path)
+		ports, err := teardown.PortsFor(path, state.Workspaces)
 		if err != nil {
 			return err
 		}
-		notice, err := teardown.Run(ctx, path, settings, ports, approved)
-		if notice != "" {
-			fmt.Fprintln(errOut, notice)
-		}
+		notice, err = teardown.Run(ctx, path, settings, ports, approved)
 		if err != nil {
 			return err
+		}
+		if notice != "" && !errors.Is(pathErr, os.ErrNotExist) {
+			files, err := gitstat.Status(ctx, path)
+			if err == nil && len(files) > 0 {
+				err = fmt.Errorf("uncommitted files: %s", strings.Join(files, ", "))
+			}
+			if err != nil {
+				return fmt.Errorf("worktree kept at %s: removal failed: %w\n%s", path, err, notice)
+			}
 		}
 	}
 	if w := tabAt(state, path); w != nil {
@@ -467,5 +491,24 @@ func removeWorktree(ctx context.Context, conn *cliConn, in *os.File, errOut io.W
 			return err
 		}
 	}
-	return gitstat.RemoveWorktree(ctx, root, path, false, force)
+	if err := gitstat.RemoveWorktree(ctx, root, path, false, force); err != nil {
+		if notice != "" {
+			return fmt.Errorf("worktree kept at %s: removal failed: %w\n%s", path, err, notice)
+		}
+		return err
+	}
+	if notice != "" {
+		fmt.Fprintln(errOut, notice)
+	}
+	return nil
+}
+
+// teardownTerminal excludes agent panes and PTYs without the caller's foreground terminal.
+func teardownTerminal(in *os.File, state model.State) bool {
+	for _, p := range state.Panes {
+		if p.ID == os.Getenv("PITWALL_PANE") && p.Provider != "" && p.Provider != model.ProviderTerminal {
+			return false
+		}
+	}
+	return foregroundTerminal(in)
 }

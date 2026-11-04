@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
 	"runtime"
@@ -96,3 +97,20 @@ func devMinor(dev uint64) uint32 { return uint32((dev>>12)&0xffffff00) | uint32(
 // processGroup is the calling process's group, which pitwall status reports
 // so the daemon can tell when the program that called it has exited.
 func processGroup() int { return syscall.Getpgrp() }
+
+func foregroundTerminal(in *os.File) bool {
+	if in == nil {
+		return false
+	}
+	group, err := unix.IoctlGetInt(int(in.Fd()), unix.TIOCGPGRP)
+	if err != nil || group != syscall.Getpgrp() {
+		return false
+	}
+	tty, err := os.Open(ttyPath)
+	if err != nil {
+		return false
+	}
+	defer tty.Close()
+	group, err = unix.IoctlGetInt(int(tty.Fd()), unix.TIOCGPGRP)
+	return err == nil && group == syscall.Getpgrp()
+}

@@ -228,6 +228,7 @@ type Options struct {
 
 type Daemon struct {
 	worktreeDeletes map[string]bool // guarded by mu
+	worktreeJobs    sync.WaitGroup
 	o               Options
 
 	scrollbackFiles map[string]string // editor pane: its temporary file; guarded by mu
@@ -551,10 +552,10 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	d.radar.ctx = ctx
 	d.radar.mu.Unlock()
 	go d.statsLoop(ctx)
-	go d.prLoop(ctx)
+	var wg sync.WaitGroup
+	wg.Go(func() { d.prLoop(ctx) })
 	go d.settleLoop(ctx)
 	go d.noteOrphans(ctx)
-	var wg sync.WaitGroup
 	if d.o.UpdateScreenPatterns != nil {
 		wg.Go(func() { d.o.UpdateScreenPatterns(ctx) })
 	}
@@ -580,6 +581,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	}
 	cancel()
 	wg.Wait()
+	d.worktreeJobs.Wait()
 	d.shutdown()
 	return acceptErr
 }
@@ -934,14 +936,14 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if hello.Kind == "gui" {
 			switch request := m.(type) {
 			case proto.DeleteWorkspace, proto.DeleteWorktree:
-				go func() {
+				d.worktreeJobs.Go(func() {
 					if err := d.handle(ctx, request); err != nil {
 						c.queue(proto.Error{Message: err.Error()})
 					}
 					if _, orphan := request.(proto.DeleteWorktree); orphan {
 						c.queue(d.worktreeQuery(ctx, proto.WorktreeQuery{Orphans: true}))
 					}
-				}()
+				})
 				continue
 			}
 		}

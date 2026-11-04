@@ -141,8 +141,11 @@ func TestTeardownArchiveOnMerge(t *testing.T) {
 			d.o.PR = func(context.Context, string) (*model.PR, error) {
 				return &model.PR{Number: 7, State: model.PRMerged}, nil
 			}
+			d.mu.Lock()
 			d.st.PRs[ws.ID] = model.PR{Number: 7, State: model.PROpen}
+			d.mu.Unlock()
 			d.pollPRs(ctx, time.Now())
+			d.worktreeJobs.Wait()
 			_, err := os.Stat(ws.Path)
 			if repoCommand {
 				if !os.IsNotExist(err) || !strings.Contains(d.state().Notice, "Teardown skipped") || !strings.Contains(d.state().Notice, "touch should-not-run") {
@@ -229,6 +232,7 @@ func TestTeardownGUIStaysResponsive(t *testing.T) {
 				if w.ID == ws.ID && w.Name == "still responsive" {
 					cancel()
 					<-done
+					d.worktreeJobs.Wait()
 					return
 				}
 			}
