@@ -154,6 +154,8 @@ const usage = `usage:
   TAB.N, the Nth pane of the tab in layout order (3.2, #3.2, review.2),
   or @ and its id from ls --json; wait, prompt, send and read take one,
   and a tab alone is its main pane.
+  pitwall fork [tab|pane] [--worktree name] [-n name]
+                            fork Claude Code or Codex into a new tab
   pitwall worktree <cmd>     ls, new, lanes, rm, prune: this repo's git worktrees and the fleet lanes (see pitwall worktree)
   pitwall completion <shell>  bash, zsh, fish: print the shell's completion script, e.g.
                              source <(pitwall completion bash)
@@ -255,7 +257,7 @@ func main() {
 		err = runCompletion(os.Args[2:], os.Stdout)
 	case "tmux-shim":
 		os.Exit(runTmuxShim(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
-	case "ls", "new", "wait", "split", "popup", "prompt", "send", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
+	case "ls", "new", "fork", "wait", "split", "popup", "prompt", "send", "read", "scrollback", "review", "attach", "detach", "kill", "rename", "tab", "session", "queue", "status", "chat", "agent", "form":
 		os.Exit(runCLI(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	default:
 		fmt.Fprint(os.Stderr, usage)

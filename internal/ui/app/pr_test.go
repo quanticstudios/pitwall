@@ -66,6 +66,7 @@ func TestMergeFlow(t *testing.T) {
 	if u.modal.kind != modalDelete || !u.modal.archive || !u.modal.removeBranch {
 		t.Fatalf("Archive: kind %v, archive %v, branch %v", u.modal.kind, u.modal.archive, u.modal.removeBranch)
 	}
+	b.tree = proto.WorktreeInfo{Query: proto.WorktreeQuery{WorkspaceID: "w4"}}
 	u.confirmModal(&st)
 	if last := b.Sent()[len(b.Sent())-1]; last != (proto.DeleteWorkspace{WorkspaceID: "w4", RemoveBranch: true}) {
 		t.Fatalf("Archive sent %+v", last)

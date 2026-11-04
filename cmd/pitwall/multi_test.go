@@ -101,6 +101,11 @@ func TestMultiRoutes(t *testing.T) {
 	if p, ok := recv(rd).(proto.OpenPopup); !ok || p.Dir != "/remote/folder" || p.Path != "lw" {
 		t.Fatalf("host popup went to the wrong daemon: %#v", p)
 	}
+	// A fork names its source pane before user-chosen names from another host.
+	m.Send(proto.ForkPane{Pane: "rp", Worktree: "lp", Name: "lw"})
+	if f, ok := recv(rd).(proto.ForkPane); !ok || f.Pane != "rp" {
+		t.Fatalf("box got %#v for fork", f)
+	}
 	m.Send(proto.CloseTab{WorkspaceID: "lw"})
 	if c, ok := recv(ld).(proto.CloseTab); !ok || c.WorkspaceID != "lw" {
 		t.Fatalf("local got %#v", c)

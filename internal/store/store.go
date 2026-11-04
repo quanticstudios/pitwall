@@ -434,6 +434,9 @@ func migrateHeld(s *model.State) {
 // Resumes reports whether RestoreCmd brings p back as a resumed agent
 // session rather than its original command.
 func Resumes(p model.Pane) bool {
+	if p.SessionID != "" && p.SessionID == ForkSource(p) {
+		return false
+	}
 	if model.ReportedName(p.Provider) != "" {
 		return len(p.ResumeCmd) > 0
 	}
@@ -480,7 +483,59 @@ func migrateSessions(data []byte, version int, s *model.State) error {
 // the permission mode its hooks last reported (Pane.AgentMode) unless its
 // command already sets its permissions.
 // Adapted from tuios (MIT): internal/session/agent_resume.go
-func RestoreCmd(p model.Pane) []string {
+func RestoreCmd(p model.Pane) []string { return restoreCmd(p, false, nil) }
+
+// ForkCmd resumes a Claude Code or Codex conversation with a new session id.
+// Codex keeps its directory selector and drops its managed-worktree flag.
+func ForkCmd(p model.Pane) ([]string, error) {
+	if p.Provider == "" || p.Provider == model.ProviderTerminal {
+		return nil, fmt.Errorf("pane %s: no agent is running in this pane", p.ID)
+	}
+	if p.Provider != model.ProviderClaude && p.Provider != model.ProviderCodex {
+		return nil, fmt.Errorf("pane %s: cannot fork agent %q; only Claude Code and Codex support terminal forks", p.ID, p.Provider)
+	}
+	if p.SessionID == "" || p.SessionID == ForkSource(p) {
+		return nil, fmt.Errorf("pane %s: %s has no stored session id yet for its own conversation", p.ID, p.Provider)
+	}
+	return restoreCmd(p, true, nil), nil
+}
+
+// CodexCwd is the directory selector that a resumed Codex command keeps.
+func CodexCwd(p model.Pane) string {
+	var dir string
+	if p.Provider == model.ProviderCodex {
+		restoreCmd(p, true, &dir)
+	}
+	return dir
+}
+
+// ForkCmdIn replaces Codex's directory selector with dir.
+func ForkCmdIn(p model.Pane, dir string) ([]string, error) {
+	cmd, err := ForkCmd(p)
+	if err != nil || p.Provider != model.ProviderCodex {
+		return cmd, err
+	}
+	var source string
+	cmd = restoreCmd(p, true, &source)
+	return slices.Insert(cmd, len(cmd)-1, "--cd", dir), nil
+}
+
+// ForkSource is the source id in an argv built by ForkCmd, or empty.
+func ForkSource(p model.Pane) string {
+	n := len(p.Cmd)
+	if n == 0 || filepath.Base(p.Cmd[0]) != string(p.Provider) {
+		return ""
+	}
+	if n >= 4 && p.Provider == model.ProviderClaude && p.Cmd[n-3] == "--fork-session" && p.Cmd[n-2] == "--resume" {
+		return p.Cmd[n-1]
+	}
+	if n >= 3 && p.Provider == model.ProviderCodex && p.Cmd[1] == "fork" {
+		return p.Cmd[n-1]
+	}
+	return ""
+}
+
+func restoreCmd(p model.Pane, fork bool, cwd *string) []string {
 	if model.ReportedName(p.Provider) != "" && Resumes(p) {
 		return slices.Clone(p.ResumeCmd)
 	}
@@ -510,6 +565,9 @@ func RestoreCmd(p model.Pane) []string {
 				cmd = append(cmd, "--permission-mode", p.AgentMode)
 			}
 		}
+		if fork {
+			cmd = append(cmd, "--fork-session")
+		}
 		return append(cmd, "--resume", p.SessionID)
 	}
 	switch p.Provider {
@@ -526,14 +584,18 @@ func RestoreCmd(p model.Pane) []string {
 		// why: the Cursor CLI's options are not documented in full, so none are carried over.
 		return append(cmd, "--resume", p.SessionID)
 	}
-	cmd = append(cmd, "resume")
+	if fork {
+		cmd = append(cmd, "fork")
+	} else {
+		cmd = append(cmd, "resume")
+	}
 	// codex resume accepts these options from codex --help. Positional
 	// prompts and old resume selectors must not select a different session.
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--" {
 			break
 		}
-		flag, _, attached := strings.Cut(args[i], "=")
+		flag, value, attached := strings.Cut(args[i], "=")
 		switch flag {
 		case "-c", "--config", "-m", "--model", "-p", "--profile",
 			"-s", "--sandbox", "-a", "--ask-for-approval", "-C", "--cd",
@@ -541,6 +603,14 @@ func RestoreCmd(p model.Pane) []string {
 			"--remote", "--remote-auth-token-env":
 			if !attached && (i+1 >= len(args) || args[i+1] == "--") {
 				break // the value flag would take the session id
+			}
+			if cwd != nil && (flag == "-C" || flag == "--cd") {
+				if !attached {
+					i++
+					value = args[i]
+				}
+				*cwd = value
+				continue
 			}
 			cmd = append(cmd, args[i])
 			if !attached {
@@ -550,7 +620,9 @@ func RestoreCmd(p model.Pane) []string {
 		case "--oss", "--approve-for-me", "--dangerously-bypass-approvals-and-sandbox",
 			"--dangerously-bypass-hook-trust", "--search", "--no-alt-screen",
 			"--no-daemon", "--strict-config", "--worktree":
-			cmd = append(cmd, args[i])
+			if !fork || flag != "--worktree" {
+				cmd = append(cmd, args[i])
+			}
 		case "-i", "--image":
 			// Images belong to the initial prompt, not the restored session.
 			if !attached {
@@ -560,6 +632,10 @@ func RestoreCmd(p model.Pane) []string {
 			}
 		default:
 			// Clap also accepts attached short-option values, such as -mMODEL.
+			if cwd != nil && strings.HasPrefix(args[i], "-C") {
+				*cwd = strings.TrimPrefix(args[i][2:], "=")
+				continue
+			}
 			if len(args[i]) > 2 && args[i][0] == '-' && strings.IndexByte("cmpsaC", args[i][1]) >= 0 {
 				cmd = append(cmd, args[i])
 			}

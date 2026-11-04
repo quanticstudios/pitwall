@@ -64,6 +64,9 @@ func (s *Sidebar) menu(gtx layout.Context, v *view, ws model.Workspace, anchor i
 	if v.agent[ws.ID] != "" {
 		entries = append(entries, menuEntry{c: &s.menuItem[actReply], icon: icReply, text: "Reply…"})
 	}
+	if s.Forks && s.forkPane(v.st, ws) != "" {
+		entries = append(entries, menuEntry{c: &s.menuItem[actFork], icon: icGitBranch, text: "Fork"})
+	}
 	entries = append(entries, menuEntry{c: &s.menuItem[actNewBelow], icon: icPlus, text: "New tab below"}, menuEntry{c: &s.menuItem[actRename], icon: icPencil, text: "Rename tab"})
 	pin := menuEntry{c: &s.menuItem[actPin], icon: icPin, text: "Pin tab"}
 	if ws.Pinned {

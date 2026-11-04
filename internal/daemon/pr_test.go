@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 // about at once, an open PR again after a minute while a window has focus
 // and after five with none, tabs in one folder share one gh call, a
 // rate limit pauses every branch, and a merge archives a worktree tab
-// when archive_on_merge is on.
+// when archive_on_merge is on and no other tab uses its folder.
 func TestPollPRs(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	var calls []string
@@ -109,13 +110,26 @@ func TestPollPRs(t *testing.T) {
 	poll(2*time.Hour, 1)
 	answer = &model.PR{Number: 7, State: model.PRMerged}
 	poll(2*time.Hour+time.Minute, 1)
-	if !slices.Equal(removed, []string{wt}) {
+	if len(removed) != 0 {
 		t.Fatalf("archive removed %q", removed)
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.workspace("w") != nil || d.workspace("w2") == nil {
-		t.Fatalf("after the archive: %+v", d.st.Workspaces)
+	if !strings.Contains(d.st.Notice, "feature") {
+		t.Errorf("archive refusal notice %q", d.st.Notice)
+	}
+	if d.workspace("w") == nil || d.workspace("w2") == nil {
+		t.Fatalf("archive must keep a folder another tab uses: %+v", d.st.Workspaces)
+	}
+	d.removeWorkspace("w2")
+	d.pokePR("w")
+	d.mu.Unlock()
+	answer = &model.PR{Number: 7, State: model.PROpen}
+	poll(3*time.Hour, 1)
+	answer = &model.PR{Number: 7, State: model.PRMerged}
+	poll(3*time.Hour+time.Minute, 1)
+	st := d.state()
+	if !slices.Equal(removed, []string{wt}) || st.Workspace("w") != nil {
+		t.Fatalf("unshared worktree not archived: %q", removed)
 	}
 }
 

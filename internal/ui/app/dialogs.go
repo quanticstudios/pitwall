@@ -264,6 +264,11 @@ func (u *ui) confirmModal(st *model.State) {
 	case modalProfile:
 		u.confirmProfileTab()
 	case modalDelete:
+		if ws := findWorkspace(st, m.ws); ws != nil && ws.WorktreeRoot != "" && u.canWorktree() {
+			if r, ready := u.worktreeReply(proto.WorktreeQuery{WorkspaceID: m.ws}); !ready || r.Err != "" {
+				return
+			}
+		}
 		u.send(proto.DeleteWorkspace{WorkspaceID: m.ws, RemoveBranch: m.removeBranch, Force: u.deleteForce(m.ws)})
 		m.close()
 	case modalAddProject:

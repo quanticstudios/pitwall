@@ -65,6 +65,73 @@ keeps running, and `pitwall` opens the most recently used one again.
 
 ## Everyday use
 
+### Forking terminal agents
+
+<img src="media/fork-dark.png" alt="Fork in a terminal tab menu, dark theme" width="288"> <img src="media/fork-light.png" alt="Fork in a terminal tab menu, light theme" width="288">
+
+Use **Fork** in a tab's menu to continue its Claude Code or Codex conversation
+in a new tab. The source agent keeps running. The fork uses its live folder and saved
+account profile. If the tab was opened with the agent's command, the fork
+keeps the model and permission flags that a resume keeps. For an agent typed
+into a shell or started by a wrapper, only the hook-reported permission mode
+carries over; the original command flags are not recorded. With several agents in a tab,
+the menu forks the focused agent, or the first agent in layout order.
+
+```sh
+pitwall fork                         # the calling pane
+pitwall fork '#3' -n 'Second approach' # tab 3's main agent
+pitwall fork '#3.2' --worktree side   # pane 2 of tab 3, in a new worktree
+pitwall fork @pane-id                # a pane id from pitwall ls --json
+```
+
+The command prints the new tab's number. Menu forks and CLI forks from outside
+any pane have no parent. A menu fork appears after its source and that
+source's children, in the same session and group. A CLI fork run inside a
+pane joins the calling pane's session and group and hangs under its tab,
+like `pitwall new`. A user's menu fork does not count as an orchestrator's
+child for `wait --children`.
+Claude Code uses `--resume <id> --fork-session`;
+Codex uses `fork <id>`. Both need a stored session id from the source pane.
+The fork accepts its own id only after a hook reports one different from
+the source id. Until then it cannot resume after a restart; it never resumes
+the source session in place. [Claude's session docs](https://code.claude.com/docs/en/sessions#branch-a-session)
+describe separate fork IDs; [its hook reference](https://code.claude.com/docs/en/hooks#sessionstart)
+names `fork` as the SessionStart source.
+The command names a missing session id or unsupported agent in its error;
+the menu hides Fork for those panes and for daemons that lack terminal forks.
+A failed menu fork shows a notice with the reason.
+
+Codex keeps its source `--cd` selector for a same-folder fork. A new worktree
+fork explicitly sets `--cd` to the new folder. The source folder selects the
+repository for the worktree, including a source `--cd` selector. If the
+pane's live folder is gone, the fork falls back to the source tab's folder.
+
+`--worktree name` creates a branch and worktree under the main checkout's
+`.worktrees`, starting at the source checkout's HEAD, including a detached
+HEAD. It uses the same copy, link, port allocation and setup rules as
+`pitwall worktree new`. Setup runs in a shell below the fork. Commands from
+a repo's setup file wait for Enter, as they do for other worktree tabs.
+Relative paths in other kept flags, such as `--settings` and `--add-dir`,
+stay as written and resolve in the fork's folder. Use absolute paths when
+those files or folders live outside the new worktree.
+
+Uncommitted changes do not carry into a new worktree. Copying staged,
+unstaged and untracked changes is deferred. Configured worktree copy and
+link paths still apply. Without `--worktree`, both agents share the existing
+files, including uncommitted changes.
+
+Deleting an owned worktree tab or running `pitwall worktree rm` refuses
+while another tab uses that folder or a folder inside it. The error names
+the other tab. The delete dialog warns before **Delete anyway**; the CLI
+requires `--force` and prints the same warning. Closing a tab alone keeps
+the worktree folder.
+
+<img src="media/fork-delete-dark.png" alt="Shared-folder warning before deleting a worktree, dark theme" width="480"> <img src="media/fork-delete-light.png" alt="Shared-folder warning before deleting a worktree, light theme" width="480">
+
+For a tab on a remote host, that host's daemon creates the fork and any
+worktree. The window sends Fork to the daemon that owns the source pane.
+Run the command on that host to use its daemon.
+
 ### Watching agents
 
 Each sidebar row shows a tab's state:
@@ -636,7 +703,9 @@ When the pull request has merged, the row says Merged and its hover buttons
 add Archive, which closes the tab and, for a worktree pitwall made, removes
 the worktree and deletes the branch, as Delete does with its box ticked.
 Set `archive_on_merge = true` under `[git]` to archive a merged worktree
-tab without the click.
+tab without the click. If another tab uses its folder or a subfolder,
+archiving refuses and shows a notice naming that tab. After closing the
+other tab, archive manually; closing it does not retry the automatic archive.
 
 In Settings, Agents, Pull requests, turn on **Send CI failures automatically**
 or **Send requested changes automatically**. Both are off by default. The
