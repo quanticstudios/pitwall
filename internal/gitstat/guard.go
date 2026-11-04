@@ -3,6 +3,7 @@ package gitstat
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,7 +89,11 @@ func Env(ctx context.Context, dir string, env []string) ([]string, error) {
 	if err != nil {
 		return out, err
 	}
-	config = append(config, conditionalConfig(ctx, dir, out, config)...)
+	conditional, err := conditionalConfig(ctx, dir, out, config)
+	if err != nil {
+		return out, err
+	}
+	config = append(config, conditional...)
 	return appendConfig(out, n, append(overridesFrom(config), fixedSettings()...)), nil
 }
 
@@ -116,6 +121,15 @@ func repoFilter(ctx context.Context, dir string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// notRepo is why dir has no repository root: its config cannot be read, which
+// the error names, or else it is not in a repository.
+func notRepo(ctx context.Context, dir string) error {
+	if _, err := Env(ctx, dir, nil); err != nil {
+		return err
+	}
+	return fmt.Errorf("%s is not in a git repository", dir)
 }
 
 // refuseRepoFilter is the error of a command that would bypass repoFilter.
@@ -179,15 +193,18 @@ func readConfig(ctx context.Context, dir string, env []string) ([]configEntry, e
 	if err != nil {
 		return nil, err
 	}
-	return parseConfig(out), nil
+	return parseConfig(out)
 }
 
 // parseConfig reads git config --show-origin --show-scope -z --list. Each entry
 // is the scope, NUL, the origin, NUL, the key, a newline and the value, NUL; a
 // key with no value has no newline.
-func parseConfig(out []byte) []configEntry {
-	var entries []configEntry
+func parseConfig(out []byte) ([]configEntry, error) {
 	fields := strings.Split(string(out), "\x00")
+	if len(fields)%3 != 1 || fields[len(fields)-1] != "" {
+		return nil, errors.New("git config: output is not in the expected form")
+	}
+	var entries []configEntry
 	for i := 0; i+2 < len(fields); i += 3 {
 		key, value, _ := strings.Cut(fields[i+2], "\n")
 		origin := ""
@@ -196,10 +213,13 @@ func parseConfig(out []byte) []configEntry {
 		}
 		entries = append(entries, configEntry{key: key, value: value, origin: origin, trusted: trustedScope(fields[i])})
 	}
-	return entries
+	return entries, nil
 }
 
 // gitOutput is the stdout of git args in dir, with its stderr in the error.
+//
+// why: the error wraps only a git that did not start. A caller of Command reads
+// exit status 1 as an answer, such as no such ref, which a failed read is not.
 func gitOutput(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	nowindow.Set(cmd)
@@ -207,8 +227,11 @@ func gitOutput(ctx context.Context, dir string, env []string, args ...string) ([
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return nil, fmt.Errorf("git %s: %s", args[0], msg)
+		} else if errors.As(err, &exit) {
+			return nil, fmt.Errorf("git %s: %s", args[0], err)
 		}
 		return nil, fmt.Errorf("git %s: %w", args[0], err)
 	}
@@ -216,71 +239,100 @@ func gitOutput(ctx context.Context, dir string, env []string, args ...string) ([
 }
 
 // conditionalConfig is the config in the files the repository's own config
-// includes under a condition, whether or not it holds in dir.
+// includes under a condition, whether or not it holds in dir, and in the files
+// those include in turn. Each file is read by itself, so that what it holds does
+// not depend on a condition in it that holds here and not for the git guarded.
 //
 // why: the condition can hold for the very git being guarded and not for the
 // read before it: onbranch and gitdir for the new worktree of git worktree add,
-// hasconfig once a remote is added. Reading each file needs no condition checked.
+// hasconfig once a remote is added.
 //
-// A file that cannot be read adds nothing: git ignores a missing one, and stops
-// on a malformed one when the condition holds, so neither can run a program.
-func conditionalConfig(ctx context.Context, dir string, env []string, entries []configEntry) []configEntry {
+// An error here stops the command: a file not read is a program not turned off.
+// Only a missing file is skipped, since git skips one too.
+func conditionalConfig(ctx context.Context, dir string, env []string, entries []configEntry) ([]configEntry, error) {
 	var found []configEntry
 	seen := map[string]bool{}
-	var walk func([]configEntry)
-	walk = func(list []configEntry) {
+	var walk func(list []configEntry, inFile bool) error
+	walk = func(list []configEntry, inFile bool) error {
 		for _, e := range list {
-			section, rest, _ := strings.Cut(e.key, ".")
-			_, last, named := splitKey(rest)
-			if e.trusted || section != "includeif" || last != "path" || !named {
+			if e.trusted || !includeKey(e.key, inFile) {
 				continue
 			}
-			path := includedFile(ctx, dir, env, e)
+			path, err := includedFile(ctx, dir, env, e)
+			if err != nil {
+				return err
+			}
 			if path == "" || seen[path] {
 				continue
 			}
 			seen[path] = true
-			out, err := gitOutput(ctx, dir, env, "config", "--file", path, "--includes", "--show-origin", "--show-scope", "-z", "--list")
-			if err != nil {
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			included := parseConfig(out)
+			out, err := gitOutput(ctx, dir, env, "config", "--file", path, "--show-origin", "--show-scope", "-z", "--list")
+			if err != nil {
+				return fmt.Errorf("cannot read %s, which this repository's git config includes: %w", path, err)
+			}
+			included, err := parseConfig(out)
+			if err != nil {
+				return fmt.Errorf("cannot read %s, which this repository's git config includes: %w", path, err)
+			}
 			// git calls a --file command scope; this file is the repository's.
 			for i := range included {
 				included[i].trusted = false
 			}
 			found = append(found, included...)
-			walk(included)
+			if err := walk(included, true); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
-	walk(entries)
-	return found
+	if err := walk(entries, false); err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+// includeKey reports whether key names a file to read: one under a condition,
+// or with inFile a plain include.path, which git has already followed in its own
+// list but not in a file read by itself.
+func includeKey(key string, inFile bool) bool {
+	if inFile && key == "include.path" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(key, "includeif.")
+	if !ok {
+		return false
+	}
+	_, last, named := splitKey(rest)
+	return named && last == "path"
 }
 
 // includedFile is the absolute path of the file include entry e names, as git
-// finds it: ~ and %(prefix) expanded, a relative one from the file e is in. It
-// is "" for a path git would not find.
-func includedFile(ctx context.Context, dir string, env []string, e configEntry) string {
+// finds it: ~ and %(prefix) expanded, a relative one from the file e is in. It is
+// "" for an entry with no value, which names no file.
+func includedFile(ctx context.Context, dir string, env []string, e configEntry) (string, error) {
 	p := e.value
 	if strings.HasPrefix(p, "~") || strings.HasPrefix(p, "%(") {
 		out, err := gitOutput(ctx, dir, env, "-c", "pitwall.include="+p, "config", "--type=path", "pitwall.include")
 		if err != nil {
-			return ""
+			return "", fmt.Errorf("cannot find %s, which this repository's git config includes: %w", p, err)
 		}
 		p = strings.TrimSuffix(string(out), "\n")
 	}
 	p = filepath.FromSlash(p)
 	if p == "" || filepath.IsAbs(p) {
-		return p
+		return p, nil
 	}
 	if e.origin == "" {
-		return ""
+		return "", fmt.Errorf("cannot find %s, which this repository's git config includes: it is relative to no file", p)
 	}
 	base := filepath.FromSlash(e.origin)
 	if !filepath.IsAbs(base) {
 		base = filepath.Join(dir, base)
 	}
-	return filepath.Join(filepath.Dir(base), p)
+	return filepath.Join(filepath.Dir(base), p), nil
 }
 
 // overridesFrom is, for each key that names a program and has a value from the

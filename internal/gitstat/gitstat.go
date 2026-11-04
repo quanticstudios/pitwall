@@ -140,6 +140,10 @@ func AddWorktree(ctx context.Context, repoRoot, name string, from model.Worktree
 	if err != nil {
 		return "", "", err
 	}
+	// why: hasRef below would call a failed config read "no such branch".
+	if _, err := Env(ctx, repoRoot, nil); err != nil {
+		return "", "", err
+	}
 	var args []string
 	switch from.Kind {
 	case model.FromNew:
@@ -377,9 +381,13 @@ func RemoveWorktree(ctx context.Context, repoRoot, path string, deleteBranch, fo
 	}
 	args = append(args, "--", path)
 	cmd := Command(ctx, repoRoot, args...)
-	// why: git checks the folder with a git status run there, which also reads
-	// that worktree's own config. A folder that is gone has neither.
-	if env, err := Env(ctx, path, cmd.Env); err == nil {
+	// why: without force git checks the folder with a git status run there, which
+	// also reads that worktree's own config. A folder that is gone has none.
+	if _, err := os.Stat(path); !force && !errors.Is(err, os.ErrNotExist) {
+		env, err := Env(ctx, path, cmd.Env)
+		if err != nil {
+			return err
+		}
 		cmd.Env = env
 	}
 	if _, err := output(ctx, cmd, args); err != nil {
@@ -542,7 +550,7 @@ func Files(ctx context.Context, worktree string) (base string, files []FileStat,
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return "", nil, fmt.Errorf("%s is not in a git repository", worktree)
+		return "", nil, notRepo(ctx, worktree)
 	}
 	mb, err := mergeBase(ctx, root, base)
 	if err != nil {
@@ -763,7 +771,7 @@ func Diff(ctx context.Context, worktree string) (Patch, error) {
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return p, fmt.Errorf("%s is not in a git repository", worktree)
+		return p, notRepo(ctx, worktree)
 	}
 	mb, err := mergeBase(ctx, root, base)
 	if err != nil {
@@ -798,7 +806,7 @@ func ReadUntracked(root, path string) ([]byte, bool) {
 func Discard(ctx context.Context, worktree string, paths []string, untracked bool) error {
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return fmt.Errorf("%s is not in a git repository", worktree)
+		return notRepo(ctx, worktree)
 	}
 	if untracked {
 		for _, p := range paths {

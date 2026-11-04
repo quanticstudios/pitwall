@@ -578,6 +578,13 @@ func TestConditionalConfigRunsNothing(t *testing.T) {
 			}
 			mustPlain(t, root, "config", "include.path", "outer-config")
 		}},
+		{"plain include in a conditional file", func(t *testing.T, root, poison string) {
+			outer := filepath.Join(root, ".git", "outer-config")
+			if err := os.WriteFile(outer, []byte("[include]\n\tpath = late-config\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			mustPlain(t, root, "config", "includeIf.onbranch:made.path", "outer-config")
+		}},
 		{"nested in a conditional file", func(t *testing.T, root, poison string) {
 			outer := filepath.Join(root, ".git", "outer-config")
 			if err := os.WriteFile(outer, []byte("[includeIf \"onbranch:made\"]\n\tpath = late-config\n"), 0o600); err != nil {
@@ -633,6 +640,177 @@ func TestConditionalConfigRunsNothing(t *testing.T) {
 				t.Errorf("Status in the worktree ran the included programs: %v", got)
 			}
 		})
+	}
+}
+
+// conditionalRepo is a repository whose .gitattributes picks the filter late, and
+// a config file holding a program for it with a condition of its own that holds
+// on main, where the file below is read, and not on the new branch made.
+func conditionalRepo(t *testing.T, p *probes, nested string) string {
+	t.Helper()
+	isolate(t, p.dir, "")
+	root := filepath.Join(p.dir, "repo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, root, "init", "-q")
+	writeFile(t, root, ".gitattributes", "*.txt filter=late\n")
+	writeFile(t, root, "a.txt", "a\n")
+	mustPlain(t, root, "add", ".")
+	mustPlain(t, root, "commit", "-qm", "first")
+	body := "[filter \"late\"]\n\tsmudge = " + p.script("smudge") + "\n[includeIf \"onbranch:main\"]\n\tpath = " + nested + "\n"
+	if err := os.WriteFile(filepath.Join(root, ".git", "late-config"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, root, "config", "includeIf.onbranch:made.path", "late-config")
+	return root
+}
+
+// TestNestedConditionRunsNothing: late-config's nested condition holds on main,
+// so a read of the file with --includes depends on main, and fails when what it
+// includes is malformed. On made that include is not read, and git takes the
+// file and runs its filter.
+func TestNestedConditionRunsNothing(t *testing.T) {
+	p := newProbes(t)
+	root := conditionalRepo(t, p, "bad-config")
+	if err := os.WriteFile(filepath.Join(root, ".git", "bad-config"), []byte("[invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(p.dir, "made")
+	plain(t, root, nil, "worktree", "add", "-q", "-b", "made", wt)
+	if got := p.ran(); !slices.Contains(got, "smudge") {
+		t.Fatalf("plain git worktree add did not run the filter, so nothing here can be checked; it ran %v", got)
+	}
+	plain(t, root, nil, "worktree", "remove", "--force", wt)
+	plain(t, root, nil, "branch", "-qD", "made")
+	p.ran()
+
+	ctx := context.Background()
+	path, _, err := AddWorktree(ctx, root, "made", model.WorktreeFrom{Kind: model.FromNew})
+	if err == nil || !strings.Contains(err.Error(), "bad-config") {
+		t.Errorf("AddWorktree = %v, want a refusal naming bad-config", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Errorf("AddWorktree made %s though it refused", path)
+	}
+	if got := p.ran(); len(got) > 0 {
+		t.Errorf("AddWorktree ran the included programs: %v", got)
+	}
+
+	// With the file read by itself, a good nested file does not hide the filter.
+	if err := os.WriteFile(filepath.Join(root, ".git", "bad-config"), []byte("[user]\n\tname = t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := AddWorktree(ctx, root, "made", model.WorktreeFrom{Kind: model.FromNew}); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.ran(); len(got) > 0 {
+		t.Errorf("AddWorktree ran the included programs: %v", got)
+	}
+}
+
+// TestUnreadableIncludeFailsClosed is every way a file the repository includes
+// can fail to read. No program runs, and each error says which file, not that
+// there is no repository or no branch.
+func TestUnreadableIncludeFailsClosed(t *testing.T) {
+	for _, c := range []struct {
+		name, include, want string
+		setup               func(t *testing.T, root string)
+	}{
+		{"malformed", "bad-config", "bad-config", func(t *testing.T, root string) {
+			if err := os.WriteFile(filepath.Join(root, ".git", "bad-config"), []byte("[invalid\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"unreadable", "secret-config", "secret-config", func(t *testing.T, root string) {
+			if os.Geteuid() == 0 {
+				t.Skip("root reads a file of any mode")
+			}
+			if err := os.WriteFile(filepath.Join(root, ".git", "secret-config"), []byte("[user]\n\tname = t\n"), 0o000); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a home that does not expand", "~no-such-user-here/config", "~no-such-user-here/config", func(*testing.T, string) {}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := newProbes(t)
+			root := conditionalRepo(t, p, "unused")
+			c.setup(t, root)
+			mustPlain(t, root, "config", "includeIf.onbranch:never.path", c.include)
+			ctx := context.Background()
+			for name, err := range map[string]error{
+				"AddWorktree": func() error {
+					_, _, err := AddWorktree(ctx, root, "made", model.WorktreeFrom{Kind: model.FromNew})
+					return err
+				}(),
+				"AddWorktree from a branch": func() error {
+					_, _, err := AddWorktree(ctx, root, "other", model.WorktreeFrom{Kind: model.FromBranch, Ref: "main"})
+					return err
+				}(),
+				"Checkpoint": func() error { _, err := Checkpoint(ctx, root, "w"); return err }(),
+				"Status":     func() error { _, err := Status(ctx, root); return err }(),
+				"Diff":       func() error { _, err := Diff(ctx, root); return err }(),
+			} {
+				if err == nil || !strings.Contains(err.Error(), c.want) {
+					t.Errorf("%s = %v, want an error naming %s", name, err, c.want)
+				}
+			}
+			if got := p.ran(); len(got) > 0 {
+				t.Errorf("ran the included programs: %v", got)
+			}
+		})
+	}
+}
+
+// TestRemoveWorktreeFailsClosed: a worktree's own config that cannot be read
+// stops the git status run in that folder from going ahead unguarded. Force runs
+// no such status, so it still deletes a worktree that is broken this way.
+func TestRemoveWorktreeFailsClosed(t *testing.T) {
+	p := newProbes(t)
+	isolate(t, p.dir, "")
+	root := filepath.Join(p.dir, "repo")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, root, "init", "-q")
+	writeFile(t, root, "a.txt", "a\n")
+	mustPlain(t, root, "add", ".")
+	mustPlain(t, root, "commit", "-qm", "first")
+	ctx := context.Background()
+	wt, _, err := AddWorktree(ctx, root, "w", model.WorktreeFrom{Kind: model.FromNew})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, root, "config", "extensions.worktreeConfig", "true")
+	if err := os.WriteFile(filepath.Join(root, ".git", "worktrees", "w", "bad-config"), []byte("[invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustPlain(t, wt, "config", "--worktree", "includeIf.onbranch:never.path", "bad-config")
+	if err := RemoveWorktree(ctx, root, wt, false, false); err == nil || !strings.Contains(err.Error(), "bad-config") {
+		t.Errorf("RemoveWorktree = %v, want a refusal naming bad-config", err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("the worktree is gone after a refusal: %v", err)
+	}
+	if err := RemoveWorktree(ctx, root, wt, false, true); err != nil {
+		t.Errorf("RemoveWorktree with force: %v", err)
+	}
+}
+
+// TestParseConfigRefusesOtherOutput: output not in the form expected must not
+// read as a config with fewer keys.
+func TestParseConfigRefusesOtherOutput(t *testing.T) {
+	entries, err := parseConfig([]byte("local\x00file:c\x00a.b\nv\x00global\x00file:g\x00c.d\x00"))
+	if err != nil || len(entries) != 2 || entries[0].value != "v" || entries[0].origin != "c" || entries[0].trusted || !entries[1].trusted {
+		t.Errorf("parseConfig = %+v, %v", entries, err)
+	}
+	if entries, err := parseConfig(nil); err != nil || len(entries) != 0 {
+		t.Errorf("parseConfig of nothing = %+v, %v", entries, err)
+	}
+	for _, out := range []string{"local\x00a.b\nv\x00", "local\x00file:c\x00a.b\nv"} {
+		if _, err := parseConfig([]byte(out)); err == nil {
+			t.Errorf("parseConfig(%q) took it", out)
+		}
 	}
 }
 

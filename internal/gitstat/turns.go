@@ -219,7 +219,7 @@ func Checkpoint(ctx context.Context, worktree, ws string) (string, error) {
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return "", fmt.Errorf("%s is not in a git repository", worktree)
+		return "", notRepo(ctx, worktree)
 	}
 	list, redo, err := turns(ctx, root, prefix)
 	if err != nil {
@@ -285,7 +285,7 @@ func TurnDiff(ctx context.Context, worktree, rev string) (Patch, error) {
 	var p Patch
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return p, fmt.Errorf("%s is not in a git repository", worktree)
+		return p, notRepo(ctx, worktree)
 	}
 	tree, err := snapshot(ctx, root)
 	if err != nil {
@@ -306,7 +306,7 @@ func Checkpoints(ctx context.Context, worktree, ws string) ([]string, error) {
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return nil, fmt.Errorf("%s is not in a git repository", worktree)
+		return nil, notRepo(ctx, worktree)
 	}
 	list, _, err := turns(ctx, root, prefix)
 	revs := make([]string, len(list))
@@ -330,7 +330,7 @@ var statuses = map[byte]string{'A': "added", 'D': "deleted", 'M': "modified", 'R
 func CheckpointDiff(ctx context.Context, worktree, a, b string) (patch string, files []Change, err error) {
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return "", nil, fmt.Errorf("%s is not in a git repository", worktree)
+		return "", nil, notRepo(ctx, worktree)
 	}
 	if a == "" || b == "" {
 		now, err := snapshot(ctx, root)
@@ -394,7 +394,7 @@ func undo(ctx context.Context, worktree, ws, rev string) error {
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return fmt.Errorf("%s is not in a git repository", worktree)
+		return notRepo(ctx, worktree)
 	}
 	if err := refuseRepoFilter(ctx, root); err != nil {
 		return err
@@ -461,7 +461,7 @@ func RedoTurn(ctx context.Context, worktree, ws string) error {
 	}
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
-		return fmt.Errorf("%s is not in a git repository", worktree)
+		return notRepo(ctx, worktree)
 	}
 	if err := refuseRepoFilter(ctx, root); err != nil {
 		return err

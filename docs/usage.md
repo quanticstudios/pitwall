@@ -1080,6 +1080,10 @@ boundary. What it turns off:
   programs and upload-pack paths, when the repository's own config sets them,
   also in a file it includes under a condition that does not hold yet
 
+A file the repository's config includes, under a condition or not, that git
+cannot read or parse stops pitwall's git in that repository with an error naming
+the file. Fix or remove it to go on.
+
 The same keys from your global or system config still apply: a `filter.lfs`
 that `git lfs install` wrote to `~/.gitconfig` works, even when the repository
 sets its own value for it. pitwall does not look inside a submodule on status
