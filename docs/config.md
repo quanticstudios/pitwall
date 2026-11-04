@@ -272,7 +272,7 @@ being scanned until the profile is configured again.
 
 ## Themes
 
-<img src="media/appearance.webp" alt="Settings, Appearance: the four built-in themes as cards with aide-dark picked, then the interface and terminal fonts, their sizes and the line height" width="800">
+<img src="media/appearance.webp" alt="Settings, Appearance: the five built-in themes as cards with aide-dark picked, then the interface and terminal fonts, their sizes and the line height" width="800">
 
 Built in: `aide-dark` (the default), `aide-light`, `tokyo-night`,
 `catppuccin-mocha`, `dracula`, and on Omarchy `omarchy` (the default there

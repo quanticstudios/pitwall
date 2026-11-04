@@ -1791,7 +1791,7 @@ error when you make the tab, and the tab is made anyway.
 
 ### Tasks and the queue
 
-<img src="media/new-task.webp" alt="The New task dialog: project, where it runs, agent, mode, model and prompt, with Queue and Start buttons" width="480">
+<img src="media/new-task.webp" alt="The New task dialog: project, where it runs, agent, mode, model and prompt, with Start at, Queue and Start buttons" width="480">
 
 **New task** (Ctrl+Shift+A, the command palette, or **New task…** in a
 group's menu) starts an agent on a prompt in a tab of its own, as
