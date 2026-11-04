@@ -98,6 +98,7 @@ func allMessages() []any {
 		View{Panes: []string{"a", "b"}},
 		Prompt{Pane: "a", Text: "review the plan\nin plan.md"}, Read{Pane: "a", Screen: true}, ReadResult{Pane: "a", Text: "SHIP", Err: "none"},
 		Send{Pane: "a", From: "b", Text: "AGREE"},
+		Deliver{Pane: "a", Text: "fix it", Images: []string{"/s/a.png"}, Seq: 7},
 		FocusDir{Pane: "a", Dir: layout.Down},
 		CancelResume{Pane: "a"},
 		SecondOpinion{Pane: "a", Agent: "/usr/bin/codex"},

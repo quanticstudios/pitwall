@@ -59,7 +59,12 @@ const (
 type note struct {
 	review.Comment
 	state noteState
-	del   widget.Clickable
+	// to, seq and at are the pane, proto.Deliver.Seq and time of the daemon's
+	// taking it, while it is queued there.
+	to  string
+	seq uint64
+	at  time.Time
+	del widget.Clickable
 }
 
 // delivery is comments typed into pane once its agent waits for input.
@@ -138,7 +143,9 @@ type reviewView struct {
 
 	notes      map[string][]*note // by repository root
 	queue      []delivery
-	enterPane  string // the pane whose paste waits for its Enter
+	waiting    map[string]int // per pane, the messages the daemon has yet to type
+	seq        uint64         // the last proto.Deliver.Seq
+	enterPane  string         // the pane whose paste waits for its Enter
 	enterAt    time.Time
 	discarding review.File // the file the discard dialog is about
 	undoFiles  int         // the file count the undo dialog names
@@ -566,6 +573,48 @@ func agentReady(st *model.State, pane string) bool {
 	return true
 }
 
+// deliverAck is how long the daemon may take to show a delivery it was given
+// in State.Queued; past it, a queue without it means the delivery is gone.
+const deliverAck = 5 * time.Second
+
+// settle moves the comments the daemon took on as State says: Sent once typed,
+// pending again when its pane closed or its queue no longer has them, as after
+// a daemon restart. It returns when it next needs a frame, zero for no need.
+func (r *reviewView) settle(st *model.State, now time.Time) time.Time {
+	var next time.Time
+	for _, notes := range r.notes {
+		for _, n := range notes {
+			if n.state != noteQueued || n.to == "" {
+				continue
+			}
+			p := findPane(st, n.to)
+			switch {
+			case st.Delivered[n.to] >= n.seq:
+				n.state, n.to = noteSent, ""
+			case p == nil || p.Exited:
+				n.state, n.to = notePending, ""
+				r.status = "The agent's pane closed; the comments were not sent"
+			case r.waiting[n.to] > 0:
+			case !now.Before(n.at.Add(deliverAck)):
+				n.state, n.to = notePending, ""
+				r.status = "The comments were not sent; send them again"
+			case next.IsZero() || n.at.Add(deliverAck).Before(next):
+				next = n.at.Add(deliverAck)
+			}
+		}
+	}
+	return next
+}
+
+// sentNote is what the window says of a delivery it gave p's ready agent: the
+// daemon holds it while the user's draft sits in the input box.
+func sentNote(st *model.State, p *model.Pane) string {
+	if st.Drafting[p.ID] {
+		return "Goes to " + agentName(p) + " once its input box is empty"
+	}
+	return "Sent to " + agentName(p)
+}
+
 // sendNotes queues root's pending comments, as one prompt, for tab ws's
 // agent, and delivers it now when the agent is ready.
 func (u *ui) sendNotes(st *model.State, root string, now time.Time) {
@@ -611,13 +660,16 @@ func agentName(p *model.Pane) string {
 // part of it.
 const replyDelay = 100 * time.Millisecond
 
-// deliver types the first delivery whose agent is ready into its pane,
-// as a bracketed paste, and presses Enter replyDelay later, the way the
-// phone's replies go in. A delivery whose pane is gone is dropped and its
+// deliver gives the first delivery whose agent is ready to the daemon, which
+// types it past the user's draft. A daemon too old for that gets it typed
+// here, as a bracketed paste and Enter replyDelay later, the way the phone's
+// replies go in. A delivery whose pane is gone is dropped and its
 // comments are pending again. It returns when it next needs a frame, zero
 // for no need.
 func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 	r := &u.review
+	r.waiting = st.Queued
+	next := r.settle(st, now)
 	if r.enterPane != "" {
 		if now.Before(r.enterAt) {
 			return r.enterAt
@@ -638,6 +690,19 @@ func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 		}
 		if !agentReady(st, d.pane) {
 			continue
+		}
+		if u.link().Level >= proto.Since(proto.Deliver{}) {
+			r.seq = max(r.seq+1, uint64(now.UnixNano()))
+			if !u.send(proto.Deliver{Pane: d.pane, Text: d.text, Images: d.images, Seq: r.seq}) {
+				return time.Time{}
+			}
+			log.Printf("review: gave %d comments, %d bytes, to the daemon for pane %s", len(d.notes), len(d.text), d.pane)
+			for _, n := range d.notes {
+				n.to, n.seq, n.at = d.pane, r.seq, now
+			}
+			r.queue = slices.Delete(r.queue, i, i+1)
+			r.status = sentNote(st, p)
+			return now
 		}
 		_, m, _ := u.b.Frame(d.pane)
 		text := remote.Clean(d.text)
@@ -661,7 +726,7 @@ func (u *ui) deliver(st *model.State, now time.Time) time.Time {
 		r.status = "Sent to " + agentName(p)
 		return r.enterAt
 	}
-	return time.Time{}
+	return next
 }
 
 // toggleReview opens the review view on the active tab, or closes it when

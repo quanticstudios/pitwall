@@ -1,12 +1,15 @@
 package daemon
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
 	"slices"
 	"strings"
 	"time"
+
+	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/decide"
@@ -42,8 +45,8 @@ func (d *Daemon) keepReply(pane, msg string) {
 
 // prompt types m.Text into an agent at its prompt and presses Enter. It
 // refuses a pane whose agent cannot tell pitwall when the turn ends, one
-// running a turn or waiting on the user, and one whose screen shows a
-// form, which the Enter would answer.
+// running a turn or waiting on the user, one whose screen shows a form,
+// which the Enter would answer, and one with the user's draft in its box.
 func (d *Daemon) prompt(m proto.Prompt) error {
 	p, _, err := d.ready(m.Pane)
 	if err != nil {
@@ -61,7 +64,7 @@ func (d *Daemon) prompt(m proto.Prompt) error {
 // ready returns pane's handle when its agent sits at its prompt, waiting
 // for a new one. Otherwise err says why, and busy reports a reason that
 // the end of a turn or the user clears: a turn running, a question
-// waiting, a form on screen.
+// waiting, a form on screen, the user's draft in the input box.
 func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 	d.mu.Lock()
 	p = d.panes[pane]
@@ -78,6 +81,7 @@ func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 	if ai := d.activityIndex(pane); ai >= 0 {
 		a = d.st.Activities[ai]
 	}
+	drafting := d.mail.drafting[pane]
 	d.mu.Unlock()
 	switch {
 	case sp.Provider == "" || sp.Provider == model.ProviderTerminal:
@@ -88,11 +92,18 @@ func (d *Daemon) ready(pane string) (p Pane, busy bool, err error) {
 		return nil, true, fmt.Errorf("%s waits on the user: %s", sp.Provider, a.Detail)
 	case a.State != "" && a.State != model.StateCompleted && a.State != model.StateError:
 		return nil, true, fmt.Errorf("%s is working on a turn", sp.Provider)
-	case agent.ReadScreen(p.Snapshot()) == agent.ScreenForm:
+	}
+	switch g := p.Snapshot(); {
+	case agent.ReadScreen(g) == agent.ScreenForm:
 		return nil, true, fmt.Errorf("%s shows a prompt to answer", sp.Provider)
+	case drafting && agent.Draft(sp.Provider, g):
+		return nil, true, errDraft
 	}
 	return p, false, nil
 }
+
+// errDraft is ready's reason while the user's draft sits in the input box.
+var errDraft = errors.New("the user has a draft in the agent's input box")
 
 // Message timings and the loop guard; tests shorten them.
 var (
@@ -101,6 +112,9 @@ var (
 	sendSettle = newTiming(500 * time.Millisecond)
 	// sendQuiet is how long a key of the user's holds messages to its pane.
 	sendQuiet = newTiming(3 * time.Second)
+	// sendLook is how often a draft that holds messages is read again.
+	// why: nothing reports a box going empty, and only such a pane is looked at.
+	sendLook = newTiming(time.Second)
 	// sendStart is how long the next message waits for the turn the last
 	// one started to report; past it, the agent dropped that one.
 	sendStart = 30 * time.Second
@@ -118,10 +132,23 @@ type mail struct {
 	keyAt map[string]time.Time   // pane: the user's last key
 	sent  map[string]int         // pane: agents' messages since the user's last key
 	wake  map[string]*time.Timer // pane: the next deliver
+	// drafting marks a pane the user typed in since a prompt of theirs went
+	// in, and returnAt when their last key there was Return, which is how a
+	// prompt hook is told from another turn's. Box text counts as a draft only
+	// while drafting, so a box pitwall misreads never holds messages in a pane
+	// nobody typed in.
+	// ponytail: in a typed-in pane a misread holds them until the user's next
+	// prompt; shipping the box patterns in screen_patterns.json would fix a
+	// misread without a release, once old binaries accept the new field.
+	drafting map[string]bool
+	returnAt map[string]time.Time
+	held     map[string]bool // pane: a draft holds its messages
+	// delivered is the highest proto.Deliver.Seq typed into a pane.
+	delivered map[string]uint64
 }
 
 func newMail() mail {
-	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}}
+	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, delivered: map[string]uint64{}}
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
@@ -129,7 +156,10 @@ func newMail() mail {
 type letter struct {
 	from, text string
 	plain      bool
-	notice     string // success notice prefix, completed with the agent name
+	notice     string   // success notice prefix, completed with the agent name
+	images     []string // paths typed before the text
+	window     bool     // from the window, which judged the agent ready itself
+	seq        uint64   // the window's proto.Deliver.Seq
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
@@ -168,6 +198,53 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	return nil
 }
 
+// windowDeliver queues what the window sends pane's agent. It counts as the
+// user's act for the loop guard and a resume, but as no key: nothing typed in
+// the pane holds it back.
+func (d *Daemon) windowDeliver(m proto.Deliver) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.panes[m.Pane] == nil {
+		return fmt.Errorf("no running pane %s", m.Pane)
+	}
+	if remote.Clean(m.Text) == "" && len(m.Images) == 0 {
+		return errors.New("the message is empty")
+	}
+	delete(d.mail.sent, m.Pane)
+	d.dropResume(m.Pane)
+	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
+	d.changed()
+	d.wake(m.Pane, 0)
+	return nil
+}
+
+// readyWindow is ready for a letter from the window: an agent the window may
+// reply to, question or no hooks included, unless a turn began since or the
+// user's draft sits in its box.
+func (d *Daemon) readyWindow(pane string) (Pane, error) {
+	d.mu.Lock()
+	p := d.panes[pane]
+	var prov model.Provider
+	if i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == pane }); i >= 0 {
+		prov = d.st.Panes[i].Provider
+	}
+	var state model.AgentState
+	if ai := d.activityIndex(pane); ai >= 0 {
+		state = d.st.Activities[ai].State
+	}
+	drafting := d.mail.drafting[pane]
+	d.mu.Unlock()
+	switch {
+	case p == nil:
+		return nil, fmt.Errorf("no running pane %s", pane)
+	case state != "" && !remote.Replies(state):
+		return nil, fmt.Errorf("%s is busy", prov)
+	case drafting && agent.Draft(prov, p.Snapshot()):
+		return nil, errDraft
+	}
+	return p, nil
+}
+
 // wake runs deliver for pane after wait, in place of an earlier wake:
 // deliver judges every hold anew. Callers hold d.mu.
 func (d *Daemon) wake(pane string, wait time.Duration) {
@@ -180,8 +257,10 @@ func (d *Daemon) wake(pane string, wait time.Duration) {
 // deliver types pane's next message, under a header, once its agent sits
 // at its prompt: sendSettle after its last hook, sendQuiet after the
 // user's last key, and once the turn the last message started has
-// reported. A hold that ends at a known time wakes deliver then; for a
-// turn running or a question, the next hook or user key does.
+// reported, and not into the user's draft. A hold that ends at a known time
+// wakes deliver then; for a turn running or a question, the next hook or
+// user key does; for a draft or a letter from the window, whose agent may send
+// no hooks, sendLook.
 func (d *Daemon) deliver(pane string) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
@@ -202,37 +281,65 @@ func (d *Daemon) deliver(pane string) {
 		d.mu.Unlock()
 		return
 	}
+	first := slices.IndexFunc(d.mail.queue[pane], func(l letter) bool { return l.window })
 	d.mu.Unlock()
-	p, _, err := d.ready(pane)
+	// i is the letter to type: the first, or a letter from the window, which
+	// passes one that cannot go, as that one may wait on the question it answers.
+	i, p, err := 0, Pane(nil), error(nil)
+	if first == 0 {
+		p, err = d.readyWindow(pane)
+	} else if p, _, err = d.ready(pane); err != nil && first > 0 {
+		i = first
+		p, err = d.readyWindow(pane)
+	}
+	d.mu.Lock()
+	held := errors.Is(err, errDraft)
+	if held != d.mail.held[pane] {
+		if held {
+			d.mail.held[pane] = true
+		} else {
+			delete(d.mail.held, pane)
+		}
+		d.changed()
+	}
+	if (held || first >= 0 && err != nil) && !d.closing && len(d.mail.queue[pane]) > 0 {
+		d.wake(pane, sendLook.get())
+	}
+	d.mu.Unlock()
 	if err != nil {
 		return
 	}
 	d.mu.Lock()
 	q := d.mail.queue[pane]
-	if len(q) == 0 { // the pane closed
+	if i >= len(q) { // the pane closed
 		d.mu.Unlock()
 		return
 	}
+	l := q[i]
 	if len(q) == 1 {
 		delete(d.mail.queue, pane)
 	} else {
-		d.mail.queue[pane] = q[1:]
+		d.mail.queue[pane] = slices.Delete(q, i, i+1)
 		d.wake(pane, 0) // why: it waits for this turn, or sendStart if the turn never reports
 	}
 	d.mail.typed[pane] = time.Now()
 	delete(d.replies, pane)
-	text := q[0].text
-	if !q[0].plain {
-		text = d.header(q[0].from) + "\n" + text
+	text := l.text
+	if !l.plain {
+		text = d.header(l.from) + "\n" + text
+	}
+	// why: here, with the letter leaving the queue, so no state shows it in neither.
+	if l.seq > d.mail.delivered[pane] {
+		d.mail.delivered[pane] = l.seq
 	}
 	d.changed()
 	d.mu.Unlock()
-	if err := d.typeLine(pane, p, text, "the message is empty"); err != nil {
+	if err := d.typeLetter(pane, p, l.images, text); err != nil {
 		log.Printf("pane %s: a message was lost: %q", pane, err)
-	} else if q[0].notice != "" {
+	} else if l.notice != "" {
 		d.mu.Lock()
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
-			d.st.Notice = q[0].notice + string(d.st.Panes[i].Provider)
+			d.st.Notice = l.notice + string(d.st.Panes[i].Provider)
 			d.changed()
 		}
 		d.mu.Unlock()
@@ -249,6 +356,16 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.mail.keyAt[pane] = time.Now()
+	if len(b) > 0 { // a reply or an answer from the phone leaves no draft
+		if !d.mail.drafting[pane] {
+			d.mail.drafting[pane] = true
+			d.changed()
+		}
+		delete(d.mail.returnAt, pane)
+		if p := d.panes[pane]; p != nil && bytes.Equal(b, press(key.NameReturn, p.Modes())) {
+			d.mail.returnAt[pane] = time.Now()
+		}
+	}
 	delete(d.mail.sent, pane)
 	if d.dropResume(pane) {
 		d.changed()
@@ -256,6 +373,23 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	if len(d.mail.queue[pane]) > 0 {
 		d.wake(pane, 0)
 	}
+}
+
+// notePrompt ends the user's typing in pane when a prompt goes in right after
+// they pressed Return with no key since: what they typed went with it. Any
+// other turn leaves their draft in place. Callers hold d.mu.
+func (d *Daemon) notePrompt(pane string, now time.Time) {
+	if t, ok := d.mail.returnAt[pane]; ok && now.Sub(t) < sendQuiet.get() {
+		delete(d.mail.returnAt, pane)
+		delete(d.mail.drafting, pane)
+		d.changed()
+	}
+}
+
+// drafted reports whether screen g of agent prov in pane holds the user's
+// draft. Callers hold d.mu.
+func (d *Daemon) drafted(pane string, prov model.Provider, g vt.Grid) bool {
+	return d.mail.drafting[pane] && agent.Draft(prov, g)
 }
 
 // header is the line typed above a message from pane from: who sent it

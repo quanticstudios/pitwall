@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,9 +12,8 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
 
-// A reply from the sheet goes in as typed once the agent waits: each
-// image's path as its own paste, then the text as one bracketed paste,
-// then Enter. To a busy agent it waits for the turn to end.
+// A reply from the sheet goes to the daemon once the agent waits, images and
+// text. To a busy agent it waits for the turn to end.
 func TestReplySend(t *testing.T) {
 	b := newAgentBackend(model.StateWorking)
 	u := &ui{b: b}
@@ -30,25 +28,26 @@ func TestReplySend(t *testing.T) {
 	st = b.State()
 	now := time.Now()
 	u.deliver(&st, now)
-	if len(b.sent) != 2 {
-		t.Fatalf("sent %q, want the image and the text", b.sent)
+	if len(b.sent) != 0 || len(b.delivered) != 1 {
+		t.Fatalf("typed %q, delivered %+v", b.sent, b.delivered)
 	}
-	if got := string(b.sent[0].Data); got != "\x1b[200~'/s/paste/image-1.png'\x1b[201~" {
-		t.Errorf("image paste %q", got)
-	}
-	if got := string(b.sent[1].Data); got != "\x1b[200~use a.go\nthen b.go\x1b[201~" {
-		t.Errorf("text paste %q", got)
-	}
-	u.deliver(&st, now.Add(replyDelay))
-	if len(b.sent) != 3 || string(b.sent[2].Data) != "\r" {
-		t.Fatalf("no Enter after the paste: %q", b.sent)
+	if got := b.delivered[0]; got.Pane != "p" || got.Text != "use a.go\nthen b.go" || len(got.Images) != 1 || got.Images[0] != "/s/paste/image-1.png" {
+		t.Errorf("delivered %+v", got)
 	}
 
-	// An image alone pastes no empty text.
+	// An image alone goes with no text.
 	u.sidebarEvent(&st, sidebar.Reply{WorkspaceID: "w", PaneID: "p", Images: []string{"/s/b.png"}})
 	waitSends(t, u, &st)
-	if len(b.sent) != 4 || !strings.Contains(string(b.sent[3].Data), "/s/b.png") || u.notice != "Sent to claude" {
-		t.Fatalf("image only: sent %q, notice %q", b.sent[3:], u.notice)
+	if len(b.delivered) != 2 || b.delivered[1].Text != "" || b.delivered[1].Images[0] != "/s/b.png" || u.notice != "Sent to claude" {
+		t.Fatalf("image only: delivered %+v, notice %q", b.delivered[1:], u.notice)
+	}
+
+	// Having typed in the pane, the user may have a draft that holds it.
+	st.Drafting = map[string]bool{"p": true}
+	u.sidebarEvent(&st, sidebar.Reply{WorkspaceID: "w", PaneID: "p", Text: "more"})
+	waitSends(t, u, &st)
+	if u.notice != "Goes to claude once its input box is empty" {
+		t.Errorf("notice %q", u.notice)
 	}
 
 	// A tab with no agent says so.

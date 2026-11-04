@@ -108,6 +108,23 @@ func TestContinueWhenQuiet(t *testing.T) {
 
 // pitwall status sets a tab's line on one line, cut to statusRunes, and
 // an empty text clears it.
+// A quiet agent with the user's draft in its box gets no continue.
+func TestContinueWhenQuietDraft(t *testing.T) {
+	d, f := talkDaemon(t)
+	d.o.QuietAfter = func() time.Duration { return 20 * time.Minute }
+	d.o.ContinueWhenQuiet = func() bool { return true }
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
+	setScreen(f.pane(0), claudeBox)
+	d.noteUserKey("a", []byte("t"))
+	d.checkQuiet()
+	age(d, "a", 21*time.Minute)
+	d.checkQuiet()
+	time.Sleep(50 * time.Millisecond)
+	if got := f.pane(0).got(); got != "" {
+		t.Fatalf("typed %q into the draft", got)
+	}
+}
+
 func TestSetStatus(t *testing.T) {
 	d, _ := talkDaemon(t)
 	status := func() string {

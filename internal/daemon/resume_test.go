@@ -84,6 +84,25 @@ func TestResumeAfterLimit(t *testing.T) {
 	}
 }
 
+// A draft typed before the limit stopped the turn takes no continue.
+func TestResumeSkipsDraft(t *testing.T) {
+	clock := useFakeClock(t, time.Date(2026, 10, 22, 13, 20, 0, 0, time.UTC))
+	d, f := talkDaemon(t)
+	d.o.ResumeAfterLimit = func() bool { return true }
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
+	setScreen(f.pane(0), claudeBox)
+	d.noteUserKey("a", []byte("t"))
+	claudeHook(t, d, "a", claudeLimit)
+	if got := resumes(d, "a"); got.IsZero() {
+		t.Fatal("no resume set")
+	}
+	clock.fire()
+	time.Sleep(150 * time.Millisecond)
+	if got := f.pane(0).got(); got != "" {
+		t.Fatalf("typed %q into the draft", got)
+	}
+}
+
 // A resume is dropped when the user types in the pane, the turn changes,
 // another agent takes the pane, or the user cancels it.
 func TestResumeGuards(t *testing.T) {

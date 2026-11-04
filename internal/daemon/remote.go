@@ -232,6 +232,13 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 	if !remote.Replies(a.State) {
 		return errors.New("that pane is not waiting for a reply")
 	}
+	g := p.Snapshot()
+	d.mu.Lock()
+	drafted := d.drafted(pane, a.Provider, g)
+	d.mu.Unlock()
+	if drafted {
+		return errors.New("you have a draft in that agent's input box: send or clear it first")
+	}
 	d.noteUserKey(pane, nil)
 	return d.typeLine(pane, p, text, "the reply is empty")
 }
@@ -253,6 +260,23 @@ func (d *Daemon) typeLine(pane string, p Pane, text, empty string) error {
 	}
 	time.Sleep(replyDelay)
 	return d.handle(ctx, proto.Input{Pane: pane, Data: press(key.NameReturn, m)})
+}
+
+// typeLetter pastes each image's path into pane p, then text, and presses
+// Enter. Images with no text go in with no empty paste.
+func (d *Daemon) typeLetter(pane string, p Pane, images []string, text string) error {
+	m := p.Modes()
+	ctx := context.Background()
+	for _, img := range images {
+		if err := d.handle(ctx, proto.Input{Pane: pane, Data: input.PastePaths([]string{img}, m)}); err != nil {
+			return err
+		}
+	}
+	if len(images) > 0 && remote.Clean(text) == "" {
+		time.Sleep(replyDelay)
+		return d.handle(ctx, proto.Input{Pane: pane, Data: press(key.NameReturn, m)})
+	}
+	return d.typeLine(pane, p, text, "the message is empty")
 }
 
 // press is what pressing k alone sends to a pane in modes m, as the GUI

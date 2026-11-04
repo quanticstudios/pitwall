@@ -18,6 +18,7 @@ build. Either step takes `--dry-run`.
 ## Unreleased
 
 - pitwall's own git reads the repository's config just before each command and turns off the programs it finds: fsmonitor, hooks, filter, diff and merge drivers, ssh and credential programs. A program added in the moment between the two can still run, so this reduces the risk and is not a sandbox boundary. Filters from your global config, such as git-lfs, keep working. With a filter set only in `.git/config`, such as git-crypt's, staging, discarding and undo from pitwall refuse instead of writing raw bytes, and a worktree pitwall makes runs no `post-checkout` hook; use worktree `setup` for that.
+- Messages, review comments and `continue` now wait while your draft sits in Claude Code's or Codex's input box, and the row shows "Waits: your draft".
 
 ## v0.1.13
 

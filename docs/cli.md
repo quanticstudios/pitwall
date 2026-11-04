@@ -19,8 +19,8 @@ optional name act on the pane's own tab.
 | `pitwall wait <tab> --until done\|idle\|blocked\|exit` | Block until the tab's agent gets there (`--timeout 10m` to give up); `--children` in place of the tab waits for every tab this pane's tab opened, and `--done-line` with it wants each worker's last line to be `DONE` or `BLOCKED: <why>` |
 | `pitwall split [--down] [tab] [-- cmd...]` | Open a pane right of the tab's last pane, or below with `--down`, and print its address, as `#3.2` |
 | `pitwall popup [--width P] [--height P] [--title T] [--dir D] [--wait] [tab] [-- cmd...]` | Run cmd, else a shell, in a [popup](usage.md#popups) over the tab's splits; it closes when cmd exits. `--wait` returns cmd's exit code, or 130 when the popup closed first |
-| `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter; `--wait` prints its reply when the turn ends |
-| `pitwall send <pane> -- text`         | Queue a message for the pane's agent and return; pitwall types it, under a header naming the sender, at the agent's next prompt |
+| `pitwall prompt <pane> [--wait] -- text` | Type a prompt into an idle agent and press Enter, refused while your draft sits in its input box; `--wait` prints its reply when the turn ends |
+| `pitwall send <pane> -- text`         | Queue a message for the pane's agent and return; pitwall types it, under a header naming the sender, at the agent's next prompt, and never into your draft |
 | `pitwall form [--id id] [file]` / `--id id --update [file]` / `--id id --close` | Show a form or a dashboard (the file, or stdin) over this pane's tab and print the answers as JSON; exit 1 on cancel or close, 2 on an error. `--update` changes an open form, `--close` ends it (see [Forms](usage.md#forms)) |
 | `pitwall scrollback <pane> [--lines N]` | Print history and screen as plain text with wrapped lines joined; `--lines N` keeps the last N logical lines, 0 means all; alternate-screen programs give only their current screen; exports above 63 MiB return an error |
 | `pitwall read <pane> [--screen]`      | Print the last reply of the pane's agent, or with `--screen` the text on its screen |

@@ -28,8 +28,11 @@ import (
 // bracketed paste on, and records what the window sends.
 type agentBackend struct {
 	mu   sync.Mutex
+	grid vt.Grid
 	st   model.State
 	sent []proto.Input
+
+	delivered []proto.Deliver
 }
 
 func newAgentBackend(state model.AgentState) *agentBackend {
@@ -48,24 +51,37 @@ func (b *agentBackend) State() model.State {
 	return b.st
 }
 func (b *agentBackend) Frame(string) (vt.Grid, vt.Modes, bool) {
-	return vt.Grid{}, vt.Modes{BracketedPaste: true}, true
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.grid, vt.Modes{BracketedPaste: true}, true
 }
 func (b *agentBackend) Send(msg any) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if in, ok := msg.(proto.Input); ok {
-		b.sent = append(b.sent, in)
+	switch m := msg.(type) {
+	case proto.Input:
+		b.sent = append(b.sent, m)
+	case proto.Deliver:
+		b.delivered = append(b.delivered, m)
 	}
 	return nil
 }
+
+// oldDaemon is agentBackend's daemon from before proto.Deliver.
+type oldDaemon struct{ *agentBackend }
+
+func (oldDaemon) Link() Link                     { return Link{Level: proto.Since(proto.Deliver{}) - 1} }
+func (oldDaemon) Reconnect()                     {}
+func (oldDaemon) Restart()                       {}
 func (b *agentBackend) Changed() <-chan struct{} { return nil }
 
-// TestSendNotes: comments to a busy agent wait; once it finishes its turn
-// they go in as one bracketed paste, then Enter, and read as sent. A
-// delivery whose pane closed puts its comments back to pending.
+// TestSendNotes: comments to a busy agent wait; once it finishes its turn a
+// daemon too old for proto.Deliver gets them as one bracketed paste, then
+// Enter, and they read as sent. A delivery whose pane closed puts its
+// comments back to pending.
 func TestSendNotes(t *testing.T) {
 	b := newAgentBackend(model.StateWorking)
-	u := &ui{b: b}
+	u := &ui{b: oldDaemon{b}}
 	u.review.ws = "w"
 	line := review.Line{Kind: '+', New: 7, Text: "x := 2"}
 	u.review.notes = map[string][]*note{"/repo": {
@@ -112,6 +128,95 @@ func TestSendNotes(t *testing.T) {
 	u.deliver(&st, now)
 	if len(u.review.queue) != 0 || len(u.review.pending("/repo")) != 1 || len(b.sent) != 2 {
 		t.Errorf("closed pane: queue %d, pending %d, sent %d", len(u.review.queue), len(u.review.pending("/repo")), len(b.sent))
+	}
+}
+
+// The window never types past a draft itself: a ready agent's delivery goes
+// to the daemon, whatever frame the window shows, and reads Queued while the
+// daemon holds it.
+func TestDeliverGoesThroughDaemon(t *testing.T) {
+	b := newAgentBackend(model.StateWorking)
+	u := &ui{b: b}
+	u.review.ws = "w"
+	n := &note{Comment: review.Comment{Path: "a.go", Lines: []review.Line{{Kind: '+', New: 7, Text: "x"}}, Text: "Why?"}}
+	u.review.notes = map[string][]*note{"/repo": {n}}
+	st := b.State()
+	now := time.Now()
+	u.sendNotes(&st, "/repo", now)
+	if len(b.delivered) != 0 || n.state != noteQueued {
+		t.Fatalf("busy agent: delivered %+v, state %d", b.delivered, n.state)
+	}
+	b.st.Activities[0].State = model.StateCompleted
+	b.st.Drafting = map[string]bool{"p": true}
+	st = b.State()
+	u.deliver(&st, now)
+	if len(b.sent) != 0 || len(b.delivered) != 1 || b.delivered[0].Pane != "p" || !strings.Contains(b.delivered[0].Text, "Why?") {
+		t.Fatalf("typed %q, delivered %+v", b.sent, b.delivered)
+	}
+	if n.state != noteQueued || n.to != "p" || len(u.review.queue) != 0 {
+		t.Fatalf("after the hand over: state %d, to %q, queue %d", n.state, n.to, len(u.review.queue))
+	}
+	if u.review.status != "Goes to claude once its input box is empty" {
+		t.Errorf("status %q", u.review.status)
+	}
+
+	// Held by the daemon, it stays Queued however long that takes.
+	b.st.Queued = map[string]int{"p": 1}
+	st = b.State()
+	u.deliver(&st, now.Add(time.Hour))
+	if n.state != noteQueued {
+		t.Fatalf("held: state %d", n.state)
+	}
+
+	// Typed, even with another message left behind it, it reads Sent.
+	b.st.Delivered = map[string]uint64{"p": b.delivered[0].Seq}
+	st = b.State()
+	u.deliver(&st, now.Add(time.Hour))
+	if n.state != noteSent {
+		t.Fatalf("typed: state %d", n.state)
+	}
+}
+
+// A comment the daemon took on but never typed goes back to pending, whatever
+// else is in State: the pane closed, or the daemon lost its queue.
+func TestDeliverRestoresUntypedNotes(t *testing.T) {
+	line := review.Line{Kind: '+', New: 7, Text: "x"}
+	for _, tc := range []struct {
+		name  string
+		after time.Duration
+		then  func(st *model.State)
+		want  noteState
+	}{
+		{"pane closed", 0, func(st *model.State) { st.Panes = nil; st.Activities = nil }, notePending},
+		{"pane exited", 0, func(st *model.State) { st.Panes[0].Exited = true }, notePending},
+		{"not yet in the queue", deliverAck - time.Second, func(st *model.State) {}, noteQueued},
+		{"daemon restarted", deliverAck, func(st *model.State) {}, notePending},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newAgentBackend(model.StateCompleted)
+			u := &ui{b: b}
+			u.review.ws = "w"
+			n := &note{Comment: review.Comment{Path: "a.go", Lines: []review.Line{line}, Text: "Why?"}}
+			u.review.notes = map[string][]*note{"/repo": {n}}
+			st := b.State()
+			now := time.Now()
+			u.sendNotes(&st, "/repo", now)
+			if len(b.delivered) != 1 || n.state != noteQueued {
+				t.Fatalf("delivered %+v, state %d", b.delivered, n.state)
+			}
+			st = b.State()
+			tc.then(&st)
+			at := u.deliver(&st, now.Add(tc.after))
+			if n.state != tc.want {
+				t.Fatalf("state %d, want %d", n.state, tc.want)
+			}
+			if tc.want == noteQueued && !at.Equal(now.Add(deliverAck)) {
+				t.Errorf("next frame at %v, want %v", at, now.Add(deliverAck))
+			}
+			if tc.want == notePending && len(u.review.pending("/repo")) != 1 {
+				t.Errorf("the comment cannot be sent again")
+			}
+		})
 	}
 }
 

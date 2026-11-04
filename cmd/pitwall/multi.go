@@ -203,6 +203,9 @@ func (m *multi) merge() {
 		st.PRs = join(st.PRs, s.PRs)
 		st.Overlaps = join(st.Overlaps, s.Overlaps)
 		st.Queued = join(st.Queued, s.Queued)
+		st.Drafting = join(st.Drafting, s.Drafting)
+		st.DraftHeld = join(st.DraftHeld, s.DraftHeld)
+		st.Delivered = join(st.Delivered, s.Delivered)
 		st.Listening = join(st.Listening, s.Listening)
 		if h.name == "" {
 			st.Decide = s.Decide

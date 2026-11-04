@@ -54,7 +54,7 @@ func (u *ui) queueReply(gtx gl.Context, st *model.State, p *model.Pane, res agen
 	d.images = append(d.images, res.images...)
 	msg := "Queued until " + agentName(p) + " waits for input"
 	if agentReady(st, p.ID) {
-		msg = "Sent to " + agentName(p)
+		msg = sentNote(st, p)
 	}
 	u.showNotice(gtx, msg, area)
 	u.deliver(st, gtx.Now)

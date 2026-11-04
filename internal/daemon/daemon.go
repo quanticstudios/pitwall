@@ -1104,6 +1104,8 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.prompt(m)
 	case proto.Send:
 		return d.send(m)
+	case proto.Deliver:
+		return d.windowDeliver(m)
 	case proto.CancelResume:
 		return d.cancelResume(m)
 	case proto.SecondOpinion:
@@ -1490,6 +1492,10 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.typed, id)
 	delete(d.mail.keyAt, id)
 	delete(d.mail.sent, id)
+	delete(d.mail.drafting, id)
+	delete(d.mail.returnAt, id)
+	delete(d.mail.delivered, id)
+	delete(d.mail.held, id)
 	d.dropResume(id)
 	delete(d.lim.seen, id)
 	d.forgetDecisions(id)
@@ -1726,6 +1732,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			turnDir, turnWS = d.st.LivePath(*w), w.ID
 		}
+	}
+	if agent.Prompt(m.Provider, m.Payload) != "" {
+		d.notePrompt(p.ID, now)
 	}
 	if len(d.mail.queue[p.ID]) > 0 {
 		d.wake(p.ID, 0) // a turn may have ended
@@ -2355,6 +2364,9 @@ func (d *Daemon) snapshot() model.State {
 		}
 		s.Queued[id] = len(q)
 	}
+	s.Drafting = maps.Clone(d.mail.drafting)
+	s.DraftHeld = maps.Clone(d.mail.held)
+	s.Delivered = maps.Clone(d.mail.delivered)
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {
 		s.Clipboard.Text = ""

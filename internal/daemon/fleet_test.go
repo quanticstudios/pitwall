@@ -80,7 +80,7 @@ func TestFleetTimebox(t *testing.T) {
 			if text != "" {
 				want = []letter{{text: text}}
 			}
-			if got := d.mail.queue[pane]; !slices.Equal(got, want) {
+			if got := d.mail.queue[pane]; !slices.EqualFunc(got, want, func(a, b letter) bool { return a.text == b.text }) {
 				t.Fatalf("at %s, pane %s: queue %+v, want %+v", now.Sub(t0), pane, got, want)
 			}
 		}
