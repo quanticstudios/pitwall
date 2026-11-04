@@ -7,6 +7,7 @@ import (
 
 	"gioui.org/f32"
 	"gioui.org/io/pointer"
+	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -37,8 +38,8 @@ func TestFitPills(t *testing.T) {
 // button, and returns where.
 func (h *replyHarness) findOn(over func() bool) f32.Point {
 	h.t.Helper()
-	for y := float32(56); y < 160; y += 2 {
-		for x := float32(20); x < 280; x += 4 {
+	for y := float32(56); y < 160; y += 8 { // an answer button is 18 high and wider than 24
+		for x := float32(20); x < 280; x += 12 {
 			h.r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(x, y), Source: pointer.Mouse})
 			h.frame()
 			if over() {
@@ -82,6 +83,50 @@ func TestClickKeepsItsQuestion(t *testing.T) {
 		pressed := slices.ContainsFunc(h.frame(), func(e Event) bool { _, ok := e.(Press); return ok })
 		if pressed != tc.want {
 			t.Errorf("%s: pressed %v, want %v", tc.name, pressed, tc.want)
+		}
+	}
+}
+
+// Allow and Deny belong to the prompt they were pressed on: when a new one comes
+// up before the release, nothing is answered.
+func TestClickKeepsItsPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		button func(r *rowState) *widget.Clickable
+		allow  bool
+		change func(a *model.Activity)
+		want   bool
+	}{
+		{"allow unchanged", func(r *rowState) *widget.Clickable { return &r.allow }, true, func(*model.Activity) {}, true},
+		{"deny unchanged", func(r *rowState) *widget.Clickable { return &r.deny }, false, func(*model.Activity) {}, true},
+		{"allow, new prompt", func(r *rowState) *widget.Clickable { return &r.allow }, true, func(a *model.Activity) { a.UpdatedAt = time.Unix(8, 0) }, false},
+		{"deny, new prompt", func(r *rowState) *widget.Clickable { return &r.deny }, false, func(a *model.Activity) { a.UpdatedAt = time.Unix(8, 0) }, false},
+		{"allow, prompt gone", func(r *rowState) *widget.Clickable { return &r.allow }, true, func(a *model.Activity) { a.State = model.StateWorking }, false},
+	} {
+		h := newReplyHarness(t)
+		h.s.Answers = true
+		a := &h.st.Activities[1]
+		a.UpdatedAt, a.State = time.Unix(7, 0), model.StatePendingApproval
+		h.frame()
+		b := tc.button(h.s.row("w"))
+		p := h.findOn(b.Hovered)
+		h.r.Queue(pointer.Event{Kind: pointer.Press, Position: p, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary})
+		h.frame()
+		tc.change(a)
+		h.frame()
+		h.r.Queue(pointer.Event{Kind: pointer.Release, Position: p, Source: pointer.Mouse})
+		var got []Event
+		for _, e := range h.frame() {
+			if _, ok := e.(Answer); ok {
+				got = append(got, e)
+			}
+		}
+		var want []Event
+		if tc.want {
+			want = []Event{Answer{PaneID: "p", At: time.Unix(7, 0).UnixNano(), Allow: tc.allow}}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: answered %v, want %v", tc.name, got, want)
 		}
 	}
 }

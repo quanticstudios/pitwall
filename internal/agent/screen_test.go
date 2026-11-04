@@ -33,6 +33,7 @@ func TestReadScreen(t *testing.T) {
 		"claude-denied.txt":             ScreenNone, // Esc at the permission prompt
 		"claude-spinner.txt":            ScreenBusy,
 		"claude-permission.txt":         ScreenForm,
+		"claude-permission-warning.txt": ScreenForm,
 		"tuios-claude-code-working.txt": ScreenBusy,
 		"tuios-codex-working.txt":       ScreenBusy,
 		"tuios-codex-approval.txt":      ScreenForm,
@@ -84,15 +85,16 @@ func TestDraft(t *testing.T) {
 
 func TestState(t *testing.T) {
 	for file, want := range map[string]model.AgentState{
-		"claude-spinner.txt":        model.StateWorking,
-		"claude-permission.txt":     model.StatePendingApproval,
-		"tuios-claude-question.txt": model.StateAwaitingInput,
-		"claude-idle.txt":           "",
-		"claude-streaming.txt":      "",
-		"codex-working.txt":         model.StateWorking,
-		"tuios-codex-approval.txt":  model.StatePendingApproval,
-		"codex-idle.txt":            "",
-		"codex-trust.txt":           model.StatePendingApproval,
+		"claude-spinner.txt":            model.StateWorking,
+		"claude-permission.txt":         model.StatePendingApproval,
+		"claude-permission-warning.txt": model.StatePendingApproval,
+		"tuios-claude-question.txt":     model.StateAwaitingInput,
+		"claude-idle.txt":               "",
+		"claude-streaming.txt":          "",
+		"codex-working.txt":             model.StateWorking,
+		"tuios-codex-approval.txt":      model.StatePendingApproval,
+		"codex-idle.txt":                "",
+		"codex-trust.txt":               model.StatePendingApproval,
 	} {
 		if got := State(screenFixture(t, file)); got != want {
 			t.Errorf("%s: got %q, want %q", file, got, want)

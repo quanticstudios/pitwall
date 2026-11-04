@@ -184,26 +184,63 @@ func chatRefusal(reply any, _ bool) error {
 	return nil
 }
 
-// waiting returns pane and its activity while that activity is still the
-// one of UpdatedAt at, which the phone showed: an answer never lands on a
-// prompt the phone has not shown.
-func (d *Daemon) waiting(pane string, at int64) (Pane, model.Activity, error) {
+// waiting returns pane, its activity and the command its hook asked to run,
+// "" for none known, while that activity is still the one of UpdatedAt at,
+// which the phone showed: an answer never lands on a prompt the phone has not
+// shown.
+func (d *Daemon) waiting(pane string, at int64) (Pane, model.Activity, string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	p, i := d.panes[pane], d.activityIndex(pane)
 	if p == nil || i < 0 || d.inputs[pane] == nil {
-		return nil, model.Activity{}, errors.New("that pane no longer needs you")
+		return nil, model.Activity{}, "", errors.New("that pane no longer needs you")
 	}
 	if a := d.st.Activities[i]; a.UpdatedAt.UnixNano() == at {
-		return p, a, nil
+		return p, a, d.askedOf(a), nil
 	}
-	return nil, model.Activity{}, errors.New("that pane has moved on; refresh to see what it asks now")
+	return nil, model.Activity{}, "", errors.New("that pane has moved on; refresh to see what it asks now")
+}
+
+// askedOf is the command a's hook asked to run, "" for none known. Callers hold
+// d.mu.
+func (d *Daemon) askedOf(a model.Activity) string {
+	if c := d.live.asked[a.PaneID]; c.at.Equal(a.UpdatedAt) {
+		return c.command
+	}
+	return ""
+}
+
+// bindAsked pairs pane's new activity next with command, from a permission
+// request when asks is set. A later report of the same prompt, such as its
+// Notification, keeps the command prev had. Callers hold d.mu.
+func (d *Daemon) bindAsked(pane string, prev *model.Activity, next model.Activity, command string, asks bool) {
+	if !asks && prev != nil && prev.State == model.StatePendingApproval && next.State == model.StatePendingApproval {
+		command = d.askedOf(*prev)
+	}
+	delete(d.live.asked, pane)
+	if command == "" {
+		return
+	}
+	if d.live.asked == nil {
+		d.live.asked = map[string]askedCommand{}
+	}
+	d.live.asked[pane] = askedCommand{command, next.UpdatedAt}
+}
+
+// sameCommand refuses a permission prompt on g's screen that does not show
+// asked, the command a's hook reported: an agent can draw its next prompt
+// before that prompt's hook arrives. A prompt with no known command passes.
+func sameCommand(a model.Activity, asked string, g vt.Grid) error {
+	if a.State == model.StatePendingApproval && asked != "" && !agent.CommandShown(a.Provider, g, asked) {
+		return errors.New("pitwall could not confirm the prompt on screen is the one the row showed; answer it in its tab")
+	}
+	return nil
 }
 
 // remoteAnswer presses Allow or Deny on pane's permission prompt, for the
 // phone page and for a GUI's proto.Answer.
 func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
-	p, a, err := d.waiting(pane, at)
+	p, a, asked, err := d.waiting(pane, at)
 	if err != nil {
 		return err
 	}
@@ -212,22 +249,48 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 		return errors.New("that pane is not asking permission")
 	}
 	// why: a hook can leave the state behind the screen; the key goes only to a permission prompt on it, as 1 picks the first option of a plan or question too.
-	if agent.State(p.Snapshot()) != model.StatePendingApproval {
+	g := p.Snapshot()
+	if agent.State(g) != model.StatePendingApproval {
 		return errors.New("the pane shows no prompt to answer")
+	}
+	if err := sameCommand(a, asked, g); err != nil {
+		return err
 	}
 	d.noteUserKey(pane, nil)
 	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())})
 }
 
+// answerNotice shows a window why its answer pressed nothing, as a GUI shows no
+// request's error, and takes that back once one lands. The phone's page gets the
+// error itself.
+func (d *Daemon) answerNotice(err error) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err != nil {
+		d.st.Notice = answerRefused + err.Error()
+		d.changed()
+	} else if strings.HasPrefix(d.st.Notice, answerRefused) {
+		d.st.Notice = ""
+		d.changed()
+	}
+	return err
+}
+
+const answerRefused = "Not answered: "
+
 // pressOffer presses the key of label, an answer a GUI's row showed, on
 // pane's form. It reads the screen first, so a stale button cannot answer
 // another form or type into a prompt.
 func (d *Daemon) pressOffer(pane string, at int64, label string) error {
-	p, a, err := d.waiting(pane, at)
+	p, a, asked, err := d.waiting(pane, at)
 	if err != nil {
 		return err
 	}
-	for _, o := range agent.Offers(a, p.Snapshot()) {
+	g := p.Snapshot()
+	if err := sameCommand(a, asked, g); err != nil {
+		return err
+	}
+	for _, o := range agent.Offers(a, g) {
 		if o.Label == label {
 			d.noteUserKey(pane, nil)
 			return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(key.Name(o.Key), p.Modes())})
@@ -279,7 +342,7 @@ var replyDelay = newTiming(100 * time.Millisecond)
 // remoteReply pastes text into pane, cleaned of control characters, and
 // presses Enter.
 func (d *Daemon) remoteReply(pane string, at int64, text string) error {
-	p, a, err := d.waiting(pane, at)
+	p, a, _, err := d.waiting(pane, at)
 	if err != nil {
 		return err
 	}

@@ -27,6 +27,9 @@ var (
 	optionLine = regexp.MustCompile(`^\s*(?:[│┃]\s*)?([❯›>●]\s*)?(\d)\.\s+(\S.*?)\s*$`)
 	// codexLetter is the shortcut Codex prints after an option's text.
 	codexLetter = regexp.MustCompile(`\(([a-z])\)$`)
+	// hiddenRows is the row a Claude Code prompt ends a cut command with, such
+	// as "+3 lines, +2 above (ctrl+o to see more)".
+	hiddenRows = regexp.MustCompile(`^(?:\S )?\+?\d+ (?:lines?|above)\b`)
 )
 
 type formOption struct {
@@ -276,6 +279,213 @@ func optionText(rows []string, opts []formOption, i int) (text string, ok bool) 
 		text += " " + l
 	}
 	return text, true
+}
+
+// wrapSlack is how many columns short of a pane's width a row may end and still
+// count as full: the agent's right margin.
+const wrapSlack = 4
+
+// CommandShown reports whether the permission prompt on g's screen asks to run
+// command, as far as the screen shows it. Rows must match it byte for byte, apart
+// from the prompt's indent and a row end where wrapping could have split it. A
+// prompt that shows part of a long command is compared on that part. A layout it
+// does not know has no command to compare, so that is false too.
+func CommandShown(p model.Provider, g vt.Grid, command string) bool {
+	// why: a newline, tab or other space has no one way to look on screen, and
+	// part of the command may be off screen. A refusal costs one trip to the tab.
+	if strings.ContainsFunc(command, func(r rune) bool { return r != ' ' && (unicode.IsSpace(r) || !unicode.IsGraphic(r)) }) {
+		return false
+	}
+	want := strings.Trim(command, " ")
+	rows := screenRows(g)
+	opts := formOptions(rows)
+	if len(opts) == 0 {
+		return false
+	}
+	c, ok := claudeCommand(rows[:opts[0].row])
+	if p == model.ProviderCodex {
+		c, ok = codexCommand(rows[:opts[0].row]), true
+	}
+	if !ok {
+		return false
+	}
+	for c.from < c.to && rows[c.to-1] == "" {
+		c.to--
+	}
+	for c.from < c.to && rows[c.from] == "" {
+		c.from++
+	}
+	return commandFits(g, c.from, rows[c.from:c.to], c.start, want)
+}
+
+// commandSpan is the rows from up to to that hold a command. start is false when
+// its first rows may be off screen.
+type commandSpan struct {
+	from, to int
+	start    bool
+}
+
+// claudeCommand is where a Claude Code prompt's command is in the rows above its
+// options: right after the form's first dashed rule, up to the next, as warnings
+// may follow it in blocks of their own. The form starts below its top rule or at
+// its title, so the transcript above is not read. ok is false if the command
+// cannot be told from the rest: with neither on screen, any block may be a
+// warning, so only a lone block above a rule counts.
+func claudeCommand(above []string) (c commandSpan, ok bool) {
+	top := -1
+	for y := len(above) - 1; y >= 0 && top < 0; y-- {
+		t := strings.TrimLeft(above[y], " ")
+		if ruleOf(t, "─") || strings.HasPrefix(t, "Bash command") || strings.HasPrefix(t, "Run command") {
+			top = y
+		}
+	}
+	first := nextRule(above, top+1)
+	if top >= 0 {
+		next := nextRule(above, first+1)
+		return commandSpan{first + 1, next, true}, first >= 0 && next >= 0
+	}
+	blocks, from := 0, 0
+	for y := first; y >= 0; y = nextRule(above, y+1) {
+		if strings.Join(above[from:y], "") != "" {
+			blocks++
+			c = commandSpan{from, y, from > 0}
+		}
+		from = y + 1
+	}
+	for _, r := range above[from:] {
+		if t := strings.TrimSpace(r); t != "" && t != "Do you want to proceed?" {
+			return c, false
+		}
+	}
+	return c, blocks == 1
+}
+
+// nextRule is the first dashed rule in rows from y, or -1.
+func nextRule(rows []string, y int) int {
+	for ; y >= 0 && y < len(rows); y++ {
+		if ruleOf(rows[y], "╌") {
+			return y
+		}
+	}
+	return -1
+}
+
+func ruleOf(row, dash string) bool { return row != "" && strings.Trim(row, " "+dash) == "" }
+
+// codexCommand is where a Codex prompt's command is in the rows above its
+// options: from the row that starts with "$ ", which it blanks in above. With no
+// such row, it has scrolled off or this is not a command.
+func codexCommand(above []string) commandSpan {
+	for y := len(above) - 1; y >= 0; y-- {
+		t := strings.TrimLeft(above[y], " ")
+		if s, ok := strings.CutPrefix(t, "$ "); ok {
+			above[y] = strings.Repeat(" ", len(above[y])-len(t)+2) + s
+			return commandSpan{y, len(above), true}
+		}
+	}
+	return commandSpan{0, len(above), false}
+}
+
+// commandFits reports whether rows, which start at row y of g, show want. Without
+// start its first rows may be off screen, and a count row or a final ellipsis
+// says its last ones are hidden.
+func commandFits(g vt.Grid, y int, rows []string, start bool, want string) bool {
+	rows = slices.Clone(rows)
+	end := true
+	if n := len(rows) - 1; n >= 0 {
+		if last := strings.TrimLeft(rows[n], " "); hiddenRows.MatchString(last) {
+			start = start && !strings.Contains(last, "above")
+			rows, end = rows[:n], false
+		} else if t, ok := strings.CutSuffix(rows[n], "…"); ok {
+			rows[n], end = strings.TrimRight(t, " "), false
+		}
+	}
+	gutters := 0
+	for i, r := range rows {
+		if t, ok := strings.CutPrefix(strings.TrimLeft(r, " "), "│"); ok {
+			rows[i] = strings.TrimPrefix(t, " ")
+			gutters++
+		}
+	}
+	// Some rows with a gutter means a │ of the command's own may be among them,
+	// and a blank row is no part of a wrapped line.
+	if len(rows) == 0 || gutters != 0 && gutters != len(rows) || slices.Contains(rows, "") {
+		return false
+	}
+	indent := len(rows[0])
+	for _, r := range rows {
+		indent = min(indent, len(r)-len(strings.TrimLeft(r, " ")))
+	}
+	for i, r := range rows {
+		rows[i] = r[indent:]
+	}
+	rows[0] = strings.TrimLeft(rows[0], " ")
+	for i := 0; i < len(want); i++ {
+		if e, ok := rowsFollow(g, y, rows, want, i); ok && (!end || e == len(want)) {
+			return true
+		}
+		if start {
+			return false
+		}
+	}
+	return false
+}
+
+// rowsFollow matches rows, which start at row y of g, against want from byte i
+// and returns where they end. Wrapping moves a word down only if it would not
+// fit, and cuts one only on a full row, so any other row end is not in the
+// command.
+func rowsFollow(g vt.Grid, y int, rows []string, want string, i int) (end int, ok bool) {
+	full := g.Cols - wrapSlack
+	for k, r := range rows {
+		if k > 0 {
+			switch used := rowCells(g, y+k-1); {
+			case i == len(want):
+				return 0, false
+			case want[i] == ' ':
+				if used+1+wordCells(g, y+k) <= full {
+					return 0, false
+				}
+				i++
+				r = strings.TrimPrefix(r, " ")
+			case used < full:
+				return 0, false
+			}
+		}
+		if !strings.HasPrefix(want[i:], r) {
+			return 0, false
+		}
+		i += len(r)
+	}
+	return i, true
+}
+
+// blankCell reports a cell with nothing drawn in it. A wide character's second
+// cell has no width, and it is drawn.
+func blankCell(c vt.Cell) bool { return c.Width != 0 && (c.Content == "" || c.Content == " ") }
+
+// rowCells is how many cells of row y of g reach its last drawn one.
+func rowCells(g vt.Grid, y int) int {
+	for x := g.Cols - 1; x >= 0; x-- {
+		if !blankCell(g.At(x, y)) {
+			return x + 1
+		}
+	}
+	return 0
+}
+
+// wordCells is how many cells the first word of row y of g takes.
+func wordCells(g vt.Grid, y int) int {
+	n := 0
+	for x := 0; x < g.Cols; x++ {
+		switch {
+		case !blankCell(g.At(x, y)):
+			n++
+		case n > 0:
+			return n
+		}
+	}
+	return n
 }
 
 // squeeze keeps s's letters and digits, lowercased: a terminal wraps and

@@ -1136,9 +1136,9 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.SeePane:
 		return d.seePane(m.Pane)
 	case proto.Answer:
-		return d.remoteAnswer(m.Pane, m.At, m.Allow)
+		return d.answerNotice(d.remoteAnswer(m.Pane, m.At, m.Allow))
 	case proto.Press:
-		return d.pressOffer(m.Pane, m.At, m.Label)
+		return d.answerNotice(d.pressOffer(m.Pane, m.At, m.Label))
 	case proto.Prompt:
 		return d.prompt(m)
 	case proto.Send:
@@ -1529,6 +1529,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.pathPopups, id)
 	delete(d.live.explanations, id)
 	delete(d.live.lastHook, id)
+	delete(d.live.asked, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.hookSeq, id)
 	delete(d.live.fg, id)
@@ -1679,6 +1680,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		prev = &cp
 	}
 	now := time.Now()
+	// why: UpdatedAt names the prompt an answer is for, and a coarse clock, as on Windows, gives two reports one time.
+	if prev != nil && !now.After(prev.UpdatedAt) {
+		now = prev.UpdatedAt.Add(time.Nanosecond)
+	}
 	changed := false
 	limit := func() {} // a turn that ended on a usage limit schedules its resume
 	// why: a held `pi -p` pane shuts down right after its result; the tab keeps showing it.
@@ -1688,7 +1693,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 
 	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
+	command, asks := agent.AskedCommand(m.Payload)
+	// why: Derive sees no change in two requests with one description, and an answer to the first must not land on the second.
+	if asks && !derived && prev != nil && prev.State == model.StatePendingApproval && command != d.askedOf(*prev) {
+		next, derived = *prev, true
+		next.UpdatedAt = now
+		next.Buttons, next.Menu = nil, false
+	}
 	if derived {
+		d.bindAsked(p.ID, prev, next, command, asks)
 		if d.live.lastHook == nil {
 			d.live.lastHook = map[string]proto.AgentHook{}
 		}

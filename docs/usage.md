@@ -197,10 +197,28 @@ A tab whose Claude Code or Codex asks permission shows Allow and Deny on
 its sidebar row, or on the asking pane's own row when the tab lists its
 agents, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
 focused pane, else for the shown tab. They press the same keys the
-[phone page](phone.md) does, and only while the pane still shows the prompt
-the row showed, so a click never lands on a newer question. With a decision
-model, its advice stays in the pill above them, and the button it
-recommends is outlined. Where the prompt offers to stop asking, such as
+[phone page](phone.md) does, and only while the row is current and the pane
+shows a permission prompt.
+
+When the agent's hook reported a shell command, Allow, Deny and Always also
+need the prompt to show that command. pitwall allows for line wrapping and the
+prompt's own indent, and any other difference counts, spaces included. If the
+prompt shows only part of a long command, the part it shows is what pitwall
+compares, and the rest goes unchecked. pitwall cannot compare a command with a
+line break, which means any multi-line command, a tab, a space other than a
+plain one or a character that does not print, even at its very start or end, so
+it always refuses those. On a refusal, a mismatch or a prompt
+layout pitwall cannot read a command from, such as a form scrolled past its title
+with several blocks of text left on screen, nothing is pressed and a notice in the
+window says why, until you close it or an answer lands.
+
+An edit, a fetch or any other prompt with no reported command gets no such
+comparison, and neither does a row whose report came before a daemon restart.
+A newer prompt could take that answer, so read it first. A click counts only
+if the row showed the same prompt from pressing the button to releasing it.
+
+With a decision model, its advice stays in the pill above them, and the
+button it recommends is outlined. Where the prompt offers to stop asking, such as
 Claude Code's "Yes, and don't ask again" or Codex's "(a)" option, an
 **Always** button comes up beside them within a second and presses that
 option. A prompt with two such options gets no button.

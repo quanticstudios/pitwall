@@ -339,6 +339,274 @@ func TestAllowNeedsPermissionForm(t *testing.T) {
 	}
 }
 
+// The prompt screen for a command, rows being what the rules around it hold.
+func commandForm(rows ...string) []string {
+	form := append([]string{" Bash command", " Create a directory", " ╌╌╌╌╌╌"}, rows...)
+	return append(form, " ╌╌╌╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and don't ask again for mkdir", "   3. No", "", " Esc to cancel · Tab to amend")
+}
+
+// Allow, Deny and Always land only on the command the hook reported, which an
+// agent's next prompt can replace before its own hook arrives. Whichever way
+// the answer is sent, it goes through remoteAnswer or pressOffer.
+func TestAnswerNeedsTheCommand(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	ctx := context.Background()
+	report := func(payload string) int64 {
+		t.Helper()
+		if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+			t.Fatal(err)
+		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+	}
+	show := func(rows ...string) {
+		f.pane(0).mu.Lock()
+		f.pane(0).screen, f.pane(0).input = commandForm(rows...), nil
+		f.pane(0).mu.Unlock()
+	}
+	const asks = `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/remote ./internal/ui/sidebar","description":"Run the tests"}}`
+	report(`{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash"}`)
+	at := report(asks)
+
+	show(" go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/secret")
+	for name, answer := range map[string]func() error{
+		"allow":  func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) },
+		"deny":   func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) },
+		"always": func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) },
+	} {
+		if err := answer(); err == nil || !strings.Contains(err.Error(), "answer it in its tab") || f.pane(0).got() != "" {
+			t.Errorf("%s on a changed command: %v %q", name, err, f.pane(0).got())
+		}
+	}
+
+	show(" go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/remote", " ./internal/ui/sidebar")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil {
+		t.Fatalf("allow on the same command, wrapped: %v", err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+		t.Fatalf("allow sent %q", got)
+	}
+
+	// The Notification that follows the request is the same prompt.
+	at = report(`{"hook_event_name":"Notification","session_id":"s","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}`)
+	show(" rm -rf ~")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err == nil || f.pane(0).got() != "" {
+		t.Errorf("allow after the notification: %v %q", err, f.pane(0).got())
+	}
+
+	// With no command reported, what stands is today's check of the prompt.
+	report(`{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Bash"}`)
+	at = report(`{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Edit","tool_input":{"file_path":"a.go"}}`)
+	show(" anything")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil {
+		t.Fatalf("allow with no command to compare: %v", err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+		t.Fatalf("allow sent %q", got)
+	}
+}
+
+// What cannot be compared is refused through the whole answer path: a command
+// with a newline or tab, and a screen with no row of the command left.
+func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
+	for _, tc := range []struct {
+		name, command string
+		rows          []string
+		scrolled      bool // the upper rule is off screen
+	}{
+		{"only the count row", "echo safe", []string{" +3 lines, +2 above (ctrl+o to see more)"}, true},
+		{"a tab", "mkdir '/tmp/a\tb'", []string{" mkdir '/tmp/ab'"}, false},
+		{"a newline", "echo safe\nrm -rf /tmp/victim", []string{" echo safe", " rm -rf /tmp/victim"}, false},
+		{"spaces before a newline", "printf '%s' 'a  \nb'", []string{" printf '%s' 'a", " b'"}, false},
+		{"a newline off screen", "rm -rf /tmp/victim\necho safe", []string{" echo safe"}, true},
+		{"scrolled past the title, with several blocks", "echo safe", []string{" rm -rf /tmp/wrong", " ╌╌╌╌╌╌", " echo safe"}, true},
+		{"a trailing newline", "echo safe\n", []string{" echo safe"}, false},
+		{"a leading tab", "\techo safe", []string{" echo safe"}, false},
+		{"a trailing carriage return", "echo safe\r", []string{" echo safe"}, false},
+		{"a trailing nonbreaking space", "rm -- /tmp/keep\u00a0", []string{" rm -- /tmp/keep"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, f, _ := remoteDaemon(t)
+			d.o.Derive = agent.Derive
+			ctx := context.Background()
+			payload, err := json.Marshal(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s", "tool_name": "Bash", "tool_input": map[string]string{"command": tc.command, "description": "Run"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: payload}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+			d.mu.Unlock()
+			f.pane(0).mu.Lock()
+			f.pane(0).screen, f.pane(0).input = commandForm(tc.rows...), nil
+			if tc.scrolled {
+				f.pane(0).screen = f.pane(0).screen[3:]
+			}
+			f.pane(0).mu.Unlock()
+			for name, answer := range map[string]func() error{
+				"allow":  func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) },
+				"deny":   func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) },
+				"always": func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) },
+			} {
+				if err := answer(); err == nil || !strings.Contains(err.Error(), "answer it in its tab") || f.pane(0).got() != "" {
+					t.Errorf("%s: %v %q", name, err, f.pane(0).got())
+				}
+			}
+		})
+	}
+}
+
+// A hook that changes the command moves the row on, even when Derive sees no
+// change in it, so an answer to the old command cannot land on the new one.
+func TestNewCommandMovesTheRow(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	ctx := context.Background()
+	asks := func(command string) int64 {
+		t.Helper()
+		payload := fmt.Sprintf(`{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":%q,"description":"Run command"}}`, command)
+		if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+			t.Fatal(err)
+		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+	}
+	first := asks("echo safe")
+	if again := asks("echo safe"); again != first {
+		t.Errorf("the same command moved the row: %d, was %d", again, first)
+	}
+	second := asks("rm -rf /tmp/target")
+	if second <= first {
+		t.Fatal("a new command kept the row's timestamp")
+	}
+	f.pane(0).mu.Lock()
+	f.pane(0).screen, f.pane(0).input = commandForm(" rm -rf /tmp/target"), nil
+	f.pane(0).mu.Unlock()
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: first, Allow: true}); err == nil || f.pane(0).got() != "" {
+		t.Fatalf("an answer to the old command: %v %q", err, f.pane(0).got())
+	}
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: second, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+		t.Fatalf("allow sent %q", got)
+	}
+}
+
+// A window shows no request's error, so a refused answer shows as its notice
+// until one lands. The phone's page reads the error, and its state stays as it is.
+func TestRefusedAnswerShowsANotice(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	ctx := context.Background()
+	payload := `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"echo safe","description":"Run"}}`
+	if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+		t.Fatal(err)
+	}
+	notice := func() string {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.st.Notice
+	}
+	d.mu.Lock()
+	at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+	d.mu.Unlock()
+	show := func(row string) {
+		f.pane(0).mu.Lock()
+		f.pane(0).screen, f.pane(0).input = commandForm(row), nil
+		f.pane(0).mu.Unlock()
+	}
+	show(" rm -rf ~")
+	if err := d.remoteAnswer("a", at, true); err == nil || notice() != "" {
+		t.Errorf("the phone's path: %v, notice %q", err, notice())
+	}
+	for name, refused := range map[string]any{
+		"answer": proto.Answer{Pane: "a", At: at, Allow: true},
+		"press":  proto.Press{Pane: "a", At: at, Label: agent.AllowAlways},
+	} {
+		d.mu.Lock()
+		d.st.Notice = ""
+		d.mu.Unlock()
+		if err := d.handle(ctx, refused); err == nil || !strings.Contains(notice(), "answer it in its tab") {
+			t.Errorf("%s: %v, notice %q", name, err, notice())
+		}
+	}
+	show(" echo safe")
+	if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil || notice() != "" {
+		t.Errorf("an answer that lands: %v, notice %q", err, notice())
+	}
+}
+
+// A coarse clock gives two reports one time, and UpdatedAt must still tell their
+// prompts apart. A clock set back does the same on every platform.
+func TestReportMovesTheTimestampForward(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	d.mu.Lock()
+	i := d.activityIndex("a")
+	d.st.Activities[i].UpdatedAt = time.Now().Add(time.Hour)
+	before := d.st.Activities[i].UpdatedAt
+	d.mu.Unlock()
+	payload := `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"echo safe","description":"Run"}}`
+	if err := d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+		t.Fatal(err)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if got := d.st.Activities[d.activityIndex("a")].UpdatedAt; !got.After(before) {
+		t.Errorf("UpdatedAt %v, was %v", got, before)
+	}
+}
+
+// A command belongs to its activity: a later agent in the same pane, which
+// reports none, is not held to it.
+func TestAskedEndsWithItsActivity(t *testing.T) {
+	const asks = `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"mkdir /tmp/old","description":"Create"}}`
+	const notifies = `{"hook_event_name":"Notification","session_id":"t","notification_type":"permission_prompt","message":"Permission needed"}`
+	for name, end := range map[string]func(d *Daemon){
+		"dropped": func(d *Daemon) { d.dropActivity("a") },
+		"replaced": func(d *Daemon) {
+			i := d.activityIndex("a")
+			d.st.Activities[i].UpdatedAt = d.st.Activities[i].UpdatedAt.Add(time.Second)
+		},
+		"working in the same clock tick": func(d *Daemon) {
+			d.st.Activities[d.activityIndex("a")].State = model.StateWorking
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, f, _ := remoteDaemon(t)
+			d.o.Derive = agent.Derive
+			ctx := context.Background()
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(asks)}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			end(d)
+			d.mu.Unlock()
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(notifies)}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+			d.mu.Unlock()
+			f.pane(0).mu.Lock()
+			f.pane(0).screen, f.pane(0).input = commandForm(" npm test"), nil
+			f.pane(0).mu.Unlock()
+			if err := d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}); err != nil {
+				t.Fatalf("held to the old agent's command: %v", err)
+			}
+			if got := gotAfter(t, f.pane(0), 0, 1); got != "1" {
+				t.Fatalf("allow sent %q", got)
+			}
+		})
+	}
+}
+
 // A phone's reply on a menu is refused: its Enter would pick the highlighted
 // option, and what was typed would be lost.
 func TestReplyRefusesMenu(t *testing.T) {

