@@ -390,15 +390,15 @@ func (u *ui) deleteChanges(ws string) []gl.FlexChild {
 		return []gl.FlexChild{note("", "Git refuses if it has uncommitted files.")}
 	}
 	r, ok := u.worktreeReply(proto.WorktreeQuery{WorkspaceID: ws})
-	switch {
-	case !ok:
+	if !ok {
 		return []gl.FlexChild{note("", "Checking for uncommitted files…")}
-	case r.Err != "":
-		return []gl.FlexChild{note("warn", r.Err)}
 	}
 	var used []gl.FlexChild
 	if len(r.UsedBy) > 0 {
 		used = append(used, note("warn", "Also used by "+strings.Join(r.UsedBy, ", ")+". Removing this folder leaves those tabs without their folder."))
+	}
+	if r.Err != "" {
+		return append(used, note("warn", r.Err))
 	}
 	if len(r.Changed) == 0 {
 		return append(used, note("", "It has no uncommitted files."))

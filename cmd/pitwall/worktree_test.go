@@ -197,3 +197,16 @@ func TestWorktreeRemoveSharedFolder(t *testing.T) {
 		t.Fatalf("warning %q", stderr.String())
 	}
 }
+
+func TestWorktreePruneKeepsNestedTab(t *testing.T) {
+	repo := gitRepo(t)
+	tree := filepath.Join(repo, ".worktrees", "used")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-b", "used", tree).CombinedOutput(); err != nil {
+		t.Fatalf("worktree: %v %s", err, out)
+	}
+	t.Chdir(repo)
+	fakeCLI(t, cliExchange{state: model.State{Workspaces: []model.Workspace{{ID: "fork", Path: filepath.Join(tree, "sub")}}}})
+	if code, out, stderr := worktreeOutput("prune"); code != 0 || !strings.Contains(out, "Every worktree under .worktrees has a tab.") {
+		t.Fatalf("prune %d %q %s", code, out, stderr)
+	}
+}

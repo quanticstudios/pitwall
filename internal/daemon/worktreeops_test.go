@@ -118,3 +118,45 @@ func TestWorktreeQueries(t *testing.T) {
 		t.Fatalf("orphans after delete %+v", got.Orphans)
 	}
 }
+
+func TestNestedTabProtectsWorktreeCleanup(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	must(t, err)
+	gitIn(t, repo, "init", "--initial-branch=main")
+	gitIn(t, repo, "commit", "--allow-empty", "-m", "init")
+	tree := filepath.Join(repo, ".worktrees", "used")
+	gitIn(t, repo, "worktree", "add", "-b", "used", tree)
+	sub := filepath.Join(tree, "sub")
+	must(t, os.Mkdir(sub, 0o700))
+	must(t, os.WriteFile(filepath.Join(sub, "keep"), []byte("keep"), 0o600))
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.RepoRoot, o.RemoveWorktree, o.Orphans = gitstat.RepoRoot, gitstat.RemoveWorktree, pruneOrphans
+	d := newDaemon(t, o)
+	ctx := t.Context()
+	must(t, d.handle(ctx, proto.NewSession{Name: "nested fork", Cwd: sub}))
+	must(t, d.handle(ctx, proto.AddProject{Path: repo}))
+	if got := d.worktreeQuery(ctx, proto.WorktreeQuery{Orphans: true}); got.Err != "" || len(got.Orphans) != 0 {
+		t.Errorf("nested tab listed as orphan: %+v", got)
+	}
+	if err := d.handle(ctx, proto.DeleteWorktree{Root: repo, Path: tree, Force: true}); err == nil || !strings.Contains(d.state().Notice, "nested fork") {
+		t.Errorf("cleanup refusal %v, notice %q", err, d.state().Notice)
+	}
+	if _, err := os.Stat(filepath.Join(sub, "keep")); err != nil {
+		t.Fatalf("nested file lost: %v", err)
+	}
+	must(t, d.handle(ctx, proto.NewSession{Name: "owner", Cwd: tree}))
+	st := d.state()
+	owner := st.Workspaces[1].ID
+	d.mu.Lock()
+	d.workspace(owner).WorktreeRoot = repo
+	d.st.Notice = ""
+	d.mu.Unlock()
+	must(t, os.RemoveAll(tree))
+	if query := d.worktreeQuery(ctx, proto.WorktreeQuery{WorkspaceID: owner}); query.Err == "" || !slices.Equal(query.UsedBy, []string{"nested fork"}) {
+		t.Fatalf("missing folder query %+v", query)
+	}
+	if err := d.handle(ctx, proto.DeleteWorkspace{WorkspaceID: owner}); err == nil || !strings.Contains(d.state().Notice, "nested fork") {
+		t.Fatalf("shared refusal %v, notice %q", err, d.state().Notice)
+	}
+}

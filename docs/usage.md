@@ -85,10 +85,11 @@ pitwall fork @pane-id                # a pane id from pitwall ls --json
 ```
 
 The command prints the new tab's number. Menu forks and CLI forks from outside
-any pane have no parent. A menu fork sits right after its source in the
-same session and group. A CLI fork run inside a pane joins the calling
-pane's session and group and hangs under its tab, like `pitwall new`. A
-user's menu fork does not count as an orchestrator's child for `wait --children`.
+any pane have no parent. A menu fork appears after its source and that
+source's children, in the same session and group. A CLI fork run inside a
+pane joins the calling pane's session and group and hangs under its tab,
+like `pitwall new`. A user's menu fork does not count as an orchestrator's
+child for `wait --children`.
 Claude Code uses `--resume <id> --fork-session`;
 Codex uses `fork <id>`. Both need a stored session id from the source pane.
 The fork accepts its own id only after a hook reports one different from
@@ -702,7 +703,9 @@ When the pull request has merged, the row says Merged and its hover buttons
 add Archive, which closes the tab and, for a worktree pitwall made, removes
 the worktree and deletes the branch, as Delete does with its box ticked.
 Set `archive_on_merge = true` under `[git]` to archive a merged worktree
-tab without the click.
+tab without the click. If another tab uses its folder or a subfolder,
+archiving refuses and shows a notice naming that tab. After closing the
+other tab, archive manually; closing it does not retry the automatic archive.
 
 In Settings, Agents, Pull requests, turn on **Send CI failures automatically**
 or **Send requested changes automatically**. Both are off by default. The

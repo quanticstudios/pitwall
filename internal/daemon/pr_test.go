@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +114,9 @@ func TestPollPRs(t *testing.T) {
 		t.Fatalf("archive removed %q", removed)
 	}
 	d.mu.Lock()
+	if !strings.Contains(d.st.Notice, "feature") {
+		t.Errorf("archive refusal notice %q", d.st.Notice)
+	}
 	if d.workspace("w") == nil || d.workspace("w2") == nil {
 		t.Fatalf("archive must keep a folder another tab uses: %+v", d.st.Workspaces)
 	}

@@ -161,7 +161,7 @@ func worktreeCommand(ctx context.Context, args []string, out, errOut io.Writer) 
 	if err := gitstat.Prune(ctx, root); err != nil {
 		return err
 	}
-	orphans, err := gitstat.Orphans(ctx, root, func(p string) bool { return tabAt(state, p) != nil })
+	orphans, err := gitstat.Orphans(ctx, root, func(p string) bool { return len(state.WorktreeUsers(p, "")) > 0 })
 	if err != nil {
 		return err
 	}

@@ -33,3 +33,17 @@ func TestDeleteSharedWorktree(t *testing.T) {
 		t.Fatalf("delete %v", got)
 	}
 }
+
+func TestDeleteWaitsForWorktreeCheck(t *testing.T) {
+	for _, reply := range []proto.WorktreeInfo{{}, {Query: proto.WorktreeQuery{WorkspaceID: "w4"}, Err: "folder is gone", UsedBy: []string{"side"}}} {
+		b := NewFakeBackend()
+		u := &ui{b: b}
+		st := b.State()
+		b.tree = reply
+		u.modal.open(modalDelete, "w4")
+		u.confirmModal(&st)
+		if u.modal.kind != modalDelete || len(b.Sent()) != 0 {
+			t.Fatalf("delete closed or sent before check: reply %+v, sent %v", reply, b.Sent())
+		}
+	}
+}

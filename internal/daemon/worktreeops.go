@@ -7,6 +7,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -34,15 +35,12 @@ func (d *Daemon) orphans(ctx context.Context) ([]model.Orphan, error) {
 			roots = append(roots, p.Root)
 		}
 	}
-	used := map[string]bool{}
-	for _, w := range d.st.Workspaces {
-		used[filepath.Clean(w.Path)] = true
-	}
+	st := model.State{Workspaces: slices.Clone(d.st.Workspaces)}
 	d.mu.Unlock()
 	var out []model.Orphan
 	var errs []error
 	for _, root := range roots {
-		o, err := d.o.Orphans(ctx, root, func(p string) bool { return used[filepath.Clean(p)] })
+		o, err := d.o.Orphans(ctx, root, func(p string) bool { return len(st.WorktreeUsers(p, "")) > 0 })
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", root, err))
 		}
@@ -139,15 +137,20 @@ func (d *Daemon) deleteWorktree(ctx context.Context, m proto.DeleteWorktree) err
 	path := filepath.Clean(m.Path)
 	d.mu.Lock()
 	known := slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.Kind == model.ProjectGit && p.Root == m.Root })
-	used := slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return filepath.Clean(w.Path) == path })
+	users := d.st.WorktreeUsers(path, "")
 	d.mu.Unlock()
 	switch {
 	case !known:
 		return fmt.Errorf("no git group at %s", m.Root)
 	case filepath.Dir(path) != filepath.Join(m.Root, ".worktrees"):
 		return fmt.Errorf("%s is not under %s", path, filepath.Join(m.Root, ".worktrees"))
-	case used:
-		return fmt.Errorf("a tab uses %s", path)
+	case len(users) > 0:
+		err := fmt.Errorf("tabs %s use %s", strings.Join(users, ", "), path)
+		d.mu.Lock()
+		d.st.Notice = "Worktree not removed: " + err.Error()
+		d.changed()
+		d.mu.Unlock()
+		return err
 	}
 	return d.o.RemoveWorktree(ctx, m.Root, path, false, m.Force)
 }

@@ -1381,8 +1381,11 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 			if users := d.st.WorktreeUsers(ws.Path, ws.ID); len(users) > 0 {
 				message := "worktree folder is also used by tabs " + strings.Join(users, ", ") + "; removing it leaves those tabs without their folder"
 				if !m.Force {
+					err := fmt.Errorf("%s; force is required", message)
+					d.st.Notice = "Worktree not removed: " + err.Error()
+					d.changed()
 					d.mu.Unlock()
-					return fmt.Errorf("%s; force is required", message)
+					return err
 				}
 				log.Print(message)
 			}
