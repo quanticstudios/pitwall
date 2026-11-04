@@ -260,6 +260,35 @@ Cursor send nothing until their first prompt). Install lists what would
 change in each config, then installs on confirm. Settings > Agents has the
 same button. Agents already running load their hooks only when restarted.
 
+### Keep the machine awake
+
+Turn on **Keep awake** in Settings, Agents to block Linux sleep or macOS
+idle sleep while any agent is Working, including chat turns. The setting
+is off by default. Agents waiting for approval or at a prompt do not count. **Keep awake grace**
+keeps the inhibitor for 15 minutes after no agent works. Enter a duration
+such as `10s`, `15m` or `48h`; `0s` releases at once. Press Enter or leave
+the field to save. Clear the field to reset it to 15 minutes. Both settings
+apply live. Turning Keep awake off releases the inhibitor without waiting.
+The config keys are `[agents] keep_awake` and `keep_awake_grace = "15m"`.
+
+Linux takes a logind `sleep` block lock, leaving idle reporting alone. The
+screen can still lock and sleep. Automatic suspend requested through
+logind respects the lock. Manual Suspend or the sleep key may be refused
+while the lock is held. A closed lid may still suspend the machine; that
+follows the machine's settings. Compositor idle daemons may also need to
+honor sleep inhibitors.
+
+Systemd 262.1's [idle-suspend path](https://github.com/systemd/systemd/blob/v262.1/src/login/logind.c#L1160)
+checks sleep inhibitors. Real suspend, other `IdleAction` values and
+desktop overrides remain unverified. macOS runs `caffeinate -i -w <daemon pid>`
+only while the inhibitor is needed. It prevents idle sleep only; it does
+not block manual sleep. Windows and other platforms do nothing.
+
+An agent stuck in Working keeps the machine awake without a time limit,
+even if its row says quiet. A failed turn that sends no hook can cause
+this. The grace period starts only after no agent is Working. Turn Keep
+awake off to release the lock.
+
 ### Sessions
 
 <img src="media/sessions.webp" alt="The session switcher: three sessions with their agents and live counts on the left, the highlighted session's sidebar on the right" width="640">

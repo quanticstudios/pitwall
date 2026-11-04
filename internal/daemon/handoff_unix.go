@@ -464,6 +464,9 @@ func takeover(uc *net.UnixConn, conn *proto.Conn, o Options) (*Daemon, *net.Unix
 	// them as it exits. shortcut: a command in that window opens a chat
 	// the old daemon still has open; moving chats in the bundle ends it.
 	d.loadChats()
+	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool {
+		return a.State == model.StateWorking && d.panes[a.PaneID] == nil
+	})
 	d.tidy()
 	d.mu.Unlock()
 	ln.SetUnlinkOnClose(true)
