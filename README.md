@@ -4,9 +4,9 @@
 pitwall is a desktop terminal for running several coding agents at once,
 with a sidebar that shows what each one is doing right now.
 
-Run five agents in five tabs and one of them is always stuck waiting on
-you, on a permission prompt or a question you have not seen. pitwall lights
-up that tab, notifies you, and takes you there with one key.
+Run five agents in five tabs and sooner or later one stops to wait on you, on
+a permission prompt or a question you have not seen. pitwall lights up that
+tab, notifies you, and takes you there with one key.
 
 - Free and open source, under the MIT license. No account.
 - A desktop app for Linux, macOS and Windows, on x86_64 and arm64.
@@ -29,15 +29,17 @@ scoop install pitwall                     # Windows, with Scoop
 irm https://raw.githubusercontent.com/quanticstudios/pitwall/main/scripts/get.ps1 | iex   # or the script
 ```
 
-Then run `pitwall`. The first window lists the agents on your `PATH` and
-sets up their status reporting with one button. `pitwall doctor` checks the
-install and prints the command that fixes each failure. pitwall runs every
-day on Linux; the macOS and Windows builds are newer and have had little use.
-When a release is out, an Update button installs it, and your tabs and config
-carry over. [docs/install.md](docs/install.md) covers platforms, pinning a
-version, updates and building from source.
+Then run `pitwall`. `get.sh` installs it in `~/.local/bin`, so if your shell
+can't find it, add that folder to your `PATH` or run `~/.local/bin/pitwall`. The
+first window lists the agents on your `PATH` and sets up their status reporting
+with one button. `pitwall doctor` checks the install and says what to fix.
+pitwall runs every day on Linux; the macOS and Windows builds are newer and have
+had little use. When a release is out, an Update button installs it on a script
+install, and your tabs and config carry over; with Homebrew or Scoop, use
+`brew upgrade` or `scoop update pitwall`. [docs/install.md](docs/install.md)
+covers platforms, pinning a version, updates and building from source.
 
-## Try it in five minutes
+## Try it
 
 Use a git repo you don't mind agents changing. On macOS the keys below
 are Cmd+U, Cmd+Shift+Y, Cmd+Shift+N, Cmd+Shift+R and Cmd+T.
@@ -55,11 +57,11 @@ are Cmd+U, Cmd+Shift+Y, Cmd+Shift+N, Cmd+Shift+R and Cmd+T.
    started waiting most recently; press it again for the next one.
 4. **Answer from the row.** A Claude Code or Codex permission prompt puts
    Allow and Deny on the row. Click them, or press Ctrl+Shift+Y or
-   Ctrl+Shift+D. A single-choice Claude Code question puts its options there.
-   To answer from a phone, turn it on in Settings, Phone, press Pair and
-   scan the QR code; the phone has to reach your computer, for example over
-   Tailscale
-   ([docs/phone.md](docs/phone.md)).
+   Ctrl+Shift+D. A Claude Code question pitwall recognizes in full puts its
+   options there; otherwise the row offers Open tab or Reply. To answer from a
+   phone, turn it on in Settings, Phone and give it an address the phone can
+   reach, as [docs/phone.md](docs/phone.md) shows with Tailscale, since by
+   default only your computer can reach it. Then press Pair and scan the QR code.
 5. **Ask for a fleet.** Tell Claude Code or Codex "split this across three
    workers". Each worker gets its own worktree and tab, and a small row under
    the orchestrator's. Click the count on that row to fold them away.
@@ -104,25 +106,28 @@ its agent resumed.
 <img src="docs/media/row-answers.webp" alt="Sidebar rows answering in place: a Codex pane's approval with Always, Allow and Deny, and under an orchestrator's row four workers, one with Allow and Deny and one asking which database to use with Redis and SQLite buttons" width="288" align="right">
 
 **Answer a prompt from its row, without opening the tab.** A Claude Code or
-Codex permission prompt shows Allow and Deny, plus Always when the prompt
-offers to stop asking. A single-choice Claude Code question shows its options
-as buttons. A Claude Code plan shows Approve plan, which never raises the
-permission mode, and a button to request changes. A question with no menu gets
-Reply, a small editor under the row. A multi-select or several questions at
-once show Open tab. pitwall reads the screen again right before a press, and
-if the form changed, it presses nothing. Ctrl+Shift+Y and Ctrl+Shift+D press
-Allow and Deny, and on Linux the notification has them too.
+Codex permission prompt shows Allow and Deny, plus Always when the prompt has
+one clear option to stop asking. When pitwall recognizes a whole Claude Code
+form on screen, a single-choice question shows its options as buttons, and a
+plan that offers manual approval shows Approve plan, which never raises the
+permission mode. Otherwise the row offers Open tab, or Reply for a question with
+no menu. An option, Always or Approve plan presses only if the screen still
+offers it. Allow and Deny check that the row is current and a permission prompt
+is on screen, not that the command is unchanged, so read it first.
+Ctrl+Shift+Y and Ctrl+Shift+D press them, and on Linux the notification has
+them too.
 
 <br clear="right">
 
 <img src="docs/media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box" width="240" align="right">
 
 **Or answer from your phone.** Pair it by QR code and it lists what needs you,
-with Allow and Deny and a box for typed answers, and gets push notifications
-while locked. A menu on an agent's screen takes no typed reply, so answer that
-one in its tab or from the sidebar. There is no account and no relay: the
-phone talks to your computer over your own network. Push notifications go
-through the phone browser's push service, encrypted.
+with Allow and Deny and a box for typed answers. A menu on an agent's screen
+takes no typed reply, so answer that one in its tab or from the sidebar. There
+is no account and no relay: the phone talks to your computer over your own
+network. [Push notifications](docs/phone.md#notifications) need separate setup:
+a certificate the phone trusts, Turn on on the page, and on an iPhone the Home
+Screen. They go through the browser's push service, encrypted.
 
 <br clear="right">
 
@@ -204,14 +209,16 @@ Stage hunks in terminal runs `git add -p` on the host. Second opinion starts
 the other agent read only in a split to review the changes, and sends its
 findings to the tab's agent.
 
-<img src="docs/media/review.webp" alt="The review view: three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and a Send 2 comments to claude button" width="800">
+<img src="docs/media/review.webp" alt="The review view: Branch, This turn and Staging scopes, three changed files on the left, the diff of rateLimit.ts on the right with two pending comments, and Second opinion and Send 2 comments to claude buttons" width="800">
 
 ### Run agents side by side without collisions
 
 **Give each agent its own git worktree, and pitwall warns you when their
 changes collide.** Start one from any branch or a pull request number. Each
-gets its own ports (3010-3019, then 3020-3029), so two dev servers stop
-fighting over 3000, and can copy `.env` and run your setup command. Once one of
+gets its own port block (3010-3019, then 3020-3029) in `PORT` and two more
+variables, and a dev server that uses them stops fighting over 3000. Vite and
+Astro need [a config line or a flag](docs/usage.md#worktree-ports-and-setup). A
+worktree can also copy `.env` and run your setup command. Once one of
 two branches has an open pull request, a row gets an amber triangle when they
 touch the same files and a red one when merging would conflict. The hover card
 lists every overlap and says which to merge first.
@@ -301,7 +308,8 @@ once, and the queue starts the next task as one finishes.
 in it on a prompt, and wait for the result with `pitwall wait`.** The tab
 shows up in your sidebar, so you can watch the work and type into it. When
 the new agent asks permission, `wait` stops and reports the question, and
-you answer it in the tab or from its row. pitwall never answers for an agent.
+you answer it in the tab or from its row. pitwall never approves a terminal
+agent's permission prompt by itself.
 Hand
 [the agent skill page](docs/agent-skill.md) to your agent and it knows the
 commands.
@@ -337,10 +345,11 @@ when the laptop closes. With `window = true` under `[[hosts]]`, one window shows
 this machine's sessions and that host's under their own headings, with a Waiting
 on you list of the agents blocked on any of them.
 
-**Keep awake,** off by default, in Settings, Agents, stops Linux sleep and macOS
-idle sleep while any agent is Working and for a grace period after, 15 minutes
-unless you change it. A closed lid may still suspend the machine, and on Windows
-it does nothing.
+**Keep awake,** off by default, in Settings, Agents, holds a logind sleep block
+on Linux and prevents idle sleep on macOS while any agent is Working and for a
+grace period after, 15 minutes unless you change it. The screen can still sleep,
+a closed lid or a suspend that ignores the block can still suspend Linux, and a
+Mac still sleeps when you tell it to. Windows does nothing.
 
 <img src="docs/media/sessions.webp" alt="The session switcher: sessions acme, billing and docs with their working and needs-you counts, and the billing session's tabs on the right" width="640">
 
