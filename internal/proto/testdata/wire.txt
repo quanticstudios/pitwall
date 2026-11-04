@@ -1,4 +1,4 @@
-18.61
+18.62
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -76,7 +76,7 @@ proto.FaviconResult{Dir string; Root string; Files []proto.FaviconFile}
 proto.FocusDir{Pane string; Dir layout.Direction}
 proto.FocusSession{WorkspaceID string; TabID string; SessionID string; Pane string}
 proto.ForgetTab{ID string}
-proto.ForkPane{Pane string; Worktree string; Name string}
+proto.ForkPane{Pane string; Worktree string; Name string; ParentPane string}
 proto.FormAnswer{ID string; Answers string; Cancel bool; Closed bool}
 proto.Frame{Pane string; Grid vt.Grid; Modes vt.Modes; ScrollOffset int; ScrollMax int; ScrollPushed uint64; PromptMarks bool}
 proto.FrameRows{Pane string; Rows []int; Cells []vt.Cell; Wrapped []bool; Cursor vt.Cursor; Title string; Modes vt.Modes; ScrollMax int; ScrollPushed uint64; Images []vt.Placement}
@@ -137,7 +137,7 @@ proto.TextResult{Pane string; Sel vt.Selection; Text string}
 proto.Tmux{From string; Args []string; Env []string}
 proto.TmuxResult{Output string; Error string}
 proto.View{Panes []string; Live []string}
-proto.WorktreeInfo{Query proto.WorktreeQuery; Err string; Default string; Local []string; Remote []string; GitHub bool; Changed []string; Unmerged bool; Orphans []model.Orphan}
+proto.WorktreeInfo{Query proto.WorktreeQuery; Err string; Default string; Local []string; Remote []string; GitHub bool; Changed []string; Unmerged bool; UsedBy []string; Orphans []model.Orphan}
 proto.WorktreeQuery{ProjectID string; WorkspaceID string; Orphans bool}
 session.Attachment{ID string; Kind string; Data string; MimeType string; Name string; SizeBytes int64; Path string; Text string}
 session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill}

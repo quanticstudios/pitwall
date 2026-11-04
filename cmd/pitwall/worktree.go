@@ -386,6 +386,17 @@ func removeWorktree(ctx context.Context, conn *cliConn, errOut io.Writer, state 
 		return fmt.Errorf("no worktree %q under %s (see pitwall worktree ls)", name, dir)
 	}
 	path := trees[i].Path
+	except := ""
+	if w := tabAt(state, path); w != nil {
+		except = w.ID
+	}
+	if users := state.WorktreeUsers(path, except); len(users) > 0 {
+		message := "worktree folder is also used by tabs " + strings.Join(users, ", ") + "; removing it leaves those tabs without their folder"
+		if !force {
+			return fmt.Errorf("%s; use --force to remove it", message)
+		}
+		fmt.Fprintln(errOut, "Warning: "+message)
+	}
 	if !force {
 		files, err := gitstat.Status(ctx, path)
 		if err != nil {

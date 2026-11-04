@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1001,7 +1002,7 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.AddProject:
 		return d.addProject(ctx, m)
 	case proto.ForkPane:
-		return d.forkPane(ctx, m)
+		return d.tryForkPane(ctx, m)
 	case proto.NewWorkspace:
 		return d.newWorkspace(ctx, m)
 	case proto.RenameWorkspace:
@@ -1376,6 +1377,16 @@ func (d *Daemon) deleteWorkspace(ctx context.Context, m proto.DeleteWorkspace) e
 	var ws model.Workspace
 	if w != nil {
 		ws = *w
+		if ws.WorktreeRoot != "" {
+			if users := d.st.WorktreeUsers(ws.Path, ws.ID); len(users) > 0 {
+				message := "worktree folder is also used by tabs " + strings.Join(users, ", ") + "; removing it leaves those tabs without their folder"
+				if !m.Force {
+					d.mu.Unlock()
+					return fmt.Errorf("%s; force is required", message)
+				}
+				log.Print(message)
+			}
+		}
 	}
 	d.mu.Unlock()
 	if w == nil {
@@ -1722,13 +1733,15 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if p.AgentMode != prevMode {
 		changed = true
 	}
-	if sid := d.o.SessionID(m.Provider, m.Payload); sid != "" && sid != p.SessionID {
+	sid := d.o.SessionID(m.Provider, m.Payload)
+	forkSource := sid != "" && sid == store.ForkSource(*p)
+	if sid != "" && sid != p.SessionID && !forkSource {
 		p.SessionID, p.Prompt, p.Transcript, changed = sid, "", "", true // a new session reports its own file
 		if !keepMode {
 			p.AgentMode = "" // and its own mode
 		}
 	}
-	if t := agent.Transcript(m.Payload); t != "" && t != p.Transcript {
+	if t := agent.Transcript(m.Payload); t != "" && t != p.Transcript && !forkSource {
 		p.Transcript, changed = t, true
 	}
 	if mode := agent.PermissionMode(m.Payload); mode != "" && mode != p.AgentMode && !keepMode {

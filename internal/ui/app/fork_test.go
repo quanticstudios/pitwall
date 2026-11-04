@@ -17,3 +17,19 @@ func TestSidebarFork(t *testing.T) {
 		t.Fatalf("fork messages %v, modal %v", got, u.modal.kind)
 	}
 }
+
+func TestDeleteSharedWorktree(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b}
+	b.tree = proto.WorktreeInfo{Query: proto.WorktreeQuery{WorkspaceID: "w4"}, UsedBy: []string{"side question"}}
+	if !u.deleteForce("w4") {
+		t.Fatal("shared folder needs confirmation")
+	}
+	st := b.State()
+	u.modal.kind = modalDelete
+	u.modal.ws = "w4"
+	u.confirmModal(&st)
+	if got := b.Sent(); len(got) != 1 || got[0] != (proto.DeleteWorkspace{WorkspaceID: "w4", Force: true}) {
+		t.Fatalf("delete %v", got)
+	}
+}

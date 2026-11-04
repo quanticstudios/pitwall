@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/store"
 )
 
 func TestForkPane(t *testing.T) {
@@ -32,16 +34,16 @@ func TestForkPane(t *testing.T) {
 	must(t, d.handle(ctx, proto.ForkPane{Pane: source, Name: "side"}))
 	st := d.state()
 	w := st.Workspaces[2]
-	if w.Parent != before.Workspaces[0].ID || w.ProjectID != st.Workspaces[1].ProjectID || w.SessionID != before.Workspaces[1].SessionID || w.Profile != "work" || w.Path != dir || w.WorktreeRoot != "" || w.Name != "side" {
+	if w.Parent != "" || w.ProjectID != st.Workspaces[1].ProjectID || w.SessionID != before.Workspaces[1].SessionID || w.Profile != "work" || w.Path != dir || w.WorktreeRoot != "" || w.Name != "side" {
 		t.Fatalf("fork tab %+v", w)
 	}
-	if got := f.pane(2).cfg; !slices.Equal(got.Cmd, []string{"codex", "fork", "--model", "gpt-6", "original"}) || !slices.Equal(got.Env, before.Panes[1].Env) {
+	if got := f.pane(2).cfg; !slices.Equal(got.Cmd, []string{"codex", "fork", "--model", "gpt-6", "--cd", dir, "original"}) || !slices.Equal(got.Env, before.Panes[1].Env) {
 		t.Fatalf("fork config %+v", got)
 	}
 	if p := st.Panes[1]; p.SessionID != "original" || !slices.Equal(p.Cmd, before.Panes[1].Cmd) || f.closed(1) {
 		t.Fatalf("source changed: %+v", p)
 	}
-	for _, tc := range []struct{ pane, why string }{{parent, "cannot fork agent"}, {"missing", "no pane"}} {
+	for _, tc := range []struct{ pane, why string }{{parent, "no agent is running in this pane"}, {"missing", "no pane"}} {
 		if err := d.handle(ctx, proto.ForkPane{Pane: tc.pane}); err == nil || !strings.Contains(err.Error(), tc.why) {
 			t.Errorf("fork %s = %v", tc.pane, err)
 		}
@@ -110,5 +112,110 @@ func TestForkPaneWorktree(t *testing.T) {
 	}
 	if got := gitIn(t, sourceTree, "status", "--porcelain"); !strings.Contains(got, "file") || !strings.Contains(got, "untracked") {
 		t.Fatalf("source changes lost: %s", got)
+	}
+}
+
+func TestForkCallerAndHookIdentity(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.RestoreCmd = store.RestoreCmd
+	d := newDaemon(t, o)
+	ctx := context.Background()
+	dir := t.TempDir()
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir, Cmd: []string{"claude"}}))
+	d.mu.Lock()
+	source := d.st.Panes[0].ID
+	d.st.Panes[0].Provider, d.st.Panes[0].SessionID = model.ProviderClaude, "source"
+	d.mu.Unlock()
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir}))
+	caller := d.state().Panes[1].ID
+	must(t, d.handle(ctx, proto.ForkPane{Pane: source, ParentPane: caller}))
+	st := d.state()
+	if w := st.Workspaces[2]; w.Parent != st.Workspaces[1].ID {
+		t.Fatalf("CLI parent %+v", w)
+	}
+	child := st.Panes[2].ID
+	useReportHooks(d)
+	for _, sid := range []string{"source", "child", "source"} {
+		payload := []byte(fmt.Sprintf(`{"hook_event_name":"SessionStart","source":"fork","session_id":%q,"transcript_path":%q}`, sid, "/"+sid+".jsonl"))
+		must(t, d.handle(ctx, proto.AgentEvent{Pane: child, Provider: model.ProviderClaude, Payload: payload}))
+		p := reportedPane(d, child)
+		if sid == "source" && p.SessionID == "source" || p.Transcript == "/source.jsonl" {
+			t.Fatalf("source hook accepted: %+v", p)
+		}
+	}
+	p := reportedPane(d, child)
+	if p.SessionID != "child" || !store.Resumes(p) || !slices.Equal(store.RestoreCmd(p), []string{"claude", "--resume", "child"}) {
+		t.Fatalf("child restore %+v", p)
+	}
+}
+
+func TestForkFailureNotice(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	if err := d.handle(t.Context(), proto.ForkPane{Pane: "missing"}); err == nil || !strings.Contains(d.state().Notice, "no pane missing") {
+		t.Fatalf("error = %v, notice = %q", err, d.state().Notice)
+	}
+}
+
+func TestPendingForkRestart(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	dir := t.TempDir()
+	must(t, d.handle(t.Context(), proto.NewSession{Cwd: dir, Cmd: []string{"claude"}}))
+	d.mu.Lock()
+	source := d.st.Panes[0].ID
+	d.st.Panes[0].Provider, d.st.Panes[0].SessionID = model.ProviderClaude, "source"
+	d.mu.Unlock()
+	must(t, d.handle(t.Context(), proto.ForkPane{Pane: source}))
+	child := d.state().Panes[1].ID
+	useReportHooks(d)
+	must(t, d.handle(t.Context(), proto.AgentEvent{Pane: child, Provider: model.ProviderClaude, Payload: []byte(`{"hook_event_name":"SessionStart","source":"fork","session_id":"source"}`)}))
+	snapshot := d.state()
+	o := f.options()
+	o.Load = func() (model.State, error) { return snapshot, nil }
+	o.RestoreCmd = store.RestoreCmd
+	restarted := newDaemon(t, o)
+	if p := reportedPane(restarted, child); !p.Exited || store.Resumes(p) || p.SessionID != "" {
+		t.Fatalf("pending fork restarted: %+v", p)
+	}
+}
+
+func TestCodexWorktreeFromDirectorySelector(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	must(t, err)
+	gitIn(t, repo, "init", "--initial-branch=main")
+	gitIn(t, repo, "commit", "--allow-empty", "-m", "init")
+	launch := t.TempDir()
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.RepoRoot, o.AddWorktree, o.Branch = gitstat.RepoRoot, gitstat.AddWorktree, gitBranch
+	d := newDaemon(t, o)
+	must(t, d.handle(t.Context(), proto.NewSession{Cwd: launch, Cmd: []string{"codex", "--cd", repo}}))
+	d.mu.Lock()
+	source := d.st.Panes[0].ID
+	d.st.Panes[0].Provider, d.st.Panes[0].SessionID = model.ProviderCodex, "s"
+	d.mu.Unlock()
+	must(t, d.handle(t.Context(), proto.ForkPane{Pane: source, Worktree: "fork"}))
+	target := filepath.Join(repo, ".worktrees", "fork")
+	if cfg := f.pane(1).cfg; cfg.Cwd != target || !slices.Equal(cfg.Cmd, []string{"codex", "fork", "--cd", target, "s"}) {
+		t.Fatalf("fork config %+v", cfg)
+	}
+}
+
+func TestForkCodexRelativeDirectory(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "sub")
+	must(t, os.Mkdir(target, 0o700))
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	must(t, d.handle(t.Context(), proto.NewSession{Cwd: dir, Cmd: []string{"codex", "-Csub"}}))
+	d.mu.Lock()
+	source := d.st.Panes[0].ID
+	d.st.Panes[0].Provider, d.st.Panes[0].SessionID = model.ProviderCodex, "s"
+	d.mu.Unlock()
+	must(t, d.handle(t.Context(), proto.ForkPane{Pane: source}))
+	if cfg := f.pane(1).cfg; cfg.Cwd != target || !slices.Equal(cfg.Cmd, []string{"codex", "fork", "--cd", target, "s"}) {
+		t.Fatalf("relative directory applied twice: %+v", cfg)
 	}
 }

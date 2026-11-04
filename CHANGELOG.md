@@ -25,7 +25,7 @@ build. Either step takes `--dry-run`.
 
 - A terminal Claude Code or Codex row answers more of what it asks: a question's options, Always on a permission prompt and Approve plan press their key, only while the screen still shows that form. A typed reply no longer goes into a menu of options, where its Enter picked the highlighted one.
 
-- Fork a Claude Code or Codex terminal conversation into a new tab with `pitwall fork` or the tab menu's Fork item; `--worktree` creates a branch from the source checkout with its own ports and setup, without copying uncommitted changes.
+- Fork a Claude Code or Codex terminal conversation into a new tab with `pitwall fork` or the tab menu's Fork item; `--worktree` creates a branch from the source checkout with its own ports and setup, without copying uncommitted changes. Menu forks have no parent; CLI forks inside a pane belong to the caller. Worktree deletion warns when another tab uses the folder.
 
 ## v0.1.13
 

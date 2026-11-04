@@ -369,7 +369,7 @@ func (u *ui) pickRow(gtx gl.Context, c *widget.Clickable, name string) gl.Dimens
 // changes, or an unmerged branch the user chose to delete.
 func (u *ui) deleteForce(ws string) bool {
 	r, ok := u.worktreeReply(proto.WorktreeQuery{WorkspaceID: ws})
-	return ok && r.Err == "" && (len(r.Changed) > 0 || u.modal.removeBranch && r.Unmerged)
+	return ok && r.Err == "" && (len(r.Changed) > 0 || len(r.UsedBy) > 0 || u.modal.removeBranch && r.Unmerged)
 }
 
 // maxChanged is how many changed files the delete dialog lists.
@@ -395,10 +395,15 @@ func (u *ui) deleteChanges(ws string) []gl.FlexChild {
 		return []gl.FlexChild{note("", "Checking for uncommitted files…")}
 	case r.Err != "":
 		return []gl.FlexChild{note("warn", r.Err)}
-	case len(r.Changed) == 0:
-		return []gl.FlexChild{note("", "It has no uncommitted files.")}
 	}
-	kids := []gl.FlexChild{gl.Rigid(gl.Spacer{Height: 6}.Layout), note("warn", "These uncommitted files are lost:")}
+	var used []gl.FlexChild
+	if len(r.UsedBy) > 0 {
+		used = append(used, note("warn", "Also used by "+strings.Join(r.UsedBy, ", ")+". Removing this folder leaves those tabs without their folder."))
+	}
+	if len(r.Changed) == 0 {
+		return append(used, note("", "It has no uncommitted files."))
+	}
+	kids := append(used, []gl.FlexChild{gl.Rigid(gl.Spacer{Height: 6}.Layout), note("warn", "These uncommitted files are lost:")}...)
 	for i, p := range r.Changed {
 		if i == maxChanged {
 			kids = append(kids, note("", "and "+strconv.Itoa(len(r.Changed)-i)+" more"))

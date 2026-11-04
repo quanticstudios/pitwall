@@ -53,7 +53,7 @@ func forkCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	after, err := syncCLI(conn, proto.ForkPane{Pane: p.ID, Worktree: worktree, Name: name})
+	after, err := syncCLI(conn, proto.ForkPane{Pane: p.ID, Worktree: worktree, Name: name, ParentPane: os.Getenv("PITWALL_PANE")})
 	if err != nil {
 		return err
 	}

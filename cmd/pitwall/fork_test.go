@@ -17,7 +17,7 @@ func TestForkCommand(t *testing.T) {
 			before.Workspaces[0].Tabs[0].Layout = &layout.Node{Pane: "lp"}
 			after := before
 			after.Workspaces = append(after.Workspaces, model.Workspace{ID: "fork", SessionID: "ls", Name: "side"})
-			fakeCLI(t, cliExchange{state: before, level: proto.Level}, cliExchange{request: proto.ForkPane{Pane: "lp", Name: "side", Worktree: "approach"}, state: after})
+			fakeCLI(t, cliExchange{state: before, level: proto.Level}, cliExchange{request: proto.ForkPane{Pane: "lp", Name: "side", Worktree: "approach", ParentPane: "lp"}, state: after})
 			t.Setenv("PITWALL_PANE", "lp")
 			args := []string{"--worktree", "approach", "-n", "side"}
 			if address != "" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -169,5 +170,30 @@ timebox = 15
 	write(false)
 	if code, _, stderr := worktreeOutput("new", "x", "--lane", "small", "--", "go"); code == 0 || !strings.Contains(stderr, "fleet mode") {
 		t.Errorf("fleet off: %d %q", code, stderr)
+	}
+}
+
+func TestWorktreeRemoveSharedFolder(t *testing.T) {
+	repo := gitRepo(t)
+	path := filepath.Join(repo, ".worktrees", "shared")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-b", "shared", path).CombinedOutput(); err != nil {
+		t.Fatalf("worktree: %v %s", err, out)
+	}
+	before := model.State{Workspaces: []model.Workspace{{ID: "owner", Path: path, WorktreeRoot: repo}, {ID: "fork", Path: path, NameSet: true, Name: "side question"}}}
+	var stderr bytes.Buffer
+	if err := removeWorktree(context.Background(), nil, &stderr, before, repo, "shared", false); err == nil || !strings.Contains(err.Error(), "side question") {
+		t.Fatalf("rm: %v", err)
+	}
+	fakeCLI(t, cliExchange{request: proto.DeleteWorkspace{WorkspaceID: "owner", Force: true}, state: model.State{}})
+	conn, err := dialCLI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := removeWorktree(context.Background(), conn, &stderr, before, repo, "shared", true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "side question") || !strings.Contains(stderr.String(), "without their folder") {
+		t.Fatalf("warning %q", stderr.String())
 	}
 }

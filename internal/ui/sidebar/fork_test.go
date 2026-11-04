@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
@@ -27,6 +28,37 @@ func TestForkPaneSelection(t *testing.T) {
 			s := Sidebar{Pane: tc.focus}
 			if got := s.forkPane(&st, ws); got != tc.want {
 				t.Fatalf("fork pane = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestForkMenuWiring(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		capable  bool
+		provider model.Provider
+		session  string
+		shown    bool
+	}{
+		{"ready", true, model.ProviderClaude, "s", true}, {"no session", true, model.ProviderCodex, "", false}, {"unsupported", true, model.ProviderPi, "s", false}, {"old daemon", false, model.ProviderClaude, "s", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDragHarness(t)
+			h.st.Panes = []model.Pane{{ID: "p", WorkspaceID: "u1", Provider: tc.provider, SessionID: tc.session}}
+			h.st.Workspaces[0].Tabs = []model.Tab{{Layout: layout.Leaf("p")}}
+			h.s.Forks = tc.capable
+			h.s.Pane = "p"
+			h.s.cur.on = true
+			h.s.menuWS = "u1"
+			h.frame()
+			if shown := slices.Contains(h.s.cur.items, &h.s.menuItem[actFork]); shown != tc.shown {
+				t.Fatalf("Fork shown %v", shown)
+			}
+			h.s.menuItem[actFork].Click()
+			evs := h.frame()
+			if sent := slices.Contains(evs, Event(ForkPane{Pane: "p"})); sent != tc.shown {
+				t.Fatalf("events %v", evs)
 			}
 		})
 	}

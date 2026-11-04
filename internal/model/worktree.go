@@ -1,10 +1,30 @@
 package model
 
 import (
+	"cmp"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// WorktreeUsers names other tabs whose folders are inside path.
+func (s *State) WorktreeUsers(path, except string) []string {
+	var names []string
+	for _, w := range s.Workspaces {
+		if w.ID == except || w.Path == "" {
+			continue
+		}
+		if rel, err := filepath.Rel(path, w.Path); err == nil && filepath.IsLocal(rel) {
+			name := cmp.Or(w.Label, w.Name, w.ID)
+			if w.NameSet {
+				name = w.Name
+			}
+			names = append(names, name)
+		}
+	}
+	return names
+}
 
 // WorktreeKind is what a new worktree checks out.
 type WorktreeKind int

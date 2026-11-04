@@ -92,7 +92,7 @@ func TestForkLive(t *testing.T) {
 			child := st.Panes[1]
 			want := []string{"--model", "test-model", "--fork-session", "--resume", "source-session"}
 			if provider == model.ProviderCodex {
-				want = []string{"fork", "--model", "test-model", "source-session"}
+				want = []string{"fork", "--model", "test-model", "--cd", dir, "source-session"}
 			}
 			if !slices.Equal(child.Cmd, append([]string{fake}, want...)) || child.Cwd != dir {
 				t.Fatalf("child %+v", child)

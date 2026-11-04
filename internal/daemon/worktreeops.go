@@ -113,6 +113,9 @@ func (d *Daemon) worktreeQuery(ctx context.Context, q proto.WorktreeQuery) proto
 		if ws.WorktreeRoot == "" {
 			break // deleting it leaves the folder alone
 		}
+		d.mu.Lock()
+		r.UsedBy = d.st.WorktreeUsers(ws.Path, ws.ID)
+		d.mu.Unlock()
 		if r.Changed, err = gitstat.Status(ctx, ws.Path); err != nil {
 			break
 		}
