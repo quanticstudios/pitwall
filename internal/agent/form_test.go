@@ -288,7 +288,12 @@ func TestCommandShown(t *testing.T) {
 		{"a warning under the command", claudeP, full(" "+mkdir, rule, " │ Claude requested permissions to edit /tmp/x, a sensitive file."), mkdir, true},
 		{"two warnings under the command", claudeP, full(" "+mkdir, rule, " Claude requested permissions.", rule, " This reaches the network."), mkdir, true},
 		{"another command above a warning", claudeP, full(" rm -rf /tmp/x", rule, " "+mkdir), mkdir, false},
-		{"top scrolled off, above a warning", claudeP, claude(" ./internal/daemon ./internal/agent", rule, " Claude requested permissions."), long, true},
+		{"no title, a warning below the command", claudeP, claude(" ./internal/daemon ./internal/agent", rule, " Claude requested permissions."), long, false},
+		{"no title, the command in the first block", claudeP, claude(" "+mkdir, rule, " rm -rf /tmp/x"), mkdir, false},
+		{"no title, the command in the last block", claudeP, claude(" rm -rf /tmp/x", rule, " "+mkdir), mkdir, false},
+		{"no title, a warning below the last rule", claudeP, gridOf(" ./internal/daemon ./internal/agent", rule, " │ Claude requested permissions.", "", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), long, false},
+		{"no title, a lone warning below the rule", claudeP, gridOf(rule, " "+mkdir, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
+		{"no title, a lone block between rules", claudeP, gridOf(rule, " "+mkdir, rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, true},
 		{"the command in the transcript", claudeP, gridOf(rule, " "+mkdir, rule, "────────", " Bash command", rule, " rm -rf /tmp/x", rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
 		{"no rule below the title", claudeP, gridOf(rule, " "+mkdir, rule, " Bash command", " rm -rf /tmp/x", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), mkdir, false},
 		{"only the count row left", claudeP, claude(" +3 lines, +2 above (ctrl+o to see more)"), mkdir, false},
@@ -320,6 +325,24 @@ func TestCommandShown(t *testing.T) {
 	}
 }
 
+// A form scrolled past its title may hold a warning in any block, so the emulator
+// scrolling these rows off leaves nothing to compare.
+func TestCommandShownScrolledPastItsTitle(t *testing.T) {
+	const rule = "╌╌╌╌╌╌"
+	form := []string{" Bash command", " Run it", rule, " rm -rf /tmp/wrong", rule, " echo safe", rule, " This reaches the network.", rule, " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and always allow", "   3. No", " Esc to cancel"}
+	e := vt.New(100, 11, nil)
+	e.Write([]byte(strings.Join(form, "\r\n")))
+	g := e.Snapshot()
+	if s := State(g); s != model.StatePendingApproval {
+		t.Fatalf("state %q", s)
+	}
+	for _, command := range []string{"echo safe", "This reaches the network.", "rm -rf /tmp/wrong"} {
+		if CommandShown(model.ProviderClaude, g, command) {
+			t.Errorf("%q is shown", command)
+		}
+	}
+}
+
 // A real screen of Claude Code 2.1.318 at 120 columns: a gutter on a long
 // command, and a warning under it that names the same path.
 func TestCommandShownAboveAWarning(t *testing.T) {
@@ -342,6 +365,28 @@ func TestCommandShownAboveAWarning(t *testing.T) {
 	}
 	if CommandShown(model.ProviderClaude, g, "Claude requested permissions to edit "+command[len("mkdir "):]) {
 		t.Error("the warning's text is shown as the command")
+	}
+}
+
+// A │ of the command's own, wrapped to a row's start, is no gutter: it is data,
+// and only a gutter on every row is the prompt's.
+func TestCommandGutterOnEveryRow(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		rows    []string
+		command string
+		want    bool
+	}{
+		{"every row", []string{" │ printf '%s' 'xxxxxxxxxxxxx", " │ xxxx'"}, "printf '%s' 'xxxxxxxxxxxxxxxxx'", true},
+		{"a literal one wrapped", []string{" printf '%s' 'xxxxxxxxxxxxxxxx", "│secret'"}, "printf '%s' 'xxxxxxxxxxxxxxxxsecret'", false},
+		{"the same, with it in the command", []string{" printf '%s' 'xxxxxxxxxxxxxxxx", "│secret'"}, "printf '%s' 'xxxxxxxxxxxxxxxx│secret'", false},
+		{"only the first row", []string{" │ printf '%s' 'xxxxxxxxxxxxx", " xxxx'"}, "printf '%s' 'xxxxxxxxxxxxxxxxx'", false},
+	} {
+		e := vt.New(30, 30, nil)
+		e.Write([]byte(strings.Join(append(append([]string{"╌╌╌"}, tc.rows...), "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), "\r\n")))
+		if got := CommandShown(model.ProviderClaude, e.Snapshot(), tc.command); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -389,7 +434,7 @@ func TestCommandWhitespace(t *testing.T) {
 		{"a tab off screen", 100, []string{" echo safe", " +3 lines (ctrl+o to see more)"}, "echo safe\tb", false},
 	} {
 		e := vt.New(tc.cols, 30, nil)
-		form := append([]string{"╌╌╌"}, tc.rows...)
+		form := append([]string{" Bash command", "╌╌╌"}, tc.rows...)
 		form = append(form, "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No")
 		e.Write([]byte(strings.Join(form, "\r\n")))
 		if got := CommandShown(model.ProviderClaude, e.Snapshot(), tc.command); got != tc.want {

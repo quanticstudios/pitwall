@@ -421,6 +421,7 @@ func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
 		{"a newline", "echo safe\nrm -rf /tmp/victim", []string{" echo safe", " rm -rf /tmp/victim"}, false},
 		{"spaces before a newline", "printf '%s' 'a  \nb'", []string{" printf '%s' 'a", " b'"}, false},
 		{"a newline off screen", "rm -rf /tmp/victim\necho safe", []string{" echo safe"}, true},
+		{"scrolled past the title, with several blocks", "echo safe", []string{" rm -rf /tmp/wrong", " ╌╌╌╌╌╌", " echo safe"}, true},
 		{"a trailing newline", "echo safe\n", []string{" echo safe"}, false},
 		{"a leading tab", "\techo safe", []string{" echo safe"}, false},
 		{"a trailing carriage return", "echo safe\r", []string{" echo safe"}, false},

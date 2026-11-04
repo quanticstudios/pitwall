@@ -302,38 +302,36 @@ func CommandShown(p model.Provider, g vt.Grid, command string) bool {
 	if len(opts) == 0 {
 		return false
 	}
-	spans := claudeCommand(rows[:opts[0].row])
+	c, ok := claudeCommand(rows[:opts[0].row])
 	if p == model.ProviderCodex {
-		spans = []commandSpan{codexCommand(rows[:opts[0].row])}
+		c, ok = codexCommand(rows[:opts[0].row]), true
 	}
-	for _, c := range spans {
-		for c.from < c.to && rows[c.to-1] == "" {
-			c.to--
-		}
-		for c.from < c.to && rows[c.from] == "" {
-			c.from++
-		}
-		if commandFits(g, c.from, rows[c.from:c.to], c.start, want) {
-			return true
-		}
+	if !ok {
+		return false
 	}
-	return false
+	for c.from < c.to && rows[c.to-1] == "" {
+		c.to--
+	}
+	for c.from < c.to && rows[c.from] == "" {
+		c.from++
+	}
+	return commandFits(g, c.from, rows[c.from:c.to], c.start, want)
 }
 
-// commandSpan is the rows from up to to that may hold a command. start is false
-// when its first rows may be off screen.
+// commandSpan is the rows from up to to that hold a command. start is false when
+// its first rows may be off screen.
 type commandSpan struct {
 	from, to int
 	start    bool
 }
 
-// claudeCommand is where a Claude Code prompt's command may be in the rows above
-// its options: right after the form's first dashed rule, up to the next, as
-// warnings may follow it in blocks of their own. The form starts below its top
-// rule or at its title, so the transcript above is not read. With neither on
-// screen the transcript has scrolled off, and the first dashed rule may be the
-// one below the command, whose first rows have gone too.
-func claudeCommand(above []string) []commandSpan {
+// claudeCommand is where a Claude Code prompt's command is in the rows above its
+// options: right after the form's first dashed rule, up to the next, as warnings
+// may follow it in blocks of their own. The form starts below its top rule or at
+// its title, so the transcript above is not read. ok is false if the command
+// cannot be told from the rest: with neither on screen, any block may be a
+// warning, so only a lone block above a rule counts.
+func claudeCommand(above []string) (c commandSpan, ok bool) {
 	top := -1
 	for y := len(above) - 1; y >= 0 && top < 0; y-- {
 		t := strings.TrimLeft(above[y], " ")
@@ -342,22 +340,29 @@ func claudeCommand(above []string) []commandSpan {
 		}
 	}
 	first := nextRule(above, top+1)
-	if first < 0 {
-		return nil
+	if top >= 0 {
+		next := nextRule(above, first+1)
+		return commandSpan{first + 1, next, true}, first >= 0 && next >= 0
 	}
-	var out []commandSpan
-	if next := nextRule(above, first+1); next >= 0 {
-		out = append(out, commandSpan{first + 1, next, true})
+	blocks, from := 0, 0
+	for y := first; y >= 0; y = nextRule(above, y+1) {
+		if strings.Join(above[from:y], "") != "" {
+			blocks++
+			c = commandSpan{from, y, from > 0}
+		}
+		from = y + 1
 	}
-	if top < 0 {
-		out = append(out, commandSpan{0, first, false})
+	for _, r := range above[from:] {
+		if t := strings.TrimSpace(r); t != "" && t != "Do you want to proceed?" {
+			return c, false
+		}
 	}
-	return out
+	return c, blocks == 1
 }
 
 // nextRule is the first dashed rule in rows from y, or -1.
 func nextRule(rows []string, y int) int {
-	for ; y < len(rows); y++ {
+	for ; y >= 0 && y < len(rows); y++ {
 		if ruleOf(rows[y], "╌") {
 			return y
 		}
@@ -367,7 +372,7 @@ func nextRule(rows []string, y int) int {
 
 func ruleOf(row, dash string) bool { return row != "" && strings.Trim(row, " "+dash) == "" }
 
-// codexCommand is where a Codex prompt's command may be in the rows above its
+// codexCommand is where a Codex prompt's command is in the rows above its
 // options: from the row that starts with "$ ", which it blanks in above. With no
 // such row, it has scrolled off or this is not a command.
 func codexCommand(above []string) commandSpan {
@@ -395,13 +400,16 @@ func commandFits(g vt.Grid, y int, rows []string, start bool, want string) bool 
 			rows[n], end = strings.TrimRight(t, " "), false
 		}
 	}
+	gutters := 0
 	for i, r := range rows {
-		if t, ok := strings.CutPrefix(strings.TrimLeft(r, " "), "│"); ok { // a gutter, as on a long command
+		if t, ok := strings.CutPrefix(strings.TrimLeft(r, " "), "│"); ok {
 			rows[i] = strings.TrimPrefix(t, " ")
+			gutters++
 		}
 	}
-	// A blank row is no part of a wrapped line.
-	if len(rows) == 0 || slices.Contains(rows, "") {
+	// Some rows with a gutter means a │ of the command's own may be among them,
+	// and a blank row is no part of a wrapped line.
+	if len(rows) == 0 || gutters != 0 && gutters != len(rows) || slices.Contains(rows, "") {
 		return false
 	}
 	indent := len(rows[0])
