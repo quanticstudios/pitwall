@@ -96,5 +96,5 @@ func pathHints(marked int) [][2]string {
 	if marked > 0 {
 		verb = fmt.Sprintf("insert %d", marked)
 	}
-	return [][2]string{{"↑↓", "move"}, {"Tab", "mark"}, {"Enter", verb}, {"Esc", "close"}}
+	return [][2]string{{"↑↓", "move"}, {"Tab", "mark"}, {"Enter", verb}, {"Shift+Enter", "open"}, {"Esc", "close"}}
 }

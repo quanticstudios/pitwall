@@ -1186,7 +1186,8 @@ highlighted path at the cursor, relative to the pane's folder, and closes
 the picker. Tab or Ctrl+Space marks the highlighted file and moves down;
 with files marked, Enter types all of them, separated by spaces, in the
 order you marked them. A click types one file, or marks it while others are
-marked. Esc closes without typing.
+marked. Shift+Enter opens the highlighted file with `[terminal] open_path`,
+or the desktop opener when unset. Esc closes without typing.
 
 A path with only letters, digits and `_ - . / + :` goes in as it is; any
 other is single-quoted, so a space or `$` stays part of the path. A path
@@ -1195,6 +1196,8 @@ instead of taking it as an option. When the
 program asked for bracketed paste, as shells and agent prompts do, the
 paths arrive as one paste. The picker shows the first 200 matches. It lists
 this machine's files only, so a pane on a `--host` says so instead.
+
+<img src="media/path-picker.webp" alt="The path picker shows two files and footer keys for inserting, marking and opening the highlighted path with Shift+Enter" width="800">
 
 ### Workers
 
@@ -1378,6 +1381,17 @@ fi
 [Configuration](config.md)); the key opens it over the shown tab. A daemon
 restart drops popups, and a window older than Level 54 does not show them.
 
+For a file tree in a popup, install yazi and add this to config.toml:
+
+```toml
+[[popups]]
+name = "files"
+key = "Ctrl+Alt+Y"
+command = ["yazi"]
+```
+
+Ctrl+Alt+Y opens yazi in the tab's folder. Quit yazi to close the popup.
+
 ### Hints
 
 Agents print commit hashes, file paths, URLs, pull request numbers and IP
@@ -1429,6 +1443,29 @@ Shift and a label opens:
   repository comes from the tab's pull request, else from its `origin`
   remote on github.com.
 - anything else, such as an IP address, is copied.
+
+To view a path in a popup, install a terminal viewer and set:
+
+```toml
+[terminal]
+open_path = ["bat", "--paging=always"]
+```
+
+Shift and the path's label then runs that command in the pane's folder,
+with the path as its last argument and without its `:line` or `:line:col`.
+The daemon passes one absolute path without a shell, including spaces,
+quotes and leading dashes. In a `--host` tab the popup runs on that host,
+and `~/` means the host's home folder. The viewer must be installed there.
+Path popups need daemon Level 59 or newer. Quit the viewer or press
+Ctrl+Shift+W to close the popup. Unset `open_path`, or set it to `[]`, to
+keep the desktop opener. Web links still open in the browser.
+
+The path picker, Ctrl+Shift+I, also opens its highlighted file with
+Shift+Enter. Enter still inserts the highlighted or marked paths.
+
+<img src="media/file-popup-dark.webp" alt="A less popup displays a file whose name contains spaces, with the close key on its border" width="800">
+
+<img src="media/file-popup-light.webp" alt="A less popup displays a file with a leading dash in the light theme" width="800">
 
 Hints mode reads the screen the pane shows, so scroll back first to label
 older output.

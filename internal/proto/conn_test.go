@@ -132,7 +132,7 @@ func allMessages() []any {
 		ForgetTab{ID: "c"},
 		OpenForm{ID: "f", Pane: "a", Spec: "<form/>", Update: true},
 		FormAnswer{ID: "f", Answers: `{"button":"ok"}`, Cancel: true, Closed: true},
-		OpenPopup{WorkspaceID: "w", Pane: "p", Cmd: []string{"fzf"}, Dir: "/r", Width: "80%", Height: "20", Title: "pick"},
+		OpenPopup{WorkspaceID: "w", Pane: "p", Cmd: []string{"fzf"}, Dir: "/r", Width: "80%", Height: "20", Title: "pick", Path: "~/a b.md"},
 		WorktreeQuery{ProjectID: "p", Orphans: true},
 		WorktreeInfo{Query: WorktreeQuery{WorkspaceID: "w"}, Default: "origin/main", Local: []string{"main"}, Remote: []string{"origin/fix"}, GitHub: true,
 			Changed: []string{"a.go"}, Unmerged: true, Orphans: []model.Orphan{{Root: "/r", Path: "/r/.worktrees/x", Branch: "x", Committed: now, Dirty: true}}},

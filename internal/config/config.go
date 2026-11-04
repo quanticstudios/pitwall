@@ -239,6 +239,7 @@ type Term struct {
 	PersistLines *float64 `toml:"persist_scrollback" min:"0" max:"200000" doc:"Recent lines of scrollback and screen saved per pane across restarts, 2000 by default; 0 saves none. Guarded tabs and panes with PITWALL_NO_HISTORY=1 save none"`
 	Scrollback   *float64 `toml:"scrollback" min:"1000" max:"200000" doc:"Lines of history each new pane keeps. Every 10,000 lines of agent output take about 2 MB per pane"`
 	HintPatterns []string `toml:"hint_patterns" doc:"More patterns for hints mode, as Go regular expressions, such as 'ENG-\\d+'. A pattern with a group labels the first group's text. They win over the built-in patterns"`
+	OpenPath     []string `toml:"open_path" doc:"Command and arguments for opening a path in a popup, such as [\"bat\", \"--paging=always\"]. The path is its last argument. Empty uses the desktop opener"`
 	Graphics     string   `toml:"graphics" enum:"kitty,off" doc:"kitty shows images programs print with the kitty graphics protocol (kitten icat, chafa, timg); off answers their queries as a terminal without images does, so they print text instead. New panes take the change"`
 }
 
@@ -294,6 +295,8 @@ type Settings struct {
 	// HintPatterns is [terminal] hint_patterns, without the ones that do
 	// not compile.
 	HintPatterns []*regexp.Regexp
+	// OpenPath opens a path in a popup; empty uses the desktop opener.
+	OpenPath []string
 	// Scrollback is the lines of history a new pane keeps.
 	Scrollback int
 	// PersistScrollback is the most recent lines saved across restarts; 0 disables it.
@@ -530,6 +533,11 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.PaneGap, s.PaneMargin = *or(c.Layout.PaneGap, &s.PaneGap), *or(c.Layout.PaneMargin, &s.PaneMargin)
 	s.CopyOnSelect = c.Term.CopyOnSelect == nil || *c.Term.CopyOnSelect
 	s.Links = c.Term.Links == nil || *c.Term.Links
+	s.OpenPath = c.Term.OpenPath
+	if len(s.OpenPath) > 0 && strings.TrimSpace(s.OpenPath[0]) == "" {
+		fi = append(fi, issue{"terminal.open_path", "a path popup needs a command"})
+		s.OpenPath = nil
+	}
 	s.OSC52, s.Bell, s.Graphics = true, true, true
 	for _, o := range []struct {
 		v             *bool

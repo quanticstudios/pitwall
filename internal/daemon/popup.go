@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -49,6 +50,23 @@ func (d *Daemon) openPopup(m proto.OpenPopup) error {
 	cwd := cmp.Or(m.Dir, d.st.LivePath(*w))
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() || !filepath.IsAbs(cwd) {
 		return fmt.Errorf("%s is not a directory", cwd)
+	}
+	if m.Path != "" {
+		if len(m.Cmd) == 0 || m.Cmd[0] == "" {
+			return errors.New("a path popup needs a command")
+		}
+		p := m.Path
+		if rest, ok := strings.CutPrefix(p, "~/"); ok {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			p = filepath.Join(home, rest)
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(cwd, p)
+		}
+		m.Cmd = append(slices.Clone(m.Cmd), p)
 	}
 	env := d.profileEnv(w)
 	if err := d.start(id, m.Cmd, cwd, w.Ports, env); err != nil {

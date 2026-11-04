@@ -249,7 +249,7 @@ func (u *ui) paletteKey(st *model.State, e key.Event) {
 		return
 	}
 	if u.pal.files {
-		u.pathPickKey(e)
+		u.pathPickKey(st, e)
 		return
 	}
 	if u.pal.search {

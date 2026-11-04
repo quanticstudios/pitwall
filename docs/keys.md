@@ -259,7 +259,8 @@ restarted" and searches nothing; it searches once the service restarts.
 Ctrl+Shift+I (Cmd+Shift+I in mac) opens the path picker on the focused
 pane: the files under its folder, filtered as you type, in the palette's
 card. Enter types the highlighted file's path at the cursor, Tab or
-Ctrl+Space marks several for one Enter, Esc closes. See
+Ctrl+Space marks several for one Enter, Shift+Enter opens the highlighted
+file with `[terminal] open_path` or the desktop opener, and Esc closes. See
 [Insert a path](usage.md#insert-a-path).
 
 Copy mode (Ctrl+Shift+X, Cmd+Shift+X in mac) selects and copies with the

@@ -41,6 +41,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 60 added OpenPopup.Path, resolved and appended to Cmd by the daemon.
 // Level 59 added State.Drafting, DraftHeld and Delivered, and Deliver: a
 // message waits for the user's draft in an agent's input box, and the window's
 // go through the daemon so that one check holds them all.
@@ -172,7 +173,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 59
+const Level = 60
+
+// PopupPathLevel added OpenPopup.Path.
+const PopupPathLevel = 60
 
 // PopupLevel added OpenPopup.
 const PopupLevel = 54
@@ -213,13 +217,16 @@ const ChatLevel = 37
 // ProfileLevel added account profiles on NewSession, NewTab and Task.
 const ProfileLevel = 35
 
-// Since is the Level that added msg's type, 0 for one every daemon of this
-// Version knows. A client sends msg only to a daemon at that Level or above.
+// Since is the Level needed by msg, 0 for one every daemon of this Version
+// knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
-	switch msg.(type) {
+	switch m := msg.(type) {
 	case Deliver:
 		return 59
 	case OpenPopup:
+		if m.Path != "" {
+			return PopupPathLevel
+		}
 		return PopupLevel
 	case EditScrollback, Scrollback, ScrollbackResult:
 		return 56
@@ -475,6 +482,9 @@ type OpenPopup struct {
 	Dir           string
 	Width, Height string
 	Title         string
+	// Path is a file to append as one absolute argument to Cmd, resolving
+	// ~/ on the daemon's machine and relative paths from Dir.
+	Path string
 }
 
 // Scroll moves the pane's view into scrollback. Lines > 0 goes back in

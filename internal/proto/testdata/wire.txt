@@ -94,7 +94,7 @@ proto.NewTask{Task model.Task; Queue bool; FromPane string}
 proto.NewWorkspace{ProjectID string; Name string; From model.WorktreeFrom; Cmd []string; ParentPane string; Root string; Env []string; Lane string}
 proto.OpenForm{ID string; Pane string; Spec string; Update bool}
 proto.OpenPane{WorkspaceID string; TabID string; Target string; Dir layout.Dir; Cmd []string}
-proto.OpenPopup{WorkspaceID string; Pane string; Cmd []string; Dir string; Width string; Height string; Title string}
+proto.OpenPopup{WorkspaceID string; Pane string; Cmd []string; Dir string; Width string; Height string; Title string; Path string}
 proto.PaneExited{Pane string; ExitCode int}
 proto.PasteImage{Pane string; Data []uint8}
 proto.PasteImageResult{Pane string; Path string; Err string}
