@@ -445,8 +445,9 @@ it is, then each comment's file:line, the lines it is on quoted with their
 diff marks, and its text. It goes in as a bracketed paste followed by Enter,
 the way the phone's replies do. An agent that is working, asking permission
 or showing a plan gets it when it next waits for input; the comments read
-Queued until then, and Sent after. A sent comment goes away once the agent
-changes its lines.
+Queued until then, and Sent after. Comments still queued when the agent's pane
+closes go back to pending. A sent comment goes away once the agent changes its
+lines.
 
 Mark reviewed checks a file off in the list. pitwall remembers the mark per
 worktree and per change, in `gui.json` in the state directory, so a file the
@@ -1492,7 +1493,8 @@ restart. They wait while you typed in the pane in the last 3 seconds, and
 while Claude Code's or Codex's input box holds your text, even with the pane
 scrolled up. The row shows "Waits: your draft" where the time goes. Send or
 clear the draft and the message goes in by itself 3 seconds after your last
-key, in queue order.
+key, in queue order. Your own reply or comments from the window pass a message
+that cannot go yet, so that they can answer a question it waits on.
 
 `pitwall prompt` and a reply from the phone are refused instead, with the
 reason. `continue` after a usage limit or a quiet stretch is not typed. A

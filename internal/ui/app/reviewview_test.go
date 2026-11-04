@@ -153,17 +153,70 @@ func TestDeliverGoesThroughDaemon(t *testing.T) {
 	if len(b.sent) != 0 || len(b.delivered) != 1 || b.delivered[0].Pane != "p" || !strings.Contains(b.delivered[0].Text, "Why?") {
 		t.Fatalf("typed %q, delivered %+v", b.sent, b.delivered)
 	}
-	if n.state != noteSent || n.to != "p" || len(u.review.queue) != 0 {
+	if n.state != noteQueued || n.to != "p" || len(u.review.queue) != 0 {
 		t.Fatalf("after the hand over: state %d, to %q, queue %d", n.state, n.to, len(u.review.queue))
 	}
 	if u.review.status != "Goes to claude once its input box is empty" {
 		t.Errorf("status %q", u.review.status)
 	}
+
+	// Held by the daemon, it stays Queued however long that takes.
 	b.st.Queued = map[string]int{"p": 1}
 	st = b.State()
-	u.deliver(&st, now)
-	if u.review.waiting[n.to] != 1 {
-		t.Errorf("the note does not know the daemon holds it: %v", u.review.waiting)
+	u.deliver(&st, now.Add(time.Hour))
+	if n.state != noteQueued {
+		t.Fatalf("held: state %d", n.state)
+	}
+
+	// Typed, even with another message left behind it, it reads Sent.
+	b.st.Delivered = map[string]uint64{"p": b.delivered[0].Seq}
+	st = b.State()
+	u.deliver(&st, now.Add(time.Hour))
+	if n.state != noteSent {
+		t.Fatalf("typed: state %d", n.state)
+	}
+}
+
+// A comment the daemon took on but never typed goes back to pending, whatever
+// else is in State: the pane closed, or the daemon lost its queue.
+func TestDeliverRestoresUntypedNotes(t *testing.T) {
+	line := review.Line{Kind: '+', New: 7, Text: "x"}
+	for _, tc := range []struct {
+		name  string
+		after time.Duration
+		then  func(st *model.State)
+		want  noteState
+	}{
+		{"pane closed", 0, func(st *model.State) { st.Panes = nil; st.Activities = nil }, notePending},
+		{"pane exited", 0, func(st *model.State) { st.Panes[0].Exited = true }, notePending},
+		{"not yet in the queue", deliverAck - time.Second, func(st *model.State) {}, noteQueued},
+		{"daemon restarted", deliverAck, func(st *model.State) {}, notePending},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newAgentBackend(model.StateCompleted)
+			u := &ui{b: b}
+			u.review.ws = "w"
+			n := &note{Comment: review.Comment{Path: "a.go", Lines: []review.Line{line}, Text: "Why?"}}
+			u.review.notes = map[string][]*note{"/repo": {n}}
+			st := b.State()
+			now := time.Now()
+			u.sendNotes(&st, "/repo", now)
+			if len(b.delivered) != 1 || n.state != noteQueued {
+				t.Fatalf("delivered %+v, state %d", b.delivered, n.state)
+			}
+			st = b.State()
+			tc.then(&st)
+			at := u.deliver(&st, now.Add(tc.after))
+			if n.state != tc.want {
+				t.Fatalf("state %d, want %d", n.state, tc.want)
+			}
+			if tc.want == noteQueued && !at.Equal(now.Add(deliverAck)) {
+				t.Errorf("next frame at %v, want %v", at, now.Add(deliverAck))
+			}
+			if tc.want == notePending && len(u.review.pending("/repo")) != 1 {
+				t.Errorf("the comment cannot be sent again")
+			}
+		})
 	}
 }
 

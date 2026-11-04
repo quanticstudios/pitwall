@@ -143,10 +143,12 @@ type mail struct {
 	drafting map[string]bool
 	returnAt map[string]time.Time
 	held     map[string]bool // pane: a draft holds its messages
+	// delivered is the highest proto.Deliver.Seq typed into a pane.
+	delivered map[string]uint64
 }
 
 func newMail() mail {
-	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}}
+	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, delivered: map[string]uint64{}}
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
@@ -157,6 +159,7 @@ type letter struct {
 	notice     string   // success notice prefix, completed with the agent name
 	images     []string // paths typed before the text
 	window     bool     // from the window, which judged the agent ready itself
+	seq        uint64   // the window's proto.Deliver.Seq
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
@@ -209,7 +212,7 @@ func (d *Daemon) windowDeliver(m proto.Deliver) error {
 	}
 	delete(d.mail.sent, m.Pane)
 	d.dropResume(m.Pane)
-	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true})
+	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
 	d.changed()
 	d.wake(m.Pane, 0)
 	return nil
@@ -278,14 +281,16 @@ func (d *Daemon) deliver(pane string) {
 		d.mu.Unlock()
 		return
 	}
-	window := d.mail.queue[pane][0].window
+	first := slices.IndexFunc(d.mail.queue[pane], func(l letter) bool { return l.window })
 	d.mu.Unlock()
-	var p Pane
-	var err error
-	if window {
+	// i is the letter to type: the first, or a letter from the window, which
+	// passes one that cannot go, as that one may wait on the question it answers.
+	i, p, err := 0, Pane(nil), error(nil)
+	if first == 0 {
 		p, err = d.readyWindow(pane)
-	} else {
-		p, _, err = d.ready(pane)
+	} else if p, _, err = d.ready(pane); err != nil && first > 0 {
+		i = first
+		p, err = d.readyWindow(pane)
 	}
 	d.mu.Lock()
 	held := errors.Is(err, errDraft)
@@ -297,7 +302,7 @@ func (d *Daemon) deliver(pane string) {
 		}
 		d.changed()
 	}
-	if (held || window && err != nil) && !d.closing && len(d.mail.queue[pane]) > 0 {
+	if (held || first >= 0 && err != nil) && !d.closing && len(d.mail.queue[pane]) > 0 {
 		d.wake(pane, sendLook.get())
 	}
 	d.mu.Unlock()
@@ -306,30 +311,35 @@ func (d *Daemon) deliver(pane string) {
 	}
 	d.mu.Lock()
 	q := d.mail.queue[pane]
-	if len(q) == 0 { // the pane closed
+	if i >= len(q) { // the pane closed
 		d.mu.Unlock()
 		return
 	}
+	l := q[i]
 	if len(q) == 1 {
 		delete(d.mail.queue, pane)
 	} else {
-		d.mail.queue[pane] = q[1:]
+		d.mail.queue[pane] = slices.Delete(q, i, i+1)
 		d.wake(pane, 0) // why: it waits for this turn, or sendStart if the turn never reports
 	}
 	d.mail.typed[pane] = time.Now()
 	delete(d.replies, pane)
-	text := q[0].text
-	if !q[0].plain {
-		text = d.header(q[0].from) + "\n" + text
+	text := l.text
+	if !l.plain {
+		text = d.header(l.from) + "\n" + text
+	}
+	// why: here, with the letter leaving the queue, so no state shows it in neither.
+	if l.seq > d.mail.delivered[pane] {
+		d.mail.delivered[pane] = l.seq
 	}
 	d.changed()
 	d.mu.Unlock()
-	if err := d.typeLetter(pane, p, q[0].images, text); err != nil {
+	if err := d.typeLetter(pane, p, l.images, text); err != nil {
 		log.Printf("pane %s: a message was lost: %q", pane, err)
-	} else if q[0].notice != "" {
+	} else if l.notice != "" {
 		d.mu.Lock()
 		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane }); i >= 0 {
-			d.st.Notice = q[0].notice + string(d.st.Panes[i].Provider)
+			d.st.Notice = l.notice + string(d.st.Panes[i].Provider)
 			d.changed()
 		}
 		d.mu.Unlock()

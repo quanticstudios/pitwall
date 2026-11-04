@@ -434,6 +434,10 @@ type State struct {
 	// DraftHeld marks the panes whose queued messages wait for the user's
 	// draft. The daemon fills it in; it is not saved.
 	DraftHeld map[string]bool `json:"-"`
+	// Delivered is, per pane, the highest proto.Deliver.Seq the daemon typed.
+	// A pane gone from it says nothing about what was typed. The daemon fills
+	// it in; it is not saved.
+	Delivered map[string]uint64 `json:"-"`
 	// Listening is, per tab with Ports, the ports of its block that accept
 	// a connection on the daemon's machine, ascending; a tab with none is
 	// missing. The daemon fills it in and replaces it whole; it is not

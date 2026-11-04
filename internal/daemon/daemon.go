@@ -1494,6 +1494,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.sent, id)
 	delete(d.mail.drafting, id)
 	delete(d.mail.returnAt, id)
+	delete(d.mail.delivered, id)
 	delete(d.mail.held, id)
 	d.dropResume(id)
 	delete(d.lim.seen, id)
@@ -2365,6 +2366,7 @@ func (d *Daemon) snapshot() model.State {
 	}
 	s.Drafting = maps.Clone(d.mail.drafting)
 	s.DraftHeld = maps.Clone(d.mail.held)
+	s.Delivered = maps.Clone(d.mail.delivered)
 	s.Clipboard = d.clip
 	if time.Since(d.clipAt) > clipKeep {
 		s.Clipboard.Text = ""
