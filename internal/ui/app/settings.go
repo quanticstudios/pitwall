@@ -57,7 +57,6 @@ func (u *ui) layoutSettings(gtx gl.Context, st *model.State) {
 		u.layoutPanes(gtx, st)
 		return
 	}
-	u.settings.SetDecisions(st.Decide)
 	u.settings.Limits = u.limits.get()
 	u.settingsResult(u.settings.Layout(gtx, u.th, u.cfg, u.probs))
 }

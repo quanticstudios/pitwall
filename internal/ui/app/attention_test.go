@@ -153,25 +153,27 @@ func TestMarkSeen(t *testing.T) {
 	}
 }
 
-func TestJumpAttentionByUrgency(t *testing.T) {
+// TestJumpAttentionOrder: unseen panes newest first, finished turns last, then
+// the seen ones by state priority.
+func TestJumpAttentionOrder(t *testing.T) {
 	t0 := time.Unix(1000, 0)
 	tab := func(ws string) model.Workspace {
 		return model.Workspace{ID: ws, Tabs: []model.Tab{{ID: ws + "t", Layout: &layout.Node{Pane: ws + "p"}}}, ActiveTab: ws + "t"}
 	}
-	act := func(ws string, s model.AgentState, at int, urgency string) model.Activity {
-		return model.Activity{PaneID: ws + "p", WorkspaceID: ws, State: s, UpdatedAt: t0.Add(time.Duration(at) * time.Second), Unseen: true, Urgency: urgency}
+	act := func(ws string, s model.AgentState, at int) model.Activity {
+		return model.Activity{PaneID: ws + "p", WorkspaceID: ws, State: s, UpdatedAt: t0.Add(time.Duration(at) * time.Second), Unseen: true}
 	}
 	st := model.State{Workspaces: []model.Workspace{tab("w0"), tab("w1"), tab("w2"), tab("w3"), tab("w4")}}
 	st.Activities = []model.Activity{
-		act("w1", model.StateAwaitingInput, 9, "fyi"),     // newest, but fyi
-		act("w2", model.StateCompleted, 2, "now"),         // a finished turn that needs review now
-		act("w3", model.StatePendingApproval, 5, "later"), // later
-		act("w4", model.StateAwaitingInput, 3, ""),        // untriaged sits between soon and later
+		act("w1", model.StateCompleted, 9),       // newest, but finished
+		act("w2", model.StateAwaitingInput, 2),   // oldest question
+		act("w3", model.StatePendingApproval, 5), // newest that waits
+		act("w4", model.StateError, 3),
 	}
 	n := &nav{}
 	n.sync(&st)
 	n.selectWorkspace(&st, "w0", "w0p")
-	for i, want := range []string{"w2", "w4", "w3", "w1"} {
+	for i, want := range []string{"w3", "w4", "w2", "w1", "w4", "w3", "w2", "w1"} {
 		n.jumpAttention(&st)
 		if n.workspace != want {
 			t.Fatalf("press %d: at %s, want %s", i+1, n.workspace, want)

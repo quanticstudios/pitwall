@@ -99,8 +99,8 @@ The page can push a notification to the phone when an agent needs you:
 an approval, a question, a plan, an error, or a turn that finished, in a
 terminal tab or a chat tab alike. It
 pushes what the desktop notifies, by the same rules: only what you have
-not seen in a window, at most one every 3 seconds per tab, nothing for
-what triage calls fyi, and an approval or an error at high urgency. The
+not seen in a window, at most one every 3 seconds per tab, and an approval
+or an error at high urgency. The
 background service decides, so pushes come with every window closed. A
 device gets at most 6 a minute. Each push holds the tab's title, its
 state and the line the page shows; tapping it opens the page on that tab.

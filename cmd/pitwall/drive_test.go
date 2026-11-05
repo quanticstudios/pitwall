@@ -290,7 +290,7 @@ func TestMainPane(t *testing.T) {
 		{[]model.Pane{deadClaude, shell}, "shell"},
 		{[]model.Pane{deadShell, deadClaude}, "dead"},
 		{[]model.Pane{deadShell}, "deadshell"},
-		// An agent Jev reads from the screen is an agent too.
+		// An agent read from the screen is an agent too.
 		{[]model.Pane{shell, {ID: "gemini", Provider: "gemini"}}, "gemini"},
 	} {
 		if got := mainPane(tc.panes); got == nil || got.ID != tc.want {

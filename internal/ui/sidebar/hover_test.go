@@ -109,16 +109,6 @@ func TestCardLines(t *testing.T) {
 	if got := (card{title: "x"}).lines(); got != "t" {
 		t.Errorf("bare card lines %q", got)
 	}
-	// A decision model's advice, with the risk pitwall flags.
-	st.Decide = model.DecideInfo{Provider: "jev"}
-	st.Activities[0].State, st.Activities[0].Advice, st.Activities[0].AdviceP, st.Activities[0].AdviceRule = model.StatePendingApproval, "allow", 0.96, "sudo"
-	v = newView(layout.Context{}, theme.Dark(), st, "", "")
-	if c := cardFor(v, st.Workspaces[0]); c.decision != "Jev: allow 96% · sudo" || c.lines() != "tfbosdjp" {
-		t.Errorf("advice card %q, lines %q", c.decision, c.lines())
-	}
-	if c := cardFor(v, st.Workspaces[1]); c.decision != "" {
-		t.Errorf("shell card shows %q", c.decision)
-	}
 	// A quiet working agent and a status line from pitwall status.
 	st.Activities[0].State, st.Activities[0].QuietSince = model.StateWorking, time.Now().Add(-25*time.Minute)
 	st.Workspaces[0].Status = "CI 3/7"

@@ -168,7 +168,6 @@ const usage = `usage:
   pitwall update             install the latest release over this binary, then hand the
                              running daemon's panes to it, their programs still running;
                              if that fails, restart the daemon (see docs/usage.md)
-  pitwall jev <cmd>          login, status, logout, report: connect and measure TypeSafe's Jev
   pitwall logs [-f]          print the GUI and daemon log paths (-f: follow both)
   pitwall snapshots [restore <name>]
                              list the saved tabs' snapshots, or stop the daemon
@@ -241,8 +240,6 @@ func main() {
 		err = runNotify(os.Args[2:])
 	case "focus":
 		err = runFocus(os.Args[2:])
-	case "jev":
-		os.Exit(runJev(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	case "logs":
 		err = runLogs(os.Args[2:], os.Stdout)
 	case "snapshots":

@@ -149,7 +149,7 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 		u.panel.stop()
 		return
 	}
-	in := panel.Input{Pane: findPane(st, u.nav.focused()), Decide: st.Decide.Provider, Now: gtx.Now, ShowCost: u.cfg.ShowCost}
+	in := panel.Input{Pane: findPane(st, u.nav.focused()), Now: gtx.Now, ShowCost: u.cfg.ShowCost}
 	dir, chat := "", ""
 	if ws := findWorkspace(st, u.nav.workspace); ws != nil {
 		in.Branch = st.Stats[ws.ID]

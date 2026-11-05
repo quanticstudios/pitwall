@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/session/eventlog"
 	"github.com/quanticstudios/pitwall/internal/session/fake"
 )
@@ -18,11 +17,9 @@ func TestWebRenamePin(t *testing.T) {
 	opts := func(o *Options) {
 		chatProvider(fake.Options{})(o)
 		o.Chats = root
-		o.Gates = decide.FakeGates()
 	}
 	d, _, stop := runDaemon(t, f, opts)
 	c := dialWeb(t, webOn(t, d), "aide")
-	c.call(map[string]any{"type": "setJev", "apiKey": "synthetic-e2e-key"})
 	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "initialize shared chat"})
 	id, _ := at(r, "data.sessionId").(string)
 	if id == "" {
@@ -57,7 +54,6 @@ func TestWebRenamePin(t *testing.T) {
 	d, _, stop = runDaemon(t, f, opts)
 	t.Cleanup(stop)
 	c = dialWeb(t, webOn(t, d), "aide")
-	c.call(map[string]any{"type": "setJev", "apiKey": "synthetic-e2e-key"})
 	if m := listed(c, false); m["title"] != "Daily review" || m["pinned"] != true {
 		t.Fatalf("listed after a restart: %v", m)
 	}

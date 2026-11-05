@@ -194,8 +194,7 @@ func mainPane(panes []model.Pane) *model.Pane {
 }
 
 // agentOf names the agent a pane runs: the one hooks or detection saw,
-// Jev's screen-read agents included, else the one its command starts; ""
-// for neither.
+// else the one its command starts; "" for neither.
 func agentOf(p model.Pane) string {
 	if p.Provider != "" && p.Provider != model.ProviderTerminal {
 		return string(p.Provider)

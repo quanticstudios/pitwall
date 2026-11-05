@@ -37,24 +37,6 @@ type Activity struct {
 	// Unseen is set while a needs-you activity (NeedsYou) has not been in
 	// the focused pane of a focused window since UpdatedAt.
 	Unseen bool
-	// Advice is a decision model's recommendation for a pending approval:
-	// "allow", "ask" or "deny", AdviceP its probability, and AdviceRule a
-	// risk pitwall sees in the call ("sudo"), shown next to it. Advice is
-	// "" without a recommendation. Nothing is approved or denied for the
-	// user.
-	Advice     string
-	AdviceP    float64
-	AdviceRule string
-	// Urgency is triage's level for a needs-you activity: "fyi", "later",
-	// "soon" or "now"; UrgencyPending while the answer is on its way; ""
-	// when untriaged.
-	Urgency string
-	// Review marks a finished turn the turn check says needs a look; its
-	// pill reads Check instead of Done.
-	Review bool
-	// Stuck marks a long-working agent the decision model says is stuck;
-	// its pill reads Working · stuck.
-	Stuck bool
 	// Resumes is when the daemon types continue into an agent its plan's
 	// usage limit stopped; zero for no resume set.
 	Resumes time.Time
@@ -82,25 +64,6 @@ type Activity struct {
 // ResumedDetail is the Detail of a working activity whose agent the
 // daemon resumed after its usage limit reset, until the agent reports.
 const ResumedDetail = "Resumed after the usage limit"
-
-// UrgencyPending is Activity.Urgency while triage is asking.
-const UrgencyPending = "pending"
-
-// UrgencyRank orders activities for the user's attention: now, soon, an
-// untriaged one, later, fyi.
-func UrgencyRank(a Activity) int {
-	switch a.Urgency {
-	case "now":
-		return 4
-	case "soon":
-		return 3
-	case "later":
-		return 1
-	case "fyi":
-		return 0
-	}
-	return 2
-}
 
 // NeedsYou reports a state that waits on the user: a question, an
 // approval, a plan, an error, or a finished turn, its pull request open
@@ -216,9 +179,6 @@ func (s *State) Watching() map[string]bool {
 // PillLabel is a state's short label, "Working" or "Approval". It names
 // no agent: every place that shows it also shows the agent's mark or name.
 func PillLabel(a Activity) string {
-	if a.State == StateCompleted && a.Review {
-		return "Check"
-	}
 	return shortLabels[a.State]
 }
 

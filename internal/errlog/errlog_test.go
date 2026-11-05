@@ -90,15 +90,15 @@ func TestAddRedactsAndCuts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := strings.Repeat("x", 2000) + "\nError: denied for KNOWNKEY"
-	l.Add(Event{T: time.Now(), Kind: Command, Command: "curl --token abcdefghijklmnop1234 " + strings.Repeat("a", 500), Output: out}, "KNOWNKEY")
+	out := strings.Repeat("x", 2000) + "\nError: denied for API_KEY=hunter2hunter2"
+	l.Add(Event{T: time.Now(), Kind: Command, Command: "curl --token abcdefghijklmnop1234 " + strings.Repeat("a", 500), Output: out})
 	l.Close(time.Second)
 	evs, err := Read(path, time.Time{})
 	if err != nil || len(evs) != 1 {
 		t.Fatalf("read %v, %v", evs, err)
 	}
 	e := evs[0]
-	if strings.Contains(e.Command, "abcdefghijklmnop1234") || strings.Contains(e.Output, "KNOWNKEY") {
+	if strings.Contains(e.Command, "abcdefghijklmnop1234") || strings.Contains(e.Output, "hunter2") {
 		t.Errorf("secret kept: %+v", e)
 	}
 	if n := len([]rune(e.Command)); n != commandLen {
@@ -107,7 +107,7 @@ func TestAddRedactsAndCuts(t *testing.T) {
 	if e.Size < 2500 || e.Tokens() != e.Size/4 {
 		t.Errorf("size %d counts the cut text, not the whole", e.Size)
 	}
-	if n := len([]rune(e.Output)); n != outputLen || !strings.HasSuffix(e.Output, "Error: denied for [redacted]") {
+	if n := len([]rune(e.Output)); n != outputLen || !strings.HasSuffix(e.Output, "Error: denied for API_KEY=[redacted]") {
 		t.Errorf("output %d runes, ends %q", n, e.Output[len(e.Output)-40:])
 	}
 }

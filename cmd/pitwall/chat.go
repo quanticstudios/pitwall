@@ -194,7 +194,7 @@ func runChat(args []string, out, errOut io.Writer) (int, error) {
 		}
 		request = proto.ChatSend{Chat: c.ID, Text: strings.Join(args[1:], " "), How: how}
 	case "approve":
-		ask := proto.ChatApprove{Chat: c.ID, Decision: args[len(args)-1], Reason: reason, By: "cli"}
+		ask := proto.ChatApprove{Chat: c.ID, Decision: args[len(args)-1], Reason: reason}
 		if len(args) == 3 {
 			ask.Request = args[1]
 		}

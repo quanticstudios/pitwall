@@ -173,7 +173,7 @@ func (u *ui) drawSwitcher(gtx gl.Context, st *model.State) {
 		// beside the name, so show the one that needs attention most.
 		if a := model.Aggregate(activities[w.ID]); a != nil {
 			bg, fg := chipColors(th, a.State)
-			c, s := chip(rgtx, th, bg, theme.Transparent, fg, sidebar.PillText(*a, st.Decide.Provider))
+			c, s := chip(rgtx, th, bg, theme.Transparent, fg, sidebar.PillText(*a))
 			chips, sizes = append(chips, c), append(sizes, s)
 		}
 		c, s := chip(rgtx, th, th.SurfaceElevated, th.Border, th.Muted, strconv.Itoa(i+1))

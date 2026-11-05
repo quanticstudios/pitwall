@@ -51,11 +51,6 @@ func TestNotificationCommand(t *testing.T) {
 			}
 		})
 	}
-	now := notifyActivity(model.StateAwaitingInput, time.Time{})
-	now.Urgency = "now"
-	if cmd := notificationCommand(context.Background(), notification{activity: now, title: "p / w"}, false); cmd.Args[2] != "--urgency=critical" {
-		t.Errorf("triaged now: %q", cmd.Args)
-	}
 	a := notifyActivity(model.StateAwaitingInput, time.Time{})
 	a.Provider, a.Detail = model.ProviderTerminal, "tests passed"
 	if cmd := notificationCommand(context.Background(), notification{activity: a, title: "p / w"}, false); cmd.Args[len(cmd.Args)-1] != "tests passed" {

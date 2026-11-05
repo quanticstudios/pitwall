@@ -1045,13 +1045,9 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}
 
 	unseen := map[string]model.Activity{}
-	advice := map[string]string{}
 	for _, a := range st.Activities {
 		if a.Unseen && a.WorkspaceID == ws.ID {
 			unseen[a.PaneID] = a
-		}
-		if s := sidebar.AdviceText(a, st.Decide.Provider); s != "" && a.WorkspaceID == ws.ID {
-			advice[a.PaneID] = s
 		}
 	}
 	// Pane frames sit pane_margin in from the edges and pane_gap apart on
@@ -1088,9 +1084,6 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 			att = &a
 		}
 		u.layoutPane(gtx, p, id, r, id == focused, findFocus && id == u.find.pane, sole, att)
-		if s := advice[id]; s != "" {
-			u.drawAdvice(gtx, r, s)
-		}
 		if pn != nil && pn.HooksMissing && !u.welcome.on && u.hooksNotice() { // the welcome card offers the install already
 			u.drawHooksNotice(gtx, p, r)
 		}

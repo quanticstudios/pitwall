@@ -23,8 +23,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/store`       | Persist state, snapshots, resume commands                      |
 | `internal/logind`      | Hold a Linux shutdown or sleep until the daemon saves          |
 | `internal/repoicon`    | Find a repo's root and its favicon or logo files               |
-| `internal/logs`        | Log files, a non-blocking log writer, a line rate limiter      |
-| `internal/decisionlog` | decisions.jsonl and `pitwall jev report`                       |
+| `internal/logs`        | Log files, a non-blocking log writer, a rate limiter, `Redact` |
 | `internal/update`      | Find a newer GitHub release, install it over the binary        |
 | `internal/remote`      | The phone page: pairing, device tokens, its HTTP server        |
 | `internal/qr`          | QR codes for pairing                                           |

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -119,14 +118,10 @@ func TestChatCheckpoint(t *testing.T) {
 	}
 }
 
-// A chat's Activity follows its snapshot; triage answers a needs-you
-// state, SeePane marks it seen, and archiving drops it.
+// A chat's Activity follows its snapshot, SeePane marks it seen, and
+// archiving drops it.
 func TestChatActivity(t *testing.T) {
-	m := &fakeModel{answers: map[string]decide.Answer{"blocked": yes(0.9), "nothing": yes(0.1)}}
-	d, prov := chatDaemon(t, func(o *Options) {
-		s := config.DecideSettings{Provider: "jev", Triage: true, Timeout: time.Second}
-		o.Decisions = func() Decisions { return Decisions{Settings: s, Provider: m} }
-	})
+	d, prov := chatDaemon(t, func(*Options) {})
 	r := chatDo(t, d, proto.ChatNew{Dir: t.TempDir(), Prompt: "fix it"})
 	id, drv, ws := r.Chat, prov.driver(t), chatTab(t, d, r.Chat)
 	waitUntil(t, "working", func() bool {
@@ -135,9 +130,9 @@ func TestChatActivity(t *testing.T) {
 	})
 
 	drv.event(session.Event{Type: session.EventRequestOpened, RequestID: "r1", RequestType: session.RequestCommand, Detail: "make deploy"})
-	waitUntil(t, "triaged approval", func() bool {
+	waitUntil(t, "approval", func() bool {
 		a := d.activityOf(id)
-		return a.State == model.StatePendingApproval && a.Detail == "make deploy" && a.Urgency == "now"
+		return a.State == model.StatePendingApproval && a.Detail == "make deploy"
 	})
 	unseen := func() bool {
 		d.mu.Lock()

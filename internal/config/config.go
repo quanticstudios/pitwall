@@ -35,7 +35,6 @@ type Config struct {
 	Usage     Usage       `toml:"usage" doc:"Each agent's token use, in the side panel and a tab's hover card."`
 	Agents    AgentLimits `toml:"agents" doc:"Agents started from the task queue, and agents a usage limit stopped."`
 	Fleet     Fleet       `toml:"fleet" doc:"Fleet mode: lanes that start a preset by a task's size, a contract before every worker's brief, a timebox per lane, and what happens when a worker's CI keeps failing. See docs/usage.md."`
-	Decisions Decisions   `toml:"decisions" doc:"A decision model, such as TypeSafe's Jev, answering quick questions: approval recommendations, attention triage, turn checks, check runs, stuck agents. Off until provider is set; see docs/decisions.md for what each feature sends."`
 	Worktrees Worktrees   `toml:"worktrees" doc:"Worktree tabs: the ports each one gets, and files to bring over from the main checkout when one is made. A repo can set the same keys in .pitwall/worktree.toml, which win over these."`
 	Notify    Notify      `toml:"notifications" doc:"Desktop notifications: which states send one, a sound, agents to leave out and quiet hours."`
 	Sidebar   Sidebar     `toml:"sidebar" doc:"The sidebar's tree or inbox, and when the inbox settles a tab."`
@@ -317,8 +316,6 @@ type Settings struct {
 	LimitsInSidebar bool
 	// RemoteControl marks tabs whose agent is under remote control.
 	RemoteControl bool
-	// Decisions is [decisions] resolved.
-	Decisions DecideSettings
 	// MaxRunning is [agents] max_running: 0 for no limit.
 	MaxRunning int
 	// KeepAwake blocks Linux sleep or macOS idle sleep during work and for KeepAwakeGrace afterward.
@@ -589,10 +586,6 @@ func LoadFile(path string) (Settings, []Problem) {
 	var pi []issue
 	s.Profiles, pi = resolveProfiles(c.Profiles)
 	fi = append(fi, pi...)
-	var di []issue
-	var dn []issue
-	s.Decisions, di, dn = resolveDecisions(c.Decisions)
-	fi = append(fi, di...)
 	var ri []issue
 	s.Stats, ri = resolveStats(c.Stats)
 	fi = append(fi, ri...)
@@ -624,7 +617,6 @@ func LoadFile(path string) (Settings, []Problem) {
 	fi = append(fi, ai...)
 	s.Fleet, ai = resolveFleet(c.Fleet, s.Presets)
 	fi = append(fi, ai...)
-	s.Notes = append(s.Notes, locate("config.toml", data, dn)...)
 	var wi []issue
 	s.Worktrees, wi = resolveWorktrees(c.Worktrees, WorktreeSettings{PortBase: DefaultPortBase, PortStep: DefaultPortStep}, "worktrees.")
 	fi = append(fi, wi...)
@@ -761,19 +753,9 @@ func parse(file string, data []byte, v any, renamed *[]issue) []Problem {
 		}
 		return []Problem{{File: file, Msg: err.Error()}}
 	}
-	if d, ok := m["decisions"].(map[string]any); ok && renamed != nil {
-		if _, ok := d["agents"]; ok {
-			delete(d, "agents")
-			*renamed = append(*renamed, issue{"decisions.agents", "no longer supported: reading agent screens was removed; this table is ignored"})
-		}
-		if a, ok := d["approvals"].(map[string]any); ok {
-			for _, k := range RemovedApprovals {
-				if _, set := a[k]; set {
-					delete(a, k)
-					*renamed = append(*renamed, issue{"decisions.approvals." + k, "no longer supported: automatic approval was removed; this line is ignored"})
-				}
-			}
-		}
+	if _, ok := m["decisions"]; ok && renamed != nil {
+		delete(m, "decisions")
+		*renamed = append(*renamed, issue{"decisions", "no longer supported: pitwall has no decision models; this table is ignored"})
 	}
 	if keys, ok := m["keys"].(map[string]any); ok && renamed != nil {
 		for _, old := range slices.Sorted(mapKeys(keys)) {

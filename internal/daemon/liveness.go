@@ -110,12 +110,8 @@ func (d *Daemon) noteInput(id string, b []byte) {
 	if i >= 0 {
 		s = d.st.Activities[i].State
 	}
-	d.noteKey(id, s, time.Now())
 	if !focusReport(b) {
 		d.programInput(id)
-	}
-	if s == model.StateWorking && isInterrupt(b) {
-		d.noteInterrupt(id, time.Now())
 	}
 	d.mu.Unlock()
 	if reported {
@@ -168,7 +164,6 @@ func (d *Daemon) settle(id string, at time.Time) {
 	d.recordExplanation(id, d.st.Activities[i].Provider, model.StateWorking, "settle-working", trace)
 	if a := &d.st.Activities[i]; a.State != model.StateWorking {
 		a.State, a.Detail, a.UpdatedAt = model.StateWorking, "", time.Now()
-		clearDecisions(a)
 		d.changed()
 	}
 }
@@ -199,9 +194,7 @@ func (d *Daemon) livenessLoop(ctx context.Context) {
 		}
 		d.checkQueue(time.Now())
 		d.checkForeground()
-		d.refreshDecisions()
 		d.detect(ctx)
-		d.checkStuck(ctx)
 		d.checkLimits()
 		d.checkQuiet()
 		d.checkForms()

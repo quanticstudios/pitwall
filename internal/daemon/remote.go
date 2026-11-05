@@ -15,7 +15,6 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -151,16 +150,14 @@ func (d *Daemon) remoteServer() *remote.Server {
 func (d *Daemon) remoteItems() []remote.Item {
 	d.mu.Lock()
 	items := remote.Items(d.st)
-	secrets := d.dec.cur.Secrets
 	chats := make([]*chat, len(items))
 	for i, it := range items {
 		chats[i] = d.chats[it.Pane]
 	}
 	d.mu.Unlock()
-	redact := func(s string) string { return decide.Redact(s, secrets...) }
 	for i, c := range chats {
 		if c != nil {
-			c.run(func() { items[i].Requests = remote.Requests(c.snap, redact) })
+			c.run(func() { items[i].Requests = remote.Requests(c.snap, logs.Redact) })
 		}
 	}
 	return items
@@ -168,8 +165,8 @@ func (d *Daemon) remoteItems() []remote.Item {
 
 // remoteApprove and remoteInput send the phone's answer to a chat as the
 // GUI's go, so the first answer wins and every client sees it resolved.
-func (d *Daemon) remoteApprove(chat, request, decision, reason, by string) error {
-	return chatRefusal(d.chatRequest(context.Background(), proto.ChatApprove{Chat: chat, Request: request, Decision: decision, Reason: reason, By: by}))
+func (d *Daemon) remoteApprove(chat, request, decision, reason string) error {
+	return chatRefusal(d.chatRequest(context.Background(), proto.ChatApprove{Chat: chat, Request: request, Decision: decision, Reason: reason}))
 }
 
 func (d *Daemon) remoteInput(chat, request string, answers map[string][]string) error {

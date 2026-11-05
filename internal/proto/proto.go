@@ -32,6 +32,9 @@ import (
 //     whose meaning changes so that an older peer would act on it wrongly.
 //     Running daemons then refuse the new clients, and the GUI asks to
 //     restart the daemon, which stops every program running in a pane.
+//   - A removed field is additive, not breaking, when an older peer already
+//     treats its zero value as the normal case, as Level 64's fields are.
+//     Record it with -update after checking that peer's code.
 //
 // Hello and AgentEvent never change, and neither does the refusal: agents'
 // hooks run whatever binary is on PATH, so daemons serve a Hello{Kind:
@@ -41,6 +44,9 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 64 removed decision models: Activity.Advice, AdviceP, AdviceRule,
+// Urgency, Review and Stuck, State.Decide and ChatApprove.By. An older window
+// reads their zero values, which is what a daemon with decisions off sent.
 // Level 63 added worktree teardown approval and command previews.
 // Level 62 added ForkPane for terminal agent forks and WorktreeInfo.UsedBy.
 // Level 61 added Press, Activity.Options, OptionNotes, Buttons and Menu:
@@ -177,7 +183,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 63
+const Level = 64
 
 // PopupPathLevel added OpenPopup.Path.
 const PopupPathLevel = 60
@@ -1066,7 +1072,6 @@ type ChatApprove struct {
 	Chat, Request string
 	Decision      string // allow, allow-session, deny
 	Reason        string
-	By            string // who answers, for decisions.jsonl; the daemon sets it for socket clients
 }
 
 // ChatAnswer answers a pending input request.

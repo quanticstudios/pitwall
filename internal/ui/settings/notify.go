@@ -49,7 +49,7 @@ func (p *Page) notifications() []section {
 	if n.Sound != "" && n.Sound != "bell" {
 		sound.desc = "Plays " + shortPath(n.Sound) + " with each notification. Set sound under [notifications] to change the file."
 	}
-	quiet := row{label: "Quiet hours", desc: "As 22:00-08:00. Then nothing plays a sound, and only approvals, errors and what triage rates now notify. Empty for none.",
+	quiet := row{label: "Quiet hours", desc: "As 22:00-08:00. Then nothing plays a sound, and only approvals and errors notify. Empty for none.",
 		extra: "notification quiet hours night do not disturb dnd", control: p.quietField(n.QuietHours)}
 	if p.nt.err != "" {
 		quiet.below = func(gtx gl.Context) gl.Dimensions {

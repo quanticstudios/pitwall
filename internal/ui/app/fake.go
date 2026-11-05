@@ -45,9 +45,7 @@ var fakeHome = func() string {
 	return "/home/me"
 }()
 
-// NewFakeBackend returns three sessions, with a Jev connected: the
-// worktree tab's approval carries its advice, the rounding question is
-// triaged now, and the handbook turn needs a check. swift-otter, the most recently
+// NewFakeBackend returns three sessions. swift-otter, the most recently
 // used, has five ungrouped tabs (a terminal running `go test` split three
 // ways, an idle Claude, a named log tail, an idle shell, a Claude and a
 // Codex working side by side), two groups (one with a working Codex), and
@@ -157,7 +155,6 @@ func NewFakeBackend() *FakeBackend {
 	f.setActivities()
 	f.st.Closed = fakeClosed(now)
 	f.stray = fakeStray(now)
-	f.st.Decide = fakeDecide()
 	f.st.Version = 1
 	return f
 }
@@ -177,12 +174,6 @@ func fakeClosed(now time.Time) []model.ClosedTab {
 			Pane:    model.Pane{Cwd: web, Provider: model.ProviderClaude, SessionID: "7f3c", Prompt: "Add OAuth login with GitHub"},
 			Session: "swift-otter", Group: model.Project{ID: "g2", Name: "web-app", Root: web, Kind: model.ProjectGit}, PR: 41, ClosedAt: now.Add(-2 * time.Hour)},
 	}
-}
-
-// fakeDecide is a connected Jev with a day's calls.
-func fakeDecide() model.DecideInfo {
-	return model.DecideInfo{Provider: "jev",
-		Counts: []model.DecideCount{{Feature: "approvals", Calls: 41, Errors: 1}, {Feature: "triage", Calls: 17}, {Feature: "turn_check", Calls: 6}}}
 }
 
 var fakeCycle = []model.AgentState{
@@ -215,12 +206,11 @@ func (f *FakeBackend) setActivities() {
 		case p.Provider == model.ProviderTerminal:
 			a.State, a.Detail, a.SessionID = model.StateTerminalRunning, map[bool]string{true: "psql", false: "go"}[p.ID == "o"], ""
 		case p.WorkspaceID == "w10":
-			a.State, a.Detail, a.Urgency = model.StateAwaitingInput, "Round half to even, or half up?", "now"
+			a.State, a.Detail = model.StateAwaitingInput, "Round half to even, or half up?"
 		case p.WorkspaceID == "w4":
 			a.State, a.Detail = model.StatePendingApproval, "Run the checkout tests"
-			a.Advice, a.AdviceP = "allow", 0.96
 		case p.WorkspaceID == "w12":
-			a.State, a.Detail, a.Review = model.StateCompleted, "Drafted the guide; two links still 404.", true
+			a.State, a.Detail = model.StateCompleted, "Drafted the guide; two links still 404."
 		case p.WorkspaceID == "w1b":
 			continue // Claude idle at its prompt: no activity, still an agent tab
 		case p.WorkspaceID == "w3", p.WorkspaceID == "w6":

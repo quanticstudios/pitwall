@@ -513,7 +513,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		}})
 	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), PillText(a, v.st.Decide.Provider))
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), PillText(a))
 	}})
 	d := hrowFit(gtx, h, gtx.Dp(4), items...)
 	off.Pop()
@@ -562,11 +562,8 @@ func (s *Sidebar) renameField(gtx layout.Context, th *theme.Theme) layout.Dimens
 
 // PillText is a tab pill's label: the command a busy terminal runs, when
 // an agent a usage limit stopped resumes ("Resumes 15:04", with the
-// weekday on another day), a decision model's recommendation on an
-// approval ("Jev: allow 96%"), else aide's label for the state, with
-// " · now" when triage says the user is needed now. by is
-// State.Decide.Provider.
-func PillText(a model.Activity, by string) string {
+// weekday on another day), else aide's label for the state.
+func PillText(a model.Activity) string {
 	if a.State == model.StateTerminalRunning && a.Detail != "" {
 		return a.Detail
 	}
@@ -576,43 +573,7 @@ func PillText(a model.Activity, by string) string {
 		}
 		return r.Format("Resumes 15:04")
 	}
-	if s := AdviceText(a, by); s != "" {
-		return s
-	}
-	if a.Urgency == "now" && model.NeedsYou(a.State) {
-		return model.PillLabel(a) + " · now"
-	}
-	if a.Stuck && a.State == model.StateWorking {
-		return model.PillLabel(a) + " · stuck"
-	}
 	return model.PillLabel(a)
-}
-
-// AdviceText is the recommendation on a pending approval, "Jev: allow
-// 96%", with the first risk pitwall sees in the call after it, "Jev:
-// allow 96% · sudo"; the risk alone, "Risk: sudo", when the
-// recommendation is held out or missing; "" with neither. It is only a
-// suggestion.
-func AdviceText(a model.Activity, by string) string {
-	if a.State != model.StatePendingApproval || a.Advice == "" && a.AdviceRule == "" {
-		return ""
-	}
-	if a.Advice == "" {
-		return "Risk: " + a.AdviceRule
-	}
-	s := fmt.Sprintf("%s: %s %.0f%%", DecideName(by), a.Advice, a.AdviceP*100)
-	if a.AdviceRule != "" {
-		s += " · " + a.AdviceRule
-	}
-	return s
-}
-
-// DecideName is how the UI names a decision provider.
-func DecideName(provider string) string {
-	if provider == "jev" {
-		return "Jev"
-	}
-	return "Model"
 }
 
 // shimmer is .sidebar-working-shimmer: a 200%-wide white gradient (0, .02,

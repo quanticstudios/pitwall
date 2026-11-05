@@ -182,49 +182,49 @@ func TestDecideNotificationsWorkspaces(t *testing.T) {
 	}
 }
 
-// TestTriagedNotifications: fyi sends nothing, a pending triage holds the
-// notification up to TriageWait, and the most urgent goes first.
-func TestTriagedNotifications(t *testing.T) {
+// TestNotificationsSendInOrder: each needs-you activity goes out at once, by
+// workspace id, and a second one waits out its workspace's interval.
+func TestNotificationsSendInOrder(t *testing.T) {
 	now := time.Unix(100, 0)
-	in := func(ws, urgency string) Activity {
-		return Activity{PaneID: "p" + ws, WorkspaceID: ws, Provider: ProviderClaude, State: StateAwaitingInput,
-			UpdatedAt: now, Unseen: true, Urgency: urgency}
+	in := func(ws string, s AgentState) Activity {
+		return Activity{PaneID: "p" + ws, WorkspaceID: ws, Provider: ProviderClaude, State: s, UpdatedAt: now, Unseen: true}
 	}
 	working := func(ws string) Activity {
 		return Activity{PaneID: "p" + ws, WorkspaceID: ws, Provider: ProviderClaude, State: StateWorking, UpdatedAt: now.Add(-time.Second)}
 	}
-	h, _ := DecideNotifications(Notifications{}, []Activity{working("a"), working("b"), working("c"), working("d")}, false, "", now)
+	h, _ := DecideNotifications(Notifications{}, []Activity{working("c"), working("a"), working("b")}, false, "", now)
 
-	h, got := DecideNotifications(h, []Activity{in("a", "fyi"), in("b", "later"), in("c", "now"), in("d", UrgencyPending)}, false, "", now)
+	h, got := DecideNotifications(h, []Activity{in("c", StateCompleted), in("a", StateAwaitingInput), in("b", StatePendingApproval)}, false, "", now)
 	var order []string
 	for _, a := range got {
 		order = append(order, a.WorkspaceID)
 	}
-	if strings.Join(order, ",") != "c,b" {
-		t.Fatalf("delivered %v, want c then b (fyi dropped, pending held)", order)
+	if strings.Join(order, ",") != "a,b,c" {
+		t.Fatalf("delivered %v, want a, b, c at once", order)
 	}
-	if _, ok := h.pending["d"]; !ok {
-		t.Fatal("the pending triage is not held")
+	if !h.Idle() {
+		t.Fatalf("still pending: %v", h.pending)
 	}
-	if due := notifyDue(h, "d", h.pending["d"]); !due.Equal(now.Add(TriageWait)) {
+
+	later := in("a", StateError)
+	later.UpdatedAt = now.Add(time.Second)
+	h, got = DecideNotifications(h, []Activity{later}, false, "", now.Add(time.Second))
+	if len(got) != 0 {
+		t.Fatalf("sent inside the interval: %v", got)
+	}
+	if due := h.Next(); !due.Equal(now.Add(NotificationInterval)) {
 		t.Errorf("due %v", due)
 	}
-	// Triage answers fyi: dropped, never sent.
-	h2, got := DecideNotifications(h, []Activity{in("d", "fyi")}, false, "", now.Add(time.Second))
-	if len(got) != 0 || len(h2.pending) != 0 {
-		t.Errorf("fyi after waiting: delivered %v, pending %v", got, h2.pending)
+	if _, got = DecideNotifications(h, []Activity{later}, false, "", now.Add(NotificationInterval)); len(got) != 1 {
+		t.Errorf("not sent after the interval: %v", got)
 	}
-	// Triage answers soon: sent with it.
-	_, got = DecideNotifications(h, []Activity{in("d", "soon")}, false, "", now.Add(time.Second))
-	if len(got) != 1 || got[0].Urgency != "soon" {
-		t.Errorf("soon: delivered %v", got)
-	}
-	// Triage never answers: sent after TriageWait.
-	h3, got := DecideNotifications(h, []Activity{in("d", UrgencyPending)}, false, "", now.Add(time.Second))
-	if len(got) != 0 {
-		t.Errorf("sent before TriageWait: %v", got)
-	}
-	if _, got = DecideNotifications(h3, []Activity{in("d", UrgencyPending)}, false, "", now.Add(TriageWait)); len(got) != 1 {
-		t.Errorf("not sent after TriageWait: %v", got)
+}
+
+// TestUrgent: approvals and errors interrupt; nothing else does.
+func TestUrgent(t *testing.T) {
+	for s, want := range map[AgentState]bool{StatePendingApproval: true, StateError: true, StateAwaitingInput: false, StateCompleted: false, StatePlanReady: false} {
+		if got := Urgent(Activity{State: s}); got != want {
+			t.Errorf("Urgent(%s) = %v", s, got)
+		}
 	}
 }

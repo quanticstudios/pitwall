@@ -1,17 +1,15 @@
-18.63
+18.64
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
 image.Rectangle{Min image.Point; Max image.Point}
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
-model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Advice string; AdviceP float64; AdviceRule string; Urgency string; Review bool; Stuck bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time; Options []string; OptionNotes []string; Buttons []string; Menu bool}
+model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time; Options []string; OptionNotes []string; Buttons []string; Menu bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
 model.Chat{ID string; WorkspaceID string; Provider model.Provider; Model string; Effort string; Mode string; Title string; RecentPrompt string; Pinned bool; State string; Pending int; Queued int; Turns int; Seq int64; UpdatedAt time.Time}
 model.Check{Name string; State model.CheckState}
 model.Clipboard{Seq uint64; Text string}
 model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string; Group model.Project; PR int; ClosedAt time.Time; Gone bool}
-model.DecideCount{Feature string; Calls int; Errors int}
-model.DecideInfo{Provider string; Counts []model.DecideCount}
 model.Form{ID string; WorkspaceID string; PaneID string; Spec string; Title string; Waits bool; OpenedAt time.Time}
 model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Teardown string; Dirty bool}
@@ -24,7 +22,7 @@ model.PortBlock{First int; Last int}
 model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Decide model.DecideInfo; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string; Popup *model.Popup}
@@ -39,7 +37,7 @@ proto.Answer{Pane string; At int64; Allow bool}
 proto.ArchiveWorkspace{WorkspaceID string; Archived bool}
 proto.CancelResume{Pane string}
 proto.ChatAnswer{Chat string; Request string; Answers map[string][]string}
-proto.ChatApprove{Chat string; Request string; Decision string; Reason string; By string}
+proto.ChatApprove{Chat string; Request string; Decision string; Reason string}
 proto.ChatArchive{Chat string; Delete bool}
 proto.ChatDeltas{Chat string; Snapshot []uint8; Seq int64; Deltas [][]uint8}
 proto.ChatFork{Chat string; Turn string; Worktree string}

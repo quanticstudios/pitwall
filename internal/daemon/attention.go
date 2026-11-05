@@ -1,14 +1,16 @@
 package daemon
 
 import (
+	"fmt"
 	"io"
+	"os"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
-	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/progstatus"
 	"github.com/quanticstudios/pitwall/internal/vt"
@@ -137,6 +139,15 @@ func (d *Daemon) setClipboard(seq uint64, text string) {
 	d.changed()
 }
 
+// fileStamp changes when the file at path does, "" when it cannot be read.
+func fileStamp(path string) string {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprint(fi.ModTime().UnixNano(), fi.Size(), fi.Mode())
+}
+
 // setting reads one value of the config at path with get, again only
 // when the file changed.
 func setting[T any](path string, get func(config.Settings) T) func() T {
@@ -206,7 +217,7 @@ func (d *Daemon) showNotice(id string, a *attention, n vt.Notification) {
 	case n.Title != "":
 		detail = n.Title + ": " + n.Body
 	}
-	detail = decide.Redact(detail, d.dec.cur.Secrets...) // it shows in the sidebar and desktop notifications
+	detail = logs.Redact(detail) // it shows in the sidebar and desktop notifications
 	now := time.Now()
 	a.last = now
 	a.notice = &model.Activity{PaneID: id, WorkspaceID: p.WorkspaceID, Provider: prov,
@@ -226,7 +237,6 @@ func (d *Daemon) seePane(id string) error {
 	}
 	a := d.attnOf(id)
 	a.seen, a.notice = time.Now(), nil
-	d.noteSeen(id, a.seen)
 	d.changed()
 	return nil
 }

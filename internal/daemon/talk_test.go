@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/vt"
@@ -98,7 +98,6 @@ func TestPrompt(t *testing.T) {
 // capped, until the next prompt or the pane closes.
 func TestRead(t *testing.T) {
 	d, f := talkDaemon(t)
-	d.dec.cur.Secrets = []string{"hunter2hunter2"}
 	read := func(pane string) proto.ReadResult { return d.read(proto.Read{Pane: pane}) }
 	if r := read("a"); r.Err == "" {
 		t.Fatalf("a reply before any turn: %+v", r)
@@ -108,8 +107,8 @@ func TestRead(t *testing.T) {
 	if r := read("a"); len([]rune(r.Text)) != maxReply {
 		t.Fatalf("kept %d runes, want %d", len([]rune(r.Text)), maxReply)
 	}
-	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"The plan:\n1. use hunter2hunter2"}`)
-	if r := read("a"); r.Err != "" || r.Text != "The plan:\n1. use "+decide.Redacted {
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"The plan:\n1. API_KEY=hunter2hunter2"}`)
+	if r := read("a"); r.Err != "" || r.Text != "The plan:\n1. API_KEY="+logs.Redacted {
 		t.Fatalf("read %+v", r)
 	}
 	// A subagent's stop is no reply of the pane's agent.

@@ -288,9 +288,6 @@ func TestRequest(t *testing.T) {
 	if m := LastMessage(fixture(t, "codex_notify")); m != "Rename complete and verified cargo build succeeds." {
 		t.Errorf("codex notify last message = %q", m)
 	}
-	if p := UserPrompt(fixture(t, "claude_user_prompt_submit")); p == "" {
-		t.Error("no prompt")
-	}
 }
 
 // A token in a turn's last message never reaches Detail, which the sidebar
@@ -306,9 +303,6 @@ func TestSummaryRedacts(t *testing.T) {
 		if !ok || next.State != model.StateCompleted || strings.Contains(next.Detail, "QQQQ") || strings.Contains(next.Detail, "ghp_") {
 			t.Errorf("Detail %q", next.Detail)
 		}
-	}
-	if got := Summary("deployed with key exact-known-1234", "exact-known-1234"); strings.Contains(got, "exact-known") {
-		t.Errorf("known key in summary: %q", got)
 	}
 }
 
@@ -370,9 +364,6 @@ func TestDerivePi(t *testing.T) {
 	}
 	if got := Prompt(model.ProviderPi, []byte(`{"event":"agent_start","prompt":"x"}`)); got != "" {
 		t.Errorf("Prompt of agent_start = %q", got)
-	}
-	if got := UserPrompt([]byte(`{"event":"before_agent_start","prompt":"fix it"}`)); got != "fix it" {
-		t.Errorf("UserPrompt = %q", got)
 	}
 	if got := LastMessage([]byte(`{"event":"agent_settled","stop_reason":"stop","message":"done"}`)); got != "done" {
 		t.Errorf("LastMessage = %q", got)

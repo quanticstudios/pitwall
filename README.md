@@ -275,7 +275,7 @@ or by tokens, over 7 days, 30 days or all time. Copy report puts the list
 on the clipboard as Markdown, so you can hand it to an agent and ask it to
 fix the causes in CLAUDE.md, your shell config or a missing tool.
 
-<img src="docs/media/agent-errors.webp" alt="Settings, Agent errors over 30 days: 131 errors from Claude Code, Codex, Gemini, OpenCode and pi, about 43.2K tokens. The top groups are zsh: command not found: rg 38 times, npm ERR! Missing script 21 times, String to replace not found in file 17 times, and a failing go test 14 times, each with its latest command and output" width="800">
+<img src="docs/media/agent-errors.webp" alt="Settings, Agent errors over 30 days: 131 errors from Claude Code, Codex, Gemini, OpenCode and pi, about 34.6K tokens. The top cause is zsh: command not found at 29%, above a chart of errors per day by kind" width="800">
 
 **Settings, Timing shows where your agents' time goes.** Each turn splits
 into the model, tests, builds, CI, other tools and waiting on you, per day
@@ -295,7 +295,7 @@ The agent panel shows each session's tokens and how full its context is,
 and lists every subagent, Claude Code workflow runs included, with what it
 was asked.
 
-<img src="docs/media/usage.webp" alt="Settings, Usage beside the sidebar: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, Codex's windows at 34% and 61%, and $944.63 over 30 days split between Claude Code and Codex with a daily cost chart. The sidebar's footer shows each agent's fullest window, 5h at 72% and 7d at 61%." width="800">
+<img src="docs/media/usage.webp" alt="Settings, Usage beside the sidebar: Claude Code's 5-hour window at 72% with the time it would reach 100%, its weekly window at 48%, Codex's windows at 34% and 61%, and $735.23 over 30 days split between Claude Code and Codex with a daily cost chart. The sidebar's footer shows each agent's fullest window, 5h at 72% and 7d at 61%." width="800">
 
 ### Line up the next task
 
@@ -462,7 +462,6 @@ pi and Oh My Pi.
 - [Hooks](docs/hooks.md): what `pitwall hooks install` changes for each agent
 - [Remote hosts](docs/remote.md): agents on another machine over ssh
 - [Phone](docs/phone.md): pairing, push notifications, what the page sends
-- [Decisions (Jev)](docs/decisions.md): approval advice, triage, turn checks, Decision stats
 - [Where things live](docs/state.md): files, saved tabs, reboots, upgrades
 - [Install](docs/install.md): platforms, updates, building from source
 - [Troubleshooting](docs/troubleshooting.md): what to check, and the logs

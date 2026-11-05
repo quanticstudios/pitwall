@@ -336,7 +336,7 @@ CLI only.
 | `import` | none: it writes an archived chat's folder | `imported` |
 | `listProjects` | the daemon's `State` | `projects` |
 | `listWorktrees` | `gitstat.ListWorktrees` | `worktrees` |
-| `setJev` | none: aide's Jev gates live in the daemon's memory | none |
+| `setJev` | none: deprecated, stores nothing | none |
 | `checkpoints` | the chat's turns and `gitstat.Checkpoints` | `checkpoints` |
 | `checkpointDiff` | `gitstat.CheckpointDiff` | `patch`, `files` |
 | `rewindPreview` | `gitstat.CheckpointDiff`, twice | `patch`, `files`, `turnPatch`, `turnFiles` |
@@ -696,6 +696,11 @@ is true when pitwall made the tab's folder as a worktree.
 
 ### setJev
 
+Deprecated. It stays so that aide versions that call it keep working, and it
+does nothing: the server ignores the key, consent list and gate settings, keeps
+none of them, and answers `ok`. Chats start and approvals reach the user the
+same with or without it. Any client may send it.
+
 ```json
 {"type": "setJev", "id": "14", "apiKey": "ts_live_0123456789abcdef", "disabledRoots": ["/home/me/src/private"], "gates": {"global": {"toolGate": {"enabled": true}}, "workspaces": {"/home/me/src/pitwall": {"toolGate": {"denyAbove": 0.8}}}}}
 ```
@@ -703,41 +708,6 @@ is true when pitwall made the tab's folder as a worktree.
 ```json
 {"type": "result", "id": "14", "ok": true}
 ```
-
-aide hands over its Jev settings for the chats it starts (ENG-2934): the
-TypeSafe key from the OS keyring, the workspace roots where the user
-turned TypeSafe processing off, and its global and per-workspace gate
-layers. Each `setJev` replaces the last; aide's main process sends one
-whenever the settings change and whenever the renderer connects, since
-the daemon keeps them in memory only. The key is never written to disk or
-a log, and no reply carries it. Only a client whose `hello` says `aide`
-may send it (`invalid` otherwise), and the gates apply only to chats an
-`aide` client started (and their forks):
-
-- Every turn, whether sent, started with a prompt, steered, taken from
-  the queue or sent by pitwall (a limit resume, a restart's continue),
-  goes through aide's Jev preparation first (`internal/decide`, ported
-  from aide's `context-preparation.ts`). Preparation refuses the turn
-  when the workspace is in `disabledRoots` ("Allow TypeSafe processing
-  for this workspace in Settings before sending a message."), when there
-  is no key ("Add a TypeSafe API key in Settings before sending a
-  message."), or when Jev or the workspace context fails. The command
-  then fails with code `jev` and that message, and the prompt does not
-  join the transcript. Otherwise the provider gets the prompt with the
-  workspace evidence Jev chose, and the transcript keeps the prompt as
-  typed.
-- A queued `send` is checked for consent and a key when queued. One that
-  Jev refuses when it comes up stays first in the queue, held, with the
-  reason as a `system` line.
-- With `toolGate.enabled`, a tool approval (not a plan) stays out of the
-  snapshot while Jev judges it. Jev allows it when every probability is
-  under `allowBelow`, denies it when any reaches `denyAbove`, and
-  otherwise lets it through to the user, as it does when Jev does not
-  answer. An allow or deny adds a `system` line. The gate is off unless a
-  layer turns it on; the workspace layer wins over the global one.
-
-`laneRouting` and `completionCheck` are accepted and ignored: they judge
-aide's configured agents, which a pitwall chat does not have.
 
 ### readUsage
 
@@ -848,7 +818,7 @@ person. The codes are the chat loop's ([errors](managed-sessions.md#driver)):
 | `provider` | the provider refused; `message` has its words |
 | `invalid` | the command is malformed: a missing field, a bad value, too many attachments |
 | `forge` | `gh` failed; `message` has its words |
-| `jev` | a Jev gate refused the turn: no consent for the workspace, no key, or preparation failed; `message` is aide's |
+| `jev` | deprecated: this server never sends it |
 
 A client treats a code it does not know as a failure with `message` to
 show.
@@ -888,7 +858,7 @@ WebSocket implementation of it. This is the mapping, member by member.
 | `rewind(previewId, mode)` | `rewind` | `conversation-only` is `keepFiles: true`. The chat is rewound in place, not copied to a new one |
 | `getCheckpointDiff` | `checkpointDiff` | aide splits `patch` per file |
 | `close` | `archive` | closing a chat tab archives the chat in pitwall |
-| Jev settings (`updateJevSettings`, `updateJevGates`) | `setJev`, from aide's main process | the renderer never sees the key |
+| Jev settings (`updateJevSettings`, `updateJevGates`) | none | `setJev` is accepted and ignored |
 | `setAgents`, `acceptFleetNode` | none | fleet and multi-agent routing stay aide's ([what stays out](managed-sessions.md#out)) |
 
 <a id="versioning"></a>

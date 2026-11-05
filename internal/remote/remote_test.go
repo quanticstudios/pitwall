@@ -211,8 +211,7 @@ func TestItems(t *testing.T) {
 		Activities: []model.Activity{
 			{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StateWorking, UpdatedAt: now},
 			{PaneID: "b", WorkspaceID: "w", Provider: model.ProviderCodex, State: model.StateCompleted, Detail: "done", UpdatedAt: now},
-			{PaneID: "c", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StatePendingApproval, Detail: "Push",
-				AdviceRule: "sudo", Advice: "deny", AdviceP: 0.91, UpdatedAt: now},
+			{PaneID: "c", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StatePendingApproval, Detail: "Push", UpdatedAt: now},
 			{PaneID: "d", WorkspaceID: "w", Provider: model.ProviderPi, State: model.StatePendingApproval, UpdatedAt: now},
 		},
 	}
@@ -221,7 +220,7 @@ func TestItems(t *testing.T) {
 		t.Fatalf("items %+v", got)
 	}
 	c := got[0]
-	if !c.Answer || c.Reply || c.Risk != "sudo" || c.Advice != "deny 91%" || c.Tab != "fix auth" || c.Session != "work" || c.At != now.UnixNano() {
+	if !c.Answer || c.Reply || c.Tab != "fix auth" || c.Session != "work" || c.At != now.UnixNano() {
 		t.Errorf("approval %+v", c)
 	}
 	if got[1].Answer { // no known prompt keys for pi
@@ -381,8 +380,8 @@ func TestChatAnswers(t *testing.T) {
 		delete(pending, request)
 		return nil
 	}
-	s.Approve = func(chat, request, decision, reason, by string) error {
-		got = append(got, strings.Join([]string{request, decision, reason, by}, " "))
+	s.Approve = func(chat, request, decision, reason string) error {
+		got = append(got, strings.Join([]string{request, decision, reason}, " "))
 		return take(chat, request)
 	}
 	s.AnswerInput = func(chat, request string, answers map[string][]string) error {
@@ -406,7 +405,7 @@ func TestChatAnswers(t *testing.T) {
 	if st, body := call(t, h, "POST", "/api/input", token, `{"chat":"c","request":"i1","answers":{"q":["Continue"]}}`); st != 200 {
 		t.Fatalf("input: %d %s", st, body)
 	}
-	want := []string{"r1 deny not now phone:pixel", "r1 allow  phone:pixel", "i1 Continue"}
+	want := []string{"r1 deny not now", "r1 allow ", "i1 Continue"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("answers %q, want %q", got, want)
 	}

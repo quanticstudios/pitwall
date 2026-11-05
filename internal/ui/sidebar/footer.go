@@ -184,7 +184,7 @@ func (s *Sidebar) detachedMenu(gtx layout.Context, v *view, anchor image.Rectang
 		a := model.Aggregate(acts[ws.ID])
 		state, stateCol := "idle", th.Muted
 		if a != nil {
-			state, stateCol = PillText(*a, v.st.Decide.Provider), StateColor(th, a.State)
+			state, stateCol = PillText(*a), StateColor(th, a.State)
 		}
 		off := op.Offset(image.Pt(p+gtx.Dp(8), top+i*rowH)).Push(gtx.Ops)
 		gtx := gtx

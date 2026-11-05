@@ -22,7 +22,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/fake"
@@ -52,7 +51,6 @@ func webDaemon(t *testing.T, edit ...func(*Options)) string {
 	edit = append(edit, chatProvider(fake.Options{}))
 	d, _, stop := runDaemon(t, &fakes{statsCalls: map[string]int{}}, func(o *Options) {
 		edit[0](o)
-		o.Gates = decide.FakeGates()
 	})
 	t.Cleanup(stop)
 	return webOn(t, d)
@@ -421,7 +419,6 @@ func TestWebListWorktrees(t *testing.T) {
 // holds the turn; rewind of a turn without a file checkpoint refuses.
 func TestWebFork(t *testing.T) {
 	c := dialWeb(t, webDaemon(t), "aide")
-	c.call(map[string]any{"type": "setJev", "apiKey": "synthetic-e2e-key"})
 	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "hello"})
 	chat, _ := at(r, "data.sessionId").(string)
 	if r["ok"] != true || chat == "" {
@@ -588,7 +585,6 @@ func TestRecentPrompt(t *testing.T) {
 // fake provider gets the pasted text quoted after the prompt.
 func TestWebAttachments(t *testing.T) {
 	c := dialWeb(t, webDaemon(t), "aide")
-	c.call(map[string]any{"type": "setJev", "apiKey": "synthetic-e2e-key"})
 	r := c.call(map[string]any{"type": "start", "dir": t.TempDir(), "provider": "claude", "prompt": "summarize the log",
 		"attachments": []any{map[string]any{"kind": "pasted-text", "id": "p", "name": "pasted-text-1.txt", "text": "log line\n"}}})
 	chat, _ := at(r, "data.sessionId").(string)
@@ -762,4 +758,28 @@ func TestWebSkill(t *testing.T) {
 	}
 	c.call(map[string]any{"type": "resolveApproval", "sessionId": id, "requestId": at(read(), "data.snapshot.pendingApprovals.0.id"), "decision": "allow"})
 	waitUntil(t, "the codex skill", func() bool { return strings.Contains(content(), "Handled with codex skill codex:skill:ab12: ship it") })
+}
+
+// TestWebSetJev: setJev answers ok and keeps nothing, and a chat starts with
+// no key, from a client that calls it or from one that does not.
+func TestWebSetJev(t *testing.T) {
+	addr := webDaemon(t)
+	for _, name := range []string{"aide", "pwtest"} {
+		c := dialWeb(t, addr, name)
+		r := c.call(map[string]any{"type": "setJev", "apiKey": "ts_live_synthetic0123456789abcdef", "disabledRoots": []string{"/private"},
+			"gates": map[string]any{"global": map[string]any{"toolGate": map[string]any{"enabled": true}}}})
+		if r["ok"] != true || r["code"] != nil || r["data"] != nil {
+			t.Fatalf("%s: setJev: %v", name, r)
+		}
+		dir := t.TempDir()
+		r = c.call(map[string]any{"type": "start", "dir": dir, "provider": "claude", "prompt": "hello"})
+		chat, _ := at(r, "data.sessionId").(string)
+		if r["ok"] != true || chat == "" {
+			t.Fatalf("%s: start in a folder setJev named: %v", name, r)
+		}
+		text, _ := json.Marshal(c.call(map[string]any{"type": "read", "sessionId": chat}))
+		if strings.Contains(string(text), "ts_live_synthetic") {
+			t.Fatalf("%s: the key reached the chat: %s", name, text)
+		}
+	}
 }

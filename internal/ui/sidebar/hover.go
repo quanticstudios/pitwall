@@ -132,8 +132,7 @@ func (s *Sidebar) hoverFrame(gtx layout.Context) {
 // the PR's checks, 'g' its buttons to the agent, 'x' the conflict radar,
 // 'o' the worktree's ports, 's' agent state, 'd' its detail, 'm' the
 // status line pitwall status set, 'l' Claude's own limit resume, 'a' each
-// agent pane, 'u' token use, 'j' the decision model's advice, 'p' pane
-// count.
+// agent pane, 'u' token use, 'p' pane count.
 type card struct {
 	title, when  string
 	agent        model.Provider // its mark, or a terminal glyph for ""
@@ -157,7 +156,6 @@ type card struct {
 	profile      string
 	agents       []model.AgentPane // with two or more, each one
 	usage        string            // UsageText of the tab's agents
-	decision     string
 	panes        int
 }
 
@@ -208,9 +206,6 @@ func (c card) lines() string {
 	if c.usage != "" {
 		out += "u"
 	}
-	if c.decision != "" {
-		out += "j"
-	}
 	if c.panes > 1 {
 		out += "p"
 	}
@@ -244,7 +239,6 @@ func cardFor(v *view, ws model.Workspace) card {
 	}
 	if a := v.activity[ws.ID]; a != nil {
 		c.state, c.detail, c.quiet = a.State, clampDetail(a.Detail), QuietText(v.now, a)
-		c.decision = AdviceText(*a, v.st.Decide.Provider)
 		// A pill on the row may cut its option short.
 		if a.State == model.StateAwaitingInput && len(a.Buttons) > 0 {
 			c.detail = clampDetail(a.Detail + " " + strings.Join(a.Buttons, " / "))
@@ -556,10 +550,6 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), 0, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 					return label(gtx, th, th.UIFont, th.Sp(theme.Small), theme.Mix(bg, th.Fg, 0.8), c.usage)
 				}})
-			})
-		case 'j':
-			line(iconOf(icCircleCheck, muted), func(gtx layout.Context) layout.Dimensions {
-				return wrapLabel(gtx, th, th.UIFont, th.Sp(theme.Small), muted, c.decision, 2)
 			})
 		case 'p':
 			line(iconOf(projectIcon("layers"), muted), func(gtx layout.Context) layout.Dimensions {
