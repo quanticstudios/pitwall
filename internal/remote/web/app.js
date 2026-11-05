@@ -85,12 +85,6 @@ function card(it) {
   top.append(el('span', 'pill ' + it.state, it.label), el('span', 'tab', it.tab || 'Tab'));
   c.append(top, el('div', 'where', [agents[it.agent] || it.agent, it.session].filter(Boolean).join(' · ')));
   if (it.detail && !it.requests) c.append(el('p', 'detail', it.detail));
-  if (it.risk || it.advice) {
-    const f = el('div', 'flags');
-    if (it.risk) f.append(el('span', 'risk', 'Risk: ' + it.risk));
-    if (it.advice) f.append(el('span', 'advice', 'Model: ' + it.advice));
-    c.append(f);
-  }
   const note = el('div', 'note');
   const done = (msg) => { note.className = 'note'; note.textContent = msg; schedule(800); };
   const failed = (e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } };
@@ -217,7 +211,7 @@ function request(chat, r, done, failed) {
 function render(items, device) {
   const keep = new Map();
   const want = items.map((it) => {
-    const k = [it.pane, it.at, it.risk, it.advice, (it.requests || []).map((r) => r.id)].join('|');
+    const k = [it.pane, it.at, (it.requests || []).map((r) => r.id)].join('|');
     const c = cards.get(k) || card(it);
     keep.set(k, c);
     return c;

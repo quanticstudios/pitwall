@@ -6,16 +6,18 @@
 | Saved tab backups   | `state.json.prev`, `state.json.bad-<time>` and `state.json.restored-<time>` next to it |
 | Saved tab snapshots | `~/.local/state/pitwall/snapshots/state-<time>.json`, the newest 48 (`pitwall snapshots`) |
 | Logs                | `~/.local/state/pitwall/gui.log`, `daemon.log` and `crash.log` (`pitwall logs`) |
-| Decisions log       | `~/.local/state/pitwall/decisions.jsonl` (`pitwall jev report`) |
 | Agent errors log    | `~/.local/state/pitwall/errors.jsonl` (Settings, Agent errors) |
 | Timing log          | `~/.local/state/pitwall/timing.jsonl` (Settings, Timing)      |
 | Socket              | `$XDG_RUNTIME_DIR/pitwall/pitwall.sock`, else `/tmp/pitwall-<uid>/` |
 | Config and themes   | `~/.config/pitwall/` (`$XDG_CONFIG_HOME`)                     |
-| Decision model key  | `~/.config/pitwall/credentials` (mode 0600), or `$TYPESAFE_API_KEY` |
 | Paired phones       | `~/.local/state/pitwall/remote/` (token hashes, mode 0600)    |
 | Web client token    | `~/.local/state/pitwall/web.json` (mode 0600, `pitwall web token --rotate`) |
 | Web client open code | `~/.local/state/pitwall/web-open.json` (a one-time code's hash, `pitwall web open`) |
 | Window state        | `~/.local/state/pitwall/gui.json` (sidebar shown or hidden)   |
+
+Older installs may hold `~/.local/state/pitwall/decisions.jsonl`
+and `~/.config/pitwall/credentials`. pitwall does not read either file, and you
+can delete them.
 
 macOS uses the same paths. On Windows, config and themes live in
 `%APPDATA%\pitwall`, and saved tabs, the logs, window state and the

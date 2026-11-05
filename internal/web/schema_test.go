@@ -37,7 +37,7 @@ var (
 		"oneOf": true, "minimum": true,
 	}
 	annotations = map[string]bool{
-		"$schema": true, "$id": true, "$defs": true, "title": true, "description": true,
+		"$schema": true, "$id": true, "$defs": true, "title": true, "description": true, "deprecated": true,
 	}
 )
 

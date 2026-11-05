@@ -22,10 +22,9 @@ type Input struct {
 	Branch   model.BranchStats
 	// Base and Files are gitstat.Files for the pane's live directory; Git
 	// is false until a call succeeded there.
-	Base   string
-	Files  []gitstat.FileStat
-	Git    bool
-	Decide string // model.State.Decide.Provider
+	Base  string
+	Files []gitstat.FileStat
+	Git   bool
 	// Ports is the tab's port block; Changes shows its first port, and
 	// Listening the ones of it that accept a connection.
 	Ports     model.PortBlock
@@ -138,8 +137,7 @@ func planCounts(plan []flow.Step) (done, total int) {
 type event struct {
 	at   time.Time
 	text string
-	note string // a decision model's suggestion, drawn under text
-	bad  bool   // a failed call
+	bad  bool // a failed call
 }
 
 // maxEvents keeps the timeline of a long session to its newest lines.
@@ -174,14 +172,7 @@ func timeline(in *Input) []event {
 		}
 	}
 	if a := in.Activity; a != nil && a.State == model.StatePendingApproval {
-		e := event{at: a.UpdatedAt, text: "Approval for " + firstLine(a.Detail)}
-		if s := sidebar.AdviceText(*a, in.Decide); s != "" {
-			e.note = s
-			if a.Urgency != "" && a.Urgency != model.UrgencyPending {
-				e.note += ", triage " + a.Urgency
-			}
-		}
-		out = append(out, e)
+		out = append(out, event{at: a.UpdatedAt, text: "Approval for " + firstLine(a.Detail)})
 	}
 	slices.SortStableFunc(out, func(a, b event) int { return a.at.Compare(b.at) })
 	if len(out) > maxEvents {
@@ -246,17 +237,7 @@ func bannerFor(in *Input) banner {
 	}
 	switch a.State {
 	case model.StatePendingApproval:
-		why := firstLine(a.Detail)
-		if a.Advice != "" {
-			why = strings.TrimSuffix(why, ".") + fmt.Sprintf(". %s suggests %s (%.0f%%)", sidebar.DecideName(in.Decide), a.Advice, a.AdviceP*100)
-			if a.AdviceRule != "" {
-				why += ": " + a.AdviceRule
-			}
-			why += "."
-		} else if a.AdviceRule != "" {
-			why = strings.TrimSuffix(why, ".") + ". Risk: " + a.AdviceRule + "."
-		}
-		return banner{kind: "wait", eyebrow: "Needs you", what: name + " wants approval", why: why}
+		return banner{kind: "wait", eyebrow: "Needs you", what: name + " wants approval", why: firstLine(a.Detail)}
 	case model.StateAwaitingInput:
 		return banner{kind: "wait", eyebrow: "Needs you", what: name + " asks you something", why: firstLine(a.Detail)}
 	case model.StatePlanReady:
@@ -265,11 +246,8 @@ func bannerFor(in *Input) banner {
 		return banner{kind: "error", eyebrow: "Stopped on an error", what: name + " hit an error", why: firstLine(a.Detail)}
 	case model.StateCompleted, model.StatePROpen:
 		b := banner{kind: "done", eyebrow: "Finished " + sidebar.RelTime(in.Now, a.UpdatedAt), what: "Latest turn completed"}
-		switch {
-		case a.State == model.StatePROpen:
+		if a.State == model.StatePROpen {
 			b.what = "Turn finished; the pull request is open"
-		case a.Review:
-			b.what = "Turn finished; the turn check says look at it"
 		}
 		if t != nil {
 			b.why = firstLine(t.Reply)
@@ -363,7 +341,7 @@ type node struct {
 }
 
 // graphFor is the current turn as a column of nodes: Prompt, Agent,
-// Subagents when the turn spawned any, the decision gate while an
+// Subagents when the turn spawned any, the approval while an
 // approval waits, and Outcome.
 func graphFor(in *Input) []node {
 	name := sidebar.AgentName(in.agent())
@@ -433,20 +411,9 @@ func graphFor(in *Input) []node {
 
 	gate := state == model.StatePendingApproval
 	if gate {
-		n := node{kind: sidebar.DecideName(in.Decide) + " gate", title: "Approval: " + firstLine(a.Detail), state: nodeWaiting, edge: "asks", detail: "waiting for you"}
-		if in.Decide == "" {
-			n.kind = "Approval"
-		}
+		n := node{kind: "Approval", title: "Approval: " + firstLine(a.Detail), state: nodeWaiting, edge: "asks", detail: "waiting for you"}
 		if out[len(out)-1].subagents {
 			n.edge = "return"
-		}
-		if a.Advice != "" {
-			n.detail = fmt.Sprintf("%s %.0f%%", a.Advice, a.AdviceP*100)
-			if a.AdviceRule != "" {
-				n.detail += " · " + a.AdviceRule
-			}
-		} else if a.AdviceRule != "" {
-			n.detail = "risk: " + a.AdviceRule
 		}
 		out = append(out, n)
 	}
@@ -463,9 +430,6 @@ func graphFor(in *Input) []node {
 		o.state, o.title, o.detail = nodeWaiting, "Error", firstLine(a.Detail)
 	case ended:
 		o.state, o.title = nodeCompleted, "Done"
-		if a != nil && a.Review {
-			o.title = "Check"
-		}
 		o.detail = plural(calls, "tool call")
 		if t != nil && !t.End.IsZero() {
 			o.detail += " · " + duration(t.End.Sub(t.Start))

@@ -71,7 +71,6 @@ func TestTimeline(t *testing.T) {
 	t0 := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	at := func(s int) time.Time { return t0.Add(time.Duration(s) * time.Second) }
 	in := Input{
-		Decide: "jev",
 		Feed: &flow.Feed{
 			Turns: []flow.Turn{
 				{Prompt: "first", Start: at(0), End: at(10), Calls: []flow.Call{{Time: at(1), Tool: "Read", Arg: "a/x.go"}}},
@@ -84,21 +83,17 @@ func TestTimeline(t *testing.T) {
 			},
 			Subagents: []flow.Subagent{{Name: "recon", Type: "Explore", Start: at(25), End: at(40)}},
 		},
-		Activity: &model.Activity{State: model.StatePendingApproval, Detail: "rm -rf build", UpdatedAt: at(45), Advice: "allow", AdviceP: 0.71, Urgency: "soon"},
+		Activity: &model.Activity{State: model.StatePendingApproval, Detail: "rm -rf build", UpdatedAt: at(45)},
 	}
 	var got []string
 	for _, e := range timeline(&in) {
-		s := e.text
-		if e.note != "" {
-			s += " | " + e.note
-		}
-		got = append(got, s)
+		got = append(got, e.text)
 	}
 	want := []string{
 		"You: first", "Read a/x.go", "Finished in 10s",
 		"You: second", "Read b.go, c.go and 2 more", "Spawned Explore: recon",
 		"Bash go test failed", "Bash go vet", "Bash go build", "Bash go doc", "recon finished in 15s",
-		"Approval for rm -rf build | Jev: allow 71%, triage soon",
+		"Approval for rm -rf build",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("timeline:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -112,9 +107,8 @@ func TestGraph(t *testing.T) {
 	now := time.Now()
 	in := Input{
 		Now:      now,
-		Decide:   "jev",
 		Pane:     &model.Pane{Provider: model.ProviderClaude},
-		Activity: &model.Activity{State: model.StatePendingApproval, Detail: "go test", Advice: "allow", AdviceP: 0.99},
+		Activity: &model.Activity{State: model.StatePendingApproval, Detail: "go test"},
 		Feed: &flow.Feed{
 			Turns:     []flow.Turn{{Prompt: "p", Start: now.Add(-time.Minute), Subagents: []int{0}}},
 			Subagents: []flow.Subagent{{Name: "s", Start: now.Add(-time.Second)}},
@@ -124,7 +118,7 @@ func TestGraph(t *testing.T) {
 	for _, n := range graphFor(&in) {
 		got = append(got, n.kind+"/"+n.edge)
 	}
-	if want := []string{"Prompt/", "Agent/prompt", "Subagents/spawn", "Jev gate/return", "Outcome/then"}; !slices.Equal(got, want) {
+	if want := []string{"Prompt/", "Agent/prompt", "Subagents/spawn", "Approval/return", "Outcome/then"}; !slices.Equal(got, want) {
 		t.Fatalf("nodes %v, want %v", got, want)
 	}
 	in.Activity = &model.Activity{State: model.StateCompleted}

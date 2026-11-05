@@ -933,7 +933,8 @@
       "additionalProperties": false
     },
     "setJev": {
-      "description": "aide hands over its TypeSafe key, consent list and Jev gate settings for the chats it starts. Only a client that says hello as aide may send it; the daemon keeps it in memory and never sends the key back.",
+      "description": "Deprecated: accepted so aide versions that call it keep working. The server ignores its fields, stores nothing and answers ok.",
+      "deprecated": true,
       "type": "object",
       "required": [
         "type",
@@ -948,11 +949,11 @@
         },
         "apiKey": {
           "type": "string",
-          "description": "The TypeSafe key; empty or left out for none."
+          "description": "Ignored."
         },
         "disabledRoots": {
           "type": "array",
-          "description": "Workspace roots where the user turned TypeSafe processing off.",
+          "description": "Ignored.",
           "items": {
             "type": "string"
           }
@@ -977,7 +978,7 @@
       "additionalProperties": false
     },
     "jevGateOverrides": {
-      "description": "One layer of aide's JevGateOverrides. Only toolGate applies to a pitwall chat.",
+      "description": "One layer of aide's JevGateOverrides. Ignored.",
       "type": "object",
       "properties": {
         "toolGate": {

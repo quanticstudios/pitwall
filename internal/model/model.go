@@ -417,9 +417,6 @@ type State struct {
 	// for tabs whose branch has one gh can see. The daemon fills it in; it
 	// is not saved.
 	PRs map[string]PR `json:"-"`
-	// Decide is the decision features' status. The daemon fills it in; it
-	// is not saved.
-	Decide DecideInfo `json:"-"`
 	// Notice is what a window shows until someone dismisses it: why the
 	// daemon started without the saved tabs, or that it restored some. It
 	// is not saved.
@@ -533,18 +530,6 @@ func (t Task) Title() string {
 type Clipboard struct {
 	Seq  uint64
 	Text string
-}
-
-// DecideInfo is what clients show about decision models.
-type DecideInfo struct {
-	Provider string // "jev" or "command" when one is set up and usable, else ""
-	Counts   []DecideCount
-}
-
-// DecideCount is one feature's calls and failed calls today.
-type DecideCount struct {
-	Feature       string
-	Calls, Errors int
 }
 
 // LivePath is where the tab is now: the live working directory of the first

@@ -1,7 +1,7 @@
 // Package errlog keeps errors.jsonl in the state directory: one JSON line
 // per command, tool call or turn of an agent that failed, so Settings can
-// show which failures repeat. Unlike decisions.jsonl a line holds text, the
-// command and the tail of its output, with secrets redacted first.
+// show which failures repeat. A line holds text, the command and the tail of
+// its output, with secrets redacted first.
 package errlog
 
 import (
@@ -16,7 +16,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/logs"
 )
 
@@ -84,9 +83,9 @@ func Open(path string) (*Log, error) {
 	return &Log{w: logs.NewWriter("errlog ", r, r)}, nil
 }
 
-// Add queues e with its command and output redacted, secrets and each of
-// known, then cut to commandLen and the last outputLen runes.
-func (l *Log) Add(e Event, known ...string) {
+// Add queues e with its command and output redacted, then cut to commandLen
+// and the last outputLen runes.
+func (l *Log) Add(e Event) {
 	if l == nil {
 		return
 	}
@@ -126,7 +125,7 @@ func (l *Log) Add(e Event, known ...string) {
 		}
 		out = []rune(o[i:])
 	}
-	cmd, out = []rune(strings.TrimSpace(decide.Redact(string(cmd), known...))), []rune(strings.TrimSpace(decide.Redact(string(out), known...)))
+	cmd, out = []rune(strings.TrimSpace(logs.Redact(string(cmd)))), []rune(strings.TrimSpace(logs.Redact(string(out))))
 	if len(cmd) > commandLen {
 		e.Command = string(cmd[:commandLen-1]) + "…"
 	} else {

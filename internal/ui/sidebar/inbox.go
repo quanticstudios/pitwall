@@ -634,7 +634,7 @@ func (s *Sidebar) undoBar(gtx layout.Context, th *theme.Theme, w, h int) bool {
 			return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, u.text)
 		}},
 		item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-			return pillButton(&s.undoBtn, th, th.SurfaceSecondary, gtx.Dp(24), "Undo", th.Primary, false)(gtx)
+			return pillButton(&s.undoBtn, th, th.SurfaceSecondary, gtx.Dp(24), "Undo", th.Primary)(gtx)
 		}},
 	)
 	return true

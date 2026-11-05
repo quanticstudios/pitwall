@@ -12,8 +12,8 @@ import (
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/layout"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
@@ -33,7 +33,7 @@ const maxReply = 16000
 // finished, for Read: redacted, then cut to maxReply runes. Callers hold
 // d.mu.
 func (d *Daemon) keepReply(pane, msg string) {
-	msg = decide.Redact(msg, d.dec.cur.Secrets...)
+	msg = logs.Redact(msg)
 	if r := []rune(msg); len(r) > maxReply {
 		msg = string(r[:maxReply])
 	}

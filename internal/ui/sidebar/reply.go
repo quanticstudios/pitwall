@@ -548,7 +548,7 @@ func (s *Sidebar) replySheet(gtx layout.Context, v *view, ws model.Workspace, a 
 		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
 			return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(th.TextQuiet, th.SurfaceSecondary), "Enter sends · Shift+Enter new line · Esc keeps")
 		}},
-		item{right: true, w: pillButton(&r.send, th, th.SurfaceSecondary, answerHeight(gtx, th), "Send", th.Primary, false)},
+		item{right: true, w: pillButton(&r.send, th, th.SurfaceSecondary, answerHeight(gtx, th), "Send", th.Primary)},
 	)
 	off.Pop()
 }

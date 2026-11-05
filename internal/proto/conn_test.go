@@ -42,9 +42,8 @@ func allMessages() []any {
 		Workspaces: []model.Workspace{{ID: "w", ProjectID: "p", Name: "x", Branch: "x", Path: "/r/x", UpdatedAt: now, Tabs: []model.Tab{{ID: "t", Layout: tree}}, ActiveTab: "t", Popup: &model.Popup{Pane: "p", Width: "80%", Height: "20", Title: "pick"}}},
 		Panes:      []model.Pane{{ID: "a", WorkspaceID: "w", Cmd: []string{"claude"}, Cwd: "/r/x", Exited: true, ExitCode: 2, Provider: model.ProviderClaude, SessionID: "s"}},
 		Activities: []model.Activity{{PaneID: "a", WorkspaceID: "w", Provider: model.ProviderClaude, State: model.StatePendingApproval, UpdatedAt: now, Unseen: true,
-			Advice: "allow", AdviceP: 0.96, AdviceRule: "sudo", Urgency: "now", AutoContinues: true}},
+			AutoContinues: true}},
 		Stats:  map[string]model.BranchStats{"w": {Additions: 1, Deletions: 2, MergeStatus: model.MergeClean, Ahead: 3, Behind: 4}},
-		Decide: model.DecideInfo{Provider: "jev", Counts: []model.DecideCount{{Feature: "approvals", Calls: 3, Errors: 1}}},
 		Tasks:  []model.Task{{ID: "t", SessionID: "s", GroupID: "p", Dir: "/r", Branch: "fix", Cmd: []string{"claude", "fix it"}}},
 		Queued: map[string]int{"a": 2},
 		Closed: []model.ClosedTab{{ID: "c", Tab: model.Workspace{ID: "w0", Name: "fix", Branch: "fix", Path: "/r/.worktrees/fix", WorktreeRoot: "/r"},
@@ -81,7 +80,7 @@ func allMessages() []any {
 		ChatSend{Chat: "c", Text: "more", How: "steer"},
 		ChatInterrupt{Chat: "c"},
 		ChatProviders{}, ChatProviderList{Providers: []ChatProvider{{ID: "acp:grok", Name: "grok"}}},
-		ChatApprove{Chat: "c", Request: "r", Decision: "deny", Reason: "no", By: "cli"},
+		ChatApprove{Chat: "c", Request: "r", Decision: "deny", Reason: "no"},
 		ChatAnswer{Chat: "c", Request: "r", Answers: map[string][]string{"q": {"yes"}}},
 		ChatSet{Chat: "c", Mode: "plan"},
 		ChatQueue{Chat: "c", Queue: []session.QueuedMessage{{ID: "m", Text: "later"}}},
@@ -345,5 +344,69 @@ func TestRefusedVersion(t *testing.T) {
 		if v, ok := RefusedVersion(Error{Message: c.msg}); v != c.v || ok != c.ok {
 			t.Errorf("%q: %d %v, want %d %v", c.msg, v, ok, c.v, c.ok)
 		}
+	}
+}
+
+// oldActivity, oldState and oldApprove have the fields Level 64 removed, as a
+// peer of Level 63 sends and reads them.
+type oldActivity struct {
+	PaneID, Detail        string
+	Advice, AdviceRule    string
+	AdviceP               float64
+	Urgency               string
+	Review, Stuck, Unseen bool
+}
+
+type oldCount struct {
+	Feature       string
+	Calls, Errors int
+}
+
+type oldDecide struct {
+	Provider string
+	Counts   []oldCount
+}
+
+type oldState struct {
+	Version    uint64
+	Activities []oldActivity
+	Decide     oldDecide
+}
+
+type oldApprove struct {
+	Chat, Request, Decision, Reason, By string
+}
+
+func gobCopy[T any](t *testing.T, in any) T {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(in); err != nil {
+		t.Fatal(err)
+	}
+	var out T
+	if err := gob.NewDecoder(&buf).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestLevel63Peer: a window and a daemon one release apart read each other.
+// The side without a removed field skips it, and the side with it reads zero.
+func TestLevel63Peer(t *testing.T) {
+	st := gobCopy[model.State](t, oldState{Version: 7,
+		Activities: []oldActivity{{PaneID: "a", Detail: "go test", Advice: "allow", AdviceP: 0.96, AdviceRule: "sudo", Urgency: "now", Review: true, Stuck: true, Unseen: true}},
+		Decide:     oldDecide{Provider: "jev", Counts: []oldCount{{Feature: "approvals", Calls: 3, Errors: 1}}}})
+	if a := st.Activities; st.Version != 7 || len(a) != 1 || a[0].PaneID != "a" || a[0].Detail != "go test" || !a[0].Unseen {
+		t.Errorf("new reader of an old state: %+v", st)
+	}
+	back := gobCopy[oldState](t, model.State{Version: 8, Activities: []model.Activity{{PaneID: "b", Detail: "x", Unseen: true}}})
+	if a := back.Activities; back.Version != 8 || len(a) != 1 || a[0] != (oldActivity{PaneID: "b", Detail: "x", Unseen: true}) || back.Decide.Provider != "" || back.Decide.Counts != nil {
+		t.Errorf("old reader of a new state: %+v", back)
+	}
+	if m := gobCopy[ChatApprove](t, oldApprove{Chat: "c", Request: "r", Decision: "deny", Reason: "no", By: "cli"}); m != (ChatApprove{Chat: "c", Request: "r", Decision: "deny", Reason: "no"}) {
+		t.Errorf("new reader of an old approve: %+v", m)
+	}
+	if m := gobCopy[oldApprove](t, ChatApprove{Chat: "c", Decision: "allow"}); m != (oldApprove{Chat: "c", Decision: "allow"}) {
+		t.Errorf("old reader of a new approve: %+v", m)
 	}
 }

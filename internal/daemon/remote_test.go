@@ -854,7 +854,7 @@ func TestRemoteChat(t *testing.T) {
 	if st, out := do("POST", "/api/approve", body); st != http.StatusConflict {
 		t.Fatalf("second approve: %d %s", st, out)
 	}
-	if res := chatCall[proto.ChatResult](gui, proto.ChatApprove{Chat: r.Chat, Request: req.ID, Decision: "deny", By: "gui"}); res.Code != "conflict" {
+	if res := chatCall[proto.ChatResult](gui, proto.ChatApprove{Chat: r.Chat, Request: req.ID, Decision: "deny"}); res.Code != "conflict" {
 		t.Fatalf("the GUI's late answer: %+v", res)
 	}
 	waitTurn(r.Chat)

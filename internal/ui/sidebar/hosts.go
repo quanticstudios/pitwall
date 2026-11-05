@@ -90,7 +90,7 @@ func sessionState(st *model.State) model.State {
 	for i := range out.Activities {
 		a := &out.Activities[i]
 		if watching[a.WorkspaceID] && a.State == model.StateCompleted {
-			a.State, a.Unseen, a.Review = model.StateWatching, false, false
+			a.State, a.Unseen = model.StateWatching, false
 		}
 	}
 	return out

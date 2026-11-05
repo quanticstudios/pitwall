@@ -342,7 +342,7 @@ func (d *drawer) flow() []layout.Widget {
 		out = append(out, d.section("Earlier turns"))
 		for i := n - 2; i >= max(0, n-11); i-- {
 			t := in.Feed.Turns[i]
-			out = append(out, d.event(fmt.Sprintf("Turn %d", i+1), t.Prompt+" · Done", "", false))
+			out = append(out, d.event(fmt.Sprintf("Turn %d", i+1), t.Prompt+" · Done", false))
 		}
 	}
 	switch {
@@ -566,7 +566,7 @@ func (d *drawer) stats(stats []stat) layout.Widget {
 
 // event is a timeline-style row: a time column and text, with an optional
 // purple note under it.
-func (d *drawer) event(at, txt, note string, bad bool) layout.Widget {
+func (d *drawer) event(at, txt string, bad bool) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		col := d.c.fg
 		if bad {
@@ -575,13 +575,7 @@ func (d *drawer) event(at, txt, note string, bad bool) layout.Widget {
 		dims := layout.Inset{Top: 5, Bottom: 5}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return row(gtx,
 				part{w: fixed(gtx.Dp(44), pad(1.5, 0, 0, 0, d.text(d.th.MonoFont, d.th.Sp(theme.Caption), d.c.quiet, at, 1)))},
-				part{gap: gtx.Dp(10), flex: true, w: func(gtx layout.Context) layout.Dimensions {
-					ws := []layout.FlexChild{layout.Rigid(d.text(d.th.UIFont, d.th.Sp(theme.Small), col, txt, 0))}
-					if note != "" {
-						ws = append(ws, layout.Rigid(d.text(d.th.UIFont, d.th.Sp(theme.Small), d.c.purple, note, 0)))
-					}
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ws...)
-				}},
+				part{gap: gtx.Dp(10), flex: true, w: d.text(d.th.UIFont, d.th.Sp(theme.Small), col, txt, 0)},
 			)
 		})
 		paint.FillShape(gtx.Ops, d.c.soft, clip.Rect{Min: image.Pt(0, dims.Size.Y-gtx.Dp(1)), Max: dims.Size}.Op())
@@ -949,7 +943,7 @@ func (d *drawer) timeline() []layout.Widget {
 	evs := timeline(d.in)
 	out := make([]layout.Widget, len(evs))
 	for i, e := range evs {
-		out[i] = d.event(e.at.Local().Format("15:04"), e.text, e.note, e.bad)
+		out[i] = d.event(e.at.Local().Format("15:04"), e.text, e.bad)
 	}
 	return out
 }

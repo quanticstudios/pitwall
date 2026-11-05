@@ -564,7 +564,7 @@ func buildView(gtx layout.Context, th *theme.Theme, st *model.State, session, ac
 		v.own[r] = a
 		if watching[r] {
 			w := *a
-			w.State, w.Review, w.Unseen = model.StateWatching, false, false
+			w.State, w.Unseen = model.StateWatching, false
 			v.activity[r] = &w
 			delete(v.unseen, r)
 		}

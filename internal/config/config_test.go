@@ -653,3 +653,53 @@ func TestPersistScrollback(t *testing.T) {
 		t.Fatal("generated config or schema omits persist_scrollback")
 	}
 }
+
+// TestDecisionsTableIgnored: a config from when pitwall had decision models
+// loads with one note, keeps its other settings and stays as it was on disk.
+func TestDecisionsTableIgnored(t *testing.T) {
+	const text = `[decisions]
+provider = "jev"
+model = "jev-latest"
+[decisions.approvals]
+mode = "auto"
+allow_above = 0.99
+[decisions.agents]
+enabled = true
+[decisions.triage]
+holdout = "not a number"
+[font]
+ui_size = 15
+`
+	path := write(t, t.TempDir(), "config.toml", text)
+	s, probs := LoadFile(path)
+	if len(probs) > 0 {
+		t.Errorf("problems: %s", msgs(probs))
+	}
+	if got := msgs(s.Notes); strings.Count(got, "no longer supported") != 1 || !strings.Contains(got, "config.toml:1: decisions: no longer supported") {
+		t.Errorf("notes: %q", got)
+	}
+	if s.Font.UISize != 15 {
+		t.Errorf("font size %v", s.Font.UISize)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != text {
+		t.Errorf("config.toml changed: %q, %v", b, err)
+	}
+	// A subtable alone counts as the table, and no table gets no note.
+	s, probs = LoadFile(write(t, t.TempDir(), "config.toml", "[decisions.triage]\nenabled = true\n"))
+	if len(probs) > 0 || !strings.Contains(msgs(s.Notes), "decisions: no longer supported") {
+		t.Errorf("subtable: notes %q, problems %s", msgs(s.Notes), msgs(probs))
+	}
+	if s, _ = LoadFile(write(t, t.TempDir(), "config.toml", "")); len(s.Notes) != 0 {
+		t.Errorf("empty config notes: %s", msgs(s.Notes))
+	}
+	var root, m map[string]any
+	if err := json.Unmarshal(Schema(), &root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := toml.Decode(text, &m); err != nil {
+		t.Fatal(err)
+	}
+	if errs := validate(root, root, m, ""); len(errs) > 0 {
+		t.Errorf("schema flags [decisions]: %v", errs)
+	}
+}

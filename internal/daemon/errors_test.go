@@ -1,6 +1,9 @@
 package daemon
 
 import (
+	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,12 +12,37 @@ import (
 	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/session"
 )
 
+func hookFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "agent", "testdata", name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture and inline hooks in these sequences belong to one session.
+	var payload map[string]json.RawMessage
+	must(t, json.Unmarshal(b, &payload))
+	payload["session_id"] = json.RawMessage(`"s1"`)
+	b, err = json.Marshal(payload)
+	must(t, err)
+	return b
+}
+
+func hook(t *testing.T, d *Daemon, fixture string) {
+	t.Helper()
+	must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: hookFixture(t, fixture)}))
+}
+
+func hookJSON(t *testing.T, d *Daemon, payload string) {
+	t.Helper()
+	must(t, d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}))
+}
+
 // TestErrorsLogged: a failed command, one that exited 1 quietly and a
-// StopFailure reach errors.jsonl with every decision feature off; a
-// command that worked does not.
+// StopFailure reach errors.jsonl; a command that worked does not.
 func TestErrorsLogged(t *testing.T) {
 	f := &fakes{statsCalls: map[string]int{}}
 	f.saved = model.State{

@@ -30,7 +30,7 @@ aide's Codex backend (`CodexManagedSessionBackend` in
 - [Restart reconciliation](#reconcile)
 - [Fork and rewind](#fork-rewind)
 - [Who answers approvals](#approvals)
-- [Worktrees, ports, checkpoints, triage, limits, notifications](#attach)
+- [Worktrees, ports, checkpoints, limits, notifications](#attach)
 - [Socket messages and CLI](#socket)
 - [GUI](#gui)
 - [Web protocol constraints](#web)
@@ -130,7 +130,7 @@ Rules:
   are 16 hex digits (`daemon.newID`); chat ids are UUIDs, so the two never
   collide. Code that looks a pane up from `Activity.PaneID` must expect a
   chat id. ENG-2688 lists and fixes those call sites (`limitStopped`,
-  `fireResume`, `resumeBlocked`, `internal/remote`'s list, triage).
+  `fireResume`, `resumeBlocked`, `internal/remote`'s list).
 - The Activity follows the snapshot:
 
   | Snapshot | `Activity.State` | `Detail` |
@@ -989,18 +989,10 @@ First wins:
 5. A request the provider withdrew, or that expired on restart, is no
    longer pending, so a late answer gets `conflict` too.
 
-The answer, who gave it (`gui`, `cli`, `web:<client name>`,
-`phone:<device>`) and how long it waited go to `decisions.jsonl` as the
-approval outcome. No hook needs to infer it.
-
-pitwall never answers for the user, with one exception: aide's Jev tool
-gate. It is off by default, as in aide, and when on it answers only for
-chats aide started ([setJev](web-protocol.md#setjev)). Jev's advice shows
-on a chat's approval as it does on a pane's ([decisions.md](decisions.md));
-nothing else approves on its own.
+pitwall never answers for the user.
 
 <a id="attach"></a>
-## Worktrees, ports, checkpoints, triage, limits, notifications
+## Worktrees, ports, checkpoints, limits, notifications
 
 | What | How a chat gets it |
 | --- | --- |
@@ -1009,8 +1001,6 @@ nothing else approves on its own.
 | Environment | `Config.Env` is what a pane of that tab gets: the preset's variables, the guard's variable when the guard is on for the tab, the ports, and `PITWALL_PANE=<chat id>`. |
 | Hooks | The agent loads the user's settings, so pitwall's hooks run. With `PITWALL_PANE` set, the guard denies as in a pane, and `pitwall new` from the agent makes its tab a worker of the chat's tab (the daemon resolves a chat id in `ParentPane` to its tab). The daemon drops hook state reports (`proto.AgentEvent`) whose pane is a chat: the stream is the source of truth, and the turn checkpoint is the loop's job. |
 | Turn checkpoints | Before `Driver.Send`, the loop takes `d.checkpoint(cwd, ws)` as the prompt hook does for panes (`daemon.go`, `turnWait`). The turn summary's `checkpointId` is the checkpoint's commit. This turn, Undo turn and Redo turn work on the chat's tab unchanged. |
-| aide's Jev gates | A chat aide started over the web protocol (`Config.Aide`) gets aide's gates from `internal/decide`, with the key, consent list and gate settings aide hands over in `setJev`: no turn starts without consent for the workspace, a key and Jev's preparation of the prompt, and with the tool gate on Jev answers the approvals it is sure of. See [setJev](web-protocol.md#setjev). |
-| Triage, Jev | Through the chat's Activity: triage, approval advice, turn check and check runs read Activity and the snapshot's text, not a screen. Stuck detection reads the snapshot's last items in place of the screen. |
 | Limits | `limit` events become `flow.Limit` values the daemon adds to the ones `internal/flow` reads, so the limits view shows them. A turn that ends on a rejected limit calls `limitStopped(chat id, ...)` with the reset time. `fireResume` sends "continue" through `Driver.Send` instead of typing into a pane (`resume` gets a `send func(string) error`). |
 | Notifications | `model.DecideNotifications` reads Activities, so desktop notifications, the jump-to-attention key, phone push and the Unseen dot work unchanged. `SeePane` with a chat id marks it seen. |
 | `pitwall wait`, `ls` | A chat tab's agent state is its Activity; `wait <tab>` works on it. `ls` lists chats in a section of their own. |
@@ -1052,7 +1042,6 @@ type ChatApprove struct {
 	Chat, Request string
 	Decision      string // allow, allow-session, deny
 	Reason        string
-	By            string // who answers, for decisions.jsonl; the daemon sets it for socket clients
 }
 
 type ChatAnswer struct {
@@ -1201,9 +1190,7 @@ pitwall stays simple. A chat is one agent in one tab, driven by the user.
   events.
 - **No chat UI in pitwall's window** beyond the read-only transcript,
   approvals and a send box. aide is the chat UI.
-- **No automatic approval**, except aide's Jev tool gate: off by default,
-  as in aide, and when on it answers only for chats aide started. Every
-  other approval is a person's answer.
+- **No automatic approval.** Every approval is a person's answer.
 - **No reading of provider transcripts** (`~/.claude/projects`, Codex
   rollouts) to rebuild a chat. pitwall's log is the record.
 - **No Node helper** and no Agent SDK; the drivers speak the wire from Go.
@@ -1256,7 +1243,7 @@ These need a capture or a decision that belongs to a later ticket.
 | [ENG-2685](https://linear.app/quantic/issue/ENG-2685) Codex approvals and interrupt | approvals, input, interrupt, plan updates for Codex | [Codex driver](#codex), [Approvals](#approvals), [Lifecycle](#lifecycle) |
 | [ENG-2686](https://linear.app/quantic/issue/ENG-2686) Claude approvals and interrupt | `can_use_tool`, plan mode, interrupt, steering for Claude | [Claude driver](#claude), [Approvals](#approvals), [Lifecycle](#lifecycle) |
 | [ENG-2687](https://linear.app/quantic/issue/ENG-2687) resume | lazy resume, fallback | [Resume](#resume) |
-| [ENG-2688](https://linear.app/quantic/issue/ENG-2688) attachments | worktree, ports, checkpoints, triage, limits, notifications | [Attach](#attach), [Placement](#placement) (Activity) |
+| [ENG-2688](https://linear.app/quantic/issue/ENG-2688) attachments | worktree, ports, checkpoints, limits, notifications | [Attach](#attach), [Placement](#placement) (Activity) |
 | [ENG-2689](https://linear.app/quantic/issue/ENG-2689) GUI | sidebar row, transcript view, agent panel | [GUI](#gui), [Placement](#placement) |
 | [ENG-2690](https://linear.app/quantic/issue/ENG-2690) reconcile | load-time and exit-time repair, continue setting | [Reconciliation](#reconcile) |
 | [ENG-2691](https://linear.app/quantic/issue/ENG-2691) fork and rewind | `Origin`, `Points`, file restore | [Fork and rewind](#fork-rewind) |

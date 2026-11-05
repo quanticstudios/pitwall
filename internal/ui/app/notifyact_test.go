@@ -16,8 +16,8 @@ func TestNotifyRule(t *testing.T) {
 	day := time.Date(2026, 1, 1, 12, 0, 0, 0, time.Local)
 	night := time.Date(2026, 1, 1, 23, 30, 0, 0, time.Local)
 	early := time.Date(2026, 1, 2, 7, 0, 0, 0, time.Local)
-	act := func(s model.AgentState, p model.Provider, urgency string) model.Activity {
-		return model.Activity{State: s, Provider: p, Urgency: urgency}
+	act := func(s model.AgentState, p model.Provider) model.Activity {
+		return model.Activity{State: s, Provider: p}
 	}
 	quiet := all
 	quiet.QuietFrom, quiet.QuietTo = 22*60, 8*60
@@ -31,22 +31,21 @@ func TestNotifyRule(t *testing.T) {
 		at          time.Time
 		show, sound bool
 	}{
-		{all, act(model.StateCompleted, model.ProviderClaude, ""), day, true, true},
-		{config.DefaultNotifySettings(), act(model.StateCompleted, model.ProviderClaude, ""), day, true, false}, // no sound set
-		{noDone, act(model.StateCompleted, model.ProviderClaude, ""), day, false, false},
-		{noDone, act(model.StatePendingApproval, model.ProviderClaude, ""), day, false, false},
-		{noDone, act(model.StatePlanReady, model.ProviderClaude, ""), day, false, false},
-		{noDone, act(model.StateError, model.ProviderClaude, ""), day, true, true},
-		{muted, act(model.StatePendingApproval, model.ProviderCodex, ""), day, false, false},
-		{muted, act(model.StateAwaitingInput, model.ProviderTerminal, ""), day, false, false},
-		{muted, act(model.StatePendingApproval, model.ProviderClaude, ""), day, true, true},
+		{all, act(model.StateCompleted, model.ProviderClaude), day, true, true},
+		{config.DefaultNotifySettings(), act(model.StateCompleted, model.ProviderClaude), day, true, false}, // no sound set
+		{noDone, act(model.StateCompleted, model.ProviderClaude), day, false, false},
+		{noDone, act(model.StatePendingApproval, model.ProviderClaude), day, false, false},
+		{noDone, act(model.StatePlanReady, model.ProviderClaude), day, false, false},
+		{noDone, act(model.StateError, model.ProviderClaude), day, true, true},
+		{muted, act(model.StatePendingApproval, model.ProviderCodex), day, false, false},
+		{muted, act(model.StateAwaitingInput, model.ProviderTerminal), day, false, false},
+		{muted, act(model.StatePendingApproval, model.ProviderClaude), day, true, true},
 		// Quiet hours, 22:00-08:00 across midnight: urgent ones only, silent.
-		{quiet, act(model.StateCompleted, model.ProviderClaude, ""), night, false, false},
-		{quiet, act(model.StateAwaitingInput, model.ProviderClaude, "soon"), early, false, false},
-		{quiet, act(model.StatePendingApproval, model.ProviderClaude, ""), night, true, false},
-		{quiet, act(model.StateError, model.ProviderClaude, ""), early, true, false},
-		{quiet, act(model.StateAwaitingInput, model.ProviderClaude, "now"), night, true, false},
-		{quiet, act(model.StateCompleted, model.ProviderClaude, ""), day, true, true},
+		{quiet, act(model.StateCompleted, model.ProviderClaude), night, false, false},
+		{quiet, act(model.StateAwaitingInput, model.ProviderClaude), early, false, false},
+		{quiet, act(model.StatePendingApproval, model.ProviderClaude), night, true, false},
+		{quiet, act(model.StateError, model.ProviderClaude), early, true, false},
+		{quiet, act(model.StateCompleted, model.ProviderClaude), day, true, true},
 	} {
 		if show, sound := notifyRule(tc.r, tc.a, tc.at); show != tc.show || sound != tc.sound {
 			t.Errorf("case %d (%s at %s): show %v sound %v, want %v %v", i, tc.a.State, tc.at.Format("15:04"), show, sound, tc.show, tc.sound)

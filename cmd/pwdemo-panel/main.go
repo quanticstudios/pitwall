@@ -178,7 +178,6 @@ func claude(start time.Time) *panel.Input {
 			{Path: "internal/ratelimit/bucket.go", Add: 86, Status: 'A'}, {Path: "internal/ratelimit/bucket_test.go", Add: 112, Status: 'A'},
 			{Path: "internal/http/middleware.go", Add: 24, Del: 3, Status: 'M'}, {Path: "loadtest/orders_test.go", Add: 190, Del: 35, Status: '?'},
 		},
-		Decide: "jev",
 	}
 }
 
@@ -195,15 +194,14 @@ func codex(start time.Time) *panel.Input {
 	return &panel.Input{
 		Pane: &model.Pane{ID: "p2", Provider: model.ProviderCodex, Transcript: "/fake"},
 		Activity: &model.Activity{PaneID: "p2", Provider: model.ProviderCodex, State: model.StatePendingApproval, UpdatedAt: at(400),
-			Detail: "psql … EXPLAIN SELECT * FROM orders", Advice: "allow", AdviceP: 0.96, AdviceRule: "reads the database", Urgency: "now"},
+			Detail: "psql … EXPLAIN SELECT * FROM orders"},
 		Feed: &flow.Feed{Provider: model.ProviderCodex, Turns: []flow.Turn{{Prompt: "Add cursor pagination to GET /orders", Start: t0, Calls: calls}},
 			Usage: flow.Usage{Model: "gpt-6.1-sol", Context: 221_700, Window: 258_400, Models: map[string]flow.Tokens{
 				"gpt-6.1-sol": {Input: 96_400, Output: 18_900, CacheRead: 1_402_000},
 			}}},
 		Branch: model.BranchStats{Additions: 128, Deletions: 21},
 		Git:    true, Base: "main",
-		Files:  []gitstat.FileStat{{Path: "internal/orders/list.go", Add: 92, Del: 14, Status: 'M'}, {Path: "internal/orders/list_test.go", Add: 36, Del: 7, Status: 'M'}},
-		Decide: "jev",
+		Files: []gitstat.FileStat{{Path: "internal/orders/list.go", Add: 92, Del: 14, Status: 'M'}, {Path: "internal/orders/list_test.go", Add: 36, Del: 7, Status: 'M'}},
 	}
 }
 
@@ -231,8 +229,7 @@ func pi(start time.Time) *panel.Input {
 		}},
 		Branch: model.BranchStats{Additions: 57, Deletions: 3},
 		Git:    true, Base: "main",
-		Files:  []gitstat.FileStat{{Path: "src/parser/tokenizer.ts", Add: 41, Del: 2, Status: 'M'}, {Path: "src/parser/expr.ts", Add: 16, Del: 1, Status: 'M'}},
-		Decide: "jev",
+		Files: []gitstat.FileStat{{Path: "src/parser/tokenizer.ts", Add: 41, Del: 2, Status: 'M'}, {Path: "src/parser/expr.ts", Add: 16, Del: 1, Status: 'M'}},
 	}
 }
 
@@ -264,7 +261,7 @@ func simulate(mu *sync.Mutex, in *panel.Input, invalidate func()) {
 			t.Calls[len(t.Calls)-1].Running = false
 			t.Calls = append(t.Calls, flow.Call{Time: time.Now(), Tool: "Bash", Arg: "go run ./loadtest -rps 200", Running: true})
 			*in.Activity = model.Activity{PaneID: "p1", Provider: model.ProviderClaude, State: model.StatePendingApproval, UpdatedAt: time.Now(),
-				Detail: "go run ./loadtest -rps 200", Advice: "allow", AdviceP: 0.71, AdviceRule: "starts a server", Urgency: "soon"}
+				Detail: "go run ./loadtest -rps 200"}
 		},
 	}
 	for _, step := range steps {

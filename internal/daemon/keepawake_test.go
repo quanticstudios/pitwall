@@ -214,7 +214,6 @@ func TestKeepAwakeDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := Defaults()
-	defer o.Journal.Close(time.Second)
 	defer o.Errors.Close(time.Second)
 	defer o.Timing.Close(time.Second)
 	for _, on := range []bool{false, true, false} {

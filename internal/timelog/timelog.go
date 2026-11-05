@@ -13,7 +13,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/logs"
 )
 
@@ -94,9 +93,8 @@ func Open(path string) (*Log, error) {
 	return &Log{w: logs.NewWriter("timelog ", r, r)}, nil
 }
 
-// Add queues e with its commands redacted, secrets and each of known,
-// and cut to cmdLen runes.
-func (l *Log) Add(e Event, known ...string) {
+// Add queues e with its commands redacted and cut to cmdLen runes.
+func (l *Log) Add(e Event) {
 	if l == nil {
 		return
 	}
@@ -105,7 +103,7 @@ func (l *Log) Add(e Event, known ...string) {
 		e.Start = e.Start.UTC().Truncate(time.Millisecond)
 	}
 	for i := range e.Slow {
-		e.Slow[i].Command = redact(e.Slow[i].Command, known)
+		e.Slow[i].Command = redact(e.Slow[i].Command)
 	}
 	b, err := json.Marshal(e)
 	if err != nil {
@@ -117,12 +115,12 @@ func (l *Log) Add(e Event, known ...string) {
 // redact is the start of a command with its secrets redacted. The daemon
 // holds its lock, so a long one is cut first, at a space, where a secret
 // cut in two would no longer match its pattern.
-func redact(s string, known []string) string {
+func redact(s string) string {
 	if r := []rune(s); len(r) > 2*cmdLen {
 		c := string(r[:2*cmdLen])
 		s = c[:max(0, strings.LastIndexFunc(c, unicode.IsSpace))]
 	}
-	s = strings.Join(strings.Fields(decide.Redact(s, known...)), " ")
+	s = strings.Join(strings.Fields(logs.Redact(s)), " ")
 	if utf8.RuneCountInString(s) > cmdLen {
 		s = string([]rune(s)[:cmdLen-1]) + "…"
 	}

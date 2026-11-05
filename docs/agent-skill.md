@@ -172,8 +172,7 @@ order, detached tabs last. Every key is always present; unknown strings are
 ```
 
 `agent` is the agent's name (`claude`, `codex`, `pi`, `omp`, `gemini`, `opencode`,
-`cursor`, `amp`, `aider`, or another program a decision model reads from the
-screen) or `""`. `state` is one from the table above,
+`cursor`, `amp`, `aider`, or another program read from the screen) or `""`. `state` is one from the table above,
 for the tab's main pane. `question` is the agent's question or approval
 detail while blocked. `exit_code` is `null` until the process exits, then
 its exit code. `pr_state` says why the branch's pull request cannot merge

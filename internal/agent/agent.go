@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
@@ -321,11 +321,10 @@ const summaryLen = 300
 // It is shown in the sidebar and in desktop notifications.
 func summary(msg string) string { return Summary(msg) }
 
-// Summary is msg as a completed activity's Detail: secrets found by
-// decide's patterns, and each of known, are redacted in the whole text
-// before it is cut to summaryLen runes.
-func Summary(msg string, known ...string) string {
-	r := []rune(strings.Join(strings.Fields(decide.Redact(msg, known...)), " "))
+// Summary is msg as a completed activity's Detail: secrets are redacted in
+// the whole text before it is cut to summaryLen runes.
+func Summary(msg string) string {
+	r := []rune(strings.Join(strings.Fields(logs.Redact(msg)), " "))
 	if len(r) <= summaryLen {
 		return string(r)
 	}
@@ -1169,16 +1168,6 @@ func lastLine(s string) string {
 	return strings.TrimSpace(s[strings.LastIndexByte(s, '\n')+1:])
 }
 
-// HookEvent returns a Claude Code or Codex hook's event name and tool
-// name, "" for other payloads and for a /side fork.
-func HookEvent(payload []byte) (event, tool string) {
-	p, err := decode(payload)
-	if err != nil || sideFork(p) {
-		return "", ""
-	}
-	return p.Event, p.ToolName
-}
-
 // PiEvent returns the event of a pi extension report, such as
 // "session_shutdown", and "" for other payloads.
 func PiEvent(payload []byte) string {
@@ -1218,16 +1207,6 @@ func PiRuntime(payload []byte) (runtime string, start bool) {
 		return "", false
 	}
 	return p.Runtime, p.PiEvent == "session_start"
-}
-
-// UserPrompt is the prompt of any UserPromptSubmit hook from the main
-// session, of Gemini's BeforeAgent, or of pi's before_agent_start, or "".
-func UserPrompt(payload []byte) string {
-	p, err := decode(payload)
-	if err != nil || !promptEvent(p) || sideFork(p) {
-		return ""
-	}
-	return p.Prompt
 }
 
 func promptEvent(p payload) bool {

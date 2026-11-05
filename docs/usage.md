@@ -217,8 +217,7 @@ comparison, and neither does a row whose report came before a daemon restart.
 A newer prompt could take that answer, so read it first. A click counts only
 if the row showed the same prompt from pressing the button to releasing it.
 
-With a decision model, its advice stays in the pill above them, and the
-button it recommends is outlined. Where the prompt offers to stop asking, such as
+Where the prompt offers to stop asking, such as
 Claude Code's "Yes, and don't ask again" or Codex's "(a)" option, an
 **Always** button comes up beside them within a second and presses that
 option. A prompt with two such options gets no button.
@@ -289,11 +288,10 @@ input = true                  # questions, pitwall notify, bells
 done = false                  # finished turns
 failed = true                 # failed turns
 muted_agents = ["codex"]      # claude, codex, pi, omp, gemini, opencode, terminal
-quiet_hours = "22:00-08:00"   # no sound, and only approvals, errors and triage's "now"
+quiet_hours = "22:00-08:00"   # no sound, and only approvals and errors
 ```
 
 The sound plays with paplay, pw-play or afplay, whichever is installed.
-Triage's fyi still sends nothing.
 
 <img src="media/attention.webp" alt="A Codex pane finishes in the background and rings green, the billing tab asks for approval, and Ctrl+Shift+U jumps to each in turn" width="800">
 
@@ -538,7 +536,7 @@ remembers that across restarts.
 
 Ctrl+Shift+L opens the agent panel on the right. It follows the focused pane and
 reads the agent's own session file: Flow shows the current turn from prompt
-to outcome, with a pending approval and the decision model's suggestion;
+to outcome, with a pending approval;
 Subagents lists what each spawned agent was asked and is doing; Plan is the
 agent's todo list; Changes lists the files changed from the default branch;
 Timeline lists prompts, tool calls and subagents with their times. The panel

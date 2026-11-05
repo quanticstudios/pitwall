@@ -181,7 +181,7 @@ func TestChatCLI(t *testing.T) {
 			proto.ChatNew{SessionID: "m", Dir: dir, Provider: model.ProviderCodex, Model: "m", Prompt: "fix it"}, ""},
 		{[]string{"chat", "send", "#2", "--queue", "--", "more"}, 0, "queued\n", proto.ChatSend{Chat: id, Text: "more", How: "queue"}, ""},
 		{[]string{"chat", "approve", "0f3e", "r1", "deny", "--reason", "no"}, 1, "",
-			proto.ChatApprove{Chat: id, Request: "r1", Decision: "deny", Reason: "no", By: "cli"}, "conflict: someone answered first"},
+			proto.ChatApprove{Chat: id, Request: "r1", Decision: "deny", Reason: "no"}, "conflict: someone answered first"},
 		{[]string{"chat", "read", "0f3e"}, 0, "Hi.\n\n", proto.ChatRead{Chat: id}, ""},
 		{[]string{"chat", "fork", "0f3e", "1", "--worktree", "try"}, 0, "fork-id\n", proto.ChatFork{Chat: id, Turn: "1", Worktree: "try"}, ""},
 		{[]string{"chat", "rewind", "#2", "2"}, 0, "rewound to before turn 2\n", proto.ChatRewind{Chat: id, Turn: "2"}, ""},

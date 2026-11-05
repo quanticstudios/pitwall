@@ -210,15 +210,15 @@ func answerArea(gtx layout.Context, th *theme.Theme, b answerBtns, a model.Activ
 			changes = "Changes…"
 		}
 		return hrowFit(gtx, h, gtx.Dp(4), append(firstButton(th, b, a, base, a.Buttons, th.Green),
-			item{opt: len(a.Buttons) > 0, w: pillButton(b.plan, th, base, h, changes, th.Purple, false)})...)
+			item{opt: len(a.Buttons) > 0, w: pillButton(b.plan, th, base, h, changes, th.Purple)})...)
 	}
 	switch {
 	case len(a.Buttons) > 0:
 		return choicePills(gtx, th, b, a.Buttons, base)
 	case a.Menu:
-		return pillButton(b.reply, th, base, h, "Open tab", th.Yellow, false)(gtx)
+		return pillButton(b.reply, th, base, h, "Open tab", th.Yellow)(gtx)
 	}
-	return pillButton(b.reply, th, base, h, "Reply", th.Yellow, false)(gtx)
+	return pillButton(b.reply, th, base, h, "Reply", th.Yellow)(gtx)
 }
 
 // firstButton is a's first extra answer as a pill in col reading texts[0],
@@ -228,15 +228,14 @@ func firstButton(th *theme.Theme, b answerBtns, a model.Activity, base color.NRG
 		return nil
 	}
 	return []item{{w: func(gtx layout.Context) layout.Dimensions {
-		return pillButton(b.choice(0), th, base, answerHeight(gtx, th), texts[0], col, false)(gtx)
+		return pillButton(b.choice(0), th, base, answerHeight(gtx, th), texts[0], col)(gtx)
 	}}}
 }
 
 // answerButtons draws a pending approval's Allow and Deny, small pills in
 // green and red, with Always before them where the prompt offers Allow
 // always, so they stay put when it appears; it gives way when there is no
-// room. The one the decision model advises is outlined, so its recommendation
-// in the pill above points at a button.
+// room.
 func answerButtons(gtx layout.Context, th *theme.Theme, b answerBtns, a model.Activity, base color.NRGBA) layout.Dimensions {
 	h := answerHeight(gtx, th)
 	always := firstButton(th, b, a, base, []string{"Always"}, th.Green)
@@ -244,8 +243,8 @@ func answerButtons(gtx layout.Context, th *theme.Theme, b answerBtns, a model.Ac
 		always[i].opt = true
 	}
 	return hrowFit(gtx, h, gtx.Dp(4), append(always,
-		item{w: pillButton(b.allow, th, base, h, "Allow", th.Green, a.Advice == "allow")},
-		item{w: pillButton(b.deny, th, base, h, "Deny", th.Red, a.Advice == "deny")})...)
+		item{w: pillButton(b.allow, th, base, h, "Allow", th.Green)},
+		item{w: pillButton(b.deny, th, base, h, "Deny", th.Red)})...)
 }
 
 // minPill is how narrow a question's option may get, in dp, before it
@@ -262,7 +261,7 @@ func choicePills(gtx layout.Context, th *theme.Theme, b answerBtns, labels []str
 		m := op.Record(gtx.Ops)
 		g := gtx
 		g.Constraints = layout.Constraints{Max: image.Pt(1<<20, h)}
-		d := pillButton(nil, th, base, h, text, th.Yellow, false)(g)
+		d := pillButton(nil, th, base, h, text, th.Yellow)(g)
 		m.Stop()
 		return d.Size.X
 	}
@@ -277,7 +276,7 @@ func choicePills(gtx layout.Context, th *theme.Theme, b answerBtns, labels []str
 		g := gtx
 		g.Constraints = layout.Constraints{Max: image.Pt(w, h)}
 		off := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
-		d := pillButton(c, th, base, h, text, th.Yellow, false)(g)
+		d := pillButton(c, th, base, h, text, th.Yellow)(g)
 		off.Pop()
 		x += d.Size.X + gap
 	}
@@ -332,7 +331,7 @@ func capWidth(natural []int, room int) int {
 
 // pillButton is one of a row's small answer pills, h high, in col; an
 // advised one is outlined. With a nil c it draws without input.
-func pillButton(c *widget.Clickable, th *theme.Theme, base color.NRGBA, h int, text string, col color.NRGBA, advised bool) layout.Widget {
+func pillButton(c *widget.Clickable, th *theme.Theme, base color.NRGBA, h int, text string, col color.NRGBA) layout.Widget {
 	draw := func(gtx layout.Context) layout.Dimensions {
 		m := op.Record(gtx.Ops)
 		g := gtx
@@ -346,9 +345,6 @@ func pillButton(c *widget.Clickable, th *theme.Theme, base color.NRGBA, h int, t
 		}
 		rect := image.Rectangle{Max: sz}
 		paint.FillShape(gtx.Ops, theme.Mix(base, col, fill), clip.UniformRRect(rect, h/2).Op(gtx.Ops))
-		if advised {
-			paint.FillShape(gtx.Ops, theme.Mix(base, col, 0.7), clip.Stroke{Path: clip.UniformRRect(rect, h/2).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
-		}
 		off := op.Offset(sz.Sub(d.Size).Div(2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
 		off.Pop()

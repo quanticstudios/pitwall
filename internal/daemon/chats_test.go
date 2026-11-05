@@ -467,7 +467,7 @@ func TestChatApproveFake(t *testing.T) {
 		return session.Snapshot{}
 	}
 	s := read("the approval", func(s session.Snapshot) bool { return len(s.PendingApprovals) == 1 })
-	a := proto.ChatApprove{Chat: r.Chat, Request: s.PendingApprovals[0].ID, Decision: "allow", By: "gui"}
+	a := proto.ChatApprove{Chat: r.Chat, Request: s.PendingApprovals[0].ID, Decision: "allow"}
 	if res := chatCall[proto.ChatResult](gui, a); res.Code != "" {
 		t.Fatalf("approve: %+v", res)
 	}

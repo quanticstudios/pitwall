@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/quanticstudios/pitwall/internal/decide"
+	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/progstatus"
 )
@@ -119,7 +119,7 @@ func (d *Daemon) syncProgram(id string) {
 				msg = r.Title
 			}
 			next = &model.Program{App: r.EffectiveApp, State: string(r.State), Kind: string(r.Kind), Progress: r.Progress,
-				Message: decide.Redact(msg, d.dec.cur.Secrets...), UpdatedAt: time.Unix(0, r.At)}
+				Message: logs.Redact(msg), UpdatedAt: time.Unix(0, r.At)}
 		}
 	}
 	p := &d.st.Panes[i]

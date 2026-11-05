@@ -11,10 +11,6 @@ import (
 // workspace.
 const NotificationInterval = 3 * time.Second
 
-// TriageWait is how long a notification waits for its triage level
-// (Activity.Urgency) before it goes out without one.
-const TriageWait = 3 * time.Second
-
 type notificationKey struct {
 	pane    string
 	state   AgentState
@@ -36,12 +32,10 @@ type Notifications struct {
 }
 
 // DecideNotifications is pure: it copies history before updating it.
-// Returned activities are deliveries, most urgent first; pending
-// activities wait until the workspace's NotificationInterval expires, and
-// while triage is still rating them, up to TriageWait. Triage's fyi sends
-// nothing. Only unseen activities (Activity.Unseen) notify, so a
-// notification and the attention ring agree; looking at a workspace
-// consumes its activity too.
+// Returned activities are deliveries, by workspace id; pending activities
+// wait until the workspace's NotificationInterval expires. Only unseen
+// activities (Activity.Unseen) notify, so a notification and the attention
+// ring agree; looking at a workspace consumes its activity too.
 func DecideNotifications(previous Notifications, next []Activity, focused bool, activeWorkspace string, now time.Time) (Notifications, []Activity) {
 	h := Notifications{
 		activities: make(map[string]Activity, len(next)),
@@ -63,7 +57,7 @@ func DecideNotifications(previous Notifications, next []Activity, focused bool, 
 		if !ok || current.State != a.State || !current.Unseen || current.WorkspaceID != ws || focused && ws == activeWorkspace {
 			delete(h.pending, ws)
 		} else {
-			h.pending[ws] = current // with triage's answer, once it came
+			h.pending[ws] = current
 		}
 	}
 	ordered := slices.Clone(next)
@@ -91,43 +85,31 @@ func DecideNotifications(previous Notifications, next []Activity, focused bool, 
 	}
 	var out []Activity
 	for ws, a := range h.pending {
-		switch {
-		case a.Urgency == "fyi":
-			delete(h.pending, ws)
-		case !now.Before(notifyDue(h, ws, a)):
+		if !now.Before(notifyDue(h, ws)) {
 			out = append(out, a)
 			h.last[ws] = now
 			delete(h.pending, ws)
 		}
 	}
-	slices.SortFunc(out, func(a, b Activity) int {
-		if ra, rb := UrgencyRank(a), UrgencyRank(b); ra != rb {
-			return rb - ra
-		}
-		return strings.Compare(a.WorkspaceID, b.WorkspaceID)
-	})
+	slices.SortFunc(out, func(a, b Activity) int { return strings.Compare(a.WorkspaceID, b.WorkspaceID) })
 	return h, out
 }
 
-// notifyDue is when the pending activity a of workspace ws may go out:
-// after the workspace's interval, and once triage answered or gave up.
-func notifyDue(h Notifications, ws string, a Activity) time.Time {
-	var t time.Time
+// notifyDue is when workspace ws's pending activity may go out: after the
+// workspace's interval, at once when none has gone out.
+func notifyDue(h Notifications, ws string) time.Time {
 	if last, sent := h.last[ws]; sent {
-		t = last.Add(NotificationInterval)
+		return last.Add(NotificationInterval)
 	}
-	if w := a.UpdatedAt.Add(TriageWait); a.Urgency == UrgencyPending && w.After(t) {
-		t = w
-	}
-	return t
+	return time.Time{}
 }
 
 // Next is when the earliest pending notification may go out, zero when
 // none waits.
 func (h Notifications) Next() time.Time {
 	var due time.Time
-	for ws, a := range h.pending {
-		if t := notifyDue(h, ws, a); due.IsZero() || t.Before(due) {
+	for ws := range h.pending {
+		if t := notifyDue(h, ws); due.IsZero() || t.Before(due) {
 			due = t
 		}
 	}
@@ -149,8 +131,7 @@ func (h *Notifications) Rebase() {
 	h.pending = map[string]Activity{}
 }
 
-// Urgent reports a notification that interrupts: an approval, an error,
-// or triage's now.
+// Urgent reports a notification that interrupts: an approval or an error.
 func Urgent(a Activity) bool {
-	return a.State == StatePendingApproval || a.State == StateError || a.Urgency == "now"
+	return a.State == StatePendingApproval || a.State == StateError
 }

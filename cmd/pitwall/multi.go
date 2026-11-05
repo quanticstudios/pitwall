@@ -207,9 +207,6 @@ func (m *multi) merge() {
 		st.DraftHeld = join(st.DraftHeld, s.DraftHeld)
 		st.Delivered = join(st.Delivered, s.Delivered)
 		st.Listening = join(st.Listening, s.Listening)
-		if h.name == "" {
-			st.Decide = s.Decide
-		}
 		if st.Notice == "" {
 			st.Notice = s.Notice
 		}

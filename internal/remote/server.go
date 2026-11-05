@@ -32,8 +32,6 @@ type Item struct {
 	State   string `json:"state"`
 	Label   string `json:"label"`  // "Approval", "Input", "Done"
 	Detail  string `json:"detail"` // the question, approval or error
-	Risk    string `json:"risk"`   // what pitwall flags in a permission request, "sudo"
-	Advice  string `json:"advice"` // the decision model's recommendation, "allow 96%"
 	Answer  bool   `json:"answer"` // Allow and Deny work
 	Reply   bool   `json:"reply"`  // a reply works
 	// Requests are a chat's pending approvals and input requests, which
@@ -104,10 +102,7 @@ func Items(st model.State) []Item {
 	out := make([]Item, 0, len(acts))
 	for _, a := range acts {
 		it := Item{Pane: a.PaneID, At: a.UpdatedAt.UnixNano(), Agent: string(a.Provider), State: string(a.State),
-			Label: model.PillLabel(a), Detail: a.Detail, Risk: a.AdviceRule, Reply: TakesReply(a)}
-		if a.Advice != "" {
-			it.Advice = fmt.Sprintf("%s %.0f%%", a.Advice, a.AdviceP*100)
-		}
+			Label: model.PillLabel(a), Detail: a.Detail, Reply: TakesReply(a)}
 		it.Answer = Answerable(a)
 		if slices.ContainsFunc(st.Chats, func(c model.Chat) bool { return c.ID == a.PaneID }) {
 			it.Answer, it.Reply = false, false // a chat is answered through its Requests
@@ -141,8 +136,8 @@ type Server struct {
 	Reply  func(pane string, at int64, text string) error
 	// Approve answers chat's pending approval request with allow,
 	// allow-session or deny, and AnswerInput its input request, through
-	// the chat's loop as the GUI's answers go; by is "phone:<device>".
-	Approve     func(chat, request, decision, reason, by string) error
+	// the chat's loop as the GUI's answers go.
+	Approve     func(chat, request, decision, reason string) error
 	AnswerInput func(chat, request string, answers map[string][]string) error
 	// Web, when set, is the web client for paired devices: a device
 	// starts a session with its token at POST /api/web, and the session
@@ -271,7 +266,7 @@ func (s *Server) Handler() http.Handler {
 		if !decode(w, r, &req) || !named(w, req.Chat, req.Request) {
 			return
 		}
-		if err := s.Approve(req.Chat, req.Request, req.Decision, req.Reason, "phone:"+d.Name); err != nil {
+		if err := s.Approve(req.Chat, req.Request, req.Decision, req.Reason); err != nil {
 			log.Printf("remote: %q: %s of chat %s refused: %q", d.Name, req.Decision, req.Chat, err)
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

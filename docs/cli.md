@@ -59,7 +59,6 @@ optional name act on the pane's own tab.
 | `pitwall doctor`                      | Check that the `pitwall` on PATH is this one, the daemon runs this version, each installed agent's hooks and skill are in place, and the config loads; prints `ok`, `FAIL` or `info` per check, with the fix under each FAIL, and exits 1 on a FAIL. It changes nothing |
 | `pitwall status working\|blocked\|done\|error\|idle [--app NAME] [--progress N] [--message TEXT]` | Report a script's or build's state to its pane, as OSC 7501 does; see [Programs and scripts](agent-report.md#programs-and-scripts) |
 | `pitwall statusline [cmd]`            | Claude Code's status line: save its plan limits, then run `cmd` |
-| `pitwall jev login` / `status` / `logout` / `report` | Connect TypeSafe's Jev, test the connection, disconnect, report what it did (see [Decisions](decisions.md)) |
 | `pitwall logs [-f]`                   | Print the log paths; `-f` follows both logs (see [Logs](troubleshooting.md#logs)) |
 | `pitwall snapshots [restore <name>]`  | List the snapshots of your saved tabs, or stop the daemon and put one back (see [Snapshots](state.md#snapshots)) |
 | `pitwall remote pair` / `devices` / `revoke` | Pair a phone, list paired phones, unpair one (see [Phone](phone.md)) |

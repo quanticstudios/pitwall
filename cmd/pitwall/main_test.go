@@ -3,9 +3,11 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -437,5 +439,41 @@ func TestDialOrStartRestartsOlderDaemon(t *testing.T) {
 				t.Fatal("the old daemon still runs")
 			}
 		})
+	}
+}
+
+// TestNoTypeSafeCalls: no pitwall code reads the old key's variable or names
+// the old decision service's host.
+func TestNoTypeSafeCalls(t *testing.T) {
+	banned := []string{"typesafe" + ".ai", "TYPESAFE_" + "API_KEY"}
+	root := filepath.Join("..", "..")
+	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.IsDir() {
+			if n := e.Name(); n == ".git" || n == ".ref" || n == ".worktrees" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		switch filepath.Ext(path) {
+		case ".go", ".js", ".html", ".sh":
+		default:
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, w := range banned {
+			if bytes.Contains(b, []byte(w)) {
+				t.Errorf("%s names %s", path, w)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

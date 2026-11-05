@@ -25,8 +25,6 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
-	"github.com/quanticstudios/pitwall/internal/decide"
-	"github.com/quanticstudios/pitwall/internal/decisionlog"
 	"github.com/quanticstudios/pitwall/internal/errlog"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/forge"
@@ -112,11 +110,6 @@ type Options struct {
 	// problems in the repo's own file; nil gives worktrees no ports and no
 	// setup or teardown.
 	Worktrees func(repoRoot string) (config.WorktreeSettings, []config.Problem)
-	// Decisions reads the decision settings and provider; nil leaves every
-	// decision feature off.
-	Decisions func() Decisions
-	// Journal is decisions.jsonl; nil logs nothing.
-	Journal *decisionlog.Log
 	// Errors is errors.jsonl; nil logs nothing.
 	Errors *errlog.Log
 	// Timing is timing.jsonl; nil logs nothing.
@@ -221,9 +214,6 @@ type Options struct {
 	// Chats is the folder that keeps chats (eventlog.Root); "" keeps them
 	// in memory only, gone with the daemon.
 	Chats string
-	// Gates are aide's Jev gates for the chats aide starts; nil holds no
-	// key, so those chats start no turn until aide hands one over.
-	Gates *decide.Gates
 }
 
 type Daemon struct {
@@ -256,7 +246,6 @@ type Daemon struct {
 	clip        model.Clipboard       // the latest OSC 52 write, see attention.go
 	clipAt      time.Time             // when it came
 	clipSeq     atomic.Uint64         // numbers OSC 52 writes as they arrive
-	dec         decisions             // see decide.go
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed bool
 	pushWake     chan struct{} // wakes pushLoop, nil when it is not running
@@ -310,10 +299,6 @@ func New() (*Daemon, error) { return NewWith(Defaults()) }
 // Defaults are the Options New runs with, for Takeover too.
 func Defaults() Options {
 	path := store.Path()
-	journal, err := decisionlog.Open(filepath.Join(filepath.Dir(path), "decisions.jsonl"))
-	if err != nil {
-		log.Printf("decisions log: %q", err) // decisions work without it
-	}
 	errs, err := errlog.Open(filepath.Join(filepath.Dir(path), "errors.jsonl"))
 	if err != nil {
 		log.Printf("errors log: %q", err)
@@ -333,8 +318,6 @@ func Defaults() Options {
 			agent.UpdateScreenPatterns(ctx, config.StateDir(), setting(config.Path(), func(s config.Settings) bool { return s.UpdateScreenPatterns }))
 		},
 		Providers: configuredProviders(),
-		Gates:     gatesFromEnv(),
-		Journal:   journal,
 		Errors:    errs,
 		Timing:    timing,
 		StartPane: func(c pane.Config) (Pane, error) {
@@ -364,7 +347,6 @@ func Defaults() Options {
 		Save:              func(s model.State) error { return store.Save(path, s) },
 		Load:              func() (model.State, error) { return store.Open(path) },
 		RestoreCmd:        store.RestoreCmd,
-		Decisions:         loadDecisions(config.Path(), decide.CredentialsPath(config.Dir())),
 		Bell:              setting(config.Path(), func(s config.Settings) bool { return s.Bell }),
 		PersistScrollback: setting(config.Path(), func(s config.Settings) int { return s.PersistScrollback }),
 		Scrollback:        setting(config.Path(), func(s config.Settings) int { return s.Scrollback }),
@@ -420,9 +402,6 @@ func Defaults() Options {
 // command twice may not be safe. Either shows a notice in place of its
 // screen, which is not saved.
 func NewWith(o Options) (*Daemon, error) {
-	if o.Gates == nil {
-		o.Gates = &decide.Gates{}
-	}
 	st, err := o.Load()
 	if err != nil {
 		return nil, err
@@ -510,9 +489,6 @@ func fromState(o Options, st model.State) *Daemon {
 		st.Stats = map[string]model.BranchStats{}
 	}
 	d := &Daemon{o: o, st: st, panes: map[string]Pane{}, sizes: map[string][2]int{}, inputs: map[string]chan []byte{}, holds: map[string]chan chan []byte{}, clients: map[*client]struct{}{}, watchers: map[*client]struct{}{}, resumed: map[string]time.Time{}, chats: map[string]*chat{}}
-	if o.Decisions != nil {
-		d.dec.cur = o.Decisions()
-	}
 	d.prs = prPoll{seen: map[string]*prSeen{}, sent: map[string][]string{}, wake: make(chan struct{}, 1)}
 	d.mail = newMail()
 	return d
@@ -597,7 +573,6 @@ func (d *Daemon) shutdown() {
 		// The state and panes are the new daemon's now.
 		d.mu.Unlock()
 		d.saveMu.Unlock()
-		d.o.Journal.Close(time.Second)
 		d.o.Errors.Close(time.Second)
 		d.o.Timing.Close(time.Second)
 		return
@@ -621,7 +596,6 @@ func (d *Daemon) shutdown() {
 		wg.Go(func() { p.Close() })
 	}
 	wg.Wait()
-	d.o.Journal.Close(time.Second)
 	d.o.Errors.Close(time.Second)
 	d.o.Timing.Close(time.Second)
 }
@@ -1557,7 +1531,6 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.held, id)
 	d.dropResume(id)
 	delete(d.lim.seen, id)
-	d.forgetDecisions(id)
 	d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id })
 	return h
 }
@@ -1582,8 +1555,7 @@ func closeAll(ps []Pane) {
 // longer than the SIGKILL that follows an ignored SIGHUP.
 const slowClose = 3 * time.Second
 
-// agentEvent applies one hook event and starts, in the background, the
-// decisions it calls for.
+// agentEvent applies one hook event.
 func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	d.mu.Lock()
 	pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == m.Pane })
@@ -1715,21 +1687,12 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if derived && !keep {
 		d.recordExplanation(p.ID, m.Provider, next.State, "hook", agent.ScreenTrace{})
 		changed = true
-		clearDecisions(&next) // a new state needs new answers
 		if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {
 			d.keepReply(p.ID, msg)
 			d.relayReview(p.ID)
 		}
-		if secrets := d.dec.cur.Secrets; len(secrets) > 0 {
-			// The known keys, from the whole message before it is cut.
-			if msg := agent.LastMessage(m.Payload); next.State == model.StateCompleted && msg != "" {
-				next.Detail = agent.Summary(msg, secrets...)
-			} else {
-				next.Detail = decide.Redact(next.Detail, secrets...)
-			}
-		}
 		if next.State == model.StateError {
-			d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: errlog.API, Output: next.Detail, Cwd: p.Cwd}, d.dec.cur.Secrets...)
+			d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: errlog.API, Output: next.Detail, Cwd: p.Cwd})
 		}
 		switch {
 		case next.State == "" && ai >= 0:
@@ -1764,7 +1727,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		}
 		d.logError(p.WorkspaceID, errlog.Event{T: now, Pane: p.ID, Provider: string(m.Provider), Kind: kind, Tool: f.Tool,
 			Command: f.Command, Output: f.Output, Exit: f.Exit, Cwd: cmp.Or(f.Cwd, p.Cwd),
-			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms}, d.dec.cur.Secrets...)
+			Quiet: f.Quiet, Interrupted: f.Interrupted, Ms: f.Ms})
 	}
 	if p.Provider != m.Provider {
 		if p.Provider != "" {
@@ -1796,7 +1759,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	if p.Prompt == "" {
 		// Secrets go before the cut, so no part of a key names the tab.
-		if s := promptTitle(decide.Redact(agent.Prompt(m.Provider, m.Payload), d.dec.cur.Secrets...)); s != "" {
+		if s := promptTitle(logs.Redact(agent.Prompt(m.Provider, m.Payload))); s != "" {
 			p.Prompt, changed = s, true
 		}
 	}
@@ -1804,7 +1767,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if c, ok := agent.ToolCall(m.Payload); ok {
 		d.turns.Tool(p.ID, c, now)
 	}
-	d.noteOutcomes(p.ID, m.Payload, now)
 	var turnDir, turnWS string // a tab to checkpoint once d.mu is free
 	if d.o.Checkpoint != nil && agent.Prompt(m.Provider, m.Payload) != "" {
 		if w := d.workspace(p.WorkspaceID); w != nil {
@@ -1817,7 +1779,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if len(d.mail.queue[p.ID]) > 0 {
 		d.wake(p.ID, 0) // a turn may have ended
 	}
-	job := d.planDecisions(*p, m, now)
 	if changed {
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			w.UpdatedAt = now
@@ -1826,7 +1787,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 	d.mu.Unlock()
 	limit()
-	d.runDecisions(ctx, job)
 	if turnWS != "" {
 		// The hook is answered once the snapshot is taken, so the turn's
 		// first edits stay out of it. pitwall hook waits a little longer
@@ -2464,7 +2424,6 @@ func (d *Daemon) snapshot() model.State {
 	s.Stats = maps.Clone(s.Stats)
 	s.PRs = maps.Clone(s.PRs)           // entries are replaced, never changed in place
 	s.Overlaps = maps.Clone(s.Overlaps) // the radar replaces a tab's list whole
-	s.Decide = d.decideInfo()
 	s.Tasks = slices.Clone(s.Tasks)
 	s.Chats = slices.Clone(s.Chats)   // chatChanged updates entries in place
 	s.Closed = slices.Clone(s.Closed) // checkClosed sets Gone in place

@@ -123,8 +123,7 @@ func HooksFor(p model.Provider) bool {
 	return false
 }
 
-// Command is the program agent p runs as, the name a decision model's
-// list of programs uses.
+// Command is the program agent p runs as.
 func Command(p model.Provider) string {
 	if p == model.ProviderCursor {
 		return "cursor-agent"

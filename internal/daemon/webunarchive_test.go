@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/quanticstudios/pitwall/internal/decide"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
 	"github.com/quanticstudios/pitwall/internal/session/eventlog"
@@ -25,7 +24,6 @@ func TestWebUnarchive(t *testing.T) {
 	d, _, stop := runDaemon(t, &fakes{statsCalls: map[string]int{}}, func(o *Options) {
 		o.Chats = root
 		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: spy}
-		o.Gates = decide.FakeGates()
 	})
 	t.Cleanup(stop)
 	addr := webOn(t, d)

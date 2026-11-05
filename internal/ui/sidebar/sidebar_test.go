@@ -248,35 +248,27 @@ func TestProjectIcons(t *testing.T) {
 
 func TestPillText(t *testing.T) {
 	run := model.Activity{Provider: model.ProviderTerminal, State: model.StateTerminalRunning, Detail: "go"}
-	if PillText(run, "") != "go" {
-		t.Errorf("running terminal pill = %q", PillText(run, ""))
+	if PillText(run) != "go" {
+		t.Errorf("running terminal pill = %q", PillText(run))
 	}
 	run.Detail = ""
-	if PillText(run, "") != "Running" {
-		t.Errorf("no command = %q", PillText(run, ""))
+	if PillText(run) != "Running" {
+		t.Errorf("no command = %q", PillText(run))
 	}
-	ask := model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "allow", AdviceP: 0.962}
 	y, m, d := time.Now().Date()
 	today := time.Date(y, m, d, 15, 4, 0, 0, time.Local)
 	for _, tc := range []struct {
 		a    model.Activity
-		by   string
 		want string
 	}{
-		{ask, "jev", "Jev: allow 96%"},
-		{ask, "command", "Model: allow 96%"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "allow", AdviceP: 0.99, AdviceRule: "sudo"}, "jev", "Jev: allow 99% · sudo"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, Advice: "deny", AdviceP: 0.9, AdviceRule: "rm -rf"}, "jev", "Jev: deny 90% · rm -rf"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval}, "jev", "Approval"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval, AdviceRule: "sudo"}, "jev", "Risk: sudo"}, // held out
-		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "now"}, "jev", "Input · now"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput, Urgency: "later"}, "jev", "Input"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StateCompleted, Review: true}, "jev", "Check"},
-		{model.Activity{Provider: model.ProviderClaude, State: model.StateWorking, Stuck: true}, "jev", "Working · stuck"},
-		{model.Activity{Provider: model.ProviderCodex, State: model.StateError, Resumes: today}, "", "Resumes 15:04"},
-		{model.Activity{Provider: model.ProviderCodex, State: model.StateError, Resumes: today.AddDate(0, 0, 2)}, "", today.AddDate(0, 0, 2).Format("Resumes Mon 15:04")},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StatePendingApproval}, "Approval"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput}, "Input"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StateCompleted}, "Done"},
+		{model.Activity{Provider: model.ProviderClaude, State: model.StateWorking}, "Working"},
+		{model.Activity{Provider: model.ProviderCodex, State: model.StateError, Resumes: today}, "Resumes 15:04"},
+		{model.Activity{Provider: model.ProviderCodex, State: model.StateError, Resumes: today.AddDate(0, 0, 2)}, today.AddDate(0, 0, 2).Format("Resumes Mon 15:04")},
 	} {
-		if got := PillText(tc.a, tc.by); got != tc.want {
+		if got := PillText(tc.a); got != tc.want {
 			t.Errorf("PillText(%+v) = %q, want %q", tc.a, got, tc.want)
 		}
 	}

@@ -19,7 +19,7 @@ func (d *Daemon) syncTurns(now time.Time) {
 	for id := range d.turns.Panes() {
 		if !slices.ContainsFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }) {
 			if e, ok := d.turns.Close(id, now); ok {
-				d.o.Timing.Add(e, d.dec.cur.Secrets...)
+				d.o.Timing.Add(e)
 			}
 		}
 	}
@@ -35,7 +35,7 @@ func (d *Daemon) syncTurn(p *model.Pane, now time.Time) {
 		return
 	}
 	for _, e := range d.turns.State(d.where(p), s, now) {
-		d.o.Timing.Add(e, d.dec.cur.Secrets...)
+		d.o.Timing.Add(e)
 	}
 }
 

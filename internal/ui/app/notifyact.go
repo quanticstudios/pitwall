@@ -21,9 +21,9 @@ import (
 const actionWait = time.Hour
 
 // urgentActivity reports whether a notifies at critical urgency: an
-// approval, an error, or what triage rates now.
+// approval or an error.
 func urgentActivity(a model.Activity) bool {
-	return a.State == model.StatePendingApproval || a.State == model.StateError || a.Urgency == "now"
+	return a.State == model.StatePendingApproval || a.State == model.StateError
 }
 
 // notifySendArgs are notify-send's arguments for one notification. With
