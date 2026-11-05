@@ -70,6 +70,12 @@ func hookFixture(t *testing.T, name string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The fixture and inline hooks in these sequences belong to one session.
+	var payload map[string]json.RawMessage
+	must(t, json.Unmarshal(b, &payload))
+	payload["session_id"] = json.RawMessage(`"s1"`)
+	b, err = json.Marshal(payload)
+	must(t, err)
 	return b
 }
 

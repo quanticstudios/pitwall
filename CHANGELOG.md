@@ -15,6 +15,10 @@ pass) and opens a `Release v0.1.N` pull request. Once that merges,
 release commit on `main` and pushes the tag once, which starts the release
 build. Either step takes `--dry-run`.
 
+## Unreleased
+
+- Keep the pane's agent status and resume session when it runs another agent during a turn.
+
 ## v0.1.15
 
 - Claude Code's empty-plan dialog keeps its Plan status and holds queued messages; a successful fork clears a fork failure notice.

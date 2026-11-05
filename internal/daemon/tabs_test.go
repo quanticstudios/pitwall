@@ -234,6 +234,8 @@ func TestPromptNamesTab(t *testing.T) {
 	if got := title(); got != "rename foo to bar" {
 		t.Fatalf("second prompt replaced the first: %q", got)
 	}
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderCodex,
+		Payload: []byte(`{"hook_event_name":"SessionEnd","session_id":"s1"}`)}))
 	prompt("s2", "start over")
 	if got := title(); got != "start over" {
 		t.Fatalf("new session kept %q", got)

@@ -707,6 +707,8 @@ func TestHookSetsTranscript(t *testing.T) {
 	if got != path {
 		t.Fatalf("Transcript = %q, want %q", got, path)
 	}
+	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderClaude,
+		Payload: []byte(`{"session_id":"s","hook_event_name":"SessionEnd"}`)}))
 	pi := filepath.Join(t.TempDir(), "pi.jsonl")
 	payload, _ = json.Marshal(map[string]string{"event": "session_start", "session_id": "p", "session_file": pi})
 	must(t, d.handle(ctx, proto.AgentEvent{Pane: id, Provider: model.ProviderPi, Payload: payload}))
