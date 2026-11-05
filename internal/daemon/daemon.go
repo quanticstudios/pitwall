@@ -1596,6 +1596,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
+	if d.hookFromOtherSession(*p, m) {
+		d.mu.Unlock()
+		log.Printf("pane %s: dropped a hook from another session during an active turn", m.Pane)
+		return nil
+	}
 	if m.Provider == "report" {
 		if pp, ok := programHook(m.Payload); ok {
 			d.mu.Unlock()
@@ -1829,6 +1834,34 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		d.checkpointWait(turnDir, turnWS)
 	}
 	return nil
+}
+
+// hookFromOtherSession rejects a nested agent's reports while the pane's turn is active.
+// Callers hold d.mu.
+func (d *Daemon) hookFromOtherSession(p model.Pane, m proto.AgentEvent) bool {
+	if m.Provider == "report" || model.ReportedName(m.Provider) != "" || model.ReportedName(p.Provider) != "" {
+		return false // report-agent has its own authority rules
+	}
+	if p.Provider == m.Provider && (m.Provider == model.ProviderPi || m.Provider == model.ProviderOmp) {
+		return false // pi and omp track replacements by runtime
+	}
+	i := d.activityIndex(p.ID)
+	if i < 0 || (!timelog.Running(d.st.Activities[i].State) && d.st.Activities[i].State != model.StateConnecting) {
+		return false
+	}
+	sid := d.o.SessionID(m.Provider, m.Payload)
+	if p.Provider == m.Provider && (sid == "" || p.SessionID == "" || sid == p.SessionID || sid == store.ForkSource(p)) {
+		return false
+	}
+	// The foreground group can change before the exit poll clears a dead owner's turn.
+	if fg := d.live.fg[p.ID]; fg > 0 {
+		if f, ok := d.panes[p.ID].(foregrounder); ok {
+			if current := f.Foreground(); current > 0 && current != fg {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // turnWait is how long a prompt's hook waits for its checkpoint.
