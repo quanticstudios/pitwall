@@ -352,3 +352,45 @@ func TestArming(t *testing.T) {
 		t.Errorf("an unknown card is armed")
 	}
 }
+
+// TestHoldPlace: when an approval above leaves, the card under the pointer
+// keeps its place, and the card that slides into another's place takes no
+// clicks for Arming, so a click meant for one never answers another.
+func TestHoldPlace(t *testing.T) {
+	var f fixture
+	for i, id := range []string{"a", "b", "c"} {
+		f.tab(id, model.ProviderClaude, model.Workspace{})
+		f.act(id, model.Activity{State: model.StatePendingApproval, UpdatedAt: now.Add(time.Duration(i-10) * time.Minute)})
+	}
+	var tr Tracker
+	frame := func(at time.Duration, held ...string) Board {
+		b := Derive(&f.st, Options{Now: now})
+		h := map[string]bool{}
+		for _, id := range held {
+			h[id] = true
+		}
+		tr.Hold(&b, h, now.Add(at))
+		return b
+	}
+	frame(0, "b")
+	frame(time.Second, "b")
+	f.st.Activities[0].State = model.StateWorking // a is answered elsewhere
+	b := frame(2*time.Second, "b")
+	if got := where(b); got != "Needs you: c,b; Failed: ; Working: a; PR open: ; Done: ; Queued: ; Shells: " {
+		t.Fatalf("b under the pointer: %s", got)
+	}
+	if b.Cols[NeedsYou][1].Held {
+		t.Errorf("b, which nothing answered, is held as answered")
+	}
+	at := now.Add(2*time.Second + Arming/2)
+	if tr.Armed("c", at) {
+		t.Errorf("c took b's old place and is armed at once")
+	}
+	if !tr.Armed("b", at) {
+		t.Errorf("b kept its place and lost its arming")
+	}
+	b = frame(3 * time.Second) // the pointer leaves
+	if got := where(b); got != "Needs you: b,c; Failed: ; Working: a; PR open: ; Done: ; Queued: ; Shells: " || tr.Armed("b", now.Add(3*time.Second+Arming/2)) {
+		t.Errorf("let go: %s, b armed %v", got, tr.Armed("b", now.Add(3*time.Second+Arming/2)))
+	}
+}
