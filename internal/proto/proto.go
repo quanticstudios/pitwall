@@ -44,6 +44,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 65 added Pane.LastPromptAt for jumping to the latest prompt.
 // Level 64 removed decision models: Activity.Advice, AdviceP, AdviceRule,
 // Urgency, Review and Stuck, State.Decide and ChatApprove.By. An older window
 // reads their zero values, which is what a daemon with decisions off sent.
@@ -180,10 +181,10 @@ import (
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames.
-const Version = 18
+const Version = 19
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 64
+const Level = 65
 
 // PopupPathLevel added OpenPopup.Path.
 const PopupPathLevel = 60

@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Jump to the pane you last sent an agent prompt with Ctrl+Alt+U, or Cmd+Option+U in mac, across tabs and sessions. Rebind `jump_last_prompt` in Settings. Prompt times stay in memory until the daemon restarts.
+
 - Keep the pane's agent status and resume session when it runs another agent during a turn.
 - Removed Jev and every decision feature: approval suggestions, risk flags, triage, turn check, check runs, stuck agents, the custom command provider, `pitwall jev` and the Decisions and Decision stats settings pages. Notifications send at once in the normal order, the jump key follows state order, and `TYPESAFE_API_KEY` does nothing. A `[decisions]` table still loads with a note and stays in your file. pitwall no longer reads `~/.local/state/pitwall/decisions.jsonl` or `~/.config/pitwall/credentials`; delete them when you like.
 

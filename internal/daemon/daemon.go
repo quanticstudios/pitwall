@@ -1116,7 +1116,11 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.Prompt:
 		return d.prompt(m)
 	case proto.Send:
-		return d.send(m)
+		err := d.send(m)
+		if err == nil && m.From == "" {
+			d.recordPrompt(m.Pane)
+		}
+		return err
 	case proto.Deliver:
 		return d.windowDeliver(m)
 	case proto.CancelResume:
@@ -1772,6 +1776,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			turnDir, turnWS = d.st.LivePath(*w), w.ID
 		}
+	}
+	if agent.PromptSubmitted(m.Payload) {
+		p.LastPromptAt, changed = now, true
 	}
 	if agent.Prompt(m.Provider, m.Payload) != "" {
 		d.notePrompt(p.ID, now)

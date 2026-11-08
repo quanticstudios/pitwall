@@ -34,6 +34,8 @@ type nav struct {
 	task bool
 	// browse asks for the focused pane's command blocks.
 	browse bool
+	// noLastPrompt asks the window to show the empty-history notice.
+	noLastPrompt bool
 	// find asks the window to open the find bar on the focused pane.
 	find      bool
 	searchAll bool
@@ -1020,6 +1022,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.cleanup = true
 	case "picture_in_picture":
 		n.togglePiP(n.focused())
+	case "jump_last_prompt":
+		n.jumpLastPrompt(st)
 	case "jump_attention":
 		n.jumpAttention(st)
 	case "allow_prompt", "deny_prompt":
@@ -1074,4 +1078,22 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		return n.tabOp(st, "goto_"+d)
 	}
 	return nil
+}
+
+func (n *nav) jumpLastPrompt(st *model.State) {
+	var target *model.Pane
+	for i := range st.Panes {
+		p := &st.Panes[i]
+		w := findWorkspace(st, p.WorkspaceID)
+		if p.LastPromptAt.IsZero() || w == nil || w.Detached || tabOf(w, p.ID) == nil {
+			continue
+		}
+		if target == nil || p.LastPromptAt.After(target.LastPromptAt) {
+			target = p
+		}
+	}
+	n.noLastPrompt = target == nil
+	if target != nil {
+		n.selectWorkspace(st, target.WorkspaceID, target.ID)
+	}
 }

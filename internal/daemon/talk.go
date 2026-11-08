@@ -210,6 +210,7 @@ func (d *Daemon) windowDeliver(m proto.Deliver) error {
 	if remote.Clean(m.Text) == "" && len(m.Images) == 0 {
 		return errors.New("the message is empty")
 	}
+	d.recordPromptLocked(m.Pane)
 	delete(d.mail.sent, m.Pane)
 	d.dropResume(m.Pane)
 	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
@@ -474,4 +475,21 @@ func screenText(g vt.Grid) string {
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// recordPrompt remembers a user submission without saving it across restarts.
+func (d *Daemon) recordPrompt(pane string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.recordPromptLocked(pane)
+}
+
+func (d *Daemon) recordPromptLocked(pane string) {
+	for i := range d.st.Panes {
+		if p := &d.st.Panes[i]; p.ID == pane {
+			p.LastPromptAt = time.Now()
+			d.changed()
+			return
+		}
+	}
 }

@@ -357,7 +357,11 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 		return errors.New("that pane shows a form; answer it in its tab")
 	}
 	d.noteUserKey(pane, nil)
-	return d.typeLine(pane, p, text, "the reply is empty")
+	if err := d.typeLine(pane, p, text, "the reply is empty"); err != nil {
+		return err
+	}
+	d.recordPrompt(pane)
+	return nil
 }
 
 // typeLine pastes text into pane p, cleaned of control characters, and

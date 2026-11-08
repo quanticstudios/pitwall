@@ -293,6 +293,8 @@ type Pane struct {
 	// line only, whitespace collapsed and cut to 48 runes. A new session
 	// clears it; the next prompt fills it.
 	Prompt string
+	// LastPromptAt is the latest prompt submission in this daemon run.
+	LastPromptAt time.Time `json:"-"`
 	// AgentMode is the permission mode a resume starts the agent in: the
 	// mode its latest hook reported (agent.PermissionMode), except that an
 	// agent that reported bypassPermissions keeps it while the same process
