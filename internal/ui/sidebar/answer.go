@@ -24,14 +24,14 @@ const answerH = 18
 // Allow and Deny. A tab with agent sub-rows answers on the asking one's,
 // and a worker on its own sub-row.
 func (s *Sidebar) answering(v *view, id string, ghost bool, a *model.Activity) bool {
-	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && v.agents[id] == nil
+	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && v.agents[id] == nil && !s.hostDown(id)
 }
 
 // planning reports whether tab id's row, with its own activity a, shows
 // Request changes… for its agent's plan. A tab with agent sub-rows has
 // none.
 func (s *Sidebar) planning(v *view, id string, ghost bool, a *model.Activity) bool {
-	return !ghost && a != nil && a.State == model.StatePlanReady && v.agents[id] == nil
+	return !ghost && a != nil && a.State == model.StatePlanReady && v.agents[id] == nil && !s.hostDown(id)
 }
 
 // answerClicks turns clicks on row r's Allow and Deny into Answer events

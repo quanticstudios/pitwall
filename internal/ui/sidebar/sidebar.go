@@ -74,6 +74,13 @@ type Sidebar struct {
 	// one first: their sessions and the agents waiting anywhere show above
 	// the tabs. One or none draws nothing.
 	Hosts []HostInfo
+	// HostOf is the host of a tab or group id in a shared session, "" for
+	// this machine; nil when every tab is on one machine. Rows and group
+	// headers of another host show its chip.
+	HostOf func(id string) string
+	// TabNumber is a tab's number on its host ("box:3"), for a hover card;
+	// nil for none.
+	TabNumber func(id string) string
 	// HideSessions hides the host headings and sessions, keeping waiting agents.
 	HideSessions bool
 	// SessionPreview opens a session's tab list when its host row is hovered.

@@ -313,6 +313,10 @@ func TestMultiShared(t *testing.T) {
 	if m.HostOf("rp") != "box" || m.HostOf("lw") != "" {
 		t.Fatal("hosts of tabs and panes")
 	}
+	// Each host numbers its own tabs, as its pitwall ls does.
+	if m.TabNumber("rw") != "box:1" || m.TabNumber("lw") != "1" || m.TabNumber("ow") != "box:1" {
+		t.Fatalf("numbers %q %q %q", m.TabNumber("rw"), m.TabNumber("lw"), m.TabNumber("ow"))
+	}
 
 	m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls", FromPane: "lp"}})
 	if n, ok := next(rd).(proto.NewSession); !ok || n.SessionID != "rs" || n.FromPane != "" {

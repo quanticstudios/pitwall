@@ -250,6 +250,7 @@ type ui struct {
 	// move between hosts; see pasteAsks.
 	lastFocus string
 	moved     hostMove
+	picker    hostPicker
 	b         Backend
 	th        *theme.Theme
 	cfg       config.Settings
@@ -430,8 +431,12 @@ func (u *ui) applyFocus(st *model.State) {
 // on a Host.
 func (u *ui) windowTitle() string {
 	t := "pitwall"
-	if curHost() != "" {
-		t = curHost() + " · " + t
+	host := curHost()
+	if h := u.hostOf(cmp.Or(u.nav.focused(), u.nav.workspace)); h != "" {
+		host = h // a shared session's tab on another host
+	}
+	if host != "" {
+		t = host + " · " + t
 	}
 	st := u.b.State()
 	if s := st.Session(u.nav.session); s != nil {
@@ -775,10 +780,17 @@ func (u *ui) layout(gtx gl.Context) {
 
 	if edge > 0 {
 		so := op.Offset(image.Pt(edge-sw-1, 0)).Push(gtx.Ops)
+		u.picker.at = image.Pt(edge-sw-1+sw-gtx.Dp(44), gtx.Dp(50)) // under the header's +
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
 		u.sidebar.Update, u.sidebar.Host, u.sidebar.RepoIcons = u.updateLabel(), curHost(), u.repoIcons()
-		u.sidebar.Hosts = u.hosts
+		u.sidebar.Hosts, u.sidebar.HostOf, u.sidebar.TabNumber = u.hosts, nil, nil
+		if len(u.hosts) > 1 {
+			u.sidebar.HostOf = u.hostOf
+		}
+		if n, ok := u.b.(Numberer); ok {
+			u.sidebar.TabNumber = n.TabNumber
+		}
 		u.sidebar.Window = gtx.Constraints.Max
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
@@ -821,6 +833,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.CloseReply() // a hidden sheet would keep the keys from the panes
 	}
 
+	u.layoutPicker(gtx, &st)
 	u.layoutModal(gtx, &st)
 	u.tickReview(gtx, &st)
 	u.drawSessions(gtx, &st)
@@ -869,6 +882,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.ForkPane:
 		u.send(proto.ForkPane{Pane: e.Pane})
 	case sidebar.NewTab:
+		if e.Loose && len(u.hosts) > 1 {
+			u.openPicker(st)
+			break
+		}
 		if e.Loose {
 			u.send(u.nav.looseTab(st))
 			break
@@ -1070,7 +1087,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on || u.paneMenu.pane != "" || u.browser.open {
+	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on || u.paneMenu.pane != "" || u.browser.open || u.picker.open {
 		focused = "" // a dialog, a rename field, tab mode, the palette, a form, hints mode, a pane menu or the browser holds key focus
 	}
 	findFocus := focused != "" && focused == u.find.pane

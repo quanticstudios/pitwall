@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -52,6 +53,9 @@ type multi struct {
 	// pending is the shared sessions whose part on a host a SessionNew is
 	// making: the name it was asked for, by host and session here.
 	pending map[[2]string]string
+	// pendingHere is the sessions of other hosts a SessionNew here is making
+	// shared: by name, the host and its session there.
+	pendingHere map[string][2]string
 	// asked is the SessionLink last sent for a session and host, and when,
 	// so a merge before this machine's state shows it does not send it
 	// again within a few seconds.
@@ -80,6 +84,7 @@ var (
 	_ app.Viewer          = (*multi)(nil)
 	_ app.Chatter         = (*multi)(nil)
 	_ app.Hoster          = (*multi)(nil)
+	_ app.Numberer        = (*multi)(nil)
 	_ app.Mover           = (*multi)(nil)
 	_ app.Scroller        = (*multi)(nil)
 	_ app.Iconer          = (*multi)(nil)
@@ -124,7 +129,7 @@ func windowHosts(hosts []config.Host, colors map[string]string) ([]hostDial, fun
 // remotes, which connect in the background.
 func newMulti(local *backend, remotes []hostDial) *multi {
 	m := &multi{changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), owner: map[string]*hostLink{}, clipSeq: map[*hostLink]uint64{},
-		pending: map[[2]string]string{}, asked: map[[2]string]asked{}}
+		pending: map[[2]string]string{}, pendingHere: map[string][2]string{}, asked: map[[2]string]asked{}}
 	m.hosts = append(m.hosts, &hostLink{b: local})
 	// The window takes its first session before its first frame.
 	select {
@@ -157,15 +162,7 @@ func newMulti(local *backend, remotes []hostDial) *multi {
 		}()
 		go func() {
 			for f := range h.b.focus {
-				// The newest request wins, as in a backend.
-				select {
-				case <-m.focus:
-				default:
-				}
-				select {
-				case m.focus <- f:
-				default:
-				}
+				m.pushFocus(f)
 			}
 		}()
 	}
@@ -176,6 +173,19 @@ func newMulti(local *backend, remotes []hostDial) *multi {
 		go m.pings()
 	}
 	return m
+}
+
+// pushFocus asks the window to show f; the newest request wins, as in a
+// backend.
+func (m *multi) pushFocus(f proto.FocusSession) {
+	select {
+	case <-m.focus:
+	default:
+	}
+	select {
+	case m.focus <- f:
+	default:
+	}
 }
 
 // pings measures each host's latency every few seconds, for the host row.
@@ -374,6 +384,13 @@ func (m *multi) reconcile(local model.State) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for name, ref := range m.pendingHere {
+		if x := local.SessionNamed(name); x != nil {
+			link(proto.SessionLink{SessionID: x.ID, Host: ref[0], Remote: ref[1]})
+			m.pushFocus(proto.FocusSession{SessionID: x.ID})
+			delete(m.pendingHere, name)
+		}
+	}
 	for key, name := range m.pending {
 		ss, h := local.Session(key[1]), m.byName(key[0])
 		if ss == nil || h == nil || ss.Remote(key[0]) != nil {
@@ -479,6 +496,11 @@ func (m *multi) Send(msg any) error {
 	switch v := msg.(type) {
 	case app.NewTabOn:
 		return m.newTabOn(v)
+	case proto.NewSession:
+		// A group's + in a shared session: the group's host opens it.
+		if g := m.of(v.GroupID); g != nil && g != m.hosts[0] && m.of(v.SessionID) == m.hosts[0] {
+			return m.newTabOn(app.NewTabOn{Host: g.name, Tab: v})
+		}
 	case proto.SessionRename:
 		m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
 			h.b.Send(proto.SessionRename{SessionID: r.Session, Name: v.Name})
@@ -645,6 +667,9 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 	if p := cmp.Or(tab.FromPane, tab.ParentPane); p != "" && m.of(p) != h {
 		tab.FromPane, tab.ParentPane = "", "" // a pane of another machine
 	}
+	if owner := m.of(tab.SessionID); owner != nil && owner != m.hosts[0] {
+		return m.shareHere(owner, h, tab)
+	}
 	if h == m.hosts[0] {
 		return h.b.Send(tab)
 	}
@@ -676,6 +701,39 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 		// ponytail: only the CLI sends a command, and it makes the part itself.
 		return errors.New("open a tab on " + h.name + " first, then run the command there")
 	}
+	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
+}
+
+// shareHere opens tab on h while the window shows a session of another
+// host, owner. On owner it is a tab like any other. On this machine it
+// makes the session shared: a session here of the same name, made when
+// there is none, takes owner's session as its part, and the window
+// shows it. A shared session is this machine's, so a third host waits
+// until this machine has a tab in it.
+func (m *multi) shareHere(owner, h *hostLink, tab proto.NewSession) error {
+	if h == owner {
+		return h.b.Send(tab)
+	}
+	if h != m.hosts[0] {
+		return errors.New("open a tab on this machine first: it keeps the shared session")
+	}
+	ost := owner.b.State()
+	ss := ost.Session(tab.SessionID)
+	if ss == nil {
+		return fmt.Errorf("no session %s on %s", tab.SessionID, owner.name)
+	}
+	local := m.hosts[0].b.State()
+	if x := local.SessionNamed(ss.Name); x != nil {
+		if err := h.b.Send(proto.SessionLink{SessionID: x.ID, Host: owner.name, Remote: ss.ID}); err != nil {
+			return err
+		}
+		tab.SessionID = x.ID
+		m.pushFocus(proto.FocusSession{SessionID: x.ID})
+		return h.b.Send(tab)
+	}
+	m.mu.Lock()
+	m.pendingHere[ss.Name] = [2]string{owner.name, ss.ID}
+	m.mu.Unlock()
 	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
 }
 
@@ -736,6 +794,35 @@ func (m *multi) Reconnect() {
 // Restart implements app.Linker for this machine's daemon only: a host's
 // daemon is restarted by pitwall --host on it, which asks first.
 func (m *multi) Restart() { m.hosts[0].b.Restart() }
+
+// TabNumber implements app.Numberer: the tab's number as its host's
+// pitwall ls gives it, from that host's own order, "box:3" on another
+// host; "" for an unknown tab.
+func (m *multi) TabNumber(id string) string {
+	h := m.of(id)
+	if h == nil {
+		return ""
+	}
+	st := h.b.State()
+	w := st.Workspace(id)
+	if w == nil {
+		return ""
+	}
+	return tabNumber(h.name, st.Numbered(w.SessionID), id)
+}
+
+// tabNumber is id's number among tabs, from 1, prefixed "host:" on
+// another host; "" when tabs lacks it.
+func tabNumber(host string, tabs []model.Workspace, id string) string {
+	i := slices.IndexFunc(tabs, func(w model.Workspace) bool { return w.ID == id })
+	switch {
+	case i < 0:
+		return ""
+	case host == "":
+		return strconv.Itoa(i + 1)
+	}
+	return host + ":" + strconv.Itoa(i+1)
+}
 
 // HostOf implements app.Hoster.
 func (m *multi) HostOf(id string) string {

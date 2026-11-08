@@ -126,6 +126,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		if isActive || ghost || unseen != nil || model.Tier(a) == model.TierAttention {
 			nameCol = th.Fg
 		}
+		if s.hostDown(ws.ID) {
+			nameCol = th.Readable(th.Muted, base) // offline: the last state the window had
+		}
 		items := []item{
 			{w: func(gtx layout.Context) layout.Dimensions {
 				if digit != "" {
@@ -191,6 +194,13 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			if i := slices.IndexFunc(v.st.Projects, func(p model.Project) bool { return p.ID == g }); i >= 0 {
 				line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return s.groupTag(gtx, v, v.st.Projects[i], muted) }})
 			}
+		}
+		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
+		if host != "" {
+			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, host, base) }})
+		}
+		if down && own != nil && model.Tier(own) == model.TierAttention {
+			where = "Answer when " + host + " is back"
 		}
 		// Allow and Deny or the agent count leave it a few letters at most,
 		// and the hover card has it; a title that says the same ("~" for

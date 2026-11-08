@@ -1,6 +1,8 @@
 package app
 
 import (
+	"cmp"
+
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
@@ -53,9 +55,11 @@ func (u *ui) hostOf(id string) string {
 }
 
 // showHost sets shownHost to the host of the session the window shows.
+// In a shared session it is the shown tab's host, so folders, links and
+// repos of a tab on another host are not looked for here.
 func (u *ui) showHost() {
 	if _, ok := u.b.(Hoster); ok {
-		shownHost = u.sessionHost(u.nav.session)
+		shownHost = cmp.Or(u.sessionHost(u.nav.session), u.hostOf(u.nav.workspace))
 	}
 }
 
@@ -91,4 +95,11 @@ func (u *ui) repoIcons() func(dir string) (proto.FaviconResult, bool) {
 		return ic.Favicon
 	}
 	return nil
+}
+
+// Numberer is optionally implemented by a Backend of several machines:
+// a tab's number as its host's pitwall ls gives it, "box:3" on another
+// host.
+type Numberer interface {
+	TabNumber(id string) string
 }
