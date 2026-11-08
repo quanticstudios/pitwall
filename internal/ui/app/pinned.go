@@ -37,7 +37,9 @@ func (u *ui) sendOrAsk(st *model.State, msg any) {
 		u.modal.then = msg
 		return
 	}
-	if u.cfg.ConfirmClose {
+	// The detached list already arms KillSession with a second click.
+	_, armed := msg.(proto.KillSession)
+	if u.cfg.ConfirmClose && !armed {
 		if w, agents := runningClose(st, msg); len(agents) > 0 {
 			u.modal.open(modalClose, w.ID)
 			u.modal.then, u.modal.agents = msg, agents

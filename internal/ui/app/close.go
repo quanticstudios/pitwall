@@ -25,6 +25,9 @@ func runningClose(st *model.State, msg any) (*model.Workspace, []string) {
 	case proto.ClosePane:
 		if p := findPane(st, m.Pane); p != nil {
 			ws, pane = p.WorkspaceID, p.ID
+			if !st.IsPopup(p.ID) && st.PaneCount(ws) == 1 {
+				pane = ""
+			}
 		}
 	}
 	w := st.Workspace(ws)
@@ -32,6 +35,13 @@ func runningClose(st *model.State, msg any) (*model.Workspace, []string) {
 		return nil, nil
 	}
 	var agents []string
+	if w.Chat != "" {
+		for _, a := range st.Activities {
+			if a.PaneID == w.Chat && timelog.Running(a.State) {
+				agents = append(agents, sidebar.AgentName(a.Provider))
+			}
+		}
+	}
 	for _, ap := range st.AgentPanes(*w) {
 		if (pane == "" || ap.Pane.ID == pane) && !ap.Pane.Exited && ap.Activity != nil && timelog.Running(ap.Activity.State) {
 			agents = append(agents, cmp.Or(sidebar.AgentName(ap.Pane.Provider), sidebar.AgentName(ap.Activity.Provider)))

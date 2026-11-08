@@ -10,8 +10,10 @@ import (
 	"gioui.org/op"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -56,6 +58,97 @@ func TestCloseDecisionStates(t *testing.T) {
 				t.Fatalf("agents %v, want ask %v", agents, tc.ask)
 			}
 		})
+	}
+}
+
+func TestCloseChat(t *testing.T) {
+	for _, state := range []model.AgentState{model.StateWorking, model.StatePendingApproval, model.StateAwaitingInput, model.StatePlanReady, model.StateCompleted, model.StateError, model.StateConnecting, ""} {
+		t.Run(string(state), func(t *testing.T) {
+			st := model.State{
+				Workspaces: []model.Workspace{{ID: "tab", Chat: "chat"}},
+				Activities: []model.Activity{
+					{PaneID: "other", Provider: model.ProviderCodex, State: model.StateWorking},
+					{PaneID: "chat", WorkspaceID: "tab", Provider: model.ProviderClaude, State: state},
+				},
+			}
+			b := NewFakeBackend()
+			u := &ui{b: b, cfg: config.Settings{ConfirmClose: true}}
+			msg := proto.CloseTab{WorkspaceID: "tab"}
+			u.sendOrAsk(&st, msg)
+			ask := state == model.StateWorking || state == model.StatePendingApproval || state == model.StateAwaitingInput || state == model.StatePlanReady
+			if ask {
+				if u.modal.kind != modalClose || u.modal.ws != "tab" || !reflect.DeepEqual(u.modal.agents, []string{"Claude"}) || len(b.Sent()) != 0 {
+					t.Fatalf("chat close: modal %v, agents %v, sent %#v", u.modal.kind, u.modal.agents, b.Sent())
+				}
+				u.confirmModal(&st)
+			}
+			if u.modal.kind != modalNone || !reflect.DeepEqual(b.Sent(), []any{msg}) {
+				t.Fatalf("chat close: modal %v, sent %#v", u.modal.kind, b.Sent())
+			}
+		})
+	}
+}
+
+func TestCloseLastPanePopup(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		split bool
+		pane  string
+		want  []string
+	}{
+		{"last pane", false, "shell", []string{"Claude"}},
+		{"split pane", true, "shell", nil},
+		{"popup", false, "popup", []string{"Claude"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := model.State{
+				Workspaces: []model.Workspace{{ID: "tab", Popup: &model.Popup{Pane: "popup"}, Tabs: []model.Tab{{ID: "layout", Layout: layout.Leaf("shell")}}}},
+				Panes: []model.Pane{
+					{ID: "shell", WorkspaceID: "tab", Provider: model.ProviderTerminal},
+					{ID: "popup", WorkspaceID: "tab", Provider: model.ProviderClaude},
+				},
+				Activities: []model.Activity{{PaneID: "popup", WorkspaceID: "tab", Provider: model.ProviderClaude, State: model.StateWorking}},
+			}
+			if tc.split {
+				st.Panes = append(st.Panes, model.Pane{ID: "sibling", WorkspaceID: "tab"})
+				st.Workspaces[0].Tabs[0].Layout = layout.Split(st.Workspaces[0].Tabs[0].Layout, "shell", "sibling", layout.Horizontal)
+			}
+			b := NewFakeBackend()
+			u := &ui{b: b, cfg: config.Settings{ConfirmClose: true}}
+			msg := proto.ClosePane{Pane: tc.pane}
+			u.sendOrAsk(&st, msg)
+			if len(tc.want) > 0 {
+				if u.modal.kind != modalClose || !reflect.DeepEqual(u.modal.agents, tc.want) || len(b.Sent()) != 0 {
+					t.Fatalf("popup close: modal %v, agents %v, sent %#v", u.modal.kind, u.modal.agents, b.Sent())
+				}
+				u.confirmModal(&st)
+			}
+			if u.modal.kind != modalNone || !reflect.DeepEqual(b.Sent(), []any{msg}) {
+				t.Fatalf("popup close: modal %v, sent %#v", u.modal.kind, b.Sent())
+			}
+		})
+	}
+}
+
+func TestDetachedKillNoCloseDialog(t *testing.T) {
+	for _, pinned := range []bool{false, true} {
+		st := closeState()
+		st.Workspaces[0].Detached, st.Workspaces[0].Pinned = true, pinned
+		b := NewFakeBackend()
+		u := &ui{b: b, cfg: config.Settings{ConfirmClose: true}}
+		u.sidebarEvent(&st, sidebar.KillSession{WorkspaceID: "tab"})
+		var want []any
+		if pinned {
+			if u.modal.kind != modalPinned || len(b.Sent()) != 0 {
+				t.Fatalf("pinned kill: modal %v, sent %#v", u.modal.kind, b.Sent())
+			}
+			u.confirmModal(&st)
+			want = append(want, proto.SetTabOptions{WorkspaceID: "tab"})
+		}
+		want = append(want, proto.KillSession{WorkspaceID: "tab"})
+		if u.modal.kind != modalNone || !reflect.DeepEqual(b.Sent(), want) {
+			t.Fatalf("armed kill: modal %v, sent %#v", u.modal.kind, b.Sent())
+		}
 	}
 }
 
@@ -114,7 +207,7 @@ func TestSendOrAskClose(t *testing.T) {
 				want := modalNone
 				if pinned {
 					want = modalPinned
-				} else if enabled {
+				} else if _, armed := msg.(proto.KillSession); enabled && !armed {
 					want = modalClose
 				}
 				if u.modal.kind != want {
