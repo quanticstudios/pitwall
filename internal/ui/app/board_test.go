@@ -55,3 +55,20 @@ func TestBoardKeys(t *testing.T) {
 		t.Fatal("Esc left the board open")
 	}
 }
+
+// TestBoardKeysOnlyWhileShown: with the settings page or the review view
+// over the board, allow_prompt does not answer the board's focused card.
+func TestBoardKeysOnlyWhileShown(t *testing.T) {
+	u, keys := keyWindow(t, conventional)
+	cs := key.ModCtrl | key.ModShift
+	keys(press("M", cs), press(key.NameDownArrow, 0))
+	time.Sleep(board.Arming + 50*time.Millisecond)
+	keys() // a frame after the arming time
+	u.toggleSettings()
+	keys(press("Y", cs))
+	for _, m := range u.b.(*FakeBackend).Sent() {
+		if a, ok := m.(proto.Answer); ok {
+			t.Fatalf("Ctrl+Shift+Y under the settings page sent %+v", a)
+		}
+	}
+}

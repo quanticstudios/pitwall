@@ -36,10 +36,14 @@ func (u *ui) layoutBoard(gtx gl.Context, st *model.State) {
 	}
 }
 
+// boardShown reports whether the board is what the pane area shows: on,
+// and not under the settings page or the review view.
+func (u *ui) boardShown() bool { return u.boardOn && !u.settings.Shown() && !u.review.on }
+
 // boardKey sends allow_prompt and deny_prompt to the board's focused card
 // while the board shows, and never to a pane behind it.
 func (u *ui) boardKey(st *model.State, e key.Event, now time.Time) bool {
-	if !u.boardOn {
+	if !u.boardShown() {
 		return false
 	}
 	act := u.nav.bind().Action(e)
