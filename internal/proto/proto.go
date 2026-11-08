@@ -181,7 +181,7 @@ import (
 // Version 3 added tabs, detach, kill, group by folder, Sync and FocusSession.
 // Version 2 added sessions and groups (NewSession, SetSessionGroup, NewGroup,
 // RenameGroup, DeleteGroup, Hello.Cwd) and length-prefixed frames.
-const Version = 19
+const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
 const Level = 65

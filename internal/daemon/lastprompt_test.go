@@ -9,6 +9,21 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
+func TestLastPromptVersion18Interoperates(t *testing.T) {
+	sock, stop := run(t, &fakes{statsCalls: map[string]int{}})
+	defer stop()
+	for _, kind := range []string{"gui", "cli"} {
+		t.Run(kind, func(t *testing.T) {
+			c := dialHello(t, sock, proto.Hello{Version: 18, Level: 64, Kind: kind, Cwd: t.TempDir()})
+			c.send(proto.Sync{})
+			c.waitFor("state for a client without prompt tracking", func(m any) bool {
+				_, ok := m.(proto.StateMsg)
+				return ok
+			})
+		})
+	}
+}
+
 func TestLastPromptTracking(t *testing.T) {
 	d, _ := nestedDaemon(t)
 	nestedHook(t, d, model.ProviderClaude, "UserPromptSubmit", "owner")
