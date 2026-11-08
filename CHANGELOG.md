@@ -17,7 +17,7 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
-## Unreleased
+## v0.2.0
 
 - Shared sessions: one session holds tabs on this machine and on `[[hosts]]` with `window = true`, so a tab on box never needs a session switch. The sidebar's + asks which machine a new tab opens on, `pitwall new --host box` opens one from a shell, and rows, group headers and a row of machines under the header say where each tab runs and how each host is. Remote panes get a tag with the host's name and a ring in the host's color; while a host is down its tabs stay dimmed and read Offline with when they were last seen, typing is off and their answers wait, on rows and on the board, which says the host is unreachable. A tab closed while its host is down closes there once it is back, also when two windows close tabs at once. Killing a shared session waits until every host with a part is up, and ends the tabs here only once each host shows its part gone, also when the window that killed it closed first; `pitwall session kill` leaves shared sessions to the window. A new task runs on the machine of the folder picked for it, takes that machine's branches and issues, and is refused when that machine's daemon is too old for its schedule or account profile. `pitwall new --host` refuses `--issue`, and `--guard` or a preset's variables on a host daemon too old to keep them. See docs/remote.md, Shared sessions.
 - A new tab's folder may start with `~/`, the home folder of the machine its daemon runs on.
