@@ -145,10 +145,12 @@ type mail struct {
 	held     map[string]bool // pane: a draft holds its messages
 	// delivered is the highest proto.Deliver.Seq typed into a pane.
 	delivered map[string]uint64
+	// daemonPrompt keeps hooks for daemon-typed text from counting as user submissions.
+	daemonPrompt map[string]bool
 }
 
 func newMail() mail {
-	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, delivered: map[string]uint64{}}
+	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, delivered: map[string]uint64{}, daemonPrompt: map[string]bool{}}
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
@@ -216,6 +218,7 @@ func (d *Daemon) windowDeliver(m proto.Deliver) error {
 	if remote.Clean(m.Text) == "" && len(m.Images) == 0 {
 		return errors.New("the message is empty")
 	}
+	d.recordPromptLocked(m.Pane)
 	delete(d.mail.sent, m.Pane)
 	dropped = d.dropResume(m.Pane)
 	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
@@ -378,6 +381,7 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 		delete(d.mail.returnAt, pane)
 		if p := d.panes[pane]; p != nil && bytes.Equal(b, press(key.NameReturn, p.Modes())) {
 			d.mail.returnAt[pane] = time.Now()
+			delete(d.mail.daemonPrompt, pane)
 		}
 	}
 	delete(d.mail.sent, pane)
@@ -487,4 +491,21 @@ func screenText(g vt.Grid) string {
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// recordPrompt remembers a user submission without saving it across restarts.
+func (d *Daemon) recordPrompt(pane string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.recordPromptLocked(pane)
+}
+
+func (d *Daemon) recordPromptLocked(pane string) {
+	for i := range d.st.Panes {
+		if p := &d.st.Panes[i]; p.ID == pane {
+			p.LastPromptAt = time.Now()
+			d.changed()
+			return
+		}
+	}
 }

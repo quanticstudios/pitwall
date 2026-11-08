@@ -509,6 +509,12 @@ func Prompt(provider model.Provider, payload []byte) string {
 	return p.Prompt
 }
 
+// PromptSubmitted reports a prompt hook, including slash commands and empty prompts.
+func PromptSubmitted(payload []byte) bool {
+	p, err := decode(payload)
+	return err == nil && promptEvent(p) && !sideFork(p)
+}
+
 func slashCommand(p payload) bool { return strings.HasPrefix(strings.TrimSpace(p.Prompt), "/") }
 
 // claudeEvents are the Claude Code events Derive acts on. Notification is

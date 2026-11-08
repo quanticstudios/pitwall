@@ -48,6 +48,7 @@ func TestPaletteRank(t *testing.T) {
 		"split below":  "split_down",
 		"sess switch":  "session_switcher",
 		"attention":    "jump_attention",
+		"last prompt":  "jump_last_prompt",
 		"toggle_panel": "toggle_panel",
 		"pane":         "next_pane",
 	} {

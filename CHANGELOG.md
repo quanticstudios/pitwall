@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Jump to the pane you last sent an agent prompt with Ctrl+Alt+U, or Cmd+Option+U on macOS, across tabs and sessions, including open popups. Only your own prompts count; messages from other panes and automatic messages keep the destination. Rebind `jump_last_prompt` in Settings. Prompt times stay in memory until the daemon restarts.
 - Pane usage-limit auto-resumes keep their saved schedule across daemon restarts and saved shutdowns for the same stopped agent session, including overdue resets. Restored resumes cancel with a visible error after two minutes without a ready agent. Cancelled and consumed limits do not repeat; interrupted working turns get the normal restart message. A crash before typing can still require a manual continue. Chat resumes remain in memory and do not depend on saving pane state.
 - Keep the pane's agent status and resume session when it runs another agent during a turn.
 - Keep the pane's agent status and resume session when it runs another agent, such as `claude -p` from its Bash tool, even between turns. pitwall now tells the two apart by the process tree on Linux and macOS, not by session id, so a new agent in the tab is never locked out: Codex after Claude's `/exit`, a second Claude from the same script, or a new session after a turn that ended without a hook.

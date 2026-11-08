@@ -357,7 +357,11 @@ func (d *Daemon) remoteReply(pane string, at int64, text string) error {
 		return errors.New("that pane shows a form; answer it in its tab")
 	}
 	d.noteUserKey(pane, nil)
-	return d.typeLine(pane, p, text, "the reply is empty")
+	if err := d.typeLine(pane, p, text, "the reply is empty"); err != nil {
+		return err
+	}
+	d.recordPrompt(pane)
+	return nil
 }
 
 // typeLine pastes text into pane p, cleaned of control characters, and
@@ -386,7 +390,18 @@ func (d *Daemon) pressEnter(pane string, p Pane, pasted string) error {
 	if agent.FormUp(p.Snapshot(), pasted) {
 		return errors.New("a form came up; what was typed stays in the agent's input")
 	}
-	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(key.NameReturn, p.Modes())})
+	// User sends record their submission separately; their later hooks must not move the target again.
+	d.mu.Lock()
+	previous := d.mail.daemonPrompt[pane]
+	d.mail.daemonPrompt[pane] = true
+	d.mu.Unlock()
+	err := d.handle(context.Background(), proto.Input{Pane: pane, Data: press(key.NameReturn, p.Modes())})
+	if err != nil {
+		d.mu.Lock()
+		d.mail.daemonPrompt[pane] = previous
+		d.mu.Unlock()
+	}
+	return err
 }
 
 // formDraw is how long after its hook a form may take to reach the screen.

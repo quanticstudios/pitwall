@@ -193,6 +193,24 @@ for it. Ctrl+Shift+U (Alt+U in the aide preset) jumps to the pane that most
 recently started waiting; press it again for the next one. Once you have
 seen them all, it walks the waiting panes by priority.
 
+Ctrl+Alt+U, or Cmd+Option+U in mac, returns to the pane you last sent an
+agent prompt. The `jump_last_prompt` action switches to that pane's tab
+and session, including an open popup, even if its agent has exited.
+Repeating it stays there.
+If the pane closes, it uses the previous prompt's pane that is still open
+and attached. With none, it shows "No prompt pane is open".
+
+The daemon records prompt-submit hooks for text you type in the pane,
+including slash commands. GUI reply submissions, including queued replies,
+phone text replies and `pitwall send` with no sending pane also count.
+Their later hooks do not change the destination again. Sends from another
+pane, automatic CI failures, fleet notes, quiet nudges and usage-limit
+resumes do not count. Tool reports, status changes and nested agents' hooks
+during an active turn do not change the destination.
+Prompt times stay in memory until the daemon restarts. Reopening a window
+keeps them; restarting the daemon clears them. Rebind `jump_last_prompt`
+in `[keys]` or Settings, or run "Jump to last prompt" from the palette.
+
 A tab whose Claude Code or Codex asks permission shows Allow and Deny on
 its sidebar row, or on the asking pane's own row when the tab lists its
 agents, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
@@ -429,6 +447,7 @@ watch its agents before you switch. In the switcher:
 Ctrl+Shift+] and Ctrl+Shift+[ (Alt+] and Alt+[ in aide) step through the
 sessions without the switcher, and Ctrl+Shift+N makes one. Ctrl+Shift+U
 crosses sessions: it switches to the session of the pane that needs you.
+Ctrl+Alt+U also crosses sessions to the pane you last sent a prompt.
 Desktop notifications start with the session's name.
 
 With `[[hosts]] window = true`, the host list above the tabs shows each

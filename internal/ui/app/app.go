@@ -747,6 +747,10 @@ func (u *ui) layout(gtx gl.Context) {
 	if n := u.updates.takeNote(); n != "" {
 		u.sendFailed(n)
 	}
+	if u.nav.noLastPrompt {
+		u.nav.noLastPrompt = false
+		u.showNotice(pgtx, "No prompt pane is open", image.Rectangle{Max: pgtx.Constraints.Max})
+	}
 	u.drawNotice(pgtx)
 	u.drawStateNotice(pgtx, cmp.Or(st.Notice, u.limits.shown(), u.sends.err))
 	off.Pop()
