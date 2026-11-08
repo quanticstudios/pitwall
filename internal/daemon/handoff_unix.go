@@ -62,6 +62,10 @@ func (d *Daemon) handOff(nc net.Conn, conn *proto.Conn) error {
 	}
 	// why: d.mu stays held until the end, so no request, exit or timer
 	// changes state or panes after they were sent.
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	d.saveMu.Lock()
+	defer d.saveMu.Unlock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.closing {
@@ -468,6 +472,9 @@ func takeover(uc *net.UnixConn, conn *proto.Conn, o Options) (*Daemon, *net.Unix
 		return a.State == model.StateWorking && d.panes[a.PaneID] == nil
 	})
 	d.tidy()
+	for _, p := range d.st.Panes {
+		d.restoreLimitResume(p.ID, false)
+	}
 	d.mu.Unlock()
 	ln.SetUnlinkOnClose(true)
 	uc.SetDeadline(time.Time{})

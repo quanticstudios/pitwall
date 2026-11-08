@@ -12,16 +12,20 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/store"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // Resume after a usage limit: when Claude Code or Codex ends a turn on its
 // plan's usage limit, the daemon types continue into it resumeDelay after
 // the limit resets ([agents] resume_after_limit), or sends it to a chat.
-// The schedule lives in memory only; a daemon restart drops it.
+// Panes keep their schedule and the limit acted on in the saved state.
 
 // resumeDelay is how long after a limit resets continue is typed.
 var resumeDelay = time.Minute
+
+// resumeReadyWait limits polling after a restored continuation becomes due.
+const resumeReadyWait = 2 * time.Minute
 
 // The clock behind resumes; tests replace it.
 var (
@@ -31,11 +35,14 @@ var (
 
 // resume is a pane's or a chat's pending continue.
 type resume struct {
-	at   time.Time // when continue is typed
-	p    Pane      // the pane's process when it was set; nil for a chat
-	send func(string) error
-	prov model.Provider // the agent it was set for
-	turn time.Time      // UpdatedAt of the activity the limit stopped
+	at       time.Time // when continue is typed
+	p        Pane      // the pane's process when it was set; nil for a chat
+	send     func(string) error
+	prov     model.Provider // the agent it was set for
+	turn     time.Time      // UpdatedAt of the activity the limit stopped
+	session  string
+	restored bool
+	readyBy  time.Time
 	// since is when the turn stopped, zero when unknown: a key of the
 	// user's after it, such as a draft, drops the resume.
 	since time.Time
@@ -91,6 +98,21 @@ func (d *Daemon) pendingResume(id string) *resume {
 // reported.
 func (d *Daemon) checkLimits() {
 	if !d.resumeOn() {
+		d.mu.Lock()
+		changed := false
+		for _, p := range d.st.Panes {
+			changed = d.dropResume(p.ID) || changed
+		}
+		for id := range d.lim.pending {
+			changed = d.dropResume(id) || changed
+		}
+		if changed {
+			d.changed()
+		}
+		d.mu.Unlock()
+		if changed {
+			d.save()
+		}
 		return
 	}
 	type look struct {
@@ -122,7 +144,7 @@ func (d *Daemon) checkLimits() {
 		}
 		msg, resets, ok := agent.UsageLimit(agent.ScreenText(g, 12), resumeNow())
 		d.mu.Lock()
-		fresh := ok && d.lim.seen[l.id] != msg
+		fresh := ok && d.lim.seen[l.id] != msg && !d.actedOnLimit(l.id, l.turn, msg)
 		switch {
 		case d.panes[l.id] != l.p:
 		case !ok:
@@ -168,14 +190,20 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 		limits = d.o.Limits()
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	armed := false
+	defer func() {
+		d.mu.Unlock()
+		if armed {
+			d.save()
+		}
+	}()
 	ws, prov, sp, ok := d.agentOf(id)
 	i := d.activityIndex(id)
 	var cur time.Time
 	if i >= 0 {
 		cur = d.st.Activities[i].UpdatedAt
 	}
-	if d.closing || !ok || !cur.Equal(turn) || d.mail.keyAt[id].After(turn) {
+	if d.closing || d.frozen || !ok || !cur.Equal(turn) || d.mail.keyAt[id].After(turn) {
 		return
 	}
 	auto := sp != nil && d.claudeContinues(*sp)
@@ -208,17 +236,62 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 		return
 	}
 	r := &resume{at: resets.Add(resumeDelay), p: d.panes[id], prov: prov, turn: d.st.Activities[i].UpdatedAt, since: turn}
+	if sp != nil {
+		r.session = sp.SessionID
+		sp.LimitResume = &model.LimitResume{PaneID: id, Provider: prov, SessionID: r.session,
+			Turn: r.turn, Since: turn, Resets: resets, Message: msg, Pending: true, Drafting: d.mail.drafting[id]}
+	}
+	d.armResume(id, r, now)
+	armed = true
+	d.changed()
+}
+
+// armResume binds the timer to the current process. Callers hold d.mu.
+func (d *Daemon) armResume(id string, r *resume, now time.Time) {
 	if p := r.p; p != nil {
 		r.send = func(text string) error { return d.typeLine(id, p, text, "nothing to type") }
 	} else {
 		r.send = func(text string) error { return d.chatResume(id, text) }
 	}
-	r.stop = resumeAfter(r.at.Sub(now), func() { d.fireResume(id, r) })
+	r.stop = resumeAfter(max(0, r.at.Sub(now)), func() { d.fireResume(id, r) })
 	if d.lim.pending == nil {
 		d.lim.pending = map[string]*resume{}
 	}
 	d.lim.pending[id] = r
-	d.changed()
+}
+
+// actedOnLimit prevents a cancelled or consumed limit from arming again when
+// its message reappears during startup. Callers hold d.mu.
+func (d *Daemon) actedOnLimit(id string, turn time.Time, msg string) bool {
+	_, _, p, ok := d.agentOf(id)
+	if !ok || p == nil || p.LimitResume == nil {
+		return false
+	}
+	r := p.LimitResume
+	return (r.Turn.Equal(turn) || turn.IsZero()) && r.Message == msg
+}
+
+// restoreLimitResume runs after the pane's agent and stopped activity return.
+// Callers hold d.mu.
+func (d *Daemon) restoreLimitResume(id string, restarted bool) {
+	_, prov, p, ok := d.agentOf(id)
+	if !ok || p == nil || p.LimitResume == nil || !p.LimitResume.Pending {
+		return
+	}
+	saved := *p.LimitResume
+	i := d.activityIndex(id)
+	r := &resume{at: saved.Resets.Add(resumeDelay), p: d.panes[id], prov: saved.Provider,
+		turn: saved.Turn, since: saved.Since, session: saved.SessionID, restored: restarted}
+	if saved.PaneID != id || saved.SessionID == "" || !store.Resumes(*p) || p.Exited ||
+		prov != model.ProviderClaude && prov != model.ProviderCodex || saved.Resets.IsZero() ||
+		i < 0 || d.st.Activities[i].Detail != saved.Message || d.resumeBlocked(id, r) != "" {
+		saved.Pending = false
+		p.LimitResume = &saved
+		return
+	}
+	d.mail.drafting[id] = saved.Drafting
+	d.lim.seenMsg(id, saved.Message)
+	d.armResume(id, r, resumeNow())
 }
 
 // limitReset is when the fullest window of prov's plan limits resets,
@@ -252,18 +325,65 @@ func (d *Daemon) fireResume(id string, r *resume) {
 		d.mu.Unlock()
 		return // dropped or replaced
 	}
-	delete(d.lim.pending, id)
-	d.changed()
+	if d.frozen {
+		r.stop = resumeAfter(time.Second, func() { d.fireResume(id, r) })
+		d.mu.Unlock()
+		return
+	}
 	why := d.resumeBlocked(id, r)
+	if why == "" && r.restored && !d.resumeReady(id, r, g) {
+		now := resumeNow()
+		if r.readyBy.IsZero() {
+			r.readyBy = now.Add(resumeReadyWait)
+		}
+		if now.Before(r.readyBy) {
+			r.stop = resumeAfter(time.Second, func() { d.fireResume(id, r) })
+			d.mu.Unlock()
+			return
+		}
+		why = "the agent did not become ready within 2 minutes; continue manually"
+		if i := d.activityIndex(id); i >= 0 {
+			d.st.Activities[i].Detail += "\nAutomatic resume cancelled: " + why
+		}
+	}
 	if why == "" && busy {
 		why = "its screen shows a turn or a prompt"
 	}
 	if why == "" && r.p != nil && d.drafted(id, r.prov, g) {
 		why = "the user has a draft in its input box"
 	}
+	d.consumeResume(id)
+	d.changed()
+	if why != "" {
+		d.dropResume(id)
+	}
 	d.mu.Unlock()
 	if why != "" {
 		log.Printf("pane %s: no resume after the usage limit: %s", id, why)
+		d.save()
+		return
+	}
+	// Persist a pane's consumption before typing: a crash must never replay this limit.
+	// shortcut: a crash before typing can lose the send; provider receipts would close that gap.
+	if r.p != nil {
+		if err := d.saveState(false); err != nil {
+			d.mu.Lock()
+			d.dropResume(id)
+			d.mu.Unlock()
+			return
+		}
+	}
+	if r.p != nil {
+		g = r.p.Snapshot()
+	}
+	d.mu.Lock()
+	valid := d.lim.pending[id] == r && d.resumeBlocked(id, r) == ""
+	if r.p != nil && (agent.ReadScreen(g) != agent.ScreenNone || d.drafted(id, r.prov, g)) {
+		valid = false
+	}
+	d.dropResume(id)
+	d.mu.Unlock()
+	if !valid {
 		return
 	}
 	if err := r.send("continue"); err != nil {
@@ -293,6 +413,8 @@ func (d *Daemon) resumeBlocked(id string, r *resume) string {
 		return "the pane closed or restarted"
 	case prov != r.prov:
 		return "another agent runs there"
+	case sp != nil && sp.SessionID != r.session:
+		return "the agent session changed"
 	case sp != nil && d.claudeContinues(*sp):
 		return "Claude will continue on its own"
 	case i < 0 || !d.st.Activities[i].UpdatedAt.Equal(r.turn) || !stoppedState(d.st.Activities[i].State):
@@ -312,23 +434,52 @@ func stoppedState(s model.AgentState) bool {
 // dropResume drops pane id's resume, reporting whether it had one.
 // Callers hold d.mu.
 func (d *Daemon) dropResume(id string) bool {
-	r := d.lim.pending[id]
-	if r == nil {
+	if d.frozen {
 		return false
 	}
-	r.stop()
-	delete(d.lim.pending, id)
-	return true
+	r := d.lim.pending[id]
+	dropped := d.consumeResume(id) || r != nil
+	if r != nil {
+		r.stop()
+		delete(d.lim.pending, id)
+	}
+	return dropped
+}
+
+// consumeResume replaces the saved record without mutating a snapshot that
+// another goroutine may be writing. Callers hold d.mu.
+func (d *Daemon) consumeResume(id string) bool {
+	if _, _, p, ok := d.agentOf(id); ok && p != nil && p.LimitResume != nil && p.LimitResume.Pending {
+		saved := *p.LimitResume
+		saved.Pending = false
+		p.LimitResume = &saved
+		return true
+	}
+	return false
 }
 
 // cancelResume is proto.CancelResume: the user's Cancel resume.
 func (d *Daemon) cancelResume(m proto.CancelResume) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.dropResume(m.Pane) {
+	dropped := d.dropResume(m.Pane)
+	if dropped {
 		d.changed()
 	}
+	d.mu.Unlock()
+	if dropped {
+		return d.saveState(false)
+	}
 	return nil
+}
+
+// resumeReady waits for the resumed agent's hook to settle. Codex has no
+// startup hook, so it must draw its input box after the startup grace.
+// Callers hold d.mu.
+func (d *Daemon) resumeReady(id string, r *resume, g vt.Grid) bool {
+	if hook := d.live.hookAt[id]; !hook.IsZero() {
+		return time.Since(hook) >= sendSettle.get()
+	}
+	return time.Since(d.resumed[id]) >= restartWait && agent.InputReady(r.prov, g)
 }
 
 // restartLine is what a resumed agent that was mid-turn gets typed once it

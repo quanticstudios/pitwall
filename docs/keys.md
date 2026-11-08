@@ -84,6 +84,7 @@ conventional:
 | Ctrl+Shift+L                            | Show or hide the agent panel                              |
 | Ctrl+Shift+R                            | Review the tab's changes: comment, then send to its agent |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
+| Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
 | Ctrl+Shift+Y / Ctrl+Shift+D             | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                            | New task: an agent on a prompt, started now or queued     |
 | Ctrl+Shift+S                            | Session switcher                                          |
@@ -126,6 +127,7 @@ aide:
 | Ctrl+Shift+L                      | Show or hide the agent panel                   |
 | Ctrl+Shift+R                      | Review the tab's changes and comment on them   |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
+| Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
 | Ctrl+Shift+Y / Ctrl+Shift+D       | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                      | New task: an agent on a prompt, started now or queued |
 | Alt+S                             | Session switcher                               |
@@ -178,6 +180,7 @@ mac:
 | Cmd+L                                   | Show or hide the agent panel                              |
 | Cmd+Shift+R                             | Review the tab's changes: comment, then send to its agent |
 | Cmd+U                                   | Go to the tab that needs you, newest first, in any session |
+| Cmd+Option+U                           | Jump to the pane you last sent an agent prompt, across sessions |
 | Cmd+Shift+Y / Cmd+Shift+N               | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Cmd+Shift+A                             | New task: an agent on a prompt, started now or queued     |
 | Cmd+S                                   | Session switcher                                          |
@@ -280,6 +283,11 @@ reaches the program.
 | v / V / Ctrl+V                | Select characters / lines / a block from the cursor     |
 | y or Enter                    | Copy the selection and leave                            |
 | Esc or q                      | Leave without copying                                   |
+
+`jump_last_prompt` returns to the pane you last sent an agent prompt.
+Its default is Ctrl+Alt+U in conventional and aide, Cmd+Option+U in mac.
+Rebind it under `[keys]` or in Settings. It also appears as "Jump to last
+prompt" in the command palette. See [prompt tracking](usage.md#watching-agents).
 
 Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and

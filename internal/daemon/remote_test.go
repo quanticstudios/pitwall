@@ -203,6 +203,9 @@ func TestRemoteReply(t *testing.T) {
 	if st := reply("a", evil); st != 200 {
 		t.Fatalf("reply: %d", st)
 	}
+	if reportedPane(d, "a").LastPromptAt.IsZero() {
+		t.Fatal("phone reply did not set prompt destination")
+	}
 	want := "\x1b[200~yes[201~rm -rf ~\nand more[200~\x1b[201~\r"
 	if got := gotAfter(t, f.pane(0), 0, len(want)); got != want {
 		t.Errorf("bracketed reply %q, want %q", got, want)
@@ -218,6 +221,9 @@ func TestRemoteReply(t *testing.T) {
 		t.Errorf("plain reply %q", got)
 	}
 	// An approval takes no typing.
+	if !reportedPane(d, "b").LastPromptAt.IsZero() {
+		t.Fatal("permission status set prompt destination")
+	}
 	if st := reply("b", "hello"); st != 409 || f.pane(1).got() != "" {
 		t.Errorf("reply into an approval: %d %q", st, f.pane(1).got())
 	}

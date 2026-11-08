@@ -287,12 +287,16 @@ type Pane struct {
 	Held      bool
 	Provider  Provider // "" until a hook reports or detection sees an agent
 	SessionID string   // agent session id from hooks, used to resume
+	// LimitResume keeps the limit acted on, including cancelled or consumed resumes.
+	LimitResume *LimitResume `json:",omitempty"`
 	// ResumeCmd is the argv a self-reported agent supplies for its exact session.
 	ResumeCmd []string
 	// Prompt is the first prompt of the agent session (SessionID), first
 	// line only, whitespace collapsed and cut to 48 runes. A new session
 	// clears it; the next prompt fills it.
 	Prompt string
+	// LastPromptAt is the latest prompt submission in this daemon run.
+	LastPromptAt time.Time `json:"-"`
 	// AgentMode is the permission mode a resume starts the agent in: the
 	// mode its latest hook reported (agent.PermissionMode), except that an
 	// agent that reported bypassPermissions keeps it while the same process
@@ -354,6 +358,17 @@ func (p Program) Activity() AgentState {
 		return StateError
 	}
 	return ""
+}
+
+// LimitResume identifies one usage limit and whether its continuation still waits.
+type LimitResume struct {
+	PaneID, SessionID string
+	Provider          Provider
+	Turn, Since       time.Time
+	Resets            time.Time
+	Message           string
+	Pending           bool
+	Drafting          bool
 }
 
 // PaneHistory is the main screen and recent scrollback, with no terminal modes.

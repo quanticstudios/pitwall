@@ -44,6 +44,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 66 added Pane.LastPromptAt for jumping to the latest prompt.
+// Level 65 added Pane.LimitResume for saved usage-limit continuations.
 // Level 64 removed decision models: Activity.Advice, AdviceP, AdviceRule,
 // Urgency, Review and Stuck, State.Decide and ChatApprove.By. An older window
 // reads their zero values, which is what a daemon with decisions off sent.
@@ -183,7 +185,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 64
+const Level = 66
 
 // PopupPathLevel added OpenPopup.Path.
 const PopupPathLevel = 60
