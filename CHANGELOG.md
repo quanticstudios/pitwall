@@ -23,6 +23,7 @@ pushes the tag once, which starts the release build. Either step takes
 - A worker with a pull request open has its own card in the board's PR open column instead of folding into its orchestrator, which could sit in Done.
 - The board shows the window's session by default; Scope, All sessions shows every session's tabs.
 - A shared session's tabs sit together by machine in the sidebar's tree: this machine's first, then each host's in `[[hosts]]` order, below a line that names the machine with its latency, or "offline, retry in 7s" in red with ssh's error on hover. The row of machines under the header is gone, in the inbox too, and so is the host chip on each row and group header in the tree; a click or right-click on a host's line picks its color. The inbox, Waiting on you and the board still name a tab's host. Hover a line for a + that opens a tab on that machine without asking which. A drag stays within its machine, and Alt navigation and the tab digits follow the new order. `[appearance] host_sections = "sections"`, or Settings, Appearance, Machines, turns the lines into headers that fold their tabs away and count the tabs that need you while folded. See docs/remote.md, Shared sessions.
+- The README and site's first image and the sidebar picture show a shared session: this machine's tabs, then box's below its divider, with a box pane focused.
 
 ## v0.2.0
 
