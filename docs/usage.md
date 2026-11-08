@@ -515,6 +515,15 @@ tab**, **Close tab**, grouping, and more. The "+" in the sidebar header or on
 a group header opens a new tab right below the one you were in, in the same
 group and folder.
 
+Closing a tab or pane in the GUI asks first when its agent is working or
+waiting on you mid-turn: approval, input, or a plan ready. The dialog names
+the tab and agents. A tab with several such agents asks once. **Cancel**
+keeps the tab and panes running. Turn off **Settings > Appearance > Confirm
+close**, or set `[appearance] confirm_close = false`, to skip this check.
+Killing a detached tab keeps its two-click confirmation. CLI kills keep
+their existing behavior. Closing the window keeps the daemon and its agents
+running.
+
 The same menu pins a tab and colors it. As in a browser, pinning moves the
 tab to the top, after the tabs already pinned (inside its group when it
 has one), and unpinning puts it right after them. A pinned tab shows a pin
@@ -523,6 +532,9 @@ closing its last pane ask you to unpin it first, and `pitwall kill` and
 `pitwall tab close` refuse it. Archive on merge leaves it alone. Ending its
 whole session still closes it. The row of dots under Pin tab tints the tab
 in one of eight colors, or none.
+
+Closing a pinned tab or its last pane uses only the unpin dialog. Closing
+one pane in a pinned split uses the agent dialog when its agent is mid-turn.
 
 A tab an agent opens from its pane, with `pitwall new` or `pitwall
 worktree new`, is that agent's worker. It joins

@@ -325,6 +325,14 @@ of easing in over 80 to 200 ms. `remote_control` (default `true`) marks a
 tab under its agent's icon while Claude Code's `/remote-control` is on for
 it; off, pitwall stops reading Claude Code's session files.
 
+`confirm_close` under `[appearance]` defaults to `true`. Closing a tab or
+pane in the GUI asks first when an agent is working, awaiting approval,
+awaiting input, or has a plan ready. These states belong to an unfinished
+turn. The dialog names the tab and agents and asks once for the whole close.
+Set `confirm_close = false`, or turn off **Settings > Appearance > Confirm
+close**, to skip this check. Pinned tabs still ask to unpin first, with no
+second dialog. CLI kills keep their existing behavior.
+
 The muted text color of every built-in theme reads at 4.5:1 or better on
 its backgrounds. Status chips darken or lighten their text until it does,
 so a custom theme's chips stay readable too.

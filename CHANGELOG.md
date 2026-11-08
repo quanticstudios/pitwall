@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Ask before a GUI close stops an agent working or waiting on you mid-turn, including chats and popup agents. The dialog names the tab and agents and asks once, including for several panes. Closing a pinned tab or its last pane uses only the unpin dialog. Closing one pane in a pinned split uses the agent dialog when its agent is mid-turn. Killing a detached tab keeps its two-click confirmation. Turn the check off with `[appearance] confirm_close = false` or Settings, Appearance, Confirm close.
 - Jump to the pane you last sent an agent prompt with Ctrl+Alt+U, or Cmd+Option+U on macOS, across tabs and sessions, including open popups. Only your own prompts count; messages from other panes and automatic messages keep the destination. Rebind `jump_last_prompt` in Settings. Prompt times stay in memory until the daemon restarts.
 - Pane usage-limit auto-resumes keep their saved schedule across daemon restarts and saved shutdowns for the same stopped agent session, including overdue resets. Restored resumes cancel with a visible error after two minutes without a ready agent. Cancelled and consumed limits do not repeat; interrupted working turns get the normal restart message. A crash before typing can still require a manual continue. Chat resumes remain in memory and do not depend on saving pane state.
 - Keep the pane's agent status and resume session when it runs another agent during a turn.

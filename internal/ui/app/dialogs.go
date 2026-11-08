@@ -47,6 +47,7 @@ const (
 	modalUndoTurn // putting back the files of the review view's turn
 	modalPinned   // closing a pinned tab, see pinned.go
 	modalRestart  // restarting a daemon older than the window, see restart.go
+	modalClose    // closing an agent mid-turn, see close.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -55,10 +56,11 @@ type modal struct {
 	kind         modalKind
 	ws           string // the workspace a delete or merge dialog is about
 	removeBranch bool
-	archive      bool // the delete dialog archives a tab whose PR merged
-	armed        bool // the merge dialog was confirmed once with checks failing
-	then         any  // what the pinned dialog sends once the tab is unpinned
-	focus        bool // move key focus into the dialog this frame
+	archive      bool     // the delete dialog archives a tab whose PR merged
+	armed        bool     // the merge dialog was confirmed once with checks failing
+	then         any      // the close request to send after confirmation
+	agents       []string // agents whose turns the close stops
+	focus        bool     // move key focus into the dialog this frame
 
 	check, cancel, ok widget.Clickable
 	path              widget.Editor
@@ -92,7 +94,7 @@ func (m *modal) close() { m.kind = modalNone }
 func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 	m := &u.modal
 	ws := findWorkspace(st, m.ws)
-	if (m.kind == modalDelete || m.kind == modalMerge || m.kind == modalPinned) && ws == nil {
+	if (m.kind == modalDelete || m.kind == modalMerge || m.kind == modalPinned || m.kind == modalClose) && ws == nil {
 		m.close() // deleted elsewhere
 	}
 	if m.kind == modalNone {
@@ -221,6 +223,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = u.undoTurnBody
 	case modalPinned:
 		content = func(gtx gl.Context) gl.Dimensions { return u.pinnedBody(gtx, ws) }
+	case modalClose:
+		content = func(gtx gl.Context) gl.Dimensions { return u.closeBody(gtx, ws) }
 	case modalRestart:
 		content = u.restartBody
 	}
@@ -296,6 +300,9 @@ func (u *ui) confirmModal(st *model.State) {
 		m.close()
 	case modalPinned:
 		u.confirmPinned(st)
+	case modalClose:
+		u.send(m.then)
+		m.close()
 	case modalRestart:
 		u.confirmRestart()
 	}
