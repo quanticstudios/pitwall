@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"image"
+	"strconv"
 	"time"
 
 	"gioui.org/layout"
@@ -46,8 +47,13 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) la
 			return hostTag(gtx, th, s.Host)
 		}})
 	}
+	for s.boardBt.Clicked(gtx) {
+		s.events = append(s.events, ToggleBoard{})
+	}
 	hrow(gtx, h-1, gtx.Dp(6), append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 		return s.viewButton(gtx, th)
+	}}, item{w: func(gtx layout.Context) layout.Dimensions {
+		return s.boardButton(gtx, th)
 	}}, item{w: func(gtx layout.Context) layout.Dimensions {
 		return iconButton(gtx, th, &s.newTab, icPlus, gtx.Dp(28), gtx.Dp(16), true)
 	}})...)
@@ -130,3 +136,49 @@ func (s *Sidebar) viewButton(gtx layout.Context, th *theme.Theme) layout.Dimensi
 		})
 	})
 }
+
+// boardButton opens and closes the board: a board glyph, primary on a
+// tinted fill while the board shows, with the count of cards that wait on
+// the user in a badge.
+func (s *Sidebar) boardButton(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	size := gtx.Dp(28)
+	gtx.Constraints = layout.Exact(image.Pt(size, size))
+	return clickable(gtx, &s.boardBt, func(gtx layout.Context) layout.Dimensions {
+		rr := clip.UniformRRect(image.Rect(0, 0, size, size), gtx.Dp(6))
+		col := th.Muted
+		switch {
+		case s.BoardOn:
+			fill := theme.Mix(th.Sidebar, th.Primary, 0.14)
+			if s.boardBt.Hovered() {
+				fill = theme.Mix(th.Sidebar, th.Primary, 0.22)
+			}
+			paint.FillShape(gtx.Ops, fill, rr.Op(gtx.Ops))
+			col = th.Primary
+		case s.boardBt.Hovered():
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
+			col = th.Fg
+		}
+		d := drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions {
+			return drawIcon(gtx, icBoard, gtx.Dp(16), col, 0)
+		})
+		if s.NeedYou > 0 {
+			bg, fg := th.Yellow, th.Bg
+			n := strconv.Itoa(s.NeedYou)
+			m := op.Record(gtx.Ops)
+			ld := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption)*0.85, th.Readable(fg, bg), n)
+			call := m.Stop()
+			bh := gtx.Dp(14)
+			bw := max(bh, ld.Size.X+gtx.Dp(6))
+			at := image.Pt(size-bw+gtx.Dp(3), -gtx.Dp(3))
+			paint.FillShape(gtx.Ops, th.Sidebar, clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}.Inset(-gtx.Dp(1)), bh/2+gtx.Dp(1)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}, bh/2).Op(gtx.Ops))
+			o := op.Offset(at.Add(image.Pt((bw-ld.Size.X)/2, (bh-ld.Size.Y)/2))).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			o.Pop()
+		}
+		return d
+	})
+}
+
+// icBoard is lucide square-kanban.
+const icBoard = "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 7v7M12 7v4M16 7v9"
