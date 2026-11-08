@@ -112,3 +112,20 @@ func TestAgentReport(t *testing.T) {
 		}
 	}
 }
+
+// A sub-row drops a chip that would only repeat its pill's state word: an
+// agent's own update has no name, and none without progress says more.
+func TestStateOnly(t *testing.T) {
+	for _, c := range []struct {
+		p    model.Program
+		want bool
+	}{
+		{model.Program{State: "working", Progress: -1, Message: "Key judge cache"}, true},
+		{model.Program{State: "working", Progress: 40}, false},
+		{model.Program{App: "make", State: "working", Progress: -1}, false},
+	} {
+		if got := stateOnly(c.p); got != c.want {
+			t.Errorf("%+v: %v, want %v", c.p, got, c.want)
+		}
+	}
+}

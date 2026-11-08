@@ -366,6 +366,9 @@ func (s *Sidebar) subRowAt(gtx layout.Context, v *view, tab string, e subEntry, 
 		if e.worker != nil {
 			prog = v.program[e.worker.ID]
 		}
+		if prog != nil && stateOnly(*prog) {
+			prog = nil // the pill beside it already says the state
+		}
 		if prog != nil {
 			// A build the agent runs: its name and progress, before the agent's pill.
 			items = append(items, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
