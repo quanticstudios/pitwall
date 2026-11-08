@@ -65,6 +65,16 @@ func (lw *limitWatch) shown() string {
 	return lw.notice
 }
 
+// dismiss drops notice when it is the one shown, so a later notice, such
+// as a refusal, is not hidden behind it. Its window does not notify again.
+func (lw *limitWatch) dismiss(notice string) {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+	if lw.notice == notice {
+		lw.notice = ""
+	}
+}
+
 // set takes a read's limits: a window at limitNoticeAt or more that had
 // no notice gets one, and the notice goes once its window resets.
 func (lw *limitWatch) set(limits []flow.Limit, now time.Time) {

@@ -223,28 +223,36 @@ func TestSharedRowFavicon(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(local, "favicon.png"), pngOf(t, 16, red), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	asked := map[string]string{}
-	s := Sidebar{
-		HostOf: func(id string) string {
-			if id == "rw" {
-				return "box"
-			}
-			return ""
-		},
-		RepoIcons: func(host, dir string) (proto.FaviconResult, bool) {
-			asked[dir] = host
-			return proto.FaviconResult{Dir: dir, Root: "/srv/api", Files: []proto.FaviconFile{{Name: "/srv/api/favicon.png", Data: pngOf(t, 16, red)}}}, true
-		},
+	of := func(id string) string {
+		if id == "rw" {
+			return "box"
+		}
+		return ""
 	}
-	v := &view{th: theme.Dark(), st: &model.State{}}
-	if f := s.tabFavicon(v, model.Workspace{ID: "rw", Path: "/srv/api"}); f == nil || f.src == nil {
-		t.Fatalf("box's row: %+v", f)
-	}
-	if f := s.tabFavicon(v, model.Workspace{ID: "lw", Path: local}); f == nil || f.src == nil {
-		t.Fatalf("this machine's row: %+v", f)
-	}
-	if len(asked) != 1 || asked["/srv/api"] != "box" {
-		t.Fatalf("asked %v, want box about its repo alone", asked)
+	// A session preview's sidebar has IconHostOf in place of HostOf.
+	for _, preview := range []bool{false, true} {
+		asked := map[string]string{}
+		s := Sidebar{
+			RepoIcons: func(host, dir string) (proto.FaviconResult, bool) {
+				asked[dir] = host
+				return proto.FaviconResult{Dir: dir, Root: "/srv/api", Files: []proto.FaviconFile{{Name: "/srv/api/favicon.png", Data: pngOf(t, 16, red)}}}, true
+			},
+		}
+		if preview {
+			s.IconHostOf = of
+		} else {
+			s.HostOf = of
+		}
+		v := &view{th: theme.Dark(), st: &model.State{}}
+		if f := s.tabFavicon(v, model.Workspace{ID: "rw", Path: "/srv/api"}); f == nil || f.src == nil {
+			t.Fatalf("preview %v, box's row: %+v", preview, f)
+		}
+		if f := s.tabFavicon(v, model.Workspace{ID: "lw", Path: local}); f == nil || f.src == nil {
+			t.Fatalf("preview %v, this machine's row: %+v", preview, f)
+		}
+		if len(asked) != 1 || asked["/srv/api"] != "box" {
+			t.Fatalf("preview %v: asked %v, want box about its repo alone", preview, asked)
+		}
 	}
 }
 

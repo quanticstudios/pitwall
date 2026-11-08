@@ -80,6 +80,10 @@ type Sidebar struct {
 	// this machine; nil when every tab is on one machine. Rows and group
 	// headers of another host show its chip.
 	HostOf func(id string) string
+	// IconHostOf, when HostOf is nil, is the host of a tab or group id for
+	// RepoIcons alone: a session preview's rows show no chips but take
+	// their icons from their own host.
+	IconHostOf func(id string) string
 	// TabNumber is a tab's number on its host ("box:3"), for a hover card;
 	// nil for none.
 	TabNumber func(id string) string

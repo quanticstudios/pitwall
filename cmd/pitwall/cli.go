@@ -227,11 +227,15 @@ func newOnHost(local *cliConn, session *model.Session, host string, tab proto.Ne
 		if hs, err = syncCLI(hc, tab); err != nil {
 			return "", err
 		}
-		id = ""
+		var made []string
 		for _, w := range hs.Workspaces {
 			if w.SessionID == partID && !slices.ContainsFunc(before.Workspaces, func(o model.Workspace) bool { return o.ID == w.ID }) {
-				id = w.ID
+				made = append(made, w.ID)
 			}
+		}
+		id = ""
+		if len(made) == 1 { // more when another client opened one there meanwhile
+			id = made[0]
 		}
 		if shell != "" { // the asked-for tab replaces it
 			if hs, err = syncCLI(hc, proto.CloseTab{WorkspaceID: shell}); err != nil {
@@ -243,6 +247,9 @@ func newOnHost(local *cliConn, session *model.Session, host string, tab proto.Ne
 		if _, err := syncCLI(local, proto.SessionLink{SessionID: session.ID, Host: host, Remote: partID}); err != nil {
 			return "", err
 		}
+	}
+	if id == "" && detached {
+		return "", errors.New("cannot identify the new tab on " + host + ", so it is not detached")
 	}
 	if id == "" {
 		return "", errors.New("cannot identify the new tab on " + host)

@@ -114,6 +114,7 @@ func (u *ui) drawStateNotice(gtx gl.Context, text string) {
 		if text == u.sends.err {
 			u.sends.err = ""
 		}
+		u.limits.dismiss(text)
 		u.send(proto.DismissNotice{Notice: text})
 		return
 	}

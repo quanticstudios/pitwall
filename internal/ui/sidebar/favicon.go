@@ -332,8 +332,15 @@ func (s *Sidebar) repoRoot(id, dir string) (root string, ok bool) {
 // "" for the window's, and whether to ask it rather than read this
 // machine's disk.
 func (s *Sidebar) iconHost(id string) (host string, remote bool) {
-	host = s.hostOf(id)
-	return host, s.RepoIcons != nil && (host != "" || s.HostOf == nil)
+	of := s.HostOf
+	if of == nil {
+		of = s.IconHostOf
+	}
+	if of == nil {
+		return "", s.RepoIcons != nil
+	}
+	host = of(id)
+	return host, s.RepoIcons != nil && host != ""
 }
 
 // groupFavicon is the icon of groupRoot's repo, or its letter tile,

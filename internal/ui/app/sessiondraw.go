@@ -514,8 +514,12 @@ func (u *ui) preview(gtx gl.Context, st *model.State, rect image.Rectangle) {
 	}
 	sb := d.previews[s.sel]
 	if sb == nil {
-		sb = &sidebar.Sidebar{ExpandAll: true, TreeOnly: true, RepoIcons: u.repoIcons()}
+		sb = &sidebar.Sidebar{ExpandAll: true, TreeOnly: true}
 		d.previews[s.sel] = sb
+	}
+	sb.RepoIcons, sb.IconHostOf = u.repoIcons(), nil // each row's host, without chips
+	if len(u.hosts) > 1 {
+		sb.IconHostOf = u.hostOf
 	}
 	active := u.nav.lastWS[s.sel]
 	if s.sel == u.nav.session {
