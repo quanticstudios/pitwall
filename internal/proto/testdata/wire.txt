@@ -1,10 +1,10 @@
-18.66
+18.67
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
 image.Rectangle{Min image.Point; Max image.Point}
 layout.Node{Pane string; Dir layout.Dir; Ratios []float64; Children []*layout.Node}
-model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; UpdatedAt time.Time; Unseen bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time; Options []string; OptionNotes []string; Buttons []string; Menu bool}
+model.Activity{PaneID string; WorkspaceID string; Provider model.Provider; SessionID string; State model.AgentState; Detail string; Command string; UpdatedAt time.Time; Unseen bool; Resumes time.Time; AutoContinues bool; QuietSince time.Time; Options []string; OptionNotes []string; Buttons []string; Menu bool}
 model.BranchStats{Additions int; Deletions int; MergeStatus model.MergeStatus; Ahead int; Behind int; Base string; Compare string}
 model.Chat{ID string; WorkspaceID string; Provider model.Provider; Model string; Effort string; Mode string; Title string; RecentPrompt string; Pinned bool; State string; Pending int; Queued int; Turns int; Seq int64; UpdatedAt time.Time}
 model.Check{Name string; State model.CheckState}
