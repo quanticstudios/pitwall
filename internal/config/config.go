@@ -44,7 +44,7 @@ type Config struct {
 	Popups    []Popup     `toml:"popups" doc:"Commands that open in a popup over the tab, each a [[popups]] table with name, key and command, such as lazygit on a key. See docs/usage.md, Popups."`
 	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name, ssh and window. A name not listed here goes to ssh as it is."`
 	// HostColors is each host's color in a shared session, by [[hosts]] name.
-	HostColors map[string]string `toml:"host_colors" doc:"Each host's color in a shared session, by its [[hosts]] name: box = \"teal\". The colors are the tab colors. Unset hosts take one in turn. See docs/remote.md."`
+	HostColors map[string]string `toml:"host_colors" doc:"Each host's color in a shared session, a tab color such as \"teal\", keyed by its [[hosts]] name. A host with none takes one in turn. See docs/remote.md."`
 
 	Profiles map[string]Profile `toml:"profiles" doc:"Named Claude Code and Codex accounts. See docs/config.md."`
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
@@ -79,9 +82,11 @@ func (u *ui) remoteTag(gtx gl.Context, st *model.State, p *paneUI, id, host stri
 	o = op.Offset(image.Pt(at.X+padX+is+gap, at.Y+(h-ts.Y)/2)).Push(gtx.Ops)
 	txt.Add(gtx.Ops)
 	o.Pop()
-	hov := clip.Rect(r).Push(gtx.Ops)
-	p.tag.Layout(gtx, func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{Size: r.Size()} })
-	hov.Pop()
+	o = op.Offset(r.Min).Push(gtx.Ops)
+	tg := gtx
+	tg.Constraints = gl.Exact(r.Size())
+	p.tag.Layout(tg, func(gtx gl.Context) gl.Dimensions { return gl.Dimensions{Size: r.Size()} })
+	o.Pop()
 	if p.tag.Hovered() {
 		u.tagTip(gtx, st, id, host, image.Pt(r.Max.X, r.Max.Y+gtx.Dp(6)), down)
 	}
@@ -95,7 +100,7 @@ func tagRows(h sidebar.HostInfo, folder string, down bool, now time.Time) [][2]s
 	if !down {
 		lat := "measuring"
 		if h.Latency > 0 {
-			lat = fmt.Sprintf("%d ms", h.Latency.Milliseconds())
+			lat = sidebar.Latency(h.Latency)
 		}
 		return append(rows, [2]string{"folder", folder}, [2]string{"latency", lat})
 	}
@@ -280,3 +285,23 @@ func (u *ui) pasteBody(gtx gl.Context) gl.Dimensions {
 		}),
 	)
 }
+
+// setHostColor keeps host's color in config.toml's [host_colors], which
+// the window reads as the file changes.
+func (u *ui) setHostColor(host, color string) {
+	if u.cfg.Path == "" || !bareKey.MatchString(host) {
+		return // ponytail: a host name that is not a bare TOML key keeps its palette color
+	}
+	var err error
+	if color == "" {
+		err = config.RemoveKey(u.cfg.Path, "host_colors", host)
+	} else {
+		err = config.SetKey(u.cfg.Path, "host_colors", host, config.Quote(color))
+	}
+	if err != nil {
+		log.Printf("host color: %q", err)
+	}
+}
+
+// bareKey matches the names TOML takes as keys without quotes.
+var bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)

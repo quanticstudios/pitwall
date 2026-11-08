@@ -161,6 +161,10 @@ type Sidebar struct {
 	repoIcon   widget.Clickable     // the picker's tile for the repo's icon
 	colorBtn   [len(projectColorIDs)]widget.Clickable
 	tabColor   [len(tabColorIDs)]widget.Clickable
+	// hostColor is the host whose color row shows under the host row, ""
+	// for none, and hostSwatch that row's swatches.
+	hostColor  string
+	hostSwatch [len(tabColorIDs)]widget.Clickable
 	popover    int // tag that keeps clicks on a popover's body from closing it
 
 	renaming      string // tab whose name is being edited

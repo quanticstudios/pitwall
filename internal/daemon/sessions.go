@@ -56,6 +56,9 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	if path == "" {
 		path = home
 	}
+	if rest, ok := strings.CutPrefix(path, "~/"); ok || path == "~" {
+		path = filepath.Join(home, rest) // pitwall new --host box '~/src', home on box
+	}
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err

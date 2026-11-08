@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -17,6 +18,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -152,7 +154,10 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 		}
 	}
 	blocked, head := s.waiting(st, sessionOf)
-	if s.HideSessions && len(blocked) == 0 {
+	// The row of machines shows in a shared session: one with a tab on
+	// another host.
+	shared := slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.session && s.hostOf(w.ID) != "" })
+	if s.HideSessions && len(blocked) == 0 && !shared {
 		s.preview = sessionPreview{}
 		return layout.Dimensions{}
 	}
@@ -238,9 +243,13 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			})
 		})
 	}
-	y += gtx.Dp(2)
-	y += s.hostPills(gtx, th, image.Pt(gtx.Dp(16), y), w-gtx.Dp(28), btn)
-	y += gtx.Dp(4)
+	if shared {
+		y += gtx.Dp(2)
+		y += s.hostPills(gtx, th, image.Pt(gtx.Dp(16), y), w-gtx.Dp(28), btn)
+		y += gtx.Dp(4)
+	} else {
+		y += gtx.Dp(6)
+	}
 	over := ""
 	if !s.HideSessions {
 		for _, h := range s.Hosts {
@@ -404,7 +413,7 @@ func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point,
 	h, gap := gtx.Dp(22), gtx.Dp(6)
 	x, y := 0, 0
 	var tip string
-	var tipAt image.Point
+	var tipAt, swatchAt image.Point
 	for _, hi := range s.Hosts {
 		name, note, icon := hostName(hi.Name), "this machine", "monitor"
 		nameC, noteC, ring, fill := th.Fg, th.Muted, th.BorderStrong, color.NRGBA{}
@@ -412,7 +421,7 @@ func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point,
 			icon, nameC = "server", th.Readable(HostColor(th, s.Hosts, hi.Name), th.Sidebar)
 			note = "connecting"
 			if hi.Latency > 0 {
-				note = strconv.FormatInt(hi.Latency.Milliseconds(), 10) + " ms"
+				note = Latency(hi.Latency)
 			}
 		}
 		if !hi.Up && hi.Name != "" {
@@ -454,6 +463,17 @@ func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point,
 		tc.Add(gtx.Ops)
 		o.Pop()
 		b := btn("h:" + hi.Name)
+		for b.Clicked(gtx) && hi.Name != "" {
+			if s.hostColor == hi.Name {
+				s.hostColor = ""
+			} else {
+				s.hostColor = hi.Name
+			}
+		}
+		if s.hostColor == hi.Name {
+			swatchAt = image.Pt(at.X, r.Max.Y+gtx.Dp(4))
+			pointer.CursorPointer.Add(gtx.Ops)
+		}
 		o = op.Offset(r.Min).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = layout.Exact(r.Size())
@@ -467,6 +487,27 @@ func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point,
 			tipAt = image.Pt(r.Min.X, r.Max.Y+gtx.Dp(4))
 		}
 		x += pw + gap
+	}
+	if s.hostColor != "" && swatchAt != (image.Point{}) {
+		for i, id := range tabColorIDs {
+			for s.hostSwatch[i].Clicked(gtx) {
+				s.events = append(s.events, SetHostColor{Host: s.hostColor, Color: id})
+				s.hostColor = ""
+			}
+		}
+	}
+	if s.hostColor != "" && swatchAt != (image.Point{}) {
+		cur := ""
+		if hi, ok := FindHost(s.Hosts, s.hostColor); ok {
+			cur = hi.Color
+		}
+		size := image.Pt(w, gtx.Dp(32))
+		m := op.Record(gtx.Ops)
+		box := image.Rectangle{Min: swatchAt, Max: swatchAt.Add(size)}
+		kit.Surface(gtx, box, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceSecondary)
+		s.swatches(gtx, th, swatchAt, size, cur, &s.hostSwatch)
+		op.Defer(gtx.Ops, m.Stop())
+		tip = "" // the row covers where the tip would be
 	}
 	if tip != "" {
 		m := op.Record(gtx.Ops)
@@ -490,4 +531,12 @@ func (s *Sidebar) tabNumber(id string) string {
 		return ""
 	}
 	return s.TabNumber(id)
+}
+
+// Latency is a round trip as the host row shows it: "38 ms", "<1 ms".
+func Latency(d time.Duration) string {
+	if d < time.Millisecond {
+		return "<1 ms"
+	}
+	return strconv.FormatInt(d.Milliseconds(), 10) + " ms"
 }

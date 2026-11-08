@@ -114,8 +114,10 @@ func (d *Daemon) sessionKill(m proto.SessionKill) error {
 			closing = append(closing, d.removeWorkspace(w.ID)...)
 		}
 	}
-	d.st.Session(m.SessionID).Remotes = nil // a window kills the other hosts' parts
-	d.endSession(m.SessionID)               // one with only empty groups had no tab to end it
+	if s := d.st.Session(m.SessionID); s != nil {
+		s.Remotes = nil // a window kills the other hosts' parts
+	}
+	d.endSession(m.SessionID) // one with only empty groups had no tab to end it
 	d.changed()
 	log.Printf("session %s: killed; closing %d panes; %d windows showed it", m.SessionID, len(closing), d.windowsOn(m.SessionID))
 	d.mu.Unlock()

@@ -51,6 +51,10 @@ func TestMain(m *testing.M) {
 			}
 			os.Exit(0)
 		}
+		// For screenshots of the real window at a given size, in dp.
+		if size := os.Getenv("PITWALL_TEST_SIZE"); size != "" {
+			fmt.Sscanf(size, "%dx%d", &app.WindowSize.X, &app.WindowSize.Y)
+		}
 		main()
 		os.Exit(0)
 	}

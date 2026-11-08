@@ -600,7 +600,7 @@ func runGUI(session string) error {
 	b.name, b.redial = session, guiDial
 	var ab app.Backend = b
 	if s, _ := config.Load(); app.Host == "" {
-		if hosts, closeHosts := windowHosts(s.Hosts, s.HostColors); len(hosts) > 0 {
+		if hosts, closeHosts := windowHosts(s.Hosts); len(hosts) > 0 {
 			defer closeHosts()
 			ab = newMulti(b, hosts)
 		}

@@ -569,6 +569,9 @@ func (u *ui) layout(gtx gl.Context) {
 	u.hosts = nil
 	if h, ok := u.b.(Hoster); ok {
 		u.hosts = h.Hosts()
+		for i := range u.hosts {
+			u.hosts[i].Color = u.cfg.HostColors[u.hosts[i].Name]
+		}
 	}
 	u.noteFocus(gtx.Now)
 	if u.nav.rows == nil {
@@ -783,7 +786,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.picker.at = image.Pt(edge-sw-1+sw-gtx.Dp(44), gtx.Dp(50)) // under the header's +
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
-		u.sidebar.Update, u.sidebar.Host, u.sidebar.RepoIcons = u.updateLabel(), curHost(), u.repoIcons()
+		u.sidebar.Update, u.sidebar.Host, u.sidebar.RepoIcons = u.updateLabel(), u.sessionHost(u.nav.session), u.repoIcons() // the session's host: a shared session's is this machine
 		u.sidebar.Hosts, u.sidebar.HostOf, u.sidebar.TabNumber = u.hosts, nil, nil
 		if len(u.hosts) > 1 {
 			u.sidebar.HostOf = u.hostOf
@@ -959,6 +962,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		} else {
 			u.nav.pip = u.nav.focusIn(st, e.WorkspaceID)
 		}
+	case sidebar.SetHostColor:
+		u.setHostColor(e.Host, e.Color)
 	case sidebar.SetTabOptions:
 		u.send(proto.SetTabOptions{WorkspaceID: e.WorkspaceID, Pinned: e.Pinned, Color: e.Color})
 	case sidebar.SetInbox:

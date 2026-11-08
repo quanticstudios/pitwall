@@ -229,3 +229,17 @@ func state(d *Daemon) *model.State {
 	st := d.state()
 	return &st
 }
+
+// A tab's folder may start with ~/, the home folder of the daemon's
+// machine: pitwall new --host box '~/src' means box's.
+func TestNewTabHomeFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mkdir(t, home+"/src")
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	must(t, d.handle(context.Background(), proto.NewSession{Cwd: "~/src"}))
+	if st := d.state(); len(st.Workspaces) != 1 || st.Workspaces[0].Path != home+"/src" {
+		t.Fatalf("workspaces %+v", st.Workspaces)
+	}
+}

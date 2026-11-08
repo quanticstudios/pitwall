@@ -265,6 +265,8 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case SessionLink, SessionOrder:
+		return SharedLevel
 	case Press:
 		return 61
 	case Deliver:

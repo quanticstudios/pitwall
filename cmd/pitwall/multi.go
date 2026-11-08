@@ -69,10 +69,9 @@ type asked struct {
 
 // hostLink is one daemon of a multi.
 type hostLink struct {
-	name  string // "" for this machine
-	ssh   string // the ssh destination, "" for this machine
-	color string // its color in a shared session, "" for the palette's turn
-	b     *backend
+	name string // "" for this machine
+	ssh  string // the ssh destination, "" for this machine
+	b    *backend
 }
 
 var (
@@ -94,14 +93,14 @@ var (
 
 // hostDial is one host of a multi and how to reach its daemon.
 type hostDial struct {
-	name, ssh, color string
-	dial             func(session string, restart bool) (*proto.Conn, proto.StateMsg, error)
+	name, ssh string
+	dial      func(session string, restart bool) (*proto.Conn, proto.StateMsg, error)
 }
 
 // windowHosts are the [[hosts]] entries a plain window shows next to this
 // machine, and a func that drops their forwards. None on Windows, whose
 // ssh cannot share a connection.
-func windowHosts(hosts []config.Host, colors map[string]string) ([]hostDial, func()) {
+func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 	var out []hostDial
 	var close []func()
 	for _, h := range hosts {
@@ -109,7 +108,7 @@ func windowHosts(hosts []config.Host, colors map[string]string) ([]hostDial, fun
 			continue
 		}
 		r, err := newSSHHost(h.Name, hosts)
-		d := hostDial{name: h.Name, ssh: cmp.Or(h.SSH, h.Name), color: colors[h.Name]}
+		d := hostDial{name: h.Name, ssh: cmp.Or(h.SSH, h.Name)}
 		if err != nil {
 			d.dial = func(string, bool) (*proto.Conn, proto.StateMsg, error) { return nil, proto.StateMsg{}, err }
 		} else {
@@ -149,7 +148,7 @@ func newMulti(local *backend, remotes []hostDial) *multi {
 		}
 		b.redial = r.dial
 		b.link.Note = "Connecting…"
-		m.hosts = append(m.hosts, &hostLink{name: r.name, ssh: r.ssh, color: r.color, b: b})
+		m.hosts = append(m.hosts, &hostLink{name: r.name, ssh: r.ssh, b: b})
 	}
 	m.cur = m.hosts[0]
 	m.merge()
@@ -702,14 +701,14 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 		tab.SessionID = x.ID
 		return h.b.Send(tab)
 	}
+	if len(tab.Cmd) > 0 || tab.GroupID != "" {
+		// ponytail: SessionNew opens a shell, so a command waits for a tab
+		// there; the CLI, which sends commands, makes the part itself.
+		return errors.New("open a tab on " + h.name + " first, then run the command there")
+	}
 	m.mu.Lock()
 	m.pending[[2]string{h.name, ss.ID}] = ss.Name
 	m.mu.Unlock()
-	if len(tab.Cmd) > 0 || tab.GroupID != "" {
-		// SessionNew opens a shell; the tab follows once the part joins.
-		// ponytail: only the CLI sends a command, and it makes the part itself.
-		return errors.New("open a tab on " + h.name + " first, then run the command there")
-	}
 	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
 }
 
@@ -857,7 +856,7 @@ func (m *multi) Hosts() []sidebar.HostInfo {
 	m.mu.Unlock()
 	for _, h := range m.hosts {
 		l := h.b.Link()
-		hi := sidebar.HostInfo{Name: h.name, Up: up(h), Note: l.Note, SSH: h.ssh, Latency: l.RTT, Retry: l.Retry, Since: l.Since, Color: h.color}
+		hi := sidebar.HostInfo{Name: h.name, Up: up(h), Note: l.Note, SSH: h.ssh, Latency: l.RTT, Retry: l.Retry, Since: l.Since}
 		switch l.State {
 		case app.LinkRestart, app.LinkStale:
 			hi.Note = "Runs another pitwall version; open it with pitwall --host " + h.name + " to restart it."

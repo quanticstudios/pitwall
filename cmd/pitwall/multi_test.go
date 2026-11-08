@@ -251,7 +251,7 @@ func TestMultiClipboardFollowsWriter(t *testing.T) {
 
 func TestWindowHosts(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	hosts, closeAll := windowHosts([]config.Host{{Name: "box", Window: true}, {Name: "gpu"}, {Name: "web", SSH: "me@web", Window: true}}, nil)
+	hosts, closeAll := windowHosts([]config.Host{{Name: "box", Window: true}, {Name: "gpu"}, {Name: "web", SSH: "me@web", Window: true}})
 	defer closeAll()
 	if runtime.GOOS == "windows" { // its ssh cannot share a connection
 		if len(hosts) != 0 {

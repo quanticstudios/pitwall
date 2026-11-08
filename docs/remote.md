@@ -94,9 +94,61 @@ box` once to restart it there.
 
 Every action goes to the daemon that owns the tab, pane or session it
 names. A new session or tab opens on the host of the session the window
-shows. `pitwall --host box` still opens a window on that host alone, and
+shows, or in a [shared session](#shared-sessions) on the machine you pick. `pitwall --host box` still opens a window on that host alone, and
 `pitwall ls`, `new` and the other commands still talk to the daemon of the
 machine they run on.
+
+### Shared sessions
+
+A session can hold tabs from this machine and from the hosts with
+`window = true` at once, so a tab on box is one click away and never in
+another session. The sidebar's + asks which machine the new tab opens on:
+this machine and each host, with the current tab's machine picked, a
+latency beside each host and a down host greyed out with why. Ctrl+Shift+T
+opens on the current tab's machine without asking, a group's + opens in
+that group's folder on its machine, and from a shell:
+
+```sh
+pitwall new --host box                    # a shell in box's home folder
+pitwall new --host box '~/evals' -- codex # quote ~ so it means box's home
+```
+
+Each tab and its splits stay on one machine, and a group holds tabs of one
+machine: a project checked out here and on box is two groups, the one on
+box with a box chip on its header. Rows of tabs on another host have a
+chip with the host's name; this machine's have none. A row of machines
+under the sidebar header says how each one is: its latency, or "offline,
+retry in 7s" with ssh's error on hover. Click a host there to give it one
+of the tab colors, which goes to `[host_colors]` in config.toml; until
+then hosts take colors in turn.
+
+A pane on another host has a tag with the host's name hanging from its top
+border, and a ring in the host's color when it has focus. Hover the tag
+for the ssh destination, the pane's folder and the latency. The tag needs
+a row and a half more room above the terminal, so a remote pane is that
+much shorter; this machine's panes look as they always did. The window
+title names the host of the focused pane, and a tab's hover card gives
+its number on its host, such as `tab box:3`: each host numbers its own
+tabs, as `pitwall ls` there does. A paste of several lines into a pane
+on another host, within 15 seconds of focus moving there from a pane on
+another machine, asks first.
+
+When a host goes down its tabs stay where they are with their last
+screen, dimmed, and its tag and ring turn red. Typing into them is off,
+never queued: the focused pane says "Typing is off until box reconnects.
+Screen from 14:02." with Retry now. Allow and Deny leave their rows,
+which say "Answer when box is back". This machine's tabs carry on as
+before. You can close a down host's tab: the window forgets it at once,
+and the next window to reach the host closes it there.
+
+This machine keeps the shared session: its name, the order of its tabs
+and groups across machines, and for each host the session there that
+holds its tabs. That session is an ordinary one on the host, named after
+the shared one, so `pitwall --host box`, the phone page and `pitwall ls`
+on box show those tabs as a session of their own. A session on another
+host becomes shared when you open a tab on this machine from it. A window
+must list the host in `[[hosts]]` with `window = true` to show its part.
+Renaming the shared session renames each part; killing it kills them.
 
 ### Keep the daemon running across reboots
 

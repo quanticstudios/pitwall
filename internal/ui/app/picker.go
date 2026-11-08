@@ -61,7 +61,7 @@ func pickItems(hosts []sidebar.HostInfo, now time.Time) []pickItem {
 		default:
 			it.sub = "~ on " + h.SSH
 			if h.Latency > 0 {
-				it.right = strconv.FormatInt(h.Latency.Milliseconds(), 10) + " ms"
+				it.right = sidebar.Latency(h.Latency)
 			}
 		}
 		out = append(out, it)

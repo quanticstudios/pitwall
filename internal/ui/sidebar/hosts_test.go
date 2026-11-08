@@ -310,3 +310,16 @@ func TestHostListSessionsHidden(t *testing.T) {
 		})
 	}
 }
+
+// A host takes its own color, else the palette's in turn; this machine
+// has none.
+func TestHostColor(t *testing.T) {
+	th := theme.Dark()
+	hosts := []HostInfo{{}, {Name: "box"}, {Name: "gpu", Color: "rose"}, {Name: "web"}}
+	if HostColor(th, hosts, "box") != th.ProjectColor("teal") || HostColor(th, hosts, "web") != th.ProjectColor("orange") {
+		t.Fatal("palette colors")
+	}
+	if HostColor(th, hosts, "gpu") != th.ProjectColor("rose") || HostColor(th, hosts, "") != th.Primary {
+		t.Fatal("own color, or this machine's")
+	}
+}
