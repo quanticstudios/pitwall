@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"golang.org/x/sys/unix"
+	"net"
+	"syscall"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -57,4 +59,28 @@ func readComm(pid int) string {
 		return ""
 	}
 	return unix.ByteSliceToString(kp.Proc.P_comm[:])
+}
+
+// procParent is pid's parent and process group, or 0s.
+func procParent(pid int) (ppid, pgid int) {
+	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil {
+		return 0, 0
+	}
+	return int(kp.Eproc.Ppid), int(kp.Eproc.Pgid)
+}
+
+// peerPID is the pid of the process on the other end of a unix socket, or 0.
+func peerPID(nc net.Conn) int {
+	pid := 0
+	if sc, ok := nc.(syscall.Conn); ok {
+		if raw, err := sc.SyscallConn(); err == nil {
+			raw.Control(func(fd uintptr) {
+				if v, err := unix.GetsockoptInt(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERPID); err == nil {
+					pid = v
+				}
+			})
+		}
+	}
+	return pid
 }

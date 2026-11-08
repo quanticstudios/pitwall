@@ -757,6 +757,10 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 	// errs keeps an input flood into a pane that stopped reading from
 	// logging a line per message.
 	errs := logs.Limiter{Every: 10 * time.Second}
+	peer := 0
+	if hello.Kind == "hook" {
+		peer = peerPID(nc)
+	}
 	if hello.Kind != "hook" { // one connection per agent event
 		kind := clientKind(hello.Kind)
 		log.Printf("client %s: %s connected", cid, kind)
@@ -814,6 +818,12 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 			return
 		}
 		if _, ok := m.(proto.AgentEvent); foreign && !ok {
+			continue
+		}
+		if ev, ok := m.(proto.AgentEvent); ok && d.nestedHook(ev, peer) {
+			if ok, held := nestedDrops.Allow(ev.Pane, time.Now()); ok {
+				log.Printf("pane %s: dropped a %s hook from an agent its agent started%s", ev.Pane, ev.Provider, heldNote(held))
+			}
 			continue
 		}
 		if _, ok := m.(proto.Sync); ok {
@@ -963,6 +973,10 @@ const slowHandler = 500 * time.Millisecond
 // refusals keeps clients of another Version, and hooks of one, to a log
 // line a minute per version: a hook is one connection per agent event.
 var refusals = logs.Limiter{Every: time.Minute}
+
+// nestedDrops keeps a nested agent's dropped hooks to a log line a minute
+// per pane.
+var nestedDrops = logs.Limiter{Every: time.Minute}
 
 // olderNotice is State.Notice once a hook of a newer Version reaches this
 // daemon: the binary on PATH was upgraded and the daemon kept running.
@@ -1577,11 +1591,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
-	if d.hookFromOtherSession(*p, m) {
-		d.mu.Unlock()
-		log.Printf("pane %s: dropped a hook from another session during an active turn", m.Pane)
-		return nil
-	}
 	if m.Provider == "report" {
 		if pp, ok := programHook(m.Payload); ok {
 			d.mu.Unlock()
@@ -1811,34 +1820,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		d.checkpointWait(turnDir, turnWS)
 	}
 	return nil
-}
-
-// hookFromOtherSession rejects a nested agent's reports while the pane's turn is active.
-// Callers hold d.mu.
-func (d *Daemon) hookFromOtherSession(p model.Pane, m proto.AgentEvent) bool {
-	if m.Provider == "report" || model.ReportedName(m.Provider) != "" || model.ReportedName(p.Provider) != "" {
-		return false // report-agent has its own authority rules
-	}
-	if p.Provider == m.Provider && (m.Provider == model.ProviderPi || m.Provider == model.ProviderOmp) {
-		return false // pi and omp track replacements by runtime
-	}
-	i := d.activityIndex(p.ID)
-	if i < 0 || (!timelog.Running(d.st.Activities[i].State) && d.st.Activities[i].State != model.StateConnecting) {
-		return false
-	}
-	sid := d.o.SessionID(m.Provider, m.Payload)
-	if p.Provider == m.Provider && (sid == "" || p.SessionID == "" || sid == p.SessionID || sid == store.ForkSource(p)) {
-		return false
-	}
-	// The foreground group can change before the exit poll clears a dead owner's turn.
-	if fg := d.live.fg[p.ID]; fg > 0 {
-		if f, ok := d.panes[p.ID].(foregrounder); ok {
-			if current := f.Foreground(); current > 0 && current != fg {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // turnWait is how long a prompt's hook waits for its checkpoint.
