@@ -496,8 +496,9 @@ func cmpStr(a, b string) string {
 	return b
 }
 
-// askBox is an approval's tool, folder and whole command in a recessed
-// box, clamped to four lines when it is too long to answer from a card.
+// askBox is an approval's tool and folder, then its whole command in mono
+// on the card's own background, clamped to four lines when it is too long
+// to answer from a card.
 // over replaces the tool's name: "Answered" on a held card.
 func (s *Sidebar) askBox(th *theme.Theme, st *model.State, card board.Card, over string) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
@@ -518,10 +519,8 @@ func (s *Sidebar) askBox(th *theme.Theme, st *model.State, card board.Card, over
 		if card.Answers() == board.AnswerLong {
 			lines = 4
 		}
-		px, py := gtx.Dp(10), gtx.Dp(8)
-		m := op.Record(gtx.Ops)
 		g := gtx
-		g.Constraints = layout.Constraints{Max: image.Pt(w-2*px, 1<<20)}
+		g.Constraints = layout.Constraints{Max: image.Pt(w, 1<<20)}
 		head := hrowFit(g, gtx.Dp(15), gtx.Dp(6),
 			item{w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.TextQuiet, tool)
@@ -532,15 +531,7 @@ func (s *Sidebar) askBox(th *theme.Theme, st *model.State, card board.Card, over
 		o := op.Offset(image.Pt(0, head.Size.Y+gtx.Dp(3))).Push(gtx.Ops)
 		d := cmdPara(g, th, th.Fg, body, lines)
 		o.Pop()
-		call := m.Stop()
-		size := image.Pt(w, head.Size.Y+gtx.Dp(3)+d.Size.Y+2*py)
-		rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl))
-		paint.FillShape(gtx.Ops, th.Bg, rr.Op(gtx.Ops))
-		paint.FillShape(gtx.Ops, th.BorderSubtle, clip.Stroke{Path: rr.Path(gtx.Ops), Width: 1}.Op())
-		o = op.Offset(image.Pt(px, py)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
-		return layout.Dimensions{Size: size}
+		return layout.Dimensions{Size: image.Pt(w, head.Size.Y+gtx.Dp(3)+d.Size.Y)}
 	}
 }
 
