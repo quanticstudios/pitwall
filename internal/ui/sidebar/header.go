@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"image"
+	"image/color"
 	"strconv"
 	"time"
 
@@ -162,16 +163,18 @@ func (s *Sidebar) boardButton(gtx layout.Context, th *theme.Theme) layout.Dimens
 			return drawIcon(gtx, icBoard, gtx.Dp(16), col, 0)
 		})
 		if s.NeedYou > 0 {
-			bg, fg := th.Yellow, th.Bg
+			bg, fg := badgeColors(th)
 			n := strconv.Itoa(s.NeedYou)
 			m := op.Record(gtx.Ops)
-			ld := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption)*0.85, th.Readable(fg, bg), n)
+			ld := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption)*0.85, fg, n)
 			call := m.Stop()
 			bh := gtx.Dp(14)
 			bw := max(bh, ld.Size.X+gtx.Dp(6))
-			at := image.Pt(size-bw+gtx.Dp(3), -gtx.Dp(3))
+			at := image.Pt(size-bw, 0) // why: inside the button, whose clip would cut a badge over its corner
 			paint.FillShape(gtx.Ops, th.Sidebar, clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}.Inset(-gtx.Dp(1)), bh/2+gtx.Dp(1)).Op(gtx.Ops))
-			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}, bh/2).Op(gtx.Ops))
+			rr := clip.UniformRRect(image.Rectangle{Min: at, Max: at.Add(image.Pt(bw, bh))}, bh/2)
+			paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, theme.Mix(th.Sidebar, th.Yellow, 0.6), clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
 			o := op.Offset(at.Add(image.Pt((bw-ld.Size.X)/2, (bh-ld.Size.Y)/2))).Push(gtx.Ops)
 			call.Add(gtx.Ops)
 			o.Pop()
@@ -179,6 +182,10 @@ func (s *Sidebar) boardButton(gtx layout.Context, th *theme.Theme) layout.Dimens
 		return d
 	})
 }
+
+// badgeColors are the board button badge's fill and number: a yellow chip
+// over the sidebar, as a pill draws one, so the number reads at 4.5:1.
+func badgeColors(th *theme.Theme) (bg, fg color.NRGBA) { return th.Chip(th.Yellow, th.Sidebar) }
 
 // icBoard is lucide square-kanban.
 const icBoard = "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 7v7M12 7v4M16 7v9"
