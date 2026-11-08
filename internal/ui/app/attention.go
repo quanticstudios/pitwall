@@ -24,9 +24,10 @@ import (
 // activity. Clearing it here too keeps the ring and the sidebar from
 // flashing during the round trip. It also tells the daemon whenever the
 // pane shown that way changes, "" for none, so a bell there stays quiet.
+// The settings page and the board hide the panes.
 func (u *ui) markSeen(st *model.State) {
 	f := u.nav.focused()
-	if !u.winFocused || u.settings.Shown() {
+	if !u.winFocused || u.settings.Shown() || u.boardShown() {
 		f = ""
 	}
 	see := f != u.focusSent

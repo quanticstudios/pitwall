@@ -63,12 +63,45 @@ func TestBoardKeysOnlyWhileShown(t *testing.T) {
 	cs := key.ModCtrl | key.ModShift
 	keys(press("M", cs), press(key.NameDownArrow, 0))
 	time.Sleep(board.Arming + 50*time.Millisecond)
-	keys() // a frame after the arming time
 	u.toggleSettings()
 	keys(press("Y", cs))
 	for _, m := range u.b.(*FakeBackend).Sent() {
 		if a, ok := m.(proto.Answer); ok {
 			t.Fatalf("Ctrl+Shift+Y under the settings page sent %+v", a)
 		}
+	}
+}
+
+// TestBoardHidesPanesFromSeen: while the board shows, the focused pane
+// does not count as seen, so its activity stays unseen and its bell rings;
+// closing the board makes it seen again.
+func TestBoardHidesPanesFromSeen(t *testing.T) {
+	u, keys := keyWindow(t, conventional)
+	u.winFocused = true
+	cs := key.ModCtrl | key.ModShift
+	lastSee := func() (string, bool) {
+		var out *proto.SeePane
+		for _, m := range u.b.(*FakeBackend).Sent() {
+			if s, ok := m.(proto.SeePane); ok {
+				out = &s
+			}
+		}
+		if out == nil {
+			return "", false
+		}
+		return out.Pane, true
+	}
+	keys(press("Q", 0)) // a frame with the window focused
+	pane, _ := lastSee()
+	if pane == "" || pane != u.nav.focused() {
+		t.Fatalf("panes shown: last SeePane %q, focused %q", pane, u.nav.focused())
+	}
+	keys(press("M", cs))
+	if pane, ok := lastSee(); !ok || pane != "" {
+		t.Errorf("board shown: last SeePane %q, want none", pane)
+	}
+	keys(press(key.NameEscape, 0))
+	if pane, _ := lastSee(); pane != u.nav.focused() {
+		t.Errorf("board closed: last SeePane %q, want %q", pane, u.nav.focused())
 	}
 }
