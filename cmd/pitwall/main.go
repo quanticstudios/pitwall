@@ -65,7 +65,7 @@ const usage = `usage:
                              (--json: one object per tab, see docs/agent-skill.md;
                              --children: only the tabs this pane's tab opened;
                              --tree: each tab under the tab that opened it)
-  pitwall new [-n name] [-d] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd args...]
+  pitwall new [-n name] [-d] [--host name] [--issue n] [--preset name] [--model model] [--guard] [dir] [-- cmd args...]
                              open a tab (-d detaches it) running cmd, else a
                              shell; prints its #. --issue adds GitHub issue n
                              as cmd's last argument, its prompt. --preset runs a

@@ -58,6 +58,13 @@ func dialKind(kind string) (*cliConn, error) {
 		}
 		return nil, err
 	}
+	return hello(nc, kind)
+}
+
+// helloCLI says Hello on nc as a CLI client.
+func helloCLI(nc net.Conn) (*cliConn, error) { return hello(nc, "cli") }
+
+func hello(nc net.Conn, kind string) (*cliConn, error) {
 	conn := proto.NewConn(nc)
 	if err := nc.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		conn.Close()
@@ -176,6 +183,72 @@ func withIssue(cmd []string, dir string, n int) ([]string, error) {
 	return append(cmd, i.Prompt()), nil
 }
 
+// newOnHost opens tab on host, in that host's part of the shared session
+// here: the part it has, else the host's session of the same name, else a
+// new one of that name. The part then joins session. It returns the
+// tab's number there, "box:3".
+func newOnHost(local *cliConn, session *model.Session, host string, tab proto.NewSession) (string, error) {
+	hc, done, err := dialHost(host)
+	if err != nil {
+		return "", err
+	}
+	defer done()
+	m, err := syncMsg(hc)
+	if err != nil {
+		return "", err
+	}
+	if err := varsLevel(tab.Env, m.Level); err != nil {
+		return "", fmt.Errorf("%s: %w", host, err)
+	}
+	hs := m.State
+	var part *model.Session
+	if r := session.Remote(host); r != nil {
+		part = hs.Session(r.Session)
+	}
+	if part == nil {
+		part = hs.SessionNamed(session.Name)
+	}
+	shell := "" // a new part's first tab, a shell
+	if part == nil {
+		if hs, err = syncCLI(hc, proto.SessionNew{Name: session.Name, Cwd: tab.Cwd}); err != nil {
+			return "", err
+		}
+		part = hs.SessionNamed(session.Name)
+		if part == nil || len(hs.Numbered(part.ID)) != 1 {
+			return "", fmt.Errorf("%s made no session named %s", host, session.Name)
+		}
+		shell = hs.Numbered(part.ID)[0].ID
+	}
+	partID, id := part.ID, shell
+	if shell == "" || len(tab.Cmd) > 0 || tab.Name != "" {
+		before := hs
+		tab.SessionID = partID
+		if hs, err = syncCLI(hc, tab); err != nil {
+			return "", err
+		}
+		id = ""
+		for _, w := range hs.Workspaces {
+			if w.SessionID == partID && !slices.ContainsFunc(before.Workspaces, func(o model.Workspace) bool { return o.ID == w.ID }) {
+				id = w.ID
+			}
+		}
+		if shell != "" { // the asked-for tab replaces it
+			if hs, err = syncCLI(hc, proto.CloseTab{WorkspaceID: shell}); err != nil {
+				return "", err
+			}
+		}
+	}
+	if r := session.Remote(host); r == nil || r.Session != partID {
+		if _, err := syncCLI(local, proto.SessionLink{SessionID: session.ID, Host: host, Remote: partID}); err != nil {
+			return "", err
+		}
+	}
+	if id == "" {
+		return "", errors.New("cannot identify the new tab on " + host)
+	}
+	return tabNumber(host, hs.Numbered(partID), id), nil
+}
+
 func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(usage)
@@ -202,7 +275,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var asJSON, detached, force, children, tree, guarded bool
-	var name, sessionName, preset, modelName string
+	var name, sessionName, preset, modelName, hostName string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	switch command {
@@ -217,6 +290,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		flags.IntVar(&issue, "issue", 0, "")
 		flags.StringVar(&preset, "preset", "", "")
 		flags.BoolVar(&guarded, "guard", false, "")
+		flags.StringVar(&hostName, "host", "", "")
 	case "kill":
 		flags.BoolVar(&force, "f", false, "")
 	case "attach", "detach", "rename":
@@ -237,7 +311,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return errors.New(usage)
 	}
 	var vars []string
-	if cmd, vars, err = launch(preset, guarded, cmd); err != nil {
+	if cmd, vars, err = launch(preset, guarded, cmd, hostName == ""); err != nil {
 		return err
 	}
 	if cmd, err = withModel(cmd, modelName); err != nil {
@@ -245,6 +319,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	if issue != 0 && cmd == nil {
 		return errors.New("--issue needs an agent to run: pitwall new --issue 12 -- claude")
+	}
+	if issue != 0 && hostName != "" {
+		return errors.New("--issue reads the issue from this machine's checkout and cannot be used with --host; pass the prompt after the agent instead")
 	}
 	conn, err := dialCLI()
 	if errors.Is(err, errNotRunning) && command == "ls" {
@@ -283,6 +360,24 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		}
 		return listTabs(out, state, session.ID, only, tree)
 	case "new":
+		if hostName != "" {
+			if err != nil {
+				return errors.New("--host opens a tab in a session here, and there is none: open a tab here first")
+			}
+			if m.Level < proto.SharedLevel {
+				return errors.New("pitwall's background service here is older than this pitwall and cannot share a session; restart it")
+			}
+			dir := ""
+			if len(args) == 1 {
+				dir = args[0] // a folder on the host
+			}
+			num, err := newOnHost(conn, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars})
+			if err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(out, "#%s\n", num)
+			return err
+		}
 		dir := "."
 		if len(args) == 1 {
 			dir = args[0]
@@ -358,8 +453,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 // launch is the command and environment of a tab that new, worktree new
 // or queue add opens: preset's agent and args before rest, else rest, its
 // program made absolute; preset's variables, and guard.Env when guarded or
-// the preset asks for the guard.
-func launch(preset string, guarded bool, rest []string) (cmd, vars []string, err error) {
+// the preset asks for the guard. With here false the program is left as
+// it is: it runs on another host, whose daemon finds it on its own PATH.
+func launch(preset string, guarded bool, rest []string, here bool) (cmd, vars []string, err error) {
 	cmd = rest
 	if preset != "" {
 		s, _ := config.Load()
@@ -376,7 +472,7 @@ func launch(preset string, guarded bool, rest []string) (cmd, vars []string, err
 		}
 		vars = append(vars, guard.Env+"=1")
 	}
-	if len(cmd) > 0 {
+	if len(cmd) > 0 && here {
 		err = absCmd(cmd)
 	}
 	return cmd, vars, err

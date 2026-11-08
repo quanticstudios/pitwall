@@ -26,14 +26,14 @@ func TestTaskProjects(t *testing.T) {
 		}
 		return strings.Join(out, " ")
 	}
-	ps, pick := taskProjects(&st, "s1", "w4", "")
+	ps, pick := taskProjects(&st, "s1", "w4", "", noHost)
 	// The worktree tab, in the group of tabs billing, counts as web-app,
 	// its main checkout, whose own group its task joins. Detached tabs
 	// (/tmp) are left out.
 	if got := names(ps); got != "acme-api ~ spike web-app notes" || ps[pick].name != "web-app" || ps[pick].group != "g2" || !ps[pick].git {
 		t.Fatalf("projects %q, picked %+v", got, ps[pick])
 	}
-	if _, pick := taskProjects(&st, "s1", "w4", "g2"); ps[pick].dir != fakeHome+"/src/web-app" {
+	if _, pick := taskProjects(&st, "s1", "w4", "g2", noHost); ps[pick].dir != fakeHome+"/src/web-app" {
 		t.Fatalf("the group's folder not picked: %+v", ps[pick])
 	}
 	if ps[1].git || ps[0].group != "" {
@@ -469,5 +469,55 @@ func TestTaskRepeatWorktree(t *testing.T) {
 		if len(b.Sent()) != 0 || !strings.Contains(u.task.err, "This folder") {
 			t.Fatalf("repeat would recreate its worktree: %q", u.task.err)
 		}
+	}
+}
+
+func noHost(string) string { return "" }
+
+// In a shared session a folder on box is box's even when this machine has
+// the same path, and a task there goes to box, whichever tab has focus.
+func TestTaskOnItsHost(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, exeName("codex")), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	t.Setenv("HOME", t.TempDir())
+	fb := NewFakeBackend()
+	st := fb.State()
+	f := sharedFake{fb, "w6"}
+	ps, _ := taskProjects(&st, "s1", "w4", "", f.HostOf)
+	box := slices.IndexFunc(ps, func(p taskProject) bool { return p.host == "box" })
+	if box < 0 || !slices.ContainsFunc(ps, func(p taskProject) bool { return p.dir == ps[box].dir && p.host == "" }) {
+		t.Fatalf("projects %+v", ps)
+	}
+	u := &ui{b: f}
+	u.nav.sync(&st)
+	u.nav.selectWorkspace(&st, "w6", "")
+	u.openTask(&st, "")
+	d := &u.task
+	d.project = box
+	d.prompt.SetText("go")
+	u.submitTask(&st, false)
+	sent := fb.Sent()
+	on, ok := sent[len(sent)-1].(NewTaskOn)
+	if !ok || on.Host != "box" || on.Task.Task.Dir != ps[box].dir || on.Task.Task.Cmd[0] != "codex" {
+		t.Fatalf("sent %#v", sent[len(sent)-1])
+	}
+}
+
+// A project on box, picked in New task opened from a tab here, gets no
+// issues or branches from a folder here of the same path.
+func TestTaskProjectOnHost(t *testing.T) {
+	called := make(chan string, 2)
+	defer func(f func(context.Context, string) ([]forge.Issue, error)) { listIssues = f }(listIssues)
+	listIssues = func(_ context.Context, dir string) ([]forge.Issue, error) { called <- dir; return nil, nil }
+	shownHost = "" // the open tab is this machine's
+	d := &taskDialog{projects: []taskProject{{dir: t.TempDir(), git: true, host: "box"}}}
+	d.pickProject(0, nil)
+	select {
+	case dir := <-called:
+		t.Fatalf("issues of %s read here for box's project", dir)
+	case <-time.After(200 * time.Millisecond):
 	}
 }

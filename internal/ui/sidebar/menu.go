@@ -270,11 +270,16 @@ func (s *Sidebar) menuList(gtx layout.Context, th *theme.Theme, anchor image.Rec
 // swatchRow is the tab menu's color row: none, then tabColorIDs, with cur
 // ringed.
 func (s *Sidebar) swatchRow(gtx layout.Context, th *theme.Theme, at, size image.Point, cur string) {
+	s.swatches(gtx, th, at, size, cur, &s.tabColor)
+}
+
+// swatches draws a color row with the clickables cs.
+func (s *Sidebar) swatches(gtx layout.Context, th *theme.Theme, at, size image.Point, cur string, cs *[len(tabColorIDs)]widget.Clickable) {
 	defer op.Offset(at).Push(gtx.Ops).Pop()
 	sw, d := gtx.Dp(20), gtx.Dp(14)
 	gap := (size.X - gtx.Dp(16) - len(tabColorIDs)*sw) / (len(tabColorIDs) - 1)
 	for i, id := range tabColorIDs {
-		c := &s.tabColor[i]
+		c := &cs[i]
 		off := op.Offset(image.Pt(gtx.Dp(8)+i*(sw+gap), (size.Y-sw)/2)).Push(gtx.Ops)
 		g := gtx
 		g.Constraints = layout.Exact(image.Pt(sw, sw))

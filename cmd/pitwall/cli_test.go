@@ -540,3 +540,39 @@ guard = true
 		t.Fatalf("guard alone: %d %s", code, stderr)
 	}
 }
+
+// pitwall new --host leaves the program for the host's daemon to find on
+// its own PATH; a tab here gets this shell's absolute path.
+func TestLaunchOnHost(t *testing.T) {
+	cmd, _, err := launch("", false, []string{"pitwall-only-on-box", "x"}, false)
+	if err != nil || !slices.Equal(cmd, []string{"pitwall-only-on-box", "x"}) {
+		t.Fatalf("on a host: %v %v", cmd, err)
+	}
+	if _, _, err := launch("", false, []string{"pitwall-only-on-box"}, true); err == nil {
+		t.Fatal("found a program that is not on this PATH")
+	}
+	cmd, _, err = launch("", false, []string{"sh"}, true)
+	if err != nil || !filepath.IsAbs(cmd[0]) {
+		t.Fatalf("here: %v %v", cmd, err)
+	}
+}
+
+// TestNewOnHostRefuses checks that pitwall new --host refuses what the
+// host would drop: --issue, read from this machine's checkout, and a
+// guard or preset variables on a host daemon too old to keep them.
+func TestNewOnHostRefuses(t *testing.T) {
+	fakeCLI(t, cliExchange{state: model.State{}, level: proto.EnvLevel - 1})
+	if code, _, errOut := cliOutput("new", "--host", "box", "--issue", "12", "--", "codex"); code == 0 || !strings.Contains(errOut, "--issue") {
+		t.Fatalf("--host with --issue: %d %q", code, errOut)
+	}
+	prev := dialHost
+	t.Cleanup(func() { dialHost = prev })
+	dialHost = func(string) (*cliConn, func(), error) {
+		c, err := dialCLI()
+		return c, func() { c.Close() }, err
+	}
+	_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}})
+	if err == nil || !strings.Contains(err.Error(), "would drop") {
+		t.Fatalf("an old host took a guarded tab: %v", err)
+	}
+}

@@ -48,7 +48,8 @@ type backend struct {
 	moves   []proto.FocusDir                  // not yet taken by the window
 	chat    chatCache                         // the transcript of the chat on screen
 	link    app.Link
-	dialing bool // a dial loop runs
+	dialing bool      // a dial loop runs
+	pingAt  time.Time // when ping sent a Sync whose StateMsg has not come, zero for none
 	// view is the panes the last proto.View named, and waits a channel
 	// per pane added to it, closed when its first frame comes.
 	view  map[string]bool
@@ -273,6 +274,9 @@ func (b *backend) fail(conn *proto.Conn, err error, unsent int) {
 	close(b.done)
 	b.outMu.Unlock()
 	conn.Close()
+	b.mu.Lock()
+	b.link.Since, b.pingAt = time.Now(), time.Time{}
+	b.mu.Unlock()
 	log.Printf("daemon connection lost: %q; %d queued messages not sent", err, unsent)
 	b.setLink(app.LinkDown, "Reconnecting…")
 	if b.redial != nil {
@@ -319,11 +323,17 @@ func (b *backend) dial(restart bool) {
 			return
 		}
 		log.Printf("reconnect: %q; next try in %v", err, wait)
+		b.mu.Lock()
+		b.link.Retry = time.Now().Add(wait)
+		b.mu.Unlock()
 		b.setLink(app.LinkDown, fmt.Sprintf("%s. Trying again in %v.", err, wait.Round(time.Second/10)))
 		select {
 		case <-time.After(wait):
 		case <-b.retry:
 		}
+		b.mu.Lock()
+		b.link.Retry = time.Time{}
+		b.mu.Unlock()
 		b.setLink(app.LinkDown, "Reconnecting…")
 		wait = min(2*wait, retryMax)
 	}
@@ -342,7 +352,7 @@ func (b *backend) attach(conn *proto.Conn, initial proto.StateMsg) {
 	b.dialing = false
 	maps.DeleteFunc(b.icons, func(_ string, r *proto.FaviconResult) bool { return r == nil }) // asked of the old connection: ask again
 	b.imgs.forget()
-	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level, Build: initial.Build}
+	b.link = app.Link{Epoch: b.link.Epoch + 1, Level: initial.Level, Build: initial.Build, RTT: b.link.RTT}
 	first := b.session == "" && !b.guest
 	b.mu.Unlock()
 	log.Printf("connected to the daemon")
@@ -395,6 +405,24 @@ func (b *backend) Restart() {
 	}
 	b.setLink(app.LinkDown, "Restarting pitwall's background service…")
 	b.startDialing(true)
+}
+
+// ping measures the link's round trip: a Sync, answered with a StateMsg.
+// ponytail: a state the daemon pushed meanwhile ends the measure early, so
+// RTT can read low; good enough for a latency label.
+func (b *backend) ping() {
+	b.mu.Lock()
+	if !b.pingAt.IsZero() && time.Since(b.pingAt) < time.Minute {
+		b.mu.Unlock()
+		return
+	}
+	b.pingAt = time.Now()
+	b.mu.Unlock()
+	if b.Send(proto.Sync{}) != nil {
+		b.mu.Lock()
+		b.pingAt = time.Time{}
+		b.mu.Unlock()
+	}
 }
 
 // notify wakes the window.
@@ -459,6 +487,9 @@ func (b *backend) recvLoop() {
 		switch m := msg.(type) {
 		case proto.StateMsg:
 			b.state, b.link.Level, b.link.Build = m.State, m.Level, m.Build
+			if !b.pingAt.IsZero() {
+				b.link.RTT, b.pingAt = time.Since(b.pingAt), time.Time{}
+			}
 			live := map[string]bool{}
 			for _, p := range m.State.Panes {
 				live[p.ID] = true

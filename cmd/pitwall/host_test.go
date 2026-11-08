@@ -137,7 +137,8 @@ func TestRemoteErrors(t *testing.T) {
 	}
 }
 
-// fakeSSH stands in for ssh on PATH. It logs its arguments to dir/ssh.log
+// fakeSSH stands in for ssh on PATH. While dir/down exists it fails as
+// ssh does when the host is unreachable. It logs its arguments to dir/ssh.log
 // and runs a command here with sh, as the host's login shell would. -O
 // forward starts a relay process, the shared connection, which serves the
 // forward until -O cancel or a test kills it as a dropped link would.
@@ -164,6 +165,11 @@ func fakeSSH(dir string, args []string) int {
 			i++
 			fwd = args[i]
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "down")); err == nil {
+		// The host is unreachable, as when it is off or the network is.
+		fmt.Fprintln(os.Stderr, "ssh: connect to host box port 22: Connection timed out")
+		return 255
 	}
 	local, remote, _ := strings.Cut(fwd, ":")
 	pidFile := filepath.Join(dir, "relay.pid")
@@ -239,6 +245,9 @@ func fakeHost(t *testing.T) string {
 		}
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	// why: a -race build sleeps 1 s on exit, and one dial runs three of
+	// them in a row, most of waitFor's 5 s on a loaded CI runner.
+	t.Setenv("GORACE", os.Getenv("GORACE")+" atexit_sleep_ms=0")
 	return dir
 }
 

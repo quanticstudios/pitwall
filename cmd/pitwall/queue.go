@@ -58,7 +58,7 @@ func queueCommand(args []string, out io.Writer) error {
 		return err
 	}
 	if command == "add" && (len(cmd) > 0 || preset != "") {
-		if cmd, vars, err = launch(preset, false, cmd); err != nil {
+		if cmd, vars, err = launch(preset, false, cmd, true); err != nil {
 			return err
 		}
 	}

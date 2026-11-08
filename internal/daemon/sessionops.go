@@ -114,6 +114,9 @@ func (d *Daemon) sessionKill(m proto.SessionKill) error {
 			closing = append(closing, d.removeWorkspace(w.ID)...)
 		}
 	}
+	if s := d.st.Session(m.SessionID); s != nil {
+		s.Remotes = nil // a window kills the other hosts' parts
+	}
 	d.endSession(m.SessionID) // one with only empty groups had no tab to end it
 	d.changed()
 	log.Printf("session %s: killed; closing %d panes; %d windows showed it", m.SessionID, len(closing), d.windowsOn(m.SessionID))
@@ -135,10 +138,69 @@ func (d *Daemon) sessionShow(c *client, id string) error {
 	return nil
 }
 
+// sessionLink adds, changes or drops a host's part of a shared session.
+func (d *Daemon) sessionLink(m proto.SessionLink) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s := d.st.Session(m.SessionID)
+	if s == nil {
+		return fmt.Errorf("no session %s", m.SessionID)
+	}
+	if m.Kill {
+		s.Killing = true
+		d.changed()
+		return nil
+	}
+	if m.Host == "" {
+		return errors.New("a shared session's part needs a host")
+	}
+	// why: two windows may each forget a tab of a down host from the same
+	// old list, so Forget adds to the part's ids instead of replacing them.
+	var forget []string
+	if r := s.Remote(m.Host); r != nil && r.Session == m.Remote {
+		forget = slices.Clone(r.Forget)
+	}
+	for _, id := range m.Forget {
+		if !slices.Contains(forget, id) {
+			forget = append(forget, id)
+		}
+	}
+	forget = slices.DeleteFunc(forget, func(id string) bool { return slices.Contains(m.Unforget, id) })
+	s.Remotes = slices.DeleteFunc(slices.Clone(s.Remotes), func(r model.RemoteSession) bool { return r.Host == m.Host })
+	if m.Remote != "" {
+		s.Remotes = append(s.Remotes, model.RemoteSession{Host: m.Host, Session: m.Remote, Forget: forget})
+	}
+	if len(s.Remotes) == 0 {
+		s.Remotes = nil
+		s.Order = d.st.TopOrder(s.ID) // drops the other hosts' ids
+		d.endSession(s.ID)
+	}
+	d.changed()
+	return nil
+}
+
+// sessionOrder sets a shared session's Order, as a window computed it.
+func (d *Daemon) sessionOrder(m proto.SessionOrder) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	s := d.st.Session(m.SessionID)
+	if s == nil {
+		return fmt.Errorf("no session %s", m.SessionID)
+	}
+	s.Order = slices.Clone(m.Order)
+	s.Order = d.st.TopOrder(s.ID) // drops repeats and this host's stale ids
+	d.changed()
+	return nil
+}
+
 // endSession drops session, with its groups, once it has no tabs left, the
-// way a tmux session ends with its last window. Callers hold d.mu.
+// way a tmux session ends with its last window. A shared session stays
+// while other hosts have a part in it. Callers hold d.mu.
 func (d *Daemon) endSession(session string) {
 	if slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == session }) {
+		return
+	}
+	if s := d.st.Session(session); s != nil && len(s.Remotes) > 0 {
 		return
 	}
 	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool { return s.ID == session })
@@ -223,7 +285,8 @@ func (d *Daemon) firstSession(ctx context.Context, cwd, name string) error {
 		return d.addSession(ctx, proto.NewSession{Cwd: cwd}, "", &name, nil)
 	}
 	id := s.ID
-	open := slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == id && !w.Detached })
+	// A shared session may have its tabs on other hosts only.
+	open := len(s.Remotes) > 0 || slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == id && !w.Detached })
 	d.mu.Unlock()
 	if open {
 		return nil

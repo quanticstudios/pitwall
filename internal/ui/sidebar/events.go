@@ -164,3 +164,7 @@ type DropTask struct {
 	ID    string
 	Start bool
 }
+
+// SetHostColor sets a host's color in shared sessions, a tab color id, ""
+// for the palette's turn.
+type SetHostColor struct{ Host, Color string }

@@ -126,6 +126,9 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		if isActive || ghost || unseen != nil || model.Tier(a) == model.TierAttention {
 			nameCol = th.Fg
 		}
+		if s.hostDown(ws.ID) {
+			nameCol = th.Readable(th.Muted, base) // offline: the last state the window had
+		}
 		items := []item{
 			{w: func(gtx layout.Context) layout.Dimensions {
 				if digit != "" {
@@ -156,7 +159,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 				return layout.Dimensions{Size: image.Pt(d, d)}
 			}})
 		}
-		if a != nil {
+		switch {
+		case a != nil && s.hostDown(ws.ID):
+			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return offlinePill(gtx, th, base) }})
+		case a != nil:
 			items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return pill(gtx, v, s, *a, base) }})
 		}
 		hrow(gtx, l1, gtx.Dp(8), items...)
@@ -191,6 +197,13 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			if i := slices.IndexFunc(v.st.Projects, func(p model.Project) bool { return p.ID == g }); i >= 0 {
 				line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return s.groupTag(gtx, v, v.st.Projects[i], muted) }})
 			}
+		}
+		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
+		if host != "" {
+			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, host, base) }})
+		}
+		if down && own != nil && model.Tier(own) == model.TierAttention {
+			where = answerLater(host)
 		}
 		// Allow and Deny or the agent count leave it a few letters at most,
 		// and the hover card has it; a title that says the same ("~" for
@@ -269,6 +282,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		case inRepo && merged:
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Purple, "Merged")
+			}})
+		case down:
+			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Caption), quiet, s.lastSeen(host, v.now))
 			}})
 		case QuietText(v.now, a) != "":
 			// A working agent whose screen stays still says so in place of the time.

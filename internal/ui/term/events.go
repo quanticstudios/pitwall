@@ -165,7 +165,11 @@ func (v *View) events(gtx layout.Context, g *vt.Grid, m vt.Modes, focused bool, 
 			r.Close()
 			if !v.cm.on {
 				in, img := clipInput(string(b), v.PasteImages, v.HostPaste, m)
-				out = append(out, in...)
+				if len(in) > 0 && v.HoldPaste != nil && v.HoldPaste(string(b)) {
+					v.held = in
+				} else {
+					out = append(out, in...)
+				}
 				v.imageWanted = v.imageWanted || img
 			}
 		case pointer.Event:
@@ -217,6 +221,13 @@ func clipInput(text string, agent, host bool, m vt.Modes) (out []byte, image boo
 	out = input.Key(v, m)
 	v.State = key.Release
 	return append(out, input.Key(v, m)...), false
+}
+
+// TakeHeld returns, once, the paste HoldPaste held, ready to send.
+func (v *View) TakeHeld() []byte {
+	b := v.held
+	v.held = nil
+	return b
 }
 
 // ImageWanted reports, once, that a paste in a HostPaste pane found no

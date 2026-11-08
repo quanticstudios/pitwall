@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"cmp"
+	"fmt"
 	"image"
 	"image/color"
 	"slices"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/io/event"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -16,6 +19,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -26,6 +30,11 @@ type HostInfo struct {
 	Up       bool     // connected now
 	Note     string   // while it is not up: why, or that it is connecting
 	Sessions []string // its session ids, in the switcher's order
+	SSH      string   // the ssh destination, "" for this machine
+	Latency  time.Duration
+	Retry    time.Time // while it is down, the next try; zero when none is due
+	Since    time.Time // while it is down, when it went down
+	Color    string    // a theme.ProjectColor id
 }
 
 // ShowSession is a click on a session in the host list.
@@ -146,7 +155,10 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 		}
 	}
 	blocked, head := s.waiting(st, sessionOf)
-	if s.HideSessions && len(blocked) == 0 {
+	// The row of machines shows in a shared session: one with a tab on
+	// another host.
+	shared := slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.session && s.hostOf(w.ID) != "" })
+	if s.HideSessions && len(blocked) == 0 && !shared {
 		s.preview = sessionPreview{}
 		return layout.Dimensions{}
 	}
@@ -232,10 +244,19 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			})
 		})
 	}
-	y += gtx.Dp(6)
+	if shared {
+		y += gtx.Dp(2)
+		y += s.hostPills(gtx, th, image.Pt(gtx.Dp(16), y), w-gtx.Dp(28), btn)
+		y += gtx.Dp(4)
+	} else {
+		y += gtx.Dp(6)
+	}
 	over := ""
 	if !s.HideSessions {
 		for _, h := range s.Hosts {
+			if shared && len(h.Sessions) == 0 {
+				continue // all its tabs are in this session; the row of machines shows the host
+			}
 			note, c := "", th.Muted
 			if !h.Up {
 				note, c = firstLine(h.Note), th.Red
@@ -278,7 +299,11 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			for btn("a:" + a.PaneID).Clicked(gtx) {
 				s.events = append(s.events, SelectWorkspace{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID})
 			}
-			row(btn("a:"+a.PaneID), false, down[ws.SessionID], &a, Title(*ws), hostName(hostOf[ws.SessionID])+" · "+model.PillLabel(a), "")
+			host, gone := hostOf[ws.SessionID], down[ws.SessionID]
+			if h := s.hostOf(ws.ID); h != "" { // a shared session's tab on another host
+				host, gone = h, s.hostDown(ws.ID)
+			}
+			row(btn("a:"+a.PaneID), false, gone, &a, Title(*ws), hostName(host)+" · "+model.PillLabel(a), "")
 		}
 	}
 	y += gtx.Dp(6)
@@ -309,4 +334,273 @@ func findWS(st *model.State, id string) *model.Workspace {
 		return &st.Workspaces[i]
 	}
 	return nil
+}
+
+// hostPalette is the colors hosts take in turn when config names none.
+var hostPalette = []string{"teal", "violet", "orange", "pink", "lime", "cyan"}
+
+// HostColor is host name's color in a shared session: its own, else the
+// palette's in the order hosts lists them. This machine has none: Primary.
+func HostColor(th *theme.Theme, hosts []HostInfo, name string) color.NRGBA {
+	if name == "" {
+		return th.Primary
+	}
+	n := 0
+	for _, h := range hosts {
+		if h.Name == "" {
+			continue
+		}
+		if h.Name == name {
+			if h.Color != "" {
+				return th.ProjectColor(h.Color)
+			}
+			return th.ProjectColor(hostPalette[n%len(hostPalette)])
+		}
+		n++
+	}
+	return th.ProjectColor(hostPalette[0])
+}
+
+// FindHost is the HostInfo of name in hosts.
+func FindHost(hosts []HostInfo, name string) (HostInfo, bool) {
+	for _, h := range hosts {
+		if h.Name == name {
+			return h, true
+		}
+	}
+	return HostInfo{}, false
+}
+
+// HostDown reports whether name is another machine that is not connected.
+func HostDown(hosts []HostInfo, name string) bool {
+	h, ok := FindHost(hosts, name)
+	return name != "" && ok && !h.Up
+}
+
+// hostOf is the host of tab or group id, "" for this machine.
+func (s *Sidebar) hostOf(id string) string {
+	if s.HostOf == nil {
+		return ""
+	}
+	return s.HostOf(id)
+}
+
+// hostDown reports whether tab or group id is on a host that is down.
+func (s *Sidebar) hostDown(id string) bool { return HostDown(s.Hosts, s.hostOf(id)) }
+
+// HostChip is a host's chip, as rows and group headers of another
+// machine show it: a server icon and the name on a tint of the host's
+// color over base, muted while the host is down.
+func HostChip(gtx layout.Context, th *theme.Theme, hosts []HostInfo, host string, base color.NRGBA) layout.Dimensions {
+	c := HostColor(th, hosts, host)
+	if HostDown(hosts, host) {
+		c = th.Muted
+	}
+	bg, fg := th.Chip(c, base)
+	icon := "server"
+	is, padX, gap := gtx.Dp(10), gtx.Dp(5), gtx.Dp(3)
+	m := op.Record(gtx.Ops)
+	d := label(gtx, th, semibold(th.MonoFont), th.Sp(theme.Caption), fg, host)
+	call := m.Stop()
+	h := max(gtx.Dp(17), d.Size.Y)
+	size := image.Pt(padX+is+gap+d.Size.X+padX, h)
+	paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(4)).Op(gtx.Ops))
+	o := op.Offset(image.Pt(padX, (h-is)/2)).Push(gtx.Ops)
+	Icon(gtx, icon, is, fg)
+	o.Pop()
+	o = op.Offset(image.Pt(padX+is+gap, (h-d.Size.Y)/2)).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	o.Pop()
+	return layout.Dimensions{Size: size, Baseline: (h-d.Size.Y)/2 + d.Baseline}
+}
+
+// hostPills draws the row of machines under the header, from at, wrapping
+// within w: each one's name and its latency, or while it is down how long
+// until the next try, with the error on hover. It returns its height.
+func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point, w int, btn func(string) *widget.Clickable) int {
+	h, gap := gtx.Dp(22), gtx.Dp(6)
+	x, y := 0, 0
+	var tip string
+	var tipAt, swatchAt image.Point
+	// The row never wraps: notes get shorter until it fits.
+	is := gtx.Dp(12)
+	width := func(name, note string) int {
+		m := op.Record(gtx.Ops)
+		nd := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Fg, name)
+		td := label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
+		m.Stop()
+		return gtx.Dp(6) + is + gtx.Dp(5) + nd.Size.X + gtx.Dp(5) + td.Size.X + gtx.Dp(8)
+	}
+	level := 0
+	for ; level < 2; level++ {
+		total := -gap
+		for _, hi := range s.Hosts {
+			total += width(hostName(hi.Name), pillNote(hi, level, gtx.Now)) + gap
+		}
+		if total <= w {
+			break
+		}
+	}
+	for _, hi := range s.Hosts {
+		name, note, icon := hostName(hi.Name), pillNote(hi, level, gtx.Now), "monitor"
+		nameC, noteC, ring, fill := th.Fg, th.Muted, th.BorderStrong, color.NRGBA{}
+		if hi.Name != "" {
+			icon, nameC = "server", th.Readable(HostColor(th, s.Hosts, hi.Name), th.Sidebar)
+		}
+		if !hi.Up && hi.Name != "" {
+			nameC, noteC = th.Readable(th.Red, th.Sidebar), th.Muted
+			ring, fill = theme.Mix(th.Sidebar, th.Red, 0.45), theme.Mix(th.Sidebar, th.Red, 0.08)
+			if !hi.Retry.IsZero() {
+				gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
+			}
+		}
+		m := op.Record(gtx.Ops)
+		nd := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), nameC, name)
+		nc := m.Stop()
+		m = op.Record(gtx.Ops)
+		td := label(gtx, th, th.UIFont, th.Sp(theme.Small), noteC, note)
+		tc := m.Stop()
+		pw := gtx.Dp(6) + is + gtx.Dp(5) + nd.Size.X + gtx.Dp(5) + td.Size.X + gtx.Dp(8)
+		r := image.Rectangle{Min: at.Add(image.Pt(x, y)), Max: at.Add(image.Pt(x+pw, y+h))}
+		rr := clip.UniformRRect(r, h/2)
+		if fill.A > 0 {
+			paint.FillShape(gtx.Ops, fill, rr.Op(gtx.Ops))
+		}
+		paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: clip.UniformRRect(r.Inset(1), h/2-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+		px := r.Min.X + gtx.Dp(6)
+		o := op.Offset(image.Pt(px, r.Min.Y+(h-is)/2)).Push(gtx.Ops)
+		Icon(gtx, icon, is, nameC)
+		o.Pop()
+		px += is + gtx.Dp(5)
+		o = op.Offset(image.Pt(px, r.Min.Y+(h-nd.Size.Y)/2)).Push(gtx.Ops)
+		nc.Add(gtx.Ops)
+		o.Pop()
+		px += nd.Size.X + gtx.Dp(5)
+		o = op.Offset(image.Pt(px, r.Min.Y+(h-td.Size.Y)/2)).Push(gtx.Ops)
+		tc.Add(gtx.Ops)
+		o.Pop()
+		b := btn("h:" + hi.Name)
+		for b.Clicked(gtx) && hi.Name != "" {
+			if s.hostColor == hi.Name {
+				s.hostColor = ""
+			} else {
+				s.hostColor = hi.Name
+			}
+		}
+		if s.hostColor == hi.Name {
+			swatchAt = image.Pt(at.X, r.Max.Y+gtx.Dp(4))
+			pointer.CursorPointer.Add(gtx.Ops)
+		}
+		o = op.Offset(r.Min).Push(gtx.Ops)
+		g := gtx
+		g.Constraints = layout.Exact(r.Size())
+		b.Layout(g, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: r.Size()} })
+		o.Pop()
+		if b.Hovered() && hi.Name != "" {
+			tip = "ssh " + hi.SSH
+			if !hi.Up && hi.Note != "" {
+				tip = firstLine(hi.Note)
+			}
+			tipAt = image.Pt(r.Min.X, r.Max.Y+gtx.Dp(4))
+		}
+		x += pw + gap
+	}
+	if s.hostColor != "" && swatchAt != (image.Point{}) {
+		for i, id := range tabColorIDs {
+			for s.hostSwatch[i].Clicked(gtx) {
+				s.events = append(s.events, SetHostColor{Host: s.hostColor, Color: id})
+				s.hostColor = ""
+			}
+		}
+	}
+	if s.hostColor != "" && swatchAt != (image.Point{}) {
+		cur := ""
+		if hi, ok := FindHost(s.Hosts, s.hostColor); ok {
+			cur = hi.Color
+		}
+		size := image.Pt(w, gtx.Dp(32))
+		m := op.Record(gtx.Ops)
+		box := image.Rectangle{Min: swatchAt, Max: swatchAt.Add(size)}
+		kit.Surface(gtx, box, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceSecondary)
+		// why: a press between the swatches must not reach the rows under them.
+		for {
+			if _, ok := gtx.Event(pointer.Filter{Target: &s.hostSwatchBox, Kinds: pointer.Press}); !ok {
+				break
+			}
+		}
+		area := clip.Rect(box).Push(gtx.Ops)
+		event.Op(gtx.Ops, &s.hostSwatchBox)
+		area.Pop()
+		s.swatches(gtx, th, swatchAt, size, cur, &s.hostSwatch)
+		op.Defer(gtx.Ops, m.Stop())
+		tip = "" // the row covers where the tip would be
+	}
+	if tip != "" {
+		m := op.Record(gtx.Ops)
+		g := gtx
+		g.Constraints = layout.Constraints{Max: image.Pt(w, gtx.Dp(200))}
+		d := label(g, th, th.MonoFont, th.Sp(theme.Caption), th.Fg, tip)
+		c := m.Stop()
+		box := image.Rectangle{Min: tipAt, Max: tipAt.Add(d.Size).Add(image.Pt(2*gtx.Dp(8), 2*gtx.Dp(5)))}
+		m = op.Record(gtx.Ops)
+		paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(box, gtx.Dp(6)).Op(gtx.Ops))
+		o := op.Offset(box.Min.Add(image.Pt(gtx.Dp(8), gtx.Dp(5)))).Push(gtx.Ops)
+		c.Add(gtx.Ops)
+		o.Pop()
+		op.Defer(gtx.Ops, m.Stop())
+	}
+	return y + h
+}
+
+func (s *Sidebar) tabNumber(id string) string {
+	if s.TabNumber == nil {
+		return ""
+	}
+	return s.TabNumber(id)
+}
+
+// Latency is a round trip as the host row shows it: "38 ms", "<1 ms".
+func Latency(d time.Duration) string {
+	if d < time.Millisecond {
+		return "<1 ms"
+	}
+	return strconv.FormatInt(d.Milliseconds(), 10) + " ms"
+}
+
+// lastSeen is how a down host's row or card says how old its state is.
+func (s *Sidebar) lastSeen(host string, now time.Time) string {
+	h, _ := FindHost(s.Hosts, host)
+	if rt := relTime(now, h.Since); rt != "" {
+		return "last seen " + rt
+	}
+	return "last seen earlier"
+}
+
+// offlinePill is a down host's tab's pill, in place of its last state.
+func offlinePill(gtx layout.Context, th *theme.Theme, base color.NRGBA) layout.Dimensions {
+	return statePill(gtx, th, 0, model.Activity{}, "Offline", th.Muted, base)
+}
+
+// answerLater is what a down host's tab says in place of its answers.
+func answerLater(host string) string { return "Answer when " + host + " is back" }
+
+// pillNote is the note beside a machine in the row of machines, shorter
+// at each level: level 1 drops "this machine" and the retry countdown,
+// level 2 keeps only "offline".
+func pillNote(hi HostInfo, level int, now time.Time) string {
+	switch {
+	case hi.Name == "" && level > 0:
+		return ""
+	case hi.Name == "":
+		return "this machine"
+	case !hi.Up && level == 0 && !hi.Retry.IsZero():
+		return fmt.Sprintf("offline, retry in %ds", max(1, int(hi.Retry.Sub(now).Round(time.Second).Seconds())))
+	case !hi.Up:
+		return "offline"
+	case level == 2:
+		return ""
+	case hi.Latency > 0:
+		return Latency(hi.Latency)
+	}
+	return "connecting"
 }

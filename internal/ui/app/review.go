@@ -97,7 +97,7 @@ func (n *nav) review(st *model.State, id, act string) any {
 		return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: []string{"sh", "-c", stageScript, "sh", dir}}
 	case act == "create_pr" && pr == "":
 		n.expectSession(st)
-		return proto.NewSession{Name: "PR " + ws.Branch, Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: prCmd(dir)}
+		return fromTab{ws.ID, proto.NewSession{Name: "PR " + ws.Branch, Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: prCmd(dir)}}
 	}
 	log.Printf("%s on tab %s: %q %q", act, id, diff, pr)
 	return nil

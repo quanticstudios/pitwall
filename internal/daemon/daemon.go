@@ -506,7 +506,8 @@ func (d *Daemon) tidy() {
 	// A chat tab whose chat did not load has nothing to show.
 	d.st.Workspaces = slices.DeleteFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Chat != "" && d.chats[w.Chat] == nil })
 	d.st.Sessions = slices.DeleteFunc(d.st.Sessions, func(s model.Session) bool {
-		return !slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
+		return len(s.Remotes) == 0 && // a shared session's tabs may all be on other hosts
+			!slices.ContainsFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.ID }) &&
 			!slices.ContainsFunc(d.st.Projects, func(p model.Project) bool { return p.SessionID == s.ID }) &&
 			!slices.ContainsFunc(d.st.Tasks, func(t model.Task) bool { return t.SessionID == s.ID })
 	})
@@ -1162,6 +1163,10 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.sessionRename(m)
 	case proto.SessionKill:
 		return d.sessionKill(m)
+	case proto.SessionLink:
+		return d.sessionLink(m)
+	case proto.SessionOrder:
+		return d.sessionOrder(m)
 	case proto.SessionShow:
 		return errors.New("only a GUI shows a session")
 	case proto.SetSessionGroup:

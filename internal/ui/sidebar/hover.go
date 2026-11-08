@@ -605,6 +605,9 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 	// Record once to learn the height, then place it.
 	m := op.Record(gtx.Ops)
 	c := cardFor(v, *ws)
+	if n := s.tabNumber(ws.ID); n != "" && s.hostOf(ws.ID) != "" {
+		c.path = "tab " + n + " · " + c.path // pitwall ls on that host numbers it so
+	}
 	if p := s.Profiles[ws.Profile]; p.Label != "" {
 		c.profile = p.Label
 	}

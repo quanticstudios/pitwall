@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -260,5 +261,422 @@ func TestWindowHosts(t *testing.T) {
 	}
 	if len(hosts) != 2 || hosts[0].name != "box" || hosts[1].name != "web" {
 		t.Fatalf("hosts %+v", hosts)
+	}
+}
+
+// next is the next message e reads that is not a latency ping.
+func next(e end) any {
+	for {
+		m := recv(e)
+		if _, ping := m.(proto.Sync); !ping {
+			return m
+		}
+	}
+}
+
+// TestMultiShared checks a shared session: box's part folds into the
+// session here, in the order this machine keeps; new tabs open on the
+// host asked for; renames and moves reach every part; a host with no part
+// gets one, which joins once it shows up; and a tab closed while its host
+// is down is forgotten here, not sent.
+func TestMultiShared(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Order = []string{"rw", "lw"}
+	ls.Sessions = append(ls.Sessions, model.Session{ID: "ls2", Name: "solo"})
+	ls.Workspaces = append(ls.Workspaces, model.Workspace{ID: "lw2", SessionID: "ls2"})
+	local, ld := localBackend(t, ls)
+	box := hostState("rs", "rw", "rp")
+	box.Sessions = append(box.Sessions, model.Session{ID: "os", Name: "other"})
+	box.Workspaces = append(box.Workspaces, model.Workspace{ID: "ow", SessionID: "os"})
+	conns := make(chan end, 1)
+	dial, dials := fakeDaemon(box, conns), 0
+	m := newMulti(local, []hostDial{{name: "box", ssh: "me@box", dial: func(s string, r bool) (*proto.Conn, proto.StateMsg, error) {
+		if dials++; dials > 1 {
+			return nil, proto.StateMsg{}, errors.New("cannot reach box over ssh: connection timed out")
+		}
+		return dial(s, r)
+	}}})
+	rd := <-conns
+	waitFor(t, "box's state", func() bool { return m.HostOf("rw") == "box" })
+
+	st := m.State()
+	if st.Session("rs") != nil || st.Session("os") == nil || st.Workspace("rw").SessionID != "ls" {
+		t.Fatalf("not folded: sessions %+v", st.Sessions)
+	}
+	if got := st.TopOrder("ls"); !slices.Equal(got, []string{"rw", "lw"}) {
+		t.Fatalf("order %v", got)
+	}
+	if h := m.Hosts(); !slices.Equal(h[1].Sessions, []string{"os"}) || h[1].SSH != "me@box" {
+		t.Fatalf("hosts %+v", h)
+	}
+	if m.HostOf("rp") != "box" || m.HostOf("lw") != "" {
+		t.Fatal("hosts of tabs and panes")
+	}
+	// Each host numbers its own tabs, as its pitwall ls does.
+	if m.TabNumber("rw") != "box:1" || m.TabNumber("lw") != "1" || m.TabNumber("ow") != "box:1" {
+		t.Fatalf("numbers %q %q %q", m.TabNumber("rw"), m.TabNumber("lw"), m.TabNumber("ow"))
+	}
+
+	m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls", FromPane: "lp"}})
+	if n, ok := next(rd).(proto.NewSession); !ok || n.SessionID != "rs" || n.FromPane != "" {
+		t.Fatalf("box got %#v", n)
+	}
+	m.Send(app.NewTabOn{Tab: proto.NewSession{SessionID: "ls"}})
+	if n, ok := next(ld).(proto.NewSession); !ok || n.SessionID != "ls" {
+		t.Fatalf("local got %#v", n)
+	}
+	m.Send(proto.MoveSession{WorkspaceID: "lw", Before: "rw"})
+	if o, ok := next(ld).(proto.SessionOrder); !ok || !slices.Equal(o.Order, []string{"lw", "rw"}) {
+		t.Fatalf("local got %#v", o)
+	}
+	if err := m.Send(proto.NewGroup{WorkspaceIDs: []string{"lw", "rw"}}); err == nil {
+		t.Fatal("grouped tabs of two machines")
+	}
+	m.Send(proto.SessionRename{SessionID: "ls", Name: "work"})
+	if r, ok := next(rd).(proto.SessionRename); !ok || r.SessionID != "rs" || r.Name != "work" {
+		t.Fatalf("box got %#v", r)
+	}
+	if r, ok := next(ld).(proto.SessionRename); !ok || r.SessionID != "ls" {
+		t.Fatalf("local got %#v", r)
+	}
+
+	// solo has no part on box: box makes a session named solo, which joins.
+	m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls2"}})
+	if n, ok := next(rd).(proto.SessionNew); !ok || n.Name != "solo" {
+		t.Fatalf("box got %#v", n)
+	}
+	box.Sessions = append(box.Sessions, model.Session{ID: "ss", Name: "solo"})
+	box.Workspaces = append(box.Workspaces, model.Workspace{ID: "sw", SessionID: "ss"})
+	rd.c.Send(proto.StateMsg{State: box, Level: proto.Level})
+	if l, ok := next(ld).(proto.SessionLink); !ok || l.SessionID != "ls2" || l.Host != "box" || l.Remote != "ss" {
+		t.Fatalf("local got %#v", l)
+	}
+
+	// box goes down: its tab stays, and closing it is kept here.
+	rd.nc.Close()
+	waitFor(t, "box down", func() bool { return !m.Hosts()[1].Up })
+	if st := m.State(); st.Workspace("rw") == nil {
+		t.Fatal("box's tab left with box")
+	}
+	m.Send(proto.CloseTab{WorkspaceID: "rw"})
+	if l, ok := next(ld).(proto.SessionLink); !ok || l.Remote != "rs" || !slices.Equal(l.Forget, []string{"rw"}) {
+		t.Fatalf("local got %#v", l)
+	}
+}
+
+// A shared session's order gains another host's tabs as they show up, so
+// they keep their places whatever order that host lists them in.
+func TestMultiSharedOrderSticks(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Order = []string{"lw"}
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's tab", func() bool { return m.HostOf("rw") == "box" })
+	if o, ok := next(ld).(proto.SessionOrder); !ok || o.SessionID != "ls" || !slices.Equal(o.Order, []string{"lw", "rw"}) {
+		t.Fatalf("local got %#v", o)
+	}
+}
+
+// A tab closed while its host was down stays forgotten here until the
+// host's state shows it gone: the close, after an unpin for a pinned tab,
+// goes to the host on reconnect, and Forget drops it only then.
+func TestMultiForgetKeptUntilGone(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs", Forget: []string{"rw"}}}
+	ls.Sessions[0].Order = []string{"lw"}
+	local, ld := localBackend(t, ls)
+	box := hostState("rs", "rw", "rp")
+	box.Workspaces[0].Pinned, box.Workspaces[0].Color = true, "teal"
+	box.Workspaces = append(box.Workspaces, model.Workspace{ID: "rw2", SessionID: "rs"})
+	conns := make(chan end, 1)
+	newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	if o, ok := next(rd).(proto.SetTabOptions); !ok || o.WorkspaceID != "rw" || o.Pinned || o.Color != "teal" {
+		t.Fatalf("box got %#v, want the unpin", o)
+	}
+	if c, ok := next(rd).(proto.CloseTab); !ok || c.WorkspaceID != "rw" {
+		t.Fatalf("box got %#v, want the close", c)
+	}
+	for m := recv(ld); m != nil; m = recv(ld) {
+		if l, ok := m.(proto.SessionLink); ok {
+			t.Fatalf("Forget changed before box closed the tab: %#v", l)
+		}
+	}
+	box.Workspaces = box.Workspaces[1:]
+	box.Panes = nil
+	rd.c.Send(proto.StateMsg{State: box, Level: proto.Level})
+	for {
+		m := recv(ld)
+		if m == nil {
+			t.Fatal("Forget never dropped the closed tab")
+		}
+		if l, ok := m.(proto.SessionLink); ok {
+			if l.Remote != "rs" || len(l.Forget) != 0 || !slices.Equal(l.Unforget, []string{"rw"}) {
+				t.Fatalf("local got %#v", l)
+			}
+			break
+		}
+	}
+}
+
+// sharedDown is a window whose session ls is shared with box, which it
+// never reaches, and this machine's daemon end.
+func sharedDown(t *testing.T) (*multi, end) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Order = []string{"rw", "lw", "lw2"}
+	ls.Workspaces = append(ls.Workspaces, model.Workspace{ID: "lw2", SessionID: "ls"})
+	local, ld := localBackend(t, ls)
+	m := newMulti(local, []hostDial{{name: "box", dial: func(string, bool) (*proto.Conn, proto.StateMsg, error) {
+		return nil, proto.StateMsg{}, errors.New("cannot reach box over ssh: connection timed out")
+	}}})
+	return m, ld
+}
+
+// A shared session is not killed while a part's host is down: its tabs
+// there would keep running with nothing left to stop them.
+func TestMultiKillWaitsForHosts(t *testing.T) {
+	m, ld := sharedDown(t)
+	if err := m.Send(proto.SessionKill{SessionID: "ls"}); err == nil || !strings.Contains(err.Error(), "box is offline") {
+		t.Fatalf("kill with box down: %v", err)
+	}
+	if got := recv(ld); got != nil {
+		t.Fatalf("local got %#v", got)
+	}
+}
+
+// Reordering while a host has sent no state yet, as after the window
+// restarted with box down, keeps box's tabs' saved places.
+func TestMultiOrderKeepsUnseenHost(t *testing.T) {
+	m, ld := sharedDown(t)
+	if err := m.Send(proto.MoveSession{WorkspaceID: "lw2", Before: "lw"}); err != nil {
+		t.Fatal(err)
+	}
+	if o, ok := recv(ld).(proto.SessionOrder); !ok || !slices.Equal(o.Order, []string{"rw", "lw2", "lw"}) {
+		t.Fatalf("local got %#v", o)
+	}
+}
+
+// Showing a shared session tells each part's host the window shows its
+// part, so pitwall attach there focuses this window.
+func TestMultiShowTellsParts(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	m.Send(proto.SessionShow{SessionID: "ls"})
+	if s, ok := next(rd).(proto.SessionShow); !ok || s.SessionID != "rs" {
+		t.Fatalf("box got %#v", s)
+	}
+	for {
+		m := next(ld)
+		if m == nil {
+			t.Fatal("local never heard of the shown session")
+		}
+		if s, ok := m.(proto.SessionShow); ok {
+			if s.SessionID != "ls" {
+				t.Fatalf("local got %#v", s)
+			}
+			break
+		}
+	}
+}
+
+// A daemon here too old to keep a shared session gets no part made on a
+// host, which it could not link.
+func TestMultiShareNeedsLevel(t *testing.T) {
+	local, _ := localBackend(t, hostState("ls", "lw", "lp"))
+	local.link.Level = proto.SharedLevel - 1
+	box := hostState("rs", "rw", "rp")
+	box.Sessions[0].Name = "other" // so box would make a part
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	if err := m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls"}}); err == nil {
+		t.Fatal("a part made for an old daemon here")
+	}
+	if got := next(rd); got != nil {
+		t.Fatalf("box got %#v", got)
+	}
+}
+
+// Killing a shared session ends its tabs here only once each part's
+// host shows its part gone: a kill lost on a dropping link is sent again,
+// and the tabs here stay until then.
+func TestMultiKillWaitsForParts(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, ld := localBackend(t, ls)
+	box := hostState("rs", "rw", "rp")
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	if err := m.Send(proto.SessionKill{SessionID: "ls"}); err != nil {
+		t.Fatal(err)
+	}
+	for got := next(rd); ; got = next(rd) {
+		if k, ok := got.(proto.SessionKill); ok && k.SessionID == "rs" {
+			break
+		} else if got == nil {
+			t.Fatal("box never got the kill")
+		}
+	}
+	kept := false
+	for got := recv(ld); got != nil; got = recv(ld) {
+		if _, ok := got.(proto.SessionKill); ok {
+			t.Fatal("killed here before box ended its part")
+		}
+		if l, ok := got.(proto.SessionLink); ok && l.SessionID == "ls" && l.Kill {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("the kill was not kept here")
+	}
+	// box's state shows the part gone: the part leaves, then the session
+	// ends here.
+	rd.c.Send(proto.StateMsg{State: model.State{Version: 2}, Level: proto.Level})
+	for got := next(ld); ; got = next(ld) {
+		if l, ok := got.(proto.SessionLink); ok && l.Remote == "" {
+			break
+		} else if got == nil {
+			t.Fatal("the gone part never left")
+		}
+	}
+	ls.Sessions = slices.Clone(ls.Sessions) // the backend holds the old one
+	ls.Sessions[0].Remotes, ls.Sessions[0].Killing, ls.Version = nil, true, 2
+	ld.c.Send(proto.StateMsg{State: ls, Level: proto.Level})
+	for got := next(ld); ; got = next(ld) {
+		if k, ok := got.(proto.SessionKill); ok && k.SessionID == "ls" {
+			break
+		} else if got == nil {
+			t.Fatal("never killed here")
+		}
+	}
+}
+
+// A kill a closed window left pending, kept by this machine's daemon, is
+// what the next window sends to a part still running.
+func TestMultiKillOutlivesWindow(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Killing = true
+	local, _ := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	for got := next(rd); ; got = next(rd) {
+		if k, ok := got.(proto.SessionKill); ok && k.SessionID == "rs" {
+			break
+		} else if got == nil {
+			t.Fatal("box never got the kill")
+		}
+	}
+}
+
+// A part that joins the session the window shows, as pitwall new --host
+// makes one, hears that the window shows it.
+func TestMultiShowTellsNewPart(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	m.Send(proto.SessionShow{SessionID: "ls"})
+	ls.Sessions = slices.Clone(ls.Sessions) // the backend holds the old one
+	ls.Sessions[0].Remotes, ls.Version = []model.RemoteSession{{Host: "box", Session: "rs"}}, 2
+	ld.c.Send(proto.StateMsg{State: ls, Level: proto.Level})
+	for got := next(rd); ; got = next(rd) {
+		if s, ok := got.(proto.SessionShow); ok && s.SessionID == "rs" {
+			break
+		} else if got == nil {
+			t.Fatal("box never heard the window shows its new part")
+		}
+	}
+}
+
+// A task in a box folder of a shared session starts in box's part, not
+// in the session here, even from a tab here.
+func TestMultiTaskOnHost(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	box := hostState("rs", "rw", "rp")
+	box.Projects = []model.Project{{ID: "rg", SessionID: "rs"}}
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's group", func() bool { return m.HostOf("rg") == "box" })
+	task := proto.NewTask{FromPane: "lp", Task: model.Task{SessionID: "ls", GroupID: "rg", Dir: "/src/app", Cmd: []string{"codex", "go"}}}
+	if err := m.Send(app.NewTaskOn{Host: "box", Task: task}); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := next(rd).(proto.NewTask); !ok || n.Task.SessionID != "rs" || n.Task.GroupID != "rg" || n.FromPane != "" {
+		t.Fatalf("box got %#v", n)
+	}
+	if err := m.Send(app.NewTaskOn{Task: task}); err != nil {
+		t.Fatal(err)
+	}
+	for got := next(ld); ; got = next(ld) {
+		if n, ok := got.(proto.NewTask); ok {
+			if n.Task.SessionID != "ls" || n.Task.GroupID != "" || n.FromPane != "lp" {
+				t.Fatalf("local got %#v", n)
+			}
+			break
+		} else if got == nil {
+			t.Fatal("local never got the task")
+		}
+	}
+}
+
+// A task with a schedule or an account profile is refused for a box
+// whose daemon is too old to keep them, instead of starting without.
+func TestMultiTaskOnOldHost(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, _ := localBackend(t, ls)
+	for _, tc := range []struct {
+		level int
+		task  model.Task
+		want  string
+	}{
+		{proto.ScheduleLevel - 1, model.Task{NextStart: time.Now().Add(time.Hour)}, "task schedules"},
+		{proto.ScheduleLevel - 1, model.Task{Repeat: time.Hour}, "task schedules"},
+		{proto.ProfileLevel - 1, model.Task{Profile: "work"}, "account profiles"},
+	} {
+		conns := make(chan end, 1)
+		dial := func(string, bool) (*proto.Conn, proto.StateMsg, error) {
+			gui, daemon := net.Pipe()
+			conns <- end{daemon, proto.NewConn(daemon)}
+			return proto.NewConn(gui), proto.StateMsg{State: hostState("rs", "rw", "rp"), Level: tc.level}, nil
+		}
+		m := newMulti(local, []hostDial{{name: "box", dial: dial}})
+		rd := <-conns
+		waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+		tc.task.SessionID, tc.task.Dir, tc.task.Cmd = "ls", "/src/app", []string{"codex"}
+		err := m.Send(app.NewTaskOn{Host: "box", Task: proto.NewTask{Task: tc.task}})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("level %d, %+v: %v", tc.level, tc.task, err)
+		}
+		rd.nc.Close()
 	}
 }

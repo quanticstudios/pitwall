@@ -80,6 +80,9 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), nameCol, p.Name)
 			}},
 		}
+		if host := s.hostOf(p.ID); host != "" {
+			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, host, bg) }})
+		}
 		for _, c := range summary {
 			// Each state's glyph, still, and its count.
 			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {

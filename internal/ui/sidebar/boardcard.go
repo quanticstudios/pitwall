@@ -195,9 +195,11 @@ func (s *Sidebar) cardTitle(gtx layout.Context, th *theme.Theme, st *model.State
 		}})
 	}
 	if card.Host != "" && s.bd.scope.Kind != board.ScopeHost {
-		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions { return hostLabel(gtx, th, card.Host) }})
+		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, card.Host, base) }})
 	}
-	if p := s.cardPill(card); p != nil {
+	if p := s.cardPill(card); p != nil && HostDown(s.Hosts, card.Host) {
+		items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions { return offlinePill(gtx, th, base) }})
+	} else if p != nil {
 		items = append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 			return p(gtx, th, base)
 		}})
@@ -223,28 +225,6 @@ func (s *Sidebar) cardMark(gtx layout.Context, th *theme.Theme, st *model.State,
 		})
 	}
 	return drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions { return AgentMark(gtx, p, gtx.Dp(14), th.Fg) })
-}
-
-// hostLabel is a remote tab's host in a small ringed tag.
-func hostLabel(gtx layout.Context, th *theme.Theme, host string) layout.Dimensions {
-	h, px := gtx.Dp(17), gtx.Dp(5)
-	m := op.Record(gtx.Ops)
-	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(gtx.Dp(96), h)}
-	d := hrowFit(g, h, gtx.Dp(3),
-		item{w: func(gtx layout.Context) layout.Dimensions { return drawIcon(gtx, icServer, gtx.Dp(10), th.Muted, 0) }},
-		item{w: func(gtx layout.Context) layout.Dimensions {
-			return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), th.Muted, host)
-		}},
-	)
-	call := m.Stop()
-	size := image.Pt(d.Size.X+2*px, h)
-	rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(4))
-	paint.FillShape(gtx.Ops, th.BorderStrong, clip.Stroke{Path: rr.Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
-	o := op.Offset(image.Pt(px, 0)).Push(gtx.Ops)
-	call.Add(gtx.Ops)
-	o.Pop()
-	return layout.Dimensions{Size: size}
 }
 
 // cardPill is the state in words on the sidebar's pill: a usage limit's
@@ -331,7 +311,11 @@ func (s *Sidebar) cardWhere(gtx layout.Context, th *theme.Theme, st *model.State
 			}})
 		}
 	}
-	if t, warn := cardTime(card, s.now); t != "" {
+	if HostDown(s.Hosts, card.Host) {
+		items = append(items, item{right: true, ml: gtx.Dp(6), w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, th.UIFont, mono, th.TextQuiet, s.lastSeen(card.Host, s.now))
+		}})
+	} else if t, warn := cardTime(card, s.now); t != "" {
 		col := th.TextQuiet
 		if warn {
 			col = th.Readable(th.Yellow, cardBg(th))
@@ -400,7 +384,14 @@ func (s *Sidebar) cardBody(gtx layout.Context, th *theme.Theme, st *model.State,
 	said := theme.Mix(th.Fg, th.Muted, 0.14)
 	a := card.Act
 	armed := s.Answers && s.bd.tr.Armed(card.ID, s.now)
+	down := HostDown(s.Hosts, card.Host)
 	switch {
+	case down && card.Kind == board.KindApproval:
+		parts = append(parts, s.askBox(th, st, card, ""))
+		text(answerLater(card.Host)+". The prompt may have changed meanwhile.", th.Muted, 2)
+	case down && (card.Kind == board.KindInput || card.Kind == board.KindPlan || card.Kind == board.KindError):
+		text(firstLine(a.Detail), th.Fg, 3)
+		text(answerLater(card.Host)+".", th.Muted, 2)
 	case card.Held:
 		parts = append(parts, s.askBox(th, st, card, "Answered"))
 	case card.Kind == board.KindApproval:

@@ -44,6 +44,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 68 added SessionLink, SessionOrder and model.Session.Remotes:
+// shared sessions, whose tabs are on several hosts.
 // Level 67 added Activity.Command, the command a pending approval asks
 // to run, for the board's cards.
 // Level 66 added Pane.LastPromptAt for jumping to the latest prompt.
@@ -187,7 +189,30 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 67
+const Level = 68
+
+// SharedLevel added SessionLink and SessionOrder.
+const SharedLevel = 68
+
+// SessionLink makes the session Remote on host Host part of the shared
+// session SessionID, or with Remote "" no longer part of it, which ends
+// SessionID when it has no tab here then. Forget adds ids to
+// model.RemoteSession's Forget and Unforget takes them out; a part that
+// changes its Remote starts with Forget alone. Kill instead only sets
+// model.Session's Killing. A window sends it; the daemon only keeps it
+// (docs/remote.md).
+type SessionLink struct {
+	SessionID, Host, Remote string
+	Forget, Unforget        []string
+	Kill                    bool
+}
+
+// SessionOrder sets SessionID's Order as given, other hosts' tabs and
+// groups included, for a window that moved an item of a shared session.
+type SessionOrder struct {
+	SessionID string
+	Order     []string
+}
 
 // PopupPathLevel added OpenPopup.Path.
 const PopupPathLevel = 60
@@ -246,6 +271,8 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case SessionLink, SessionOrder:
+		return SharedLevel
 	case Press:
 		return 61
 	case Deliver:
@@ -1031,6 +1058,7 @@ var Messages = []any{
 	EditScrollback{}, Scrollback{}, ScrollbackResult{},
 	Press{},
 	ForkPane{},
+	SessionLink{}, SessionOrder{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

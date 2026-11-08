@@ -30,7 +30,7 @@ func (u *ui) layoutBoard(gtx gl.Context, st *model.State) {
 		u.layoutPanes(gtx, st)
 		return
 	}
-	o := sidebar.BoardOptions{Hosts: u.boardHosts(), GuardDeny: u.cfg.GuardDeny, AllowKey: u.chordName("allow_prompt"), DenyKey: u.chordName("deny_prompt")}
+	o := sidebar.BoardOptions{Hosts: u.boardHosts(st), GuardDeny: u.cfg.GuardDeny, AllowKey: u.chordName("allow_prompt"), DenyKey: u.chordName("deny_prompt")}
 	for _, ev := range u.sidebar.Board(gtx, u.th, st, o) {
 		u.sidebarPointer(st, ev)
 	}
@@ -59,23 +59,29 @@ func (u *ui) boardKey(st *model.State, e key.Event, now time.Time) bool {
 	return true
 }
 
-// boardHosts is each session's machine by session id, for a window that
-// shows more than one; nil otherwise.
-func (u *ui) boardHosts() map[string]string {
+// boardHosts is each session's machine by session id, and each tab's of
+// a shared session by tab id, for a window that shows more than one; nil
+// otherwise.
+func (u *ui) boardHosts(st *model.State) map[string]string {
 	h, ok := u.b.(Hoster)
 	if !ok {
 		return nil
 	}
-	var out map[string]string
+	out := map[string]string{}
 	for _, hi := range h.Hosts() {
 		for _, s := range hi.Sessions {
 			if hi.Name != "" {
-				if out == nil {
-					out = map[string]string{}
-				}
 				out[s] = hi.Name
 			}
 		}
+	}
+	for _, w := range st.Workspaces {
+		if host := h.HostOf(w.ID); host != "" && out[w.SessionID] == "" {
+			out[w.ID] = host // a shared session's tab on another host
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -74,6 +74,13 @@ type Sidebar struct {
 	// one first: their sessions and the agents waiting anywhere show above
 	// the tabs. One or none draws nothing.
 	Hosts []HostInfo
+	// HostOf is the host of a tab or group id in a shared session, "" for
+	// this machine; nil when every tab is on one machine. Rows and group
+	// headers of another host show its chip.
+	HostOf func(id string) string
+	// TabNumber is a tab's number on its host ("box:3"), for a hover card;
+	// nil for none.
+	TabNumber func(id string) string
 	// HideSessions hides the host headings and sessions, keeping waiting agents.
 	HideSessions bool
 	// SessionPreview opens a session's tab list when its host row is hovered.
@@ -161,7 +168,12 @@ type Sidebar struct {
 	repoIcon   widget.Clickable     // the picker's tile for the repo's icon
 	colorBtn   [len(projectColorIDs)]widget.Clickable
 	tabColor   [len(tabColorIDs)]widget.Clickable
-	popover    int // tag that keeps clicks on a popover's body from closing it
+	// hostColor is the host whose color row shows under the host row, ""
+	// for none, and hostSwatch that row's swatches.
+	hostColor     string
+	hostSwatch    [len(tabColorIDs)]widget.Clickable
+	hostSwatchBox bool // its address is the color row's pointer tag
+	popover       int  // tag that keeps clicks on a popover's body from closing it
 
 	renaming      string // tab whose name is being edited
 	replying      string // or the tab whose plan gets Request changes…

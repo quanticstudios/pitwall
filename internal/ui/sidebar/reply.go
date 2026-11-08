@@ -557,5 +557,5 @@ func (s *Sidebar) replySheet(gtx layout.Context, v *view, ws model.Workspace, a 
 // its agent asks a question. A shell's notice and a tab whose agents show
 // as sub-rows have none.
 func (s *Sidebar) replyable(v *view, id string, ghost bool, a *model.Activity) bool {
-	return !ghost && a != nil && a.State == model.StateAwaitingInput && v.agent[id] != "" && v.agents[id] == nil
+	return !ghost && a != nil && a.State == model.StateAwaitingInput && v.agent[id] != "" && v.agents[id] == nil && !s.hostDown(id)
 }

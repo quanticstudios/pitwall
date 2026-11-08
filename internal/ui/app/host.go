@@ -1,6 +1,8 @@
 package app
 
 import (
+	"cmp"
+
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
@@ -30,12 +32,60 @@ func curHost() string {
 type Hoster interface {
 	SessionHost(session string) string // "" for this machine
 	Hosts() []sidebar.HostInfo         // this machine first
+	// HostOf is the host of a tab, group or pane id, "" for this machine.
+	// A shared session's tabs are on several.
+	HostOf(id string) string
+}
+
+// NewTabOn opens Tab on Host, "" for this machine, through a Hoster
+// backend. Tab.SessionID is the window's session; on another host the
+// backend opens it in that host's part of the shared session, which it
+// makes first when there is none.
+type NewTabOn struct {
+	Host string
+	Tab  proto.NewSession
+}
+
+// NewTaskOn starts or queues Task on Host through a Hoster backend, in
+// that host's part of the window's shared session.
+type NewTaskOn struct {
+	Host string
+	Task proto.NewTask
+}
+
+// fromTab is a tab that tab opens for itself, as Create PR, Merge PR and
+// Rerun checks do. send opens it on tab's host: in a shared session an
+// ungrouped tab of another host names no id of that host, and the command
+// must run where the tab's checkout is.
+type fromTab struct {
+	tab string
+	ns  proto.NewSession
+}
+
+// open is f as the backend takes it.
+func (f fromTab) open(b Backend) any {
+	if h, ok := b.(Hoster); ok {
+		if host := h.HostOf(f.tab); host != "" {
+			return NewTabOn{Host: host, Tab: f.ns}
+		}
+	}
+	return f.ns
+}
+
+// hostOf is the host of a tab, group or pane id, "" for this machine.
+func (u *ui) hostOf(id string) string {
+	if h, ok := u.b.(Hoster); ok {
+		return h.HostOf(id)
+	}
+	return Host
 }
 
 // showHost sets shownHost to the host of the session the window shows.
+// In a shared session it is the shown tab's host, so folders, links and
+// repos of a tab on another host are not looked for here.
 func (u *ui) showHost() {
 	if _, ok := u.b.(Hoster); ok {
-		shownHost = u.sessionHost(u.nav.session)
+		shownHost = cmp.Or(u.sessionHost(u.nav.session), u.hostOf(u.nav.workspace))
 	}
 }
 
@@ -71,4 +121,11 @@ func (u *ui) repoIcons() func(dir string) (proto.FaviconResult, bool) {
 		return ic.Favicon
 	}
 	return nil
+}
+
+// Numberer is optionally implemented by a Backend of several machines:
+// a tab's number as its host's pitwall ls gives it, "box:3" on another
+// host.
+type Numberer interface {
+	TabNumber(id string) string
 }

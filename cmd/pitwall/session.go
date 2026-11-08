@@ -156,6 +156,11 @@ func sessionsCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if len(s.Remotes) > 0 {
+			// why: this daemon cannot reach the other hosts, whose tabs
+			// would keep running there with nothing left to stop them.
+			return fmt.Errorf("session %s has tabs on %s; kill it from a pitwall window, which reaches every host", s.Name, s.Remotes[0].Host)
+		}
 		if !force && in != nil && term.IsTerminal(in.Fd()) {
 			sum := state.Summary(s.ID)
 			if _, err := fmt.Fprintf(errOut, "kill session %s and its %s? [y/N] ", s.Name, plural(sum.Tabs+sum.Detached, "tab")); err != nil {

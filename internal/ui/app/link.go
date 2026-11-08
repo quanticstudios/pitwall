@@ -40,6 +40,12 @@ type Link struct {
 	Epoch int    // counts connections made; a new one gets sizes and the session again
 	Level int    // the daemon's proto.Level
 	Build string // the daemon's version, empty below Level 25
+	// RTT is the last measured round trip to the daemon, 0 before one.
+	RTT time.Duration
+	// Retry is, while down, when the next try starts; zero while one runs.
+	Retry time.Time
+	// Since is when the last connection was lost, zero before any was.
+	Since time.Time
 }
 
 // Linker is optionally implemented by a Backend whose daemon connection can

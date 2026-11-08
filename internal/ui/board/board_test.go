@@ -212,6 +212,30 @@ func TestScope(t *testing.T) {
 	}
 }
 
+// TestSharedScope: a shared session's tab on another host is that host's
+// by its tab id, though its session is this machine's.
+func TestSharedScope(t *testing.T) {
+	var f fixture
+	f.tab("l", model.ProviderClaude, model.Workspace{SessionID: "s1"})
+	f.tab("b", model.ProviderClaude, model.Workspace{SessionID: "s1"})
+	f.act("l", model.Activity{State: model.StateWorking})
+	f.act("b", model.Activity{State: model.StateWorking})
+	hosts := map[string]string{"b": "box"}
+	for scope, want := range map[Scope]string{{ScopeHost, "box"}: "b", {ScopeHost, ""}: "l", {ScopeUngrouped, ""}: "l", {}: "b,l"} {
+		var ids []string
+		for _, c := range Derive(&f.st, Options{Now: now, Scope: scope, Hosts: hosts}).Cols[Working] {
+			ids = append(ids, c.ID)
+		}
+		slices.Sort(ids)
+		if got := strings.Join(ids, ","); got != want {
+			t.Errorf("scope %v: %s, want %s", scope, got, want)
+		}
+	}
+	if b := Derive(&f.st, Options{Now: now, Hosts: hosts}); b.All["b"].Host != "box" || b.All["l"].Host != "" {
+		t.Errorf("hosts %q %q", b.All["b"].Host, b.All["l"].Host)
+	}
+}
+
 // TestOrder: Needs you is approvals, questions, then plans, oldest first;
 // Working has quiet agents on top; Done has unseen turns on top.
 func TestOrder(t *testing.T) {

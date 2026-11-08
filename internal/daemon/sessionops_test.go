@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -181,5 +182,84 @@ func TestPlainWindowsGetTheirOwnSession(t *testing.T) {
 	st = c.waitState("state", func(s model.State) bool { return true })
 	if len(st.Sessions) != 2 || st.RecentFree() == nil || st.RecentFree().ID != first.ID {
 		t.Fatalf("third window: sessions %d, free %+v; want first back", len(st.Sessions), st.RecentFree())
+	}
+}
+
+// A shared session keeps its other hosts' parts and their places in its
+// order, outlives its last tab here while it has a part elsewhere, and
+// ends once the last part goes.
+func TestSharedSession(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	dir := t.TempDir()
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir}))
+	work := d.state().Sessions[0].ID
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir, SessionID: work}))
+	st := d.state()
+	a, b := st.Ordered(work)[0].ID, st.Ordered(work)[1].ID
+
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs"}))
+	must(t, d.handle(ctx, proto.SessionOrder{SessionID: work, Order: []string{"box-tab", a, "box-group", b, a}}))
+	if got := state(d).Session(work).Order; !slices.Equal(got, []string{"box-tab", a, "box-group", b}) {
+		t.Fatalf("order %v", got)
+	}
+	// A move here keeps the other host's ids where they were.
+	must(t, d.handle(ctx, proto.MoveSession{WorkspaceID: b, Before: a}))
+	if got := state(d).Session(work).Order; !slices.Equal(got, []string{"box-tab", b, a, "box-group"}) {
+		t.Fatalf("order after a move here %v", got)
+	}
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs", Forget: []string{"box-tab"}}))
+	if r := state(d).Session(work).Remote("box"); r == nil || r.Session != "rs" || !slices.Equal(r.Forget, []string{"box-tab"}) {
+		t.Fatalf("remote %+v", r)
+	}
+	// Another window forgets a tab from the same old list: both stay.
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs", Forget: []string{"box-tab2"}}))
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs", Unforget: []string{"box-tab"}}))
+	if r := state(d).Session(work).Remote("box"); r == nil || !slices.Equal(r.Forget, []string{"box-tab2"}) {
+		t.Fatalf("forget after two windows and a close there %+v", r)
+	}
+	// A kill is kept for the next window, and leaves the parts alone.
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Kill: true}))
+	if s := state(d).Session(work); !s.Killing || s.Remote("box") == nil {
+		t.Fatalf("after a kill %+v", s)
+	}
+
+	for _, id := range []string{a, b} {
+		must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: id}))
+	}
+	if state(d).Session(work) == nil {
+		t.Fatal("the shared session ended with its last tab here")
+	}
+	// A restart keeps a session whose tabs are all on other hosts.
+	d.mu.Lock()
+	d.tidy()
+	d.mu.Unlock()
+	if state(d).Session(work) == nil {
+		t.Fatal("a restart dropped the shared session with its tabs on box")
+	}
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box"}))
+	if state(d).Session(work) != nil {
+		t.Fatal("the session outlived its last part")
+	}
+}
+
+func state(d *Daemon) *model.State {
+	st := d.state()
+	return &st
+}
+
+// A tab's folder may start with ~/, the home folder of the daemon's
+// machine: pitwall new --host box '~/src' means box's.
+func TestNewTabHomeFolder(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+	mkdir(t, filepath.Join(home, "src"))
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	must(t, d.handle(context.Background(), proto.NewSession{Cwd: "~/src"}))
+	if st := d.state(); len(st.Workspaces) != 1 || st.Workspaces[0].Path != filepath.Join(home, "src") {
+		t.Fatalf("workspaces %+v", st.Workspaces)
 	}
 }

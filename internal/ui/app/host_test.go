@@ -60,6 +60,11 @@ func (hostFake) SessionHost(session string) string {
 	return ""
 }
 
+func (h hostFake) HostOf(id string) string {
+	st := h.State()
+	return h.SessionHost(st.SessionOf(id))
+}
+
 func (hostFake) Hosts() []sidebar.HostInfo {
 	return []sidebar.HostInfo{{Up: true, Sessions: []string{"s1", "s3"}}, {Name: "box", Up: true, Sessions: []string{"s2"}}}
 }
