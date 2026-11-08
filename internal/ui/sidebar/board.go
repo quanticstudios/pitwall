@@ -58,10 +58,13 @@ const (
 // boardState is the board's own state: its scope, cursor, scrolls,
 // widgets and motion.
 type boardState struct {
-	scope   board.Scope
-	shells  bool
-	cur     string // the card with keyboard focus, "" for none
-	reveal  bool   // scroll the cur card into view once: the keys moved it
+	scope  board.Scope
+	shells bool
+	cur    string // the card with keyboard focus, "" for none
+	reveal bool   // scroll the cur card into view once: the keys moved it
+	// shown is the cards drawn whole inside the board and still last frame,
+	// the ones keys may answer.
+	shown   map[string]bool
 	tr      board.Tracker
 	focus   bool // take key focus this frame
 	tag     int  // key focus
@@ -127,7 +130,7 @@ func (s *Sidebar) BoardFocus() { s.bd.focus = true }
 // otherwise.
 func (s *Sidebar) BoardAnswer(allow bool, now time.Time) (Event, bool) {
 	c, ok := s.bd.b.All[s.bd.cur]
-	if !ok || !s.Answers || c.Held || c.Answers() != board.AnswerAllow || !s.bd.tr.Armed(c.ID, now) {
+	if !ok || !s.Answers || c.Held || !s.bd.shown[c.ID] || c.Answers() != board.AnswerAllow || !s.bd.tr.Armed(c.ID, now) {
 		return nil, false
 	}
 	return Answer{PaneID: c.Act.PaneID, At: c.Act.UpdatedAt.UnixNano(), Allow: allow}, true
@@ -655,6 +658,7 @@ func (s *Sidebar) boardColumns(gtx layout.Context, th *theme.Theme, st *model.St
 	}
 	var over []flying
 	next := map[string]cardPlace{}
+	bd.shown = map[string]bool{}
 	first := len(bd.last) == 0
 	for _, c := range cols {
 		x := bd.colX[c] - bd.x
@@ -690,6 +694,14 @@ func (s *Sidebar) boardColumns(gtx layout.Context, th *theme.Theme, st *model.St
 			m := op.Record(gtx.Ops)
 			d := s.boardCard(cg, th, st, card)
 			call := m.Stop()
+			if card.ID == bd.cur && bd.reveal {
+				if y < bd.colY[c] {
+					bd.colY[c] = y
+				} else if y+d.Size.Y > bd.colY[c]+body.Dy() {
+					bd.colY[c] = y + d.Size.Y - body.Dy()
+				}
+				gtx.Execute(op.InvalidateCmd{})
+			}
 			at := image.Pt(bd.colX[c]+gtx.Dp(8), headH+y)
 			next[card.ID] = cardPlace{at, c}
 			screen := at.Sub(image.Pt(bd.x, bd.colY[c]))
@@ -704,6 +716,8 @@ func (s *Sidebar) boardColumns(gtx layout.Context, th *theme.Theme, st *model.St
 				}
 				alpha = t
 			}
+			whole := image.Rectangle{Min: screen, Max: screen.Add(d.Size)}
+			bd.shown[card.ID] = !moving && whole.In(body) && body.Min.X >= 0 && body.Max.X <= area.Dx()
 			if moving && from.col != c {
 				over = append(over, flying{call, from.at.Sub(image.Pt(bd.x, bd.colY[c])), d.Size})
 			} else {

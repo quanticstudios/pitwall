@@ -79,3 +79,28 @@ func TestBoardScrollKeepsAway(t *testing.T) {
 		t.Errorf("Down: cursor %q, scrolled to %d, want a00 in view at 0", h.s.bd.cur, h.s.bd.x)
 	}
 }
+
+// TestBoardAnswersShownCards: allow_prompt answers the focused card only
+// while it is drawn whole on screen; an arrow key scrolls its column so it
+// is.
+func TestBoardAnswersShownCards(t *testing.T) {
+	h := newBoardHarness(12)
+	h.s.bd.cur = "a11" // below the column's fold
+	for range 3 {
+		h.now = h.now.Add(time.Second)
+		h.frame()
+	}
+	if ev, ok := h.s.BoardAnswer(true, h.now); ok {
+		t.Fatalf("answered a card below the fold: %+v", ev)
+	}
+	h.s.bd.cur = "a10"
+	h.key(key.NameDownArrow) // back to a11, which the column scrolls to
+	for range 3 {
+		h.now = h.now.Add(time.Second)
+		h.frame()
+	}
+	ev, ok := h.s.BoardAnswer(true, h.now)
+	if a, _ := ev.(Answer); !ok || a.PaneID != "pa11" || !a.Allow {
+		t.Fatalf("after Down onto a11: %+v %v, scroll %d", ev, ok, h.s.bd.colY[0])
+	}
+}
