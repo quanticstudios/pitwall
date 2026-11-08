@@ -9,16 +9,16 @@ The install commands are in the [README](../README.md#install).
 | Windows 10 1809 or newer, 11   | x86_64, arm64  | new and not yet run        |
 
 pitwall is developed on Linux (Hyprland) and works on any Wayland or X11
-desktop. Releases are tagged `v0.1.N`, and each one bumps the patch number. Config and saved state carry
+desktop. Releases are tagged `v0.2.N`: `v0.2.0` starts the line and each later one bumps the patch number. Config and saved state carry
 over between releases, and a release that cannot keep them says so in the
 changelog.
 
 The script downloads the latest release for your system, checks it against
 the release's `checksums.txt`, and installs `pitwall` in `~/.local/bin`. On
 Windows it installs `pitwall.exe` in `%LOCALAPPDATA%\pitwall\bin`, adds that
-folder to your user PATH, and adds pitwall to the Start menu. To pin a release, set `PITWALL_VERSION=v0.1.1`; to
+folder to your user PATH, and adds pitwall to the Start menu. To pin a release, set `PITWALL_VERSION=v0.2.0`; to
 install somewhere else, set `PITWALL_INSTALL_DIR`. In PowerShell, set them
-first with `$env:PITWALL_VERSION = 'v0.1.1'`.
+first with `$env:PITWALL_VERSION = 'v0.2.0'`.
 
 ## Platform notes
 
@@ -89,7 +89,7 @@ one ([handoff.md](handoff.md)), so agents, dev servers and test loops keep
 running with their scrollback, and it prints which happened:
 
 ```
-Installed pitwall v0.1.40 over v0.1.39.
+Installed pitwall v0.2.1 over v0.2.0.
 The new daemon took over; every program in a pane kept running.
 ```
 

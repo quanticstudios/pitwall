@@ -105,6 +105,14 @@ git checkout -- CHANGELOG.md
 git switch --quiet -c other
 refuses 'not main'
 
+setup "$unreleased" 'v0.1.9 v0.1.15 v0.2.0'
+out=$(sh "$script" --dry-run)
+printf '%s' "$out" | grep -qE 'release-v0\.2\.1( |$)' || bad "next release after v0.2.0 is not v0.2.1: $out"
+
+setup "$unreleased" 'v0.1.9 v0.1.15'
+out=$(sh "$script" --dry-run)
+printf '%s' "$out" | grep -qE 'release-v0\.1\.16( |$)' || bad "release after v0.1.15 guessed a new minor: $out"
+
 setup "$unreleased" 'v0.0.10 v0.1.0-beta.17 v0.1.0-beta.18'
 out=$(sh "$script" --dry-run)
 printf '%s' "$out" | grep -qE 'release-v0\.1\.1( |$)' || bad "first release after betas is not v0.1.1: $out"
