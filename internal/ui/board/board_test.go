@@ -100,7 +100,7 @@ func TestColumns(t *testing.T) {
 			var f fixture
 			f.tab("x", claude, model.Workspace{})
 			c.set(&f)
-			b := Derive(&f.st, Options{Now: now})
+			b := Derive(&f.st, Options{Now: now, Session: "s1"})
 			if got := colOf(t, b, "x"); got != c.want || b.All["x"].Kind != c.kind {
 				t.Errorf("column %v kind %v, want %v %v; %s", got, b.All["x"].Kind, c.want, c.kind, where(b))
 			}
@@ -122,7 +122,7 @@ func TestShells(t *testing.T) {
 	f.act("o", model.Activity{State: model.StateWorking})
 	f.tab("gone", "", model.Workspace{Parent: "o"})
 
-	b := Derive(&f.st, Options{Now: now})
+	b := Derive(&f.st, Options{Now: now, Session: "s1"})
 	if got := where(b); got != "Needs you: ; Failed: ; Working: o,make; PR open: ; Done: ; Queued: ; Shells: " {
 		t.Errorf("shells hidden: %s", got)
 	}
@@ -132,7 +132,7 @@ func TestShells(t *testing.T) {
 	if k := b.All["gone"].Kind; k != KindStopped || b.All["o"].Fleet[Done] != 1 {
 		t.Errorf("stopped worker: kind %v, fleet %v", k, b.All["o"].Fleet)
 	}
-	b = Derive(&f.st, Options{Now: now, Shells: true})
+	b = Derive(&f.st, Options{Now: now, Session: "s1", Shells: true})
 	if got := strings.Join([]string{b.Cols[Shells][0].ID, b.Cols[Shells][1].ID}, ","); len(b.Cols[Shells]) != 2 || got != "sh,dev" && got != "dev,sh" {
 		t.Errorf("shells shown: %s", where(b))
 	}
@@ -149,7 +149,7 @@ func TestFolding(t *testing.T) {
 		f.tab(id, model.ProviderCodex, model.Workspace{Parent: "o"})
 		f.act(id, model.Activity{State: s})
 	}
-	b := Derive(&f.st, Options{Now: now})
+	b := Derive(&f.st, Options{Now: now, Session: "s1"})
 	if got := where(b); got != "Needs you: w2; Failed: w3; Working: o; PR open: ; Done: ; Queued: ; Shells: " {
 		t.Errorf("got %s", got)
 	}
@@ -165,7 +165,8 @@ func TestFolding(t *testing.T) {
 	}
 }
 
-// TestScope narrows the board to a group, the ungrouped tabs or a host,
+// TestScope narrows the board to the window's session by default, or to
+// every session, a group, the ungrouped tabs or a host,
 // and leaves out snoozed and settled tabs, counting them.
 func TestScope(t *testing.T) {
 	var f fixture
@@ -185,13 +186,14 @@ func TestScope(t *testing.T) {
 		scope Scope
 		want  string
 	}{
-		{Scope{}, "a,b,c,r|task:t1,task:t2"},
+		{Scope{}, "a,b,c|task:t1,task:t2"},
+		{Scope{ScopeAll, ""}, "a,b,c,r|task:t1,task:t2"},
 		{Scope{ScopeProject, "g1"}, "a|task:t1"},
 		{Scope{ScopeUngrouped, ""}, "c|task:t2"},
 		{Scope{ScopeHost, "box"}, "r|"},
 		{Scope{ScopeHost, ""}, "a,b,c|task:t1,task:t2"},
 	} {
-		b := Derive(&f.st, Options{Now: now, Scope: c.scope, Hosts: hosts})
+		b := Derive(&f.st, Options{Now: now, Session: "s1", Scope: c.scope, Hosts: hosts})
 		var ids, tasks []string
 		for _, card := range b.Cols[Working] {
 			ids = append(ids, card.ID)
@@ -207,7 +209,7 @@ func TestScope(t *testing.T) {
 			t.Errorf("snoozed %d settled %d, want 1 1", b.Snoozed, b.Settled)
 		}
 	}
-	if b := Derive(&f.st, Options{Now: now, Hosts: hosts}); b.All["r"].Host != "box" {
+	if b := Derive(&f.st, Options{Now: now, Scope: Scope{Kind: ScopeAll}, Hosts: hosts}); b.All["r"].Host != "box" {
 		t.Errorf("remote card's host %q", b.All["r"].Host)
 	}
 }
@@ -223,7 +225,7 @@ func TestSharedScope(t *testing.T) {
 	hosts := map[string]string{"b": "box"}
 	for scope, want := range map[Scope]string{{ScopeHost, "box"}: "b", {ScopeHost, ""}: "l", {ScopeUngrouped, ""}: "l", {}: "b,l"} {
 		var ids []string
-		for _, c := range Derive(&f.st, Options{Now: now, Scope: scope, Hosts: hosts}).Cols[Working] {
+		for _, c := range Derive(&f.st, Options{Now: now, Session: "s1", Scope: scope, Hosts: hosts}).Cols[Working] {
 			ids = append(ids, c.ID)
 		}
 		slices.Sort(ids)
@@ -231,7 +233,7 @@ func TestSharedScope(t *testing.T) {
 			t.Errorf("scope %v: %s, want %s", scope, got, want)
 		}
 	}
-	if b := Derive(&f.st, Options{Now: now, Hosts: hosts}); b.All["b"].Host != "box" || b.All["l"].Host != "" {
+	if b := Derive(&f.st, Options{Now: now, Session: "s1", Hosts: hosts}); b.All["b"].Host != "box" || b.All["l"].Host != "" {
 		t.Errorf("hosts %q %q", b.All["b"].Host, b.All["l"].Host)
 	}
 }
@@ -253,7 +255,7 @@ func TestOrder(t *testing.T) {
 	add("still", model.Activity{State: model.StateWorking, QuietSince: now.Add(-20 * time.Minute)}, 30*time.Minute)
 	add("seen", model.Activity{State: model.StateCompleted}, time.Minute)
 	add("unseen", model.Activity{State: model.StateCompleted, Unseen: true}, 40*time.Minute)
-	b := Derive(&f.st, Options{Now: now})
+	b := Derive(&f.st, Options{Now: now, Session: "s1"})
 	if got := where(b); got != "Needs you: old,new,q,plan; Failed: ; Working: still,busy; PR open: ; Done: unseen,seen; Queued: ; Shells: " {
 		t.Errorf("got %s", got)
 	}
@@ -291,7 +293,7 @@ func TestAnswers(t *testing.T) {
 		deny []string
 		want Answer
 	}{{nil, AnswerAllow}, {[]string{"rm -rf *"}, AnswerGuard}, {[]string{"npm publish *"}, AnswerAllow}} {
-		b := Derive(&f.st, Options{Now: now, GuardDeny: c.deny})
+		b := Derive(&f.st, Options{Now: now, Session: "s1", GuardDeny: c.deny})
 		if got := b.All["x"].Answers(); got != c.want {
 			t.Errorf("guard_deny %q: %v, want %v", c.deny, got, c.want)
 		}
@@ -317,7 +319,7 @@ func TestHold(t *testing.T) {
 	f.act("b", model.Activity{State: model.StatePendingApproval})
 	var tr Tracker
 	frame := func(held ...string) Board {
-		b := Derive(&f.st, Options{Now: now})
+		b := Derive(&f.st, Options{Now: now, Session: "s1"})
 		h := map[string]bool{}
 		for _, id := range held {
 			h[id] = true
@@ -358,7 +360,7 @@ func TestArming(t *testing.T) {
 	f.act("a", model.Activity{State: model.StatePendingApproval})
 	var tr Tracker
 	at := func(d time.Duration) {
-		b := Derive(&f.st, Options{Now: now})
+		b := Derive(&f.st, Options{Now: now, Session: "s1"})
 		tr.Hold(&b, nil, now.Add(d))
 	}
 	at(0)
@@ -393,7 +395,7 @@ func TestHoldPlace(t *testing.T) {
 	}
 	var tr Tracker
 	frame := func(at time.Duration, held ...string) Board {
-		b := Derive(&f.st, Options{Now: now})
+		b := Derive(&f.st, Options{Now: now, Session: "s1"})
 		h := map[string]bool{}
 		for _, id := range held {
 			h[id] = true
