@@ -142,7 +142,8 @@ a dot, its health and its tab count, and a rule in the host's color down
 the left of a host's tabs. A click on a header folds its tabs away, and a
 folded header counts the tabs that need you. Each window remembers the
 folds per session until it closes, and a section opens again when the
-active tab moves into it.
+active tab moves into it. While the sidebar has the keyboard the cursor
+stops on the headers too: Right or Enter opens one, Left or Enter folds it.
 
 In the inbox, Waiting on you and on the board, where tabs of several
 machines mix, a tab still names its host. The inbox has no machine lines,

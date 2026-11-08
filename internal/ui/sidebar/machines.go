@@ -214,6 +214,11 @@ func (s *Sidebar) machineHeader(gtx layout.Context, v *view, host string) {
 	area := clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &ms.ctx)
 	defer area.Pop()
+	if s.cursorOn('m', host) {
+		r := image.Rect(0, 0, w, h)
+		paint.FillShape(gtx.Ops, cursorFill(th, th.Sidebar, false), clip.UniformRRect(r, gtx.Dp(6)).Op(gtx.Ops))
+		cursorRing(gtx, th, r, gtx.Dp(6))
+	}
 
 	btn := gtx.Dp(20)
 	plus := hovered && !down // a down host takes no new tab

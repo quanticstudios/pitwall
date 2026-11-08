@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 
@@ -168,5 +169,65 @@ func TestMachineDrag(t *testing.T) {
 	want := MoveSession{WorkspaceID: "u1"}
 	if !slices.Contains(evs, Event(want)) {
 		t.Errorf("drop on box's row: %v, want %v", evs, want)
+	}
+}
+
+// With sections and every machine folded, the keyboard cursor sits on the
+// headers: Right or Enter opens a section, Right then steps into it, Left
+// goes back to its header and folds it, Delete on a header deletes nothing,
+// and Escape gives the keyboard back.
+func TestMachineKeys(t *testing.T) {
+	h := machineHarness(t, true)
+	h.s.hostFold = map[string]bool{foldKey("", ""): true, foldKey("", "box"): true, foldKey("", "gpu"): true}
+	h.frame()
+	h.s.Focus(&h.st, "", "u1")
+	press := func(k key.Name) ([]Event, bool) {
+		t.Helper()
+		evs, back, used := h.s.Key(&h.st, "", "u1", key.Event{Name: k, State: key.Press})
+		if !used {
+			t.Fatalf("%s not used", k)
+		}
+		return evs, back
+	}
+	for i, step := range []struct {
+		k    key.Name
+		want string
+	}{
+		{"", "m:"},                    // on this machine's folded header
+		{key.NameDownArrow, "m:box"},  // the next header: its tabs are folded away
+		{key.NameRightArrow, "m:box"}, // opens box
+		{key.NameRightArrow, "s:b1"},  // into box's first tab
+		{key.NameLeftArrow, "m:box"},  // back to its header
+		{key.NameLeftArrow, "m:box"},  // folds box
+		{key.NameDownArrow, "m:gpu"},
+		{key.NameReturn, "m:gpu"}, // opens gpu
+		{key.NameDownArrow, "s:g1"},
+	} {
+		if step.k != "" {
+			press(step.k)
+		}
+		if got := cursorAt(&h.s); got != step.want {
+			t.Fatalf("step %d: %s put the cursor on %s, want %s", i, step.k, got, step.want)
+		}
+	}
+	if h.s.sectionFolded(&view{session: ""}, "gpu") || !h.s.sectionFolded(&view{session: ""}, "box") {
+		t.Fatalf("folds %v", h.s.hostFold)
+	}
+	press(key.NameUpArrow) // gpu's header
+	if evs, _ := press(key.NameDeleteForward); len(evs) != 0 {
+		t.Errorf("Delete on a header: %v", evs)
+	}
+	if _, back := press(key.NameEscape); !back {
+		t.Error("Escape kept the keyboard")
+	}
+}
+
+// Escape gives the keyboard back even when the sidebar has no rows.
+func TestEscapeWithNoRows(t *testing.T) {
+	var s Sidebar
+	st := model.State{}
+	s.Focus(&st, "", "")
+	if _, back, used := s.Key(&st, "", "", key.Event{Name: key.NameEscape, State: key.Press}); !used || !back {
+		t.Fatalf("Escape with no rows: used %v, back %v", used, back)
 	}
 }
