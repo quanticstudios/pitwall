@@ -207,7 +207,7 @@ type Board struct {
 func (b *Board) Count(c Column) int { return len(b.Cols[c]) }
 
 // Derive sorts the state's tabs into columns. Workers fold into their
-// orchestrator's card unless they need the user or failed.
+// orchestrator's card while they work or are done.
 func Derive(st *model.State, o Options) Board {
 	b := Board{All: map[string]Card{}}
 	acts := map[string][]model.Activity{}
@@ -274,7 +274,9 @@ func Derive(st *model.State, o Options) Board {
 }
 
 // folds reports whether a worker in column c folds into its orchestrator.
-func folds(c Column) bool { return c == Working || c == PROpen || c == Done }
+// A worker with a pull request open keeps its own card in PR open, which
+// would otherwise hide it under an orchestrator that is done.
+func folds(c Column) bool { return c == Working || c == Done }
 
 func inScope(w model.Workspace, host string, o Options) bool {
 	s := o.Scope
