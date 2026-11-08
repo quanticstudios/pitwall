@@ -505,3 +505,19 @@ func TestTaskOnItsHost(t *testing.T) {
 		t.Fatalf("sent %#v", sent[len(sent)-1])
 	}
 }
+
+// A project on box, picked in New task opened from a tab here, gets no
+// issues or branches from a folder here of the same path.
+func TestTaskProjectOnHost(t *testing.T) {
+	called := make(chan string, 2)
+	defer func(f func(context.Context, string) ([]forge.Issue, error)) { listIssues = f }(listIssues)
+	listIssues = func(_ context.Context, dir string) ([]forge.Issue, error) { called <- dir; return nil, nil }
+	shownHost = "" // the open tab is this machine's
+	d := &taskDialog{projects: []taskProject{{dir: t.TempDir(), git: true, host: "box"}}}
+	d.pickProject(0, nil)
+	select {
+	case dir := <-called:
+		t.Fatalf("issues of %s read here for box's project", dir)
+	case <-time.After(200 * time.Millisecond):
+	}
+}

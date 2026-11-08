@@ -163,7 +163,8 @@ Renaming the shared session renames each part; killing it from the window
 kills them, and waits while a host with a part is down, so nothing keeps
 running there unseen. The tabs here close only once each host's state
 shows its part gone; until then the window sends the kill again, also
-after a reconnect, and the session stays in the sidebar. `pitwall session kill` refuses a shared session,
+after a reconnect or from the next window, and the session stays in the
+sidebar. `pitwall session kill` refuses a shared session,
 since it reaches only this machine's daemon. Create PR, Merge PR and Rerun
 checks run on the machine of the tab they start from.
 

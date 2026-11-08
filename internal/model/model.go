@@ -421,6 +421,10 @@ type Session struct {
 	// window joins their tabs in, and Order may then name their tabs and
 	// groups. A session with Remotes stays when its last tab here closes.
 	Remotes []RemoteSession `json:",omitempty"`
+	// Killing is set once a window killed this shared session: windows
+	// send the kill to each part's host until the part is gone, then end
+	// the session here.
+	Killing bool `json:",omitempty"`
 }
 
 // RemoteSession is a session on another host that is part of a shared

@@ -198,11 +198,13 @@ const SharedLevel = 68
 // session SessionID, or with Remote "" no longer part of it, which ends
 // SessionID when it has no tab here then. Forget adds ids to
 // model.RemoteSession's Forget and Unforget takes them out; a part that
-// changes its Remote starts with Forget alone. A window sends it; the
-// daemon only keeps it (docs/remote.md).
+// changes its Remote starts with Forget alone. Kill instead only sets
+// model.Session's Killing. A window sends it; the daemon only keeps it
+// (docs/remote.md).
 type SessionLink struct {
 	SessionID, Host, Remote string
 	Forget, Unforget        []string
+	Kill                    bool
 }
 
 // SessionOrder sets SessionID's Order as given, other hosts' tabs and

@@ -219,6 +219,11 @@ func TestSharedSession(t *testing.T) {
 	if r := state(d).Session(work).Remote("box"); r == nil || !slices.Equal(r.Forget, []string{"box-tab2"}) {
 		t.Fatalf("forget after two windows and a close there %+v", r)
 	}
+	// A kill is kept for the next window, and leaves the parts alone.
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Kill: true}))
+	if s := state(d).Session(work); !s.Killing || s.Remote("box") == nil {
+		t.Fatalf("after a kill %+v", s)
+	}
 
 	for _, id := range []string{a, b} {
 		must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: id}))

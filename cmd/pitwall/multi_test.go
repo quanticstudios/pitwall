@@ -535,10 +535,17 @@ func TestMultiKillWaitsForParts(t *testing.T) {
 			t.Fatal("box never got the kill")
 		}
 	}
+	kept := false
 	for got := recv(ld); got != nil; got = recv(ld) {
 		if _, ok := got.(proto.SessionKill); ok {
 			t.Fatal("killed here before box ended its part")
 		}
+		if l, ok := got.(proto.SessionLink); ok && l.SessionID == "ls" && l.Kill {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatal("the kill was not kept here")
 	}
 	// box's state shows the part gone: the part leaves, then the session
 	// ends here.
@@ -551,13 +558,34 @@ func TestMultiKillWaitsForParts(t *testing.T) {
 		}
 	}
 	ls.Sessions = slices.Clone(ls.Sessions) // the backend holds the old one
-	ls.Sessions[0].Remotes, ls.Version = nil, 2
+	ls.Sessions[0].Remotes, ls.Sessions[0].Killing, ls.Version = nil, true, 2
 	ld.c.Send(proto.StateMsg{State: ls, Level: proto.Level})
 	for got := next(ld); ; got = next(ld) {
 		if k, ok := got.(proto.SessionKill); ok && k.SessionID == "ls" {
 			break
 		} else if got == nil {
 			t.Fatal("never killed here")
+		}
+	}
+}
+
+// A kill a closed window left pending, kept by this machine's daemon, is
+// what the next window sends to a part still running.
+func TestMultiKillOutlivesWindow(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Killing = true
+	local, _ := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	for got := next(rd); ; got = next(rd) {
+		if k, ok := got.(proto.SessionKill); ok && k.SessionID == "rs" {
+			break
+		} else if got == nil {
+			t.Fatal("box never got the kill")
 		}
 	}
 }
@@ -617,5 +645,38 @@ func TestMultiTaskOnHost(t *testing.T) {
 		} else if got == nil {
 			t.Fatal("local never got the task")
 		}
+	}
+}
+
+// A task with a schedule or an account profile is refused for a box
+// whose daemon is too old to keep them, instead of starting without.
+func TestMultiTaskOnOldHost(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, _ := localBackend(t, ls)
+	for _, tc := range []struct {
+		level int
+		task  model.Task
+		want  string
+	}{
+		{proto.ScheduleLevel - 1, model.Task{NextStart: time.Now().Add(time.Hour)}, "task schedules"},
+		{proto.ScheduleLevel - 1, model.Task{Repeat: time.Hour}, "task schedules"},
+		{proto.ProfileLevel - 1, model.Task{Profile: "work"}, "account profiles"},
+	} {
+		conns := make(chan end, 1)
+		dial := func(string, bool) (*proto.Conn, proto.StateMsg, error) {
+			gui, daemon := net.Pipe()
+			conns <- end{daemon, proto.NewConn(daemon)}
+			return proto.NewConn(gui), proto.StateMsg{State: hostState("rs", "rw", "rp"), Level: tc.level}, nil
+		}
+		m := newMulti(local, []hostDial{{name: "box", dial: dial}})
+		rd := <-conns
+		waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+		tc.task.SessionID, tc.task.Dir, tc.task.Cmd = "ls", "/src/app", []string{"codex"}
+		err := m.Send(app.NewTaskOn{Host: "box", Task: proto.NewTask{Task: tc.task}})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("level %d, %+v: %v", tc.level, tc.task, err)
+		}
+		rd.nc.Close()
 	}
 }

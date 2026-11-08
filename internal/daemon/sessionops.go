@@ -146,6 +146,11 @@ func (d *Daemon) sessionLink(m proto.SessionLink) error {
 	if s == nil {
 		return fmt.Errorf("no session %s", m.SessionID)
 	}
+	if m.Kill {
+		s.Killing = true
+		d.changed()
+		return nil
+	}
 	if m.Host == "" {
 		return errors.New("a shared session's part needs a host")
 	}

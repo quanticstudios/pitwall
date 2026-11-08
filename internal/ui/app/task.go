@@ -329,7 +329,7 @@ func (t *taskDialog) pickProject(i int, invalidate func()) {
 		t.where = whereHere
 		return
 	}
-	if curHost() == "" { // the repo is on the host otherwise
+	if p.host == "" { // the repo is on the host otherwise, whatever tab is open
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		r, _ := gitstat.ListRefs(ctx, p.dir)
 		cancel()

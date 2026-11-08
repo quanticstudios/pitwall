@@ -60,9 +60,6 @@ type multi struct {
 	// so a merge before this machine's state shows it does not send it
 	// again within a few seconds.
 	asked map[[2]string]asked
-	// killing is the shared sessions here a kill waits on: each ends here
-	// once its parts have ended on their hosts.
-	killing map[string]bool
 	// shown is the session here the window shows, told the part each
 	// host last heard it shows, on which connection.
 	shown string
@@ -141,7 +138,7 @@ func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 func newMulti(local *backend, remotes []hostDial) *multi {
 	m := &multi{changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), owner: map[string]*hostLink{}, clipSeq: map[*hostLink]uint64{},
 		pending: map[[2]string]string{}, pendingHere: map[string][2]string{}, asked: map[[2]string]asked{},
-		killing: map[string]bool{}, told: map[string]told{}}
+		told: map[string]told{}}
 	m.hosts = append(m.hosts, &hostLink{b: local})
 	// The window takes its first session before its first frame.
 	select {
@@ -453,15 +450,14 @@ func (m *multi) reconcile(local model.State) {
 	// A killed shared session ends here once no part is left, which
 	// happens as each host's state shows its part gone (above); until
 	// then the kill goes again to each host that still has its part.
-	for id := range m.killing {
-		ss := local.Session(id)
-		if ss == nil {
-			delete(m.killing, id)
+	for _, ss := range local.Sessions {
+		if !ss.Killing {
 			continue
 		}
 		if len(ss.Remotes) == 0 {
-			if m.hosts[0].b.Send(proto.SessionKill{SessionID: id}) == nil {
-				delete(m.killing, id)
+			key := [2]string{ss.ID, "kill"}
+			if time.Since(m.asked[key].at) > 5*time.Second && m.hosts[0].b.Send(proto.SessionKill{SessionID: ss.ID}) == nil {
+				m.asked[key] = asked{at: time.Now()}
 			}
 			continue
 		}
@@ -610,14 +606,15 @@ func (m *multi) Send(msg any) error {
 		}
 		if st := m.hosts[0].b.State(); st.Session(v.SessionID) != nil && len(st.Session(v.SessionID).Remotes) > 0 {
 			// why: a kill sent over a link that drops is lost, so the tabs
-			// here stay until each part's host shows its part gone; see
-			// reconcile.
+			// here stay until each part's host shows its part gone, and
+			// this machine's daemon keeps the kill for the next window;
+			// see reconcile.
+			if err := m.hosts[0].b.Send(proto.SessionLink{SessionID: v.SessionID, Kill: true}); err != nil {
+				return err
+			}
 			m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
 				h.b.Send(proto.SessionKill{SessionID: r.Session})
 			})
-			m.mu.Lock()
-			m.killing[v.SessionID] = true
-			m.mu.Unlock()
 			return nil
 		}
 	case proto.CloseTab:
@@ -877,8 +874,17 @@ func (m *multi) newTaskOn(v app.NewTaskOn) error {
 			}
 			t.Task.SessionID = r.Session
 		}
-		if err := varsLevel(t.Task.Env, h.b.Link().Level); err != nil {
+		level := h.b.Link().Level
+		if err := varsLevel(t.Task.Env, level); err != nil {
 			return fmt.Errorf("%s: %w", h.name, err)
+		}
+		// why: an older daemon drops what it does not know, so the task
+		// would start at once, or under the default account.
+		if (!t.Task.NextStart.IsZero() || t.Task.Repeat > 0) && level < proto.ScheduleLevel {
+			return fmt.Errorf("pitwall's daemon on %s is too old for task schedules; update pitwall there or restart its daemon", h.name)
+		}
+		if t.Task.Profile != "" && level < proto.ProfileLevel {
+			return fmt.Errorf("pitwall's daemon on %s is too old for account profiles; update pitwall there or restart its daemon", h.name)
 		}
 	}
 	if m.of(t.FromPane) != h {

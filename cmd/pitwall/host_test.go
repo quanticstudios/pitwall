@@ -245,6 +245,9 @@ func fakeHost(t *testing.T) string {
 		}
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	// why: a -race build sleeps 1 s on exit, and one dial runs three of
+	// them in a row, most of waitFor's 5 s on a loaded CI runner.
+	t.Setenv("GORACE", os.Getenv("GORACE")+" atexit_sleep_ms=0")
 	return dir
 }
 
