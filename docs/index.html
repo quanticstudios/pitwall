@@ -285,7 +285,7 @@ scoop install pitwall</code></pre>
         </div>
         <div class="media stack">
           <div class="shot tall"><img src="media/row-answers.webp" width="288" height="354" loading="lazy" alt="Sidebar rows answering in place: a Codex pane's approval with Always, Allow and Deny, and under an orchestrator's row four workers, one with Allow and Deny and one asking which database to use with Redis and SQLite buttons"></div>
-          <div class="shot tall"><img src="media/phone.webp" width="780" height="1688" loading="lazy" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box"></div>
+          <div class="shot tall"><img src="media/phone.webp" width="780" height="1688" loading="lazy" alt="The phone page: two approvals with Allow and Deny buttons, a question from Fix the checkout race, and two finished turns with a Reply box"></div>
         </div>
       </div>
 
@@ -345,7 +345,7 @@ pitwall wait --children \
           <p><strong>Clean up what a worktree started.</strong> Set <code>teardown</code>, such as <code>docker compose down</code>, under <code>[worktrees]</code>, and it runs with the worktree's ports before pitwall removes the folder. A failure keeps the worktree and says why. A command from a repo's <code>.pitwall/worktree.toml</code> needs your yes each time, since anyone can put code in a repo you clone. Without a yes, pitwall skips it, shows what it would have run and removes the worktree.</p>
         </div>
         <div class="media">
-          <div class="shot"><img src="media/conflict.webp" width="600" height="420" loading="lazy" alt="The hover card of the Retry failed webhooks tab: its pull request with one check passed and one running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts, and its ports"></div>
+          <div class="shot"><img src="media/conflict.webp" width="600" height="430" loading="lazy" alt="The hover card of the Retry failed webhooks tab: pull request #217 open with review required, build passed and test running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts and which to merge first, its ports and the command it asks to run"></div>
         </div>
       </div>
 
@@ -439,7 +439,7 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
           <p><strong>Closing a tab or pane asks first when its agent is working or waiting on you mid-turn.</strong> The dialog names the tab and agents, once for the whole close. Turn it off in Settings, Appearance, Confirm close, or with <code>[appearance] confirm_close = false</code>.</p>
         </div>
         <div class="media">
-          <div class="shot tall"><img src="media/tabs.webp" width="288" height="460" loading="lazy" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working"></div>
+          <div class="shot tall"><img src="media/tabs.webp" width="288" height="570" loading="lazy" alt="The sidebar with pinned and colored tabs: a pinned blue rate limiting tab with its pull request ready, a red Retry failed webhooks tab waiting for approval, a pinned green Add dark mode tab whose pull request merged, and a violet Fix the checkout race tab waiting for input"></div>
         </div>
       </div>
 

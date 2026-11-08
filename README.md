@@ -139,7 +139,7 @@ them too.
 
 <br clear="right">
 
-<img src="docs/media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box" width="240" align="right">
+<img src="docs/media/phone.webp" alt="The phone page: two approvals with Allow and Deny buttons, a question from Fix the checkout race, and two finished turns with a Reply box" width="240" align="right">
 
 **Or answer from your phone.** Pair it by QR code and it lists what needs you,
 with Allow and Deny and a box for typed answers. A menu on an agent's screen
@@ -258,7 +258,7 @@ shows what it would have run and removes the worktree.
 `pitwall worktree rm --force` skips teardown.
 [Worktree ports and setup](docs/usage.md#worktree-ports-and-setup) has the rules.
 
-<img src="docs/media/conflict.webp" alt="The hover card of the Retry failed webhooks tab: its pull request with one check passed and one running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts, and its ports" width="600">
+<img src="docs/media/conflict.webp" alt="The hover card of the Retry failed webhooks tab: pull request #217 open with review required, build passed and test running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts and which to merge first, its ports and the command it asks to run" width="600">
 
 ### Limit what an agent can do by accident
 
@@ -376,7 +376,7 @@ Mac still sleeps when you tell it to. Windows does nothing.
 
 ### Pin and color the tabs you keep
 
-<img src="docs/media/tabs.webp" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working" width="240" align="right">
+<img src="docs/media/tabs.webp" alt="The sidebar with pinned and colored tabs: a pinned blue rate limiting tab with its pull request ready, a red Retry failed webhooks tab waiting for approval, a pinned green Add dark mode tab whose pull request merged, and a violet Fix the checkout race tab waiting for input" width="240" align="right">
 
 **Pin a tab and it stays open.** Closing it from the window asks you to
 unpin it first, and `pitwall kill` from a script or another agent is
