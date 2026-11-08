@@ -199,11 +199,13 @@ and session, even if its agent has exited. Repeating it stays there.
 If the pane closes, it uses the previous prompt's pane that is still open
 and attached. With none, it shows "No prompt pane is open".
 
-The daemon records the pane's own prompt-submit hooks, including slash
-commands. Tool reports, status changes and nested agents' hooks during
-an active turn do not change the destination. GUI reply submissions,
-including queued replies, phone text replies and `pitwall send` outside
-a pane also count. Sends from a pane keep their agent attribution.
+The daemon records prompt-submit hooks for text you type in the pane,
+including slash commands. GUI reply submissions, including queued replies,
+phone text replies and `pitwall send` with no sending pane also count.
+Their later hooks do not change the destination again. Sends from another
+pane, automatic CI failures, fleet notes, quiet nudges and usage-limit
+resumes do not count. Tool reports, status changes and nested agents' hooks
+during an active turn do not change the destination.
 Prompt times stay in memory until the daemon restarts. Reopening a window
 keeps them; restarting the daemon clears them. Rebind `jump_last_prompt`
 in `[keys]` or Settings, or run "Jump to last prompt" from the palette.

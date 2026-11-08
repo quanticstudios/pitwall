@@ -1532,6 +1532,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.mail.drafting, id)
 	delete(d.mail.returnAt, id)
 	delete(d.mail.delivered, id)
+	delete(d.mail.daemonPrompt, id)
 	delete(d.mail.held, id)
 	d.dropResume(id)
 	delete(d.lim.seen, id)
@@ -1777,7 +1778,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			turnDir, turnWS = d.st.LivePath(*w), w.ID
 		}
 	}
-	if agent.PromptSubmitted(m.Payload) {
+	if agent.PromptSubmitted(m.Payload) && !d.mail.daemonPrompt[p.ID] {
 		p.LastPromptAt, changed = now, true
 	}
 	if agent.Prompt(m.Provider, m.Payload) != "" {

@@ -145,10 +145,12 @@ type mail struct {
 	held     map[string]bool // pane: a draft holds its messages
 	// delivered is the highest proto.Deliver.Seq typed into a pane.
 	delivered map[string]uint64
+	// daemonPrompt keeps hooks for daemon-typed text from counting as user submissions.
+	daemonPrompt map[string]bool
 }
 
 func newMail() mail {
-	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, delivered: map[string]uint64{}}
+	return mail{queue: map[string][]letter{}, typed: map[string]time.Time{}, keyAt: map[string]time.Time{}, sent: map[string]int{}, wake: map[string]*time.Timer{}, drafting: map[string]bool{}, returnAt: map[string]time.Time{}, held: map[string]bool{}, delivered: map[string]uint64{}, daemonPrompt: map[string]bool{}}
 }
 
 // letter is a queued message; from is the sending pane, "" for a script.
@@ -367,6 +369,7 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 		delete(d.mail.returnAt, pane)
 		if p := d.panes[pane]; p != nil && bytes.Equal(b, press(key.NameReturn, p.Modes())) {
 			d.mail.returnAt[pane] = time.Now()
+			delete(d.mail.daemonPrompt, pane)
 		}
 	}
 	delete(d.mail.sent, pane)

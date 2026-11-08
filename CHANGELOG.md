@@ -17,7 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- Jump to the pane you last sent an agent prompt with Ctrl+Alt+U, or Cmd+Option+U in mac, across tabs and sessions. Rebind `jump_last_prompt` in Settings. Prompt times stay in memory until the daemon restarts.
+- Jump to the pane you last sent an agent prompt with Ctrl+Alt+U, or Cmd+Option+U in mac, across tabs and sessions. Only your own prompts count; messages from other panes and automatic messages keep the destination. Rebind `jump_last_prompt` in Settings. Prompt times stay in memory until the daemon restarts.
 - Keep the protocol compatible with running daemons when adding prompt tracking.
 
 - Keep the pane's agent status and resume session when it runs another agent during a turn.
