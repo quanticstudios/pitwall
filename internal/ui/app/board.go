@@ -41,16 +41,17 @@ func (u *ui) layoutBoard(gtx gl.Context, st *model.State) {
 func (u *ui) boardShown() bool { return u.boardOn && !u.settings.Shown() && !u.review.on }
 
 // boardKey sends allow_prompt and deny_prompt to the board's focused card
-// while the board shows, and never to a pane behind it.
+// while the board shows, and never to a pane behind it. While the board is
+// on under the settings page or the review view, they answer nothing.
 func (u *ui) boardKey(st *model.State, e key.Event, now time.Time) bool {
-	if !u.boardShown() {
+	if !u.boardOn {
 		return false
 	}
 	act := u.nav.bind().Action(e)
 	if act != "allow_prompt" && act != "deny_prompt" {
 		return false
 	}
-	if e.State == key.Press {
+	if e.State == key.Press && u.boardShown() {
 		if ev, ok := u.sidebar.BoardAnswer(act == "allow_prompt", now); ok {
 			u.sidebarEvent(st, ev)
 		}

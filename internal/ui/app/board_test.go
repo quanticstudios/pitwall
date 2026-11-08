@@ -57,18 +57,29 @@ func TestBoardKeys(t *testing.T) {
 }
 
 // TestBoardKeysOnlyWhileShown: with the settings page or the review view
-// over the board, allow_prompt does not answer the board's focused card.
+// over the board, allow_prompt answers nothing: not the board's focused
+// card, and not the approval of the tab the board was opened over.
 func TestBoardKeysOnlyWhileShown(t *testing.T) {
-	u, keys := keyWindow(t, conventional)
-	cs := key.ModCtrl | key.ModShift
-	keys(press("M", cs), press(key.NameDownArrow, 0))
-	time.Sleep(board.Arming + 50*time.Millisecond)
-	u.toggleSettings()
-	keys(press("Y", cs))
-	for _, m := range u.b.(*FakeBackend).Sent() {
-		if a, ok := m.(proto.Answer); ok {
-			t.Fatalf("Ctrl+Shift+Y under the settings page sent %+v", a)
-		}
+	for _, cover := range []string{"settings", "review"} {
+		t.Run(cover, func(t *testing.T) {
+			u, keys := keyWindow(t, conventional)
+			st := u.b.State()
+			u.nav.selectWorkspace(&st, "w4", "g") // its Claude waits for approval behind the board
+			cs := key.ModCtrl | key.ModShift
+			keys(press("M", cs), press(key.NameDownArrow, 0))
+			time.Sleep(board.Arming + 50*time.Millisecond)
+			if cover == "settings" {
+				u.openSettings()
+			} else {
+				u.review.on, u.review.ws = true, u.nav.workspace
+			}
+			keys(press("Y", cs))
+			for _, m := range u.b.(*FakeBackend).Sent() {
+				if a, ok := m.(proto.Answer); ok {
+					t.Fatalf("Ctrl+Shift+Y under the %s sent %+v", cover, a)
+				}
+			}
+		})
 	}
 }
 
