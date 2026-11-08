@@ -582,8 +582,19 @@ func eachString(v reflect.Value, f func(string) bool) bool {
 
 // Send goes to the daemon that owns what msg names; see route. A
 // SessionShow also makes its host the window's, for messages that name
-// no id.
+// no id. The window shows why a tab, task, group, move or kill failed.
 func (m *multi) Send(msg any) error {
+	err := m.send(msg)
+	if err != nil {
+		switch msg.(type) {
+		case app.NewTabOn, app.NewTaskOn, proto.NewSession, proto.SessionKill, proto.NewGroup, proto.MoveSession, proto.MoveGroup:
+			return app.Refusal{Err: err}
+		}
+	}
+	return err
+}
+
+func (m *multi) send(msg any) error {
 	switch v := msg.(type) {
 	case app.NewTabOn:
 		return m.newTabOn(v)
@@ -1110,6 +1121,18 @@ func (m *multi) Favicon(dir string) (proto.FaviconResult, bool) {
 	cur := m.cur
 	m.mu.Unlock()
 	return cur.b.Favicon(dir)
+}
+
+// FaviconOn implements app.HostIconer: host's daemon looks dir up, the
+// window's for "".
+func (m *multi) FaviconOn(host, dir string) (proto.FaviconResult, bool) {
+	if host == "" {
+		return m.Favicon(dir)
+	}
+	if h := m.byName(host); h != nil {
+		return h.b.Favicon(dir)
+	}
+	return proto.FaviconResult{}, false
 }
 
 func (m *multi) TakeMoves() []proto.FocusDir {

@@ -4,6 +4,7 @@ package app
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -396,6 +397,9 @@ func (u *ui) send(msg any) bool {
 	if err != nil {
 		if ok, held := sendErrs.Allow("", time.Now()); ok {
 			log.Printf("send %T: %q; %d more since the last line", msg, err, held)
+		}
+		if r := (Refusal{}); errors.As(err, &r) {
+			u.sendFailed(r.Error())
 		}
 	}
 	return err == nil

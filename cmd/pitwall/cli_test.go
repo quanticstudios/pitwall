@@ -571,7 +571,7 @@ func TestNewOnHostRefuses(t *testing.T) {
 		c, err := dialCLI()
 		return c, func() { c.Close() }, err
 	}
-	_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}})
+	_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}}, false)
 	if err == nil || !strings.Contains(err.Error(), "would drop") {
 		t.Fatalf("an old host took a guarded tab: %v", err)
 	}

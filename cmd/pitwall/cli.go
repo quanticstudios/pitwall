@@ -185,9 +185,10 @@ func withIssue(cmd []string, dir string, n int) ([]string, error) {
 
 // newOnHost opens tab on host, in that host's part of the shared session
 // here: the part it has, else the host's session of the same name, else a
-// new one of that name. The part then joins session. It returns the
-// tab's number there, "box:3".
-func newOnHost(local *cliConn, session *model.Session, host string, tab proto.NewSession) (string, error) {
+// new one of that name. The part then joins session. A detached tab is
+// hidden there, as new -d hides one here. It returns the tab's number
+// there, "box:3".
+func newOnHost(local *cliConn, session *model.Session, host string, tab proto.NewSession, detached bool) (string, error) {
 	hc, done, err := dialHost(host)
 	if err != nil {
 		return "", err
@@ -245,6 +246,11 @@ func newOnHost(local *cliConn, session *model.Session, host string, tab proto.Ne
 	}
 	if id == "" {
 		return "", errors.New("cannot identify the new tab on " + host)
+	}
+	if detached {
+		if hs, err = syncCLI(hc, proto.DetachSession{WorkspaceID: id, Detached: true}); err != nil {
+			return "", err
+		}
 	}
 	return tabNumber(host, hs.Numbered(partID), id), nil
 }
@@ -371,7 +377,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 			if len(args) == 1 {
 				dir = args[0] // a folder on the host
 			}
-			num, err := newOnHost(conn, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars})
+			num, err := newOnHost(conn, &session, hostName, proto.NewSession{Name: name, Cwd: dir, Cmd: cmd, Env: vars}, detached)
 			if err != nil {
 				return err
 			}

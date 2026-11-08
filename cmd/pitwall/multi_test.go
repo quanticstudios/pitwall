@@ -443,8 +443,12 @@ func sharedDown(t *testing.T) (*multi, end) {
 // there would keep running with nothing left to stop them.
 func TestMultiKillWaitsForHosts(t *testing.T) {
 	m, ld := sharedDown(t)
-	if err := m.Send(proto.SessionKill{SessionID: "ls"}); err == nil || !strings.Contains(err.Error(), "box is offline") {
+	err := m.Send(proto.SessionKill{SessionID: "ls"})
+	if err == nil || !strings.Contains(err.Error(), "box is offline") {
 		t.Fatalf("kill with box down: %v", err)
+	}
+	if !errors.As(err, new(app.Refusal)) {
+		t.Fatalf("kill with box down is no refusal the window shows: %#v", err)
 	}
 	if got := recv(ld); got != nil {
 		t.Fatalf("local got %#v", got)
