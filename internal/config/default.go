@@ -29,6 +29,7 @@ func defaults() Config {
 	off := false
 	c.Usage.ShowCost, c.Usage.LimitsInSidebar = &off, &off
 	c.Appear.ReduceMotion, c.Appear.RemoteControl = &off, &on
+	c.Appear.ConfirmClose = &on
 	c.Worktrees = defaultWorktrees()
 	c.Git = defaultGit()
 	c.Sidebar = defaultSidebar()

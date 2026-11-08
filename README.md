@@ -370,6 +370,12 @@ soft green mark under the agent's icon shows which Claude Code sessions
 have `/remote-control` on, so you know which ones you can pick up from your
 phone.
 
+Closing any tab or pane from the GUI asks first when its agent is working
+or waiting on you mid-turn. The dialog names the tab and agents, once for
+the whole close. Pinned tabs keep only their unpin dialog. Turn this check
+off in **Settings > Appearance > Confirm close**, or with
+`[appearance] confirm_close = false`. CLI kills keep their existing behavior.
+
 <br clear="right">
 
 ### Drive it from the keyboard

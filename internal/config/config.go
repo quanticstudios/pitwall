@@ -219,6 +219,7 @@ type Font struct {
 
 // Appearance is [appearance].
 type Appearance struct {
+	ConfirmClose  *bool `toml:"confirm_close" doc:"Ask before closing a tab or pane with an agent mid-turn. Pinned tabs always ask to unpin first. On by default"`
 	ReduceMotion  *bool `toml:"reduce_motion" doc:"Show dialogs, menus, hover and focus changes at once instead of easing them in"`
 	RemoteControl *bool `toml:"remote_control" doc:"Mark a tab in the sidebar, under its agent's icon, while its agent can be driven from another device: Claude Code with /remote-control on"`
 }
@@ -312,6 +313,8 @@ type Settings struct {
 	ShowCost bool
 	// ReduceMotion turns the window's transitions off.
 	ReduceMotion bool
+	// ConfirmClose asks before a GUI close stops an agent mid-turn.
+	ConfirmClose bool
 	// LimitsInSidebar shows the plan limits' meter in the sidebar.
 	LimitsInSidebar bool
 	// RemoteControl marks tabs whose agent is under remote control.
@@ -580,6 +583,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.UpdateScreenPatterns = c.Updates.ScreenPatterns == nil || *c.Updates.ScreenPatterns
 	s.ShowCost = c.Usage.ShowCost != nil && *c.Usage.ShowCost
 	s.ReduceMotion = c.Appear.ReduceMotion != nil && *c.Appear.ReduceMotion
+	s.ConfirmClose = c.Appear.ConfirmClose == nil || *c.Appear.ConfirmClose
 	s.RemoteControl = c.Appear.RemoteControl == nil || *c.Appear.RemoteControl
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts

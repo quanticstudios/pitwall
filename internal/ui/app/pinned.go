@@ -30,13 +30,19 @@ func pinnedClose(st *model.State, msg any) *model.Workspace {
 	return nil
 }
 
-// sendOrAsk sends msg, or opens the pinned dialog when msg would close a
-// pinned tab; its Unpin and close sends msg after the unpin.
+// sendOrAsk asks once before closing a pinned tab or an agent mid-turn.
 func (u *ui) sendOrAsk(st *model.State, msg any) {
 	if w := pinnedClose(st, msg); w != nil {
 		u.modal.open(modalPinned, w.ID)
 		u.modal.then = msg
 		return
+	}
+	if u.cfg.ConfirmClose {
+		if w, agents := runningClose(st, msg); len(agents) > 0 {
+			u.modal.open(modalClose, w.ID)
+			u.modal.then, u.modal.agents = msg, agents
+			return
+		}
 	}
 	u.send(msg)
 }

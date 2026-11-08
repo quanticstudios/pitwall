@@ -797,6 +797,8 @@ func (p *Page) appearance() []section {
 				control: p.stepper("font", "line_height", f.LineHeight, 0.8, 3, 0.05, 1)},
 		}},
 		{title: "Panes", rows: []row{
+			{label: "Confirm close", desc: "Ask before closing a tab or pane with an agent working or waiting on you mid-turn. Pinned tabs always ask to unpin first.",
+				extra: "confirm_close stop kill agent tab", control: p.toggle("appearance", "confirm_close", p.s.ConfirmClose)},
 			{label: "Pane gap", desc: "Space between split panes, in dp.", extra: "spacing split",
 				control: p.stepper("layout", "pane_gap", p.s.PaneGap, 0, 64, 1, config.DefaultPaneGap)},
 			{label: "Pane margin", desc: "Space between the panes and the window edges and sidebar, in dp.", extra: "spacing padding",
