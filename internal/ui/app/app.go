@@ -34,6 +34,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/anim"
+	"github.com/quanticstudios/pitwall/internal/ui/board"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/panel"
 	"github.com/quanticstudios/pitwall/internal/ui/settings"
@@ -349,8 +350,12 @@ type ui struct {
 	profile profileChoice // New tab's account picker
 
 	review reviewView // the review view, shown in place of the panes
-	sends  agentSends // Send failures and Send review comments, fetching
-	pastes hostPastes // a --host window's image pastes
+	// boardOn shows the board in place of the panes, opened over tab
+	// boardWS; showing another tab closes it.
+	boardOn bool
+	boardWS string
+	sends   agentSends // Send failures and Send review comments, fetching
+	pastes  hostPastes // a --host window's image pastes
 
 	replyImg *replyImage // the reply sheet's image on its way, see reply.go
 
@@ -531,6 +536,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.diff = false
 		u.toggleReview(st)
 	}
+	if u.nav.board {
+		u.nav.board = false
+		u.toggleBoard()
+	}
 	if u.nav.sidebarKeys {
 		u.nav.sidebarKeys = false
 		u.toggleSidebarKeys(st)
@@ -589,6 +598,8 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.HideSessions = !u.cfg.Sidebar.Sessions
 	u.sidebar.SessionPreview = u.cfg.Sidebar.SessionPreview
 	u.sidebar.Forks = u.link().Level >= proto.ForkLevel
+	// why: before drawing; the board's cards read it while the sidebar is hidden.
+	u.sidebar.Answers = u.canAnswer()
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
 	for _, p := range u.panes {
@@ -605,6 +616,10 @@ func (u *ui) layout(gtx gl.Context) {
 		}
 	}
 	u.applyJump(&st)
+	if OpenBoard && !u.boardOn && u.nav.workspace != "" {
+		OpenBoard = false
+		u.toggleBoard()
+	}
 	u.showHost()
 	u.openRequested(&st, gtx.Now)
 	u.keepSidebarKeys()
@@ -658,7 +673,7 @@ func (u *ui) layout(gtx gl.Context) {
 		if u.settingsShortcut(ev.(key.Event)) || u.sidebarKey(&st, ev.(key.Event)) {
 			continue
 		}
-		if u.popupKey(&st, ev.(key.Event)) {
+		if u.popupKey(&st, ev.(key.Event)) || u.boardKey(&st, ev.(key.Event), gtx.Now) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
@@ -756,6 +771,9 @@ func (u *ui) layout(gtx gl.Context) {
 	} else if u.review.on {
 		u.paneMenu.close()
 		u.layoutReview(pgtx, &st)
+	} else if u.boardOn {
+		u.paneMenu.close()
+		u.layoutBoard(pgtx, &st)
 	} else {
 		u.layoutPanes(pgtx, &st)
 		u.drawWelcome(pgtx, &st)
@@ -812,7 +830,8 @@ func (u *ui) layout(gtx gl.Context) {
 		if u.cfg.LimitsInSidebar {
 			u.sidebar.Limits = u.limits.get()
 		}
-		u.sidebar.Answers = u.canAnswer()
+		u.sidebar.BoardOn = u.boardOn
+		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(), gtx.Now)
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.PiP = ""
 		if p := findPane(&st, u.nav.pip); p != nil {
@@ -881,6 +900,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.SelectWorkspace:
 		u.settings.Hide()
 		u.review.hide()
+		u.boardOn = false
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.ForkPane:
 		u.send(proto.ForkPane{Pane: e.Pane})
@@ -991,6 +1011,10 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		}
 	case sidebar.Reply:
 		u.reply(st, e)
+	case sidebar.ToggleBoard:
+		u.toggleBoard()
+	case sidebar.CloseBoard:
+		u.boardOn = false
 	case sidebar.AttachImage:
 		u.attachImage(st, e)
 	case sidebar.CancelResume:

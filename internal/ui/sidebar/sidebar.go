@@ -92,7 +92,14 @@ type Sidebar struct {
 	// SeparateWorkers gives each worker tab (model.State.Root) a row of
 	// its own: under its parent behind a fleet strip in the tree, sorted on
 	// its own in the inbox. Off, workers are sub-rows of their parent's row.
-	SeparateWorkers  bool
+	SeparateWorkers bool
+	// BoardOn shows the board button pressed; NeedYou is its badge, the
+	// cards that wait on the user anywhere.
+	BoardOn bool
+	NeedYou int
+	bd      boardState // the board's own state, see Sidebar.Board
+	boardBt widget.Clickable
+
 	undo             *undoNote
 	undoBtn, viewBtn widget.Clickable
 	snoozeBtn        [4]widget.Clickable

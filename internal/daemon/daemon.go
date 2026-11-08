@@ -2434,6 +2434,7 @@ func (d *Daemon) snapshot() model.State {
 	s.Activities = d.attended()
 	for i, a := range s.Activities {
 		s.Activities[i] = s.AwaitPR(a)
+		s.Activities[i].Command = d.askedOf(a)
 	}
 	s.Stats = maps.Clone(s.Stats)
 	s.PRs = maps.Clone(s.PRs)           // entries are replaced, never changed in place

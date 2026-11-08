@@ -56,6 +56,8 @@ type nav struct {
 	cleanup bool
 	// diff asks the window to open or close the review view.
 	diff bool
+	// board asks the window to open or close the board.
+	board bool
 	// sidebarKeys asks the window to move the keyboard into the sidebar,
 	// or back to the pane (focus_sidebar).
 	sidebarKeys bool
@@ -1026,6 +1028,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.jumpLastPrompt(st)
 	case "jump_attention":
 		n.jumpAttention(st)
+	case "toggle_board":
+		n.board = true
 	case "allow_prompt", "deny_prompt":
 		return n.answer(st, act == "allow_prompt")
 	case "session_switcher":

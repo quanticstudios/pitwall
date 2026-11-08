@@ -77,6 +77,7 @@ type Keys struct {
 	GotoTab9        Binding `toml:"goto_tab_9" group:"Tabs" doc:"Go to tab 9"`
 	JumpLastPrompt  Binding `toml:"jump_last_prompt" group:"Agents" doc:"Jump to last prompt: focus the pane you last sent an agent prompt"`
 	JumpAttention   Binding `toml:"jump_attention" group:"Agents" doc:"Go to the tab that needs you, newest first"`
+	ToggleBoard     Binding `toml:"toggle_board" group:"Agents" doc:"Board: every agent tab as a card in columns by what it needs from you, to answer and open. Esc goes back to the panes"`
 	AllowPrompt     Binding `toml:"allow_prompt" group:"Agents" doc:"Allow the permission prompt of the focused pane, else of the shown tab, as its Allow button does"`
 	DenyPrompt      Binding `toml:"deny_prompt" group:"Agents" doc:"Deny the permission prompt of the focused pane, else of the shown tab, as its Deny button does"`
 	NewTask         Binding `toml:"new_task" group:"Agents" doc:"New task: start an agent on a prompt in a tab of its own, now or from the queue once a running agent finishes"`

@@ -44,8 +44,10 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
-// Level 67 added SessionLink, SessionOrder and model.Session.Remotes:
+// Level 68 added SessionLink, SessionOrder and model.Session.Remotes:
 // shared sessions, whose tabs are on several hosts.
+// Level 67 added Activity.Command, the command a pending approval asks
+// to run, for the board's cards.
 // Level 66 added Pane.LastPromptAt for jumping to the latest prompt.
 // Level 65 added Pane.LimitResume for saved usage-limit continuations.
 // Level 64 removed decision models: Activity.Advice, AdviceP, AdviceRule,
@@ -187,10 +189,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 67
+const Level = 68
 
 // SharedLevel added SessionLink and SessionOrder.
-const SharedLevel = 67
+const SharedLevel = 68
 
 // SessionLink makes the session Remote on host Host part of the shared
 // session SessionID, or with Remote "" no longer part of it, which ends

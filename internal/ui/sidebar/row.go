@@ -493,8 +493,11 @@ func gotoDigit(gtx layout.Context, th *theme.Theme, digit string, isActive bool,
 // dot while the agent works. Watching is an outline with an eye, so it
 // reads apart from Working without a color of its own.
 func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.NRGBA) layout.Dimensions {
-	th := v.th
-	col := StateColor(th, a.State)
+	return statePill(gtx, v.th, v.t(s), a, PillText(a), StateColor(v.th, a.State), base)
+}
+
+// statePill is pill reading text in col, at t seconds into the pulse.
+func statePill(gtx layout.Context, th *theme.Theme, t float64, a model.Activity, text string, col, base color.NRGBA) layout.Dimensions {
 	soft := float32(0.14)
 	if a.State == model.StatePlanReady {
 		soft = 0.15
@@ -513,7 +516,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 	if model.Pulses(&a) {
 		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
 			d := gtx.Dp(6)
-			paint.FillShape(gtx.Ops, theme.Mix(bg, col, pulse(v.t(s))), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, theme.Mix(bg, col, pulse(t)), clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
 			return layout.Dimensions{Size: image.Pt(d, d)}
 		}})
 	}
@@ -523,7 +526,7 @@ func pill(gtx layout.Context, v *view, s *Sidebar, a model.Activity, base color.
 		}})
 	}
 	items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), PillText(a))
+		return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Caption), th.Readable(col, bg), text)
 	}})
 	d := hrowFit(gtx, h, gtx.Dp(4), items...)
 	off.Pop()
