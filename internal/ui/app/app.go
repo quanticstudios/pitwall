@@ -1329,7 +1329,7 @@ func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r
 			u.drawOffline(gtx, p, host, frame)
 		}
 	}
-	if att != nil {
+	if att != nil && !down { // a down host's state is its last one, and its ring is red
 		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole, lit)
 	}
 	if finding {

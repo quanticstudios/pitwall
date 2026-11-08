@@ -1090,7 +1090,10 @@ func downBanner(hosts []HostInfo, b board.Board) (bold, rest string) {
 	if len(names) > 1 {
 		who, verb, its = strings.Join(names[:len(names)-1], ", ")+" and "+names[len(names)-1], "are", "Their"
 	}
-	return who + " " + verb + " unreachable.", fmt.Sprintf("%s %d %s show their last state and cannot be answered. Local tabs are not affected.", its, tabs, plural(tabs, "tab", "tabs"))
+	if tabs == 1 {
+		return who + " " + verb + " unreachable.", its + " tab shows its last state and cannot be answered. Local tabs are not affected."
+	}
+	return who + " " + verb + " unreachable.", fmt.Sprintf("%s %d tabs show their last state and cannot be answered. Local tabs are not affected.", its, tabs)
 }
 
 // boardBanner draws downBanner's line in r.

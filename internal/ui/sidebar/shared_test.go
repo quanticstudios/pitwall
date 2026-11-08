@@ -109,6 +109,10 @@ func TestDownBanner(t *testing.T) {
 	if bold, rest := downBanner(hosts, b); bold != "box is unreachable." || !strings.HasPrefix(rest, "Its 2 tabs show their last state") {
 		t.Fatalf("%q %q", bold, rest)
 	}
+	one := board.Board{All: map[string]board.Card{"a": {Host: "box"}}}
+	if _, rest := downBanner(hosts, one); !strings.HasPrefix(rest, "Its tab shows its last state") {
+		t.Fatalf("one tab: %q", rest)
+	}
 	b.All["d"] = board.Card{Host: "gpu"}
 	if bold, rest := downBanner(hosts, b); bold != "box and gpu are unreachable." || !strings.HasPrefix(rest, "Their 3 tabs") {
 		t.Fatalf("%q %q", bold, rest)
