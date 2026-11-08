@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -248,11 +249,12 @@ func state(d *Daemon) *model.State {
 func TestNewTabHomeFolder(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	mkdir(t, home+"/src")
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+	mkdir(t, filepath.Join(home, "src"))
 	f := &fakes{statsCalls: map[string]int{}}
 	d := newDaemon(t, f.options())
 	must(t, d.handle(context.Background(), proto.NewSession{Cwd: "~/src"}))
-	if st := d.state(); len(st.Workspaces) != 1 || st.Workspaces[0].Path != home+"/src" {
+	if st := d.state(); len(st.Workspaces) != 1 || st.Workspaces[0].Path != filepath.Join(home, "src") {
 		t.Fatalf("workspaces %+v", st.Workspaces)
 	}
 }
