@@ -140,6 +140,7 @@ const (
 type taskProject struct {
 	name, dir string
 	group     string // the group a tab there joins, "" for the folder's own
+	host      string // the machine the folder is on, "" for this one
 	git       bool
 	base      string // the default branch's name, "" when unknown
 }
@@ -173,11 +174,12 @@ func taskCmd(path, agent string, args []string, mode int, prompt string) []strin
 }
 
 // taskProjects lists the folders of session's groups and tabs, in sidebar
-// order, and picks group's, else the tab ws's.
-func taskProjects(st *model.State, session, ws, group string) ([]taskProject, int) {
+// order, and picks group's, else the tab ws's. hostOf is the host of a
+// tab or group id: a shared session's folders are on several machines.
+func taskProjects(st *model.State, session, ws, group string, hostOf func(string) string) ([]taskProject, int) {
 	var out []taskProject
 	add := func(p taskProject) int {
-		if i := slices.IndexFunc(out, func(o taskProject) bool { return o.dir == p.dir }); i >= 0 {
+		if i := slices.IndexFunc(out, func(o taskProject) bool { return o.dir == p.dir && o.host == p.host }); i >= 0 {
 			out[i].git = out[i].git || p.git
 			out[i].base = cmp.Or(out[i].base, p.base)
 			out[i].group = cmp.Or(out[i].group, p.group)
@@ -210,14 +212,14 @@ func taskProjects(st *model.State, session, ws, group string) ([]taskProject, in
 		if dir == home {
 			name = "~"
 		}
-		i := add(taskProject{name: name, dir: dir, group: g, git: git || w.Branch != "", base: gitstat.BranchName(bs.Base)})
+		i := add(taskProject{name: name, dir: dir, group: g, host: hostOf(w.ID), git: git || w.Branch != "", base: gitstat.BranchName(bs.Base)})
 		if w.ID == ws && group == "" || g == group && group != "" && pick < 0 {
 			pick = i
 		}
 	}
 	for _, p := range st.Projects {
 		if p.SessionID == session && p.Root != "" {
-			i := add(taskProject{name: p.Name, dir: p.Root, git: p.Kind == model.ProjectGit})
+			i := add(taskProject{name: p.Name, dir: p.Root, host: hostOf(p.ID), git: p.Kind == model.ProjectGit})
 			out[i].group = p.ID // the folder's own group over a group of tabs
 			if p.ID == group {
 				pick = i
@@ -247,7 +249,7 @@ func worktreeName(prompt string) string {
 func (u *ui) openTask(st *model.State, group string) {
 	t := &u.task
 	t.profile.reset(u.cfg)
-	t.projects, t.project = taskProjects(st, u.nav.session, u.nav.workspace, group)
+	t.projects, t.project = taskProjects(st, u.nav.session, u.nav.workspace, group, u.hostOf)
 	if len(t.projects) == 0 {
 		return
 	}
@@ -462,8 +464,9 @@ func (t *taskDialog) tasks() ([]model.Task, error) {
 			continue
 		}
 		path := a.cmd
-		if curHost() == "" {
-			// why: the daemon runs it with its own PATH, as pitwall new does.
+		if p.host == "" {
+			// why: the daemon runs it with its own PATH, as pitwall new
+			// does; a host's PATH is not this one's.
 			if found, err := exec.LookPath(a.cmd); err == nil {
 				path, _ = filepath.Abs(found)
 			}
@@ -531,7 +534,16 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 	for _, task := range tasks {
 		task.NextStart, task.Repeat = next, repeat
 		task.SessionID = u.nav.session
-		if !u.send(proto.NewTask{Task: task, Queue: queue, FromPane: u.nav.focused()}) {
+		nt := proto.NewTask{Task: task, Queue: queue, FromPane: u.nav.focused()}
+		if _, ok := u.b.(Hoster); ok && t.projects[t.project].host != "" {
+			// The folder is on that host, whatever the focused tab's is.
+			if err := u.b.Send(NewTaskOn{Host: t.projects[t.project].host, Task: nt}); err != nil {
+				t.err = err.Error()
+				return
+			}
+			continue
+		}
+		if !u.send(nt) {
 			u.nav.sessions = nil
 			t.err = "The pitwall daemon running is older than this window and cannot start tasks. They work once it restarts."
 			return

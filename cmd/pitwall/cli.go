@@ -193,10 +193,14 @@ func newOnHost(local *cliConn, session *model.Session, host string, tab proto.Ne
 		return "", err
 	}
 	defer done()
-	hs, err := syncCLI(hc)
+	m, err := syncMsg(hc)
 	if err != nil {
 		return "", err
 	}
+	if err := varsLevel(tab.Env, m.Level); err != nil {
+		return "", fmt.Errorf("%s: %w", host, err)
+	}
+	hs := m.State
 	var part *model.Session
 	if r := session.Remote(host); r != nil {
 		part = hs.Session(r.Session)
@@ -315,6 +319,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 	}
 	if issue != 0 && cmd == nil {
 		return errors.New("--issue needs an agent to run: pitwall new --issue 12 -- claude")
+	}
+	if issue != 0 && hostName != "" {
+		return errors.New("--issue reads the issue from this machine's checkout and cannot be used with --host; pass the prompt after the agent instead")
 	}
 	conn, err := dialCLI()
 	if errors.Is(err, errNotRunning) && command == "ls" {

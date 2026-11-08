@@ -196,11 +196,13 @@ const SharedLevel = 68
 
 // SessionLink makes the session Remote on host Host part of the shared
 // session SessionID, or with Remote "" no longer part of it, which ends
-// SessionID when it has no tab here then. Forget is model.RemoteSession's.
-// A window sends it; the daemon only keeps it (docs/remote.md).
+// SessionID when it has no tab here then. Forget adds ids to
+// model.RemoteSession's Forget and Unforget takes them out; a part that
+// changes its Remote starts with Forget alone. A window sends it; the
+// daemon only keeps it (docs/remote.md).
 type SessionLink struct {
 	SessionID, Host, Remote string
-	Forget                  []string
+	Forget, Unforget        []string
 }
 
 // SessionOrder sets SessionID's Order as given, other hosts' tabs and

@@ -149,9 +149,21 @@ func (d *Daemon) sessionLink(m proto.SessionLink) error {
 	if m.Host == "" {
 		return errors.New("a shared session's part needs a host")
 	}
+	// why: two windows may each forget a tab of a down host from the same
+	// old list, so Forget adds to the part's ids instead of replacing them.
+	var forget []string
+	if r := s.Remote(m.Host); r != nil && r.Session == m.Remote {
+		forget = slices.Clone(r.Forget)
+	}
+	for _, id := range m.Forget {
+		if !slices.Contains(forget, id) {
+			forget = append(forget, id)
+		}
+	}
+	forget = slices.DeleteFunc(forget, func(id string) bool { return slices.Contains(m.Unforget, id) })
 	s.Remotes = slices.DeleteFunc(slices.Clone(s.Remotes), func(r model.RemoteSession) bool { return r.Host == m.Host })
 	if m.Remote != "" {
-		s.Remotes = append(s.Remotes, model.RemoteSession{Host: m.Host, Session: m.Remote, Forget: m.Forget})
+		s.Remotes = append(s.Remotes, model.RemoteSession{Host: m.Host, Session: m.Remote, Forget: forget})
 	}
 	if len(s.Remotes) == 0 {
 		s.Remotes = nil

@@ -60,6 +60,18 @@ type multi struct {
 	// so a merge before this machine's state shows it does not send it
 	// again within a few seconds.
 	asked map[[2]string]asked
+	// killing is the shared sessions here a kill waits on: each ends here
+	// once its parts have ended on their hosts.
+	killing map[string]bool
+	// shown is the session here the window shows, told the part each
+	// host last heard it shows, on which connection.
+	shown string
+	told  map[string]told
+}
+
+type told struct {
+	session string
+	epoch   int
 }
 
 type asked struct {
@@ -128,7 +140,8 @@ func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 // remotes, which connect in the background.
 func newMulti(local *backend, remotes []hostDial) *multi {
 	m := &multi{changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), owner: map[string]*hostLink{}, clipSeq: map[*hostLink]uint64{},
-		pending: map[[2]string]string{}, pendingHere: map[string][2]string{}, asked: map[[2]string]asked{}}
+		pending: map[[2]string]string{}, pendingHere: map[string][2]string{}, asked: map[[2]string]asked{},
+		killing: map[string]bool{}, told: map[string]told{}}
 	m.hosts = append(m.hosts, &hostLink{b: local})
 	// The window takes its first session before its first frame.
 	select {
@@ -362,7 +375,7 @@ func (m *multi) merge() {
 func (m *multi) reconcile(local model.State) {
 	link := func(l proto.SessionLink) {
 		key := [2]string{l.SessionID, l.Host}
-		sig, from := fmt.Sprint(l.Remote, l.Forget), ""
+		sig, from := fmt.Sprint(l.Remote, l.Forget, l.Unforget), ""
 		if ss := local.Session(l.SessionID); ss != nil {
 			if r := ss.Remote(l.Host); r != nil {
 				from = fmt.Sprint(r.Session, r.Forget)
@@ -388,13 +401,13 @@ func (m *multi) reconcile(local model.State) {
 			case len(r.Forget) > 0:
 				// An id leaves Forget only once the host's state shows its
 				// tab gone, so a close a dropped link lost is sent again.
-				var left []string
+				var gone []string
 				for _, id := range r.Forget {
 					w := hs.Workspace(id)
 					if w == nil {
+						gone = append(gone, id)
 						continue
 					}
-					left = append(left, id)
 					key := [2]string{id, "close"}
 					if time.Since(m.asked[key].at) < 5*time.Second {
 						continue
@@ -409,8 +422,8 @@ func (m *multi) reconcile(local model.State) {
 						m.asked[key] = asked{at: time.Now()}
 					}
 				}
-				if len(left) < len(r.Forget) {
-					link(proto.SessionLink{SessionID: ss.ID, Host: r.Host, Remote: r.Session, Forget: left})
+				if len(gone) > 0 {
+					link(proto.SessionLink{SessionID: ss.ID, Host: r.Host, Remote: r.Session, Unforget: gone})
 				}
 			}
 		}
@@ -434,8 +447,38 @@ func (m *multi) reconcile(local model.State) {
 			}
 		}
 	}
+	m.tellShown()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A killed shared session ends here once no part is left, which
+	// happens as each host's state shows its part gone (above); until
+	// then the kill goes again to each host that still has its part.
+	for id := range m.killing {
+		ss := local.Session(id)
+		if ss == nil {
+			delete(m.killing, id)
+			continue
+		}
+		if len(ss.Remotes) == 0 {
+			if m.hosts[0].b.Send(proto.SessionKill{SessionID: id}) == nil {
+				delete(m.killing, id)
+			}
+			continue
+		}
+		for _, r := range ss.Remotes {
+			h := m.byName(r.Host)
+			if h == nil || h == m.hosts[0] || !up(h) {
+				continue
+			}
+			hs := h.b.State()
+			key := [2]string{r.Session, "kill"}
+			if hs.Session(r.Session) != nil && time.Since(m.asked[key].at) > 5*time.Second {
+				if h.b.Send(proto.SessionKill{SessionID: r.Session}) == nil {
+					m.asked[key] = asked{at: time.Now()}
+				}
+			}
+		}
+	}
 	for name, ref := range m.pendingHere {
 		if x := local.SessionNamed(name); x != nil {
 			link(proto.SessionLink{SessionID: x.ID, Host: ref[0], Remote: ref[1]})
@@ -548,6 +591,8 @@ func (m *multi) Send(msg any) error {
 	switch v := msg.(type) {
 	case app.NewTabOn:
 		return m.newTabOn(v)
+	case app.NewTaskOn:
+		return m.newTaskOn(v)
 	case proto.NewSession:
 		// A group's + in a shared session: the group's host opens it.
 		if g := m.of(v.GroupID); g != nil && g != m.hosts[0] && m.of(v.SessionID) == m.hosts[0] {
@@ -563,9 +608,18 @@ func (m *multi) Send(msg any) error {
 		if down := m.downPart(v.SessionID); down != "" {
 			return fmt.Errorf("%s is offline; kill this session once it is back, so its tabs there stop too", down)
 		}
-		m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
-			h.b.Send(proto.SessionKill{SessionID: r.Session})
-		})
+		if st := m.hosts[0].b.State(); st.Session(v.SessionID) != nil && len(st.Session(v.SessionID).Remotes) > 0 {
+			// why: a kill sent over a link that drops is lost, so the tabs
+			// here stay until each part's host shows its part gone; see
+			// reconcile.
+			m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
+				h.b.Send(proto.SessionKill{SessionID: r.Session})
+			})
+			m.mu.Lock()
+			m.killing[v.SessionID] = true
+			m.mu.Unlock()
+			return nil
+		}
 	case proto.CloseTab:
 		if m.forget(v.WorkspaceID) {
 			return nil
@@ -603,12 +657,10 @@ func (m *multi) Send(msg any) error {
 			m.cur = h
 			m.mu.Unlock()
 		}
-		// Each part's host counts the window as showing its part, so
-		// pitwall attach there focuses this window instead of opening one.
-		// The window sends it again after any host reconnects.
-		m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
-			h.b.Send(proto.SessionShow{SessionID: r.Session})
-		})
+		m.mu.Lock()
+		m.shown, m.told = v.SessionID, map[string]told{}
+		m.mu.Unlock()
+		m.tellShown()
 	case proto.SeePane:
 		// The host that showed the last pane hears that it no longer does.
 		to := m.cur
@@ -650,6 +702,26 @@ func (m *multi) Send(msg any) error {
 		m.mu.Unlock()
 	}
 	return to.b.Send(msg)
+}
+
+// tellShown sends SessionShow for each part of the session the window
+// shows to its host, once per connection and part. The host then counts
+// the window as showing its part, so pitwall attach there focuses this
+// window instead of opening one, also for a part that joins later.
+func (m *multi) tellShown() {
+	m.mu.Lock()
+	id := m.shown
+	m.mu.Unlock()
+	m.eachPart(id, func(h *hostLink, r model.RemoteSession) {
+		t := told{r.Session, h.b.Link().Epoch}
+		m.mu.Lock()
+		same := m.told[h.name] == t
+		m.told[h.name] = t
+		m.mu.Unlock()
+		if !same {
+			h.b.Send(proto.SessionShow{SessionID: r.Session})
+		}
+	})
 }
 
 // sharedOf is the shared session here that the tab or group id is in, "".
@@ -705,7 +777,7 @@ func (m *multi) forget(tab string) bool {
 	if r == nil || slices.Contains(r.Forget, tab) {
 		return r != nil
 	}
-	m.hosts[0].b.Send(proto.SessionLink{SessionID: sh, Host: h.name, Remote: r.Session, Forget: append(slices.Clone(r.Forget), tab)})
+	m.hosts[0].b.Send(proto.SessionLink{SessionID: sh, Host: h.name, Remote: r.Session, Forget: []string{tab}})
 	return true
 }
 
@@ -782,6 +854,40 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 	m.pending[[2]string{h.name, ss.ID}] = ss.Name
 	m.mu.Unlock()
 	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
+}
+
+// newTaskOn starts or queues a task on a host, in that host's part of
+// the window's shared session; the session's id here would start it on
+// this machine. A host with no part yet, or one down, refuses it.
+func (m *multi) newTaskOn(v app.NewTaskOn) error {
+	h := m.byName(v.Host)
+	if h == nil {
+		return fmt.Errorf("no host %s in this window", v.Host)
+	}
+	t := v.Task
+	if h != m.hosts[0] {
+		if !up(h) {
+			return fmt.Errorf("%s is offline", h.name)
+		}
+		local := m.hosts[0].b.State()
+		if ss := local.Session(t.Task.SessionID); ss != nil {
+			r := ss.Remote(h.name)
+			if r == nil {
+				return fmt.Errorf("open a tab on %s first, then start the task", h.name)
+			}
+			t.Task.SessionID = r.Session
+		}
+		if err := varsLevel(t.Task.Env, h.b.Link().Level); err != nil {
+			return fmt.Errorf("%s: %w", h.name, err)
+		}
+	}
+	if m.of(t.FromPane) != h {
+		t.FromPane = ""
+	}
+	if m.of(t.Task.GroupID) != h {
+		t.Task.GroupID = ""
+	}
+	return h.b.Send(t)
 }
 
 // canShare refuses a tab that would make or grow a shared session while

@@ -46,6 +46,13 @@ type NewTabOn struct {
 	Tab  proto.NewSession
 }
 
+// NewTaskOn starts or queues Task on Host through a Hoster backend, in
+// that host's part of the window's shared session.
+type NewTaskOn struct {
+	Host string
+	Task proto.NewTask
+}
+
 // fromTab is a tab that tab opens for itself, as Create PR, Merge PR and
 // Rerun checks do. send opens it on tab's host: in a shared session an
 // ungrouped tab of another host names no id of that host, and the command

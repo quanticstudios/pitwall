@@ -120,7 +120,7 @@ proto.SeePane{Pane string}
 proto.SelectTab{WorkspaceID string; TabID string}
 proto.Send{Pane string; From string; Text string}
 proto.SessionKill{SessionID string}
-proto.SessionLink{SessionID string; Host string; Remote string; Forget []string}
+proto.SessionLink{SessionID string; Host string; Remote string; Forget []string; Unforget []string}
 proto.SessionMatch{Workspace string; Pane string; Match vt.Match; Snippet string; Time time.Time; Transcript bool; Hidden bool}
 proto.SessionNew{Name string; Cwd string; FromPane string}
 proto.SessionOrder{SessionID string; Order []string}

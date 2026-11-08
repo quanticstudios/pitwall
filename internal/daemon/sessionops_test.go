@@ -212,12 +212,25 @@ func TestSharedSession(t *testing.T) {
 	if r := state(d).Session(work).Remote("box"); r == nil || r.Session != "rs" || !slices.Equal(r.Forget, []string{"box-tab"}) {
 		t.Fatalf("remote %+v", r)
 	}
+	// Another window forgets a tab from the same old list: both stay.
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs", Forget: []string{"box-tab2"}}))
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs", Unforget: []string{"box-tab"}}))
+	if r := state(d).Session(work).Remote("box"); r == nil || !slices.Equal(r.Forget, []string{"box-tab2"}) {
+		t.Fatalf("forget after two windows and a close there %+v", r)
+	}
 
 	for _, id := range []string{a, b} {
 		must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: id}))
 	}
 	if state(d).Session(work) == nil {
 		t.Fatal("the shared session ended with its last tab here")
+	}
+	// A restart keeps a session whose tabs are all on other hosts.
+	d.mu.Lock()
+	d.tidy()
+	d.mu.Unlock()
+	if state(d).Session(work) == nil {
+		t.Fatal("a restart dropped the shared session with its tabs on box")
 	}
 	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box"}))
 	if state(d).Session(work) != nil {

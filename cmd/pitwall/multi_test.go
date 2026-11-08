@@ -417,7 +417,7 @@ func TestMultiForgetKeptUntilGone(t *testing.T) {
 			t.Fatal("Forget never dropped the closed tab")
 		}
 		if l, ok := m.(proto.SessionLink); ok {
-			if l.Remote != "rs" || len(l.Forget) != 0 {
+			if l.Remote != "rs" || len(l.Forget) != 0 || !slices.Equal(l.Unforget, []string{"rw"}) {
 				t.Fatalf("local got %#v", l)
 			}
 			break
@@ -509,5 +509,113 @@ func TestMultiShareNeedsLevel(t *testing.T) {
 	}
 	if got := next(rd); got != nil {
 		t.Fatalf("box got %#v", got)
+	}
+}
+
+// Killing a shared session ends its tabs here only once each part's
+// host shows its part gone: a kill lost on a dropping link is sent again,
+// and the tabs here stay until then.
+func TestMultiKillWaitsForParts(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, ld := localBackend(t, ls)
+	box := hostState("rs", "rw", "rp")
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	if err := m.Send(proto.SessionKill{SessionID: "ls"}); err != nil {
+		t.Fatal(err)
+	}
+	for got := next(rd); ; got = next(rd) {
+		if k, ok := got.(proto.SessionKill); ok && k.SessionID == "rs" {
+			break
+		} else if got == nil {
+			t.Fatal("box never got the kill")
+		}
+	}
+	for got := recv(ld); got != nil; got = recv(ld) {
+		if _, ok := got.(proto.SessionKill); ok {
+			t.Fatal("killed here before box ended its part")
+		}
+	}
+	// box's state shows the part gone: the part leaves, then the session
+	// ends here.
+	rd.c.Send(proto.StateMsg{State: model.State{Version: 2}, Level: proto.Level})
+	for got := next(ld); ; got = next(ld) {
+		if l, ok := got.(proto.SessionLink); ok && l.Remote == "" {
+			break
+		} else if got == nil {
+			t.Fatal("the gone part never left")
+		}
+	}
+	ls.Sessions = slices.Clone(ls.Sessions) // the backend holds the old one
+	ls.Sessions[0].Remotes, ls.Version = nil, 2
+	ld.c.Send(proto.StateMsg{State: ls, Level: proto.Level})
+	for got := next(ld); ; got = next(ld) {
+		if k, ok := got.(proto.SessionKill); ok && k.SessionID == "ls" {
+			break
+		} else if got == nil {
+			t.Fatal("never killed here")
+		}
+	}
+}
+
+// A part that joins the session the window shows, as pitwall new --host
+// makes one, hears that the window shows it.
+func TestMultiShowTellsNewPart(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	m.Send(proto.SessionShow{SessionID: "ls"})
+	ls.Sessions = slices.Clone(ls.Sessions) // the backend holds the old one
+	ls.Sessions[0].Remotes, ls.Version = []model.RemoteSession{{Host: "box", Session: "rs"}}, 2
+	ld.c.Send(proto.StateMsg{State: ls, Level: proto.Level})
+	for got := next(rd); ; got = next(rd) {
+		if s, ok := got.(proto.SessionShow); ok && s.SessionID == "rs" {
+			break
+		} else if got == nil {
+			t.Fatal("box never heard the window shows its new part")
+		}
+	}
+}
+
+// A task in a box folder of a shared session starts in box's part, not
+// in the session here, even from a tab here.
+func TestMultiTaskOnHost(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	box := hostState("rs", "rw", "rp")
+	box.Projects = []model.Project{{ID: "rg", SessionID: "rs"}}
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's group", func() bool { return m.HostOf("rg") == "box" })
+	task := proto.NewTask{FromPane: "lp", Task: model.Task{SessionID: "ls", GroupID: "rg", Dir: "/src/app", Cmd: []string{"codex", "go"}}}
+	if err := m.Send(app.NewTaskOn{Host: "box", Task: task}); err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := next(rd).(proto.NewTask); !ok || n.Task.SessionID != "rs" || n.Task.GroupID != "rg" || n.FromPane != "" {
+		t.Fatalf("box got %#v", n)
+	}
+	if err := m.Send(app.NewTaskOn{Task: task}); err != nil {
+		t.Fatal(err)
+	}
+	for got := next(ld); ; got = next(ld) {
+		if n, ok := got.(proto.NewTask); ok {
+			if n.Task.SessionID != "ls" || n.Task.GroupID != "" || n.FromPane != "lp" {
+				t.Fatalf("local got %#v", n)
+			}
+			break
+		} else if got == nil {
+			t.Fatal("local never got the task")
+		}
 	}
 }
