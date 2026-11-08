@@ -183,3 +183,49 @@ func TestPlainWindowsGetTheirOwnSession(t *testing.T) {
 		t.Fatalf("third window: sessions %d, free %+v; want first back", len(st.Sessions), st.RecentFree())
 	}
 }
+
+// A shared session keeps its other hosts' parts and their places in its
+// order, outlives its last tab here while it has a part elsewhere, and
+// ends once the last part goes.
+func TestSharedSession(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	d := newDaemon(t, f.options())
+	ctx := context.Background()
+	dir := t.TempDir()
+	must(t, d.handle(ctx, proto.SessionNew{Name: "work", Cwd: dir}))
+	work := d.state().Sessions[0].ID
+	must(t, d.handle(ctx, proto.NewSession{Cwd: dir, SessionID: work}))
+	st := d.state()
+	a, b := st.Ordered(work)[0].ID, st.Ordered(work)[1].ID
+
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs"}))
+	must(t, d.handle(ctx, proto.SessionOrder{SessionID: work, Order: []string{"box-tab", a, "box-group", b, a}}))
+	if got := state(d).Session(work).Order; !slices.Equal(got, []string{"box-tab", a, "box-group", b}) {
+		t.Fatalf("order %v", got)
+	}
+	// A move here keeps the other host's ids where they were.
+	must(t, d.handle(ctx, proto.MoveSession{WorkspaceID: b, Before: a}))
+	if got := state(d).Session(work).Order; !slices.Equal(got, []string{"box-tab", b, a, "box-group"}) {
+		t.Fatalf("order after a move here %v", got)
+	}
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box", Remote: "rs", Forget: []string{"box-tab"}}))
+	if r := state(d).Session(work).Remote("box"); r == nil || r.Session != "rs" || !slices.Equal(r.Forget, []string{"box-tab"}) {
+		t.Fatalf("remote %+v", r)
+	}
+
+	for _, id := range []string{a, b} {
+		must(t, d.handle(ctx, proto.CloseTab{WorkspaceID: id}))
+	}
+	if state(d).Session(work) == nil {
+		t.Fatal("the shared session ended with its last tab here")
+	}
+	must(t, d.handle(ctx, proto.SessionLink{SessionID: work, Host: "box"}))
+	if state(d).Session(work) != nil {
+		t.Fatal("the session outlived its last part")
+	}
+}
+
+func state(d *Daemon) *model.State {
+	st := d.state()
+	return &st
+}

@@ -236,22 +236,30 @@ type paneUI struct {
 	// The hooks notice: its buttons, and its area's pointer tag.
 	hooksInstall, hooksHide widget.Clickable
 	hooksBox                bool
-	border                  anim.Color // the frame's color, easing between focused and not
+	border                  anim.Color       // the frame's color, easing between focused and not
+	tag, retry              widget.Clickable // a remote pane's host tag and its offline line's Retry now
+	offBox                  bool             // its address is the offline line's pointer tag
 	// Last, so a zero-size View never shares an address with focusClick.
 	view term.View
 }
 
 type ui struct {
-	b        Backend
-	th       *theme.Theme
-	cfg      config.Settings
-	nav      nav
-	sidebar  sidebar.Sidebar
-	panes    map[string]*paneUI
-	open     widget.Clickable // empty-state button
-	modal    modal
-	modeTag  int // holds key focus in tab mode, so typed text skips the pane
-	closeTag int // a press anywhere closes a pinned switcher
+	// hosts are the window's machines this frame, when it shows several.
+	hosts []sidebar.HostInfo
+	// lastFocus is the pane focused last frame, and moved the last focus
+	// move between hosts; see pasteAsks.
+	lastFocus string
+	moved     hostMove
+	b         Backend
+	th        *theme.Theme
+	cfg       config.Settings
+	nav       nav
+	sidebar   sidebar.Sidebar
+	panes     map[string]*paneUI
+	open      widget.Clickable // empty-state button
+	modal     modal
+	modeTag   int // holds key focus in tab mode, so typed text skips the pane
+	closeTag  int // a press anywhere closes a pinned switcher
 
 	forms     map[string]*formUI // pitwall form's forms, by id, see form.go
 	formFocus string             // the form that last took the keys
@@ -553,6 +561,11 @@ func (u *ui) layout(gtx gl.Context) {
 	if u.th == nil {
 		u.th = newTheme()
 	}
+	u.hosts = nil
+	if h, ok := u.b.(Hoster); ok {
+		u.hosts = h.Hosts()
+	}
+	u.noteFocus(gtx.Now)
 	if u.nav.rows == nil {
 		u.nav.rows = func(st *model.State) []string { return u.sidebar.Rows(st, u.nav.session, u.nav.workspace) }
 	}
@@ -765,10 +778,7 @@ func (u *ui) layout(gtx gl.Context) {
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
 		u.sidebar.Update, u.sidebar.Host, u.sidebar.RepoIcons = u.updateLabel(), curHost(), u.repoIcons()
-		u.sidebar.Hosts = nil
-		if h, ok := u.b.(Hoster); ok {
-			u.sidebar.Hosts = h.Hosts()
-		}
+		u.sidebar.Hosts = u.hosts
 		u.sidebar.Window = gtx.Constraints.Max
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
@@ -1087,7 +1097,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 		if a, ok := unseen[id]; ok {
 			att = &a
 		}
-		u.layoutPane(gtx, p, id, r, id == focused, findFocus && id == u.find.pane, sole, att)
+		u.layoutPane(gtx, st, p, id, r, id == focused, findFocus && id == u.find.pane, sole, att)
 		if pn != nil && pn.HooksMissing && !u.welcome.on && u.hooksNotice() { // the welcome card offers the install already
 			u.drawHooksNotice(gtx, p, r)
 		}
@@ -1128,6 +1138,7 @@ func (u *ui) paneView(st *model.State, id string) *paneUI {
 	pn := findPane(st, id)
 	p.view.PasteImages = pn != nil && (pn.Provider == model.ProviderClaude || pn.Provider == model.ProviderCodex)
 	p.view.HostPaste = true // save local and remote clipboard images through the daemon
+	p.view.HoldPaste = func(text string) bool { return pasteAsks(text, u.hostOf(id), id, u.moved, time.Now()) }
 	return p
 
 }
@@ -1175,7 +1186,7 @@ func roundedFor(gtx gl.Context, sole bool) int {
 	return gtx.Dp(10) - 1
 }
 
-func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, focused, findFocus, sole bool, att *model.Activity) {
+func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r layout.Rect, focused, findFocus, sole bool, att *model.Activity) {
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
 	p.rect = rect.Add(u.contentOrigin)
 	defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
@@ -1215,17 +1226,60 @@ func (u *ui) layoutPane(gtx gl.Context, p *paneUI, id string, r layout.Rect, foc
 	// Pane mode and the find bar take the pane's keys; the frame shows it
 	// still has focus.
 	lit := focused || finding || (u.nav.paneMode || u.hints.on) && id == u.nav.focused()
-	grid := paneChrome(gtx, u.th, image.Rectangle{Max: rect.Size()}, p.border.Get(gtx, paneBorder(u.th, lit), anim.Focus), sole)
+	host := u.hostOf(id)
+	down := u.hostDown(host)
+	ring := paneBorder(u.th, lit)
+	switch {
+	case lit && down:
+		ring = u.th.Red
+	case lit && host != "":
+		ring = u.hostColor(host)
+	}
+	frame := image.Rectangle{Max: rect.Size()}
+	grid := paneChrome(gtx, u.th, frame, p.border.Get(gtx, ring, anim.Focus), sole)
 	var input []byte
 	cols, rows := g.Cols, g.Rows
 	if !grid.Empty() {
+		rad := roundedFor(gtx, sole)
+		termR := grid
+		if host != "" {
+			// The tag hangs into a row and a half above the terminal.
+			paint.FillShape(gtx.Ops, u.th.TermBg, clip.UniformRRect(grid, rad).Op(gtx.Ops))
+			termR.Min.Y = min(termR.Max.Y, termR.Min.Y+tagPad(p.view.CellSize(gtx, u.th)))
+		}
 		tg := gtx
-		tg.Constraints = gl.Exact(grid.Size())
-		o := op.Offset(grid.Min).Push(gtx.Ops)
-		rc := clip.UniformRRect(image.Rectangle{Max: grid.Size()}, roundedFor(gtx, sole)).Push(gtx.Ops)
+		tg.Constraints = gl.Exact(termR.Size())
+		o := op.Offset(termR.Min).Push(gtx.Ops)
+		rr := clip.RRect{Rect: image.Rectangle{Max: termR.Size()}, SE: rad, SW: rad}
+		if termR.Min.Y == grid.Min.Y {
+			rr.NE, rr.NW = rad, rad
+		}
+		rc := rr.Push(gtx.Ops)
+		var dim paint.OpacityStack
+		if down {
+			dim = paint.PushOpacity(gtx.Ops, 0.4)
+		}
 		input, cols, rows = drawTerm(tg, &p.view, u.th, &g, m, focused)
+		if down {
+			dim.Pop()
+			input = nil // typing is off, never queued, until the host is back
+		}
 		rc.Pop()
 		o.Pop()
+		if held := p.view.TakeHeld(); held != nil {
+			if down {
+				held = nil
+			} else {
+				u.modal.open(modalPaste, id)
+				u.modal.then = proto.Input{Pane: id, Data: held}
+			}
+		}
+	}
+	if host != "" {
+		u.remoteTag(gtx, st, p, id, host, frame, lit, down)
+		if down && lit {
+			u.drawOffline(gtx, p, host, frame)
+		}
 	}
 	if att != nil {
 		u.attentionRing(gtx, id, *att, image.Rectangle{Max: rect.Size()}, sole, lit)

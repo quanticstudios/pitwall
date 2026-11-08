@@ -43,6 +43,8 @@ type Config struct {
 	Web       Web         `toml:"web" doc:"Local web clients such as aide: a WebSocket on 127.0.0.1 that pitwall's background service serves. Off until enabled; see docs/web-protocol.md."`
 	Popups    []Popup     `toml:"popups" doc:"Commands that open in a popup over the tab, each a [[popups]] table with name, key and command, such as lazygit on a key. See docs/usage.md, Popups."`
 	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name, ssh and window. A name not listed here goes to ssh as it is."`
+	// HostColors is each host's color in a shared session, by [[hosts]] name.
+	HostColors map[string]string `toml:"host_colors" doc:"Each host's color in a shared session, by its [[hosts]] name: box = \"teal\". The colors are the tab colors. Unset hosts take one in turn. See docs/remote.md."`
 
 	Profiles map[string]Profile `toml:"profiles" doc:"Named Claude Code and Codex accounts. See docs/config.md."`
 }
@@ -369,7 +371,8 @@ type Settings struct {
 	// ConflictRadar marks tabs whose branches change the same files.
 	ConflictRadar bool
 	// Hosts is [[hosts]] as written.
-	Hosts []Host
+	Hosts      []Host
+	HostColors map[string]string
 	// Popups is [[popups]] without the entries with problems.
 	Popups []Popup
 	// Notes are things that work but should change, like an action under
@@ -588,6 +591,7 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.RemoteControl = c.Appear.RemoteControl == nil || *c.Appear.RemoteControl
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts
+	s.HostColors = c.HostColors
 	var pi []issue
 	s.Profiles, pi = resolveProfiles(c.Profiles)
 	fi = append(fi, pi...)

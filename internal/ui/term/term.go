@@ -59,6 +59,9 @@ type View struct {
 	// machine or needs a saved image path: a paste finding no text asks the window,
 	// through ImageWanted, instead of sending Ctrl+V.
 	HostPaste bool
+	// HoldPaste, when set, is asked about each text paste; a paste it
+	// holds is kept for TakeHeld instead of going to the program.
+	HoldPaste func(text string) bool
 	// Images looks up the pixels of the grid's image placements
 	// (vt.Grid.Images); nil draws none.
 	Images func(key uint64) (vt.Image, bool)
@@ -104,6 +107,7 @@ type View struct {
 	copied      *Copy           // what this frame asks to copy
 	queued      string          // the pane action Run asked for
 	imageWanted bool            // a HostPaste paste found no text
+	held        []byte          // the paste HoldPaste held, encoded for the pane
 	cm          copyMode
 	wantFind    bool // copy mode's / or ? asks for the find bar
 

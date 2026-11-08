@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -250,7 +251,7 @@ func TestMultiClipboardFollowsWriter(t *testing.T) {
 
 func TestWindowHosts(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	hosts, closeAll := windowHosts([]config.Host{{Name: "box", Window: true}, {Name: "gpu"}, {Name: "web", SSH: "me@web", Window: true}})
+	hosts, closeAll := windowHosts([]config.Host{{Name: "box", Window: true}, {Name: "gpu"}, {Name: "web", SSH: "me@web", Window: true}}, nil)
 	defer closeAll()
 	if runtime.GOOS == "windows" { // its ssh cannot share a connection
 		if len(hosts) != 0 {
@@ -260,5 +261,102 @@ func TestWindowHosts(t *testing.T) {
 	}
 	if len(hosts) != 2 || hosts[0].name != "box" || hosts[1].name != "web" {
 		t.Fatalf("hosts %+v", hosts)
+	}
+}
+
+// next is the next message e reads that is not a latency ping.
+func next(e end) any {
+	for {
+		m := recv(e)
+		if _, ping := m.(proto.Sync); !ping {
+			return m
+		}
+	}
+}
+
+// TestMultiShared checks a shared session: box's part folds into the
+// session here, in the order this machine keeps; new tabs open on the
+// host asked for; renames and moves reach every part; a host with no part
+// gets one, which joins once it shows up; and a tab closed while its host
+// is down is forgotten here, not sent.
+func TestMultiShared(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Order = []string{"rw", "lw"}
+	ls.Sessions = append(ls.Sessions, model.Session{ID: "ls2", Name: "solo"})
+	ls.Workspaces = append(ls.Workspaces, model.Workspace{ID: "lw2", SessionID: "ls2"})
+	local, ld := localBackend(t, ls)
+	box := hostState("rs", "rw", "rp")
+	box.Sessions = append(box.Sessions, model.Session{ID: "os", Name: "other"})
+	box.Workspaces = append(box.Workspaces, model.Workspace{ID: "ow", SessionID: "os"})
+	conns := make(chan end, 1)
+	dial, dials := fakeDaemon(box, conns), 0
+	m := newMulti(local, []hostDial{{name: "box", ssh: "me@box", dial: func(s string, r bool) (*proto.Conn, proto.StateMsg, error) {
+		if dials++; dials > 1 {
+			return nil, proto.StateMsg{}, errors.New("cannot reach box over ssh: connection timed out")
+		}
+		return dial(s, r)
+	}}})
+	rd := <-conns
+	waitFor(t, "box's state", func() bool { return m.HostOf("rw") == "box" })
+
+	st := m.State()
+	if st.Session("rs") != nil || st.Session("os") == nil || st.Workspace("rw").SessionID != "ls" {
+		t.Fatalf("not folded: sessions %+v", st.Sessions)
+	}
+	if got := st.TopOrder("ls"); !slices.Equal(got, []string{"rw", "lw"}) {
+		t.Fatalf("order %v", got)
+	}
+	if h := m.Hosts(); !slices.Equal(h[1].Sessions, []string{"os"}) || h[1].SSH != "me@box" {
+		t.Fatalf("hosts %+v", h)
+	}
+	if m.HostOf("rp") != "box" || m.HostOf("lw") != "" {
+		t.Fatal("hosts of tabs and panes")
+	}
+
+	m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls", FromPane: "lp"}})
+	if n, ok := next(rd).(proto.NewSession); !ok || n.SessionID != "rs" || n.FromPane != "" {
+		t.Fatalf("box got %#v", n)
+	}
+	m.Send(app.NewTabOn{Tab: proto.NewSession{SessionID: "ls"}})
+	if n, ok := next(ld).(proto.NewSession); !ok || n.SessionID != "ls" {
+		t.Fatalf("local got %#v", n)
+	}
+	m.Send(proto.MoveSession{WorkspaceID: "lw", Before: "rw"})
+	if o, ok := next(ld).(proto.SessionOrder); !ok || !slices.Equal(o.Order, []string{"lw", "rw"}) {
+		t.Fatalf("local got %#v", o)
+	}
+	if err := m.Send(proto.NewGroup{WorkspaceIDs: []string{"lw", "rw"}}); err == nil {
+		t.Fatal("grouped tabs of two machines")
+	}
+	m.Send(proto.SessionRename{SessionID: "ls", Name: "work"})
+	if r, ok := next(rd).(proto.SessionRename); !ok || r.SessionID != "rs" || r.Name != "work" {
+		t.Fatalf("box got %#v", r)
+	}
+	if r, ok := next(ld).(proto.SessionRename); !ok || r.SessionID != "ls" {
+		t.Fatalf("local got %#v", r)
+	}
+
+	// solo has no part on box: box makes a session named solo, which joins.
+	m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls2"}})
+	if n, ok := next(rd).(proto.SessionNew); !ok || n.Name != "solo" {
+		t.Fatalf("box got %#v", n)
+	}
+	box.Sessions = append(box.Sessions, model.Session{ID: "ss", Name: "solo"})
+	box.Workspaces = append(box.Workspaces, model.Workspace{ID: "sw", SessionID: "ss"})
+	rd.c.Send(proto.StateMsg{State: box, Level: proto.Level})
+	if l, ok := next(ld).(proto.SessionLink); !ok || l.SessionID != "ls2" || l.Host != "box" || l.Remote != "ss" {
+		t.Fatalf("local got %#v", l)
+	}
+
+	// box goes down: its tab stays, and closing it is kept here.
+	rd.nc.Close()
+	waitFor(t, "box down", func() bool { return !m.Hosts()[1].Up })
+	if st := m.State(); st.Workspace("rw") == nil {
+		t.Fatal("box's tab left with box")
+	}
+	m.Send(proto.CloseTab{WorkspaceID: "rw"})
+	if l, ok := next(ld).(proto.SessionLink); !ok || l.Remote != "rs" || !slices.Equal(l.Forget, []string{"rw"}) {
+		t.Fatalf("local got %#v", l)
 	}
 }

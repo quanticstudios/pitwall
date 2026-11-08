@@ -30,6 +30,26 @@ func curHost() string {
 type Hoster interface {
 	SessionHost(session string) string // "" for this machine
 	Hosts() []sidebar.HostInfo         // this machine first
+	// HostOf is the host of a tab, group or pane id, "" for this machine.
+	// A shared session's tabs are on several.
+	HostOf(id string) string
+}
+
+// NewTabOn opens Tab on Host, "" for this machine, through a Hoster
+// backend. Tab.SessionID is the window's session; on another host the
+// backend opens it in that host's part of the shared session, which it
+// makes first when there is none.
+type NewTabOn struct {
+	Host string
+	Tab  proto.NewSession
+}
+
+// hostOf is the host of a tab, group or pane id, "" for this machine.
+func (u *ui) hostOf(id string) string {
+	if h, ok := u.b.(Hoster); ok {
+		return h.HostOf(id)
+	}
+	return Host
 }
 
 // showHost sets shownHost to the host of the session the window shows.

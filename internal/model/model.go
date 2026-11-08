@@ -416,6 +416,29 @@ type Session struct {
 	// Windows is how many GUI windows show the session now. The daemon
 	// fills it in; it is not saved.
 	Windows int `json:"-"`
+	// Remotes are the sessions on other hosts that windows show as part of
+	// this one, a shared session. This daemon never talks to those hosts: a
+	// window joins their tabs in, and Order may then name their tabs and
+	// groups. A session with Remotes stays when its last tab here closes.
+	Remotes []RemoteSession `json:",omitempty"`
+}
+
+// RemoteSession is a session on another host that is part of a shared
+// session. On its host it is an ordinary session, named after the shared one.
+type RemoteSession struct {
+	Host    string // the [[hosts]] name
+	Session string // the session's id on that host
+	// Forget are that host's tabs a window closed while the host was down;
+	// the next window that reaches the host closes them there.
+	Forget []string `json:",omitempty"`
+}
+
+// Remote is session's part on host, or nil.
+func (s *Session) Remote(host string) *RemoteSession {
+	if i := slices.IndexFunc(s.Remotes, func(r RemoteSession) bool { return r.Host == host }); i >= 0 {
+		return &s.Remotes[i]
+	}
+	return nil
 }
 
 // State is everything a client needs to draw the sidebar and the layout.
@@ -660,7 +683,8 @@ func (s *State) View(session string) State {
 
 // TopOrder is session's top-level items in sidebar order: its Order with
 // unknown and repeated IDs dropped, then any item Order misses, ungrouped
-// tabs before groups. A tab whose group is gone counts as ungrouped.
+// tabs before groups. A shared session (Remotes) keeps the IDs in Order of
+// no tab or group in s: they are other hosts'. A tab whose group is gone counts as ungrouped.
 // Detached tabs keep their place.
 func (s *State) TopOrder(session string) []string {
 	groups := make(map[string]bool, len(s.Projects))
@@ -685,15 +709,23 @@ func (s *State) TopOrder(session string) []string {
 		top[id] = true
 	}
 	var order []string
+	// why: a shared session's Order also names other hosts' tabs and
+	// groups, which this state lacks; they keep their places.
+	foreign := false
 	if ss := s.Session(session); ss != nil {
-		order = ss.Order
+		order, foreign = ss.Order, len(ss.Remotes) > 0
 	}
 	out := make([]string, 0, len(implied))
+	seen := map[string]bool{}
 	for _, id := range order {
-		if top[id] {
+		switch {
+		case top[id]:
 			out = append(out, id)
 			delete(top, id)
+		case foreign && !seen[id] && !known(s, id):
+			out = append(out, id)
 		}
+		seen[id] = true
 	}
 	for _, id := range implied {
 		if top[id] {
@@ -701,6 +733,12 @@ func (s *State) TopOrder(session string) []string {
 		}
 	}
 	return out
+}
+
+// known reports whether id is a tab or group of any session in s.
+func known(s *State, id string) bool {
+	return slices.ContainsFunc(s.Workspaces, func(w Workspace) bool { return w.ID == id }) ||
+		slices.ContainsFunc(s.Projects, func(p Project) bool { return p.ID == id })
 }
 
 // Ordered is every tab of session, detached ones included, in sidebar

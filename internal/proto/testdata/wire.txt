@@ -1,4 +1,4 @@
-18.66
+18.67
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -22,7 +22,8 @@ model.Popup{Pane string; Width string; Height string; Title string}
 model.PortBlock{First int; Last int}
 model.Program{App string; State string; Kind string; Progress int; Message string; UpdatedAt time.Time}
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
-model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int}
+model.RemoteSession{Host string; Session string; Forget []string}
+model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession}
 model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
@@ -119,8 +120,10 @@ proto.SeePane{Pane string}
 proto.SelectTab{WorkspaceID string; TabID string}
 proto.Send{Pane string; From string; Text string}
 proto.SessionKill{SessionID string}
+proto.SessionLink{SessionID string; Host string; Remote string; Forget []string}
 proto.SessionMatch{Workspace string; Pane string; Match vt.Match; Snippet string; Time time.Time; Transcript bool; Hidden bool}
 proto.SessionNew{Name string; Cwd string; FromPane string}
+proto.SessionOrder{SessionID string; Order []string}
 proto.SessionRename{SessionID string; Name string}
 proto.SessionShow{SessionID string}
 proto.SetLayout{WorkspaceID string; TabID string; Layout *layout.Node}

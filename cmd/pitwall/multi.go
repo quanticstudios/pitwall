@@ -1,10 +1,15 @@
 package main
 
 import (
+	"cmp"
+	"errors"
+	"fmt"
 	"maps"
 	"reflect"
 	"runtime"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -41,12 +46,29 @@ type multi struct {
 	clipSeq  map[*hostLink]uint64
 	clip     model.Clipboard
 	clipFrom *hostLink
+	// folded is the sessions on other hosts that are parts of a shared
+	// session here, shared the shared sessions here.
+	folded, shared map[string]bool
+	// pending is the shared sessions whose part on a host a SessionNew is
+	// making: the name it was asked for, by host and session here.
+	pending map[[2]string]string
+	// asked is the SessionLink last sent for a session and host, and when,
+	// so a merge before this machine's state shows it does not send it
+	// again within a few seconds.
+	asked map[[2]string]asked
+}
+
+type asked struct {
+	sig string
+	at  time.Time
 }
 
 // hostLink is one daemon of a multi.
 type hostLink struct {
-	name string // "" for this machine
-	b    *backend
+	name  string // "" for this machine
+	ssh   string // the ssh destination, "" for this machine
+	color string // its color in a shared session, "" for the palette's turn
+	b     *backend
 }
 
 var (
@@ -67,14 +89,14 @@ var (
 
 // hostDial is one host of a multi and how to reach its daemon.
 type hostDial struct {
-	name string
-	dial func(session string, restart bool) (*proto.Conn, proto.StateMsg, error)
+	name, ssh, color string
+	dial             func(session string, restart bool) (*proto.Conn, proto.StateMsg, error)
 }
 
 // windowHosts are the [[hosts]] entries a plain window shows next to this
 // machine, and a func that drops their forwards. None on Windows, whose
 // ssh cannot share a connection.
-func windowHosts(hosts []config.Host) ([]hostDial, func()) {
+func windowHosts(hosts []config.Host, colors map[string]string) ([]hostDial, func()) {
 	var out []hostDial
 	var close []func()
 	for _, h := range hosts {
@@ -82,7 +104,7 @@ func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 			continue
 		}
 		r, err := newSSHHost(h.Name, hosts)
-		d := hostDial{name: h.Name}
+		d := hostDial{name: h.Name, ssh: cmp.Or(h.SSH, h.Name), color: colors[h.Name]}
 		if err != nil {
 			d.dial = func(string, bool) (*proto.Conn, proto.StateMsg, error) { return nil, proto.StateMsg{}, err }
 		} else {
@@ -101,7 +123,8 @@ func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 // newMulti joins local, this machine's backend, and a backend per host in
 // remotes, which connect in the background.
 func newMulti(local *backend, remotes []hostDial) *multi {
-	m := &multi{changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), owner: map[string]*hostLink{}, clipSeq: map[*hostLink]uint64{}}
+	m := &multi{changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), owner: map[string]*hostLink{}, clipSeq: map[*hostLink]uint64{},
+		pending: map[[2]string]string{}, asked: map[[2]string]asked{}}
 	m.hosts = append(m.hosts, &hostLink{b: local})
 	// The window takes its first session before its first frame.
 	select {
@@ -121,7 +144,7 @@ func newMulti(local *backend, remotes []hostDial) *multi {
 		}
 		b.redial = r.dial
 		b.link.Note = "Connecting…"
-		m.hosts = append(m.hosts, &hostLink{name: r.name, b: b})
+		m.hosts = append(m.hosts, &hostLink{name: r.name, ssh: r.ssh, color: r.color, b: b})
 	}
 	m.cur = m.hosts[0]
 	m.merge()
@@ -149,7 +172,67 @@ func newMulti(local *backend, remotes []hostDial) *multi {
 	for _, h := range m.hosts[1:] {
 		h.b.startDialing(false)
 	}
+	if len(m.hosts) > 1 {
+		go m.pings()
+	}
 	return m
+}
+
+// pings measures each host's latency every few seconds, for the host row.
+func (m *multi) pings() {
+	for {
+		for _, h := range m.hosts[1:] {
+			if up(h) {
+				h.b.ping()
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+// up reports whether h is connected.
+func up(h *hostLink) bool {
+	l := h.b.Link()
+	return l.State == app.LinkUp && l.Epoch > 0
+}
+
+// byName is the host called name, "" for this machine, or nil.
+func (m *multi) byName(name string) *hostLink {
+	for _, h := range m.hosts {
+		if h.name == name {
+			return h
+		}
+	}
+	return nil
+}
+
+// foldIn is s with the sessions in to, each a part of a shared session
+// here, folded into that session: their groups, tabs and tasks move to it,
+// the sessions themselves go, and so do the tabs in forget.
+func foldIn(s model.State, to map[string]string, forget map[string]bool) model.State {
+	if len(to) == 0 {
+		return s
+	}
+	s.Sessions = slices.DeleteFunc(slices.Clone(s.Sessions), func(x model.Session) bool { return to[x.ID] != "" })
+	s.Projects = slices.Clone(s.Projects)
+	for i := range s.Projects {
+		if id := to[s.Projects[i].SessionID]; id != "" {
+			s.Projects[i].SessionID = id
+		}
+	}
+	s.Workspaces = slices.DeleteFunc(slices.Clone(s.Workspaces), func(w model.Workspace) bool { return forget[w.ID] })
+	for i := range s.Workspaces {
+		if id := to[s.Workspaces[i].SessionID]; id != "" {
+			s.Workspaces[i].SessionID = id
+		}
+	}
+	s.Tasks = slices.Clone(s.Tasks)
+	for i := range s.Tasks {
+		if id := to[s.Tasks[i].SessionID]; id != "" {
+			s.Tasks[i].SessionID = id
+		}
+	}
+	return s
 }
 
 // merge rebuilds the window's state from every host's last one. A host
@@ -159,8 +242,31 @@ func (m *multi) merge() {
 	defer m.mergeMu.Unlock()
 	var st model.State
 	owner := map[string]*hostLink{}
-	for _, h := range m.hosts {
+	local := m.hosts[0].b.State()
+	fold := map[string]map[string]string{} // by host: its session, the shared one here
+	forget, folded, shared := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, ss := range local.Sessions {
+		for _, r := range ss.Remotes {
+			if fold[r.Host] == nil {
+				fold[r.Host] = map[string]string{}
+			}
+			fold[r.Host][r.Session] = ss.ID
+			folded[r.Session], shared[ss.ID] = true, true
+			for _, id := range r.Forget {
+				forget[id] = true
+			}
+		}
+	}
+	for i, h := range m.hosts {
 		s := h.b.State()
+		if i == 0 {
+			// The window has the other hosts' tabs, so TopOrder may drop
+			// the ids it does not know: they are of closed tabs.
+			s.Sessions = slices.Clone(s.Sessions)
+			for j := range s.Sessions {
+				s.Sessions[j].Remotes = nil
+			}
+		}
 		own := func(id string) {
 			if id != "" {
 				owner[id] = h
@@ -189,6 +295,9 @@ func (m *multi) merge() {
 		}
 		for _, x := range s.Closed {
 			own(x.ID)
+		}
+		if i > 0 {
+			s = foldIn(s, fold[h.name], forget)
 		}
 		st.Version += s.Version
 		st.Sessions = append(st.Sessions, s.Sessions...)
@@ -223,8 +332,60 @@ func (m *multi) merge() {
 	}
 	st.Clipboard = m.clip
 	m.mu.Lock()
-	m.state, m.owner = st, owner
+	m.state, m.owner, m.folded, m.shared = st, owner, folded, shared
 	m.mu.Unlock()
+	m.reconcile(local)
+}
+
+// reconcile keeps this machine's record of its shared sessions true to the
+// hosts it reaches: a part whose session ended there leaves, tabs closed
+// while their host was down close there, and a part a SessionNew made
+// joins once its host's state has it. Callers hold mergeMu.
+func (m *multi) reconcile(local model.State) {
+	link := func(l proto.SessionLink) {
+		key := [2]string{l.SessionID, l.Host}
+		sig := fmt.Sprint(l.Remote, l.Forget)
+		if a := m.asked[key]; a.sig == sig && time.Since(a.at) < 5*time.Second {
+			return
+		}
+		if m.hosts[0].b.Send(l) == nil {
+			m.asked[key] = asked{sig, time.Now()}
+		}
+	}
+	for _, ss := range local.Sessions {
+		for _, r := range ss.Remotes {
+			h := m.byName(r.Host)
+			if h == nil || h == m.hosts[0] || !up(h) {
+				continue
+			}
+			hs := h.b.State()
+			switch {
+			case hs.Session(r.Session) == nil:
+				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host})
+			case len(r.Forget) > 0:
+				for _, id := range r.Forget {
+					if slices.ContainsFunc(hs.Workspaces, func(w model.Workspace) bool { return w.ID == id }) {
+						h.b.Send(proto.CloseTab{WorkspaceID: id})
+					}
+				}
+				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host, Remote: r.Session})
+			}
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, name := range m.pending {
+		ss, h := local.Session(key[1]), m.byName(key[0])
+		if ss == nil || h == nil || ss.Remote(key[0]) != nil {
+			delete(m.pending, key)
+			continue
+		}
+		hs := h.b.State()
+		if x := hs.SessionNamed(name); x != nil && up(h) {
+			link(proto.SessionLink{SessionID: ss.ID, Host: h.name, Remote: x.ID})
+			delete(m.pending, key)
+		}
+	}
 }
 
 // join adds b's entries to a, which it copies first when b has any.
@@ -316,6 +477,47 @@ func eachString(v reflect.Value, f func(string) bool) bool {
 // no id.
 func (m *multi) Send(msg any) error {
 	switch v := msg.(type) {
+	case app.NewTabOn:
+		return m.newTabOn(v)
+	case proto.SessionRename:
+		m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
+			h.b.Send(proto.SessionRename{SessionID: r.Session, Name: v.Name})
+		})
+	case proto.SessionKill:
+		m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
+			h.b.Send(proto.SessionKill{SessionID: r.Session})
+		})
+	case proto.CloseTab:
+		if m.forget(v.WorkspaceID) {
+			return nil
+		}
+	case proto.KillSession:
+		if m.forget(v.WorkspaceID) {
+			return nil
+		}
+	case proto.NewGroup:
+		hosts := map[*hostLink]bool{}
+		for _, id := range v.WorkspaceIDs {
+			hosts[m.of(id)] = true
+		}
+		if len(hosts) > 1 {
+			return errors.New("a group holds tabs of one machine; these are on several")
+		}
+	case proto.MoveSession:
+		if v.GroupID != "" && m.of(v.GroupID) != m.of(v.WorkspaceID) {
+			return errors.New("a group holds tabs of one machine; this tab is on another")
+		}
+		if sh := m.sharedOf(v.WorkspaceID); sh != "" && v.GroupID == "" {
+			var ungroup any
+			if st := m.State(); st.Workspace(v.WorkspaceID) != nil && st.Workspace(v.WorkspaceID).ProjectID != "" {
+				ungroup = proto.MoveSession{WorkspaceID: v.WorkspaceID}
+			}
+			return m.moveShared(sh, v.WorkspaceID, v.Before, ungroup)
+		}
+	case proto.MoveGroup:
+		if sh := m.sharedOf(v.GroupID); sh != "" {
+			return m.moveShared(sh, v.GroupID, v.Before, nil)
+		}
 	case proto.SessionShow:
 		if h := m.of(v.SessionID); h != nil {
 			m.mu.Lock()
@@ -363,6 +565,118 @@ func (m *multi) Send(msg any) error {
 		m.mu.Unlock()
 	}
 	return to.b.Send(msg)
+}
+
+// sharedOf is the shared session here that the tab or group id is in, "".
+func (m *multi) sharedOf(id string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if sh := m.state.SessionOf(id); m.shared[sh] {
+		return sh
+	}
+	return ""
+}
+
+// eachPart calls f with each part on a host that is up of the shared
+// session id.
+func (m *multi) eachPart(id string, f func(*hostLink, model.RemoteSession)) {
+	st := m.hosts[0].b.State()
+	ss := st.Session(id)
+	if ss == nil {
+		return
+	}
+	for _, r := range ss.Remotes {
+		if h := m.byName(r.Host); h != nil && h != m.hosts[0] && up(h) {
+			f(h, r)
+		}
+	}
+}
+
+// forget closes a tab of a shared session whose host is down: the window
+// stops showing it at once, and this machine's daemon keeps it in the
+// part's Forget until a window reaches the host and closes it there. It
+// reports whether the tab was such a tab.
+func (m *multi) forget(tab string) bool {
+	h, sh := m.of(tab), m.sharedOf(tab)
+	if h == nil || h == m.hosts[0] || sh == "" || up(h) {
+		return false
+	}
+	st := m.hosts[0].b.State()
+	r := st.Session(sh).Remote(h.name)
+	if r == nil || slices.Contains(r.Forget, tab) {
+		return r != nil
+	}
+	m.hosts[0].b.Send(proto.SessionLink{SessionID: sh, Host: h.name, Remote: r.Session, Forget: append(slices.Clone(r.Forget), tab)})
+	return true
+}
+
+// moveShared places the top-level item id of the shared session sh before
+// before, or last: this machine's daemon keeps the order. A tab that
+// leaves its group is ungrouped on its own host first, by move.
+func (m *multi) moveShared(sh, id, before string, move any) error {
+	if move != nil {
+		if err := m.route(move).b.Send(move); err != nil {
+			return err
+		}
+	}
+	m.mu.Lock()
+	st := m.state
+	st.Sessions = slices.Clone(st.Sessions)
+	st.Workspaces = slices.Clone(st.Workspaces)
+	for i := range st.Workspaces {
+		if st.Workspaces[i].ID == id {
+			st.Workspaces[i].ProjectID = ""
+		}
+	}
+	m.mu.Unlock()
+	st.PlaceTop(id, before)
+	return m.hosts[0].b.Send(proto.SessionOrder{SessionID: sh, Order: st.Session(sh).Order})
+}
+
+// newTabOn opens a tab on a host, in that host's part of the window's
+// shared session: the part it has, else a session there of the same
+// name, which joins, else a new one, which joins once it shows up.
+func (m *multi) newTabOn(v app.NewTabOn) error {
+	h := m.byName(v.Host)
+	if h == nil {
+		return fmt.Errorf("no host %s in this window", v.Host)
+	}
+	tab := v.Tab
+	if p := cmp.Or(tab.FromPane, tab.ParentPane); p != "" && m.of(p) != h {
+		tab.FromPane, tab.ParentPane = "", "" // a pane of another machine
+	}
+	if h == m.hosts[0] {
+		return h.b.Send(tab)
+	}
+	if !up(h) {
+		return fmt.Errorf("%s is offline", h.name)
+	}
+	local := m.hosts[0].b.State()
+	ss := local.Session(tab.SessionID)
+	if ss == nil {
+		return fmt.Errorf("no session %s on this machine", tab.SessionID)
+	}
+	hs := h.b.State()
+	if r := ss.Remote(h.name); r != nil && hs.Session(r.Session) != nil {
+		tab.SessionID = r.Session
+		return h.b.Send(tab)
+	}
+	if x := hs.SessionNamed(ss.Name); x != nil {
+		if err := m.hosts[0].b.Send(proto.SessionLink{SessionID: ss.ID, Host: h.name, Remote: x.ID}); err != nil {
+			return err
+		}
+		tab.SessionID = x.ID
+		return h.b.Send(tab)
+	}
+	m.mu.Lock()
+	m.pending[[2]string{h.name, ss.ID}] = ss.Name
+	m.mu.Unlock()
+	if len(tab.Cmd) > 0 || tab.GroupID != "" {
+		// SessionNew opens a shell; the tab follows once the part joins.
+		// ponytail: only the CLI sends a command, and it makes the part itself.
+		return errors.New("open a tab on " + h.name + " first, then run the command there")
+	}
+	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
 }
 
 // Frame implements app.Backend from the pane's host.
@@ -423,6 +737,14 @@ func (m *multi) Reconnect() {
 // daemon is restarted by pitwall --host on it, which asks first.
 func (m *multi) Restart() { m.hosts[0].b.Restart() }
 
+// HostOf implements app.Hoster.
+func (m *multi) HostOf(id string) string {
+	if h := m.of(id); h != nil {
+		return h.name
+	}
+	return ""
+}
+
 // SessionHost implements app.Hoster.
 func (m *multi) SessionHost(session string) string {
 	if h := m.of(session); h != nil {
@@ -434,15 +756,20 @@ func (m *multi) SessionHost(session string) string {
 // Hosts implements app.Hoster.
 func (m *multi) Hosts() []sidebar.HostInfo {
 	out := make([]sidebar.HostInfo, 0, len(m.hosts))
+	m.mu.Lock()
+	folded := m.folded
+	m.mu.Unlock()
 	for _, h := range m.hosts {
 		l := h.b.Link()
-		hi := sidebar.HostInfo{Name: h.name, Up: l.State == app.LinkUp && l.Epoch > 0, Note: l.Note}
+		hi := sidebar.HostInfo{Name: h.name, Up: up(h), Note: l.Note, SSH: h.ssh, Latency: l.RTT, Retry: l.Retry, Since: l.Since, Color: h.color}
 		switch l.State {
 		case app.LinkRestart, app.LinkStale:
 			hi.Note = "Runs another pitwall version; open it with pitwall --host " + h.name + " to restart it."
 		}
 		for _, s := range h.b.State().Sessions {
-			hi.Sessions = append(hi.Sessions, s.ID)
+			if !folded[s.ID] {
+				hi.Sessions = append(hi.Sessions, s.ID)
+			}
 		}
 		out = append(out, hi)
 	}

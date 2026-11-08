@@ -143,6 +143,8 @@ func allMessages() []any {
 		Scrollback{Pane: "a", Lines: 20},
 		ScrollbackResult{Pane: "a", Text: "history\nscreen\n"},
 		ForkPane{Pane: "a", Worktree: "side", Name: "alternative", ParentPane: "caller"},
+		SessionLink{SessionID: "s", Host: "box", Remote: "r", Forget: []string{"t"}},
+		SessionOrder{SessionID: "s", Order: []string{"a", "b"}},
 	}
 }
 

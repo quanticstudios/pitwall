@@ -1162,6 +1162,10 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 		return d.sessionRename(m)
 	case proto.SessionKill:
 		return d.sessionKill(m)
+	case proto.SessionLink:
+		return d.sessionLink(m)
+	case proto.SessionOrder:
+		return d.sessionOrder(m)
 	case proto.SessionShow:
 		return errors.New("only a GUI shows a session")
 	case proto.SetSessionGroup:

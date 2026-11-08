@@ -72,7 +72,7 @@ func (u *ui) layoutPopup(gtx gl.Context, st *model.State, pp model.Popup, area l
 	r := popupRect(pp, area, p.view.CellSize(gtx, th), extra)
 	rect := image.Rect(r.X, r.Y, r.X+r.W, r.Y+r.H)
 	kit.Shadow(gtx, rect, gtx.Dp(10), kit.Modal)
-	u.layoutPane(gtx, p, pp.Pane, r, focused, findFocus, false, nil)
+	u.layoutPane(gtx, st, p, pp.Pane, r, focused, findFocus, false, nil)
 
 	// The title and the close key cut into the top border.
 	pad := gtx.Dp(6)

@@ -26,6 +26,11 @@ type HostInfo struct {
 	Up       bool     // connected now
 	Note     string   // while it is not up: why, or that it is connecting
 	Sessions []string // its session ids, in the switcher's order
+	SSH      string   // the ssh destination, "" for this machine
+	Latency  time.Duration
+	Retry    time.Time // while it is down, the next try; zero when none is due
+	Since    time.Time // while it is down, when it went down
+	Color    string    // a theme.ProjectColor id
 }
 
 // ShowSession is a click on a session in the host list.
@@ -309,4 +314,45 @@ func findWS(st *model.State, id string) *model.Workspace {
 		return &st.Workspaces[i]
 	}
 	return nil
+}
+
+// hostPalette is the colors hosts take in turn when config names none.
+var hostPalette = []string{"teal", "violet", "orange", "pink", "lime", "cyan"}
+
+// HostColor is host name's color in a shared session: its own, else the
+// palette's in the order hosts lists them. This machine has none: Primary.
+func HostColor(th *theme.Theme, hosts []HostInfo, name string) color.NRGBA {
+	if name == "" {
+		return th.Primary
+	}
+	n := 0
+	for _, h := range hosts {
+		if h.Name == "" {
+			continue
+		}
+		if h.Name == name {
+			if h.Color != "" {
+				return th.ProjectColor(h.Color)
+			}
+			return th.ProjectColor(hostPalette[n%len(hostPalette)])
+		}
+		n++
+	}
+	return th.ProjectColor(hostPalette[0])
+}
+
+// FindHost is the HostInfo of name in hosts.
+func FindHost(hosts []HostInfo, name string) (HostInfo, bool) {
+	for _, h := range hosts {
+		if h.Name == name {
+			return h, true
+		}
+	}
+	return HostInfo{}, false
+}
+
+// HostDown reports whether name is another machine that is not connected.
+func HostDown(hosts []HostInfo, name string) bool {
+	h, ok := FindHost(hosts, name)
+	return name != "" && ok && !h.Up
 }

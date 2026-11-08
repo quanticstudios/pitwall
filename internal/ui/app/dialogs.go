@@ -48,6 +48,7 @@ const (
 	modalPinned   // closing a pinned tab, see pinned.go
 	modalRestart  // restarting a daemon older than the window, see restart.go
 	modalClose    // closing an agent mid-turn, see close.go
+	modalPaste    // a paste into another host's pane right after focus moved there, see shared.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -227,6 +228,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = func(gtx gl.Context) gl.Dimensions { return u.closeBody(gtx, ws) }
 	case modalRestart:
 		content = u.restartBody
+	case modalPaste:
+		content = u.pasteBody
 	}
 	u.card(gtx, &m.body, m.openedAt, content)
 }
@@ -300,7 +303,7 @@ func (u *ui) confirmModal(st *model.State) {
 		m.close()
 	case modalPinned:
 		u.confirmPinned(st)
-	case modalClose:
+	case modalClose, modalPaste:
 		u.send(m.then)
 		m.close()
 	case modalRestart:
