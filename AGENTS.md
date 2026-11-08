@@ -32,7 +32,8 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/ui/theme`    | Colors, derived tokens, type and spacing scales, from aide     |
 | `internal/ui/anim`     | Eased values, the durations, reduce_motion                     |
 | `internal/ui/kit`      | The button, popover placement and elevation                    |
-| `internal/ui/sidebar`  | The sidebar                                                    |
+| `internal/ui/sidebar`  | The sidebar, and the board's drawing                           |
+| `internal/ui/board`    | The board's columns, scopes, held cards, from the state        |
 | `internal/ui/term`     | Grid renderer and pane input                                   |
 | `internal/ui/app`      | Window, splits, Alt navigation, switcher                       |
 | `cmd/pitwall`          | Entry point (orchestrator only)                                |

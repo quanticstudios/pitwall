@@ -84,7 +84,8 @@ func (s *Sidebar) boardCard(gtx layout.Context, th *theme.Theme, st *model.State
 	size := image.Pt(w, y+padT+gtx.Dp(10))
 	rect := image.Rectangle{Max: size}
 	r := gtx.Dp(8)
-	return clickable(gtx, &cs.card, func(gtx layout.Context) layout.Dimensions {
+	// why: the card's own click area goes under its content, so its buttons take their clicks.
+	clickable(gtx, &cs.card, func(gtx layout.Context) layout.Dimensions {
 		paint.FillShape(gtx.Ops, th.BorderSubtle, clip.UniformRRect(rect, r).Op(gtx.Ops))
 		paint.FillShape(gtx.Ops, base, clip.UniformRRect(rect.Inset(1), r-1).Op(gtx.Ops))
 		if need || card.Act.Unseen {
@@ -93,11 +94,12 @@ func (s *Sidebar) boardCard(gtx layout.Context, th *theme.Theme, st *model.State
 		if s.bd.cur == card.ID {
 			paint.FillShape(gtx.Ops, th.Primary, clip.Stroke{Path: clip.UniformRRect(rect.Inset(1), r-1).Path(gtx.Ops), Width: float32(gtx.Dp(1.5))}.Op())
 		}
-		o := op.Offset(image.Pt(padL, padT)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
 		return layout.Dimensions{Size: size}
 	})
+	o = op.Offset(image.Pt(padL, padT)).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	o.Pop()
+	return layout.Dimensions{Size: size}
 }
 
 // cardClicks turns card's clicks into events: Allow and Deny, through the
@@ -616,32 +618,30 @@ func (s *Sidebar) approvalButtons(th *theme.Theme, card board.Card, cs *boardCar
 }
 
 // choiceRow is a question's or plan's answers from the screen, as the
-// sidebar draws them, then a way to the tab.
+// sidebar draws them, on a line of their own, then a way to the tab.
 func (s *Sidebar) choiceRow(th *theme.Theme, card board.Card, cs *boardCard, base color.NRGBA, armed bool, openText string) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		h := gtx.Dp(24)
-		var items []item
+		y := 0
 		if n := len(card.Act.Buttons); n > 0 {
 			b := answerBtns{choices: &cs.choices}
 			if !armed {
 				b = answerBtns{}
 			}
-			labels := card.Act.Buttons
-			col := th.Yellow
+			g := gtx
+			g.Constraints = layout.Constraints{Max: image.Pt(gtx.Constraints.Max.X, h)}
+			var d layout.Dimensions
 			if card.Kind == board.KindPlan {
-				labels, col = labels[:1], th.Purple
+				d = pillButton(b.choice(0), th, base, h, card.Act.Buttons[0], th.Purple)(g)
+			} else {
+				d = choicePills(g, th, b, card.Act.Buttons, base)
 			}
-			items = append(items, item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
-				if card.Kind == board.KindPlan {
-					return pillButton(b.choice(0), th, base, h, labels[0], col)(gtx)
-				}
-				return choicePills(gtx, th, b, labels, base)
-			}})
+			y = d.Size.Y + gtx.Dp(6)
 		}
-		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-			return kit.Button(gtx, th, &cs.open, kit.Ghost, kit.Small, openText)
-		}})
-		return hrowFit(gtx, h, gtx.Dp(6), items...)
+		o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+		d := kit.Button(gtx, th, &cs.open, kit.Ghost, kit.Small, openText)
+		o.Pop()
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, y+d.Size.Y)}
 	}
 }
 

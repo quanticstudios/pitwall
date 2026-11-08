@@ -119,10 +119,11 @@ func (s *Sidebar) BoardFocus() { s.bd.focus = true }
 
 // BoardAnswer is allow_prompt's or deny_prompt's event on the board: an
 // Answer for the focused card's approval, when the card offers Allow and
-// its ask has been on screen for board.Arming. ok is false otherwise.
-func (s *Sidebar) BoardAnswer(allow bool) (Event, bool) {
+// its ask has been on screen for board.Arming at now. ok is false
+// otherwise.
+func (s *Sidebar) BoardAnswer(allow bool, now time.Time) (Event, bool) {
 	c, ok := s.bd.b.All[s.bd.cur]
-	if !ok || !s.Answers || c.Held || c.Answers() != board.AnswerAllow || !s.bd.tr.Armed(c.ID, s.now) {
+	if !ok || !s.Answers || c.Held || c.Answers() != board.AnswerAllow || !s.bd.tr.Armed(c.ID, now) {
 		return nil, false
 	}
 	return Answer{PaneID: c.Act.PaneID, At: c.Act.UpdatedAt.UnixNano(), Allow: allow}, true
@@ -141,6 +142,13 @@ func (s *Sidebar) Board(gtx layout.Context, th *theme.Theme, st *model.State, o 
 	s.now = gtx.Now
 	size := gtx.Constraints.Max
 	paint.FillShape(gtx.Ops, th.Bg, clip.Rect{Max: size}.Op())
+	// why: the key focus tag's area goes under everything, or it would take the cards' clicks.
+	for {
+		if _, ok := gtx.Event(key.FocusFilter{Target: &bd.tag}); !ok {
+			break
+		}
+	}
+	event.Op(gtx.Ops, &bd.tag)
 
 	bd.b = board.Derive(st, board.Options{Scope: bd.scope, Shells: bd.shells, Hosts: o.Hosts, Now: gtx.Now})
 	held := map[string]bool{}
@@ -175,12 +183,6 @@ func (s *Sidebar) Board(gtx layout.Context, th *theme.Theme, st *model.State, o 
 		s.scopeMenu(gtx, th, st, o)
 	}
 
-	for {
-		if _, ok := gtx.Event(key.FocusFilter{Target: &bd.tag}); !ok {
-			break
-		}
-	}
-	event.Op(gtx.Ops, &bd.tag)
 	if bd.focus {
 		bd.focus = false
 		gtx.Execute(key.FocusCmd{Tag: &bd.tag})

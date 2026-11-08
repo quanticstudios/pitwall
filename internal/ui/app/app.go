@@ -650,7 +650,7 @@ func (u *ui) layout(gtx gl.Context) {
 		if u.settingsShortcut(ev.(key.Event)) || u.sidebarKey(&st, ev.(key.Event)) {
 			continue
 		}
-		if u.popupKey(&st, ev.(key.Event)) || u.boardKey(&st, ev.(key.Event)) {
+		if u.popupKey(&st, ev.(key.Event)) || u.boardKey(&st, ev.(key.Event), gtx.Now) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {

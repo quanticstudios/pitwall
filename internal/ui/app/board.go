@@ -1,6 +1,8 @@
 package app
 
 import (
+	"time"
+
 	"gioui.org/io/key"
 	gl "gioui.org/layout"
 
@@ -36,7 +38,7 @@ func (u *ui) layoutBoard(gtx gl.Context, st *model.State) {
 
 // boardKey sends allow_prompt and deny_prompt to the board's focused card
 // while the board shows, and never to a pane behind it.
-func (u *ui) boardKey(st *model.State, e key.Event) bool {
+func (u *ui) boardKey(st *model.State, e key.Event, now time.Time) bool {
 	if !u.boardOn {
 		return false
 	}
@@ -45,7 +47,7 @@ func (u *ui) boardKey(st *model.State, e key.Event) bool {
 		return false
 	}
 	if e.State == key.Press {
-		if ev, ok := u.sidebar.BoardAnswer(act == "allow_prompt"); ok {
+		if ev, ok := u.sidebar.BoardAnswer(act == "allow_prompt", now); ok {
 			u.sidebarEvent(st, ev)
 		}
 	}
