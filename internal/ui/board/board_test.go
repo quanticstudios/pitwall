@@ -272,6 +272,11 @@ func TestAnswers(t *testing.T) {
 			t.Errorf("guard_deny %q: %v, want %v", c.deny, got, c.want)
 		}
 	}
+	chat := approval("ls")
+	chat.Tab.Chat = "c1"
+	if got := chat.Answers(); got != AnswerChat {
+		t.Errorf("a managed chat's approval offers %v, want the tab", got)
+	}
 	if got := (Card{Kind: KindInput}).Answers(); got != AnswerNone {
 		t.Errorf("a question offers %v", got)
 	}

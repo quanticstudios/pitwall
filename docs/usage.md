@@ -1677,7 +1677,8 @@ Esc, or showing a tab, goes back to the panes.
   line; one the [guard](#the-guard) denies, by its own list or yours in
   `[agents] guard_deny`; and one whose command pitwall does not know, from
   a tool other than a shell command or a daemon older than the window,
-  which shows the tool's description. A question shows the options its
+  which shows the tool's description. A [chat](cli.md#chats)'s approval shows
+  Open tab: you answer it in the chat. A question shows the options its
   screen offers.
 - **Failed**: failed turns, with Continue, which sends "continue" when the
   agent waits for input, and agents a usage limit stopped, in grey, with

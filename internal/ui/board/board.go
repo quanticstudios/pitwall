@@ -124,6 +124,7 @@ const (
 	AnswerLong                  // too long to read on a card: open the tab
 	AnswerGuard                 // on the guard's deny list: open the tab
 	AnswerUnknown               // no command known to check: open the tab
+	AnswerChat                  // a managed chat's, answered in its tab
 )
 
 // Answers is what card c offers for its approval: Allow and Deny only for
@@ -131,7 +132,13 @@ const (
 // pitwall does not know, from a tool other than a shell or an older
 // daemon, gets none.
 func (c Card) Answers() Answer {
-	if c.Kind != KindApproval || !remote.Answerable(c.Act) {
+	switch {
+	case c.Kind != KindApproval:
+		return AnswerNone
+	case c.Tab.Chat != "":
+		// why: a chat takes ChatApprove with a request id that only its transcript carries.
+		return AnswerChat
+	case !remote.Answerable(c.Act):
 		return AnswerNone
 	}
 	cmd := c.Act.Command

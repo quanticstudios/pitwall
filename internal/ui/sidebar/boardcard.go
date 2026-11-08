@@ -574,6 +574,12 @@ func (s *Sidebar) approvalButtons(th *theme.Theme, card board.Card, cs *boardCar
 			return layout.Dimensions{Size: image.Pt(max(d.Size.X, n.Size.X), d.Size.Y+gtx.Dp(6)+n.Size.Y)}
 		case board.AnswerNone:
 			return kit.Button(gtx, th, &cs.open, kit.Ghost, kit.Small, "Open tab")
+		case board.AnswerChat:
+			d := kit.Button(gtx, th, &cs.open, kit.Ghost, kit.Small, "Open tab")
+			o := op.Offset(image.Pt(0, d.Size.Y+gtx.Dp(6))).Push(gtx.Ops)
+			n := label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.TextQuiet, "A chat's approval is answered in its tab")
+			o.Pop()
+			return layout.Dimensions{Size: image.Pt(max(d.Size.X, n.Size.X), d.Size.Y+gtx.Dp(6)+n.Size.Y)}
 		}
 		allow, deny := &cs.allow, &cs.deny
 		var always *widget.Clickable
