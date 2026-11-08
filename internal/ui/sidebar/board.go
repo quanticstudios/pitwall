@@ -157,7 +157,7 @@ func (s *Sidebar) Board(gtx layout.Context, th *theme.Theme, st *model.State, o 
 	}
 	event.Op(gtx.Ops, &bd.tag)
 
-	bd.b = board.Derive(st, board.Options{Scope: bd.scope, Shells: bd.shells, Hosts: o.Hosts, GuardDeny: o.GuardDeny, Now: gtx.Now})
+	bd.b = board.Derive(st, board.Options{Scope: bd.scope, Session: s.session, Shells: bd.shells, Hosts: o.Hosts, GuardDeny: o.GuardDeny, Now: gtx.Now})
 	held := map[string]bool{}
 	for id, c := range bd.cards {
 		if c.card.Hovered() || c.allow.Hovered() || c.deny.Hovered() || c.choices.hovered() {
@@ -356,8 +356,10 @@ func scopeLabel(st *model.State, sc board.Scope) string {
 		return "Ungrouped"
 	case board.ScopeHost:
 		return hostName(sc.ID)
+	case board.ScopeAll:
+		return "All sessions"
 	}
-	return "All tabs"
+	return "This session"
 }
 
 // ctlButton is a header control: a quiet key, its value and a chevron
@@ -438,12 +440,12 @@ func (s *Sidebar) switchButton(gtx layout.Context, th *theme.Theme, c *widget.Cl
 	})
 }
 
-// scopeMenu is the Scope control's menu: every tab, each group, the
+// scopeMenu is the Scope control's menu: this session, every session, each group, the
 // ungrouped tabs and each machine, with how many cards each shows.
 func (s *Sidebar) scopeMenu(gtx layout.Context, th *theme.Theme, st *model.State, o BoardOptions) {
 	bd := &s.bd
 	var want []board.Scope
-	want = append(want, board.Scope{})
+	want = append(want, board.Scope{}, board.Scope{Kind: board.ScopeAll})
 	for _, p := range st.Projects {
 		want = append(want, board.Scope{Kind: board.ScopeProject, ID: p.ID})
 	}
@@ -468,7 +470,7 @@ func (s *Sidebar) scopeMenu(gtx layout.Context, th *theme.Theme, st *model.State
 		bd.scopes = append(bd.scopes, boardScope{})
 	}
 	for i, sc := range want {
-		b := board.Derive(st, board.Options{Scope: sc, Hosts: o.Hosts, Now: gtx.Now})
+		b := board.Derive(st, board.Options{Scope: sc, Session: s.session, Hosts: o.Hosts, Now: gtx.Now})
 		n := 0
 		for c := range b.Cols {
 			if board.Column(c) != board.Shells {

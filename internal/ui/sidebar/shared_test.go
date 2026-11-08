@@ -128,7 +128,7 @@ func TestDownBanner(t *testing.T) {
 func TestDownHostCard(t *testing.T) {
 	now := time.Now()
 	st, hosts := sharedState(now)
-	s := Sidebar{Answers: true, Hosts: hosts}
+	s := Sidebar{Answers: true, Hosts: hosts, session: "ls"}
 	s.BoardFocus()
 	o := BoardOptions{Hosts: map[string]string{"rw": "box"}}
 	var r input.Router

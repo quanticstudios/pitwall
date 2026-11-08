@@ -164,10 +164,11 @@ func Denied(cmd string, extra []string) bool {
 type ScopeKind int
 
 const (
-	ScopeAll       ScopeKind = iota
-	ScopeProject             // one group, by its id
-	ScopeUngrouped           // tabs in no group on this machine
-	ScopeHost                // one machine, by its name
+	ScopeSession   ScopeKind = iota // the session the window shows, the default
+	ScopeAll                        // every session
+	ScopeProject                    // one group, by its id
+	ScopeUngrouped                  // tabs in no group on this machine
+	ScopeHost                       // one machine, by its name
 )
 
 // Scope is the part of the window's tabs the board shows.
@@ -178,8 +179,11 @@ type Scope struct {
 
 // Options are what Derive needs besides the state.
 type Options struct {
-	Scope  Scope
-	Shells bool // show plain shells in their own column
+	Scope Scope
+	// Session is the window's session, for ScopeSession; a shared
+	// session's tabs on other hosts carry its id in the window's state.
+	Session string
+	Shells  bool // show plain shells in their own column
 	// Hosts is each session's machine by session id, "" or missing for
 	// this one, and in a shared session each tab's by tab id, which wins.
 	Hosts map[string]string
@@ -214,7 +218,7 @@ func Derive(st *model.State, o Options) Board {
 	var shown []Card
 	for _, w := range st.Workspaces {
 		host := cmp.Or(o.Hosts[w.ID], o.Hosts[w.SessionID])
-		if w.Detached || !inScope(w, host, o.Scope) {
+		if w.Detached || !inScope(w, host, o) {
 			continue
 		}
 		switch {
@@ -272,8 +276,11 @@ func Derive(st *model.State, o Options) Board {
 // folds reports whether a worker in column c folds into its orchestrator.
 func folds(c Column) bool { return c == Working || c == PROpen || c == Done }
 
-func inScope(w model.Workspace, host string, s Scope) bool {
+func inScope(w model.Workspace, host string, o Options) bool {
+	s := o.Scope
 	switch s.Kind {
+	case ScopeSession:
+		return w.SessionID == o.Session
 	case ScopeProject:
 		return w.ProjectID == s.ID
 	case ScopeUngrouped:
@@ -287,6 +294,8 @@ func inScope(w model.Workspace, host string, s Scope) bool {
 func taskInScope(st *model.State, t model.Task, o Options) bool {
 	host := o.Hosts[t.SessionID]
 	switch o.Scope.Kind {
+	case ScopeSession:
+		return t.SessionID == o.Session
 	case ScopeProject:
 		return t.GroupID == o.Scope.ID
 	case ScopeUngrouped:

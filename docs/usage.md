@@ -1713,8 +1713,9 @@ has a card of its own that names its orchestrator. Snoozed and settled tabs
 stay in the inbox; the footer counts them. Plain shells stay out unless a
 command in them reports its status; Show shells adds a Shells column.
 
-Scope narrows the board to one group, the tabs in no group, or one host
-when the window shows several. Tabs outside a group show their folder in
+The board shows the window's session, a shared session's tabs on other
+hosts included. Scope widens it to All sessions, or narrows it to one
+group, the tabs in no group, or one host when the window shows several. Tabs outside a group show their folder in
 place of a branch. Columns keep at least 288 points of width; when they do
 not fit, the board scrolls sideways (a sideways wheel or Shift with the
 wheel), and the chips under the header outline the columns out of view and
