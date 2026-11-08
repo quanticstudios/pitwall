@@ -15,11 +15,18 @@ import (
 
 func main() {
 	size := flag.String("size", "1280x800", "window size WxH in dp")
+	boardDemo := flag.String("board", "", "open the board on a fake state: 17 or 31 agents")
 	flag.Parse()
 	if _, err := fmt.Sscanf(*size, "%dx%d", &app.WindowSize.X, &app.WindowSize.Y); err != nil {
 		log.Fatalf("-size %q: want WxH", *size)
 	}
-	b := app.NewFakeBackend()
+	var b interface {
+		app.Backend
+		Run(time.Duration, <-chan struct{})
+	} = app.NewFakeBackend()
+	if *boardDemo != "" {
+		b, app.OpenBoard = app.NewFakeBoard(*boardDemo == "31"), true
+	}
 	// A canned install: the demo never touches an agent's config.
 	app.InstallHooks = func(dry, statusline bool) (string, error) {
 		time.Sleep(300 * time.Millisecond)
@@ -36,7 +43,9 @@ func main() {
 		}
 		return "Backup: /home/you/.claude/settings.json.pitwall-backup-1791470000\n", nil
 	}
-	go b.Run(3*time.Second, nil)
+	if *boardDemo == "" {
+		go b.Run(3*time.Second, nil)
+	}
 	go func() {
 		if err := app.Run(b); err != nil {
 			log.Fatal(err)

@@ -33,7 +33,11 @@ type Activity struct {
 	SessionID   string
 	State       AgentState
 	Detail      string // question text, approval detail, or error message
-	UpdatedAt   time.Time
+	// Command is the shell command a pending approval asks to run, as its
+	// hook reported it; "" when the hook named none. The daemon fills it
+	// in; it is not saved.
+	Command   string `json:"-"`
+	UpdatedAt time.Time
 	// Unseen is set while a needs-you activity (NeedsYou) has not been in
 	// the focused pane of a focused window since UpdatedAt.
 	Unseen bool

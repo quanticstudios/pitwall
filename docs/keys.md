@@ -85,6 +85,7 @@ conventional:
 | Ctrl+Shift+R                            | Review the tab's changes: comment, then send to its agent |
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
+| Ctrl+Shift+M                            | Show or hide the board: every agent tab as a card, by what it needs |
 | Ctrl+Shift+Y / Ctrl+Shift+D             | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                            | New task: an agent on a prompt, started now or queued     |
 | Ctrl+Shift+S                            | Session switcher                                          |
@@ -128,6 +129,7 @@ aide:
 | Ctrl+Shift+R                      | Review the tab's changes and comment on them   |
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
+| Ctrl+Shift+M                      | Show or hide the board                         |
 | Ctrl+Shift+Y / Ctrl+Shift+D       | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                      | New task: an agent on a prompt, started now or queued |
 | Alt+S                             | Session switcher                               |
@@ -181,6 +183,7 @@ mac:
 | Cmd+Shift+R                             | Review the tab's changes: comment, then send to its agent |
 | Cmd+U                                   | Go to the tab that needs you, newest first, in any session |
 | Cmd+Option+U                           | Jump to the pane you last sent an agent prompt, across sessions |
+| Cmd+Shift+M                             | Show or hide the board: every agent tab as a card, by what it needs |
 | Cmd+Shift+Y / Cmd+Shift+N               | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Cmd+Shift+A                             | New task: an agent on a prompt, started now or queued     |
 | Cmd+S                                   | Session switcher                                          |
@@ -288,6 +291,21 @@ reaches the program.
 Its default is Ctrl+Alt+U in conventional and aide, Cmd+Option+U in mac.
 Rebind it under `[keys]` or in Settings. It also appears as "Jump to last
 prompt" in the command palette. See [prompt tracking](usage.md#watching-agents).
+
+`toggle_board` shows the board in place of the panes, or hides it. Its
+default is Ctrl+Shift+M in conventional and aide, Cmd+Shift+M in mac. On
+the board (see [the board](usage.md#the-board)):
+
+| Keys                       | Action                                                        |
+| -------------------------- | ------------------------------------------------------------- |
+| Up / Down                  | The card above / below in its column                          |
+| Left / Right               | The nearest card in the next column to the left / right       |
+| Enter                      | Show the card's tab                                           |
+| allow_prompt / deny_prompt | Allow / Deny the focused card's approval, when it shows Allow |
+| Esc                        | Close the scope menu, then go back to All tabs, then to the panes |
+
+Allow and Deny act on the card with the focus ring, never on a pane behind
+the board.
 
 Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and

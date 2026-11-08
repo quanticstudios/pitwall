@@ -879,3 +879,31 @@ func TestRemoteChat(t *testing.T) {
 	}
 	waitTurn(r.Chat)
 }
+
+// A window's state carries the command a pending approval asks to run, and
+// drops it once the agent moves on.
+func TestSnapshotCarriesTheCommand(t *testing.T) {
+	d, _, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	ctx := context.Background()
+	command := func(payload string) string {
+		t.Helper()
+		if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+			t.Fatal(err)
+		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		for _, a := range d.snapshot().Activities {
+			if a.PaneID == "a" {
+				return a.Command
+			}
+		}
+		return "missing"
+	}
+	if got := command(`{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"npm run migrate","description":"Migrate"}}`); got != "npm run migrate" {
+		t.Errorf("pending approval: %q", got)
+	}
+	if got := command(`{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Bash"}`); got != "" {
+		t.Errorf("after the tool ran: %q", got)
+	}
+}

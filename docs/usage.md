@@ -1670,6 +1670,61 @@ daemon, so they survive a restart and every window sees them.
 Clicking a row shows its tab, as in the tree, and next tab, previous tab,
 goto_tab and the switcher follow the inbox's order while it shows.
 
+### The board
+
+The board shows every agent tab as a card, in columns by what it needs from
+you: Needs you, Failed, Working, PR open, Done and Queued. Where the sidebar
+fits one line per tab, a card shows a whole command with its folder, a
+question with its options, the result of a turn, a pull request's checks,
+or an orchestrator's workers. Open it with the board button right of the
+inbox button in the sidebar's header, whose badge counts the cards that
+wait on you, or with `toggle_board` (Ctrl+Shift+M, Cmd+Shift+M on macOS).
+Esc, or showing a tab, goes back to the panes.
+
+- **Needs you**: approvals, then questions, then plans, oldest first. An
+  approval shows its tool, folder (with the host for a remote tab) and the
+  whole command, with Allow and Deny as the sidebar draws them and
+  Always… where the prompt offers it. Some approvals show Read it in the
+  tab instead: a command longer than 180 characters or on more than one
+  line; one the [guard](#the-guard) denies, by its own list or yours in
+  `[agents] guard_deny`; and one whose command pitwall does not know, from
+  a tool other than a shell command or a daemon older than the window,
+  which shows the tool's description. A [chat](cli.md#chats)'s approval shows
+  Open tab: you answer it in the chat. A question shows the options its
+  screen offers.
+- **Failed**: failed turns, with Continue, which sends "continue" when the
+  agent waits for input, and agents a usage limit stopped, in grey, with
+  the time pitwall types continue.
+- **Working**: agents in a turn, quiet ones (see `quiet_after`) first, and
+  commands that report their status ([programs](#programs)). An
+  orchestrator whose own turn ended reads Watching while its workers work.
+- **PR open**: finished turns whose branch has an open pull request, with
+  its checks and review.
+- **Done**: finished turns, the ones you have not seen above a Seen line,
+  and workers whose agent is gone, as Stopped.
+- **Queued**: queued tasks, with Start now and Remove.
+
+A worker folds into its orchestrator's card, which counts its workers in
+words under a bar of their states, unless it needs you or failed: then it
+has a card of its own that names its orchestrator. Snoozed and settled tabs
+stay in the inbox; the footer counts them. Plain shells stay out unless a
+command in them reports its status; Show shells adds a Shells column.
+
+Scope narrows the board to one group, the tabs in no group, or one host
+when the window shows several. Tabs outside a group show their folder in
+place of a branch. Columns keep at least 288 points of width; when they do
+not fit, the board scrolls sideways (a sideways wheel or Shift with the
+wheel), and the chips under the header outline the columns out of view and
+scroll to one on a click. Each column scrolls down on its own.
+
+Cards never move under the pointer or the focus ring. A card you just
+answered stays where it was without its buttons, says Answered and what
+its agent does now, and moves once the pointer and the focus leave it. A
+card that just arrived in Needs you, or whose ask just changed, takes no
+clicks on its answers for 650 milliseconds. A card that changes column
+travels there in 200 milliseconds; with `reduce_motion` it fades in at its
+new place.
+
 ### Replying from the sidebar
 
 An agent that asks a question shows Reply beside its pill, in the inbox and
