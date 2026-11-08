@@ -134,3 +134,37 @@ func TestBoardAnswersSidebarHidden(t *testing.T) {
 	}
 	t.Fatal("Ctrl+Shift+Y on a focused card with the sidebar hidden sent no Answer")
 }
+
+// TestCoveredPanesNotSeen: no pane counts as seen while a review shows,
+// with or without the board under it, or while the board is on under the
+// settings page.
+func TestCoveredPanesNotSeen(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		board, cover string
+	}{{"review", "", "review"}, {"board under review", "board", "review"}, {"board under settings", "board", "settings"}} {
+		t.Run(c.name, func(t *testing.T) {
+			u, keys := keyWindow(t, conventional)
+			u.winFocused = true
+			keys(press("Q", 0))
+			if c.board != "" {
+				keys(press("M", key.ModCtrl|key.ModShift))
+			}
+			if c.cover == "settings" {
+				u.openSettings()
+			} else {
+				u.review.on, u.review.ws = true, u.nav.workspace
+			}
+			keys(press(key.NameCtrl, 0))
+			var last *proto.SeePane
+			for _, m := range u.b.(*FakeBackend).Sent() {
+				if s, ok := m.(proto.SeePane); ok {
+					last = &s
+				}
+			}
+			if last == nil || last.Pane != "" {
+				t.Errorf("last SeePane %+v, want one for no pane", last)
+			}
+		})
+	}
+}
