@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"regexp"
 	"slices"
 	"strconv"
@@ -79,6 +80,9 @@ type nav struct {
 	// folded reports whether the sidebar folds the workers of the tab with
 	// that id away; next and prev skip them. nil folds none.
 	folded func(id string) bool
+	// machine is a tab's place among the window's machines, this one 0,
+	// the sidebar's order across a shared session's machines; nil for one.
+	machine func(id string) int
 
 	sidebarHidden bool // toggle_sidebar flips it; the window slides the sidebar
 	panelOpen     bool // toggle_panel flips it; kept for the window's life only
@@ -202,7 +206,14 @@ func (n *nav) switcherVisible() bool { return n.altHeld || n.pinned }
 
 // ordered is the tabs of the window's session in sidebar order
 // (model.State.Ordered), without detached ones.
-func (n *nav) ordered(st *model.State) []model.Workspace { return orderedIn(st, n.session) }
+func (n *nav) ordered(st *model.State) []model.Workspace {
+	ws := orderedIn(st, n.session)
+	if n.machine != nil {
+		// The sidebar lists a shared session's tabs by machine.
+		slices.SortStableFunc(ws, func(a, b model.Workspace) int { return cmp.Compare(n.machine(a.ID), n.machine(b.ID)) })
+	}
+	return ws
+}
 
 // visible is the session's tabs in the order the sidebar's view shows
 // them: the inbox's rows while it shows, each followed by its workers

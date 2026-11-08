@@ -450,7 +450,8 @@ crosses sessions: it switches to the session of the pane that needs you.
 Ctrl+Alt+U also crosses sessions to the pane you last sent a prompt.
 Desktop notifications start with the session's name.
 
-A session can also hold tabs on other machines next to this one's: see
+A session can also hold tabs on other machines next to this one's, each
+machine's below a line or a folding header of its own: see
 [Shared sessions](remote.md#shared-sessions).
 
 With `[[hosts]] window = true`, the host list above the tabs shows each

@@ -223,9 +223,10 @@ type Font struct {
 
 // Appearance is [appearance].
 type Appearance struct {
-	ConfirmClose  *bool `toml:"confirm_close" doc:"Ask before closing a tab or pane with an agent mid-turn. Pinned tabs always ask to unpin first. On by default"`
-	ReduceMotion  *bool `toml:"reduce_motion" doc:"Show dialogs, menus, hover and focus changes at once instead of easing them in"`
-	RemoteControl *bool `toml:"remote_control" doc:"Mark a tab in the sidebar, under its agent's icon, while its agent can be driven from another device: Claude Code with /remote-control on"`
+	ConfirmClose  *bool  `toml:"confirm_close" doc:"Ask before closing a tab or pane with an agent mid-turn. Pinned tabs always ask to unpin first. On by default"`
+	ReduceMotion  *bool  `toml:"reduce_motion" doc:"Show dialogs, menus, hover and focus changes at once instead of easing them in"`
+	RemoteControl *bool  `toml:"remote_control" doc:"Mark a tab in the sidebar, under its agent's icon, while its agent can be driven from another device: Claude Code with /remote-control on"`
+	HostSections  string `toml:"host_sections" enum:"divider,sections" doc:"How the sidebar splits a shared session's tabs by machine. divider puts a thin labelled line above each machine's tabs; sections gives each machine a header that collapses. Both show the host's latency or why it is offline. See docs/remote.md"`
 }
 
 // Layout is [layout].
@@ -323,6 +324,9 @@ type Settings struct {
 	LimitsInSidebar bool
 	// RemoteControl marks tabs whose agent is under remote control.
 	RemoteControl bool
+	// HostSections is [appearance] host_sections = "sections": a shared
+	// session's machines get collapsible headers, not divider lines.
+	HostSections bool
 	// MaxRunning is [agents] max_running: 0 for no limit.
 	MaxRunning int
 	// KeepAwake blocks Linux sleep or macOS idle sleep during work and for KeepAwakeGrace afterward.
@@ -590,6 +594,13 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.ReduceMotion = c.Appear.ReduceMotion != nil && *c.Appear.ReduceMotion
 	s.ConfirmClose = c.Appear.ConfirmClose == nil || *c.Appear.ConfirmClose
 	s.RemoteControl = c.Appear.RemoteControl == nil || *c.Appear.RemoteControl
+	switch c.Appear.HostSections {
+	case "", "divider":
+	case "sections":
+		s.HostSections = true
+	default:
+		fi = append(fi, issue{"appearance.host_sections", fmt.Sprintf("%q is not divider or sections; using divider", c.Appear.HostSections)})
+	}
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts
 	s.HostColors = c.HostColors

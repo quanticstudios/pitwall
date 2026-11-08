@@ -30,6 +30,7 @@ func defaults() Config {
 	c.Usage.ShowCost, c.Usage.LimitsInSidebar = &off, &off
 	c.Appear.ReduceMotion, c.Appear.RemoteControl = &off, &on
 	c.Appear.ConfirmClose = &on
+	c.Appear.HostSections = "divider"
 	c.Worktrees = defaultWorktrees()
 	c.Git = defaultGit()
 	c.Sidebar = defaultSidebar()

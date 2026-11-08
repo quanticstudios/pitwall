@@ -324,6 +324,10 @@ hover cards, hover fills and the pane focus border change at once instead
 of easing in over 80 to 200 ms. `remote_control` (default `true`) marks a
 tab under its agent's icon while Claude Code's `/remote-control` is on for
 it; off, pitwall stops reading Claude Code's session files.
+`host_sections` (default `"divider"`) sets how the sidebar splits a
+[shared session](remote.md#shared-sessions)'s tabs by machine: `divider`
+draws a thin labelled line above each machine's tabs, `sections` a header
+that folds them away.
 
 `confirm_close` under `[appearance]` defaults to `true`. Closing a tab or
 pane in the GUI asks first when an agent is working, awaiting approval,

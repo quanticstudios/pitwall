@@ -155,10 +155,9 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 		}
 	}
 	blocked, head := s.waiting(st, sessionOf)
-	// The row of machines shows in a shared session: one with a tab on
-	// another host.
+	// A shared session: one with a tab on another host.
 	shared := slices.ContainsFunc(st.Workspaces, func(w model.Workspace) bool { return w.SessionID == s.session && s.hostOf(w.ID) != "" })
-	if s.HideSessions && len(blocked) == 0 && !shared {
+	if s.HideSessions && len(blocked) == 0 {
 		s.preview = sessionPreview{}
 		return layout.Dimensions{}
 	}
@@ -244,18 +243,12 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			})
 		})
 	}
-	if shared {
-		y += gtx.Dp(2)
-		y += s.hostPills(gtx, th, image.Pt(gtx.Dp(16), y), w-gtx.Dp(28), btn)
-		y += gtx.Dp(4)
-	} else {
-		y += gtx.Dp(6)
-	}
+	y += gtx.Dp(6)
 	over := ""
 	if !s.HideSessions {
 		for _, h := range s.Hosts {
 			if shared && len(h.Sessions) == 0 {
-				continue // all its tabs are in this session; the row of machines shows the host
+				continue // all its tabs are in this session; the tree's machine line shows the host
 			}
 			note, c := "", th.Muted
 			if !h.Up {
@@ -414,142 +407,37 @@ func HostChip(gtx layout.Context, th *theme.Theme, hosts []HostInfo, host string
 	return layout.Dimensions{Size: size, Baseline: (h-d.Size.Y)/2 + d.Baseline}
 }
 
-// hostPills draws the row of machines under the header, from at, wrapping
-// within w: each one's name and its latency, or while it is down how long
-// until the next try, with the error on hover. It returns its height.
-func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point, w int, btn func(string) *widget.Clickable) int {
-	h, gap := gtx.Dp(22), gtx.Dp(6)
-	x, y := 0, 0
-	var tip string
-	var tipAt, swatchAt image.Point
-	// The row never wraps: notes get shorter until it fits.
-	is := gtx.Dp(12)
-	width := func(name, note string) int {
-		m := op.Record(gtx.Ops)
-		nd := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Fg, name)
-		td := label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
-		m.Stop()
-		return gtx.Dp(6) + is + gtx.Dp(5) + nd.Size.X + gtx.Dp(5) + td.Size.X + gtx.Dp(8)
-	}
-	level := 0
-	for ; level < 2; level++ {
-		total := -gap
-		for _, hi := range s.Hosts {
-			total += width(hostName(hi.Name), pillNote(hi, level, gtx.Now)) + gap
+// colorRow draws the color row of host s.hostColor at, w wide, over
+// everything else, and takes its clicks.
+func (s *Sidebar) colorRow(gtx layout.Context, th *theme.Theme, at image.Point, w int) {
+	for i, id := range tabColorIDs {
+		for s.hostSwatch[i].Clicked(gtx) {
+			s.events = append(s.events, SetHostColor{Host: s.hostColor, Color: id})
+			s.hostColor = ""
 		}
-		if total <= w {
+	}
+	if s.hostColor == "" {
+		return
+	}
+	cur := ""
+	if hi, ok := FindHost(s.Hosts, s.hostColor); ok {
+		cur = hi.Color
+	}
+	size := image.Pt(w, gtx.Dp(32))
+	m := op.Record(gtx.Ops)
+	box := image.Rectangle{Min: at, Max: at.Add(size)}
+	kit.Surface(gtx, box, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceSecondary)
+	// why: a press between the swatches must not reach the rows under them.
+	for {
+		if _, ok := gtx.Event(pointer.Filter{Target: &s.hostSwatchBox, Kinds: pointer.Press}); !ok {
 			break
 		}
 	}
-	for _, hi := range s.Hosts {
-		name, note, icon := hostName(hi.Name), pillNote(hi, level, gtx.Now), "monitor"
-		nameC, noteC, ring, fill := th.Fg, th.Muted, th.BorderStrong, color.NRGBA{}
-		if hi.Name != "" {
-			icon, nameC = "server", th.Readable(HostColor(th, s.Hosts, hi.Name), th.Sidebar)
-		}
-		if !hi.Up && hi.Name != "" {
-			nameC, noteC = th.Readable(th.Red, th.Sidebar), th.Muted
-			ring, fill = theme.Mix(th.Sidebar, th.Red, 0.45), theme.Mix(th.Sidebar, th.Red, 0.08)
-			if !hi.Retry.IsZero() {
-				gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
-			}
-		}
-		m := op.Record(gtx.Ops)
-		nd := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), nameC, name)
-		nc := m.Stop()
-		m = op.Record(gtx.Ops)
-		td := label(gtx, th, th.UIFont, th.Sp(theme.Small), noteC, note)
-		tc := m.Stop()
-		pw := gtx.Dp(6) + is + gtx.Dp(5) + nd.Size.X + gtx.Dp(5) + td.Size.X + gtx.Dp(8)
-		r := image.Rectangle{Min: at.Add(image.Pt(x, y)), Max: at.Add(image.Pt(x+pw, y+h))}
-		rr := clip.UniformRRect(r, h/2)
-		if fill.A > 0 {
-			paint.FillShape(gtx.Ops, fill, rr.Op(gtx.Ops))
-		}
-		paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: clip.UniformRRect(r.Inset(1), h/2-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
-		px := r.Min.X + gtx.Dp(6)
-		o := op.Offset(image.Pt(px, r.Min.Y+(h-is)/2)).Push(gtx.Ops)
-		Icon(gtx, icon, is, nameC)
-		o.Pop()
-		px += is + gtx.Dp(5)
-		o = op.Offset(image.Pt(px, r.Min.Y+(h-nd.Size.Y)/2)).Push(gtx.Ops)
-		nc.Add(gtx.Ops)
-		o.Pop()
-		px += nd.Size.X + gtx.Dp(5)
-		o = op.Offset(image.Pt(px, r.Min.Y+(h-td.Size.Y)/2)).Push(gtx.Ops)
-		tc.Add(gtx.Ops)
-		o.Pop()
-		b := btn("h:" + hi.Name)
-		for b.Clicked(gtx) && hi.Name != "" {
-			if s.hostColor == hi.Name {
-				s.hostColor = ""
-			} else {
-				s.hostColor = hi.Name
-			}
-		}
-		if s.hostColor == hi.Name {
-			swatchAt = image.Pt(at.X, r.Max.Y+gtx.Dp(4))
-			pointer.CursorPointer.Add(gtx.Ops)
-		}
-		o = op.Offset(r.Min).Push(gtx.Ops)
-		g := gtx
-		g.Constraints = layout.Exact(r.Size())
-		b.Layout(g, func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: r.Size()} })
-		o.Pop()
-		if b.Hovered() && hi.Name != "" {
-			tip = "ssh " + hi.SSH
-			if !hi.Up && hi.Note != "" {
-				tip = firstLine(hi.Note)
-			}
-			tipAt = image.Pt(r.Min.X, r.Max.Y+gtx.Dp(4))
-		}
-		x += pw + gap
-	}
-	if s.hostColor != "" && swatchAt != (image.Point{}) {
-		for i, id := range tabColorIDs {
-			for s.hostSwatch[i].Clicked(gtx) {
-				s.events = append(s.events, SetHostColor{Host: s.hostColor, Color: id})
-				s.hostColor = ""
-			}
-		}
-	}
-	if s.hostColor != "" && swatchAt != (image.Point{}) {
-		cur := ""
-		if hi, ok := FindHost(s.Hosts, s.hostColor); ok {
-			cur = hi.Color
-		}
-		size := image.Pt(w, gtx.Dp(32))
-		m := op.Record(gtx.Ops)
-		box := image.Rectangle{Min: swatchAt, Max: swatchAt.Add(size)}
-		kit.Surface(gtx, box, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceSecondary)
-		// why: a press between the swatches must not reach the rows under them.
-		for {
-			if _, ok := gtx.Event(pointer.Filter{Target: &s.hostSwatchBox, Kinds: pointer.Press}); !ok {
-				break
-			}
-		}
-		area := clip.Rect(box).Push(gtx.Ops)
-		event.Op(gtx.Ops, &s.hostSwatchBox)
-		area.Pop()
-		s.swatches(gtx, th, swatchAt, size, cur, &s.hostSwatch)
-		op.Defer(gtx.Ops, m.Stop())
-		tip = "" // the row covers where the tip would be
-	}
-	if tip != "" {
-		m := op.Record(gtx.Ops)
-		g := gtx
-		g.Constraints = layout.Constraints{Max: image.Pt(w, gtx.Dp(200))}
-		d := label(g, th, th.MonoFont, th.Sp(theme.Caption), th.Fg, tip)
-		c := m.Stop()
-		box := image.Rectangle{Min: tipAt, Max: tipAt.Add(d.Size).Add(image.Pt(2*gtx.Dp(8), 2*gtx.Dp(5)))}
-		m = op.Record(gtx.Ops)
-		paint.FillShape(gtx.Ops, th.SurfaceElevated, clip.UniformRRect(box, gtx.Dp(6)).Op(gtx.Ops))
-		o := op.Offset(box.Min.Add(image.Pt(gtx.Dp(8), gtx.Dp(5)))).Push(gtx.Ops)
-		c.Add(gtx.Ops)
-		o.Pop()
-		op.Defer(gtx.Ops, m.Stop())
-	}
-	return y + h
+	area := clip.Rect(box).Push(gtx.Ops)
+	event.Op(gtx.Ops, &s.hostSwatchBox)
+	area.Pop()
+	s.swatches(gtx, th, at, size, cur, &s.hostSwatch)
+	op.Defer(gtx.Ops, m.Stop())
 }
 
 func (s *Sidebar) tabNumber(id string) string {
@@ -584,21 +472,16 @@ func offlinePill(gtx layout.Context, th *theme.Theme, base color.NRGBA) layout.D
 // answerLater is what a down host's tab says in place of its answers.
 func answerLater(host string) string { return "Answer when " + host + " is back" }
 
-// pillNote is the note beside a machine in the row of machines, shorter
-// at each level: level 1 drops "this machine" and the retry countdown,
-// level 2 keeps only "offline".
-func pillNote(hi HostInfo, level int, now time.Time) string {
+// healthNote is what a machine's line says of its health: "" for this
+// machine, a host's latency, or while it is down when the next try is.
+func healthNote(hi HostInfo, now time.Time) string {
 	switch {
-	case hi.Name == "" && level > 0:
-		return ""
 	case hi.Name == "":
-		return "this machine"
-	case !hi.Up && level == 0 && !hi.Retry.IsZero():
+		return ""
+	case !hi.Up && !hi.Retry.IsZero():
 		return fmt.Sprintf("offline, retry in %ds", max(1, int(hi.Retry.Sub(now).Round(time.Second).Seconds())))
 	case !hi.Up:
 		return "offline"
-	case level == 2:
-		return ""
 	case hi.Latency > 0:
 		return Latency(hi.Latency)
 	}

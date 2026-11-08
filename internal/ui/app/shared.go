@@ -34,6 +34,18 @@ func (u *ui) hostColor(host string) color.NRGBA {
 	return sidebar.HostColor(u.th, u.hosts, host)
 }
 
+// machineRank is the place of tab id's machine in the window's hosts,
+// this machine 0, as the sidebar orders a shared session.
+func (u *ui) machineRank(id string) int {
+	h := u.hostOf(id)
+	for i, hi := range u.hosts {
+		if hi.Name == h {
+			return i
+		}
+	}
+	return len(u.hosts)
+}
+
 // hostDown reports whether host is another machine that is not connected.
 func (u *ui) hostDown(host string) bool { return sidebar.HostDown(u.hosts, host) }
 

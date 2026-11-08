@@ -813,6 +813,8 @@ func (p *Page) appearance() []section {
 				extra: "inbox tree list view sections", control: p.choice("sidebar", "view", []string{"tree", "inbox"}, []string{"Tree", "Inbox"}, !p.s.Sidebar.Inbox)},
 			{label: "Workers", desc: "The tabs an agent opened. Folded lists them as small rows under its tab's row. Separate gives each a row of its own: under its tab behind a bar of their states in the tree, sorted on its own in the inbox.",
 				extra: "workers fleet fold folded separate subagents", control: p.choice("sidebar", "workers", []string{"folded", "separate"}, []string{"Folded", "Separate"}, !p.s.Sidebar.SeparateWorkers)},
+			{label: "Machines", desc: "How a shared session splits its tabs by machine. Divider draws a thin labelled line above each machine's tabs. Sections gives each machine a header that collapses and counts what needs you.",
+				extra: "host hosts machine machines shared divider sections host_sections", control: p.choice("appearance", "host_sections", []string{"divider", "sections"}, []string{"Divider", "Sections"}, !p.s.HostSections)},
 			{label: "Working section", desc: "In the inbox, move tabs whose agent works now out of Waiting on you into a section of their own.",
 				extra: "inbox working shelf working_shelf", control: p.toggle("sidebar", "working_shelf", p.s.Sidebar.WorkingShelf)},
 			{label: "Sessions", desc: "Show host headings and sessions above the tabs in a window with several hosts. Waiting agents stay visible when off.",

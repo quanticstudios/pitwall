@@ -37,6 +37,7 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 	y := 0
 	s.queue = s.queue[:0]
 	run := false // inside a run of tab rows
+	in := 0      // a host's section's indent (HostSections)
 	var row func(id, g, root string)
 	row = func(id, g, root string) {
 		if run {
@@ -44,9 +45,9 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 		} else {
 			y += gtx.Dp(4)
 		}
-		x := 0
+		x := in
 		if g != "" {
-			x = gtx.Dp(groupIndent)
+			x += gtx.Dp(groupIndent)
 		}
 		if root != "" {
 			x += gtx.Dp(kidIndent)
@@ -67,33 +68,63 @@ func (s *Sidebar) place(gtx layout.Context, v *view) ([]elem, int) {
 			y, run = y+gtx.Dp(4), false
 		}
 	}
-	for i, id := range v.top {
-		if !v.groups[id] {
-			row(id, "", "")
-			continue
-		}
-		endRun()
-		top := y
-		if i > 0 {
-			y += gtx.Dp(6) + 1 // mt-1.5 border-t
-		}
-		y += gtx.Dp(6) // pt-1.5, the first group's too
-		head := y
-		y += gtx.Dp(40)
-		out = append(out, elem{kind: 'g', id: id, group: id, top: top, bot: y, head: head})
-		if s.isExpanded(id) {
-			for _, ws := range v.byProject[id] {
-				row(ws.ID, id, "")
-			}
-			if len(v.byProject[id]) == 0 {
-				y += gtx.Dp(8) // an empty group keeps its pt-1 pb-1
+	items := func(ids []string) {
+		for i, id := range ids {
+			if !v.groups[id] {
+				row(id, "", "")
+				continue
 			}
 			endRun()
+			top := y
+			if i > 0 {
+				y += gtx.Dp(6) + 1 // mt-1.5 border-t
+			}
+			y += gtx.Dp(6) // pt-1.5, the first group's too
+			head := y
+			y += gtx.Dp(40)
+			out = append(out, elem{kind: 'g', id: id, group: id, x: in, top: top, bot: y, head: head})
+			if s.isExpanded(id) {
+				for _, ws := range v.byProject[id] {
+					row(ws.ID, id, "")
+				}
+				if len(v.byProject[id]) == 0 {
+					y += gtx.Dp(8) // an empty group keeps its pt-1 pb-1
+				}
+				endRun()
+			}
+			y = s.placeQueue(gtx, v, id, len(out)-1, y)
 		}
-		y = s.placeQueue(gtx, v, id, len(out)-1, y)
+		endRun()
 	}
-	endRun()
-	y = s.placeQueue(gtx, v, "", len(out)-1, y)
+	if !v.sectioned {
+		items(v.top)
+		y = s.placeQueue(gtx, v, "", len(out)-1, y)
+		return out, y + gtx.Dp(6) // pb-1.5
+	}
+	// A shared session: each machine's line, then its items, which the
+	// line's machine owns; this machine's queue ends its section.
+	for k, h := range v.hosts {
+		top := y
+		y += s.machineGap(gtx, k == 0)
+		head := y
+		y += s.machineHeight(gtx)
+		from := len(out)
+		out = append(out, elem{kind: 'm', id: h, host: h, top: top, bot: y, head: head})
+		if s.sectionFolded(v, h) {
+			continue
+		}
+		in = 0
+		if s.HostSections && h != "" {
+			in = gtx.Dp(machineIndent)
+		}
+		items(v.partOf(h))
+		if h == "" {
+			y = s.placeQueue(gtx, v, "", len(out)-1, y)
+		}
+		for j := from; j < len(out); j++ {
+			out[j].host = h
+		}
+	}
 	return out, y + gtx.Dp(6) // pb-1.5
 }
 
@@ -162,6 +193,28 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 				continue
 			}
 			y := e.top + int(offs[i]+0.5)
+			if e.kind == 'm' {
+				if s.HostSections && e.host != "" {
+					// The rule runs from the header to the section's last row.
+					bot := y + e.bot - e.top
+					for j := i + 1; j < len(elems) && elems[j].kind != 'm'; j++ {
+						if !(s.drag.active && s.carried(elems[j])) {
+							bot = max(bot, elems[j].bot+int(offs[j]+0.5))
+						}
+					}
+					sectionRule(gtx, v.th, s.Hosts, e.host, y+e.head-e.top, bot)
+				}
+				x := 0
+				if s.HostSections && e.host != "" {
+					x = gtx.Dp(machineIndent) // inside its rule, as its rows are
+				}
+				o := op.Offset(image.Pt(x, y+e.head-e.top)).Push(gtx.Ops)
+				hg := gtx
+				hg.Constraints = layout.Exact(image.Pt(w-x, e.bot-e.head))
+				s.machineHeader(hg, v, e.id)
+				o.Pop()
+				continue
+			}
 			if e.kind == 'h' {
 				o := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
 				hg := gtx
@@ -176,11 +229,13 @@ func (s *Sidebar) tree(gtx layout.Context, v *view, top int) (layout.Dimensions,
 					sy := y + gtx.Dp(6)
 					paint.FillShape(gtx.Ops, theme.Mix(v.th.Sidebar, v.th.Border, 0.6), clip.Rect{Min: image.Pt(0, sy), Max: image.Pt(w, sy+1)}.Op())
 				}
-				s.rowAt = image.Pt(gtx.Dp(listPad), top+y+e.head-e.top-s.list.Position.Offset)
-				o := op.Offset(image.Pt(0, y+e.head-e.top)).Push(gtx.Ops)
+				s.rowAt = image.Pt(gtx.Dp(listPad)+e.x, top+y+e.head-e.top-s.list.Position.Offset)
+				o := op.Offset(image.Pt(e.x, y+e.head-e.top)).Push(gtx.Ops)
+				hg := gtx
+				hg.Constraints.Max.X = w - e.x
 				for _, p := range v.st.Projects {
 					if p.ID == e.id {
-						s.projectHeader(gtx, v, p)
+						s.projectHeader(hg, v, p)
 					}
 				}
 				o.Pop()
