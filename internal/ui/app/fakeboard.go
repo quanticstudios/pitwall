@@ -188,15 +188,15 @@ func checks(n, pass, run int) []model.Check {
 	return out
 }
 
-// SessionHost puts the evals session on a host named box.
+// SessionHost puts the evals session on a host named build-01.
 func (f *FakeBoard) SessionHost(session string) string {
 	if session == "s9" {
-		return "box"
+		return "build-01"
 	}
 	return ""
 }
 
-// Hosts is this machine and box.
+// Hosts is this machine and build-01.
 func (f *FakeBoard) Hosts() []sidebar.HostInfo {
-	return []sidebar.HostInfo{{Up: true, Sessions: []string{"s1"}}, {Name: "box", Up: true, Sessions: []string{"s9"}}}
+	return []sidebar.HostInfo{{Up: true, Sessions: []string{"s1"}}, {Name: "build-01", Up: true, Sessions: []string{"s9"}}}
 }

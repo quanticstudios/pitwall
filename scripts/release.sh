@@ -43,7 +43,7 @@ git fetch --quiet --tags origin
     die 'main differs from origin/main; run: git pull --ff-only'
 
 if [ -z "$version" ]; then
-    # The newest tag, pre-releases included, without its suffix gets its patch number bumped: v0.1.0-beta.18 gives v0.1.1.
+    # why: only the patch is guessed (v0.2.0 gives v0.2.1, v0.1.0-beta.18 gives v0.1.1); a new minor is passed by hand.
     latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
     base=${latest%%-*}
     n=${base##*.}
