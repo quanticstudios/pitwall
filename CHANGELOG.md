@@ -19,6 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- The README and site open on one image of three views: the panes, the board and the review view.
 - `scripts/release.sh` guesses only the next patch of the newest release: after `v0.2.0` it picks `v0.2.1`. Cut `v0.2.0`, or any new minor, with `sh scripts/release.sh v0.2.0`. The README and site show the current sidebar, the board and the palette, and list the board, confirm close, jump to last prompt and resumes that survive a restart.
 - Remove the greyed-out comments button from the sidebar footer. It came from aide and never did anything.
 - The board: every agent tab as a card in columns by what it needs from you (Needs you, Failed, Working, PR open, Done, Queued), opened from a button beside the inbox button or with Ctrl+Shift+M (Cmd+Shift+M on macOS). Approvals show the whole command with Allow and Deny; long commands and ones the guard denies send you to the tab. Workers fold into their orchestrator's card unless they need you. Scope it to a group, the ungrouped tabs or a host. A window needs a daemon of this version to show an approval's command.
