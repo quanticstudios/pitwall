@@ -19,6 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- A worker's sidebar row no longer says Working twice: the agent's own status update stays off the row, as on a pane's.
 - A worker with a pull request open has its own card in the board's PR open column instead of folding into its orchestrator, which could sit in Done.
 - The board shows the window's session by default; Scope, All sessions shows every session's tabs.
 

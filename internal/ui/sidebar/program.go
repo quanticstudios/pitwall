@@ -100,6 +100,13 @@ func ProgramState(p model.Program) string {
 	return model.PillLabel(model.Activity{State: p.Activity()})
 }
 
+// stateOnly reports whether p's chip would be only its state word, as
+// for an agent's own update once its name is dropped: no name and no
+// progress.
+func stateOnly(p model.Program) bool {
+	return p.App == "" && (p.Progress < 0 || p.Progress > 100)
+}
+
 // ProgramChip is a program in a few words, for a sub-row: its name, else
 // its state, then its progress, "cargo 40%".
 func ProgramChip(p model.Program) string {
