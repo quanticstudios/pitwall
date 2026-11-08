@@ -162,25 +162,26 @@ type favicon struct {
 	th     *theme.Theme
 }
 
-// favicon is root's icon, looked up the first time root shows and kept
-// for the window's life, misses too. With RepoIcons it is nil, uncached,
-// until the daemon answers.
+// favicon is the icon of root, the repo of tab or group id, looked up the
+// first time root shows and kept for the window's life, misses too. From
+// a daemon it is nil, uncached, until the daemon answers.
 // ponytail: read on the UI goroutine and never refreshed; move the lookup
 // off it, or recheck, if a slow disk or a changed icon ever matters.
-func (s *Sidebar) favicon(root string) *favicon {
+func (s *Sidebar) favicon(id, root string) *favicon {
 	if root == "" {
 		return nil
 	}
 	if s.favicons == nil {
 		s.favicons = map[string]*favicon{}
 	}
-	f, seen := s.favicons[root]
+	host, remote := s.iconHost(id)
+	f, seen := s.favicons[host+"\x00"+root]
 	if !seen {
 		var img image.Image
-		if s.RepoIcons == nil {
+		if !remote {
 			img = findFavicon(root)
 		} else {
-			r, ok := s.RepoIcons(root)
+			r, ok := s.RepoIcons(host, root)
 			if !ok {
 				return nil
 			}
@@ -193,7 +194,7 @@ func (s *Sidebar) favicon(root string) *favicon {
 		if img != nil {
 			f = &favicon{src: img}
 		}
-		s.favicons[root] = f
+		s.favicons[host+"\x00"+root] = f
 	}
 	return f
 }
@@ -239,7 +240,7 @@ func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
 	if root == "" {
 		return nil
 	}
-	if f := s.favicon(root); f != nil {
+	if f := s.favicon(ws.ID, root); f != nil {
 		return f
 	}
 	// In its own repo the tile is its group's, or its main checkout's for
@@ -258,7 +259,7 @@ func (s *Sidebar) tabFavicon(v *view, ws model.Workspace) *favicon {
 
 // tabRoot is the repo the tab's shell or agent is in now, "" outside one.
 func (s *Sidebar) tabRoot(v *view, ws model.Workspace) string {
-	root, ok := s.repoRoot(v.st.LivePath(ws))
+	root, ok := s.repoRoot(ws.ID, v.st.LivePath(ws))
 	if !ok { // the daemon has not answered, or is too old to: the tab's own repo
 		root = ws.RepoRoot
 	}
@@ -300,20 +301,21 @@ func (s *Sidebar) groupRoot(v *view, p model.Project) string {
 	return root
 }
 
-// repoRoot is the folder at or above dir that holds .git, or "" outside
-// a repo; kept per dir for the window's life. ok is false while
-// RepoIcons has no answer.
-func (s *Sidebar) repoRoot(dir string) (root string, ok bool) {
+// repoRoot is the folder at or above dir, the folder of tab id, that
+// holds .git, or "" outside a repo; kept per host and dir for the
+// window's life. ok is false while RepoIcons has no answer.
+func (s *Sidebar) repoRoot(id, dir string) (root string, ok bool) {
 	if dir == "" {
 		return "", true
 	}
-	if root, ok := s.roots[dir]; ok {
+	host, remote := s.iconHost(id)
+	if root, ok := s.roots[host+"\x00"+dir]; ok {
 		return root, true
 	}
-	if s.RepoIcons == nil {
+	if !remote {
 		root = repoicon.Root(dir)
 	} else {
-		r, ok := s.RepoIcons(dir)
+		r, ok := s.RepoIcons(host, dir)
 		if !ok {
 			return "", false
 		}
@@ -322,8 +324,23 @@ func (s *Sidebar) repoRoot(dir string) (root string, ok bool) {
 	if s.roots == nil {
 		s.roots = map[string]string{}
 	}
-	s.roots[dir] = root
+	s.roots[host+"\x00"+dir] = root
 	return root, true
+}
+
+// iconHost is the host whose daemon knows the repo of tab or group id,
+// "" for the window's, and whether to ask it rather than read this
+// machine's disk.
+func (s *Sidebar) iconHost(id string) (host string, remote bool) {
+	of := s.HostOf
+	if of == nil {
+		of = s.IconHostOf
+	}
+	if of == nil {
+		return "", s.RepoIcons != nil
+	}
+	host = of(id)
+	return host, s.RepoIcons != nil && host != ""
 }
 
 // groupFavicon is the icon of groupRoot's repo, or its letter tile,
@@ -342,7 +359,7 @@ func (s *Sidebar) repoTile(v *view, p model.Project) *favicon {
 	if root == "" {
 		return nil
 	}
-	if f := s.favicon(root); f != nil {
+	if f := s.favicon(p.ID, root); f != nil {
 		return f
 	}
 	return letterFavicon(v.th, p.Name, p.Color)

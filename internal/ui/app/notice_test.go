@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"image"
 	"slices"
 	"strings"
@@ -83,4 +84,35 @@ func TestDismissStateNotice(t *testing.T) {
 	if !shown() {
 		t.Fatal("an identical notice stays hidden after an empty frame")
 	}
+}
+
+// TestRefusalAfterDismissedLimit checks a refusal shows in the notice box
+// after the user closed the usage-limit notice, whose window has not reset.
+func TestRefusalAfterDismissedLimit(t *testing.T) {
+	const limit = "Claude 5-hour window at 91%, resets 16:40"
+	b := NewFakeBackend()
+	u := &ui{b: b, th: theme.Dark()}
+	u.limits.notice = limit
+	var r input.Router
+	var ops op.Ops
+	frame := func() {
+		ops.Reset()
+		gtx := gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
+			Constraints: gl.Exact(image.Pt(800, 600)), Now: time.Now()}
+		u.drawStateNotice(gtx, cmp.Or("", u.limits.shown(), u.sends.err))
+		r.Frame(&ops)
+	}
+	frame()
+	for _, k := range []pointer.Kind{pointer.Press, pointer.Release} {
+		r.Queue(pointer.Event{Kind: k, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: f32.Pt(80+640-14-8, 12+10+8)})
+	}
+	frame()
+	u.sendFailed("box is offline")
+	frame()
+	for _, n := range r.AppendSemantics(nil) {
+		if strings.Contains(n.Desc.Label, "box is offline") {
+			return
+		}
+	}
+	t.Fatalf("the refusal is hidden: limit %q, dismissed %q", u.limits.shown(), u.dismissed)
 }

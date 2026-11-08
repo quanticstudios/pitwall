@@ -111,12 +111,16 @@ that group's folder on its machine, and from a shell:
 ```sh
 pitwall new --host box                    # a shell in box's home folder
 pitwall new --host box '~/evals' -- codex # quote ~ so it means box's home
+pitwall new --host box -d -- codex        # detached on box, as new -d here
 ```
 
 With `--host`, box finds the command on its own PATH, so `codex` needs to
 be installed there, not here. `--host` refuses `--issue`, which reads the
 issue from a checkout here, and refuses `--guard` and presets with
-variables while box's daemon is too old to keep them. A task started from
+variables while box's daemon is too old to keep them. When the window
+will not open a tab or task on a host, or kill, group or move a shared
+session's tabs, such as while the host is down, it says why in the notice
+at the top of the window. A task started from
 the New task dialog runs on the machine of the folder you pick, in that
 machine's part of the session.
 
@@ -247,8 +251,8 @@ Some things stay on the machine they belong to:
 - Notifications come from the state the daemon sends, so they show on the
   laptop as usual.
 - The sidebar's repo icons come from the repo on the host, which the
-  daemon there reads. With an older pitwall on the host, each repo gets its
-  letter tile.
+  daemon there reads, also for a host's tabs in a shared session. With an
+  older pitwall on the host, each repo gets its letter tile.
 - Ctrl+V in a Claude Code or Codex pane pastes text or an image from the
   clipboard here. The host keeps a pasted image in a file only you can
   read, under its state directory, until the tab closes, and the agent gets that

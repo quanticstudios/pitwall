@@ -251,12 +251,21 @@ func TestSharedSessionLive(t *testing.T) {
 	cli := slices.DeleteFunc(boxTabs(), func(w model.Workspace) bool { return w.ID == rw1 })[0]
 	waitFor(t, "its command's output", func() bool { return strings.Contains(screen(sockR, paneOf(cli.ID)), "cli-9") })
 
+	// With -d the tab opens detached there, as a local new -d does.
+	if code, out, errOut := cliOutput("new", "-s", ls.Name, "-d", "--host", "box", "--", "sleep", "60"); code != 0 || !strings.HasPrefix(out, "#box:") {
+		t.Fatalf("pitwall new -d --host box: %d %q %q", code, out, errOut)
+	}
+	waitFor(t, "the detached tab on box", func() bool {
+		tabs := boxTabs()
+		return len(tabs) == 3 && slices.ContainsFunc(tabs, func(w model.Workspace) bool { return w.Detached })
+	})
+
 	// pitwall session kill here cannot reach box, so it leaves a shared
 	// session alone.
 	if code, _, errOut := cliOutput("session", "kill", "-f", ls.Name); code == 0 || !strings.Contains(errOut, "has tabs on box") {
 		t.Fatalf("session kill of a shared session: %d %q", code, errOut)
 	}
-	if len(boxTabs()) != 2 {
+	if len(boxTabs()) != 3 {
 		t.Fatalf("box's tabs after a refused kill: %v", boxTabs())
 	}
 }

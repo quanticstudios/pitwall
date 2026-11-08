@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"image"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -109,5 +111,54 @@ func TestShownSessionPicksHost(t *testing.T) {
 	}
 	if hostPrefix(b, "s2") != "box · " || hostPrefix(b, "s1") != "" || hostPrefix(NewFakeBackend(), "s2") != "" {
 		t.Error("hostPrefix")
+	}
+}
+
+// refusingFake refuses every message as a window of several machines
+// refuses a tab on a host that is down.
+type refusingFake struct {
+	hostFake
+	err error
+}
+
+func (r refusingFake) Send(any) error { return r.err }
+
+// A refusal from a backend of several machines lands in the notice box;
+// another Send error, such as a dropped link, only goes to the log.
+func TestRefusalShown(t *testing.T) {
+	b := &refusingFake{hostFake: hostFake{NewFakeBackend()}, err: Refusal{Err: errors.New("box is offline")}}
+	u := &ui{b: b}
+	u.send(NewTabOn{Host: "box"})
+	if u.sends.err != "box is offline" {
+		t.Fatalf("notice %q", u.sends.err)
+	}
+	u.sends.err = ""
+	b.err = errors.New("connection lost")
+	u.send(NewTabOn{Host: "box"})
+	if u.sends.err != "" {
+		t.Fatalf("a dropped link in the notice box: %q", u.sends.err)
+	}
+}
+
+// iconFake answers repo icon lookups for each host by name.
+type iconFake struct{ hostFake }
+
+func (iconFake) FaviconOn(host, dir string) (proto.FaviconResult, bool) {
+	return proto.FaviconResult{Dir: dir, Root: host + ":" + dir}, true
+}
+
+// A window of several machines hands the sidebar each host's lookup even
+// while it shows this machine's session, which may hold box's tabs.
+func TestRepoIconsPerHost(t *testing.T) {
+	u := &ui{b: iconFake{hostFake{NewFakeBackend()}}}
+	if curHost() != "" {
+		t.Fatalf("host %q", curHost())
+	}
+	f := u.repoIcons()
+	if f == nil {
+		t.Fatal("no lookup while this machine's session shows")
+	}
+	if r, ok := f("box", "/srv/api"); !ok || r.Root != "box:/srv/api" {
+		t.Fatalf("box's lookup: %+v %v", r, ok)
 	}
 }

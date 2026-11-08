@@ -186,7 +186,7 @@ func TestRemoteFavicon(t *testing.T) {
 	v := &view{th: th, st: &model.State{Projects: []model.Project{{ID: "g", Name: "billing", Color: "violet", Kind: model.ProjectGit, Root: "/host/billing"}}}}
 	ws := model.Workspace{Path: "/host/billing/api", RepoRoot: "/host/billing", ProjectID: "g"}
 	var asked []string
-	s := Sidebar{RepoIcons: func(dir string) (proto.FaviconResult, bool) {
+	s := Sidebar{RepoIcons: func(_, dir string) (proto.FaviconResult, bool) {
 		asked = append(asked, dir)
 		return proto.FaviconResult{}, false
 	}}
@@ -201,7 +201,7 @@ func TestRemoteFavicon(t *testing.T) {
 	}
 
 	red := color.NRGBA{R: 255, A: 255}
-	s.RepoIcons = func(dir string) (proto.FaviconResult, bool) {
+	s.RepoIcons = func(_, dir string) (proto.FaviconResult, bool) {
 		return proto.FaviconResult{Dir: dir, Root: "/host/billing", Files: []proto.FaviconFile{
 			{Name: "/host/billing/favicon.svg", Data: []byte("not an svg")},
 			{Name: "/host/billing/favicon.png", Data: pngOf(t, 16, red)},
@@ -212,12 +212,56 @@ func TestRemoteFavicon(t *testing.T) {
 	}
 }
 
+// In a window of several machines a row of another host takes its icon
+// from that host's daemon, while this machine's rows read this disk.
+func TestSharedRowFavicon(t *testing.T) {
+	local := t.TempDir()
+	if err := os.Mkdir(filepath.Join(local, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	red := color.NRGBA{R: 255, A: 255}
+	if err := os.WriteFile(filepath.Join(local, "favicon.png"), pngOf(t, 16, red), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	of := func(id string) string {
+		if id == "rw" {
+			return "box"
+		}
+		return ""
+	}
+	// A session preview's sidebar has IconHostOf in place of HostOf.
+	for _, preview := range []bool{false, true} {
+		asked := map[string]string{}
+		s := Sidebar{
+			RepoIcons: func(host, dir string) (proto.FaviconResult, bool) {
+				asked[dir] = host
+				return proto.FaviconResult{Dir: dir, Root: "/srv/api", Files: []proto.FaviconFile{{Name: "/srv/api/favicon.png", Data: pngOf(t, 16, red)}}}, true
+			},
+		}
+		if preview {
+			s.IconHostOf = of
+		} else {
+			s.HostOf = of
+		}
+		v := &view{th: theme.Dark(), st: &model.State{}}
+		if f := s.tabFavicon(v, model.Workspace{ID: "rw", Path: "/srv/api"}); f == nil || f.src == nil {
+			t.Fatalf("preview %v, box's row: %+v", preview, f)
+		}
+		if f := s.tabFavicon(v, model.Workspace{ID: "lw", Path: local}); f == nil || f.src == nil {
+			t.Fatalf("preview %v, this machine's row: %+v", preview, f)
+		}
+		if len(asked) != 1 || asked["/srv/api"] != "box" {
+			t.Fatalf("preview %v: asked %v, want box about its repo alone", preview, asked)
+		}
+	}
+}
+
 // A plain group shows the icon of the one repo its tabs are in, a
 // worktree counting as its main checkout; several repos, no tabs, or an
 // icon the user picked keep the glyph. The picker offers the repo's icon
 // as long as the group has a repo, and picking it, Icon "", brings it back.
 func TestGroupRoot(t *testing.T) {
-	s := Sidebar{RepoIcons: func(dir string) (proto.FaviconResult, bool) {
+	s := Sidebar{RepoIcons: func(_, dir string) (proto.FaviconResult, bool) {
 		return proto.FaviconResult{Dir: dir, Root: dir}, true
 	}}
 	g := model.Project{ID: "g", Name: "acme", Kind: model.ProjectGroup}

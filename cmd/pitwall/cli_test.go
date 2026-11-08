@@ -571,8 +571,31 @@ func TestNewOnHostRefuses(t *testing.T) {
 		c, err := dialCLI()
 		return c, func() { c.Close() }, err
 	}
-	_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}})
+	_, err := newOnHost(nil, &model.Session{ID: "s", Name: "main"}, "box", proto.NewSession{Cmd: []string{"codex"}, Env: []string{"PITWALL_GUARD=1"}}, false)
 	if err == nil || !strings.Contains(err.Error(), "would drop") {
 		t.Fatalf("an old host took a guarded tab: %v", err)
+	}
+}
+
+// TestNewOnHostAmbiguous checks that new -d --host detaches nothing when
+// another client opened a tab in the same part at the same time: it cannot
+// tell which of the two is its own.
+func TestNewOnHostAmbiguous(t *testing.T) {
+	part := []model.Session{{ID: "p", Name: "main"}}
+	tab := proto.NewSession{SessionID: "p", Cmd: []string{"sh"}}
+	fakeCLI(t,
+		cliExchange{state: model.State{Sessions: part, Workspaces: []model.Workspace{{ID: "a", SessionID: "p"}}}, level: proto.Level},
+		cliExchange{request: tab, state: model.State{Sessions: part, Workspaces: []model.Workspace{{ID: "a", SessionID: "p"}, {ID: "b", SessionID: "p"}, {ID: "c", SessionID: "p"}}}, level: proto.Level},
+	)
+	prev := dialHost
+	t.Cleanup(func() { dialHost = prev })
+	dialHost = func(string) (*cliConn, func(), error) {
+		c, err := dialCLI()
+		return c, func() { c.Close() }, err
+	}
+	session := &model.Session{ID: "s", Name: "main", Remotes: []model.RemoteSession{{Host: "box", Session: "p"}}}
+	_, err := newOnHost(nil, session, "box", proto.NewSession{Cmd: []string{"sh"}}, true)
+	if err == nil || !strings.Contains(err.Error(), "not detached") {
+		t.Fatalf("detached a tab it could not tell apart: %v", err)
 	}
 }

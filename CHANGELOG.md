@@ -19,6 +19,9 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- When a window of several machines refuses a shared-session action, such as a tab on a host that is down or a kill while a host with a part is down, it says why in the notice at the top of the window instead of only in the log.
+- `pitwall new --host box -d` opens the tab detached on box, as `pitwall new -d` does here; the flag was ignored before.
+- A shared session's rows and groups on another host show their repo's icon from that host's daemon instead of a letter tile.
 - A worker's sidebar row no longer says Working twice: the agent's own status update stays off the row, as on a pane's.
 - A worker with a pull request open has its own card in the board's PR open column instead of folding into its orchestrator, which could sit in Done.
 - The board shows the window's session by default; Scope, All sessions shows every session's tabs.

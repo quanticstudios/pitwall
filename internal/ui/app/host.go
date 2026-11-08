@@ -53,6 +53,14 @@ type NewTaskOn struct {
 	Task proto.NewTask
 }
 
+// Refusal is a Send error a Hoster backend returns when it will not do
+// what the user asked, such as open a tab on a host that is down. The
+// window shows it in the notice box; other Send errors only go to the log.
+type Refusal struct{ Err error }
+
+func (r Refusal) Error() string { return r.Err.Error() }
+func (r Refusal) Unwrap() error { return r.Err }
+
 // fromTab is a tab that tab opens for itself, as Create PR, Merge PR and
 // Rerun checks do. send opens it on tab's host: in a shared session an
 // ungrouped tab of another host names no id of that host, and the command
@@ -114,11 +122,21 @@ type Iconer interface {
 	Favicon(dir string) (proto.FaviconResult, bool)
 }
 
-// repoIcons is the sidebar's RepoIcons: the daemon's lookup when the
-// repos are on Host, nil when they are on this machine's disk.
-func (u *ui) repoIcons() func(dir string) (proto.FaviconResult, bool) {
+// HostIconer is optionally implemented by a Hoster backend: host's
+// daemon's answer to a proto.Favicon for dir, "" asking the window's.
+type HostIconer interface {
+	FaviconOn(host, dir string) (proto.FaviconResult, bool)
+}
+
+// repoIcons is the sidebar's RepoIcons: each host's lookup in a window of
+// several machines, the daemon's when the repos are on Host, nil when
+// they are all on this machine's disk.
+func (u *ui) repoIcons() func(host, dir string) (proto.FaviconResult, bool) {
+	if hi, ok := u.b.(HostIconer); ok {
+		return hi.FaviconOn
+	}
 	if ic, ok := u.b.(Iconer); ok && curHost() != "" {
-		return ic.Favicon
+		return func(_, dir string) (proto.FaviconResult, bool) { return ic.Favicon(dir) }
 	}
 	return nil
 }
