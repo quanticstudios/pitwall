@@ -205,7 +205,13 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 // the pane holds it back.
 func (d *Daemon) windowDeliver(m proto.Deliver) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	dropped := false
+	defer func() {
+		d.mu.Unlock()
+		if dropped {
+			d.save()
+		}
+	}()
 	if d.panes[m.Pane] == nil {
 		return fmt.Errorf("no running pane %s", m.Pane)
 	}
@@ -214,7 +220,7 @@ func (d *Daemon) windowDeliver(m proto.Deliver) error {
 	}
 	d.recordPromptLocked(m.Pane)
 	delete(d.mail.sent, m.Pane)
-	d.dropResume(m.Pane)
+	dropped = d.dropResume(m.Pane)
 	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
 	d.changed()
 	d.wake(m.Pane, 0)
@@ -359,7 +365,13 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 		return
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	dropped := false
+	defer func() {
+		d.mu.Unlock()
+		if dropped {
+			d.save()
+		}
+	}()
 	d.mail.keyAt[pane] = time.Now()
 	if len(b) > 0 { // a reply or an answer from the phone leaves no draft
 		if !d.mail.drafting[pane] {
@@ -373,7 +385,8 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 		}
 	}
 	delete(d.mail.sent, pane)
-	if d.dropResume(pane) {
+	dropped = d.dropResume(pane)
+	if dropped {
 		d.changed()
 	}
 	if len(d.mail.queue[pane]) > 0 {

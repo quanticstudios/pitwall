@@ -1,4 +1,4 @@
-18.65
+18.66
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -12,10 +12,11 @@ model.Clipboard{Seq uint64; Text string}
 model.ClosedTab{ID string; Tab model.Workspace; Pane model.Pane; Session string; Group model.Project; PR int; ClosedAt time.Time; Gone bool}
 model.Form{ID string; WorkspaceID string; PaneID string; Spec string; Title string; Waits bool; OpenedAt time.Time}
 model.Lane{Name string; Start time.Time; Nudged bool; Told bool; Escalated bool}
+model.LimitResume{PaneID string; SessionID string; Provider model.Provider; Turn time.Time; Since time.Time; Resets time.Time; Message string; Pending bool; Drafting bool}
 model.Orphan{Root string; Path string; Branch string; Committed time.Time; Teardown string; Dirty bool}
 model.Overlap{WorkspaceID string; Branch string; Files []string; Conflicts int}
 model.PR{Number int; State model.PRState; Draft bool; URL string; Review model.Review; ChangeRequests []string; Conflicts bool; Checks []model.Check; Head string; Reason model.Reason; Detail string}
-model.Pane{ScrollbackFile string; ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; ResumeCmd []string; Prompt string; LastPromptAt time.Time; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string; History *model.PaneHistory; Program *model.Program}
+model.Pane{ScrollbackFile string; ID string; WorkspaceID string; Cmd []string; Cwd string; Title string; TmuxTitle string; TmuxHoldFailed bool; Exited bool; ExitCode int; ExitUnknown bool; Held bool; Provider model.Provider; SessionID string; LimitResume *model.LimitResume; ResumeCmd []string; Prompt string; LastPromptAt time.Time; AgentMode string; Transcript string; HooksMissing bool; RemoteControl bool; Env []string; History *model.PaneHistory; Program *model.Program}
 model.PaneHistory{Cols int; SavedAt time.Time; Data []uint8}
 model.Popup{Pane string; Width string; Height string; Title string}
 model.PortBlock{First int; Last int}

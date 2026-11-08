@@ -2,9 +2,13 @@ package daemon
 
 import (
 	"io"
+	"net"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -130,4 +134,22 @@ func children(pid int) []int {
 		}
 	}
 	return out
+}
+
+// procParent is pid's parent and process group, or 0s.
+func procParent(pid int) (ppid, pgid int) { return statField(pid, 4), statField(pid, 5) }
+
+// peerPID is the pid of the process on the other end of a unix socket, or 0.
+func peerPID(nc net.Conn) int {
+	pid := 0
+	if sc, ok := nc.(syscall.Conn); ok {
+		if raw, err := sc.SyscallConn(); err == nil {
+			raw.Control(func(fd uintptr) {
+				if cred, err := unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED); err == nil {
+					pid = int(cred.Pid)
+				}
+			})
+		}
+	}
+	return pid
 }

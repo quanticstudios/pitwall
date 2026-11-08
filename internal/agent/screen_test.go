@@ -47,6 +47,27 @@ func TestReadScreen(t *testing.T) {
 
 // The draft fixtures are claude-idle.txt and codex-idle.txt with the box
 // changed. Claude's placeholder has the cursor on its first letter.
+func TestInputReady(t *testing.T) {
+	for _, tc := range []struct {
+		p     model.Provider
+		file  string
+		ready bool
+	}{
+		{model.ProviderClaude, "claude-idle.txt", true},
+		{model.ProviderClaude, "claude-draft.txt", true},
+		{model.ProviderCodex, "codex-empty.txt", true},
+		{model.ProviderCodex, "codex-placeholder.txt", true},
+		{model.ProviderCodex, "codex-trust.txt", false},
+	} {
+		if got := InputReady(tc.p, screenFixture(t, tc.file)); got != tc.ready {
+			t.Errorf("%s: ready %v, want %v", tc.file, got, tc.ready)
+		}
+	}
+	if InputReady(model.ProviderClaude, vt.Grid{}) || InputReady(model.ProviderCodex, vt.Grid{}) {
+		t.Fatal("a blank startup screen is not an input box")
+	}
+}
+
 func TestDraft(t *testing.T) {
 	for _, tc := range []struct {
 		p     model.Provider
