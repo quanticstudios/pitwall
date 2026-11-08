@@ -1708,8 +1708,8 @@ Esc, or showing a tab, goes back to the panes.
 - **Queued**: queued tasks, with Start now and Remove.
 
 A worker folds into its orchestrator's card, which counts its workers in
-words under a bar of their states, unless it needs you or failed: then it
-has a card of its own that names its orchestrator. Snoozed and settled tabs
+words under a bar of their states, unless it needs you, failed or has a
+pull request open: then it has a card of its own that names its orchestrator. Snoozed and settled tabs
 stay in the inbox; the footer counts them. Plain shells stay out unless a
 command in them reports its status; Show shells adds a Shells column.
 

@@ -138,9 +138,9 @@ func TestShells(t *testing.T) {
 	}
 }
 
-// TestFolding: a worker folds into its orchestrator while it works, has
-// a PR open or is done, and shows on its own, naming its orchestrator,
-// while it needs the user or failed. Every worker counts in the fleet.
+// TestFolding: a worker folds into its orchestrator while it works or is
+// done, and shows on its own, naming its orchestrator, while it needs the
+// user, failed or has a PR open. Every worker counts in the fleet.
 func TestFolding(t *testing.T) {
 	var f fixture
 	f.tab("o", model.ProviderClaude, model.Workspace{})
@@ -150,7 +150,7 @@ func TestFolding(t *testing.T) {
 		f.act(id, model.Activity{State: s})
 	}
 	b := Derive(&f.st, Options{Now: now, Session: "s1"})
-	if got := where(b); got != "Needs you: w2; Failed: w3; Working: o; PR open: ; Done: ; Queued: ; Shells: " {
+	if got := where(b); got != "Needs you: w2; Failed: w3; Working: o; PR open: w4; Done: ; Queued: ; Shells: " {
 		t.Errorf("got %s", got)
 	}
 	o := b.All["o"]
