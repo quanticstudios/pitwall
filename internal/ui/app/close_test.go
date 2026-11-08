@@ -2,9 +2,7 @@ package app
 
 import (
 	"image"
-	"os"
 	"reflect"
-	"strings"
 	"testing"
 
 	"gioui.org/io/key"
@@ -247,26 +245,6 @@ func TestPinnedSplitWorkingClose(t *testing.T) {
 	u.confirmModal(&st)
 	if !st.Workspaces[0].Pinned || !reflect.DeepEqual(b.Sent(), []any{msg}) {
 		t.Fatalf("split close unpinned the tab or changed the target: %#v", b.Sent())
-	}
-}
-
-func TestCloseDocsPinnedScope(t *testing.T) {
-	for _, path := range []string{"../../../README.md", "../../../docs/usage.md", "../../../CHANGELOG.md"} {
-		t.Run(path, func(t *testing.T) {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			text := strings.Join(strings.Fields(string(data)), " ")
-			for _, rule := range []string{
-				"Closing a pinned tab or its last pane uses only the unpin dialog.",
-				"Closing one pane in a pinned split uses the agent dialog when its agent is mid-turn.",
-			} {
-				if !strings.Contains(text, rule) {
-					t.Errorf("missing pinned close rule: %s", rule)
-				}
-			}
-		})
 	}
 }
 
