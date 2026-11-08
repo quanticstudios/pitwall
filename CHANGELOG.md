@@ -17,6 +17,8 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Pane usage-limit auto-resumes keep their saved schedule across daemon restarts and saved shutdowns for the same stopped agent session, including overdue resets. Restored resumes cancel with a visible error after two minutes without a ready agent. Cancelled and consumed limits do not repeat; interrupted working turns get the normal restart message. A crash before typing can still require a manual continue. Chat resumes remain in memory and do not depend on saving pane state.
+- Keep the pane's agent status and resume session when it runs another agent during a turn.
 - Keep the pane's agent status and resume session when it runs another agent, such as `claude -p` from its Bash tool, even between turns. pitwall now tells the two apart by the process tree on Linux and macOS, not by session id, so a new agent in the tab is never locked out: Codex after Claude's `/exit`, a second Claude from the same script, or a new session after a turn that ended without a hook.
 - Removed Jev and every decision feature: approval suggestions, risk flags, triage, turn check, check runs, stuck agents, the custom command provider, `pitwall jev` and the Decisions and Decision stats settings pages. Notifications send at once in the normal order, the jump key follows state order, and `TYPESAFE_API_KEY` does nothing. A `[decisions]` table still loads with a note and stays in your file. pitwall no longer reads `~/.local/state/pitwall/decisions.jsonl` or `~/.config/pitwall/credentials`; delete them when you like.
 

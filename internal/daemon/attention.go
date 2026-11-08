@@ -291,6 +291,7 @@ func (d *Daemon) attended() []model.Activity {
 			seen = a.seen
 		}
 		out[i].Unseen = model.NeedsYou(out[i].State) && out[i].UpdatedAt.After(seen)
+		out[i].Resumes = time.Time{}
 		if stoppedState(out[i].State) {
 			if _, _, ok := agent.UsageLimit(out[i].Detail, time.Now()); ok {
 				if pi := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == out[i].PaneID }); pi >= 0 {

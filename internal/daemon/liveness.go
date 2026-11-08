@@ -266,6 +266,9 @@ func (d *Daemon) activityIndex(id string) int {
 
 // dropActivity removes a pane's activity, if any. Callers hold d.mu.
 func (d *Daemon) dropActivity(id string) {
+	if d.frozen {
+		return
+	}
 	delete(d.live.asked, id)
 	if i := d.activityIndex(id); i >= 0 {
 		d.st.Activities = slices.Delete(d.st.Activities, i, i+1)

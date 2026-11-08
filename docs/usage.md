@@ -2082,9 +2082,19 @@ or command-line overrides too.
 pitwall types it only when the pane still runs the same agent and still
 sits at the turn the limit stopped. Typing anything in the pane after the
 turn stopped cancels it, and so do **Cancel resume** in the tab's
-right-click menu and turning the setting off. The schedule
-lives in the daemon's memory only, so a daemon restart drops
-every pending resume.
+right-click menu and turning the setting off. pitwall saves the schedule
+with the pane. After a daemon restart or a saved shutdown, it rearms only
+for the same agent session still stopped on that limit. Once the resume is
+due, pitwall waits up to two minutes for the restored agent to become ready.
+If the agent stays unready, pitwall cancels the resume and shows the reason
+in the row's error detail. Continue manually in that pane.
+
+Cancelled resumes stay cancelled. pitwall records the usage-limit continuation
+as consumed before typing it, so that limit does not send another `continue`.
+A crash between saving consumption and typing can require a manual `continue`.
+If a restart interrupts a working turn, pitwall queues its normal restart
+message to continue the task, including a turn the usage-limit resume started.
+Chat resumes run in memory and do not survive a daemon restart.
 
 Turn it off with `resume_after_limit = false` under `[agents]` in
 `config.toml`, or **Resume after limit** in Settings.
