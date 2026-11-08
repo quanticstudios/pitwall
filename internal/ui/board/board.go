@@ -96,6 +96,9 @@ type Card struct {
 	Workers []string
 	Fleet   [Columns]int
 	Task    model.Task
+	// GuardDeny is [agents] guard_deny, which the guard denies on top of
+	// its built-in list.
+	GuardDeny []string
 	// Held is a card kept in its place under the pointer or keyboard
 	// focus; Now is the kind it has moved on to.
 	Held bool
@@ -132,16 +135,17 @@ func (c Card) Answers() Answer {
 	switch {
 	case len(cmd) > MaxCommand || strings.ContainsAny(cmd, "\r\n"):
 		return AnswerLong
-	case cmd != "" && Denied(cmd):
+	case cmd != "" && Denied(cmd, c.GuardDeny):
 		return AnswerGuard
 	}
 	return AnswerAllow
 }
 
-// Denied reports whether the guard's deny list names a part of cmd.
-func Denied(cmd string) bool {
+// Denied reports whether the guard's built-in deny list, or extra, names a
+// part of cmd.
+func Denied(cmd string, extra []string) bool {
 	in, _ := json.Marshal(map[string]string{"command": cmd})
-	return guard.Check(nil, in) != ""
+	return guard.Check(extra, in) != ""
 }
 
 // ScopeKind is what a scope narrows the board to.
@@ -167,7 +171,9 @@ type Options struct {
 	// Hosts is each session's machine by session id, "" or missing for
 	// this one.
 	Hosts map[string]string
-	Now   time.Time
+	// GuardDeny is [agents] guard_deny, for each card's Answers.
+	GuardDeny []string
+	Now       time.Time
 }
 
 // Board is the cards of each column, in order, and what it left out.
@@ -208,7 +214,7 @@ func Derive(st *model.State, o Options) Board {
 			continue
 		}
 		c := cardOf(st, w, acts[w.ID], watching[w.ID], o.Now)
-		c.Host = host
+		c.Host, c.GuardDeny = host, o.GuardDeny
 		if c.Kind == KindShell && !o.Shells {
 			b.HiddenShells++
 			continue

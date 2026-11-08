@@ -30,7 +30,7 @@ func (u *ui) layoutBoard(gtx gl.Context, st *model.State) {
 		u.layoutPanes(gtx, st)
 		return
 	}
-	o := sidebar.BoardOptions{Hosts: u.boardHosts(), AllowKey: u.chordName("allow_prompt"), DenyKey: u.chordName("deny_prompt")}
+	o := sidebar.BoardOptions{Hosts: u.boardHosts(), GuardDeny: u.cfg.GuardDeny, AllowKey: u.chordName("allow_prompt"), DenyKey: u.chordName("deny_prompt")}
 	for _, ev := range u.sidebar.Board(gtx, u.th, st, o) {
 		u.sidebarPointer(st, ev)
 	}

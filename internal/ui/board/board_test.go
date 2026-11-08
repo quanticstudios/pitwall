@@ -236,8 +236,8 @@ func TestOrder(t *testing.T) {
 }
 
 // TestAnswers: a short one-line command gets Allow and Deny; a long or
-// multi-line one, or one on the guard's deny list, sends the user to the
-// tab.
+// multi-line one, or one on the guard's deny list or [agents] guard_deny,
+// sends the user to the tab.
 func TestAnswers(t *testing.T) {
 	approval := func(cmd string) Card {
 		return Card{Kind: KindApproval, Act: model.Activity{State: model.StatePendingApproval, Provider: model.ProviderClaude, Command: cmd}}
@@ -253,9 +253,23 @@ func TestAnswers(t *testing.T) {
 		{"echo a\necho b", AnswerLong},
 		{"git push origin main", AnswerGuard},
 		{"go test ./... && gh pr merge 3", AnswerGuard},
+		// rm is on no built-in list; guard_deny can add it.
+		{"rm -rf ./checkpoints/old && python train.py --resume latest --epochs 3", AnswerAllow},
 	} {
 		if got := approval(c.cmd).Answers(); got != c.want {
 			t.Errorf("%q: %v, want %v", c.cmd, got, c.want)
+		}
+	}
+	var f fixture
+	f.tab("x", model.ProviderClaude, model.Workspace{})
+	f.act("x", model.Activity{State: model.StatePendingApproval, Command: "rm -rf ./checkpoints/old && python train.py"})
+	for _, c := range []struct {
+		deny []string
+		want Answer
+	}{{nil, AnswerAllow}, {[]string{"rm -rf *"}, AnswerGuard}, {[]string{"npm publish *"}, AnswerAllow}} {
+		b := Derive(&f.st, Options{Now: now, GuardDeny: c.deny})
+		if got := b.All["x"].Answers(); got != c.want {
+			t.Errorf("guard_deny %q: %v, want %v", c.deny, got, c.want)
 		}
 	}
 	if got := (Card{Kind: KindInput}).Answers(); got != AnswerNone {

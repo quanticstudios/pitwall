@@ -1674,7 +1674,8 @@ Esc, or showing a tab, goes back to the panes.
   whole command, with Allow and Deny as the sidebar draws them and
   Always… where the prompt offers it. A command longer than 180
   characters or on more than one line shows Read it in the tab instead,
-  and so does one the [guard](#the-guard) denies. A question shows the
+  and so does one the [guard](#the-guard) denies, by its own list
+  or yours in `[agents] guard_deny`. A question shows the
   options its screen offers.
 - **Failed**: failed turns, with Continue, which sends "continue" when the
   agent waits for input, and agents a usage limit stopped, in grey, with

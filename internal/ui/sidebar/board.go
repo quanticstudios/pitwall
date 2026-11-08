@@ -38,6 +38,9 @@ type CloseBoard struct{}
 type BoardOptions struct {
 	// Hosts is each session's machine by session id, "" for this one.
 	Hosts map[string]string
+	// GuardDeny is [agents] guard_deny: an approval whose command it or
+	// the guard's own list names gets no Allow.
+	GuardDeny []string
 	// AllowKey and DenyKey name allow_prompt's and deny_prompt's keys for
 	// the footer, "" when unbound.
 	AllowKey, DenyKey string
@@ -150,7 +153,7 @@ func (s *Sidebar) Board(gtx layout.Context, th *theme.Theme, st *model.State, o 
 	}
 	event.Op(gtx.Ops, &bd.tag)
 
-	bd.b = board.Derive(st, board.Options{Scope: bd.scope, Shells: bd.shells, Hosts: o.Hosts, Now: gtx.Now})
+	bd.b = board.Derive(st, board.Options{Scope: bd.scope, Shells: bd.shells, Hosts: o.Hosts, GuardDeny: o.GuardDeny, Now: gtx.Now})
 	held := map[string]bool{}
 	for id, c := range bd.cards {
 		if c.card.Hovered() || c.allow.Hovered() || c.deny.Hovered() || c.choices.hovered() {
