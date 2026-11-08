@@ -17,8 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- Include chat turns and popup agents when a GUI close stops them. Killing a detached tab keeps its two-click confirmation.
-- Ask before a GUI close stops an agent working or waiting on you mid-turn. The dialog names the tab and agents and asks once, including for several panes. Pinned tabs keep their unpin dialog. Turn the check off with `[appearance] confirm_close = false` or Settings, Appearance, Confirm close.
+- Ask before a GUI close stops an agent working or waiting on you mid-turn, including chats and popup agents. The dialog names the tab and agents and asks once, including for several panes. Closing a pinned tab or its last pane uses only the unpin dialog. Closing one pane in a pinned split uses the agent dialog when its agent is mid-turn. Killing a detached tab keeps its two-click confirmation. Turn the check off with `[appearance] confirm_close = false` or Settings, Appearance, Confirm close.
 - Keep the pane's agent status and resume session when it runs another agent during a turn.
 - Removed Jev and every decision feature: approval suggestions, risk flags, triage, turn check, check runs, stuck agents, the custom command provider, `pitwall jev` and the Decisions and Decision stats settings pages. Notifications send at once in the normal order, the jump key follows state order, and `TYPESAFE_API_KEY` does nothing. A `[decisions]` table still loads with a note and stays in your file. pitwall no longer reads `~/.local/state/pitwall/decisions.jsonl` or `~/.config/pitwall/credentials`; delete them when you like.
 
