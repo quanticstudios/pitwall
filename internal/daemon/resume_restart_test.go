@@ -21,6 +21,7 @@ func savedLimit(t *testing.T, prov model.Provider) (*Daemon, *fakes, *fakeClock,
 	clock := useFakeClock(t, time.Date(2026, 10, 22, 14, 0, 0, 0, time.UTC))
 	d, f := talkDaemon(t)
 	d.o.ResumeAfterLimit = func() bool { return true }
+	d.o.SessionID = agent.SessionID
 	path := filepath.Join(t.TempDir(), "state.json")
 	d.o.Save = func(s model.State) error { return store.Save(path, s) }
 	d.mu.Lock()
@@ -107,13 +108,20 @@ func TestLimitResumeRestartFiresOnce(t *testing.T) {
 	}
 }
 
-func TestLimitResumeSentSkipsRestartNudge(t *testing.T) {
+func TestLimitResumeConsumedBeforeTypingSkipsRestartNudge(t *testing.T) {
 	first, f, clock, path := savedLimit(t, model.ProviderClaude)
 	clock.fire()
 	if got := gotAfter(t, f.pane(0), 0, 9); got != "continue\r" {
 		t.Fatalf("typed %q", got)
 	}
+	saved, err := store.Load(path) // consumption is durable before the working activity
+	if err != nil {
+		t.Fatal(err)
+	}
 	first.shutdown()
+	if err := store.Save(path, saved); err != nil {
+		t.Fatal(err)
+	}
 	before := len(clock.fns)
 	d := loadLimit(t, f, path, nil)
 	claudeHook(t, d, "a", `{"session_id":"agent-session","hook_event_name":"SessionStart","source":"resume"}`)

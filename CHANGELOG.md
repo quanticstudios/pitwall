@@ -17,7 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
-- Usage-limit auto-resumes survive a daemon restart for the same stopped agent session, including overdue resets. Cancelled and consumed resumes do not repeat.
+- Pane usage-limit auto-resumes keep their saved schedule across daemon restarts and saved shutdowns for the same stopped agent session, including overdue resets. Restored resumes cancel with a visible error after two minutes without a ready agent. Cancelled and consumed limits do not repeat; interrupted working turns get the normal restart message. A crash before typing can still require a manual continue. Chat resumes remain in memory and do not depend on saving pane state.
 - Saved usage-limit resumes keep protocol 18 compatibility with open windows and remote clients.
 - Keep the pane's agent status and resume session when it runs another agent during a turn.
 - Removed Jev and every decision feature: approval suggestions, risk flags, triage, turn check, check runs, stuck agents, the custom command provider, `pitwall jev` and the Decisions and Decision stats settings pages. Notifications send at once in the normal order, the jump key follows state order, and `TYPESAFE_API_KEY` does nothing. A `[decisions]` table still loads with a note and stays in your file. pitwall no longer reads `~/.local/state/pitwall/decisions.jsonl` or `~/.config/pitwall/credentials`; delete them when you like.

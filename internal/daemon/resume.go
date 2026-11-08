@@ -24,6 +24,9 @@ import (
 // resumeDelay is how long after a limit resets continue is typed.
 var resumeDelay = time.Minute
 
+// resumeReadyWait limits polling after a restored continuation becomes due.
+const resumeReadyWait = 2 * time.Minute
+
 // The clock behind resumes; tests replace it.
 var (
 	resumeNow   = time.Now
@@ -39,6 +42,7 @@ type resume struct {
 	turn     time.Time      // UpdatedAt of the activity the limit stopped
 	session  string
 	restored bool
+	readyBy  time.Time
 	// since is when the turn stopped, zero when unknown: a key of the
 	// user's after it, such as a draft, drops the resume.
 	since time.Time
@@ -199,7 +203,7 @@ func (d *Daemon) limitStopped(id string, turn time.Time, msg string, resets time
 	if i >= 0 {
 		cur = d.st.Activities[i].UpdatedAt
 	}
-	if d.closing || !ok || !cur.Equal(turn) || d.mail.keyAt[id].After(turn) {
+	if d.closing || d.frozen || !ok || !cur.Equal(turn) || d.mail.keyAt[id].After(turn) {
 		return
 	}
 	auto := sp != nil && d.claudeContinues(*sp)
@@ -321,11 +325,26 @@ func (d *Daemon) fireResume(id string, r *resume) {
 		d.mu.Unlock()
 		return // dropped or replaced
 	}
-	why := d.resumeBlocked(id, r)
-	if why == "" && r.restored && !d.resumeReady(id, r, g) {
+	if d.frozen {
 		r.stop = resumeAfter(time.Second, func() { d.fireResume(id, r) })
 		d.mu.Unlock()
 		return
+	}
+	why := d.resumeBlocked(id, r)
+	if why == "" && r.restored && !d.resumeReady(id, r, g) {
+		now := resumeNow()
+		if r.readyBy.IsZero() {
+			r.readyBy = now.Add(resumeReadyWait)
+		}
+		if now.Before(r.readyBy) {
+			r.stop = resumeAfter(time.Second, func() { d.fireResume(id, r) })
+			d.mu.Unlock()
+			return
+		}
+		why = "the agent did not become ready within 2 minutes; continue manually"
+		if i := d.activityIndex(id); i >= 0 {
+			d.st.Activities[i].Detail += "\nAutomatic resume cancelled: " + why
+		}
 	}
 	if why == "" && busy {
 		why = "its screen shows a turn or a prompt"
@@ -344,13 +363,15 @@ func (d *Daemon) fireResume(id string, r *resume) {
 		d.save()
 		return
 	}
-	// Persist consumption before typing: a crash must never replay this limit.
+	// Persist a pane's consumption before typing: a crash must never replay this limit.
 	// shortcut: a crash before typing can lose the send; provider receipts would close that gap.
-	if err := d.saveState(false); err != nil {
-		d.mu.Lock()
-		d.dropResume(id)
-		d.mu.Unlock()
-		return
+	if r.p != nil {
+		if err := d.saveState(false); err != nil {
+			d.mu.Lock()
+			d.dropResume(id)
+			d.mu.Unlock()
+			return
+		}
 	}
 	if r.p != nil {
 		g = r.p.Snapshot()
@@ -413,6 +434,9 @@ func stoppedState(s model.AgentState) bool {
 // dropResume drops pane id's resume, reporting whether it had one.
 // Callers hold d.mu.
 func (d *Daemon) dropResume(id string) bool {
+	if d.frozen {
+		return false
+	}
 	r := d.lim.pending[id]
 	dropped := d.consumeResume(id) || r != nil
 	if r != nil {
@@ -472,7 +496,6 @@ const restartWait = 20 * time.Second
 // wait counts it, and a turn that was running gets restartLine queued like
 // a pitwall send. The agent's first hook (Claude's resume SessionStart, pi's
 // session_start) delivers it, or restartWait. Callers hold d.mu.
-// A consumed limit continuation needs a new turn hook before another nudge.
 func (d *Daemon) restartNudge(id string, saved []model.Activity) {
 	i := slices.IndexFunc(saved, func(a model.Activity) bool { return a.PaneID == id })
 	if i < 0 {
@@ -482,12 +505,6 @@ func (d *Daemon) restartNudge(id string, saved []model.Activity) {
 	case model.StateCompleted, model.StateError:
 		d.st.Activities = append(d.st.Activities, a)
 	case model.StateWorking:
-		if _, _, p, ok := d.agentOf(id); ok && p != nil && p.LimitResume != nil && !p.LimitResume.Pending && a.Detail == model.ResumedDetail {
-			// No hook has confirmed a new turn since the consumed continuation.
-			a.State, a.Detail, a.UpdatedAt = model.StateError, p.LimitResume.Message, p.LimitResume.Turn
-			d.st.Activities = append(d.st.Activities, a)
-			return
-		}
 		d.mail.queue[id] = append(d.mail.queue[id], letter{text: restartLine, plain: true})
 		d.wake(id, restartWait)
 	}

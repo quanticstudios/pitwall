@@ -1705,7 +1705,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		}
 		switch {
 		case next.State == "" && ai >= 0:
-			d.st.Activities = slices.Delete(d.st.Activities, ai, ai+1)
+			d.dropActivity(p.ID)
 		case next.State == "":
 		default:
 			next.PaneID, next.WorkspaceID = p.ID, p.WorkspaceID
@@ -2327,6 +2327,8 @@ func (d *Daemon) changed() {
 // that agents the system stops on its way down come back after the reboot.
 // Serve's panes are kept the same way, without this save, once its context ends.
 func (d *Daemon) Freeze() {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
 	d.mu.Lock()
 	d.frozen = true
 	d.mu.Unlock()
