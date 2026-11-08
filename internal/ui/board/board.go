@@ -119,23 +119,28 @@ const MaxCommand = 180
 type Answer int
 
 const (
-	AnswerNone  Answer = iota // not an approval pitwall can answer
-	AnswerAllow               // Allow and Deny
-	AnswerLong                // too long to read on a card: open the tab
-	AnswerGuard               // on the guard's deny list: open the tab
+	AnswerNone    Answer = iota // not an approval pitwall can answer
+	AnswerAllow                 // Allow and Deny
+	AnswerLong                  // too long to read on a card: open the tab
+	AnswerGuard                 // on the guard's deny list: open the tab
+	AnswerUnknown               // no command known to check: open the tab
 )
 
 // Answers is what card c offers for its approval: Allow and Deny only for
-// a short, one-line command the guard does not deny.
+// a short, one-line command the guard does not deny. A prompt whose command
+// pitwall does not know, from a tool other than a shell or an older
+// daemon, gets none.
 func (c Card) Answers() Answer {
 	if c.Kind != KindApproval || !remote.Answerable(c.Act) {
 		return AnswerNone
 	}
 	cmd := c.Act.Command
 	switch {
+	case cmd == "":
+		return AnswerUnknown
 	case len(cmd) > MaxCommand || strings.ContainsAny(cmd, "\r\n"):
 		return AnswerLong
-	case cmd != "" && Denied(cmd, c.GuardDeny):
+	case Denied(cmd, c.GuardDeny):
 		return AnswerGuard
 	}
 	return AnswerAllow

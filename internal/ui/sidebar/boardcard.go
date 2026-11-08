@@ -559,10 +559,13 @@ func (s *Sidebar) approvalButtons(th *theme.Theme, card board.Card, cs *boardCar
 	return func(gtx layout.Context) layout.Dimensions {
 		h := gtx.Dp(24)
 		switch card.Answers() {
-		case board.AnswerLong, board.AnswerGuard:
+		case board.AnswerLong, board.AnswerGuard, board.AnswerUnknown:
 			why := "Too long to answer from a card"
-			if card.Answers() == board.AnswerGuard {
+			switch card.Answers() {
+			case board.AnswerGuard:
 				why = "On the guard's deny list"
+			case board.AnswerUnknown:
+				why = "No command to check from a card"
 			}
 			d := hrowFit(gtx, h, gtx.Dp(8), item{w: pillButton(&cs.open, th, base, h, "Read it in the tab", th.Yellow)})
 			o := op.Offset(image.Pt(0, d.Size.Y+gtx.Dp(6))).Push(gtx.Ops)

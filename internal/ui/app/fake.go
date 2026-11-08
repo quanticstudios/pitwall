@@ -208,7 +208,7 @@ func (f *FakeBackend) setActivities() {
 		case p.WorkspaceID == "w10":
 			a.State, a.Detail = model.StateAwaitingInput, "Round half to even, or half up?"
 		case p.WorkspaceID == "w4":
-			a.State, a.Detail = model.StatePendingApproval, "Run the checkout tests"
+			a.State, a.Detail, a.Command = model.StatePendingApproval, "Run the checkout tests", "go test ./checkout/..."
 		case p.WorkspaceID == "w12":
 			a.State, a.Detail = model.StateCompleted, "Drafted the guide; two links still 404."
 		case p.WorkspaceID == "w1b":

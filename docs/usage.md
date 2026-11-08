@@ -1672,11 +1672,13 @@ Esc, or showing a tab, goes back to the panes.
 - **Needs you**: approvals, then questions, then plans, oldest first. An
   approval shows its tool, folder (with the host for a remote tab) and the
   whole command, with Allow and Deny as the sidebar draws them and
-  Always… where the prompt offers it. A command longer than 180
-  characters or on more than one line shows Read it in the tab instead,
-  and so does one the [guard](#the-guard) denies, by its own list
-  or yours in `[agents] guard_deny`. A question shows the
-  options its screen offers.
+  Always… where the prompt offers it. Some approvals show Read it in the
+  tab instead: a command longer than 180 characters or on more than one
+  line; one the [guard](#the-guard) denies, by its own list or yours in
+  `[agents] guard_deny`; and one whose command pitwall does not know, from
+  a tool other than a shell command or a daemon older than the window,
+  which shows the tool's description. A question shows the options its
+  screen offers.
 - **Failed**: failed turns, with Continue, which sends "continue" when the
   agent waits for input, and agents a usage limit stopped, in grey, with
   the time pitwall types continue.

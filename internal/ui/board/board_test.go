@@ -236,8 +236,8 @@ func TestOrder(t *testing.T) {
 }
 
 // TestAnswers: a short one-line command gets Allow and Deny; a long or
-// multi-line one, or one on the guard's deny list or [agents] guard_deny,
-// sends the user to the tab.
+// multi-line one, one on the guard's deny list or [agents] guard_deny, or
+// none known, sends the user to the tab.
 func TestAnswers(t *testing.T) {
 	approval := func(cmd string) Card {
 		return Card{Kind: KindApproval, Act: model.Activity{State: model.StatePendingApproval, Provider: model.ProviderClaude, Command: cmd}}
@@ -247,7 +247,7 @@ func TestAnswers(t *testing.T) {
 		want Answer
 	}{
 		{"npm run migrate -- --env staging", AnswerAllow},
-		{"", AnswerAllow}, // a tool with no command: the daemon checks the screen
+		{"", AnswerUnknown}, // another tool, or an older daemon: nothing to check
 		{strings.Repeat("x", MaxCommand), AnswerAllow},
 		{strings.Repeat("x", MaxCommand+1), AnswerLong},
 		{"echo a\necho b", AnswerLong},
