@@ -17,14 +17,20 @@ import (
 // (ownerHook), as Claude Code does, and runs a tool shell, 200, in another.
 // From the tool shell run a nested Claude, whose hooks also lead their own
 // groups (claudeChild), and a nested Codex, whose hooks stay in its group
-// (codexChild). wrappedHook is an owner hook started through a shell that
-// leads the hook's group.
+// (codexChild). wrappedHook is an owner hook started through a shell, 1002,
+// that leads the hook's group. piChild is a hook of pi, which the agent ran
+// with `exec pi` in a tool shell of its own group, 210, and which starts its
+// hooks in that group.
 const (
 	ownerHook   = 1001
 	wrappedHook = 1003
 	claudeChild = 2011
 	codexChild  = 2021
+	piChild     = 2101
 )
+
+// treeShells are the pids of the fake trees that run a shell.
+var treeShells = map[int]bool{1002: true, 200: true}
 
 var nestedTree = map[int][2]int{ // pid: parent, group
 	100: {50, 100}, 50: {1, 50},
@@ -36,14 +42,23 @@ var nestedTree = map[int][2]int{ // pid: parent, group
 	claudeChild: {201, claudeChild},
 	202:         {200, 200},
 	codexChild:  {202, 200},
+	210:         {100, 210},
+	piChild:     {210, 210},
 }
 
-// useTree makes parentOf read tree.
+// useTree makes parentOf read tree, and commOf name treeShells "sh" and any
+// other process "node".
 func useTree(t *testing.T, tree map[int][2]int) {
 	t.Helper()
-	old := parentOf
+	oldParent, oldComm := parentOf, commOf
 	parentOf = func(pid int) (int, int) { return tree[pid][0], tree[pid][1] }
-	t.Cleanup(func() { parentOf = old })
+	commOf = func(pid int) string {
+		if treeShells[pid] {
+			return "sh"
+		}
+		return "node"
+	}
+	t.Cleanup(func() { parentOf, commOf = oldParent, oldComm })
 }
 
 // sendFrom delivers a hook as serveConn does for one from process pid.
@@ -319,9 +334,10 @@ func TestNestedIn(t *testing.T) {
 	for pid, want := range map[int]bool{
 		ownerHook: false, wrappedHook: false, // the pane's agent
 		claudeChild: true, codexChild: true, // agents its tool shell runs
-		100:  false, // a hook in the foreground group
-		50:   false, // the shell above it
-		9999: false, // gone
+		piChild: true,  // an agent its tool shell became, leading the hook's group
+		100:     false, // a hook in the foreground group
+		50:      false, // the shell above it
+		9999:    false, // gone
 	} {
 		if got := nestedIn(pid, 100); got != want {
 			t.Errorf("nestedIn(%d) = %v, want %v", pid, got, want)
@@ -425,5 +441,42 @@ func TestNestedHooksNewSessionWithoutEnd(t *testing.T) {
 				t.Fatalf("new session blocked: %+v, %+v", p, a)
 			}
 		})
+	}
+}
+
+// After a daemon start (a takeover, restart or reboot resume) no hook has
+// been accepted yet, so live.fg is empty. A nested child's hook that comes
+// first is still dropped, against the pane's current foreground group,
+// while the pane has an agent. With no agent in the pane, a background agent
+// started from the shell owns it.
+func TestNestedHooksAfterDaemonStart(t *testing.T) {
+	d, _ := nestedDaemon(t)
+	nestedHook(t, d, model.ProviderClaude, "UserPromptSubmit", "owner")
+	d.mu.Lock()
+	delete(d.live.fg, "a")
+	d.mu.Unlock()
+	nestedHook(t, d, model.ProviderClaude, "Stop", "child")
+	if p, a := reportedPane(d, "a"), d.activityOf("a"); p.SessionID != "owner" || a.State != model.StateWorking {
+		t.Fatalf("child's first hook after a daemon start took the pane: %+v, %+v", p, a)
+	}
+
+	d, _ = nestedDaemon(t)
+	nestedHook(t, d, model.ProviderClaude, "SessionStart", "child")
+	if p := reportedPane(d, "a"); p.SessionID != "child" {
+		t.Fatalf("agent in a pane without one was dropped: %+v", p)
+	}
+}
+
+// pi run with `exec` from the agent's tool shell leads that shell's group,
+// and its hooks share it. pi is the sender, not the shell it replaced, so
+// its hooks never take the pane.
+func TestNestedHooksExecPi(t *testing.T) {
+	d, _ := nestedDaemon(t)
+	nestedHook(t, d, model.ProviderClaude, "UserPromptSubmit", "owner")
+	for _, event := range []string{"session_start", "agent_start", "agent_end"} {
+		sendFrom(t, d, piChild, model.ProviderPi, fmt.Sprintf(`{"event":%q,"session_id":"pi","runtime":"r1"}`, event))
+	}
+	if p, a := reportedPane(d, "a"), d.activityOf("a"); p.Provider != model.ProviderClaude || p.SessionID != "owner" || a.State != model.StateWorking {
+		t.Fatalf("exec'd pi took the pane: %+v, %+v", p, a)
 	}
 }
