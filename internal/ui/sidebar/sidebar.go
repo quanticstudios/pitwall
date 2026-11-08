@@ -111,7 +111,7 @@ type Sidebar struct {
 	rows     map[string]*rowState
 	list     layout.List
 
-	addProject, detached, comments, settings, newTab, sessions, upgrade widget.Clickable
+	addProject, detached, settings, newTab, sessions, upgrade widget.Clickable
 
 	// session is the session drawn; switchedAt is when it last changed, for
 	// the header's flash.

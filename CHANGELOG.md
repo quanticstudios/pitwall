@@ -17,6 +17,7 @@ build. Either step takes `--dry-run`.
 
 ## Unreleased
 
+- Remove the greyed-out comments button from the sidebar footer. It came from aide and never did anything.
 - The board: every agent tab as a card in columns by what it needs from you (Needs you, Failed, Working, PR open, Done, Queued), opened from a button beside the inbox button or with Ctrl+Shift+M (Cmd+Shift+M on macOS). Approvals show the whole command with Allow and Deny; long commands and ones the guard denies send you to the tab. Workers fold into their orchestrator's card unless they need you. Scope it to a group, the ungrouped tabs or a host. A window needs a daemon of this version to show an approval's command.
 - Ask before a GUI close stops an agent working or waiting on you mid-turn, including chats and popup agents. The dialog names the tab and agents and asks once, including for several panes. Closing a pinned tab or its last pane uses only the unpin dialog. Closing one pane in a pinned split uses the agent dialog when its agent is mid-turn. Killing a detached tab keeps its two-click confirmation. Turn the check off with `[appearance] confirm_close = false` or Settings, Appearance, Confirm close.
 - Jump to the pane you last sent an agent prompt with Ctrl+Alt+U, or Cmd+Option+U on macOS, across tabs and sessions, including open popups. Only your own prompts count; messages from other panes and automatic messages keep the destination. Rebind `jump_last_prompt` in Settings. Prompt times stay in memory until the daemon restarts.

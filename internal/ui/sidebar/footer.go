@@ -44,7 +44,7 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	defer op.Offset(image.Pt(0, top)).Push(gtx.Ops).Pop()
 	h := 1 + 2*px + btn + top
 	gap := gtx.Dp(4)
-	addW := w - 2*px - 3*(btn+gap)
+	addW := w - 2*px - 2*(btn+gap)
 	x := px + addW + gap
 	off := op.Offset(image.Pt(px, 1+px)).Push(gtx.Ops)
 	if s.Update != "" {
@@ -59,16 +59,9 @@ func (s *Sidebar) footer(gtx layout.Context, v *view) layout.Dimensions {
 	for i, b := range []struct {
 		c    *widget.Clickable
 		icon string
-	}{{&s.detached, icDetach}, {&s.comments, icMessage}, {&s.settings, icSettings}} {
+	}{{&s.detached, icDetach}, {&s.settings, icSettings}} {
 		off := op.Offset(image.Pt(x+i*(btn+gap), 1+px)).Push(gtx.Ops)
-		if b.c == &s.comments {
-			// aide's comments button is disabled at 50% opacity.
-			drawCentered(gtx, btn, func(gtx layout.Context) layout.Dimensions {
-				return drawIcon(gtx, icMessage, gtx.Dp(14), theme.Mix(th.Sidebar, th.Muted, 0.5), 0)
-			})
-		} else {
-			iconButton(gtx, th, b.c, b.icon, btn, gtx.Dp(14), true)
-		}
+		iconButton(gtx, th, b.c, b.icon, btn, gtx.Dp(14), true)
 		if b.c == &s.detached && s.detachedOpen {
 			m := op.Record(gtx.Ops)
 			at := image.Pt(x+i*(btn+gap), s.height-h+top+1+px)

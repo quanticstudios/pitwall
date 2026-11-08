@@ -520,7 +520,7 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for i := range s.snoozeBtn {
 		drain(&s.snoozeBtn[i])
 	}
-	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.comments, &s.settings, &s.newTab, &s.sessions, &s.upgrade, &s.undoBtn, &s.viewBtn, &s.reply.send} {
+	for _, c := range []*widget.Clickable{&s.addProject, &s.detached, &s.settings, &s.newTab, &s.sessions, &s.upgrade, &s.undoBtn, &s.viewBtn, &s.reply.send} {
 		drain(c)
 	}
 }
