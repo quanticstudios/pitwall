@@ -1,9 +1,11 @@
 package app
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
 
@@ -98,5 +100,22 @@ func TestBoardHostsShared(t *testing.T) {
 	got := u.boardHosts(&st)
 	if len(got) != 1 || got[f.tab] != "box" {
 		t.Fatalf("board hosts %v", got)
+	}
+}
+
+// A tab a tab opens for itself, as Create PR, Merge PR and Rerun checks
+// do, opens on that tab's host, even for an ungrouped tab of a shared
+// session, whose request names no id of that host.
+func TestFromTabOnItsHost(t *testing.T) {
+	fb := NewFakeBackend()
+	st := fb.State()
+	f := sharedFake{fb, st.Workspaces[0].ID}
+	u := &ui{b: f}
+	ns := proto.NewSession{SessionID: st.Workspaces[0].SessionID, Loose: true, Cmd: []string{"gh", "pr", "create"}}
+	u.send(fromTab{f.tab, ns})
+	u.send(fromTab{st.Workspaces[1].ID, ns})
+	sent := fb.Sent()
+	if len(sent) != 2 || !reflect.DeepEqual(sent[0], NewTabOn{Host: "box", Tab: ns}) || !reflect.DeepEqual(sent[1], ns) {
+		t.Fatalf("sent %#v", sent)
 	}
 }

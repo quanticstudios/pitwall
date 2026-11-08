@@ -380,6 +380,9 @@ var sendErrs = logs.Limiter{Every: 10 * time.Second}
 
 // send reports whether the backend took msg.
 func (u *ui) send(msg any) bool {
+	if f, ok := msg.(fromTab); ok {
+		msg = f.open(u.b)
+	}
 	if u.pickTabProfile(msg) {
 		return true
 	}

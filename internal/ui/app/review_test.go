@@ -265,7 +265,7 @@ func TestReview(t *testing.T) {
 	if got, want := n.review(&st, "w", "stage_terminal"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: []string{"sh", "-c", stageScript, "sh", "/repo"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("stage_terminal = %+v, want %+v", got, want)
 	}
-	if got, want := n.review(&st, "w", "create_pr"), (proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo")}); !reflect.DeepEqual(got, want) {
+	if got, want := n.review(&st, "w", "create_pr"), (fromTab{"w", proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo")}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("create_pr = %+v, want %+v", got, want)
 	}
 	ghInstalled = func() bool { return false }

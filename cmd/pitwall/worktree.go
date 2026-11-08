@@ -113,7 +113,7 @@ func worktreeCommand(ctx context.Context, args []string, in *os.File, out, errOu
 		guarded = s.GuardWorkers
 	}
 	var vars []string
-	if cmd, vars, err = launch(preset, guarded, cmd); err != nil {
+	if cmd, vars, err = launch(preset, guarded, cmd, true); err != nil {
 		return err
 	}
 	var root string

@@ -46,6 +46,25 @@ type NewTabOn struct {
 	Tab  proto.NewSession
 }
 
+// fromTab is a tab that tab opens for itself, as Create PR, Merge PR and
+// Rerun checks do. send opens it on tab's host: in a shared session an
+// ungrouped tab of another host names no id of that host, and the command
+// must run where the tab's checkout is.
+type fromTab struct {
+	tab string
+	ns  proto.NewSession
+}
+
+// open is f as the backend takes it.
+func (f fromTab) open(b Backend) any {
+	if h, ok := b.(Hoster); ok {
+		if host := h.HostOf(f.tab); host != "" {
+			return NewTabOn{Host: host, Tab: f.ns}
+		}
+	}
+	return f.ns
+}
+
 // hostOf is the host of a tab, group or pane id, "" for this machine.
 func (u *ui) hostOf(id string) string {
 	if h, ok := u.b.(Hoster); ok {

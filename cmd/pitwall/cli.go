@@ -307,7 +307,7 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 		return errors.New(usage)
 	}
 	var vars []string
-	if cmd, vars, err = launch(preset, guarded, cmd); err != nil {
+	if cmd, vars, err = launch(preset, guarded, cmd, hostName == ""); err != nil {
 		return err
 	}
 	if cmd, err = withModel(cmd, modelName); err != nil {
@@ -446,8 +446,9 @@ func sessionCommand(args []string, in *os.File, out, errOut io.Writer) error {
 // launch is the command and environment of a tab that new, worktree new
 // or queue add opens: preset's agent and args before rest, else rest, its
 // program made absolute; preset's variables, and guard.Env when guarded or
-// the preset asks for the guard.
-func launch(preset string, guarded bool, rest []string) (cmd, vars []string, err error) {
+// the preset asks for the guard. With here false the program is left as
+// it is: it runs on another host, whose daemon finds it on its own PATH.
+func launch(preset string, guarded bool, rest []string, here bool) (cmd, vars []string, err error) {
 	cmd = rest
 	if preset != "" {
 		s, _ := config.Load()
@@ -464,7 +465,7 @@ func launch(preset string, guarded bool, rest []string) (cmd, vars []string, err
 		}
 		vars = append(vars, guard.Env+"=1")
 	}
-	if len(cmd) > 0 {
+	if len(cmd) > 0 && here {
 		err = absCmd(cmd)
 	}
 	return cmd, vars, err

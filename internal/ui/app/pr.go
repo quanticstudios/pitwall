@@ -105,7 +105,7 @@ func (u *ui) prAction(st *model.State, id, act string) {
 	case act == "rerun_checks" && rerun == "":
 		dir := st.LivePath(*ws)
 		u.nav.expectSession(st)
-		u.send(proto.NewSession{Name: fmt.Sprintf("Checks #%d", pr.Number), Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: rerunCmd(dir, ws.Branch)})
+		u.send(fromTab{ws.ID, proto.NewSession{Name: fmt.Sprintf("Checks #%d", pr.Number), Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: rerunCmd(dir, ws.Branch)}})
 	case act == "send_failures" && failures == "", act == "send_review" && review == "":
 		u.startSend(st, ws, act)
 	default:
@@ -134,7 +134,7 @@ func (u *ui) confirmMerge() {
 	}
 	dir := st.LivePath(*ws)
 	u.nav.expectSession(&st)
-	u.send(proto.NewSession{Name: fmt.Sprintf("Merge #%d", pr.Number), Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: mergeCmd(dir, pr.Number, u.mergeMethod())})
+	u.send(fromTab{ws.ID, proto.NewSession{Name: fmt.Sprintf("Merge #%d", pr.Number), Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: mergeCmd(dir, pr.Number, u.mergeMethod())}})
 	m.close()
 }
 

@@ -381,3 +381,133 @@ func TestMultiSharedOrderSticks(t *testing.T) {
 		t.Fatalf("local got %#v", o)
 	}
 }
+
+// A tab closed while its host was down stays forgotten here until the
+// host's state shows it gone: the close, after an unpin for a pinned tab,
+// goes to the host on reconnect, and Forget drops it only then.
+func TestMultiForgetKeptUntilGone(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs", Forget: []string{"rw"}}}
+	ls.Sessions[0].Order = []string{"lw"}
+	local, ld := localBackend(t, ls)
+	box := hostState("rs", "rw", "rp")
+	box.Workspaces[0].Pinned, box.Workspaces[0].Color = true, "teal"
+	box.Workspaces = append(box.Workspaces, model.Workspace{ID: "rw2", SessionID: "rs"})
+	conns := make(chan end, 1)
+	newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	if o, ok := next(rd).(proto.SetTabOptions); !ok || o.WorkspaceID != "rw" || o.Pinned || o.Color != "teal" {
+		t.Fatalf("box got %#v, want the unpin", o)
+	}
+	if c, ok := next(rd).(proto.CloseTab); !ok || c.WorkspaceID != "rw" {
+		t.Fatalf("box got %#v, want the close", c)
+	}
+	for m := recv(ld); m != nil; m = recv(ld) {
+		if l, ok := m.(proto.SessionLink); ok {
+			t.Fatalf("Forget changed before box closed the tab: %#v", l)
+		}
+	}
+	box.Workspaces = box.Workspaces[1:]
+	box.Panes = nil
+	rd.c.Send(proto.StateMsg{State: box, Level: proto.Level})
+	for {
+		m := recv(ld)
+		if m == nil {
+			t.Fatal("Forget never dropped the closed tab")
+		}
+		if l, ok := m.(proto.SessionLink); ok {
+			if l.Remote != "rs" || len(l.Forget) != 0 {
+				t.Fatalf("local got %#v", l)
+			}
+			break
+		}
+	}
+}
+
+// sharedDown is a window whose session ls is shared with box, which it
+// never reaches, and this machine's daemon end.
+func sharedDown(t *testing.T) (*multi, end) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Order = []string{"rw", "lw", "lw2"}
+	ls.Workspaces = append(ls.Workspaces, model.Workspace{ID: "lw2", SessionID: "ls"})
+	local, ld := localBackend(t, ls)
+	m := newMulti(local, []hostDial{{name: "box", dial: func(string, bool) (*proto.Conn, proto.StateMsg, error) {
+		return nil, proto.StateMsg{}, errors.New("cannot reach box over ssh: connection timed out")
+	}}})
+	return m, ld
+}
+
+// A shared session is not killed while a part's host is down: its tabs
+// there would keep running with nothing left to stop them.
+func TestMultiKillWaitsForHosts(t *testing.T) {
+	m, ld := sharedDown(t)
+	if err := m.Send(proto.SessionKill{SessionID: "ls"}); err == nil || !strings.Contains(err.Error(), "box is offline") {
+		t.Fatalf("kill with box down: %v", err)
+	}
+	if got := recv(ld); got != nil {
+		t.Fatalf("local got %#v", got)
+	}
+}
+
+// Reordering while a host has sent no state yet, as after the window
+// restarted with box down, keeps box's tabs' saved places.
+func TestMultiOrderKeepsUnseenHost(t *testing.T) {
+	m, ld := sharedDown(t)
+	if err := m.Send(proto.MoveSession{WorkspaceID: "lw2", Before: "lw"}); err != nil {
+		t.Fatal(err)
+	}
+	if o, ok := recv(ld).(proto.SessionOrder); !ok || !slices.Equal(o.Order, []string{"rw", "lw2", "lw"}) {
+		t.Fatalf("local got %#v", o)
+	}
+}
+
+// Showing a shared session tells each part's host the window shows its
+// part, so pitwall attach there focuses this window.
+func TestMultiShowTellsParts(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	m.Send(proto.SessionShow{SessionID: "ls"})
+	if s, ok := next(rd).(proto.SessionShow); !ok || s.SessionID != "rs" {
+		t.Fatalf("box got %#v", s)
+	}
+	for {
+		m := next(ld)
+		if m == nil {
+			t.Fatal("local never heard of the shown session")
+		}
+		if s, ok := m.(proto.SessionShow); ok {
+			if s.SessionID != "ls" {
+				t.Fatalf("local got %#v", s)
+			}
+			break
+		}
+	}
+}
+
+// A daemon here too old to keep a shared session gets no part made on a
+// host, which it could not link.
+func TestMultiShareNeedsLevel(t *testing.T) {
+	local, _ := localBackend(t, hostState("ls", "lw", "lp"))
+	local.link.Level = proto.SharedLevel - 1
+	box := hostState("rs", "rw", "rp")
+	box.Sessions[0].Name = "other" // so box would make a part
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
+	if err := m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls"}}); err == nil {
+		t.Fatal("a part made for an old daemon here")
+	}
+	if got := next(rd); got != nil {
+		t.Fatalf("box got %#v", got)
+	}
+}

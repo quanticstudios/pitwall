@@ -113,6 +113,9 @@ pitwall new --host box                    # a shell in box's home folder
 pitwall new --host box '~/evals' -- codex # quote ~ so it means box's home
 ```
 
+With `--host`, box finds the command on its own PATH, so `codex` needs to
+be installed there, not here.
+
 Each tab and its splits stay on one machine, and a group holds tabs of one
 machine: a project checked out here and on box is two groups, the one on
 box with a box chip on its header. Rows of tabs on another host have a
@@ -141,7 +144,9 @@ never queued: the focused pane says "Typing is off until box reconnects.
 Screen from 14:02." with Retry now. Allow and Deny leave their rows and
 cards, which say "Answer when box is back". This machine's tabs carry on as
 before. You can close a down host's tab: the window forgets it at once,
-and the next window to reach the host closes it there.
+and the next window to reach the host closes it there, unpinning it first
+if you said Unpin and close. Until box's state shows the tab gone, this
+machine keeps asking.
 
 This machine keeps the shared session: its name, the order of its tabs
 and groups across machines, and for each host the session there that
@@ -150,7 +155,11 @@ the shared one, so `pitwall --host box`, the phone page and `pitwall ls`
 on box show those tabs as a session of their own. A session on another
 host becomes shared when you open a tab on this machine from it. A window
 must list the host in `[[hosts]]` with `window = true` to show its part.
-Renaming the shared session renames each part; killing it kills them.
+Renaming the shared session renames each part; killing it from the window
+kills them, and waits while a host with a part is down, so nothing keeps
+running there unseen. `pitwall session kill` refuses a shared session,
+since it reaches only this machine's daemon. Create PR, Merge PR and Rerun
+checks run on the machine of the tab they start from.
 
 ### Keep the daemon running across reboots
 

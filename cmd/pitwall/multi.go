@@ -274,10 +274,15 @@ func (m *multi) merge() {
 		s := h.b.State()
 		if i == 0 {
 			// The window has the other hosts' tabs, so TopOrder may drop
-			// the ids it does not know: they are of closed tabs.
+			// the ids it does not know: they are of closed tabs. A part
+			// whose host has not sent a state yet keeps its ids, which
+			// TopOrder keeps for a session with Remotes.
 			s.Sessions = slices.Clone(s.Sessions)
 			for j := range s.Sessions {
-				s.Sessions[j].Remotes = nil
+				s.Sessions[j].Remotes = slices.DeleteFunc(slices.Clone(s.Sessions[j].Remotes), func(r model.RemoteSession) bool {
+					h := m.byName(r.Host)
+					return h != nil && h.b.Link().Epoch > 0
+				})
 			}
 		}
 		own := func(id string) {
@@ -381,12 +386,32 @@ func (m *multi) reconcile(local model.State) {
 			case hs.Session(r.Session) == nil:
 				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host})
 			case len(r.Forget) > 0:
+				// An id leaves Forget only once the host's state shows its
+				// tab gone, so a close a dropped link lost is sent again.
+				var left []string
 				for _, id := range r.Forget {
-					if slices.ContainsFunc(hs.Workspaces, func(w model.Workspace) bool { return w.ID == id }) {
-						h.b.Send(proto.CloseTab{WorkspaceID: id})
+					w := hs.Workspace(id)
+					if w == nil {
+						continue
+					}
+					left = append(left, id)
+					key := [2]string{id, "close"}
+					if time.Since(m.asked[key].at) < 5*time.Second {
+						continue
+					}
+					if w.Pinned {
+						// why: the window asked before it forgot a pinned
+						// tab, and the unpin could not reach a host that
+						// was down.
+						h.b.Send(proto.SetTabOptions{WorkspaceID: id, Color: w.Color})
+					}
+					if h.b.Send(proto.CloseTab{WorkspaceID: id}) == nil {
+						m.asked[key] = asked{at: time.Now()}
 					}
 				}
-				link(proto.SessionLink{SessionID: ss.ID, Host: r.Host, Remote: r.Session})
+				if len(left) < len(r.Forget) {
+					link(proto.SessionLink{SessionID: ss.ID, Host: r.Host, Remote: r.Session, Forget: left})
+				}
 			}
 		}
 	}
@@ -533,6 +558,11 @@ func (m *multi) Send(msg any) error {
 			h.b.Send(proto.SessionRename{SessionID: r.Session, Name: v.Name})
 		})
 	case proto.SessionKill:
+		// why: a part on a host the window cannot reach would keep running
+		// there, and nothing here would remember to stop it.
+		if down := m.downPart(v.SessionID); down != "" {
+			return fmt.Errorf("%s is offline; kill this session once it is back, so its tabs there stop too", down)
+		}
 		m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
 			h.b.Send(proto.SessionKill{SessionID: r.Session})
 		})
@@ -573,6 +603,12 @@ func (m *multi) Send(msg any) error {
 			m.cur = h
 			m.mu.Unlock()
 		}
+		// Each part's host counts the window as showing its part, so
+		// pitwall attach there focuses this window instead of opening one.
+		// The window sends it again after any host reconnects.
+		m.eachPart(v.SessionID, func(h *hostLink, r model.RemoteSession) {
+			h.b.Send(proto.SessionShow{SessionID: r.Session})
+		})
 	case proto.SeePane:
 		// The host that showed the last pane hears that it no longer does.
 		to := m.cur
@@ -641,6 +677,20 @@ func (m *multi) eachPart(id string, f func(*hostLink, model.RemoteSession)) {
 	}
 }
 
+// downPart is the host of a part of the shared session id that the window
+// cannot reach, "" when it reaches them all.
+func (m *multi) downPart(id string) string {
+	st := m.hosts[0].b.State()
+	if ss := st.Session(id); ss != nil {
+		for _, r := range ss.Remotes {
+			if h := m.byName(r.Host); h == nil || !up(h) {
+				return r.Host
+			}
+		}
+	}
+	return ""
+}
+
 // forget closes a tab of a shared session whose host is down: the window
 // stops showing it at once, and this machine's daemon keeps it in the
 // part's Forget until a window reaches the host and closes it there. It
@@ -700,6 +750,9 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 	if h == m.hosts[0] {
 		return h.b.Send(tab)
 	}
+	if err := m.canShare(); err != nil {
+		return err
+	}
 	if !up(h) {
 		return fmt.Errorf("%s is offline", h.name)
 	}
@@ -731,6 +784,16 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
 }
 
+// canShare refuses a tab that would make or grow a shared session while
+// this machine's daemon is too old to keep one, before any host makes a
+// part it could not link.
+func (m *multi) canShare() error {
+	if m.hosts[0].b.Link().Level < proto.SharedLevel {
+		return errors.New("pitwall's background service here is older than this pitwall and cannot share a session; restart it")
+	}
+	return nil
+}
+
 // shareHere opens tab on h while the window shows a session of another
 // host, owner. On owner it is a tab like any other. On this machine it
 // makes the session shared: a session here of the same name, made when
@@ -743,6 +806,9 @@ func (m *multi) shareHere(owner, h *hostLink, tab proto.NewSession) error {
 	}
 	if h != m.hosts[0] {
 		return errors.New("open a tab on this machine first: it keeps the shared session")
+	}
+	if err := m.canShare(); err != nil {
+		return err
 	}
 	ost := owner.b.State()
 	ss := ost.Session(tab.SessionID)

@@ -540,3 +540,19 @@ guard = true
 		t.Fatalf("guard alone: %d %s", code, stderr)
 	}
 }
+
+// pitwall new --host leaves the program for the host's daemon to find on
+// its own PATH; a tab here gets this shell's absolute path.
+func TestLaunchOnHost(t *testing.T) {
+	cmd, _, err := launch("", false, []string{"pitwall-only-on-box", "x"}, false)
+	if err != nil || !slices.Equal(cmd, []string{"pitwall-only-on-box", "x"}) {
+		t.Fatalf("on a host: %v %v", cmd, err)
+	}
+	if _, _, err := launch("", false, []string{"pitwall-only-on-box"}, true); err == nil {
+		t.Fatal("found a program that is not on this PATH")
+	}
+	cmd, _, err = launch("", false, []string{"sh"}, true)
+	if err != nil || !filepath.IsAbs(cmd[0]) {
+		t.Fatalf("here: %v %v", cmd, err)
+	}
+}

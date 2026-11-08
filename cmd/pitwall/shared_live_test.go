@@ -237,4 +237,13 @@ func TestSharedSessionLive(t *testing.T) {
 	waitFor(t, "the CLI's tab in the session", func() bool { return len(boxTabs()) == 2 })
 	cli := slices.DeleteFunc(boxTabs(), func(w model.Workspace) bool { return w.ID == rw1 })[0]
 	waitFor(t, "its command's output", func() bool { return strings.Contains(screen(sockR, paneOf(cli.ID)), "cli-9") })
+
+	// pitwall session kill here cannot reach box, so it leaves a shared
+	// session alone.
+	if code, _, errOut := cliOutput("session", "kill", "-f", ls.Name); code == 0 || !strings.Contains(errOut, "has tabs on box") {
+		t.Fatalf("session kill of a shared session: %d %q", code, errOut)
+	}
+	if len(boxTabs()) != 2 {
+		t.Fatalf("box's tabs after a refused kill: %v", boxTabs())
+	}
 }
