@@ -4,11 +4,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,7 +99,18 @@ func TestSharedSessionLive(t *testing.T) {
 	prev := pingEvery
 	pingEvery = 50 * time.Millisecond
 	t.Cleanup(func() { pingEvery = prev })
-	m := newMulti(local, []hostDial{{name: "box", ssh: "me@box", dial: r.dial}})
+	// why: the window outlives the test. Its reconnects after box's daemon
+	// stops would start a daemon there that outlives the test too, and
+	// read globals other tests set.
+	var over atomic.Bool
+	t.Cleanup(func() { over.Store(true) })
+	dial := func(session string, restart bool) (*proto.Conn, proto.StateMsg, error) {
+		if over.Load() {
+			return nil, proto.StateMsg{}, errors.New("the test is over")
+		}
+		return r.dial(session, restart)
+	}
+	m := newMulti(local, []hostDial{{name: "box", ssh: "me@box", dial: dial}})
 	m.Send(proto.SessionShow{SessionID: ls.ID})
 	waitFor(t, "box up", func() bool { return m.Hosts()[1].Up })
 
