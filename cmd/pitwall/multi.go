@@ -63,8 +63,8 @@ type multi struct {
 }
 
 type asked struct {
-	sig string
-	at  time.Time
+	sig, from string // what was asked, and the record it was asked against
+	at        time.Time
 }
 
 // hostLink is one daemon of a multi.
@@ -170,7 +170,7 @@ func newMulti(local *backend, remotes []hostDial) *multi {
 		h.b.startDialing(false)
 	}
 	if len(m.hosts) > 1 {
-		go m.pings()
+		go m.pings(pingEvery)
 	}
 	return m
 }
@@ -189,16 +189,20 @@ func (m *multi) pushFocus(f proto.FocusSession) {
 }
 
 // pings measures each host's latency every few seconds, for the host row.
-func (m *multi) pings() {
+// ponytail: it runs as long as the process, which has one window.
+func (m *multi) pings(every time.Duration) {
 	for {
+		time.Sleep(every)
 		for _, h := range m.hosts[1:] {
 			if up(h) {
 				h.b.ping()
 			}
 		}
-		time.Sleep(5 * time.Second)
 	}
 }
+
+// pingEvery is how often the window measures each host's latency.
+var pingEvery = 3 * time.Second
 
 // up reports whether h is connected.
 func up(h *hostLink) bool {
@@ -354,12 +358,17 @@ func (m *multi) merge() {
 func (m *multi) reconcile(local model.State) {
 	link := func(l proto.SessionLink) {
 		key := [2]string{l.SessionID, l.Host}
-		sig := fmt.Sprint(l.Remote, l.Forget)
-		if a := m.asked[key]; a.sig == sig && time.Since(a.at) < 5*time.Second {
+		sig, from := fmt.Sprint(l.Remote, l.Forget), ""
+		if ss := local.Session(l.SessionID); ss != nil {
+			if r := ss.Remote(l.Host); r != nil {
+				from = fmt.Sprint(r.Session, r.Forget)
+			}
+		}
+		if a := m.asked[key]; a.sig == sig && a.from == from && time.Since(a.at) < 5*time.Second {
 			return
 		}
 		if m.hosts[0].b.Send(l) == nil {
-			m.asked[key] = asked{sig, time.Now()}
+			m.asked[key] = asked{sig, from, time.Now()}
 		}
 	}
 	for _, ss := range local.Sessions {

@@ -143,17 +143,7 @@ func startCommand(restart bool) string {
 // drops, the backend calls it again, which opens a new ssh connection when
 // the old one died.
 func (r *sshHost) dial(session string, restart bool) (*proto.Conn, proto.StateMsg, error) {
-	sock, err := r.start(restart)
-	if err != nil {
-		return nil, proto.StateMsg{}, err
-	}
-	r.mu.Lock()
-	r.sock = sock
-	r.mu.Unlock()
-	if err := r.control("forward", sock); err != nil {
-		return nil, proto.StateMsg{}, fmt.Errorf("forward pitwall's socket from %s: %w", r.name, err)
-	}
-	nc, err := net.Dial("unix", r.local)
+	nc, err := r.socket(restart)
 	if err != nil {
 		return nil, proto.StateMsg{}, err
 	}
@@ -162,6 +152,47 @@ func (r *sshHost) dial(session string, restart bool) (*proto.Conn, proto.StateMs
 		err = fmt.Errorf("daemon handshake on %s failed: %w; see daemon.log there (pitwall logs)", r.name, err)
 	}
 	return conn, initial, err
+}
+
+// socket makes sure a daemon runs on the host, forwards its socket here
+// and connects to it.
+func (r *sshHost) socket(restart bool) (net.Conn, error) {
+	sock, err := r.start(restart)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.sock = sock
+	r.mu.Unlock()
+	if err := r.control("forward", sock); err != nil {
+		return nil, fmt.Errorf("forward pitwall's socket from %s: %w", r.name, err)
+	}
+	return net.Dial("unix", r.local)
+}
+
+// dialHost connects to the daemon on [[hosts]] entry name as a CLI
+// client, for pitwall new --host; done drops the forward. Tests replace
+// it.
+var dialHost = func(name string) (conn *cliConn, done func(), err error) {
+	if runtime.GOOS == "windows" {
+		return nil, nil, errors.New("--host needs ssh's connection sharing (ControlMaster), which Windows' ssh lacks")
+	}
+	s, _ := config.Load()
+	r, err := newSSHHost(name, s.Hosts)
+	if err != nil {
+		return nil, nil, err
+	}
+	nc, err := r.socket(false)
+	if err != nil {
+		r.close()
+		return nil, nil, err
+	}
+	conn, err = helloCLI(nc)
+	if err != nil {
+		r.close()
+		return nil, nil, err
+	}
+	return conn, func() { conn.Close(); r.close() }, nil
 }
 
 // start runs remote-start on the host and returns the daemon's socket
