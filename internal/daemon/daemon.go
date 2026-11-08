@@ -418,6 +418,11 @@ func NewWith(o Options) (*Daemon, error) {
 	cancel()
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
+	if !d.resumeOn() {
+		for _, p := range d.st.Panes {
+			d.consumeResume(p.ID)
+		}
+	}
 	if o.StartupPerAgentDelay != nil {
 		d.restoring.delay = o.StartupPerAgentDelay()
 	}
@@ -569,6 +574,10 @@ func (d *Daemon) shutdown() {
 	d.closeChats()
 	d.saveMu.Lock()
 	d.mu.Lock()
+	for _, r := range d.lim.pending {
+		r.stop()
+	}
+	clear(d.lim.pending)
 	if d.handedOff {
 		// The state and panes are the new daemon's now.
 		d.mu.Unlock()
@@ -1779,6 +1788,11 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if len(d.mail.queue[p.ID]) > 0 {
 		d.wake(p.ID, 0) // a turn may have ended
 	}
+	droppedResume := false
+	if r := d.lim.pending[p.ID]; r != nil && d.resumeBlocked(p.ID, r) != "" {
+		droppedResume = d.dropResume(p.ID)
+	}
+	changed = changed || droppedResume
 	if changed {
 		if w := d.workspace(p.WorkspaceID); w != nil {
 			w.UpdatedAt = now
@@ -1786,6 +1800,9 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		d.changed()
 	}
 	d.mu.Unlock()
+	if droppedResume {
+		d.save()
+	}
 	limit()
 	if turnWS != "" {
 		// The hook is answered once the snapshot is taken, so the turn's
@@ -2340,13 +2357,13 @@ func (d *Daemon) Save() { d.saveState(true) }
 
 func (d *Daemon) save() { d.saveState(false) }
 
-func (d *Daemon) saveState(history bool) {
+func (d *Daemon) saveState(history bool) error {
 	d.saveMu.Lock()
 	defer d.saveMu.Unlock()
 	d.mu.Lock()
 	if d.closing {
 		d.mu.Unlock()
-		return
+		return fmt.Errorf("daemon is closing")
 	}
 	d.savePending = false
 	s := withoutPopups(d.saveSnapshot())
@@ -2360,14 +2377,16 @@ func (d *Daemon) saveState(history bool) {
 		d.mu.Lock()
 		if d.closing {
 			d.mu.Unlock()
-			return
+			return fmt.Errorf("daemon is closing")
 		}
 		d.cacheHistory(&s, sources)
 		d.mu.Unlock()
 	}
 	if err := d.o.Save(s); err != nil {
 		log.Printf("save state: %q", err)
+		return err
 	}
+	return nil
 }
 
 // saveSnapshot is snapshot with each live pane's current directory, so a

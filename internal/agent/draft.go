@@ -25,6 +25,25 @@ func Draft(p model.Provider, g vt.Grid) bool {
 	return false
 }
 
+// InputReady reports whether the agent has drawn its input box.
+func InputReady(p model.Provider, g vt.Grid) bool {
+	if ReadScreen(g) != ScreenNone {
+		return false
+	}
+	raw, _ := boxRows(g)
+	if p == model.ProviderCodex {
+		return slices.ContainsFunc(raw, codexGlyph)
+	}
+	if p == model.ProviderClaude {
+		for i := len(raw) - 2; i >= 0; i-- {
+			if isRule(raw[i]) && strings.HasPrefix(strings.TrimSpace(raw[i+1]), "❯") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // boxRows returns g's rows top to bottom, and the same rows with faint and
 // reverse cells blank. A placeholder or a suggested prompt is drawn faint,
 // with the cursor on its first letter drawn reverse; the user's text is not.
