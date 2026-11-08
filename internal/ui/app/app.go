@@ -582,6 +582,14 @@ func (u *ui) layout(gtx gl.Context) {
 			u.hosts[i].Color = u.cfg.HostColors[u.hosts[i].Name]
 		}
 	}
+	// The board draws with the sidebar's hosts too, sidebar shown or not.
+	u.sidebar.Hosts, u.sidebar.HostOf, u.sidebar.TabNumber = u.hosts, nil, nil
+	if len(u.hosts) > 1 {
+		u.sidebar.HostOf = u.hostOf
+	}
+	if n, ok := u.b.(Numberer); ok {
+		u.sidebar.TabNumber = n.TabNumber
+	}
 	u.noteFocus(gtx.Now)
 	if u.nav.rows == nil {
 		u.nav.rows = func(st *model.State) []string { return u.sidebar.Rows(st, u.nav.session, u.nav.workspace) }
@@ -805,13 +813,7 @@ func (u *ui) layout(gtx gl.Context) {
 		sgtx := gtx
 		sgtx.Constraints = gl.Exact(image.Pt(sw, gtx.Constraints.Max.Y))
 		u.sidebar.Update, u.sidebar.Host, u.sidebar.RepoIcons = u.updateLabel(), u.sessionHost(u.nav.session), u.repoIcons() // the session's host: a shared session's is this machine
-		u.sidebar.Hosts, u.sidebar.HostOf, u.sidebar.TabNumber = u.hosts, nil, nil
-		if len(u.hosts) > 1 {
-			u.sidebar.HostOf = u.hostOf
-		}
-		if n, ok := u.b.(Numberer); ok {
-			u.sidebar.TabNumber = n.TabNumber
-		}
+
 		u.sidebar.Window = gtx.Constraints.Max
 		mods, digits := gotoKeys(u.nav.bind())
 		on, at := u.hint.shown(mods, gtx.Now)
@@ -831,7 +833,7 @@ func (u *ui) layout(gtx gl.Context) {
 			u.sidebar.Limits = u.limits.get()
 		}
 		u.sidebar.BoardOn = u.boardOn
-		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(), gtx.Now)
+		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(&st), gtx.Now)
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.PiP = ""
 		if p := findPane(&st, u.nav.pip); p != nil {

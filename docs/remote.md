@@ -134,10 +134,12 @@ on another host, within 15 seconds of focus moving there from a pane on
 another machine, asks first.
 
 When a host goes down its tabs stay where they are with their last
-screen, dimmed, and its tag and ring turn red. Typing into them is off,
+screen, dimmed, and its tag and ring turn red. Their rows and board cards
+read Offline and say when they were last seen, and the board says above
+its columns that the host is unreachable. Typing into them is off,
 never queued: the focused pane says "Typing is off until box reconnects.
-Screen from 14:02." with Retry now. Allow and Deny leave their rows,
-which say "Answer when box is back". This machine's tabs carry on as
+Screen from 14:02." with Retry now. Allow and Deny leave their rows and
+cards, which say "Answer when box is back". This machine's tabs carry on as
 before. You can close a down host's tab: the window forgets it at once,
 and the next window to reach the host closes it there.
 

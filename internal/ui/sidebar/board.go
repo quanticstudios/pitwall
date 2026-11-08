@@ -130,7 +130,7 @@ func (s *Sidebar) BoardFocus() { s.bd.focus = true }
 // otherwise.
 func (s *Sidebar) BoardAnswer(allow bool, now time.Time) (Event, bool) {
 	c, ok := s.bd.b.All[s.bd.cur]
-	if !ok || !s.Answers || c.Held || !s.bd.shown[c.ID] || c.Answers() != board.AnswerAllow || !s.bd.tr.Armed(c.ID, now) {
+	if !ok || !s.Answers || c.Held || !s.bd.shown[c.ID] || c.Answers() != board.AnswerAllow || !s.bd.tr.Armed(c.ID, now) || HostDown(s.Hosts, c.Host) {
 		return nil, false
 	}
 	return Answer{PaneID: c.Act.PaneID, At: c.Act.UpdatedAt.UnixNano(), Allow: allow}, true
@@ -183,6 +183,11 @@ func (s *Sidebar) Board(gtx layout.Context, th *theme.Theme, st *model.State, o 
 	chipH := gtx.Dp(24)
 	footH := gtx.Dp(34)
 	bd.area = image.Rect(0, chipsY+chipH+gtx.Dp(10), size.X, size.Y-footH)
+	if bold, rest := downBanner(s.Hosts, bd.b); bold != "" {
+		bh := gtx.Dp(36)
+		s.boardBanner(gtx, th, image.Rect(gtx.Dp(16), bd.area.Min.Y, size.X-pad, bd.area.Min.Y+bh), bold, rest)
+		bd.area.Min.Y += bh + gtx.Dp(8)
+	}
 	s.boardColumns(gtx, th, st)
 	s.boardChips(gtx, th, image.Rect(gtx.Dp(12), chipsY, size.X-pad, chipsY+chipH))
 	s.boardFooter(gtx, th, o, image.Rect(gtx.Dp(16), size.Y-footH, size.X-pad, size.Y))
@@ -1058,4 +1063,53 @@ func kindColor(th *theme.Theme, k board.Kind) color.NRGBA {
 		return StateColor(th, model.StateTerminalRunning)
 	}
 	return th.Muted
+}
+
+// downBanner is the line above the columns while hosts whose tabs the
+// board shows are down: who, then what that means for their cards.
+func downBanner(hosts []HostInfo, b board.Board) (bold, rest string) {
+	n := map[string]int{}
+	var names []string
+	for _, c := range b.All {
+		if c.Host != "" && HostDown(hosts, c.Host) {
+			if n[c.Host] == 0 {
+				names = append(names, c.Host)
+			}
+			n[c.Host]++
+		}
+	}
+	if len(names) == 0 {
+		return "", ""
+	}
+	slices.Sort(names)
+	tabs := 0
+	for _, h := range names {
+		tabs += n[h]
+	}
+	who, verb, its := names[0], "is", "Its"
+	if len(names) > 1 {
+		who, verb, its = strings.Join(names[:len(names)-1], ", ")+" and "+names[len(names)-1], "are", "Their"
+	}
+	return who + " " + verb + " unreachable.", fmt.Sprintf("%s %d %s show their last state and cannot be answered. Local tabs are not affected.", its, tabs, plural(tabs, "tab", "tabs"))
+}
+
+// boardBanner draws downBanner's line in r.
+func (s *Sidebar) boardBanner(gtx layout.Context, th *theme.Theme, r image.Rectangle, bold, rest string) {
+	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
+	size := r.Size()
+	red := th.Readable(th.Red, th.Bg)
+	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Red, 0.08), clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(8)).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Red, 0.35), clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: size}.Inset(1), gtx.Dp(8)-1).Path(gtx.Ops), Width: float32(gtx.Dp(1))}.Op())
+	g := gtx
+	g.Constraints = layout.Exact(image.Pt(size.X-gtx.Dp(24), size.Y))
+	o := op.Offset(image.Pt(gtx.Dp(12), 0)).Push(gtx.Ops)
+	hrow(g, size.Y, gtx.Dp(8),
+		item{w: func(gtx layout.Context) layout.Dimensions { return Icon(gtx, "server", gtx.Dp(14), red) }},
+		item{w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Body), th.Fg, bold)
+		}},
+		item{shrink: true, w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, rest)
+		}})
+	o.Pop()
 }

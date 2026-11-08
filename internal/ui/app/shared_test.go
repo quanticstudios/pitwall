@@ -71,3 +71,32 @@ func TestTagRows(t *testing.T) {
 		t.Fatalf("down %v", got)
 	}
 }
+
+// sharedFake is a window whose first tab is a shared session's tab on box.
+type sharedFake struct {
+	*FakeBackend
+	tab string
+}
+
+func (sharedFake) SessionHost(string) string { return "" }
+func (f sharedFake) HostOf(id string) string {
+	if id == f.tab {
+		return "box"
+	}
+	return ""
+}
+func (sharedFake) Hosts() []sidebar.HostInfo {
+	return []sidebar.HostInfo{{Up: true}, {Name: "box"}}
+}
+
+// The board learns a shared session's remote tab's host by its tab id.
+func TestBoardHostsShared(t *testing.T) {
+	fb := NewFakeBackend()
+	st := fb.State()
+	f := sharedFake{fb, st.Workspaces[0].ID}
+	u := &ui{b: f}
+	got := u.boardHosts(&st)
+	if len(got) != 1 || got[f.tab] != "box" {
+		t.Fatalf("board hosts %v", got)
+	}
+}

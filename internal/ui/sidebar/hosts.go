@@ -253,6 +253,9 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 	over := ""
 	if !s.HideSessions {
 		for _, h := range s.Hosts {
+			if shared && len(h.Sessions) == 0 {
+				continue // all its tabs are in this session; the row of machines shows the host
+			}
 			note, c := "", th.Muted
 			if !h.Up {
 				note, c = firstLine(h.Note), th.Red
@@ -295,7 +298,11 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			for btn("a:" + a.PaneID).Clicked(gtx) {
 				s.events = append(s.events, SelectWorkspace{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID})
 			}
-			row(btn("a:"+a.PaneID), false, down[ws.SessionID], &a, Title(*ws), hostName(hostOf[ws.SessionID])+" · "+model.PillLabel(a), "")
+			host, gone := hostOf[ws.SessionID], down[ws.SessionID]
+			if h := s.hostOf(ws.ID); h != "" { // a shared session's tab on another host
+				host, gone = h, s.hostDown(ws.ID)
+			}
+			row(btn("a:"+a.PaneID), false, gone, &a, Title(*ws), hostName(host)+" · "+model.PillLabel(a), "")
 		}
 	}
 	y += gtx.Dp(6)
@@ -414,22 +421,35 @@ func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point,
 	x, y := 0, 0
 	var tip string
 	var tipAt, swatchAt image.Point
+	// The row never wraps: notes get shorter until it fits.
+	is := gtx.Dp(12)
+	width := func(name, note string) int {
+		m := op.Record(gtx.Ops)
+		nd := label(gtx, th, semibold(th.UIFont), th.Sp(theme.Small), th.Fg, name)
+		td := label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, note)
+		m.Stop()
+		return gtx.Dp(6) + is + gtx.Dp(5) + nd.Size.X + gtx.Dp(5) + td.Size.X + gtx.Dp(8)
+	}
+	level := 0
+	for ; level < 2; level++ {
+		total := -gap
+		for _, hi := range s.Hosts {
+			total += width(hostName(hi.Name), pillNote(hi, level, gtx.Now)) + gap
+		}
+		if total <= w {
+			break
+		}
+	}
 	for _, hi := range s.Hosts {
-		name, note, icon := hostName(hi.Name), "this machine", "monitor"
+		name, note, icon := hostName(hi.Name), pillNote(hi, level, gtx.Now), "monitor"
 		nameC, noteC, ring, fill := th.Fg, th.Muted, th.BorderStrong, color.NRGBA{}
 		if hi.Name != "" {
 			icon, nameC = "server", th.Readable(HostColor(th, s.Hosts, hi.Name), th.Sidebar)
-			note = "connecting"
-			if hi.Latency > 0 {
-				note = Latency(hi.Latency)
-			}
 		}
 		if !hi.Up && hi.Name != "" {
 			nameC, noteC = th.Readable(th.Red, th.Sidebar), th.Muted
 			ring, fill = theme.Mix(th.Sidebar, th.Red, 0.45), theme.Mix(th.Sidebar, th.Red, 0.08)
-			note = "offline"
 			if !hi.Retry.IsZero() {
-				note += fmt.Sprintf(", retry in %ds", max(1, int(time.Until(hi.Retry).Round(time.Second).Seconds())))
 				gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
 			}
 		}
@@ -439,11 +459,7 @@ func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point,
 		m = op.Record(gtx.Ops)
 		td := label(gtx, th, th.UIFont, th.Sp(theme.Small), noteC, note)
 		tc := m.Stop()
-		is := gtx.Dp(12)
 		pw := gtx.Dp(6) + is + gtx.Dp(5) + nd.Size.X + gtx.Dp(5) + td.Size.X + gtx.Dp(8)
-		if x > 0 && x+pw > w {
-			x, y = 0, y+h+gap
-		}
 		r := image.Rectangle{Min: at.Add(image.Pt(x, y)), Max: at.Add(image.Pt(x+pw, y+h))}
 		rr := clip.UniformRRect(r, h/2)
 		if fill.A > 0 {
@@ -539,4 +555,42 @@ func Latency(d time.Duration) string {
 		return "<1 ms"
 	}
 	return strconv.FormatInt(d.Milliseconds(), 10) + " ms"
+}
+
+// lastSeen is how a down host's row or card says how old its state is.
+func (s *Sidebar) lastSeen(host string, now time.Time) string {
+	h, _ := FindHost(s.Hosts, host)
+	if rt := relTime(now, h.Since); rt != "" {
+		return "last seen " + rt
+	}
+	return "last seen earlier"
+}
+
+// offlinePill is a down host's tab's pill, in place of its last state.
+func offlinePill(gtx layout.Context, th *theme.Theme, base color.NRGBA) layout.Dimensions {
+	return statePill(gtx, th, 0, model.Activity{}, "Offline", th.Muted, base)
+}
+
+// answerLater is what a down host's tab says in place of its answers.
+func answerLater(host string) string { return "Answer when " + host + " is back" }
+
+// pillNote is the note beside a machine in the row of machines, shorter
+// at each level: level 1 drops "this machine" and the retry countdown,
+// level 2 keeps only "offline".
+func pillNote(hi HostInfo, level int, now time.Time) string {
+	switch {
+	case hi.Name == "" && level > 0:
+		return ""
+	case hi.Name == "":
+		return "this machine"
+	case !hi.Up && level == 0 && !hi.Retry.IsZero():
+		return fmt.Sprintf("offline, retry in %ds", max(1, int(hi.Retry.Sub(now).Round(time.Second).Seconds())))
+	case !hi.Up:
+		return "offline"
+	case level == 2:
+		return ""
+	case hi.Latency > 0:
+		return Latency(hi.Latency)
+	}
+	return "connecting"
 }

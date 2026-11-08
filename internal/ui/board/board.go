@@ -181,7 +181,7 @@ type Options struct {
 	Scope  Scope
 	Shells bool // show plain shells in their own column
 	// Hosts is each session's machine by session id, "" or missing for
-	// this one.
+	// this one, and in a shared session each tab's by tab id, which wins.
 	Hosts map[string]string
 	// GuardDeny is [agents] guard_deny, for each card's Answers.
 	GuardDeny []string
@@ -213,7 +213,7 @@ func Derive(st *model.State, o Options) Board {
 	watching := st.Watching()
 	var shown []Card
 	for _, w := range st.Workspaces {
-		host := o.Hosts[w.SessionID]
+		host := cmp.Or(o.Hosts[w.ID], o.Hosts[w.SessionID])
 		if w.Detached || !inScope(w, host, o.Scope) {
 			continue
 		}
