@@ -41,11 +41,12 @@ const (
 // header's top includes the separator above it. A tab's sub-rows follow
 // it and move with it.
 type elem struct {
-	kind     byte   // 's' tab, 'a' sub-row, 'g' group header
-	id       string // a sub-row's pane or worker tab
+	kind     byte   // 's' tab, 'a' sub-row, 'g' group header, 'm' machine line
+	id       string // a sub-row's pane or worker tab, a machine line's host
 	parent   string // a sub-row's tab
 	worker   bool   // a sub-row is a worker tab's
 	group    string // a tab's group, a header's own id
+	host     string // in a shared session's tree, the machine it is on
 	x        int    // a grouped tab's indent
 	top, bot int
 	head     int // a header's own top, below its separator
@@ -231,6 +232,40 @@ func groupDrop(flow []elem, y int) drop {
 	return drop{at: len(flow), ok: true}
 }
 
+// dragHost is the machine of the dragged tab or group when the tree shows
+// machine lines.
+func (s *Sidebar) dragHost() (string, bool) {
+	if !slices.ContainsFunc(s.elems, func(e elem) bool { return e.kind == 'm' }) {
+		return "", false
+	}
+	for _, e := range s.elems {
+		if e.kind == s.drag.kind && e.id == s.drag.id {
+			return e.host, true
+		}
+	}
+	return "", false
+}
+
+// machinePart is host's elements of flow, without machine lines, and for
+// each one, then for the end of the part, its index in flow: a drop at
+// the end of the part opens its gap there, above the next machine's line.
+func machinePart(flow []elem, host string) ([]elem, []int) {
+	var part []elem
+	var at []int
+	end := -1
+	for i, e := range flow {
+		if e.host != host {
+			continue
+		}
+		end = i + 1
+		if e.kind != 'm' {
+			part = append(part, e)
+			at = append(at, i)
+		}
+	}
+	return part, append(at, end)
+}
+
 // carried reports whether e moves with the drag.
 func (s *Sidebar) carried(e elem) bool {
 	switch s.drag.kind {
@@ -310,13 +345,22 @@ func (s *Sidebar) dragFrame(gtx layout.Context, elems []elem, total int) (offset
 				dwell = hover
 			}
 		}
+		// In a shared session's tree a drag stays on its machine: the
+		// drop is found among that machine's elements alone.
+		part, at := flow, []int(nil)
+		if host, ok := s.dragHost(); ok {
+			part, at = machinePart(flow, host)
+		}
 		switch {
 		case s.inboxDrawn:
 			s.drag.target = drop{into: true, at: -1, ok: true, sec: sectionAt(flow, y)}
 		case s.drag.kind == 'g':
-			s.drag.target = groupDrop(flow, y)
+			s.drag.target = groupDrop(part, y)
 		default:
-			s.drag.target = tabDrop(flow, y, s.isExpanded, dwell)
+			s.drag.target = tabDrop(part, y, s.isExpanded, dwell)
+		}
+		if at != nil && s.drag.target.at >= 0 {
+			s.drag.target.at = at[min(s.drag.target.at, len(at)-1)]
 		}
 	}
 	d := s.drag.target
@@ -459,7 +503,7 @@ func (s *Sidebar) dragEvents(gtx layout.Context, v *view) bool {
 				case 's':
 					tab = el.top
 				}
-				if el.kind != 'h' && y >= top && y < el.bot && int(e.Position.X) >= el.x {
+				if el.kind != 'h' && el.kind != 'm' && y >= top && y < el.bot && int(e.Position.X) >= el.x {
 					s.drag = dragState{kind: el.kind, id: el.id, start: e.Position, pos: e.Position, grab: y - el.top}
 					if el.kind == 'a' { // a sub-row lifts its tab
 						s.drag.kind, s.drag.id, s.drag.grab = 's', el.parent, y-tab
@@ -506,8 +550,10 @@ func (s *Sidebar) startDrag(gtx layout.Context, v *view) {
 	s.drag.ids = []string{s.drag.id}
 	if s.selected[s.drag.id] && len(s.selected) > 1 {
 		s.drag.ids = nil
+		host, sectioned := s.dragHost()
 		for _, id := range s.order(v) {
-			if s.selected[id] {
+			// Selected tabs on another machine stay where they are.
+			if s.selected[id] && (!sectioned || s.hostOf(id) == host) {
 				s.drag.ids = append(s.drag.ids, id)
 			}
 		}
@@ -547,15 +593,19 @@ func (s *Sidebar) noop(v *view, d drop) bool {
 		}
 		return ""
 	}
+	top := v.top // a shared session's machine keeps its own order
+	if v.sectioned {
+		top = v.partOf(s.hostOf(s.drag.id))
+	}
 	if s.drag.kind == 'g' {
-		return d.group == "" && (d.before == next(v.top, s.drag.id) || d.before == s.drag.id)
+		return d.group == "" && (d.before == next(top, s.drag.id) || d.before == s.drag.id)
 	}
 	if len(s.drag.ids) != 1 || d.into {
 		return false
 	}
 	g := v.groupOf(s.drag.id)
 	if g == "" {
-		return d.group == "" && d.before == next(v.top, s.drag.id)
+		return d.group == "" && d.before == next(top, s.drag.id)
 	}
 	var ids []string
 	for _, w := range v.byProject[g] {

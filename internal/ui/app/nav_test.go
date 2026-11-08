@@ -507,3 +507,34 @@ func TestHiddenSidebarFollowsInbox(t *testing.T) {
 		t.Fatal("session preview setting did not turn off live")
 	}
 }
+
+// TestNavMachineOrder: in a shared session next and prev walk the tabs
+// in the sidebar's order, this machine's before box's, whatever the
+// session's own order.
+func TestNavMachineOrder(t *testing.T) {
+	b := NewFakeBackend()
+	st := b.State()
+	n := nav{keys: aide}
+	n.sync(&st)
+	var all []string
+	for _, w := range n.ordered(&st) {
+		all = append(all, w.ID)
+	}
+	n.machine = func(id string) int { // the second tab runs on box
+		if id == all[1] {
+			return 1
+		}
+		return 0
+	}
+	n.pinned = true // the switcher shows: next crosses groups
+	n.selectWorkspace(&st, all[0], "")
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != all[2] {
+		t.Fatalf("after the first tab: %s, want the next local %s", n.workspace, all[2])
+	}
+	n.selectWorkspace(&st, all[len(all)-1], "")
+	n.cycleWorkspace(&st, 1)
+	if n.workspace != all[1] {
+		t.Fatalf("after the last local tab: %s, want box's %s", n.workspace, all[1])
+	}
+}

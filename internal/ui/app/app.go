@@ -600,12 +600,17 @@ func (u *ui) layout(gtx gl.Context) {
 	if u.nav.folded == nil {
 		u.nav.folded = u.sidebar.KidsFolded
 	}
+	u.nav.machine = nil
+	if len(u.hosts) > 1 {
+		u.nav.machine = u.machineRank
+	}
 	if u.nav.inbox == nil {
 		u.nav.inbox = func() bool { return u.sidebar.Inbox }
 	}
 	// Before navigation reads the order, and while the sidebar is hidden.
 	u.sidebar.Inbox, u.sidebar.WorkingShelf = u.cfg.Sidebar.Inbox, u.cfg.Sidebar.WorkingShelf
 	u.sidebar.SeparateWorkers = u.cfg.Sidebar.SeparateWorkers
+	u.sidebar.HostSections = u.cfg.HostSections
 	u.sidebar.HideSessions = !u.cfg.Sidebar.Sessions
 	u.sidebar.SessionPreview = u.cfg.Sidebar.SessionPreview
 	u.sidebar.Forks = u.link().Level >= proto.ForkLevel
@@ -909,6 +914,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.ForkPane:
 		u.send(proto.ForkPane{Pane: e.Pane})
+	case sidebar.NewTabOnHost:
+		u.openOn(st, e.Host)
 	case sidebar.NewTab:
 		if e.Loose && len(u.hosts) > 1 {
 			u.openPicker(st)

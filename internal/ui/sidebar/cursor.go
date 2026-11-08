@@ -50,7 +50,7 @@ func cursorRing(gtx layout.Context, th *theme.Theme, rect image.Rectangle, r int
 // cursor is the keyboard's place in the sidebar and in an open menu.
 type cursor struct {
 	on         bool
-	kind       byte   // 'g' group header, 's' tab, 'a' agent sub-row
+	kind       byte   // 'g' group header, 's' tab, 'a' agent sub-row, 'm' machine header
 	id, parent string // the row's group, tab or pane id; a sub-row's tab
 	at         int    // its index in the rows, to land near it when it goes
 	moved      bool   // scroll it into view on the next frame
@@ -85,6 +85,9 @@ func (s *Sidebar) Focus(st *model.State, session, active string) {
 	if s.find(rows) < 0 {
 		s.cur.kind, s.cur.id = 'g', v.groupOf(active)
 	}
+	if s.find(rows) < 0 && v.sectioned {
+		s.cur.kind, s.cur.id = 'm', s.hostOf(active) // its section is folded
+	}
 	s.settle(v, rows)
 }
 
@@ -115,7 +118,7 @@ func (s *Sidebar) Asking(st *model.State, session, active string) *model.Activit
 		e, _ := v.sub(s.cur.parent, s.cur.id)
 		a = v.prompt(e)
 	}
-	if s.cur.kind == 'g' || a == nil || !remote.Answerable(*a) {
+	if s.cur.kind == 'g' || s.cur.kind == 'm' || a == nil || !remote.Answerable(*a) {
 		return nil
 	}
 	return a
@@ -143,7 +146,9 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 	s.cur.item, s.cur.inFly = nil, false
 	i := s.settle(v, rows)
 	if i < 0 {
-		return nil, false, true
+		// No rows, as when every section is folded away: Escape still
+		// gives the keyboard back.
+		return nil, e.Name == key.NameEscape, true
 	}
 	r := rows[i]
 	tab := r.id // the tab F2, Delete and the menu act on
@@ -166,6 +171,8 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 		s.moveTo(rows, i+page)
 	case key.NameRightArrow, "L":
 		switch {
+		case r.kind == 'm' && s.sectionFolded(v, r.id):
+			s.toggleSection(v, r.id)
 		case r.kind == 'g' && !s.isExpanded(r.id):
 			s.setExpanded(r.id, true)
 		case r.kind == 's' && s.folded[r.id] && len(v.subsOf(r.id)) > 0:
@@ -177,6 +184,8 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 		}
 	case key.NameLeftArrow, "H":
 		switch {
+		case r.kind == 'm' && !s.sectionFolded(v, r.id):
+			s.toggleSection(v, r.id)
 		case r.kind == 'g' && s.isExpanded(r.id):
 			s.setExpanded(r.id, false)
 		case r.kind == 's' && !s.folded[r.id] && len(s.shownSubs(v, r.id)) > 0:
@@ -190,9 +199,13 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 			s.moveTo(rows, slices.IndexFunc(rows, func(e elem) bool { return e.kind == 's' && e.id == r.parent }))
 		case r.kind == 's' && r.group != "":
 			s.moveTo(rows, slices.IndexFunc(rows, func(e elem) bool { return e.kind == 'g' && e.id == r.group }))
+		case r.kind != 'm' && v.sectioned:
+			s.moveTo(rows, slices.IndexFunc(rows, func(e elem) bool { return e.kind == 'm' && e.id == r.host }))
 		}
 	case key.NameReturn, key.NameEnter, key.NameSpace:
 		switch r.kind {
+		case 'm':
+			s.toggleSection(v, r.id)
 		case 'g':
 			s.setExpanded(r.id, !s.isExpanded(r.id))
 		case 's':
@@ -207,7 +220,7 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 			back = e.Name != key.NameSpace
 		}
 	case key.NameF10, MenuKey:
-		if e.Name == key.NameF10 && !shift {
+		if e.Name == key.NameF10 && !shift || r.kind == 'm' {
 			break
 		}
 		if r.kind == 'g' {
@@ -216,6 +229,9 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 			s.toggleMenu(tab)
 		}
 	case key.NameF2:
+		if r.kind == 'm' {
+			break
+		}
 		if r.kind == 'g' {
 			for _, p := range v.st.Projects {
 				if p.ID == r.id {
@@ -230,7 +246,7 @@ func (s *Sidebar) Key(st *model.State, session, active string, e key.Event) (evs
 			}
 		}
 	case key.NameDeleteForward:
-		if r.kind != 'g' {
+		if r.kind == 's' || r.kind == 'a' {
 			s.events = append(s.events, DeleteWorkspace{WorkspaceID: tab})
 		}
 	case key.NameEscape:
@@ -352,7 +368,7 @@ func (s *Sidebar) cursorFrame(gtx layout.Context, v *view, elems []elem, total i
 		return
 	}
 	top, bot, pad := elems[i].top, elems[i].bot, gtx.Dp(4)
-	if elems[i].kind == 'g' {
+	if elems[i].kind == 'g' || elems[i].kind == 'm' {
 		top = elems[i].head
 	}
 	off := s.list.Position.Offset
@@ -375,14 +391,16 @@ func (s *Sidebar) cursorView(st *model.State, session, active string) (*view, []
 
 // rowsOf is the rows the cursor moves through, in the order place draws
 // them: group headers, tabs and the sub-rows under each tab, then its
-// shown separate workers' rows.
+// shown separate workers' rows. With HostSections each machine's header
+// leads its rows, so a folded section can be opened from the keys.
 func (s *Sidebar) rowsOf(v *view) []elem {
 	var out []elem
+	host := ""
 	var tab func(id, g, root string)
 	tab = func(id, g, root string) {
-		out = append(out, elem{kind: 's', id: id, parent: root, group: g})
+		out = append(out, elem{kind: 's', id: id, parent: root, group: g, host: host})
 		for _, e := range s.shownSubs(v, id) {
-			out = append(out, elem{kind: 'a', id: e.id(), parent: id, worker: e.worker != nil, group: g})
+			out = append(out, elem{kind: 'a', id: e.id(), parent: id, worker: e.worker != nil, group: g, host: host})
 		}
 		for _, k := range s.kidsShown(v, id) {
 			tab(k.ID, g, id)
@@ -394,16 +412,31 @@ func (s *Sidebar) rowsOf(v *view) []elem {
 		}
 		return out
 	}
-	for _, id := range v.top {
-		if !v.groups[id] {
-			tab(id, "", "")
-			continue
-		}
-		out = append(out, elem{kind: 'g', id: id, group: id})
-		if s.isExpanded(id) {
-			for _, ws := range v.byProject[id] {
-				tab(ws.ID, id, "")
+	items := func(ids []string) {
+		for _, id := range ids {
+			if !v.groups[id] {
+				tab(id, "", "")
+				continue
 			}
+			out = append(out, elem{kind: 'g', id: id, group: id, host: host})
+			if s.isExpanded(id) {
+				for _, ws := range v.byProject[id] {
+					tab(ws.ID, id, "")
+				}
+			}
+		}
+	}
+	if !v.sectioned {
+		items(v.top)
+		return out
+	}
+	for _, h := range v.hosts {
+		host = h
+		if s.HostSections {
+			out = append(out, elem{kind: 'm', id: h, host: h})
+		}
+		if !s.sectionFolded(v, h) {
+			items(v.partOf(h))
 		}
 	}
 	return out
@@ -433,6 +466,10 @@ func (s *Sidebar) settle(v *view, rows []elem) int {
 	if g := v.groupOf(tab); i < 0 && g != "" && s.cur.kind != 'g' {
 		i = slices.IndexFunc(rows, func(e elem) bool { return e.kind == 'g' && e.id == g })
 	}
+	if i < 0 && v.sectioned && s.cur.kind != 'm' { // its section folded away
+		h := s.hostOf(tab)
+		i = slices.IndexFunc(rows, func(e elem) bool { return e.kind == 'm' && e.id == h })
+	}
 	if i < 0 {
 		i = min(s.cur.at, len(rows)-1)
 	}
@@ -451,10 +488,11 @@ func (s *Sidebar) moveTo(rows []elem, i int) {
 	s.cur.kind, s.cur.id, s.cur.parent, s.cur.at, s.cur.moved = r.kind, r.id, r.parent, i, true
 }
 
-// childOf reports whether row c hangs under row p: a tab of group p, or a
-// sub-row or separate worker row of tab p.
+// childOf reports whether row c hangs under row p: a row of machine p's
+// section, a tab of group p, or a sub-row or separate worker row of tab p.
 func (s *Sidebar) childOf(c, p elem) bool {
-	return p.kind == 'g' && c.kind != 'g' && c.group == p.id || p.kind == 's' && c.kind != 'g' && c.parent == p.id
+	return p.kind == 'm' && c.kind != 'm' && c.host == p.id ||
+		p.kind == 'g' && c.kind != 'g' && c.group == p.id || p.kind == 's' && c.kind != 'g' && c.parent == p.id
 }
 
 func (s *Sidebar) setExpanded(id string, on bool) {

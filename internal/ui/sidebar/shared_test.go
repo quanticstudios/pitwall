@@ -78,8 +78,9 @@ func TestDownHostRow(t *testing.T) {
 	}
 }
 
-// In a shared session the row of machines stands for box: box's empty
-// heading goes, and the row stays on one line by shortening its notes.
+// In a shared session the tree's machine lines stand for box: no row of
+// machines shows under the header, box's empty heading goes, and Waiting
+// on you names box.
 func TestSharedHostRow(t *testing.T) {
 	now := time.Now()
 	st, hosts := sharedState(now)
@@ -89,14 +90,10 @@ func TestSharedHostRow(t *testing.T) {
 		}
 		return ""
 	}}
-	wide := labels(func(gtx layout.Context) { s.hostList(gtx, theme.Dark(), &st) }, 800, now)
-	heading := slices.ContainsFunc(wide, func(l string) bool { return strings.HasPrefix(l, "cannot reach box") })
-	if heading || !slices.Contains(wide, "this machine") || !slices.Contains(wide, "offline, retry in 7s") || !slices.Contains(wide, "box · Approval") {
-		t.Fatalf("wide: %q", wide)
-	}
-	narrow := labels(func(gtx layout.Context) { s.hostList(gtx, theme.Dark(), &st) }, 200, now)
-	if slices.Contains(narrow, "this machine") || !slices.Contains(narrow, "offline") {
-		t.Fatalf("narrow: %q", narrow)
+	got := labels(func(gtx layout.Context) { s.hostList(gtx, theme.Dark(), &st) }, 800, now)
+	heading := slices.ContainsFunc(got, func(l string) bool { return strings.HasPrefix(l, "cannot reach box") })
+	if heading || slices.Contains(got, "this machine") || slices.Contains(got, "offline, retry in 7s") || !slices.Contains(got, "box · Approval") {
+		t.Fatalf("host list: %q", got)
 	}
 }
 

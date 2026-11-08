@@ -102,7 +102,7 @@ machine they run on.
 
 A session can hold tabs from this machine and from the hosts with
 `window = true` at once, so a tab on box is one click away and never in
-another session. The sidebar's + asks which machine the new tab opens on:
+another session. The sidebar header's + asks which machine the new tab opens on:
 this machine and each host, with the current tab's machine picked, a
 latency beside each host and a down host greyed out with why. Ctrl+Shift+T
 opens on the current tab's machine without asking, a group's + opens in
@@ -121,13 +121,33 @@ the New task dialog runs on the machine of the folder you pick, in that
 machine's part of the session.
 
 Each tab and its splits stay on one machine, and a group holds tabs of one
-machine: a project checked out here and on box is two groups, the one on
-box with a box chip on its header. Rows of tabs on another host have a
-chip with the host's name; this machine's have none. A row of machines
-under the sidebar header says how each one is: its latency, or "offline,
-retry in 7s" with ssh's error on hover. Click a host there to give it one
-of the tab colors, which goes to `[host_colors]` in config.toml; until
-then hosts take colors in turn.
+machine: a project checked out here and on box is two groups. The sidebar's
+tree lists each machine's tabs and groups together, this machine first,
+then the hosts in `[[hosts]]` order, each below a line that names the
+machine and says how it is: "This machine", a host's latency, or "offline,
+retry in 7s" in red with ssh's error on hover. Rows and group headers carry
+no host mark, since the line above them says where they run. A drag
+reorders tabs and groups within their machine and never moves one to
+another machine. Alt navigation and the tab digits count the tabs in the
+same order. Hover a line for a + that opens a tab on that machine without
+asking. Click a host's line, or right-click it, to give the host one of the
+tab colors, which goes to `[host_colors]` in config.toml; until then hosts
+take colors in turn. A session with tabs on one machine only shows no
+lines.
+
+The line has two styles, set with `[appearance] host_sections` or
+Settings, Appearance, Machines. `divider`, the default, is a thin labelled
+rule above each machine's tabs. `sections` gives each machine a header with
+a dot, its health and its tab count, and a rule in the host's color down
+the left of a host's tabs. A click on a header folds its tabs away, and a
+folded header counts the tabs that need you. Each window remembers the
+folds per session until it closes, and a section opens again when the
+active tab moves into it. While the sidebar has the keyboard the cursor
+stops on the headers too: Right or Enter opens one, Left or Enter folds it.
+
+In the inbox, Waiting on you and on the board, where tabs of several
+machines mix, a tab still names its host. The inbox has no machine lines,
+so there a host's health shows on its panes' tags.
 
 A pane on another host has a tag with the host's name hanging from its top
 border, and a ring in the host's color when it has focus. Hover the tag

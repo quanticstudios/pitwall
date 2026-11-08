@@ -99,7 +99,12 @@ func (u *ui) pick(st *model.State, i int) {
 	if i < 0 || i >= len(p.items) || p.items[i].off {
 		return
 	}
-	host := p.items[i].host
+	u.openOn(st, p.items[i].host)
+}
+
+// openOn opens a tab on host, "" for this machine: in the current tab's
+// folder on that tab's machine, else in the home folder there.
+func (u *ui) openOn(st *model.State, host string) {
 	tab := u.nav.looseTab(st)
 	if host != u.hostOf(u.nav.workspace) {
 		tab.Cwd, tab.FromPane = "", ""

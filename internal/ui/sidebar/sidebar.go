@@ -81,6 +81,9 @@ type Sidebar struct {
 	// TabNumber is a tab's number on its host ("box:3"), for a hover card;
 	// nil for none.
 	TabNumber func(id string) string
+	// HostSections draws a shared session's machines in the tree as
+	// headers that fold, not divider lines (machines.go).
+	HostSections bool
 	// HideSessions hides the host headings and sessions, keeping waiting agents.
 	HideSessions bool
 	// SessionPreview opens a session's tab list when its host row is hovered.
@@ -108,7 +111,13 @@ type Sidebar struct {
 	inboxDrawn       bool           // the elems are the inbox's
 
 	hostBtn map[string]*widget.Clickable // the host list's rows, "s:" session or "a:" pane
-	preview sessionPreview
+	// The machine lines of a shared session's tree: their input by host,
+	// the folded sections by session and host, and the active tab as of
+	// the last frame, whose section unfolds when it moves there.
+	machines   map[string]*machineState
+	hostFold   map[string]bool
+	foldFollow string
+	preview    sessionPreview
 
 	epoch         time.Time
 	expanded      map[string]bool // explicit toggles; absent means "active project only"
@@ -168,8 +177,8 @@ type Sidebar struct {
 	repoIcon   widget.Clickable     // the picker's tile for the repo's icon
 	colorBtn   [len(projectColorIDs)]widget.Clickable
 	tabColor   [len(tabColorIDs)]widget.Clickable
-	// hostColor is the host whose color row shows under the host row, ""
-	// for none, and hostSwatch that row's swatches.
+	// hostColor is the host whose color row shows under its machine line,
+	// "" for none, and hostSwatch that row's swatches.
 	hostColor     string
 	hostSwatch    [len(tabColorIDs)]widget.Clickable
 	hostSwatchBox bool // its address is the color row's pointer tag
@@ -486,6 +495,12 @@ type view struct {
 	session       string
 	acts          map[string][]model.Activity // a tab's activities
 
+	// The tree of a shared session (sectionView): its machines in order,
+	// "" first, and each one's top-level items, folded sections' too.
+	sectioned bool
+	hosts     []string
+	parts     map[string][]string
+
 	// The inbox, when it shows (toInbox): each section's tabs in order,
 	// and each tab's section and status.
 	inbox    bool
@@ -500,6 +515,7 @@ func (s *Sidebar) viewOf(gtx layout.Context, th *theme.Theme, st *model.State, s
 	if s.Inbox && !s.TreeOnly {
 		s.toInbox(v)
 	}
+	s.sectionView(v)
 	return v
 }
 

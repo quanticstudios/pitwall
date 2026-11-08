@@ -14,7 +14,7 @@ tab, notifies you, and takes you there with one key.
   Oh My Pi.
 - Installs with one command.
 
-<img src="docs/media/pitwall-hero.webp" alt="The pitwall window cut into three views. Left, the panes: a sidebar of acme-api and web-app tabs with Approval, Working, Input and Done states and Always, Allow and Deny buttons, beside a Codex orchestrator splitting work into three workers. Middle, the board: Needs you holds an approval with its full npm run migrate command and Allow and Deny, two questions with their answer buttons and a plan ready, beside Failed. Right, the review view: a diff of rateLimit.ts with two pending comments and Second opinion and Create pull request buttons" width="800">
+<img src="docs/media/pitwall-hero.webp" alt="The pitwall window cut into three views. Left, the panes of a shared session: this machine's tabs, Working, an Approval with Allow and Deny and an Input with Reply, then a box divider over box's tabs, the focused one a Codex agent shipping the billing API in a pane ringed in box's color with a box tag. Middle, the board: Needs you holds an approval with its full npm run migrate command and Allow and Deny, two questions with their answer buttons and a plan ready, beside Failed. Right, the review view: a diff of rateLimit.ts with two pending comments and Second opinion and Create pull request buttons" width="800">
 
 ## Install
 
@@ -73,7 +73,7 @@ are Cmd+U, Cmd+Shift+Y, Cmd+Shift+N, Cmd+Shift+R and Cmd+T.
 
 ### See every agent at a glance
 
-<img src="docs/media/sidebar.webp" alt="The sidebar: an acme-api group with a Working tab, an Approval tab with Always, Allow and Deny, and an orchestrator with three workers one per row, then a web-app group with an Input tab, a Done tab and a running dev server" width="240" align="right">
+<img src="docs/media/sidebar.webp" alt="The sidebar of a shared session: Waiting on you lists two tabs, a This machine divider sits over a Working tab, an Approval with Allow and Deny and an Input with Reply, and a box divider with its latency sits over box's Working Codex tab, a Done tab and npm run dev" width="240" align="right">
 
 **Every tab's row says what its agent is doing: Working, Input, Approval,
 Plan, Done or Error.** A tab with three agents in split panes lists each on

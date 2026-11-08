@@ -199,7 +199,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 			}
 		}
 		host, down := s.hostOf(ws.ID), s.hostDown(ws.ID)
-		if host != "" {
+		if host != "" && !v.sectioned { // a machine's line names it in the tree
 			line = append(line, item{w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, host, base) }})
 		}
 		if down && own != nil && model.Tier(own) == model.TierAttention {
