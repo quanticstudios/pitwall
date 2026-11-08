@@ -1085,7 +1085,10 @@ func (n *nav) jumpLastPrompt(st *model.State) {
 	for i := range st.Panes {
 		p := &st.Panes[i]
 		w := findWorkspace(st, p.WorkspaceID)
-		if p.LastPromptAt.IsZero() || w == nil || w.Detached || tabOf(w, p.ID) == nil {
+		if p.LastPromptAt.IsZero() || w == nil || w.Detached {
+			continue
+		}
+		if tabOf(w, p.ID) == nil && (w.Popup == nil || w.Popup.Pane != p.ID) {
 			continue
 		}
 		if target == nil || p.LastPromptAt.After(target.LastPromptAt) {

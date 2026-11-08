@@ -195,7 +195,8 @@ seen them all, it walks the waiting panes by priority.
 
 Ctrl+Alt+U, or Cmd+Option+U in mac, returns to the pane you last sent an
 agent prompt. The `jump_last_prompt` action switches to that pane's tab
-and session, even if its agent has exited. Repeating it stays there.
+and session, including an open popup, even if its agent has exited.
+Repeating it stays there.
 If the pane closes, it uses the previous prompt's pane that is still open
 and attached. With none, it shows "No prompt pane is open".
 

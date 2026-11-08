@@ -49,3 +49,45 @@ func TestJumpLastPrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestJumpLastPromptPopup(t *testing.T) {
+	now := time.Now()
+	st := model.State{
+		Sessions: []model.Session{{ID: "s1"}, {ID: "s2"}},
+		Workspaces: []model.Workspace{
+			{ID: "w1", SessionID: "s1", ActiveTab: "t1", Tabs: []model.Tab{{ID: "t1", Layout: &layout.Node{Pane: "a"}}}},
+			{ID: "w2", SessionID: "s2", ActiveTab: "t2", Tabs: []model.Tab{{ID: "t2", Layout: &layout.Node{Pane: "b"}}}, Popup: &model.Popup{Pane: "pop"}},
+		},
+		Panes: []model.Pane{
+			{ID: "a", WorkspaceID: "w1", LastPromptAt: now},
+			{ID: "b", WorkspaceID: "w2"},
+			{ID: "pop", WorkspaceID: "w2", Provider: model.ProviderClaude, LastPromptAt: now.Add(time.Second)},
+		},
+	}
+	n := nav{keys: config.Preset("conventional")}
+	n.sync(&st)
+	n.selectWorkspace(&st, "w1", "a")
+	for range 2 {
+		n.globalOp(&st, "jump_last_prompt")
+		if n.session != "s2" || n.workspace != "w2" || n.focused() != "pop" || n.noLastPrompt {
+			t.Fatalf("popup jump at %s/%s/%s, empty=%v", n.session, n.workspace, n.focused(), n.noLastPrompt)
+		}
+	}
+	st.Workspaces[1].Detached = true
+	n.globalOp(&st, "jump_last_prompt")
+	if n.focused() != "a" {
+		t.Fatal("detached popup did not fall back")
+	}
+	st.Workspaces[1].Detached = false
+	st.Workspaces[1].Popup = nil
+	n.globalOp(&st, "jump_last_prompt")
+	if n.focused() != "a" {
+		t.Fatal("pane outside the layout and popup did not fall back")
+	}
+	st.Workspaces[1].Popup = &model.Popup{Pane: "pop"}
+	st.Panes = st.Panes[:2]
+	n.globalOp(&st, "jump_last_prompt")
+	if n.focused() != "a" {
+		t.Fatal("closed popup did not fall back")
+	}
+}
