@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/io/event"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -521,6 +522,15 @@ func (s *Sidebar) hostPills(gtx layout.Context, th *theme.Theme, at image.Point,
 		m := op.Record(gtx.Ops)
 		box := image.Rectangle{Min: swatchAt, Max: swatchAt.Add(size)}
 		kit.Surface(gtx, box, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceSecondary)
+		// why: a press between the swatches must not reach the rows under them.
+		for {
+			if _, ok := gtx.Event(pointer.Filter{Target: &s.hostSwatchBox, Kinds: pointer.Press}); !ok {
+				break
+			}
+		}
+		area := clip.Rect(box).Push(gtx.Ops)
+		event.Op(gtx.Ops, &s.hostSwatchBox)
+		area.Pop()
 		s.swatches(gtx, th, swatchAt, size, cur, &s.hostSwatch)
 		op.Defer(gtx.Ops, m.Stop())
 		tip = "" // the row covers where the tip would be

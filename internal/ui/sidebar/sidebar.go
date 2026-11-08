@@ -170,9 +170,10 @@ type Sidebar struct {
 	tabColor   [len(tabColorIDs)]widget.Clickable
 	// hostColor is the host whose color row shows under the host row, ""
 	// for none, and hostSwatch that row's swatches.
-	hostColor  string
-	hostSwatch [len(tabColorIDs)]widget.Clickable
-	popover    int // tag that keeps clicks on a popover's body from closing it
+	hostColor     string
+	hostSwatch    [len(tabColorIDs)]widget.Clickable
+	hostSwatchBox bool // its address is the color row's pointer tag
+	popover       int  // tag that keeps clicks on a popover's body from closing it
 
 	renaming      string // tab whose name is being edited
 	replying      string // or the tab whose plan gets Request changes…

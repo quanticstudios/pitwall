@@ -390,6 +390,25 @@ func (m *multi) reconcile(local model.State) {
 			}
 		}
 	}
+	// A shared session's order names every top-level item, so another
+	// host's tabs keep their places whatever order that host lists them in.
+	m.mu.Lock()
+	merged := m.state
+	m.mu.Unlock()
+	for _, ss := range local.Sessions {
+		if len(ss.Remotes) == 0 {
+			continue
+		}
+		top := merged.TopOrder(ss.ID)
+		if !slices.Equal(top, ss.Order) && slices.ContainsFunc(top, func(id string) bool { return !slices.Contains(ss.Order, id) }) {
+			key := [2]string{ss.ID, "order"}
+			if a := m.asked[key]; a.sig != fmt.Sprint(top) || time.Since(a.at) > 5*time.Second {
+				if m.hosts[0].b.Send(proto.SessionOrder{SessionID: ss.ID, Order: top}) == nil {
+					m.asked[key] = asked{sig: fmt.Sprint(top), at: time.Now()}
+				}
+			}
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for name, ref := range m.pendingHere {

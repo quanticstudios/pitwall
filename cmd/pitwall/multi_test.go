@@ -364,3 +364,20 @@ func TestMultiShared(t *testing.T) {
 		t.Fatalf("local got %#v", l)
 	}
 }
+
+// A shared session's order gains another host's tabs as they show up, so
+// they keep their places whatever order that host lists them in.
+func TestMultiSharedOrderSticks(t *testing.T) {
+	ls := hostState("ls", "lw", "lp")
+	ls.Sessions[0].Remotes = []model.RemoteSession{{Host: "box", Session: "rs"}}
+	ls.Sessions[0].Order = []string{"lw"}
+	local, ld := localBackend(t, ls)
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's tab", func() bool { return m.HostOf("rw") == "box" })
+	if o, ok := next(ld).(proto.SessionOrder); !ok || o.SessionID != "ls" || !slices.Equal(o.Order, []string{"lw", "rw"}) {
+		t.Fatalf("local got %#v", o)
+	}
+}
