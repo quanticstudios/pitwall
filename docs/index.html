@@ -199,7 +199,7 @@ footer a { color: var(--muted); }
   </div>
 
   <div class="shot hero-shot">
-    <img src="media/pitwall-hero.webp" width="1280" height="800" alt="The pitwall window: a sidebar of Claude Code and Codex tabs grouped by project, with Working, Approval, Input and Done states, pull request chips and Allow and Deny buttons; the open tab runs three agents in split panes">
+    <img src="media/pitwall-hero.webp" width="1280" height="800" alt="The pitwall window: a sidebar of Claude Code and Codex tabs in acme-api and web-app groups, with Working, Approval, Input and Done states, Always, Allow and Deny buttons, and an orchestrator row with three workers under it; the open tab shows the orchestrator in Codex beside pitwall ls --tree and the migration a worker wrote">
   </div>
 </div>
 
@@ -257,10 +257,22 @@ scoop install pitwall</code></pre>
             <p><strong><kbd>Ctrl+Shift+U</kbd> jumps to the agent that started waiting most recently, in any session.</strong> Its pane gets a ring in the state's color and you get a desktop notification. Press the key again for the next one.</p>
             <p>Any command can ask too: <code>npm test &amp;&amp; pitwall notify "tests passed"</code>.</p>
             <p><strong><kbd>Ctrl+Shift+K</kbd> finds any tab,</strong> in every session and on every host the window shows, by name, branch, folder, agent, pull request or first prompt. It lists the tabs you closed too, up to 200 from the last 30 days, and reopens one with its agent resumed.</p>
+            <p><strong><kbd>Ctrl+Alt+U</kbd> goes back to the pane you last sent a prompt to,</strong> across tabs and sessions, popups included, so after answering three agents you return to the one you were working with.</p>
           </div>
         </div>
         <div class="media">
-          <div class="shot tall"><img src="media/sidebar.webp" width="288" height="665" loading="lazy" alt="The sidebar: an acme-api group with tabs Working, Approval and a tab of three agents listed one per row, a queued task, and a web-app group with an Input tab and a merged Done tab"></div>
+          <div class="shot tall"><img src="media/sidebar.webp" width="288" height="665" loading="lazy" alt="The sidebar: an acme-api group with a Working tab, an Approval tab with Always, Allow and Deny, and an orchestrator with three workers one per row, then a web-app group with an Input tab, a Done tab and a running dev server"></div>
+        </div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <h3>See every agent on one board</h3>
+          <p><strong>The board lays out every agent tab as a card, in columns by what it needs from you:</strong> Needs you, Failed, Working, PR open, Done and Queued. Open it with the button beside the inbox button or <kbd>Ctrl+Shift+M</kbd>.</p>
+          <p>An approval card shows the whole command with Allow and Deny, and a question card its options. Workers fold into their orchestrator's card unless they need you. Scope it to one group, the ungrouped tabs or a host.</p>
+        </div>
+        <div class="media">
+          <div class="shot"><img src="media/board.webp" width="1600" height="1000" loading="lazy" alt="The board: Needs you holds an approval with its full npm run migrate command and Allow and Deny, two questions with their options and a plan ready; Failed holds an error and an agent waiting on its usage limit; Working holds a build, an agent and an orchestrator card with its workers counted by state, then PR open and Done"></div>
         </div>
       </div>
 
@@ -273,7 +285,7 @@ scoop install pitwall</code></pre>
         </div>
         <div class="media stack">
           <div class="shot tall"><img src="media/row-answers.webp" width="288" height="354" loading="lazy" alt="Sidebar rows answering in place: a Codex pane's approval with Always, Allow and Deny, and under an orchestrator's row four workers, one with Allow and Deny and one asking which database to use with Redis and SQLite buttons"></div>
-          <div class="shot tall"><img src="media/phone.webp" width="780" height="1688" loading="lazy" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box"></div>
+          <div class="shot tall"><img src="media/phone.webp" width="780" height="1688" loading="lazy" alt="The phone page: two approvals with Allow and Deny buttons, a question from Fix the checkout race, and two finished turns with a Reply box"></div>
         </div>
       </div>
 
@@ -292,8 +304,8 @@ pitwall wait --children \
   --until done --timeout 30m</code></pre>
         </div>
         <div class="media stack">
-          <div class="shot tall"><img src="media/fleet-folded.webp" width="288" height="316" loading="lazy" alt="The sidebar with the Billing epic fleet folded into one row: a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, above a rate limiting tab and a collapsed web-app group"></div>
-          <div class="shot tall"><img src="media/workers.webp" width="288" height="880" loading="lazy" alt="The same fleet unfolded: a Billing epic tab running Claude Code with a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, and its ten workers indented under it, among them Retry failed webhooks waiting for input with a Reply button, Refund flow waiting for approval with Allow and Deny, and Mid-cycle plan change with an error; the rest show their branches"></div>
+          <div class="shot tall"><img src="media/fleet-folded.webp" width="288" height="316" loading="lazy" alt="The sidebar with the Billing epic fleet folded into one row: a bar of five worker segments and counts of 2 needing you, 1 failed, 1 working and 1 done, above a rate limiting tab and a collapsed web-app group"></div>
+          <div class="shot tall"><img src="media/workers.webp" width="288" height="800" loading="lazy" alt="The same fleet unfolded: a Billing epic tab running Claude Code with a bar of five worker segments, and its five workers indented under it: Render invoice PDFs done, Retry failed webhooks waiting for input with a Reply button, Rate limit the API working, Refund flow waiting for approval with Always, Allow and Deny, and Mid-cycle plan change with an error"></div>
         </div>
       </div>
 
@@ -333,7 +345,7 @@ pitwall wait --children \
           <p><strong>Clean up what a worktree started.</strong> Set <code>teardown</code>, such as <code>docker compose down</code>, under <code>[worktrees]</code>, and it runs with the worktree's ports before pitwall removes the folder. A failure keeps the worktree and says why. A command from a repo's <code>.pitwall/worktree.toml</code> needs your yes each time, since anyone can put code in a repo you clone. Without a yes, pitwall skips it, shows what it would have run and removes the worktree.</p>
         </div>
         <div class="media">
-          <div class="shot"><img src="media/conflict.webp" width="600" height="420" loading="lazy" alt="The hover card of the Retry failed webhooks tab: its pull request with one check passed and one running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts, and its ports"></div>
+          <div class="shot"><img src="media/conflict.webp" width="600" height="430" loading="lazy" alt="The hover card of the Retry failed webhooks tab: pull request #217 open with review required, build passed and test running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts and which to merge first, its ports and the command it asks to run"></div>
         </div>
       </div>
 
@@ -412,10 +424,10 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
           <h3>Never lose a session</h3>
           <p><strong>Close the window, reboot or upgrade, and your tabs come back in their folders with the agents resumed where they left off.</strong></p>
           <p>Sessions work like tmux, and the switcher (<kbd>Ctrl+Shift+S</kbd>) shows every session's agents before you switch. <code>pitwall --host box</code> runs them on another machine over ssh, so they keep going when the laptop closes. With <code>window = true</code> under <code>[[hosts]]</code>, one window shows this machine's sessions and that host's under their own headings, with a Waiting on you list of the agents blocked on any of them.</p>
-          <p>Panes keep their most recent 2000 rows across restarts, except in guarded tabs. <strong>Keep awake,</strong> off by default, in Settings, Agents, holds a logind sleep block on Linux and prevents idle sleep on macOS while any agent is Working and for a grace period after, 15 minutes unless you change it. The screen can still sleep, a closed lid or a suspend that ignores the block can still suspend Linux, and a Mac still sleeps when you tell it to. Windows does nothing.</p>
+          <p>Panes keep their most recent 2000 rows across restarts, except in guarded tabs. An agent stopped by its plan's usage limit gets <code>continue</code> typed in a minute after the reset, and that schedule survives a daemon restart. <strong>Keep awake,</strong> off by default, in Settings, Agents, holds a logind sleep block on Linux and prevents idle sleep on macOS while any agent is Working and for a grace period after, 15 minutes unless you change it. The screen can still sleep, a closed lid or a suspend that ignores the block can still suspend Linux, and a Mac still sleeps when you tell it to. Windows does nothing.</p>
         </div>
         <div class="media">
-          <div class="shot"><img src="media/sessions.webp" width="738" height="560" loading="lazy" alt="The session switcher: sessions acme, billing and docs with their working and needs-you counts, and the billing session's tabs on the right"></div>
+          <div class="shot"><img src="media/sessions.webp" width="738" height="560" loading="lazy" alt="The session switcher: sessions swift-otter, calm-heron and brave-lynx with their working and needs-you counts, and the current session's tabs on the right"></div>
         </div>
       </div>
 
@@ -424,9 +436,10 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
           <h3>Pin and color the tabs you keep</h3>
           <p><strong>Pin a tab and it stays open. Closing it from the window asks you to unpin it first, and <code>pitwall kill</code> from a script or another agent is refused.</strong></p>
           <p>Give a tab one of eight colors from its menu and its row takes a faint tint, so the billing work and the webhook fix stop looking alike. A soft green mark under the agent's icon shows which Claude Code sessions have <code>/remote-control</code> on, so you know which ones you can pick up from your phone.</p>
+          <p><strong>Closing a tab or pane asks first when its agent is working or waiting on you mid-turn.</strong> The dialog names the tab and agents, once for the whole close. Turn it off in Settings, Appearance, Confirm close, or with <code>[appearance] confirm_close = false</code>.</p>
         </div>
         <div class="media">
-          <div class="shot tall"><img src="media/tabs.webp" width="288" height="460" loading="lazy" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working"></div>
+          <div class="shot tall"><img src="media/tabs.webp" width="288" height="570" loading="lazy" alt="The sidebar with pinned and colored tabs: a pinned blue rate limiting tab with its pull request ready, a red Retry failed webhooks tab waiting for approval, a pinned green Add dark mode tab whose pull request merged, and a violet Fix the checkout race tab waiting for input"></div>
         </div>
       </div>
 
@@ -438,7 +451,7 @@ pitwall send "$pane" -- "Critique plan.md"</code></pre>
           <p><strong><kbd>Ctrl+Shift+I</kbd> types file paths into a prompt,</strong> from a picker over the pane's folder. <kbd>Ctrl+Shift+G</kbd> labels every URL, path, hash and <code>#number</code> on screen; type a label to copy it, or Shift and the label to open it. With <code>open_path</code> under <code>[terminal]</code>, such as <code>["bat", "--paging=always"]</code>, a path opens in a popup over the panes. Picture in picture, in a tab's menu, keeps one pane live in a corner while you work in another tab.</p>
         </div>
         <div class="media">
-          <div class="shot"><img src="media/palette.webp" width="602" height="422" loading="lazy" alt="The command palette filtered by pr: Open PR and Merge PR first, then tab and pane actions with their keys"></div>
+          <div class="shot"><img src="media/palette.webp" width="602" height="422" loading="lazy" alt="The command palette filtered by pr, 27 of 74 commands: Open PR and Merge PR first, then tab, agent and pane actions with their keys, Jump to last prompt among them"></div>
         </div>
       </div>
     </div>

@@ -1,22 +1,25 @@
 # Changelog
 
-Releases are `v0.1.1`, `v0.1.2`, ...: each release bumps the patch number
+Releases are `v0.2.0`, `v0.2.1`, ...: each release bumps the patch number
 and becomes the latest release on GitHub, which is what the installers take.
-Before them came `v0.1.0-beta.1` to `v0.1.0-beta.18`, `v0.1.0-alpha.1` to
-`v0.1.0-alpha.24`, and the `v0.0.N` tags. A release is a git tag on `main`;
-`scripts/install.sh` stamps the binary with `git describe`, and
-`pitwall --version` prints it.
+A new minor, such as `v0.2.0`, starts only when you pass its version.
+Before them came `v0.1.1` to `v0.1.15`, `v0.1.0-beta.1` to
+`v0.1.0-beta.18`, `v0.1.0-alpha.1` to `v0.1.0-alpha.24`, and the `v0.0.N`
+tags. A release is a git tag on `main`; `scripts/install.sh` stamps the
+binary with `git describe`, and `pitwall --version` prints it.
 
 Changes land with their notes under `## Unreleased` at the top. To cut a
 release from an up-to-date, clean `main`, run `sh scripts/release.sh`. It
-renames `## Unreleased` to the next `## v0.1.N` (or the version you
-pass) and opens a `Release v0.1.N` pull request. Once that merges,
-`git pull --ff-only` and run `sh scripts/release.sh --tag`. It tags the
-release commit on `main` and pushes the tag once, which starts the release
-build. Either step takes `--dry-run`.
+renames `## Unreleased` to the next patch of the newest release, such as
+`## v0.2.1` after `v0.2.0`, or to the version you pass, and opens a
+`Release v0.2.N` pull request. Once that merges, `git pull --ff-only` and
+run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
+pushes the tag once, which starts the release build. Either step takes
+`--dry-run`.
 
 ## Unreleased
 
+- `scripts/release.sh` guesses only the next patch of the newest release: after `v0.2.0` it picks `v0.2.1`. Cut `v0.2.0`, or any new minor, with `sh scripts/release.sh v0.2.0`. The README and site show the current sidebar, the board and the palette, and list the board, confirm close, jump to last prompt and resumes that survive a restart.
 - Remove the greyed-out comments button from the sidebar footer. It came from aide and never did anything.
 - The board: every agent tab as a card in columns by what it needs from you (Needs you, Failed, Working, PR open, Done, Queued), opened from a button beside the inbox button or with Ctrl+Shift+M (Cmd+Shift+M on macOS). Approvals show the whole command with Allow and Deny; long commands and ones the guard denies send you to the tab. Workers fold into their orchestrator's card unless they need you. Scope it to a group, the ungrouped tabs or a host. A window needs a daemon of this version to show an approval's command.
 - Ask before a GUI close stops an agent working or waiting on you mid-turn, including chats and popup agents. The dialog names the tab and agents and asks once, including for several panes. Closing a pinned tab or its last pane uses only the unpin dialog. Closing one pane in a pinned split uses the agent dialog when its agent is mid-turn. Killing a detached tab keeps its two-click confirmation. Turn the check off with `[appearance] confirm_close = false` or Settings, Appearance, Confirm close.

@@ -6,7 +6,7 @@ question or a finished turn. It runs inside pitwall's background service.
 There is no account, no relay and no app to install: the phone talks to your
 computer over your own network.
 
-<img src="media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a question with an answer box" width="300">
+<img src="media/phone.webp" alt="The phone page: two approvals with Allow and Deny buttons, a question from Fix the checkout race, and two finished turns with a Reply box" width="300">
 
 It is off until you turn it on in Settings, Phone, or in config.toml:
 

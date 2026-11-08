@@ -81,16 +81,17 @@ for checking the version in use.
 ## Publish a release
 
 `scripts/release.sh` runs steps 1 and 3: it opens the release pull request
-from the `## Unreleased` section, and `scripts/release.sh --tag` tags the
+from the `## Unreleased` section, named for the next patch of the newest
+release or for the version you pass, `v0.2.0` to start the minor, and `scripts/release.sh --tag` tags the
 merged release commit and pushes the tag once. The steps below are what it
 does, and what to check around it.
 
-1. Merge the release changes and the matching `## v0.1.0-alpha.N` section in
+1. Merge the release changes and the matching `## v0.2.N` section in
    [CHANGELOG.md](../CHANGELOG.md) through a pull request.
 2. Check that all required CI jobs passed for the commit you intend to tag.
    Run platform checks relevant to the release. The full macOS suite
    remains advisory; a green build does not prove it passed.
-3. Tag that commit on `main` with `v0.1.0-alpha.N` and push the tag on its
+3. Tag that commit on `main` with `v0.2.N` and push the tag on its
    own. The release workflow verifies that the tagged commit belongs to `main`
    before building and publishes the release as the latest one.
 4. Review the six platform archives, `checksums.txt`, notices and release notes
@@ -120,9 +121,9 @@ The job also attaches `pitwall-bin.aur.tar.gz`, the AUR `PKGBUILD` and
 a hand step, from a clone of `ssh://aur@aur.archlinux.org/pitwall-bin.git`:
 
 ```sh
-curl -fsSL https://github.com/quanticstudios/pitwall/releases/download/v0.1.0-alpha.N/pitwall-bin.aur.tar.gz | tar -xz
+curl -fsSL https://github.com/quanticstudios/pitwall/releases/download/v0.2.N/pitwall-bin.aur.tar.gz | tar -xz
 git add PKGBUILD .SRCINFO
-git commit -m "pitwall v0.1.0-alpha.N"
+git commit -m "pitwall v0.2.N"
 git push origin HEAD:master
 ```
 

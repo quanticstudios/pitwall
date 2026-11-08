@@ -14,7 +14,7 @@ tab, notifies you, and takes you there with one key.
   Oh My Pi.
 - Installs with one command.
 
-<img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs grouped by project, with Working, Approval, Input and Done states, pull request chips and Allow and Deny buttons; the open tab runs three agents in split panes" width="800">
+<img src="docs/media/pitwall-hero.webp" alt="The pitwall window: a sidebar of Claude Code and Codex tabs in acme-api and web-app groups, with Working, Approval, Input and Done states, Always, Allow and Deny buttons, and an orchestrator row with three workers under it; the open tab shows the orchestrator in Codex beside pitwall ls --tree and the migration a worker wrote" width="800">
 
 ## Install
 
@@ -73,7 +73,7 @@ are Cmd+U, Cmd+Shift+Y, Cmd+Shift+N, Cmd+Shift+R and Cmd+T.
 
 ### See every agent at a glance
 
-<img src="docs/media/sidebar.webp" alt="The sidebar: an acme-api group with tabs Working, Approval and a tab of three agents listed one per row, a queued task, and a web-app group with an Input tab and a merged Done tab" width="240" align="right">
+<img src="docs/media/sidebar.webp" alt="The sidebar: an acme-api group with a Working tab, an Approval tab with Always, Allow and Deny, and an orchestrator with three workers one per row, then a web-app group with an Input tab, a Done tab and a running dev server" width="240" align="right">
 
 **Every tab's row says what its agent is doing: Working, Input, Approval,
 Plan, Done or Error.** A tab with three agents in split panes lists each on
@@ -99,7 +99,22 @@ shows, by name, branch, folder, agent, pull request or first prompt. It lists
 the tabs you closed too, up to 200 from the last 30 days, and reopens one with
 its agent resumed.
 
+**Ctrl+Alt+U goes back to the pane you last sent a prompt to,** across tabs
+and sessions, popups included, so after answering three agents you return to
+the one you were working with.
+
 <br clear="right">
+
+### See every agent on one board
+
+**The board lays out every agent tab as a card, in columns by what it needs
+from you:** Needs you, Failed, Working, PR open, Done and Queued. Open it with
+the button beside the inbox button or Ctrl+Shift+M. An approval card shows the
+whole command with Allow and Deny, and a question card its options. Workers
+fold into their orchestrator's card unless they need you. Scope it to one
+group, the ungrouped tabs or a host.
+
+<img src="docs/media/board.webp" alt="The board: Needs you holds an approval with its full npm run migrate command and Allow and Deny, two questions with their options and a plan ready; Failed holds an error and an agent waiting on its usage limit; Working holds a build, an agent and an orchestrator card with its workers counted by state, then PR open and Done" width="800">
 
 ### Answer without switching windows
 
@@ -124,7 +139,7 @@ them too.
 
 <br clear="right">
 
-<img src="docs/media/phone.webp" alt="The phone page: approvals for three tabs with Allow and Deny buttons, and a Codex question with an answer box" width="240" align="right">
+<img src="docs/media/phone.webp" alt="The phone page: two approvals with Allow and Deny buttons, a question from Fix the checkout race, and two finished turns with a Reply box" width="240" align="right">
 
 **Or answer from your phone.** Pair it by QR code and it lists what needs you,
 with Allow and Deny and a box for typed answers. A menu on an agent's screen
@@ -162,7 +177,7 @@ across three workers" is all you have to say.
 Settings, Appearance, Sidebar, Workers gives each worker a full row of its own
 instead, behind a bar of their states on the orchestrator's row, as here:
 
-<img src="docs/media/fleet-folded.webp" alt="The sidebar with the Billing epic fleet folded into one row: a bar of ten worker segments and counts of 2 needing you, 1 failed, 3 working and 4 done, above a rate limiting tab and a collapsed web-app group" width="240"> <img src="docs/media/workers.webp" alt="The same fleet unfolded: ten workers indented under the Billing epic tab, among them Retry failed webhooks waiting for input with a Reply button, Refund flow waiting for approval with Allow and Deny, and Mid-cycle plan change with an error; the rest show their branches" width="240">
+<img src="docs/media/fleet-folded.webp" alt="The sidebar with the Billing epic fleet folded into one row: a bar of five worker segments and counts of 2 needing you, 1 failed, 1 working and 1 done, above a rate limiting tab and a collapsed web-app group" width="240"> <img src="docs/media/workers.webp" alt="The same fleet unfolded: five workers indented under the Billing epic tab, Render invoice PDFs done, Retry failed webhooks waiting for input with a Reply button, Rate limit the API working, Refund flow waiting for approval with Always, Allow and Deny, and Mid-cycle plan change with an error" width="240">
 
 ### Fleet mode
 
@@ -243,7 +258,7 @@ shows what it would have run and removes the worktree.
 `pitwall worktree rm --force` skips teardown.
 [Worktree ports and setup](docs/usage.md#worktree-ports-and-setup) has the rules.
 
-<img src="docs/media/conflict.webp" alt="The hover card of the Retry failed webhooks tab: its pull request with one check passed and one running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts, and its ports" width="600">
+<img src="docs/media/conflict.webp" alt="The hover card of the Retry failed webhooks tab: pull request #217 open with review required, build passed and test running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts and which to merge first, its ports and the command it asks to run" width="600">
 
 ### Limit what an agent can do by accident
 
@@ -344,7 +359,8 @@ pitwall send "$pane" -- "Critique plan.md"
 folders with the agents resumed where they left off.** Sessions work like
 tmux, and the switcher (Ctrl+Shift+S) shows every session's agents before
 you switch. Panes keep their most recent 2000 rows across restarts, except in
-guarded tabs.
+guarded tabs. An agent stopped by its plan's usage limit gets `continue` typed
+in a minute after the reset, and that schedule survives a daemon restart.
 `pitwall --host box` runs them on another machine over ssh, so they keep going
 when the laptop closes. With `window = true` under `[[hosts]]`, one window shows
 this machine's sessions and that host's under their own headings, with a Waiting
@@ -356,11 +372,11 @@ grace period after, 15 minutes unless you change it. The screen can still sleep,
 a closed lid or a suspend that ignores the block can still suspend Linux, and a
 Mac still sleeps when you tell it to. Windows does nothing.
 
-<img src="docs/media/sessions.webp" alt="The session switcher: sessions acme, billing and docs with their working and needs-you counts, and the billing session's tabs on the right" width="640">
+<img src="docs/media/sessions.webp" alt="The session switcher: sessions swift-otter, calm-heron and brave-lynx with their working and needs-you counts, and the current session's tabs on the right" width="640">
 
 ### Pin and color the tabs you keep
 
-<img src="docs/media/tabs.webp" alt="The sidebar with colored tabs: a pinned blue Rate limiting tab with the remote control mark, a red Retry failed webhooks tab waiting for input, a pinned green Billing export tab marked done, and a violet Onboarding copy tab working" width="240" align="right">
+<img src="docs/media/tabs.webp" alt="The sidebar with pinned and colored tabs: a pinned blue rate limiting tab with its pull request ready, a red Retry failed webhooks tab waiting for approval, a pinned green Add dark mode tab whose pull request merged, and a violet Fix the checkout race tab waiting for input" width="240" align="right">
 
 **Pin a tab and it stays open.** Closing it from the window asks you to
 unpin it first, and `pitwall kill` from a script or another agent is
@@ -396,7 +412,7 @@ a label to copy it, or Shift and the label to open it. With `open_path` under
 over the panes. Picture in picture, in a tab's menu, keeps one pane live in a
 corner while you work in another tab.
 
-<img src="docs/media/palette.webp" alt="The command palette filtered by pr: Open PR and Merge PR first, then tab and pane actions with their keys" width="560">
+<img src="docs/media/palette.webp" alt="The command palette filtered by pr, 27 of 74 commands: Open PR and Merge PR first, then tab, agent and pane actions with their keys, Jump to last prompt among them" width="560">
 
 ## Works with
 
@@ -419,6 +435,8 @@ and 11, on x86_64 and arm64.
 | Linux, Windows              | macOS                     | Does                                       |
 | --------------------------- | ------------------------- | ------------------------------------------ |
 | Ctrl+Shift+U                | Cmd+U                     | Go to the agent that needs you             |
+| Ctrl+Alt+U                  | Cmd+Option+U              | Back to the pane you last prompted         |
+| Ctrl+Shift+M                | Cmd+Shift+M               | Show or hide the board                     |
 | Ctrl+Shift+Y / Ctrl+Shift+D | Cmd+Shift+Y / Cmd+Shift+N | Allow / Deny the permission prompt         |
 | Ctrl+Shift+R                | Cmd+Shift+R               | Review the tab's changes                   |
 | Ctrl+Shift+A                | Cmd+Shift+A               | New task, now or queued                    |

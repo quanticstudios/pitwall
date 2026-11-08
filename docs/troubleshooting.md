@@ -3,9 +3,9 @@
 Run `pitwall doctor` first. It prints a line per check and changes nothing:
 
 ```
-info pitwall v0.1.3
+info pitwall v0.2.0
 ok   pitwall on PATH: /home/me/.local/bin/pitwall
-ok   daemon: v0.1.3, protocol 16.25
+ok   daemon: v0.2.0, protocol 16.25
 FAIL hooks: ~/.claude/settings.json needs: added Notification: '/home/me/.local/bin/pitwall' hook claude and 9 more
      fix: pitwall hooks install --dry-run, then pitwall hooks install
 ok   hooks: ~/.claude/skills/pitwall/SKILL.md

@@ -777,7 +777,7 @@ next poll. These sends also work with the window closed. The daemon keeps
 its deduplication history in memory, so a restart allows another send.
 Fleet workers with escalation enabled still escalate after two failing
 commits, as described below.
-<img src="media/conflict.webp" alt="The hover card of a tab whose branch conflicts with another: its pull request and checks, the conflicting file in red, the suggestion to merge this tab first, and its ports" width="600">
+<img src="media/conflict.webp" alt="The hover card of the Retry failed webhooks tab: pull request #217 open with review required, build passed and test running, a red warning that it conflicts with the rate limiting tab in src/server/router.ts and which to merge first, its ports and the command it asks to run" width="600">
 
 Agents in worktrees of one repository can edit the same files without
 knowing it. When two tabs on different branches of the same repository
