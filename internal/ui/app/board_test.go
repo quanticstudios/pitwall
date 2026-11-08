@@ -105,3 +105,21 @@ func TestBoardHidesPanesFromSeen(t *testing.T) {
 		t.Errorf("board closed: last SeePane %q, want %q", pane, u.nav.focused())
 	}
 }
+
+// TestBoardAnswersSidebarHidden: a window that starts with the sidebar
+// hidden still answers from the board.
+func TestBoardAnswersSidebarHidden(t *testing.T) {
+	u, keys := keyWindow(t, conventional)
+	u.sidebar.Answers = false
+	u.nav.sidebarHidden, u.sidebarShown = true, true // restored hidden: no slide
+	cs := key.ModCtrl | key.ModShift
+	keys(press("M", cs), press(key.NameDownArrow, 0))
+	time.Sleep(board.Arming + 50*time.Millisecond)
+	keys(press("Y", cs))
+	for _, m := range u.b.(*FakeBackend).Sent() {
+		if a, ok := m.(proto.Answer); ok && a.Allow {
+			return
+		}
+	}
+	t.Fatal("Ctrl+Shift+Y on a focused card with the sidebar hidden sent no Answer")
+}

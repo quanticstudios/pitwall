@@ -577,6 +577,8 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.HideSessions = !u.cfg.Sidebar.Sessions
 	u.sidebar.SessionPreview = u.cfg.Sidebar.SessionPreview
 	u.sidebar.Forks = u.link().Level >= proto.ForkLevel
+	// why: before drawing; the board's cards read it while the sidebar is hidden.
+	u.sidebar.Answers = u.canAnswer()
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
 	for _, p := range u.panes {
@@ -803,7 +805,6 @@ func (u *ui) layout(gtx gl.Context) {
 		if u.cfg.LimitsInSidebar {
 			u.sidebar.Limits = u.limits.get()
 		}
-		u.sidebar.Answers = u.canAnswer()
 		u.sidebar.BoardOn = u.boardOn
 		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(), gtx.Now)
 		u.sidebar.Pane = u.nav.focused()
