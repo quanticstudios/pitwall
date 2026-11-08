@@ -61,6 +61,7 @@ type boardState struct {
 	scope   board.Scope
 	shells  bool
 	cur     string // the card with keyboard focus, "" for none
+	reveal  bool   // scroll the cur card into view once: the keys moved it
 	tr      board.Tracker
 	focus   bool // take key focus this frame
 	tag     int  // key focus
@@ -249,6 +250,7 @@ func (s *Sidebar) boardKeys(gtx layout.Context, st *model.State) {
 			}
 		default:
 			bd.step(e.Name)
+			bd.reveal = true
 		}
 	}
 }
@@ -638,7 +640,7 @@ func (s *Sidebar) boardColumns(gtx layout.Context, th *theme.Theme, st *model.St
 	for i, c := range cols {
 		bd.colX[c] = pad + i*(bd.colW+gap)
 	}
-	if c, ok := bd.b.All[bd.cur]; ok {
+	if c, ok := bd.b.All[bd.cur]; ok && bd.reveal {
 		s.revealColumn(gtx, c.Column(), avail)
 	}
 
@@ -732,6 +734,7 @@ func (s *Sidebar) boardColumns(gtx layout.Context, th *theme.Theme, st *model.St
 		}
 	}
 	bd.last = next
+	bd.reveal = false
 	s.edgeFades(gtx, th, area.Size(), maxX)
 }
 
