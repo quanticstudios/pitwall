@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quanticstudios/pitwall/internal/gitenv"
 	"github.com/quanticstudios/pitwall/internal/nowindow"
 )
 
@@ -70,19 +71,16 @@ func Env(ctx context.Context, dir string, env []string) ([]string, error) {
 	if env == nil {
 		env = os.Environ()
 	}
-	out := make([]string, 0, len(env)+16)
+	out := gitenv.Clean(env)
 	n := 0
-	for _, kv := range env {
+	for _, kv := range out {
 		name, value, _ := strings.Cut(kv, "=")
 		switch name {
-		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE":
-			continue
 		case "GIT_CONFIG_COUNT":
 			if c, err := strconv.Atoi(value); err == nil && c > 0 {
 				n = c
 			}
 		}
-		out = append(out, kv)
 	}
 	out = append(out, "GIT_TERMINAL_PROMPT=0", "GIT_EDITOR=true", "GIT_SEQUENCE_EDITOR=true", "GIT_PAGER=cat")
 	config, err := readConfig(ctx, dir, out)
@@ -223,7 +221,7 @@ func parseConfig(out []byte) ([]configEntry, error) {
 func gitOutput(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	nowindow.Set(cmd)
-	cmd.Env = env
+	cmd.Env = gitenv.Clean(env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
