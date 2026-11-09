@@ -53,19 +53,28 @@ func clickable(gtx layout.Context, c *widget.Clickable, w layout.Widget) layout.
 // secondary fill and foreground glyph on hover.
 func iconButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, icon string, size, glyph int, hoverFg bool) layout.Dimensions {
 	gtx.Constraints = layout.Exact(image.Pt(size, size))
+	box := iconBox(size, glyph)
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 		col := th.Muted
 		if c.Hovered() {
-			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, size, size), gtx.Dp(6)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, box, box), gtx.Dp(6)).Op(gtx.Ops))
 			if hoverFg {
 				col = th.Fg
 			}
 		}
-		return drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions {
+		drawCentered(gtx, box, func(gtx layout.Context) layout.Dimensions {
 			return drawIcon(gtx, icon, glyph, col, 0)
 		})
+		return layout.Dimensions{Size: image.Pt(size, size)}
 	})
 }
+
+// iconBox is the side of the square a size px button draws around a
+// glyph px icon: size, or one less when the two differ by an odd number.
+// centered places the icon on whole pixels, so with an odd difference
+// its middle would sit half a pixel up and left of the square's, and its
+// 1px strokes cannot straddle the middle of an even square.
+func iconBox(size, glyph int) int { return size - (size-glyph)&1 }
 
 func drawCentered(gtx layout.Context, size int, w layout.Widget) layout.Dimensions {
 	return centered(gtx, image.Pt(size, size), w)

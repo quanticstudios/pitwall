@@ -17,6 +17,11 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- A hovered machine header in `host_sections = "sections"` fills the whole row with rounded corners, with its + inside the fill. Its + ends 8dp from the edge, as the content of tab rows and group headers does, and so does a divider's rule when the + is hidden. The + sits in the middle of its own hover square: when an icon button's square and glyph differ by an odd number of pixels, as the header's 20dp square and 13dp + do at 100% scale, the square draws 1px smaller so the glyph has as much room on each side. It sat 1px up and left before.
+- In a shared session, the tab prefix's N, and its palette entry, open the tab on the active tab's machine, in that tab's folder there, as the section's + does. They opened it on this machine before. With account profiles set, a tab opened on another machine, from these keys, a section's + or the machine picker, asks which account first, as a tab here does; it took the default account before. A machine with no part of the session yet makes one with a first tab under the default account, so an account other than Default is refused there, in the picker, until that first tab exists.
+
 ## v0.2.1
 
 - When a window of several machines refuses a shared-session action, such as a tab on a host that is down or a kill while a host with a part is down, it says why in the notice at the top of the window instead of only in the log.

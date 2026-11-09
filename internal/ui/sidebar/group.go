@@ -209,18 +209,20 @@ func (s *Sidebar) projectHeaderGhost(gtx layout.Context, v *view, p model.Projec
 // lighter. Hidden, it is an empty hit area.
 func headerButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, icon string, size, glyph int, shown bool) layout.Dimensions {
 	gtx.Constraints = layout.Exact(image.Pt(size, size))
+	box := iconBox(size, glyph)
 	return clickable(gtx, c, func(gtx layout.Context) layout.Dimensions {
 		if !shown {
 			return layout.Dimensions{Size: image.Pt(size, size)}
 		}
 		col := th.Muted
 		if c.Hovered() {
-			paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.08), clip.UniformRRect(image.Rect(0, 0, size, size), gtx.Dp(6)).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, theme.Mix(th.SurfaceSecondary, th.Fg, 0.08), clip.UniformRRect(image.Rect(0, 0, box, box), gtx.Dp(6)).Op(gtx.Ops))
 			col = th.Fg
 		}
-		return drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions {
+		drawCentered(gtx, box, func(gtx layout.Context) layout.Dimensions {
 			return drawIcon(gtx, icon, glyph, col, 0)
 		})
+		return layout.Dimensions{Size: image.Pt(size, size)}
 	})
 }
 

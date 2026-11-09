@@ -60,6 +60,7 @@ func main() {
 	flag.BoolVar(&sb.Inbox, "inbox", false, "start on the inbox in place of the tree")
 	noShelf := flag.Bool("no-shelf", false, "keep working tabs in the inbox's Active section")
 	settleAll := flag.Bool("settle-all", false, "settle every agent tab")
+	shared := flag.String("shared", "", `"divider" or "sections": a shared session, with acme-api and ws-trio on box and ws-deploy on gpu, which is down`)
 	flag.Parse()
 	sb.WorkingShelf, sb.Shelves = !*noShelf, true
 	tc, ok := config.Builtin(*themeName)
@@ -95,6 +96,19 @@ func main() {
 		for i := range st.Activities {
 			st.Activities[i].Unseen = model.NeedsYou(st.Activities[i].State)
 		}
+	}
+	if *shared != "" {
+		sb.HostSections = *shared == "sections"
+		sb.Hosts = []sidebar.HostInfo{{Up: true},
+			{Name: "box", SSH: "me@box", Up: true, Latency: 38 * time.Millisecond},
+			{Name: "gpu", SSH: "gpu", Note: "ssh: connect to host gpu: Connection refused", Retry: time.Now().Add(time.Hour)}}
+		on := map[string]string{"p-api": "box", "ws-trio": "box", "ws-deploy": "gpu"}
+		for _, ws := range st.Workspaces {
+			if h := on[ws.ProjectID]; h != "" {
+				on[ws.ID] = h
+			}
+		}
+		sb.HostOf = func(id string) string { return on[id] }
 	}
 	go func() {
 		w := new(app.Window)

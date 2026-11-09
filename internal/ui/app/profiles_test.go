@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -96,6 +97,18 @@ func TestProfileLimitNotices(t *testing.T) {
 	}
 	if !strings.Contains(limitNotice(work, w, now), "Work plan") {
 		t.Fatal("notice omits profile")
+	}
+}
+
+// A refused tab keeps the picker open and says why in it.
+func TestProfilePickerRefused(t *testing.T) {
+	b := &refusingFake{hostFake: hostFake{NewFakeBackend()}, err: Refusal{Err: errors.New("box has no part of this session yet")}}
+	u := &ui{b: b, cfg: config.Settings{Profiles: map[string]config.Profile{"work": {}}}}
+	u.send(NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "s1"}})
+	u.profile.picked = 1
+	u.confirmProfileTab()
+	if u.modal.kind != modalProfile || u.modal.pathErr != "box has no part of this session yet" {
+		t.Fatalf("modal %v, error %q", u.modal.kind, u.modal.pathErr)
 	}
 }
 

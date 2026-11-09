@@ -66,6 +66,10 @@ func (u *ui) pickTabProfile(msg any) bool {
 		if m.Profile != "" || len(m.Cmd) != 0 || len(m.Env) != 0 {
 			return false
 		}
+	case NewTabOn:
+		if m.Tab.Profile != "" || len(m.Tab.Cmd) != 0 || len(m.Tab.Env) != 0 {
+			return false
+		}
 	default:
 		return false
 	}
@@ -90,10 +94,15 @@ func (u *ui) confirmProfileTab() {
 	case proto.NewSession:
 		m.Profile = name
 		msg = m
+	case NewTabOn:
+		m.Tab.Profile = name
+		msg = m
 	}
 	u.profile.sending = true
 	st := u.b.State()
 	u.nav.expectSession(&st)
+	earlier := u.sends.err
+	u.sends.err = ""
 	ok := u.send(msg)
 	u.profile.sending = false
 	if ok {
@@ -101,6 +110,10 @@ func (u *ui) confirmProfileTab() {
 		u.profile.pending = nil
 	} else {
 		u.nav.sessions = nil
+		u.modal.pathErr = u.sends.err // a refusal, such as an account a host cannot take yet
+	}
+	if u.sends.err == "" {
+		u.sends.err = earlier
 	}
 }
 

@@ -1,15 +1,19 @@
 package sidebar
 
 import (
+	"image"
+	"image/color"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/gpu/headless"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -135,7 +139,7 @@ func TestMachineFold(t *testing.T) {
 // a down host's does nothing.
 func TestMachinePlus(t *testing.T) {
 	h := machineHarness(t, false)
-	plus := 8 + (288 - 1 - 16) - 20 - 2 + 10
+	plus := 8 + (288 - 1 - 16) - 20 - 4 + 10
 	for _, tc := range []struct {
 		host string
 		want []Event
@@ -229,5 +233,120 @@ func TestEscapeWithNoRows(t *testing.T) {
 	s.Focus(&st, "", "")
 	if _, back, used := s.Key(&st, "", "", key.Event{Name: key.NameEscape, State: key.Press}); !used || !back {
 		t.Fatalf("Escape with no rows: used %v, back %v", used, back)
+	}
+}
+
+// A hovered section header fills its whole width with rounded corners,
+// and its + sits inside the fill, ending its glyph about 8dp from the
+// edge as rows do.
+func TestMachineHeaderEdge(t *testing.T) {
+	win, err := headless.NewWindow(288, 800)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer win.Release()
+	h := machineHarness(t, true)
+	var top, bot int
+	for _, e := range h.s.elems {
+		if e.kind == 'm' && e.id == "box" {
+			top, bot = e.head+56, e.bot+56
+		}
+	}
+	for range 2 { // hover shows after the second move
+		h.r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(100, float32(top+5)), Source: pointer.Mouse})
+		h.frame()
+	}
+	if err := win.Frame(&h.ops); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 288, 800))
+	if err := win.Screenshot(img); err != nil {
+		t.Fatal(err)
+	}
+	th := theme.Dark()
+	near := func(got color.RGBA, want color.NRGBA) bool {
+		d := func(a, b uint8) int { return max(int(a), int(b)) - min(int(a), int(b)) }
+		return d(got.R, want.R) < 4 && d(got.G, want.G) < 4 && d(got.B, want.B) < 4
+	}
+	right := 8 + 288 - 1 - 16 // the tree's right edge
+	mid := (top + bot) / 2
+	if c := img.RGBAAt(right-2, top+(bot-top)/4); !near(c, th.SurfaceSecondary) {
+		t.Errorf("fill stops short of the right edge: %v, want %v", c, th.SurfaceSecondary)
+	}
+	if c := img.RGBAAt(right-1, top); !near(c, th.Sidebar) {
+		t.Errorf("the fill's top right corner is square: %v, want %v", c, th.Sidebar)
+	}
+	// The glyph: some pixel in the + differs from the fill, none in the
+	// last 7dp.
+	glyph := false
+	for x := right - 30; x < right; x++ {
+		c := img.RGBAAt(x, mid)
+		if !near(c, th.SurfaceSecondary) {
+			if x >= right-7 {
+				t.Errorf("the + reaches x %d, %ddp from the edge", x, right-x)
+			}
+			glyph = true
+		}
+	}
+	if !glyph {
+		t.Error("no + on the hovered header")
+	}
+
+	// Over the + its own square shows; the glyph has as much room on
+	// each side of it as above and below.
+	for range 2 {
+		h.r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(float32(right-14), float32(mid)), Source: pointer.Mouse})
+		h.frame()
+	}
+	if err := win.Frame(&h.ops); err != nil {
+		t.Fatal(err)
+	}
+	if err := win.Screenshot(img); err != nil {
+		t.Fatal(err)
+	}
+	sq := theme.Mix(th.SurfaceSecondary, th.Fg, 0.08)
+	var box, plus image.Rectangle
+	grow := func(r *image.Rectangle, x, y int) {
+		if r.Empty() {
+			*r = image.Rect(x, y, x+1, y+1)
+		}
+		*r = r.Union(image.Rect(x, y, x+1, y+1))
+	}
+	for y := top; y < bot; y++ {
+		for x := right - 30; x < right; x++ {
+			if near(img.RGBAAt(x, y), sq) {
+				grow(&box, x, y)
+			}
+		}
+	}
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		for x := box.Min.X; x < box.Max.X; x++ {
+			if img.RGBAAt(x, y).G > sq.G+40 {
+				grow(&plus, x, y)
+			}
+		}
+	}
+	if box.Empty() || plus.Empty() {
+		t.Fatalf("no square %v or + %v over the hovered +", box, plus)
+	}
+	if l, r, u, d := plus.Min.X-box.Min.X, box.Max.X-plus.Max.X, plus.Min.Y-box.Min.Y, box.Max.Y-plus.Max.Y; l != r || u != d {
+		t.Errorf("+ %v in square %v: %d left, %d right, %d above, %d below", plus, box, l, r, u, d)
+	}
+}
+
+// An icon button's square centers its glyph exactly at every scale: the
+// glyph, placed on whole pixels as centered places it, has as much room
+// on its left as on its right.
+func TestIconBoxCenters(t *testing.T) {
+	for _, scale := range []float32{1, 1.25, 1.5, 2, 3} {
+		gtx := layout.Context{Metric: unit.Metric{PxPerDp: scale, PxPerSp: scale}}
+		for _, b := range [][2]unit.Dp{{20, 13}, {24, 14}, {24, 16}, {28, 16}} {
+			size, glyph := gtx.Dp(b[0]), gtx.Dp(b[1])
+			box := iconBox(size, glyph)
+			off := image.Pt(box, box).Sub(image.Pt(glyph, glyph)).Div(2).X // as centered offsets it
+			if left, right := off, box-off-glyph; left != right || box < size-1 || box > size {
+				t.Errorf("scale %v, %vdp button with a %vdp glyph: square %d, room %d left and %d right", scale, b[0], b[1], box, left, right)
+			}
+		}
 	}
 }

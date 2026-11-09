@@ -106,10 +106,11 @@ func TestTabMode(t *testing.T) {
 	if n.tabMode || n.workspace != "w1c" {
 		t.Fatalf("Alt+J in tab mode: mode %v at %s", n.tabMode, n.workspace)
 	}
-	// N opens a tab outside every group, from the focused pane.
+	// N opens a tab outside every group, from the focused pane, on the
+	// active tab's machine.
 	from := n.focused()
-	if ns, ok := do(press("N", 0)).(proto.NewSession); !ok || !ns.Loose || ns.FromPane != from || ns.GroupID != "" {
-		t.Fatalf("n: %#v, want a tab outside every group from pane %s", ns, from)
+	if f, ok := do(press("N", 0)).(fromTab); !ok || f.tab != n.workspace || !f.ns.Loose || f.ns.FromPane != from || f.ns.GroupID != "" {
+		t.Fatalf("n: %#v, want a tab outside every group from pane %s", f, from)
 	}
 }
 

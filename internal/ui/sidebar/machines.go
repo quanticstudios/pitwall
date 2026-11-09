@@ -214,30 +214,38 @@ func (s *Sidebar) machineHeader(gtx layout.Context, v *view, host string) {
 	area := clip.Rect{Max: image.Pt(w, h)}.Push(gtx.Ops)
 	event.Op(gtx.Ops, &ms.ctx)
 	defer area.Pop()
-	if s.cursorOn('m', host) {
-		r := image.Rect(0, 0, w, h)
+	r := image.Rect(0, 0, w, h)
+	switch {
+	case s.cursorOn('m', host):
 		paint.FillShape(gtx.Ops, cursorFill(th, th.Sidebar, false), clip.UniformRRect(r, gtx.Dp(6)).Op(gtx.Ops))
 		cursorRing(gtx, th, r, gtx.Dp(6))
+	case hovered && s.HostSections:
+		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(r, gtx.Dp(6)).Op(gtx.Ops))
 	}
 
+	// The + ends its glyph 8dp from the edge, as rows and group headers
+	// end their content; the text stops a gap before it.
 	btn := gtx.Dp(20)
+	bx := w - btn - gtx.Dp(4)
+	end := bx - gtx.Dp(4)
 	plus := hovered && !down // a down host takes no new tab
 	hg := gtx
-	hg.Constraints = layout.Exact(image.Pt(w-btn-gtx.Dp(4), h))
+	hg.Constraints = layout.Exact(image.Pt(w, h))
 	clickable(hg, &ms.head, func(gtx layout.Context) layout.Dimensions {
 		if s.HostSections {
-			s.sectionLine(gtx, v, host, hi, down, hovered)
+			lg := gtx
+			lg.Constraints = layout.Exact(image.Pt(end, h))
+			s.sectionLine(lg, v, host, hi, down)
 		}
 		return layout.Dimensions{Size: gtx.Constraints.Max}
 	})
 	if !s.HostSections {
-		end := w - gtx.Dp(4)
-		if plus {
-			end = w - btn - gtx.Dp(6)
+		if !plus {
+			end = w - gtx.Dp(8)
 		}
 		s.dividerLine(gtx, th, host, hi, down, end)
 	}
-	o := op.Offset(image.Pt(w-btn-gtx.Dp(2), (h-btn)/2)).Push(gtx.Ops)
+	o := op.Offset(image.Pt(bx, (h-btn)/2)).Push(gtx.Ops)
 	headerButton(gtx, th, &ms.add, icPlus, btn, gtx.Dp(13), plus)
 	o.Pop()
 	if hovered && host != "" && s.hostColor != host {
@@ -273,17 +281,13 @@ func (s *Sidebar) toggleHostColor(host string) {
 	}
 }
 
-// sectionLine is a section's header: chevron, a dot in the machine's
-// color, its name, its latency and tab count (or, folded, what waits on
-// the user), then room for the +.
-func (s *Sidebar) sectionLine(gtx layout.Context, v *view, host string, hi HostInfo, down, hovered bool) {
+// sectionLine is a section's header text in gtx's width: chevron, a dot
+// in the machine's color, its name, its latency and tab count (or, folded,
+// what waits on the user).
+func (s *Sidebar) sectionLine(gtx layout.Context, v *view, host string, hi HostInfo, down bool) {
 	th := v.th
 	ms := s.machine(host)
 	h := gtx.Constraints.Max.Y
-	if hovered {
-		w := gtx.Constraints.Max.X + gtx.Dp(24)
-		paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rect(0, 0, w, h), gtx.Dp(6)).Op(gtx.Ops))
-	}
 	name, nameC, dot := "This machine", th.Fg, th.Green
 	if host != "" {
 		name, nameC, dot = host, th.Readable(HostColor(th, s.Hosts, host), th.Sidebar), HostColor(th, s.Hosts, host)

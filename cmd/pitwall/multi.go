@@ -858,6 +858,9 @@ func (m *multi) newTabOn(v app.NewTabOn) error {
 		// there; the CLI, which sends commands, makes the part itself.
 		return errors.New("open a tab on " + h.name + " first, then run the command there")
 	}
+	if err := firstPartProfile(h.name, tab); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	m.pending[[2]string{h.name, ss.ID}] = ss.Name
 	m.mu.Unlock()
@@ -947,10 +950,24 @@ func (m *multi) shareHere(owner, h *hostLink, tab proto.NewSession) error {
 		m.pushFocus(proto.FocusSession{SessionID: x.ID})
 		return h.b.Send(tab)
 	}
+	if err := firstPartProfile("this machine", tab); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	m.pendingHere[ss.Name] = [2]string{owner.name, ss.ID}
 	m.mu.Unlock()
 	return h.b.Send(proto.SessionNew{Name: ss.Name, Cwd: tab.Cwd})
+}
+
+// firstPartProfile refuses tab when it names an account profile and
+// would be the first tab of the session's part on host: SessionNew,
+// which makes the part, carries no profile, so its shell would start
+// under the default account.
+func firstPartProfile(host string, tab proto.NewSession) error {
+	if tab.Profile == "" {
+		return nil
+	}
+	return fmt.Errorf("%s has no part of this session yet: open its first tab there with the Default account, then pick %s for the next", host, tab.Profile)
 }
 
 // Frame implements app.Backend from the pane's host.
