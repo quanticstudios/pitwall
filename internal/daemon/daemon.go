@@ -1480,6 +1480,9 @@ func (d *Daemon) openPaneFile(m proto.OpenPane, path string) error {
 	if w.Chat != "" {
 		return errors.New("a chat tab has no panes")
 	}
+	if w.Monitor {
+		return errors.New("a Monitor tab has no panes")
+	}
 	var t *model.Tab
 	if ti := tabIndex(w, m.TabID); ti >= 0 {
 		t = &w.Tabs[ti]

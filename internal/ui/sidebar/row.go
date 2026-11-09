@@ -419,6 +419,13 @@ func (s *Sidebar) stateIcon(gtx layout.Context, v *view, ws model.Workspace, a *
 		off.Pop()
 		return layout.Dimensions{Size: image.Pt(sz, sz)}
 	}
+	if a == nil && ws.Monitor {
+		col := th.Muted
+		if isActive {
+			col = th.Primary
+		}
+		return drawIcon(gtx, icActivity, sz, col, 0)
+	}
 	if a == nil {
 		if f := s.tabFavicon(v, ws); f != nil {
 			// A shell in a repo: the repo's icon, at the agent mark's size.

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -130,5 +131,66 @@ func TestMonitorTabs(t *testing.T) {
 	}
 	if s := d.readMonitor(); s.Err == "" || s.Tabs != nil {
 		t.Fatalf("a failed reading = %+v; want Err", s)
+	}
+}
+
+// A session gets one Monitor tab, with no pane; asking again shows it. A
+// window below MonitorTabLevel never sees it (forLevel), and it survives a
+// restart.
+func TestMonitorTab(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	sock, stop := run(t, f)
+	gui := dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui"})
+	st := gui.waitState("first tab", func(s model.State) bool { return len(s.Workspaces) == 1 })
+	session := st.Workspaces[0].SessionID
+	gui.send(proto.SessionShow{SessionID: session})
+
+	gui.send(proto.NewSession{SessionID: session, Monitor: true})
+	st = gui.waitState("a Monitor tab", func(s model.State) bool { return len(s.Workspaces) == 2 })
+	mon := st.Workspaces[1]
+	if !mon.Monitor || mon.Label != "Monitor" || len(mon.Tabs) != 0 || len(st.Panes) != 1 {
+		t.Fatalf("Monitor tab %+v with %d panes", mon, len(st.Panes))
+	}
+	gui.send(proto.NewSession{SessionID: session, Monitor: true})
+	fs := gui.waitFor("focus on it", func(m any) bool { _, ok := m.(proto.FocusSession); return ok }).(proto.FocusSession)
+	if fs.WorkspaceID != mon.ID {
+		t.Fatalf("focus %+v; want the Monitor tab %s", fs, mon.ID)
+	}
+	gui.send(proto.Sync{})
+	if st = gui.waitState("sync", func(model.State) bool { return true }); len(st.Workspaces) != 2 {
+		t.Fatalf("%d tabs after asking twice; want one Monitor tab", len(st.Workspaces))
+	}
+	gui.send(proto.OpenPane{WorkspaceID: mon.ID})
+	for m := range gui.in {
+		if e, ok := m.(proto.Error); ok {
+			if e.Message != "a Monitor tab has no panes" {
+				t.Fatalf("OpenPane: %q", e.Message)
+			}
+			break
+		}
+	}
+
+	ost := forLevel(st, proto.MonitorTabLevel-1)
+	for _, w := range ost.Workspaces {
+		if w.Monitor || w.ID == mon.ID {
+			t.Fatalf("a window below MonitorTabLevel sees the Monitor tab: %+v", w)
+		}
+	}
+	for _, s := range ost.Sessions {
+		if slices.Contains(s.Order, mon.ID) {
+			t.Fatalf("a window below MonitorTabLevel sees the Monitor tab in %v", s.Order)
+		}
+	}
+	stop()
+
+	d, sock, stop := runDaemon(t, f, func(*Options) {})
+	defer stop()
+	gui = dialHello(t, sock, proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui"})
+	st = gui.waitState("restored", func(s model.State) bool { return len(s.Workspaces) == 2 })
+	if w := st.Workspaces[1]; !w.Monitor || w.ID != mon.ID {
+		t.Fatalf("after a restart: %+v; want the Monitor tab back", w)
+	}
+	if ws := (chatHub{d}).Workspaces(); slices.ContainsFunc(ws, func(w model.Workspace) bool { return w.Monitor }) {
+		t.Fatal("the web protocol lists the Monitor tab")
 	}
 }

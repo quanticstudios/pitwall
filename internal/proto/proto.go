@@ -48,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 70 added NewSession.Monitor and model.Workspace.Monitor: Monitor
+// tabs. A client below MonitorTabLevel never sees one.
 // Level 69 added MonitorWatch and MonitorSample: a Monitor tab's readings
 // of its daemon's machine, drawn with sector's view.
 // Level 68 added SessionLink, SessionOrder and model.Session.Remotes:
@@ -195,7 +197,10 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 69
+const Level = 70
+
+// MonitorTabLevel added NewSession.Monitor and model.Workspace.Monitor.
+const MonitorTabLevel = 70
 
 // MonitorLevel added MonitorWatch and MonitorSample.
 const MonitorLevel = 69
@@ -300,6 +305,10 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case NewSession:
+		if m.Monitor {
+			return MonitorTabLevel
+		}
 	case MonitorWatch, MonitorSample:
 		return MonitorLevel
 	case SessionLink, SessionOrder:
@@ -424,6 +433,10 @@ type NewSession struct {
 	// Env is added to Cmd's environment, now and after a restart
 	// (model.Pane.Env). A daemon below EnvLevel ignores it.
 	Env []string
+	// Monitor opens a Monitor tab (model.Workspace.Monitor) and ignores
+	// Cwd, Cmd and Env. When SessionID has one already, the daemon shows
+	// that one instead: one per session and machine.
+	Monitor bool
 }
 
 // SetSessionGroup moves a session into a group; "" ungroups it right after

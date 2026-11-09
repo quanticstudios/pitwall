@@ -117,6 +117,9 @@ type Workspace struct {
 	// Chat is the id of the managed session this tab shows (State.Chats),
 	// "" for a tab of panes. A chat tab has no Tabs and no panes.
 	Chat string
+	// Monitor marks a Monitor tab: it shows its daemon's machine (CPU,
+	// memory, drives, network, processes) and has no Tabs and no panes.
+	Monitor bool
 	// Popup is the floating pane over the tab's splits that pitwall popup
 	// opened, nil for none. It is not saved: a restart drops it.
 	Popup *Popup `json:"-"`

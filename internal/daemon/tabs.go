@@ -424,6 +424,8 @@ func (d *Daemon) retitle() {
 			w.Label = w.Tabs[ti].Title
 		case w.Chat != "" && !w.NameSet && d.chats[w.Chat] != nil && d.chats[w.Chat].title != "":
 			w.Label = d.chats[w.Chat].title
+		case w.Monitor && !w.NameSet:
+			w.Label = "Monitor"
 		default:
 			w.Label = tabTitle(w, &model.Tab{}, panes, running)
 		}

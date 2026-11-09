@@ -30,6 +30,9 @@ func (d *Daemon) newSession(ctx context.Context, m proto.NewSession) error {
 // the tab goes into a new session named *create (generated when ""). prep,
 // when set, fills in the tab before its pane starts, under d.mu.
 func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after string, create *string, prep func(*model.Workspace)) error {
+	if m.Monitor {
+		m.Cwd, m.Cmd, m.Env, m.Loose = "", nil, nil, m.GroupID == ""
+	}
 	if m.Profile != "" {
 		s := config.Settings{}
 		if d.o.Profiles != nil {
@@ -43,7 +46,7 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	}
 	home := homeDir()
 	path := m.Cwd
-	if m.FromPane != "" {
+	if m.FromPane != "" && !m.Monitor {
 		d.mu.Lock()
 		p := d.panes[m.FromPane]
 		d.mu.Unlock()
@@ -99,6 +102,9 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 			m.GroupID = d.projectAt(m.SessionID, path)
 		}
 	}
+	if m.Monitor && d.showMonitor(m.SessionID) {
+		return nil
+	}
 	if m.GroupID != "" && d.project(m.GroupID) == nil {
 		return fmt.Errorf("no group %s", m.GroupID)
 	}
@@ -108,11 +114,12 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 	w := model.Workspace{ID: newID(), SessionID: m.SessionID, ProjectID: m.GroupID, Name: m.Name, NameSet: m.Name != "", Branch: branch, Path: path, RepoRoot: root, UpdatedAt: time.Now()}
 	w.Parent = d.parentTab(m.ParentPane, w.SessionID)
 	w.Profile = m.Profile
+	w.Monitor = m.Monitor
 	if prep != nil {
 		prep(&w)
 	}
-	if w.Chat != "" {
-		// A chat tab shows its chat, not panes.
+	if w.Chat != "" || w.Monitor {
+		// A chat tab shows its chat, and a Monitor tab its machine, not panes.
 	} else if err := d.addTab(&w, path, m.Cmd, m.Env); err != nil {
 		d.st.Sessions = d.st.Sessions[:sessions] // drop one made for this tab
 		return err
@@ -126,6 +133,20 @@ func (d *Daemon) addSession(ctx context.Context, m proto.NewSession, after strin
 		go d.refreshStats(ctx, w.ID)
 	}
 	return nil
+}
+
+// showMonitor shows session's Monitor tab in the windows on that session,
+// and reports whether it has one. The caller holds d.mu.
+func (d *Daemon) showMonitor(session string) bool {
+	i := slices.IndexFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.Monitor && w.SessionID == session })
+	if i < 0 {
+		return false
+	}
+	w := &d.st.Workspaces[i]
+	w.Detached = false
+	d.changed()
+	d.forward(session, proto.FocusSession{WorkspaceID: w.ID, SessionID: session})
+	return true
 }
 
 // parentTab is the tab of pane when it is in session, else "". The caller
