@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/quanticstudios/pitwall/internal/gitenv"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -25,7 +26,7 @@ var ghInstalled = sync.OnceValue(func() bool {
 // global or system config, never the repository's, which this script would
 // eval, else delta when installed, else less -R. LESS gains -R and loses -F, so a short diff
 // stays until q closes the pane, unless the pager command sets -F itself.
-const pagerScript = `cd -- "$1" && cd -- "$(git rev-parse --show-toplevel)" || exit
+const pagerScript = "unset " + gitenv.RepositoryVars + "\n" + `cd -- "$1" && cd -- "$(git rev-parse --show-toplevel)" || exit
 shift
 p=${GIT_PAGER:-$(git config --global core.pager || git config --system core.pager)}
 if [ -z "$p" ]; then
@@ -52,14 +53,14 @@ func diffCmd(dir, base string, file *gitstat.FileStat) []string {
 
 // stageScript runs git add -p at the top of the repository holding $1,
 // then git reset -p to take back a hunk staged by mistake.
-const stageScript = `cd -- "$1" && cd -- "$(git rev-parse --show-toplevel)" || exit
+const stageScript = "unset " + gitenv.RepositoryVars + "\n" + `cd -- "$1" && cd -- "$(git rev-parse --show-toplevel)" || exit
 git add -p
 git reset -p
 `
 
 // prScript pushes the branch at $1 when it has no upstream, never with
 // force, then runs gh pr create --fill, printing each command first.
-const prScript = `cd -- "$1" || exit
+const prScript = "unset " + gitenv.RepositoryVars + "\n" + `cd -- "$1" || exit
 if ! git rev-parse --verify --quiet '@{upstream}' >/dev/null 2>&1; then
 	echo '$ git push -u origin HEAD'
 	git push -u origin HEAD || exit
