@@ -35,6 +35,10 @@ type frameBench struct {
 func (b *frameBench) markSubmitted() { b.submitted = time.Now() }
 
 func (b *frameBench) record(start time.Time, elapsed, wait time.Duration, scale float32) error {
+	if b.submitted.IsZero() {
+		return nil
+	}
+	b.submitted = time.Time{}
 	if b.start.IsZero() {
 		b.start, b.scale = start, scale
 		if err := os.WriteFile(b.path+".ready", []byte(start.Format(time.RFC3339Nano)), 0o600); err != nil {

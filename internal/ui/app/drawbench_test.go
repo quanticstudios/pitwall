@@ -24,6 +24,7 @@ func TestDrawBenchWindow(t *testing.T) {
 	}
 	start := time.Now()
 	for i, elapsed := range []time.Duration{time.Millisecond, 3 * time.Millisecond, 50 * time.Millisecond} {
+		b.submitted = start.Add(time.Duration(i)*500*time.Millisecond + elapsed)
 		if err := b.record(start.Add(time.Duration(i)*500*time.Millisecond), elapsed, time.Second, 1.5); err != nil {
 			t.Fatal(err)
 		}
@@ -51,5 +52,29 @@ func TestDrawBenchWindow(t *testing.T) {
 	t.Setenv("PITWALL_DRAW_BENCH_DURATION", "0s")
 	if _, err := newDrawBench(); err == nil {
 		t.Fatal("accepted zero duration")
+	}
+}
+
+func TestDrawBenchConsumesSubmission(t *testing.T) {
+	b := &frameBench{path: filepath.Join(t.TempDir(), "frames.json"), duration: time.Second}
+	start := time.Now()
+	if err := b.record(start, time.Millisecond, time.Millisecond, 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.samples) != 0 || !b.start.IsZero() {
+		t.Fatal("recorded a frame without a submission")
+	}
+	b.submitted = start.Add(time.Millisecond)
+	if err := b.record(start, time.Millisecond, time.Millisecond, 1); err != nil {
+		t.Fatal(err)
+	}
+	if !b.submitted.IsZero() {
+		t.Fatal("kept a consumed submission")
+	}
+	if err := b.record(start.Add(time.Millisecond), time.Millisecond, time.Millisecond, 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.samples) != 1 || len(b.waits) != 1 {
+		t.Fatal("reused a consumed submission")
 	}
 }
