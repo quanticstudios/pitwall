@@ -482,15 +482,15 @@ func dirName(dir string) string {
 }
 
 // genericTitle reports a title that says nothing about the work: empty, an
-// agent's own name, the name of the session's directory, repo or user, or
-// the program's path, which ConPTY titles a console with until the program
-// sets its own (C:\Program Files\Git\usr\bin\sh.exe).
+// agent's own name, a directory path, the name of the session's directory,
+// repo or user, or the program path ConPTY uses until it sets a title.
 func genericTitle(w *model.Workspace, title string) bool {
 	switch strings.ToLower(title) {
 	case "", "~", "claude", "claude code", "codex", "pi", "π", "omp":
 		return true
 	}
-	if len(title) > 3 && title[1] == ':' && title[2] == '\\' && strings.HasSuffix(strings.ToLower(title), ".exe") {
+	if strings.HasPrefix(title, "/") || strings.HasPrefix(title, "~/") || strings.HasPrefix(title, "./") || strings.HasPrefix(title, "../") || strings.HasPrefix(title, `\\`) ||
+		len(title) > 2 && title[1] == ':' && (title[2] == '\\' || title[2] == '/') {
 		return true
 	}
 	for _, s := range []string{filepath.Base(w.Path), filepath.Base(w.RepoRoot), loginName()} {
@@ -538,10 +538,18 @@ const promptRunes = 48
 // the folder is its own directory's base name; only the session name says
 // anything about the work.
 func cleanTitle(s string) string {
-	s = strings.TrimSpace(strings.TrimLeftFunc(s, func(r rune) bool {
-		return unicode.IsSpace(r) || (r >= 0x2800 && r <= 0x28ff) || strings.ContainsRune("✳✶✻✽✢✺·•*●○◐◓◑◒⏺", r)
-	}))
-	if rest, ok := strings.CutPrefix(s, "π - "); ok {
+	strip := func(s string) string {
+		return strings.TrimSpace(strings.TrimLeftFunc(s, func(r rune) bool {
+			return unicode.IsSpace(r) || (r >= 0x2800 && r <= 0x28ff) || strings.ContainsRune("✳✶✻✽✢✺·•*●○◐◓◑◒⏺", r)
+		}))
+	}
+	s = strip(s)
+	if rest, ok := strings.CutPrefix(s, "π "); ok {
+		s = strip(rest)
+	} else {
+		return s
+	}
+	if rest, ok := strings.CutPrefix(s, "- "); ok {
 		i := strings.LastIndex(rest, " - ")
 		if i < 0 {
 			return ""

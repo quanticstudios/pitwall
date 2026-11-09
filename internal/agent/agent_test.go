@@ -123,6 +123,23 @@ func TestDerive(t *testing.T) {
 	}
 }
 
+func TestSubagentHook(t *testing.T) {
+	if !SubagentHook(fixture(t, "claude_subagent_stop")) || SubagentHook(fixture(t, "claude_pre_tool_use")) {
+		t.Fatal("subagent identity did not match the hook fixtures")
+	}
+	for payload, want := range map[string]bool{
+		`{"hook_event_name":"PreToolUse","agent_id":"worker"}`:     true,
+		`{"hook_event_name":"PostToolUse","agent_id":"worker"}`:    true,
+		`{"hook_event_name":"PostToolUse","agent_id":""}`:          false,
+		`{"hook_event_name":"PostToolUse","agent_type":"Explore"}`: false,
+		`not json`: false,
+	} {
+		if got := SubagentHook([]byte(payload)); got != want {
+			t.Errorf("SubagentHook(%q) = %v, want %v", payload, got, want)
+		}
+	}
+}
+
 func TestDeriveRejectsGarbage(t *testing.T) {
 	for _, b := range []string{"", "not json", `{"type":"other"}`, `{"hook_event_name":"FileChanged"}`} {
 		if _, ok := Derive(nil, model.ProviderClaude, []byte(b), time.Now()); ok {

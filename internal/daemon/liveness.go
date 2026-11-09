@@ -56,6 +56,7 @@ type liveness struct {
 	hookAt       map[string]time.Time // pane: when its agent last sent a hook
 	fg           map[string]int       // pane: its foreground process group at that hook
 	hookSeq      map[string]uint64    // pane: reports received, independent of clock precision
+	background   map[string]bool      // a Stop hook reports background work until the next turn
 	// asked is, per pane, the command its pending approval's hook reported, to
 	// compare with the screen before answering. It stays here, unredacted: the
 	// activity goes to every client and to disk.
@@ -214,6 +215,7 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.fg, id)
 			delete(d.live.hookAt, id)
 			delete(d.live.hookSeq, id)
+			delete(d.live.background, id)
 		}
 	}
 	for id := range d.live.explanations {
@@ -253,6 +255,7 @@ func (d *Daemon) checkForeground() {
 			delete(d.live.fg, id)
 			delete(d.live.hookAt, id)
 			d.dropActivity(id)
+			delete(d.live.background, id)
 			d.setProvider(id, "") // detect names the next agent, if one took over
 			d.recordExplanation(id, "", "", "hook-process-left", agent.ScreenTrace{})
 		}

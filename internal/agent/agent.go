@@ -34,6 +34,7 @@ import (
 type payload struct {
 	Event          string          `json:"hook_event_name"`
 	SessionID      string          `json:"session_id"`
+	AgentID        string          `json:"agent_id"`
 	TranscriptPath json.RawMessage `json:"transcript_path"`
 	Prompt         string          `json:"prompt"`
 	ToolName       string          `json:"tool_name"`
@@ -297,10 +298,8 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		}
 		return "", "", false, false
 	case "Stop":
-		for _, t := range p.BackgroundTasks {
-			if (t.Type == "subagent" || t.Type == "workflow") && t.Status == "running" {
-				return model.StateWorking, "", false, true
-			}
+		if p.backgroundRunning() {
+			return model.StateWorking, "", false, true
 		}
 		return model.StateCompleted, summary(p.LastMessage), false, true
 	case "StopFailure":
@@ -310,6 +309,27 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		return "", "", true, true
 	}
 	return "", "", false, false
+}
+
+// SubagentHook reports a hook with a subagent or in-process teammate's agent_id.
+func SubagentHook(b []byte) bool {
+	p, err := decode(b)
+	return err == nil && p.AgentID != ""
+}
+
+// BackgroundRunning reports a Stop hook that keeps background work active.
+func BackgroundRunning(b []byte) bool {
+	p, err := decode(b)
+	return err == nil && !sideFork(p) && p.Event == "Stop" && p.backgroundRunning()
+}
+
+func (p payload) backgroundRunning() bool {
+	for _, t := range p.BackgroundTasks {
+		if (t.Type == "subagent" || t.Type == "workflow") && t.Status == "running" {
+			return true
+		}
+	}
+	return false
 }
 
 // summaryLen is how much of a turn's last message a completed activity
