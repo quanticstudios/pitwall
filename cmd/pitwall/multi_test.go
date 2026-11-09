@@ -341,7 +341,12 @@ func TestMultiShared(t *testing.T) {
 		t.Fatalf("local got %#v", r)
 	}
 
-	// solo has no part on box: box makes a session named solo, which joins.
+	// solo has no part on box: box makes a session named solo, which
+	// joins. That first shell cannot take an account profile, so a tab
+	// that names one is refused.
+	if err := m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls2", Profile: "work"}}); err == nil {
+		t.Fatal("a new part's first tab took a profile it would drop")
+	}
 	m.Send(app.NewTabOn{Host: "box", Tab: proto.NewSession{SessionID: "ls2"}})
 	if n, ok := next(rd).(proto.SessionNew); !ok || n.Name != "solo" {
 		t.Fatalf("box got %#v", n)
@@ -513,6 +518,27 @@ func TestMultiShareNeedsLevel(t *testing.T) {
 	}
 	if got := next(rd); got != nil {
 		t.Fatalf("box got %#v", got)
+	}
+}
+
+// A tab here while the window shows a session of box's, with no session
+// here of its name, would make one here whose first shell cannot take an
+// account profile, so a tab that names one is refused and nothing is sent.
+func TestMultiShareHereProfile(t *testing.T) {
+	local, ld := localBackend(t, hostState("ls", "lw", "lp"))
+	box := hostState("rs", "rw", "rp")
+	box.Sessions[0].Name = "other"
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's tab", func() bool { return m.HostOf("rw") == "box" })
+	err := m.Send(app.NewTabOn{Host: "", Tab: proto.NewSession{SessionID: "rs", Profile: "work"}})
+	if r := (app.Refusal{}); !errors.As(err, &r) {
+		t.Fatalf("a new session here took a profile it would drop: %v", err)
+	}
+	if got := next(ld); got != nil {
+		t.Fatalf("local got %#v", got)
 	}
 }
 

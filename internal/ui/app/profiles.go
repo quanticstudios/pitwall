@@ -101,6 +101,8 @@ func (u *ui) confirmProfileTab() {
 	u.profile.sending = true
 	st := u.b.State()
 	u.nav.expectSession(&st)
+	earlier := u.sends.err
+	u.sends.err = ""
 	ok := u.send(msg)
 	u.profile.sending = false
 	if ok {
@@ -108,6 +110,10 @@ func (u *ui) confirmProfileTab() {
 		u.profile.pending = nil
 	} else {
 		u.nav.sessions = nil
+		u.modal.pathErr = u.sends.err // a refusal, such as an account a host cannot take yet
+	}
+	if u.sends.err == "" {
+		u.sends.err = earlier
 	}
 }
 
