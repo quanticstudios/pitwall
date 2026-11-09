@@ -26,6 +26,8 @@ pushes the tag once, which starts the release build. Either step takes
 - Mark a hooked Claude Code or Codex turn Done after `quiet_after` at a still input box when its Stop hook is lost. Work hooks restart the interval; running background subagents and workflows keep Working.
 - Allow quiet recovery after a background task resumes the main agent without a new prompt.
 - Keep the agent session ID when a quiet turn completes.
+- Keep the background-work veto when a subagent sends tool hooks.
+- Skip automatic continue while a Stop hook reports running background work.
 
 ## v0.2.2
 

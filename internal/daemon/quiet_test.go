@@ -174,6 +174,8 @@ func TestQuietRecoveryKeepsWorkingEvidence(t *testing.T) {
 		{name: "streaming", screen: box, moving: true},
 		{name: "subagent", screen: box, hook: `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`},
 		{name: "workflow", screen: box, hook: `{"hook_event_name":"Stop","background_tasks":[{"type":"workflow","status":"running"}]}`},
+		{name: "subagent PreToolUse", screen: box, hook: `{"hook_event_name":"PreToolUse","agent_id":"worker","agent_type":"Explore"}`},
+		{name: "subagent PostToolUse", screen: box, hook: `{"hook_event_name":"PostToolUse","agent_id":"worker","agent_type":"Explore"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, f := talkDaemon(t)
@@ -185,6 +187,7 @@ func TestQuietRecoveryKeepsWorkingEvidence(t *testing.T) {
 			lp.show(tc.screen, tc.moving)
 			claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
 			if tc.hook != "" {
+				claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`)
 				claudeHook(t, d, "a", tc.hook)
 				claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop"}`)
 				claudeHook(t, d, "a", `{"hook_event_name":"PostToolUse","transcript_path":null}`)
@@ -256,6 +259,36 @@ func TestQuietRecoveryWaitsAfterHook(t *testing.T) {
 	d.checkQuiet()
 	if got := d.stateOf("a"); got != model.StateWorking || !quietSince(d, "a").IsZero() {
 		t.Fatalf("hook did not restart silence: %q", got)
+	}
+}
+
+func TestContinueWhenQuietKeepsBackgroundWork(t *testing.T) {
+	d, f := talkDaemon(t)
+	d.o.QuietAfter = func() time.Duration { return time.Minute }
+	d.o.ContinueWhenQuiet = func() bool { return true }
+	lp := &livePane{fakePane: f.pane(0)}
+	d.mu.Lock()
+	d.panes["a"] = lp
+	d.mu.Unlock()
+	lp.show("────────────────\n❯\n────────────────", false)
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"PostToolUse","agent_id":"worker"}`)
+	d.checkQuiet()
+	age(d, "a", 2*time.Minute)
+	d.checkQuiet()
+	if got := d.stateOf("a"); got != model.StateWorking {
+		t.Fatalf("background work became %q", got)
+	}
+	d.mu.Lock()
+	nudged := d.quiet["a"].nudged
+	d.mu.Unlock()
+	if !nudged.IsZero() {
+		t.Error("scheduled continue while background work runs")
+	}
+	d.continueQuiet("a", lp, model.ProviderClaude)
+	if got := lp.got(); got != "" {
+		t.Fatalf("typed %q while background work runs", got)
 	}
 }
 

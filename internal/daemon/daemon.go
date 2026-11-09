@@ -1709,7 +1709,7 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 			d.live.background = map[string]bool{}
 		}
 		d.live.background[p.ID] = true
-	} else if mapped && activity.State == model.StateWorking || derived && (next.State == "" || ended(next.State)) {
+	} else if !agent.SubagentHook(m.Payload) && (mapped && activity.State == model.StateWorking || derived && (next.State == "" || ended(next.State))) {
 		delete(d.live.background, p.ID)
 	}
 	command, asks := agent.AskedCommand(m.Payload)

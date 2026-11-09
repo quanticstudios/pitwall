@@ -102,7 +102,7 @@ func (d *Daemon) checkQuiet() {
 			q.shown = shown
 			d.changed()
 		}
-		fire := nudge && q.shown && q.nudged.IsZero() && quietPrompt(l.prov, g) && !d.drafted(l.id, l.prov, g)
+		fire := nudge && q.shown && q.nudged.IsZero() && !d.live.background[l.id] && quietPrompt(l.prov, g) && !d.drafted(l.id, l.prov, g)
 		if fire {
 			q.nudged = now
 		}
@@ -129,7 +129,7 @@ func (d *Daemon) continueQuiet(id string, p Pane, prov model.Provider) {
 	d.mu.Lock()
 	i := d.activityIndex(id)
 	q := d.quiet[id]
-	ok := !d.closing && d.panes[id] == p && i >= 0 && d.st.Activities[i].State == model.StateWorking && q != nil && slices.Equal(q.cells, g.Cells) && !d.drafted(id, prov, g)
+	ok := !d.closing && d.panes[id] == p && i >= 0 && d.st.Activities[i].State == model.StateWorking && !d.live.background[id] && q != nil && slices.Equal(q.cells, g.Cells) && !d.drafted(id, prov, g)
 	d.mu.Unlock()
 	if !ok || !quietPrompt(prov, g) {
 		return

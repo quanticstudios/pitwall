@@ -34,6 +34,7 @@ import (
 type payload struct {
 	Event          string          `json:"hook_event_name"`
 	SessionID      string          `json:"session_id"`
+	AgentID        string          `json:"agent_id"`
 	TranscriptPath json.RawMessage `json:"transcript_path"`
 	Prompt         string          `json:"prompt"`
 	ToolName       string          `json:"tool_name"`
@@ -308,6 +309,12 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		return "", "", true, true
 	}
 	return "", "", false, false
+}
+
+// SubagentHook reports a hook with a subagent or in-process teammate's agent_id.
+func SubagentHook(b []byte) bool {
+	p, err := decode(b)
+	return err == nil && p.AgentID != ""
 }
 
 // BackgroundRunning reports a Stop hook that keeps background work active.

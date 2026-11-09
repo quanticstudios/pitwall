@@ -282,7 +282,8 @@ also types `continue` and Enter into a quiet agent, once. It does so only
 for Claude Code, Codex, pi, Gemini CLI and OpenCode, whose prompts it reads
 from the screen, and only while the screen shows no prompt, form or
 spinner. It types again only after the agent stops working or you type in
-its pane.
+its pane. A Stop hook that reports background work also blocks automatic
+continue.
 
 A script can put a line of text under a tab's row, such as the state of CI:
 
