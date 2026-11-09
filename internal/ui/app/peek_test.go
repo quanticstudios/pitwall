@@ -167,3 +167,75 @@ func TestPeekTakesKeys(t *testing.T) {
 		t.Fatalf("w2 closed, still peeking at %q", u.nav.peek)
 	}
 }
+
+// With the board's cursor on one approval, allow_prompt over a peek
+// answers the peeked pane, never the card under the overlay.
+func TestPeekAnswersOverBoard(t *testing.T) {
+	b := NewFakeBackend()
+	st := b.State()
+	u := &ui{b: b, nav: nav{keys: conventional}}
+	u.nav.sync(&st)
+	u.boardOn = true
+	allow := press("Y", key.ModCtrl|key.ModShift)
+	u.nav.peekTab(&st, "w2", "")
+	if u.boardKey(&st, allow, time.Now()) {
+		t.Fatal("the board took allow_prompt over a peek")
+	}
+	if msg := u.nav.key(&st, allow); msg != nil {
+		t.Fatalf("peek at a pane with no prompt answered %v", msg)
+	}
+	u.nav.peekTab(&st, "w4", "")
+	if msg, ok := u.nav.key(&st, allow).(proto.Answer); !ok || msg.Pane != "g" || !msg.Allow {
+		t.Fatalf("peek at g's approval sent %v", msg)
+	}
+}
+
+// A peek at a pane on another host counts as focus moving there, so a
+// paste of several lines into it asks first, as a click there would.
+func TestPeekHoldsRemotePaste(t *testing.T) {
+	fb := NewFakeBackend()
+	b := FakeShared{FakeBackend: fb, Tab: "w2"}
+	st := b.State()
+	u := &ui{b: b, panes: map[string]*paneUI{}, nav: nav{keys: conventional}}
+	u.nav.sync(&st)
+	now := time.Now()
+	u.noteFocus(now)
+	u.openPeek(&st, "w2", "")
+	u.noteFocus(now)
+	if p := u.paneView(&st, "d"); !p.view.HoldPaste("make\nmake install\n") {
+		t.Fatal("a paste into a peek on box went through without asking")
+	}
+}
+
+// Escape over the settings page or the review view closes the peek and
+// leaves the page as it was.
+func TestPeekEscapeOverPage(t *testing.T) {
+	for _, page := range []string{"settings", "review"} {
+		t.Run(page, func(t *testing.T) {
+			u, keys := keyWindow(t, conventional)
+			u.cfg.Path = t.TempDir() + "/config.toml"
+			shown := func() bool { return u.settings.Shown() }
+			if page == "settings" {
+				u.openSettings()
+			} else {
+				u.review.on, u.review.ws = true, u.nav.workspace
+				shown = func() bool { return u.review.on }
+			}
+			st := u.b.State()
+			u.openPeek(&st, "w2", "")
+			keys(press(key.NameEscape, 0))
+			if u.nav.peek != "" || !shown() {
+				t.Fatalf("Escape: peek %q, %s shown %v", u.nav.peek, page, shown())
+			}
+		})
+	}
+}
+
+// With no peek open, keep_peek's chord reaches the pane as any unbound
+// key does.
+func TestKeepPeekChordReachesPane(t *testing.T) {
+	u, keys := keyWindow(t, conventional)
+	if got := keys(press(key.NameReturn, key.ModCtrl|key.ModShift)); got == "" || u.nav.workspace != "w1" {
+		t.Fatalf("Ctrl+Shift+Enter with no peek: pane got %q, at %s", got, u.nav.workspace)
+	}
+}

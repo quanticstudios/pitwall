@@ -370,6 +370,11 @@ func PaneAction(action string) bool { return slices.Contains(paneActions, action
 // takes only when it moves focus and otherwise leaves to the pane.
 func Navigate(action string) bool { return strings.HasPrefix(action, "navigate_") }
 
+// Sometimes reports whether the window takes action's chords only at
+// times, leaving them to the pane otherwise: a navigate_ action, and
+// keep_peek, which the window takes only while a peek is open.
+func Sometimes(action string) bool { return Navigate(action) || action == "keep_peek" }
+
 // Unshift is c with a shifted symbol key named by the key, as a preset
 // writes it: Ctrl+Shift+} becomes Ctrl+Shift+].
 func Unshift(c Chord) Chord {

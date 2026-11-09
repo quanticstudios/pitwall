@@ -678,7 +678,8 @@ func (u *ui) layout(gtx gl.Context) {
 	}()
 	// A dialog takes every key: none of the window's shortcuts run behind it.
 	dialog := u.modal.kind != modalNone
-	if !u.sw.open && !u.pal.open && !u.browser.open && !dialog && !u.sidebar.Focused() {
+	// A peek covers the page, so its keys, Escape first, are the peek's.
+	if !u.sw.open && !u.pal.open && !u.browser.open && !dialog && !u.sidebar.Focused() && u.nav.peek == "" {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 		u.reviewKeys(gtx, &st)
 	}
