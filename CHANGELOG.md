@@ -20,6 +20,7 @@ pushes the tag once, which starts the release build. Either step takes
 ## Unreleased
 
 - Monitor tabs: Monitor this machine in the command palette, or `open_monitor`, opens a tab of the shown tab's machine, with its CPU by thread and by agent, cores, memory, drives, network and processes grouped by agent, repo and app, as sector draws them. That machine's daemon samples it only while the tab is on screen, at the interval and pause set in the tab. A box tab in a window of several hosts, or `pitwall --host box`, shows box. A machine that stops answering dims its graphs with "No data since" until it is back.
+- A Monitor tab names each agent started in a pitwall pane after that pane's tab, in the CPU graph's legend, its tooltip and the process table, and a click on the agent's row in the process table goes to the tab. An agent started outside pitwall keeps its repo and agent name.
 
 ## v0.2.3
 

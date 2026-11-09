@@ -1782,7 +1782,10 @@ tab per machine, and asking again shows it.
 That machine's own pitwall daemon samples it, only while the tab is on
 screen, at the interval picked in the tab's title bar (1, 2 or 5 seconds),
 and not while it is paused. The window never reads another machine's
-processes itself. When the machine stops answering, the graphs dim and say
+processes itself. An agent started in a pitwall pane shows its tab's name
+in the CPU graph's legend and in the process table, and a click on its row
+there goes to that tab. An agent started outside pitwall keeps its repo
+and agent name. When the machine stops answering, the graphs dim and say
 "No data since 20:41" on that machine's clock until samples come again.
 
 Sampling needs Linux; on another system the tab says why instead. A
