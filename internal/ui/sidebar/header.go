@@ -117,8 +117,10 @@ func (s *Sidebar) sessionButton(gtx layout.Context, th *theme.Theme, name string
 func (s *Sidebar) viewButton(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 	size := gtx.Dp(28)
 	gtx.Constraints = layout.Exact(image.Pt(size, size))
+	glyph := gtx.Dp(16)
+	box := iconBox(size, glyph)
 	return clickable(gtx, &s.viewBtn, func(gtx layout.Context) layout.Dimensions {
-		rr := clip.UniformRRect(image.Rect(0, 0, size, size), gtx.Dp(6))
+		rr := clip.UniformRRect(image.Rect(0, 0, box, box), gtx.Dp(6))
 		col := th.Muted
 		switch {
 		case s.Inbox:
@@ -132,9 +134,10 @@ func (s *Sidebar) viewButton(gtx layout.Context, th *theme.Theme) layout.Dimensi
 			paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
 			col = th.Fg
 		}
-		return drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions {
-			return drawIcon(gtx, icInbox, gtx.Dp(16), col, 0)
+		drawCentered(gtx, box, func(gtx layout.Context) layout.Dimensions {
+			return drawIcon(gtx, icInbox, glyph, col, 0)
 		})
+		return layout.Dimensions{Size: image.Pt(size, size)}
 	})
 }
 
@@ -144,8 +147,10 @@ func (s *Sidebar) viewButton(gtx layout.Context, th *theme.Theme) layout.Dimensi
 func (s *Sidebar) boardButton(gtx layout.Context, th *theme.Theme) layout.Dimensions {
 	size := gtx.Dp(28)
 	gtx.Constraints = layout.Exact(image.Pt(size, size))
+	glyph := gtx.Dp(16)
+	box := iconBox(size, glyph)
 	return clickable(gtx, &s.boardBt, func(gtx layout.Context) layout.Dimensions {
-		rr := clip.UniformRRect(image.Rect(0, 0, size, size), gtx.Dp(6))
+		rr := clip.UniformRRect(image.Rect(0, 0, box, box), gtx.Dp(6))
 		col := th.Muted
 		switch {
 		case s.BoardOn:
@@ -159,9 +164,10 @@ func (s *Sidebar) boardButton(gtx layout.Context, th *theme.Theme) layout.Dimens
 			paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
 			col = th.Fg
 		}
-		d := drawCentered(gtx, size, func(gtx layout.Context) layout.Dimensions {
-			return drawIcon(gtx, icBoard, gtx.Dp(16), col, 0)
+		drawCentered(gtx, box, func(gtx layout.Context) layout.Dimensions {
+			return drawIcon(gtx, icBoard, glyph, col, 0)
 		})
+		d := layout.Dimensions{Size: image.Pt(size, size)}
 		if s.NeedYou > 0 {
 			bg, fg := badgeColors(th)
 			n := strconv.Itoa(s.NeedYou)

@@ -13,6 +13,7 @@ import (
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -289,5 +290,63 @@ func TestMachineHeaderEdge(t *testing.T) {
 	}
 	if !glyph {
 		t.Error("no + on the hovered header")
+	}
+
+	// Over the + its own square shows; the glyph has as much room on
+	// each side of it as above and below.
+	for range 2 {
+		h.r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(float32(right-14), float32(mid)), Source: pointer.Mouse})
+		h.frame()
+	}
+	if err := win.Frame(&h.ops); err != nil {
+		t.Fatal(err)
+	}
+	if err := win.Screenshot(img); err != nil {
+		t.Fatal(err)
+	}
+	sq := theme.Mix(th.SurfaceSecondary, th.Fg, 0.08)
+	var box, plus image.Rectangle
+	grow := func(r *image.Rectangle, x, y int) {
+		if r.Empty() {
+			*r = image.Rect(x, y, x+1, y+1)
+		}
+		*r = r.Union(image.Rect(x, y, x+1, y+1))
+	}
+	for y := top; y < bot; y++ {
+		for x := right - 30; x < right; x++ {
+			if near(img.RGBAAt(x, y), sq) {
+				grow(&box, x, y)
+			}
+		}
+	}
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		for x := box.Min.X; x < box.Max.X; x++ {
+			if img.RGBAAt(x, y).G > sq.G+40 {
+				grow(&plus, x, y)
+			}
+		}
+	}
+	if box.Empty() || plus.Empty() {
+		t.Fatalf("no square %v or + %v over the hovered +", box, plus)
+	}
+	if l, r, u, d := plus.Min.X-box.Min.X, box.Max.X-plus.Max.X, plus.Min.Y-box.Min.Y, box.Max.Y-plus.Max.Y; l != r || u != d {
+		t.Errorf("+ %v in square %v: %d left, %d right, %d above, %d below", plus, box, l, r, u, d)
+	}
+}
+
+// An icon button's square centers its glyph exactly at every scale: the
+// glyph, placed on whole pixels as centered places it, has as much room
+// on its left as on its right.
+func TestIconBoxCenters(t *testing.T) {
+	for _, scale := range []float32{1, 1.25, 1.5, 2, 3} {
+		gtx := layout.Context{Metric: unit.Metric{PxPerDp: scale, PxPerSp: scale}}
+		for _, b := range [][2]unit.Dp{{20, 13}, {24, 14}, {24, 16}, {28, 16}} {
+			size, glyph := gtx.Dp(b[0]), gtx.Dp(b[1])
+			box := iconBox(size, glyph)
+			off := image.Pt(box, box).Sub(image.Pt(glyph, glyph)).Div(2).X // as centered offsets it
+			if left, right := off, box-off-glyph; left != right || box < size-1 || box > size {
+				t.Errorf("scale %v, %vdp button with a %vdp glyph: square %d, room %d left and %d right", scale, b[0], b[1], box, left, right)
+			}
+		}
 	}
 }
