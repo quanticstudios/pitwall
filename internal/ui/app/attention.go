@@ -25,11 +25,14 @@ import (
 // flashing during the round trip. It also tells the daemon whenever the
 // pane shown that way changes, "" for none, so a bell there stays quiet.
 // The settings page, the board (covered or not) and the review view hide
-// the panes.
+// the panes; a peek's pane shows over all of them.
 func (u *ui) markSeen(st *model.State) {
 	f := u.nav.focused()
 	if !u.winFocused || u.settings.Shown() || u.boardOn || u.review.on {
 		f = ""
+	}
+	if u.nav.peek != "" && u.winFocused {
+		f = u.nav.peek // what the window shows on top
 	}
 	see := f != u.focusSent
 	if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return f != "" && a.PaneID == f && a.Unseen }); i >= 0 {

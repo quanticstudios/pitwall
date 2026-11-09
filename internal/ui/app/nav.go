@@ -114,6 +114,12 @@ type nav struct {
 	// none. It lives in this window only.
 	pip string
 
+	// peek is the pane of another tab shown over this one, to read and
+	// type into, "" for none; peekSearch asks the window to open tab
+	// search to pick one (peek_tab).
+	peek       string
+	peekSearch bool
+
 	// Tabs attached here but still detached in the state, shown until the
 	// state agrees.
 	attach map[string]bool
@@ -379,14 +385,46 @@ func (n *nav) togglePiP(pane string) {
 	}
 }
 
+// peekTab peeks at tab ws: pane, else the pane it has focused. Peeking
+// at the shown tab does nothing.
+func (n *nav) peekTab(st *model.State, ws, pane string) {
+	if ws == n.workspace || findWorkspace(st, ws) == nil {
+		return
+	}
+	n.peek = cmp.Or(pane, n.focusIn(st, ws))
+}
+
+// keepPeek closes the peek and shows its tab with its pane focused, as a
+// click on the tab's row does; a detached tab is attached first.
+func (n *nav) keepPeek(st *model.State) any {
+	pn := findPane(st, n.peek)
+	n.peek = ""
+	if pn == nil {
+		return nil
+	}
+	if w := findWorkspace(st, pn.WorkspaceID); w != nil && w.Detached {
+		n.attachSession(st, w.ID)
+		n.selectWorkspace(st, w.ID, pn.ID)
+		return proto.DetachSession{WorkspaceID: w.ID, Detached: false}
+	}
+	n.selectWorkspace(st, pn.WorkspaceID, pn.ID)
+	return nil
+}
+
 // sync applies the overrides to st and repairs the selection after a state
 // change. A session that went away hands over to the next one in sidebar
 // order; a pane that went away to its neighbour in the tab; a tab that went
-// away to the session's active tab.
+// away to the session's active tab. A peek ends when its pane or tab goes,
+// or when its tab is the one shown.
 func (n *nav) sync(st *model.State) {
 	if n.focus == nil {
 		n.focus, n.attach = map[string]string{}, map[string]bool{}
 	}
+	defer func() {
+		if pn := findPane(st, n.peek); pn == nil || pn.WorkspaceID == n.workspace || findWorkspace(st, pn.WorkspaceID) == nil {
+			n.peek = ""
+		}
+	}()
 	n.patch(st)
 	if n.pip != "" && findPane(st, n.pip) == nil {
 		n.pip = ""
@@ -677,10 +715,12 @@ func (n *nav) keyFilters(st *model.State) []key.Filter {
 	for _, c := range b.WindowChords() {
 		if a := b.Action(key.Event{Name: c.Name, Modifiers: c.Mods}); config.Navigate(a) && n.navTarget(st, navDirs[a]) == "" {
 			continue // the pane's
+		} else if a == "keep_peek" && n.peek == "" {
+			continue // the pane's while nothing is peeked at
 		}
 		fs = append(fs, key.Filter{Name: c.Name, Required: c.Mods})
 	}
-	if n.switcherVisible() {
+	if n.switcherVisible() || n.peek != "" {
 		fs = append(fs, key.Filter{Name: key.NameEscape})
 		if n.modalSwitcher() {
 			for _, k := range switcherKeys {
@@ -972,6 +1012,10 @@ func (n *nav) key(st *model.State, e key.Event) any {
 		n.altHeld, n.pinned = false, false
 		return nil
 	}
+	if e.Name == key.NameEscape && n.peek != "" {
+		n.peek, n.swallow = "", e.Name // its release must not reach the pane
+		return nil
+	}
 	if n.modalSwitcher() && e.Modifiers == 0 {
 		switch e.Name {
 		case "J", key.NameDownArrow:
@@ -1037,6 +1081,10 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.cleanup = true
 	case "picture_in_picture":
 		n.togglePiP(n.focused())
+	case "peek_tab":
+		n.peekSearch = true
+	case "keep_peek":
+		return n.keepPeek(st)
 	case "jump_last_prompt":
 		n.jumpLastPrompt(st)
 	case "jump_attention":

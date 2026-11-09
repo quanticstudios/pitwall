@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -106,14 +107,18 @@ func (s *Sidebar) boardCard(gtx layout.Context, th *theme.Theme, st *model.State
 // sidebar's own answer paths, which drop a click whose prompt changed
 // since the press and so check the screen before pressing; its other
 // buttons; and a click on the card itself, which puts the cursor there,
-// or opens the tab on a second click.
+// or opens the tab on a second click, or peeks at it with Alt.
 func (s *Sidebar) cardClicks(gtx layout.Context, st *model.State, card board.Card, cs *boardCard) {
 	for {
 		e, ok := cs.card.Update(gtx)
 		if !ok {
 			break
 		}
-		if e.NumClicks > 1 && card.Kind != board.KindTask {
+		switch {
+		case card.Kind == board.KindTask:
+		case e.Modifiers.Contain(key.ModAlt):
+			s.events = append(s.events, Peek{WorkspaceID: card.ID, PaneID: card.Act.PaneID})
+		case e.NumClicks > 1:
 			s.events = append(s.events, SelectWorkspace{WorkspaceID: card.ID, PaneID: card.Act.PaneID})
 		}
 		s.bd.cur = card.ID

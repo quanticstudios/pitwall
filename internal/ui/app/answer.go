@@ -14,15 +14,20 @@ func (u *ui) canAnswer() bool { return u.link().Level >= proto.Since(proto.Answe
 
 // answer is allow_prompt's or deny_prompt's message: Allow or Deny on the
 // focused pane's permission prompt, else on the one the shown tab's row
-// shows; nil when neither is one.
+// shows; nil when neither is one. While a peek is open, its pane and tab
+// stand in for the focused pane and the shown tab.
 func (n *nav) answer(st *model.State, allow bool) any {
+	ws, pane := n.workspace, n.focused()
+	if pn := findPane(st, n.peek); pn != nil {
+		ws, pane = pn.WorkspaceID, pn.ID
+	}
 	var tab []model.Activity
 	for _, a := range st.Activities {
-		if a.WorkspaceID == n.workspace {
+		if a.WorkspaceID == ws {
 			tab = append(tab, a)
 		}
 	}
-	i := slices.IndexFunc(tab, func(a model.Activity) bool { return a.PaneID == n.focused() })
+	i := slices.IndexFunc(tab, func(a model.Activity) bool { return a.PaneID == pane })
 	a := model.Aggregate(tab)
 	if i >= 0 && remote.Answerable(tab[i]) {
 		a = &tab[i]

@@ -55,6 +55,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 		hits = u.tabSearchRows(st)
 		title, hint = "Tabs", "Type a name, branch, group, folder, agent or PR"
 		total := len(tabRows(st, "", "", false))
+		if p.peek {
+			title, total = "Peek at tab", len(u.peekable(tabRows(st, "", "", false)))
+		}
 		rows = make([]paletteEntry, len(hits))
 		n := len(hits)
 		if n > 0 && hits[n-1].all {
@@ -226,6 +229,9 @@ func (u *ui) drawPalette(gtx gl.Context, st *model.State) {
 	hints := [][2]string{{"↑↓", "move"}, {"Enter", verb}, {"Esc", "close"}}
 	if p.tabs {
 		hints = tabHints(hits, sel)
+	}
+	if p.tabs && p.peek {
+		hints = [][2]string{{"↑↓", "move"}, {"Enter", "peek"}, {"Esc", "close"}}
 	}
 	if p.files {
 		hints = pathHints(len(u.paths.marked))

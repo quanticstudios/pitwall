@@ -21,6 +21,7 @@ type palette struct {
 	open     bool
 	search   bool // the same palette searches session contents
 	tabs     bool // or tabs, live and closed (tabsearch.go)
+	peek     bool // tab search's Enter peeks at a live tab (peek_tab)
 	files    bool // or files to type the paths of (pathpick.go)
 	query    string
 	sel      int // the highlighted row of rank's result
@@ -44,7 +45,7 @@ func (p *palette) openAt(now time.Time) {
 	p.open, p.query, p.sel = true, "", 0
 }
 
-func (p *palette) close() { p.open, p.files = false, false }
+func (p *palette) close() { p.open, p.files, p.peek = false, false, false }
 
 // paletteEntries is every action, grouped in the order the groups first
 // appear in the config, with the chords b binds to it. A tab- or pane-mode

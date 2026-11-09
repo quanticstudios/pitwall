@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gioui.org/io/event"
+	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/op"
@@ -289,8 +290,16 @@ func (s *Sidebar) hostList(gtx layout.Context, th *theme.Theme, st *model.State)
 			if ws == nil {
 				continue
 			}
-			for btn("a:" + a.PaneID).Clicked(gtx) {
-				s.events = append(s.events, SelectWorkspace{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID})
+			for {
+				c, ok := btn("a:" + a.PaneID).Update(gtx)
+				if !ok {
+					break
+				}
+				var e Event = SelectWorkspace{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID}
+				if c.Modifiers.Contain(key.ModAlt) {
+					e = Peek{WorkspaceID: a.WorkspaceID, PaneID: a.PaneID}
+				}
+				s.events = append(s.events, e)
 			}
 			host, gone := hostOf[ws.SessionID], down[ws.SessionID]
 			if h := s.hostOf(ws.ID); h != "" { // a shared session's tab on another host

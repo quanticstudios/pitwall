@@ -984,6 +984,36 @@ A pane too wide or too tall for the card shows its left part and its rows
 down to the cursor or the last line of text, whichever is lower, where an
 agent's prompt is.
 
+### Peek
+
+Peek looks at another tab without leaving yours. The tab's focused pane
+shows in a card over the tab you are on, 80% of the window's width and
+height, and the rest of the window dims. Unlike picture in picture, the
+pane takes the keyboard and the mouse: scroll it, select in it, answer a
+permission prompt or type "go on". `allow_prompt` and `deny_prompt` answer
+the peeked pane. Bound window keys keep their meaning, and Esc closes the
+card instead of reaching the pane.
+
+Open a peek from:
+
+- an Alt+click on a tab's row in the sidebar, in the inbox and Waiting on
+  you included, or on an agent under a row, which peeks at that pane;
+- an Alt+click on a board card, or Space on the board's focused card;
+- Peek at tab in the command palette, which opens tab search and peeks
+  at the tab you pick. Bind it as `peek_tab` under `[keys]`.
+
+The card's header names the tab, its agent and state, and in a shared
+session the machine its pane runs on; a pane on another host draws and
+takes input as it does in a split, with its host tag. The footer lists
+the keys. Esc or a click outside the card closes it. `keep_peek`
+(Ctrl+Shift+Enter, Cmd+Enter in mac) goes to the peeked tab with its pane
+focused, attaching it first if it was detached. One peek shows at a
+time. Peeking at the tab you are on does nothing, and the card closes
+when its pane or tab closes, or when you go to its tab another way.
+
+The peeked pane takes the card's size while it shows, as a pane does when
+its split changes, and its own tab's size again when you go there.
+
 ### Agent errors
 
 Settings, Agent errors shows where your agents waste steps and tokens. From
@@ -1683,7 +1713,8 @@ question with its options, the result of a turn, a pull request's checks,
 or an orchestrator's workers. Open it with the board button right of the
 inbox button in the sidebar's header, whose badge counts the cards that
 wait on you, or with `toggle_board` (Ctrl+Shift+M, Cmd+Shift+M on macOS).
-Esc, or showing a tab, goes back to the panes.
+Esc, or showing a tab, goes back to the panes. Space or an Alt+click on a
+card [peeks](#peek) at its tab over the board.
 
 - **Needs you**: approvals, then questions, then plans, oldest first. An
   approval shows its tool, folder (with the host for a remote tab) and the
