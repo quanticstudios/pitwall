@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -122,6 +123,107 @@ func TestContinueWhenQuietDraft(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if got := f.pane(0).got(); got != "" {
 		t.Fatalf("typed %q into the draft", got)
+	}
+}
+
+func TestQuietRecoversMissingStop(t *testing.T) {
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+		t.Run(string(provider), func(t *testing.T) {
+			d, f := talkDaemon(t)
+			d.o.QuietAfter = func() time.Duration { return time.Minute }
+			lp := &livePane{fakePane: f.pane(0)}
+			d.mu.Lock()
+			d.panes["a"] = lp
+			d.mu.Unlock()
+			screen := "────────────────\n❯\n────────────────"
+			if provider == model.ProviderCodex {
+				screen = "›\n\n  ? for shortcuts"
+			}
+			lp.show(screen, false)
+			must(t, d.agentEvent(t.Context(), proto.AgentEvent{Pane: "a", Provider: provider,
+				Payload: []byte(`{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)}))
+			d.checkQuiet()
+			age(d, "a", 2*time.Minute)
+			if provider == model.ProviderClaude {
+				claudeHook(t, d, "a", `{"hook_event_name":"Notification","notification_type":"idle_prompt"}`)
+			}
+			d.checkQuiet()
+			if got := d.stateOf("a"); got != model.StateCompleted {
+				t.Fatalf("missing Stop left state %q at a quiet input box", got)
+			}
+			if got := lp.got(); got != "" {
+				t.Fatalf("recovery typed %q", got)
+			}
+		})
+	}
+}
+
+func TestQuietRecoveryKeepsWorkingEvidence(t *testing.T) {
+	box := "────────────────\n❯\n────────────────"
+	for _, tc := range []struct {
+		name, screen, hook string
+		moving             bool
+	}{
+		{name: "spinner", screen: "✢ Nesting… (9s · ↓ 232 tokens)\n" + box},
+		{name: "tool", screen: box + "\nesc to interrupt"},
+		{name: "form", screen: box + "\nDo you want to proceed?"},
+		{name: "no box", screen: "a silent tool"},
+		{name: "streaming", screen: box, moving: true},
+		{name: "subagent", screen: box, hook: `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`},
+		{name: "workflow", screen: box, hook: `{"hook_event_name":"Stop","background_tasks":[{"type":"workflow","status":"running"}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, f := talkDaemon(t)
+			d.o.QuietAfter = func() time.Duration { return time.Minute }
+			lp := &livePane{fakePane: f.pane(0)}
+			d.mu.Lock()
+			d.panes["a"] = lp
+			d.mu.Unlock()
+			lp.show(tc.screen, tc.moving)
+			claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
+			if tc.hook != "" {
+				claudeHook(t, d, "a", tc.hook)
+				claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop"}`)
+				claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"/model"}`)
+				claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"compact"}`)
+			}
+			d.checkQuiet()
+			age(d, "a", 2*time.Minute)
+			d.checkQuiet()
+			if got := d.stateOf("a"); got != model.StateWorking {
+				t.Fatalf("working evidence became %q", got)
+			}
+			if tc.hook != "" {
+				claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"next task"}`)
+				d.checkQuiet()
+				if got := d.stateOf("a"); got != model.StateWorking || !quietSince(d, "a").IsZero() {
+					t.Fatalf("new prompt did not restart silence: %q", got)
+				}
+				age(d, "a", 2*time.Minute)
+				d.checkQuiet()
+				if got := d.stateOf("a"); got != model.StateCompleted {
+					t.Fatalf("new turn kept the background veto: %q", got)
+				}
+			}
+		})
+	}
+}
+
+func TestQuietRecoveryWaitsAfterHook(t *testing.T) {
+	d, f := talkDaemon(t)
+	d.o.QuietAfter = func() time.Duration { return time.Minute }
+	lp := &livePane{fakePane: f.pane(0)}
+	d.mu.Lock()
+	d.panes["a"] = lp
+	d.mu.Unlock()
+	lp.show("────────────────\n❯\n────────────────", false)
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
+	d.checkQuiet()
+	age(d, "a", 2*time.Minute)
+	claudeHook(t, d, "a", `{"hook_event_name":"PostToolUse"}`)
+	d.checkQuiet()
+	if got := d.stateOf("a"); got != model.StateWorking || !quietSince(d, "a").IsZero() {
+		t.Fatalf("hook did not restart silence: %q", got)
 	}
 }
 

@@ -123,9 +123,21 @@ func TestCleanTitle(t *testing.T) {
 		"π - web-app":      "",
 		"π - internal":     "", // pi started in a subdirectory: still only its folder
 		"⠋ π - auth - api": "auth",
+		"π ⠹ task":         "task",
+		"π ⠼ task":         "task",
 	} {
 		if got := cleanTitle(in); got != want {
 			t.Errorf("cleanTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFolderTitleFallsBackToPrompt(t *testing.T) {
+	w := &model.Workspace{Path: "/src/repo"}
+	for _, title := range []string{"/src/repo", "/src/repo/internal", "~/src/repo", "./internal", "../repo", `C:\src\repo`, "C:/src/repo", `\\box\repo`} {
+		p := &model.Pane{ID: "a", Provider: model.ProviderClaude, Title: title, Prompt: "fix the cache"}
+		if got := tabTitle(w, &model.Tab{Layout: layout.Leaf(p.ID)}, map[string]*model.Pane{p.ID: p}, nil); got != p.Prompt {
+			t.Errorf("title %q renamed tab to %q, want %q", title, got, p.Prompt)
 		}
 	}
 }
@@ -352,6 +364,12 @@ func TestTitleFollowsAgentPane(t *testing.T) {
 	time.Sleep(2 * titlePoll)
 	if got := d.state().Version; got != v {
 		t.Fatalf("a spinner frame pushed state: version %d -> %d", v, got)
+	}
+	d.setTitle(agent, f.pane(1), "π ⠹ task")
+	v = d.state().Version
+	d.setTitle(agent, f.pane(1), "π ⠼ task")
+	if got := d.state(); got.Version != v || got.Workspaces[0].Tabs[0].Title != "task" {
+		t.Fatalf("a pi spinner frame changed the title or pushed state: version %d -> %d, title %q", v, got.Version, got.Workspaces[0].Tabs[0].Title)
 	}
 }
 

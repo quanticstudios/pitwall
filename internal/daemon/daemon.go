@@ -1538,6 +1538,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.live.asked, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.hookSeq, id)
+	delete(d.live.background, id)
 	delete(d.live.fg, id)
 	delete(d.live.started, id)
 	delete(d.live.fresh, id)
@@ -1698,6 +1699,20 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 
 	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
+	if q := d.quiet[p.ID]; q != nil {
+		// Repeated work hooks restart silence; idle reminders and slash commands do not.
+		if activity, ok := d.o.Derive(nil, m.Provider, m.Payload, now); ok && activity.State != "" {
+			q.since = now
+		}
+	}
+	if agent.BackgroundRunning(m.Payload) {
+		if d.live.background == nil {
+			d.live.background = map[string]bool{}
+		}
+		d.live.background[p.ID] = true
+	} else if agent.Prompt(m.Provider, m.Payload) != "" || derived && (next.State == "" || ended(next.State)) {
+		delete(d.live.background, p.ID)
+	}
 	command, asks := agent.AskedCommand(m.Payload)
 	// why: Derive sees no change in two requests with one description, and an answer to the first must not land on the second.
 	if asks && !derived && prev != nil && prev.State == model.StatePendingApproval && command != d.askedOf(*prev) {

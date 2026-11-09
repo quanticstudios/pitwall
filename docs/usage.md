@@ -270,7 +270,12 @@ when the text waits.
 A working agent whose screen has not changed for 20 minutes shows
 **quiet 20m** on its row in place of the time, and in its hover card. An
 agent can hang mid-turn, and Gemini CLI never reports a failed turn, so
-Working alone does not mean busy. Set the minutes with `quiet_after` under
+Working alone does not mean busy. If a hooked Claude Code or Codex turn
+shows its input box without a form or busy indicator for that whole interval,
+pitwall marks it Done even if its Stop hook never arrives. A Stop hook that
+reports running background subagents or workflows keeps Working until the
+next turn or a completion hook. Work hooks restart the interval; idle
+reminders and slash commands do not. Set the minutes with `quiet_after` under
 `[agents]` in `config.toml`, or **Quiet after** in Settings; 0 turns it
 off. With `continue_when_quiet = true` (**Continue when quiet**), pitwall
 also types `continue` and Enter into a quiet agent, once. It does so only

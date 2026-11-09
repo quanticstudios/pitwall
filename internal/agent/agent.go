@@ -297,10 +297,8 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		}
 		return "", "", false, false
 	case "Stop":
-		for _, t := range p.BackgroundTasks {
-			if (t.Type == "subagent" || t.Type == "workflow") && t.Status == "running" {
-				return model.StateWorking, "", false, true
-			}
+		if p.backgroundRunning() {
+			return model.StateWorking, "", false, true
 		}
 		return model.StateCompleted, summary(p.LastMessage), false, true
 	case "StopFailure":
@@ -310,6 +308,21 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		return "", "", true, true
 	}
 	return "", "", false, false
+}
+
+// BackgroundRunning reports a Stop hook that keeps background work active.
+func BackgroundRunning(b []byte) bool {
+	p, err := decode(b)
+	return err == nil && !sideFork(p) && p.Event == "Stop" && p.backgroundRunning()
+}
+
+func (p payload) backgroundRunning() bool {
+	for _, t := range p.BackgroundTasks {
+		if (t.Type == "subagent" || t.Type == "workflow") && t.Status == "running" {
+			return true
+		}
+	}
+	return false
 }
 
 // summaryLen is how much of a turn's last message a completed activity
