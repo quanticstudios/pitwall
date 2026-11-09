@@ -269,7 +269,7 @@ type hostMove struct {
 
 // noteFocus records a focus move between hosts, for pasteAsks.
 func (u *ui) noteFocus(now time.Time) {
-	f := u.nav.focused()
+	f := cmp.Or(u.nav.peek, u.nav.focused()) // a peek's pane takes the keys
 	if f == "" || f == u.lastFocus {
 		return
 	}

@@ -225,12 +225,12 @@ func (bd *boardState) shownCols() []board.Column {
 }
 
 // boardKeys moves the cursor with the arrow keys, opens its tab with
-// Enter, and leaves the scope menu, then the scope, then the board with
-// Esc.
+// Enter, peeks at it with Space, and leaves the scope menu, then the
+// scope, then the board with Esc.
 func (s *Sidebar) boardKeys(gtx layout.Context, st *model.State) {
 	bd := &s.bd
 	filters := []event.Filter{key.Filter{Name: key.NameEscape}}
-	for _, k := range []key.Name{key.NameUpArrow, key.NameDownArrow, key.NameLeftArrow, key.NameRightArrow, key.NameReturn, key.NameEnter} {
+	for _, k := range []key.Name{key.NameUpArrow, key.NameDownArrow, key.NameLeftArrow, key.NameRightArrow, key.NameReturn, key.NameEnter, key.NameSpace} {
 		filters = append(filters, key.Filter{Focus: &bd.tag, Name: k})
 	}
 	for {
@@ -255,6 +255,10 @@ func (s *Sidebar) boardKeys(gtx layout.Context, st *model.State) {
 		case key.NameReturn, key.NameEnter:
 			if c, ok := bd.b.All[bd.cur]; ok {
 				s.events = append(s.events, SelectWorkspace{WorkspaceID: c.ID, PaneID: c.Act.PaneID})
+			}
+		case key.NameSpace:
+			if c, ok := bd.b.All[bd.cur]; ok && c.Kind != board.KindTask {
+				s.events = append(s.events, Peek{WorkspaceID: c.ID, PaneID: c.Act.PaneID})
 			}
 		default:
 			bd.step(e.Name)
@@ -1007,6 +1011,7 @@ func (s *Sidebar) boardFooter(gtx layout.Context, th *theme.Theme, o BoardOption
 	}
 	answer := strings.TrimSpace(o.AllowKey + " " + o.DenyKey)
 	hint("Enter", "open tab", true)
+	hint("Space", "peek", false)
 	hint(answer, "allow, deny", false)
 	hint("Esc", "back to panes", false)
 	g := gtx

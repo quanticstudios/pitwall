@@ -20,6 +20,7 @@ pushes the tag once, which starts the release build. Either step takes
 ## Unreleased
 
 - Add `pwbench` to compare window drawing and process CPU time across fixed spinner, title, terminal flood and scrollback workloads in a private display.
+- Peek shows another tab's focused pane in a card over the tab you are on, at 80% of the window, without leaving your place: read it, scroll it and type into it, such as an answer to a permission prompt, then Esc or a click outside the card closes it. Alt+click a sidebar row, an agent under a row or a board card, press Space on the board's focused card, or run Peek at tab (`peek_tab`, unbound) from the command palette and pick one. `keep_peek` (Ctrl+Shift+Enter, Cmd+Enter in mac) goes to the peeked tab. The card's header names the tab, its agent and state, and its machine in a shared session, where a pane on another host works as it does in a split.
 
 ## v0.2.2
 

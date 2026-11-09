@@ -13,6 +13,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
@@ -768,4 +769,31 @@ func (f *FakeBackend) AddForm(fm model.Form) {
 	defer f.mu.Unlock()
 	f.st.Forms = append(f.st.Forms, fm)
 	f.bump()
+}
+
+// FakeShared is the fake state as a shared session whose tab Tab, and
+// that tab's panes, are on a host named box, for pwdemo-app's -remote.
+type FakeShared struct {
+	*FakeBackend
+	Tab string
+}
+
+// SessionHost is "": the session is this machine's, shared with box.
+func (FakeShared) SessionHost(string) string { return "" }
+
+// HostOf is box for Tab and its panes.
+func (f FakeShared) HostOf(id string) string {
+	st := f.State()
+	if p := findPane(&st, id); p != nil {
+		id = p.WorkspaceID
+	}
+	if id == f.Tab {
+		return "box"
+	}
+	return ""
+}
+
+// Hosts is this machine and box.
+func (FakeShared) Hosts() []sidebar.HostInfo {
+	return []sidebar.HostInfo{{Up: true}, {Name: "box", SSH: "me@box", Up: true, Latency: 38 * time.Millisecond}}
 }

@@ -357,8 +357,9 @@ type ui struct {
 	browser  commandBrowser
 	paneMenu paneMenu
 
-	find findBar // the find bar, on the focused pane while open
-	pip  pipView // picture in picture, see pip.go
+	find findBar  // the find bar, on the focused pane while open
+	pip  pipView  // picture in picture, see pip.go
+	peek peekView // the peek overlay, see peek.go
 
 	hints hintMode // hints mode, while on
 
@@ -513,8 +514,9 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.pal.search, u.pal.tabs = false, false
 		u.pal.openAt(now)
 	}
-	if u.nav.tabSearch {
-		u.nav.tabSearch = false
+	if u.nav.tabSearch || u.nav.peekSearch {
+		u.pal.peek = u.nav.peekSearch
+		u.nav.tabSearch, u.nav.peekSearch = false, false
 		u.stopSearchAll()
 		u.pal.search, u.pal.tabs = false, true
 		u.pal.openAt(now)
@@ -659,6 +661,10 @@ func (u *ui) layout(gtx gl.Context) {
 		OpenBoard = false
 		u.toggleBoard()
 	}
+	if PeekTab != "" && u.nav.workspace != "" {
+		u.openPeek(&st, PeekTab, "")
+		PeekTab = ""
+	}
 	u.showHost()
 	u.openRequested(&st, gtx.Now)
 	u.keepSidebarKeys()
@@ -672,7 +678,8 @@ func (u *ui) layout(gtx gl.Context) {
 	}()
 	// A dialog takes every key: none of the window's shortcuts run behind it.
 	dialog := u.modal.kind != modalNone
-	if !u.sw.open && !u.pal.open && !u.browser.open && !dialog && !u.sidebar.Focused() {
+	// A peek covers the page, so its keys, Escape first, are the peek's.
+	if !u.sw.open && !u.pal.open && !u.browser.open && !dialog && !u.sidebar.Focused() && u.nav.peek == "" {
 		u.settingsKeys(gtx) // before the shortcuts, so a chord being recorded is not run
 		u.reviewKeys(gtx, &st)
 	}
@@ -804,14 +811,17 @@ func (u *ui) layout(gtx gl.Context) {
 	fade := anim.At(gtx, u.switchAt, anim.Long)
 	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
 	u.keepFind(&st)
-	if u.settings.Shown() {
+	if u.settings.Shown() || u.review.on || u.boardOn {
 		u.paneMenu.close()
+		if u.nav.peek != "" {
+			u.showPanes(map[string]bool{u.nav.peek: true}) // no pane under the page or the board
+		}
+	}
+	if u.settings.Shown() {
 		u.layoutSettings(pgtx, &st)
 	} else if u.review.on {
-		u.paneMenu.close()
 		u.layoutReview(pgtx, &st)
 	} else if u.boardOn {
-		u.paneMenu.close()
 		u.layoutBoard(pgtx, &st)
 	} else {
 		u.layoutPanes(pgtx, &st)
@@ -888,6 +898,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.sidebar.CloseReply() // a hidden sheet would keep the keys from the panes
 	}
 
+	u.drawPeek(gtx, &st)
 	u.layoutPicker(gtx, &st)
 	u.layoutModal(gtx, &st)
 	u.tickReview(gtx, &st)
@@ -1011,6 +1022,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.send(proto.MoveGroup{GroupID: e.GroupID, Before: e.Before})
 	case sidebar.CloseTab:
 		u.sendOrAsk(st, proto.CloseTab{WorkspaceID: e.WorkspaceID})
+	case sidebar.Peek:
+		u.openPeek(st, e.WorkspaceID, e.PaneID)
 	case sidebar.PictureInPicture:
 		if p := findPane(st, u.nav.pip); p != nil && p.WorkspaceID == e.WorkspaceID {
 			u.nav.pip = ""
@@ -1095,6 +1108,9 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 
 func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	live := map[string]bool{}
+	if p := u.nav.peek; p != "" {
+		live[p] = true // drawPeek draws it over the panes
+	}
 	defer func() { // a pane no longer drawn has lost focus
 		u.showPanes(live)
 		for id, p := range u.panes {
@@ -1151,8 +1167,8 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	area := layout.Rect{X: m, Y: m, W: max(0, gtx.Constraints.Max.X-2*m), H: max(0, gtx.Constraints.Max.Y-2*m)}
 	paint.FillShape(gtx.Ops, u.th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	focused := u.nav.focused()
-	if u.modal.kind != modalNone || u.sidebar.Editing() || u.sidebar.Focused() || u.nav.tabMode || u.nav.paneMode || u.pal.open || u.offline || u.formHoldsKeys(st) || u.hints.on || u.paneMenu.pane != "" || u.browser.open || u.picker.open {
-		focused = "" // a dialog, a rename field, tab mode, the palette, a form, hints mode, a pane menu or the browser holds key focus
+	if u.keysHeld(st) || u.nav.peek != "" {
+		focused = "" // a dialog, a rename field, tab mode, the palette, a form, hints mode, a pane menu, the browser or a peek holds key focus
 	}
 	findFocus := focused != "" && focused == u.find.pane
 	if u.find.pane != "" {
@@ -1279,7 +1295,9 @@ func (u *ui) layoutPane(gtx gl.Context, st *model.State, p *paneUI, id string, r
 			break
 		}
 		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
-			u.nav.setFocus(id)
+			if id != u.nav.peek { // a peek's pane is not the shown tab's
+				u.nav.setFocus(id)
+			}
 			u.leaveSidebar()
 		}
 	}

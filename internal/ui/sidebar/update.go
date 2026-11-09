@@ -14,9 +14,15 @@ import (
 	"gioui.org/widget"
 )
 
-// click applies a plain, Ctrl or Shift click on tab id.
+// click applies a plain, Ctrl, Shift or Alt click on tab id.
 func (s *Sidebar) click(v *view, id string, mods key.Modifiers) {
 	switch {
+	case mods.Contain(key.ModAlt):
+		e := Peek{WorkspaceID: id}
+		if a := v.ownActivity(id); a != nil {
+			e.PaneID = a.PaneID
+		}
+		s.events = append(s.events, e)
 	case mods.Contain(key.ModShortcut):
 		if len(s.selected) == 0 && v.active != "" && v.active != id {
 			s.selected[v.active] = true // Ctrl+click extends from the open tab

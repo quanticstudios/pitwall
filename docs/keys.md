@@ -34,6 +34,7 @@ matches per pane and source, 10,000 total; narrow the query when more exist.
 `search_all` is unbound in every preset. Bind it under `[keys]` if wanted.
 `picture_in_picture`, which keeps the focused pane in a corner over the
 other tabs, is unbound too; see [Picture in picture](usage.md#picture-in-picture).
+So is `peek_tab`, which picks a tab to show over yours; see [Peek](usage.md#peek).
 
 Ctrl+Shift+K (Cmd+K in mac) opens tab search in the same card: every tab of
 every session and host, and the tabs you closed, by name, branch, group,
@@ -301,11 +302,22 @@ the board (see [the board](usage.md#the-board)):
 | Up / Down                  | The card above / below in its column                          |
 | Left / Right               | The nearest card in the next column to the left / right       |
 | Enter                      | Show the card's tab                                           |
+| Space                      | Peek at the card's tab                                        |
 | allow_prompt / deny_prompt | Allow / Deny the focused card's approval, when it shows Allow |
 | Esc                        | Close the scope menu, then go back to All tabs, then to the panes |
 
 Allow and Deny act on the card with the focus ring, never on a pane behind
 the board.
+
+Peek shows another tab's focused pane in a card over the tab you are on.
+Alt+click a sidebar row, an agent under a row or a board card, press Space
+on the board's focused card, or choose Peek at tab in the command palette
+(`peek_tab`, unbound in every preset) and pick a tab. While the card is
+open, typed keys go to the peeked pane; bound window keys keep their
+meaning. Esc or a click outside the card closes it, and `keep_peek`
+(Ctrl+Shift+Enter in conventional and aide, Cmd+Enter in mac) goes to its
+tab. The window takes `keep_peek` only while a peek is open, so the key
+reaches the pane otherwise. See [Peek](usage.md#peek).
 
 Every action, with its config name, is listed by `pitwall config default`.
 The session-era names `next_session`, `prev_session`, `new_session` and

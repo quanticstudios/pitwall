@@ -593,9 +593,13 @@ func (s *Sidebar) subEvents(gtx layout.Context, v *view, dropped bool) {
 }
 
 // clickPane is a click on pane's sub-row in tab: Ctrl and Shift select the
-// tab as a click on its row does, a plain click shows the tab with that
-// pane focused.
+// tab as a click on its row does, Alt peeks at the pane, a plain click
+// shows the tab with that pane focused.
 func (s *Sidebar) clickPane(v *view, tab, pane string, mods key.Modifiers) {
+	if mods.Contain(key.ModAlt) {
+		s.events = append(s.events, Peek{WorkspaceID: tab, PaneID: pane})
+		return
+	}
 	if mods.Contain(key.ModShortcut) || mods.Contain(key.ModShift) {
 		s.click(v, tab, mods)
 		return

@@ -42,9 +42,10 @@ func (u *ui) boardShown() bool { return u.boardOn && !u.settings.Shown() && !u.r
 
 // boardKey sends allow_prompt and deny_prompt to the board's focused card
 // while the board shows, and never to a pane behind it. While the board is
-// on under the settings page or the review view, they answer nothing.
+// on under the settings page or the review view, they answer nothing. A
+// peek over the board takes them for its pane.
 func (u *ui) boardKey(st *model.State, e key.Event, now time.Time) bool {
-	if !u.boardOn {
+	if !u.boardOn || u.nav.peek != "" {
 		return false
 	}
 	act := u.nav.bind().Action(e)

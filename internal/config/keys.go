@@ -187,6 +187,7 @@ var presets = map[string]struct {
 			"jump_attention":   {"Alt+U"},
 			"jump_last_prompt": {"Ctrl+Alt+U"},
 			"toggle_board":     {"Ctrl+Shift+M"},
+			"keep_peek":        {"Ctrl+Shift+Enter"},
 			"new_task":         {"Ctrl+Shift+A"},
 			"pane_prefix":      {"Ctrl+P"},
 			"session_switcher": {"Alt+S"}, "session_next": {"Alt+]"}, "session_prev": {"Alt+["},
@@ -216,6 +217,7 @@ var presets = map[string]struct {
 			"jump_attention":   {"Ctrl+Shift+U"},
 			"jump_last_prompt": {"Ctrl+Alt+U"},
 			"toggle_board":     {"Ctrl+Shift+M"},
+			"keep_peek":        {"Ctrl+Shift+Enter"},
 			"new_task":         {"Ctrl+Shift+A"},
 			"session_switcher": {"Ctrl+Shift+S"}, "session_new": {"Ctrl+Shift+N"},
 			"session_next": {"Ctrl+Shift+]"}, "session_prev": {"Ctrl+Shift+["},
@@ -248,6 +250,7 @@ var presets = map[string]struct {
 			"jump_attention":   {"Super+U"},
 			"jump_last_prompt": {"Super+Alt+U"},
 			"toggle_board":     {"Super+Shift+M"},
+			"keep_peek":        {"Super+Enter"},
 			"new_task":         {"Super+Shift+A"},
 			"session_switcher": {"Super+S"}, "session_new": {"Super+N"},
 			"session_next": {"Super+]"}, "session_prev": {"Super+["},
@@ -366,6 +369,11 @@ func PaneAction(action string) bool { return slices.Contains(paneActions, action
 // Navigate reports whether action is a navigate_ one, which the window
 // takes only when it moves focus and otherwise leaves to the pane.
 func Navigate(action string) bool { return strings.HasPrefix(action, "navigate_") }
+
+// Sometimes reports whether the window takes action's chords only at
+// times, leaving them to the pane otherwise: a navigate_ action, and
+// keep_peek, which the window takes only while a peek is open.
+func Sometimes(action string) bool { return Navigate(action) || action == "keep_peek" }
 
 // Unshift is c with a shifted symbol key named by the key, as a preset
 // writes it: Ctrl+Shift+} becomes Ctrl+Shift+].

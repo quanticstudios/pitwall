@@ -16,6 +16,8 @@ import (
 func main() {
 	size := flag.String("size", "1280x800", "window size WxH in dp")
 	boardDemo := flag.String("board", "", "open the board on a fake state: 17 or 31 agents")
+	peek := flag.String("peek", "", "peek at this tab id at start, such as w1b")
+	remote := flag.String("remote", "", "put this tab id on a host named box, in a shared session")
 	flag.Parse()
 	if _, err := fmt.Sscanf(*size, "%dx%d", &app.WindowSize.X, &app.WindowSize.Y); err != nil {
 		log.Fatalf("-size %q: want WxH", *size)
@@ -27,6 +29,10 @@ func main() {
 	if *boardDemo != "" {
 		b, app.OpenBoard = app.NewFakeBoard(*boardDemo == "31"), true
 	}
+	if *remote != "" {
+		b = app.FakeShared{FakeBackend: app.NewFakeBackend(), Tab: *remote}
+	}
+	app.PeekTab = *peek
 	// A canned install: the demo never touches an agent's config.
 	app.InstallHooks = func(dry, statusline bool) (string, error) {
 		time.Sleep(300 * time.Millisecond)

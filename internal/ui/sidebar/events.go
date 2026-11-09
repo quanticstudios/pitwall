@@ -9,7 +9,7 @@ import "github.com/quanticstudios/pitwall/internal/model"
 // RunUpdate, ViewDiff, ViewFileDiff, CreatePR, Answer, OpenPR, MergePR,
 // RerunChecks, SendFailures, SendReview, Archive, NewTaskIn, DropTask,
 // OpenPort, OpenCompare, CancelResume, SecondOpinion, RequestChanges,
-// PictureInPicture.
+// PictureInPicture, Peek.
 type Event any
 
 // CancelResume drops the resume after a usage limit of the tab's agents.
@@ -21,6 +21,11 @@ type OpenSessions struct{}
 
 // SelectWorkspace shows a tab.
 type SelectWorkspace struct{ WorkspaceID, PaneID string }
+
+// Peek shows a tab's pane, PaneID or else the one it has focused, over
+// the shown tab without leaving it: an Alt+click on its row or card, or
+// Space on the board's cursor.
+type Peek struct{ WorkspaceID, PaneID string }
 
 // NewTab opens a tab below After (a row's "+"), or with After "" below the
 // open tab: the header's "+" (GroupID "") or a group's "+", which puts it

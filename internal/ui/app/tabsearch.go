@@ -197,7 +197,16 @@ func tabUsed(st *model.State, w model.Workspace) time.Time {
 
 // tabSearchRows is what the open tab search lists now.
 func (u *ui) tabSearchRows(st *model.State) []tabHit {
+	if u.pal.peek {
+		return u.peekable(tabRows(st, u.nav.session, u.pal.query, false))
+	}
 	return tabRows(st, u.nav.session, u.pal.query, u.canSearchAll())
+}
+
+// peekable is hits without the rows peek_tab cannot peek at: closed tabs
+// and the shown one.
+func (u *ui) peekable(hits []tabHit) []tabHit {
+	return slices.DeleteFunc(hits, func(h tabHit) bool { return h.ws == nil || h.ws.ID == u.nav.workspace })
 }
 
 // tabSearchKey runs one key in the open tab search. Its own shortcut and
@@ -234,6 +243,8 @@ func (u *ui) tabSearchKey(st *model.State, e key.Event) {
 func (u *ui) pickTab(st *model.State, h tabHit) {
 	p := &u.pal
 	switch {
+	case p.peek && h.ws != nil:
+		u.openPeek(st, h.ws.ID, "")
 	case h.all:
 		p.tabs, p.search, p.sel = false, true, 0
 		u.all.preview, u.all.sent = nil, ""

@@ -2,6 +2,7 @@ package app
 
 import (
 	"image"
+	"image/color"
 
 	"gioui.org/f32"
 	"gioui.org/io/event"
@@ -166,33 +167,9 @@ func (u *ui) drawPiP(gtx gl.Context, st *model.State) {
 	event.Op(gtx.Ops, &pv.grab)
 	cl.Pop()
 
-	// The header: the agent's mark, its state glyph, the tab's name and ×,
-	// in the 14dp and 12dp slots the sidebar uses. A shell shows one of
-	// the two, as its sidebar row does.
-	px, mark, gs, is := gtx.Dp(10), gtx.Dp(14), gtx.Dp(12), gtx.Dp(14)
-	var act *model.Activity
-	for i := range st.Activities {
-		if st.Activities[i].PaneID == id {
-			act = &st.Activities[i]
-			break
-		}
-	}
-	x := card.Min.X + px
-	if model.IsAgent(pn.Provider) || act == nil {
-		x += drawIconAt(gtx, image.Pt(x, card.Min.Y+(head-mark)/2), func(gtx gl.Context) {
-			if model.IsAgent(pn.Provider) {
-				sidebar.AgentMark(gtx, pn.Provider, mark, th.Fg)
-			} else {
-				sidebar.Icon(gtx, "terminal", mark, th.Muted)
-			}
-		}) + gtx.Dp(6)
-	}
-	if act != nil {
-		drawIconAt(gtx, image.Pt(x, card.Min.Y+(head-gs)/2), func(gtx gl.Context) {
-			sidebar.StateGlyph(gtx, th, act.State, th.SurfaceSecondary)
-		})
-		x += gs + gtx.Dp(8)
-	}
+	// The header: the marks, the tab's name and ×.
+	px, is := gtx.Dp(10), gtx.Dp(14)
+	x, _ := u.paneMarks(gtx, st, pn, image.Pt(card.Min.X+px, card.Min.Y), head, th.SurfaceSecondary)
 	xr := card.Max.X - px - is
 	tgtx := gtx
 	tgtx.Constraints.Max.X = max(0, xr-gtx.Dp(8)-x)
@@ -264,4 +241,37 @@ func (u *ui) pipPointer(gtx gl.Context, st *model.State, pn *model.Pane, ws *mod
 	}
 	u.nav.selectWorkspace(st, ws.ID, pn.ID)
 	return true
+}
+
+// paneMarks draws pane pn's agent mark and its state glyph from at along
+// a strip h tall on bg, in the 14dp and 12dp slots the sidebar uses, and
+// returns the x after them and pn's activity, nil for none. A shell shows
+// one of the two, as its sidebar row does.
+func (u *ui) paneMarks(gtx gl.Context, st *model.State, pn *model.Pane, at image.Point, h int, bg color.NRGBA) (int, *model.Activity) {
+	th := u.th
+	mark, gs := gtx.Dp(14), gtx.Dp(12)
+	var act *model.Activity
+	for i := range st.Activities {
+		if st.Activities[i].PaneID == pn.ID {
+			act = &st.Activities[i]
+			break
+		}
+	}
+	x := at.X
+	if model.IsAgent(pn.Provider) || act == nil {
+		x += drawIconAt(gtx, image.Pt(x, at.Y+(h-mark)/2), func(gtx gl.Context) {
+			if model.IsAgent(pn.Provider) {
+				sidebar.AgentMark(gtx, pn.Provider, mark, th.Fg)
+			} else {
+				sidebar.Icon(gtx, "terminal", mark, th.Muted)
+			}
+		}) + gtx.Dp(6)
+	}
+	if act != nil {
+		drawIconAt(gtx, image.Pt(x, at.Y+(h-gs)/2), func(gtx gl.Context) {
+			sidebar.StateGlyph(gtx, th, act.State, bg)
+		})
+		x += gs + gtx.Dp(8)
+	}
+	return x, act
 }
