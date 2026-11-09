@@ -72,6 +72,17 @@ func (d *Daemon) activityOf(id string) model.Activity {
 // polls waits out a few liveness polls.
 func polls() { time.Sleep(8 * livePoll.get()) }
 
+func TestSetActivityClearsSessionOnProviderChange(t *testing.T) {
+	d, _ := talkDaemon(t)
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go","session_id":"claude-session"}`)
+	d.mu.Lock()
+	d.setActivity(t.Context(), "a", model.ProviderCodex, model.StateWorking, "")
+	d.mu.Unlock()
+	if sid := d.activityOf("a").SessionID; sid != "" {
+		t.Fatalf("new provider inherited session ID: %q", sid)
+	}
+}
+
 func TestDetectedAgentWorksThenCompletes(t *testing.T) {
 	d, lp, id := openLive(t, 200)
 	lp.show(codexWorking, false)

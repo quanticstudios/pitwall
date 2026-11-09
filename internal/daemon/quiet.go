@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"log"
 	"slices"
 	"time"
@@ -10,10 +11,9 @@ import (
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
-// Quiet agents: a working agent whose screen has not changed for [agents]
-// quiet_after shows "quiet 20m" on its row, as a failed turn that sends no
-// hook stays working forever. With [agents] continue_when_quiet the daemon
-// types continue into it once.
+// Quiet agents show "quiet 20m" after [agents] quiet_after without screen
+// changes or work hooks. A still Claude or Codex input box ends a lost Stop;
+// other quiet panes can receive continue with [agents] continue_when_quiet.
 
 // quietPane is what checkQuiet keeps per working pane. Guarded by d.mu.
 type quietPane struct {
@@ -41,7 +41,8 @@ func (d *Daemon) quietAfter() time.Duration {
 }
 
 // checkQuiet compares each working pane's screen with the last poll's and
-// marks the panes still for quiet_after.
+// marks the panes still for quiet_after, or completes a hooked turn at an
+// input box unless its Stop reported background work.
 func (d *Daemon) checkQuiet() {
 	after := d.quietAfter()
 	nudge := d.o.ContinueWhenQuiet != nil && d.o.ContinueWhenQuiet()
@@ -49,12 +50,13 @@ func (d *Daemon) checkQuiet() {
 		id   string
 		p    Pane
 		prov model.Provider
+		seq  uint64
 	}
 	var looks []look
 	d.mu.Lock()
 	for _, a := range d.st.Activities {
 		if p := d.panes[a.PaneID]; p != nil && after > 0 && a.State == model.StateWorking {
-			looks = append(looks, look{a.PaneID, p, a.Provider})
+			looks = append(looks, look{a.PaneID, p, a.Provider, d.live.hookSeq[a.PaneID]})
 		}
 	}
 	for id, q := range d.quiet {
@@ -70,6 +72,11 @@ func (d *Daemon) checkQuiet() {
 	for _, l := range looks {
 		g := l.p.Snapshot()
 		d.mu.Lock()
+		i := d.activityIndex(l.id)
+		if d.closing || d.frozen || d.panes[l.id] != l.p || d.live.hookSeq[l.id] != l.seq || i < 0 || d.st.Activities[i].State != model.StateWorking || d.st.Activities[i].Provider != l.prov {
+			d.mu.Unlock()
+			continue
+		}
 		if d.quiet == nil {
 			d.quiet = map[string]*quietPane{}
 		}
@@ -81,6 +88,13 @@ func (d *Daemon) checkQuiet() {
 		if q.cells == nil || !slices.Equal(q.cells, g.Cells) {
 			q.cells, q.since = g.Cells, now
 		}
+		if now.Sub(q.since) >= after && !d.live.hookAt[l.id].IsZero() && !d.live.background[l.id] && agent.InputReady(l.prov, g) {
+			d.setActivity(context.Background(), l.id, l.prov, model.StateCompleted, "")
+			d.recordExplanation(l.id, l.prov, model.StateCompleted, "quiet-input", agent.ExplainScreen(l.prov, g))
+			delete(d.quiet, l.id)
+			d.mu.Unlock()
+			continue
+		}
 		if !q.nudged.IsZero() && d.mail.keyAt[l.id].After(q.nudged) {
 			q.nudged = time.Time{}
 		}
@@ -88,7 +102,7 @@ func (d *Daemon) checkQuiet() {
 			q.shown = shown
 			d.changed()
 		}
-		fire := nudge && q.shown && q.nudged.IsZero() && quietPrompt(l.prov, g) && !d.drafted(l.id, l.prov, g)
+		fire := nudge && q.shown && q.nudged.IsZero() && !d.live.background[l.id] && quietPrompt(l.prov, g) && !d.drafted(l.id, l.prov, g)
 		if fire {
 			q.nudged = now
 		}
@@ -115,7 +129,7 @@ func (d *Daemon) continueQuiet(id string, p Pane, prov model.Provider) {
 	d.mu.Lock()
 	i := d.activityIndex(id)
 	q := d.quiet[id]
-	ok := !d.closing && d.panes[id] == p && i >= 0 && d.st.Activities[i].State == model.StateWorking && q != nil && slices.Equal(q.cells, g.Cells) && !d.drafted(id, prov, g)
+	ok := !d.closing && d.panes[id] == p && i >= 0 && d.st.Activities[i].State == model.StateWorking && !d.live.background[id] && q != nil && slices.Equal(q.cells, g.Cells) && !d.drafted(id, prov, g)
 	d.mu.Unlock()
 	if !ok || !quietPrompt(prov, g) {
 		return
