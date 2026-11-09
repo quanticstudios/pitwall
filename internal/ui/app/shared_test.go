@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 )
@@ -145,5 +146,28 @@ func TestNewTabOnActiveHost(t *testing.T) {
 	here := proto.NewSession{SessionID: ws.SessionID, Loose: true}
 	if len(sent) != 2 || !reflect.DeepEqual(sent[0], NewTabOn{Host: "box", Tab: want}) || !reflect.DeepEqual(sent[1], here) {
 		t.Fatalf("sent %#v", sent)
+	}
+}
+
+// With account profiles, the tab prefix's new on a box tab asks which
+// account first, then opens the tab on box under the one picked.
+func TestNewTabOnHostPicksProfile(t *testing.T) {
+	fb := NewFakeBackend()
+	st := fb.State()
+	ws := st.Workspaces[0]
+	u := &ui{b: sharedFake{fb, ws.ID}, cfg: config.Settings{Profiles: map[string]config.Profile{"work": {}}}}
+	u.nav.session, u.nav.workspace = ws.SessionID, ws.ID
+	u.send(u.nav.tabOp(&st, "new"))
+	if u.modal.kind != modalProfile || len(fb.Sent()) != 0 {
+		t.Fatalf("no account picker: modal %v, sent %#v", u.modal.kind, fb.Sent())
+	}
+	u.profile.picked = 1
+	u.confirmModal(&st)
+	sent := fb.Sent()
+	if len(sent) != 1 || u.modal.kind != modalNone {
+		t.Fatalf("sent %#v, modal %v", sent, u.modal.kind)
+	}
+	if got, ok := sent[0].(NewTabOn); !ok || got.Host != "box" || got.Tab.Profile != "work" || !got.Tab.Loose {
+		t.Fatalf("sent %#v, want a loose tab on box under work", sent[0])
 	}
 }

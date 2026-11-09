@@ -66,6 +66,10 @@ func (u *ui) pickTabProfile(msg any) bool {
 		if m.Profile != "" || len(m.Cmd) != 0 || len(m.Env) != 0 {
 			return false
 		}
+	case NewTabOn:
+		if m.Tab.Profile != "" || len(m.Tab.Cmd) != 0 || len(m.Tab.Env) != 0 {
+			return false
+		}
 	default:
 		return false
 	}
@@ -89,6 +93,9 @@ func (u *ui) confirmProfileTab() {
 		msg = m
 	case proto.NewSession:
 		m.Profile = name
+		msg = m
+	case NewTabOn:
+		m.Tab.Profile = name
 		msg = m
 	}
 	u.profile.sending = true
