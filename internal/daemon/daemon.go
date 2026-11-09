@@ -23,6 +23,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/quanticstudios/sector/procs"
+	"github.com/quanticstudios/sector/sample"
+
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/config"
 	"github.com/quanticstudios/pitwall/internal/errlog"
@@ -214,6 +217,10 @@ type Options struct {
 	// Chats is the folder that keeps chats (eventlog.Root); "" keeps them
 	// in memory only, gone with the daemon.
 	Chats string
+	// Monitor reads the machine for Monitor tabs (monitor.go); nil reads
+	// nothing and answers each watch with an Err. Defaults sets sector's
+	// sample and procs.
+	Monitor func() (sample.Snapshot, procs.Table, error)
 }
 
 type Daemon struct {
@@ -290,6 +297,8 @@ type Daemon struct {
 	// reports as they arrive; see program.go. prog is guarded by mu.
 	prog    map[string]*paneProgram
 	progSeq atomic.Uint64
+
+	mon monitor // Monitor tabs' sampler, see monitor.go
 }
 
 // New loads state from store.Path() with store.Open, which sets aside a file
@@ -386,7 +395,8 @@ func Defaults() Options {
 		Worktrees: func(root string) (config.WorktreeSettings, []config.Problem) {
 			return config.LoadWorktrees(config.Path(), root)
 		},
-		Chats: eventlog.Root(),
+		Chats:   eventlog.Root(),
+		Monitor: sectorReader(),
 	}
 }
 
@@ -632,6 +642,9 @@ type client struct {
 	mu     sync.Mutex
 	state  bool
 	frames map[string]proto.Frame
+	// sample is the newest MonitorSample not yet sent: a slow window
+	// gets the latest reading, never a backlog.
+	sample *proto.MonitorSample
 	// fresh is the panes whose next frame goes whole: they left the view,
 	// or came back into it.
 	fresh map[string]bool
@@ -669,8 +682,8 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 			return
 		}
 		c.mu.Lock()
-		state, frames, fresh, msgs := c.state, c.frames, c.fresh, c.msgs
-		c.state, c.frames, c.fresh, c.msgs = false, map[string]proto.Frame{}, nil, nil
+		state, frames, fresh, msgs, reading := c.state, c.frames, c.fresh, c.msgs, c.sample
+		c.state, c.frames, c.fresh, c.msgs, c.sample = false, map[string]proto.Frame{}, nil, nil, nil
 		c.mu.Unlock()
 		var out []any
 		if state {
@@ -694,6 +707,9 @@ func (d *Daemon) writeLoop(c *client, done <-chan struct{}) {
 				out = append(out, m)
 			}
 			sent[id] = f
+		}
+		if reading != nil {
+			out = append(out, *reading)
 		}
 		for _, m := range append(out, msgs...) {
 			c.nc.SetWriteDeadline(time.Now().Add(time.Duration(writeTimeout.Load())))
@@ -792,6 +808,7 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		})
 		d.mu.Unlock()
 		defer func() {
+			d.unwatchMonitor(c)
 			d.mu.Lock()
 			delete(d.clients, c)
 			if c.session != "" && !d.closing {
@@ -907,6 +924,12 @@ func (d *Daemon) serveConn(ctx context.Context, nc net.Conn) {
 		if f, ok := m.(proto.OpenForm); ok {
 			if err := d.openForm(c, f); err != nil {
 				c.queue(proto.Error{Message: err.Error()})
+			}
+			continue
+		}
+		if w, ok := m.(proto.MonitorWatch); ok {
+			if hello.Kind == "gui" && hello.Level >= proto.MonitorLevel {
+				d.watchMonitor(ctx, c, w.WorkspaceID, w.Interval)
 			}
 			continue
 		}
