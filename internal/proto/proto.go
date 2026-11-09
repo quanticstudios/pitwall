@@ -4,6 +4,10 @@ package proto
 
 import (
 	"fmt"
+	"time"
+
+	"github.com/quanticstudios/sector/procs"
+	"github.com/quanticstudios/sector/sample"
 
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -44,6 +48,8 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 69 added MonitorWatch and MonitorSample: a Monitor tab's readings
+// of its daemon's machine, drawn with sector's view.
 // Level 68 added SessionLink, SessionOrder and model.Session.Remotes:
 // shared sessions, whose tabs are on several hosts.
 // Level 67 added Activity.Command, the command a pending approval asks
@@ -189,7 +195,30 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 68
+const Level = 69
+
+// MonitorLevel added MonitorWatch and MonitorSample.
+const MonitorLevel = 69
+
+// MonitorWatch asks for a MonitorSample every Interval while the Monitor
+// tab WorkspaceID is on screen. Interval 0 stops this client's watch, for a
+// paused view or a tab that left the screen.
+type MonitorWatch struct {
+	WorkspaceID string
+	Interval    time.Duration
+}
+
+// MonitorSample is one reading of the daemon's machine. Err is set, and
+// the reading empty, where sector cannot sample, such as on macOS. Tabs
+// maps the Key of each procs.Agent group to the pane its agent runs in.
+// It carries no command line, environment or folder beyond what sector's
+// Snapshot and Table hold.
+type MonitorSample struct {
+	Snapshot sample.Snapshot
+	Table    procs.Table
+	Tabs     map[string]string
+	Err      string
+}
 
 // SharedLevel added SessionLink and SessionOrder.
 const SharedLevel = 68
@@ -271,6 +300,8 @@ const ProfileLevel = 35
 // knows. A client sends msg only to a daemon at that Level or above.
 func Since(msg any) int {
 	switch m := msg.(type) {
+	case MonitorWatch, MonitorSample:
+		return MonitorLevel
 	case SessionLink, SessionOrder:
 		return SharedLevel
 	case Press:
@@ -1059,6 +1090,7 @@ var Messages = []any{
 	Press{},
 	ForkPane{},
 	SessionLink{}, SessionOrder{},
+	MonitorWatch{}, MonitorSample{},
 }
 
 // Chats (docs/managed-sessions.md, "Socket messages and CLI"). The daemon

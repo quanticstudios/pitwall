@@ -1,4 +1,4 @@
-18.68
+18.69
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -29,6 +29,9 @@ model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.Workspace{Profile string; ID string; SessionID string; ProjectID string; Name string; NameSet bool; Label string; Branch string; Path string; WorktreeRoot string; Ports model.PortBlock; RepoRoot string; Detached bool; Pinned bool; Settled time.Time; SnoozedUntil time.Time; SnoozedAt time.Time; Color string; Parent string; Status string; Lane model.Lane; UpdatedAt time.Time; Tabs []model.Tab; ActiveTab string; Chat string; Popup *model.Popup}
 model.WorktreeFrom{Kind model.WorktreeKind; Ref string; PR int}
+procs.Group{Key string; Kind procs.Kind; PID int; Name string; Agent string; Repo string; Branch string; Cores float64; RSS uint64; Threads int; Procs []procs.Proc; Folded int}
+procs.Proc{PID int; PPID int; Comm string; State uint8; Cores float64; RSS uint64; Threads int}
+procs.Table{Groups []procs.Group; Procs int; Threads int}
 proto.AddProject{Path string; SessionID string}
 proto.AgentEvent{Pane string; Provider model.Provider; Payload []uint8}
 proto.AgentExplain{Pane string; Provider model.Provider}
@@ -86,6 +89,8 @@ proto.Image{Pane string; Key uint64}
 proto.ImageResult{Pane string; Image vt.Image}
 proto.Input{Pane string; Data []uint8}
 proto.KillSession{WorkspaceID string}
+proto.MonitorSample{Snapshot sample.Snapshot; Table procs.Table; Tabs map[string]string; Err string}
+proto.MonitorWatch{WorkspaceID string; Interval time.Duration}
 proto.MoveGroup{GroupID string; Before string}
 proto.MoveSession{WorkspaceID string; GroupID string; Before string}
 proto.NewGroup{Name string; WorkspaceIDs []string}
@@ -141,6 +146,14 @@ proto.TmuxResult{Output string; Error string}
 proto.View{Panes []string; Live []string}
 proto.WorktreeInfo{Query proto.WorktreeQuery; Err string; Default string; Local []string; Remote []string; GitHub bool; Changed []string; Unmerged bool; UsedBy []string; Orphans []model.Orphan; Teardown string}
 proto.WorktreeQuery{ProjectID string; WorkspaceID string; Orphans bool}
+sample.CPU{Total float64; Threads []float64; Cores []sample.Core; Dies []sample.Die; MHz float64; PowerW float64; TempC float64}
+sample.Core{ID int; Die int; Threads []int}
+sample.Die{ID int; TempC float64}
+sample.Drive{Name string; Model string; Mounts []string; Size uint64; Used uint64; Free uint64; ReadBps float64; WriteBps float64; Busy float64}
+sample.Host{Name string; Model string; Threads int; Uptime time.Duration; Load [3]float64}
+sample.Mem{Total uint64; Used uint64; Available uint64; Cached uint64; Free uint64; SwapTotal uint64; SwapUsed uint64}
+sample.Net{Name string; Addr string; RxBps float64; TxBps float64; RxTotal uint64; TxTotal uint64}
+sample.Snapshot{Time time.Time; Host sample.Host; CPU sample.CPU; Mem sample.Mem; Drives []sample.Drive; Nets []sample.Net}
 session.Attachment{ID string; Kind string; Data string; MimeType string; Name string; SizeBytes int64; Path string; Text string}
 session.QueuedMessage{CreatedAt string; ID string; Text string; Images []string; Attachments []session.Attachment; Skill *session.Skill}
 session.Skill{Provider model.Provider; ID string; Name string; Path string}

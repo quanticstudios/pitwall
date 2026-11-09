@@ -14,6 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/sector/procs"
+	"github.com/quanticstudios/sector/sample"
+
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -145,6 +148,12 @@ func allMessages() []any {
 		ForkPane{Pane: "a", Worktree: "side", Name: "alternative", ParentPane: "caller"},
 		SessionLink{SessionID: "s", Host: "box", Remote: "r", Forget: []string{"t"}, Unforget: []string{"u"}},
 		SessionOrder{SessionID: "s", Order: []string{"a", "b"}},
+		MonitorWatch{WorkspaceID: "w", Interval: 2 * time.Second},
+		MonitorSample{
+			Snapshot: sample.Snapshot{Time: now, Host: sample.Host{Name: "box", Threads: 2}, CPU: sample.CPU{Total: 0.5, Threads: []float64{0.25, 0.75}}},
+			Table:    procs.Table{Groups: []procs.Group{{Key: "claude 7", Kind: procs.Agent, PID: 7, Procs: []procs.Proc{{PID: 7, Comm: "claude"}}}}, Procs: 1},
+			Tabs:     map[string]string{"claude 7": "a"},
+		},
 	}
 }
 
