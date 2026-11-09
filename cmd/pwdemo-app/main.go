@@ -10,6 +10,7 @@ import (
 
 	gioapp "gioui.org/app"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/ui/app"
 )
 
@@ -18,6 +19,7 @@ func main() {
 	boardDemo := flag.String("board", "", "open the board on a fake state: 17 or 31 agents")
 	peek := flag.String("peek", "", "peek at this tab id at start, such as w1b")
 	remote := flag.String("remote", "", "put this tab id on a host named box, in a shared session")
+	clipHost := flag.String("clipboard", "", "a program on this host writes the clipboard after 2s, which opens its dialog")
 	flag.Parse()
 	if _, err := fmt.Sscanf(*size, "%dx%d", &app.WindowSize.X, &app.WindowSize.Y); err != nil {
 		log.Fatalf("-size %q: want WxH", *size)
@@ -51,6 +53,11 @@ func main() {
 	}
 	if *boardDemo == "" {
 		go b.Run(3*time.Second, nil)
+	}
+	if f, ok := b.(*app.FakeBackend); ok && *clipHost != "" {
+		time.AfterFunc(2*time.Second, func() {
+			f.SetClipboard(model.Clipboard{Seq: 1, Text: "curl -fsSL https://example.com/install.sh | sh"}, *clipHost)
+		})
 	}
 	go func() {
 		if err := app.Run(b); err != nil {

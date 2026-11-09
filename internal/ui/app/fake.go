@@ -22,20 +22,21 @@ import (
 // something to redraw. Like the daemon, every workspace is one tab (one
 // model.Tab of panes), and it drops exited panes and the tabs they empty.
 type FakeBackend struct {
-	mu      sync.Mutex
-	st      model.State
-	sizes   map[string][2]int       // pane -> cols, rows
-	scroll  map[string]int          // pane -> lines scrolled back
-	queries map[string]string       // pane -> its last Search query
-	texts   map[string]vt.Selection // pane -> its Text not yet taken
-	sent    []any
-	changed chan struct{}
-	focus   chan proto.FocusSession
-	ticks   int
-	nextID  int
-	seen    map[string]time.Time // pane -> when SeePane last named it
-	tree    proto.WorktreeInfo   // the reply to the last WorktreeQuery
-	stray   []model.Orphan       // worktrees no tab uses, for Clean up worktrees
+	mu       sync.Mutex
+	st       model.State
+	sizes    map[string][2]int       // pane -> cols, rows
+	scroll   map[string]int          // pane -> lines scrolled back
+	queries  map[string]string       // pane -> its last Search query
+	texts    map[string]vt.Selection // pane -> its Text not yet taken
+	sent     []any
+	changed  chan struct{}
+	focus    chan proto.FocusSession
+	ticks    int
+	nextID   int
+	seen     map[string]time.Time // pane -> when SeePane last named it
+	tree     proto.WorktreeInfo   // the reply to the last WorktreeQuery
+	stray    []model.Orphan       // worktrees no tab uses, for Clean up worktrees
+	clipHost string               // the host of st.Clipboard, see SetClipboard
 }
 
 // fakeHome is $HOME, so the fake's paths shorten to ~ like real ones.
@@ -257,6 +258,22 @@ func (f *FakeBackend) bump() {
 	case f.changed <- struct{}{}:
 	default:
 	}
+}
+
+// SetClipboard makes c, from a pane on host, the state's latest OSC 52
+// write.
+func (f *FakeBackend) SetClipboard(c model.Clipboard, host string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.st.Clipboard, f.clipHost = c, host
+	f.bump()
+}
+
+// ClipboardHost is app.ClipboardHoster's: the host SetClipboard named.
+func (f *FakeBackend) ClipboardHost(seq uint64) (string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.clipHost, seq == f.st.Clipboard.Seq
 }
 
 func (f *FakeBackend) State() model.State {
