@@ -1773,21 +1773,28 @@ func (d *Daemon) chatContinue(c *chat) {
 }
 
 // forLevel is s as a client of level sees it: below proto.ChatLevel, with
-// no chat tabs and none of their activities.
+// no chat tabs and none of their activities, and below
+// proto.MonitorTabLevel with no Monitor tabs.
 func forLevel(s model.State, level int) model.State {
-	if level >= proto.ChatLevel {
+	if level >= proto.MonitorTabLevel {
 		return s
+	}
+	hide := func(w model.Workspace) bool {
+		return w.Chat != "" && level < proto.ChatLevel || w.Monitor
 	}
 	gone := map[string]bool{}
 	for _, w := range s.Workspaces {
-		if w.Chat != "" {
-			gone[w.ID], gone[w.Chat] = true, true
+		if hide(w) {
+			gone[w.ID] = true
+			if w.Chat != "" {
+				gone[w.Chat] = true
+			}
 		}
 	}
 	if len(gone) == 0 {
 		return s
 	}
-	s.Workspaces = slices.DeleteFunc(slices.Clone(s.Workspaces), func(w model.Workspace) bool { return w.Chat != "" })
+	s.Workspaces = slices.DeleteFunc(slices.Clone(s.Workspaces), hide)
 	s.Activities = slices.DeleteFunc(slices.Clone(s.Activities), func(a model.Activity) bool { return gone[a.PaneID] })
 	s.Sessions = slices.Clone(s.Sessions)
 	for i := range s.Sessions {

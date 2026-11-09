@@ -166,3 +166,13 @@ func TestSinceWithinLevel(t *testing.T) {
 		}
 	}
 }
+
+// An older daemon is never asked for a Monitor tab it cannot make.
+func TestSinceMonitorTab(t *testing.T) {
+	if got := Since(NewSession{Monitor: true}); got != MonitorTabLevel {
+		t.Errorf("Since(NewSession{Monitor}) = %d, want %d", got, MonitorTabLevel)
+	}
+	if got := Since(NewSession{}); got != 0 {
+		t.Errorf("Since(NewSession{}) = %d, want 0", got)
+	}
+}

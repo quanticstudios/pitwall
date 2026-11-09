@@ -203,10 +203,12 @@ func (h chatHub) Tab(id string) (dir, ws string, err error) {
 	return dir, ws, nil
 }
 
+// Workspaces leaves Monitor tabs out: process names and repos are more
+// than a paired browser or phone sees today.
 func (h chatHub) Workspaces() []model.Workspace {
 	h.d.mu.Lock()
 	defer h.d.mu.Unlock()
-	return slices.Clone(h.d.st.Workspaces)
+	return slices.DeleteFunc(slices.Clone(h.d.st.Workspaces), func(w model.Workspace) bool { return w.Monitor })
 }
 
 func (h chatHub) WatchList(s web.Sink, on bool) {

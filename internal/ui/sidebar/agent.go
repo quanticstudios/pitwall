@@ -179,10 +179,13 @@ func AgentColor(p model.Provider, fg color.NRGBA) color.NRGBA {
 }
 
 // TabMark draws what marks tab ws in lists outside the sidebar: its agent's
-// mark, else a terminal glyph in col.
+// mark, else a Monitor tab's pulse or a terminal glyph in col.
 func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, col, fg color.NRGBA) layout.Dimensions {
 	if p := AgentOf(st, ws); p != "" {
 		return AgentMark(gtx, p, size, fg)
+	}
+	if ws.Monitor {
+		return drawIcon(gtx, icActivity, size, col, 0)
 	}
 	return drawIcon(gtx, icTerminal, size, col, 0)
 }
