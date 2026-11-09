@@ -40,7 +40,8 @@ func watches(b *FakeBackend) []proto.MonitorWatch {
 }
 
 // A Monitor tab asks its daemon for samples while it is on screen, again on
-// a new connection, and stops when it leaves the screen or closes.
+// a new connection, and stops when it leaves the screen or closes. Its
+// agents carry their tabs' names.
 func TestMonitorTab(t *testing.T) {
 	b := &linkedFake{FakeBackend: NewFakeBackend(), epoch: 1, level: proto.Level}
 	b.Send(proto.NewSession{SessionID: "s1", Monitor: true})
@@ -73,6 +74,15 @@ func TestMonitorTab(t *testing.T) {
 	want = append(want, want[0])
 	if got := watches(b.FakeBackend); !slices.Equal(got, want) {
 		t.Fatalf("after a reconnect: watches %v, want %v", got, want)
+	}
+	if l := monitorLabels(&st, u.mon.tabs[mon.ID].tabs); l["claude 101"] != "Add rate limiting to the public API" || len(l) != 1 {
+		t.Fatalf("labels %v; want claude 101 named after its tab", l)
+	}
+	if fs, ok := monitorFocus(&st, u.mon.tabs[mon.ID].tabs, "claude 101"); !ok || fs != (proto.FocusSession{WorkspaceID: "w1b", SessionID: "s1", Pane: "i"}) {
+		t.Fatalf("a click on claude 101 focuses %+v, %v; want its tab", fs, ok)
+	}
+	if _, ok := monitorFocus(&st, u.mon.tabs[mon.ID].tabs, "codex 202"); ok {
+		t.Fatal("a click on an agent outside pitwall focuses a tab")
 	}
 
 	u.nav.workspace = "w1"

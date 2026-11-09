@@ -32,7 +32,7 @@ func (f *FakeBackend) openMonitor(session string) {
 }
 
 // Monitor implements Monitorer with a made-up eight-thread machine, a new
-// sample each second.
+// sample each second. Its Claude runs in pane i, the rate-limiting tab.
 func (f *FakeBackend) Monitor(string) (proto.MonitorSample, time.Time, bool) {
 	at := time.Now().Truncate(time.Second)
 	x := float64(at.Unix())
@@ -59,5 +59,6 @@ func (f *FakeBackend) Monitor(string) (proto.MonitorSample, time.Time, bool) {
 	other := procs.Group{Key: "other", Kind: procs.Other, Name: "Everything else", Cores: 0.4, RSS: 3 << 30, Threads: 400,
 		Procs: []procs.Proc{{PID: 1, Comm: "systemd", State: 'S', RSS: 12 << 20, Threads: 1}}}
 	t := procs.Table{Groups: []procs.Group{claude, codex, other}, Procs: 312, Threads: 442}
-	return proto.MonitorSample{Snapshot: snap, Table: t}, at, true
+	// codex 202 runs outside pitwall: no tab names it.
+	return proto.MonitorSample{Snapshot: snap, Table: t, Tabs: map[string]string{"claude 101": "i"}}, at, true
 }

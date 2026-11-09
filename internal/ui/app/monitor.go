@@ -33,10 +33,11 @@ type monitors struct {
 // monitorTab is one Monitor tab's view and what the window told its daemon.
 type monitorTab struct {
 	v      *view.View
-	pushed time.Time     // when the last sample pushed came, zero before one
-	err    string        // that sample's Err
-	sent   time.Duration // the Interval of the last MonitorWatch, 0 for none
-	epoch  int           // the Link.Epoch it was sent on
+	pushed time.Time         // when the last sample pushed came, zero before one
+	tabs   map[string]string // that sample's Tabs
+	err    string            // that sample's Err
+	sent   time.Duration     // the Interval of the last MonitorWatch, 0 for none
+	epoch  int               // the Link.Epoch it was sent on
 }
 
 // staleAfter is how many intervals without a sample make a view stale.
@@ -58,7 +59,7 @@ func sectorTheme(t *sectortheme.Theme, th *theme.Theme) {
 }
 
 // layoutMonitor draws Monitor tab ws: its machine's latest sample, pushed
-// to the view once.
+// to the view once, with agents named by the tabs they run in.
 func (u *ui) layoutMonitor(gtx gl.Context, st *model.State, ws *model.Workspace) {
 	m := &u.mon
 	m.shown = ws.ID
@@ -80,7 +81,7 @@ func (u *ui) layoutMonitor(gtx gl.Context, st *model.State, ws *model.Workspace)
 		m.tabs[ws.ID] = t
 	}
 	if s, at, ok := mb.Monitor(ws.ID); ok && at.After(t.pushed) {
-		t.pushed, t.err = at, s.Err
+		t.pushed, t.tabs, t.err = at, s.Tabs, s.Err
 		if s.Err == "" {
 			t.v.Push(s.Snapshot, s.Table)
 		}
@@ -93,12 +94,32 @@ func (u *ui) layoutMonitor(gtx gl.Context, st *model.State, ws *model.Workspace)
 		u.monitorLine(gtx, "Reading "+cmpHost(u.hostOf(ws.ID))+"…")
 		return
 	}
+	t.v.SetLabels(monitorLabels(st, t.tabs))
 	if stale(t, u.monitorHostUp(ws.ID), gtx.Now) {
 		t.v.SetStale(t.pushed)
 	} else {
 		t.v.SetStale(time.Time{})
 	}
 	t.v.Layout(gtx)
+	if key, ok := t.v.Clicked(); ok {
+		if fs, ok := monitorFocus(st, t.tabs, key); ok {
+			u.queueFocus(fs)
+		}
+	}
+}
+
+// monitorFocus is where a click on group key's row goes: the tab and pane
+// its agent runs in, false for a group no pane of st runs.
+func monitorFocus(st *model.State, tabs map[string]string, key string) (proto.FocusSession, bool) {
+	p := findPane(st, tabs[key])
+	if p == nil {
+		return proto.FocusSession{}, false
+	}
+	w := findWorkspace(st, p.WorkspaceID)
+	if w == nil {
+		return proto.FocusSession{}, false
+	}
+	return proto.FocusSession{WorkspaceID: w.ID, SessionID: w.SessionID, Pane: p.ID}, true
 }
 
 // stale reports whether t's view shows old data at now: its host is down,
@@ -120,6 +141,20 @@ func (u *ui) monitorLine(gtx gl.Context, s string) {
 	gl.Center.Layout(gtx, func(gtx gl.Context) gl.Dimensions {
 		return para(gtx, u.th, u.th.UIFont, u.th.Sp(theme.Body), u.th.Muted, s)
 	})
+}
+
+// monitorLabels names each agent group of tabs, by group key, after the
+// tab its pane is in now, so a renamed tab shows its new name at once.
+func monitorLabels(st *model.State, tabs map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, pane := range tabs {
+		if p := findPane(st, pane); p != nil {
+			if w := findWorkspace(st, p.WorkspaceID); w != nil && w.Label != "" {
+				out[key] = w.Label
+			}
+		}
+	}
+	return out
 }
 
 // monitorHostUp reports whether the daemon that owns tab id is connected.
