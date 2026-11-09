@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- Monitor tabs: Monitor this machine in the command palette, or `open_monitor`, opens a tab of the shown tab's machine, with its CPU by thread and by agent, cores, memory, drives, network and processes grouped by agent, repo and app, as sector draws them. That machine's daemon samples it only while the tab is on screen, at the interval and pause set in the tab. A box tab in a window of several hosts, or `pitwall --host box`, shows box. A machine that stops answering dims its graphs with "No data since" until it is back.
+
 ## v0.2.3
 
 - Git operations and tests ignore inherited repository paths, so commands run from a Git hook or rebase use the selected repository.
@@ -25,7 +29,6 @@ pushes the tag once, which starts the release build. Either step takes
 - A program on another machine, in a shared session's tab or a `pitwall --host` window, sets this machine's clipboard with OSC 52 only after you allow it. The first write from a host opens a dialog with the text, Allow, Deny and Remember for the host. A remembered answer goes to `[host_clipboard]` in config.toml, and Settings, Terminal, Machines changes it per host. Such writes went straight to the clipboard before. Writes from this machine's panes are unchanged.
 - An agent's tab name no longer turns into a folder path when the agent sets its title to its folder, and pi's title spinner after its prefix no longer renames the tab.
 - A Claude Code or Codex turn whose Stop hook never arrives is marked Done once its input box has sat still for `quiet_after`, instead of showing Working until the next prompt. A tool call in the main session restarts the wait. While a background subagent or workflow is still running, the turn stays Working and the automatic continue waits.
-- Monitor tabs: Monitor this machine in the command palette, or `open_monitor`, opens a tab of the shown tab's machine, with its CPU by thread and by agent, cores, memory, drives, network and processes grouped by agent, repo and app, as sector draws them. That machine's daemon samples it only while the tab is on screen, at the interval and pause set in the tab. A box tab in a window of several hosts, or `pitwall --host box`, shows box. A machine that stops answering dims its graphs with "No data since" until it is back.
 
 ## v0.2.2
 
