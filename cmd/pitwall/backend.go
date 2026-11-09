@@ -47,6 +47,10 @@ type backend struct {
 	imgs    images                            // the images frames place
 	moves   []proto.FocusDir                  // not yet taken by the window
 	chat    chatCache                         // the transcript of the chat on screen
+	// mon is the daemon's latest MonitorSample and monAt when it came. It
+	// stays across a reconnect, for the view's stale state.
+	mon     proto.MonitorSample
+	monAt   time.Time
 	link    app.Link
 	dialing bool      // a dial loop runs
 	pingAt  time.Time // when ping sent a Sync whose StateMsg has not come, zero for none
@@ -104,6 +108,7 @@ var (
 	_ app.Texter    = (*backend)(nil)
 	_ app.Viewer    = (*backend)(nil)
 	_ app.Chatter   = (*backend)(nil)
+	_ app.Monitorer = (*backend)(nil)
 	_ app.Imager    = (*backend)(nil)
 )
 
@@ -525,6 +530,8 @@ func (b *backend) recvLoop() {
 				b.mu.Unlock()
 				continue
 			}
+		case proto.MonitorSample:
+			b.mon, b.monAt = m, time.Now()
 		case proto.ChatResult:
 			if m.Chat == b.chat.id && m.Code == "not-found" {
 				b.chat.out = false
@@ -601,6 +608,14 @@ func (b *backend) Favicon(dir string) (proto.FaviconResult, bool) {
 		b.Send(proto.Favicon{Dir: dir})
 	}
 	return proto.FaviconResult{}, false
+}
+
+// Monitor implements app.Monitorer: the daemon samples one machine, its
+// own, so every Monitor tab of it shows the same sample.
+func (b *backend) Monitor(string) (proto.MonitorSample, time.Time, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.mon, b.monAt, !b.monAt.IsZero()
 }
 
 // TakeMoves implements app.Mover.

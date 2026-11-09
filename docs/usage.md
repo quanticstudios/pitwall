@@ -1768,6 +1768,27 @@ clicks on its answers for 650 milliseconds. A card that changes column
 travels there in 200 milliseconds; with `reduce_motion` it fades in at its
 new place.
 
+### Monitor tabs
+
+A Monitor tab shows a machine's CPU by thread and by agent, its cores,
+memory, drives, network and processes grouped by coding agent, repo and
+app, drawn with [sector](https://github.com/quanticstudios/sector). Open
+one with Monitor this machine in the command palette, or bind
+`open_monitor` under `[keys]`. It opens in the window's session, on the
+machine of the tab you are on: this desktop, or box in `pitwall --host box`
+or for a tab of box in a window of several hosts. A session has one Monitor
+tab per machine, and asking again shows it.
+
+That machine's own pitwall daemon samples it, only while the tab is on
+screen, at the interval picked in the tab's title bar (1, 2 or 5 seconds),
+and not while it is paused. The window never reads another machine's
+processes itself. When the machine stops answering, the graphs dim and say
+"No data since 20:41" on that machine's clock until samples come again.
+
+Sampling needs Linux; on another system the tab says why instead. A
+machine whose pitwall is older than the window's says it needs an update
+there.
+
 ### Replying from the sidebar
 
 An agent that asks a question shows Reply beside its pill, in the inbox and

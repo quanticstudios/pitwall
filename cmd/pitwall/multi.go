@@ -92,6 +92,7 @@ var (
 	_ app.Texter          = (*multi)(nil)
 	_ app.Viewer          = (*multi)(nil)
 	_ app.Chatter         = (*multi)(nil)
+	_ app.Monitorer       = (*multi)(nil)
 	_ app.Hoster          = (*multi)(nil)
 	_ app.Numberer        = (*multi)(nil)
 	_ app.Mover           = (*multi)(nil)
@@ -1143,6 +1144,14 @@ func (m *multi) Chat(id string) (session.Snapshot, bool) {
 		return h.b.Chat(id)
 	}
 	return session.Snapshot{}, false
+}
+
+// Monitor answers from the backend of the host that owns Monitor tab ws.
+func (m *multi) Monitor(ws string) (proto.MonitorSample, time.Time, bool) {
+	if h := m.of(ws); h != nil {
+		return h.b.Monitor(ws)
+	}
+	return proto.MonitorSample{}, time.Time{}, false
 }
 
 // Favicon asks the host of the session the window shows: the sidebar

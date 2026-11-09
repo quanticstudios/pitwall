@@ -392,6 +392,8 @@ type ui struct {
 	noticeTag int              // State.Notice's box, which keeps presses off the pane under it
 
 	popupBack int // the backdrop under a popup, which keeps presses off the splits
+
+	mon monitors // Monitor tabs' views, see monitor.go
 }
 
 // resizes keeps a window drag to a log line a second per pane.
@@ -568,6 +570,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 	if u.nav.board {
 		u.nav.board = false
 		u.toggleBoard()
+	}
+	if u.nav.monitor {
+		u.nav.monitor = false
+		u.openMonitor()
 	}
 	if u.nav.sidebarKeys {
 		u.nav.sidebarKeys = false
@@ -831,6 +837,7 @@ func (u *ui) layout(gtx gl.Context) {
 		u.layoutForm(pgtx, &st)
 	}
 	fo.Pop()
+	u.syncMonitors(&st)
 	u.takeSends(pgtx, &st)
 	u.tickReplyImage()
 	if n := u.updates.takeNote(); n != "" {
@@ -1145,6 +1152,11 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	if ws.Chat != "" {
 		u.paneMenu.close()
 		u.layoutChat(gtx, st, ws)
+		return
+	}
+	if ws.Monitor {
+		u.paneMenu.close()
+		u.layoutMonitor(gtx, st, ws)
 		return
 	}
 	if root == nil {

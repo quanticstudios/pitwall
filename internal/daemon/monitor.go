@@ -82,15 +82,27 @@ func (d *Daemon) watchMonitor(ctx context.Context, c *client, ws string, iv time
 
 // unwatchMonitor drops every watch of c, which disconnected.
 func (d *Daemon) unwatchMonitor(c *client) {
+	d.unwatch(func(k watchKey) bool { return k.c == c })
+	d.mon.mu.Lock()
+	delete(d.mon.errSent, c)
+	d.mon.mu.Unlock()
+}
+
+// unwatchTab drops every watch of Monitor tab ws, which closed.
+func (d *Daemon) unwatchTab(ws string) {
+	d.unwatch(func(k watchKey) bool { return k.ws == ws })
+}
+
+// unwatch drops the watches drop picks and wakes the loop to check.
+func (d *Daemon) unwatch(drop func(watchKey) bool) {
 	m := &d.mon
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for k := range m.watchers {
-		if k.c == c {
+		if drop(k) {
 			delete(m.watchers, k)
 		}
 	}
-	delete(m.errSent, c)
 	if m.wake != nil {
 		select {
 		case m.wake <- struct{}{}:

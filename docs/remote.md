@@ -92,6 +92,10 @@ down covers the window, and only while it shows one of its sessions. A host
 whose daemon runs another major version stays down: open `pitwall --host
 box` once to restart it there.
 
+A [Monitor tab](usage.md#monitor-tabs) of a host shows that host, sampled
+by its own daemon over the same connection, and dims with "No data since"
+while the host is down.
+
 Every action goes to the daemon that owns the tab, pane or session it
 names. A new session or tab opens on the host of the session the window
 shows, or in a [shared session](#shared-sessions) on the machine you pick. `pitwall --host box` still opens a window on that host alone, and

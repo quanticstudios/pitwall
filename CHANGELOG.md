@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- Monitor tabs: Monitor this machine in the command palette, or `open_monitor`, opens a tab of the shown tab's machine, with its CPU by thread and by agent, cores, memory, drives, network and processes grouped by agent, repo and app, as sector draws them. That machine's daemon samples it only while the tab is on screen, at the interval and pause set in the tab. A box tab in a window of several hosts, or `pitwall --host box`, shows box. A machine that stops answering dims its graphs with "No data since" until it is back.
+
 ## v0.2.3
 
 - Git operations and tests ignore inherited repository paths, so commands run from a Git hook or rebase use the selected repository.
