@@ -24,7 +24,7 @@ func TestDrawBenchWindow(t *testing.T) {
 	}
 	start := time.Now()
 	for i, elapsed := range []time.Duration{time.Millisecond, 3 * time.Millisecond, 50 * time.Millisecond} {
-		if err := b.record(start.Add(time.Duration(i)*500*time.Millisecond), elapsed, 1.5); err != nil {
+		if err := b.record(start.Add(time.Duration(i)*500*time.Millisecond), elapsed, time.Second, 1.5); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -43,6 +43,9 @@ func TestDrawBenchWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.Drawn != 2 || got.P50MS != 1 || got.P95MS != 3 || got.Scale != 1.5 {
+		t.Fatal(got)
+	}
+	if got.WaitP95MS != 1000 || got.Timing != "layout-submit-v1" {
 		t.Fatal(got)
 	}
 	t.Setenv("PITWALL_DRAW_BENCH_DURATION", "0s")

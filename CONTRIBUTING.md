@@ -120,8 +120,8 @@ Repeat with `-workload titles`, `flood` and `scroll`. `spinners` changes only
 a title's spinner suffix at 4 Hz. `titles` opens eight tabs with one pane
 each, alternating fake Claude and Codex working states, and title suffixes
 at 10 Hz. `flood` redraws a colored terminal dashboard at 60 Hz. `scroll`
-fills 10,000 lines and moves the view three lines at 30 Hz, reversing every
-60 steps. The fixtures need no agent installation or network access.
+fills 10,000 lines and moves the view three lines at 60 Hz, reversing every
+120 steps. The fixtures need no agent installation or network access.
 
 The command prints a fresh results directory containing `result.json`,
 `frames.json` and `process.log`. It uses temporary HOME and XDG directories,
@@ -130,11 +130,21 @@ It leaves the user's daemon, config and agent skills alone. Ctrl+C also
 cleans up the benchmark processes. Remove the results directory when done.
 
 Frame counts and nearest-rank p50, p95 and maximum times cover the requested
-seconds starting with the first frame. Times include layout and Gio's
-`Frame` call, not a GPU completion timestamp. The recorded scale is Gio's
+seconds starting with the first frame. Work timings include layout and ops
+submission, measured before Gio acknowledges the frame or presents it.
+`wait_p50_ms`, `wait_p95_ms` and `wait_max_ms` separately record the time from
+submission until Gio's `Frame` call returns. On X11 this includes presentation.
+Event waits and GPU completion timestamps are not frame work. The recorded scale is Gio's
 pixels per dp. CPU seconds include user and system time for each process's
 whole lifetime, including startup and shutdown, and exclude fixture CPU.
-Compare requires matching workloads, durations and scales.
+Compare requires matching workloads, durations, scales, timing formats and vsync settings.
+
+The benchmark window requests swap interval 0 with `vblank_mode=0` for Mesa
+and `__GL_SYNC_TO_VBLANK=0` for NVIDIA. Hidden rootful Xwayland windows can
+otherwise block in presentation for about one second per frame. The fixtures
+and scroll requests provide the 60 Hz workload rate. Ordinary windows keep
+their vsync settings. Results record `vsync = "off"` and
+`timing = "layout-submit-v1"`, so comparison rejects the wall-time format.
 
 An unfocused or hidden window may draw less. Keep focus, visibility, display
 size, scale and rendering backend the same between runs. The private X11

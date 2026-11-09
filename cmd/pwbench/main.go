@@ -225,7 +225,7 @@ func benchmark(binary, workload string, duration time.Duration, out io.Writer) e
 		}
 	}
 	metrics := filepath.Join(results, "frames.json")
-	guiEnv := append(append([]string{}, env...), "PITWALL_DRAW_BENCH="+metrics, "PITWALL_DRAW_BENCH_DURATION="+duration.String())
+	guiEnv := append(append([]string{}, env...), "PITWALL_DRAW_BENCH="+metrics, "PITWALL_DRAW_BENCH_DURATION="+duration.String(), "vblank_mode=0", "__GL_SYNC_TO_VBLANK=0")
 	g, err := start(binary, nil, private, guiEnv, log)
 	if err != nil {
 		return err
@@ -252,7 +252,7 @@ func benchmark(binary, workload string, duration time.Duration, out io.Writer) e
 	}
 	timer := time.NewTimer(time.Until(began.Add(duration)))
 	defer timer.Stop()
-	tick := time.NewTicker(time.Second / 30)
+	tick := time.NewTicker(time.Second / 60)
 	defer tick.Stop()
 	steps := 0
 measure:
@@ -267,7 +267,7 @@ measure:
 		case <-tick.C:
 			if workload == "scroll" {
 				lines := 3
-				if steps%120 >= 60 {
+				if steps%240 >= 120 {
 					lines = -3
 				}
 				if _, err := request(proto.Scroll{Pane: state.Panes[0].ID, Lines: lines}); err != nil {
@@ -291,7 +291,7 @@ measure:
 		return errors.New("GUI did not close after ending its session")
 	}
 	d.stop()
-	r := drawbench.Result{Workload: workload, Seconds: duration.Seconds(), Build: strings.TrimSpace(string(build))}
+	r := drawbench.Result{Workload: workload, Seconds: duration.Seconds(), Build: strings.TrimSpace(string(build)), VSync: "off"}
 	if err := readJSON(metrics, &r.Frames); err != nil {
 		return err
 	}
@@ -311,6 +311,9 @@ func isolatedEnv(dir string) []string {
 	var env []string
 	for _, s := range os.Environ() {
 		key, _, _ := strings.Cut(s, "=")
+		if key == "vblank_mode" || key == "__GL_SYNC_TO_VBLANK" {
+			continue
+		}
 		if key == "HOME" || strings.HasPrefix(key, "XDG_") && key != "XDG_SESSION_TYPE" || strings.HasPrefix(key, "PITWALL_") || strings.HasPrefix(key, "CLAUDE_") || strings.HasPrefix(key, "CODEX_") {
 			continue
 		}

@@ -93,6 +93,9 @@ func Run(b Backend) error {
 		}()
 	}
 	w := new(app.Window)
+	if bench != nil {
+		w.FrameSubmitted = bench.markSubmitted
+	}
 	w.Option(app.Title("pitwall"), app.Size(unit.Dp(WindowSize.X), unit.Dp(WindowSize.Y)), app.MinSize(640, 360))
 	u := &ui{b: b, panes: map[string]*paneUI{}, invalidate: w.Invalidate}
 	defer u.panel.stop()
@@ -191,7 +194,7 @@ func Run(b Backend) error {
 			// Layout and e.Frame are timed apart.
 			e.Frame(gtx.Ops)
 			if bench != nil {
-				if err := bench.record(start, time.Since(start), e.Metric.PxPerDp); err != nil {
+				if err := bench.record(start, bench.submitted.Sub(start), time.Since(bench.submitted), e.Metric.PxPerDp); err != nil {
 					return err
 				}
 			}

@@ -33,11 +33,11 @@ func TestCompare(t *testing.T) {
 	if err := Compare(&out, a, b); err != nil {
 		t.Fatal(err)
 	}
-	want := "build\ta\tb\nmetric\ta\tb\tdelta (b-a)\nframes\t4.000\t6.000\t+2.000\np50_ms\t2.000\t1.000\t-1.000\np95_ms\t3.000\t3.000\t+0.000\nmax_ms\t4.000\t4.000\t+0.000\ngui_cpu_seconds\t2.000\t2.000\t+0.000\ndaemon_cpu_seconds\t1.000\t2.000\t+1.000\n"
+	want := "build\ta\tb\nmetric\ta\tb\tdelta (b-a)\nframes\t4.000\t6.000\t+2.000\np50_ms\t2.000\t1.000\t-1.000\np95_ms\t3.000\t3.000\t+0.000\nmax_ms\t4.000\t4.000\t+0.000\nwait_p50_ms\t0.000\t0.000\t+0.000\nwait_p95_ms\t0.000\t0.000\t+0.000\nwait_max_ms\t0.000\t0.000\t+0.000\ngui_cpu_seconds\t2.000\t2.000\t+0.000\ndaemon_cpu_seconds\t1.000\t2.000\t+1.000\n"
 	if out.String() != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", &out, want)
 	}
-	for _, mutate := range []func(*Result){func(r *Result) { r.Workload = "flood" }, func(r *Result) { r.Seconds = 5 }, func(r *Result) { r.Frames.Scale = 2 }} {
+	for _, mutate := range []func(*Result){func(r *Result) { r.Workload = "flood" }, func(r *Result) { r.Seconds = 5 }, func(r *Result) { r.Frames.Scale = 2 }, func(r *Result) { r.Frames.Timing = "layout-submit-v1" }, func(r *Result) { r.VSync = "off" }} {
 		bad := b
 		mutate(&bad)
 		if err := Compare(&out, a, bad); err == nil {

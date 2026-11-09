@@ -23,14 +23,18 @@ func newDrawBench() (*frameBench, error) {
 }
 
 type frameBench struct {
-	path     string
-	duration time.Duration
-	start    time.Time
-	samples  []time.Duration
-	scale    float32
+	path      string
+	duration  time.Duration
+	start     time.Time
+	samples   []time.Duration
+	waits     []time.Duration
+	submitted time.Time
+	scale     float32
 }
 
-func (b *frameBench) record(start time.Time, elapsed time.Duration, scale float32) error {
+func (b *frameBench) markSubmitted() { b.submitted = time.Now() }
+
+func (b *frameBench) record(start time.Time, elapsed, wait time.Duration, scale float32) error {
 	if b.start.IsZero() {
 		b.start, b.scale = start, scale
 		if err := os.WriteFile(b.path+".ready", []byte(start.Format(time.RFC3339Nano)), 0o600); err != nil {
@@ -39,12 +43,16 @@ func (b *frameBench) record(start time.Time, elapsed time.Duration, scale float3
 	}
 	if start.Sub(b.start) < b.duration {
 		b.samples = append(b.samples, elapsed)
+		b.waits = append(b.waits, wait)
 	}
 	return nil
 }
 
 func (b *frameBench) save() error {
 	f := drawbench.Summarize(b.samples)
+	wait := drawbench.Summarize(b.waits)
+	f.Timing = "layout-submit-v1"
+	f.WaitP50MS, f.WaitP95MS, f.WaitMaxMS = wait.P50MS, wait.P95MS, wait.MaxMS
 	f.Scale = b.scale
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {

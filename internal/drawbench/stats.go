@@ -10,17 +10,22 @@ import (
 )
 
 type Frames struct {
-	Drawn int     `json:"drawn"`
-	P50MS float64 `json:"p50_ms"`
-	P95MS float64 `json:"p95_ms"`
-	MaxMS float64 `json:"max_ms"`
-	Scale float32 `json:"scale"`
+	Timing    string  `json:"timing"`
+	Drawn     int     `json:"drawn"`
+	P50MS     float64 `json:"p50_ms"`
+	P95MS     float64 `json:"p95_ms"`
+	MaxMS     float64 `json:"max_ms"`
+	Scale     float32 `json:"scale"`
+	WaitP50MS float64 `json:"wait_p50_ms"`
+	WaitP95MS float64 `json:"wait_p95_ms"`
+	WaitMaxMS float64 `json:"wait_max_ms"`
 }
 
 type Result struct {
 	Workload      string  `json:"workload"`
 	Seconds       float64 `json:"seconds"`
 	Build         string  `json:"build"`
+	VSync         string  `json:"vsync"`
 	Frames        Frames  `json:"frames"`
 	GUISeconds    float64 `json:"gui_cpu_seconds"`
 	DaemonSeconds float64 `json:"daemon_cpu_seconds"`
@@ -41,8 +46,8 @@ func Summarize(samples []time.Duration) Frames {
 }
 
 func Compare(w io.Writer, a, b Result) error {
-	if a.Workload != b.Workload || a.Seconds != b.Seconds || a.Frames.Scale != b.Frames.Scale {
-		return fmt.Errorf("workload, seconds and scale must match")
+	if a.Workload != b.Workload || a.Seconds != b.Seconds || a.Frames.Scale != b.Frames.Scale || a.Frames.Timing != b.Frames.Timing || a.VSync != b.VSync {
+		return fmt.Errorf("workload, seconds, scale, timing and vsync must match")
 	}
 	if _, err := fmt.Fprintf(w, "build\t%s\t%s\nmetric\ta\tb\tdelta (b-a)\n", a.Build, b.Build); err != nil {
 		return err
@@ -55,6 +60,9 @@ func Compare(w io.Writer, a, b Result) error {
 		{"p50_ms", a.Frames.P50MS, b.Frames.P50MS},
 		{"p95_ms", a.Frames.P95MS, b.Frames.P95MS},
 		{"max_ms", a.Frames.MaxMS, b.Frames.MaxMS},
+		{"wait_p50_ms", a.Frames.WaitP50MS, b.Frames.WaitP50MS},
+		{"wait_p95_ms", a.Frames.WaitP95MS, b.Frames.WaitP95MS},
+		{"wait_max_ms", a.Frames.WaitMaxMS, b.Frames.WaitMaxMS},
 		{"gui_cpu_seconds", a.GUISeconds, b.GUISeconds},
 		{"daemon_cpu_seconds", a.DaemonSeconds, b.DaemonSeconds},
 	} {

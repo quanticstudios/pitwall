@@ -19,9 +19,11 @@ func TestIsolation(t *testing.T) {
 	t.Setenv("PITWALL_ATTACH", "1")
 	t.Setenv("XDG_CONFIG_HOME", "/real/config")
 	t.Setenv("HOME", "/real/home")
+	t.Setenv("vblank_mode", "1")
+	t.Setenv("__GL_SYNC_TO_VBLANK", "1")
 	got := isolatedEnv("/private")
 	for _, s := range got {
-		if strings.HasPrefix(s, "PITWALL_") || strings.Contains(s, "/real/") {
+		if strings.HasPrefix(s, "PITWALL_") || strings.Contains(s, "/real/") || strings.HasPrefix(s, "vblank_mode=") || strings.HasPrefix(s, "__GL_SYNC_TO_VBLANK=") {
 			t.Fatal(s)
 		}
 	}

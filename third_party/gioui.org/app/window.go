@@ -41,6 +41,11 @@ type Option func(unit.Metric, *Config)
 //
 // More than one Window is not supported on iOS, Android, WebAssembly.
 type Window struct {
+	// FrameSubmitted runs after operations are processed and before presentation
+	// or acknowledgement. A nil callback adds no timing calls.
+	// pitwall: benchmarks use this boundary to exclude vsync waits.
+	FrameSubmitted func()
+
 	initialOpts    []Option
 	initialActions []system.Action
 
@@ -196,6 +201,9 @@ func (w *Window) validateAndProcess(size image.Point, sync bool, frame *op.Ops, 
 			}
 		}
 		w.queue.Frame(frame)
+		if w.FrameSubmitted != nil {
+			w.FrameSubmitted()
+		}
 		// Let the client continue as soon as possible, in particular before
 		// a potentially blocking Present.
 		signal()
