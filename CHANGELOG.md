@@ -22,12 +22,8 @@ pushes the tag once, which starts the release build. Either step takes
 - Add `pwbench` to compare window drawing and process CPU time across fixed spinner, title, terminal flood and scrollback workloads in a private display.
 - Peek shows another tab's focused pane in a card over the tab you are on, at 80% of the window, without leaving your place: read it, scroll it and type into it, such as an answer to a permission prompt, then Esc or a click outside the card closes it. Alt+click a sidebar row, an agent under a row or a board card, press Space on the board's focused card, or run Peek at tab (`peek_tab`, unbound) from the command palette and pick one. `keep_peek` (Ctrl+Shift+Enter, Cmd+Enter in mac) goes to the peeked tab. The card's header names the tab, its agent and state, and its machine in a shared session, where a pane on another host works as it does in a split.
 - A program on another machine, in a shared session's tab or a `pitwall --host` window, sets this machine's clipboard with OSC 52 only after you allow it. The first write from a host opens a dialog with the text, Allow, Deny and Remember for the host. A remembered answer goes to `[host_clipboard]` in config.toml, and Settings, Terminal, Machines changes it per host. Such writes went straight to the clipboard before. Writes from this machine's panes are unchanged.
-- Keep folder paths out of agent tab names and ignore pi's title spinner after its prefix.
-- Mark a hooked Claude Code or Codex turn Done after `quiet_after` at a still input box when its Stop hook is lost. Work hooks restart the interval; running background subagents and workflows keep Working.
-- Allow quiet recovery after a background task resumes the main agent without a new prompt.
-- Keep the agent session ID when a quiet turn completes.
-- Keep the background-work veto when a subagent sends tool hooks.
-- Skip automatic continue while a Stop hook reports running background work.
+- An agent's tab name no longer turns into a folder path when the agent sets its title to its folder, and pi's title spinner after its prefix no longer renames the tab.
+- A Claude Code or Codex turn whose Stop hook never arrives is marked Done once its input box has sat still for `quiet_after`, instead of showing Working until the next prompt. A tool call in the main session restarts the wait. While a background subagent or workflow is still running, the turn stays Working and the automatic continue waits.
 
 ## v0.2.2
 
