@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/gitenv"
 	"github.com/quanticstudios/pitwall/internal/model"
 )
 
@@ -850,8 +851,9 @@ func TestEnvKeepsWhatIsThePersons(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustPlain(t, root, "init", "-q")
-	t.Setenv("GIT_DIR", filepath.Join(p.dir, "other"))
-	t.Setenv("GIT_INDEX_FILE", filepath.Join(p.dir, "other-index"))
+	for _, name := range strings.Fields(gitenv.RepositoryVars) {
+		t.Setenv(name, filepath.Join(p.dir, "other"))
+	}
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "user.name")
 	t.Setenv("GIT_CONFIG_VALUE_0", "from the parent")
@@ -863,6 +865,9 @@ func TestEnvKeepsWhatIsThePersons(t *testing.T) {
 	}
 	if got, want := runGit(t, root, "rev-parse", "--show-toplevel"), root; got != want {
 		t.Errorf("toplevel = %q, want %q: the parent's GIT_DIR was left in", got, want)
+	}
+	if key, err := repoFilter(context.Background(), root); err != nil || key != "" {
+		t.Errorf("repoFilter = %q, %v, want no filter in the selected repository", key, err)
 	}
 }
 

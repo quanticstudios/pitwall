@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/gitenv"
 	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -28,6 +29,16 @@ func gitEnv(t *testing.T) {
 	t.Setenv("GIT_AUTHOR_EMAIL", "review@example.invalid")
 	t.Setenv("GIT_COMMITTER_NAME", "Review Test")
 	t.Setenv("GIT_COMMITTER_EMAIL", "review@example.invalid")
+}
+
+func otherGitEnv(t *testing.T) []string {
+	t.Helper()
+	dir := t.TempDir()
+	var env []string
+	for _, name := range strings.Fields(gitenv.RepositoryVars) {
+		env = append(env, name+"="+dir)
+	}
+	return env
 }
 
 func gitIn(t *testing.T, dir string, args ...string) string {
@@ -148,7 +159,7 @@ func TestDiffCmd(t *testing.T) {
 		{"file", &gitstat.FileStat{Path: "sub/b.txt", Status: 'M'}, []string{"+uncommitted"}, []string{"+committed", "main only"}},
 		{"untracked", &gitstat.FileStat{Path: "new.txt", Status: '?'}, []string{"+untracked"}, []string{"uncommitted"}},
 	} {
-		out := run(t, diffCmd(sub, stats.Base, c.file), "GIT_PAGER=cat")
+		out := run(t, diffCmd(sub, stats.Base, c.file), append(otherGitEnv(t), "GIT_PAGER=cat")...)
 		if !strings.Contains(out, "\x1b[") {
 			t.Errorf("%s: no color in %q", c.name, out)
 		}
@@ -178,6 +189,7 @@ func TestStageScript(t *testing.T) {
 	gitIn(t, dir, "commit", "-m", "base")
 	write(t, filepath.Join(dir, "sub", "a.txt"), "one\n2\n3\n4\n5\n6\n7\n8\n9\nten\n")
 	cmd := exec.Command("sh", "-c", stageScript, "sh", filepath.Join(dir, "sub"))
+	cmd.Env = append(os.Environ(), otherGitEnv(t)...)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +241,7 @@ func TestPRCmd(t *testing.T) {
 	}
 	path := "PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH")
 
-	out := run(t, prCmd(dir), path)
+	out := run(t, prCmd(dir), append(otherGitEnv(t), path)...)
 	if !strings.Contains(out, "$ git push -u origin HEAD") || !strings.Contains(out, "https://example.invalid/pull/1") {
 		t.Fatalf("no upstream: printed\n%s", out)
 	}
@@ -238,7 +250,7 @@ func TestPRCmd(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "a.txt"), "three\n")
 	gitIn(t, dir, "commit", "-am", "more")
-	out = run(t, prCmd(dir), path)
+	out = run(t, prCmd(dir), append(otherGitEnv(t), path)...)
 	if strings.Contains(out, "git push") {
 		t.Fatalf("with an upstream: printed\n%s", out)
 	}
