@@ -63,6 +63,29 @@ ui_size = 13
 	}
 }
 
+// TestHostKeys sets, sets again and removes host keys that need quotes, as
+// [host_clipboard] keeps an ssh destination: one line each time, and gone
+// after RemoveKey.
+func TestHostKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	for _, host := range []string{"alice@box", "2001:db8::1", "box.lan"} {
+		for _, v := range []string{"allow", "deny"} {
+			if err := SetKey(path, "host_clipboard", Key(host), Quote(v)); err != nil {
+				t.Fatalf("%s = %s: %v", host, v, err)
+			}
+			if s, probs := LoadFile(path); len(probs) != 0 || s.HostClipboard[host] != v {
+				t.Fatalf("%s = %s: loaded %v %v", host, v, s.HostClipboard, probs)
+			}
+		}
+		if err := RemoveKey(path, "host_clipboard", Key(host)); err != nil {
+			t.Fatalf("remove %s: %v", host, err)
+		}
+		if s, _ := LoadFile(path); s.HostClipboard[host] != "" {
+			t.Fatalf("%s still %q after RemoveKey", host, s.HostClipboard[host])
+		}
+	}
+}
+
 // TestSetKeyDefaultFile edits the file `config init` writes: every touched
 // key loads, and the lines around it are unchanged.
 func TestSetKeyDefaultFile(t *testing.T) {

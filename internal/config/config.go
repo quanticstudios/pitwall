@@ -1005,8 +1005,13 @@ func locate(file string, data []byte, issues []issue) []Problem {
 
 var (
 	tableRe = regexp.MustCompile(`^\s*\[\s*([^\]\[]+?)\s*\]`)
-	keyRe   = regexp.MustCompile(`^\s*([A-Za-z0-9_.\-"' ]+?)\s*=`)
+	// keyRe takes a dotted key whose parts are bare or quoted, so a quoted
+	// host such as "alice@box" or "2001:db8::1" is a key too.
+	keyRe = regexp.MustCompile(`^\s*(` + keyPart + `(?:\s*\.\s*` + keyPart + `)*)\s*=`)
 )
+
+// keyPart is one part of a TOML key: bare, "basic" or 'literal'.
+const keyPart = `(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')`
 
 // keyLines maps each dotted key and table the file sets to its first line.
 // Multi-line values and inline tables are not followed: their keys resolve

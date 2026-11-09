@@ -57,15 +57,14 @@ func (u *ui) writeClipboard(gtx gl.Context, c model.Clipboard) {
 	if c.Seq != u.clipSeq {
 		u.clipSeq = c.Seq
 		if host, cur := u.clipHost(c); c.Text != "" && u.cfg.OSC52 && cur {
-			switch {
-			case host == "" || u.cfg.HostClipboard[host] == "allow":
+			if host == "" {
 				putClipboard(gtx, c.Text)
-			case u.cfg.HostClipboard[host] == "":
+			} else {
 				u.clipAsk = clipAsk{host, c.Text} // a newer write replaces one waiting
 			}
 		}
 	}
-	u.askClipboard()
+	u.askClipboard(gtx)
 }
 
 // ring is when a pane's attention ring appeared, for its arrival pulse.

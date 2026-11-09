@@ -44,20 +44,27 @@ func putClipboard(gtx gl.Context, text string) {
 	gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(text))})
 }
 
-// askClipboard opens the clipboard dialog for the waiting write once no
-// other dialog shows, or gives the open one for the same host its newer
-// text.
-func (u *ui) askClipboard() {
+// askClipboard settles the waiting write by its host's answer, once one is
+// remembered, else opens the clipboard dialog for it once no other dialog
+// shows. An open dialog keeps the text it shows: a click there answers for
+// that text, and a newer write waits for a dialog of its own.
+func (u *ui) askClipboard(gtx gl.Context) {
 	a := u.clipAsk
-	switch {
-	case a.host == "":
-		return
-	case u.modal.kind == modalNone:
-		u.modal.open(modalClipboard, "")
-	case u.modal.kind != modalClipboard || u.modal.clip.host != a.host:
+	if a.host == "" {
 		return
 	}
-	u.modal.clip, u.clipAsk = a, clipAsk{}
+	switch u.cfg.HostClipboard[a.host] {
+	case "allow":
+		putClipboard(gtx, a.text)
+	case "deny":
+	default:
+		if u.modal.kind != modalNone {
+			return
+		}
+		u.modal.open(modalClipboard, "")
+		u.modal.clip = a
+	}
+	u.clipAsk = clipAsk{}
 }
 
 // clipboardEvents answers the clipboard dialog. Allow writes the text and
