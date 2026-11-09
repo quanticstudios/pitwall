@@ -27,7 +27,13 @@ func TestIsolation(t *testing.T) {
 			t.Fatal(s)
 		}
 	}
-	for _, want := range []string{"HOME=/private/home", "XDG_CONFIG_HOME=/private/config", "XDG_STATE_HOME=/private/state", "XDG_RUNTIME_DIR=/private/runtime"} {
+	for key, dir := range map[string]string{
+		"HOME":            "home",
+		"XDG_CONFIG_HOME": "config",
+		"XDG_STATE_HOME":  "state",
+		"XDG_RUNTIME_DIR": "runtime",
+	} {
+		want := key + "=" + filepath.Join("/private", dir)
 		found := false
 		for _, s := range got {
 			found = found || s == want
