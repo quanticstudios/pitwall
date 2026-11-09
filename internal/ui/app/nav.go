@@ -59,6 +59,8 @@ type nav struct {
 	diff bool
 	// board asks the window to open or close the board.
 	board bool
+	// monitor asks the window to open the shown tab's machine's Monitor tab.
+	monitor bool
 	// sidebarKeys asks the window to move the keyboard into the sidebar,
 	// or back to the pane (focus_sidebar).
 	sidebarKeys bool
@@ -1043,6 +1045,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.paneMode, n.tabMode = true, false
 	case "new_task":
 		n.task = true
+	case "open_monitor":
+		n.monitor = true
 	case "command_palette":
 		n.palette = true
 	case "next_group":

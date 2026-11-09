@@ -694,6 +694,10 @@ func (f *FakeBackend) Send(msg any) error {
 			}
 		}
 	case proto.NewSession:
+		if m.Monitor {
+			f.openMonitor(m.SessionID)
+			break
+		}
 		cwd := m.Cwd
 		if cwd == "" {
 			cwd = fakeHome

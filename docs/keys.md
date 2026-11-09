@@ -293,6 +293,10 @@ Its default is Ctrl+Alt+U in conventional and aide, Cmd+Option+U in mac.
 Rebind it under `[keys]` or in Settings. It also appears as "Jump to last
 prompt" in the command palette. See [prompt tracking](usage.md#watching-agents).
 
+`open_monitor` opens a [Monitor tab](usage.md#monitor-tabs) of the shown
+tab's machine, or shows the one the session has. It has no default key and
+appears as "Monitor this machine" in the command palette.
+
 `toggle_board` shows the board in place of the panes, or hides it. Its
 default is Ctrl+Shift+M in conventional and aide, Cmd+Shift+M in mac. On
 the board (see [the board](usage.md#the-board)):

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"sync/atomic"
@@ -192,5 +193,17 @@ func TestMonitorTab(t *testing.T) {
 	}
 	if ws := (chatHub{d}).Workspaces(); slices.ContainsFunc(ws, func(w model.Workspace) bool { return w.Monitor }) {
 		t.Fatal("the web protocol lists the Monitor tab")
+	}
+	// Closing the tab stops its watches: the window may not reach the
+	// daemon to say so.
+	c := &client{wake: make(chan struct{}, 1)}
+	d.watchMonitor(context.Background(), c, mon.ID, time.Hour)
+	gui.send(proto.KillSession{WorkspaceID: mon.ID})
+	gui.waitState("closed", func(s model.State) bool { return len(s.Workspaces) == 1 })
+	d.mon.mu.Lock()
+	n := len(d.mon.watchers)
+	d.mon.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d watches left after the Monitor tab closed", n)
 	}
 }

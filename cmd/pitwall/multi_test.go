@@ -714,3 +714,32 @@ func TestMultiTaskOnOldHost(t *testing.T) {
 		rd.nc.Close()
 	}
 }
+
+// A host's MonitorSample answers for that host's tabs alone, and a
+// MonitorWatch goes to the daemon of the tab it names.
+func TestMultiMonitor(t *testing.T) {
+	local, ld := localBackend(t, hostState("ls", "lw", "lp"))
+	conns := make(chan end, 1)
+	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(hostState("rs", "rw", "rp"), conns)}})
+	rd := <-conns
+	t.Cleanup(func() { rd.nc.Close() })
+	waitFor(t, "box's state", func() bool { st := m.State(); return st.Session("rs") != nil })
+
+	m.Send(proto.MonitorWatch{WorkspaceID: "rw", Interval: time.Second})
+	if w, ok := recv(rd).(proto.MonitorWatch); !ok || w.WorkspaceID != "rw" {
+		t.Fatalf("box got %#v", w)
+	}
+	if got := recv(ld); got != nil {
+		t.Fatalf("local got %#v", got)
+	}
+	if err := rd.c.Send(proto.MonitorSample{Tabs: map[string]string{"claude 7": "rp"}}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "box's sample", func() bool { _, _, ok := m.Monitor("rw"); return ok })
+	if s, _, _ := m.Monitor("rw"); s.Tabs["claude 7"] != "rp" {
+		t.Fatalf("box's sample %+v", s)
+	}
+	if _, _, ok := m.Monitor("lw"); ok {
+		t.Fatal("this machine's tab shows box's sample")
+	}
+}
