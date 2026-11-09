@@ -44,11 +44,12 @@ const (
 	modalTask
 	modalProfile
 	modalDiscard
-	modalUndoTurn // putting back the files of the review view's turn
-	modalPinned   // closing a pinned tab, see pinned.go
-	modalRestart  // restarting a daemon older than the window, see restart.go
-	modalClose    // closing an agent mid-turn, see close.go
-	modalPaste    // a paste into another host's pane right after focus moved there, see shared.go
+	modalUndoTurn  // putting back the files of the review view's turn
+	modalPinned    // closing a pinned tab, see pinned.go
+	modalRestart   // restarting a daemon older than the window, see restart.go
+	modalClose     // closing an agent mid-turn, see close.go
+	modalPaste     // a paste into another host's pane right after focus moved there, see shared.go
+	modalClipboard // another host's OSC 52 write, see clipboard.go
 )
 
 // modal is the window-level dialog: aide's DeleteWorkspaceModal and the
@@ -62,6 +63,8 @@ type modal struct {
 	then         any      // the close request to send after confirmation
 	agents       []string // agents whose turns the close stops
 	focus        bool     // move key focus into the dialog this frame
+	clip         clipAsk  // the write the clipboard dialog is about
+	remember     bool     // the clipboard dialog keeps its answer for the host
 
 	check, cancel, ok widget.Clickable
 	path              widget.Editor
@@ -78,7 +81,7 @@ func (m *modal) open(kind modalKind, ws string) {
 		m.openedAt = time.Now()
 	}
 	m.kind, m.ws, m.removeBranch, m.focus, m.pathErr, m.matches = kind, ws, false, true, "", nil
-	m.archive, m.armed = false, false
+	m.archive, m.armed, m.remember = false, false, false
 	m.wt.approved = ""
 	m.wt.scroll.Position = gl.Position{}
 	if kind == modalAddProject {
@@ -148,6 +151,9 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 				confirm = true
 			}
 		}
+	}
+	if m.kind == modalClipboard {
+		u.clipboardEvents(gtx)
 	}
 	if m.kind == modalNone {
 		return
@@ -230,6 +236,8 @@ func (u *ui) layoutModal(gtx gl.Context, st *model.State) {
 		content = u.restartBody
 	case modalPaste:
 		content = u.pasteBody
+	case modalClipboard:
+		content = u.clipboardBody
 	}
 	u.card(gtx, &m.body, m.openedAt, content)
 }

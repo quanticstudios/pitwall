@@ -45,6 +45,8 @@ type Config struct {
 	Hosts     []Host      `toml:"hosts" doc:"Machines that pitwall --host <name> opens a window on over ssh, each a [[hosts]] table with name, ssh and window. A name not listed here goes to ssh as it is."`
 	// HostColors is each host's color in a shared session, by [[hosts]] name.
 	HostColors map[string]string `toml:"host_colors" doc:"Each host's color in a shared session, a tab color such as \"teal\", keyed by its [[hosts]] name. A host with none takes one in turn. See docs/remote.md."`
+	// HostClipboard is whether each host's programs may set the clipboard.
+	HostClipboard map[string]string `toml:"host_clipboard" doc:"Whether programs on another machine may set this machine's clipboard with OSC 52, keyed by host name: \"allow\" or \"deny\". A host with neither asks the first time it writes. See docs/remote.md."`
 
 	Profiles map[string]Profile `toml:"profiles" doc:"Named Claude Code and Codex accounts. See docs/config.md."`
 }
@@ -380,6 +382,9 @@ type Settings struct {
 	// Hosts is [[hosts]] as written.
 	Hosts      []Host
 	HostColors map[string]string
+	// HostClipboard is [host_clipboard] without values other than
+	// "allow" and "deny".
+	HostClipboard map[string]string
 	// Popups is [[popups]] without the entries with problems.
 	Popups []Popup
 	// Notes are things that work but should change, like an action under
@@ -606,6 +611,16 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.LimitsInSidebar = c.Usage.LimitsInSidebar != nil && *c.Usage.LimitsInSidebar
 	s.Hosts = c.Hosts
 	s.HostColors = c.HostColors
+	for h, v := range c.HostClipboard {
+		if v != "allow" && v != "deny" {
+			fi = append(fi, issue{"host_clipboard." + h, fmt.Sprintf("%q is not allow or deny; asking", v)})
+			continue
+		}
+		if s.HostClipboard == nil {
+			s.HostClipboard = map[string]string{}
+		}
+		s.HostClipboard[h] = v
+	}
 	var pi []issue
 	s.Profiles, pi = resolveProfiles(c.Profiles)
 	fi = append(fi, pi...)
@@ -990,8 +1005,13 @@ func locate(file string, data []byte, issues []issue) []Problem {
 
 var (
 	tableRe = regexp.MustCompile(`^\s*\[\s*([^\]\[]+?)\s*\]`)
-	keyRe   = regexp.MustCompile(`^\s*([A-Za-z0-9_.\-"' ]+?)\s*=`)
+	// keyRe takes a dotted key whose parts are bare or quoted, so a quoted
+	// host such as "alice@box" or "2001:db8::1" is a key too.
+	keyRe = regexp.MustCompile(`^\s*(` + keyPart + `(?:\s*\.\s*` + keyPart + `)*)\s*=`)
 )
+
+// keyPart is one part of a TOML key: bare, "basic" or 'literal'.
+const keyPart = `(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')`
 
 // keyLines maps each dotted key and table the file sets to its first line.
 // Multi-line values and inline tables are not followed: their keys resolve

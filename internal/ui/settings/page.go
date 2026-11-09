@@ -6,10 +6,12 @@
 package settings
 
 import (
+	"cmp"
 	"fmt"
 	"image"
 	"image/color"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -1171,7 +1173,7 @@ func (p *Page) below(a config.Action) gl.Widget {
 }
 
 func (p *Page) terminal() []section {
-	return []section{{rows: []row{
+	return append([]section{{rows: []row{
 		{label: "Copy on select", desc: "Selecting text with the mouse copies it to the clipboard. The copy shortcut works either way.", extra: "clipboard selection mouse copy_on_select",
 			control: p.toggle("terminal", "copy_on_select", p.s.CopyOnSelect)},
 		{label: "Links", desc: "Underline web and file links in panes. Ctrl+click opens one in your browser, even inside Claude Code or Codex.", extra: "url hyperlink browser open ctrl click links",
@@ -1184,7 +1186,40 @@ func (p *Page) terminal() []section {
 			control: p.stepper("terminal", "scrollback", float64(p.s.Scrollback), 1000, config.MaxScrollback, 10000, config.DefaultScrollback)},
 		{label: "Colors", desc: "From the theme. Set them under [theme.terminal] in config.toml, or in a custom theme.", extra: "palette ansi colour",
 			control: p.palette},
-	}}}
+	}}}, p.machines()...)
+}
+
+// machines is a row per host, [[hosts]] first, for whether programs there
+// may set this machine's clipboard: Ask, the default, Allow or Deny. None
+// without hosts.
+func (p *Page) machines() []section {
+	var hosts []string
+	for _, h := range p.s.Hosts {
+		if h.Name != "" && !slices.Contains(hosts, h.Name) {
+			hosts = append(hosts, h.Name)
+		}
+	}
+	for _, h := range slices.Sorted(maps.Keys(p.s.HostClipboard)) {
+		if !slices.Contains(hosts, h) {
+			hosts = append(hosts, h)
+		}
+	}
+	if len(hosts) == 0 {
+		return nil
+	}
+	sec := section{title: "Machines", desc: "Programs on another machine can set this machine's clipboard with OSC 52, as programs here can. Ask shows a dialog the first time a host writes."}
+	for _, h := range hosts {
+		sec.rows = append(sec.rows, row{label: "Clipboard from " + h, desc: "Whether programs on " + h + " may set your clipboard.",
+			extra: "osc52 osc 52 clipboard host hosts machine machines remote ssh host_clipboard",
+			control: p.labeled("host_clipboard."+h, []string{"ask", "allow", "deny"}, []string{"Ask", "Allow", "Deny"}, cmp.Or(p.s.HostClipboard[h], "ask"), func(o string) {
+				if o == "ask" {
+					p.save("host_clipboard", config.Key(h), nil)
+				} else {
+					p.saveValue("host_clipboard", config.Key(h), config.Quote(o))
+				}
+			})})
+	}
+	return []section{sec}
 }
 
 // palette shows the terminal's background and the normal ANSI colors over

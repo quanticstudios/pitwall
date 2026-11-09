@@ -2,13 +2,10 @@ package app
 
 import (
 	"image"
-	"io"
 	"math"
 	"slices"
-	"strings"
 	"time"
 
-	"gioui.org/io/clipboard"
 	gl "gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -52,15 +49,22 @@ func (u *ui) markSeen(st *model.State) {
 }
 
 // writeClipboard puts the text of an OSC 52 write on the clipboard, once
-// per write, unless [terminal] osc52 is off.
+// per write, unless [terminal] osc52 is off. A write from a pane on another
+// machine follows the host's [host_clipboard] answer, and waits for one in
+// a dialog when there is none, so a program there cannot silently change
+// what you paste here.
 func (u *ui) writeClipboard(gtx gl.Context, c model.Clipboard) {
-	if c.Seq == u.clipSeq {
-		return
+	if c.Seq != u.clipSeq {
+		u.clipSeq = c.Seq
+		if host, cur := u.clipHost(c); c.Text != "" && u.cfg.OSC52 && cur {
+			if host == "" {
+				putClipboard(gtx, c.Text)
+			} else {
+				u.clipAsk = clipAsk{host, c.Text} // a newer write replaces one waiting
+			}
+		}
 	}
-	u.clipSeq = c.Seq
-	if c.Text != "" && u.cfg.OSC52 {
-		gtx.Execute(clipboard.WriteCmd{Type: "application/text", Data: io.NopCloser(strings.NewReader(c.Text))})
-	}
+	u.askClipboard(gtx)
 }
 
 // ring is when a pane's attention ring appeared, for its arrival pulse.

@@ -332,6 +332,7 @@ type ui struct {
 	focusSent     string               // the pane the last SeePane named, "" for none
 	contentOrigin image.Point
 	clipSeq       uint64          // the last OSC 52 write put on the clipboard (State.Clipboard.Seq)
+	clipAsk       clipAsk         // another host's write waiting for the clipboard dialog
 	rings         map[string]ring // pane: its attention ring, see attentionRing
 
 	settings   settings.Page // shown in place of the panes

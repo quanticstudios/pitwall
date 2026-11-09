@@ -904,7 +904,8 @@ copy, also over ssh: `printf '\e]52;c;%s\a' "$(printf hi | base64)"` puts
 "hi" on it. A write may hold up to 1 MB of text. Programs can never read
 the clipboard this way: pitwall leaves OSC 52 read requests unanswered, so a
 program cannot see what you copied elsewhere. Set `osc52 = "off"` under
-`[terminal]` to ignore the writes.
+`[terminal]` to ignore the writes. A write from a pane on another machine
+asks first, see [Remote hosts](remote.md).
 
 Panes show images that programs print with the kitty graphics protocol,
 such as `kitten icat`, `chafa`, `timg` and agents that preview a

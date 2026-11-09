@@ -24,6 +24,17 @@ func SetKey(path, table, key, value string) error { return editFile(path, table,
 // [table], so the key falls back to its default.
 func RemoveKey(path, table, key string) error { return editFile(path, table, key, nil) }
 
+// Key is s as a TOML key: as it is when bare, else quoted, so a host
+// name such as box.lan stays one key.
+func Key(s string) string {
+	if bareKey.MatchString(s) {
+		return s
+	}
+	return Quote(s)
+}
+
+var bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
 // Quote is s as a TOML basic string.
 func Quote(s string) string {
 	var b strings.Builder
@@ -225,7 +236,7 @@ func editValue(src, table, key string, change func(string) *string) string {
 				end = ve + i + 1
 			}
 			if cur == table {
-				if keyStart < 0 && clean(line[:m[1]-1]) == key {
+				if keyStart < 0 && clean(line[:m[1]-1]) == clean(key) {
 					keyStart, valStart, valEnd, stmtEnd = pos, vs, ve, end
 				}
 				insertAt = end

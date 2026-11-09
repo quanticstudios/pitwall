@@ -41,6 +41,7 @@ ui_size = 13
 		{"missing table", "layout", "pane_gap", set("8"), src + "\n[layout]\npane_gap = 8\n"},
 		{"remove", "keys", "mono_like", nil, strings.Replace(src, "mono_like = [\n  \"a\", # keep\n  \"b\",\n]\n", "", 1)},
 		{"remove absent", "keys", "nope", nil, src},
+		{"quoted key", "host_clipboard", Key("box.lan"), set(`"deny"`), src + "\n[host_clipboard]\n\"box.lan\" = \"deny\"\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := editTOML(src, tc.table, tc.key, tc.value); got != tc.want {
@@ -53,8 +54,35 @@ ui_size = 13
 	if got := editTOML(prose, "keys", "toggle_sidebar", set(`"X"`)); got != "[keys]\ntoggle_sidebar = \"X\"\n"+prose[len("[keys]\n"):] {
 		t.Errorf("prose uncommented:\n%s", got)
 	}
+	quoted := "[host_clipboard]\n\"box.lan\" = \"allow\"\n"
+	if got := editTOML(quoted, "host_clipboard", Key("box.lan"), set(`"deny"`)); got != strings.Replace(quoted, "allow", "deny", 1) {
+		t.Errorf("quoted key set again:\n%s", got)
+	}
 	if got := editTOML("", "font", "ui_size", set("14")); got != "[font]\nui_size = 14\n" {
 		t.Errorf("empty file: %q", got)
+	}
+}
+
+// TestHostKeys sets, sets again and removes host keys that need quotes, as
+// [host_clipboard] keeps an ssh destination: one line each time, and gone
+// after RemoveKey.
+func TestHostKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	for _, host := range []string{"alice@box", "2001:db8::1", "box.lan"} {
+		for _, v := range []string{"allow", "deny"} {
+			if err := SetKey(path, "host_clipboard", Key(host), Quote(v)); err != nil {
+				t.Fatalf("%s = %s: %v", host, v, err)
+			}
+			if s, probs := LoadFile(path); len(probs) != 0 || s.HostClipboard[host] != v {
+				t.Fatalf("%s = %s: loaded %v %v", host, v, s.HostClipboard, probs)
+			}
+		}
+		if err := RemoveKey(path, "host_clipboard", Key(host)); err != nil {
+			t.Fatalf("remove %s: %v", host, err)
+		}
+		if s, _ := LoadFile(path); s.HostClipboard[host] != "" {
+			t.Fatalf("%s still %q after RemoveKey", host, s.HostClipboard[host])
+		}
 	}
 }
 
