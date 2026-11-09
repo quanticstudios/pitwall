@@ -857,7 +857,9 @@ func (n *nav) tabOp(st *model.State, op string) any {
 	case "rename":
 		n.renameTab = n.workspace
 	case "new":
-		return n.looseTab(st)
+		// why: in a shared session the tab opens on the active tab's
+		// machine, in its folder there, as the section's + does.
+		return fromTab{n.workspace, n.looseTab(st)}
 	case "new_in_group":
 		return n.newTab(st, "", "")
 	case "close":

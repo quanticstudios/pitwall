@@ -1,12 +1,15 @@
 package sidebar
 
 import (
+	"image"
+	"image/color"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"gioui.org/f32"
+	"gioui.org/gpu/headless"
 	"gioui.org/io/key"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
@@ -135,7 +138,7 @@ func TestMachineFold(t *testing.T) {
 // a down host's does nothing.
 func TestMachinePlus(t *testing.T) {
 	h := machineHarness(t, false)
-	plus := 8 + (288 - 1 - 16) - 20 - 2 + 10
+	plus := 8 + (288 - 1 - 16) - 20 - 4 + 10
 	for _, tc := range []struct {
 		host string
 		want []Event
@@ -229,5 +232,62 @@ func TestEscapeWithNoRows(t *testing.T) {
 	s.Focus(&st, "", "")
 	if _, back, used := s.Key(&st, "", "", key.Event{Name: key.NameEscape, State: key.Press}); !used || !back {
 		t.Fatalf("Escape with no rows: used %v, back %v", used, back)
+	}
+}
+
+// A hovered section header fills its whole width with rounded corners,
+// and its + sits inside the fill, ending its glyph about 8dp from the
+// edge as rows do.
+func TestMachineHeaderEdge(t *testing.T) {
+	win, err := headless.NewWindow(288, 800)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer win.Release()
+	h := machineHarness(t, true)
+	var top, bot int
+	for _, e := range h.s.elems {
+		if e.kind == 'm' && e.id == "box" {
+			top, bot = e.head+56, e.bot+56
+		}
+	}
+	for range 2 { // hover shows after the second move
+		h.r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(100, float32(top+5)), Source: pointer.Mouse})
+		h.frame()
+	}
+	if err := win.Frame(&h.ops); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 288, 800))
+	if err := win.Screenshot(img); err != nil {
+		t.Fatal(err)
+	}
+	th := theme.Dark()
+	near := func(got color.RGBA, want color.NRGBA) bool {
+		d := func(a, b uint8) int { return max(int(a), int(b)) - min(int(a), int(b)) }
+		return d(got.R, want.R) < 4 && d(got.G, want.G) < 4 && d(got.B, want.B) < 4
+	}
+	right := 8 + 288 - 1 - 16 // the tree's right edge
+	mid := (top + bot) / 2
+	if c := img.RGBAAt(right-2, top+(bot-top)/4); !near(c, th.SurfaceSecondary) {
+		t.Errorf("fill stops short of the right edge: %v, want %v", c, th.SurfaceSecondary)
+	}
+	if c := img.RGBAAt(right-1, top); !near(c, th.Sidebar) {
+		t.Errorf("the fill's top right corner is square: %v, want %v", c, th.Sidebar)
+	}
+	// The glyph: some pixel in the + differs from the fill, none in the
+	// last 7dp.
+	glyph := false
+	for x := right - 30; x < right; x++ {
+		c := img.RGBAAt(x, mid)
+		if !near(c, th.SurfaceSecondary) {
+			if x >= right-7 {
+				t.Errorf("the + reaches x %d, %ddp from the edge", x, right-x)
+			}
+			glyph = true
+		}
+	}
+	if !glyph {
+		t.Error("no + on the hovered header")
 	}
 }

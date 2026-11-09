@@ -119,3 +119,31 @@ func TestFromTabOnItsHost(t *testing.T) {
 		t.Fatalf("sent %#v", sent)
 	}
 }
+
+// The tab prefix's new opens a loose tab on the active tab's machine, in
+// its folder from its focused pane there; with no tab active, here.
+func TestNewTabOnActiveHost(t *testing.T) {
+	fb := NewFakeBackend()
+	st := fb.State()
+	ws := st.Workspaces[0]
+	f := sharedFake{fb, ws.ID}
+	u := &ui{b: f}
+	u.nav.session, u.nav.workspace, u.nav.tab = ws.SessionID, ws.ID, ws.ActiveTab
+	for _, p := range st.Panes {
+		if p.WorkspaceID == ws.ID {
+			u.nav.focus = map[string]string{focusKey(ws.ID, ws.ActiveTab): p.ID}
+		}
+	}
+	want := u.nav.looseTab(&st)
+	if want.Cwd == "" || want.FromPane == "" {
+		t.Fatalf("the fake's first tab gives no folder or pane: %+v", want)
+	}
+	u.send(u.nav.tabOp(&st, "new"))
+	u.nav.workspace = ""
+	u.send(u.nav.tabOp(&st, "new"))
+	sent := fb.Sent()
+	here := proto.NewSession{SessionID: ws.SessionID, Loose: true}
+	if len(sent) != 2 || !reflect.DeepEqual(sent[0], NewTabOn{Host: "box", Tab: want}) || !reflect.DeepEqual(sent[1], here) {
+		t.Fatalf("sent %#v", sent)
+	}
+}
