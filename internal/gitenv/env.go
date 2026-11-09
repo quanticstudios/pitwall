@@ -6,13 +6,10 @@ import (
 	"strings"
 )
 
-// RepositoryVars covers repository paths, discovery, object stores and refs in
-// git(1)'s Environment Variables, plus Git's local prefix, graft and shallow state.
-// GIT_CONFIG redirects git config's writes. Global and command-line config,
-// identity and pager settings remain the caller's.
+// RepositoryVars is git rev-parse --local-env-vars without GIT_CONFIG_PARAMETERS
+// and GIT_CONFIG_COUNT. Discovery settings and command-line config stay inherited.
 const RepositoryVars = "GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE " +
-	"GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE " +
-	"GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_REFERENCE_BACKEND " +
+	"GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES " +
 	"GIT_PREFIX GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_SHALLOW_FILE " +
 	"GIT_REPLACE_REF_BASE GIT_NO_REPLACE_OBJECTS GIT_CONFIG"
 

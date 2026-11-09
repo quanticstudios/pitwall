@@ -7,7 +7,10 @@ import (
 )
 
 func TestClean(t *testing.T) {
-	keep := []string{"PATH=/bin", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=test", "GIT_PAGER=cat"}
+	keep := []string{
+		"PATH=/bin", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=test", "GIT_PAGER=cat",
+		"GIT_CEILING_DIRECTORIES=/home", "GIT_DISCOVERY_ACROSS_FILESYSTEM=1", "GIT_NAMESPACE=test", "GIT_REFERENCE_BACKEND=files",
+	}
 	env := slices.Clone(keep)
 	for _, name := range strings.Fields(RepositoryVars) {
 		env = append(env, name+"=/other/repository")
