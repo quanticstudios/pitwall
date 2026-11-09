@@ -1699,18 +1699,17 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	}
 
 	next, derived := d.o.Derive(prev, m.Provider, m.Payload, now)
-	if q := d.quiet[p.ID]; q != nil {
-		// Repeated work hooks restart silence; idle reminders and slash commands do not.
-		if activity, ok := d.o.Derive(nil, m.Provider, m.Payload, now); ok && activity.State != "" {
-			q.since = now
-		}
+	activity, mapped := d.o.Derive(nil, m.Provider, m.Payload, now)
+	// Repeated work hooks restart silence; idle reminders and slash commands do not.
+	if q := d.quiet[p.ID]; q != nil && mapped && activity.State != "" {
+		q.since = now
 	}
 	if agent.BackgroundRunning(m.Payload) {
 		if d.live.background == nil {
 			d.live.background = map[string]bool{}
 		}
 		d.live.background[p.ID] = true
-	} else if agent.Prompt(m.Provider, m.Payload) != "" || derived && (next.State == "" || ended(next.State)) {
+	} else if mapped && activity.State == model.StateWorking || derived && (next.State == "" || ended(next.State)) {
 		delete(d.live.background, p.ID)
 	}
 	command, asks := agent.AskedCommand(m.Payload)

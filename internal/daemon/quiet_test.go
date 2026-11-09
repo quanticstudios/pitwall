@@ -141,7 +141,7 @@ func TestQuietRecoversMissingStop(t *testing.T) {
 			}
 			lp.show(screen, false)
 			must(t, d.agentEvent(t.Context(), proto.AgentEvent{Pane: "a", Provider: provider,
-				Payload: []byte(`{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)}))
+				Payload: []byte(`{"hook_event_name":"UserPromptSubmit","prompt":"go","session_id":"main-session"}`)}))
 			d.checkQuiet()
 			age(d, "a", 2*time.Minute)
 			if provider == model.ProviderClaude {
@@ -150,6 +150,9 @@ func TestQuietRecoversMissingStop(t *testing.T) {
 			d.checkQuiet()
 			if got := d.stateOf("a"); got != model.StateCompleted {
 				t.Fatalf("missing Stop left state %q at a quiet input box", got)
+			}
+			if sid := d.activityOf("a").SessionID; sid != "main-session" {
+				t.Fatalf("quiet completion lost session ID: %q", sid)
 			}
 			if got := lp.got(); got != "" {
 				t.Fatalf("recovery typed %q", got)
@@ -184,6 +187,7 @@ func TestQuietRecoveryKeepsWorkingEvidence(t *testing.T) {
 			if tc.hook != "" {
 				claudeHook(t, d, "a", tc.hook)
 				claudeHook(t, d, "a", `{"hook_event_name":"SubagentStop"}`)
+				claudeHook(t, d, "a", `{"hook_event_name":"PostToolUse","transcript_path":null}`)
 				claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"/model"}`)
 				claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"compact"}`)
 			}
@@ -204,6 +208,34 @@ func TestQuietRecoveryKeepsWorkingEvidence(t *testing.T) {
 				if got := d.stateOf("a"); got != model.StateCompleted {
 					t.Fatalf("new turn kept the background veto: %q", got)
 				}
+			}
+		})
+	}
+}
+
+func TestQuietRecoveryAfterBackgroundWork(t *testing.T) {
+	for _, event := range []string{"PreToolUse", "PostToolUse"} {
+		t.Run(event, func(t *testing.T) {
+			d, f := talkDaemon(t)
+			d.o.QuietAfter = func() time.Duration { return time.Minute }
+			lp := &livePane{fakePane: f.pane(0)}
+			d.mu.Lock()
+			d.panes["a"] = lp
+			d.mu.Unlock()
+			lp.show("────────────────\n❯\n────────────────", false)
+			claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
+			claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`)
+			d.checkQuiet()
+			age(d, "a", 2*time.Minute)
+			claudeHook(t, d, "a", `{"hook_event_name":"`+event+`"}`)
+			d.checkQuiet()
+			if got := d.stateOf("a"); got != model.StateWorking || !quietSince(d, "a").IsZero() {
+				t.Fatalf("resumed work did not restart silence: %q", got)
+			}
+			age(d, "a", 2*time.Minute)
+			d.checkQuiet()
+			if got := d.stateOf("a"); got != model.StateCompleted {
+				t.Fatalf("resumed main turn kept the background veto: %q", got)
 			}
 		})
 	}

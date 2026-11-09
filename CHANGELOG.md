@@ -24,6 +24,8 @@ pushes the tag once, which starts the release build. Either step takes
 - A program on another machine, in a shared session's tab or a `pitwall --host` window, sets this machine's clipboard with OSC 52 only after you allow it. The first write from a host opens a dialog with the text, Allow, Deny and Remember for the host. A remembered answer goes to `[host_clipboard]` in config.toml, and Settings, Terminal, Machines changes it per host. Such writes went straight to the clipboard before. Writes from this machine's panes are unchanged.
 - Keep folder paths out of agent tab names and ignore pi's title spinner after its prefix.
 - Mark a hooked Claude Code or Codex turn Done after `quiet_after` at a still input box when its Stop hook is lost. Work hooks restart the interval; running background subagents and workflows keep Working.
+- Allow quiet recovery after a background task resumes the main agent without a new prompt.
+- Keep the agent session ID when a quiet turn completes.
 
 ## v0.2.2
 

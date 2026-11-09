@@ -274,6 +274,9 @@ func (d *Daemon) setActivity(ctx context.Context, id string, prov model.Provider
 	case d.st.Activities[i].Provider == prov && d.st.Activities[i].State == state && d.st.Activities[i].Detail == detail:
 		return
 	default:
+		if d.st.Activities[i].Provider == prov {
+			next.SessionID = d.st.Activities[i].SessionID
+		}
 		d.st.Activities[i] = next
 	}
 	if prov != model.ProviderTerminal {
