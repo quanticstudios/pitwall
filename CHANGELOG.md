@@ -17,7 +17,7 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
-## Unreleased
+## v0.2.3
 
 - Git operations and tests ignore inherited repository paths, so commands run from a Git hook or rebase use the selected repository.
 - Add `pwbench` to compare window drawing and process CPU time across fixed spinner, title, terminal flood and scrollback workloads in a private display.
