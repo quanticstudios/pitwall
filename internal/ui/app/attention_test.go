@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -212,5 +213,96 @@ func TestWriteClipboard(t *testing.T) {
 	u.cfg.OSC52 = false
 	if got := write(model.Clipboard{Seq: 3, Text: "three"}); got != "" {
 		t.Fatalf("osc52 = off wrote %q", got)
+	}
+}
+
+// clipHosts is a Backend whose clipboard writes all came from host.
+type clipHosts struct {
+	Backend
+	host  string
+	stale bool
+}
+
+func (c *clipHosts) ClipboardHost(uint64) (string, bool) { return c.host, !c.stale }
+
+// TestWriteClipboardFromHost holds a write from another host's pane for
+// the dialog, writes it on Allow, and follows a remembered answer per host
+// without asking again.
+func TestWriteClipboardFromHost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	b := &clipHosts{}
+	u := &ui{b: b, cfg: config.Settings{OSC52: true, Path: path}}
+	var r input.Router
+	frame := func(f func(gl.Context)) string {
+		var ops op.Ops
+		f(gl.Context{Ops: &ops, Source: r.Source()})
+		r.Frame(&ops)
+		if _, b, ok := r.WriteClipboard(); ok {
+			return string(b)
+		}
+		return ""
+	}
+	seq := uint64(0)
+	write := func(host, text string) string {
+		seq++
+		b.host = host
+		return frame(func(gtx gl.Context) { u.writeClipboard(gtx, model.Clipboard{Seq: seq, Text: text}) })
+	}
+	answer := func(allow, remember bool) string {
+		u.modal.remember = remember
+		return frame(func(gtx gl.Context) { u.answerClipboard(gtx, allow) })
+	}
+
+	if got := write("", "local"); got != "local" || u.modal.kind != modalNone {
+		t.Fatalf("local write: %q, dialog %v", got, u.modal.kind)
+	}
+	if got := write("box", "one"); got != "" || u.modal.kind != modalClipboard || u.modal.clip != (clipAsk{"box", "one"}) {
+		t.Fatalf("box's first write: %q, dialog %v %+v", got, u.modal.kind, u.modal.clip)
+	}
+	if got := write("box", "two"); got != "" || u.modal.clip.text != "two" {
+		t.Fatalf("box's next write while asking: %q, dialog %+v", got, u.modal.clip)
+	}
+	if got := answer(true, false); got != "two" || u.modal.kind != modalNone {
+		t.Fatalf("Allow once: %q, dialog %v", got, u.modal.kind)
+	}
+	if got := write("box", "three"); got != "" || u.modal.kind != modalClipboard {
+		t.Fatalf("box after Allow once: %q, dialog %v", got, u.modal.kind)
+	}
+	if got := answer(true, true); got != "three" {
+		t.Fatalf("Allow and remember: %q", got)
+	}
+	if got := write("box", "four"); got != "four" || u.modal.kind != modalNone {
+		t.Fatalf("box remembered allow: %q, dialog %v", got, u.modal.kind)
+	}
+
+	// gpu has its own answer.
+	if got := write("gpu", "five"); got != "" || u.modal.kind != modalClipboard || u.modal.clip.host != "gpu" {
+		t.Fatalf("gpu's first write: %q, dialog %v %+v", got, u.modal.kind, u.modal.clip)
+	}
+	if got := answer(false, true); got != "" || u.modal.kind != modalNone {
+		t.Fatalf("Deny and remember: %q, dialog %v", got, u.modal.kind)
+	}
+	if got := write("gpu", "six"); got != "" || u.modal.kind != modalNone {
+		t.Fatalf("gpu remembered deny: %q, dialog %v", got, u.modal.kind)
+	}
+
+	// The answers are in config.toml for the next window.
+	if s, probs := config.LoadFile(path); len(probs) != 0 || s.HostClipboard["box"] != "allow" || s.HostClipboard["gpu"] != "deny" {
+		t.Fatalf("config.toml: %v %v", s.HostClipboard, probs)
+	}
+
+	// A write the backend no longer has a host for was replaced: skipped.
+	b.stale = true
+	if got := write("", "replaced"); got != "" || u.modal.kind != modalNone {
+		t.Fatalf("replaced write: %q, dialog %v", got, u.modal.kind)
+	}
+	b.stale = false
+
+	// pitwall --host web: the whole state is web's, and its backend names
+	// no host.
+	defer func(h string) { Host = h }(Host)
+	Host = "web"
+	if got := write("", "seven"); got != "" || u.modal.kind != modalClipboard || u.modal.clip.host != "web" {
+		t.Fatalf("pitwall --host web: %q, dialog %v %+v", got, u.modal.kind, u.modal.clip)
 	}
 }

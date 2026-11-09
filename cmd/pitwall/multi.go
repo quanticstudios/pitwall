@@ -47,6 +47,7 @@ type multi struct {
 	clipSeq  map[*hostLink]uint64
 	clip     model.Clipboard
 	clipFrom *hostLink
+	clipHost string // clipFrom's name for state's Clipboard, under mu
 	// folded is the sessions on other hosts that are parts of a shared
 	// session here, shared the shared sessions here.
 	folded, shared map[string]bool
@@ -98,6 +99,7 @@ var (
 	_ app.Iconer          = (*multi)(nil)
 	_ app.Paster          = (*multi)(nil)
 	_ app.SessionSearcher = (*multi)(nil)
+	_ app.ClipboardHoster = (*multi)(nil)
 )
 
 // hostDial is one host of a multi and how to reach its daemon.
@@ -361,8 +363,20 @@ func (m *multi) merge() {
 	st.Clipboard = m.clip
 	m.mu.Lock()
 	m.state, m.owner, m.folded, m.shared = st, owner, folded, shared
+	m.clipHost = ""
+	if m.clipFrom != nil {
+		m.clipHost = m.clipFrom.name
+	}
 	m.mu.Unlock()
 	m.reconcile(local)
+}
+
+// ClipboardHost is the host whose pane made the clipboard write numbered
+// seq, "" for this machine, while it is the latest.
+func (m *multi) ClipboardHost(seq uint64) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.clipHost, seq == m.state.Clipboard.Seq
 }
 
 // reconcile keeps this machine's record of its shared sessions true to the

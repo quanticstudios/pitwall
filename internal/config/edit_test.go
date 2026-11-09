@@ -41,6 +41,7 @@ ui_size = 13
 		{"missing table", "layout", "pane_gap", set("8"), src + "\n[layout]\npane_gap = 8\n"},
 		{"remove", "keys", "mono_like", nil, strings.Replace(src, "mono_like = [\n  \"a\", # keep\n  \"b\",\n]\n", "", 1)},
 		{"remove absent", "keys", "nope", nil, src},
+		{"quoted key", "host_clipboard", Key("box.lan"), set(`"deny"`), src + "\n[host_clipboard]\n\"box.lan\" = \"deny\"\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := editTOML(src, tc.table, tc.key, tc.value); got != tc.want {
@@ -52,6 +53,10 @@ ui_size = 13
 	prose := "[keys]\n# toggle_sidebar = \"Ctrl+Shift+B\" or [] to give it back\n"
 	if got := editTOML(prose, "keys", "toggle_sidebar", set(`"X"`)); got != "[keys]\ntoggle_sidebar = \"X\"\n"+prose[len("[keys]\n"):] {
 		t.Errorf("prose uncommented:\n%s", got)
+	}
+	quoted := "[host_clipboard]\n\"box.lan\" = \"allow\"\n"
+	if got := editTOML(quoted, "host_clipboard", Key("box.lan"), set(`"deny"`)); got != strings.Replace(quoted, "allow", "deny", 1) {
+		t.Errorf("quoted key set again:\n%s", got)
 	}
 	if got := editTOML("", "font", "ui_size", set("14")); got != "[font]\nui_size = 14\n" {
 		t.Errorf("empty file: %q", got)

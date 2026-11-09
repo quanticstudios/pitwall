@@ -260,6 +260,26 @@ Some things stay on the machine they belong to:
   an image paste says under the pane that the host's pitwall is too old.
 - Ctrl+click opens a web link here. A file link names a file on the host and
   does nothing.
+- A program on the host can set the clipboard here with OSC 52, as Neovim
+  and tmux do, but only after you allow it, so a program there cannot
+  silently change what you paste here. The first write from a host
+  opens a dialog, "box wants to set your clipboard", with the text,
+  Allow, Deny and Remember for box. Allow puts the text on the
+  clipboard; Deny, Escape or a click outside drops it. Enter does
+  neither, so typing into a pane as the dialog opens answers nothing.
+  Remember keeps the answer in config.toml, and later writes from that
+  host follow it without asking:
+
+  ```toml
+  [host_clipboard]
+  box = "allow"
+  "gpu.example.com" = "deny"
+  ```
+
+  Settings, Terminal, Machines has Ask, Allow and Deny for each host in
+  `[[hosts]]` and each host with an answer. Ask removes the host's line.
+  Writes from this machine's panes never ask, and `[terminal] osc52 =
+  "off"` ignores every write.
 - Open folder as group takes the folder's full path on the host, without
   completion.
 - The agent panel shows the agent's state, but not its transcript or the

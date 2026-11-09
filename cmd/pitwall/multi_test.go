@@ -238,14 +238,18 @@ func TestMultiClipboardFollowsWriter(t *testing.T) {
 	t.Cleanup(func() { rd.nc.Close() })
 	waitFor(t, "box's state", func() bool { st := m.State(); return st.Session("rs") != nil })
 	before := m.State().Clipboard
-	if before.Text != "local" {
+	if h, ok := m.ClipboardHost(before.Seq); before.Text != "local" || h != "" || !ok {
 		t.Fatalf("clipboard %+v before box writes", before)
 	}
 	rst.Version, rst.Clipboard = 2, model.Clipboard{Seq: 1, Text: "remote"}
 	rd.c.Send(proto.StateMsg{State: rst, Level: proto.Level})
 	waitFor(t, "box's write", func() bool { return m.State().Clipboard.Seq != before.Seq })
-	if c := m.State().Clipboard; c.Text != "remote" {
-		t.Fatalf("clipboard %+v after box wrote", c)
+	c := m.State().Clipboard
+	if h, ok := m.ClipboardHost(c.Seq); c.Text != "remote" || h != "box" || !ok {
+		t.Fatalf("clipboard %+v from %q after box wrote", c, h)
+	}
+	if _, ok := m.ClipboardHost(before.Seq); ok {
+		t.Fatal("the replaced write still has a host")
 	}
 }
 
