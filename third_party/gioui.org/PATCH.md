@@ -17,6 +17,10 @@ in `LICENSE`. Tests, testdata, `.builds` and the flake files are removed.
 
 Each change is marked `pitwall` in a comment:
 
+- `app/window.go`, `Window.FrameSubmitted`: an optional benchmark callback
+  runs after ops processing and before frame acknowledgement and presentation.
+  It excludes a hidden X11 surface's vsync wait from frame work. Its order has
+  a test in `app/frametime_test.go`.
 - `app/os_wayland.go`, `window.present` (new): runs the swap with a frame
   callback on the commit it makes, and marks the frame in flight until the
   compositor calls back. A failed swap drops the request, so the window

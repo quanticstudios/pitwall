@@ -81,7 +81,21 @@ var WindowSize = image.Pt(1280, 800)
 // No client-side decorations: Hyprland tiles the window and draws its own
 // border, and Gio asks Wayland compositors for server-side decorations.
 func Run(b Backend) error {
+	bench, err := newDrawBench()
+	if err != nil {
+		return err
+	}
+	if bench != nil {
+		defer func() {
+			if err := bench.save(); err != nil {
+				log.Printf("drawing benchmark: %v", err)
+			}
+		}()
+	}
 	w := new(app.Window)
+	if bench != nil {
+		w.FrameSubmitted = bench.markSubmitted
+	}
 	w.Option(app.Title("pitwall"), app.Size(unit.Dp(WindowSize.X), unit.Dp(WindowSize.Y)), app.MinSize(640, 360))
 	u := &ui{b: b, panes: map[string]*paneUI{}, invalidate: w.Invalidate}
 	defer u.panel.stop()
@@ -179,6 +193,11 @@ func Run(b Backend) error {
 			laid := time.Now()
 			// Layout and e.Frame are timed apart.
 			e.Frame(gtx.Ops)
+			if bench != nil {
+				if err := bench.record(start, bench.submitted.Sub(start), time.Since(bench.submitted), e.Metric.PxPerDp); err != nil {
+					return err
+				}
+			}
 			if took := time.Since(start); took > slowFrame {
 				if ok, held := slow.Allow("", start); ok {
 					log.Printf("slow frame: %v; layout took %v, e.Frame took %v; %d more since the last line",
