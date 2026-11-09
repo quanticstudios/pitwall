@@ -105,6 +105,43 @@ window size in dp. Run `go run ./cmd/pwdemo-sidebar -h` for the list. In an
 `agent-ws` display, Gio repaints hover only after the second pointer move, so
 move the pointer twice before a hover screenshot.
 
+`cmd/pwbench` measures the real window and daemon with fixed Go fixtures.
+Build both commands from the checkout to measure, then use a private display:
+
+```sh
+env -u PITWALL_SOCKET -u PITWALL_PANE -u PITWALL_ATTACH GOFLAGS=-tags=novulkan mise exec -- go build -o /tmp/pitwall-bench ./cmd/pitwall
+env -u PITWALL_SOCKET -u PITWALL_PANE -u PITWALL_ATTACH GOFLAGS=-tags=novulkan mise exec -- go build -o /tmp/pwbench ./cmd/pwbench
+agent-ws run draw-bench --wait -- /tmp/pwbench -pitwall /tmp/pitwall-bench -workload spinners -seconds 10
+agent-ws down draw-bench
+/tmp/pwbench compare /tmp/pwbench-results-a/result.json /tmp/pwbench-results-b/result.json
+```
+
+Repeat with `-workload titles`, `flood` and `scroll`. `spinners` changes only
+a title's spinner suffix at 4 Hz. `titles` opens eight tabs with one pane
+each, alternating fake Claude and Codex working states, and title suffixes
+at 10 Hz. `flood` redraws a colored terminal dashboard at 60 Hz. `scroll`
+fills 10,000 lines and moves the view three lines at 30 Hz, reversing every
+60 steps. The fixtures need no agent installation or network access.
+
+The command prints a fresh results directory containing `result.json`,
+`frames.json` and `process.log`. It uses temporary HOME and XDG directories,
+then closes its panes, window and daemon and removes those directories.
+It leaves the user's daemon, config and agent skills alone. Ctrl+C also
+cleans up the benchmark processes. Remove the results directory when done.
+
+Frame counts and nearest-rank p50, p95 and maximum times cover the requested
+seconds starting with the first frame. Times include layout and Gio's
+`Frame` call, not a GPU completion timestamp. The recorded scale is Gio's
+pixels per dp. CPU seconds include user and system time for each process's
+whole lifetime, including startup and shutdown, and exclude fixture CPU.
+Compare requires matching workloads, durations and scales.
+
+An unfocused or hidden window may draw less. Keep focus, visibility, display
+size, scale and rendering backend the same between runs. The private X11
+display does not measure performance under a Wayland compositor. The frame
+hook stays off unless `pwbench` sets `PITWALL_DRAW_BENCH` and
+`PITWALL_DRAW_BENCH_DURATION` for its window.
+
 ## Open a pull request
 
 1. Push your branch to your fork and open a pull request against

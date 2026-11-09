@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- Add `pwbench` to compare window drawing and process CPU time across fixed spinner, title, terminal flood and scrollback workloads in a private display.
+
 ## v0.2.2
 
 - A hovered machine header in `host_sections = "sections"` fills the whole row with rounded corners, with its + inside the fill. Its + ends 8dp from the edge, as the content of tab rows and group headers does, and so does a divider's rule when the + is hidden. The + sits in the middle of its own hover square: when an icon button's square and glyph differ by an odd number of pixels, as the header's 20dp square and 13dp + do at 100% scale, the square draws 1px smaller so the glyph has as much room on each side. It sat 1px up and left before.
