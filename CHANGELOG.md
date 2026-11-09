@@ -17,7 +17,7 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
-## Unreleased
+## v0.2.1
 
 - When a window of several machines refuses a shared-session action, such as a tab on a host that is down or a kill while a host with a part is down, it says why in the notice at the top of the window instead of only in the log.
 - `pitwall new --host box -d` opens the tab detached on box, as `pitwall new -d` does here; the flag was ignored before.
