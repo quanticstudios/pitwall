@@ -21,7 +21,6 @@ pushes the tag once, which starts the release build. Either step takes
 
 - Queue tasks can start in a fresh worktree on each run with `queue add --worktree name` or the New task dialog's Fresh worktree each run checkbox. Cleanup removes unchanged worktrees with trusted teardown. Runs interrupted by a restart keep their worktree and tab. Closing a finished run closes its tab before cleanup and names any kept worktree in a notice.
 - The review view's header has a base button, "into main", that b or a click opens: a filterable list of the default branch, the branch the worktree was made from with `pitwall worktree new --from`, the pull request's base and the other local branches. The Branch diff, its totals, Discard changes, Open in pager and Create pull request's `--base` use the picked base, so a stacked branch shows only its own commits. The pick is kept per tab; the default stays the default branch.
-- Worktree dev servers have named URLs at `branch.repo.localhost:7778`, with `PITWALL_URL` in each pane and links in the port chip, hover card and Changes view. The loopback proxy supports WebSocket upgrades and can be disabled under `[dev_proxy]`.
 - Worktree dev servers have named URLs at `folder.repo.localhost:7778`, with `PITWALL_URL` in panes started while the proxy is bound and links in the port chip, hover card and Changes view. The loopback proxy supports WebSocket upgrades and can be disabled under `[dev_proxy]`.
 
 ## v0.2.5
