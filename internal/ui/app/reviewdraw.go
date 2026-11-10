@@ -263,25 +263,49 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	}
 	left += gtx.Dp(8)
 	type part struct {
-		c color.NRGBA
-		s string
+		c    color.NRGBA
+		s    string
+		base bool // the base button, s its label
 	}
-	parts := []part{{th.Muted, branch}}
-	if b := gitstat.BranchName(base); b != "" && b != branch && !inTurn {
-		parts = append(parts, part{th.Muted, "into " + b})
+	parts := []part{{th.Muted, branch, false}}
+	for r.baseBtn.Clicked(gtx) {
+		if r.bases.open {
+			r.bases.open, r.focus = false, true
+		} else {
+			u.openBases(st)
+		}
+	}
+	b := gitstat.BranchName(base)
+	if pick := r.picked(); pick != "" {
+		b = pick
+	}
+	if b != "" && (b != branch || r.picked() != "") && !inTurn && !r.staged() {
+		parts = append(parts, part{th.Muted, "into " + b, true})
 	}
 	if loaded {
 		n := fmt.Sprintf("%d files", len(files))
 		if len(files) == 1 {
 			n = "1 file"
 		}
-		parts = append(parts, part{th.Green, fmt.Sprintf("+%d", add)}, part{th.Red, fmt.Sprintf("−%d", del)}, part{th.Muted, n})
+		parts = append(parts, part{th.Green, fmt.Sprintf("+%d", add), false}, part{th.Red, fmt.Sprintf("−%d", del), false}, part{th.Muted, n, false})
 	}
 	for _, part := range parts {
 		if part.s == "" || left >= x-pad {
 			continue
 		}
 		g.Constraints.Max.X = max(0, x-pad-left)
+		if part.base {
+			m := op.Record(gtx.Ops)
+			d := kit.ButtonHint(g, th, &r.baseBtn, kit.Ghost, kit.Small, part.s, "b")
+			call := m.Stop()
+			y := pad + (rowH-d.Size.Y)/2
+			o := op.Offset(image.Pt(left-gtx.Dp(6), y)).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			o.Pop()
+			r.bases.anchor = image.Rect(left-gtx.Dp(6), y, left-gtx.Dp(6)+d.Size.X, y+d.Size.Y)
+			left += d.Size.X + gtx.Dp(4)
+			continue
+		}
 		call, sz := textCall(g, th, th.UIFont, th.Sp(theme.Body), part.c, part.s)
 		o := op.Offset(image.Pt(left, pad+(rowH-sz.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
@@ -303,7 +327,7 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 		status = "s stages the hunk, u unstages it, Shift for the whole file · j/k file · n/p hunk · ↑/↓ line · Esc closes"
 	}
 	if status == "" {
-		status = "j/k file · n/p hunk · ↑/↓ line, Shift for a range · c or a line number comments · Esc closes"
+		status = "j/k file · n/p hunk · ↑/↓ line, Shift for a range · c or a line number comments · b base · Esc closes"
 	}
 	g = gtx
 	g.Constraints.Max.X = w - 2*pad

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,13 @@ func View(ctx context.Context, dir string) (*model.PR, error) {
 		return nil, err
 	}
 	return &pr, nil
+}
+
+// Base is the branch pull request number of the repository at dir merges
+// into, such as "main".
+func Base(ctx context.Context, dir string, number int) (string, error) {
+	out, err := gh(ctx, dir, "pr", "view", strconv.Itoa(number), "--json", "baseRefName", "--jq", ".baseRefName")
+	return strings.TrimSpace(string(out)), err
 }
 
 // gh runs gh with args in dir and returns its stdout, nil when gh found

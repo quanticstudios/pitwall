@@ -241,7 +241,7 @@ func TestPRCmd(t *testing.T) {
 	}
 	path := "PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH")
 
-	out := run(t, prCmd(dir), append(otherGitEnv(t), path)...)
+	out := run(t, prCmd(dir, ""), append(otherGitEnv(t), path)...)
 	if !strings.Contains(out, "$ git push -u origin HEAD") || !strings.Contains(out, "https://example.invalid/pull/1") {
 		t.Fatalf("no upstream: printed\n%s", out)
 	}
@@ -250,12 +250,12 @@ func TestPRCmd(t *testing.T) {
 	}
 	write(t, filepath.Join(dir, "a.txt"), "three\n")
 	gitIn(t, dir, "commit", "-am", "more")
-	out = run(t, prCmd(dir), append(otherGitEnv(t), path)...)
+	out = run(t, prCmd(dir, "refs/remotes/origin/main"), append(otherGitEnv(t), path)...)
 	if strings.Contains(out, "git push") {
 		t.Fatalf("with an upstream: printed\n%s", out)
 	}
 	calls, err := os.ReadFile(log)
-	if err != nil || string(calls) != "pr create --fill\npr create --fill\n" {
+	if err != nil || string(calls) != "pr create --fill\npr create --fill --base main\n" {
 		t.Fatalf("gh called with %q, %v", calls, err)
 	}
 }
@@ -277,9 +277,19 @@ func TestReview(t *testing.T) {
 	if got, want := n.review(&st, "w", "stage_terminal"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: []string{"sh", "-c", stageScript, "sh", "/repo"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("stage_terminal = %+v, want %+v", got, want)
 	}
-	if got, want := n.review(&st, "w", "create_pr"), (fromTab{"w", proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo")}}); !reflect.DeepEqual(got, want) {
+	if got, want := n.review(&st, "w", "create_pr"), (fromTab{"w", proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo", "")}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("create_pr = %+v, want %+v", got, want)
 	}
+	// A base picked in the review view: the pager diffs from it and the
+	// pull request goes into it.
+	n.reviewBase = map[string]string{"w": "origin/feature"}
+	if got, want := n.review(&st, "w", "diff_pager"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: diffCmd("/repo", "origin/feature", nil)}); !reflect.DeepEqual(got, want) {
+		t.Errorf("diff_pager with a base = %+v, want %+v", got, want)
+	}
+	if got, want := n.review(&st, "w", "create_pr"), (fromTab{"w", proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo", "origin/feature")}}); !reflect.DeepEqual(got, want) || !strings.HasSuffix(strings.Join(want.ns.Cmd, " "), "--base feature") {
+		t.Errorf("create_pr with a base = %+v", got)
+	}
+	n.reviewBase = nil
 	ghInstalled = func() bool { return false }
 	if got := n.review(&st, "w", "create_pr"); got != nil {
 		t.Errorf("create_pr without gh = %+v", got)

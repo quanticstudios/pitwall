@@ -591,8 +591,9 @@ To review an agent's work, press Ctrl+Shift+R (Cmd+Shift+R in mac), pick
 View diff from the tab's "…" menu or the command palette, or click a file
 under Changes. The review
 view takes the place of the tab's panes, as the settings page does, and Esc
-closes it. It shows the changes from the merge base with the default branch
-to what is on disk now: committed, staged, unstaged and untracked. The files
+closes it. It shows the changes from the merge base with the base, the
+default branch unless you pick another, to what is on disk now: committed,
+staged, unstaged and untracked. The files
 are on the left with their status (M, A, D, R for a rename, ? for untracked)
 and line counts; the selected file's diff is on the right, with both line
 numbers and the unchanged lines between hunks folded into a row you click to
@@ -638,6 +639,20 @@ same diff through `git diff` in your pager in a new pane: `$GIT_PAGER`, else
 `core.pager`, else delta when it is installed, else `less -R`. Press q to
 close it. The palette's Open diff in pager does the same. With `pitwall
 --host`, the worktree is on the host, so View diff opens the pager there.
+
+The base is the button next to the branch in the header, such as "into
+main". Click it or press b for the list of bases: the default branch, the
+branch the worktree was made from with `pitwall worktree new --from`, the
+branch the tab's pull request merges into, and the other local branches.
+Type to filter it, pick with the arrows and Enter or a click, and Esc closes
+it. Pick the branch a stacked branch was made from, and the view shows only
+the stacked branch's own commits. The pick is per tab, kept in `gui.json`,
+and the Branch scope's diff and totals, Discard changes, Open in pager and
+Create pull request's `--base` all use it. Pick the default branch to go
+back. The sidebar's stats and the agent panel's Changes still count from the
+default branch. A new branch made from another, with `pitwall worktree new
+--from <branch>` or the New worktree tab dialog, records it in its git config
+as `branch.<name>.pitwall-base`; that is how the list knows it.
 To stage hunks there, the palette's Stage hunks in terminal runs
 `git add -p` and then `git reset -p`, to take a hunk back, in a new pane in
 the tab's worktree; q ends either one.

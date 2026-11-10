@@ -81,7 +81,8 @@ type delivery struct {
 }
 
 // reviewView is the review view: one tab's changes from the merge base
-// with the default branch, committed or not, shown in place of its panes
+// with its base, the default branch unless the user picked another,
+// committed or not, shown in place of its panes
 // like the settings page. A goroutine reads the diff, the UI goroutine
 // never waits on git.
 type reviewView struct {
@@ -98,6 +99,9 @@ type reviewView struct {
 	base   string
 	root   string
 	files  []review.File
+	// pick is the base the user picked for the Branch scope, "" for the
+	// default branch.
+	pick string
 	// turnScope asks for This turn, the tab's latest checkpoint against
 	// its files, over Branch; inTurn says files are that. turn is the
 	// latest checkpoint, a zero one for none.
@@ -138,6 +142,8 @@ type reviewView struct {
 	send, pr, pager, opinion, mark, discard, showHuge widget.Clickable
 	branchScope, thisTurn, undo, redo                 widget.Clickable
 	staging, stageFile                                widget.Clickable
+	baseBtn                                           widget.Clickable // the base in the header: opens bases
+	bases                                             basePicker
 	prChip                                            widget.Clickable // the PR status in the header: opens the pull request
 	status                                            string           // the line under the header: sent, queued, a failure
 
@@ -151,9 +157,10 @@ type reviewView struct {
 	undoFiles  int         // the file count the undo dialog names
 }
 
-// show opens the view on tab ws, reading dir, on This turn when turn is
-// set and the tab has a checkpoint.
-func (r *reviewView) show(ws, dir string, turn bool, invalidate func()) {
+// show opens the view on tab ws, reading dir from base, "" for the
+// default branch, on This turn when turn is set and the tab has a
+// checkpoint.
+func (r *reviewView) show(ws, dir, base string, turn bool, invalidate func()) {
 	r.hide()
 	r.on, r.ws, r.dir, r.focus = true, ws, dir, true
 	r.sel, r.selPath, r.cur, r.anchor, r.scrollTo, r.rowsDirty, r.editing, r.status = 0, "", -1, -1, -1, true, false, ""
@@ -163,7 +170,7 @@ func (r *reviewView) show(ws, dir string, turn bool, invalidate func()) {
 	r.gen++
 	r.loaded, r.err, r.files = false, "", nil
 	r.turnScope, r.inTurn, r.turn = turn, false, gitstat.Turn{}
-	r.stageScope, r.inStage = false, false
+	r.stageScope, r.inStage, r.pick = false, false, base
 	ctx, cancel := context.WithCancel(context.Background())
 	r.stop, r.kick = cancel, make(chan struct{}, 1)
 	gen, kick := r.gen, r.kick
@@ -180,6 +187,24 @@ func (r *reviewView) setScope(turn, stage bool) {
 	}
 	r.mu.Unlock()
 	r.reload()
+}
+
+// setBase diffs the Branch scope from base, "" for the default branch,
+// from a fresh read.
+func (r *reviewView) setBase(base string) {
+	r.mu.Lock()
+	if r.pick != base {
+		r.pick, r.loaded, r.files = base, false, nil
+	}
+	r.mu.Unlock()
+	r.reload()
+}
+
+// picked is the base the user picked, "" for the default branch.
+func (r *reviewView) picked() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pick
 }
 
 // turnState is the tab's latest checkpoint, whether the files shown are
@@ -254,7 +279,7 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 	for {
 		c, cancel := context.WithTimeout(ctx, filesWait)
 		r.mu.Lock()
-		want, stage := r.turnScope, r.stageScope
+		want, stage, pick := r.turnScope, r.stageScope, r.pick
 		r.mu.Unlock()
 		turn, err := readTurn(c, dir, ws)
 		if err != nil {
@@ -272,7 +297,7 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 			if in {
 				p, err = readTurnDiff(c, dir, turn.Rev)
 			} else {
-				p, err = readDiff(c, dir)
+				p, err = readDiff(c, dir, pick)
 			}
 			files, errText = nil, ""
 			if err != nil {
@@ -295,7 +320,7 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 		if ctx.Err() != nil {
 			return
 		}
-		r.update(gen, p, files, errText, turn, in, stage, invalidate)
+		r.update(gen, p, files, errText, turn, in, stage, pick, invalidate)
 		kicked = false
 		select {
 		case <-ctx.Done():
@@ -307,10 +332,10 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 	}
 }
 
-func (r *reviewView) update(gen int, p gitstat.Patch, files []review.File, err string, turn gitstat.Turn, in, stage bool, invalidate func()) {
+func (r *reviewView) update(gen int, p gitstat.Patch, files []review.File, err string, turn gitstat.Turn, in, stage bool, pick string, invalidate func()) {
 	r.mu.Lock()
-	// A read of the scope asked for before a switch is dropped.
-	current := r.gen == gen && stage == r.stageScope && in == (r.turnScope && turn.Rev != "" && !stage)
+	// A read of the scope or base asked for before a switch is dropped.
+	current := r.gen == gen && stage == r.stageScope && in == (r.turnScope && turn.Rev != "" && !stage) && pick == r.pick
 	changed := current && (!r.loaded || r.err != err || r.base != p.Base || r.turn != turn || r.inTurn != in || r.inStage != stage || !sameFiles(r.files, files))
 	if changed {
 		r.loaded, r.err, r.base, r.root, r.files, r.turn, r.inTurn, r.inStage = true, err, p.Base, p.Root, files, turn, in, stage
@@ -768,7 +793,7 @@ func (u *ui) openReview(st *model.State, id, file string) {
 	// A finished turn opens on what it changed.
 	as := agentStateOf(st, ws)
 	done := as == model.StateCompleted || as == model.StatePROpen
-	u.review.show(id, st.LivePath(*ws), done, invalidate)
+	u.review.show(id, st.LivePath(*ws), u.nav.reviewBase[id], done, invalidate)
 	u.review.selPath, u.review.agentState = file, agentStateOf(st, ws)
 }
 
@@ -815,8 +840,8 @@ func (u *ui) markReviewed(root string, files []review.File, f *review.File, on b
 }
 
 // discardFile runs the discard dialog's confirm: the file goes back to
-// the merge base, or an untracked one is deleted, then the diff is read
-// again.
+// the merge base with the view's base, or an untracked one is deleted,
+// then the diff is read again.
 func (u *ui) discardFile() {
 	r := &u.review
 	f := r.discarding
@@ -824,7 +849,7 @@ func (u *ui) discardFile() {
 	if f.OldPath != "" {
 		paths = append(paths, f.OldPath)
 	}
-	dir, invalidate := r.dir, u.invalidate
+	dir, base, invalidate := r.dir, r.picked(), u.invalidate
 	if invalidate == nil {
 		invalidate = func() {}
 	}
@@ -832,7 +857,7 @@ func (u *ui) discardFile() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), filesWait)
 		defer cancel()
-		err := discardFiles(ctx, dir, paths, f.Status == '?')
+		err := discardFiles(ctx, dir, base, paths, f.Status == '?')
 		if err != nil {
 			log.Printf("review: discard %s: %q", f.Path, err)
 		}
@@ -926,7 +951,7 @@ func (u *ui) stageHunk(f *review.File, unstage, whole bool) {
 		return
 	}
 	r.busy, r.failed = true, ""
-	gen, turn := r.gen, r.turn
+	gen, turn, pick := r.gen, r.turn, r.pick
 	r.mu.Unlock()
 	r.status = status
 	go func() {
@@ -937,7 +962,7 @@ func (u *ui) stageHunk(f *review.File, unstage, whole bool) {
 			log.Printf("review: %s %s: %q", strings.ToLower(verb), f.Path, err)
 		}
 		p, files, errText := stagedFiles(ctx, dir)
-		r.update(gen, p, files, errText, turn, false, true, invalidate)
+		r.update(gen, p, files, errText, turn, false, true, pick, invalidate)
 		r.mu.Lock()
 		r.busy = false
 		if err != nil {
@@ -948,13 +973,14 @@ func (u *ui) stageHunk(f *review.File, unstage, whole bool) {
 	}()
 }
 
-// reviewKeys takes the view's keys before the window's shortcuts: Escape
-// closes the comment field or the view, j/k pick a file, n/p a hunk, the
-// arrows a line (Shift extends), c comments on it, and in Staging s and u
-// stage and unstage its hunk, with Shift the whole file.
+// reviewKeys takes the view's keys before the window's shortcuts, the
+// base list's while it is open: Escape closes the comment field or the
+// view, j/k pick a file, n/p a hunk, the arrows a line (Shift extends), c
+// comments on it, b opens the base list, and in Staging s and u stage and
+// unstage its hunk, with Shift the whole file.
 func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 	r := &u.review
-	if !r.on || u.nav.switcherVisible() || u.modal.kind != modalNone {
+	if !r.on || u.nav.switcherVisible() || u.modal.kind != modalNone || u.baseKeys(gtx, st) {
 		return
 	}
 	files, _, _, _, _ := r.snapshot()
@@ -971,7 +997,7 @@ func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 	}
 	// why: Gio gives key focus only to a tag with a FocusFilter.
 	filters := []event.Filter{key.FocusFilter{Target: &r.tag}, key.Filter{Name: key.NameEscape}}
-	for _, k := range []key.Name{"J", "K", "N", "P", "C"} {
+	for _, k := range []key.Name{"J", "K", "N", "P", "C", "B"} {
 		filters = append(filters, key.Filter{Focus: &r.tag, Name: k})
 	}
 	filters = append(filters,
@@ -1028,6 +1054,8 @@ func (u *ui) reviewKeys(gtx gl.Context, st *model.State) {
 			r.moveLine(rows, d, e.Modifiers.Contain(key.ModShift))
 		case "C":
 			r.startComment()
+		case "B":
+			u.openBases(st)
 		case "S", "U":
 			u.stageHunk(f, e.Name == "U", e.Modifiers.Contain(key.ModShift))
 		}
@@ -1047,6 +1075,7 @@ func (u *ui) layoutReview(gtx gl.Context, st *model.State) {
 		u.review.reload()
 	}
 	u.drawReview(gtx, st)
+	u.drawBases(gtx, st)
 	if r := &u.review; r.focus {
 		r.focus = false
 		if r.editing {

@@ -3,6 +3,7 @@ package app
 import (
 	"log"
 	"os/exec"
+	"strings"
 	"sync"
 
 	"github.com/quanticstudios/pitwall/internal/gitenv"
@@ -59,18 +60,42 @@ git reset -p
 `
 
 // prScript pushes the branch at $1 when it has no upstream, never with
-// force, then runs gh pr create --fill, printing each command first.
+// force, then runs gh pr create --fill with the rest of the arguments,
+// printing each command first.
 const prScript = "unset " + gitenv.RepositoryVars + "\n" + `cd -- "$1" || exit
+shift
 if ! git rev-parse --verify --quiet '@{upstream}' >/dev/null 2>&1; then
 	echo '$ git push -u origin HEAD'
 	git push -u origin HEAD || exit
 fi
-echo '$ gh pr create --fill'
-exec gh pr create --fill
+echo "\$ gh pr create --fill $*"
+exec gh pr create --fill "$@"
 `
 
-// prCmd is the argv of a tab opening a pull request for the branch at dir.
-func prCmd(dir string) []string { return []string{"sh", "-c", prScript, "sh", dir} }
+// prCmd is the argv of a tab opening a pull request for the branch at dir,
+// into base when it is not "", else into gh's default.
+func prCmd(dir, base string) []string {
+	cmd := []string{"sh", "-c", prScript, "sh", dir}
+	if b := prBase(base); b != "" {
+		cmd = append(cmd, "--base", b)
+	}
+	return cmd
+}
+
+// prBase is the branch on origin that ref names: "feature" for
+// "origin/feature" or "refs/heads/feature".
+func prBase(ref string) string {
+	return strings.TrimPrefix(gitstat.BranchName(ref), "origin/")
+}
+
+// baseOf is the base tab id's review diffs from: the one picked in its
+// review view, else the default branch's ref.
+func (n *nav) baseOf(st *model.State, id string) string {
+	if b := n.reviewBase[id]; b != "" {
+		return b
+	}
+	return st.Stats[id].Base
+}
 
 // review runs act, "diff_pager", "stage_terminal" or "create_pr", for tab
 // id: the diff or git add -p in a pane beside the tab's panes, which q
@@ -90,7 +115,7 @@ func (n *nav) review(st *model.State, id, act string) any {
 		if id == n.workspace {
 			n.expectPane(st)
 		}
-		return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: diffCmd(dir, st.Stats[id].Base, nil)}
+		return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: diffCmd(dir, n.baseOf(st, id), nil)}
 	case act == "stage_terminal" && diff == "":
 		if id == n.workspace {
 			n.expectPane(st)
@@ -98,7 +123,7 @@ func (n *nav) review(st *model.State, id, act string) any {
 		return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: []string{"sh", "-c", stageScript, "sh", dir}}
 	case act == "create_pr" && pr == "":
 		n.expectSession(st)
-		return fromTab{ws.ID, proto.NewSession{Name: "PR " + ws.Branch, Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: prCmd(dir)}}
+		return fromTab{ws.ID, proto.NewSession{Name: "PR " + ws.Branch, Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: prCmd(dir, n.reviewBase[id])}}
 	}
 	log.Printf("%s on tab %s: %q %q", act, id, diff, pr)
 	return nil

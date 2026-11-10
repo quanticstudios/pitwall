@@ -216,7 +216,7 @@ func TestRepoConfigRunsNothing(t *testing.T) {
 		{"Status", func() error { _, err := Status(ctx, root); return err }},
 		{"Stats", func() error { _, err := Stats(ctx, root); return err }},
 		{"Files", func() error { _, _, err := Files(ctx, root); return err }},
-		{"Diff", func() error { _, err := Diff(ctx, root); return err }},
+		{"Diff", func() error { _, err := Diff(ctx, root, ""); return err }},
 		{"Changed", func() error { _, err := Changed(ctx, root); return err }},
 		{"ReadStaging", func() error { _, err := ReadStaging(ctx, root); return err }},
 		{"Conflicts", func() error { _, err := Conflicts(ctx, root, "main", "feat"); return err }},
@@ -466,7 +466,7 @@ func TestRepoFilterRefuses(t *testing.T) {
 	for name, err := range map[string]error{
 		"StageFiles":  StageFiles(ctx, root, []string{"a.txt"}, false),
 		"ApplyCached": ApplyCached(ctx, root, []byte("patch"), false),
-		"Discard":     Discard(ctx, root, []string{"a.txt"}, false),
+		"Discard":     Discard(ctx, root, "", []string{"a.txt"}, false),
 		"UndoTurn":    UndoTurn(ctx, root, "w"),
 		"RedoTurn":    RedoTurn(ctx, root, "w"),
 	} {
@@ -530,7 +530,7 @@ func TestEmptyNamesRunNothing(t *testing.T) {
 	if _, err := Status(ctx, root); err != nil {
 		t.Error(err)
 	}
-	if _, err := Diff(ctx, root); err != nil {
+	if _, err := Diff(ctx, root, ""); err != nil {
 		t.Error(err)
 	}
 	if _, err := Conflicts(ctx, root, "main", "feat"); err != nil {
@@ -750,7 +750,7 @@ func TestUnreadableIncludeFailsClosed(t *testing.T) {
 				}(),
 				"Checkpoint": func() error { _, err := Checkpoint(ctx, root, "w"); return err }(),
 				"Status":     func() error { _, err := Status(ctx, root); return err }(),
-				"Diff":       func() error { _, err := Diff(ctx, root); return err }(),
+				"Diff":       func() error { _, err := Diff(ctx, root, ""); return err }(),
 			} {
 				if err == nil || !strings.Contains(err.Error(), c.want) {
 					t.Errorf("%s = %v, want an error naming %s", name, err, c.want)

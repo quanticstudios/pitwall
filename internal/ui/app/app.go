@@ -106,6 +106,10 @@ func Run(b Backend) error {
 	reportProblems(l.probs, &reported)
 	refreshSchemas()
 	u.gui = loadGUIState()
+	if u.gui.ReviewBase == nil {
+		u.gui.ReviewBase = map[string]string{}
+	}
+	u.nav.reviewBase = u.gui.ReviewBase // one map: saving u.gui saves nav's picks
 	u.nav.sidebarHidden = u.gui.SidebarHidden
 	u.sidebarShown = u.nav.sidebarHidden
 	u.welcome.on = u.gui.Welcome && Host == "" // a host's agents are not on this PATH
