@@ -1,16 +1,23 @@
 package app
 
 import (
+	"image"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"gioui.org/io/event"
+	"gioui.org/io/input"
 	"gioui.org/io/key"
+	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // TestMonitorView: toggle_monitor shows the shown tab's monitor in place
@@ -161,5 +168,40 @@ func TestMonitorViewDialogEsc(t *testing.T) {
 	keys(press(key.NameEscape, 0))
 	if u.modal.kind != modalNone || !u.mon.on {
 		t.Fatalf("after Esc: dialog %v, monitor %v; want the dialog closed and the monitor shown", u.modal.kind, u.mon.on)
+	}
+}
+
+// TestMonitorViewQueuedSwitch: keys queued in one frame behind a tab switch
+// are for the new tab, which the monitor no longer covers, so aide's
+// Ctrl+T pressed twice reaches its focused pane.
+func TestMonitorViewQueuedSwitch(t *testing.T) {
+	b := NewFakeBackend()
+	u := &ui{b: b, th: theme.Dark(), panes: map[string]*paneUI{}, nav: nav{keys: aide}}
+	var r input.Router
+	var ops op.Ops
+	frame := func(es ...event.Event) {
+		r.Queue(es...)
+		ops.Reset()
+		u.layout(gl.Context{Ops: &ops, Source: r.Source(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: gl.Exact(image.Pt(1280, 800)), Now: time.Now()})
+		r.Frame(&ops)
+	}
+	frame()
+	frame()
+	ct := press("T", key.ModCtrl)
+	frame(press("M", key.ModCtrl|key.ModAlt))
+	frame(key.Event{Name: "M", Modifiers: key.ModCtrl | key.ModAlt, State: key.Release})
+	if !u.mon.on {
+		t.Fatal("Ctrl+Alt+M left the monitor hidden")
+	}
+	frame(press("J", key.ModAlt), ct, key.Event{Name: "T", Modifiers: key.ModCtrl, State: key.Release}, ct)
+	frame()
+	var got []proto.Input
+	for _, m := range b.Sent() {
+		if in, ok := m.(proto.Input); ok {
+			got = append(got, in)
+		}
+	}
+	if u.mon.on || len(got) != 1 || string(got[0].Data) != "\x14" || got[0].Pane != u.nav.focused() {
+		t.Fatalf("after Alt+J and Ctrl+T twice in one frame: monitor %v, tab %s, focus %s, input %v; want Ctrl+T in the new tab's pane", u.mon.on, u.nav.workspace, u.nav.focused(), got)
 	}
 }

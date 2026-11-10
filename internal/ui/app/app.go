@@ -739,7 +739,9 @@ func (u *ui) layout(gtx gl.Context) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
-			if _, in := msg.(proto.Input); in && u.mon.on && u.nav.peek == "" {
+			// A key queued after a tab switch is for the new tab, which the
+			// monitor no longer covers.
+			if _, in := msg.(proto.Input); in && u.mon.on && u.nav.workspace == u.mon.ws && u.nav.peek == "" {
 				continue // a prefix key pressed twice, for a pane the monitor hides
 			}
 			u.sendOrAsk(&st, msg)
