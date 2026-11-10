@@ -107,8 +107,11 @@ type Sidebar struct {
 	// cards that wait on the user anywhere.
 	BoardOn bool
 	NeedYou int
-	bd      boardState // the board's own state, see Sidebar.Board
-	boardBt widget.Clickable
+	// MonitorOn shows the monitor button pressed.
+	MonitorOn bool
+	bd        boardState // the board's own state, see Sidebar.Board
+	boardBt   widget.Clickable
+	monitorBt widget.Clickable
 
 	undo             *undoNote
 	undoBtn, viewBtn widget.Clickable
