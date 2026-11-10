@@ -57,6 +57,10 @@ type (
 		Cols, Rows int
 		Snapshot   []byte   // vt.Save
 		Input      [][]byte // queued for the PTY and not written yet, in order
+		// Held is keys typed into a parked or resuming pane, which wait for
+		// its agent; Waking marks a pane whose agent is resuming.
+		Held   [][]byte
+		Waking bool
 
 		ScrollbackFile string // the editor pane's temporary file, removed on exit
 	}

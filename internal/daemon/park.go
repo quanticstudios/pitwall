@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -30,6 +31,9 @@ type parking struct {
 	idle   map[string]*idlePane // a pane that may park: its screen and since when it is still
 	waking map[string]time.Time // an unparked pane: when its agent started again
 	keys   map[string][][]byte  // a parked or waking pane: keys typed in it, oldest first
+	// stalled marks a waking pane past resumeReadyWait: what waited still
+	// waits, and new keys go straight in so the user can answer its screen.
+	stalled map[string]bool
 }
 
 // idlePane is a pane's screen at the last look and when it last changed.
@@ -238,6 +242,7 @@ func (d *Daemon) parkPane(id string, live Pane, note string) {
 	delete(d.quiet, id)
 	delete(d.park.idle, id)
 	delete(d.park.waking, id)
+	delete(d.park.stalled, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.hookSeq, id)
 	delete(d.live.fg, id)
@@ -331,7 +336,7 @@ func (d *Daemon) holdParked(id string, b []byte) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	_, waking := d.park.waking[id]
-	if !waking && !d.isParked(id) {
+	if !waking && !d.isParked(id) || waking && d.park.stalled[id] {
 		return false
 	}
 	if s := string(b); focusReport(b) || strings.HasPrefix(s, "\x1b[<") || strings.HasPrefix(s, "\x1b[M") {
@@ -370,7 +375,8 @@ func (d *Daemon) waitsToWake(id string) bool {
 }
 
 // checkWaking lets each waking pane's held keys, then its messages, go in
-// once its agent is back at its input box, or after resumeReadyWait.
+// once its agent is back at its input box. Past resumeReadyWait it reports
+// the resume as stuck and keeps holding them.
 func (d *Daemon) checkWaking() {
 	type look struct {
 		id   string
@@ -393,29 +399,52 @@ func (d *Daemon) checkWaking() {
 			d.mu.Unlock()
 			continue
 		}
-		back := d.resumeReady(l.id, &resume{prov: l.prov}, g) && agent.InputReady(l.prov, g)
-		if !back && time.Since(l.at) < resumeReadyWait {
+		if !d.resumeReady(l.id, &resume{prov: l.prov}, g) || !agent.InputReady(l.prov, g) {
+			if time.Since(l.at) >= resumeReadyWait && !d.park.stalled[l.id] {
+				d.stallWaking(l.id)
+			}
 			d.mu.Unlock()
 			continue
 		}
-		if !back {
-			log.Printf("pane %s: the resumed agent is not at its input box after %s; what waited goes in", l.id, resumeReadyWait)
-		}
-		delete(d.park.waking, l.id)
-		for _, b := range d.park.keys[l.id] {
+		if keys := d.park.keys[l.id]; len(keys) > 0 {
 			select {
-			case d.inputs[l.id] <- b:
+			case d.inputs[l.id] <- bytes.Join(keys, nil):
+				// why: the keys reach the agent now; a message waits sendQuiet, then for the draft they leave.
+				d.mail.keyAt[l.id] = time.Now()
+				d.mail.drafting[l.id] = true
+				delete(d.park.keys, l.id)
 			default:
-				log.Printf("pane %s: dropped %d bytes typed while it resumed", l.id, len(b))
+				d.mu.Unlock()
+				continue // the input queue is full: the next look tries again
 			}
 		}
-		delete(d.park.keys, l.id)
+		delete(d.park.waking, l.id)
+		delete(d.park.stalled, l.id)
 		if len(d.mail.queue[l.id]) > 0 {
 			d.wake(l.id, 0)
 		}
 		d.changed()
 		d.mu.Unlock()
 	}
+}
+
+// stallWaking reports waking pane id's agent not at its input box after
+// resumeReadyWait, and lets new keys through so the user can answer what
+// its screen shows. Callers hold d.mu.
+func (d *Daemon) stallWaking(id string) {
+	if d.park.stalled == nil {
+		d.park.stalled = map[string]bool{}
+	}
+	d.park.stalled[id] = true
+	where := "a pane"
+	if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == id }); i >= 0 {
+		if a := d.paneAddr(d.st.Panes[i]); a != "" {
+			where = a
+		}
+	}
+	log.Printf("pane %s: the resumed agent is not at its input box after %s; what waits for it stays held", id, resumeReadyWait)
+	d.st.Notice = fmt.Sprintf("The agent resumed in %s is not at its input box after %s. What was typed or sent to it waits until it is; answer what its screen shows.", where, resumeReadyWait)
+	d.changed()
 }
 
 // reparkFailed parks waking pane id again when its resumed agent exits
@@ -428,6 +457,25 @@ func (d *Daemon) reparkFailed(id string, p Pane, code int) bool {
 	log.Printf("pane %s: the parked agent exited %d while resuming; parked again", id, code)
 	d.parkPane(id, p, fmt.Sprintf("The agent exited with code %d while resuming. Press Enter to try again.", code))
 	return true
+}
+
+// adoptParking takes over hp's held keys and resume from the daemon that
+// handed it off; its agent's readiness counts from now, as after a
+// restart. Callers hold d.mu.
+func (d *Daemon) adoptParking(hp handoffPane) {
+	if len(hp.Held) > 0 {
+		if d.park.keys == nil {
+			d.park.keys = map[string][][]byte{}
+		}
+		d.park.keys[hp.ID] = hp.Held
+	}
+	if hp.Waking {
+		if d.park.waking == nil {
+			d.park.waking = map[string]time.Time{}
+		}
+		now := time.Now()
+		d.resumed[hp.ID], d.park.waking[hp.ID] = now, now
+	}
 }
 
 // restoreParked keeps pane p parked across a daemon restart when saved,

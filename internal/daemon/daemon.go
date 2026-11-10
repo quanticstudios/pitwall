@@ -1580,6 +1580,7 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.panes, id)
 	delete(d.park.idle, id)
 	delete(d.park.waking, id)
+	delete(d.park.stalled, id)
 	delete(d.park.keys, id)
 	delete(d.history, id)
 	delete(d.sizes, id)
@@ -2267,9 +2268,9 @@ func (d *Daemon) exited(id string, p Pane) {
 	// why: at session end SIGTERM reaches every agent with this daemon, and
 	// an agent's exit must not close its tab before shutdown saves it.
 	stopping := d.served != nil && d.served.Err() != nil
-	if d.closing || d.frozen || stopping || d.panes[id] != p {
+	if d.closing || d.frozen || stopping || d.panes[id] != p || d.isParked(id) {
 		d.mu.Unlock()
-		return // closed on purpose: by ClosePane, DeleteWorkspace or shutdown; Thaw runs it again when frozen
+		return // closed on purpose: by ClosePane, DeleteWorkspace, shutdown or parking; Thaw runs it again when frozen
 	}
 	i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id })
 	if i < 0 {

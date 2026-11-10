@@ -4,7 +4,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -137,29 +136,18 @@ func children(pid int) []int {
 	return out
 }
 
-// laterTicks is how long after an agent starts, in clock ticks, a process
-// it starts counts as work: MCP servers start with the agent, a dev
-// server or a watcher later.
-// ponytail: assumes USER_HZ 100, as on every architecture pitwall ships for.
-const laterTicks = 30 * 100
-
-// procBusy reports whether the agent leading group pg runs a shell, or a
-// process it started laterTicks or more after itself, as a child of its
-// own or of the agent a wrapper runs (node running Codex). Unreadable
-// counts as busy.
+// procBusy reports whether the agent leading group pg runs any process of
+// its own: a shell, a dev server, a watcher or an MCP server, which
+// nothing tells apart. The agent a wrapper runs (node running Codex) is
+// looked into instead. An unreadable leader counts as busy.
 func procBusy(pg int) bool {
-	start := statField(pg, 22)
-	if start == 0 {
+	if statField(pg, 5) == 0 {
 		return true
 	}
 	var walk func(pid, depth int) bool
 	walk = func(pid, depth int) bool {
 		for _, c := range children(pid) {
-			comm := readComm(c)
-			switch {
-			case slices.Contains(shells, comm), statField(c, 22)-start >= laterTicks:
-				return true
-			case depth < 2 && identifyProc(c, comm) != "" && walk(c, depth+1):
+			if depth >= 2 || identifyProc(c, readComm(c)) == "" || walk(c, depth+1) {
 				return true
 			}
 		}

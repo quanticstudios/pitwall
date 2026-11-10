@@ -32,7 +32,7 @@ func (p *Page) saveAwakeGrace(text string) {
 }
 
 func (p *Page) parkIdleRow() row {
-	return p.durationRow(&p.park, row{label: "Park idle agents", desc: "Ends a Claude Code or Codex agent's process after it sits idle at its prompt this long, as 1h or 30m, and resumes its session on the next key or message. Never one a window shows, one waiting on you, or one running a shell or a dev server. 0s is off.",
+	return p.durationRow(&p.park, row{label: "Park idle agents", desc: "Ends a Claude Code or Codex agent's process after it sits idle at its prompt this long, as 1h or 30m, and resumes its session on the next key or message. Never one a window shows, one waiting on you, or one running a process of its own, such as a dev server or an MCP server. 0s is off.",
 		extra: "memory idle park sleep resume park_idle_after"}, p.durationEditor(&p.park, p.s.ParkIdleAfter, "1h", p.saveParkIdle))
 }
 

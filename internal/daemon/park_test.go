@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/forge"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -18,8 +19,16 @@ var claudeEmpty = []string{"────────", "❯ ", "─────�
 // Claude Code agent at an empty box after a turn.
 func parkDaemon(t *testing.T) (*Daemon, *fakes) {
 	t.Helper()
-	d, f := talkDaemon(t)
-	d.o.ParkIdleAfter = func() time.Duration { return time.Hour }
+	return parkDaemonWith(t, func(*Options) {})
+}
+
+// parkDaemonWith is parkDaemon with its options edited before it starts.
+func parkDaemonWith(t *testing.T, edit func(*Options)) (*Daemon, *fakes) {
+	t.Helper()
+	d, f := talkDaemonWith(t, func(o *Options) {
+		o.ParkIdleAfter = func() time.Duration { return time.Hour }
+		edit(o)
+	})
 	busy := agentBusy
 	agentBusy = func(Pane) bool { return false }
 	oldSettle := sendSettle.set(time.Millisecond)
@@ -219,10 +228,18 @@ func TestParkedPromptResumesThenTypes(t *testing.T) {
 }
 
 // Enter in a parked pane only resumes it; other keys wait until the agent
-// is back, then go in first, ahead of a message sent meanwhile. Focus
-// reports resume nothing.
+// is back, then go in first. A message sent meanwhile waits while they
+// sit in the box as a draft, so it never glues onto them. Focus reports
+// resume nothing.
 func TestParkedKeysWaitForTheAgent(t *testing.T) {
 	d, f := parkDaemon(t)
+	oldQuiet, oldLook := sendQuiet.set(200*time.Millisecond), sendLook.set(10*time.Millisecond)
+	t.Cleanup(func() {
+		d.sendMu.Lock()
+		sendQuiet.set(oldQuiet)
+		sendLook.set(oldLook)
+		d.sendMu.Unlock()
+	})
 	park(t, d, f)
 	n := len(f.panes)
 	ctx := context.Background()
@@ -245,8 +262,172 @@ func TestParkedKeysWaitForTheAgent(t *testing.T) {
 		t.Fatalf("typed %q before the agent was back", got)
 	}
 	p := back(t, d, f)
-	if got := gotAfter(t, p, 0, 10); !strings.HasPrefix(got, "ok") || !strings.Contains(got, "later") {
-		t.Fatalf("typed %q, want the keys without the Enter, then the message", got)
+	time.Sleep(50 * time.Millisecond) // the agent has not drawn the keys yet
+	if got := p.got(); got != "ok" {
+		t.Fatalf("typed %q before the agent drew the keys, want the keys alone", got)
+	}
+	setScreen(p, []string{"────────", "❯ ok", "────────"}) // the agent draws the keys as a draft
+	time.Sleep(400 * time.Millisecond)
+	if got := p.got(); got != "ok" {
+		t.Fatalf("typed %q while the keys sat in the box, want the keys alone, without the Enter", got)
+	}
+	setScreen(p, claudeEmpty) // the user sent or cleared the draft
+	if got := gotAfter(t, p, 2, 10); !strings.Contains(got, "later") {
+		t.Fatalf("typed %q after the draft went, want the message", got)
+	}
+}
+
+// Many keys held while the input queue is full all reach the agent, in
+// one batch once the queue has room.
+func TestParkedKeysWaitForRoom(t *testing.T) {
+	d, f := parkDaemon(t)
+	park(t, d, f)
+	ctx := context.Background()
+	if err := d.handle(ctx, proto.Input{Pane: "a", Data: []byte("\r")}); err != nil {
+		t.Fatal(err)
+	}
+	for range 100 {
+		if err := d.handle(ctx, proto.Input{Pane: "a", Data: []byte("x")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setScreen(f.pane(len(f.panes)-1), claudeEmpty)
+	claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"resume"}`)
+	time.Sleep(5 * time.Millisecond)
+	full := make(chan []byte, inputQueue) // an input queue no writer drains
+	for len(full) < cap(full) {
+		full <- []byte("b")
+	}
+	d.mu.Lock()
+	live := d.inputs["a"]
+	d.inputs["a"] = full
+	d.mu.Unlock()
+	d.checkWaking()
+	if !wakingNow(d, "a") {
+		t.Fatal("stopped waking with its keys not sent")
+	}
+	for len(full) > 0 {
+		<-full
+	}
+	d.checkWaking()
+	d.mu.Lock()
+	d.inputs["a"] = live
+	d.mu.Unlock()
+	if len(full) != 1 || wakingNow(d, "a") {
+		t.Fatalf("%d batches queued, waking %v; want one batch and the resume done", len(full), wakingNow(d, "a"))
+	}
+	if got := string(<-full); got != strings.Repeat("x", 100) {
+		t.Fatalf("queued %d bytes, want the 100 held keys", len(got))
+	}
+}
+
+func wakingNow(d *Daemon, id string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, ok := d.park.waking[id]
+	return ok
+}
+
+// An agent not back at its input box after resumeReadyWait keeps what
+// waits for it: a form on its screen never gets the held keys. The user
+// is told, and new keys go straight in to answer the form; the held ones
+// follow once the input box is back.
+func TestParkedResumeTimeoutKeepsKeys(t *testing.T) {
+	d, f := parkDaemon(t)
+	park(t, d, f)
+	ctx := context.Background()
+	for _, k := range []string{"\r", "y", "\r"} {
+		if err := d.handle(ctx, proto.Input{Pane: "a", Data: []byte(k)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := f.pane(len(f.panes) - 1)
+	setScreen(p, []string{"Do you want to proceed?", "❯ 1. Yes", "  2. No"})
+	claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"resume"}`)
+	d.mu.Lock()
+	d.park.waking["a"] = d.park.waking["a"].Add(-resumeReadyWait - time.Second)
+	at := d.park.waking["a"]
+	d.mu.Unlock()
+	d.checkWaking()
+	time.Sleep(20 * time.Millisecond)
+	if got := p.got(); got != "" {
+		t.Fatalf("typed %q into a form after the timeout", got)
+	}
+	d.mu.Lock()
+	notice, still := d.st.Notice, d.park.waking["a"] == at
+	d.mu.Unlock()
+	if !still || !strings.Contains(notice, "not at its input box") {
+		t.Fatalf("waking %v, notice %q; want the resume reported and still waiting", still, notice)
+	}
+	if err := d.handle(ctx, proto.Input{Pane: "a", Data: []byte("2")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := gotAfter(t, p, 0, 1); got != "2" {
+		t.Fatalf("typed %q, want the new key alone", got)
+	}
+	setScreen(p, claudeEmpty)
+	d.checkWaking()
+	if got := gotAfter(t, p, 1, 2); got != "y\r" {
+		t.Fatalf("typed %q, want the held keys once the box is back", got)
+	}
+}
+
+// Failed checks and requested changes resume a parked agent and wait for
+// it, as pitwall send does.
+func TestParkedAutoSendResumes(t *testing.T) {
+	for _, act := range []string{"failures", "review"} {
+		t.Run(act, func(t *testing.T) {
+			pr := model.PR{Number: 7, State: model.PROpen, Head: "h1"}
+			if act == "failures" {
+				pr.Checks = []model.Check{{Name: "test", State: model.CheckFail}}
+			} else {
+				pr.Review, pr.ChangeRequests = model.ReviewChanges, []string{"r1"}
+			}
+			d, f := parkDaemonWith(t, func(o *Options) {
+				o.Branch = func(context.Context, string) (string, bool) { return "feature", true }
+				o.AutoSendFailures = func() bool { return act == "failures" }
+				o.SendReviewOnRequest = func() bool { return act == "review" }
+				o.PR = func(context.Context, string) (*model.PR, error) { p := pr; return &p, nil }
+				o.Head = func(context.Context, string) (string, error) { return "h1", nil }
+				o.Failures = func(context.Context, string) ([]forge.FailedCheck, error) {
+					return []forge.FailedCheck{{Name: "test", URL: "https://ci/1", Log: "boom"}}, nil
+				}
+				o.Reviews = func(context.Context, string, int) ([]forge.Thread, []forge.Comment, error) {
+					return nil, []forge.Comment{{Author: "reviewer", Body: "Fix the test"}}, nil
+				}
+			})
+			d.mu.Lock()
+			d.st.Workspaces[0].Branch, d.st.Workspaces[0].Path = "feature", "/r"
+			d.mu.Unlock()
+			park(t, d, f)
+			n := len(f.panes)
+			d.pollPRs(context.Background(), time.Now().Add(time.Hour))
+			d.pollPRs(context.Background(), time.Now().Add(2*time.Hour))
+			d.mu.Lock()
+			queued := len(d.mail.queue["a"])
+			d.mu.Unlock()
+			if len(f.panes) != n+1 || queued != 1 {
+				t.Fatalf("%d panes started, %d queued; want the agent resumed and one message waiting", len(f.panes)-n, queued)
+			}
+			p := back(t, d, f)
+			if got := gotAfter(t, p, 0, 40); !strings.Contains(got, "[pitwall: message from a script]") {
+				t.Fatalf("typed %q, want the message", got)
+			}
+		})
+	}
+}
+
+// Shutdown that logind cancels thaws the daemon; a parked pane, whose
+// handle is done, stays parked and in its tab.
+func TestParkedSurvivesThaw(t *testing.T) {
+	d, f := parkDaemon(t)
+	park(t, d, f)
+	d.Freeze()
+	d.Thaw()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.isParked("a") || !slices.ContainsFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == "a" }) {
+		t.Fatal("the parked pane went with the thaw")
 	}
 }
 

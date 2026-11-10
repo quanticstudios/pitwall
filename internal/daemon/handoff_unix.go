@@ -122,7 +122,8 @@ func (d *Daemon) freeze(f *frozen) error {
 	f.files = append(f.files, lf)
 	for _, sp := range d.st.Panes {
 		size := d.sizes[sp.ID]
-		hp := handoffPane{ID: sp.ID, Cols: size[0], Rows: size[1], ScrollbackFile: d.scrollbackFiles[sp.ID]}
+		hp := handoffPane{ID: sp.ID, Cols: size[0], Rows: size[1], ScrollbackFile: d.scrollbackFiles[sp.ID], Held: d.park.keys[sp.ID]}
+		_, hp.Waking = d.park.waking[sp.ID]
 		h := d.panes[sp.ID]
 		p, ok := h.(pausable)
 		switch s, held := h.(*stopped); {
@@ -454,6 +455,7 @@ func takeover(uc *net.UnixConn, conn *proto.Conn, o Options) (*Daemon, *net.Unix
 	}
 	for _, a := range in {
 		size := [2]int{a.Cols, a.Rows}
+		d.adoptParking(a.handoffPane)
 		if a.s != nil {
 			d.panes[a.ID], d.sizes[a.ID] = a.s, size
 			continue

@@ -189,10 +189,7 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	case remote.Clean(m.Text) == "":
 		return errors.New("the message is empty")
 	}
-	d.mu.Lock()
-	parked := d.waitsToWake(m.Pane)
-	d.mu.Unlock()
-	if _, busy, err := d.ready(m.Pane); err != nil && !busy && !parked {
+	if err := d.canQueue(m.Pane); err != nil {
 		return err
 	}
 	d.mu.Lock()
@@ -210,6 +207,19 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{from: m.From, text: m.Text, notice: notice})
 	d.changed()
 	d.wake(m.Pane, 0)
+	return nil
+}
+
+// canQueue is why a message for pane cannot wait for its agent, nil when
+// it can: the agent is parked or resuming, or takes a prompt once its turn
+// or the user's draft ends.
+func (d *Daemon) canQueue(pane string) error {
+	d.mu.Lock()
+	parked := d.waitsToWake(pane)
+	d.mu.Unlock()
+	if _, busy, err := d.ready(pane); err != nil && !busy && !parked {
+		return err
+	}
 	return nil
 }
 

@@ -88,26 +88,24 @@ func TestProcIdentifyInterpreter(t *testing.T) {
 	}
 }
 
-// An agent is busy with a shell child or a process it started 30 seconds
-// or more after itself, not with ones it started at launch, such as MCP
-// servers. A wrapper's agent counts as the agent.
+// An agent with any process of its own is busy, an MCP server included,
+// since nothing tells one from a dev server. A wrapper's agent counts as
+// the agent.
 func TestProcBusy(t *testing.T) {
 	claude := fakeProc{comm: "claude", exe: "/usr/bin/claude", pgrp: 10, start: 1000}
-	mcp := fakeProc{comm: "node", pgrp: 10, start: 1200}
+	wrapper := fakeProc{comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, start: 1000, children: "15"}
+	codex := fakeProc{comm: "codex", exe: "/usr/lib/codex", pgrp: 10, start: 1010}
 	for _, tc := range []struct {
 		name  string
 		procs map[int]fakeProc
 		want  bool
 	}{
 		{"alone", map[int]fakeProc{10: claude}, false},
-		{"MCP servers from launch", map[int]fakeProc{10: withChildren(claude, "11 12"), 11: mcp, 12: mcp}, false},
-		{"a shell", map[int]fakeProc{10: withChildren(claude, "11 13"), 11: mcp, 13: {comm: "zsh", pgrp: 10, start: 1300}}, true},
-		{"a dev server started later", map[int]fakeProc{10: withChildren(claude, "11 14"), 11: mcp, 14: {comm: "node", pgrp: 10, start: 1000 + laterTicks}}, true},
-		{"a wrapper's agent's shell", map[int]fakeProc{
-			10: {comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, start: 1000, children: "15"},
-			15: {comm: "codex", exe: "/usr/lib/codex", pgrp: 10, start: 1010, children: "16"},
-			16: {comm: "bash", pgrp: 10, start: 1500},
-		}, true},
+		{"a wrapper's agent alone", map[int]fakeProc{10: wrapper, 15: codex}, false},
+		{"a shell", map[int]fakeProc{10: withChildren(claude, "13"), 13: {comm: "zsh", pgrp: 10, start: 1300}}, true},
+		{"a node server exec'd 15s in", map[int]fakeProc{10: withChildren(claude, "14"), 14: {comm: "node", pgrp: 10, start: 1150}}, true},
+		{"an MCP server from launch", map[int]fakeProc{10: withChildren(claude, "11"), 11: {comm: "node", pgrp: 10, start: 1001}}, true},
+		{"a wrapper's agent's shell", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "16"), 16: {comm: "bash", pgrp: 10, start: 1500}}, true},
 		{"unreadable", map[int]fakeProc{}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -20,6 +20,12 @@ import (
 // b, neither reported on yet.
 func talkDaemon(t *testing.T) (*Daemon, *fakes) {
 	t.Helper()
+	return talkDaemonWith(t, func(*Options) {})
+}
+
+// talkDaemonWith is talkDaemon with its options edited before it starts.
+func talkDaemonWith(t *testing.T, edit func(*Options)) (*Daemon, *fakes) {
+	t.Helper()
 	f := &fakes{statsCalls: map[string]int{}}
 	f.saved = model.State{
 		Sessions: []model.Session{{ID: "s", Name: "work"}},
@@ -29,6 +35,7 @@ func talkDaemon(t *testing.T) (*Daemon, *fakes) {
 	}
 	o := f.options()
 	o.Derive = agent.Derive
+	edit(&o)
 	d, err := NewWith(o)
 	if err != nil {
 		t.Fatal(err)

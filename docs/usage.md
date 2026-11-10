@@ -2371,10 +2371,10 @@ quarter of the time when that is shorter. It never parks:
 - an agent asking for approval, a question or a plan, or showing a form
 - a running turn, which covers a guarded tab's command in progress
 - a turn whose Stop hook reports running background subagents or workflows
-- an agent with a shell as a child, or a process it started 30 seconds or
-  more after itself, such as a dev server or a watcher. MCP servers start
-  with the agent and do not count. Only Linux can tell, so macOS and
-  Windows never park
+- an agent running any process of its own: a shell, a dev server, a
+  watcher, or an MCP server, since nothing tells one from another. An agent
+  with MCP servers configured therefore never parks. Only Linux can tell,
+  so macOS and Windows never park
 - an agent with no session to resume, or no hook since it started
 - an agent with your draft in its input box, a message waiting for it, a
   usage-limit resume pending or a notification you have not seen
@@ -2394,11 +2394,15 @@ once the agent is back at its input box. A message from `pitwall send` or
 the done-line nudge of `pitwall wait` resume it the same way, then go in in
 order. Claude Code counts as back after its SessionStart hook with its
 input box on screen; Codex sends no hook at startup, so it gets 20 seconds
-and its input box. After two minutes what waited goes in anyway. If the
-agent exits before it is back, the pane parks again with the exit code in
-its notice, and the messages keep waiting. `pitwall wait --until done` and
-`--until idle` count a parked agent as finished. A parked pane stays parked
-across a daemon restart.
+and its input box. Your keys go in first, and a message waits while they
+sit in the box as a draft. If the agent is not back after two minutes,
+such as at a question its resume asks, pitwall says so and keeps holding
+what waited; keys you type then go straight in, so you can answer, and
+the rest follows once the input box is back. If the agent exits before it
+is back, the pane parks again with the exit code in its notice, and the
+messages keep waiting. `pitwall wait --until done` and `--until idle`
+count a parked agent as finished. A parked pane stays parked across a
+daemon restart and an update's handoff, with any keys it holds.
 
 ### Detaching
 

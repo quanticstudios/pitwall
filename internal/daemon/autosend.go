@@ -80,7 +80,7 @@ func (d *Daemon) autoSends(answered map[string]bool, keys map[string]string, fai
 // Fetches reserve a branch until they finish. Only a successfully queued
 // prompt counts as sent; failed or empty fetches can retry on the next poll.
 func (d *Daemon) sendAgent(ctx context.Context, a autoSend) {
-	if _, busy, err := d.ready(a.pane); err != nil && !busy {
+	if d.canQueue(a.pane) != nil {
 		return
 	}
 	if a.act == "send_failures" {
