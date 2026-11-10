@@ -37,17 +37,26 @@ var (
 )
 
 // reviewPick is a base picked in a tab's review view: Ref, a full ref such
-// as refs/heads/feature, while the tab is on Branch.
+// as refs/heads/feature, while the tab is on Branch of the repository at
+// Repo.
 type reviewPick struct {
 	Ref    string `json:"ref"`
 	Branch string `json:"branch"`
+	Repo   string `json:"repo"`
 }
 
-// pickOf is the base picked for tab id, "" for none or when the tab has
-// moved to another branch since.
+// pickOf is the base picked for tab id, "" for none, when the tab has
+// moved to another branch or repository since, or when the picked branch
+// is gone. It asks git, so only a user's action calls it, never a frame.
 func (n *nav) pickOf(st *model.State, id string) string {
 	p, ok := n.reviewBase[id]
-	if ws := findWorkspace(st, id); !ok || ws == nil || ws.Branch != p.Branch {
+	ws := findWorkspace(st, id)
+	if !ok || ws == nil || ws.Branch != p.Branch || ws.RepoRoot != p.Repo {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), filesWait)
+	defer cancel()
+	if branchRef(ctx, st.LivePath(*ws), p.Ref) == "" {
 		return ""
 	}
 	return p.Ref
@@ -220,7 +229,7 @@ func (u *ui) pickBase(st *model.State, it baseItem) {
 	if it.ref == "" {
 		delete(u.nav.reviewBase, r.ws)
 	} else {
-		u.nav.reviewBase[r.ws] = reviewPick{Ref: it.ref, Branch: ws.Branch}
+		u.nav.reviewBase[r.ws] = reviewPick{Ref: it.ref, Branch: ws.Branch, Repo: ws.RepoRoot}
 	}
 	for id := range u.nav.reviewBase { // a closed tab's pick goes too
 		if findWorkspace(st, id) == nil {

@@ -601,7 +601,7 @@ func (u *ui) reviewDiff(gtx gl.Context, files []review.File, f *review.File, roo
 	_, inTurn, _ := r.turnState()
 	stage := r.staged()
 	for r.discard.Clicked(gtx) {
-		r.discarding = *f
+		r.askDiscard(f)
 		u.modal.open(modalDiscard, r.ws)
 	}
 	for r.stageFile.Clicked(gtx) {
@@ -1026,7 +1026,7 @@ func (u *ui) undoTurnBody(gtx gl.Context) gl.Dimensions {
 // discardBody is the discard dialog for the review view's file.
 func (u *ui) discardBody(gtx gl.Context) gl.Dimensions {
 	th, f := u.th, &u.review.discarding
-	base := gitstat.BranchName(u.review.base)
+	base := refLabel(gitstat.BranchName(u.review.discardBase))
 	what := "Puts it back as it is at the merge base with " + base + ", on disk and staged. " +
 		"Commits on the branch stay, so the undo shows as an uncommitted change. Uncommitted edits to it are lost."
 	switch f.Status {

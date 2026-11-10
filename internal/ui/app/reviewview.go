@@ -155,7 +155,10 @@ type reviewView struct {
 	enterPane  string         // the pane whose paste waits for its Enter
 	enterAt    time.Time
 	discarding review.File // the file the discard dialog is about
-	undoFiles  int         // the file count the undo dialog names
+	// discardBase is the base the view showed discarding against, which the
+	// dialog names and Discard restores from.
+	discardBase string
+	undoFiles   int // the file count the undo dialog names
 }
 
 // show opens the view on tab ws, reading dir from base, "" for the
@@ -294,8 +297,11 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 		r.mu.Unlock()
 		if pick != "" && !stage && branchRef(c, dir, pick) == "" { // the picked branch is gone
 			r.mu.Lock()
-			if r.pick == pick {
-				r.pick, r.lost = "", pick
+			// why: a read of a closed or reopened view must not touch the
+			// current one's pick; the files go too, so nothing such as
+			// Discard acts on the old base's diff until the default's loads.
+			if r.gen == gen && ctx.Err() == nil && r.pick == pick {
+				r.pick, r.lost, r.loaded, r.files = "", pick, false, nil
 			}
 			r.mu.Unlock()
 			pick = ""
@@ -858,9 +864,16 @@ func (u *ui) markReviewed(root string, files []review.File, f *review.File, on b
 	}
 }
 
+// askDiscard aims the discard dialog at f, against the base the view
+// shows f's diff from.
+func (r *reviewView) askDiscard(f *review.File) {
+	_, base, _, _, _ := r.snapshot()
+	r.discarding, r.discardBase = *f, base
+}
+
 // discardFile runs the discard dialog's confirm: the file goes back to
-// the merge base with the view's base, or an untracked one is deleted,
-// then the diff is read again.
+// the merge base with the base its diff was shown from, or an untracked
+// one is deleted, then the diff is read again.
 func (u *ui) discardFile() {
 	r := &u.review
 	f := r.discarding
@@ -868,7 +881,7 @@ func (u *ui) discardFile() {
 	if f.OldPath != "" {
 		paths = append(paths, f.OldPath)
 	}
-	dir, base, invalidate := r.dir, r.picked(), u.invalidate
+	dir, base, invalidate := r.dir, r.discardBase, u.invalidate
 	if invalidate == nil {
 		invalidate = func() {}
 	}

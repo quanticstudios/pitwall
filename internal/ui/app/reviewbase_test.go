@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,7 +44,7 @@ func TestBaseItems(t *testing.T) {
 	u.nav.reviewBase = map[string]reviewPick{"gone": {Ref: "x"}}
 	u.review.ws, u.review.bases.open = "w", true
 	u.pickBase(st, want[1])
-	if p := u.nav.reviewBase["w"]; p != (reviewPick{"refs/heads/feature", "stacked"}) || u.review.picked() != "refs/heads/feature" || u.review.bases.open || len(u.nav.reviewBase) != 1 {
+	if p := u.nav.reviewBase["w"]; p != (reviewPick{"refs/heads/feature", "stacked", ""}) || u.review.picked() != "refs/heads/feature" || u.review.bases.open || len(u.nav.reviewBase) != 1 {
 		t.Errorf("after a pick: bases %v, picked %q, open %v", u.nav.reviewBase, u.review.picked(), u.review.bases.open)
 	}
 	u.pickBase(st, want[0])
@@ -118,5 +120,114 @@ func TestReviewDropsGonePick(t *testing.T) {
 	u.dropLost()
 	if _, ok := u.nav.reviewBase["w"]; ok || u.review.status != "gone is gone; diffing from the default branch" {
 		t.Errorf("after dropLost: bases %v, status %q", u.nav.reviewBase, u.review.status)
+	}
+}
+
+// TestGonePickHoldsDiscard shows a diff from a picked branch, aims the
+// discard dialog at a file, then the branch goes: the view blanks until
+// the default branch's diff arrives, so no Discard acts on the old files,
+// and the dialog already open still restores from the base it named.
+func TestGonePickHoldsDiscard(t *testing.T) {
+	oldDiff, oldRef, oldDiscard := readDiff, branchRef, discardFiles
+	t.Cleanup(func() { readDiff, branchRef, discardFiles = oldDiff, oldRef, oldDiscard })
+	var gone atomic.Bool
+	branchRef = func(_ context.Context, _, ref string) string {
+		if gone.Load() {
+			return ""
+		}
+		return ref
+	}
+	u := &ui{}
+	fallback, release := make(chan bool, 1), make(chan struct{})
+	readDiff = func(_ context.Context, _, base string) (gitstat.Patch, error) {
+		if base == "" {
+			_, _, _, _, loaded := u.review.snapshot()
+			fallback <- loaded
+			<-release
+			return gitstat.Patch{Base: "refs/heads/main", Root: "/repo"}, nil
+		}
+		return gitstat.Patch{Base: base, Root: "/repo", Diff: []byte("diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n")}, nil
+	}
+	discarded := make(chan string, 1)
+	discardFiles = func(_ context.Context, _, base string, _ []string, _ bool) error {
+		discarded <- base
+		return nil
+	}
+	u.review.show("w", t.TempDir(), "refs/heads/feature", false, func() {})
+	t.Cleanup(u.review.hide)
+	waitLoaded(t, &u.review)
+	files, _, _, _, _ := u.review.snapshot()
+	u.review.askDiscard(&files[0])
+	gone.Store(true)
+	u.review.reload()
+	select {
+	case loaded := <-fallback:
+		if loaded {
+			t.Error("the old base's files stayed up while the default's diff was read")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no fallback read")
+	}
+	u.discardFile()
+	if got := <-discarded; got != "refs/heads/feature" {
+		t.Errorf("Discard restored from %q, not the base the dialog named", got)
+	}
+	close(release)
+	waitLoaded(t, &u.review) // the reader is idle again before the stubs go
+}
+
+// TestStaleReaderKeepsPick: a closed view's reader that finds its pick
+// gone after the view opened again on the same pick leaves the new one be.
+func TestStaleReaderKeepsPick(t *testing.T) {
+	oldDiff, oldRef, oldTurn := readDiff, branchRef, readTurn
+	t.Cleanup(func() { readDiff, branchRef, readTurn = oldDiff, oldRef, oldTurn })
+	first, release, stale := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	branchRef = func(_ context.Context, _, ref string) string {
+		if calls.Add(1) == 1 {
+			close(first)
+			<-release
+			return ""
+		}
+		return ref
+	}
+	readTurn = func(context.Context, string, string) (gitstat.Turn, error) {
+		return gitstat.Turn{}, errors.New("none")
+	}
+	readDiff = func(ctx context.Context, _, base string) (gitstat.Patch, error) {
+		if ctx.Err() != nil {
+			close(stale) // the old reader's last call, past where it would touch the pick
+		}
+		return gitstat.Patch{Base: base, Root: "/repo"}, nil
+	}
+	var r reviewView
+	dir := t.TempDir()
+	r.show("w", dir, "refs/heads/feature", false, func() {})
+	<-first
+	r.show("w", dir, "refs/heads/feature", false, func() {})
+	t.Cleanup(r.hide)
+	waitLoaded(t, &r)
+	close(release)
+	select {
+	case <-stale:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the old reader never finished")
+	}
+	if r.picked() != "refs/heads/feature" || r.takeLost() != "" {
+		t.Errorf("the old reader changed the new view: picked %q", r.picked())
+	}
+}
+
+func waitLoaded(t *testing.T, r *reviewView) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, _, _, _, loaded := r.snapshot(); loaded {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the diff never loaded")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
