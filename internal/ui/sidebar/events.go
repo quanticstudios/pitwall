@@ -108,8 +108,11 @@ type OpenPR struct{ WorkspaceID string }
 // on a host other than GitHub, its BranchStats.Compare, in the browser.
 type OpenCompare struct{ WorkspaceID string }
 
-// OpenPort opens http://localhost:<Port>, a tab's dev server, in the browser.
-type OpenPort struct{ Port int }
+// OpenPort opens URL, or http://localhost:<Port> when URL is empty.
+type OpenPort struct {
+	Port int
+	URL  string
+}
 
 // MergePR asks to merge the tab's pull request, after a confirm.
 type MergePR struct{ WorkspaceID string }

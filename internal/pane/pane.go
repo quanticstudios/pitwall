@@ -122,7 +122,7 @@ func environ() []string {
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
 		if k == "TMUX" || k == "TMUX_PANE" || strings.HasPrefix(k, "ZELLIJ") ||
-			k == "PITWALL_PORTS" || k == "PITWALL_PORT_BASE" || ported && k == "PORT" {
+			k == "PITWALL_PORTS" || k == "PITWALL_PORT_BASE" || k == "PITWALL_URL" || ported && k == "PORT" {
 			continue
 		}
 		out = append(out, kv)

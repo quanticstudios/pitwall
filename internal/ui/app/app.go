@@ -623,6 +623,7 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	// The board draws with the sidebar's hosts too, sidebar shown or not.
 	u.sidebar.Hosts, u.sidebar.HostOf, u.sidebar.TabNumber = u.hosts, nil, nil
+	u.sidebar.DevProxyPort = u.cfg.DevProxy.URLPort()
 	if len(u.hosts) > 1 {
 		u.sidebar.HostOf = u.hostOf
 	}
@@ -1101,7 +1102,11 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 			openLink(c)
 		}
 	case sidebar.OpenPort:
-		openLink(fmt.Sprintf("http://localhost:%d", e.Port))
+		if e.URL != "" {
+			openLink(e.URL)
+		} else {
+			openLink(fmt.Sprintf("http://localhost:%d", e.Port))
+		}
 	case sidebar.MergePR:
 		u.prAction(st, e.WorkspaceID, "merge_pr")
 	case sidebar.RerunChecks:

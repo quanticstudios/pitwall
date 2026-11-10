@@ -141,6 +141,8 @@ type card struct {
 	path, branch string
 	ports        string // the worktree's port block, "3010-3019"
 	open         string // the block's ports that accept a connection, "3010 3012"
+	url          string
+	portBtn      *widget.Clickable
 	radar        []radarEntry
 	fileBtn      func(other, path string) *widget.Clickable // a radar file's button; nil draws none
 	add, del     int
@@ -497,6 +499,13 @@ func drawCard(gtx layout.Context, th *theme.Theme, c card, alpha float32) image.
 				}
 				return hrowFit(gtx, gtx.Sp(th.Sp(theme.Body)*1.5), gtx.Dp(6), items...)
 			})
+			if c.url != "" {
+				line(nil, func(gtx layout.Context) layout.Dimensions {
+					return clickable(gtx, c.portBtn, func(gtx layout.Context) layout.Dimensions {
+						return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Readable(th.Blue, bg), strings.TrimPrefix(c.url, "http://"))
+					})
+				})
+			}
 		case 's':
 			col := StateColor(th, c.state)
 			dot := func(gtx layout.Context) layout.Dimensions {
@@ -605,6 +614,8 @@ func (s *Sidebar) drawHover(gtx layout.Context, v *view, w, h int) {
 	// Record once to learn the height, then place it.
 	m := op.Record(gtx.Ops)
 	c := cardFor(v, *ws)
+	c.url, c.portBtn = s.devURL(*ws), &s.cardPort
+	s.cardURL = c.url
 	if n := s.tabNumber(ws.ID); n != "" && s.hostOf(ws.ID) != "" {
 		c.path = "tab " + n + " · " + c.path // pitwall ls on that host numbers it so
 	}

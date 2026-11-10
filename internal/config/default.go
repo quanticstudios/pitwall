@@ -36,6 +36,7 @@ func defaults() Config {
 	c.Sidebar = defaultSidebar()
 	c.Remote = defaultRemote()
 	c.Web = defaultWeb()
+	c.DevProxy = defaultDevProxy()
 	c.Notify = defaultNotifications()
 	none := 0.0
 	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit, c.Agents.GuardWorkers = &none, &on, &off

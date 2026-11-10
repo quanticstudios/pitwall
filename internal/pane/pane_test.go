@@ -139,9 +139,10 @@ func TestEnv(t *testing.T) {
 	t.Setenv("PORT", "3010")
 	t.Setenv("PITWALL_PORT_BASE", "3010")
 	t.Setenv("PITWALL_PORTS", "3010-3019")
-	p, f = start(t, "p43", "sh", "-c", `printf '[%s|%s|%s]' "${PORT-unset}" "${PITWALL_PORT_BASE-unset}" "${PITWALL_PORTS-unset}"`)
+	t.Setenv("PITWALL_URL", "http://fix.web-app.localhost:7778")
+	p, f = start(t, "p43", "sh", "-c", `printf '[%s|%s|%s|%s]' "${PORT-unset}" "${PITWALL_PORT_BASE-unset}" "${PITWALL_PORTS-unset}" "${PITWALL_URL-unset}"`)
 	waitDone(t, p)
-	if got := f.String(); !strings.Contains(got, "[unset|unset|unset]") {
+	if got := f.String(); !strings.Contains(got, "[unset|unset|unset|unset]") {
 		t.Fatalf("inherited ports %q", got)
 	}
 }

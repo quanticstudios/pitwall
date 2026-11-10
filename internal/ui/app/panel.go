@@ -154,6 +154,9 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	if ws := findWorkspace(st, u.nav.workspace); ws != nil {
 		in.Branch = st.Stats[ws.ID]
 		in.Ports, in.Listening = ws.Ports, st.Listening[ws.ID]
+		if u.hostOf(ws.ID) == "" {
+			in.DevURL = ws.DevURL(u.cfg.DevProxy.URLPort())
+		}
 		dir = ws.Path
 		if c := findChat(st, ws.Chat); c != nil {
 			// A chat has no pane; the panel follows it as one that runs its agent.
@@ -199,6 +202,9 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 	pgtx := gtx
 	pgtx.Constraints = gl.Exact(r.Size())
 	u.panel.view.Layout(pgtx, u.th, in)
+	if url := u.panel.view.OpenURL(); url != "" {
+		openLink(url)
+	}
 	off.Pop()
 	if f, ok := u.panel.view.Diff(); ok && dir != "" && in.Base != "" {
 		if curHost() == "" {
