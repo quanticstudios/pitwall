@@ -185,8 +185,15 @@ the app, or tap Enter the address and code instead. Against pitwall's own
 certificate (`tls = true`), the app shows the certificate's SHA-256 next to
 the one `pitwall remote pair` printed; They match, pair trusts that
 certificate and no other. The app keeps its device token in its own
-storage. Unpair this phone, under the gear, forgets the token on the
-phone; `pitwall remote revoke` stops it on the computer.
+storage.
+
+The app pairs with more than one computer. Add machine, in the session
+menu or under the gear, runs the same pairing again, and the sidebar then
+shows every machine's sessions, each row with its machine's chip as the
+window's sidebar shows another host's. Messages, picks and answers go to
+the machine the tab runs on. The gear lists the machines: tap a name to
+rename it, or Remove one, which forgets its token on the phone;
+`pitwall remote revoke` stops the token on the computer.
 
 ### Use
 
@@ -194,24 +201,27 @@ The sidebar is the home screen: Waiting on you lists the errors, approvals
 and questions of every session, and the tree below is the session's tabs as
 the window's sidebar draws them. Allow and Deny answer a permission prompt
 from its row; a tap on a row, or on Reply, opens the tab's chat. The
-session's name opens the other sessions, with a red count of what waits
-there.
+session's name opens the other sessions, by machine, with a red count of
+what waits there.
 
 | Where you are                | Back                      |
 | ---------------------------- | ------------------------- |
 | Pairing                      | closes the app            |
 | Sidebar                      | closes the app            |
 | A menu                       | closes the menu           |
+| Machines, or Add machine     | returns to the sidebar    |
 | Chat, keyboard up            | hides the keyboard        |
 | Chat                         | returns to the sidebar    |
 
-When the connection drops, a red line says when the app tries again
-(after 1 second, then 2, 4 and so on up to 15) and Retry tries at once; the
-last list stays on screen, dimmed. Coming back to the foreground tries at
+When a machine's connection drops, a red line over its sessions says when
+the app tries again (after 1 second, then 2, 4 and so on up to 15) and
+Retry tries at once; its last list stays on screen, dimmed, and the other
+machines carry on. Coming back to the foreground tries every machine at
 once.
 
 `go run ./cmd/pitwall-phone` runs the app in a desktop window, and
-`-demo` pairs it with a server of made-up tabs in the same process.
+`-demo 1` pairs it with a server of made-up tabs in the same process, and
+`-demo 2` with two, as the machines box and laptop.
 `-serve-demo 0.0.0.0:7792` serves that demo alone and prints its pairing
 link, which an emulator reaches at `http://10.0.2.2:7792`.
 

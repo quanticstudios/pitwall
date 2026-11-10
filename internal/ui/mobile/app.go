@@ -7,6 +7,7 @@ package mobile
 import (
 	"context"
 	"errors"
+	"runtime"
 	"slices"
 	"time"
 
@@ -35,7 +36,12 @@ func Options(th *theme.Theme) []app.Option {
 // Theme is aide's dark theme at the app's text size.
 func Theme() *theme.Theme {
 	t, _ := config.Builtin("aide-dark")
-	th, _ := theme.New(t, config.Font{UISize: 12}) // 16.5sp once zoomed
+	f := config.Font{UISize: 12} // 16.5sp once zoomed
+	if runtime.GOOS == "android" {
+		// why: the theme's JetBrains Mono comes from a Linux font folder; Android ships this one.
+		f.MonoFamily = "Droid Sans Mono"
+	}
+	th, _ := theme.New(t, f)
 	return th
 }
 
@@ -105,11 +111,20 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			a.focused = e.Config.Focused
 		case app.FrameEvent:
 			a.drain()
-			gtx := app.NewContext(&ops, e)
-			paint.Fill(gtx.Ops, th.Bg)
-			gtx.Metric.PxPerDp *= zoom
-			gtx.Metric.PxPerSp *= zoom
-			a.layout(gtx)
+			var gtx C
+			// why: a tap that changes the screen lands mid-layout; the frame must show the new
+			// screen, or it shows the old one, with its hit areas, until the next input.
+			for range 3 {
+				gtx = app.NewContext(&ops, e)
+				paint.Fill(gtx.Ops, th.Bg)
+				gtx.Metric.PxPerDp *= zoom
+				gtx.Metric.PxPerSp *= zoom
+				before := a.screen()
+				a.layout(gtx)
+				if a.screen() == before {
+					break
+				}
+			}
 			e.Frame(gtx.Ops)
 		}
 	}
@@ -387,6 +402,16 @@ func (a *App) chatLayout(gtx C) {
 	if a.chat.layout(gtx, a.th, env) {
 		a.closeChat()
 	}
+}
+
+// screen names what the window shows, so a frame can tell it changed.
+type screen struct {
+	pairing, machines, manual bool
+	untrusted, chat, menu     string
+}
+
+func (a *App) screen() screen {
+	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.untrusted, a.chat.pane, a.list.menu}
 }
 
 func (a *App) layout(gtx C) {

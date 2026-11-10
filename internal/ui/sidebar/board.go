@@ -31,6 +31,9 @@ import (
 // ToggleBoard is a click on the header's board button.
 type ToggleBoard struct{}
 
+// ToggleMonitor is a click on the header's monitor button.
+type ToggleMonitor struct{}
+
 // CloseBoard is Esc on the board with no scope left to leave.
 type CloseBoard struct{}
 

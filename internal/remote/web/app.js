@@ -445,9 +445,9 @@ function renderChatState() {
   $('ctitle').textContent = t ? t.tab : 'Tab';
   const meta = $('cmeta');
   meta.replaceChildren();
-  if (t) meta.append(pillOf(t), [agentName(t.agent), shortModel(model)].filter(Boolean).join(' · '));
+  if (t) meta.append(pillOf(t), [agentName(t.agent), prettyModel(model)].filter(Boolean).join(' · '));
   pick.hidden = !(t && t.picker);
-  pick.textContent = shortModel(model) || 'Model';
+  pick.textContent = prettyModel(model) || 'Model';
   const running = !!t && (t.state === 'working' || t.state === 'connecting');
   work.hidden = !running;
   if (running) {
@@ -467,6 +467,24 @@ function renderChatState() {
 }
 
 function shortModel(m) { return (m || '').replace(/^claude-/, ''); }
+
+// prettyModel names a model as people say it: claude-opus-5-5[1m] is
+// "Opus 5.5 1M", sonnet-4-5-20250929 is "Sonnet 4.5", opus is "Opus",
+// gpt-6.1-sol is "GPT-6.1 Sol".
+function prettyModel(m) {
+  const id = shortModel(m);
+  if (!id) return '';
+  const wide = /\[1m\]$/i.test(id) ? ' 1M' : '';
+  const parts = id.replace(/\[1m\]$/i, '').split('-');
+  if (parts[0] === 'gpt') return id.replace(/^gpt-/, 'GPT-').replace(/-([a-z])/g, (_, c) => ' ' + c.toUpperCase());
+  if (!/^[a-z]+$/.test(parts[0])) return id + wide;
+  const nums = [];
+  for (const p of parts.slice(1)) {
+    if (!/^\d{1,2}$/.test(p)) break; // why: a date suffix such as 20250929 is not part of the version
+    nums.push(p);
+  }
+  return parts[0][0].toUpperCase() + parts[0].slice(1) + (nums.length ? ' ' + nums.join('.') : '') + wide;
+}
 
 function renderAsks(t) {
   const want = [];
@@ -676,7 +694,7 @@ function updatePending(t) {
 
 function choices(box, what, values) {
   box.replaceChildren(...values.map((v) => {
-    const b = el('button', 'btn' + (what === 'model' && shortModel(model).includes(v) ? ' on' : ''), v);
+    const b = el('button', 'btn' + (what === 'model' && shortModel(model).includes(v) ? ' on' : ''), what === 'model' ? prettyModel(v) : v);
     b.onclick = () => {
       const note = $('mnote');
       const all = sheet.querySelectorAll('.choices .btn');
