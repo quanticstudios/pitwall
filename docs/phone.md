@@ -1,12 +1,13 @@
 # Phone
 
-pitwall can serve a small page where your phone sees which agents need you
-and answers them: Allow or Deny on a permission prompt, a typed reply to a
-question or a finished turn. It runs inside pitwall's background service.
-There is no account, no relay and no app to install: the phone talks to your
-computer over your own network.
+pitwall can serve a page that puts your tabs on your phone: the list the
+sidebar shows, and each agent's conversation as a chat you can read and
+type into. It runs inside pitwall's background service and shows what that
+service runs now, so tabs come and go on the phone as they do in the
+window. There is no account, no relay and no app to install: the phone talks
+to your computer over your own network.
 
-<img src="media/phone.webp" alt="The phone page: two approvals with Allow and Deny buttons, a question from Fix the checkout race, and two finished turns with a Reply box" width="300">
+<img src="media/phone.webp" alt="The phone page's tab list: a working Claude Code tab, a finished one, a Codex tab asking approval and a pi tab asking a question in group api, a shell, and a failed tab in session infra" width="300"> <img src="media/phone-chat.webp" alt="A Claude Code tab's chat mid-turn: a reply, a failed go test call opened to its output, a code block, and a running call under a Working line" width="300">
 
 It is off until you turn it on in Settings, Phone, or in config.toml:
 
@@ -51,30 +52,90 @@ in a minute, every request is refused until the minute is up.
 | `pitwall remote devices`        | List paired devices                                                        |
 | `pitwall remote revoke <name>`  | Unpair one by name or id; its token and its push subscription stop at once |
 
-## What the page shows and sends
+## The tab list
 
-The page lists the tabs that need you: approvals, questions, finished turns
-and errors, each with the agent's question or the tool it wants, and the
-risk pitwall flags in a permission request. It shows what the sidebar shows,
-never a pane's screen or scrollback. It asks for the list every 3 seconds
-while it is open, and push notifications reach the phone while it is
-closed or locked.
+The page lists every tab of every session in the sidebar's order, under
+its session's name and its group's. Each row shows the tab's name, its
+state (Working, Approval, Input, Done, Error), its agent and branch, and
+what the agent asks or said last. A tab that waits on you has a filled
+row, and the page's title counts them. Detached tabs and Monitor tabs are
+left out.
 
-Allow presses the first option of the agent's prompt, Yes: `1` for Claude
-Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
-the page's item is current and the pane's screen has a permission prompt on it.
-When the agent's hook reported a shell command, the prompt must also show that
-command, as much of it as fits on screen, and a command with a line break or a
-tab is always refused; [Usage](usage.md) has the details. A
-reply loses its control characters, so it
-cannot press keys or end a paste, and goes in as a paste followed by Enter.
-A terminal agent's screen that shows a form takes no reply here, as Enter
-would answer the form, so answer it in its tab or from the sidebar's buttons. The buttons for options, Always and Approve plan are
-on the sidebar only.
-pi has no permission prompts, so its tabs only take replies.
+The page keeps one connection open to pitwall and gets the list again
+whenever it changes, so a row moves as soon as the sidebar's does. When the
+connection drops, a line says "Offline, reconnecting" and the page tries
+again after 1 second, then 2, 4 and so on up to 15. Waking the phone
+reconnects at once.
+
+## A tab's chat
+
+Tap a row to open its chat. pitwall reads the agent's own session file,
+the one its hooks name: Claude Code's transcript, Codex's rollout or pi's
+session. It follows the newest one, so the chat starts over after `/clear`,
+a resume or a fork. The chat shows
+
+- your prompts, on the right;
+- the agent's replies, with paragraphs, lists, code blocks, inline code
+  and links;
+- each tool call as one line, its name and what it ran or read, which
+  opens to the start of its output, and says "failed" when it failed;
+- errors and interrupted turns, in red.
+
+Thinking and the agent's own bookkeeping are left out. New entries arrive
+as the agent writes them, a whole message at a time. While the agent works,
+a "Working:" line under the chat names the call it runs. The chat stays at
+its bottom while you are there; scrolled up, it shows a New messages button
+instead of moving. Scrolling to the top loads earlier messages, as far back
+as the last 8 MiB of the file.
+
+A tab without a session file, a shell or an agent without hooks, shows its
+state and never its screen or scrollback. The page never shows a pane's
+screen.
+
+## Send a message
+
+Every agent tab has a box at the bottom. What you send goes the way the
+window's own send does: it waits until the agent sits at its input box with
+no form on screen and no draft of yours in it, then goes in as a paste
+followed by Enter, with control characters removed, so it cannot press keys
+or end the paste. While the agent works or waits on an approval, the message
+shows as Queued, then as Sent once it goes in, until it shows up in the
+chat. A shell tab has no box: pitwall never types into a shell from here.
 
 A chat tab (one pitwall drives with `pitwall chat` rather than in a
-terminal) shows what its agent asks in full: the tool and its command or
+terminal) shows its transcript the same way, and a message starts a turn or
+queues behind the running one.
+
+## Model and effort
+
+A Claude Code tab has a button in its header with the model its latest
+turn used. It offers the models `default`, `fable`, `opus`, `sonnet` and
+`haiku`, and the effort levels `low`, `medium`, `high`, `xhigh` and `max`.
+A pick types `/model <name>` or `/effort <level>` into Claude Code as keys
+and presses Enter, only while Claude Code sits at its input box: not during
+a turn, a question or a form, and not over a draft. When Claude Code asks
+"Switch model?" in a conversation, pitwall answers yes, since your pick
+already did. Claude Code then reads the whole conversation again on the new
+model, and saves the model as your default, as typing `/model` does.
+
+Codex has no picker here: its `/model` opens a menu that pitwall cannot
+drive safely.
+
+## Approvals and questions
+
+When the open tab waits on you, a card above the box says what for.
+Allow presses the first option of the agent's prompt, Yes: `1` for Claude
+Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
+the card is current and the pane's screen has a permission prompt on it.
+When the agent's hook reported a shell command, the prompt must also show
+that command, as much of it as fits on screen, and a command with a line
+break or a tab is always refused; [Usage](usage.md) has the details. A
+question takes your answer through the box. A screen that shows a form
+takes no typed answer here, as Enter would answer the form, so answer it in
+its tab or from the sidebar's buttons. The buttons for options, Always and
+Approve plan are on the sidebar only. pi has no permission prompts.
+
+A chat tab shows what its agent asks in full: the tool and its command or
 file for an approval, the whole text of a plan, and each question of an
 input request with its options. An approval takes Allow, Allow for session,
 or Deny with an optional reason the agent reads. A plan takes Approve plan
@@ -82,13 +143,18 @@ or Keep planning. A question takes a tapped option or a typed answer. These
 go to the chat as the GUI's answers do, by the request's id, so the first
 answer from any client wins: one that comes later, from the phone, the GUI,
 `pitwall chat approve` or aide, gets "no longer pending", and every client's
-copy of the chat drops the request. A chat takes no reply to a finished
-turn from the phone yet.
+copy of the chat drops the request.
 
-`daemon.log` gets a line for each pairing and each answer, with the device's
-name: "allow sent to pane …", "reply sent to pane …", "allow sent to chat
-…", "answer sent to chat …", never what a reply, a reason or an answer
-said.
+## What pitwall logs
+
+`daemon.log` gets a line for each pairing, each opened stream, each
+answer, message and model or effort pick, with the device's name: "allow
+sent to pane …", "message of 42 bytes queued for pane …", "/model sonnet
+sent to pane …", never what a message, a reply, a reason or an answer said.
+
+The page loads only its own script and stylesheet, and puts agent text on
+screen as text: a reply's markdown becomes paragraphs, lists and code, and
+nothing in it runs. Links open in a new tab with no referrer.
 
 A paired phone can also open the full aide web client, when `[web]
 bundle` names one: see [Web client](remote.md#web-client).
@@ -103,7 +169,7 @@ not seen in a window, at most one every 3 seconds per tab, and an approval
 or an error at high urgency. The
 background service decides, so pushes come with every window closed. A
 device gets at most 6 a minute. Each push holds the tab's title, its
-state and the line the page shows; tapping it opens the page on that tab.
+state and the line the page shows; tapping it opens that tab's chat.
 
 Push needs HTTPS with a certificate the phone trusts, which `tailscale
 serve` gives. Browsers refuse it with the certificate pitwall makes for

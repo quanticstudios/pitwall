@@ -139,11 +139,13 @@ them too.
 
 <br clear="right">
 
-<img src="docs/media/phone.webp" alt="The phone page: two approvals with Allow and Deny buttons, a question from Fix the checkout race, and two finished turns with a Reply box" width="240" align="right">
+<img src="docs/media/phone.webp" alt="The phone page's tab list: tabs by session and group, each with its state, agent and branch, and what it asks" width="240" align="right">
 
-**Or answer from your phone.** Pair it by QR code and it lists what needs you,
-with Allow and Deny and a box for typed answers. A menu on an agent's screen
-takes no typed reply, so answer that one in its tab or from the sidebar. There
+**Or follow it from your phone.** Pair it by QR code and it lists every tab
+as the sidebar does, live. Tap one to read its agent's chat as it happens,
+send it a message, queued while it works, answer an approval, or switch
+Claude Code's model and effort. A shell never takes typing from the phone,
+and the page never shows a pane's screen. There
 is no account and no relay: the phone talks to your computer over your own
 network. [Push notifications](docs/phone.md#notifications) need separate setup:
 a certificate the phone trusts, Turn on on the page, and on an iPhone the Home
@@ -488,7 +490,7 @@ pi and Oh My Pi.
 - [Configuration](docs/config.md): config.toml, themes, fonts
 - [Hooks](docs/hooks.md): what `pitwall hooks install` changes for each agent
 - [Remote hosts](docs/remote.md): agents on another machine over ssh
-- [Phone](docs/phone.md): pairing, push notifications, what the page sends
+- [Phone](docs/phone.md): pairing, the tab list and chats, push notifications
 - [Where things live](docs/state.md): files, saved tabs, reboots, upgrades
 - [Install](docs/install.md): platforms, updates, building from source
 - [Troubleshooting](docs/troubleshooting.md): what to check, and the logs

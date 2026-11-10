@@ -43,6 +43,7 @@ type codexPayload struct {
 	Info             *codexInfo `json:"info"`
 	Author           string     `json:"author"`
 	LastAgentMessage string     `json:"last_agent_message"`
+	Message          string     `json:"message"` // an error event's
 	Item             struct {
 		Type          string `json:"type"`
 		ID            string `json:"id"`

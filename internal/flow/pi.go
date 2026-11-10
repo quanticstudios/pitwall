@@ -15,14 +15,15 @@ type piEntry struct {
 	Type      string `json:"type"`
 	Timestamp string `json:"timestamp"`
 	Message   struct {
-		Role       string          `json:"role"`
-		Content    json.RawMessage `json:"content"`
-		StopReason string          `json:"stopReason"`
-		ToolCallID string          `json:"toolCallId"`
-		IsError    bool            `json:"isError"`
-		Timestamp  int64           `json:"timestamp"`
-		Model      string          `json:"model"`
-		Usage      *struct {
+		Role         string          `json:"role"`
+		Content      json.RawMessage `json:"content"`
+		StopReason   string          `json:"stopReason"`
+		ErrorMessage string          `json:"errorMessage"`
+		ToolCallID   string          `json:"toolCallId"`
+		IsError      bool            `json:"isError"`
+		Timestamp    int64           `json:"timestamp"`
+		Model        string          `json:"model"`
+		Usage        *struct {
 			Input      int64 `json:"input"`
 			Output     int64 `json:"output"`
 			CacheRead  int64 `json:"cacheRead"`

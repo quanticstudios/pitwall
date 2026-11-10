@@ -1,21 +1,34 @@
 'use strict';
-// invariant: daemon text goes in with textContent, never as HTML.
+// invariant: daemon and agent text goes in with textContent or text nodes, never as HTML.
 
 const KEY = 'pitwall-token';
-const list = document.getElementById('list');
-const status = document.getElementById('status');
-const push = document.getElementById('push');
-const full = document.getElementById('full');
+const $ = (id) => document.getElementById(id);
+const home = $('home'), chat = $('chat'), list = $('list'), push = $('push'), full = $('full');
+const log = $('log'), entriesEl = $('entries'), pend = $('pend'), work = $('work'), more = $('more');
+const asks = $('asks'), composer = $('composer'), text = $('text'), cnote = $('cnote');
+const newpill = $('newpill'), pick = $('pick'), sheet = $('sheet');
+
 let token = '';
 try { token = localStorage.getItem(KEY) || ''; } catch (e) { /* private mode: pair again each visit */ }
-let timer = 0;
-const cards = new Map(); // item key: card element
-let focusPane = ''; // a tapped push's pane, shown once its card is
 
-function el(tag, cls, text) {
+let tabs = [];          // the latest list, in sidebar order
+let hello = { models: [], efforts: [] };
+let pane = '';          // the open chat's pane, '' on the list
+let model = '';         // the open chat's model, from its transcript
+let first = 0, hasMore = false, loadingOlder = false;
+const shown = new Map(); // seq: element of the open chat
+let pending = [];        // messages sent from here, not yet in the transcript
+let stick = true;        // the log was at its bottom
+let ctrl = null, backoff = 1000, retry = 0;
+const cards = new Map(); // a request card by its key, so typing survives a refresh
+
+const agents = { claude: 'Claude Code', codex: 'Codex', pi: 'pi', omp: 'omp', gemini: 'Gemini', opencode: 'OpenCode', cursor: 'Cursor' };
+const agentName = (a) => agents[a] || a || '';
+
+function el(tag, cls, txt) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
+  if (txt !== undefined) e.textContent = txt;
   return e;
 }
 
@@ -24,26 +37,32 @@ function saveToken(t) {
   try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch (e) { /* kept for this visit */ }
 }
 
+// ---- Pairing.
+
 function unpaired(msg) {
   saveToken('');
+  if (ctrl) ctrl.abort();
+  ctrl = null;
+  showList();
   full.hidden = true;
-  cards.clear();
   push.replaceChildren();
+  $('device').textContent = '';
   const box = el('div', 'empty');
   const how = el('p', '', 'On your computer, run ');
   how.append(el('code', '', 'pitwall remote pair'), ' or open Settings, Phone, and scan the code it shows, or enter its code here.');
   // why: an app added to the Home Screen keeps its own storage, so it pairs on its own, and it cannot scan.
-  const form = el('form', 'row');
-  const input = el('input');
+  const form = el('form', 'inline');
+  const input = el('input', 'field');
   input.placeholder = 'Pairing code';
   input.setAttribute('aria-label', input.placeholder);
   input.autocapitalize = 'characters';
   input.autocomplete = 'off';
-  form.append(input, el('button', 'send', 'Pair'));
+  const go = el('button', 'btn primary', 'Pair');
+  go.style.flex = 'none';
+  form.append(input, go);
   form.onsubmit = (e) => { e.preventDefault(); pair(input.value); };
   box.append(el('p', '', msg || 'This phone is not paired.'), how, form);
   list.replaceChildren(box);
-  status.textContent = '';
   document.title = 'pitwall';
 }
 
@@ -57,7 +76,7 @@ async function pair(code) {
     unpaired(e.message);
     return;
   }
-  schedule(0);
+  connect();
   setupPush();
 }
 
@@ -76,88 +95,466 @@ async function api(path, body) {
   return r.json();
 }
 
-const agents = { claude: 'Claude Code', codex: 'Codex', pi: 'pi' };
+// ---- The stream: Server-Sent Events read through fetch, which carries the token.
 
-function card(it) {
-  const c = el('section', 'card');
-  c.dataset.pane = it.pane;
-  const top = el('div', 'top');
-  top.append(el('span', 'pill ' + it.state, it.label), el('span', 'tab', it.tab || 'Tab'));
-  c.append(top, el('div', 'where', [agents[it.agent] || it.agent, it.session].filter(Boolean).join(' · ')));
-  if (it.detail && !it.requests) c.append(el('p', 'detail', it.detail));
-  const note = el('div', 'note');
-  const done = (msg) => { note.className = 'note'; note.textContent = msg; schedule(800); };
+function offline(on) {
+  document.querySelectorAll('.offline').forEach((o) => { o.hidden = !on; });
+}
+
+// connect opens the one stream, for the open chat's pane if any.
+function connect() {
+  if (!token) return;
+  clearTimeout(retry);
+  if (ctrl) ctrl.abort();
+  const my = new AbortController();
+  ctrl = my;
+  (async () => {
+    try {
+      const r = await fetch('/api/stream' + (pane ? '?pane=' + encodeURIComponent(pane) : ''), {
+        headers: { 'Authorization': 'Bearer ' + token }, cache: 'no-store', signal: my.signal,
+      });
+      if (r.status === 401) { unpaired('This phone is no longer paired.'); return; }
+      if (!r.ok || !r.body) throw new Error(r.statusText);
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          event(buf.slice(0, i));
+          buf = buf.slice(i + 2);
+        }
+      }
+    } catch (e) { /* aborted or dropped: below */ }
+    if (my !== ctrl || my.signal.aborted) return;
+    offline(true);
+    retry = setTimeout(connect, backoff);
+    backoff = Math.min(backoff * 2, 15000);
+  })();
+}
+
+function event(block) {
+  let name = 'message', data = '';
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event: ')) name = line.slice(7);
+    else if (line.startsWith('data: ')) data += line.slice(6);
+  }
+  if (!data) return;
+  let v;
+  try { v = JSON.parse(data); } catch (e) { return; }
+  switch (name) {
+    case 'hello':
+      hello = v;
+      backoff = 1000;
+      offline(false);
+      full.hidden = !v.web;
+      $('device').textContent = v.device || '';
+      break;
+    case 'tabs':
+      tabs = v || [];
+      renderList();
+      if (pane) renderChatState();
+      break;
+    case 'reset':
+      reset(v);
+      break;
+    case 'entries':
+      if (v.model) model = v.model;
+      add(v.entries || []);
+      break;
+  }
+}
+
+// why: a phone drops the connection while the page sleeps, sometimes without an error.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && token) {
+    backoff = 1000;
+    connect();
+  }
+});
+
+// ---- The list, as the sidebar orders it.
+
+const asking = ['pending-approval', 'awaiting-input', 'plan-ready', 'error'];
+
+function pillOf(t) {
+  if (t.label) return el('span', 'pill ' + t.state, t.label);
+  return el('span', 'pill', t.send ? 'Idle' : 'Shell');
+}
+
+function renderList() {
+  const out = [];
+  let session = null, group = null;
+  for (const t of tabs) {
+    if (t.session !== session) {
+      session = t.session;
+      group = null;
+      if (session) out.push(el('div', 'session', session));
+    }
+    if ((t.group || '') !== (group || '')) {
+      group = t.group || '';
+      if (group) out.push(el('div', 'group', group));
+    }
+    const row = el('button', 'row' + (asking.includes(t.state) ? ' needs' : ''));
+    const l1 = el('div', 'line1');
+    l1.append(pillOf(t), el('span', 'title', t.tab || 'Tab'));
+    if (t.queued) l1.append(el('span', 'badge', t.queued + ' queued'));
+    row.append(l1, el('div', 'meta', [agentName(t.agent), t.branch || t.repo].filter(Boolean).join(' · ') || 'No agent'));
+    if (t.detail && t.state !== 'working') row.append(el('div', 'ask', t.detail));
+    row.onclick = () => openChat(t.pane, true);
+    out.push(row);
+  }
+  if (!tabs.length) out.push(el('div', 'empty', 'No tabs are open.'));
+  list.replaceChildren(...out);
+  const n = tabs.filter((t) => asking.includes(t.state)).length;
+  document.title = n ? '(' + n + ') pitwall' : 'pitwall';
+}
+
+// ---- Views and history: Back goes from a chat to the list.
+
+function showList() {
+  pane = '';
+  chat.hidden = true;
+  home.hidden = false;
+  closeSheet();
+}
+
+function openChat(p, push) {
+  if (!p) return;
+  if (push) history.pushState({ pane: p }, '', '#pane=' + encodeURIComponent(p));
+  pane = p;
+  home.hidden = true;
+  chat.hidden = false;
+  shown.clear();
+  entriesEl.replaceChildren();
+  pend.replaceChildren();
+  pending = [];
+  cards.clear();
+  asks.replaceChildren();
+  more.textContent = '';
+  model = '';
+  first = 0;
+  hasMore = false;
+  stick = true;
+  newpill.hidden = true;
+  text.value = '';
+  grow();
+  renderChatState();
+  connect();
+}
+
+$('back').onclick = () => {
+  if (history.state && history.state.pane) history.back();
+  else { showList(); connect(); }
+};
+window.addEventListener('popstate', (e) => {
+  const p = e.state && e.state.pane;
+  if (p) openChat(p, false);
+  else if (pane) { showList(); connect(); }
+});
+
+function tabOf(p) { return tabs.find((t) => t.pane === p); }
+
+// ---- The chat.
+
+function atBottom() { return log.scrollHeight - log.scrollTop - log.clientHeight < 48; }
+function toBottom() { log.scrollTop = log.scrollHeight; newpill.hidden = true; stick = true; }
+log.addEventListener('scroll', () => {
+  stick = atBottom();
+  if (stick) newpill.hidden = true;
+  if (log.scrollTop < 300) older();
+}, { passive: true });
+newpill.onclick = toBottom;
+
+// changing runs f, then keeps the log at its bottom if it was there.
+function changing(f) {
+  const was = stick || atBottom();
+  f();
+  if (was) toBottom();
+  return was;
+}
+
+function reset(v) {
+  shown.clear();
+  entriesEl.replaceChildren();
+  first = 0;
+  hasMore = !!v.more;
+  if (v.model) model = v.model;
+  if (v.none) entriesEl.append(el('p', 'note', 'No transcript to show. pitwall shows the state of a shell or of an agent without hooks, never its screen.'));
+  if (v.gone) entriesEl.append(el('p', 'note', 'This tab closed.'));
+  add(v.entries || [], true);
+  toBottom();
+  more.textContent = hasMore ? 'Scroll up for earlier messages' : '';
+}
+
+function add(es, quiet) {
+  let fresh = false;
+  const was = changing(() => {
+    for (const e of es) {
+      const old = shown.get(e.seq);
+      const node = entryEl(e);
+      if (old) {
+        if (old.open) node.open = true;
+        old.replaceWith(node);
+      } else {
+        entriesEl.append(node);
+        fresh = true;
+        if (!first || e.seq < first) first = e.seq;
+      }
+      shown.set(e.seq, node);
+      if (e.kind === 'user') settle(e.text);
+    }
+  });
+  if (fresh && !quiet && !was) newpill.hidden = false;
+  renderChatState();
+}
+
+async function older() {
+  if (!hasMore || loadingOlder || !pane || !first) return;
+  loadingOlder = true;
+  more.textContent = 'Loading earlier messages';
+  const p = pane;
+  try {
+    const r = await api('/api/chat?pane=' + encodeURIComponent(p) + '&before=' + first);
+    if (p !== pane) return;
+    const h = log.scrollHeight;
+    const frag = document.createDocumentFragment();
+    for (const e of r.entries || []) {
+      if (shown.has(e.seq)) continue;
+      const node = entryEl(e);
+      shown.set(e.seq, node);
+      frag.append(node);
+      if (e.seq < first) first = e.seq;
+    }
+    entriesEl.prepend(frag);
+    log.scrollTop += log.scrollHeight - h; // why: what was on screen stays put
+    hasMore = !!r.more;
+  } catch (e) {
+    hasMore = false;
+  } finally {
+    loadingOlder = false;
+    if (p === pane) more.textContent = hasMore ? 'Scroll up for earlier messages' : '';
+  }
+}
+
+function entryEl(e) {
+  switch (e.kind) {
+    case 'user': return el('div', 'msg user', e.text);
+    case 'assistant': {
+      const d = el('div', 'msg assistant');
+      d.append(md(e.text || ''));
+      return d;
+    }
+    case 'error': return el('div', 'msg error', e.text);
+    case 'tool': {
+      const d = el('details', 'tool' + (e.failed ? ' failed' : ''));
+      const s = el('summary');
+      s.append(el('span', 'tname', e.tool), el('span', 'targ', e.arg || ''));
+      if (!e.done) s.append(el('i', 'dot'));
+      else if (e.failed) s.append(el('span', 'tstate', 'failed'));
+      d.append(s);
+      d.append(e.out ? el('pre', 'out', e.out) : el('p', 'note', e.done ? 'No output.' : 'Running.'));
+      return d;
+    }
+  }
+  return el('div', 'note', '');
+}
+
+// md renders paragraphs, headings, fenced code, lists, inline code, bold and http(s) links.
+function md(src) {
+  const frag = document.createDocumentFragment();
+  const lines = src.replace(/\r\n?/g, '\n').split('\n');
+  const fenceRe = /^\s*(`{3,}|~{3,})/;
+  const itemRe = /^\s*([-*+]|\d+[.)])\s+/;
+  const headRe = /^\s*#{1,6}\s+/;
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const fence = line.match(fenceRe);
+    if (fence) {
+      const buf = [];
+      for (i++; i < lines.length && !lines[i].trim().startsWith(fence[1]); i++) buf.push(lines[i]);
+      i++;
+      const pre = el('pre', 'code');
+      pre.append(el('code', '', buf.join('\n')));
+      frag.append(pre);
+    } else if (!line.trim()) {
+      i++;
+    } else if (headRe.test(line)) {
+      const p = el('p', 'h');
+      inline(p, line.replace(headRe, ''));
+      frag.append(p);
+      i++;
+    } else if (itemRe.test(line)) {
+      const l = el(/^\s*\d/.test(line) ? 'ol' : 'ul');
+      while (i < lines.length && itemRe.test(lines[i])) {
+        const li = el('li');
+        inline(li, lines[i].replace(itemRe, ''));
+        for (i++; i < lines.length && /^\s{2,}\S/.test(lines[i]) && !itemRe.test(lines[i]); i++) {
+          li.append(' ');
+          inline(li, lines[i].trim());
+        }
+        l.append(li);
+      }
+      frag.append(l);
+    } else {
+      const p = el('p');
+      for (let k = 0; i < lines.length && lines[i].trim() && !fenceRe.test(lines[i]) && !itemRe.test(lines[i]) && !headRe.test(lines[i]); i++, k++) {
+        if (k) p.append(el('br'));
+        inline(p, lines[i]);
+      }
+      frag.append(p);
+    }
+  }
+  return frag;
+}
+
+function inline(parent, s) {
+  const re = /`([^`]+)`|\*\*([^*]+)\*\*|\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>()]*[^\s<>().,;:!?'"])/g;
+  let last = 0, m;
+  while ((m = re.exec(s))) {
+    if (m.index > last) parent.append(s.slice(last, m.index));
+    if (m[1] !== undefined) parent.append(el('code', '', m[1]));
+    else if (m[2] !== undefined) parent.append(el('strong', '', m[2]));
+    else link(parent, m[3] !== undefined ? m[3] : m[5], m[4] !== undefined ? m[4] : m[5]);
+    last = re.lastIndex;
+  }
+  if (last < s.length) parent.append(s.slice(last));
+}
+
+function link(parent, label, href) {
+  let u = null;
+  try { u = new URL(href); } catch (e) { /* not a URL: text */ }
+  if (!u || (u.protocol !== 'https:' && u.protocol !== 'http:')) {
+    parent.append(label === href ? label : label + ' (' + href + ')');
+    return;
+  }
+  const a = el('a', '', label);
+  a.href = u.href;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  parent.append(a);
+}
+
+// renderChatState draws the open tab's header, working row, request card and composer.
+function renderChatState() {
+  const t = tabOf(pane);
+  $('ctitle').textContent = t ? t.tab : 'Tab';
+  const meta = $('cmeta');
+  meta.replaceChildren();
+  if (t) meta.append(pillOf(t), [agentName(t.agent), shortModel(model)].filter(Boolean).join(' · '));
+  pick.hidden = !(t && t.picker);
+  pick.textContent = shortModel(model) || 'Model';
+  const running = !!t && (t.state === 'working' || t.state === 'connecting');
+  work.hidden = !running;
+  if (running) {
+    let what = t.detail || '';
+    const calls = [...shown.values()].filter((n) => n.matches('details.tool'));
+    const last = calls[calls.length - 1];
+    if (!what && last && last.querySelector('.dot')) what = last.querySelector('.tname').textContent + ' ' + last.querySelector('.targ').textContent;
+    work.lastChild.textContent = 'Working' + (what.trim() ? ': ' + what.trim() : '');
+  }
+  renderAsks(t);
+  composer.hidden = !(t && t.send);
+  cnote.hidden = !!(t && t.send);
+  if (!t) cnote.textContent = 'This tab is not open now.';
+  else if (!t.send) cnote.textContent = 'This tab runs no agent, so it takes no messages from here.';
+  text.placeholder = !t ? '' : running || t.state === 'pending-approval' ? 'Queue a message' : t.state === 'awaiting-input' ? 'Answer' : 'Message ' + agentName(t.agent);
+  updatePending(t);
+}
+
+function shortModel(m) { return (m || '').replace(/^claude-/, ''); }
+
+function renderAsks(t) {
+  const want = [];
+  if (t && (t.answer || (t.requests && t.requests.length) || ['pending-approval', 'plan-ready', 'awaiting-input'].includes(t.state))) {
+    const k = [t.pane, t.at, (t.requests || []).map((r) => r.id)].join('|');
+    const c = cards.get(k) || askCard(t);
+    cards.clear();
+    cards.set(k, c);
+    want.push(c);
+  } else {
+    cards.clear();
+  }
+  const same = want.length === asks.children.length && want.every((c, i) => asks.children[i] === c);
+  if (!same) changing(() => asks.replaceChildren(...want));
+}
+
+function askCard(t) {
+  const c = el('div', 'card');
+  const note = el('p', 'note');
+  const done = (msg) => { note.className = 'note'; note.textContent = msg; };
   const failed = (e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } };
-  if (it.answer) {
-    const row = el('div', 'row');
-    const allow = el('button', 'allow', 'Allow');
-    const deny = el('button', '', 'Deny');
-    const send = (yes) => {
-      allow.disabled = deny.disabled = true;
-      api('/api/answer', { pane: it.pane, at: it.at, allow: yes })
-        .then(() => done(yes ? 'Allowed.' : 'Denied.'))
-        .catch((e) => { allow.disabled = deny.disabled = false; failed(e); });
-    };
-    allow.onclick = () => send(true);
-    deny.onclick = () => send(false);
-    row.append(allow, deny);
-    c.append(row);
+  if (t.requests && t.requests.length) {
+    t.requests.forEach((r) => c.append(request(t.pane, r, done, failed)));
+  } else {
+    c.append(el('div', 'label', t.label || 'Waiting'));
+    if (t.detail) c.append(el('p', 'detail', t.detail));
+    if (t.answer) {
+      const row = el('div', 'opts');
+      const allow = el('button', 'btn primary', 'Allow');
+      const deny = el('button', 'btn', 'Deny');
+      const send = (yes) => {
+        allow.disabled = deny.disabled = true;
+        api('/api/answer', { pane: t.pane, at: t.at, allow: yes })
+          .then(() => done(yes ? 'Allowed.' : 'Denied.'))
+          .catch((e) => { allow.disabled = deny.disabled = false; failed(e); });
+      };
+      allow.onclick = () => send(true);
+      deny.onclick = () => send(false);
+      row.append(allow, deny);
+      c.append(row);
+    } else if (t.state === 'awaiting-input' && t.reply) {
+      done('Type your answer below.');
+    } else if (t.state === 'pending-approval') {
+      done('Answer it in its tab.');
+    } else if (t.state === 'plan-ready') {
+      done('Answer the plan in its tab or from the sidebar.');
+    } else {
+      done('Its screen shows a menu: answer it in its tab.');
+    }
   }
-  if (it.reply) {
-    const row = el('div', 'row');
-    const text = el('textarea');
-    text.rows = 1;
-    text.placeholder = it.state === 'awaiting-input' ? 'Answer' : 'Reply';
-    text.setAttribute('aria-label', text.placeholder);
-    const send = el('button', 'send', 'Send');
-    send.onclick = () => {
-      if (!text.value.trim()) return;
-      send.disabled = true;
-      api('/api/reply', { pane: it.pane, at: it.at, text: text.value })
-        .then(() => { text.value = ''; done('Sent.'); })
-        .catch((e) => { send.disabled = false; failed(e); });
-    };
-    row.append(text, send);
-    c.append(row);
-  }
-  (it.requests || []).forEach((r) => c.append(request(it.pane, r, done, failed)));
   c.append(note);
   return c;
 }
 
-// request is a chat's pending approval, plan or question, answered by its id.
-function request(chat, r, done, failed) {
+// request is a chat tab's pending approval, plan or question, answered by its id.
+function request(chatID, r, done, failed) {
   const box = el('div', 'request');
+  box.append(el('div', 'label', r.kind === 'plan' ? 'Plan' : r.kind === 'input' ? 'Question' : 'Approval'));
   if (r.tool || r.command) box.append(el('pre', 'command', [r.tool, r.command].filter(Boolean).join(': ')));
-  if (r.path) box.append(el('div', 'where', r.path));
+  if (r.path) box.append(el('div', 'meta', r.path));
   if (r.detail) box.append(el('p', 'detail', r.detail));
   const buttons = [];
   const lock = (on) => buttons.forEach((b) => { b.disabled = on; });
   if (r.kind === 'input') {
     const picks = (r.questions || []).map((q) => {
       box.append(el('p', 'detail', q.prompt || q.header || ''));
-      const pick = { id: q.id, label: '' };
+      const pk = { id: q.id, label: '' };
       if (q.options && q.options.length) {
-        const row = el('div', 'row wrap');
+        const row = el('div', 'opts');
         q.options.forEach((o) => {
-          const b = el('button', '', o.label);
+          const b = el('button', 'btn', o.label);
           if (o.description) b.title = o.description;
-          b.onclick = () => { pick.label = o.label; row.querySelectorAll('button').forEach((x) => x.classList.toggle('allow', x === b)); };
+          b.onclick = () => { pk.label = o.label; row.querySelectorAll('button').forEach((x) => x.classList.toggle('primary', x === b)); };
           buttons.push(b);
           row.append(b);
         });
         box.append(row);
       }
-      pick.text = el('textarea');
-      pick.text.rows = 1;
-      pick.text.placeholder = q.options && q.options.length ? 'Or type an answer' : 'Answer';
-      pick.text.setAttribute('aria-label', pick.text.placeholder);
-      const typed = el('div', 'row');
-      typed.append(pick.text);
+      pk.text = el('textarea', 'field');
+      pk.text.rows = 1;
+      pk.text.placeholder = q.options && q.options.length ? 'Or type an answer' : 'Answer';
+      pk.text.setAttribute('aria-label', pk.text.placeholder);
+      const typed = el('div', 'inline');
+      typed.append(pk.text);
       box.append(typed);
-      return pick;
+      return pk;
     });
-    const send = el('button', 'send allow', 'Send');
+    const send = el('button', 'btn primary', 'Send');
     buttons.push(send);
     send.onclick = () => {
       const answers = {};
@@ -167,104 +564,166 @@ function request(chat, r, done, failed) {
         answers[p.id] = [v];
       }
       lock(true);
-      api('/api/input', { chat, request: r.id, answers })
+      api('/api/input', { chat: chatID, request: r.id, answers })
         .then(() => done('Sent.'))
         .catch((e) => { lock(false); failed(e); });
     };
-    const row = el('div', 'row');
+    const row = el('div', 'opts');
     row.append(send);
     box.append(row);
     return box;
   }
-  const reason = el('textarea');
+  const reason = el('textarea', 'field');
   reason.rows = 1;
   reason.placeholder = 'Reason to deny (optional)';
   reason.setAttribute('aria-label', reason.placeholder);
   const answer = (decision, msg) => {
     lock(true);
-    api('/api/approve', { chat, request: r.id, decision, reason: decision === 'deny' ? reason.value.trim() : '' })
+    api('/api/approve', { chat: chatID, request: r.id, decision, reason: decision === 'deny' ? reason.value.trim() : '' })
       .then(() => done(msg))
       .catch((e) => { lock(false); failed(e); });
   };
-  const row = el('div', 'row wrap');
-  const allow = el('button', 'allow', r.kind === 'plan' ? 'Approve plan' : 'Allow');
+  const row = el('div', 'opts');
+  const allow = el('button', 'btn primary', r.kind === 'plan' ? 'Approve plan' : 'Allow');
   allow.onclick = () => answer('allow', 'Allowed.');
   buttons.push(allow);
   row.append(allow);
   if (r.kind !== 'plan') {
-    const session = el('button', '', 'Allow for session');
+    const session = el('button', 'btn', 'Allow for session');
     session.onclick = () => answer('allow-session', 'Allowed for this session.');
     buttons.push(session);
     row.append(session);
   }
-  const deny = el('button', '', r.kind === 'plan' ? 'Keep planning' : 'Deny');
+  const deny = el('button', 'btn', r.kind === 'plan' ? 'Keep planning' : 'Deny');
   deny.onclick = () => answer('deny', 'Denied.');
   buttons.push(deny);
   row.append(deny);
-  const why = el('div', 'row');
+  const why = el('div', 'inline');
   why.append(reason);
   box.append(row, why);
   return box;
 }
 
-// why: an unchanged item keeps its card, so a reply being typed survives a refresh.
-function render(items, device) {
-  const keep = new Map();
-  const want = items.map((it) => {
-    const k = [it.pane, it.at, (it.requests || []).map((r) => r.id)].join('|');
-    const c = cards.get(k) || card(it);
-    keep.set(k, c);
-    return c;
-  });
-  cards.clear();
-  keep.forEach((c, k) => cards.set(k, c));
-  if (!want.length) want.push(el('div', 'empty', 'Nothing needs you.'));
-  const same = want.length === list.children.length && want.every((c, i) => list.children[i] === c);
-  if (!same) list.replaceChildren(...want);
-  if (focusPane) {
-    const c = want.find((c) => c.dataset.pane === focusPane);
-    focusPane = '';
-    if (c) {
-      c.scrollIntoView({ block: 'center' });
-      c.classList.add('focus');
-      setTimeout(() => c.classList.remove('focus'), 2000);
-    }
+// ---- Sending: a message shows as queued, then sent, until the transcript has it.
+
+function grow() {
+  text.style.height = 'auto';
+  text.style.height = Math.min(text.scrollHeight + 2, 160) + 'px';
+}
+text.addEventListener('input', grow);
+text.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); composer.requestSubmit(); }
+});
+
+composer.onsubmit = (e) => {
+  e.preventDefault();
+  const body = text.value;
+  if (!body.trim() || !pane) return;
+  const p = { text: body, node: el('div', 'msg user pending', body) };
+  p.label = el('span', 'state', 'Sending');
+  p.node.append(p.label);
+  pending.push(p);
+  pend.append(p.node);
+  toBottom();
+  text.value = '';
+  grow();
+  const t = tabOf(pane);
+  api('/api/send', { pane, text: body })
+    .then(() => {
+      p.sent = true;
+      p.queued = !!t && (t.queued > 0 || !['', 'completed', 'error', 'pr-open', 'awaiting-input'].includes(t.state || ''));
+      p.at = Date.now();
+      updatePending(tabOf(pane));
+    })
+    .catch((err) => {
+      if (err.message === 'unpaired') return;
+      p.node.classList.add('failed');
+      p.label.textContent = 'Not sent: ' + err.message;
+      p.failed = true;
+    });
+};
+
+function norm(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
+
+// settle drops the pending message the transcript now shows.
+function settle(t) {
+  const i = pending.findIndex((p) => p.sent && norm(p.text) === norm(t));
+  if (i >= 0) {
+    pending[i].node.remove();
+    pending.splice(i, 1);
   }
-  document.title = items.length ? '(' + items.length + ') pitwall' : 'pitwall';
-  status.textContent = (device ? device + ' · ' : '') + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-async function refresh() {
-  if (!token) return;
-  try {
-    const r = await api('/api/items');
-    full.hidden = !r.web;
-    render(r.items || [], r.device);
-  } catch (e) {
-    if (e.message !== 'unpaired') status.textContent = 'Offline: ' + e.message;
+function updatePending(t) {
+  for (const p of pending) {
+    if (!p.sent || p.failed) continue;
+    if (p.queued && !(t && t.queued > 0)) p.queued = false;
+    p.label.textContent = p.queued ? 'Queued' : 'Sent';
+    // A tab without a transcript never shows the message; let it go after a while.
+    if (!p.queued && !shown.size && Date.now() - p.at > 8000) { p.node.remove(); p.gone = true; }
   }
+  pending = pending.filter((p) => !p.gone);
 }
 
-function schedule(ms) {
-  clearTimeout(timer);
-  if (!token || document.hidden) return;
-  timer = setTimeout(async () => { await refresh(); schedule(3000); }, ms);
+// ---- Model and effort, typed as /model and /effort.
+
+function choices(box, what, values) {
+  box.replaceChildren(...values.map((v) => {
+    const b = el('button', 'btn' + (what === 'model' && shortModel(model).includes(v) ? ' on' : ''), v);
+    b.onclick = () => {
+      const note = $('mnote');
+      note.className = 'note';
+      note.textContent = 'Sending /' + what + ' ' + v;
+      api('/api/command', { pane, what, value: v })
+        .then(() => { note.textContent = 'Sent /' + what + ' ' + v + '.'; })
+        .catch((e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } });
+    };
+    return b;
+  }));
 }
 
-document.addEventListener('visibilitychange', () => schedule(0));
+pick.onclick = () => {
+  choices($('models'), 'model', hello.models || []);
+  choices($('efforts'), 'effort', hello.efforts || []);
+  $('mnote').textContent = 'Claude Code takes these at its input box, between turns.';
+  sheet.hidden = false;
+  $('mclose').focus();
+};
+function closeSheet() { sheet.hidden = true; }
+$('mclose').onclick = closeSheet;
+sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sheet.hidden) closeSheet(); });
+
+// ---- The keyboard: the app fills the visual viewport, so the composer stays above it.
+
+function fit() {
+  const vv = window.visualViewport;
+  const h = vv ? vv.height : window.innerHeight;
+  const root = document.documentElement;
+  root.style.setProperty('--vvh', h + 'px');
+  root.style.setProperty('--vvt', (vv ? vv.offsetTop : 0) + 'px');
+  document.body.classList.toggle('kb', h < window.innerHeight - 120);
+  if (stick && pane) log.scrollTop = log.scrollHeight;
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', fit);
+  window.visualViewport.addEventListener('scroll', fit);
+}
+window.addEventListener('resize', fit);
+fit();
+
+// ---- Notifications and the full client.
 
 // why: the device token stays in this page; the full client gets a session cookie of its own.
 full.querySelector('button').onclick = async () => {
   try {
     location.assign((await api('/api/web', {})).url);
-  } catch (e) {
-    if (e.message !== 'unpaired') status.textContent = e.message;
-  }
+  } catch (e) { /* unpaired, or the bundle is gone */ }
 };
 
-function note(text, button) {
-  const p = el('p', 'note', text);
-  if (button) p.append(button);
+function note(msg, button) {
+  const p = el('p', 'note', msg);
+  if (button) p.append(' ', button);
   push.replaceChildren(p);
 }
 
@@ -273,7 +732,6 @@ function keyBytes(k) {
   return Uint8Array.from(s, (ch) => ch.charCodeAt(0));
 }
 
-// setupPush offers notifications, or says why this browser gets none.
 async function setupPush() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     if (/iPhone|iPad/.test(navigator.userAgent) && !navigator.standalone) {
@@ -301,7 +759,8 @@ async function setupPush() {
     note('Notifications are blocked for this page in the browser settings.');
     return;
   }
-  const on = el('button', 'send', 'Turn on');
+  const on = el('button', 'btn primary', 'Turn on');
+  on.style.flex = 'none';
   on.onclick = async () => {
     on.disabled = true;
     try {
@@ -319,25 +778,21 @@ async function setupPush() {
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (e) => {
-    focusPane = (e.data && e.data.pane) || '';
-    schedule(0);
+    const p = (e.data && e.data.pane) || '';
+    if (p && p !== pane) openChat(p, true);
   });
 }
 
-async function start() {
+function start() {
   const hash = new URLSearchParams(location.hash.slice(1));
-  focusPane = hash.get('pane') || '';
-  if (location.hash) history.replaceState(null, '', location.pathname);
   const code = hash.get('pair');
-  if (code) {
-    await pair(code);
-    return;
-  }
-  if (!token) {
-    unpaired();
-    return;
-  }
-  schedule(0);
+  const p = hash.get('pane') || '';
+  history.replaceState(null, '', location.pathname);
+  if (code) { pair(code); return; }
+  if (!token) { unpaired(); return; }
+  // why: a tapped notification opens its chat, and Back still reaches the list.
+  if (p) openChat(p, true);
+  else connect();
   setupPush();
 }
 

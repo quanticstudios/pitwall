@@ -261,6 +261,7 @@ type Daemon struct {
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed bool
 	pushWake     chan struct{} // wakes pushLoop, nil when it is not running
+	phoneTick    chan struct{} // closed at the next change, nil while no phone stream waits
 	awakeWake    chan struct{} // wakes keepAwakeLoop on activity changes
 	prs          prPoll        // see pr.go
 	radar        radar         // see radar.go
@@ -2394,6 +2395,10 @@ func (d *Daemon) changed() {
 	select {
 	case d.pushWake <- struct{}{}:
 	default:
+	}
+	if d.phoneTick != nil {
+		close(d.phoneTick)
+		d.phoneTick = nil
 	}
 	for c := range d.clients {
 		c.push(func() { c.state = true })
