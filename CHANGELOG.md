@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- An Android app, built with `sh scripts/apk.sh` and installed by hand: pitwall's sidebar as the home screen, with Waiting on you across sessions and Allow and Deny on a row, and each agent tab's chat with model, effort and send on the message box. It pairs with the link `pitwall remote pair` prints and reconnects on its own; see [Phone](docs/phone.md#android-app). The phone page's model list gains `opus[1m]`.
+
 ## v0.2.6
 
 - Queue tasks can start in a fresh worktree on each run with `queue add --worktree name` or the New task dialog's Fresh worktree each run checkbox. Cleanup removes unchanged worktrees with trusted teardown. Runs interrupted by a restart keep their worktree and tab. Closing a finished run closes its tab before cleanup and names any kept worktree in a notice.

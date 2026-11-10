@@ -4,8 +4,9 @@ pitwall can serve a page that puts your tabs on your phone: the list the
 sidebar shows, and each agent's conversation as a chat you can read and
 type into. It runs inside pitwall's background service and shows what that
 service runs now, so tabs come and go on the phone as they do in the
-window. There is no account, no relay and no app to install: the phone talks
-to your computer over your own network.
+window. There is no account and no relay, and the page needs no app: the
+phone talks to your computer over your own network. An
+[Android app](#android-app) shows the same, if you build it.
 
 <img src="media/phone.webp" alt="The phone page's tab list: a working Claude Code tab, a finished one, a Codex tab asking approval and a pi tab asking a question in group api, a shell, and a failed tab in session infra" width="300"> <img src="media/phone-chat.webp" alt="A Claude Code tab's chat mid-turn: a reply, a failed go test call opened to its output, a code block, and a running call under a Working line" width="300">
 
@@ -113,8 +114,8 @@ queues behind the running one.
 ## Model and effort
 
 A Claude Code tab has a button in its header with the model its latest
-turn used. It offers the models `default`, `fable`, `opus`, `sonnet` and
-`haiku`, and the effort levels `low`, `medium`, `high`, `xhigh` and `max`.
+turn used. It offers the models `default`, `fable`, `opus`, `opus[1m]`,
+`sonnet` and `haiku`, and the effort levels `low`, `medium`, `high`, `xhigh` and `max`.
 A pick types `/model <name>` or `/effort <level>` into Claude Code as keys
 and presses Enter, only while Claude Code sits at its input box: not during
 a turn, a question or a form, and not over a draft. One pick goes in at a
@@ -150,6 +151,69 @@ go to the chat as the GUI's answers do, by the request's id, so the first
 answer from any client wins: one that comes later, from the phone, the GUI,
 `pitwall chat approve` or aide, gets "no longer pending", and every client's
 copy of the chat drops the request.
+
+## Android app
+
+The same tabs and chats also come as an Android app: pitwall's own
+sidebar as the home screen, and each agent tab's chat with model, effort
+and send on the message box. It talks to the phone page's API, so turn the
+page on and reach it as above first. There is no store listing; you build
+the APK and install it yourself.
+
+### Build
+
+`sh scripts/apk.sh` builds `dist/pitwall-phone.apk` with
+[gogio](https://gioui.org/doc/install/android) and prints its path. It
+needs the Android SDK in `~/Android/Sdk` (or `ANDROID_SDK_ROOT`) with
+build-tools, a platform and the NDK, and runs Java 17 through mise
+(`java@temurin-17`). The APK is for arm64 phones; `ARCH=amd64` builds one
+for the x86_64 emulator, and `ARCH=arm64,amd64` one for both. It is signed
+with a debug key the script makes on first use, `dist/android/debug.keystore`,
+which git ignores. Keep that file: Android installs an update only over an
+APK signed with the same key.
+
+### Install
+
+With USB debugging on, run `adb install dist/pitwall-phone.apk`. Or copy
+the APK to the phone, open it there and allow your file manager to install
+apps when Android asks.
+
+### Pair
+
+Run `pitwall remote pair` on the computer and paste the link it prints into
+the app, or tap Enter the address and code instead. Against pitwall's own
+certificate (`tls = true`), the app shows the certificate's SHA-256 next to
+the one `pitwall remote pair` printed; They match, pair trusts that
+certificate and no other. The app keeps its device token in its own
+storage. Unpair this phone, under the gear, forgets the token on the
+phone; `pitwall remote revoke` stops it on the computer.
+
+### Use
+
+The sidebar is the home screen: Waiting on you lists the errors, approvals
+and questions of every session, and the tree below is the session's tabs as
+the window's sidebar draws them. Allow and Deny answer a permission prompt
+from its row; a tap on a row, or on Reply, opens the tab's chat. The
+session's name opens the other sessions, with a red count of what waits
+there.
+
+| Where you are                | Back                      |
+| ---------------------------- | ------------------------- |
+| Pairing                      | closes the app            |
+| Sidebar                      | closes the app            |
+| A menu                       | closes the menu           |
+| Chat, keyboard up            | hides the keyboard        |
+| Chat                         | returns to the sidebar    |
+
+When the connection drops, a red line says when the app tries again
+(after 1 second, then 2, 4 and so on up to 15) and Retry tries at once; the
+last list stays on screen, dimmed. Coming back to the foreground tries at
+once.
+
+`go run ./cmd/pitwall-phone` runs the app in a desktop window, and
+`-demo` pairs it with a server of made-up tabs in the same process.
+`-serve-demo 0.0.0.0:7792` serves that demo alone and prints its pairing
+link, which an emulator reaches at `http://10.0.2.2:7792`.
 
 ## What pitwall logs
 
