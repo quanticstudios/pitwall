@@ -57,12 +57,17 @@ func State(tabs []remote.Tab) model.State {
 }
 
 // NeedsYou counts the tabs of session (a State session id) that wait on
-// the user.
+// the user to go on: an approval, a question, a plan or an error, as the
+// sidebar's Waiting on you lists them. A finished turn does not count.
 func NeedsYou(st *model.State, session string) int {
 	n := 0
 	for _, a := range st.Activities {
-		if i := slices.IndexFunc(st.Workspaces, func(w model.Workspace) bool { return w.ID == a.WorkspaceID }); i >= 0 &&
-			st.Workspaces[i].SessionID == session && model.NeedsYou(a.State) {
+		switch a.State {
+		case model.StatePendingApproval, model.StateAwaitingInput, model.StatePlanReady, model.StateError:
+		default:
+			continue
+		}
+		if w := st.Workspace(a.WorkspaceID); w != nil && w.SessionID == session {
 			n++
 		}
 	}

@@ -231,7 +231,7 @@ func TestConnReconnects(t *testing.T) {
 	status := make(chan bool, 16)
 	k := &Conn{Client: c, Wait: Backoff{Min: time.Millisecond, Max: 5 * time.Millisecond},
 		On:     func(Event) {},
-		Status: func(online bool, err error) { status <- online }}
+		Status: func(online bool, err error, _ time.Time) { status <- online }}
 	k.Start("")
 	defer k.Stop()
 	var seen []bool
@@ -353,9 +353,38 @@ func TestState(t *testing.T) {
 	if aps := st.AgentPanes(st.Workspaces[0]); len(aps) != 1 || aps[0].Pane.ID != "a-p" {
 		t.Fatalf("agent panes of a: %+v", aps)
 	}
-	if n := NeedsYou(&st, "s:main"); n != 2 {
-		t.Fatalf("NeedsYou = %d; want 2 (approval and done)", n)
+	if n := NeedsYou(&st, "s:main"); n != 1 {
+		t.Fatalf("NeedsYou = %d; want 1, the approval", n)
 	}
 }
 
 func configFor(url string) config.RemoteSettings { return config.RemoteSettings{URL: url} }
+
+// TestCommandWhenIdle tries a pick again while Claude Code is in a turn,
+// and stops at once on any other refusal.
+func TestCommandWhenIdle(t *testing.T) {
+	s, ts := newServer(t)
+	c := NewClient(pair(t, s, ts.URL))
+	commandRetry = time.Millisecond
+	var mu sync.Mutex
+	tries, refuse := 0, ""
+	s.Command = func(pane, command string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		tries++
+		if tries < 3 {
+			return errors.New("claude is working on a turn; try again when it waits at its input box")
+		}
+		if refuse != "" {
+			return errors.New(refuse)
+		}
+		return nil
+	}
+	if err := c.CommandWhenIdle(context.Background(), "p1", "model", "opus[1m]"); err != nil || tries != 3 {
+		t.Fatalf("CommandWhenIdle = %v after %d tries; want nil after 3", err, tries)
+	}
+	tries, refuse = 2, "that pane shows a form; answer it in its tab"
+	if err := c.CommandWhenIdle(context.Background(), "p1", "effort", "max"); err == nil || IsBusy(err) || tries != 3 {
+		t.Fatalf("CommandWhenIdle = %v after %d tries; want the form refusal at once", err, tries)
+	}
+}

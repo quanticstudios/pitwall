@@ -33,9 +33,10 @@ func (b *Backoff) Reset() { b.next = 0 }
 type Conn struct {
 	Client *Client
 	// On gets each event; Status gets the connection's state changes:
-	// online, or offline with why. ErrUnpaired stops the Conn for good.
+	// online, or offline with why and when it tries again (zero when it
+	// does not). ErrUnpaired stops the Conn for good.
 	On     func(Event)
-	Status func(online bool, err error)
+	Status func(online bool, err error, retry time.Time)
 	Wait   Backoff
 
 	mu     sync.Mutex
@@ -98,7 +99,7 @@ func (k *Conn) run(ctx context.Context) {
 		err := k.Client.Stream(sctx, pane, func(e Event) {
 			if e.Name == "hello" {
 				k.Wait.Reset()
-				k.Status(true, nil)
+				k.Status(true, nil, time.Time{})
 			}
 			k.On(e)
 		})
@@ -108,14 +109,15 @@ func (k *Conn) run(ctx context.Context) {
 		case ctx.Err() != nil:
 			return
 		case errors.Is(err, ErrUnpaired):
-			k.Status(false, err)
+			k.Status(false, err, time.Time{})
 			return
 		case retried:
 			continue // a Watch or Retry: open the new stream at once
 		}
-		k.Status(false, err)
+		wait := k.Wait.Next()
+		k.Status(false, err, time.Now().Add(wait))
 		select {
-		case <-time.After(k.Wait.Next()):
+		case <-time.After(wait):
 		case <-k.again:
 			k.Wait.Reset()
 		case <-ctx.Done():

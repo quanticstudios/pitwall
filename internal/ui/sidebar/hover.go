@@ -100,7 +100,7 @@ func (s *Sidebar) HideHover() {
 // an open menu or a rename hides the card; the session switcher's preview
 // never shows one.
 func (s *Sidebar) hoverFrame(gtx layout.Context) {
-	if s.ExpandAll {
+	if s.ExpandAll || s.Touch {
 		return
 	}
 	if s.drag.kind != 0 || s.menuOpen() || s.Editing() {

@@ -98,7 +98,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 
 	// "…" then "×" show on hover in place of line 2's time. The ×'s strokes
 	// end at the content's right inset; its 24dp hit area runs past them.
-	showMore := !ghost && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
+	showMore := !ghost && !s.Touch && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
 	x := (btn-glyph)/2 + glyph/4 // the button's edge to the ×'s edge
 	// Allow and Deny answer the tab's own agent, not a worker folded in.
@@ -109,7 +109,11 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	settle := showMore && s.settleShows(v, ws.ID) && !answering && !planning && !asking
 	// Left of where "…" and "×" show, hovered or not, so the buttons never
 	// move under the pointer; line 2's fold chip or group tag keeps its room.
-	answerEnd := w - gtx.Dp(12) - (2*btn - x) - gtx.Dp(6)
+	keep := 2*btn - x + gtx.Dp(6)
+	if s.Touch {
+		keep = 0 // no "…" or "×" on a phone
+	}
+	answerEnd := w - gtx.Dp(12) - keep
 	answerG := gtx
 	answerG.Constraints = layout.Constraints{Max: image.Pt(max(answerEnd-gtx.Dp(32)-answerRoom(gtx, v, ws.ID, subs), 0), answerHeight(gtx, th))}
 	answerW := 0
@@ -205,10 +209,10 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		if down && own != nil && model.Tier(own) == model.TierAttention {
 			where = answerLater(host)
 		}
-		// Allow and Deny or the agent count leave it a few letters at most,
+		// On a desktop, Allow and Deny or the agent count leave it a few letters at most (a phone's row has room),
 		// and the hover card has it; a title that says the same ("~" for
 		// home) needs no second word.
-		if !answering && !planning && !asking && !subs && where != title {
+		if (s.Touch || !answering && !planning && !asking) && !subs && where != title {
 			// Beside the inbox's group tag it shows whole or not at all.
 			line = append(line, item{shrink: !v.inbox, opt: v.inbox, w: func(gtx layout.Context) layout.Dimensions {
 				return label(gtx, th, th.MonoFont, th.Sp(theme.Caption), muted, where)
@@ -257,7 +261,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		switch {
 		case answering || planning || asking: // drawn over the row below, with room for "…" and "×"
 			line = append(line, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(answerW+gtx.Dp(6)+2*btn-x, 0)}
+				return layout.Dimensions{Size: image.Pt(answerW+keep, 0)}
 			}})
 		case showMore:
 			n := 2
@@ -355,7 +359,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	off := op.Offset(pos).Push(gtx.Ops)
 	if showMore {
 		iconButton(gtx, th, &r.more, icEllipsis, btn, glyph, false)
-	} else {
+	} else if !s.Touch {
 		// Keep the hit area so the hidden button still opens the menu.
 		clickable(gtx, &r.more, func(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: image.Pt(btn, btn)}
