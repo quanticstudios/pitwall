@@ -22,6 +22,8 @@ import (
 // something to redraw. Like the daemon, every workspace is one tab (one
 // model.Tab of panes), and it drops exited panes and the tabs they empty.
 type FakeBackend struct {
+	// Parked is a tab whose agents are parked, as park_idle_after leaves them.
+	Parked   string
 	mu       sync.Mutex
 	st       model.State
 	sizes    map[string][2]int       // pane -> cols, rows
@@ -205,6 +207,8 @@ func (f *FakeBackend) setActivities() {
 			a.State, a.Detail = model.StateAwaitingInput, fakeNotices[p.ID]
 		case p.Provider == "":
 			continue
+		case p.WorkspaceID == f.Parked:
+			a.State, a.Detail = model.StateParked, fakeParked
 		case p.Provider == model.ProviderTerminal:
 			a.State, a.Detail, a.SessionID = model.StateTerminalRunning, map[bool]string{true: "psql", false: "go"}[p.ID == "o"], ""
 		case p.WorkspaceID == "w10":
@@ -227,6 +231,9 @@ func (f *FakeBackend) setActivities() {
 		f.st.Activities = append(f.st.Activities, a)
 	}
 }
+
+// fakeParked is a parked agent's notice, as the daemon words it.
+const fakeParked = "Parked after 1h idle. Press Enter to resume."
 
 // Tick advances every agent to its next state.
 func (f *FakeBackend) Tick() {
@@ -488,6 +495,13 @@ func (f *FakeBackend) Frame(pane string) (vt.Grid, vt.Modes, bool) {
 		for x, r := range l {
 			if x < g.Cols && y < g.Rows {
 				g.Cells[y*g.Cols+x].Content = string(r)
+			}
+		}
+	}
+	if p.WorkspaceID == f.Parked && g.Rows > len(lines) {
+		for x, r := range fakeParked {
+			if x < g.Cols {
+				g.Cells[(g.Rows-1)*g.Cols+x] = vt.Cell{Content: string(r), Width: 1, Attrs: vt.Faint}
 			}
 		}
 	}

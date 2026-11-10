@@ -26,6 +26,7 @@ pushes the tag once, which starts the release build. Either step takes
 ## v0.2.5
 
 - Monitor tabs use sector v0.1.5: the graphs show the last 2 minutes instead of 60 seconds; the memory, disk and network graphs keep only the room their axis labels need on the right, with each top number's unit on the line below it; and the Cores card numbers cores 0 up, so an Intel hybrid CPU such as the i9-13900 reads "cores 0 to 23, 8 with two threads" instead of "cores 0 to 47".
+- Park idle agents: with `park_idle_after = "1h"` under `[agents]`, or Park idle agents in Settings, pitwall ends a Claude Code or Codex agent's process after it sits idle at an empty input box that long, to free its memory, and resumes its session on the next key, `pitwall send` or `prompt`, reply, review comment or failed check, which goes in once the agent is back. It never parks a pane a window shows, an agent waiting on you, one running a turn, background subagents, a shell or a dev server, or one with no session to resume. The row and hover card show Parked, and `pitwall ls --json` reports `parked`. Off by default; Linux only.
 
 ## v0.2.4
 

@@ -23,6 +23,12 @@ type stopped struct {
 	code int
 
 	history *model.PaneHistory // source output, without generated divider and exit notice
+	// parked marks a parked agent's pane (see park.go), whose next key
+	// resumes it. cols and text are its output before the notice, for
+	// HistoryText while history is nil.
+	parked bool
+	cols   int
+	text   string
 }
 
 // stoppedPane marks p exited, ExitUnknown when its command was still
@@ -134,7 +140,10 @@ func (p *stopped) HasPromptMarks() bool {
 
 func (s *stopped) HistoryText(limit int) (int, string) {
 	if s.history == nil {
-		return 0, ""
+		if s.text == "" {
+			return 0, ""
+		}
+		return s.cols, recentHistory(s.text, limit)
 	}
 	text, err := store.UnpackHistory(s.history)
 	if err != nil {

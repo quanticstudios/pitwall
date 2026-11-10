@@ -2352,6 +2352,54 @@ Chat resumes run in memory and do not survive a daemon restart.
 Turn it off with `resume_after_limit = false` under `[agents]` in
 `config.toml`, or **Resume after limit** in Settings.
 
+### Park idle agents
+
+An idle Claude Code or Codex process holds a few hundred megabytes, and the
+Monitor tab shows it. With `park_idle_after = "1h"` under `[agents]` in
+`config.toml`, or **Park idle agents** in Settings, pitwall ends an agent's
+process once it has sat idle that long and resumes its session when you
+come back. It is off by default (`0s`): parking ends a process you started,
+and the resumed agent loses what lived only in that process, such as a
+running shell or an MCP server's state. The setting applies within a second.
+
+Idle means the agent sits at an empty input box after a finished turn, or
+before its first turn, and its screen, its hooks and your keys have all
+been still for the whole time. pitwall looks every 10 seconds, or every
+quarter of the time when that is shorter. It never parks:
+
+- a pane a window shows, the focused one included
+- an agent asking for approval, a question or a plan, or showing a form
+- a running turn, which covers a guarded tab's command in progress
+- a turn whose Stop hook reports running background subagents or workflows
+- an agent with a shell as a child, or a process it started 30 seconds or
+  more after itself, such as a dev server or a watcher. MCP servers start
+  with the agent and do not count. Only Linux can tell, so macOS and
+  Windows never park
+- an agent with no session to resume, or no hook since it started
+- an agent with your draft in its input box, a message waiting for it, a
+  usage-limit resume pending or a notification you have not seen
+
+A finished turn you have not looked at loses its unseen mark when it parks;
+its notification went out when the turn ended.
+
+A parked pane keeps its tab, its place in the layout and its screen, with
+"Parked after 1h idle. Press Enter to resume." under it. Its row shows
+Parked with a power icon, its hover card says the same, and `pitwall ls
+--json` reports its state as `parked`.
+
+Enter in a parked pane starts the agent again with the command a restart
+uses, without typing the Enter. Any other key starts it too, and goes in
+once the agent is back at its input box. A message from `pitwall send` or
+`pitwall prompt`, the row's reply box, review comments, failed checks and
+the done-line nudge of `pitwall wait` resume it the same way, then go in in
+order. Claude Code counts as back after its SessionStart hook with its
+input box on screen; Codex sends no hook at startup, so it gets 20 seconds
+and its input box. After two minutes what waited goes in anyway. If the
+agent exits before it is back, the pane parks again with the exit code in
+its notice, and the messages keep waiting. `pitwall wait --until done` and
+`--until idle` count a parked agent as finished. A parked pane stays parked
+across a daemon restart.
+
 ### Detaching
 
 <img src="media/survive.webp" alt="The window closes, pitwall ls shows every tab still running, the window comes back, and after a reboot the agents resume" width="800">

@@ -84,3 +84,7 @@ func peerPID(nc net.Conn) int {
 	}
 	return pid
 }
+
+// procBusy cannot tell an agent's processes apart here, so it reports
+// busy and parking never ends the agent.
+func procBusy(int) bool { return true }

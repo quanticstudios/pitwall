@@ -91,6 +91,7 @@ port = 7778                           # 127.0.0.1 only; restart the daemon after
 startup_per_agent_delay_ms = 100         # gap after each restored agent; 0 starts all at once
 keep_awake = false                      # block Linux sleep or macOS idle sleep during work
 keep_awake_grace = "15m"                 # duration after no agent works; 0s releases at once
+park_idle_after = "0s"                  # end an idle agent's process after this long; 0s is off
 
 [[agents.preset]]                       # Settings, Agents adds and edits these
 name = "Quick"
@@ -140,6 +141,10 @@ Settings, Agents has both controls; both apply within a second. Turning
 `keep_awake` off releases the inhibitor at once, without the grace period.
 After a daemon handoff, the new daemon re-evaluates current activity and
 starts a fresh grace period only after working agents stop.
+
+`[agents] park_idle_after` takes a duration such as `1h` or `30m`, with a
+default of `0s`, which never parks. See usage.md, Park idle agents, for
+what counts as idle and what resumes a parked agent.
 
 Linux takes a logind `sleep` block lock. It leaves idle reporting alone,
 so the screen can still lock and sleep. Automatic suspend requested through

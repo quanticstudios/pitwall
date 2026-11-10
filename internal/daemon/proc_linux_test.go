@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -14,6 +15,7 @@ type fakeProc struct {
 	comm, exe, cmdline string
 	pgrp               int
 	children           string
+	start              int // clock ticks after boot
 }
 
 // fakeProcRoot builds a /proc tree of procs under a temp dir and points
@@ -31,7 +33,7 @@ func fakeProcRoot(t *testing.T, procs map[int]fakeProc) {
 		must(t, os.WriteFile(filepath.Join(dir, "comm"), []byte(p.comm+"\n"), 0o644))
 		must(t, os.WriteFile(filepath.Join(dir, "cmdline"), []byte(p.cmdline), 0o644))
 		// pid (comm) state ppid pgrp ...
-		stat := strconv.Itoa(pid) + " (" + p.comm + ") S 1 " + strconv.Itoa(p.pgrp) + " 0\n"
+		stat := strconv.Itoa(pid) + " (" + p.comm + ") S 1 " + strconv.Itoa(p.pgrp) + " 0" + strings.Repeat(" 0", 15) + " " + strconv.Itoa(p.start) + "\n"
 		must(t, os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o644))
 		must(t, os.WriteFile(filepath.Join(task, "children"), []byte(p.children), 0o644))
 		if p.exe != "" {
@@ -84,4 +86,40 @@ func TestProcIdentifyInterpreter(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An agent is busy with a shell child or a process it started 30 seconds
+// or more after itself, not with ones it started at launch, such as MCP
+// servers. A wrapper's agent counts as the agent.
+func TestProcBusy(t *testing.T) {
+	claude := fakeProc{comm: "claude", exe: "/usr/bin/claude", pgrp: 10, start: 1000}
+	mcp := fakeProc{comm: "node", pgrp: 10, start: 1200}
+	for _, tc := range []struct {
+		name  string
+		procs map[int]fakeProc
+		want  bool
+	}{
+		{"alone", map[int]fakeProc{10: claude}, false},
+		{"MCP servers from launch", map[int]fakeProc{10: withChildren(claude, "11 12"), 11: mcp, 12: mcp}, false},
+		{"a shell", map[int]fakeProc{10: withChildren(claude, "11 13"), 11: mcp, 13: {comm: "zsh", pgrp: 10, start: 1300}}, true},
+		{"a dev server started later", map[int]fakeProc{10: withChildren(claude, "11 14"), 11: mcp, 14: {comm: "node", pgrp: 10, start: 1000 + laterTicks}}, true},
+		{"a wrapper's agent's shell", map[int]fakeProc{
+			10: {comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, start: 1000, children: "15"},
+			15: {comm: "codex", exe: "/usr/lib/codex", pgrp: 10, start: 1010, children: "16"},
+			16: {comm: "bash", pgrp: 10, start: 1500},
+		}, true},
+		{"unreadable", map[int]fakeProc{}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeProcRoot(t, tc.procs)
+			if got := procBusy(10); got != tc.want {
+				t.Fatalf("procBusy = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func withChildren(p fakeProc, children string) fakeProc {
+	p.children = children
+	return p
 }

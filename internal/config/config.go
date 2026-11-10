@@ -340,6 +340,9 @@ type Settings struct {
 	KeepAwakeGrace time.Duration
 	// StartupPerAgentDelay is the gap between restored agent launches.
 	StartupPerAgentDelay time.Duration
+	// ParkIdleAfter is [agents] park_idle_after: how long an agent sits
+	// idle before the daemon parks it, 0 for never.
+	ParkIdleAfter time.Duration
 	// ResumeAfterLimit types continue into an agent its usage limit
 	// stopped, once the limit resets.
 	ResumeAfterLimit bool
@@ -651,6 +654,8 @@ func LoadFile(path string) (Settings, []Problem) {
 	s.KeepAwakeGrace, ri = resolveKeepAwakeGrace(c.Agents)
 	fi = append(fi, ri...)
 	s.StartupPerAgentDelay, ri = resolveStartupDelay(c.Agents)
+	fi = append(fi, ri...)
+	s.ParkIdleAfter, ri = resolveParkIdle(c.Agents)
 	fi = append(fi, ri...)
 	s.GuardWorkers = c.Agents.GuardWorkers != nil && *c.Agents.GuardWorkers
 	s.GuardDeny = c.Agents.GuardDeny

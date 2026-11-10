@@ -24,6 +24,10 @@ const (
 	// turn as it while the tab's branch has an open pull request, which
 	// has not merged or closed yet (State.AwaitPR).
 	StatePROpen AgentState = "pr-open"
+	// StateParked is never an agent's either: the daemon ended an idle
+	// agent's process to free its memory, and resumes it on the next key or
+	// message ([agents] park_idle_after). Detail is the pane's notice.
+	StateParked AgentState = "parked"
 )
 
 type Activity struct {
@@ -93,6 +97,7 @@ var statePriority = map[AgentState]int{
 	StatePROpen:          3,
 	StateCompleted:       2,
 	StateTerminalRunning: 1,
+	StateParked:          1,
 }
 
 var shortLabels = map[AgentState]string{
@@ -106,6 +111,7 @@ var shortLabels = map[AgentState]string{
 	StateWorking:         "Working",
 	StateWatching:        "Watching",
 	StatePROpen:          "PR open",
+	StateParked:          "Parked",
 }
 
 // SortActivities orders by state priority, then most recent first.

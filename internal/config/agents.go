@@ -23,6 +23,7 @@ type AgentLimits struct {
 	GuardDeny         []string      `toml:"guard_deny" doc:"Shell commands the guard denies on top of its own list (git push, gh pr merge, terraform apply and the like), as patterns: * is any run, ? one character, and a trailing \" *\" also matches the bare command, as in \"npm publish *\". It cannot lift a built-in one"`
 	Preset            []AgentPreset `toml:"preset" doc:"Named agent setups, each a [[agents.preset]] table, that the New task dialog lists after the plain agents and pitwall new --preset starts"`
 
+	ParkIdleAfter          *string  `toml:"park_idle_after" doc:"End a Claude Code or Codex agent's process after it has sat idle at its prompt this long, as a duration such as 1h, and resume its session on the next key or message. 0s, the default, never parks"`
 	StartupPerAgentDelayMS *float64 `toml:"startup_per_agent_delay_ms" min:"0" max:"60000" doc:"Milliseconds between agent launches after a daemon restart. 100 by default; 0 starts all at once. Shells start immediately"`
 }
 
@@ -39,6 +40,17 @@ func resolveKeepAwakeGrace(c AgentLimits) (time.Duration, []issue) {
 	v, err := time.ParseDuration(*c.KeepAwakeGrace)
 	if err != nil || v < 0 {
 		return DefaultKeepAwakeGrace, []issue{{"agents.keep_awake_grace", "expected a non-negative duration such as 15m or 1h"}}
+	}
+	return v, nil
+}
+
+func resolveParkIdle(c AgentLimits) (time.Duration, []issue) {
+	if c.ParkIdleAfter == nil {
+		return 0, nil
+	}
+	v, err := time.ParseDuration(*c.ParkIdleAfter)
+	if err != nil || v < 0 {
+		return 0, []issue{{"agents.park_idle_after", "expected a non-negative duration such as 1h or 30m; 0s is off"}}
 	}
 	return v, nil
 }

@@ -482,6 +482,8 @@ func stateGlyph(gtx layout.Context, th *theme.Theme, state model.AgentState, bas
 		return drawIcon(gtx, icCircleCheck, sz, th.Purple, 0)
 	case model.StateTerminalRunning:
 		return drawIcon(gtx, icTerminal, sz, th.Green, 0)
+	case model.StateParked:
+		return drawIcon(gtx, icPower, sz, th.Muted, 0)
 	}
 	return drawIcon(gtx, icGitBranch, sz, StateColor(th, state), 0)
 }
@@ -651,6 +653,8 @@ func StateColor(th *theme.Theme, s model.AgentState) color.NRGBA {
 		return th.Blue
 	case model.StatePlanReady:
 		return th.Purple
+	case model.StateParked:
+		return th.Muted
 	}
 	return th.Green
 }

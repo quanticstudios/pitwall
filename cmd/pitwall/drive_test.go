@@ -161,6 +161,7 @@ func TestPaneState(t *testing.T) {
 		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StateCompleted, "pi", "done"},
 		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StatePROpen, "pi", "pr-open"},
 		{model.Pane{ID: "p", Provider: model.ProviderPi}, model.StateError, "pi", "done"},
+		{model.Pane{ID: "p", Provider: model.ProviderClaude}, model.StateParked, "claude", "parked"},
 		{model.Pane{ID: "p", Cmd: []string{"/usr/bin/pi", "fix it"}}, "", "pi", ""},
 		{model.Pane{ID: "p", Provider: "gemini"}, "", "gemini", "idle"},
 		{model.Pane{ID: "p", Provider: model.ProviderCodex, Exited: true}, model.StateWorking, "codex", "exited"},

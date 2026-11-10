@@ -528,7 +528,8 @@ func (d *Daemon) prepare(b handoffBundle, panes []handoffPane, files []*os.File)
 			if err != nil {
 				return ln, in, fmt.Errorf("pane %s: %w", hp.ID, err)
 			}
-			a.s = &stopped{vt: e, done: make(chan struct{}), code: hp.ExitCode, history: d.st.Panes[i].History}
+			a.s = &stopped{vt: e, done: make(chan struct{}), code: hp.ExitCode, history: d.st.Panes[i].History,
+				parked: slices.ContainsFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == hp.ID && a.State == model.StateParked })}
 			close(a.s.done)
 			in = append(in, a)
 			continue
