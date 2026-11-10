@@ -6,6 +6,7 @@ replace github.com/charmbracelet/x/vt => ./third_party/x-vt
 
 require (
 	gioui.org v0.10.3
+	gioui.org/x v0.10.3
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260303162955-0b88c25f3fff
 	github.com/charmbracelet/x/ansi v0.11.9
@@ -35,6 +36,8 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
+	github.com/yuin/goldmark v1.4.13 // indirect
+	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/exp/shiny v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect

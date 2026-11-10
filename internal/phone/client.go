@@ -1,0 +1,291 @@
+package phone
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/quanticstudios/pitwall/internal/flow"
+	"github.com/quanticstudios/pitwall/internal/remote"
+)
+
+// ErrUnpaired is a refused device token: pitwall revoked this phone.
+var ErrUnpaired = errors.New("this phone is no longer paired; pair it again")
+
+// UntrustedError is a server certificate that neither the system nor the
+// pin trusts, such as the one pitwall makes for tls = true.
+type UntrustedError struct{ Fingerprint string }
+
+func (e *UntrustedError) Error() string {
+	return "this server's certificate is not trusted; its SHA-256 is " + e.Fingerprint
+}
+
+// Fingerprint is der's SHA-256 as pitwall remote pair prints it.
+func Fingerprint(der []byte) string {
+	sum := sha256.Sum256(der)
+	hexs := make([]string, len(sum))
+	for i, b := range sum {
+		hexs[i] = fmt.Sprintf("%02X", b)
+	}
+	return strings.Join(hexs, ":")
+}
+
+// Client calls the phone page's API with a device token.
+type Client struct {
+	Creds
+	http *http.Client
+}
+
+// NewClient is a client for c. With c.Pin set it trusts exactly the
+// certificate whose SHA-256 that is, and no other.
+func NewClient(c Creds) *Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if c.Pin != "" {
+		pin := c.Pin
+		tr.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true, // why: VerifyConnection checks the pin in place of the chain.
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				if len(cs.PeerCertificates) == 0 || !SamePin(Fingerprint(cs.PeerCertificates[0].Raw), pin) {
+					return errors.New("the server's certificate changed since you trusted it; pair again")
+				}
+				return nil
+			},
+		}
+	}
+	return &Client{Creds: c, http: &http.Client{Transport: tr}}
+}
+
+// untrusted turns a failed certificate check into an UntrustedError.
+func untrusted(err error) error {
+	var ce *tls.CertificateVerificationError
+	if errors.As(err, &ce) && len(ce.UnverifiedCertificates) > 0 {
+		var ua x509.UnknownAuthorityError
+		var hn x509.HostnameError
+		if errors.As(err, &ua) || errors.As(err, &hn) {
+			return &UntrustedError{Fingerprint: Fingerprint(ce.UnverifiedCertificates[0].Raw)}
+		}
+	}
+	return err
+}
+
+// Pair trades code for a device token at server, as the page does.
+func Pair(ctx context.Context, server, code, pin string) (Creds, error) {
+	c := NewClient(Creds{Server: server, Pin: pin})
+	var out struct {
+		Token  string `json:"token"`
+		Device string `json:"device"`
+	}
+	if err := c.call(ctx, "POST", "api/pair", map[string]string{"code": code}, &out); err != nil {
+		if errors.Is(err, ErrUnpaired) {
+			return Creds{}, errors.New("this pairing code is wrong, used or expired; pair again")
+		}
+		return Creds{}, err
+	}
+	return Creds{Server: server, Token: out.Token, Device: out.Device, Pin: pin}, nil
+}
+
+func (c *Client) request(ctx context.Context, method, path string, body any) (*http.Request, error) {
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		rd = bytes.NewReader(b)
+	}
+	r, err := http.NewRequestWithContext(ctx, method, c.Server+path, rd)
+	if err != nil {
+		return nil, err
+	}
+	if c.Token != "" {
+		r.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	if body != nil {
+		r.Header.Set("Content-Type", "application/json")
+	}
+	return r, nil
+}
+
+// call sends body as JSON (GET when nil) and decodes the answer into out.
+func (c *Client) call(ctx context.Context, method, path string, body, out any) error {
+	r, err := c.request(ctx, method, path, body)
+	if err != nil {
+		return err
+	}
+	resp, err := c.http.Do(r)
+	if err != nil {
+		return untrusted(err)
+	}
+	defer resp.Body.Close()
+	if err := status(resp); err != nil {
+		return err
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(out)
+}
+
+// status is resp's failure, with the server's own words.
+func status(resp *http.Response) error {
+	if resp.StatusCode == http.StatusUnauthorized {
+		return ErrUnpaired
+	}
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		if msg := strings.TrimSpace(string(b)); msg != "" {
+			return errors.New(msg)
+		}
+		return errors.New(resp.Status)
+	}
+	return nil
+}
+
+// Send types or queues text for pane's agent and returns the message's id.
+func (c *Client) Send(ctx context.Context, pane, text string) (uint64, error) {
+	var out struct {
+		ID uint64 `json:"id"`
+	}
+	err := c.call(ctx, "POST", "api/send", map[string]string{"pane": pane, "text": text}, &out)
+	return out.ID, err
+}
+
+// Command picks a Claude Code pane's model or effort: what is "model" or
+// "effort".
+func (c *Client) Command(ctx context.Context, pane, what, value string) error {
+	return c.call(ctx, "POST", "api/command", map[string]string{"pane": pane, "what": what, "value": value}, nil)
+}
+
+// Answer presses Allow or Deny on pane's permission prompt of at.
+func (c *Client) Answer(ctx context.Context, pane string, at int64, allow bool) error {
+	return c.call(ctx, "POST", "api/answer", map[string]any{"pane": pane, "at": strconv.FormatInt(at, 10), "allow": allow}, nil)
+}
+
+// Approve answers a chat tab's approval: allow, allow-session or deny.
+func (c *Client) Approve(ctx context.Context, chat, request, decision, reason string) error {
+	return c.call(ctx, "POST", "api/approve", map[string]string{"chat": chat, "request": request, "decision": decision, "reason": reason}, nil)
+}
+
+// Input answers a chat tab's input request, by question id.
+func (c *Client) Input(ctx context.Context, chat, request string, answers map[string][]string) error {
+	return c.call(ctx, "POST", "api/input", map[string]any{"chat": chat, "request": request, "answers": answers}, nil)
+}
+
+// Older is pane's page of entries before seq, and whether more come before.
+func (c *Client) Older(ctx context.Context, pane string, before int64) ([]flow.Entry, bool, error) {
+	var out struct {
+		Entries []flow.Entry `json:"entries"`
+		More    bool         `json:"more"`
+	}
+	q := url.Values{"pane": {pane}, "before": {strconv.FormatInt(before, 10)}}
+	err := c.call(ctx, "GET", "api/chat?"+q.Encode(), nil, &out)
+	return out.Entries, out.More, err
+}
+
+// Hello is the stream's first event.
+type Hello struct {
+	Device  string   `json:"device"`
+	Models  []string `json:"models"`
+	Efforts []string `json:"efforts"`
+}
+
+// Entries is a "reset" or "entries" event of the open chat.
+type Entries struct {
+	Entries []flow.Entry `json:"entries"`
+	Model   string       `json:"model"`
+	More    bool         `json:"more"` // reset: older entries are on the server
+	None    bool         `json:"none"` // reset: the tab has no transcript
+	Gone    bool         `json:"gone"` // reset: the tab closed
+}
+
+// Event is one event of the stream: Name is hello, tabs, reset or entries,
+// and the field of that name holds it. Pane is the chat the stream was
+// opened for.
+type Event struct {
+	Name    string
+	Pane    string
+	Hello   Hello
+	Tabs    []remote.Tab
+	Entries Entries
+}
+
+// streamIdle drops a stream that sent nothing, not even the server's ping
+// every 20 seconds, for this long: a phone that slept can leave a dead
+// connection that never errors.
+var streamIdle = 45 * time.Second
+
+// Stream reads the event stream, with pane's chat when pane is set, and
+// calls on for each event until the stream ends or ctx is done.
+func (c *Client) Stream(ctx context.Context, pane string, on func(Event)) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	path := "api/stream"
+	if pane != "" {
+		path += "?" + url.Values{"pane": {pane}}.Encode()
+	}
+	r, err := c.request(ctx, "GET", path, nil)
+	if err != nil {
+		return err
+	}
+	idle := time.AfterFunc(streamIdle, cancel)
+	defer idle.Stop()
+	resp, err := c.http.Do(r)
+	if err != nil {
+		return untrusted(err)
+	}
+	defer resp.Body.Close()
+	if err := status(resp); err != nil {
+		return err
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 16<<20)
+	name, data := "", []byte(nil)
+	for sc.Scan() {
+		idle.Reset(streamIdle)
+		line := sc.Text()
+		switch {
+		case line == "":
+			if e, ok := decodeEvent(name, data); ok {
+				e.Pane = pane
+				on(e)
+			}
+			name, data = "", data[:0]
+		case strings.HasPrefix(line, "event: "):
+			name = line[len("event: "):]
+		case strings.HasPrefix(line, "data: "):
+			data = append(data, line[len("data: "):]...)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	return io.ErrUnexpectedEOF
+}
+
+func decodeEvent(name string, data []byte) (Event, bool) {
+	e := Event{Name: name}
+	var v any
+	switch name {
+	case "hello":
+		v = &e.Hello
+	case "tabs":
+		v = &e.Tabs
+	case "reset", "entries":
+		v = &e.Entries
+	default:
+		return e, false
+	}
+	return e, json.Unmarshal(data, v) == nil
+}

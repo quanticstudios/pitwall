@@ -38,6 +38,9 @@ type Sidebar struct {
 	// TreeOnly draws the rows alone, without the header and footer, for
 	// the session switcher's preview.
 	TreeOnly bool
+	// Fill takes the whole width given, not Width: the phone app, where
+	// the tree is the screen.
+	Fill bool
 	// Update labels the footer's update button; "" hides it.
 	Update string
 	// Host is the ssh host the daemon runs on, named in the header; ""
@@ -413,6 +416,9 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 	}
 
 	w := min(gtx.Dp(Width), gtx.Constraints.Max.X)
+	if s.Fill {
+		w = gtx.Constraints.Max.X
+	}
 	h := gtx.Constraints.Max.Y
 	s.height = h
 	size := image.Pt(w, h)
