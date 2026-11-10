@@ -2371,12 +2371,12 @@ quarter of the time when that is shorter. It never parks:
 - an agent asking for approval, a question or a plan, or showing a form
 - a running turn, which covers a guarded tab's command in progress
 - a turn whose Stop hook reports running background subagents or workflows
-- an agent running a process it started after its first prompt, such as a
-  tool's shell, a dev server or a watcher. Processes it starts before that,
-  as MCP servers at launch and again on resume, do not count. When pitwall
-  did not see the agent start, as after an update's handoff, every process
-  counts until its next prompt. Only Linux can tell, so macOS and Windows
-  never park
+- an agent running any process but its stdio MCP servers, such as a
+  background tool's shell, a dev server or a watcher. A stdio server is a
+  child whose input and output each connect to the agent itself, by a pipe
+  or a socket pair; a background task writes to a file, and anything
+  pitwall cannot read counts as busy. Only Linux can tell, so macOS and Windows never
+  park
 - an agent with no session to resume, or no hook since it started
 - an agent with your draft in its input box, a message waiting for it, a
   usage-limit resume pending or a notification you have not seen

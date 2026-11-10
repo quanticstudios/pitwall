@@ -1582,8 +1582,6 @@ func (d *Daemon) dropPane(id string) Pane {
 	delete(d.park.waking, id)
 	delete(d.park.stalled, id)
 	delete(d.park.keys, id)
-	delete(d.park.promptAt, id)
-	delete(d.park.launched, id)
 	delete(d.history, id)
 	delete(d.sizes, id)
 	delete(d.inputs, id)
@@ -1880,7 +1878,6 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 	if agent.PromptSubmitted(m.Payload) && !d.mail.daemonPrompt[p.ID] {
 		p.LastPromptAt, changed = now, true
 	}
-	d.noteParkHook(p.ID, m.Payload, now)
 	if agent.Prompt(m.Provider, m.Payload) != "" {
 		d.notePrompt(p.ID, now)
 	}

@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -16,7 +18,8 @@ type fakeProc struct {
 	comm, exe, cmdline string
 	pgrp               int
 	children           string
-	start              int // clock ticks after boot
+	start              int            // clock ticks after boot
+	fds                map[int]string // fd: where it points, as "pipe:[1]"; nil for no fd directory
 }
 
 // fakeProcRoot builds a /proc tree of procs under a temp dir and points
@@ -27,7 +30,6 @@ func fakeProcRoot(t *testing.T, procs map[int]fakeProc) {
 	old := procRoot
 	procRoot = root
 	t.Cleanup(func() { procRoot = old })
-	must(t, os.WriteFile(filepath.Join(root, "stat"), []byte("cpu 1 2 3\nbtime 50000\n"), 0o644))
 	for pid, p := range procs {
 		dir := filepath.Join(root, strconv.Itoa(pid))
 		task := filepath.Join(dir, "task", strconv.Itoa(pid))
@@ -40,6 +42,12 @@ func fakeProcRoot(t *testing.T, procs map[int]fakeProc) {
 		must(t, os.WriteFile(filepath.Join(task, "children"), []byte(p.children), 0o644))
 		if p.exe != "" {
 			must(t, os.Symlink(p.exe, filepath.Join(dir, "exe")))
+		}
+		if p.fds != nil {
+			must(t, os.MkdirAll(filepath.Join(dir, "fd"), 0o755))
+		}
+		for fd, target := range p.fds {
+			must(t, os.Symlink(target, filepath.Join(dir, "fd", strconv.Itoa(fd))))
 		}
 	}
 }
@@ -90,42 +98,112 @@ func TestProcIdentifyInterpreter(t *testing.T) {
 	}
 }
 
-// An agent is busy with a process it started after its first prompt, a
-// tool's, or in the second before it; what it started before, MCP servers
-// at launch, does not count. Without a known first prompt every process
-// counts. A wrapper's agent counts as the agent. The fake boots at 50000s
-// and the agent starts at tick 1000 (50010s); its first prompt is at
-// 50020s, tick 2000.
+// An agent is busy with any process but its stdio servers: a child whose
+// stdin and stdout are pipes the agent holds the other ends of, as an MCP
+// server's are. A wrapper's agent counts as the agent, never an agent
+// deeper in the tree. Anything unreadable is busy.
 func TestProcBusy(t *testing.T) {
-	prompt := time.Unix(50020, 0)
-	claude := fakeProc{comm: "claude", exe: "/usr/bin/claude", pgrp: 10, start: 1000}
-	mcp := fakeProc{comm: "node", pgrp: 10, start: 1001}
-	wrapper := fakeProc{comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, start: 1000, children: "15"}
-	codex := fakeProc{comm: "codex", exe: "/usr/lib/codex", pgrp: 10, start: 1010}
+	held := map[int]string{3: "pipe:[100]", 4: "pipe:[101]", 5: "pipe:[102]"}
+	claude := fakeProc{comm: "claude", exe: "/usr/bin/claude", pgrp: 10, fds: held}
+	mcp := fakeProc{comm: "node", pgrp: 10, fds: map[int]string{0: "pipe:[100]", 1: "pipe:[101]", 2: "/dev/null"}}
+	tool := fakeProc{comm: "zsh", pgrp: 10, fds: map[int]string{0: "/dev/null", 1: "/tmp/tasks/b1.output", 2: "/tmp/tasks/b1.output"}}
+	wrapper := fakeProc{comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, children: "15", fds: map[int]string{}}
+	codex := fakeProc{comm: "codex", exe: "/usr/lib/codex", pgrp: 10, fds: map[int]string{3: "pipe:[200]", 4: "pipe:[201]"}}
+	codexMCP := fakeProc{comm: "node", pgrp: 10, fds: map[int]string{0: "pipe:[200]", 1: "pipe:[201]"}}
 	for _, tc := range []struct {
 		name  string
 		procs map[int]fakeProc
-		tools time.Time
 		want  bool
 	}{
-		{"alone", map[int]fakeProc{10: claude}, prompt, false},
-		{"MCP servers from launch", map[int]fakeProc{10: withChildren(claude, "11 12"), 11: mcp, 12: mcp}, prompt, false},
-		{"a startup shell before the prompt", map[int]fakeProc{10: withChildren(claude, "13"), 13: {comm: "zsh", pgrp: 10, start: 1300}}, prompt, false},
-		{"node server.js exec'd 15s after the prompt", map[int]fakeProc{10: withChildren(claude, "11 14"), 11: mcp, 14: {comm: "node", pgrp: 10, start: 3500}}, prompt, true},
-		{"a tool's shell", map[int]fakeProc{10: withChildren(claude, "13"), 13: {comm: "zsh", pgrp: 10, start: 2100}}, prompt, true},
-		{"a process in the second before the prompt", map[int]fakeProc{10: withChildren(claude, "14"), 14: {comm: "node", pgrp: 10, start: 1950}}, prompt, true},
-		{"no first prompt known", map[int]fakeProc{10: withChildren(claude, "11"), 11: mcp}, time.Time{}, true},
-		{"a wrapper's agent alone", map[int]fakeProc{10: wrapper, 15: codex}, prompt, false},
-		{"a wrapper's agent's MCP server", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "11"), 11: mcp}, prompt, false},
-		{"a wrapper's agent's tool shell", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "16"), 16: {comm: "bash", pgrp: 10, start: 2500}}, prompt, true},
-		{"unreadable", map[int]fakeProc{}, prompt, true},
+		{"alone", map[int]fakeProc{10: claude}, false},
+		{"MCP stdio servers", map[int]fakeProc{10: withChildren(claude, "11 12"), 11: mcp, 12: mcp}, false},
+		{"a background tool writing to a file", map[int]fakeProc{10: withChildren(claude, "11 13"), 11: mcp, 13: tool}, true},
+		{"a hook's dev server on pipes of its own", map[int]fakeProc{10: withChildren(claude, "14"), 14: {comm: "node", pgrp: 10, fds: map[int]string{0: "pipe:[900]", 1: "pipe:[901]"}}}, true},
+		{"only its stdin held", map[int]fakeProc{10: withChildren(claude, "14"), 14: {comm: "node", pgrp: 10, fds: map[int]string{0: "pipe:[100]", 1: "/tmp/server.log"}}}, true},
+		{"a child's fds unreadable", map[int]fakeProc{10: withChildren(claude, "14"), 14: {comm: "node", pgrp: 10}}, true},
+		{"the agent's fds unreadable", map[int]fakeProc{10: {comm: "claude", exe: "/usr/bin/claude", pgrp: 10, children: "11"}, 11: mcp}, true},
+		{"a Codex started as a tool", map[int]fakeProc{10: withChildren(claude, "15"), 15: {comm: "codex", exe: "/usr/lib/codex", pgrp: 10, fds: map[int]string{0: "/dev/null", 1: "pipe:[950]"}}}, true},
+		{"a wrapper's agent with an MCP server", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "16"), 16: codexMCP}, false},
+		{"a wrapper's agent's tool", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "17"), 17: tool}, true},
+		{"a wrapper running more than its agent", map[int]fakeProc{10: withChildren(wrapper, "15 18"), 15: codex, 18: codexMCP}, true},
+		{"unreadable", map[int]fakeProc{}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fakeProcRoot(t, tc.procs)
-			if got := procBusy(10, tc.tools); got != tc.want {
+			if got := procBusy(10); got != tc.want {
 				t.Fatalf("procBusy = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// stdioOnly on real pipes, with the test process as the agent: a child on
+// two pipes the test holds the other ends of is a stdio server; one on
+// /dev/null, or on pipes nobody else holds, is not.
+func TestStdioOnlyRealPipes(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep")
+	}
+	start := func(stdin, stdout *os.File) int {
+		t.Helper()
+		cmd := exec.Command(sleep, "30")
+		cmd.Stdin, cmd.Stdout = stdin, stdout
+		must(t, cmd.Start())
+		t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+		return cmd.Process.Pid
+	}
+	me := os.Getpid()
+	inR, inW, err := os.Pipe()
+	must(t, err)
+	outR, outW, err := os.Pipe()
+	must(t, err)
+	t.Cleanup(func() { inW.Close(); outR.Close() })
+	server := start(inR, outW)
+	inR.Close()
+	outW.Close()
+	if !stdioOnly(me, []int{server}) {
+		t.Fatal("a child on pipes the agent holds is not a stdio server")
+	}
+	quiet := start(nil, nil) // /dev/null, as a background tool's redirect
+	if stdioOnly(me, []int{server, quiet}) {
+		t.Fatal("a child on /dev/null counts as a stdio server")
+	}
+	aR, aW, err := os.Pipe()
+	must(t, err)
+	bR, bW, err := os.Pipe()
+	must(t, err)
+	own := start(aR, bW)
+	for _, f := range []*os.File{aR, aW, bR, bW} {
+		f.Close()
+	}
+	if stdioOnly(me, []int{own}) {
+		t.Fatal("a child on pipes the agent does not hold counts as a stdio server")
+	}
+	// Node gives a child's stdio a socketpair: the two ends' inodes differ.
+	pair := func() (mine, theirs *os.File) {
+		t.Helper()
+		fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+		must(t, err)
+		return os.NewFile(uintptr(fds[0]), "mine"), os.NewFile(uintptr(fds[1]), "theirs")
+	}
+	inMine, inTheirs := pair()
+	outMine, outTheirs := pair()
+	t.Cleanup(func() { inMine.Close(); outMine.Close() })
+	node := start(inTheirs, outTheirs)
+	inTheirs.Close()
+	outTheirs.Close()
+	if !stdioOnly(me, []int{server, node}) {
+		t.Fatal("a child on socketpairs the agent holds the other ends of is not a stdio server")
+	}
+	aMine, aTheirs := pair()
+	bMine, bTheirs := pair()
+	gone := start(aTheirs, bTheirs)
+	for _, f := range []*os.File{aMine, aTheirs, bMine, bTheirs} {
+		f.Close()
+	}
+	if stdioOnly(me, []int{gone}) {
+		t.Fatal("a child on sockets whose peers the agent does not hold counts as a stdio server")
 	}
 }
 

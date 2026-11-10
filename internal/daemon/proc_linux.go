@@ -1,13 +1,15 @@
 package daemon
 
 import (
+	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -137,47 +139,130 @@ func children(pid int) []int {
 	return out
 }
 
-// procBusy reports whether the agent leading group pg runs a process it
-// started at or after tools, its first prompt: a tool's shell, dev server
-// or watcher. What it started before, such as MCP servers at launch, does
-// not count. The agent a wrapper runs (node running Codex) is looked into
-// instead. A start time it cannot read, or within a second of tools,
-// counts as busy.
-func procBusy(pg int, tools time.Time) bool {
-	boot := bootTime()
-	if statField(pg, 5) == 0 || boot == 0 {
+// procBusy reports whether the agent leading group pg runs a process other
+// than its stdio servers (see stdioOnly), such as a tool's shell, a dev
+// server or a watcher. When pg is an interpreter wrapping the agent (node
+// running Codex's script), that agent's processes are looked at, and any
+// other process of the wrapper counts as busy; an agent deeper in the
+// tree is just another process. Unreadable counts as busy.
+func procBusy(pg int) bool {
+	comm := readComm(pg)
+	if comm == "" {
 		return true
 	}
-	// ponytail: assumes USER_HZ 100, as on every architecture pitwall ships for.
-	cutoff := (tools.Unix() - 1 - boot) * 100
-	var walk func(pid, depth int) bool
-	walk = func(pid, depth int) bool {
-		for _, c := range children(pid) {
-			switch start := int64(statField(c, 22)); {
-			case depth < 2 && identifyProc(c, readComm(c)) != "":
-				if walk(c, depth+1) {
-					return true
-				}
-			case start == 0 || start >= cutoff:
+	lead, kids := pg, children(pg)
+	if agent.Interpreter(comm, readExe(pg)) {
+		if i := slices.IndexFunc(kids, func(c int) bool { return identifyProc(c, readComm(c)) != "" }); i >= 0 {
+			if len(kids) > 1 {
 				return true
 			}
+			lead, kids = kids[i], children(kids[i])
 		}
-		return false
 	}
-	return walk(pg, 0)
+	return !stdioOnly(lead, kids)
 }
 
-// bootTime is the system's boot time in Unix seconds, from /proc/stat's
-// btime line, or 0.
-func bootTime() int64 {
-	b, _ := os.ReadFile(procRoot + "/stat")
-	for line := range strings.Lines(string(b)) {
-		if v, ok := strings.CutPrefix(line, "btime "); ok {
-			n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
-			return n
+// stdioOnly reports whether every process in kids is a stdio server of
+// lead, as an MCP server is: its stdin and stdout each are a pipe lead
+// holds or a unix socket whose peer lead holds (Node gives a child a
+// socketpair). A background tool writes to a file or /dev/null, and a
+// server a hook started to pipes of its own. An fd it cannot read counts
+// against.
+func stdioOnly(lead int, kids []int) bool {
+	if len(kids) == 0 {
+		return true
+	}
+	held := heldEnds(lead)
+	if held == nil {
+		return false
+	}
+	nl, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, unix.NETLINK_SOCK_DIAG)
+	if err != nil {
+		return false
+	}
+	defer unix.Close(nl)
+	unix.SetsockoptTimeval(nl, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &unix.Timeval{Sec: 1})
+	toLead := func(link string) bool {
+		if strings.HasPrefix(link, "pipe:") {
+			return held[link]
+		}
+		ino, ok := strings.CutPrefix(link, "socket:[")
+		n, err := strconv.ParseUint(strings.TrimSuffix(ino, "]"), 10, 32)
+		return ok && err == nil && held[fmt.Sprintf("socket:[%d]", unixPeer(nl, uint32(n)))]
+	}
+	for _, c := range kids {
+		if !toLead(fdLink(c, 0)) || !toLead(fdLink(c, 1)) {
+			return false
 		}
 	}
+	return true
+}
+
+// heldEnds is the pipes and sockets pid has open, as their fd links read
+// ("pipe:[123]", "socket:[456]"), or nil when its fds cannot be read.
+func heldEnds(pid int) map[string]bool {
+	dir := procRoot + "/" + strconv.Itoa(pid) + "/fd/"
+	fds, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, fd := range fds {
+		if l, _ := os.Readlink(dir + fd.Name()); strings.HasPrefix(l, "pipe:") || strings.HasPrefix(l, "socket:") {
+			out[l] = true
+		}
+	}
+	return out
+}
+
+// unixPeer is the inode of the unix socket connected to the one with inode
+// ino, asked of the kernel's sock_diag over netlink socket nl; 0 when
+// unknown.
+func unixPeer(nl int, ino uint32) uint32 {
+	const (
+		reqLen        = unix.NLMSG_HDRLEN + 24 // struct unix_diag_req
+		udiagShowPeer = 0x4
+		unixDiagPeer  = 2
+		msgLen        = 16 // struct unix_diag_msg
+	)
+	req := make([]byte, reqLen)
+	ne := binary.NativeEndian
+	ne.PutUint32(req[0:], reqLen)
+	ne.PutUint16(req[4:], unix.SOCK_DIAG_BY_FAMILY)
+	ne.PutUint16(req[6:], unix.NLM_F_REQUEST)
+	req[16] = unix.AF_UNIX
+	ne.PutUint32(req[20:], ^uint32(0)) // every state
+	ne.PutUint32(req[24:], ino)
+	ne.PutUint32(req[28:], udiagShowPeer)
+	ne.PutUint32(req[32:], ^uint32(0)) // no cookie
+	ne.PutUint32(req[36:], ^uint32(0))
+	if unix.Sendto(nl, req, 0, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}) != nil {
+		return 0
+	}
+	buf := make([]byte, 4096)
+	n, _, err := unix.Recvfrom(nl, buf, 0)
+	if err != nil || n < unix.NLMSG_HDRLEN+msgLen || ne.Uint16(buf[4:]) != unix.SOCK_DIAG_BY_FAMILY ||
+		ne.Uint32(buf[unix.NLMSG_HDRLEN+4:]) != ino {
+		return 0
+	}
+	end := min(n, int(ne.Uint32(buf[0:])))
+	for off := unix.NLMSG_HDRLEN + msgLen; off+8 <= end; {
+		l, typ := int(ne.Uint16(buf[off:])), ne.Uint16(buf[off+2:])
+		if l < 4 {
+			return 0
+		}
+		if typ == unixDiagPeer {
+			return ne.Uint32(buf[off+4:])
+		}
+		off += (l + 3) &^ 3
+	}
 	return 0
+}
+
+// fdLink is where pid's fd n points, "" when unreadable.
+func fdLink(pid, n int) string {
+	l, _ := os.Readlink(procRoot + "/" + strconv.Itoa(pid) + "/fd/" + strconv.Itoa(n))
+	return l
 }
 
 // procParent is pid's parent and process group, or 0s.

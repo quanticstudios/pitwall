@@ -30,7 +30,7 @@ func parkDaemonWith(t *testing.T, edit func(*Options)) (*Daemon, *fakes) {
 		edit(o)
 	})
 	busy := agentBusy
-	agentBusy = func(Pane, time.Time) bool { return false }
+	agentBusy = func(Pane) bool { return false }
 	oldSettle := sendSettle.set(time.Millisecond)
 	t.Cleanup(func() {
 		agentBusy = busy
@@ -113,7 +113,7 @@ func TestParkNever(t *testing.T) {
 		{"background subagents", func(t *testing.T, d *Daemon, f *fakes) {
 			claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`)
 		}},
-		{"child processes", func(t *testing.T, d *Daemon, f *fakes) { agentBusy = func(Pane, time.Time) bool { return true } }},
+		{"child processes", func(t *testing.T, d *Daemon, f *fakes) { agentBusy = func(Pane) bool { return true } }},
 		{"no resume command", func(t *testing.T, d *Daemon, f *fakes) {
 			d.mu.Lock()
 			d.st.Panes[0].SessionID = ""
@@ -486,43 +486,39 @@ func TestParkedAcrossRestart(t *testing.T) {
 	}
 }
 
-// toolsSince is the first prompt of the agent's current process: now
-// before one for a start the daemon saw, zero for a process it did not see
-// start, and it starts over with each new process.
-func TestParkToolsSince(t *testing.T) {
+// A resume that outlasts sendQuiet still keeps a message from gluing onto
+// the keys typed while it ran.
+func TestParkedSlowResumeDraft(t *testing.T) {
 	d, f := parkDaemon(t)
-	now := time.Now().Add(time.Hour)
-	at := func(id string) time.Time {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		return d.toolsSince(id, now)
-	}
-	if got := at("a"); !got.Equal(now) {
-		t.Fatalf("before any prompt: %v, want now", got)
-	}
-	if got := at("b"); !got.IsZero() {
-		t.Fatalf("a pane whose start it did not see: %v, want zero", got)
-	}
-	before := time.Now()
-	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
-	first := at("a")
-	if first.Before(before) || first.After(time.Now()) {
-		t.Fatalf("after the first prompt: %v, want its time", first)
-	}
-	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"again"}`)
-	if got := at("a"); !got.Equal(first) {
-		t.Fatalf("after a second prompt: %v, want the first's %v", got, first)
-	}
-	claudeHook(t, d, "a", `{"hook_event_name":"Stop"}`)
+	oldQuiet, oldLook := sendQuiet.set(100*time.Millisecond), sendLook.set(10*time.Millisecond)
+	t.Cleanup(func() {
+		d.sendMu.Lock()
+		sendQuiet.set(oldQuiet)
+		sendLook.set(oldLook)
+		d.sendMu.Unlock()
+	})
 	park(t, d, f)
-	if got := at("a"); !got.IsZero() {
-		t.Fatalf("parked: %v, want zero", got)
+	for _, k := range []string{"\r", "unfinished draft"} {
+		if err := d.handle(context.Background(), proto.Input{Pane: "a", Data: []byte(k)}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := d.send(proto.Send{Pane: "a", Text: "hi"}); err != nil {
+	if err := d.send(proto.Send{Pane: "a", Text: "automated message"}); err != nil {
 		t.Fatal(err)
 	}
-	claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"resume"}`)
-	if got := at("a"); !got.Equal(now) {
-		t.Fatalf("resumed, before a prompt: %v, want now", got)
+	time.Sleep(150 * time.Millisecond) // past sendQuiet before the agent is back
+	p := back(t, d, f)
+	time.Sleep(30 * time.Millisecond)
+	if got := p.got(); got != "unfinished draft" {
+		t.Fatalf("typed %q before the agent drew the keys", got)
+	}
+	setScreen(p, []string{"────────", "❯ unfinished draft", "────────"})
+	time.Sleep(150 * time.Millisecond)
+	if got := p.got(); got != "unfinished draft" {
+		t.Fatalf("typed %q while the draft sat in the box", got)
+	}
+	setScreen(p, claudeEmpty)
+	if got := gotAfter(t, p, len("unfinished draft"), 20); !strings.Contains(got, "automated message") {
+		t.Fatalf("typed %q after the draft went, want the message", got)
 	}
 }

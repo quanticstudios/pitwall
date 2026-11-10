@@ -34,12 +34,6 @@ type parking struct {
 	// stalled marks a waking pane past resumeReadyWait: what waited still
 	// waits, and new keys go straight in so the user can answer its screen.
 	stalled map[string]bool
-	// promptAt is the first prompt of each pane's agent process, and
-	// launched marks one whose start (SessionStart) this daemon saw: what
-	// the agent starts before its first prompt, such as MCP servers, is no
-	// tool's process. See toolsSince.
-	promptAt map[string]time.Time
-	launched map[string]bool
 }
 
 // idlePane is a pane's screen at the last look and when it last changed.
@@ -128,10 +122,9 @@ func (d *Daemon) checkPark(now time.Time) {
 	}
 	d.park.polled = now
 	type look struct {
-		id    string
-		p     Pane
-		prov  model.Provider
-		tools time.Time
+		id   string
+		p    Pane
+		prov model.Provider
 	}
 	var looks []look
 	for _, sp := range d.st.Panes {
@@ -139,7 +132,7 @@ func (d *Daemon) checkPark(now time.Time) {
 			delete(d.park.idle, sp.ID)
 			continue
 		}
-		looks = append(looks, look{sp.ID, d.panes[sp.ID], sp.Provider, d.toolsSince(sp.ID, now)})
+		looks = append(looks, look{sp.ID, d.panes[sp.ID], sp.Provider})
 	}
 	d.mu.Unlock()
 	var parked []string
@@ -148,7 +141,7 @@ func (d *Daemon) checkPark(now time.Time) {
 		still := agent.InputReady(l.prov, g) && agent.ReadScreen(g) == agent.ScreenNone && !agent.Draft(l.prov, g)
 		// why: reads /proc, so outside d.mu. A busy agent waits for the next
 		// look and keeps its idle time: a hook's shell lives a moment.
-		busy := still && agentBusy(l.p, l.tools)
+		busy := still && agentBusy(l.p)
 		d.mu.Lock()
 		i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id })
 		if i < 0 || d.panes[l.id] != l.p {
@@ -185,48 +178,15 @@ func (d *Daemon) checkPark(now time.Time) {
 	}
 }
 
-// agentBusy reports whether pane p's agent runs a process it started at
-// or after tools, a tool's process such as a dev server (see procBusy). It
-// is true when that cannot be read or tools is zero. Tests replace it.
-var agentBusy = func(p Pane, tools time.Time) bool {
+// agentBusy reports whether pane p's agent runs anything of its own (see
+// procBusy), true when that cannot be read. Tests replace it.
+var agentBusy = func(p Pane) bool {
 	f, ok := p.(foregrounder)
-	if !ok || tools.IsZero() {
+	if !ok {
 		return true
 	}
 	pg := f.Foreground()
-	return pg <= 0 || procBusy(pg, tools)
-}
-
-// toolsSince is when pane id's agent process could first start a tool's
-// process: its first prompt, or now when it has had none since a start
-// this daemon saw. Zero when unknown, as after an update's handoff.
-// Callers hold d.mu.
-func (d *Daemon) toolsSince(id string, now time.Time) time.Time {
-	if t, ok := d.park.promptAt[id]; ok {
-		return t
-	}
-	if d.park.launched[id] {
-		return now
-	}
-	return time.Time{}
-}
-
-// noteParkHook records a hook's new agent process or first prompt for
-// toolsSince. Callers hold d.mu.
-func (d *Daemon) noteParkHook(id string, payload []byte, now time.Time) {
-	if started, resumed := agent.NewProcess(payload); started || resumed {
-		if d.park.launched == nil {
-			d.park.launched = map[string]bool{}
-		}
-		d.park.launched[id] = true
-		delete(d.park.promptAt, id)
-	}
-	if _, ok := d.park.promptAt[id]; !ok && agent.PromptSubmitted(payload) {
-		if d.park.promptAt == nil {
-			d.park.promptAt = map[string]time.Time{}
-		}
-		d.park.promptAt[id] = now
-	}
+	return pg <= 0 || procBusy(pg)
 }
 
 func latest(a, b time.Time) time.Time {
@@ -283,8 +243,6 @@ func (d *Daemon) parkPane(id string, live Pane, note string) {
 	delete(d.park.idle, id)
 	delete(d.park.waking, id)
 	delete(d.park.stalled, id)
-	delete(d.park.promptAt, id)
-	delete(d.park.launched, id)
 	delete(d.live.hookAt, id)
 	delete(d.live.hookSeq, id)
 	delete(d.live.fg, id)
