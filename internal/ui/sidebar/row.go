@@ -98,7 +98,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 
 	// "…" then "×" show on hover in place of line 2's time. The ×'s strokes
 	// end at the content's right inset; its 24dp hit area runs past them.
-	showMore := !ghost && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
+	showMore := !ghost && !s.Touch && ((hovered && !s.drag.active) || s.menuWS == ws.ID)
 	btn, glyph := gtx.Dp(24), gtx.Dp(16)
 	x := (btn-glyph)/2 + glyph/4 // the button's edge to the ×'s edge
 	// Allow and Deny answer the tab's own agent, not a worker folded in.
@@ -355,7 +355,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 	off := op.Offset(pos).Push(gtx.Ops)
 	if showMore {
 		iconButton(gtx, th, &r.more, icEllipsis, btn, glyph, false)
-	} else {
+	} else if !s.Touch {
 		// Keep the hit area so the hidden button still opens the menu.
 		clickable(gtx, &r.more, func(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: image.Pt(btn, btn)}

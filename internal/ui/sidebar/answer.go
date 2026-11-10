@@ -42,7 +42,7 @@ func (s *Sidebar) planning(v *view, id string, ghost bool, a *model.Activity) bo
 func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowState) {
 	for r.reply.Clicked(gtx) {
 		if a := v.ownActivity(ws); s.replyable(v, ws, false, a) {
-			if a.Menu {
+			if a.Menu || s.Touch {
 				s.click(v, ws, 0)
 			} else {
 				s.openReply(ws, a.PaneID)
@@ -353,8 +353,25 @@ func pillButton(c *widget.Clickable, th *theme.Theme, base color.NRGBA, h int, t
 	if c == nil {
 		return draw
 	}
+	if touchSlop > 0 {
+		return func(gtx layout.Context) layout.Dimensions {
+			return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				d := draw(gtx)
+				defer clip.Rect{Min: image.Pt(0, -touchSlop), Max: d.Size.Add(image.Pt(0, touchSlop))}.Push(gtx.Ops).Pop()
+				return d
+			})
+		}
+	}
 	return func(gtx layout.Context) layout.Dimensions { return clickable(gtx, c, draw) }
 }
+
+// touchPad is how far past its top and bottom a pill takes a touch in a
+// Touch sidebar: an 18dp pill takes 42dp, 58dp at the phone's zoom.
+const touchPad = 12
+
+// touchSlop is touchPad in pixels while a Touch sidebar lays out, else 0.
+// ponytail: one value for the process; a phone draws one sidebar.
+var touchSlop int
 
 // answerRoom is what line 2 keeps for its own items before a row's answers:
 // the fold chip, or the inbox's group tag.
