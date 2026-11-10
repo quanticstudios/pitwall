@@ -10,6 +10,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -51,10 +52,15 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) la
 	for s.boardBt.Clicked(gtx) {
 		s.events = append(s.events, ToggleBoard{})
 	}
+	for s.monitorBt.Clicked(gtx) {
+		s.events = append(s.events, ToggleMonitor{})
+	}
 	hrow(gtx, h-1, gtx.Dp(6), append(items, item{right: true, w: func(gtx layout.Context) layout.Dimensions {
 		return s.viewButton(gtx, th)
 	}}, item{w: func(gtx layout.Context) layout.Dimensions {
 		return s.boardButton(gtx, th)
+	}}, item{w: func(gtx layout.Context) layout.Dimensions {
+		return toggleButton(gtx, th, &s.monitorBt, s.MonitorOn, icCPU)
 	}}, item{w: func(gtx layout.Context) layout.Dimensions {
 		return iconButton(gtx, th, &s.newTab, icPlus, gtx.Dp(28), gtx.Dp(16), true)
 	}})...)
@@ -115,27 +121,33 @@ func (s *Sidebar) sessionButton(gtx layout.Context, th *theme.Theme, name string
 // viewButton switches between the tree and the inbox: an inbox glyph,
 // primary on a tinted fill while the inbox shows.
 func (s *Sidebar) viewButton(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	return toggleButton(gtx, th, &s.viewBtn, s.Inbox, icInbox)
+}
+
+// toggleButton is a header button for a view that is on or off: the glyph,
+// primary on a tinted fill while on, filled on hover.
+func toggleButton(gtx layout.Context, th *theme.Theme, bt *widget.Clickable, on bool, icon string) layout.Dimensions {
 	size := gtx.Dp(28)
 	gtx.Constraints = layout.Exact(image.Pt(size, size))
 	glyph := gtx.Dp(16)
 	box := iconBox(size, glyph)
-	return clickable(gtx, &s.viewBtn, func(gtx layout.Context) layout.Dimensions {
+	return clickable(gtx, bt, func(gtx layout.Context) layout.Dimensions {
 		rr := clip.UniformRRect(image.Rect(0, 0, box, box), gtx.Dp(6))
 		col := th.Muted
 		switch {
-		case s.Inbox:
+		case on:
 			fill := theme.Mix(th.Sidebar, th.Primary, 0.14)
-			if s.viewBtn.Hovered() {
+			if bt.Hovered() {
 				fill = theme.Mix(th.Sidebar, th.Primary, 0.22)
 			}
 			paint.FillShape(gtx.Ops, fill, rr.Op(gtx.Ops))
 			col = th.Primary
-		case s.viewBtn.Hovered():
+		case bt.Hovered():
 			paint.FillShape(gtx.Ops, th.SurfaceSecondary, rr.Op(gtx.Ops))
 			col = th.Fg
 		}
 		drawCentered(gtx, box, func(gtx layout.Context) layout.Dimensions {
-			return drawIcon(gtx, icInbox, glyph, col, 0)
+			return drawIcon(gtx, icon, glyph, col, 0)
 		})
 		return layout.Dimensions{Size: image.Pt(size, size)}
 	})
@@ -192,6 +204,9 @@ func (s *Sidebar) boardButton(gtx layout.Context, th *theme.Theme) layout.Dimens
 // badgeColors are the board button badge's fill and number: a yellow chip
 // over the sidebar, as a pill draws one, so the number reads at 4.5:1.
 func badgeColors(th *theme.Theme) (bg, fg color.NRGBA) { return th.Chip(th.Yellow, th.Sidebar) }
+
+// icCPU is lucide cpu: the monitor's button.
+const icCPU = "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9 8h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM12 2v2M12 20v2M17 2v2M17 20v2M7 2v2M7 20v2M2 12h2M2 17h2M2 7h2M20 12h2M20 17h2M20 7h2"
 
 // icBoard is lucide square-kanban.
 const icBoard = "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM8 7v7M12 7v4M16 7v9"

@@ -1792,8 +1792,8 @@ app, drawn with [sector](https://github.com/quanticstudios/sector). It
 shows the machine of the tab you are on: this desktop, or box in
 `pitwall --host box` or for a tab of box in a window of several hosts.
 
-Show it with `toggle_monitor` (Ctrl+Alt+M, Cmd+Option+M on macOS) or Show
-monitor in the command palette. It takes the place of the panes, as the
+Show it with `toggle_monitor` (Ctrl+Alt+M, Cmd+Option+M on macOS), the
+chip button in the sidebar's header, or Show monitor in the command palette. It takes the place of the panes, as the
 board does, and the sidebar stays. Press the key again, or Esc, and the
 panes come back as you left them, with the same focus, scroll and splits.
 Showing another tab or the board closes it too. It opens no tab, so

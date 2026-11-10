@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- The sidebar's header has a monitor button, a chip icon between the board and new tab buttons, that shows or hides the monitor as Ctrl+Alt+M does and stays pressed while it shows.
+
 ## v0.2.6
 
 - Queue tasks can start in a fresh worktree on each run with `queue add --worktree name` or the New task dialog's Fresh worktree each run checkbox. Cleanup removes unchanged worktrees with trusted teardown. Runs interrupted by a restart keep their worktree and tab. Closing a finished run closes its tab before cleanup and names any kept worktree in a notice.
