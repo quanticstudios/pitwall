@@ -7,6 +7,7 @@ import (
 	"gioui.org/layout"
 
 	"github.com/quanticstudios/pitwall/internal/model"
+	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // Claude's brand orange. Codex draws in the theme's text color, like
@@ -191,12 +192,16 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 }
 
 // Icon draws the lucide icon name ("plus", "pencil", "trash", "terminal",
-// "layers", "check", "x", "circle-alert", "archive", "git-branch", "search") in a
-// size box, for lists outside the sidebar.
+// "layers", "check", "x", "circle-alert", "archive", "git-branch", "search",
+// and for the phone app "chevron-left", "chevrons-up-down", "settings",
+// "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server") in a size box, for
+// lists outside the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
 		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown,
-		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile}[name]
+		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
+		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
+		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}
@@ -206,3 +211,16 @@ func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dim
 // RelTime is how long ago t was, as the sidebar's rows say it ("just
 // now", "5m ago").
 func RelTime(now, t time.Time) string { return relTime(now, t) }
+
+// Lucide's chevron-left, arrow-up, wifi-off and clipboard, for the phone app.
+const (
+	icClipboard   = "M9 2h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1zM16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+	icChevronLeft = "m15 18-6-6 6-6"
+	icArrowUp     = "m5 12 7-7 7 7M12 19V5"
+	icWifiOff     = "M12 20h.01M8.5 16.429a5 5 0 0 1 7 0M5 12.859a10 10 0 0 1 5.17-2.69M19 12.859a10 10 0 0 0-2.007-1.523M2 8.82a15 15 0 0 1 4.177-2.643M22 8.82a15 15 0 0 0-11.288-3.764M2 2l20 20"
+)
+
+// Logo draws pitwall's mark in a size-square box, as the header does.
+func Logo(gtx layout.Context, th *theme.Theme, size int) layout.Dimensions {
+	return drawLogo(gtx, th, size)
+}

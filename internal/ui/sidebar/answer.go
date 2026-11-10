@@ -22,9 +22,17 @@ const answerH = 18
 
 // answering reports whether tab id's row, with its own activity a, shows
 // Allow and Deny. A tab with agent sub-rows answers on the asking one's,
-// and a worker on its own sub-row.
+// and a worker on its own sub-row. A managed chat's row has none: Allow and
+// Deny press keys in a terminal, and a chat's approval takes its request
+// id, which the chat answers.
 func (s *Sidebar) answering(v *view, id string, ghost bool, a *model.Activity) bool {
-	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && v.agents[id] == nil && !s.hostDown(id)
+	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && v.agents[id] == nil && !s.hostDown(id) && !isChat(v.st, id)
+}
+
+// isChat reports whether tab id shows a managed chat.
+func isChat(st *model.State, id string) bool {
+	w := st.Workspace(id)
+	return w != nil && w.Chat != ""
 }
 
 // planning reports whether tab id's row, with its own activity a, shows
@@ -42,7 +50,7 @@ func (s *Sidebar) planning(v *view, id string, ghost bool, a *model.Activity) bo
 func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowState) {
 	for r.reply.Clicked(gtx) {
 		if a := v.ownActivity(ws); s.replyable(v, ws, false, a) {
-			if a.Menu {
+			if a.Menu || s.Touch {
 				s.click(v, ws, 0)
 			} else {
 				s.openReply(ws, a.PaneID)
@@ -353,8 +361,25 @@ func pillButton(c *widget.Clickable, th *theme.Theme, base color.NRGBA, h int, t
 	if c == nil {
 		return draw
 	}
+	if touchSlop > 0 {
+		return func(gtx layout.Context) layout.Dimensions {
+			return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				d := draw(gtx)
+				defer clip.Rect{Min: image.Pt(0, -touchSlop), Max: d.Size.Add(image.Pt(0, touchSlop))}.Push(gtx.Ops).Pop()
+				return d
+			})
+		}
+	}
 	return func(gtx layout.Context) layout.Dimensions { return clickable(gtx, c, draw) }
 }
+
+// touchPad is how far past its top and bottom a pill takes a touch in a
+// Touch sidebar: an 18dp pill takes 42dp, 58dp at the phone's zoom.
+const touchPad = 12
+
+// touchSlop is touchPad in pixels while a Touch sidebar lays out, else 0.
+// ponytail: one value for the process; a phone draws one sidebar.
+var touchSlop int
 
 // answerRoom is what line 2 keeps for its own items before a row's answers:
 // the fold chip, or the inbox's group tag.

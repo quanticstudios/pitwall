@@ -107,6 +107,17 @@ Inc. pitwall's terminal emulator is x/vt. A copy lives in `third_party/x-vt`
 with one line changed to turn off alternate-screen scrollback; its license is
 in `third_party/x-vt/LICENSE` and the change in `third_party/x-vt/PATCH.md`.
 
+### gioui.org/x (vendored and patched, Android app only)
+
+<https://git.sr.ht/~eliasnaur/gio-x>, Unlicense OR MIT, Copyright (c) 2019
+The gio authors. The Android app's chat draws replies with its `markdown`,
+`richtext` and `styledtext` packages. A copy of those three at v0.10.3 lives
+in `third_party/gioui.org-x`, changed so a line's spans share its baseline
+and URLs in inline code stay code; its license is in
+`third_party/gioui.org-x/LICENSE` and the changes in
+`third_party/gioui.org-x/PATCH.md`. `markdown` parses with goldmark (MIT),
+whose license is under the Go modules below.
+
 ### T3 Code
 
 <https://github.com/pingdotgg/t3code>, MIT License, Copyright (c) 2026 T3

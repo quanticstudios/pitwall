@@ -38,6 +38,13 @@ type Sidebar struct {
 	// TreeOnly draws the rows alone, without the header and footer, for
 	// the session switcher's preview.
 	TreeOnly bool
+	// Fill takes the whole width given, not Width: the phone app, where
+	// the tree is the screen.
+	Fill bool
+	// Touch is a phone's sidebar: rows show no hover-only "…" and "×",
+	// Reply opens the tab, and answer pills take touches past their top
+	// and bottom, 58dp tall at the phone's zoom. No hover cards show.
+	Touch bool
 	// Update labels the footer's update button; "" hides it.
 	Update string
 	// Host is the ssh host the daemon runs on, named in the header; ""
@@ -415,7 +422,14 @@ func (s *Sidebar) Layout(gtx layout.Context, th *theme.Theme, st *model.State, s
 		gtx.Execute(op.InvalidateCmd{})
 	}
 
+	touchSlop = 0
+	if s.Touch {
+		touchSlop = gtx.Dp(touchPad)
+	}
 	w := min(gtx.Dp(Width), gtx.Constraints.Max.X)
+	if s.Fill {
+		w = gtx.Constraints.Max.X
+	}
 	h := gtx.Constraints.Max.Y
 	s.height = h
 	size := image.Pt(w, h)

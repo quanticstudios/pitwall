@@ -123,6 +123,16 @@ func Button(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s 
 // ButtonHint is Button with hint, such as the key that does the same,
 // after the label in a quieter color.
 func ButtonHint(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s Size, label, hint string) layout.Dimensions {
+	return button(gtx, th, c, k, s, label, hint, false)
+}
+
+// WideButton is Button as wide as the width given, its label centred: a
+// phone screen's main action.
+func WideButton(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s Size, label string) layout.Dimensions {
+	return button(gtx, th, c, k, s, label, "", true)
+}
+
+func button(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind, s Size, label, hint string, wide bool) layout.Dimensions {
 	h, pad, ts := s.metrics(th)
 	gtx.Constraints.Min = image.Point{}
 	l := lookOf(gtx, th, c, k)
@@ -142,6 +152,9 @@ func ButtonHint(gtx layout.Context, th *theme.Theme, c *widget.Clickable, k Kind
 	}
 	call := m.Stop()
 	size := image.Pt(min(td.Size.X+2*gtx.Dp(pad), gtx.Constraints.Max.X), gtx.Dp(h))
+	if wide {
+		size.X = gtx.Constraints.Max.X
+	}
 	draw := func(gtx layout.Context) layout.Dimensions {
 		r := gtx.Dp(theme.RadiusControl)
 		rect := image.Rectangle{Max: size}
