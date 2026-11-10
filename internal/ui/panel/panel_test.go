@@ -17,6 +17,23 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
+func TestChangesDevURL(t *testing.T) {
+	var p Panel
+	p.SetView(ViewChanges, -1)
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Now: time.Now(), Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(image.Pt(432, 800))}
+	in := Input{Pane: &model.Pane{}, Git: true, Base: "main", Ports: model.PortBlock{First: 3010, Last: 3019}, DevURL: "http://fix.web-app.localhost:7778"}
+	p.Layout(gtx, theme.Dark(), in)
+	p.port.Click()
+	p.Layout(gtx, theme.Dark(), in)
+	if got := p.OpenURL(); got != in.DevURL {
+		t.Fatalf("clicked %q", got)
+	}
+	if p.OpenURL() != "" {
+		t.Fatal("link returned twice")
+	}
+}
+
 func views(in *Input) string {
 	var out []string
 	for _, t := range tabsFor(in) {

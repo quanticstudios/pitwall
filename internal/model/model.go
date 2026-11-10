@@ -496,6 +496,9 @@ type State struct {
 	// missing. The daemon fills it in and replaces it whole; it is not
 	// saved.
 	Listening map[string][]int `json:"-"`
+	// DevProxyPort is the port this daemon's local dev proxy actually bound.
+	// Zero means no proxy is listening. It is not saved.
+	DevProxyPort int `json:"-"`
 	// Chats are the live (not archived) chats of every session. The daemon
 	// fills it in; it is not saved in state.json.
 	Chats []Chat `json:"-"`

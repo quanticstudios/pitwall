@@ -234,7 +234,7 @@ func (s *Sidebar) prClicks(gtx layout.Context, v *view, ws model.Workspace) {
 	}
 	for r.port.Clicked(gtx) {
 		if l := v.st.Listening[ws.ID]; len(l) > 0 {
-			s.events = append(s.events, OpenPort{Port: l[0]})
+			s.events = append(s.events, OpenPort{Port: l[0], URL: s.devURL(ws)})
 		}
 	}
 	for r.archive.Clicked(gtx) {

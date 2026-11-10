@@ -48,6 +48,8 @@ type Panel struct {
 	back    widget.Clickable
 	subNode widget.Clickable
 	diff    *gitstat.FileStat // the file clicked in Changes, until Diff takes it
+	port    widget.Clickable
+	url     string
 
 	// Set while drawing: something pulses or spins, or a duration ticks.
 	live, tick bool
@@ -61,6 +63,13 @@ func (p *Panel) Diff() (gitstat.FileStat, bool) {
 		return gitstat.FileStat{}, false
 	}
 	return *f, true
+}
+
+// OpenURL returns the dev server link last clicked in Changes, once.
+func (p *Panel) OpenURL() string {
+	u := p.url
+	p.url = ""
+	return u
 }
 
 // SetView opens view, and in Subagents the subagent at index detail (-1
@@ -98,6 +107,9 @@ func (p *Panel) Layout(gtx layout.Context, th *theme.Theme, in Input) layout.Dim
 		in.Now = gtx.Now
 	}
 	p.live, p.tick = false, false
+	if p.port.Clicked(gtx) {
+		p.url = in.DevURL
+	}
 	tabs := tabsFor(&in)
 	var subs []flow.Subagent
 	if in.Feed != nil {
@@ -899,6 +911,11 @@ func (d *drawer) changes() []layout.Widget {
 		}
 		return rowFit(gtx, parts...)
 	})}
+	if in.DevURL != "" {
+		out = append(out, pad(0, 2, 4, 2, func(gtx layout.Context) layout.Dimensions {
+			return clickable(gtx, &d.p.port, d.text(d.th.UIFont, d.th.Sp(theme.Caption), d.c.green, strings.TrimPrefix(in.DevURL, "http://"), 1))
+		}))
+	}
 	if b != nil {
 		return append(out, d.blank(b))
 	}

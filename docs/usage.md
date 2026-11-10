@@ -1882,12 +1882,70 @@ tab asks for you with "Port in use: this worktree's ports are 3010-3019".
 
 Every 3 seconds the daemon checks which ports of each block accept a
 connection on localhost. When one does, the tab's row shows a chip with the
-first such port, `:3010`, before the PR chip. Click it to open
-`http://localhost:3010` in your browser. The hover card and the Changes
-view list every open port of the block. With `pitwall --host` the daemon
-checks the host's ports, so the hover card and Changes view still list
-them, but the row shows no chip: localhost on your machine is not the
-host.
+first such port, `:3010`, before the PR chip. Click it to open the tab's
+named URL, such as `http://fix-login.web-app.localhost:7778`. The hover card
+and Changes view list every open port and have a link to the named URL.
+
+<img src="media/dev-server-names.png" alt="The worktree's hover card and Changes view show its named dev server URL" width="1000">
+
+The daemon's HTTP proxy listens only on `127.0.0.1:7778`. Port 7778 is beside
+the phone page's default 7777 and needs no administrator privileges.
+`<folder>.<repo>.localhost:7778` forwards to the first open port in the tab's
+block. `<n>.<folder>.<repo>.localhost:7778` forwards to `PITWALL_PORT_BASE + n`,
+where `n` starts at 0 and must fit inside the block. For example,
+`http://1.fix-login.web-app.localhost:7778` reaches the second port.
+WebSocket upgrades pass through for hot module reload.
+
+Worktree folder and repo names become lowercase DNS labels. Runs of
+punctuation become a hyphen, leading and trailing hyphens disappear, and labels stop at
+63 characters. A name with no ASCII letters or digits becomes `worktree`.
+If two tabs produce the same name, the proxy returns 409 instead of choosing
+a tab. Use direct port URLs for those tabs. Unknown `.localhost` names get
+a plain 404 page listing the known names. Other Host values get 403.
+
+Panes started while the proxy is listening also get `PITWALL_URL`, such as
+`http://fix-login.web-app.localhost:7778`. The name uses the worktree folder,
+so changing branches or entering detached HEAD does not change the URL.
+The first-port route can take one probe interval to find a server that
+just started. A tab with no open ports gets 503; a port that stops answering can return 502 until
+the next probe.
+
+[Chromium supports `.localhost` names without DNS setup](https://web.dev/articles/when-to-use-local-https).
+[Firefox also resolves `.localhost` names to loopback](https://bugzilla.mozilla.org/show_bug.cgi?id=1741109).
+No hosts-file changes are needed in either browser. For curl versions or
+system resolvers that do not resolve these names, pass `--resolve` or a
+Host header:
+
+```sh
+curl --noproxy '*' --resolve fix-login.web-app.localhost:7778:127.0.0.1 \
+  http://fix-login.web-app.localhost:7778/
+curl --noproxy '*' -H 'Host: fix-login.web-app.localhost:7778' \
+  http://127.0.0.1:7778/
+```
+
+Configure the proxy in `config.toml`:
+
+```toml
+[dev_proxy]
+enabled = true
+port = 7778
+```
+
+Set `enabled = false` to keep direct port URLs and omit `PITWALL_URL`.
+Restart the daemon and reopen panes after changing these settings. A port
+that another process holds prevents the proxy from starting; the daemon
+logs the bind error in `daemon.log` and offers direct port URLs until it
+can bind. Panes started without a bound proxy get no `PITWALL_URL`; reopen
+them after the proxy starts. The GUI uses the bound port reported by the
+daemon, so a config edit cannot point links at another listener. Pick a
+free port if the configured one stays occupied.
+The proxy port must not overlap the worktree blocks.
+
+With `pitwall --host`, the daemon checks the host's ports, so the hover
+card and Changes view still list them, but the row shows no chip and the
+views offer no named link. The proxy stays on the daemon's loopback and
+is not forwarded over SSH. `PITWALL_URL` inside a remote pane refers to that
+host's loopback. Open a forwarded port directly to reach a remote dev server.
 
 Next.js, Create React App, Rails with Puma's default config and any app that
 reads `process.env.PORT` pick up `PORT` on their own. Others need it passed:

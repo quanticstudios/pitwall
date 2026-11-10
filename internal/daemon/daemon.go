@@ -88,6 +88,7 @@ type Pane interface {
 // Options are the daemon's collaborators. New wires the real packages; tests
 // pass fakes to NewWith.
 type Options struct {
+	DevProxy config.DevProxySettings // local dev servers; fixed until daemon restart
 	// KeepAwake reads [agents] keep_awake and keep_awake_grace live; nil leaves it off.
 	KeepAwake func() (bool, time.Duration)
 	// InhibitIdle blocks Linux sleep or macOS idle sleep until its closer closes.
@@ -227,6 +228,7 @@ type Daemon struct {
 	worktreeDeletes map[string]bool // guarded by mu
 	worktreeJobs    sync.WaitGroup
 	o               Options
+	devProxyStop    func() // startup listener, adopted by Serve or closed by shutdown
 
 	scrollbackFiles map[string]string // editor pane: its temporary file; guarded by mu
 
@@ -377,6 +379,7 @@ func Defaults() Options {
 		Remote:            func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
 		RemoteDir:         remote.Dir(),
 		Web:               func() config.WebSettings { return config.LoadWeb(config.Path()) },
+		DevProxy:          func() config.DevProxySettings { s, _ := config.Load(); return s.DevProxy }(),
 		WebPath:           web.Path(),
 		Split:             layout.Split,
 		Remove:            layout.Remove,
@@ -426,6 +429,7 @@ func NewWith(o Options) (*Daemon, error) {
 		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
 	}
 	cancel()
+	d.devProxyStop = d.serveDevProxy()
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
 	if !d.resumeOn() {
@@ -494,6 +498,7 @@ func NewWith(o Options) (*Daemon, error) {
 
 // fromState is a daemon holding st and no panes.
 func fromState(o Options, st model.State) *Daemon {
+	st.DevProxyPort = 0 // A handoff's listener belongs to the sending daemon.
 	if o.StatsInterval == 0 {
 		o.StatsInterval = 30 * time.Second
 	}
@@ -555,6 +560,7 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 	wg.Go(func() { d.livenessLoop(ctx) }) // waited for: tests swap the globals it reads
 	wg.Go(func() { d.remoteLoop(ctx) })
 	wg.Go(func() { d.webLoop(ctx) })
+	wg.Go(func() { d.devProxyLoop(ctx) })
 	wg.Go(func() { d.keepAwakeLoop(ctx) })
 
 	var acceptErr error
@@ -579,6 +585,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 func (d *Daemon) shutdown() {
+	if d.devProxyStop != nil {
+		d.devProxyStop()
+	}
 	d.mu.Lock()
 	d.stopRestores()
 	d.mu.Unlock()
@@ -2020,7 +2029,14 @@ func (d *Daemon) startVT(id string, cmd []string, cwd string, ports model.PortBl
 	if !ok || size[0] <= 0 || size[1] <= 0 {
 		size = [2]int{defaultCols, defaultRows}
 	}
-	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portEnv(ports), env...), Cols: size[0], Rows: size[1], NewVT: d.paneVT(id, ports, newVT)})
+	portVars := portEnv(ports)
+	for _, w := range d.st.Workspaces {
+		if ports.First != 0 && w.Ports == ports {
+			portVars = d.worktreeEnv(w)
+			break
+		}
+	}
+	p, err := d.o.StartPane(pane.Config{ID: id, Cmd: cmd, Cwd: cwd, Env: append(portVars, env...), Cols: size[0], Rows: size[1], NewVT: d.paneVT(id, ports, newVT)})
 	if err != nil {
 		return err
 	}

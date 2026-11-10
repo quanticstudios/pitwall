@@ -190,6 +190,9 @@ func (s *Sidebar) radarInput(gtx layout.Context) {
 		s.fileBtn, s.fileFor = nil, s.hover.shown
 	}
 	var send Event
+	if s.cardPort.Clicked(gtx) && s.cardURL != "" {
+		send = OpenPort{URL: s.cardURL}
+	}
 	if s.cardFails.Clicked(gtx) {
 		send = SendFailures{WorkspaceID: s.hover.shown}
 	}

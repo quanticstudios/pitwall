@@ -654,6 +654,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.Answers = u.canAnswer()
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
+	u.sidebar.DevProxyPort = st.DevProxyPort
 	for _, p := range u.panes {
 		p.rect = image.Rectangle{}
 	}
@@ -1101,7 +1102,11 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 			openLink(c)
 		}
 	case sidebar.OpenPort:
-		openLink(fmt.Sprintf("http://localhost:%d", e.Port))
+		if e.URL != "" {
+			openLink(e.URL)
+		} else {
+			openLink(fmt.Sprintf("http://localhost:%d", e.Port))
+		}
 	case sidebar.MergePR:
 		u.prAction(st, e.WorkspaceID, "merge_pr")
 	case sidebar.RerunChecks:

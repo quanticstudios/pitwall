@@ -1,4 +1,4 @@
-18.71
+18.72
 agent.ScreenCheck{Name string; Pattern string; Matched bool; Line string}
 agent.ScreenTrace{Provider model.Provider; State model.AgentState; Rule string; Matched *agent.ScreenCheck; Checks []agent.ScreenCheck}
 image.Point{X int; Y int}
@@ -24,7 +24,7 @@ model.Program{App string; State string; Kind string; Progress int; Message strin
 model.Project{ID string; SessionID string; Name string; Root string; Kind model.ProjectKind; Color string; Icon string}
 model.RemoteSession{Host string; Session string; Forget []string}
 model.Session{ID string; Name string; Order []string; UsedAt time.Time; Windows int; Remotes []model.RemoteSession; Killing bool}
-model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
+model.State{Version uint64; Sessions []model.Session; Projects []model.Project; Workspaces []model.Workspace; Panes []model.Pane; Activities []model.Activity; Stats map[string]model.BranchStats; PRs map[string]model.PR; Notice string; Clipboard model.Clipboard; Overlaps map[string][]model.Overlap; Tasks []model.Task; Queued map[string]int; Drafting map[string]bool; DraftHeld map[string]bool; Delivered map[string]uint64; Listening map[string][]int; DevProxyPort int; Chats []model.Chat; Closed []model.ClosedTab; Forms []model.Form}
 model.Tab{ID string; Name string; Title string; Layout *layout.Node}
 model.Task{FreshWorktree bool; NextStart time.Time; Repeat time.Duration; Profile string; ID string; SessionID string; GroupID string; Dir string; Worktree string; Base string; Branch string; Cmd []string; Env []string}
 model.TaskRun{Pane string; Base string}

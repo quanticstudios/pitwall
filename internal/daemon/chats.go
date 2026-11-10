@@ -319,7 +319,7 @@ func (d *Daemon) chatCreate(ctx context.Context, m proto.ChatNew, seed *forkSeed
 		}
 		w.Chat = c.id
 		c.cfg = session.Config{Format: 1, ID: c.id, Provider: m.Provider, Workspace: w.ID, Cwd: w.Path, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Created: time.Now(),
-			FakeStartFailure: m.FakeStartFailure, Env: append(portEnv(w.Ports), "PITWALL_PANE="+c.id)}
+			FakeStartFailure: m.FakeStartFailure, Env: append(d.worktreeEnv(*w), "PITWALL_PANE="+c.id)}
 		c.sum = model.Chat{ID: c.id, WorkspaceID: w.ID, Provider: m.Provider, Model: m.Model, Effort: m.Effort, Mode: m.Mode, Title: c.title, State: session.StateReady, UpdatedAt: time.Now()}
 		d.chats[c.id] = c
 		d.st.Chats = append(d.st.Chats, c.sum)

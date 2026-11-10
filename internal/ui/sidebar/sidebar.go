@@ -28,6 +28,7 @@ import (
 const Width unit.Dp = 288
 
 type Sidebar struct {
+	DevProxyPort int // zero keeps direct port URLs
 	// Forks is whether the daemon supports terminal forks.
 	Forks    bool
 	Profiles map[string]config.Profile
@@ -221,11 +222,12 @@ type Sidebar struct {
 	// The card's conflict radar: the pointer on the card (cardTag), and
 	// its file buttons, by other tab and path, for tab fileFor. Its PR's
 	// Send failures and Send review comments buttons.
-	cardTag              int
-	cardHover            bool
-	fileBtn              map[string]*widget.Clickable
-	fileFor              string
-	cardFails, cardNotes widget.Clickable
+	cardTag                        int
+	cardHover                      bool
+	cardURL                        string
+	fileBtn                        map[string]*widget.Clickable
+	fileFor                        string
+	cardFails, cardNotes, cardPort widget.Clickable
 
 	// The queued tasks: this frame's blocks, and each task's row state.
 	queue    []queueBlock

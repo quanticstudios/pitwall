@@ -231,7 +231,7 @@ func (s *Sidebar) workspaceRow(gtx layout.Context, v *view, ws model.Workspace, 
 		}
 		// The first open port of the tab's block, a dev server. On a Host it
 		// listens there, and localhost here would not reach it.
-		if l := v.st.Listening[ws.ID]; len(l) > 0 && s.Host == "" {
+		if l := v.st.Listening[ws.ID]; len(l) > 0 && s.Host == "" && s.hostOf(ws.ID) == "" {
 			line = append(line, item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
 				if ghost {
 					return PortChip(gtx, th, l[0], base)

@@ -76,9 +76,12 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 // it names, never another, and one naming none to the host of the shown
 // session.
 func TestMultiRoutes(t *testing.T) {
-	local, ld := localBackend(t, hostState("ls", "lw", "lp"))
+	localState := hostState("ls", "lw", "lp")
+	localState.DevProxyPort = 7778
+	local, ld := localBackend(t, localState)
 	conns := make(chan end, 1)
 	box := hostState("rs", "rw", "rp")
+	box.DevProxyPort = 8888
 	box.Closed = []model.ClosedTab{{ID: "rc", Tab: model.Workspace{ID: "old", SessionID: "gone"}}}
 	m := newMulti(local, []hostDial{{name: "box", dial: fakeDaemon(box, conns)}})
 	rd := <-conns
@@ -86,6 +89,9 @@ func TestMultiRoutes(t *testing.T) {
 	waitFor(t, "box's state", func() bool { st := m.State(); return st.Session("rs") != nil })
 	if st := m.State(); len(st.Closed) != 1 || m.SessionHost("rc") != "box" {
 		t.Fatalf("closed tabs %+v on %q", st.Closed, m.SessionHost("rc"))
+	}
+	if got := m.State().DevProxyPort; got != localState.DevProxyPort {
+		t.Fatalf("local proxy port %d, want %d", got, localState.DevProxyPort)
 	}
 	if h := m.Hosts(); len(h) != 2 || !h[1].Up || h[1].Name != "box" || h[1].Sessions[0] != "rs" {
 		t.Fatalf("hosts %+v", h)

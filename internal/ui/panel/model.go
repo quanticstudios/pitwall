@@ -29,6 +29,7 @@ type Input struct {
 	// Listening the ones of it that accept a connection.
 	Ports     model.PortBlock
 	Listening []int
+	DevURL    string
 	Now       time.Time
 	// ShowCost shows what the agent's tokens cost at list prices.
 	ShowCost bool

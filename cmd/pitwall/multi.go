@@ -269,6 +269,7 @@ func (m *multi) merge() {
 	var st model.State
 	owner := map[string]*hostLink{}
 	local := m.hosts[0].b.State()
+	st.DevProxyPort = local.DevProxyPort
 	fold := map[string]map[string]string{} // by host: its session, the shared one here
 	forget, folded, shared := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, ss := range local.Sessions {

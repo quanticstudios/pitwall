@@ -83,6 +83,10 @@ conflict_radar = true                   # mark tabs whose branches change the sa
 # setup = "pnpm install"
 # teardown = "docker compose down"       # runs before removing each worktree
 
+[dev_proxy]                            # see usage.md, Worktree ports and setup
+enabled = true                        # false keeps direct port URLs
+port = 7778                           # 127.0.0.1 only; restart the daemon after changes
+
 [agents]
 startup_per_agent_delay_ms = 100         # gap after each restored agent; 0 starts all at once
 keep_awake = false                      # block Linux sleep or macOS idle sleep during work
