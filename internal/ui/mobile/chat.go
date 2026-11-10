@@ -2,6 +2,7 @@ package mobile
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"io"
@@ -307,6 +308,15 @@ func statePill(gtx C, th *theme.Theme, t remote.Tab, base color.NRGBA) D {
 	return d
 }
 
+// offlineText is the offline line's words, with the seconds until the
+// stream tries again at retry.
+func offlineText(retry, now time.Time) string {
+	if left := retry.Sub(now); left > 0 {
+		return fmt.Sprintf("Offline, reconnecting in %d s", int(math.Ceil(left.Seconds())))
+	}
+	return "Offline, reconnecting"
+}
+
 // offlineLine is the red line under the header while the stream is down,
 // with Retry.
 func offlineLine(gtx C, th *theme.Theme, text string, retry *widget.Clickable, canRetry bool) D {
@@ -319,14 +329,14 @@ func offlineLine(gtx C, th *theme.Theme, text string, retry *widget.Clickable, c
 	d := layout.Inset{Left: 16, Right: 6}.Layout(gtx, func(gtx C) D {
 		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(52))
 		return midFlex(gtx,
-			layout.Rigid(func(gtx C) D { return icon(gtx, icWifiOff, 18, red) }),
+			layout.Rigid(func(gtx C) D { return glyph(gtx, icWifiOff, 18, red) }),
 			layout.Rigid(layout.Spacer{Width: 10}.Layout),
 			layout.Flexed(1, func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Fg, 2, text) }),
 			layout.Rigid(func(gtx C) D {
 				if !canRetry {
 					return D{}
 				}
-				return textButton(gtx, th, retry, "Retry")
+				return linkButton(gtx, th, retry, "Retry")
 			}),
 		)
 	})
@@ -338,7 +348,7 @@ func offlineLine(gtx C, th *theme.Theme, text string, retry *widget.Clickable, c
 }
 
 // textButton is a blue text button 48dp tall.
-func textButton(gtx C, th *theme.Theme, c *widget.Clickable, s string) D {
+func linkButton(gtx C, th *theme.Theme, c *widget.Clickable, s string) D {
 	return c.Layout(gtx, func(gtx C) D {
 		m := op.Record(gtx.Ops)
 		d := layout.Inset{Left: 12, Right: 12}.Layout(gtx, func(gtx C) D {
@@ -460,7 +470,7 @@ func (c *chatView) newPill(gtx C, th *theme.Theme) D {
 			d := layout.Inset{Left: 14, Right: 14}.Layout(gtx, func(gtx C) D {
 				gtx.Constraints.Min.Y = gtx.Dp(36)
 				return midFlex(gtx,
-					layout.Rigid(func(gtx C) D { return icon(gtx, icDown, 16, th.Fg) }),
+					layout.Rigid(func(gtx C) D { return glyph(gtx, icDown, 16, th.Fg) }),
 					layout.Rigid(layout.Spacer{Width: 6}.Layout),
 					layout.Rigid(func(gtx C) D {
 						return label(gtx, th, weight(th.UIFont, font.SemiBold), 14.5, th.Fg, 1, "New messages")
@@ -610,7 +620,7 @@ func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 							chev = icDown
 						}
 						return midFlex(gtx,
-							layout.Rigid(func(gtx C) D { return icon(gtx, chev, 16, th.Muted) }),
+							layout.Rigid(func(gtx C) D { return glyph(gtx, chev, 16, th.Muted) }),
 							layout.Rigid(layout.Spacer{Width: 8}.Layout),
 							layout.Rigid(func(gtx C) D {
 								return label(gtx, th, weight(th.UIFont, font.SemiBold), 15, th.Muted, 1, e.Tool)
@@ -661,22 +671,22 @@ func asks(t remote.Tab) bool {
 	return t.Answer || len(t.Requests) > 0 || slices.Contains([]string{"pending-approval", "plan-ready", "awaiting-input"}, t.State)
 }
 
-// Lucide icons the sidebar lacks, and the ones it has that the chat uses.
+// The sidebar.Icon glyphs the chat draws.
 const (
-	icBack    = "M15 18l-6-6 6-6"
-	icDown    = "M6 9l6 6 6-6"
-	icRight   = "M9 18l6-6-6-6"
-	icAlert   = "M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M12 8v4M12 16h.01"
-	icClock   = "M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0M12 6v6l4 2"
-	icLoader  = "M21 12a9 9 0 1 1-6.219-8.56"
-	icCheck   = "M20 6L9 17l-5-5"
-	icUp      = "M5 12l7-7 7 7M12 19V5"
-	icWifiOff = "M12 20h.01M8.5 16.429a5 5 0 0 1 7 0M5 12.859a10 10 0 0 1 5.17-2.69M19 12.859a10 10 0 0 0-2.007-1.523M2 8.82a15 15 0 0 1 4.177-2.643M22 8.82a15 15 0 0 0-11.288-3.764M2 2l20 20"
+	icBack    = "chevron-left"
+	icDown    = "chevron-down"
+	icRight   = "chevron-right"
+	icAlert   = "circle-alert"
+	icClock   = "clock"
+	icLoader  = "loader"
+	icCheck   = "check"
+	icUp      = "arrow-up"
+	icWifiOff = "wifi-off"
 )
 
-// icon strokes lucide path d in a size dp box.
-func icon(gtx C, d string, size unit.Dp, col color.NRGBA) D {
-	return sidebar.Path(gtx, d, gtx.Dp(size), col)
+// glyph draws sidebar.Icon's name in a size dp box.
+func glyph(gtx C, name string, size unit.Dp, col color.NRGBA) D {
+	return sidebar.Icon(gtx, name, gtx.Dp(size), col)
 }
 
 // spinner is the loader icon, turning once a second.
@@ -685,7 +695,7 @@ func spinner(gtx C, size unit.Dp, col color.NRGBA) D {
 	a := float32(gtx.Now.UnixMilli()%1000) / 1000 * 2 * math.Pi
 	defer op.Affine(f32.AffineId().Rotate(f32.Pt(float32(s)/2, float32(s)/2), a)).Push(gtx.Ops).Pop()
 	gtx.Execute(op.InvalidateCmd{})
-	return sidebar.Path(gtx, icLoader, s, col)
+	return sidebar.Icon(gtx, icLoader, s, col)
 }
 
 // circle is a filled dot of size dp.
@@ -704,7 +714,7 @@ func roundButton(gtx C, th *theme.Theme, c *widget.Clickable, d string, size uni
 		}
 		is := gtx.Dp(size)
 		o := op.Offset(image.Pt((s-is)/2, (s-is)/2)).Push(gtx.Ops)
-		icon(gtx, d, size, col)
+		glyph(gtx, d, size, col)
 		o.Pop()
 		return D{Size: image.Pt(s, s)}
 	})

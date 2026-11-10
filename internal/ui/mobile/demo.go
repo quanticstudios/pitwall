@@ -88,7 +88,7 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 	c.cmp.effort = "high"
 	t := demoTab()
 	env := chatEnv{Tab: t, Open: true, Online: true,
-		Models:  append(slices.Clone(remote.Models[:3]), append([]string{"opus[1m]"}, remote.Models[3:]...)...),
+		Models:  remote.Models,
 		Efforts: remote.Efforts,
 		Now:     time.Unix(1_800_000_000, 0)}
 	env.Do = func(call func(context.Context, chatAPI) error, done func(error)) {

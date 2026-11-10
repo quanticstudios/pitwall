@@ -285,7 +285,7 @@ func strip(gtx C, th *theme.Theme, bold, rest string, bad bool) D {
 	return layout.Inset{Left: 6, Right: 6, Bottom: 6}.Layout(gtx, func(gtx C) D {
 		gtx.Constraints.Min.Y = gtx.Dp(28)
 		return midFlex(gtx,
-			layout.Rigid(func(gtx C) D { return icon(gtx, ic, 16, col) }),
+			layout.Rigid(func(gtx C) D { return glyph(gtx, ic, 16, col) }),
 			layout.Rigid(layout.Spacer{Width: 8}.Layout),
 			layout.Rigid(func(gtx C) D { return label(gtx, th, weight(th.UIFont, font.SemiBold), 14, col, 1, bold) }),
 			layout.Rigid(layout.Spacer{Width: 8}.Layout),
@@ -413,11 +413,11 @@ func sendButton(gtx C, th *theme.Theme, c *widget.Clickable, st sendState) D {
 		off := op.Offset(image.Pt((hit-is)/2, (hit-is)/2)).Push(gtx.Ops)
 		switch st {
 		case sendQueue:
-			icon(gtx, icClock, 22, fg)
+			glyph(gtx, icClock, 22, fg)
 		case sendSending:
 			spinner(gtx, 22, fg)
 		default:
-			icon(gtx, icUp, 22, fg)
+			glyph(gtx, icUp, 22, fg)
 		}
 		off.Pop()
 		return D{Size: image.Pt(hit, hit)}
@@ -487,7 +487,7 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
 					if pend {
 						col = fg
 					}
-					return icon(gtx, icDown, 15, col)
+					return glyph(gtx, icDown, 15, col)
 				}),
 			)
 		})
@@ -584,6 +584,9 @@ func (c *chatView) firePick(env chatEnv) {
 			return
 		}
 		k.picking = false
+		if phone.IsBusy(err) {
+			return // a turn began first: the pick waits for the next idle
+		}
 		if k.pick == p {
 			k.pick = nil
 		}
@@ -715,7 +718,7 @@ func menuItem(gtx C, th *theme.Theme, b *widget.Clickable, which int, value, nam
 					if !on {
 						return D{}
 					}
-					return icon(gtx, icCheck, 18, th.Readable(th.Primary, th.SurfaceElevated))
+					return glyph(gtx, icCheck, 18, th.Readable(th.Primary, th.SurfaceElevated))
 				}),
 			)
 		})

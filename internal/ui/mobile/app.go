@@ -235,7 +235,8 @@ func (a *App) chatLayout(gtx C) {
 			a.do(func(ctx context.Context, c *phone.Client) error { return call(ctx, c) }, done)
 		}}
 	if a.offline != "" {
-		env.Offline = "Offline, reconnecting"
+		env.Offline = offlineText(a.retryAt, gtx.Now)
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
 	}
 	if a.conn != nil {
 		env.Retry = a.conn.Retry

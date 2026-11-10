@@ -152,7 +152,7 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 func cardHead(th *theme.Theme, s string) layout.Widget {
 	return func(gtx C) D {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx C) D { return icon(gtx, icAlert, 20, th.Yellow) }),
+			layout.Rigid(func(gtx C) D { return glyph(gtx, icAlert, 20, th.Yellow) }),
 			layout.Rigid(layout.Spacer{Width: 9}.Layout),
 			layout.Flexed(1, func(gtx C) D { return label(gtx, th, weight(th.UIFont, font.SemiBold), 16, th.Fg, 2, s) }),
 		)

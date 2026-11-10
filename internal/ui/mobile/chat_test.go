@@ -178,10 +178,19 @@ func TestPickWaitsForIdle(t *testing.T) {
 		t.Errorf("after a turn, the chip says %q", got)
 	}
 
+	// A turn that began before the pick went in leaves it waiting.
+	api.err = errors.New("Claude Code is working; try again when it waits at its input box")
+	c.cmp.pick = &pick{"model", "haiku"}
+	c.firePick(env)
+	later[len(later)-1]()
+	if c.cmp.pick == nil || c.cmp.picking || c.cmp.note != "" {
+		t.Errorf("busy refusal: pick %v, picking %v, note %q", c.cmp.pick, c.cmp.picking, c.cmp.note)
+	}
+
 	api.err = errors.New("that pane shows a form; answer it in its tab")
 	c.cmp.pick = &pick{"effort", "max"}
 	c.firePick(env)
-	later[1]()
+	later[len(later)-1]()
 	if c.cmp.effort != "" || c.cmp.note != "That pane shows a form; answer it in its tab" {
 		t.Errorf("failed pick: effort %q, note %q", c.cmp.effort, c.cmp.note)
 	}
@@ -197,5 +206,15 @@ func TestPageInKeepsPlace(t *testing.T) {
 	}
 	if got := c.data.First(); got != 7 {
 		t.Errorf("first seq %d", got)
+	}
+}
+
+func TestOfflineText(t *testing.T) {
+	now := time.Unix(100, 0)
+	if got := offlineText(now.Add(3200*time.Millisecond), now); got != "Offline, reconnecting in 4 s" {
+		t.Errorf("counting down: %q", got)
+	}
+	if got := offlineText(time.Time{}, now); got != "Offline, reconnecting" {
+		t.Errorf("no retry time: %q", got)
 	}
 }
