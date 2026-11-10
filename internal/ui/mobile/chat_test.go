@@ -318,3 +318,31 @@ func TestCodeURL(t *testing.T) {
 		t.Errorf("code %q, link %q", code, link)
 	}
 }
+
+// Punctuation after bold or code travels with it, so it never wraps alone.
+func TestGluePunct(t *testing.T) {
+	sp := func(s ...string) []richtext.SpanStyle {
+		out := make([]richtext.SpanStyle, len(s))
+		for i := range s {
+			out[i].Content = s[i]
+		}
+		return out
+	}
+	text := func(ss []richtext.SpanStyle) []string {
+		out := []string{}
+		for _, s := range ss {
+			out = append(out, s.Content)
+		}
+		return out
+	}
+	for _, c := range []struct{ in, want []string }{
+		{[]string{"moved under ", "Build from source", "."}, []string{"moved under ", "Build from source."}},
+		{[]string{"in ", "Add", ", ", "Remove", " and ", "Total", ". Then"}, []string{"in ", "Add,", " ", "Remove", " and ", "Total.", " Then"}},
+		{[]string{"ends with space ", ". odd"}, []string{"ends with space ", ". odd"}},
+		{[]string{"x", "plain"}, []string{"x", "plain"}},
+	} {
+		if got := text(gluePunct(sp(c.in...))); !slices.Equal(got, c.want) {
+			t.Errorf("gluePunct(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

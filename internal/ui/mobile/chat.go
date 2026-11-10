@@ -586,7 +586,7 @@ func (c *chatView) markdown(gtx C, th *theme.Theme, rt *richtext.InteractiveText
 			spans = spans[:len(spans)-1]
 		}
 		spans[len(spans)-1].Content = strings.TrimRight(spans[len(spans)-1].Content, "\n")
-		p.spans = spans
+		p.spans = gluePunct(spans)
 	}
 	for {
 		span, ev, ok := rt.Update(gtx)
