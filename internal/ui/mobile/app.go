@@ -60,10 +60,9 @@ type App struct {
 	session string // the State session the list shows
 	sb      sidebar.Sidebar
 
-	pair  pairView
-	list  listView
-	chat  chatView
-	sheet sheetView
+	pair pairView
+	list listView
+	chat chatView
 }
 
 // Run runs the app in w, with its pairing kept in dir, until w closes.
@@ -168,7 +167,6 @@ func (a *App) unpair(why string) {
 	phone.Forget(a.dir)
 	a.client, a.conn, a.tabs, a.st, a.session = nil, nil, nil, model.State{}, ""
 	a.chat = chatView{}
-	a.sheet = sheetView{}
 	a.pair.note = sentence(why)
 }
 
@@ -214,15 +212,35 @@ func (a *App) tab() (remote.Tab, bool) {
 }
 
 func (a *App) openChat(pane string) {
-	a.chat = chatView{pane: pane}
-	a.chat.list.ScrollToEnd = true
+	a.chat = newChat(pane)
 	a.conn.Watch(pane)
 }
 
 func (a *App) closeChat() {
 	a.chat = chatView{}
-	a.sheet = sheetView{}
 	a.conn.Watch("")
+}
+
+// chatLayout draws the open chat. It draws in real dp, so it undoes the
+// zoom.
+func (a *App) chatLayout(gtx C) {
+	gtx.Metric.PxPerDp /= zoom
+	gtx.Metric.PxPerSp /= zoom
+	t, open := a.tab()
+	env := chatEnv{Tab: t, Open: open, Online: a.online, Models: a.hello.Models, Efforts: a.hello.Efforts,
+		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+			a.do(func(ctx context.Context, c *phone.Client) error { return call(ctx, c) }, done)
+		}}
+	if a.offline != "" {
+		env.Offline = offlineText(a.retryAt, gtx.Now)
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(time.Second)})
+	}
+	if a.conn != nil {
+		env.Retry = a.conn.Retry
+	}
+	if a.chat.layout(gtx, a.th, env) {
+		a.closeChat()
+	}
 }
 
 func (a *App) layout(gtx C) {
@@ -234,10 +252,10 @@ func (a *App) layout(gtx C) {
 	default:
 		a.chatLayout(gtx)
 	}
-	a.sheetLayout(gtx)
-	// Back, or Esc on a desktop, closes the sheet, then the chat. On the
-	// list it goes unread, so Android leaves the app.
-	if a.sheet.open == "" && a.chat.pane == "" {
+	// Back, or Esc on a desktop, closes the chat's menu, then its
+	// keyboard, then the chat. On the list it goes unread, so Android
+	// leaves the app.
+	if a.chat.pane == "" {
 		return
 	}
 	for {
@@ -246,9 +264,7 @@ func (a *App) layout(gtx C) {
 			break
 		}
 		if ke, ok := ev.(key.Event); ok && ke.State == key.Press {
-			if a.sheet.open != "" {
-				a.sheet = sheetView{}
-			} else {
+			if !a.chat.handleBack(gtx) {
 				a.closeChat()
 			}
 			a.w.Invalidate()

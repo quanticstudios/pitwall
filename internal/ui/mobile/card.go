@@ -3,14 +3,19 @@ package mobile
 import (
 	"context"
 	"fmt"
+	"image"
 	"strings"
 
+	"gioui.org/font"
+	"gioui.org/io/key"
 	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
-	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
-	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -43,90 +48,96 @@ func cardKey(t remote.Tab) string {
 	return fmt.Sprintf("%s|%d|%s|%s", t.Pane, t.At, t.State, strings.Join(ids, ","))
 }
 
-func (a *App) askCard(gtx C, t remote.Tab) D {
-	c, th := &a.chat.card, a.th
-	if k := cardKey(t); k != c.key {
-		*c = cardState{key: k}
+// askCard is the card above the composer while the tab asks something:
+// the command in view with Deny and Allow, a chat tab's approvals, plans
+// and questions, or where to answer what the phone cannot.
+func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
+	k, t := &c.card, env.Tab
+	if key := cardKey(t); key != k.key {
+		*k = cardState{key: key}
 		for _, r := range t.Requests {
 			rs := &reqState{picked: make([]string, len(r.Questions)), texts: make([]widget.Editor, len(r.Questions)), opts: make([][]widget.Clickable, len(r.Questions))}
 			for i, q := range r.Questions {
 				rs.opts[i] = make([]widget.Clickable, len(q.Options))
 			}
-			c.reqs = append(c.reqs, rs)
+			k.reqs = append(k.reqs, rs)
 		}
 	}
 	done := func(msg string) func(error) {
 		return func(err error) {
-			c.busy = false
+			k.busy = false
 			if err != nil {
-				c.note, c.bad = err.Error(), true
+				k.note, k.bad = err.Error(), true
 				return
 			}
-			c.note, c.bad = msg, false
+			k.note, k.bad = msg, false
 		}
 	}
 	answer := func(allow bool) {
-		c.busy = true
+		k.busy = true
 		pane, at := t.Pane, t.At
-		a.do(func(ctx context.Context, cl *phone.Client) error { return cl.Answer(ctx, pane, at, allow) },
+		env.Do(func(ctx context.Context, api chatAPI) error { return api.Answer(ctx, pane, at, allow) },
 			done(map[bool]string{true: "Allowed.", false: "Denied."}[allow]))
 	}
-	if c.allow.Clicked(gtx) && !c.busy {
+	if k.allow.Clicked(gtx) && !k.busy {
 		answer(true)
 	}
-	if c.deny.Clicked(gtx) && !c.busy {
+	if k.deny.Clicked(gtx) && !k.busy {
 		answer(false)
 	}
 
+	agent := agentName(t.Agent)
+	if agent == "" {
+		agent = "The agent"
+	}
 	var w []layout.Widget
 	if len(t.Requests) > 0 {
 		for i, r := range t.Requests {
-			if i < len(c.reqs) {
-				w = append(w, a.request(gtx, t.Pane, r, c.reqs[i], done)...)
+			if i < len(k.reqs) {
+				w = append(w, c.request(gtx, th, env, r, k.reqs[i], agent, done)...)
 			}
 		}
 	} else {
-		w = append(w, func(gtx C) D {
-			l := t.Label
-			if l == "" {
-				l = "Waiting"
-			}
-			return label(gtx, th, weight(th.UIFont, 600), th.Sp(theme.Small), th.Readable(th.Yellow, th.Surface), 1, l)
-		})
+		head := agent + " asks"
+		switch t.State {
+		case "pending-approval":
+			head = agent + " wants to run"
+		case "plan-ready":
+			head = agent + " has a plan"
+		case "error":
+			head = agent + " stopped"
+		}
+		w = append(w, cardHead(th, head))
 		if t.Detail != "" {
-			w = append(w, gap(4), func(gtx C) D { return body(gtx, th, th.Fg, t.Detail) })
+			w = append(w, gap(10), func(gtx C) D { return pre(gtx, th, t.Detail, 8) })
 		}
 		switch {
 		case t.Answer:
-			w = append(w, gap(10), func(gtx C) D {
-				return layout.Flex{}.Layout(gtx,
-					layout.Rigid(func(gtx C) D { return button(gtx, th, &c.allow, kit.Primary.When(!c.busy), "Allow") }),
-					layout.Rigid(func(gtx C) D {
-						return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D { return button(gtx, th, &c.deny, kit.Secondary.When(!c.busy), "Deny") })
-					}),
-				)
+			w = append(w, gap(12), func(gtx C) D {
+				return twoButtons(gtx, th, &k.deny, "Deny", &k.allow, "Allow", !k.busy)
 			})
-		case c.note != "":
+			if k.note == "" {
+				k.note = "Always, and plan answers, are on the desktop sidebar."
+			}
+		case k.note != "":
 		case t.State == "awaiting-input" && t.Reply:
-			c.note = "Type your answer below."
-		case t.State == "pending-approval":
-			c.note = "Answer it in its tab."
+			k.note = "Type your answer below."
 		case t.State == "plan-ready":
-			c.note = "Answer the plan in its tab or from the sidebar."
+			k.note = "Answer the plan in its tab or from the sidebar."
 		default:
-			c.note = "Its screen shows a menu: answer it in its tab."
+			k.note = "Its screen shows a menu: answer it in its tab."
 		}
 	}
-	if c.note != "" {
+	if k.note != "" {
 		col := th.Muted
-		if c.bad {
+		if k.bad {
 			col = th.Readable(th.Red, th.Surface)
 		}
-		w = append(w, gap(8), func(gtx C) D { return small(gtx, th, col, sentence(c.note)) })
+		w = append(w, gap(10), func(gtx C) D { return label(gtx, th, th.UIFont, 13.5, col, 0, sentence(k.note)) })
 	}
-	return layout.Inset{Left: pad, Right: pad, Top: 6, Bottom: 6}.Layout(gtx, func(gtx C) D {
-		ring := theme.Mix(th.Surface, th.Yellow, 0.45)
-		return box(gtx, th.Surface, ring, theme.RadiusCard, layout.UniformInset(12), func(gtx C) D {
+	return layout.Inset{Left: 12, Right: 12, Bottom: 8, Top: 4}.Layout(gtx, func(gtx C) D {
+		ring := theme.Mix(th.Surface, th.Yellow, 0.4)
+		return box(gtx, th.Surface, ring, 14, layout.UniformInset(14), func(gtx C) D {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			children := make([]layout.FlexChild, len(w))
 			for i := range w {
@@ -137,81 +148,129 @@ func (a *App) askCard(gtx C, t remote.Tab) D {
 	})
 }
 
-// request is a chat tab's approval, plan or question, as the page shows it.
-func (a *App) request(gtx C, chat string, r remote.Request, rs *reqState, done func(string) func(error)) []layout.Widget {
-	c, th := &a.chat.card, a.th
-	kind := map[string]string{"plan": "Plan", "input": "Question"}[r.Kind]
-	if kind == "" {
-		kind = "Approval"
+// cardHead is the card's title with the alert icon in yellow.
+func cardHead(th *theme.Theme, s string) layout.Widget {
+	return func(gtx C) D {
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx C) D { return glyph(gtx, icAlert, 20, th.Yellow) }),
+			layout.Rigid(layout.Spacer{Width: 9}.Layout),
+			layout.Flexed(1, func(gtx C) D { return label(gtx, th, weight(th.UIFont, font.SemiBold), 16, th.Fg, 2, s) }),
+		)
 	}
-	w := []layout.Widget{func(gtx C) D {
-		return label(gtx, th, weight(th.UIFont, 600), th.Sp(theme.Small), th.Readable(th.Yellow, th.Surface), 1, kind)
-	}}
-	if cmd := strings.TrimSpace(strings.Join([]string{r.Tool, r.Command}, ": ")); r.Tool != "" || r.Command != "" {
-		w = append(w, gap(6), func(gtx C) D {
-			return box(gtx, th.Bg, th.BorderSubtle, theme.RadiusControl, layout.UniformInset(8), func(gtx C) D {
-				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return label(gtx, th, th.MonoFont, th.Sp(theme.Small), th.Fg, 12, strings.Trim(cmd, ": "))
-			})
-		})
+}
+
+// pre is text the agent wants to run, in mono on the background.
+func pre(gtx C, th *theme.Theme, s string, lines int) D {
+	return box(gtx, th.Bg, th.BorderSubtle, 9, layout.Inset{Left: 12, Right: 12, Top: 10, Bottom: 10}, func(gtx C) D {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return widget.Label{MaxLines: lines, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.MonoFont, 13.5, detab(s), colorOp(gtx, th.Fg))
+	})
+}
+
+// twoButtons is a row of two equal 48dp buttons, the right one primary.
+func twoButtons(gtx C, th *theme.Theme, a *widget.Clickable, al string, b *widget.Clickable, bl string, live bool) D {
+	return layout.Flex{}.Layout(gtx,
+		layout.Flexed(1, func(gtx C) D { return cardButton(gtx, th, a, false, live, al) }),
+		layout.Rigid(layout.Spacer{Width: 10}.Layout),
+		layout.Flexed(1, func(gtx C) D { return cardButton(gtx, th, b, true, live, bl) }),
+	)
+}
+
+// cardButton is a 48dp button as wide as it is given: primary blue, or a
+// neutral one on the second surface.
+func cardButton(gtx C, th *theme.Theme, c *widget.Clickable, primary, live bool, s string) D {
+	draw := func(gtx C) D {
+		size := image.Pt(gtx.Constraints.Min.X, gtx.Dp(48))
+		fill, ring, fg := th.SurfaceSecondary, th.BorderSubtle, th.Fg
+		if primary {
+			fill, ring, fg = th.Primary, th.Primary, th.OnPrimary
+		}
+		if c.Pressed() {
+			fill = theme.Mix(fill, th.Fg, 0.16)
+		}
+		r := gtx.Dp(12)
+		paint.FillShape(gtx.Ops, ring, clip.UniformRRect(image.Rectangle{Max: size}, r).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: size}.Inset(1), r-1).Op(gtx.Ops))
+		m := op.Record(gtx.Ops)
+		g := gtx
+		g.Constraints.Min = image.Point{}
+		d := label(g, th, weight(th.UIFont, font.SemiBold), 16, fg, 1, s)
+		call := m.Stop()
+		o := op.Offset(image.Pt((size.X-d.Size.X)/2, (size.Y-d.Size.Y)/2)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		return D{Size: size}
+	}
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	if !live {
+		defer paint.PushOpacity(gtx.Ops, 0.5).Pop()
+		return draw(gtx)
+	}
+	return c.Layout(gtx, draw)
+}
+
+// request is a chat tab's approval, plan or question, as the page shows it.
+func (c *chatView) request(gtx C, th *theme.Theme, env chatEnv, r remote.Request, rs *reqState, agent string, done func(string) func(error)) []layout.Widget {
+	k := &c.card
+	chat := env.Tab.Pane
+	head := map[string]string{"plan": agent + " has a plan", "input": agent + " asks"}[r.Kind]
+	if head == "" {
+		head = agent + " wants to run"
+	}
+	w := []layout.Widget{cardHead(th, head)}
+	if cmd := strings.Trim(strings.Join([]string{r.Tool, r.Command}, ": "), ": "); cmd != "" {
+		w = append(w, gap(10), func(gtx C) D { return pre(gtx, th, cmd, 8) })
 	}
 	if r.Path != "" {
-		w = append(w, gap(4), func(gtx C) D { return small(gtx, th, th.Muted, r.Path) })
+		w = append(w, gap(6), func(gtx C) D { return label(gtx, th, th.MonoFont, 13.5, th.Muted, 2, r.Path) })
 	}
 	if r.Detail != "" {
-		w = append(w, gap(6), func(gtx C) D { return body(gtx, th, th.Fg, r.Detail) })
+		w = append(w, gap(8), func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Fg, 10, r.Detail) })
 	}
 	approve := func(decision, msg string) {
-		c.busy = true
+		k.busy = true
 		reason := ""
 		if decision == "deny" {
 			reason = strings.TrimSpace(rs.reason.Text())
 		}
 		id := r.ID
-		a.do(func(ctx context.Context, cl *phone.Client) error { return cl.Approve(ctx, chat, id, decision, reason) }, done(msg))
+		env.Do(func(ctx context.Context, api chatAPI) error { return api.Approve(ctx, chat, id, decision, reason) }, done(msg))
 	}
 	if r.Kind != "input" {
-		if rs.allow.Clicked(gtx) && !c.busy {
+		if rs.allow.Clicked(gtx) && !k.busy {
 			approve("allow", "Allowed.")
 		}
-		if rs.session.Clicked(gtx) && !c.busy {
+		if rs.session.Clicked(gtx) && !k.busy {
 			approve("allow-session", "Allowed for this session.")
 		}
-		if rs.deny.Clicked(gtx) && !c.busy {
+		if rs.deny.Clicked(gtx) && !k.busy {
 			approve("deny", "Denied.")
 		}
 		allow, deny := "Allow", "Deny"
 		if r.Kind == "plan" {
-			allow, deny = "Approve plan", "Keep planning"
+			allow, deny = "Approve", "Keep planning"
 		}
-		btns := []layout.Widget{func(gtx C) D { return button(gtx, th, &rs.allow, kit.Primary.When(!c.busy), allow) }}
+		w = append(w, gap(12), func(gtx C) D { return cardField(gtx, th, &rs.reason, "Reason to deny (optional)") },
+			gap(10), func(gtx C) D { return twoButtons(gtx, th, &rs.deny, deny, &rs.allow, allow, !k.busy) })
 		if r.Kind != "plan" {
-			btns = append(btns, func(gtx C) D { return button(gtx, th, &rs.session, kit.Secondary.When(!c.busy), "Allow for session") })
+			w = append(w, gap(10), func(gtx C) D { return cardButton(gtx, th, &rs.session, false, !k.busy, "Allow for this session") })
 		}
-		btns = append(btns, func(gtx C) D { return button(gtx, th, &rs.deny, kit.Secondary.When(!c.busy), deny) })
-		w = append(w, gap(10), func(gtx C) D { return wrap(gtx, 8, btns) }, gap(8), func(gtx C) D {
-			return field(gtx, th, &rs.reason, "Reason to deny (optional)", th.UIFont)
-		})
 		return w
 	}
 	for i, q := range r.Questions {
-		i, q := i, q
 		prompt := q.Prompt
 		if prompt == "" {
 			prompt = q.Header
 		}
-		w = append(w, gap(8), func(gtx C) D { return body(gtx, th, th.Fg, prompt) })
+		w = append(w, gap(10), func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Fg, 0, prompt) })
 		if len(q.Options) > 0 {
 			var btns []layout.Widget
 			for j, o := range q.Options {
 				if rs.opts[i][j].Clicked(gtx) {
 					rs.picked[i] = o.Label
 				}
-				kind := kit.Secondary
-				if rs.picked[i] == o.Label {
-					kind = kit.Primary
-				}
-				btns = append(btns, func(gtx C) D { return button(gtx, th, &rs.opts[i][j], kind.When(!c.busy), o.Label) })
+				on := rs.picked[i] == o.Label
+				btns = append(btns, func(gtx C) D { return optionChip(gtx, th, &rs.opts[i][j], on, o.Label) })
 			}
 			w = append(w, gap(8), func(gtx C) D { return wrap(gtx, 8, btns) })
 		}
@@ -219,9 +278,9 @@ func (a *App) request(gtx C, chat string, r remote.Request, rs *reqState, done f
 		if len(q.Options) > 0 {
 			hint = "Or type an answer"
 		}
-		w = append(w, gap(8), func(gtx C) D { return field(gtx, th, &rs.texts[i], hint, th.UIFont) })
+		w = append(w, gap(8), func(gtx C) D { return cardField(gtx, th, &rs.texts[i], hint) })
 	}
-	if rs.send.Clicked(gtx) && !c.busy {
+	if rs.send.Clicked(gtx) && !k.busy {
 		answers := map[string][]string{}
 		ok := true
 		for i, q := range r.Questions {
@@ -229,21 +288,106 @@ func (a *App) request(gtx C, chat string, r remote.Request, rs *reqState, done f
 			if v == "" {
 				v = rs.picked[i]
 			}
-			if v == "" {
-				ok = false
-			}
+			ok = ok && v != ""
 			answers[q.ID] = []string{v}
 		}
 		if !ok {
-			c.note, c.bad = "Answer every question.", true
+			k.note, k.bad = "Answer every question.", true
 		} else {
-			c.busy = true
+			k.busy = true
 			id := r.ID
-			a.do(func(ctx context.Context, cl *phone.Client) error { return cl.Input(ctx, chat, id, answers) }, done("Sent."))
+			env.Do(func(ctx context.Context, api chatAPI) error { return api.Input(ctx, chat, id, answers) }, done("Sent."))
 		}
 	}
-	w = append(w, gap(10), func(gtx C) D {
-		return layout.Flex{}.Layout(gtx, layout.Rigid(func(gtx C) D { return button(gtx, th, &rs.send, kit.Primary.When(!c.busy), "Send") }))
-	})
+	w = append(w, gap(12), func(gtx C) D { return cardButton(gtx, th, &rs.send, true, !k.busy, "Send") })
 	return w
+}
+
+// optionChip is one of a question's options, 48dp tall, filled once
+// picked.
+func optionChip(gtx C, th *theme.Theme, c *widget.Clickable, on bool, s string) D {
+	return c.Layout(gtx, func(gtx C) D {
+		m := op.Record(gtx.Ops)
+		d := layout.Inset{Left: 16, Right: 16}.Layout(gtx, func(gtx C) D {
+			gtx.Constraints.Min.Y = gtx.Dp(48)
+			return layout.Center.Layout(gtx, func(gtx C) D {
+				fg := th.Fg
+				if on {
+					fg = th.OnPrimary
+				}
+				return label(gtx, th, weight(th.UIFont, font.SemiBold), 15, fg, 1, s)
+			})
+		})
+		call := m.Stop()
+		fill, ring := th.SurfaceSecondary, th.BorderSubtle
+		if on {
+			fill, ring = th.Primary, th.Primary
+		}
+		if c.Pressed() {
+			fill = theme.Mix(fill, th.Fg, 0.16)
+		}
+		r := gtx.Dp(12)
+		paint.FillShape(gtx.Ops, ring, clip.UniformRRect(image.Rectangle{Max: d.Size}, r).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, fill, clip.UniformRRect(image.Rectangle{Max: d.Size}.Inset(1), r-1).Op(gtx.Ops))
+		call.Add(gtx.Ops)
+		return d
+	})
+}
+
+// wrap lays ws out in rows, gap apart, starting a row when one is full.
+func wrap(gtx C, gap unit.Dp, ws []layout.Widget) D {
+	g := gtx.Dp(gap)
+	x, y, rowH, width := 0, 0, 0, 0
+	for _, w := range ws {
+		m := op.Record(gtx.Ops)
+		cg := gtx
+		cg.Constraints.Min = image.Point{}
+		d := w(cg)
+		call := m.Stop()
+		if x > 0 && x+d.Size.X > gtx.Constraints.Max.X {
+			x, y, rowH = 0, y+rowH+g, 0
+		}
+		o := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
+		call.Add(gtx.Ops)
+		o.Pop()
+		x += d.Size.X + g
+		rowH = max(rowH, d.Size.Y)
+		width = max(width, x-g)
+	}
+	return D{Size: image.Pt(width, y+rowH)}
+}
+
+// cardField is a text field in the card, 48dp at one line, focused by a
+// tap anywhere in it.
+func cardField(gtx C, th *theme.Theme, ed *widget.Editor, hint string) D {
+	ring := th.BorderStrong
+	if gtx.Focused(ed) {
+		ring = theme.Mix(th.Bg, th.Primary, 0.7)
+	}
+	fs := fields[ed]
+	if fs == nil {
+		fs = new(widget.Clickable)
+		fields[ed] = fs
+	}
+	if fs.Clicked(gtx) {
+		gtx.Execute(key.FocusCmd{Tag: ed})
+		gtx.Execute(key.SoftKeyboardCmd{Show: true})
+	}
+	return fs.Layout(gtx, func(gtx C) D {
+		return box(gtx, th.Bg, ring, 12, layout.Inset{Left: 14, Right: 14, Top: 13, Bottom: 13}, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return layout.Stack{}.Layout(gtx,
+				layout.Stacked(func(gtx C) D {
+					if ed.Len() > 0 {
+						return D{}
+					}
+					return label(gtx, th, th.UIFont, 16, th.TextQuiet, 1, hint)
+				}),
+				layout.Stacked(func(gtx C) D {
+					gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					return ed.Layout(gtx, th.Shaper, th.UIFont, 16, colorOp(gtx, th.Fg), colorOp(gtx, theme.Mix(th.Bg, th.Primary, 0.35)))
+				}),
+			)
+		})
+	})
 }
