@@ -48,6 +48,15 @@ func (d *Daemon) keepReply(pane, msg string) {
 // running a turn or waiting on the user, one whose screen shows a form,
 // which the Enter would answer, and one with the user's draft in its box.
 func (d *Daemon) prompt(m proto.Prompt) error {
+	if remote.Clean(m.Text) == "" {
+		return errors.New("the prompt is empty")
+	}
+	d.mu.Lock()
+	queued := d.queueParked(m.Pane, letter{text: m.Text, plain: true})
+	d.mu.Unlock()
+	if queued {
+		return nil
+	}
 	p, _, err := d.ready(m.Pane)
 	if err != nil {
 		return err
@@ -180,11 +189,12 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	case remote.Clean(m.Text) == "":
 		return errors.New("the message is empty")
 	}
-	if _, busy, err := d.ready(m.Pane); err != nil && !busy {
+	if err := d.canQueue(m.Pane); err != nil {
 		return err
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.unpark(m.Pane)
 	if one && len(d.mail.queue[m.Pane]) > 0 {
 		return errors.New("a message already waits for the agent")
 	}
@@ -197,6 +207,19 @@ func (d *Daemon) sendMessage(m proto.Send, notice string, one bool) error {
 	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{from: m.From, text: m.Text, notice: notice})
 	d.changed()
 	d.wake(m.Pane, 0)
+	return nil
+}
+
+// canQueue is why a message for pane cannot wait for its agent, nil when
+// it can: the agent is parked or resuming, or takes a prompt once its turn
+// or the user's draft ends.
+func (d *Daemon) canQueue(pane string) error {
+	d.mu.Lock()
+	parked := d.waitsToWake(pane)
+	d.mu.Unlock()
+	if _, busy, err := d.ready(pane); err != nil && !busy && !parked {
+		return err
+	}
 	return nil
 }
 
@@ -221,6 +244,7 @@ func (d *Daemon) windowDeliver(m proto.Deliver) error {
 	d.recordPromptLocked(m.Pane)
 	delete(d.mail.sent, m.Pane)
 	dropped = d.dropResume(m.Pane)
+	d.unpark(m.Pane)
 	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
 	d.changed()
 	d.wake(m.Pane, 0)
@@ -276,9 +300,9 @@ func (d *Daemon) deliver(pane string) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 	d.mu.Lock()
-	if len(d.mail.queue[pane]) == 0 {
+	if len(d.mail.queue[pane]) == 0 || d.waitsToWake(pane) {
 		d.mu.Unlock()
-		return
+		return // checkWaking wakes a parked pane's letters once it is back
 	}
 	now, hook := time.Now(), d.live.hookAt[pane]
 	wait := max(hook.Add(sendSettle.get()).Sub(now), d.mail.keyAt[pane].Add(sendQuiet.get()).Sub(now))

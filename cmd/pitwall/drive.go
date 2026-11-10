@@ -214,6 +214,8 @@ func agentOf(p model.Pane) string {
 //	pr-open  the agent finished its turn and its tab's branch has an open
 //	         pull request: done once it merges or closes
 //	idle     the agent sits at its prompt with nothing to report
+//	parked   the agent sat idle for [agents] park_idle_after and pitwall
+//	         ended its process; a message or key resumes it
 //	running  no agent is known, and the pane's process runs: a shell at its
 //	         prompt, or a command pitwall knows nothing more about
 //	exited   the pane's process ended
@@ -243,6 +245,8 @@ func paneState(state model.State, p model.Pane) (agent, st, question string) {
 	switch state.Activities[i].State {
 	case model.StateCompleted, model.StateError:
 		return agent, "done", ""
+	case model.StateParked:
+		return agent, "parked", ""
 	case model.StatePROpen:
 		return agent, "pr-open", ""
 	}
@@ -439,7 +443,8 @@ func waitTab(args []string, out io.Writer) (int, error) {
 		saw = saw || st == "working" || st == "blocked"
 		switch {
 		case st == *until, *until == "idle" && (st == "done" || st == "pr-open"),
-			*until == "done" && st == "idle" && saw: // an interrupted turn ends idle
+			(*until == "done" || *until == "idle") && st == "parked", // its turn ended before it parked
+			*until == "done" && st == "idle" && saw:                  // an interrupted turn ends idle
 			fmt.Fprintln(out, st)
 			return waitReached, nil
 		case st == "blocked":
@@ -519,7 +524,7 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 			}
 			saw[w.ID] = saw[w.ID] || st == "working" || st == "blocked"
 			head := fmt.Sprintf("#%d %s", i+1, tabTitle(w))
-			finished := st == "done" || st == "idle" && saw[w.ID]
+			finished := st == "done" || st == "parked" || st == "idle" && saw[w.ID]
 			switch {
 			case st == "blocked":
 				blocked = append(blocked, fmt.Sprintf("%s blocked: %s", head, question))
@@ -560,7 +565,7 @@ func waitChildren(watch *watcher, state model.State, session, until string, done
 					}
 				}
 			case until == "done" && finished,
-				until == "idle" && (st == "idle" || st == "done" || st == "pr-open"):
+				until == "idle" && (st == "idle" || st == "done" || st == "pr-open" || st == "parked"):
 				reached++
 				lines = append(lines, head+" "+st)
 			}

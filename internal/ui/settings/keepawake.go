@@ -11,26 +11,51 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-type awakePage struct {
+// durationField edits an [agents] key that takes a duration such as 15m.
+type durationField struct {
 	grace   widget.Editor
 	focused bool
 	err     string
 }
 
 func (p *Page) keepAwakeGraceRow() row {
-	r := row{label: "Keep awake grace", desc: "After work stops, as 15m or 10s. 0s releases at once. Both settings apply live.",
-		extra: "sleep inhibit duration keep_awake_grace", control: p.keepAwakeGraceField()}
-	if p.aw.err != "" {
+	return p.durationRow(&p.aw, row{label: "Keep awake grace", desc: "After work stops, as 15m or 10s. 0s releases at once. Both settings apply live.",
+		extra: "sleep inhibit duration keep_awake_grace"}, p.keepAwakeGraceField())
+}
+
+func (p *Page) keepAwakeGraceField() gl.Widget {
+	return p.durationEditor(&p.aw, p.s.KeepAwakeGrace, "15m", p.saveAwakeGrace)
+}
+
+func (p *Page) saveAwakeGrace(text string) {
+	p.saveDuration(&p.aw, "keep_awake_grace", text, p.s.KeepAwakeGrace, config.DefaultKeepAwakeGrace)
+}
+
+func (p *Page) parkIdleRow() row {
+	return p.durationRow(&p.park, row{label: "Park idle agents", desc: "Ends a Claude Code or Codex agent's process after it sits idle at its prompt this long, as 1h or 30m, and resumes its session on the next key or message. Never one a window shows, one waiting on you, or one running a process a tool started, such as a dev server. 0s is off.",
+		extra: "memory idle park sleep resume park_idle_after"}, p.durationEditor(&p.park, p.s.ParkIdleAfter, "1h", p.saveParkIdle))
+}
+
+func (p *Page) saveParkIdle(text string) {
+	p.saveDuration(&p.park, "park_idle_after", text, p.s.ParkIdleAfter, 0)
+}
+
+// durationRow is r with control and, under it, f's error.
+func (p *Page) durationRow(f *durationField, r row, control gl.Widget) row {
+	r.control = control
+	if f.err != "" {
 		r.below = func(gtx gl.Context) gl.Dimensions {
-			return p.para(gtx, p.th.UIFont, p.th.Sp(theme.Small), p.th.Red, p.aw.err)
+			return p.para(gtx, p.th.UIFont, p.th.Sp(theme.Small), p.th.Red, f.err)
 		}
 	}
 	return r
 }
 
-func (p *Page) keepAwakeGraceField() gl.Widget {
+// durationEditor is f's field, showing cur and saving with save on Enter
+// or when it loses focus.
+func (p *Page) durationEditor(f *durationField, cur time.Duration, hint string, save func(string)) gl.Widget {
 	return func(gtx gl.Context) gl.Dimensions {
-		e := &p.aw.grace
+		e := &f.grace
 		e.SingleLine, e.Submit = true, true
 		submit := false
 		for {
@@ -43,32 +68,34 @@ func (p *Page) keepAwakeGraceField() gl.Widget {
 			}
 		}
 		focused := gtx.Focused(e)
-		if submit || p.aw.focused && !focused {
-			p.saveAwakeGrace(e.Text())
-		} else if cur := p.s.KeepAwakeGrace.String(); !focused && e.Text() != cur && p.aw.err == "" {
-			e.SetText(cur)
+		if submit || f.focused && !focused {
+			save(e.Text())
+		} else if !focused && e.Text() != cur.String() && f.err == "" {
+			e.SetText(cur.String())
 		}
-		p.aw.focused = focused
+		f.focused = focused
 		gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(140))
-		return p.field(gtx, e, "15m", false)
+		return p.field(gtx, e, hint, false)
 	}
 }
 
-func (p *Page) saveAwakeGrace(text string) {
-	p.aw.err = ""
+// saveDuration writes text to [agents] key, or removes the key when text
+// is empty or def; a bad duration sets f's error instead.
+func (p *Page) saveDuration(f *durationField, key, text string, cur, def time.Duration) {
+	f.err = ""
 	text = strings.TrimSpace(text)
 	if text == "" {
-		p.save("agents", "keep_awake_grace", nil)
+		p.save("agents", key, nil)
 		return
 	}
 	d, err := time.ParseDuration(text)
 	if err != nil || d < 0 {
-		p.aw.err = "Use a non-negative duration such as 15m or 10s."
+		f.err = "Use a non-negative duration such as 15m or 10s."
 		return
 	}
-	if d == config.DefaultKeepAwakeGrace {
-		p.save("agents", "keep_awake_grace", nil)
-	} else if d != p.s.KeepAwakeGrace {
-		p.saveValue("agents", "keep_awake_grace", config.Quote(d.String()))
+	if d == def {
+		p.save("agents", key, nil)
+	} else if d != cur {
+		p.saveValue("agents", key, config.Quote(d.String()))
 	}
 }

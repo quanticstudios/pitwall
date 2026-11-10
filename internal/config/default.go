@@ -42,6 +42,8 @@ func defaults() Config {
 	c.Agents.MaxRunning, c.Agents.ResumeAfterLimit, c.Agents.GuardWorkers = &none, &on, &off
 	grace := "15m"
 	c.Agents.KeepAwake, c.Agents.KeepAwakeGrace = &off, &grace
+	park := "0s"
+	c.Agents.ParkIdleAfter = &park
 	startup := float64(DefaultStartupPerAgentDelayMS)
 	c.Agents.StartupPerAgentDelayMS = &startup
 	quiet := float64(DefaultQuietAfter)

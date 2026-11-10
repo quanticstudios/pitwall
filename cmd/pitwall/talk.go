@@ -405,8 +405,8 @@ func promptPane(args []string, in io.Reader, out io.Writer) (int, error) {
 		if agent == "" {
 			return waitError, errors.New("the pane runs no agent")
 		}
-		if st == "idle" || st == "done" {
-			break
+		if st == "idle" || st == "done" || st == "parked" {
+			break // the daemon resumes a parked agent and types the prompt once it is back
 		}
 		if state, err = watch.next(); err != nil {
 			return fail(err)

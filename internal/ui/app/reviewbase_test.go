@@ -194,9 +194,11 @@ func TestStaleReaderKeepsPick(t *testing.T) {
 	readTurn = func(context.Context, string, string) (gitstat.Turn, error) {
 		return gitstat.Turn{}, errors.New("none")
 	}
+	var staleOnce sync.Once
 	readDiff = func(ctx context.Context, _, base string) (gitstat.Patch, error) {
 		if ctx.Err() != nil {
-			close(stale) // the old reader's last call, past where it would touch the pick
+			// why: hide in cleanup cancels the new reader too, which can call again.
+			staleOnce.Do(func() { close(stale) }) // the old reader's last call, past where it would touch the pick
 		}
 		return gitstat.Patch{Base: base, Root: "/repo"}, nil
 	}

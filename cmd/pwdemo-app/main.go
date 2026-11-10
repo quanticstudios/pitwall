@@ -20,6 +20,7 @@ func main() {
 	peek := flag.String("peek", "", "peek at this tab id at start, such as w1b")
 	remote := flag.String("remote", "", "put this tab id on a host named box, in a shared session")
 	clipHost := flag.String("clipboard", "", "a program on this host writes the clipboard after 2s, which opens its dialog")
+	parked := flag.String("parked", "", "park this tab id's agents, as park_idle_after does, such as w1b")
 	flag.Parse()
 	if _, err := fmt.Sscanf(*size, "%dx%d", &app.WindowSize.X, &app.WindowSize.Y); err != nil {
 		log.Fatalf("-size %q: want WxH", *size)
@@ -53,6 +54,10 @@ func main() {
 	}
 	if *boardDemo == "" {
 		go b.Run(3*time.Second, nil)
+	}
+	if f, ok := b.(*app.FakeBackend); ok && *parked != "" {
+		f.Parked = *parked
+		f.Tick()
 	}
 	if f, ok := b.(*app.FakeBackend); ok && *clipHost != "" {
 		time.AfterFunc(2*time.Second, func() {

@@ -294,6 +294,8 @@ func stateText(s model.AgentState) string {
 		return "Error"
 	case model.StateTerminalRunning:
 		return "Running"
+	case model.StateParked:
+		return "Parked"
 	}
 	return string(s)
 }

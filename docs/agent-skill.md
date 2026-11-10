@@ -64,6 +64,7 @@ pane that ran an agent, else the first pane.
 | `done`    | the agent finished its turn, or ended it with an error                      |
 | `pr-open` | the agent finished its turn and the tab's branch has an open pull request   |
 | `idle`    | the agent sits at its prompt with nothing new                               |
+| `parked`  | pitwall ended the idle agent's process; a message or key resumes it         |
 | `running` | no agent is known and the process runs: a shell at its prompt, or a command |
 | `exited`  | the tab's process ended (`exit_code` has its status)                        |
 | `""`      | an agent the tab was started with has not been seen running yet             |
@@ -72,7 +73,8 @@ pane that ran an agent, else the first pane.
 interrupted turn ends idle). A tab in `pr-open` is not done: it turns
 `done` once its pull request merges or closes, so `--until done` and
 `--children --until done` keep waiting until then. `--until idle` takes
-`idle`, `done` or `pr-open`. Only an
+`idle`, `done` or `pr-open`. Both take `parked`, an agent whose finished
+turn sat idle for `[agents] park_idle_after`. Only an
 agent is ever idle, so `--until idle` on a shell tab waits until the
 timeout. `--until blocked` waits for a prompt or question. `--until exit`
 waits for the process to end. On a tab that never showed an agent, `done`

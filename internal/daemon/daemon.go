@@ -192,6 +192,9 @@ type Options struct {
 	// [agents] continue_when_quiet; nil means off.
 	QuietAfter        func() time.Duration
 	ContinueWhenQuiet func() bool
+	// ParkIdleAfter reads [agents] park_idle_after, how long an agent sits
+	// idle before the daemon parks it; nil or 0 never parks.
+	ParkIdleAfter func() time.Duration
 	// ChatContinue reads [agents] chat_continue_after_restart; nil means
 	// off.
 	ChatContinue func() bool
@@ -278,6 +281,7 @@ type Daemon struct {
 	listSinks map[web.Sink]bool
 	lim       limitResumes          // see resume.go
 	quiet     map[string]*quietPane // see quiet.go
+	park      parking               // see park.go
 	sendMu    sync.Mutex            // one deliver types at a time
 	turnMu    sync.Mutex            // one checkpoint at a time, so each gets its own number
 
@@ -374,6 +378,7 @@ func Defaults() Options {
 		ClaudeContinues:   claudeAutoContinue,
 		QuietAfter:        setting(config.Path(), func(s config.Settings) time.Duration { return s.QuietAfter }),
 		ContinueWhenQuiet: setting(config.Path(), func(s config.Settings) bool { return s.ContinueWhenQuiet }),
+		ParkIdleAfter:     setting(config.Path(), func(s config.Settings) time.Duration { return s.ParkIdleAfter }),
 		ChatContinue:      setting(config.Path(), func(s config.Settings) bool { return s.ChatContinue }),
 		RemoteControl:     setting(config.Path(), func(s config.Settings) bool { return s.RemoteControl }),
 		Remote:            func() config.RemoteSettings { return config.LoadRemote(config.Path()) },
@@ -468,6 +473,10 @@ func NewWith(o Options) (*Daemon, error) {
 		}
 		if p.Held && (p.Exited || !resumes) {
 			d.panes[p.ID] = d.stoppedPane(p)
+			d.sizes[p.ID] = [2]int{defaultCols, defaultRows}
+			continue
+		}
+		if d.restoreParked(p, saved) {
 			d.sizes[p.ID] = [2]int{defaultCols, defaultRows}
 			continue
 		}
@@ -1098,6 +1107,9 @@ func (d *Daemon) handle(ctx context.Context, m any) error {
 	case proto.ClosePane:
 		return d.closePane(m.Pane)
 	case proto.Input:
+		if d.holdParked(m.Pane, m.Data) {
+			return nil
+		}
 		p, err := d.pane(m.Pane)
 		if err != nil {
 			return err
@@ -1566,6 +1578,10 @@ func (d *Daemon) dropPane(id string) Pane {
 	}
 	h := d.panes[id]
 	delete(d.panes, id)
+	delete(d.park.idle, id)
+	delete(d.park.waking, id)
+	delete(d.park.stalled, id)
+	delete(d.park.keys, id)
 	delete(d.history, id)
 	delete(d.sizes, id)
 	delete(d.inputs, id)
@@ -1642,6 +1658,10 @@ func (d *Daemon) agentEvent(ctx context.Context, m proto.AgentEvent) error {
 		return fmt.Errorf("no pane %s", m.Pane)
 	}
 	p := &d.st.Panes[pi]
+	if d.isParked(p.ID) {
+		d.mu.Unlock()
+		return nil // the parked agent's last hooks, such as its SessionEnd
+	}
 	if m.Provider == "report" {
 		if pp, ok := programHook(m.Payload); ok {
 			d.mu.Unlock()
@@ -2248,9 +2268,9 @@ func (d *Daemon) exited(id string, p Pane) {
 	// why: at session end SIGTERM reaches every agent with this daemon, and
 	// an agent's exit must not close its tab before shutdown saves it.
 	stopping := d.served != nil && d.served.Err() != nil
-	if d.closing || d.frozen || stopping || d.panes[id] != p {
+	if d.closing || d.frozen || stopping || d.panes[id] != p || d.isParked(id) {
 		d.mu.Unlock()
-		return // closed on purpose: by ClosePane, DeleteWorkspace or shutdown; Thaw runs it again when frozen
+		return // closed on purpose: by ClosePane, DeleteWorkspace, shutdown or parking; Thaw runs it again when frozen
 	}
 	i := slices.IndexFunc(d.st.Panes, func(sp model.Pane) bool { return sp.ID == id })
 	if i < 0 {
@@ -2259,6 +2279,12 @@ func (d *Daemon) exited(id string, p Pane) {
 	}
 	code := p.ExitCode()
 	sp := &d.st.Panes[i]
+	if d.reparkFailed(id, p, code) {
+		d.mu.Unlock()
+		d.pushParked(id)
+		d.save()
+		return
+	}
 	if w := d.workspace(sp.WorkspaceID); w != nil && w.TaskRun != nil && w.TaskRun.Pane == id {
 		sp.Held = true
 	}
