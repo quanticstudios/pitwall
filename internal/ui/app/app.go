@@ -1171,7 +1171,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}
 	if ws.Monitor {
 		u.paneMenu.close()
-		u.layoutMonitor(gtx, st, ws)
+		u.layoutMonitor(gtx, st, ws.ID, ws)
 		return
 	}
 	if root == nil {

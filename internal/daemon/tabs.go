@@ -116,9 +116,7 @@ func (d *Daemon) removeWorkspace(id string, gone ...model.Pane) []Pane {
 		if w.Chat != "" {
 			d.dropChat(w.Chat)
 		}
-		if w.Monitor {
-			d.unwatchTab(w.ID) // the window may no longer reach this daemon to stop it
-		}
+		d.unwatchTab(w.ID) // the window may no longer reach this daemon to stop it
 	}
 	if w := d.workspace(id); w != nil && d.o.DropTurns != nil {
 		// A removed worktree's checkpoints are in the repository it was of.

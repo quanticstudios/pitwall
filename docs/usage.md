@@ -1797,7 +1797,9 @@ monitor in the command palette. It takes the place of the panes, as the
 board does, and the sidebar stays. Press the key again, or Esc, and the
 panes come back as you left them, with the same focus, scroll and splits.
 Showing another tab or the board closes it too. It opens no tab, so
-nothing stays in the sidebar.
+nothing stays in the sidebar. The window keeps one history per machine:
+showing the monitor from any tab of that machine brings back the graphs
+it has, with a gap for the time it was hidden.
 
 To keep it, Open Monitor tab in the command palette, or `open_monitor`
 under `[keys]`, opens it as a Monitor tab in the window's session instead.

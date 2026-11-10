@@ -2,11 +2,14 @@ package app
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"gioui.org/io/key"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
 
@@ -30,7 +33,7 @@ func TestMonitorView(t *testing.T) {
 			sent := len(b.Sent())
 
 			keys(press("M", key.ModCtrl|key.ModAlt))
-			if !u.mon.on || u.mon.tabs[ws] == nil {
+			if !u.mon.on || u.mon.tabs[machineKey("")] == nil {
 				t.Fatalf("Ctrl+Alt+M: on %v, views %v; want the monitor drawn", u.mon.on, u.mon.tabs)
 			}
 			w := watches(b)
@@ -95,5 +98,42 @@ func TestMonitorViewClosesOnTabSwitch(t *testing.T) {
 	}
 	if w := watches(u.b.(*FakeBackend)); len(w) != 2 || w[1].Interval != 0 {
 		t.Fatalf("watches %v, want the samples stopped", w)
+	}
+}
+
+// TestMonitorViewPerMachine: the monitor keeps one view per machine, so a
+// peek from another tab of the machine shows the history it has. The
+// watch moves to the tab it shows over, and the view outlives the tab it
+// was first opened over.
+func TestMonitorViewPerMachine(t *testing.T) {
+	u, keys := keyWindow(t, conventional)
+	b := u.b.(*FakeBackend)
+	first := u.nav.workspace
+	keys(press("M", key.ModCtrl|key.ModAlt))
+	v := u.mon.tabs[machineKey("")]
+	if v == nil || v.pushed.IsZero() {
+		t.Fatalf("views %v; want this machine's view with a sample", u.mon.tabs)
+	}
+	keys(press("M", key.ModCtrl|key.ModAlt), press(key.NameTab, key.ModCtrl)) // hide, next_tab
+	second := u.nav.workspace
+	if second == first {
+		t.Fatal("next_tab stayed on the tab")
+	}
+	keys(press("M", key.ModCtrl|key.ModAlt))
+	if u.mon.tabs[machineKey("")] != v {
+		t.Fatal("a peek from another tab of the machine made a new view")
+	}
+	want := []proto.MonitorWatch{{WorkspaceID: first, Interval: 2 * time.Second}, {WorkspaceID: first}, {WorkspaceID: second, Interval: 2 * time.Second}}
+	if got := watches(b); !slices.Equal(got, want) {
+		t.Fatalf("watches %v, want %v", got, want)
+	}
+
+	keys(press("M", key.ModCtrl|key.ModAlt))
+	b.mu.Lock()
+	b.st.Workspaces = slices.DeleteFunc(b.st.Workspaces, func(w model.Workspace) bool { return w.ID == second })
+	b.mu.Unlock()
+	keys(press(key.NameCtrl, 0))
+	if u.mon.tabs[machineKey("")] != v {
+		t.Fatal("closing the tab it was shown over dropped the machine's view")
 	}
 }
