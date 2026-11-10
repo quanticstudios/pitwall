@@ -1,15 +1,20 @@
 // Package phone is the Android app's side of the phone page's API
-// (internal/remote): pairing, the saved device token, the event stream
+// (internal/remote): pairing, the paired machines, the event stream
 // with its reconnects, a chat's entries as they page and stream in, and
-// the model.State the sidebar draws from the tab list.
+// the model.State the sidebar draws from the machines' tab lists.
 package phone
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -23,35 +28,44 @@ type Creds struct {
 	Pin string `json:"pin,omitempty"`
 }
 
-const credsFile = "pairing.json"
-
-// Load reads the saved pairing in dir; an error wrapping os.ErrNotExist
-// means the phone is not paired.
-func Load(dir string) (Creds, error) {
-	var c Creds
-	data, err := os.ReadFile(filepath.Join(dir, credsFile))
-	if err != nil {
-		return c, err
-	}
-	if err := json.Unmarshal(data, &c); err != nil {
-		return c, err
-	}
-	if c.Server == "" || c.Token == "" {
-		return c, os.ErrNotExist
-	}
-	return c, nil
+// Machine is one paired computer: the name the app shows it by, and its
+// pairing.
+type Machine struct {
+	ID   string `json:"id"` // made at pairing; names the machine in ids and routes
+	Name string `json:"name"`
+	Creds
 }
 
-// Save writes c to dir, mode 0600, so a crash never leaves half a file.
-func Save(dir string, c Creds) error {
+const machinesFile = "machines.json"
+
+// LoadMachines reads the paired machines saved in dir, none when the
+// phone is not paired.
+func LoadMachines(dir string) ([]Machine, error) {
+	var ms []Machine
+	data, err := os.ReadFile(filepath.Join(dir, machinesFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &ms); err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(ms, func(m Machine) bool { return m.ID == "" || m.Server == "" || m.Token == "" }), nil
+}
+
+// SaveMachines writes ms to dir, mode 0600, so a crash never leaves half a
+// file.
+func SaveMachines(dir string, ms []Machine) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(c)
+	data, err := json.Marshal(ms)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".pairing-*")
+	tmp, err := os.CreateTemp(dir, ".machines-*")
 	if err != nil {
 		return err
 	}
@@ -63,16 +77,51 @@ func Save(dir string, c Creds) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(dir, credsFile)) // CreateTemp made it 0600
+	return os.Rename(tmp.Name(), filepath.Join(dir, machinesFile)) // CreateTemp made it 0600
 }
 
-// Forget removes the saved pairing.
-func Forget(dir string) error {
-	err := os.Remove(filepath.Join(dir, credsFile))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+// AddMachine is ms with c's machine: in place of one paired with the same
+// server before, keeping its name, else at the end, named after the
+// server's host with a number when another machine has that name.
+func AddMachine(ms []Machine, c Creds) ([]Machine, Machine) {
+	if i := slices.IndexFunc(ms, func(m Machine) bool { return m.Server == c.Server }); i >= 0 {
+		ms = slices.Clone(ms)
+		ms[i].Creds = c
+		return ms, ms[i]
 	}
-	return err
+	b := make([]byte, 6)
+	rand.Read(b)
+	m := Machine{ID: hex.EncodeToString(b), Name: UniqueName(ms, HostName(c.Server), ""), Creds: c}
+	return append(slices.Clone(ms), m), m
+}
+
+// UniqueName is name, or name-2, name-3 and so on when another machine
+// than id has it.
+func UniqueName(ms []Machine, name, id string) string {
+	taken := func(n string) bool {
+		return slices.ContainsFunc(ms, func(m Machine) bool { return m.ID != id && strings.EqualFold(m.Name, n) })
+	}
+	for i, n := 2, name; ; i++ {
+		if !taken(n) {
+			return n
+		}
+		n = name + "-" + strconv.Itoa(i)
+	}
+}
+
+// HostName is how the app first names a server: its host's first name
+// ("box" of box.example.com), or its address.
+func HostName(server string) string {
+	u, err := url.Parse(server)
+	if err != nil || u.Hostname() == "" {
+		return server
+	}
+	h := u.Hostname()
+	if net.ParseIP(h) != nil {
+		return h
+	}
+	first, _, _ := strings.Cut(h, ".")
+	return first
 }
 
 var errNoCode = errors.New("paste the link pitwall remote pair prints, or the address and the code")

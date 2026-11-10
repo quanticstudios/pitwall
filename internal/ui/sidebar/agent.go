@@ -194,14 +194,14 @@ func TabMark(gtx layout.Context, st *model.State, ws model.Workspace, size int, 
 // Icon draws the lucide icon name ("plus", "pencil", "trash", "terminal",
 // "layers", "check", "x", "circle-alert", "archive", "git-branch", "search",
 // and for the phone app "chevron-left", "chevrons-up-down", "settings",
-// "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard") in a size box, for
+// "clock", "loader", "gauge", "arrow-up", "wifi-off", "clipboard", "server") in a size box, for
 // lists outside the sidebar.
 func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dimensions {
 	d := map[string]string{"plus": icPlus, "pencil": icPencil, "trash": icTrash, "terminal": icTerminal, "check": icCheck,
 		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown,
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
-		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard}[name]
+		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}

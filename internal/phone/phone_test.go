@@ -40,26 +40,32 @@ func TestParseInvite(t *testing.T) {
 	}
 }
 
-func TestCredsFile(t *testing.T) {
+func TestMachinesFile(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "app")
-	if _, err := Load(dir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Load before Save: %v", err)
+	if ms, err := LoadMachines(dir); err != nil || ms != nil {
+		t.Fatalf("LoadMachines before Save = %v %v", ms, err)
 	}
-	c := Creds{Server: "https://box.example.com/", Token: "0123456789abcdef.secret", Device: "phone", Pin: "AA:BB"}
-	if err := Save(dir, c); err != nil {
+	ms, box := AddMachine(nil, Creds{Server: "https://box.example.com/", Token: "0123456789abcdef.secret", Device: "phone", Pin: "AA:BB"})
+	ms, box2 := AddMachine(ms, Creds{Server: "https://box.tail1234.example.com/", Token: "t2"})
+	ms, ip := AddMachine(ms, Creds{Server: "http://10.0.2.2:7793/", Token: "t3"})
+	if box.Name != "box" || box2.Name != "box-2" || ip.Name != "10.0.2.2" || box.ID == box2.ID {
+		t.Fatalf("names %q %q %q, ids %q %q", box.Name, box2.Name, ip.Name, box.ID, box2.ID)
+	}
+	again, same := AddMachine(ms, Creds{Server: "https://box.example.com/", Token: "new"})
+	if len(again) != 3 || same.ID != box.ID || same.Name != "box" || again[0].Token != "new" || ms[0].Token == "new" {
+		t.Fatalf("pairing a server again: %+v %+v", again, same)
+	}
+	if n := UniqueName(ms, "Box", box.ID); n != "Box" {
+		t.Fatalf("renaming box to Box = %q", n)
+	}
+	if err := SaveMachines(dir, ms); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := Load(dir); err != nil || got != c {
-		t.Fatalf("Load = %+v %v; want %+v", got, err, c)
+	if got, err := LoadMachines(dir); err != nil || !slices.Equal(got, ms) {
+		t.Fatalf("LoadMachines = %+v %v; want %+v", got, err, ms)
 	}
-	if fi, err := os.Stat(filepath.Join(dir, credsFile)); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(filepath.Join(dir, machinesFile)); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v %v; want 0600", fi.Mode(), err)
-	}
-	if err := Forget(dir); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Load(dir); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("Load after Forget: %v", err)
 	}
 }
 
@@ -386,5 +392,62 @@ func TestCommandWhenIdle(t *testing.T) {
 	tries, refuse = 2, "that pane shows a form; answer it in its tab"
 	if err := c.CommandWhenIdle(context.Background(), "p1", "effort", "max"); err == nil || IsBusy(err) || tries != 3 {
 		t.Fatalf("CommandWhenIdle = %v after %d tries; want the form refusal at once", err, tries)
+	}
+}
+
+// TestFleet merges two machines' lists, each with a session named main,
+// and sends a message about each machine's tab to that machine alone.
+func TestFleet(t *testing.T) {
+	var ms []Machine
+	var got [2]chan string
+	for i := range got {
+		s, ts := newServer(t)
+		got[i] = make(chan string, 4)
+		ch := got[i]
+		s.Send = func(pane, text string) (uint64, error) { ch <- pane + ": " + text; return 1, nil }
+		ms, _ = AddMachine(ms, pair(t, s, ts.URL))
+	}
+	f := NewFleet(ms)
+	tab := func(id string) remote.Tab {
+		return remote.Tab{Item: remote.Item{Pane: id + "-p", Tab: "Tab " + id, Session: "main", Agent: "claude", State: "pending-approval"}, ID: id, Group: "api"}
+	}
+	f.Set(ms[1].ID, []remote.Tab{tab("b1")})
+	f.Set(ms[0].ID, []remote.Tab{tab("a1"), tab("a2")})
+	st := f.State()
+	if len(st.Sessions) != 2 || st.Sessions[0].ID == st.Sessions[1].ID || len(st.Projects) != 2 {
+		t.Fatalf("sessions %+v, groups %+v; want one of each per machine", st.Sessions, st.Projects)
+	}
+	var order []string
+	for _, w := range st.Workspaces {
+		order = append(order, w.ID)
+	}
+	if !slices.Equal(order, []string{"a1", "a2", "b1"}) || len(f.Tabs()) != 3 {
+		t.Fatalf("tabs in order %v; want the first machine's first", order)
+	}
+	if n := NeedsYou(&st, st.Sessions[0].ID); n != 2 {
+		t.Fatalf("NeedsYou of the first machine's main = %d; want 2", n)
+	}
+	for _, id := range []string{"b1", "b1-p", st.Sessions[1].ID, st.Projects[1].ID} {
+		if m, ok := f.Owner(id); !ok || m.ID != ms[1].ID {
+			t.Fatalf("Owner(%q) = %v %v; want the second machine", id, m.Name, ok)
+		}
+	}
+	if _, ok := f.Owner("nope"); ok || f.ClientOf("nope") != nil {
+		t.Fatal("an unknown id has an owner")
+	}
+	for i, pane := range []string{"a2-p", "b1-p"} {
+		if _, err := f.ClientOf(pane).Send(context.Background(), pane, "hi"); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case m := <-got[i]:
+			if m != pane+": hi" {
+				t.Fatalf("machine %d got %q", i, m)
+			}
+		case m := <-got[1-i]:
+			t.Fatalf("the message for %s went to the other machine: %q", pane, m)
+		case <-time.After(5 * time.Second):
+			t.Fatal("no message")
+		}
 	}
 }

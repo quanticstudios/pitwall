@@ -4,7 +4,7 @@
 //
 //	-dir path          keep the pairing here (default: the app's data folder)
 //	-size WxH          window size in dp (default 412x915, a common phone)
-//	-demo              pair with a demo server of made-up tabs, in this process
+//	-demo n            pair with n demo servers of made-up tabs (box, laptop), in this process
 //	-serve-demo addr   serve that demo at addr and print its pairing link, no window
 package main
 
@@ -27,7 +27,7 @@ import (
 func main() {
 	dir := flag.String("dir", "", "keep the pairing in this folder")
 	size := flag.String("size", "412x915", "window size WxH in dp")
-	demoApp := flag.Bool("demo", false, "pair with a demo server of made-up tabs")
+	demoApp := flag.Int("demo", 0, "pair with this many demo servers of made-up tabs, 1 or 2")
 	demoAddr := flag.String("serve-demo", "", "serve the demo at this address and print its pairing link")
 	flag.Parse()
 	var w, h int
@@ -35,28 +35,34 @@ func main() {
 		log.Fatalf("-size %q: want WxH", *size)
 	}
 	if *demoAddr != "" {
-		url, code, err := serveDemo(*demoAddr)
+		url, code, err := serveDemo(*demoAddr, 0)
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Printf("%s#pair=%s\n", url, code)
 		select {}
 	}
-	if *demoApp {
-		url, code, err := serveDemo("127.0.0.1:0")
-		if err != nil {
-			log.Fatal(err)
-		}
+	if *demoApp > 0 {
+		var err error
 		if *dir, err = os.MkdirTemp("", "pitwall-phone-"); err != nil {
 			log.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		c, err := phone.Pair(ctx, url, code, "")
-		cancel()
-		if err == nil {
-			err = phone.Save(*dir, c)
+		var ms []phone.Machine
+		for i, name := range []string{"box", "laptop"}[:min(*demoApp, 2)] {
+			url, code, err := serveDemo("127.0.0.1:0", i)
+			if err != nil {
+				log.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			c, err := phone.Pair(ctx, url, code, "")
+			cancel()
+			if err != nil {
+				log.Fatal(err)
+			}
+			ms, _ = phone.AddMachine(ms, c)
+			ms[i].Name = name
 		}
-		if err != nil {
+		if err := phone.SaveMachines(*dir, ms); err != nil {
 			log.Fatal(err)
 		}
 	}

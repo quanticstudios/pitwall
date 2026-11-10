@@ -17,10 +17,18 @@ import (
 //
 // why: the list already holds what a row shows, redacted as the page
 // redacts it, so the app needs no endpoint of its own.
-func State(tabs []remote.Tab) model.State {
+func State(tabs []remote.Tab) model.State { return stateOf("", tabs) }
+
+// stateOf is State with machine's id in its session and group ids, so two
+// machines' sessions of one name stay two sessions.
+func stateOf(machine string, tabs []remote.Tab) model.State {
 	var st model.State
+	prefix := "s:"
+	if machine != "" {
+		prefix = "s:" + machine + "/"
+	}
 	for _, t := range tabs {
-		sid := "s:" + t.Session
+		sid := prefix + t.Session
 		s := st.Session(sid)
 		if s == nil {
 			st.Sessions = append(st.Sessions, model.Session{ID: sid, Name: t.Session})

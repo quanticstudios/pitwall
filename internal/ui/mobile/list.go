@@ -2,15 +2,10 @@ package mobile
 
 import (
 	"context"
-	"fmt"
 	"image"
 	"image/color"
-	"math"
-	"net"
-	"net/url"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"gioui.org/io/key"
@@ -33,12 +28,12 @@ import (
 // session, and the sidebar's tree of one session.
 type listView struct {
 	sessions, settings, retry widget.Clickable
-	// menu is the open menu: "sessions" or "settings", "" for none.
-	menu   string
-	scrim  widget.Clickable
-	rows   map[string]*widget.Clickable // the menu's sessions and the waiting rows, by id
-	unpair widget.Clickable
-	note   string // why answering a row failed
+	// menu is the open menu: "sessions", "" for none.
+	menu  string
+	scrim widget.Clickable
+	rows  map[string]*widget.Clickable // the menu's sessions and the waiting rows, by id
+	add   widget.Clickable
+	note  string // why answering a row failed, or a machine left
 }
 
 func (l *listView) btn(id string) *widget.Clickable {
@@ -58,14 +53,25 @@ const rowH unit.Dp = 35
 
 func (a *App) listLayout(gtx C) {
 	th, l := a.th, &a.list
-	if l.sessions.Clicked(gtx) && len(a.st.Sessions) > 1 {
+	if l.sessions.Clicked(gtx) && (len(a.st.Sessions) > 1 || a.many()) {
 		l.menu = "sessions"
 	}
 	if l.settings.Clicked(gtx) {
-		l.menu = "settings"
+		a.machines, l.menu = true, ""
+		a.mach = machinesView{}
 	}
-	if l.retry.Clicked(gtx) && a.conn != nil {
-		a.conn.Retry()
+	shown := a.shown()
+	if l.retry.Clicked(gtx) && shown != nil {
+		shown.conn.Retry()
+	}
+	if a.many() {
+		a.sb.Hosts = a.hosts()
+		a.sb.HostOf = func(id string) string {
+			m, _ := a.fleet.Owner(id)
+			return m.Name
+		}
+	} else {
+		a.sb.Hosts, a.sb.HostOf = nil, nil
 	}
 	if l.menu != "" {
 		// Back, or Esc on a desktop, closes the menu. With none open it
@@ -88,12 +94,12 @@ func (a *App) listLayout(gtx C) {
 			if len(a.tabs) == 0 {
 				fillMax(gtx, th.Sidebar)
 				msg := "No tabs are open."
-				if !a.online {
+				if shown == nil || !shown.online {
 					msg = ""
 				}
 				return layout.Center.Layout(gtx, func(gtx C) D { return body(gtx, th, th.Muted, msg) })
 			}
-			if !a.online {
+			if shown != nil && !shown.online {
 				// The last list, dimmed, until the stream is back.
 				defer paint.PushOpacity(gtx.Ops, 0.55).Pop()
 			}
@@ -111,13 +117,13 @@ func (a *App) listLayout(gtx C) {
 			return D{Size: gtx.Constraints.Max}
 		}),
 	)
-	switch l.menu {
-	case "sessions":
+	if l.menu == "sessions" {
 		a.sessionMenu(gtx)
-	case "settings":
-		a.settingsMenu(gtx)
 	}
 }
+
+// shown is the link of the machine whose session the list shows.
+func (a *App) shown() *link { return a.linkOf(a.session) }
 
 func (a *App) tabOf(workspace string) (remote.Tab, bool) {
 	i := slices.IndexFunc(a.tabs, func(t remote.Tab) bool { return t.ID == workspace })
@@ -130,7 +136,8 @@ func (a *App) tabOf(workspace string) (remote.Tab, bool) {
 // answerRow presses Allow or Deny for a row's permission prompt.
 func (a *App) answerRow(ev sidebar.Answer) {
 	a.list.note = ""
-	a.do(func(ctx context.Context, c *phone.Client) error { return c.Answer(ctx, ev.PaneID, ev.At, ev.Allow) }, func(err error) {
+	m, _ := a.fleet.Owner(ev.PaneID)
+	a.do(m.ID, func(ctx context.Context, c *phone.Client) error { return c.Answer(ctx, ev.PaneID, ev.At, ev.Allow) }, func(err error) {
 		if err != nil {
 			a.list.note = sentence(err.Error())
 		}
@@ -224,36 +231,15 @@ func badge(gtx C, th *theme.Theme, n int) D {
 	return D{Size: size}
 }
 
-// hostName is how the header names the computer: the server's first
-// name ("box" of box.example.com), or its address.
-func hostName(server string) string {
-	u, err := url.Parse(server)
-	if err != nil || u.Hostname() == "" {
-		return server
-	}
-	h := u.Hostname()
-	if net.ParseIP(h) != nil {
-		return h
-	}
-	first, _, _ := strings.Cut(h, ".")
-	return first
-}
-
-// hostTag is the computer's name after a dot: green while the stream is
-// up, red while it reconnects, gray before the first answer.
+// hostTag is the shown session's machine after a dot: green while its
+// stream is up, red while it reconnects, gray before the first answer.
 func (a *App) hostTag(gtx C) D {
 	th := a.th
-	col := th.Muted
-	switch {
-	case a.online:
-		col = th.Green
-	case a.offline != "":
-		col = th.Red
+	l := a.shown()
+	if l == nil {
+		return D{}
 	}
-	name := ""
-	if a.client != nil {
-		name = hostName(a.client.Server)
-	}
+	name, col := l.m.Name, linkColor(th, l)
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 		layout.Rigid(func(gtx C) D {
 			r := gtx.Dp(3)
@@ -305,22 +291,38 @@ func (a *App) bar(gtx C, lead, mid, trail layout.Widget) D {
 	return D{Size: image.Pt(gtx.Constraints.Max.X, h)}
 }
 
-// offlineLine says the stream is down, when it tries again, and offers to
-// try now. Before the first answer it says Connecting.
+// linkColor is a machine's dot: green while its stream is up, red while
+// it reconnects, gray before the first answer.
+func linkColor(th *theme.Theme, l *link) color.NRGBA {
+	switch {
+	case l.online:
+		return th.Green
+	case l.offline != "":
+		return th.Red
+	}
+	return th.Muted
+}
+
+// offlineLine says the shown session's machine is unreachable, when the
+// app tries again, and offers to try now. Before the first answer it says
+// Connecting. Another machine being down shows only on its own rows.
 func (a *App) offlineLine(gtx C) D {
-	if a.online {
+	l := a.shown()
+	if l == nil || l.online {
 		return D{}
 	}
 	th := a.th
-	if a.offline == "" {
+	if l.offline == "" {
 		return box(gtx, th.Sidebar, color.NRGBA{}, 0, layout.Inset{Left: pad, Right: pad, Top: 6, Bottom: 6}, func(gtx C) D {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, 1, "Connecting…")
 		})
 	}
-	msg := "Offline, reconnecting"
-	if left := time.Until(a.retryAt); left > 0 {
-		msg = fmt.Sprintf("Offline, reconnecting in %d s", int(math.Ceil(left.Seconds())))
+	msg := offlineText(l.retryAt, gtx.Now)
+	if a.many() {
+		msg = l.m.Name + " o" + msg[1:]
+	}
+	if left := l.retryAt.Sub(gtx.Now); left > 0 {
 		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(min(left, time.Second))})
 	}
 	red := th.Readable(th.Red, th.Bg)
@@ -370,9 +372,6 @@ func (a *App) waiting(gtx C) D {
 		return D{}
 	}
 	fillMax(gtx, th.Sidebar) // ponytail: fills the rest too; the tree paints over it
-	if !a.online {
-		defer paint.PushOpacity(gtx.Ops, 0.55).Pop()
-	}
 	var ws []layout.Widget
 	if a.list.note != "" {
 		ws = append(ws, func(gtx C) D {
@@ -393,18 +392,29 @@ func (a *App) waiting(gtx C) D {
 		if w == nil {
 			continue
 		}
-		session := ""
+		where := ""
 		if s := a.st.Session(w.SessionID); s != nil {
-			session = s.Name
+			where = s.Name
 		}
+		l := a.linkOf(w.ID)
+		if a.many() && l != nil {
+			where = l.m.Name
+		}
+		down := l == nil || !l.online
 		c := a.list.btn("w:" + act.PaneID)
 		if c.Clicked(gtx) {
 			if t, ok := a.tabOf(w.ID); ok {
 				defer a.openChat(t.Pane)
 			}
 		}
-		title, right, col := sidebar.Title(*w), session+" · "+model.PillLabel(act), sidebar.StateColor(th, act.State)
-		ws = append(ws, func(gtx C) D { return a.waitRow(gtx, c, col, title, right) })
+		title, right, col := sidebar.Title(*w), where+" · "+model.PillLabel(act), sidebar.StateColor(th, act.State)
+		ws = append(ws, func(gtx C) D {
+			if down {
+				// why: a machine that is down keeps its last list, dimmed, as its rows in the tree are.
+				defer paint.PushOpacity(gtx.Ops, 0.55).Pop()
+			}
+			return a.waitRow(gtx, c, col, title, right)
+		})
 	}
 	ws = append(ws, func(gtx C) D {
 		return layout.Inset{Top: 6}.Layout(gtx, func(gtx C) D { return divider(gtx, th.Border) })
@@ -502,52 +512,86 @@ func menuHeading(th *theme.Theme, s string) layout.Widget {
 	}
 }
 
-// sessionMenu lists the computer's sessions, each with its tabs and what
-// waits there; a pick shows it.
+// sessionMenu lists each machine's sessions under its name, each with
+// its tabs and what waits there, and Add machine; a pick shows it.
 func (a *App) sessionMenu(gtx C) {
 	th, l := a.th, &a.list
-	rows := []layout.Widget{menuHeading(th, "Sessions on "+hostName(a.client.Server))}
-	for _, s := range a.st.Sessions {
-		c := l.btn("s:" + s.ID)
-		if c.Clicked(gtx) {
-			a.session, l.menu = s.ID, ""
-			return
+	if l.add.Clicked(gtx) {
+		a.adding, l.menu = true, ""
+		return
+	}
+	var rows []layout.Widget
+	for _, m := range a.fleet.Machines {
+		ln := a.links[m.ID]
+		head := "Sessions on " + m.Name
+		if !ln.online && ln.offline != "" {
+			head += ", offline"
 		}
-		tabs := 0
-		for _, w := range a.st.Workspaces {
-			if w.SessionID == s.ID {
-				tabs++
+		rows = append(rows, menuHeading(th, head))
+		for _, s := range a.st.Sessions {
+			if o, _ := a.fleet.Owner(s.ID); o.ID != m.ID {
+				continue
 			}
+			c := l.btn("s:" + s.ID)
+			if c.Clicked(gtx) {
+				a.session, a.picked, l.menu = s.ID, true, ""
+				return
+			}
+			rows = append(rows, a.sessionRow(c, s))
 		}
-		waits := phone.NeedsYou(&a.st, s.ID)
-		sub := strconv.Itoa(tabs) + map[bool]string{true: " tab", false: " tabs"}[tabs == 1]
-		if waits > 0 {
-			sub += " · " + strconv.Itoa(waits) + " waiting"
+	}
+	rows = append(rows, func(gtx C) D {
+		return layout.Inset{Top: 4}.Layout(gtx, func(gtx C) D { return divider(gtx, th.Border) })
+	}, func(gtx C) D {
+		return menuRow(gtx, th, &l.add, false, func(gtx C) D {
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx C) D {
+					return layout.Inset{Right: 8}.Layout(gtx, func(gtx C) D { return sidebar.Icon(gtx, "plus", gtx.Dp(14), th.Primary) })
+				}),
+				layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Primary, 1, "Add machine") }),
+			)
+		})
+	})
+	a.menuPanel(gtx, true, rows)
+}
+
+// sessionRow is a session in the menu: its name over its tabs and what
+// waits there, with a check on the one shown and a count on the others.
+func (a *App) sessionRow(c *widget.Clickable, s model.Session) layout.Widget {
+	th := a.th
+	tabs := 0
+	for _, w := range a.st.Workspaces {
+		if w.SessionID == s.ID {
+			tabs++
 		}
-		cur, name := s.ID == a.session, s.Name
-		rows = append(rows, func(gtx C) D {
-			return menuRow(gtx, th, c, cur, func(gtx C) D {
-				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Flexed(1, func(gtx C) D {
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, 1, name) }),
-							layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, sub) }),
-						)
-					}),
-					layout.Rigid(func(gtx C) D {
-						switch {
-						case cur:
-							return sidebar.Icon(gtx, "check", gtx.Dp(14), th.Primary)
-						case waits > 0:
-							return badge(gtx, th, waits)
-						}
-						return D{}
-					}),
-				)
-			})
+	}
+	waits := phone.NeedsYou(&a.st, s.ID)
+	sub := strconv.Itoa(tabs) + map[bool]string{true: " tab", false: " tabs"}[tabs == 1]
+	if waits > 0 {
+		sub += " · " + strconv.Itoa(waits) + " waiting"
+	}
+	cur, name := s.ID == a.session, s.Name
+	return func(gtx C) D {
+		return menuRow(gtx, th, c, cur, func(gtx C) D {
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, func(gtx C) D {
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, 1, name) }),
+						layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, sub) }),
+					)
+				}),
+				layout.Rigid(func(gtx C) D {
+					switch {
+					case cur:
+						return sidebar.Icon(gtx, "check", gtx.Dp(14), th.Primary)
+					case waits > 0:
+						return badge(gtx, th, waits)
+					}
+					return D{}
+				}),
+			)
 		})
 	}
-	a.menuPanel(gtx, true, rows)
 }
 
 // menuRow is a menu's touch-tall row, filled while pressed or current.
@@ -568,27 +612,5 @@ func menuRow(gtx C, th *theme.Theme, c *widget.Clickable, current bool, w layout
 		defer op.Offset(image.Pt(0, (size.Y-d.Size.Y)/2)).Push(gtx.Ops).Pop()
 		call.Add(gtx.Ops)
 		return D{Size: size}
-	})
-}
-
-// settingsMenu says which computer this phone is paired with, and unpairs.
-func (a *App) settingsMenu(gtx C) {
-	th, l := a.th, &a.list
-	if l.unpair.Clicked(gtx) {
-		l.menu = ""
-		a.unpair("")
-		return
-	}
-	who := "Paired with " + hostName(a.client.Server)
-	if a.hello.Device != "" {
-		who += " as " + a.hello.Device
-	}
-	a.menuPanel(gtx, false, []layout.Widget{
-		menuHeading(th, who),
-		func(gtx C) D {
-			return menuRow(gtx, th, &l.unpair, false, func(gtx C) D {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Readable(th.Red, th.SurfaceElevated), 1, "Unpair this phone")
-			})
-		},
 	})
 }

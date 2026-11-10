@@ -30,8 +30,8 @@ import (
 // server with pitwall's own certificate, compare its SHA-256. Nothing is
 // saved until pairing works.
 type pairView struct {
-	link, addr, code       widget.Editor
-	paste, go_, swap, back widget.Clickable
+	link, addr, code               widget.Editor
+	paste, go_, swap, back, cancel widget.Clickable
 	// manual shows the address and code in place of the link.
 	manual bool
 	busy   bool
@@ -78,9 +78,14 @@ func (a *App) pairLayout(gtx C) {
 	if p.back.Clicked(gtx) {
 		p.untrusted, p.note = "", ""
 	}
-	if p.untrusted != "" || p.manual {
+	if p.cancel.Clicked(gtx) {
+		a.adding, p.note, p.untrusted, p.manual = false, "", "", false
+		return
+	}
+	if p.untrusted != "" || p.manual || a.adding {
 		// Back steps back: the certificate to the step before, the
-		// address and code to the link. On the link it goes unread, so
+		// address and code to the link, the link to the sidebar while
+		// adding a machine. On a first pairing's link it goes unread, so
 		// Android leaves the app.
 		for {
 			ev, ok := gtx.Event(key.Filter{Name: key.NameBack}, key.Filter{Name: key.NameEscape})
@@ -88,10 +93,13 @@ func (a *App) pairLayout(gtx C) {
 				break
 			}
 			if ke, ok := ev.(key.Event); ok && ke.State == key.Press {
-				if p.untrusted != "" {
+				switch {
+				case p.untrusted != "":
 					p.untrusted = ""
-				} else {
+				case p.manual:
 					p.manual = false
+				default:
+					a.adding = false
 				}
 				p.note = ""
 			}
@@ -162,7 +170,11 @@ func prose(gtx C, th *theme.Theme, col color.NRGBA, parts ...string) D {
 
 func (a *App) linkStep() []layout.Widget {
 	p, th := &a.pair, a.th
-	w := a.pairHead("Pair with your computer", "On the computer, run ", "pitwall remote pair", " and paste the link it prints.")
+	title := "Pair with your computer"
+	if a.adding {
+		title = "Add a machine"
+	}
+	w := a.pairHead(title, "On the computer, run ", "pitwall remote pair", " and paste the link it prints.")
 	w = append(w,
 		fieldLabel(th, "Pairing link"),
 		func(gtx C) D {
@@ -170,7 +182,13 @@ func (a *App) linkStep() []layout.Widget {
 		},
 	)
 	w = append(w, a.pairNote()...)
-	return append(w, gap(14), a.pairButton("Pair"), gap(6), a.swapButton("Enter the address and code instead"))
+	w = append(w, gap(14), a.pairButton("Pair"), gap(6), a.swapButton("Enter the address and code instead"))
+	if a.adding {
+		w = append(w, func(gtx C) D {
+			return layout.Center.Layout(gtx, func(gtx C) D { return textButton(gtx, th, &p.cancel, "Cancel") })
+		})
+	}
+	return w
 }
 
 func (a *App) codeStep() []layout.Widget {
@@ -323,11 +341,11 @@ func (a *App) startPair(server, code, pin string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		c, err := phone.Pair(ctx, server, code, pin)
-		if err == nil {
-			err = phone.Save(a.dir, c)
-		}
 		a.post(func() {
 			p.busy = false
+			if err == nil {
+				err = a.addMachine(c)
+			}
 			var ue *phone.UntrustedError
 			switch {
 			case errors.As(err, &ue):
@@ -337,7 +355,6 @@ func (a *App) startPair(server, code, pin string) {
 			default:
 				*p = pairView{}
 				p.init()
-				a.start(c)
 			}
 		})
 	}()

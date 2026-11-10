@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -28,15 +31,15 @@ type demo struct {
 	next    uint64
 }
 
-// serveDemo serves the demo at addr and returns its server and a pairing
-// code good for 10 minutes.
-func serveDemo(addr string) (url, code string, err error) {
+// serveDemo serves demo variant (0 or 1, two machines' worth) at addr and
+// returns its server and a pairing code good for 10 minutes.
+func serveDemo(addr string, variant int) (url, code string, err error) {
 	dir, err := os.MkdirTemp("", "pitwall-phone-demo-")
 	if err != nil {
 		return "", "", err
 	}
 	d := &demo{dir: dir, changed: make(chan struct{})}
-	if err := d.fill(); err != nil {
+	if err := d.fill(variant); err != nil {
 		return "", "", err
 	}
 	s := &remote.Server{Dir: dir,
@@ -160,7 +163,7 @@ func demoModel(name string) string {
 	return "claude-" + name + "-5-5"
 }
 
-func (d *demo) fill() error {
+func (d *demo) fill(variant int) error {
 	now := time.Now()
 	ago := func(m time.Duration) int64 { return now.Add(-m * time.Minute).UnixNano() }
 	race, readme := filepath.Join(d.dir, "race.jsonl"), filepath.Join(d.dir, "readme.jsonl")
@@ -191,6 +194,17 @@ func (d *demo) fill() error {
 	certs := tab("certs", "infra", "", "Rotate the certs", "claude", "error", "Error", "ops/certs", ago(4))
 	certs.Detail = "x509: certificate has expired"
 	d.tabs = []remote.Tab{rate, pr, fix, doc, site, logs, certs}
+	if variant == 1 {
+		deps := tab("deps", "main", "", "Bump the deps", "codex", "working", "Working", "chore/deps", ago(0))
+		notes := tab("notes", "main", "", "Write the release notes", "claude", "awaiting-input", "Input", "docs/release", ago(3))
+		notes.Detail, notes.Reply = "Should the notes name the contributors?", true
+		d.tabs = []remote.Tab{deps, notes}
+	}
+	// why: every daemon's ids are its own random ones; two demo servers in one app must not share any.
+	tag := hex.EncodeToString(binary.BigEndian.AppendUint64(nil, rand.Uint64()))[:6]
+	for i := range d.tabs {
+		d.tabs[i].ID, d.tabs[i].Pane = tag+d.tabs[i].ID, tag+d.tabs[i].Pane
+	}
 	return nil
 }
 
