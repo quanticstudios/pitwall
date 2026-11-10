@@ -362,12 +362,19 @@ func TestState(t *testing.T) {
 	if n := NeedsYou(&st, "s:main"); n != 1 {
 		t.Fatalf("NeedsYou = %d; want 1, the approval", n)
 	}
+	// A managed chat's tab says so, so its row offers no Allow or Deny.
+	chat := tab("f", "main", "", "pending-approval")
+	chat.Chat = true
+	if w := State([]remote.Tab{chat}).Workspaces[0]; w.Chat != "f-p" {
+		t.Fatalf("chat tab's workspace Chat = %q", w.Chat)
+	}
 }
 
 func configFor(url string) config.RemoteSettings { return config.RemoteSettings{URL: url} }
 
-// TestFleet merges two machines' lists, each with a session named main,
-// and sends a message about each machine's tab to that machine alone.
+// TestFleet merges two machines' lists, each with a session named main and
+// a tab and pane of the same ids, as a copied state gives, and sends a
+// message about each machine's tab to that machine alone.
 func TestFleet(t *testing.T) {
 	var ms []Machine
 	var got [2]chan string
@@ -382,43 +389,120 @@ func TestFleet(t *testing.T) {
 	tab := func(id string) remote.Tab {
 		return remote.Tab{Item: remote.Item{Pane: id + "-p", Tab: "Tab " + id, Session: "main", Agent: "claude", State: "pending-approval"}, ID: id, Group: "api"}
 	}
-	f.Set(ms[1].ID, []remote.Tab{tab("b1")})
-	f.Set(ms[0].ID, []remote.Tab{tab("a1"), tab("a2")})
+	a, b := ms[0].ID, ms[1].ID
+	f.Set(b, []remote.Tab{tab("a1")})
+	f.Set(a, []remote.Tab{tab("a1"), tab("a2")})
 	st := f.State()
 	if len(st.Sessions) != 2 || st.Sessions[0].ID == st.Sessions[1].ID || len(st.Projects) != 2 {
 		t.Fatalf("sessions %+v, groups %+v; want one of each per machine", st.Sessions, st.Projects)
 	}
-	var order []string
+	var order, panes []string
 	for _, w := range st.Workspaces {
 		order = append(order, w.ID)
 	}
-	if !slices.Equal(order, []string{"a1", "a2", "b1"}) || len(f.Tabs()) != 3 {
-		t.Fatalf("tabs in order %v; want the first machine's first", order)
+	for _, act := range st.Activities {
+		panes = append(panes, act.PaneID)
+	}
+	if !slices.Equal(order, []string{NS(a, "a1"), NS(a, "a2"), NS(b, "a1")}) {
+		t.Fatalf("tabs in order %v; want the first machine's first, each id with its machine", order)
+	}
+	if !slices.Equal(panes, []string{NS(a, "a1-p"), NS(a, "a2-p"), NS(b, "a1-p")}) {
+		t.Fatalf("activities' panes %v", panes)
 	}
 	if n := NeedsYou(&st, st.Sessions[0].ID); n != 2 {
 		t.Fatalf("NeedsYou of the first machine's main = %d; want 2", n)
 	}
-	for _, id := range []string{"b1", "b1-p", st.Sessions[1].ID, st.Projects[1].ID} {
-		if m, ok := f.Owner(id); !ok || m.ID != ms[1].ID {
+	for _, id := range []string{NS(b, "a1"), NS(b, "a1-p"), st.Sessions[1].ID, st.Projects[1].ID} {
+		if m, ok := f.Owner(id); !ok || m.ID != b {
 			t.Fatalf("Owner(%q) = %v %v; want the second machine", id, m.Name, ok)
 		}
 	}
-	if _, ok := f.Owner("nope"); ok || f.ClientOf("nope") != nil {
-		t.Fatal("an unknown id has an owner")
+	if _, ok := f.Owner("a1"); ok || f.ClientOf("a1") != nil {
+		t.Fatal("an id without its machine has an owner")
 	}
-	for i, pane := range []string{"a2-p", "b1-p"} {
-		if _, err := f.ClientOf(pane).Send(context.Background(), pane, "hi"); err != nil {
+	if _, _, ok := f.Tab("nope"); ok {
+		t.Fatal("an unknown id has a tab")
+	}
+	for i, id := range []string{NS(a, "a1-p"), NS(b, "a1")} {
+		m, tb, ok := f.Tab(id)
+		if !ok || tb.Pane != "a1-p" || tb.ID != "a1" {
+			t.Fatalf("Tab(%q) = %+v %v; want the machine's own ids", id, tb, ok)
+		}
+		if _, err := f.Client(m.ID).Send(context.Background(), tb.Pane, "hi"); err != nil {
 			t.Fatal(err)
 		}
 		select {
 		case m := <-got[i]:
-			if m != pane+": hi" {
+			if m != "a1-p: hi" {
 				t.Fatalf("machine %d got %q", i, m)
 			}
 		case m := <-got[1-i]:
-			t.Fatalf("the message for %s went to the other machine: %q", pane, m)
+			t.Fatalf("the message for %s went to the other machine: %q", id, m)
 		case <-time.After(5 * time.Second):
 			t.Fatal("no message")
 		}
+	}
+}
+
+// TestRedirect: a redirect off the paired address, to http on the same
+// host or to another host, never carries the token or the body there.
+func TestRedirect(t *testing.T) {
+	var leaked atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" || r.ContentLength > 0 {
+			leaked.Add(1)
+		}
+		w.Write([]byte(`{"id":1}`))
+	}))
+	defer plain.Close()
+	s := &remote.Server{Dir: t.TempDir(), Items: func() []remote.Item { return nil }}
+	tls := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/send" {
+			http.Redirect(w, r, plain.URL+r.URL.Path, http.StatusTemporaryRedirect)
+			return
+		}
+		s.Handler().ServeHTTP(w, r)
+	}))
+	defer tls.Close()
+	c := NewClient(Creds{Server: tls.URL + "/", Token: "secret", Pin: Fingerprint(tls.Certificate().Raw)})
+	if _, err := c.Send(context.Background(), "p1", "the body"); err == nil {
+		t.Error("a send followed a redirect to http")
+	}
+	if n := leaked.Load(); n != 0 {
+		t.Fatalf("the http server got the token or body %d times", n)
+	}
+	// A redirect on the paired address is fine.
+	same := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/old" {
+			http.Redirect(w, r, "/new", http.StatusTemporaryRedirect)
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer same.Close()
+	if err := NewClient(Creds{Server: same.URL + "/"}).call(context.Background(), "GET", "old", nil, nil); err != nil {
+		t.Fatalf("a redirect on the same address: %v", err)
+	}
+}
+
+// TestChatReplay: a queued message is not settled by an old prompt of the
+// same words that a reconnect replays, only by a later one.
+func TestChatReplay(t *testing.T) {
+	var c Chat
+	c.Reset(Entries{Entries: []flow.Entry{{Seq: 5, Kind: flow.EntryUser, Text: "continue"}}})
+	p := c.Send("continue")
+	c.Sent(p, 9, remote.Tab{Item: remote.Item{State: "working"}, Queued: 1}, time.Now())
+	c.Reset(Entries{Entries: []flow.Entry{{Seq: 5, Kind: flow.EntryUser, Text: "continue"}}})
+	if !c.Has(p) {
+		t.Fatal("the replayed old prompt settled the queued message")
+	}
+	c.Update(remote.Tab{Dropped: []uint64{9}}, time.Now())
+	if p.Err == "" {
+		t.Fatal("a drop after the replay was not reported")
+	}
+	q := c.Send("continue")
+	c.Add([]flow.Entry{{Seq: 6, Kind: flow.EntryUser, Text: "continue"}})
+	if c.Has(q) {
+		t.Fatal("a new prompt did not settle the message on its way")
 	}
 }

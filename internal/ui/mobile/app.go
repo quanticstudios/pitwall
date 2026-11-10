@@ -57,7 +57,6 @@ type App struct {
 	links   map[string]*link
 	focused bool
 
-	tabs    []remote.Tab
 	st      model.State
 	session string // the State session the list shows
 	picked  bool   // the user picked it; else the first session shows
@@ -186,7 +185,7 @@ func (a *App) setMachines(ms []phone.Machine) {
 	old := a.fleet
 	a.fleet, a.links = nil, map[string]*link{}
 	if len(ms) == 0 {
-		a.tabs, a.st, a.session = nil, model.State{}, ""
+		a.st, a.session = model.State{}, ""
 		a.chat, a.chatM, a.machines = chatView{}, "", false
 		return
 	}
@@ -281,7 +280,7 @@ func (a *App) renameMachine(id, name string) {
 
 // refresh takes the fleet's merged list and keeps the session shown.
 func (a *App) refresh() {
-	a.tabs, a.st = a.fleet.Tabs(), a.fleet.State()
+	a.st = a.fleet.State()
 	if !a.picked || a.st.Session(a.session) == nil {
 		a.session, a.picked = "", false
 		if len(a.st.Sessions) > 0 {
@@ -316,23 +315,25 @@ func (a *App) event(f *phone.Fleet, l *link, e phone.Event) {
 
 // tab is the open chat's tab in the latest list.
 func (a *App) tab() (remote.Tab, bool) {
-	if a.chat.pane == "" {
+	if a.chat.pane == "" || a.fleet == nil {
 		return remote.Tab{}, false
 	}
-	i := slices.IndexFunc(a.tabs, func(t remote.Tab) bool { return t.Pane == a.chat.pane })
+	tabs := a.fleet.TabsOf(a.chatM)
+	i := slices.IndexFunc(tabs, func(t remote.Tab) bool { return t.Pane == a.chat.pane })
 	if i < 0 {
 		return remote.Tab{}, false
 	}
-	return a.tabs[i], true
+	return tabs[i], true
 }
 
-func (a *App) openChat(pane string) {
-	m, ok := a.fleet.Owner(pane)
+// openChat opens the chat of the State tab or pane id.
+func (a *App) openChat(id string) {
+	m, t, ok := a.fleet.Tab(id)
 	if !ok {
 		return
 	}
-	a.chat, a.chatM = newChat(pane), m.ID
-	a.links[m.ID].conn.Watch(pane)
+	a.chat, a.chatM = newChat(t.Pane), m.ID
+	a.links[m.ID].conn.Watch(t.Pane)
 }
 
 func (a *App) closeChat() {

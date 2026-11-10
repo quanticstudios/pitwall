@@ -19,15 +19,14 @@ import (
 // redacts it, so the app needs no endpoint of its own.
 func State(tabs []remote.Tab) model.State { return stateOf("", tabs) }
 
-// stateOf is State with machine's id in its session and group ids, so two
-// machines' sessions of one name stay two sessions.
+// stateOf is State with machine's id in every id, as NS makes them, so
+// two machines' sessions of one name stay two sessions and their tabs and
+// panes of one id stay two.
 func stateOf(machine string, tabs []remote.Tab) model.State {
 	var st model.State
-	prefix := "s:"
-	if machine != "" {
-		prefix = "s:" + machine + "/"
-	}
+	prefix := "s:" + NS(machine, "")
 	for _, t := range tabs {
+		t.ID, t.Pane = NS(machine, t.ID), NS(machine, t.Pane)
 		sid := prefix + t.Session
 		s := st.Session(sid)
 		if s == nil {
@@ -51,10 +50,16 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 			at = time.Unix(0, t.At)
 		}
 		prov := model.Provider(t.Agent)
-		st.Workspaces = append(st.Workspaces, model.Workspace{
+		w := model.Workspace{
 			ID: t.ID, SessionID: sid, ProjectID: gid, Name: t.Tab, Label: t.Tab, Branch: t.Branch, UpdatedAt: at,
 			Tabs: []model.Tab{{Layout: &pwlayout.Node{Pane: t.Pane}}},
-		})
+		}
+		if t.Chat {
+			// why: the sidebar then offers no Allow or Deny, which answer a terminal's
+			// prompt; a chat's approvals carry a request id, which its chat answers.
+			w.Chat = t.Pane
+		}
+		st.Workspaces = append(st.Workspaces, w)
 		st.Panes = append(st.Panes, model.Pane{ID: t.Pane, WorkspaceID: t.ID, Provider: prov})
 		if t.State != "" {
 			st.Activities = append(st.Activities, model.Activity{PaneID: t.Pane, WorkspaceID: t.ID, Provider: prov,
@@ -62,6 +67,15 @@ func stateOf(machine string, tabs []remote.Tab) model.State {
 		}
 	}
 	return st
+}
+
+// NS is id as the fleet's State names it: with machine's id in front, or
+// as it is for "".
+func NS(machine, id string) string {
+	if machine == "" {
+		return id
+	}
+	return machine + "/" + id
 }
 
 // NeedsYou counts the tabs of session (a State session id) that wait on

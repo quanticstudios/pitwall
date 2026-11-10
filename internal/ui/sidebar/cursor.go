@@ -118,7 +118,7 @@ func (s *Sidebar) Asking(st *model.State, session, active string) *model.Activit
 		e, _ := v.sub(s.cur.parent, s.cur.id)
 		a = v.prompt(e)
 	}
-	if s.cur.kind == 'g' || s.cur.kind == 'm' || a == nil || !remote.Answerable(*a) {
+	if s.cur.kind == 'g' || s.cur.kind == 'm' || a == nil || !remote.Answerable(*a) || isChat(st, a.WorkspaceID) {
 		return nil
 	}
 	return a

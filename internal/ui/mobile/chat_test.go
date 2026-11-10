@@ -126,6 +126,8 @@ func TestQueueLine(t *testing.T) {
 	}
 }
 
+// A message the agent left comes back into an empty box. With a draft
+// in the box it waits, shown on the line, until the box is empty.
 func TestNotSentComesBack(t *testing.T) {
 	now := time.Now()
 	c := &phone.Chat{Pending: []*phone.Pending{{Text: "ok", Sent: true, At: now}, {Text: "open a PR", Sent: true, ID: 4, At: now}}}
@@ -134,10 +136,15 @@ func TestNotSentComesBack(t *testing.T) {
 	if why != "the agent exited" || text != "open a PR" || len(c.Pending) != 1 {
 		t.Fatalf("empty box: %q %q, %d pending", why, text, len(c.Pending))
 	}
-	// A draft in the box stays: the line still says why.
-	c.Pending = append(c.Pending, &phone.Pending{Text: "lost", Err: "refused"})
-	if why, text := takeNotSent(c, "my draft"); why != "refused" || text != "" {
+	c.Pending = append(c.Pending, &phone.Pending{Text: "not  lost", Err: "refused"})
+	if why, text := takeNotSent(c, "my draft"); why != "" || text != "" {
 		t.Errorf("with a draft: %q %q", why, text)
+	}
+	if b, r, bad := queueLine(remote.Tab{}, c.Pending, ""); b != "Not sent:" || r != "not lost" || !bad {
+		t.Errorf("waiting message's line: %q %q %v", b, r, bad)
+	}
+	if why, text := takeNotSent(c, " "); why != "refused" || text != "not  lost" {
+		t.Errorf("once the box is empty: %q %q", why, text)
 	}
 	if why, _ := takeNotSent(c, ""); why != "" {
 		t.Errorf("nothing left, got %q", why)
@@ -150,6 +157,8 @@ type fakeAPI struct {
 	commands []string
 	err      error
 }
+
+func (f *fakeAPI) Send(ctx context.Context, pane, text string) (uint64, error) { return 3, f.err }
 
 func (f *fakeAPI) Command(ctx context.Context, pane, what, value string) error {
 	f.commands = append(f.commands, pane+" /"+what+" "+value)
@@ -166,7 +175,7 @@ func TestPickWaitsForIdle(t *testing.T) {
 			err := call(context.Background(), api)
 			later = append(later, func() { done(err) })
 		}}
-	c.cmp.pick = &pick{"model", "sonnet"}
+	c.cmp.choose(&pick{"model", "sonnet"})
 	c.firePick(env)
 	if len(api.commands) != 0 {
 		t.Fatalf("fired mid-turn: %v", api.commands)
@@ -181,8 +190,8 @@ func TestPickWaitsForIdle(t *testing.T) {
 		t.Fatalf("commands = %v", api.commands)
 	}
 	later[0]()
-	if c.cmp.pick != nil || c.cmp.picking || c.cmp.modelShown(c.data.Model) != "Sonnet 5.5" {
-		t.Errorf("after: pick %v, picking %v, chip %q", c.cmp.pick, c.cmp.picking, c.cmp.modelShown(c.data.Model))
+	if len(c.cmp.picks) != 0 || c.cmp.picking || c.cmp.modelShown(c.data.Model) != "Sonnet 5.5" {
+		t.Errorf("after: picks %v, picking %v, chip %q", c.cmp.picks, c.cmp.picking, c.cmp.modelShown(c.data.Model))
 	}
 	// The next turn reports its own model, which the chip then follows.
 	if got := c.cmp.modelShown("claude-haiku-5-5"); got != "Haiku 5.5" {
@@ -191,19 +200,82 @@ func TestPickWaitsForIdle(t *testing.T) {
 
 	// A turn that began before the pick went in leaves it waiting.
 	api.err = errors.New("Claude Code is working; try again when it waits at its input box")
-	c.cmp.pick = &pick{"model", "haiku"}
+	c.cmp.choose(&pick{"model", "haiku"})
 	c.firePick(env)
 	later[len(later)-1]()
-	if c.cmp.pick == nil || c.cmp.picking || c.cmp.note != "" {
-		t.Errorf("busy refusal: pick %v, picking %v, note %q", c.cmp.pick, c.cmp.picking, c.cmp.note)
+	if c.cmp.pending("model") == nil || c.cmp.picking || c.cmp.note != "" {
+		t.Errorf("busy refusal: picks %v, picking %v, note %q", c.cmp.picks, c.cmp.picking, c.cmp.note)
 	}
+	c.cmp.picks = nil
 
 	api.err = errors.New("that pane shows a form; answer it in its tab")
-	c.cmp.pick = &pick{"effort", "max"}
+	c.cmp.choose(&pick{"effort", "max"})
 	c.firePick(env)
 	later[len(later)-1]()
 	if c.cmp.effort != "" || c.cmp.note != "That pane shows a form; answer it in its tab" {
 		t.Errorf("failed pick: effort %q, note %q", c.cmp.effort, c.cmp.note)
+	}
+}
+
+// TestPicksBoth: a model and an effort picked mid-turn both wait, and go
+// in one after the other once the agent is idle.
+func TestPicksBoth(t *testing.T) {
+	api := &fakeAPI{}
+	c := newChat("p1")
+	var later []func()
+	env := chatEnv{Online: true, Tab: remote.Tab{Item: remote.Item{Pane: "p1", State: "working"}},
+		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+			err := call(context.Background(), api)
+			later = append(later, func() { done(err) })
+		}}
+	c.cmp.choose(&pick{"model", "sonnet"})
+	c.cmp.choose(&pick{"effort", "high"})
+	c.cmp.choose(&pick{"model", "haiku"}) // a second model pick replaces the first
+	if p := c.cmp.pending("model"); p == nil || p.value != "haiku" || c.cmp.pending("effort") == nil {
+		t.Fatalf("picks %v", c.cmp.picks)
+	}
+	env.Tab.State = "completed"
+	for range 3 {
+		c.firePick(env)
+		if len(later) > 0 {
+			later[0]()
+			later = later[1:]
+		}
+	}
+	if !slices.Equal(api.commands, []string{"p1 /effort high", "p1 /model haiku"}) {
+		t.Fatalf("commands = %v", api.commands)
+	}
+	if c.cmp.effort != "high" || c.cmp.model != "haiku" || len(c.cmp.picks) != 0 {
+		t.Errorf("after: effort %q, model %q, picks %v", c.cmp.effort, c.cmp.model, c.cmp.picks)
+	}
+}
+
+// TestSendBeforeAnswer: the transcript shows a prompt before the send's
+// answer comes, and the chat shows it once, not again as a pending one.
+func TestSendBeforeAnswer(t *testing.T) {
+	c := newChat("p1")
+	c.reset(phone.Entries{Entries: []flow.Entry{{Seq: 4, Kind: flow.EntryUser, Text: "run it"}}})
+	var done func(error)
+	env := chatEnv{Online: true, Tab: remote.Tab{Item: remote.Item{Pane: "p1", State: "completed"}},
+		Do: func(call func(context.Context, chatAPI) error, d func(error)) {
+			err := call(context.Background(), &fakeAPI{})
+			done = func(error) { d(err) }
+		}}
+	setDraft(&c.cmp.ed, "run it")
+	c.sendDraft(env)
+	c.add(phone.Entries{Entries: []flow.Entry{{Seq: 5, Kind: flow.EntryUser, Text: "run it"}}})
+	done(nil)
+	if len(c.data.Pending) != 0 || c.cmp.ed.Text() != "" || c.cmp.sending {
+		t.Fatalf("pending %+v, box %q, sending %v", c.data.Pending, c.cmp.ed.Text(), c.cmp.sending)
+	}
+	// A failed send leaves nothing pending, and the text in the box.
+	setDraft(&c.cmp.ed, "again")
+	env.Do = func(call func(context.Context, chatAPI) error, d func(error)) {
+		d(call(context.Background(), &fakeAPI{err: errors.New("offline")}))
+	}
+	c.sendDraft(env)
+	if len(c.data.Pending) != 0 || c.cmp.ed.Text() != "again" || c.cmp.notSent != "offline" {
+		t.Fatalf("failed: pending %+v, box %q, line %q", c.data.Pending, c.cmp.ed.Text(), c.cmp.notSent)
 	}
 }
 

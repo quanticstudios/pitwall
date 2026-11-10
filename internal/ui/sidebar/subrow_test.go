@@ -242,3 +242,19 @@ func TestRowHeightScales(t *testing.T) {
 		t.Error("an asking sub-row has no room for Allow and Deny")
 	}
 }
+
+// TestChatRowNoAnswer: a managed chat's approval offers no Allow or Deny
+// on its row or to the keyboard, which press keys in a terminal; the chat
+// answers it by request id.
+func TestChatRowNoAnswer(t *testing.T) {
+	h := newSubHarness(t)
+	v := newView(layout.Context{}, theme.Dark(), &h.st, "", "u1")
+	if !h.s.answering(v, "u2", false, v.ownActivity("u2")) {
+		t.Fatal("a terminal tab's approval has no Allow")
+	}
+	h.st.Workspaces[2].Chat = "q"
+	v = newView(layout.Context{}, theme.Dark(), &h.st, "", "u1")
+	if h.s.answering(v, "u2", false, v.ownActivity("u2")) {
+		t.Error("a chat's row offers Allow and Deny")
+	}
+}

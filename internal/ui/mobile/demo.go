@@ -127,7 +127,7 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 	case "effort-menu":
 		k.menu = "effort"
 	case "model-pending":
-		k.pick = &pick{what: "model", value: "sonnet"}
+		k.picks = []*pick{{what: "model", value: "sonnet"}}
 	case "long-name":
 		idleTab()
 		c.data.Model, k.effort = "claude-opus-5-5[1m]", "max"

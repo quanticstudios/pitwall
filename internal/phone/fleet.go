@@ -7,15 +7,17 @@ import (
 
 // Fleet is the paired machines with a client each, and the tab list each
 // sent last, merged into the one State the sidebar draws: each machine's
-// sessions in turn, in the order the machines were paired. A call about a
-// tab goes to the machine that owns it.
+// sessions in turn, in the order the machines were paired. Every id in
+// that State has its machine's id in front (NS), as two machines can use
+// the same ids; Tab gives back the tab with the ids its machine knows, for
+// calls to that machine.
 type Fleet struct {
 	Machines []Machine
 	clients  map[string]*Client
 	tabs     map[string][]remote.Tab
-	owner    map[string]string // a tab, pane, session or group id to its machine's id
+	owner    map[string]string     // a session, group, tab or pane id of State to its machine's id
+	tab      map[string]remote.Tab // a tab or pane id of State to the tab as its machine sent it
 	st       model.State
-	all      []remote.Tab
 }
 
 // NewFleet is a Fleet over ms with a client for each.
@@ -35,7 +37,7 @@ func (f *Fleet) Set(machine string, tabs []remote.Tab) {
 }
 
 func (f *Fleet) merge() {
-	f.st, f.all, f.owner = model.State{}, nil, map[string]string{}
+	f.st, f.owner, f.tab = model.State{}, map[string]string{}, map[string]remote.Tab{}
 	for _, m := range f.Machines {
 		tabs := f.tabs[m.ID]
 		part := stateOf(m.ID, tabs)
@@ -46,9 +48,10 @@ func (f *Fleet) merge() {
 			f.owner[p.ID] = m.ID
 		}
 		for _, t := range tabs {
-			f.owner[t.ID], f.owner[t.Pane] = m.ID, m.ID
+			for _, id := range []string{NS(m.ID, t.ID), NS(m.ID, t.Pane)} {
+				f.owner[id], f.tab[id] = m.ID, t
+			}
 		}
-		f.all = append(f.all, tabs...)
 		f.st.Sessions = append(f.st.Sessions, part.Sessions...)
 		f.st.Projects = append(f.st.Projects, part.Projects...)
 		f.st.Workspaces = append(f.st.Workspaces, part.Workspaces...)
@@ -60,11 +63,16 @@ func (f *Fleet) merge() {
 // State is every machine's tabs as one State.
 func (f *Fleet) State() model.State { return f.st }
 
-// Tabs is every machine's tabs, in State's order.
-func (f *Fleet) Tabs() []remote.Tab { return f.all }
+// Tab is the machine with State's tab or pane id, and that tab with the
+// ids the machine knows.
+func (f *Fleet) Tab(id string) (Machine, remote.Tab, bool) {
+	m, ok := f.Owner(id)
+	t, found := f.tab[id]
+	return m, t, ok && found
+}
 
-// Owner is the machine that owns a tab, pane, session or group id, and
-// whether one does.
+// Owner is the machine that owns a State tab, pane, session or group id,
+// and whether one does.
 func (f *Fleet) Owner(id string) (Machine, bool) {
 	for _, m := range f.Machines {
 		if m.ID == f.owner[id] {

@@ -22,9 +22,17 @@ const answerH = 18
 
 // answering reports whether tab id's row, with its own activity a, shows
 // Allow and Deny. A tab with agent sub-rows answers on the asking one's,
-// and a worker on its own sub-row.
+// and a worker on its own sub-row. A managed chat's row has none: Allow and
+// Deny press keys in a terminal, and a chat's approval takes its request
+// id, which the chat answers.
 func (s *Sidebar) answering(v *view, id string, ghost bool, a *model.Activity) bool {
-	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && v.agents[id] == nil && !s.hostDown(id)
+	return s.Answers && !ghost && a != nil && remote.Answerable(*a) && v.agents[id] == nil && !s.hostDown(id) && !isChat(v.st, id)
+}
+
+// isChat reports whether tab id shows a managed chat.
+func isChat(st *model.State, id string) bool {
+	w := st.Workspace(id)
+	return w != nil && w.Chat != ""
 }
 
 // planning reports whether tab id's row, with its own activity a, shows

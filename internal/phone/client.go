@@ -64,7 +64,23 @@ func NewClient(c Creds) *Client {
 			},
 		}
 	}
-	return &Client{Creds: c, http: &http.Client{Transport: tr}}
+	return &Client{Creds: c, http: &http.Client{Transport: tr, CheckRedirect: sameOrigin(c.Server)}}
+}
+
+// sameOrigin refuses a redirect off server's scheme, host and port: it
+// would carry the device token and the body there, in plain text after a
+// switch to http, where the pin guards nothing.
+func sameOrigin(server string) func(*http.Request, []*http.Request) error {
+	return func(r *http.Request, via []*http.Request) error {
+		u, err := url.Parse(server)
+		if err != nil || r.URL.Scheme != u.Scheme || !strings.EqualFold(r.URL.Host, u.Host) {
+			return fmt.Errorf("refused a redirect to %s://%s, off the paired address", r.URL.Scheme, r.URL.Host)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
 }
 
 // untrusted turns a failed certificate check into an UntrustedError.

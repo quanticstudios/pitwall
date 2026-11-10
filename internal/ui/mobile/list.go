@@ -4,7 +4,6 @@ import (
 	"context"
 	"image"
 	"image/color"
-	"slices"
 	"strconv"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/phone"
-	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
@@ -91,7 +89,7 @@ func (a *App) listLayout(gtx C) {
 		layout.Rigid(a.offlineLine),
 		layout.Rigid(a.waiting),
 		layout.Flexed(1, func(gtx C) D {
-			if len(a.tabs) == 0 {
+			if len(a.st.Workspaces) == 0 {
 				fillMax(gtx, th.Sidebar)
 				msg := "No tabs are open."
 				if shown == nil || !shown.online {
@@ -107,9 +105,7 @@ func (a *App) listLayout(gtx C) {
 			for _, ev := range evs {
 				switch ev := ev.(type) {
 				case sidebar.SelectWorkspace:
-					if t, ok := a.tabOf(ev.WorkspaceID); ok {
-						a.openChat(t.Pane)
-					}
+					a.openChat(ev.WorkspaceID)
 				case sidebar.Answer:
 					a.answerRow(ev)
 				}
@@ -125,19 +121,14 @@ func (a *App) listLayout(gtx C) {
 // shown is the link of the machine whose session the list shows.
 func (a *App) shown() *link { return a.linkOf(a.session) }
 
-func (a *App) tabOf(workspace string) (remote.Tab, bool) {
-	i := slices.IndexFunc(a.tabs, func(t remote.Tab) bool { return t.ID == workspace })
-	if i < 0 {
-		return remote.Tab{}, false
-	}
-	return a.tabs[i], true
-}
-
 // answerRow presses Allow or Deny for a row's permission prompt.
 func (a *App) answerRow(ev sidebar.Answer) {
 	a.list.note = ""
-	m, _ := a.fleet.Owner(ev.PaneID)
-	a.do(m.ID, func(ctx context.Context, c *phone.Client) error { return c.Answer(ctx, ev.PaneID, ev.At, ev.Allow) }, func(err error) {
+	m, t, ok := a.fleet.Tab(ev.PaneID)
+	if !ok {
+		return
+	}
+	a.do(m.ID, func(ctx context.Context, c *phone.Client) error { return c.Answer(ctx, t.Pane, ev.At, ev.Allow) }, func(err error) {
 		if err != nil {
 			a.list.note = sentence(err.Error())
 		}
@@ -403,9 +394,7 @@ func (a *App) waiting(gtx C) D {
 		down := l == nil || !l.online
 		c := a.list.btn("w:" + act.PaneID)
 		if c.Clicked(gtx) {
-			if t, ok := a.tabOf(w.ID); ok {
-				defer a.openChat(t.Pane)
-			}
+			defer a.openChat(w.ID)
 		}
 		title, right, col := sidebar.Title(*w), where+" · "+model.PillLabel(act), sidebar.StateColor(th, act.State)
 		ws = append(ws, func(gtx C) D {

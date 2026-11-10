@@ -33,21 +33,34 @@ type composer struct {
 	modelChip, effChip widget.Clickable
 	scrim              widget.Clickable
 	items              map[string]*widget.Clickable
-	sending            bool   // a send is on its way
-	notSent            string // why the last message did not go in
-	menu               string // "model" or "effort" while its menu is open
-	pick               *pick  // a pick waiting for the agent to sit idle
-	picking            bool   // the pick is on its way
-	model, modelAt     string // the last model picked, and the turn's model then
-	effort             string // the last effort picked
-	note               string // a pick that failed
-	chipX              [2]int // the chips' left edges, which the menus open above
+	sending            bool    // a send is on its way
+	notSent            string  // why the last message did not go in
+	menu               string  // "model" or "effort" while its menu is open
+	picks              []*pick // picks waiting for the agent to sit idle, one per setting, oldest first
+	picking            bool    // the first pick is on its way
+	model, modelAt     string  // the last model picked, and the turn's model then
+	effort             string  // the last effort picked
+	note               string  // a pick that failed
+	chipX              [2]int  // the chips' left edges, which the menus open above
 	chipW              [2]int
 	inited             bool
 }
 
 // pick is a /model or /effort to type once the agent waits at its prompt.
 type pick struct{ what, value string }
+
+// pending is the waiting pick for what, "model" or "effort", nil for none.
+func (k *composer) pending(what string) *pick {
+	if i := slices.IndexFunc(k.picks, func(p *pick) bool { return p.what == what }); i >= 0 {
+		return k.picks[i]
+	}
+	return nil
+}
+
+// choose makes p the waiting pick for its setting, after the other's.
+func (k *composer) choose(p *pick) {
+	k.picks = append(slices.DeleteFunc(k.picks, func(q *pick) bool { return q.what == p.what }), p)
+}
 
 // sendState is what the send button shows.
 type sendState uint8
@@ -94,10 +107,14 @@ func placeholder(t remote.Tab) string {
 }
 
 // queueLine is the line above the box: what waits in pitwall's queue, the
-// oldest first, or why the last message was not sent.
+// oldest first, or why the last message was not sent, or a message that
+// was not sent, which waits for the box to empty.
 func queueLine(t remote.Tab, ps []*phone.Pending, notSent string) (bold, rest string, bad bool) {
 	if notSent != "" {
 		return "Not sent:", notSent, true
+	}
+	if i := slices.IndexFunc(ps, func(p *phone.Pending) bool { return p.Err != "" }); i >= 0 {
+		return "Not sent:", strings.Join(strings.Fields(ps[i].Text), " "), true
 	}
 	var queued []*phone.Pending
 	for _, p := range ps {
@@ -116,18 +133,20 @@ func queueLine(t remote.Tab, ps []*phone.Pending, notSent string) (bold, rest st
 }
 
 // takeNotSent moves a message the agent left before it went in back into
-// the box, when the box is empty, and returns why it was not sent.
+// the box and returns why it was not sent. While the box holds a draft
+// the message waits, so neither is lost; the user discards it by clearing
+// the box once it is back.
 func takeNotSent(c *phone.Chat, draft string) (why, text string) {
+	if strings.TrimSpace(draft) != "" {
+		return "", ""
+	}
 	i := slices.IndexFunc(c.Pending, func(p *phone.Pending) bool { return p.Err != "" })
 	if i < 0 {
 		return "", ""
 	}
 	p := c.Pending[i]
 	c.Pending = slices.Delete(c.Pending, i, i+1)
-	if strings.TrimSpace(draft) == "" {
-		text = p.Text
-	}
-	return p.Err, text
+	return p.Err, p.Text
 }
 
 // modelShown is the model chip's name: the last pick until a turn reports
@@ -174,9 +193,7 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	}
 	if why, text := takeNotSent(&c.data, k.ed.Text()); why != "" {
 		k.notSent = why
-		if text != "" {
-			setDraft(&k.ed, text)
-		}
+		setDraft(&k.ed, text)
 	}
 	c.firePick(env)
 	k.ed.ReadOnly = k.sending
@@ -436,7 +453,8 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
 	if which == 1 {
 		btn, what = &k.effChip, "effort"
 	}
-	pend := k.pick != nil && k.pick.what == what
+	pk := k.pending(what)
+	pend := pk != nil
 	open := k.menu == what
 	name := ""
 	if which == 0 {
@@ -445,12 +463,12 @@ func (c *chatView) chip(gtx C, th *theme.Theme, which int) D {
 			name = "Model"
 		}
 		if pend {
-			name = modelName(k.pick.value)
+			name = modelName(pk.value)
 		}
 	} else {
 		name = k.effort
 		if pend {
-			name = k.pick.value
+			name = pk.value
 		}
 		if name == "" {
 			name = "effort"
@@ -546,6 +564,7 @@ func (c *chatView) sendDraft(env chatEnv) {
 	text := k.ed.Text()
 	k.sending, k.notSent = true, ""
 	pane := c.pane
+	p := c.data.Send(text)
 	var id uint64
 	env.Do(func(ctx context.Context, api chatAPI) (err error) {
 		id, err = api.Send(ctx, pane, text)
@@ -556,27 +575,28 @@ func (c *chatView) sendDraft(env chatEnv) {
 		}
 		k.sending = false
 		if err != nil {
+			c.data.Drop(p)
 			k.notSent = err.Error()
 			return
 		}
 		if k.ed.Text() == text {
 			k.ed.SetText("")
 		}
-		p := &phone.Pending{Text: text}
-		c.data.Pending = append(c.data.Pending, p)
-		c.data.Sent(p, id, env.Tab, env.now())
+		if c.data.Has(p) { // else the transcript showed it before this answer
+			c.data.Sent(p, id, env.Tab, env.now())
+		}
 		c.list.Position = layout.Position{BeforeEnd: false}
 	})
 }
 
-// firePick types the waiting pick once the agent sits idle. One goes in
-// at a time.
+// firePick types the oldest waiting pick once the agent sits idle. One
+// goes in at a time; the next goes on a later frame.
 func (c *chatView) firePick(env chatEnv) {
 	k := &c.cmp
-	p := k.pick
-	if p == nil || k.picking || !env.Online || !idle(env.Tab) || env.Do == nil {
+	if len(k.picks) == 0 || k.picking || !env.Online || !idle(env.Tab) || env.Do == nil {
 		return
 	}
+	p := k.picks[0]
 	k.picking = true
 	pane := c.pane
 	env.Do(func(ctx context.Context, api chatAPI) error { return api.Command(ctx, pane, p.what, p.value) }, func(err error) {
@@ -587,9 +607,7 @@ func (c *chatView) firePick(env chatEnv) {
 		if phone.IsBusy(err) {
 			return // a turn began first: the pick waits for the next idle
 		}
-		if k.pick == p {
-			k.pick = nil
-		}
+		k.picks = slices.DeleteFunc(k.picks, func(q *pick) bool { return q == p })
 		if err != nil {
 			k.note = sentence(err.Error())
 			return
@@ -620,13 +638,13 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 	current := ""
 	if k.menu == "model" {
 		values, width, current = env.Models, 268, k.modelShown(c.data.Model)
-		if k.pick != nil && k.pick.what == "model" {
-			current = modelName(k.pick.value)
+		if p := k.pending("model"); p != nil {
+			current = modelName(p.value)
 		}
 	} else {
 		values, width, which, current = env.Efforts, 236, 1, k.effort
-		if k.pick != nil && k.pick.what == "effort" {
-			current = k.pick.value
+		if p := k.pending("effort"); p != nil {
+			current = p.value
 		}
 	}
 	for _, v := range values {
@@ -636,7 +654,8 @@ func (c *chatView) menus(gtx C, th *theme.Theme, env chatEnv, top int) {
 				name = modelName(v)
 			}
 			if name != current || v == "default" {
-				k.pick, k.note = &pick{what: k.menu, value: v}, ""
+				k.choose(&pick{what: k.menu, value: v})
+				k.note = ""
 			}
 			k.menu = ""
 			return

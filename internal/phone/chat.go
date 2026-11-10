@@ -24,7 +24,10 @@ type Chat struct {
 // Pending is a message sent from here: Sending, then Queued or Sent, until
 // the transcript shows it; or Not sent, with Err.
 type Pending struct {
-	Text   string
+	Text string
+	// After is the newest entry's seq when the message went out: only a
+	// later entry can be it, not an old prompt of the same words.
+	After  int64
 	ID     uint64
 	Sent   bool // the server took it
 	Queued bool // it waits for the agent's turn to end
@@ -66,7 +69,7 @@ func (c *Chat) Add(es []flow.Entry) (fresh bool) {
 			fresh = true
 		}
 		if e.Kind == flow.EntryUser {
-			c.settle(e.Text)
+			c.settle(e)
 		}
 	}
 	return fresh
@@ -104,11 +107,38 @@ func (c *Chat) First() int64 {
 
 func norm(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// settle drops the sent message the transcript now shows.
-func (c *Chat) settle(text string) {
-	if i := slices.IndexFunc(c.Pending, func(p *Pending) bool { return p.Sent && p.Err == "" && norm(p.Text) == norm(text) }); i >= 0 {
+// settle drops the message, sent or on its way, that e shows: the
+// transcript can show a prompt before the send's answer comes.
+func (c *Chat) settle(e flow.Entry) {
+	if i := slices.IndexFunc(c.Pending, func(p *Pending) bool {
+		return p.Err == "" && e.Seq > p.After && norm(p.Text) == norm(e.Text)
+	}); i >= 0 {
 		c.Pending = slices.Delete(c.Pending, i, i+1)
 	}
+}
+
+// Last is the newest entry's seq, 0 for none.
+func (c *Chat) Last() int64 {
+	if len(c.Entries) == 0 {
+		return 0
+	}
+	return c.Entries[len(c.Entries)-1].Seq
+}
+
+// Send adds a message on its way, before its request goes out, so an
+// entry that comes before the answer settles it.
+func (c *Chat) Send(text string) *Pending {
+	p := &Pending{Text: text, After: c.Last()}
+	c.Pending = append(c.Pending, p)
+	return p
+}
+
+// Has reports whether p still waits for the transcript.
+func (c *Chat) Has(p *Pending) bool { return slices.Contains(c.Pending, p) }
+
+// Drop forgets p.
+func (c *Chat) Drop(p *Pending) {
+	c.Pending = slices.DeleteFunc(c.Pending, func(q *Pending) bool { return q == p })
 }
 
 // Busy reports whether t's agent is in a turn, so a message waits.
