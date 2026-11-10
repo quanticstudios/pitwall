@@ -17,7 +17,7 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
-## Unreleased
+## v0.2.5
 
 - Monitor tabs use sector v0.1.5: the graphs show the last 2 minutes instead of 60 seconds; the memory, disk and network graphs keep only the room their axis labels need on the right, with each top number's unit on the line below it; and the Cores card numbers cores 0 up, so an Intel hybrid CPU such as the i9-13900 reads "cores 0 to 23, 8 with two threads" instead of "cores 0 to 47".
 
