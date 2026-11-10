@@ -898,6 +898,7 @@ func (u *ui) layout(gtx gl.Context) {
 			u.sidebar.Limits = u.limits.get()
 		}
 		u.sidebar.BoardOn = u.boardOn
+		u.sidebar.MonitorOn = u.mon.on
 		u.sidebar.NeedYou = board.NeedCount(&st, u.boardHosts(&st), gtx.Now)
 		u.sidebar.Pane = u.nav.focused()
 		u.sidebar.PiP = ""
@@ -1085,6 +1086,8 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 		u.reply(st, e)
 	case sidebar.ToggleBoard:
 		u.toggleBoard()
+	case sidebar.ToggleMonitor:
+		u.toggleMonitor()
 	case sidebar.CloseBoard:
 		u.boardOn = false
 	case sidebar.AttachImage:
