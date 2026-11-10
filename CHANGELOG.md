@@ -20,6 +20,7 @@ pushes the tag once, which starts the release build. Either step takes
 ## v0.2.5
 
 - Monitor tabs use sector v0.1.5: the graphs show the last 2 minutes instead of 60 seconds; the memory, disk and network graphs keep only the room their axis labels need on the right, with each top number's unit on the line below it; and the Cores card numbers cores 0 up, so an Intel hybrid CPU such as the i9-13900 reads "cores 0 to 23, 8 with two threads" instead of "cores 0 to 47".
+- Queue tasks can start in a fresh worktree on each run with `queue add --worktree name` or the New task dialog's Fresh worktree each run checkbox. Completed runs remove their unchanged worktree with trusted teardown; runs with commits, changes, open PRs, failed checks or other open panes keep their tab and worktree.
 
 ## v0.2.4
 

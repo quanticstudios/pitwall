@@ -44,6 +44,8 @@ type taskDialog struct {
 	prompt, name, base, branch, issue widget.Editor
 	at, every                         widget.Editor
 	scheduled                         bool
+	fresh                             bool
+	freshBtn                          widget.Clickable
 	schedule                          widget.Clickable
 	autoName                          string             // the name the prompt last filled in; once the user changes it, the prompt stops
 	refs                              proto.WorktreeInfo // the project's branches, for the base and branch fields
@@ -295,6 +297,7 @@ func (u *ui) openTask(st *model.State, group string) {
 		t.picked[max(0, slices.IndexFunc(t.agents, func(a foundAgent) bool { return a.cmd == u.gui.TaskAgent }))] = true
 	}
 	t.scheduled = false
+	t.fresh = false
 	t.at.SetText("")
 	t.every.SetText("")
 	t.at.SingleLine, t.every.SingleLine = true, true
@@ -453,6 +456,7 @@ func (t *taskDialog) tasks() ([]model.Task, error) {
 			return nil, errors.New("Name the worktree with a letter or digit.")
 		}
 		task.Base = strings.TrimSpace(t.base.Text())
+		task.FreshWorktree = t.fresh
 	case whereBranch:
 		if task.Branch = strings.TrimSpace(t.branch.Text()); task.Branch == "" {
 			return nil, errors.New("Pick the branch to check out.")
@@ -505,8 +509,8 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 			t.err = err.Error()
 			return
 		}
-		if repeat > 0 && t.where != whereHere {
-			t.err = "Repeating tasks need This folder under Where."
+		if repeat > 0 && (t.where == whereBranch || t.where == whereWorktree && !t.fresh) {
+			t.err = "Repeating tasks need This folder or Fresh worktree each run under Where."
 			return
 		}
 		if next.IsZero() {
@@ -522,6 +526,10 @@ func (u *ui) submitTask(st *model.State, queue bool) {
 		u.nav.expectSession(st) // the new tab shows once it opens
 	}
 	for _, task := range tasks {
+		if task.FreshWorktree && linkLevel(u.b) < proto.TaskWorktreeLevel {
+			t.err = "Fresh task worktrees work once the older pitwall daemon restarts."
+			return
+		}
 		if task.Profile != "" && linkLevel(u.b) < proto.ProfileLevel {
 			t.err = "Account profiles work once the older pitwall daemon restarts."
 			return

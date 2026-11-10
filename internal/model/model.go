@@ -75,6 +75,8 @@ type Workspace struct {
 	// worktree for this session. Only then does deleting the session remove
 	// the directory.
 	WorktreeRoot string
+	// TaskRun records a disposable task's pane and starting commit until cleanup decides to keep or remove it.
+	TaskRun *TaskRun `json:",omitempty"`
 	// Ports is the block of TCP ports the daemon reserved for the worktree
 	// at Path, set only with WorktreeRoot. Its panes get it as PORT,
 	// PITWALL_PORT_BASE and PITWALL_PORTS; no other tab has the block while
@@ -533,8 +535,10 @@ type Overlap struct {
 // Task is an agent to start on a prompt, in a tab of its own: at once, or
 // from its session's queue (State.Tasks) when an agent there finishes.
 type Task struct {
-	NextStart time.Time     `json:",omitzero"`  // zero starts when queue capacity allows
-	Repeat    time.Duration `json:",omitempty"` // zero runs once; otherwise advance from NextStart
+	// FreshWorktree gives each run a unique branch and removes an unchanged worktree when the run ends.
+	FreshWorktree bool          `json:",omitempty"`
+	NextStart     time.Time     `json:",omitzero"`  // zero starts when queue capacity allows
+	Repeat        time.Duration `json:",omitempty"` // zero runs once; otherwise advance from NextStart
 
 	Profile   string // the account profile its tab keeps across restarts
 	ID        string
@@ -550,6 +554,12 @@ type Task struct {
 	Worktree, Base, Branch string
 	Cmd                    []string // the agent, its flags and the prompt
 	Env                    []string // added to the agent's environment, as Pane.Env
+}
+
+// TaskRun survives a restart so an exited task can finish its worktree cleanup.
+type TaskRun struct {
+	Pane string
+	Base string // starting commit, independent of later changes to the base branch
 }
 
 // Title is the first line of a task's last argument, its prompt, or the

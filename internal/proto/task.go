@@ -9,6 +9,9 @@ import (
 // ScheduleLevel is the first daemon level that honors task schedules.
 const ScheduleLevel = 38
 
+// TaskWorktreeLevel is the first daemon level that honors disposable task worktrees.
+const TaskWorktreeLevel = 71
+
 // NewTask starts Task in a tab of its own, or with Queue adds it last to
 // its session's queue (model.State.Tasks). The daemon gives it its ID,
 // its SessionID when "" (FromPane's session, else the most recently used

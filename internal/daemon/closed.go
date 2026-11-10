@@ -145,6 +145,7 @@ func (d *Daemon) reopenTab(ctx context.Context, m proto.ReopenTab) error {
 		return fmt.Errorf("no closed tab %s", m.ID) // reopened by another window meanwhile
 	}
 	w := c.Tab
+	w.TaskRun = nil
 	w.ID, w.SessionID = c.ID, d.reopenSession(c)
 	w.ProjectID = d.reopenGroup(c, w.SessionID)
 	w.Path, w.Branch, w.RepoRoot = path, branch, root

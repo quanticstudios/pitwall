@@ -904,6 +904,9 @@ func (m *multi) newTaskOn(v app.NewTaskOn) error {
 			t.Task.SessionID = r.Session
 		}
 		level := h.b.Link().Level
+		if t.Task.FreshWorktree && level < proto.TaskWorktreeLevel {
+			return fmt.Errorf("pitwall's daemon on %s is too old for fresh task worktrees; update pitwall there or restart its daemon", h.name)
+		}
 		if err := varsLevel(t.Task.Env, level); err != nil {
 			return fmt.Errorf("%s: %w", h.name, err)
 		}
