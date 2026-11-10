@@ -45,3 +45,5 @@ require (
 )
 
 replace gioui.org => ./third_party/gioui.org
+
+replace gioui.org/x => ./third_party/gioui.org-x

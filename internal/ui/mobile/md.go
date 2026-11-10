@@ -54,31 +54,28 @@ func splitFences(src string) []mdPart {
 // Go code from a transcript indents with tabs.
 func detab(s string) string { return strings.ReplaceAll(s, "\t", "    ") }
 
-// monoScale is the size of inline code over its text's size that gives the
-// mono font the UI font's ascent. x/styledtext tops every span of a line
-// at the same y and ignores their baselines, so a span with a smaller
-// ascent rides high; with equal ascents the baselines meet. For Geist and
-// JetBrains Mono it is 1005/1020, which also brings the x-heights within
-// 2% of each other.
-//
-// ponytail: a workaround for styledtext.Layout dropping lineAscent; patch
-// x if replies ever mix more than two fonts.
+// monoScale is the size of inline code over its text's size that gives
+// the mono font the UI font's x-height, so code reads the same size as the
+// words around it whichever mono font the platform has: JetBrains Mono on
+// a desktop, Droid Sans Mono on Android. The patched styledtext sets both
+// on one baseline.
 func monoScale(th *theme.Theme) float32 {
-	asc := func(f font.Font) float32 {
-		th.Shaper.LayoutString(text.Parameters{Font: f, PxPerEm: fixed.I(1000), MaxWidth: 1 << 20}, "x")
-		var a fixed.Int26_6
-		for {
-			g, ok := th.Shaper.NextGlyph()
-			if !ok {
-				break
-			}
-			a = g.Ascent
-		}
-		return float32(a.Round())
-	}
-	ui, mono := asc(th.UIFont), asc(th.MonoFont)
+	ui, mono := xHeight(th, th.UIFont), xHeight(th, th.MonoFont)
 	if ui == 0 || mono == 0 {
 		return 1
 	}
-	return ui / mono
+	return float32(ui) / float32(mono)
+}
+
+// xHeight is the height of f's "x" at 1000 px per em.
+func xHeight(th *theme.Theme, f font.Font) int {
+	th.Shaper.LayoutString(text.Parameters{Font: f, PxPerEm: fixed.I(1000), MaxWidth: 1 << 20}, "x")
+	h := 0
+	for {
+		g, ok := th.Shaper.NextGlyph()
+		if !ok {
+			return h
+		}
+		h = -g.Bounds.Min.Y.Round()
+	}
 }

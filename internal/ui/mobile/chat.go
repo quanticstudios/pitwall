@@ -14,7 +14,6 @@ import (
 	"gioui.org/f32"
 	"gioui.org/font"
 	"gioui.org/io/clipboard"
-	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -129,18 +128,14 @@ func (c *chatView) add(e phone.Entries) {
 // update moves the sent messages along with t, from a new tab list.
 func (c *chatView) update(t remote.Tab, now time.Time) { c.data.Update(t, now) }
 
-// handleBack is Back on the chat: it closes a menu, then hides the
-// keyboard. False means it did neither, so Back goes to the sidebar.
+// handleBack is Back on the chat: it closes a menu, and false means
+// there was none, so Back goes to the sidebar. A focused field is not a
+// reason to stay: Android's keyboard takes the first Back itself to hide.
 func (c *chatView) handleBack(gtx C) bool {
-	switch {
-	case c.cmp.menu != "":
-		c.cmp.menu = ""
-	case gtx.Focused(&c.cmp.ed):
-		gtx.Execute(key.FocusCmd{})
-		gtx.Execute(key.SoftKeyboardCmd{Show: false})
-	default:
+	if c.cmp.menu == "" {
 		return false
 	}
+	c.cmp.menu = ""
 	return true
 }
 
