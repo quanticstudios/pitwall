@@ -32,8 +32,8 @@ type monitor struct {
 	wake     chan struct{} // a watch changed: the loop checks at once
 }
 
-// watchKey is one Monitor tab of one window. A window that switches
-// between two Monitor tabs of this daemon may stop one after starting
+// watchKey is one window's watch by one tab id. A window that switches
+// between two tabs of this daemon may stop one after starting
 // the other.
 type watchKey struct {
 	c  *client
@@ -88,7 +88,9 @@ func (d *Daemon) unwatchMonitor(c *client) {
 	d.mon.mu.Unlock()
 }
 
-// unwatchTab drops every watch of Monitor tab ws, which closed.
+// unwatchTab drops every watch of tab ws, which closed. A Monitor tab
+// watches by its own id, the monitor in place of the panes by the id of
+// the tab it shows over.
 func (d *Daemon) unwatchTab(ws string) {
 	d.unwatch(func(k watchKey) bool { return k.ws == ws })
 }

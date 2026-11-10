@@ -1,15 +1,22 @@
 package app
 
 import (
+	"image"
 	"time"
 
+	"gioui.org/io/event"
+	"gioui.org/io/key"
 	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"github.com/quanticstudios/sector/view"
 
 	sectortheme "github.com/quanticstudios/sector/theme"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -20,19 +27,30 @@ type Monitorer interface {
 	Monitor(ws string) (s proto.MonitorSample, at time.Time, ok bool)
 }
 
-// monitors are the window's Monitor tabs. Their views are made on first
-// draw and dropped with their tab; each keeps its own history, so two
-// machines never mix.
+// monitors are the window's Monitor tabs and the monitor shown in place
+// of the panes. Their views are made on first draw; each keeps its own
+// history, so two machines never mix. A Monitor tab's view is keyed by its
+// tab id and dropped with its tab. The monitor in place of the panes keeps
+// one view per machine, keyed by machineKey, for the window's life, so a
+// peek from any tab of that machine shows the history it has.
 type monitors struct {
 	tabs  map[string]*monitorTab
 	th    sectortheme.Theme // pitwall's theme as sector's; the views keep a pointer to it
 	of    *theme.Theme      // the pitwall theme th was filled from
 	shown string            // the Monitor tab drawn this frame, "" for none
+
+	// on shows the monitor in place of the panes, opened over tab ws;
+	// showing another tab closes it.
+	on    bool
+	ws    string
+	tag   int  // its key focus, which Esc goes to
+	focus bool // take the keyboard on the next frame
 }
 
-// monitorTab is one Monitor tab's view and what the window told its daemon.
+// monitorTab is one view and what the window told its daemon.
 type monitorTab struct {
 	v      *view.View
+	ws     string            // the tab its watches name, which picks the daemon
 	pushed time.Time         // when the last sample pushed came, zero before one
 	tabs   map[string]string // that sample's Tabs
 	err    string            // that sample's Err
@@ -58,11 +76,16 @@ func sectorTheme(t *sectortheme.Theme, th *theme.Theme) {
 	t.TextQuiet = sectortheme.Mix(t.Bg, t.Muted, 0.85)
 }
 
-// layoutMonitor draws Monitor tab ws: its machine's latest sample, pushed
-// to the view once, with agents named by the tabs they run in.
-func (u *ui) layoutMonitor(gtx gl.Context, st *model.State, ws *model.Workspace) {
+// machineKey keys the view of the monitor in place of the panes for
+// host's machine, apart from any Monitor tab's id.
+func machineKey(host string) string { return "machine:" + host }
+
+// layoutMonitor draws view key of tab ws's machine: its latest sample,
+// pushed to the view once, with agents named by the tabs they run in.
+// key is ws's id for a Monitor tab.
+func (u *ui) layoutMonitor(gtx gl.Context, st *model.State, key string, ws *model.Workspace) {
 	m := &u.mon
-	m.shown = ws.ID
+	m.shown = key
 	mb, ok := u.b.(Monitorer)
 	if !ok {
 		u.monitorLine(gtx, "Monitor needs a pitwall daemon")
@@ -75,10 +98,14 @@ func (u *ui) layoutMonitor(gtx gl.Context, st *model.State, ws *model.Workspace)
 	if m.tabs == nil {
 		m.tabs = map[string]*monitorTab{}
 	}
-	t := m.tabs[ws.ID]
+	t := m.tabs[key]
 	if t == nil {
-		t = &monitorTab{v: view.NewWith(&m.th, view.Options{Embedded: true})}
-		m.tabs[ws.ID] = t
+		t = &monitorTab{v: view.NewWith(&m.th, view.Options{Embedded: true}), ws: ws.ID}
+		m.tabs[key] = t
+	}
+	if t.ws != ws.ID { // the machine's view, shown from another of its tabs
+		u.watch(t, 0, t.epoch)
+		t.ws = ws.ID
 	}
 	if s, at, ok := mb.Monitor(ws.ID); ok && at.After(t.pushed) {
 		t.pushed, t.tabs, t.err = at, s.Tabs, s.Err
@@ -178,21 +205,27 @@ func (u *ui) monitorHostUp(id string) bool {
 func (u *ui) syncMonitors(st *model.State) {
 	m := &u.mon
 	epoch := u.link().Epoch
-	for id, t := range m.tabs {
-		gone := findWorkspace(st, id) == nil
+	for key, t := range m.tabs {
+		gone := findWorkspace(st, t.ws) == nil
 		want := time.Duration(0)
-		if id == m.shown && !gone && !t.v.Paused() {
+		if key == m.shown && !gone && !t.v.Paused() {
 			want = t.v.Interval()
 		}
-		if want != t.sent || want != 0 && epoch != t.epoch {
-			u.send(proto.MonitorWatch{WorkspaceID: id, Interval: want})
-			t.sent, t.epoch = want, epoch
-		}
-		if gone {
-			delete(m.tabs, id)
+		u.watch(t, want, epoch)
+		if gone && key == t.ws { // a machine's view keeps its history
+			delete(m.tabs, key)
 		}
 	}
 	m.shown = ""
+}
+
+// watch asks t's daemon for samples every want, 0 for none, unless it was
+// asked so already on this connection.
+func (u *ui) watch(t *monitorTab, want time.Duration, epoch int) {
+	if want != t.sent || want != 0 && epoch != t.epoch {
+		u.send(proto.MonitorWatch{WorkspaceID: t.ws, Interval: want})
+		t.sent, t.epoch = want, epoch
+	}
 }
 
 // openMonitor opens, or shows, the Monitor tab of the shown tab's machine
@@ -211,4 +244,68 @@ func (u *ui) openMonitor() {
 		return
 	}
 	u.send(ns)
+}
+
+// toggleMonitor shows the monitor of the shown tab's machine in place of
+// the panes, as the board shows, or hides it. The panes come back as they
+// were: they are not drawn meanwhile, and nothing of theirs changes.
+func (u *ui) toggleMonitor() {
+	if u.mon.on {
+		u.mon.on = false
+		return
+	}
+	if u.link().Level < proto.MonitorLevel {
+		u.sendFailed(cmpHost(u.hostOf(u.nav.workspace)) + " runs an older pitwall; update it there to monitor it")
+		return
+	}
+	u.settings.Hide()
+	u.review.hide()
+	u.boardOn = false
+	u.mon.on, u.mon.ws, u.mon.focus = true, u.nav.workspace, true
+}
+
+// layoutMonitorView draws the monitor in place of the panes under a header
+// like the board's, or the panes again once another tab is shown.
+func (u *ui) layoutMonitorView(gtx gl.Context, st *model.State) {
+	ws := findWorkspace(st, u.mon.ws)
+	if ws == nil || u.nav.workspace != u.mon.ws {
+		u.mon.on = false
+		u.layoutPanes(gtx, st)
+		return
+	}
+	// why: Gio gives key focus only to a tag with a FocusFilter.
+	esc := []event.Filter{key.FocusFilter{Target: &u.mon.tag}}
+	if u.modal.kind == modalNone && !u.picker.open { // else Esc is the dialog's
+		esc = append(esc, key.Filter{Name: key.NameEscape})
+	}
+	for {
+		ev, ok := gtx.Event(esc...)
+		if !ok {
+			break
+		}
+		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+			u.mon.on = false
+		}
+	}
+	if !u.mon.on {
+		u.layoutPanes(gtx, st) // Esc: the panes on this frame
+		return
+	}
+	size := gtx.Constraints.Max
+	paint.FillShape(gtx.Ops, u.th.Bg, clip.Rect{Max: size}.Op())
+	// why: the focus tag's area goes under the view, or it would take its clicks.
+	event.Op(gtx.Ops, &u.mon.tag)
+	if u.mon.focus {
+		u.mon.focus = false
+		gtx.Execute(key.FocusCmd{Tag: &u.mon.tag})
+	}
+	top, headH := gtx.Dp(12), gtx.Dp(28)
+	sidebar.PageHeader(gtx, u.th, image.Rect(gtx.Dp(16), top, size.X-gtx.Dp(14), top+headH), "Monitor", "Esc", "back to panes")
+	y := top + headH + gtx.Dp(theme.SpaceS)
+	defer clip.Rect{Min: image.Pt(0, y), Max: size}.Push(gtx.Ops).Pop()
+	vgtx := gtx
+	vgtx.Constraints = gl.Exact(image.Pt(size.X, max(0, size.Y-y)))
+	off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+	u.layoutMonitor(vgtx, st, machineKey(u.hostOf(ws.ID)), ws)
+	off.Pop()
 }

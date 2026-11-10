@@ -437,6 +437,7 @@ and 11, on x86_64 and arm64.
 | Ctrl+Shift+U                | Cmd+U                     | Go to the agent that needs you             |
 | Ctrl+Alt+U                  | Cmd+Option+U              | Back to the pane you last prompted         |
 | Ctrl+Shift+M                | Cmd+Shift+M               | Show or hide the board                     |
+| Ctrl+Alt+M                  | Cmd+Option+M              | Show or hide the machine's monitor         |
 | Ctrl+Shift+Y / Ctrl+Shift+D | Cmd+Shift+Y / Cmd+Shift+N | Allow / Deny the permission prompt         |
 | Ctrl+Shift+R                | Cmd+Shift+R               | Review the tab's changes                   |
 | Ctrl+Shift+A                | Cmd+Shift+A               | New task, now or queued                    |

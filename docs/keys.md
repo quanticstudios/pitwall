@@ -87,6 +87,7 @@ conventional:
 | Ctrl+Shift+U                            | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
 | Ctrl+Shift+M                            | Show or hide the board: every agent tab as a card, by what it needs |
+| Ctrl+Alt+M                              | Show or hide the monitor: the machine's CPU, memory, drives, network and processes |
 | Ctrl+Shift+Y / Ctrl+Shift+D             | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                            | New task: an agent on a prompt, started now or queued     |
 | Ctrl+Shift+S                            | Session switcher                                          |
@@ -131,6 +132,7 @@ aide:
 | Alt+U                             | Go to the tab that needs you, newest first, in any session |
 | Ctrl+Alt+U                             | Jump to the pane you last sent an agent prompt, across sessions |
 | Ctrl+Shift+M                      | Show or hide the board                         |
+| Ctrl+Alt+M                        | Show or hide the monitor                       |
 | Ctrl+Shift+Y / Ctrl+Shift+D       | Allow / Deny the permission prompt of the focused pane, else of the shown tab |
 | Ctrl+Shift+A                      | New task: an agent on a prompt, started now or queued |
 | Alt+S                             | Session switcher                               |
@@ -293,9 +295,16 @@ Its default is Ctrl+Alt+U in conventional and aide, Cmd+Option+U in mac.
 Rebind it under `[keys]` or in Settings. It also appears as "Jump to last
 prompt" in the command palette. See [prompt tracking](usage.md#watching-agents).
 
-`open_monitor` opens a [Monitor tab](usage.md#monitor-tabs) of the shown
-tab's machine, or shows the one the session has. It has no default key and
-appears as "Monitor this machine" in the command palette.
+`toggle_monitor` shows [the monitor](usage.md#the-monitor) of the shown
+tab's machine in place of the panes, or hides it. Esc hides it too, and the
+panes come back as they were. Its default is Ctrl+Alt+M in conventional and
+aide, Cmd+Option+M in mac: M as in the board's Ctrl+Shift+M, with the
+modifier `jump_last_prompt` uses beside `jump_attention`. It appears as
+"Show monitor" in the command palette.
+
+`open_monitor` opens the monitor as a Monitor tab of the shown tab's
+machine, which stays in the sidebar, or shows the one the session has. It
+has no default key and appears as "Open Monitor tab" in the command palette.
 
 `toggle_board` shows the board in place of the panes, or hides it. Its
 default is Ctrl+Shift+M in conventional and aide, Cmd+Shift+M in mac. On

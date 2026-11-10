@@ -1784,27 +1784,39 @@ clicks on its answers for 650 milliseconds. A card that changes column
 travels there in 200 milliseconds; with `reduce_motion` it fades in at its
 new place.
 
-### Monitor tabs
+### The monitor
 
-A Monitor tab shows a machine's CPU by thread and by agent, its cores,
+The monitor shows a machine's CPU by thread and by agent, its cores,
 memory, drives, network and processes grouped by coding agent, repo and
-app, drawn with [sector](https://github.com/quanticstudios/sector). Open
-one with Monitor this machine in the command palette, or bind
-`open_monitor` under `[keys]`. It opens in the window's session, on the
-machine of the tab you are on: this desktop, or box in `pitwall --host box`
-or for a tab of box in a window of several hosts. A session has one Monitor
-tab per machine, and asking again shows it.
+app, drawn with [sector](https://github.com/quanticstudios/sector). It
+shows the machine of the tab you are on: this desktop, or box in
+`pitwall --host box` or for a tab of box in a window of several hosts.
 
-That machine's own pitwall daemon samples it, only while the tab is on
-screen, at the interval picked in the tab's title bar (1, 2 or 5 seconds),
-and not while it is paused. The window never reads another machine's
+Show it with `toggle_monitor` (Ctrl+Alt+M, Cmd+Option+M on macOS) or Show
+monitor in the command palette. It takes the place of the panes, as the
+board does, and the sidebar stays. Press the key again, or Esc, and the
+panes come back as you left them, with the same focus, scroll and splits.
+Showing another tab or the board closes it too. It opens no tab, so
+nothing stays in the sidebar. The window keeps one history per machine:
+showing the monitor from any tab of that machine brings back the graphs
+it has, with a gap for the time it was hidden.
+
+To keep it, Open Monitor tab in the command palette, or `open_monitor`
+under `[keys]`, opens it as a Monitor tab in the window's session instead.
+A session has one Monitor tab per machine, and asking again shows it.
+Monitor tabs saved before are restored as before.
+
+That machine's own pitwall daemon samples it only while the monitor or
+the Monitor tab is on screen, at the interval picked in its title bar (1,
+2 or 5 seconds), and not while it is paused. Hiding the monitor stops the
+sampling on the same frame. The window never reads another machine's
 processes itself. An agent started in a pitwall pane shows its tab's name
 in the CPU graph's legend and in the process table, and a click on its row
 there goes to that tab. An agent started outside pitwall keeps its repo
 and agent name. When the machine stops answering, the graphs dim and say
 "No data since 20:41" on that machine's clock until samples come again.
 
-Sampling needs Linux; on another system the tab says why instead. A
+Sampling needs Linux; on another system the monitor says why instead. A
 machine whose pitwall is older than the window's says it needs an update
 there.
 

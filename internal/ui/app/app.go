@@ -579,6 +579,10 @@ func (u *ui) openRequested(st *model.State, now time.Time) {
 		u.nav.monitor = false
 		u.openMonitor()
 	}
+	if u.nav.monitorView {
+		u.nav.monitorView = false
+		u.toggleMonitor()
+	}
 	if u.nav.sidebarKeys {
 		u.nav.sidebarKeys = false
 		u.toggleSidebarKeys(st)
@@ -735,6 +739,11 @@ func (u *ui) layout(gtx gl.Context) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
+			// A key queued after a tab switch is for the new tab, which the
+			// monitor no longer covers.
+			if _, in := msg.(proto.Input); in && u.mon.on && u.nav.workspace == u.mon.ws && u.nav.peek == "" {
+				continue // a prefix key pressed twice, for a pane the monitor hides
+			}
 			u.sendOrAsk(&st, msg)
 			// Keys queued behind this one act on the state it produced.
 			st = u.b.State()
@@ -823,7 +832,7 @@ func (u *ui) layout(gtx gl.Context) {
 	fade := anim.At(gtx, u.switchAt, anim.Long)
 	fo := paint.PushOpacity(gtx.Ops, 0.25+0.75*fade)
 	u.keepFind(&st)
-	if u.settings.Shown() || u.review.on || u.boardOn {
+	if u.settings.Shown() || u.review.on || u.boardOn || u.mon.on {
 		u.paneMenu.close()
 		if u.nav.peek != "" {
 			u.showPanes(map[string]bool{u.nav.peek: true}) // no pane under the page or the board
@@ -835,6 +844,8 @@ func (u *ui) layout(gtx gl.Context) {
 		u.layoutReview(pgtx, &st)
 	} else if u.boardOn {
 		u.layoutBoard(pgtx, &st)
+	} else if u.mon.on {
+		u.layoutMonitorView(pgtx, &st)
 	} else {
 		u.layoutPanes(pgtx, &st)
 		u.drawWelcome(pgtx, &st)
@@ -957,7 +968,7 @@ func (u *ui) sidebarEvent(st *model.State, ev sidebar.Event) {
 	case sidebar.SelectWorkspace:
 		u.settings.Hide()
 		u.review.hide()
-		u.boardOn = false
+		u.boardOn, u.mon.on = false, false
 		u.nav.selectWorkspace(st, e.WorkspaceID, e.PaneID)
 	case sidebar.ForkPane:
 		u.send(proto.ForkPane{Pane: e.Pane})
@@ -1165,7 +1176,7 @@ func (u *ui) layoutPanes(gtx gl.Context, st *model.State) {
 	}
 	if ws.Monitor {
 		u.paneMenu.close()
-		u.layoutMonitor(gtx, st, ws)
+		u.layoutMonitor(gtx, st, ws.ID, ws)
 		return
 	}
 	if root == nil {

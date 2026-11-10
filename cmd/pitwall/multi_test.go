@@ -749,4 +749,26 @@ func TestMultiMonitor(t *testing.T) {
 	if _, _, ok := m.Monitor("lw"); ok {
 		t.Fatal("this machine's tab shows box's sample")
 	}
+
+	// box closes the watched tab; its stop still goes to box, which may be
+	// v0.2.4 and keep a plain tab's watch otherwise.
+	gone := hostState("rs", "rw2", "rp2")
+	rd.c.Send(proto.StateMsg{State: gone, Level: proto.Level})
+	waitFor(t, "rw gone", func() bool { st := m.State(); return st.Workspace("rw") == nil && st.Workspace("rw2") != nil })
+	m.Send(proto.MonitorWatch{WorkspaceID: "rw"})
+	for {
+		got := recv(rd)
+		if got == nil {
+			t.Fatal("box never got the stop")
+		}
+		if w, ok := got.(proto.MonitorWatch); ok {
+			if w != (proto.MonitorWatch{WorkspaceID: "rw"}) {
+				t.Fatalf("box got %#v", w)
+			}
+			break
+		}
+	}
+	if got := recv(ld); got != nil {
+		t.Fatalf("local got %#v", got)
+	}
 }

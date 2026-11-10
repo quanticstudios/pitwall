@@ -1123,3 +1123,21 @@ func (s *Sidebar) boardBanner(gtx layout.Context, th *theme.Theme, r image.Recta
 		}})
 	o.Pop()
 }
+
+// PageHeader draws the header of a page shown in place of the panes, as
+// the board draws its own: the title, and at the right the key that leaves
+// the page and what it does.
+func PageHeader(gtx layout.Context, th *theme.Theme, r image.Rectangle, title, keys, what string) {
+	defer op.Offset(r.Min).Push(gtx.Ops).Pop()
+	g := gtx
+	g.Constraints = layout.Exact(r.Size())
+	hrow(g, r.Dy(), gtx.Dp(6),
+		item{w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Title), th.Fg, title)
+		}},
+		item{right: true, opt: true, w: func(gtx layout.Context) layout.Dimensions { return kbd(gtx, th, keys) }},
+		item{opt: true, w: func(gtx layout.Context) layout.Dimensions {
+			return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, what)
+		}},
+	)
+}

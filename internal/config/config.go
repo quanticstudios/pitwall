@@ -88,7 +88,8 @@ type Keys struct {
 	CloseTab        Binding `toml:"close_tab" group:"Tabs" doc:"Close the tab and all its panes"`
 	PeekTab         Binding `toml:"peek_tab" group:"Tabs" doc:"Peek at tab: pick a tab and show its focused pane over this one, to read, scroll and type into without leaving your place. Esc closes the peek. Alt+click on a sidebar row and Space on a board card peek too"`
 	KeepPeek        Binding `toml:"keep_peek" group:"Tabs" doc:"Go to the peeked tab: close the peek and show its tab. The window takes this key only while a peek is open"`
-	OpenMonitor     Binding `toml:"open_monitor" group:"Tabs" doc:"Monitor this machine: a tab of the shown tab's machine, its CPU, memory, drives, network and processes by agent, as sector draws them"`
+	ToggleMonitor   Binding `toml:"toggle_monitor" group:"Window" doc:"Show monitor: the shown tab's machine, its CPU, memory, drives, network and processes by agent, as sector draws them, in place of the panes. Pressed again or Esc goes back to the panes"`
+	OpenMonitor     Binding `toml:"open_monitor" group:"Tabs" doc:"Open Monitor tab: the monitor of the shown tab's machine in a tab of its own, which stays in the sidebar"`
 	NextPane        Binding `toml:"next_pane" group:"Panes" doc:"Next pane"`
 	PrevPane        Binding `toml:"prev_pane" group:"Panes" doc:"Previous pane"`
 	NavigateLeft    Binding `toml:"navigate_left" group:"Panes" doc:"Navigate left: focus the pane to the left. The key goes to the pane instead when it runs vim or fzf, or has no pane that way, so Ctrl+H, J, K and L can move between vim's windows and pitwall's panes as in vim-tmux-navigator. See docs/keys.md"`
