@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 		if t.Chat {
 			chats[i] = d.chats[t.Pane]
 		}
+		tabs[i].Dropped = slices.Clone(d.phoneDropped[t.Pane])
 	}
 	d.mu.Unlock()
 	for i, c := range chats {
@@ -66,6 +68,7 @@ func (d *Daemon) phoneChatEntries(id string) ([]flow.Entry, string, bool) {
 	var es []flow.Entry
 	var mdl string
 	ok := c.run(func() {
+		c.open() // why: a chat restored after a restart has no snapshot until its log is read
 		mdl = c.cfg.Model
 		for i, it := range c.snap.Content {
 			e := flow.Entry{Seq: int64(i + 1), Text: it.Text}
@@ -102,26 +105,85 @@ func cutOut(s string) string {
 
 // phoneSend queues text for pane's agent as the window's send does: typed
 // once the agent sits at its input box with no form on screen and no draft
-// of the user's in it. A chat tab gets it as a turn, or queued behind one.
-// A shell never gets it.
-func (d *Daemon) phoneSend(pane, text string) error {
+// of the user's in it. It returns the message's id, which a tab lists in
+// Dropped if the agent leaves the pane before the message goes in. A chat
+// tab gets it as a turn, or queued behind one, with id 0. A shell never
+// gets it.
+func (d *Daemon) phoneSend(pane, text string) (uint64, error) {
 	d.mu.Lock()
 	c := d.chats[pane]
 	prov := d.paneProvider(pane)
 	d.mu.Unlock()
 	if c != nil {
 		if remote.Clean(text) == "" {
-			return errors.New("the message is empty")
+			return 0, errors.New("the message is empty")
 		}
-		return chatRefusal(d.chatRequest(context.Background(), proto.ChatSend{Chat: pane, Text: text}))
+		return 0, chatRefusal(d.chatRequest(context.Background(), proto.ChatSend{Chat: pane, Text: text}))
 	}
 	if !model.IsAgent(prov) || prov == model.ProviderTerminal {
-		return errors.New("that tab runs no agent; type into a shell in its tab")
+		return 0, errors.New("that tab runs no agent; type into a shell in its tab")
 	}
 	if d.paneExited(pane) {
-		return errors.New("the agent in that tab has exited")
+		return 0, errors.New("the agent in that tab has exited")
 	}
-	return d.windowDeliver(proto.Deliver{Pane: pane, Text: text})
+	d.mu.Lock()
+	d.phoneSeq++
+	l := letter{text: text, plain: true, window: true, phone: d.phoneSeq, owner: prov, fg: d.live.fg[pane]}
+	d.mu.Unlock()
+	return l.phone, d.userDeliver(pane, l)
+}
+
+// agentOwns reports whether the agent phone letter l was for still runs in
+// pane: the same provider, the pane not exited, and the same foreground
+// group when the agent's hooks named one. Callers hold d.mu.
+func (d *Daemon) agentOwns(pane string, l letter) bool {
+	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane })
+	if i < 0 || d.st.Panes[i].Exited || d.paneProvider(pane) != l.owner {
+		return false
+	}
+	if f, ok := d.panes[pane].(foregrounder); ok && l.fg > 0 {
+		if pg := f.Foreground(); pg > 0 && pg != l.fg {
+			return false
+		}
+	}
+	return true
+}
+
+// dropOrphanPhone drops pane's phone letters whose agent left the pane.
+// Callers hold d.mu.
+func (d *Daemon) dropOrphanPhone(pane string) {
+	for i := len(d.mail.queue[pane]) - 1; i >= 0; i-- {
+		if l := d.mail.queue[pane][i]; l.phone != 0 && !d.agentOwns(pane, l) {
+			d.dropLetter(pane, i)
+			d.notePhoneDropped(pane, l.phone)
+			log.Printf("pane %s: phone message %d dropped: its agent left the pane", pane, l.phone)
+		}
+	}
+}
+
+// dropLetter takes letter i out of pane's queue. Callers hold d.mu.
+func (d *Daemon) dropLetter(pane string, i int) {
+	if q := d.mail.queue[pane]; len(q) == 1 {
+		delete(d.mail.queue, pane)
+	} else {
+		d.mail.queue[pane] = slices.Delete(q, i, i+1)
+		d.wake(pane, 0)
+	}
+	d.changed()
+}
+
+// maxDropped is how many dropped phone messages a pane keeps for its tab.
+const maxDropped = 20
+
+// notePhoneDropped lists phone message id among pane's dropped ones.
+// Callers hold d.mu.
+func (d *Daemon) notePhoneDropped(pane string, id uint64) {
+	if d.phoneDropped == nil {
+		d.phoneDropped = map[string][]uint64{}
+	}
+	ids := append(d.phoneDropped[pane], id)
+	d.phoneDropped[pane] = ids[max(0, len(ids)-maxDropped):]
+	d.changed()
 }
 
 // paneProvider is pane's agent, from its pane or its activity. Callers
@@ -147,8 +209,11 @@ func (d *Daemon) paneExited(pane string) bool {
 // phoneCommand types command, a slash command, into Claude Code's input box
 // as keys, not a paste, so Claude Code runs it, and presses Enter. Only
 // while the agent waits there: not during a turn, a question or a form, and
-// not into the user's draft.
+// not into the user's draft. It holds sendMu throughout, as deliver does.
 func (d *Daemon) phoneCommand(pane, command string) error {
+	// why: two quick picks would type into each other, as would a queued message.
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
 	d.mu.Lock()
 	prov := d.paneProvider(pane)
 	d.mu.Unlock()

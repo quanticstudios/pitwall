@@ -30,6 +30,9 @@ type Tab struct {
 	Send   bool   `json:"send"`           // the composer works: the pane runs an agent
 	Picker bool   `json:"picker"`         // model and effort: Claude Code in a terminal
 	Queued int    `json:"queued,omitempty"`
+	// Dropped are the ids of phone messages the pane's agent left before
+	// they went in, which the page shows as not sent.
+	Dropped []uint64 `json:"dropped,omitempty"`
 	// Transcript is the agent session's file; the page never sees it.
 	Transcript string         `json:"-"`
 	Provider   model.Provider `json:"-"`
@@ -362,13 +365,14 @@ func (s *Server) sendText(w http.ResponseWriter, r *http.Request, d Device) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if err := s.Send(req.Pane, req.Text); err != nil {
+	id, err := s.Send(req.Pane, req.Text)
+	if err != nil {
 		log.Printf("remote: %q: message to pane %s refused: %q", d.Name, req.Pane, err)
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	log.Printf("remote: %q: message of %d bytes queued for pane %s", d.Name, len(req.Text), req.Pane) // never the text
-	writeJSON200(w, map[string]any{})
+	log.Printf("remote: %q: message %d of %d bytes queued for pane %s", d.Name, id, len(req.Text), req.Pane) // never the text
+	writeJSON200(w, map[string]any{"id": id})
 }
 
 // command switches a Claude Code pane's model or effort.

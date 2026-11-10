@@ -154,9 +154,9 @@ type Server struct {
 	Changed     func() <-chan struct{}
 	ChatEntries func(chat string) (entries []flow.Entry, model string, ok bool)
 	// Send types text into pane's agent once it sits at its input box,
-	// queued until then. Command types a slash command there now, as
+	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
 	// keys, refused unless the agent waits at its input box.
-	Send    func(pane, text string) error
+	Send    func(pane, text string) (id uint64, err error)
 	Command func(pane, command string) error
 
 	lmu  sync.Mutex

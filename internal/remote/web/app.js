@@ -629,7 +629,8 @@ composer.onsubmit = (e) => {
   grow();
   const t = tabOf(pane);
   api('/api/send', { pane, text: body })
-    .then(() => {
+    .then((r) => {
+      p.id = r.id;
       p.sent = true;
       p.queued = !!t && (t.queued > 0 || !['', 'completed', 'error', 'pr-open', 'awaiting-input'].includes(t.state || ''));
       p.at = Date.now();
@@ -657,6 +658,12 @@ function settle(t) {
 function updatePending(t) {
   for (const p of pending) {
     if (!p.sent || p.failed) continue;
+    if (t && (t.dropped || []).includes(p.id)) {
+      p.node.classList.add('failed');
+      p.label.textContent = 'Not sent: the agent exited';
+      p.failed = true;
+      continue;
+    }
     if (p.queued && !(t && t.queued > 0)) p.queued = false;
     p.label.textContent = p.queued ? 'Queued' : 'Sent';
     // A tab without a transcript never shows the message; let it go after a while.
@@ -672,11 +679,15 @@ function choices(box, what, values) {
     const b = el('button', 'btn' + (what === 'model' && shortModel(model).includes(v) ? ' on' : ''), v);
     b.onclick = () => {
       const note = $('mnote');
+      const all = sheet.querySelectorAll('.choices .btn');
+      // why: one pick at a time, so two commands never reach Claude Code at once.
+      all.forEach((x) => { x.disabled = true; });
       note.className = 'note';
       note.textContent = 'Sending /' + what + ' ' + v;
       api('/api/command', { pane, what, value: v })
         .then(() => { note.textContent = 'Sent /' + what + ' ' + v + '.'; })
-        .catch((e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } });
+        .catch((e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } })
+        .finally(() => all.forEach((x) => { x.disabled = false; }));
     };
     return b;
   }));

@@ -100,7 +100,10 @@ no form on screen and no draft of yours in it, then goes in as a paste
 followed by Enter, with control characters removed, so it cannot press keys
 or end the paste. While the agent works or waits on an approval, the message
 shows as Queued, then as Sent once it goes in, until it shows up in the
-chat. A shell tab has no box: pitwall never types into a shell from here.
+chat. If the agent exits or another program takes the pane's foreground
+before the message goes in, pitwall drops it and the page marks it "Not
+sent: the agent exited"; it never goes to the shell left behind. A shell
+tab has no box: pitwall never types into a shell from here.
 
 A chat tab (one pitwall drives with `pitwall chat` rather than in a
 terminal) shows its transcript the same way, and a message starts a turn or
@@ -113,7 +116,9 @@ turn used. It offers the models `default`, `fable`, `opus`, `sonnet` and
 `haiku`, and the effort levels `low`, `medium`, `high`, `xhigh` and `max`.
 A pick types `/model <name>` or `/effort <level>` into Claude Code as keys
 and presses Enter, only while Claude Code sits at its input box: not during
-a turn, a question or a form, and not over a draft. When Claude Code asks
+a turn, a question or a form, and not over a draft. One pick goes in at a
+time, never while a queued message is being typed, and the buttons wait
+for it. When Claude Code asks
 "Switch model?" in a conversation, pitwall answers yes, since your pick
 already did. Claude Code then reads the whole conversation again on the new
 model, and saves the model as your default, as typing `/model` does.

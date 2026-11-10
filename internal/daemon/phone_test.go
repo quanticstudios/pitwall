@@ -8,14 +8,18 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/session"
 )
 
 // phoneDaemon is a daemon with tab w1 running Claude Code in pane a at its
@@ -304,5 +308,77 @@ func TestPhoneStream(t *testing.T) {
 	}
 	if ctx.Err() != nil {
 		t.Error("the stream outlived its device")
+	}
+}
+
+// A phone message queued for an agent that then exits is dropped, never
+// typed into the shell left behind, and its tab lists it as not sent.
+func TestPhoneMessageDroppedWhenAgentExits(t *testing.T) {
+	oldSettle, oldLook, oldReply := sendSettle.set(time.Millisecond), sendLook.set(10*time.Millisecond), replyDelay.set(time.Millisecond)
+	t.Cleanup(func() { sendSettle.set(oldSettle); sendLook.set(oldLook); replyDelay.set(oldReply) })
+	d, lp, id := liveDaemon(t, model.StateWorking)
+	msg, err := d.phoneSend(id, "echo PHONE-MESSAGE")
+	if err != nil || msg == 0 {
+		t.Fatalf("send: %d %v", msg, err)
+	}
+	// The agent exits: its shell takes the foreground and shows a prompt.
+	lp.show("$ ", false)
+	lp.fgGroup.Store(50)
+	waitUntil(t, "the message dropped", func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return len(d.mail.queue[id]) == 0 && slices.Contains(d.phoneDropped[id], msg)
+	})
+	time.Sleep(50 * time.Millisecond)
+	if got := lp.got(); strings.Contains(got, "PHONE-MESSAGE") {
+		t.Errorf("the shell got the phone's message: %q", got)
+	}
+}
+
+// Two quick picks take turns: each command goes in whole, with its Enter.
+func TestPhoneCommandsTakeTurns(t *testing.T) {
+	_, f, do := phoneDaemon(t)
+	old := replyDelay.set(30 * time.Millisecond)
+	t.Cleanup(func() { replyDelay.set(old) })
+	var wg sync.WaitGroup
+	for _, v := range []string{"low", "high"} {
+		wg.Go(func() {
+			if st, body := do("POST", "/api/command", `{"pane":"a","what":"effort","value":"`+v+`"}`); st != 200 {
+				t.Errorf("effort %s: %d %s", v, st, body)
+			}
+		})
+	}
+	wg.Wait()
+	got := gotAfter(t, f.pane(0), 0, len("/effort low\r/effort high\r"))
+	if got != "/effort low\r/effort high\r" && got != "/effort high\r/effort low\r" {
+		t.Errorf("typed %q", got)
+	}
+}
+
+// A chat restored after a restart shows its saved transcript on the phone
+// before any other client reads it.
+func TestPhoneRestoredChat(t *testing.T) {
+	root := t.TempDir()
+	f := &fakes{statsCalls: map[string]int{}}
+	spy := &spyProvider{}
+	opts := func(o *Options) {
+		o.Chats = root
+		o.Providers = map[model.Provider]session.Provider{model.ProviderClaude: spy}
+	}
+	hello := proto.Hello{Version: proto.Version, Level: proto.Level, Kind: "gui", Cwd: t.TempDir()}
+	sock, stop := runWith(t, f, opts)
+	gui := dialHello(t, sock, hello)
+	r := chatCall[proto.ChatResult](gui, proto.ChatNew{Provider: model.ProviderClaude, Dir: t.TempDir(), Prompt: "hello"})
+	if r.Code != "" {
+		t.Fatalf("new: %+v", r)
+	}
+	waitChat(gui, "first turn", func(s model.State) bool { c := chatOf(s); return c.Turns == 1 && c.State == session.StateReady })
+	stop()
+	d, sock, stop := runDaemon(t, f, opts)
+	t.Cleanup(stop)
+	waitChat(dialHello(t, sock, hello), "chat back", func(s model.State) bool { return chatOf(s).ID == r.Chat })
+	es, _, ok := d.phoneChatEntries(r.Chat)
+	if !ok || !slices.ContainsFunc(es, func(e flow.Entry) bool { return e.Kind == flow.EntryUser && e.Text == "hello" }) {
+		t.Errorf("restored chat on the phone: %v %+v", ok, es)
 	}
 }
