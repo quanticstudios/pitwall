@@ -44,3 +44,7 @@ func splitFences(src string) []mdPart {
 	}
 	return parts
 }
+
+// detab turns tabs into four spaces: the mono font has no tab glyph, and
+// Go code from a transcript indents with tabs.
+func detab(s string) string { return strings.ReplaceAll(s, "\t", "    ") }
