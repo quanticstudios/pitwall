@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,12 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
 )
@@ -199,6 +202,40 @@ func TestDevProxyBindFailure(t *testing.T) {
 	if stop := d.serveDevProxy(); stop != nil {
 		stop()
 		t.Fatal("disabled proxy started")
+	}
+}
+
+func TestRestoredPaneDevURL(t *testing.T) {
+	tab := devTab()
+	tab.SessionID, tab.ActiveTab = "s", "t"
+	tab.Tabs = []model.Tab{{ID: "t", Layout: layout.Leaf("p")}}
+	f := &fakes{statsCalls: map[string]int{}, saved: model.State{
+		Sessions: []model.Session{{ID: "s"}}, Workspaces: []model.Workspace{tab},
+		Panes: []model.Pane{{ID: "p", WorkspaceID: tab.ID, Cwd: tab.Path, Cmd: []string{"sh"}}},
+	}}
+	o := f.options()
+	o.DevProxy = config.DevProxySettings{Enabled: true, Port: 0}
+	d := newDaemon(t, o)
+	port := d.state().DevProxyPort
+	if want := tab.DevURL(port); want == "" || !slices.Contains(f.pane(0).cfg.Env, "PITWALL_URL="+want) {
+		t.Fatalf("restored pane lacks bound URL %q: %v", want, f.pane(0).cfg.Env)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { d.devProxyLoop(ctx); close(done) }()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy loop did not stop")
+	}
+	if d.state().DevProxyPort != 0 {
+		t.Fatal("stopped loop advertises a proxy")
+	}
+	if c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second); err == nil {
+		c.Close()
+		t.Fatal("startup listener survived proxy loop shutdown")
 	}
 }
 

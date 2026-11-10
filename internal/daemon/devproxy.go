@@ -28,9 +28,17 @@ func (d *Daemon) worktreeEnv(w model.Workspace) []string {
 }
 
 func (d *Daemon) devProxyLoop(ctx context.Context) {
+	initial := d.devProxyStop
 	watchListener(ctx, func() config.DevProxySettings { return d.o.DevProxy },
 		func(s config.DevProxySettings) bool { return s.Enabled },
-		func(config.DevProxySettings) func() { return d.serveDevProxy() })
+		func(config.DevProxySettings) func() {
+			if initial != nil {
+				stop := initial
+				initial = nil
+				return stop
+			}
+			return d.serveDevProxy()
+		})
 }
 
 var devProxyFails = logs.Limiter{Every: time.Minute}
@@ -97,6 +105,7 @@ func (d *Daemon) serveDevProxy() func() {
 		d.changed()
 		d.mu.Unlock()
 		srv.Close()
+		ln.Close() // Serve may not have registered the listener yet.
 		mu.Lock()
 		defer mu.Unlock()
 		for c := range conns {

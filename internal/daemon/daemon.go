@@ -228,6 +228,7 @@ type Daemon struct {
 	worktreeDeletes map[string]bool // guarded by mu
 	worktreeJobs    sync.WaitGroup
 	o               Options
+	devProxyStop    func() // startup listener, adopted by Serve or closed by shutdown
 
 	scrollbackFiles map[string]string // editor pane: its temporary file; guarded by mu
 
@@ -428,6 +429,7 @@ func NewWith(o Options) (*Daemon, error) {
 		d.st.Workspaces[i].RepoRoot = d.repoRoot(ctx, d.st.Workspaces[i].Path)
 	}
 	cancel()
+	d.devProxyStop = d.serveDevProxy()
 	d.mu.Lock() // watchers of already started panes read d.panes
 	defer d.mu.Unlock()
 	if !d.resumeOn() {
@@ -583,6 +585,9 @@ func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 func (d *Daemon) shutdown() {
+	if d.devProxyStop != nil {
+		d.devProxyStop()
+	}
 	d.mu.Lock()
 	d.stopRestores()
 	d.mu.Unlock()
