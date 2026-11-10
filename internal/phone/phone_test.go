@@ -359,3 +359,32 @@ func TestState(t *testing.T) {
 }
 
 func configFor(url string) config.RemoteSettings { return config.RemoteSettings{URL: url} }
+
+// TestCommandWhenIdle tries a pick again while Claude Code is in a turn,
+// and stops at once on any other refusal.
+func TestCommandWhenIdle(t *testing.T) {
+	s, ts := newServer(t)
+	c := NewClient(pair(t, s, ts.URL))
+	commandRetry = time.Millisecond
+	var mu sync.Mutex
+	tries, refuse := 0, ""
+	s.Command = func(pane, command string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		tries++
+		if tries < 3 {
+			return errors.New("claude is working on a turn; try again when it waits at its input box")
+		}
+		if refuse != "" {
+			return errors.New(refuse)
+		}
+		return nil
+	}
+	if err := c.CommandWhenIdle(context.Background(), "p1", "model", "opus[1m]"); err != nil || tries != 3 {
+		t.Fatalf("CommandWhenIdle = %v after %d tries; want nil after 3", err, tries)
+	}
+	tries, refuse = 2, "that pane shows a form; answer it in its tab"
+	if err := c.CommandWhenIdle(context.Background(), "p1", "effort", "max"); err == nil || IsBusy(err) || tries != 3 {
+		t.Fatalf("CommandWhenIdle = %v after %d tries; want the form refusal at once", err, tries)
+	}
+}

@@ -168,6 +168,35 @@ func (c *Client) Command(ctx context.Context, pane, what, value string) error {
 	return c.call(ctx, "POST", "api/command", map[string]string{"pane": pane, "what": what, "value": value}, nil)
 }
 
+// IsBusy reports whether err is a refusal because the agent is in a turn
+// or waits on the user, which goes away when the turn ends.
+//
+// ponytail: matches the daemon's words (typeCommand); a status code of
+// its own if another refusal ever says the same.
+func IsBusy(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "try again when it waits at its input box")
+}
+
+// commandRetry is how often CommandWhenIdle tries a pick again.
+var commandRetry = 2 * time.Second
+
+// CommandWhenIdle is Command, tried again while the agent is busy, until
+// it goes in, fails otherwise or ctx ends: a pick made mid-turn goes in
+// once Claude Code sits at its input box.
+func (c *Client) CommandWhenIdle(ctx context.Context, pane, what, value string) error {
+	for {
+		err := c.Command(ctx, pane, what, value)
+		if !IsBusy(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(commandRetry):
+		}
+	}
+}
+
 // Answer presses Allow or Deny on pane's permission prompt of at.
 func (c *Client) Answer(ctx context.Context, pane string, at int64, allow bool) error {
 	return c.call(ctx, "POST", "api/answer", map[string]any{"pane": pane, "at": strconv.FormatInt(at, 10), "allow": allow}, nil)

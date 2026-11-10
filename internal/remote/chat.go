@@ -41,7 +41,7 @@ type Tab struct {
 // Models and Efforts are what the model picker offers Claude Code, as
 // claude --model and --effort take them.
 var (
-	Models  = []string{"default", "fable", "opus", "sonnet", "haiku"}
+	Models  = []string{"default", "fable", "opus", "opus[1m]", "sonnet", "haiku"}
 	Efforts = []string{"low", "medium", "high", "xhigh", "max"}
 )
 
