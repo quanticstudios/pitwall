@@ -84,6 +84,8 @@ type chatView struct {
 	fresh   bool // new entries came while scrolled up
 	md      *markdown.Renderer
 
+	monoScale float32 // inline code's size over the text's; see monoScale
+
 	backBtn, newBtn, retry widget.Clickable
 	card                   cardState
 	cmp                    composer
@@ -575,9 +577,12 @@ func (c *chatView) markdown(gtx C, th *theme.Theme, rt *richtext.InteractiveText
 		if err != nil || len(spans) == 0 {
 			spans = []richtext.SpanStyle{{Font: th.UIFont, Size: 16.5, Color: replyText, Content: p.text}}
 		}
+		if c.monoScale == 0 {
+			c.monoScale = monoScale(th)
+		}
 		for i := range spans {
 			if spans[i].Font.Typeface == th.MonoFont.Typeface {
-				spans[i].Size, spans[i].Color = 14, th.Fg
+				spans[i].Size, spans[i].Color = spans[i].Size*unit.Sp(c.monoScale), th.Fg
 			}
 		}
 		// why: the renderer ends a block with blank lines, which would add

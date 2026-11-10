@@ -7,6 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"gioui.org/font"
+	"gioui.org/text"
+	"golang.org/x/image/math/fixed"
+
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
@@ -216,5 +220,33 @@ func TestOfflineText(t *testing.T) {
 	}
 	if got := offlineText(time.Time{}, now); got != "Offline, reconnecting" {
 		t.Errorf("no retry time: %q", got)
+	}
+}
+
+// Inline code sized by monoScale has the reply text's ascent, so
+// styledtext, which tops every span of a line alike, sets them on one
+// baseline.
+func TestMonoScaleBaseline(t *testing.T) {
+	th := Theme()
+	k := monoScale(th)
+	if k < 0.9 || k > 1.1 {
+		t.Fatalf("monoScale = %v", k)
+	}
+	asc := func(f font.Font, px int) int {
+		th.Shaper.LayoutString(text.Parameters{Font: f, PxPerEm: fixed.I(px), MaxWidth: 1 << 20}, "x")
+		a := 0
+		for {
+			g, ok := th.Shaper.NextGlyph()
+			if !ok {
+				return a
+			}
+			a = g.Ascent.Ceil()
+		}
+	}
+	for _, px := range []int{33, 43, 66} { // 16.5sp at 2, 2.625 and 4 px per dp
+		ui, mono := asc(th.UIFont, px), asc(th.MonoFont, int(float32(px)*k+0.5))
+		if d := ui - mono; d < -1 || d > 1 {
+			t.Errorf("at %dpx the text's ascent is %d, inline code's %d", px, ui, mono)
+		}
 	}
 }
