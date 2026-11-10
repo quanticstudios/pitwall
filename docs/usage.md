@@ -2031,12 +2031,16 @@ When the command exits, or you close its tab after the agent reports Done,
 pitwall removes the worktree only when no commits extend beyond its starting
 commit, no tracked or untracked files have changes, and no open PR exists.
 The starting commit stays fixed even if the base branch moves. A failed Git
-or GitHub check keeps the tab and worktree. Repositories without a GitHub
-remote need no GitHub check. Pinned tabs, worktrees another tab uses, and tabs
-with another open pane also stay. This includes the shell for setup, whose
-work may still be running. A kept run becomes an ordinary tab for you to
-review and remove with `worktree rm`. Pending cleanup survives a daemon
-restart. Removal runs trusted teardown only; a repo teardown command is
+or GitHub check keeps the worktree. Repositories without a GitHub remote need
+no GitHub check. Pinned tabs refuse a close. Another tab using the worktree or
+another open pane prevents worktree removal. This includes the shell for setup, whose
+work may still be running. Automatic cleanup leaves a kept run as an ordinary
+tab for you to review and remove with `worktree rm`. An explicit close removes
+the tab at once and stops its panes before the cleanup checks and teardown.
+If cleanup keeps the worktree, the notice names its path; the tab stays closed.
+A run interrupted by a restart keeps its worktree and tab when its exit status
+is unknown. Cleanup of runs that exited before a restart can still finish.
+Removal runs trusted teardown only; a repo teardown command is
 skipped with a notice, as with an unchecked teardown box in `worktree rm`.
 Fresh task worktrees need a daemon that supports them.
 

@@ -22,10 +22,10 @@ import (
 // taskQueue is what the queue (State.Tasks) keeps between changes. Guarded
 // by d.mu.
 type taskQueue struct {
-	running  map[string]string // pane: session, of the panes running at the last change
-	freed    map[string]int    // session: agents that finished since, which queued tasks may take
-	starting map[string]int    // session: tasks taken off the queue whose tab is not open yet
-	cleaning map[string]bool   // workspace: a task's worktree cleanup is running
+	running  map[string]string       // pane: session, of the panes running at the last change
+	freed    map[string]int          // session: agents that finished since, which queued tasks may take
+	starting map[string]int          // session: tasks taken off the queue whose tab is not open yet
+	cleaning map[string]*taskCleanup // workspace: a task's worktree cleanup is running
 }
 
 // newTask starts a task, or queues it (see proto.NewTask). A failed start
@@ -335,12 +335,8 @@ func (d *Daemon) checkQueue(now time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, w := range d.st.Workspaces {
-		if w.TaskRun != nil {
-			for _, p := range d.st.Panes {
-				if p.ID == w.TaskRun.Pane && p.Exited {
-					d.queueTaskCleanup(w.ID)
-				}
-			}
+		if d.taskRunEnded(&w, false) {
+			d.queueTaskCleanup(w.ID, false)
 		}
 	}
 	if d.pumpQueue(now) {

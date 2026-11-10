@@ -140,12 +140,12 @@ func TestFreshTaskDoneClose(t *testing.T) {
 				t.Fatal("Done alone closed the tab")
 			}
 			must(t, d.handle(t.Context(), proto.CloseTab{WorkspaceID: ws.ID}))
-			waitUntil(t, "close cleanup", func() bool {
-				st := d.state()
-				return len(st.Workspaces) == 0 || st.Workspaces[0].TaskRun == nil
-			})
-			if (len(d.state().Workspaces) == 1) != keep {
-				t.Fatalf("kept tab = %v, want %v", len(d.state().Workspaces) == 1, keep)
+			d.worktreeJobs.Wait()
+			if st := d.state(); len(st.Workspaces) != 0 || keep && !strings.Contains(st.Notice, ws.Path) {
+				t.Fatalf("closed run's state: %+v", st)
+			}
+			if _, err := os.Stat(ws.Path); (err == nil) != keep {
+				t.Fatalf("kept worktree = %v, want %v: %v", err == nil, keep, err)
 			}
 		})
 	}
@@ -241,5 +241,94 @@ func TestFreshTaskCleanupAfterRestart(t *testing.T) {
 	waitUntil(t, "cleanup after restart", func() bool { return len(d.state().Workspaces) == 0 })
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("clean worktree remains after restart: %v", err)
+	}
+}
+
+func TestFreshTaskInterruptedRestart(t *testing.T) {
+	d, f, repo := freshTaskDaemon(t)
+	must(t, os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("out/\n"), 0600))
+	gitIn(t, repo, "add", ".gitignore")
+	gitIn(t, repo, "commit", "-m", "ignore output")
+	must(t, d.handle(t.Context(), proto.NewTask{Task: model.Task{Dir: repo, Worktree: "triage", FreshWorktree: true, Cmd: []string{"sh", "run.sh"}}}))
+	ws := d.state().Workspaces[0]
+	mkdir(t, filepath.Join(ws.Path, "out"))
+	output := filepath.Join(ws.Path, "out", "log")
+	must(t, os.WriteFile(output, []byte("interrupted run\n"), 0600))
+	d.shutdown()
+	o := f.options()
+	o.RepoRoot, o.Branch = gitstat.RepoRoot, gitBranch
+	o.AddWorktree, o.RemoveWorktree = gitstat.AddWorktree, gitstat.RemoveWorktree
+	d = newDaemon(t, o)
+	d.checkQueue(time.Now())
+	d.worktreeJobs.Wait()
+	st := d.state()
+	if len(st.Workspaces) != 1 || len(st.Panes) != 1 || !st.Panes[0].Exited || !st.Panes[0].ExitUnknown || st.Workspaces[0].TaskRun != nil {
+		t.Fatalf("interrupted run did not become a kept tab: %+v", st)
+	}
+	if data, err := os.ReadFile(output); err != nil || string(data) != "interrupted run\n" {
+		t.Fatalf("interrupted output lost: %q, %v", data, err)
+	}
+}
+
+func TestFreshTaskCloseBeforeChecks(t *testing.T) {
+	for _, entry := range []string{"tab", "last pane", "exit cleanup"} {
+		t.Run(entry, func(t *testing.T) {
+			d, f, repo := freshTaskDaemon(t)
+			must(t, d.handle(t.Context(), proto.NewTask{Task: model.Task{Dir: repo, Worktree: "triage", FreshWorktree: true, Cmd: []string{"codex", "triage"}}}))
+			ws := d.state().Workspaces[0]
+			entered, release := make(chan struct{}), make(chan struct{})
+			d.o.PR = func(context.Context, string) (*model.PR, error) {
+				close(entered)
+				<-release
+				return &model.PR{State: model.PROpen}, nil
+			}
+			t.Cleanup(func() {
+				select {
+				case <-release:
+				default:
+					close(release)
+				}
+				d.worktreeJobs.Wait()
+			})
+			must(t, d.handle(t.Context(), proto.AgentEvent{Pane: ws.TaskRun.Pane, Provider: model.ProviderCodex, Payload: []byte(model.StateCompleted)}))
+			if entry == "exit cleanup" {
+				must(t, f.pane(0).Close())
+				select {
+				case <-entered:
+				case <-time.After(5 * time.Second):
+					t.Fatal("exit cleanup did not check PRs")
+				}
+			}
+			var closeRequest any = proto.CloseTab{WorkspaceID: ws.ID}
+			if entry == "last pane" {
+				closeRequest = proto.ClosePane{Pane: ws.TaskRun.Pane}
+			}
+			must(t, d.handle(t.Context(), closeRequest))
+			if st := d.state(); len(st.Workspaces) != 0 || len(st.Panes) != 0 {
+				t.Fatalf("close left the tab live while cleanup checks: %+v", st)
+			}
+			if err := d.handle(t.Context(), proto.Input{Pane: ws.TaskRun.Pane, Data: []byte("follow-up")}); err == nil {
+				t.Fatal("closed task accepted input")
+			}
+			if err := d.handle(t.Context(), proto.OpenPane{WorkspaceID: ws.ID}); err == nil {
+				t.Fatal("closed task accepted a new pane")
+			}
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("cleanup did not check PRs")
+			}
+			if !f.closed(0) {
+				t.Fatal("PR check started before the agent stopped")
+			}
+			close(release)
+			d.worktreeJobs.Wait()
+			if st := d.state(); len(st.Workspaces) != 0 || !strings.Contains(st.Notice, ws.Path) {
+				t.Fatalf("kept worktree was not named without reopening the tab: %+v", st)
+			}
+			if _, err := os.Stat(ws.Path); err != nil {
+				t.Fatalf("worktree with an open PR removed: %v", err)
+			}
+		})
 	}
 }

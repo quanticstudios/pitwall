@@ -40,6 +40,9 @@ func (d *Daemon) stoppedPane(p *model.Pane) Pane {
 	notice := fmt.Sprintf("[pitwall] %s exited with code %d before pitwall restarted.", prog, p.ExitCode)
 	if !p.Exited || p.ExitUnknown {
 		p.Exited, p.ExitCode, p.ExitUnknown = true, 0, true
+		if w := d.workspace(p.WorkspaceID); w != nil && w.TaskRun != nil && w.TaskRun.Pane == p.ID {
+			w.TaskRun = nil
+		}
 		notice = fmt.Sprintf("[pitwall] pitwall restarted while %s ran, so it was not run again. Its exit code is lost.", prog)
 	}
 	newVT := d.o.NewVT

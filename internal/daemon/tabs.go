@@ -211,8 +211,8 @@ func (d *Daemon) killSession(m proto.KillSession) error {
 		d.mu.Unlock()
 		return fmt.Errorf("tab %q is pinned; unpin it to close it", w.Name)
 	}
-	if d.taskRunEnded(w) {
-		d.queueTaskCleanup(w.ID)
+	if d.taskRunEnded(w, true) {
+		d.queueTaskCleanup(w.ID, true)
 		d.mu.Unlock()
 		return nil
 	}
