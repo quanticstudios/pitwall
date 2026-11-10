@@ -108,8 +108,12 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 			head = agent + " stopped"
 		}
 		w = append(w, cardHead(th, head))
-		if t.Detail != "" {
+		switch {
+		case t.Detail == "":
+		case t.State == "pending-approval": // what it wants to run
 			w = append(w, gap(10), func(gtx C) D { return pre(gtx, th, t.Detail, 8) })
+		default: // a question, a plan or an error, in words
+			w = append(w, gap(8), func(gtx C) D { return label(gtx, th, th.UIFont, 16, th.Fg, 8, t.Detail) })
 		}
 		switch {
 		case t.Answer:
