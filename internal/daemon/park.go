@@ -139,9 +139,6 @@ func (d *Daemon) checkPark(now time.Time) {
 	for _, l := range looks {
 		g := l.p.Snapshot()
 		still := agent.InputReady(l.prov, g) && agent.ReadScreen(g) == agent.ScreenNone && !agent.Draft(l.prov, g)
-		// why: reads /proc, so outside d.mu. A busy agent waits for the next
-		// look and keeps its idle time: a hook's shell lives a moment.
-		busy := still && agentBusy(l.p)
 		d.mu.Lock()
 		i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id })
 		if i < 0 || d.panes[l.id] != l.p {
@@ -163,7 +160,17 @@ func (d *Daemon) checkPark(now time.Time) {
 		if ai := d.activityIndex(l.id); ai >= 0 {
 			since = latest(since, d.st.Activities[ai].UpdatedAt)
 		}
-		if still && !busy && now.Sub(since) >= after && d.parkVeto(d.st.Panes[i]) == "" {
+		due := still && now.Sub(since) >= after
+		d.mu.Unlock()
+		// why: reads /proc, so outside d.mu and only once due. A busy agent
+		// waits for the next look and keeps its idle time: a hook's shell
+		// lives a moment.
+		if !due || agentBusy(l.id, l.p) {
+			continue
+		}
+		d.mu.Lock()
+		if i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == l.id }); i >= 0 && d.panes[l.id] == l.p &&
+			d.park.idle[l.id] == w && d.parkVeto(d.st.Panes[i]) == "" {
 			log.Printf("pane %s: parked %q after %s idle", l.id, l.prov, idleText(after))
 			d.parkPane(l.id, l.p, "Parked after "+idleText(after)+" idle. Press Enter to resume.")
 			parked = append(parked, l.id)
@@ -178,15 +185,16 @@ func (d *Daemon) checkPark(now time.Time) {
 	}
 }
 
-// agentBusy reports whether pane p's agent runs anything of its own (see
-// procBusy), true when that cannot be read. Tests replace it.
-var agentBusy = func(p Pane) bool {
+// agentBusy reports whether pane id's agent, in handle p, has work of its
+// own running (see procBusy), true when that cannot be read. Tests
+// replace it.
+var agentBusy = func(id string, p Pane) bool {
 	f, ok := p.(foregrounder)
 	if !ok {
 		return true
 	}
 	pg := f.Foreground()
-	return pg <= 0 || procBusy(pg)
+	return pg <= 0 || procBusy(pg, id)
 }
 
 func latest(a, b time.Time) time.Time {

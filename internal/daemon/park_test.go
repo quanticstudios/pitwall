@@ -30,7 +30,7 @@ func parkDaemonWith(t *testing.T, edit func(*Options)) (*Daemon, *fakes) {
 		edit(o)
 	})
 	busy := agentBusy
-	agentBusy = func(Pane) bool { return false }
+	agentBusy = func(string, Pane) bool { return false }
 	oldSettle := sendSettle.set(time.Millisecond)
 	t.Cleanup(func() {
 		agentBusy = busy
@@ -113,7 +113,7 @@ func TestParkNever(t *testing.T) {
 		{"background subagents", func(t *testing.T, d *Daemon, f *fakes) {
 			claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`)
 		}},
-		{"child processes", func(t *testing.T, d *Daemon, f *fakes) { agentBusy = func(Pane) bool { return true } }},
+		{"child processes", func(t *testing.T, d *Daemon, f *fakes) { agentBusy = func(string, Pane) bool { return true } }},
 		{"no resume command", func(t *testing.T, d *Daemon, f *fakes) {
 			d.mu.Lock()
 			d.st.Panes[0].SessionID = ""
@@ -520,5 +520,23 @@ func TestParkedSlowResumeDraft(t *testing.T) {
 	setScreen(p, claudeEmpty)
 	if got := gotAfter(t, p, len("unfinished draft"), 20); !strings.Contains(got, "automated message") {
 		t.Fatalf("typed %q after the draft went, want the message", got)
+	}
+}
+
+// checkPark asks about the pane it would park, by id, and parks nothing
+// while work started in that pane still runs; a handle it cannot read is
+// busy.
+func TestParkAsksAboutItsPane(t *testing.T) {
+	if !agentBusy("a", nil) {
+		t.Fatal("an unknown handle is not busy")
+	}
+	d, _ := parkDaemon(t)
+	var asked []string
+	agentBusy = func(id string, _ Pane) bool { asked = append(asked, id); return true }
+	start := time.Now()
+	lookAt(d, start, 0)
+	lookAt(d, start, 2*time.Hour)
+	if parkedNow(d, "a") || !slices.Equal(asked, []string{"a"}) {
+		t.Fatalf("parked %v, asked about %v; want a asked once and kept running", parkedNow(d, "a"), asked)
 	}
 }

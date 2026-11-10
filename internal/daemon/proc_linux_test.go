@@ -20,6 +20,7 @@ type fakeProc struct {
 	children           string
 	start              int            // clock ticks after boot
 	fds                map[int]string // fd: where it points, as "pipe:[1]"; nil for no fd directory
+	pane               string         // its PITWALL_PANE; "" for an environment it cannot read
 }
 
 // fakeProcRoot builds a /proc tree of procs under a temp dir and points
@@ -42,6 +43,9 @@ func fakeProcRoot(t *testing.T, procs map[int]fakeProc) {
 		must(t, os.WriteFile(filepath.Join(task, "children"), []byte(p.children), 0o644))
 		if p.exe != "" {
 			must(t, os.Symlink(p.exe, filepath.Join(dir, "exe")))
+		}
+		if p.pane != "" {
+			must(t, os.WriteFile(filepath.Join(dir, "environ"), []byte("TERM=xterm\x00PITWALL_PANE="+p.pane+"\x00"), 0o644))
 		}
 		if p.fds != nil {
 			must(t, os.MkdirAll(filepath.Join(dir, "fd"), 0o755))
@@ -107,8 +111,8 @@ func TestProcBusy(t *testing.T) {
 	claude := fakeProc{comm: "claude", exe: "/usr/bin/claude", pgrp: 10, fds: held}
 	mcp := fakeProc{comm: "node", pgrp: 10, fds: map[int]string{0: "pipe:[100]", 1: "pipe:[101]", 2: "/dev/null"}}
 	tool := fakeProc{comm: "zsh", pgrp: 10, fds: map[int]string{0: "/dev/null", 1: "/tmp/tasks/b1.output", 2: "/tmp/tasks/b1.output"}}
-	wrapper := fakeProc{comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, children: "15", fds: map[int]string{}}
-	codex := fakeProc{comm: "codex", exe: "/usr/lib/codex", pgrp: 10, fds: map[int]string{3: "pipe:[200]", 4: "pipe:[201]"}}
+	wrapper := fakeProc{comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, children: "15", fds: map[int]string{0: "/dev/pts/3"}}
+	codex := fakeProc{comm: "codex", exe: "/usr/lib/codex", pgrp: 10, fds: map[int]string{0: "/dev/pts/3", 3: "pipe:[200]", 4: "pipe:[201]"}}
 	codexMCP := fakeProc{comm: "node", pgrp: 10, fds: map[int]string{0: "pipe:[200]", 1: "pipe:[201]"}}
 	for _, tc := range []struct {
 		name  string
@@ -127,10 +131,19 @@ func TestProcBusy(t *testing.T) {
 		{"a wrapper's agent's tool", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "17"), 17: tool}, true},
 		{"a wrapper running more than its agent", map[int]fakeProc{10: withChildren(wrapper, "15 18"), 15: codex, 18: codexMCP}, true},
 		{"unreadable", map[int]fakeProc{}, true},
+		{"a shell's `sleep &` that left the agent's tree", map[int]fakeProc{10: withPane(claude, "p1"), 30: {comm: "sleep", pgrp: 30, pane: "p1"}}, true},
+		{"an MCP server's own children", map[int]fakeProc{10: withPane(withChildren(claude, "11"), "p1"), 11: withPane(withChildren(mcp, "12"), "p1"), 12: {comm: "node", pgrp: 10, pane: "p1"}}, false},
+		{"another pane's process", map[int]fakeProc{10: withPane(claude, "p1"), 30: {comm: "sleep", pgrp: 30, pane: "p2"}}, false},
+		{"a process it cannot read", map[int]fakeProc{10: withPane(claude, "p1"), 30: {comm: "sleep", pgrp: 30}}, false},
+		{"a Node-run Claude's child Codex started as work", map[int]fakeProc{
+			10: {comm: "claude", exe: "/usr/bin/node", pgrp: 10, children: "11", fds: map[int]string{0: "/dev/pts/3"}},
+			11: {comm: "codex", exe: "/usr/bin/codex", pgrp: 11, fds: map[int]string{0: "/dev/null", 1: "/tmp/task.output"}},
+		}, true},
+		{"a launcher whose agent is off its terminal", map[int]fakeProc{10: wrapper, 15: {comm: "codex", exe: "/usr/lib/codex", pgrp: 10, fds: map[int]string{0: "/dev/null", 1: "/tmp/task.output"}}}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fakeProcRoot(t, tc.procs)
-			if got := procBusy(10); got != tc.want {
+			if got := procBusy(10, "p1"); got != tc.want {
 				t.Fatalf("procBusy = %v, want %v", got, tc.want)
 			}
 		})
@@ -204,6 +217,45 @@ func TestStdioOnlyRealPipes(t *testing.T) {
 	}
 	if stdioOnly(me, []int{gone}) {
 		t.Fatal("a child on sockets whose peers the agent does not hold counts as a stdio server")
+	}
+}
+
+func withPane(p fakeProc, pane string) fakeProc {
+	p.pane = pane
+	return p
+}
+
+// paneStrays on real processes: a `sleep` started with this pane's
+// PITWALL_PANE and orphaned by its shell counts, unless kept; another
+// pane's does not.
+func TestPaneStraysReal(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	pane := "park-test-" + strconv.Itoa(os.Getpid())
+	cmd := exec.Command(sh, "-c", "sleep 30 >/dev/null 2>&1 </dev/null & echo $!")
+	cmd.Env = append(os.Environ(), "PITWALL_PANE="+pane)
+	out, err := cmd.Output()
+	must(t, err)
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	must(t, err)
+	t.Cleanup(func() {
+		if p, err := os.FindProcess(pid); err == nil {
+			p.Kill()
+		}
+	})
+	if pp, _ := procParent(pid); pp == os.Getpid() {
+		t.Fatal("the sleep is still the test's child, not an orphan")
+	}
+	if !paneStrays(pane, nil) {
+		t.Fatal("an orphaned process of the pane does not count")
+	}
+	if paneStrays(pane, map[int]bool{pid: true}) {
+		t.Fatal("a kept process counts")
+	}
+	if paneStrays(pane+"-other", nil) {
+		t.Fatal("another pane's process counts")
 	}
 }
 

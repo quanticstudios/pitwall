@@ -1,12 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -139,27 +139,101 @@ func children(pid int) []int {
 	return out
 }
 
-// procBusy reports whether the agent leading group pg runs a process other
-// than its stdio servers (see stdioOnly), such as a tool's shell, a dev
-// server or a watcher. When pg is an interpreter wrapping the agent (node
-// running Codex's script), that agent's processes are looked at, and any
-// other process of the wrapper counts as busy; an agent deeper in the
-// tree is just another process. Unreadable counts as busy.
-func procBusy(pg int) bool {
+// procBusy reports whether pane's agent, leading group pg, has work of its
+// own running: a child other than its stdio servers (see stdioOnly), or
+// any other process started in the pane (see paneStrays), such as a
+// shell's `cmd &` that left the agent's tree. Unreadable counts as busy.
+func procBusy(pg int, pane string) bool {
+	keep, ok := agentProcs(pg, pane)
+	return !ok || paneStrays(pane, keep)
+}
+
+// agentProcs is what may run in pane while its agent, leading group pg,
+// parks: the pane's processes above the agent, the agent, and its stdio
+// servers with everything under them. ok is false when the agent has
+// another child or a read fails. When pg is a bare interpreter launching
+// the agent (node running Codex's script), its one child is the agent.
+func agentProcs(pg int, pane string) (keep map[int]bool, ok bool) {
 	comm := readComm(pg)
 	if comm == "" {
-		return true
+		return nil, false
+	}
+	keep = map[int]bool{pg: true}
+	for pid, n := pg, 0; n < 8; n++ {
+		pp, _ := procParent(pid)
+		if pp <= 1 || !carriesPane(pp, pane) {
+			break
+		}
+		keep[pp], pid = true, pp
 	}
 	lead, kids := pg, children(pg)
-	if agent.Interpreter(comm, readExe(pg)) {
-		if i := slices.IndexFunc(kids, func(c int) bool { return identifyProc(c, readComm(c)) != "" }); i >= 0 {
-			if len(kids) > 1 {
-				return true
-			}
-			lead, kids = kids[i], children(kids[i])
+	if launches(pg, comm, kids) {
+		lead, kids = kids[0], children(kids[0])
+		keep[lead] = true
+	}
+	if !stdioOnly(lead, kids) {
+		return nil, false
+	}
+	budget := 256
+	var under func(pid, depth int)
+	under = func(pid, depth int) {
+		if budget--; budget < 0 || depth > 6 {
+			return // ponytail: what is left out still carries the pane, so it counts as busy
+		}
+		keep[pid] = true
+		for _, c := range children(pid) {
+			under(c, depth+1)
 		}
 	}
-	return !stdioOnly(lead, kids)
+	for _, k := range kids {
+		under(k, 0)
+	}
+	return keep, true
+}
+
+// launches reports whether pg, named comm, is a bare interpreter running
+// the agent its script names as its one child, which shares its terminal:
+// the launcher a package manager installs. An agent pg names itself, or a
+// child on other stdio, is no launcher's.
+func launches(pg int, comm string, kids []int) bool {
+	exe := readExe(pg)
+	if len(kids) != 1 || agent.Identify(comm, exe) != "" || !agent.Interpreter(comm, exe) {
+		return false
+	}
+	prov := identifyProc(kids[0], readComm(kids[0]))
+	tty := fdLink(pg, 0)
+	return prov != "" && prov == identifyProc(pg, comm) && strings.HasPrefix(tty, "/dev/") && fdLink(kids[0], 0) == tty
+}
+
+// paneVar is the variable every process started in a pane inherits.
+const paneVar = "PITWALL_PANE="
+
+// paneStrays reports whether a process outside keep carries this pane's
+// paneVar. Only that variable is looked for: nothing else of an
+// environment is kept or logged, and a process it cannot read, as another
+// user's, is skipped.
+func paneStrays(pane string, keep map[int]bool) bool {
+	ents, err := os.ReadDir(procRoot)
+	if err != nil {
+		return true
+	}
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err == nil && !keep[pid] && carriesPane(pid, pane) {
+			return true
+		}
+	}
+	return false
+}
+
+// carriesPane reports whether pid's environment sets paneVar to pane.
+func carriesPane(pid int, pane string) bool {
+	b, err := os.ReadFile(procRoot + "/" + strconv.Itoa(pid) + "/environ")
+	if err != nil {
+		return false
+	}
+	want := []byte(paneVar + pane + "\x00")
+	return bytes.HasPrefix(b, want) || bytes.Contains(b, append([]byte{0}, want...))
 }
 
 // stdioOnly reports whether every process in kids is a stdio server of
