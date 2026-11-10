@@ -431,3 +431,28 @@ func TestPhoneModelDoesNotBlockOtherPane(t *testing.T) {
 		t.Errorf("the other pane got %q while /model waited for its confirm", got)
 	}
 }
+
+// A phone message to a parked agent resumes it, as pitwall send does, and
+// goes in once the agent is back: parking is not the agent leaving.
+func TestPhoneMessageToParkedAgent(t *testing.T) {
+	d, f := parkDaemon(t)
+	park(t, d, f)
+	n := len(f.panes)
+	msg, err := d.phoneSend("a", "hello from the phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.panes) != n+1 {
+		t.Fatalf("panes %d, want the agent resumed", len(f.panes))
+	}
+	d.checkWaking()
+	p := back(t, d, f)
+	if got := gotAfter(t, p, 0, len("hello from the phone")); !strings.Contains(got, "hello from the phone") {
+		t.Fatalf("typed %q, want the message", got)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if slices.Contains(d.phoneDropped["a"], msg) {
+		t.Error("the parked agent's message was dropped")
+	}
+}
