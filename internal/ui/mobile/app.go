@@ -7,6 +7,7 @@ package mobile
 import (
 	"context"
 	"errors"
+	"runtime"
 	"slices"
 	"time"
 
@@ -35,7 +36,12 @@ func Options(th *theme.Theme) []app.Option {
 // Theme is aide's dark theme at the app's text size.
 func Theme() *theme.Theme {
 	t, _ := config.Builtin("aide-dark")
-	th, _ := theme.New(t, config.Font{UISize: 12}) // 16.5sp once zoomed
+	f := config.Font{UISize: 12} // 16.5sp once zoomed
+	if runtime.GOOS == "android" {
+		// why: the theme's JetBrains Mono comes from a Linux font folder; Android ships this one.
+		f.MonoFamily = "Droid Sans Mono"
+	}
+	th, _ := theme.New(t, f)
 	return th
 }
 

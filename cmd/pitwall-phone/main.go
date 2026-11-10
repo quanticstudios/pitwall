@@ -73,6 +73,10 @@ func main() {
 		}
 		*dir = filepath.Join(d, "pitwall-phone")
 	}
+	if os.Getenv("XDG_CACHE_HOME") == "" && os.Getenv("HOME") == "" {
+		// why: Android sets neither, and the font scan keeps its index in the cache folder.
+		os.Setenv("XDG_CACHE_HOME", filepath.Join(*dir, "cache"))
+	}
 	th := mobile.Theme()
 	go func() {
 		win := new(app.Window)
