@@ -45,8 +45,11 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) la
 		}},
 	}
 	if s.Host != "" {
+		// why: hrow measures the tag before the buttons after it, so it must leave them room.
+		reserve := gtx.Dp(22) + 4*gtx.Dp(28) + 6*gtx.Dp(6) + gtx.Dp(28) // logo, buttons, gaps, a cut session name
+		hostMax := min(gtx.Dp(112), gtx.Constraints.Max.X-reserve)
 		items = append(items, item{w: func(gtx layout.Context) layout.Dimensions {
-			return hostTag(gtx, th, s.Host)
+			return hostTag(gtx, th, s.Host, hostMax)
 		}})
 	}
 	for s.boardBt.Clicked(gtx) {
@@ -69,12 +72,12 @@ func (s *Sidebar) header(gtx layout.Context, th *theme.Theme, session string) la
 }
 
 // hostTag is the header's ssh host: muted text on a filled tag, at most
-// 112dp wide, after the session's name.
-func hostTag(gtx layout.Context, th *theme.Theme, host string) layout.Dimensions {
+// maxW wide, after the session's name.
+func hostTag(gtx layout.Context, th *theme.Theme, host string, maxW int) layout.Dimensions {
 	h, px := gtx.Dp(20), gtx.Dp(6)
 	m := op.Record(gtx.Ops)
 	g := gtx
-	g.Constraints = layout.Constraints{Max: image.Pt(min(gtx.Constraints.Max.X, gtx.Dp(112))-2*px, h)}
+	g.Constraints = layout.Constraints{Max: image.Pt(max(min(gtx.Constraints.Max.X, maxW)-2*px, 0), h)}
 	d := label(g, th, th.UIFont, th.Sp(theme.Small), th.Muted, host)
 	call := m.Stop()
 	size := image.Pt(d.Size.X+2*px, h)
