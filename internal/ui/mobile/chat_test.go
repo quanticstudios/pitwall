@@ -3,13 +3,20 @@ package mobile
 import (
 	"context"
 	"errors"
+	"image"
+	"image/color"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"gioui.org/font"
-	"gioui.org/text"
-	"golang.org/x/image/math/fixed"
+	"gioui.org/gpu/headless"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/paint"
+	"gioui.org/unit"
+	"gioui.org/x/markdown"
+	"gioui.org/x/richtext"
 
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/phone"
@@ -223,30 +230,91 @@ func TestOfflineText(t *testing.T) {
 	}
 }
 
-// Inline code sized by monoScale has the reply text's ascent, so
-// styledtext, which tops every span of a line alike, sets them on one
-// baseline.
-func TestMonoScaleBaseline(t *testing.T) {
+// Inline code sized by monoScale has the reply text's x-height, and the
+// patched styledtext draws it on the text's baseline. It draws large, at
+// 120px per em, where upstream's top alignment is 2 to 3px off.
+func TestInlineCode(t *testing.T) {
 	th := Theme()
 	k := monoScale(th)
-	if k < 0.9 || k > 1.1 {
+	if k < 0.8 || k > 1.2 {
 		t.Fatalf("monoScale = %v", k)
 	}
-	asc := func(f font.Font, px int) int {
-		th.Shaper.LayoutString(text.Parameters{Font: f, PxPerEm: fixed.I(px), MaxWidth: 1 << 20}, "x")
-		a := 0
-		for {
-			g, ok := th.Shaper.NextGlyph()
-			if !ok {
-				return a
+	if ui, mono := xHeight(th, th.UIFont), float32(xHeight(th, th.MonoFont))*k; mono < float32(ui)-1 || mono > float32(ui)+1 {
+		t.Errorf("x-height: text %d, inline code %v", ui, mono)
+	}
+
+	win, err := headless.NewWindow(600, 200)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer win.Release()
+	var ops op.Ops
+	gtx := layout.Context{Ops: &ops, Metric: unit.Metric{PxPerDp: 4, PxPerSp: 4}, Constraints: layout.Exact(image.Pt(600, 200))}
+	paint.Fill(gtx.Ops, color.NRGBA{A: 0xff})
+	white := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	var rt richtext.InteractiveText
+	richtext.Text(&rt, th.Shaper,
+		richtext.SpanStyle{Font: th.UIFont, Size: 30, Color: white, Content: "xx"},
+		richtext.SpanStyle{Font: th.MonoFont, Size: 30 * unit.Sp(k), Color: white, Content: "xx"},
+	).Layout(gtx)
+	if err := win.Frame(&ops); err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 600, 200))
+	if err := win.Screenshot(img); err != nil {
+		t.Fatal(err)
+	}
+	// The lowest lit row in each half is that run's baseline.
+	base := func(x0, x1 int) int {
+		for y := 199; y >= 0; y-- {
+			for x := x0; x < x1; x++ {
+				if img.RGBAAt(x, y).R > 0x80 {
+					return y
+				}
 			}
-			a = g.Ascent.Ceil()
+		}
+		return -1
+	}
+	lo, hi := -1, -1 // the run's lit columns: text first, code last
+	for x := range 600 {
+		for y := range 200 {
+			if img.RGBAAt(x, y).R > 0x80 {
+				if lo < 0 {
+					lo = x
+				}
+				hi = x
+				break
+			}
 		}
 	}
-	for _, px := range []int{33, 43, 66} { // 16.5sp at 2, 2.625 and 4 px per dp
-		ui, mono := asc(th.UIFont, px), asc(th.MonoFont, int(float32(px)*k+0.5))
-		if d := ui - mono; d < -1 || d > 1 {
-			t.Errorf("at %dpx the text's ascent is %d, inline code's %d", px, ui, mono)
+	text, code := base(lo, lo+20), base(hi-20, hi+1)
+	if text < 0 || code < 0 || text-code > 1 || code-text > 1 {
+		t.Errorf("baselines: text %d, inline code %d", text, code)
+	}
+}
+
+// A URL in inline code stays code; a bare one still becomes a link.
+func TestCodeURL(t *testing.T) {
+	r := markdown.NewRenderer()
+	linkCol := color.NRGBA{B: 0xff, A: 0xff}
+	r.Config.InteractiveColor = linkCol
+	spans, err := r.Render([]byte("Run `curl -fsSL https://example.com/get.sh | sh`, or read https://example.com/docs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var code, link string
+	for _, s := range spans {
+		if strings.Contains(s.Content, "[") {
+			t.Errorf("markdown leaked into %q", s.Content)
 		}
+		if strings.Contains(s.Content, "get.sh") {
+			code = s.Content
+		}
+		if s.Color == linkCol {
+			link = s.Content
+		}
+	}
+	if code != "curl -fsSL https://example.com/get.sh | sh" || link != "https://example.com/docs" {
+		t.Errorf("code %q, link %q", code, link)
 	}
 }
