@@ -221,4 +221,6 @@ const (
 )
 
 // Logo draws pitwall's mark in a size-square box, as the header does.
-func Logo(gtx layout.Context, th *theme.Theme, size int) layout.Dimensions { return drawLogo(gtx, th, size) }
+func Logo(gtx layout.Context, th *theme.Theme, size int) layout.Dimensions {
+	return drawLogo(gtx, th, size)
+}
