@@ -171,11 +171,10 @@ type letter struct {
 	images     []string // paths typed before the text
 	window     bool     // from the window, which judged the agent ready itself
 	seq        uint64   // the window's proto.Deliver.Seq
-	// phone is a phone message's id, 0 for any other; owner and fg are the
-	// agent it was for and that agent's foreground group, 0 when unknown.
+	// phone is a phone message's id, 0 for any other; owner is the agent
+	// it was for.
 	phone uint64
 	owner model.Provider
-	fg    int
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
@@ -363,9 +362,12 @@ func (d *Daemon) deliver(pane string) {
 		return
 	}
 	l := q[i]
-	// why: the agent a phone message was for may have exited since the readiness check, leaving a shell.
-	if l.phone != 0 && !d.agentOwns(pane, l) {
+	// why: the agent a phone message was for may have left since the readiness check, or run a tool in the foreground.
+	if l.phone != 0 && (d.agentGone(pane, l) || d.agentAway(pane)) {
 		d.dropOrphanPhone(pane)
+		if len(d.mail.queue[pane]) > 0 {
+			d.wake(pane, sendLook.get())
+		}
 		d.mu.Unlock()
 		return
 	}

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -380,5 +381,53 @@ func TestPhoneRestoredChat(t *testing.T) {
 	es, _, ok := d.phoneChatEntries(r.Chat)
 	if !ok || !slices.ContainsFunc(es, func(e flow.Entry) bool { return e.Kind == flow.EntryUser && e.Text == "hello" }) {
 		t.Errorf("restored chat on the phone: %v %+v", ok, es)
+	}
+}
+
+// A phone message waits while the agent's tool holds the foreground: the
+// agent has not left, so the message is neither typed nor dropped.
+func TestPhoneMessageWaitsForTool(t *testing.T) {
+	oldSettle, oldLook := sendSettle.set(time.Millisecond), sendLook.set(10*time.Millisecond)
+	t.Cleanup(func() { sendSettle.set(oldSettle); sendLook.set(oldLook) })
+	d, lp, id := openLive(t, 400)
+	useReportHooks(d)
+	report(t, d, id, agent.Report{Name: "My agent", State: "working", ResumeCmd: []string{"my-agent"}})
+	d.sendMu.Lock()
+	msg, err := d.phoneSend(id, "keep this message")
+	lp.fgGroup.Store(500) // the agent's tool takes the foreground
+	d.sendMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond) // many delivery attempts
+	d.mu.Lock()
+	n, dropped := len(d.mail.queue[id]), slices.Contains(d.phoneDropped[id], msg)
+	d.mu.Unlock()
+	if n != 1 || dropped || strings.Contains(lp.got(), "keep this") {
+		t.Fatalf("during the tool: queue %d, dropped %v, typed %q", n, dropped, lp.got())
+	}
+}
+
+// A /model waiting for Claude Code's confirm holds up only its own pane:
+// another agent's queued message goes in meanwhile.
+func TestPhoneModelDoesNotBlockOtherPane(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	old := switchWait.set(1500 * time.Millisecond)
+	t.Cleanup(func() { switchWait.set(old) })
+	event(t, d, "sh", "completed")
+	setScreen(f.pane(1), []string{"> "})
+	done := make(chan error, 1)
+	go func() { done <- d.phoneCommand("a", "/model opus") }()
+	gotAfter(t, f.pane(0), 0, len("/model opus\r"))
+	if _, err := d.phoneSend("sh", "OTHER"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(350 * time.Millisecond)
+	got := f.pane(1).got()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got != "OTHER\r" {
+		t.Errorf("the other pane got %q while /model waited for its confirm", got)
 	}
 }

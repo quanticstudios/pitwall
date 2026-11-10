@@ -7,6 +7,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
@@ -128,32 +129,38 @@ func (d *Daemon) phoneSend(pane, text string) (uint64, error) {
 	}
 	d.mu.Lock()
 	d.phoneSeq++
-	l := letter{text: text, plain: true, window: true, phone: d.phoneSeq, owner: prov, fg: d.live.fg[pane]}
+	l := letter{text: text, plain: true, window: true, phone: d.phoneSeq, owner: prov}
 	d.mu.Unlock()
 	return l.phone, d.userDeliver(pane, l)
 }
 
-// agentOwns reports whether the agent phone letter l was for still runs in
-// pane: the same provider, the pane not exited, and the same foreground
-// group when the agent's hooks named one. Callers hold d.mu.
-func (d *Daemon) agentOwns(pane string, l letter) bool {
+// agentGone reports whether the agent phone letter l was for has left
+// pane: the pane exited or names another agent, or none, as checkForeground
+// and detect decide. A tool in the foreground is not that.
+// Callers hold d.mu.
+func (d *Daemon) agentGone(pane string, l letter) bool {
 	i := slices.IndexFunc(d.st.Panes, func(p model.Pane) bool { return p.ID == pane })
-	if i < 0 || d.st.Panes[i].Exited || d.paneProvider(pane) != l.owner {
+	return i < 0 || d.st.Panes[i].Exited || d.paneProvider(pane) != l.owner
+}
+
+// agentAway reports whether another process group than the one pane's
+// agent hooks named holds the foreground: a tool of the agent's, or what
+// was left after it exited, until checkForeground decides. Nothing goes in
+// then. Callers hold d.mu.
+func (d *Daemon) agentAway(pane string) bool {
+	f, ok := d.panes[pane].(foregrounder)
+	if !ok || d.live.fg[pane] <= 0 {
 		return false
 	}
-	if f, ok := d.panes[pane].(foregrounder); ok && l.fg > 0 {
-		if pg := f.Foreground(); pg > 0 && pg != l.fg {
-			return false
-		}
-	}
-	return true
+	pg := f.Foreground()
+	return pg > 0 && pg != d.live.fg[pane]
 }
 
 // dropOrphanPhone drops pane's phone letters whose agent left the pane.
 // Callers hold d.mu.
 func (d *Daemon) dropOrphanPhone(pane string) {
 	for i := len(d.mail.queue[pane]) - 1; i >= 0; i-- {
-		if l := d.mail.queue[pane][i]; l.phone != 0 && !d.agentOwns(pane, l) {
+		if l := d.mail.queue[pane][i]; l.phone != 0 && d.agentGone(pane, l) {
 			d.dropLetter(pane, i)
 			d.notePhoneDropped(pane, l.phone)
 			log.Printf("pane %s: phone message %d dropped: its agent left the pane", pane, l.phone)
@@ -209,41 +216,67 @@ func (d *Daemon) paneExited(pane string) bool {
 // phoneCommand types command, a slash command, into Claude Code's input box
 // as keys, not a paste, so Claude Code runs it, and presses Enter. Only
 // while the agent waits there: not during a turn, a question or a form, and
-// not into the user's draft. It holds sendMu throughout, as deliver does.
+// not into the user's draft. Commands to one pane take turns; sendMu, which
+// every pane's delivery takes, is held only while keys go in.
 func (d *Daemon) phoneCommand(pane, command string) error {
-	// why: two quick picks would type into each other, as would a queued message.
+	defer d.paneCommandLock(pane)()
+	p, err := d.typeCommand(pane, command)
+	if err != nil || !strings.HasPrefix(command, "/model ") {
+		return err
+	}
+	// why: in a conversation Claude Code asks to confirm the switch, which the phone's pick already did.
+	for deadline := time.Now().Add(switchWait.get()); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if agent.SwitchModelAsked(p.Snapshot()) {
+			d.sendMu.Lock()
+			defer d.sendMu.Unlock()
+			return d.handle(context.Background(), proto.Input{Pane: pane, Data: press("1", p.Modes())})
+		}
+	}
+	return nil
+}
+
+// typeCommand checks pane is ready for command and types it with Enter,
+// under sendMu, as deliver types a message.
+func (d *Daemon) typeCommand(pane, command string) (Pane, error) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 	d.mu.Lock()
 	prov := d.paneProvider(pane)
 	d.mu.Unlock()
 	if prov != model.ProviderClaude {
-		return errors.New("only Claude Code takes the model and effort from here")
+		return nil, errors.New("only Claude Code takes the model and effort from here")
 	}
 	p, busy, err := d.ready(pane)
 	if err != nil {
 		if busy {
-			return fmt.Errorf("%w; try again when it waits at its input box", err)
+			return nil, fmt.Errorf("%w; try again when it waits at its input box", err)
 		}
-		return err
+		return nil, err
 	}
 	if agent.FormUp(p.Snapshot(), "") {
-		return errors.New("that pane shows a form; answer it in its tab")
+		return nil, errors.New("that pane shows a form; answer it in its tab")
 	}
 	d.noteUserKey(pane, nil)
 	if err := d.handle(context.Background(), proto.Input{Pane: pane, Data: input.Text(remote.Clean(command))}); err != nil {
-		return err
+		return nil, err
 	}
-	if err := d.pressEnter(pane, p, command); err != nil || !strings.HasPrefix(command, "/model ") {
-		return err
+	return p, d.pressEnter(pane, p, command)
+}
+
+// paneCommandLock locks pane's slash commands and returns the unlock.
+func (d *Daemon) paneCommandLock(pane string) func() {
+	d.mu.Lock()
+	if d.paneCmd == nil {
+		d.paneCmd = map[string]*sync.Mutex{}
 	}
-	// why: in a conversation Claude Code asks to confirm the switch, which the phone's pick already did.
-	for deadline := time.Now().Add(switchWait.get()); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if agent.SwitchModelAsked(p.Snapshot()) {
-			return d.handle(context.Background(), proto.Input{Pane: pane, Data: press("1", p.Modes())})
-		}
+	m := d.paneCmd[pane]
+	if m == nil {
+		m = &sync.Mutex{} // ponytail: one per pane that took a command, never freed; a few bytes each
+		d.paneCmd[pane] = m
 	}
-	return nil
+	d.mu.Unlock()
+	m.Lock()
+	return m.Unlock
 }
 
 // switchWait is how long after /model the confirm dialog may take to show.

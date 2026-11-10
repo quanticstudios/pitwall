@@ -100,9 +100,10 @@ no form on screen and no draft of yours in it, then goes in as a paste
 followed by Enter, with control characters removed, so it cannot press keys
 or end the paste. While the agent works or waits on an approval, the message
 shows as Queued, then as Sent once it goes in, until it shows up in the
-chat. If the agent exits or another program takes the pane's foreground
-before the message goes in, pitwall drops it and the page marks it "Not
-sent: the agent exited"; it never goes to the shell left behind. A shell
+chat. While a tool of the agent's holds the terminal, the message waits.
+If the agent exits before the message goes in, pitwall drops it and the
+page marks it "Not sent: the agent exited"; it never goes to the shell left
+behind. A shell
 tab has no box: pitwall never types into a shell from here.
 
 A chat tab (one pitwall drives with `pitwall chat` rather than in a
