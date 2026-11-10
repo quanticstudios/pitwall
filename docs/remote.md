@@ -92,7 +92,7 @@ down covers the window, and only while it shows one of its sessions. A host
 whose daemon runs another major version stays down: open `pitwall --host
 box` once to restart it there.
 
-A [Monitor tab](usage.md#monitor-tabs) of a host shows that host, sampled
+[The monitor](usage.md#the-monitor) of a host's tab, or its Monitor tab, shows that host, sampled
 by its own daemon over the same connection, and dims with "No data since"
 while the host is down.
 

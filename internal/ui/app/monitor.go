@@ -1,15 +1,22 @@
 package app
 
 import (
+	"image"
 	"time"
 
+	"gioui.org/io/event"
+	"gioui.org/io/key"
 	gl "gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"github.com/quanticstudios/sector/view"
 
 	sectortheme "github.com/quanticstudios/sector/theme"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
@@ -20,14 +27,22 @@ type Monitorer interface {
 	Monitor(ws string) (s proto.MonitorSample, at time.Time, ok bool)
 }
 
-// monitors are the window's Monitor tabs. Their views are made on first
-// draw and dropped with their tab; each keeps its own history, so two
-// machines never mix.
+// monitors are the window's Monitor tabs and the monitor shown in place
+// of the panes. Their views are made on first draw and dropped with their
+// tab; each keeps its own history, so two machines never mix. The monitor
+// in place of the panes keeps its view under the tab it was opened over.
 type monitors struct {
 	tabs  map[string]*monitorTab
 	th    sectortheme.Theme // pitwall's theme as sector's; the views keep a pointer to it
 	of    *theme.Theme      // the pitwall theme th was filled from
 	shown string            // the Monitor tab drawn this frame, "" for none
+
+	// on shows the monitor in place of the panes, opened over tab ws;
+	// showing another tab closes it.
+	on    bool
+	ws    string
+	tag   int  // its key focus, which Esc goes to
+	focus bool // take the keyboard on the next frame
 }
 
 // monitorTab is one Monitor tab's view and what the window told its daemon.
@@ -211,4 +226,64 @@ func (u *ui) openMonitor() {
 		return
 	}
 	u.send(ns)
+}
+
+// toggleMonitor shows the monitor of the shown tab's machine in place of
+// the panes, as the board shows, or hides it. The panes come back as they
+// were: they are not drawn meanwhile, and nothing of theirs changes.
+func (u *ui) toggleMonitor() {
+	if u.mon.on {
+		u.mon.on = false
+		return
+	}
+	if u.link().Level < proto.MonitorLevel {
+		u.sendFailed(cmpHost(u.hostOf(u.nav.workspace)) + " runs an older pitwall; update it there to monitor it")
+		return
+	}
+	u.settings.Hide()
+	u.review.hide()
+	u.boardOn = false
+	u.mon.on, u.mon.ws, u.mon.focus = true, u.nav.workspace, true
+}
+
+// layoutMonitorView draws the monitor in place of the panes under a header
+// like the board's, or the panes again once another tab is shown.
+func (u *ui) layoutMonitorView(gtx gl.Context, st *model.State) {
+	ws := findWorkspace(st, u.mon.ws)
+	if ws == nil || u.nav.workspace != u.mon.ws {
+		u.mon.on = false
+		u.layoutPanes(gtx, st)
+		return
+	}
+	// why: Gio gives key focus only to a tag with a FocusFilter.
+	for {
+		ev, ok := gtx.Event(key.FocusFilter{Target: &u.mon.tag}, key.Filter{Name: key.NameEscape})
+		if !ok {
+			break
+		}
+		if e, ok := ev.(key.Event); ok && e.State == key.Press {
+			u.mon.on = false
+		}
+	}
+	if !u.mon.on {
+		u.layoutPanes(gtx, st) // Esc: the panes on this frame
+		return
+	}
+	size := gtx.Constraints.Max
+	paint.FillShape(gtx.Ops, u.th.Bg, clip.Rect{Max: size}.Op())
+	// why: the focus tag's area goes under the view, or it would take its clicks.
+	event.Op(gtx.Ops, &u.mon.tag)
+	if u.mon.focus {
+		u.mon.focus = false
+		gtx.Execute(key.FocusCmd{Tag: &u.mon.tag})
+	}
+	top, headH := gtx.Dp(12), gtx.Dp(28)
+	sidebar.PageHeader(gtx, u.th, image.Rect(gtx.Dp(16), top, size.X-gtx.Dp(14), top+headH), "Monitor", "Esc", "back to panes")
+	y := top + headH + gtx.Dp(theme.SpaceS)
+	defer clip.Rect{Min: image.Pt(0, y), Max: size}.Push(gtx.Ops).Pop()
+	vgtx := gtx
+	vgtx.Constraints = gl.Exact(image.Pt(size.X, max(0, size.Y-y)))
+	off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+	u.layoutMonitor(vgtx, st, ws)
+	off.Pop()
 }

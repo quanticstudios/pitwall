@@ -64,6 +64,8 @@ type nav struct {
 	board bool
 	// monitor asks the window to open the shown tab's machine's Monitor tab.
 	monitor bool
+	// monitorView asks the window to show or hide the monitor.
+	monitorView bool
 	// sidebarKeys asks the window to move the keyboard into the sidebar,
 	// or back to the pane (focus_sidebar).
 	sidebarKeys bool
@@ -1098,6 +1100,8 @@ func (n *nav) globalOp(st *model.State, act string) any {
 		n.jumpAttention(st)
 	case "toggle_board":
 		n.board = true
+	case "toggle_monitor":
+		n.monitorView = true
 	case "allow_prompt", "deny_prompt":
 		return n.answer(st, act == "allow_prompt")
 	case "session_switcher":

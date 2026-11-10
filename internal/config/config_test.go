@@ -703,3 +703,27 @@ ui_size = 15
 		t.Errorf("schema flags [decisions]: %v", errs)
 	}
 }
+
+// TestToggleMonitorKey: toggle_monitor's default chord is bound in every
+// preset and runs toggle_monitor there, so no other action has it.
+func TestToggleMonitorKey(t *testing.T) {
+	want := map[string]string{"conventional": "Ctrl+Alt+M", "aide": "Ctrl+Alt+M", "mac": "Super+Alt+M"}
+	for _, name := range Presets {
+		b := Preset(name)
+		c, err := ParseChord(want[name])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := chords(b, "toggle_monitor"); got != c.String() {
+			t.Errorf("%s: toggle_monitor = %q, want %q", name, got, c)
+		}
+		for act, cs := range b.Global {
+			if act != "toggle_monitor" && slices.Contains(cs, c) {
+				t.Errorf("%s: %s also runs %s", name, c, act)
+			}
+		}
+		if a := b.Action(key.Event{Name: c.Name, Modifiers: c.Mods}); a != "toggle_monitor" {
+			t.Errorf("%s: %s runs %q", name, want[name], a)
+		}
+	}
+}
