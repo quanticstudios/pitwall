@@ -218,8 +218,14 @@ func TestFreshTaskPreparation(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(ws.Path, ".env")); err != nil || string(data) != "local" {
 		t.Fatalf("copy: %q, %v", data, err)
 	}
-	if link, err := os.Readlink(filepath.Join(ws.Path, "cache")); err != nil || link != filepath.Join(repo, "cache") {
-		t.Fatalf("link: %q, %v", link, err)
+	link, err := os.Readlink(filepath.Join(ws.Path, "cache"))
+	must(t, err)
+	target, err := os.Stat(filepath.Join(ws.Path, "cache"))
+	must(t, err)
+	source, err := os.Stat(filepath.Join(repo, "cache"))
+	must(t, err)
+	if !os.SameFile(target, source) {
+		t.Fatalf("link: %q points to another directory", link)
 	}
 	waitUntil(t, "setup typed", func() bool { return f.pane(1).got() == "echo setup\r" })
 }
