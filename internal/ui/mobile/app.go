@@ -213,8 +213,7 @@ func (a *App) tab() (remote.Tab, bool) {
 }
 
 func (a *App) openChat(pane string) {
-	a.chat = chatView{pane: pane}
-	a.chat.list.ScrollToEnd = true
+	a.chat = newChat(pane)
 	a.conn.Watch(pane)
 }
 
@@ -222,6 +221,27 @@ func (a *App) closeChat() {
 	a.chat = chatView{}
 	a.sheet = sheetView{}
 	a.conn.Watch("")
+}
+
+// chatLayout draws the open chat. It draws in real dp, so it undoes the
+// zoom.
+func (a *App) chatLayout(gtx C) {
+	gtx.Metric.PxPerDp /= zoom
+	gtx.Metric.PxPerSp /= zoom
+	t, open := a.tab()
+	env := chatEnv{Tab: t, Open: open, Online: a.online, Models: a.hello.Models, Efforts: a.hello.Efforts,
+		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+			a.do(func(ctx context.Context, c *phone.Client) error { return call(ctx, c) }, done)
+		}}
+	if a.offline != "" {
+		env.Offline = "Offline, reconnecting"
+	}
+	if a.conn != nil {
+		env.Retry = a.conn.Retry
+	}
+	if a.chat.layout(gtx, a.th, env) {
+		a.closeChat()
+	}
 }
 
 func (a *App) layout(gtx C) {

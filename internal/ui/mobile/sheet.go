@@ -1,10 +1,8 @@
 package mobile
 
 import (
-	"context"
 	"image"
 	"net/url"
-	"strings"
 
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
@@ -12,7 +10,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
-	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/quanticstudios/pitwall/internal/phone"
@@ -20,17 +17,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// sheetView is a sheet over the bottom of the screen: "menu" (sessions
-// and unpairing) or "model" (Claude Code's model and effort).
+// sheetView is the sheet over the bottom of the screen with the sessions
+// and unpairing, open while open is "menu".
 type sheetView struct {
 	open   string
 	scrim  widget.Clickable
 	panel  int // the panel's pointer tag, so taps on it miss the scrim
 	btns   map[string]*widget.Clickable
 	unpair widget.Clickable
-	busy   bool
-	note   string
-	bad    bool
 	list   layout.List
 }
 
@@ -59,8 +53,6 @@ func (a *App) sheetLayout(gtx C) {
 	switch s.open {
 	case "menu":
 		w = a.menuSheet(gtx)
-	case "model":
-		w = a.modelSheet(gtx)
 	}
 	if s.open == "" { // a pick closed it
 		return
@@ -159,69 +151,4 @@ func (a *App) menuSheet(gtx C) []layout.Widget {
 		return layout.Flex{}.Layout(gtx, layout.Rigid(func(gtx C) D { return button(gtx, th, &s.unpair, kit.Danger, "Unpair this phone") }))
 	})
 	return w
-}
-
-// modelSheet types /model or /effort into Claude Code, one pick at a time.
-func (a *App) modelSheet(gtx C) []layout.Widget {
-	s, th := &a.sheet, a.th
-	if s.note == "" {
-		s.note = "Claude Code takes these at its input box, between turns."
-	}
-	pane := a.chat.pane
-	row := func(what string, values []string) layout.Widget {
-		var btns []layout.Widget
-		for _, v := range values {
-			b := s.btn(what + ":" + v)
-			if b.Clicked(gtx) && !s.busy {
-				s.busy, s.note, s.bad = true, "Sending /"+what+" "+v, false
-				what, v := what, v
-				a.do(func(ctx context.Context, cl *phone.Client) error { return cl.Command(ctx, pane, what, v) }, func(err error) {
-					s.busy = false
-					if err != nil {
-						s.note, s.bad = err.Error(), true
-						return
-					}
-					s.note = "Sent /" + what + " " + v + "."
-				})
-			}
-			k := kit.Secondary
-			if what == "model" && v != "default" && strings.Contains(phone.ShortModel(a.chat.data.Model), v) {
-				k = kit.Primary
-			}
-			btns = append(btns, func(gtx C) D { return button(gtx, th, b, k.When(!s.busy), v) })
-		}
-		return func(gtx C) D { return wrap(gtx, 8, btns) }
-	}
-	col := th.Muted
-	if s.bad {
-		col = th.Readable(th.Red, th.Surface)
-	}
-	return []layout.Widget{
-		heading(th, "Model"), row("model", a.hello.Models), gap(16),
-		heading(th, "Effort"), row("effort", a.hello.Efforts), gap(14),
-		func(gtx C) D { return small(gtx, th, col, sentence(s.note)) },
-	}
-}
-
-// wrap lays ws out in rows, gap apart, starting a row when one is full.
-func wrap(gtx C, gap unit.Dp, ws []layout.Widget) D {
-	g := gtx.Dp(gap)
-	x, y, rowH, width := 0, 0, 0, 0
-	for _, w := range ws {
-		m := op.Record(gtx.Ops)
-		cg := gtx
-		cg.Constraints.Min = image.Point{}
-		d := w(cg)
-		call := m.Stop()
-		if x > 0 && x+d.Size.X > gtx.Constraints.Max.X {
-			x, y, rowH = 0, y+rowH+g, 0
-		}
-		o := op.Offset(image.Pt(x, y)).Push(gtx.Ops)
-		call.Add(gtx.Ops)
-		o.Pop()
-		x += d.Size.X + g
-		rowH = max(rowH, d.Size.Y)
-		width = max(width, x-g)
-	}
-	return D{Size: image.Pt(width, y+rowH)}
 }
