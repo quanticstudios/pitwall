@@ -65,6 +65,9 @@ type multi struct {
 	// host last heard it shows, on which connection.
 	shown string
 	told  map[string]told
+	// watched is the host each running MonitorWatch went to, by tab id,
+	// so its stop reaches that host after the tab is gone from owner.
+	watched map[string]*hostLink
 }
 
 type told struct {
@@ -141,7 +144,7 @@ func windowHosts(hosts []config.Host) ([]hostDial, func()) {
 func newMulti(local *backend, remotes []hostDial) *multi {
 	m := &multi{changed: make(chan struct{}, 1), focus: make(chan proto.FocusSession, 1), owner: map[string]*hostLink{}, clipSeq: map[*hostLink]uint64{},
 		pending: map[[2]string]string{}, pendingHere: map[string][2]string{}, asked: map[[2]string]asked{},
-		told: map[string]told{}}
+		told: map[string]told{}, watched: map[string]*hostLink{}}
 	m.hosts = append(m.hosts, &hostLink{b: local})
 	// The window takes its first session before its first frame.
 	select {
@@ -711,6 +714,20 @@ func (m *multi) send(msg any) error {
 		m.searching = waiting
 		m.mu.Unlock()
 		return nil
+	case proto.MonitorWatch:
+		// why: a closed tab leaves owner, and a daemon of v0.2.4 or older
+		// keeps a plain tab's watch until the window stops it.
+		m.mu.Lock()
+		to := cmp.Or(m.owner[v.WorkspaceID], m.watched[v.WorkspaceID])
+		if to != nil && v.Interval > 0 {
+			m.watched[v.WorkspaceID] = to
+		} else {
+			delete(m.watched, v.WorkspaceID)
+		}
+		m.mu.Unlock()
+		if to != nil {
+			return to.b.Send(msg)
+		}
 	case proto.DismissNotice:
 		for _, h := range m.hosts {
 			if h.b.State().Notice == v.Notice {

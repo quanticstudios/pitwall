@@ -137,3 +137,29 @@ func TestMonitorViewPerMachine(t *testing.T) {
 		t.Fatal("closing the tab it was shown over dropped the machine's view")
 	}
 }
+
+// TestMonitorViewHidesPaneInput: aide's prefix keys pressed twice send
+// their control byte to the pane, but not to a pane the monitor hides.
+func TestMonitorViewHidesPaneInput(t *testing.T) {
+	u, keys := keyWindow(t, aide)
+	before := keys(press("M", key.ModCtrl|key.ModAlt))
+	if !u.mon.on {
+		t.Fatal("Ctrl+Alt+M left the monitor hidden")
+	}
+	if in := keys(press("T", key.ModCtrl), press("T", key.ModCtrl), press("P", key.ModCtrl), press("P", key.ModCtrl)); in != before {
+		t.Fatalf("Ctrl+T Ctrl+T, Ctrl+P Ctrl+P under the monitor sent %q to the pane", strings.TrimPrefix(in, before))
+	}
+}
+
+// TestMonitorViewDialogEsc: Esc closes a dialog over the monitor and
+// leaves the monitor shown.
+func TestMonitorViewDialogEsc(t *testing.T) {
+	u, keys := keyWindow(t, conventional)
+	keys(press("M", key.ModCtrl|key.ModAlt))
+	u.modal.open(modalAddProject, "")
+	keys(press(key.NameCtrl, 0)) // a frame with the dialog drawn
+	keys(press(key.NameEscape, 0))
+	if u.modal.kind != modalNone || !u.mon.on {
+		t.Fatalf("after Esc: dialog %v, monitor %v; want the dialog closed and the monitor shown", u.modal.kind, u.mon.on)
+	}
+}

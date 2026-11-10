@@ -739,6 +739,9 @@ func (u *ui) layout(gtx gl.Context) {
 			continue
 		}
 		if msg := u.nav.key(&st, ev.(key.Event)); msg != nil {
+			if _, in := msg.(proto.Input); in && u.mon.on && u.nav.peek == "" {
+				continue // a prefix key pressed twice, for a pane the monitor hides
+			}
 			u.sendOrAsk(&st, msg)
 			// Keys queued behind this one act on the state it produced.
 			st = u.b.State()

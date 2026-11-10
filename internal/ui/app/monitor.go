@@ -274,8 +274,12 @@ func (u *ui) layoutMonitorView(gtx gl.Context, st *model.State) {
 		return
 	}
 	// why: Gio gives key focus only to a tag with a FocusFilter.
+	esc := []event.Filter{key.FocusFilter{Target: &u.mon.tag}}
+	if u.modal.kind == modalNone && !u.picker.open { // else Esc is the dialog's
+		esc = append(esc, key.Filter{Name: key.NameEscape})
+	}
 	for {
-		ev, ok := gtx.Event(key.FocusFilter{Target: &u.mon.tag}, key.Filter{Name: key.NameEscape})
+		ev, ok := gtx.Event(esc...)
 		if !ok {
 			break
 		}
