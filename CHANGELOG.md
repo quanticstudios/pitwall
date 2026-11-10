@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- Monitor tabs use sector v0.1.3: the memory, disk and network graphs keep only the room their axis numbers need on the right, and the Cores card numbers cores 0 up, so an Intel hybrid CPU such as the i9-13900 reads "cores 0 to 23, 8 with two threads" instead of "cores 0 to 47".
+
 ## v0.2.4
 
 - Monitor tabs: Monitor this machine in the command palette, or `open_monitor`, opens a tab of the shown tab's machine, with its CPU by thread and by agent, cores, memory, drives, network and processes grouped by agent, repo and app, as sector draws them. That machine's daemon samples it only while the tab is on screen, at the interval and pause set in the tab. A box tab in a window of several hosts, or `pitwall --host box`, shows box. A machine that stops answering dims its graphs with "No data since" until it is back.
