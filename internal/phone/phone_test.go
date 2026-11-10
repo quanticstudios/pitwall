@@ -231,7 +231,7 @@ func TestConnReconnects(t *testing.T) {
 	status := make(chan bool, 16)
 	k := &Conn{Client: c, Wait: Backoff{Min: time.Millisecond, Max: 5 * time.Millisecond},
 		On:     func(Event) {},
-		Status: func(online bool, err error) { status <- online }}
+		Status: func(online bool, err error, _ time.Time) { status <- online }}
 	k.Start("")
 	defer k.Stop()
 	var seen []bool
@@ -353,8 +353,8 @@ func TestState(t *testing.T) {
 	if aps := st.AgentPanes(st.Workspaces[0]); len(aps) != 1 || aps[0].Pane.ID != "a-p" {
 		t.Fatalf("agent panes of a: %+v", aps)
 	}
-	if n := NeedsYou(&st, "s:main"); n != 2 {
-		t.Fatalf("NeedsYou = %d; want 2 (approval and done)", n)
+	if n := NeedsYou(&st, "s:main"); n != 1 {
+		t.Fatalf("NeedsYou = %d; want 1, the approval", n)
 	}
 }
 

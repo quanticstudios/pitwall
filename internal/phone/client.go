@@ -89,7 +89,7 @@ func Pair(ctx context.Context, server, code, pin string) (Creds, error) {
 	}
 	if err := c.call(ctx, "POST", "api/pair", map[string]string{"code": code}, &out); err != nil {
 		if errors.Is(err, ErrUnpaired) {
-			return Creds{}, errors.New("this pairing code is wrong, used or expired; pair again")
+			return Creds{}, errors.New("that code was wrong, used or expired. Run pitwall remote pair again for a new one")
 		}
 		return Creds{}, err
 	}

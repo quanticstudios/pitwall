@@ -50,7 +50,8 @@ type App struct {
 	client  *phone.Client // nil while unpaired
 	conn    *phone.Conn
 	online  bool
-	offline string // why the stream dropped; "" while online
+	offline string    // why the stream dropped; "" while online
+	retryAt time.Time // when the stream tries again while offline
 	hello   phone.Hello
 	focused bool
 
@@ -68,7 +69,7 @@ type App struct {
 // Run runs the app in w, with its pairing kept in dir, until w closes.
 func Run(w *app.Window, th *theme.Theme, dir string) error {
 	a := &App{w: w, th: th, dir: dir, ui: make(chan func(), 256)}
-	a.sb.TreeOnly, a.sb.Fill = true, true
+	a.sb.TreeOnly, a.sb.Fill, a.sb.Touch, a.sb.ExpandAll, a.sb.Answers = true, true, true, true, true
 	a.pair.init()
 	if c, err := phone.Load(dir); err == nil {
 		a.start(c)
@@ -139,16 +140,16 @@ func (a *App) do(call func(ctx context.Context, c *phone.Client) error, done fun
 // start opens the stream with c's pairing.
 func (a *App) start(c phone.Creds) {
 	a.client = phone.NewClient(c)
-	a.online, a.offline = false, ""
+	a.online, a.offline, a.list = false, "", listView{}
 	cl := a.client
 	a.conn = &phone.Conn{Client: a.client,
 		On: func(e phone.Event) { a.post(func() { a.event(cl, e) }) },
-		Status: func(on bool, err error) {
+		Status: func(on bool, err error, retry time.Time) {
 			a.post(func() {
 				if a.client != cl {
 					return
 				}
-				a.online, a.offline = on, ""
+				a.online, a.offline, a.retryAt = on, "", retry
 				if errors.Is(err, phone.ErrUnpaired) {
 					a.unpair(err.Error())
 				} else if err != nil {
@@ -168,7 +169,7 @@ func (a *App) unpair(why string) {
 	a.client, a.conn, a.tabs, a.st, a.session = nil, nil, nil, model.State{}, ""
 	a.chat = chatView{}
 	a.sheet = sheetView{}
-	a.pair.note, a.pair.bad = why, why != ""
+	a.pair.note = sentence(why)
 }
 
 func (a *App) event(c *phone.Client, e phone.Event) {

@@ -1,51 +1,89 @@
 package mobile
 
 import (
+	"context"
+	"fmt"
 	"image"
 	"image/color"
+	"math"
+	"net"
+	"net/url"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
 
+	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/kit"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// listView is the start screen: the sidebar's tree of one session.
+// listView is the start screen: the header, what waits on you in every
+// session, and the sidebar's tree of one session.
 type listView struct {
-	menu, sessions widget.Clickable
+	sessions, settings, retry widget.Clickable
+	// menu is the open menu: "sessions" or "settings", "" for none.
+	menu   string
+	scrim  widget.Clickable
+	rows   map[string]*widget.Clickable // the menu's sessions and the waiting rows, by id
+	unpair widget.Clickable
+	note   string // why answering a row failed
 }
 
+func (l *listView) btn(id string) *widget.Clickable {
+	if l.rows == nil {
+		l.rows = map[string]*widget.Clickable{}
+	}
+	b := l.rows[id]
+	if b == nil {
+		b = new(widget.Clickable)
+		l.rows[id] = b
+	}
+	return b
+}
+
+// rowH is a list row's height in the app's dp: 48dp once zoomed.
+const rowH unit.Dp = 35
+
 func (a *App) listLayout(gtx C) {
-	th := a.th
-	if a.list.menu.Clicked(gtx) || a.list.sessions.Clicked(gtx) {
-		a.sheet = sheetView{open: "menu"}
+	th, l := a.th, &a.list
+	if l.sessions.Clicked(gtx) && len(a.st.Sessions) > 1 {
+		l.menu = "sessions"
+	}
+	if l.settings.Clicked(gtx) {
+		l.menu = "settings"
+	}
+	if l.retry.Clicked(gtx) && a.conn != nil {
+		a.conn.Retry()
+	}
+	if l.menu != "" {
+		// Back, or Esc on a desktop, closes the menu. With none open it
+		// goes unread, so Android leaves the app.
+		for {
+			ev, ok := gtx.Event(key.Filter{Name: key.NameBack}, key.Filter{Name: key.NameEscape})
+			if !ok {
+				break
+			}
+			if ke, ok := ev.(key.Event); ok && ke.State == key.Press {
+				l.menu = ""
+			}
+		}
 	}
 	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx C) D {
-			return a.bar(gtx, nil, func(gtx C) D {
-				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx C) D {
-						return label(gtx, th, weight(th.UIFont, 600), th.Sp(theme.Title), th.Fg, 1, "pitwall")
-					}),
-					layout.Flexed(1, func(gtx C) D {
-						s := a.st.Session(a.session)
-						if s == nil {
-							return D{}
-						}
-						return layout.Inset{Left: 10}.Layout(gtx, func(gtx C) D { return a.sessionChip(gtx, s.Name) })
-					}),
-				)
-			}, func(gtx C) D { return iconButton(gtx, th, &a.list.menu, dots) })
-		}),
+		layout.Rigid(a.listHeader),
 		layout.Rigid(a.offlineLine),
+		layout.Rigid(a.waiting),
 		layout.Flexed(1, func(gtx C) D {
 			if len(a.tabs) == 0 {
 				fillMax(gtx, th.Sidebar)
@@ -55,21 +93,81 @@ func (a *App) listLayout(gtx C) {
 				}
 				return layout.Center.Layout(gtx, func(gtx C) D { return body(gtx, th, th.Muted, msg) })
 			}
+			if !a.online {
+				// The last list, dimmed, until the stream is back.
+				defer paint.PushOpacity(gtx.Ops, 0.55).Pop()
+			}
 			_, evs := a.sb.Layout(gtx, th, &a.st, a.session, "")
 			for _, ev := range evs {
-				if sel, ok := ev.(sidebar.SelectWorkspace); ok {
-					if i := slices.IndexFunc(a.tabs, func(t remote.Tab) bool { return t.ID == sel.WorkspaceID }); i >= 0 {
-						a.openChat(a.tabs[i].Pane)
+				switch ev := ev.(type) {
+				case sidebar.SelectWorkspace:
+					if t, ok := a.tabOf(ev.WorkspaceID); ok {
+						a.openChat(t.Pane)
 					}
+				case sidebar.Answer:
+					a.answerRow(ev)
 				}
 			}
 			return D{Size: gtx.Constraints.Max}
 		}),
 	)
+	switch l.menu {
+	case "sessions":
+		a.sessionMenu(gtx)
+	case "settings":
+		a.settingsMenu(gtx)
+	}
+}
+
+func (a *App) tabOf(workspace string) (remote.Tab, bool) {
+	i := slices.IndexFunc(a.tabs, func(t remote.Tab) bool { return t.ID == workspace })
+	if i < 0 {
+		return remote.Tab{}, false
+	}
+	return a.tabs[i], true
+}
+
+// answerRow presses Allow or Deny for a row's permission prompt.
+func (a *App) answerRow(ev sidebar.Answer) {
+	a.list.note = ""
+	a.do(func(ctx context.Context, c *phone.Client) error { return c.Answer(ctx, ev.PaneID, ev.At, ev.Allow) }, func(err error) {
+		if err != nil {
+			a.list.note = sentence(err.Error())
+		}
+	})
+}
+
+// listHeader is the sidebar's brand bar at a phone's size: the mark, the
+// session with how many wait in the others, the computer, and settings.
+func (a *App) listHeader(gtx C) D {
+	th := a.th
+	return a.bar(gtx, nil, func(gtx C) D {
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx C) D { return sidebar.Logo(gtx, th, gtx.Dp(18)) }),
+			layout.Rigid(func(gtx C) D {
+				s := a.st.Session(a.session)
+				if s == nil {
+					return D{}
+				}
+				return layout.Inset{Left: 6}.Layout(gtx, func(gtx C) D { return a.sessionChip(gtx, s.Name) })
+			}),
+		)
+	}, func(gtx C) D {
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(a.hostTag),
+			layout.Rigid(func(gtx C) D { return iconButton(gtx, th, &a.list.settings, icon("settings")) }),
+		)
+	})
+}
+
+// icon draws one of sidebar.Icon's glyphs.
+func icon(name string) func(gtx C, col color.NRGBA, size int) {
+	return func(gtx C, col color.NRGBA, size int) { sidebar.Icon(gtx, name, size, col) }
 }
 
 // sessionChip names the session shown, with how many of the other
-// sessions' tabs wait on you; it opens the menu, where they switch.
+// sessions' tabs wait on you; with more than one session it opens the
+// session menu.
 func (a *App) sessionChip(gtx C, name string) D {
 	th := a.th
 	others := 0
@@ -78,37 +176,97 @@ func (a *App) sessionChip(gtx C, name string) D {
 			others += phone.NeedsYou(&a.st, s.ID)
 		}
 	}
+	many := len(a.st.Sessions) > 1
 	return a.list.sessions.Layout(gtx, func(gtx C) D {
 		gtx.Constraints.Min = image.Point{}
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx C) D {
-				return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Muted, 1, name)
-			}),
-			layout.Rigid(func(gtx C) D {
-				if len(a.st.Sessions) < 2 {
-					return D{}
-				}
-				return layout.Inset{Left: 4, Top: 1}.Layout(gtx, func(gtx C) D {
-					chevronDown(gtx, th.Muted, gtx.Dp(12))
-					return D{Size: image.Pt(gtx.Dp(12), gtx.Dp(12))}
-				})
-			}),
-			layout.Rigid(func(gtx C) D {
-				if others == 0 {
-					return D{}
-				}
-				return layout.Inset{Left: 6}.Layout(gtx, func(gtx C) D { return badge(gtx, th, others) })
-			}),
-		)
+		m := op.Record(gtx.Ops)
+		d := layout.Inset{Left: 6, Right: 6, Top: 4, Bottom: 4}.Layout(gtx, func(gtx C) D {
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx C) D {
+					return label(gtx, th, weight(th.UIFont, 600), th.Sp(theme.Large), th.Fg, 1, name)
+				}),
+				layout.Rigid(func(gtx C) D {
+					if !many {
+						return D{}
+					}
+					return layout.Inset{Left: 4}.Layout(gtx, func(gtx C) D {
+						return sidebar.Icon(gtx, "chevrons-up-down", gtx.Dp(12), th.Muted)
+					})
+				}),
+				layout.Rigid(func(gtx C) D {
+					if others == 0 {
+						return D{}
+					}
+					return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D { return badge(gtx, th, others) })
+				}),
+			)
+		})
+		call := m.Stop()
+		if a.list.sessions.Pressed() || a.list.menu == "sessions" {
+			paint.FillShape(gtx.Ops, th.SurfaceSecondary, clip.UniformRRect(image.Rectangle{Max: d.Size}, gtx.Dp(6)).Op(gtx.Ops))
+		}
+		call.Add(gtx.Ops)
+		return d
 	})
 }
 
-// badge is a count of tabs that wait on you, in the needs-you color.
+// badge is a count of tabs that wait on you: white on red, as a phone's
+// app badges are.
 func badge(gtx C, th *theme.Theme, n int) D {
-	bg, fg := th.Chip(th.Yellow, th.Sidebar)
-	return box(gtx, bg, color.NRGBA{}, 8, layout.Inset{Left: 6, Right: 6, Top: 1, Bottom: 1}, func(gtx C) D {
-		return label(gtx, th, weight(th.UIFont, 600), th.Sp(theme.Caption), fg, 1, strconv.Itoa(n))
-	})
+	m := op.Record(gtx.Ops)
+	d := label(gtx, th, weight(th.UIFont, 700), th.Sp(theme.Caption)*0.9, th.OnDanger, 1, strconv.Itoa(n))
+	call := m.Stop()
+	h := gtx.Dp(14)
+	size := image.Pt(max(h, d.Size.X+gtx.Dp(8)), h)
+	paint.FillShape(gtx.Ops, th.Red, clip.UniformRRect(image.Rectangle{Max: size}, h/2).Op(gtx.Ops))
+	defer op.Offset(size.Sub(d.Size).Div(2)).Push(gtx.Ops).Pop()
+	call.Add(gtx.Ops)
+	return D{Size: size}
+}
+
+// hostName is how the header names the computer: the server's first
+// name ("box" of box.example.com), or its address.
+func hostName(server string) string {
+	u, err := url.Parse(server)
+	if err != nil || u.Hostname() == "" {
+		return server
+	}
+	h := u.Hostname()
+	if net.ParseIP(h) != nil {
+		return h
+	}
+	first, _, _ := strings.Cut(h, ".")
+	return first
+}
+
+// hostTag is the computer's name after a dot: green while the stream is
+// up, red while it reconnects, gray before the first answer.
+func (a *App) hostTag(gtx C) D {
+	th := a.th
+	col := th.Muted
+	switch {
+	case a.online:
+		col = th.Green
+	case a.offline != "":
+		col = th.Red
+	}
+	name := ""
+	if a.client != nil {
+		name = hostName(a.client.Server)
+	}
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx C) D {
+			r := gtx.Dp(3)
+			paint.FillShape(gtx.Ops, col, clip.Ellipse(image.Rect(0, 0, 2*r, 2*r)).Op(gtx.Ops))
+			return D{Size: image.Pt(2*r, 2*r)}
+		}),
+		layout.Rigid(func(gtx C) D {
+			return layout.Inset{Left: 5, Right: 4}.Layout(gtx, func(gtx C) D {
+				gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(110))
+				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, 1, name)
+			})
+		}),
+	)
 }
 
 // bar is the top bar: lead (a Back button, or nil), the middle, and the
@@ -120,7 +278,7 @@ func (a *App) bar(gtx C, lead, mid, trail layout.Widget) D {
 	gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, h))
 	left := unit.Dp(4)
 	if lead == nil {
-		left = pad + 2
+		left = pad
 	}
 	layout.Inset{Left: left, Right: 4}.Layout(gtx, func(gtx C) D {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -138,6 +296,7 @@ func (a *App) bar(gtx C, lead, mid, trail layout.Widget) D {
 				if trail == nil {
 					return D{}
 				}
+				gtx.Constraints.Min.Y = 0
 				return trail(gtx)
 			}),
 		)
@@ -146,28 +305,290 @@ func (a *App) bar(gtx C, lead, mid, trail layout.Widget) D {
 	return D{Size: image.Pt(gtx.Constraints.Max.X, h)}
 }
 
-// offlineLine says the stream is down while it reconnects.
+// offlineLine says the stream is down, when it tries again, and offers to
+// try now. Before the first answer it says Connecting.
 func (a *App) offlineLine(gtx C) D {
 	if a.online {
 		return D{}
 	}
 	th := a.th
-	msg := "Connecting"
-	if a.offline != "" {
-		msg = "Offline, reconnecting"
+	if a.offline == "" {
+		return box(gtx, th.Sidebar, color.NRGBA{}, 0, layout.Inset{Left: pad, Right: pad, Top: 6, Bottom: 6}, func(gtx C) D {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Muted, 1, "Connecting…")
+		})
 	}
-	bg, fg := th.Chip(th.Yellow, th.Bg)
-	return box(gtx, bg, color.NRGBA{}, 0, layout.Inset{Left: pad + 2, Right: pad, Top: 6, Bottom: 6}, func(gtx C) D {
+	msg := "Offline, reconnecting"
+	if left := time.Until(a.retryAt); left > 0 {
+		msg = fmt.Sprintf("Offline, reconnecting in %d s", int(math.Ceil(left.Seconds())))
+		gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(min(left, time.Second))})
+	}
+	red := th.Readable(th.Red, th.Bg)
+	bg := theme.Mix(th.Bg, th.Red, 0.12)
+	d := box(gtx, bg, color.NRGBA{}, 0, layout.Inset{Left: pad, Right: 4}, func(gtx C) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return label(gtx, th, th.UIFont, th.Sp(theme.Small), fg, 1, msg)
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx C) D {
+				return layout.Inset{Right: 6}.Layout(gtx, func(gtx C) D { return sidebar.Icon(gtx, "wifi-off", gtx.Dp(12), red) })
+			}),
+			layout.Flexed(1, func(gtx C) D {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Small), th.Fg, 1, msg)
+			}),
+			layout.Rigid(func(gtx C) D { return textButton(gtx, th, &a.list.retry, "Retry") }),
+		)
+	})
+	paint.FillShape(gtx.Ops, theme.Mix(th.Bg, th.Red, 0.3), clip.Rect{Min: image.Pt(0, d.Size.Y-1), Max: d.Size}.Op())
+	return d
+}
+
+// textButton is a borderless primary label, touch-tall.
+func textButton(gtx C, th *theme.Theme, c *widget.Clickable, s string) D {
+	return c.Layout(gtx, func(gtx C) D {
+		gtx.Constraints.Min = image.Point{}
+		m := op.Record(gtx.Ops)
+		d := layout.Inset{Left: 10, Right: 10}.Layout(gtx, func(gtx C) D {
+			return label(gtx, th, weight(th.UIFont, 600), th.Sp(theme.Small), th.Primary, 1, s)
+		})
+		call := m.Stop()
+		size := image.Pt(d.Size.X, max(d.Size.Y, gtx.Dp(touch)))
+		if c.Pressed() {
+			paint.FillShape(gtx.Ops, th.Pressed, clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl)).Op(gtx.Ops))
+		}
+		defer op.Offset(image.Pt(0, (size.Y-d.Size.Y)/2)).Push(gtx.Ops).Pop()
+		call.Add(gtx.Ops)
+		return D{Size: size}
 	})
 }
 
-// dots is the overflow menu's glyph: three dots across.
-func dots(gtx C, col color.NRGBA, size int) {
-	r := max(size/8, 1)
-	for i := range 3 {
-		x := size/2 + (i-1)*size*3/10
-		paint.FillShape(gtx.Ops, col, clip.Ellipse(image.Rect(x-r, size/2-r, x+r, size/2+r)).Op(gtx.Ops))
+// waiting lists what waits on you in every session, most pressing first:
+// errors, approvals and questions, each with its session and state. A
+// tap opens the tab's chat.
+func (a *App) waiting(gtx C) D {
+	th := a.th
+	blocked := sidebar.Blocked(&a.st)
+	if len(blocked) == 0 && a.list.note == "" {
+		return D{}
 	}
+	fillMax(gtx, th.Sidebar) // ponytail: fills the rest too; the tree paints over it
+	if !a.online {
+		defer paint.PushOpacity(gtx.Ops, 0.55).Pop()
+	}
+	var ws []layout.Widget
+	if a.list.note != "" {
+		ws = append(ws, func(gtx C) D {
+			return layout.Inset{Left: pad, Right: pad, Top: 6}.Layout(gtx, func(gtx C) D {
+				return small(gtx, th, th.Readable(th.Red, th.Sidebar), a.list.note)
+			})
+		})
+	}
+	if len(blocked) > 0 {
+		ws = append(ws, func(gtx C) D {
+			return layout.Inset{Left: pad, Right: pad, Top: 8, Bottom: 2}.Layout(gtx, func(gtx C) D {
+				return label(gtx, th, weight(th.UIFont, 500), th.Sp(theme.Caption), th.Muted, 1, "Waiting on you")
+			})
+		})
+	}
+	for _, act := range blocked {
+		w := a.st.Workspace(act.WorkspaceID)
+		if w == nil {
+			continue
+		}
+		session := ""
+		if s := a.st.Session(w.SessionID); s != nil {
+			session = s.Name
+		}
+		c := a.list.btn("w:" + act.PaneID)
+		if c.Clicked(gtx) {
+			if t, ok := a.tabOf(w.ID); ok {
+				defer a.openChat(t.Pane)
+			}
+		}
+		title, right, col := sidebar.Title(*w), session+" · "+model.PillLabel(act), sidebar.StateColor(th, act.State)
+		ws = append(ws, func(gtx C) D { return a.waitRow(gtx, c, col, title, right) })
+	}
+	ws = append(ws, func(gtx C) D {
+		return layout.Inset{Top: 6}.Layout(gtx, func(gtx C) D { return divider(gtx, th.Border) })
+	})
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rigids(ws)...)
+}
+
+func rigids(ws []layout.Widget) []layout.FlexChild {
+	out := make([]layout.FlexChild, len(ws))
+	for i, w := range ws {
+		out[i] = layout.Rigid(w)
+	}
+	return out
+}
+
+// waitRow is one of Waiting on you: a dot in the state's color, the tab,
+// and its session and state at the right.
+func (a *App) waitRow(gtx C, c *widget.Clickable, col color.NRGBA, title, right string) D {
+	th := a.th
+	h := gtx.Dp(rowH)
+	return c.Layout(gtx, func(gtx C) D {
+		size := image.Pt(gtx.Constraints.Max.X, h)
+		if c.Pressed() {
+			paint.FillShape(gtx.Ops, th.Pressed, clip.Rect{Max: size}.Op())
+		}
+		gtx.Constraints = layout.Exact(size)
+		layout.Inset{Left: pad, Right: pad}.Layout(gtx, func(gtx C) D {
+			gtx.Constraints.Min.Y = 0
+			return layout.W.Layout(gtx, func(gtx C) D {
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx C) D {
+						r := gtx.Dp(3)
+						paint.FillShape(gtx.Ops, col, clip.Ellipse(image.Rect(0, 0, 2*r, 2*r)).Op(gtx.Ops))
+						return D{Size: image.Pt(2*r+gtx.Dp(8), 2*r)}
+					}),
+					layout.Flexed(1, func(gtx C) D {
+						return label(gtx, th, weight(th.UIFont, 500), th.Sp(theme.Body), th.Fg, 1, title)
+					}),
+					layout.Rigid(func(gtx C) D {
+						return layout.Inset{Left: 8}.Layout(gtx, func(gtx C) D {
+							gtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(140))
+							return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, right)
+						})
+					}),
+				)
+			})
+		})
+		return D{Size: size}
+	})
+}
+
+// menuPanel draws a menu over a scrim, under the header at the left
+// (start) or the right, with rows; a tap on the scrim closes it.
+func (a *App) menuPanel(gtx C, start bool, rows []layout.Widget) {
+	th, l := a.th, &a.list
+	if l.scrim.Clicked(gtx) {
+		l.menu = ""
+		return
+	}
+	full := gtx.Constraints.Max
+	l.scrim.Layout(gtx, func(gtx C) D {
+		paint.FillShape(gtx.Ops, th.Scrim, clip.Rect{Max: full}.Op())
+		return D{Size: full}
+	})
+	w := min(full.X-2*gtx.Dp(pad), gtx.Dp(240))
+	g := gtx
+	g.Constraints = layout.Constraints{Min: image.Pt(w, 0), Max: image.Pt(w, full.Y)}
+	m := op.Record(gtx.Ops)
+	d := layout.UniformInset(4).Layout(g, func(gtx C) D {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rigids(rows)...)
+	})
+	call := m.Stop()
+	anchor := image.Rect(gtx.Dp(pad), 0, full.X-gtx.Dp(pad), gtx.Dp(barH))
+	side := kit.BelowEnd
+	if start {
+		side = kit.BelowStart
+	}
+	at := kit.Place(anchor, d.Size, image.Rectangle{Max: full}, side, gtx.Dp(2), gtx.Dp(8))
+	defer op.Offset(at).Push(gtx.Ops).Pop()
+	rect := image.Rectangle{Max: d.Size}
+	kit.Surface(gtx, rect, gtx.Dp(theme.RadiusPopover), kit.Floating, th.BorderStrong, th.SurfaceElevated)
+	defer clip.Rect(rect).Push(gtx.Ops).Pop()
+	// why: a tap on the panel between rows must not reach the scrim under it.
+	(&widget.Clickable{}).Layout(gtx, func(gtx C) D { return D{Size: d.Size} })
+	call.Add(gtx.Ops)
+}
+
+// menuHeading is a menu's small muted title.
+func menuHeading(th *theme.Theme, s string) layout.Widget {
+	return func(gtx C) D {
+		return layout.Inset{Left: 8, Right: 8, Top: 6, Bottom: 4}.Layout(gtx, func(gtx C) D {
+			return label(gtx, th, weight(th.UIFont, 500), th.Sp(theme.Caption), th.Muted, 1, s)
+		})
+	}
+}
+
+// sessionMenu lists the computer's sessions, each with its tabs and what
+// waits there; a pick shows it.
+func (a *App) sessionMenu(gtx C) {
+	th, l := a.th, &a.list
+	rows := []layout.Widget{menuHeading(th, "Sessions on "+hostName(a.client.Server))}
+	for _, s := range a.st.Sessions {
+		c := l.btn("s:" + s.ID)
+		if c.Clicked(gtx) {
+			a.session, l.menu = s.ID, ""
+			return
+		}
+		tabs := 0
+		for _, w := range a.st.Workspaces {
+			if w.SessionID == s.ID {
+				tabs++
+			}
+		}
+		waits := phone.NeedsYou(&a.st, s.ID)
+		sub := strconv.Itoa(tabs) + map[bool]string{true: " tab", false: " tabs"}[tabs == 1]
+		if waits > 0 {
+			sub += " · " + strconv.Itoa(waits) + " waiting"
+		}
+		cur, name := s.ID == a.session, s.Name
+		rows = append(rows, func(gtx C) D {
+			return menuRow(gtx, th, c, cur, func(gtx C) D {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx C) D {
+						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+							layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Fg, 1, name) }),
+							layout.Rigid(func(gtx C) D { return label(gtx, th, th.UIFont, th.Sp(theme.Caption), th.Muted, 1, sub) }),
+						)
+					}),
+					layout.Rigid(func(gtx C) D {
+						switch {
+						case cur:
+							return sidebar.Icon(gtx, "check", gtx.Dp(14), th.Primary)
+						case waits > 0:
+							return badge(gtx, th, waits)
+						}
+						return D{}
+					}),
+				)
+			})
+		})
+	}
+	a.menuPanel(gtx, true, rows)
+}
+
+// menuRow is a menu's touch-tall row, filled while pressed or current.
+func menuRow(gtx C, th *theme.Theme, c *widget.Clickable, current bool, w layout.Widget) D {
+	return c.Layout(gtx, func(gtx C) D {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		m := op.Record(gtx.Ops)
+		d := layout.Inset{Left: 8, Right: 10, Top: 5, Bottom: 5}.Layout(gtx, w)
+		call := m.Stop()
+		size := image.Pt(gtx.Constraints.Max.X, max(d.Size.Y, gtx.Dp(rowH)))
+		rr := clip.UniformRRect(image.Rectangle{Max: size}, gtx.Dp(theme.RadiusControl))
+		switch {
+		case c.Pressed():
+			paint.FillShape(gtx.Ops, th.Pressed, rr.Op(gtx.Ops))
+		case current:
+			paint.FillShape(gtx.Ops, th.SelectedBg, rr.Op(gtx.Ops))
+		}
+		defer op.Offset(image.Pt(0, (size.Y-d.Size.Y)/2)).Push(gtx.Ops).Pop()
+		call.Add(gtx.Ops)
+		return D{Size: size}
+	})
+}
+
+// settingsMenu says which computer this phone is paired with, and unpairs.
+func (a *App) settingsMenu(gtx C) {
+	th, l := a.th, &a.list
+	if l.unpair.Clicked(gtx) {
+		l.menu = ""
+		a.unpair("")
+		return
+	}
+	who := "Paired with " + hostName(a.client.Server)
+	if a.hello.Device != "" {
+		who += " as " + a.hello.Device
+	}
+	a.menuPanel(gtx, false, []layout.Widget{
+		menuHeading(th, who),
+		func(gtx C) D {
+			return menuRow(gtx, th, &l.unpair, false, func(gtx C) D {
+				return label(gtx, th, th.UIFont, th.Sp(theme.Body), th.Readable(th.Red, th.SurfaceElevated), 1, "Unpair this phone")
+			})
+		},
+	})
 }
