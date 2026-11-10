@@ -19,6 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- The phone page names models as people say them, Opus 5.5 or GPT-6.1 Sol, in a chat's header, its model button and the model list, instead of ids such as opus-5-5.
 - The sidebar's header has a monitor button, a chip icon between the board and new tab buttons, that shows or hides the monitor as Ctrl+Alt+M does and stays pressed while it shows.
 
 ## v0.2.6
