@@ -48,6 +48,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 71 added Task.FreshWorktree and Workspace.TaskRun for disposable task worktrees.
 // Level 70 added NewSession.Monitor and model.Workspace.Monitor: Monitor
 // tabs. A client below MonitorTabLevel never sees one.
 // Level 69 added MonitorWatch and MonitorSample: a Monitor tab's readings
@@ -197,7 +198,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 70
+const Level = 71
 
 // MonitorTabLevel added NewSession.Monitor and model.Workspace.Monitor.
 const MonitorTabLevel = 70
@@ -372,7 +373,12 @@ func Since(msg any) int {
 		return 14
 	case Text, TextResult:
 		return 13
-	case NewTask, DropTask:
+	case NewTask:
+		if m.Task.FreshWorktree {
+			return TaskWorktreeLevel
+		}
+		return 12
+	case DropTask:
 		return 12
 	case WorktreeQuery, WorktreeInfo, DeleteWorktree:
 		return 11

@@ -32,6 +32,8 @@ import (
 // snoozed, and an older pitwall ignores them.
 // Queue schedules add optional Task.NextStart and Task.Repeat fields.
 // Missing fields decode to zero for immediate, one-shot tasks.
+// Fresh task worktrees add optional Task.FreshWorktree and Workspace.TaskRun fields.
+// Missing fields keep ordinary tasks and worktree tabs.
 // Account profiles add optional Workspace.Profile and Task.Profile fields
 // to version 8. Missing fields decode to "", preserving older state files.
 // formatVersion 10 added Pane.ResumeCmd for self-reported agents;

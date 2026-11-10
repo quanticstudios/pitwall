@@ -140,7 +140,7 @@ func allMessages() []any {
 		WorktreeInfo{Query: WorktreeQuery{WorkspaceID: "w"}, Default: "origin/main", Local: []string{"main"}, Remote: []string{"origin/fix"}, GitHub: true,
 			Changed: []string{"a.go"}, Unmerged: true, UsedBy: []string{"side question"}, Orphans: []model.Orphan{{Root: "/r", Path: "/r/.worktrees/x", Branch: "x", Committed: now, Dirty: true}}},
 		DeleteWorktree{Root: "/r", Path: "/r/.worktrees/x", Force: true},
-		NewTask{Task: model.Task{NextStart: now, Repeat: 24 * time.Hour, ID: "t", SessionID: "s", Dir: "/tmp", Worktree: "fix", Base: "main", Cmd: []string{"codex", "fix it"}}, Queue: true, FromPane: "a"},
+		NewTask{Task: model.Task{NextStart: now, Repeat: 24 * time.Hour, ID: "t", SessionID: "s", Dir: "/tmp", Worktree: "fix", FreshWorktree: true, Base: "main", Cmd: []string{"codex", "fix it"}}, Queue: true, FromPane: "a"},
 		DropTask{ID: "t", Start: true},
 		EditScrollback{Pane: "a"},
 		Scrollback{Pane: "a", Lines: 20},

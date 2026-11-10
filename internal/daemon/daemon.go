@@ -1536,6 +1536,11 @@ func (d *Daemon) closePane(id string) error {
 		d.mu.Unlock()
 		return fmt.Errorf("tab %q is pinned; unpin it to close its last pane", w.Name)
 	}
+	if w := d.workspace(d.st.Panes[i].WorkspaceID); d.taskRunEnded(w, true) && w.TaskRun.Pane == id && d.st.PaneCount(w.ID) == 1 {
+		d.queueTaskCleanup(w.ID, true)
+		d.mu.Unlock()
+		return nil
+	}
 	closing := d.removePane(id)
 	d.changed()
 	d.mu.Unlock()
@@ -2238,6 +2243,9 @@ func (d *Daemon) exited(id string, p Pane) {
 	}
 	code := p.ExitCode()
 	sp := &d.st.Panes[i]
+	if w := d.workspace(sp.WorkspaceID); w != nil && w.TaskRun != nil && w.TaskRun.Pane == id {
+		sp.Held = true
+	}
 	if at, ok := d.pathPopups[id]; ok {
 		if notice := pathPopupExitNotice(sp.Cmd[0], code, time.Since(at)); notice != "" {
 			d.st.Notice = notice
@@ -2287,6 +2295,9 @@ func (d *Daemon) exited(id string, p Pane) {
 		d.programExited(id)
 		d.st.Activities = slices.DeleteFunc(d.st.Activities, func(a model.Activity) bool { return a.PaneID == id && !ended(a.State) })
 		d.pokePR(sp.WorkspaceID) // a gh pr create or merge may have changed it
+		if w := d.workspace(sp.WorkspaceID); w != nil && w.TaskRun != nil && w.TaskRun.Pane == id {
+			d.queueTaskCleanup(w.ID, false)
+		}
 	} else {
 		log.Printf("pane %s: exited %d; closed", id, code)
 		closing = d.removePane(id)

@@ -150,6 +150,9 @@ func (u *ui) layoutTask(gtx gl.Context, st *model.State) {
 	for t.schedule.Clicked(gtx) {
 		t.scheduled = !t.scheduled
 	}
+	for t.freshBtn.Clicked(gtx) {
+		t.fresh = !t.fresh
+	}
 	for t.queue.Clicked(gtx) {
 		queue = true
 	}
@@ -259,6 +262,9 @@ func (u *ui) taskBody(gtx gl.Context, field *widget.Editor) gl.Dimensions {
 	fieldH := gtx.Dp(34)
 	switch t.where {
 	case whereWorktree:
+		kids = append(kids, gap(8), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
+			return u.checkbox(gtx, &t.freshBtn, t.fresh, "Fresh worktree each run", "Creates a dated branch each run. Removes clean runs; keeps commits, changes and open PRs.")
+		}))
 		kids = append(kids, gap(10), gl.Rigid(func(gtx gl.Context) gl.Dimensions {
 			// Name and base side by side, each under its label.
 			w := gtx.Constraints.Max.X

@@ -696,6 +696,7 @@ func TestMultiTaskOnOldHost(t *testing.T) {
 		{proto.ScheduleLevel - 1, model.Task{NextStart: time.Now().Add(time.Hour)}, "task schedules"},
 		{proto.ScheduleLevel - 1, model.Task{Repeat: time.Hour}, "task schedules"},
 		{proto.ProfileLevel - 1, model.Task{Profile: "work"}, "account profiles"},
+		{proto.TaskWorktreeLevel - 1, model.Task{FreshWorktree: true, Worktree: "triage"}, "fresh task worktrees"},
 	} {
 		conns := make(chan end, 1)
 		dial := func(string, bool) (*proto.Conn, proto.StateMsg, error) {

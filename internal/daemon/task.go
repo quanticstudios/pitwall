@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/quanticstudios/pitwall/internal/config"
+	"github.com/quanticstudios/pitwall/internal/gitstat"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/proto"
@@ -21,9 +22,10 @@ import (
 // taskQueue is what the queue (State.Tasks) keeps between changes. Guarded
 // by d.mu.
 type taskQueue struct {
-	running  map[string]string // pane: session, of the panes running at the last change
-	freed    map[string]int    // session: agents that finished since, which queued tasks may take
-	starting map[string]int    // session: tasks taken off the queue whose tab is not open yet
+	running  map[string]string       // pane: session, of the panes running at the last change
+	freed    map[string]int          // session: agents that finished since, which queued tasks may take
+	starting map[string]int          // session: tasks taken off the queue whose tab is not open yet
+	cleaning map[string]*taskCleanup // workspace: a task's worktree cleanup is running
 }
 
 // newTask starts a task, or queues it (see proto.NewTask). A failed start
@@ -33,8 +35,11 @@ func (d *Daemon) newTask(ctx context.Context, m proto.NewTask) error {
 	if t.Repeat < 0 || t.Repeat > 0 && t.NextStart.IsZero() {
 		return errors.New("a repeating task needs a next start and a positive interval")
 	}
-	if t.Repeat > 0 && (t.Worktree != "" || t.Branch != "") {
-		return errors.New("repeating tasks must run in an existing folder")
+	if t.FreshWorktree && (gitstat.Slug(t.Worktree) == "" || t.Branch != "") {
+		return errors.New("a fresh task worktree needs a name and cannot check out an existing branch")
+	}
+	if t.Repeat > 0 && (t.Branch != "" || t.Worktree != "" && !t.FreshWorktree) {
+		return errors.New("repeating tasks need an existing folder or a fresh worktree each run")
 	}
 	if len(t.Cmd) == 0 {
 		return errors.New("a task needs a command")
@@ -108,6 +113,7 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 	var root string
 	var wt config.WorktreeSettings
 	var problems []error
+	var run *model.TaskRun
 	if t.Worktree != "" || t.Branch != "" {
 		var ok bool
 		if root, ok = d.o.RepoRoot(ctx, t.Dir); !ok {
@@ -118,8 +124,18 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 			from = model.WorktreeFrom{Kind: model.FromBranch, Ref: t.Branch}
 		}
 		var err error
+		if t.FreshWorktree {
+			t.Worktree = taskWorktreeName(t.Worktree, time.Now(), newID())
+		}
 		if dir, _, wt, problems, err = d.worktree(ctx, root, t.Worktree, from); err != nil {
 			return err
+		}
+		if t.FreshWorktree {
+			head, err := gitstat.Head(ctx, dir)
+			if err != nil {
+				return fmt.Errorf("worktree kept at %s: read starting commit: %w", dir, err)
+			}
+			run = &model.TaskRun{Base: head}
 		}
 	}
 	typed, err := setupInput(wt)
@@ -138,10 +154,30 @@ func (d *Daemon) startTask(ctx context.Context, t model.Task) error {
 			w.WorktreeRoot, w.Ports = root, portBlock(d.st.Workspaces, wt.PortBase, wt.PortStep)
 		}
 	})
-	if err != nil || typed == nil && len(problems) == 0 {
+	if err != nil {
 		return err
 	}
-	return d.worktreeSetup(id, typed, problems)
+	if typed != nil || len(problems) > 0 {
+		if err := d.worktreeSetup(id, typed, problems); err != nil {
+			return err
+		}
+	}
+	if run != nil {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		// Register after preparation so a fast exit cannot remove the folder before setup opens.
+		if w := d.workspace(id); w != nil {
+			for _, p := range d.st.Panes {
+				if p.WorkspaceID == id {
+					run.Pane = p.ID // the command precedes the setup shell
+					break
+				}
+			}
+			w.TaskRun = run
+			d.changed()
+		}
+	}
+	return nil
 }
 
 // worktreeSetup opens a shell below a command for setup and preparation errors.
@@ -298,6 +334,11 @@ func (d *Daemon) pumpQueue(now time.Time) bool {
 func (d *Daemon) checkQueue(now time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	for _, w := range d.st.Workspaces {
+		if d.taskRunEnded(&w, false) {
+			d.queueTaskCleanup(w.ID, false)
+		}
+	}
 	if d.pumpQueue(now) {
 		d.changed()
 	}

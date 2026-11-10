@@ -2015,11 +2015,36 @@ The sidebar and `queue ls` show the next start. The daemon checks every second;
 due tasks still wait for queue capacity and respect `max_running`. A future
 task does not hold up ready tasks behind it. After sleep or a restart, a missed
 time runs once when capacity allows. A repeat then advances to its next future
-slot, skipping missed runs. Repeats run in **This folder** or an existing
-folder passed to the CLI; they cannot create a worktree on each run. Remove
-its queue entry to stop future repeats.
+slot, skipping missed runs. Repeats run in **This folder**, an existing
+folder passed to the CLI, or a fresh worktree. Remove the queue entry to stop
+future repeats.
 **Start** and the sidebar's start-now button run immediately; start-now also
 removes the repeat. Scheduling needs a daemon that supports it.
+
+For a fresh worktree, choose **New worktree** and check **Fresh worktree each
+run**, or pass `--worktree name` to `queue add`. Each run adds a UTC date and
+unique suffix to the name for its branch and folder. This works for one-shot
+tasks too. Copy, link, ports and setup use the same worktree settings as
+`worktree new`. Setup from a repo file still needs your approval.
+
+When the command exits, or you close its tab after the agent reports Done,
+pitwall removes the worktree only when no commits extend beyond its starting
+commit, no tracked or untracked files have changes, and no open PR exists.
+The starting commit stays fixed even if the base branch moves. A failed Git
+or GitHub check keeps the worktree. Repositories without a GitHub remote need
+no GitHub check. Pinned tabs refuse a close. Another tab using the worktree or
+another open pane prevents worktree removal. This includes the shell for setup, whose
+work may still be running. Automatic cleanup leaves a kept run as an ordinary
+tab for you to review and remove with `worktree rm`. An explicit close removes
+the tab at once and stops its panes before the cleanup checks and teardown.
+If cleanup keeps the worktree, the notice names its path; the tab stays closed.
+A run interrupted by a restart keeps its worktree and tab when its exit status
+is unknown. Cleanup of runs that exited before a restart can still finish.
+Removal runs trusted teardown only; a repo teardown command is
+skipped with a notice, as with an unchecked teardown box in `worktree rm`.
+Fresh task worktrees need a daemon that supports them.
+
+<img src="media/queue-worktree.png" alt="The New task dialog with Fresh worktree each run checked" width="800">
 
 ```sh
 pitwall new --model sonnet -- claude "fix the flaky login test"
@@ -2027,6 +2052,7 @@ pitwall queue add --model gpt-custom -- codex "fix the flaky login test"   # in 
 pitwall queue add --issue 12 -- claude                  # GitHub issue 12 as the prompt
 pitwall queue add --preset "Opus high" -- "fix it"       # a preset, "fix it" its prompt
 pitwall queue add --at 02:00 --every 24h -- codex "run nightly checks"
+pitwall queue add --every 24h --worktree triage -- codex "triage issues"
 pitwall queue ls
 pitwall queue rm 1
 ```

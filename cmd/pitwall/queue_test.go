@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -142,5 +143,39 @@ func TestListScheduledTask(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "2026-10-30 02:00") || !strings.Contains(out.String(), "24h0m0s") {
 		t.Fatal(out.String())
+	}
+}
+
+func TestQueueFreshWorktree(t *testing.T) {
+	for _, level := range []int{proto.TaskWorktreeLevel - 1, proto.Level} {
+		t.Run(fmt.Sprint(level), func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			bin := t.TempDir()
+			agent := filepath.Join(bin, exeName("fake-agent"))
+			if err := os.WriteFile(agent, []byte("#!/bin/sh\n"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin)
+			first := cliExchange{state: queueState(), level: level}
+			if level < proto.TaskWorktreeLevel {
+				fakeCLI(t, first)
+			} else {
+				want := proto.NewTask{Queue: true, Task: model.Task{SessionID: "m", Dir: dir, Cmd: []string{agent, "triage"}, Worktree: "triage", FreshWorktree: true}}
+				fakeCLI(t, first, cliExchange{request: want, state: queueState(), level: level})
+			}
+			code, _, stderr := cliOutput("queue", "add", "--worktree", "triage", "--", "fake-agent", "triage")
+			if level < proto.TaskWorktreeLevel {
+				if code != 1 || !strings.Contains(stderr, "newer daemon") {
+					t.Fatalf("%d: %s", code, stderr)
+				}
+			} else if code != 0 || stderr != "" {
+				t.Fatalf("%d: %s", code, stderr)
+			}
+		})
+	}
+	var out strings.Builder
+	if err := listTasks(&out, model.State{}, []model.Task{{Worktree: "triage", FreshWorktree: true}}); err != nil || !strings.Contains(out.String(), "fresh worktree triage each run") {
+		t.Fatalf("%s: %v", out.String(), err)
 	}
 }

@@ -474,6 +474,37 @@ func TestTaskRepeatWorktree(t *testing.T) {
 
 func noHost(string) string { return "" }
 
+func TestTaskFreshWorktreeSchedule(t *testing.T) {
+	for _, level := range []int{proto.TaskWorktreeLevel - 1, proto.Level} {
+		b := &linked{FakeBackend: NewFakeBackend(), link: Link{Level: level}}
+		u := &ui{b: b}
+		st := b.State()
+		u.nav.sync(&st)
+		u.task.projects = []taskProject{{dir: t.TempDir(), git: true}}
+		u.task.agents = []foundAgent{{cmd: "codex"}}
+		u.task.models = []taskModel{{key: "codex"}}
+		u.task.picked, u.task.modes = []bool{true}, []int{0}
+		u.task.prompt.SetText("nightly")
+		u.task.scheduled, u.task.fresh, u.task.where = true, true, whereWorktree
+		u.task.name.SetText("nightly")
+		u.task.every.SetText("24h")
+		u.submitTask(&st, true)
+		if level < proto.TaskWorktreeLevel {
+			if len(b.Sent()) != 0 || !strings.Contains(u.task.err, "daemon restarts") {
+				t.Fatalf("old daemon received a task: %q", u.task.err)
+			}
+		} else {
+			if len(b.Sent()) != 1 {
+				t.Fatalf("sent %v, error %q", b.Sent(), u.task.err)
+			}
+			got := b.Sent()[0].(proto.NewTask)
+			if !got.Task.FreshWorktree || got.Task.Worktree != "nightly" || got.Task.Repeat != 24*time.Hour {
+				t.Fatalf("task: %+v", got)
+			}
+		}
+	}
+}
+
 // In a shared session a folder on box is box's even when this machine has
 // the same path, and a task there goes to box, whichever tab has focus.
 func TestTaskOnItsHost(t *testing.T) {

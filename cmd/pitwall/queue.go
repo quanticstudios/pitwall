@@ -19,7 +19,7 @@ import (
 
 const queueUsage = `usage:
   pitwall queue ls [-s session]                   list the session's queued tasks, first to start first
-  pitwall queue add [-s session] [--issue n] [--preset name] [--model model] [--at HH:MM] [--every duration] [dir] -- cmd...
+  pitwall queue add [-s session] [--issue n] [--preset name] [--model model] [--at HH:MM] [--every duration] [--worktree name] [dir] -- cmd...
                                                   queue an agent with its prompt, run in dir, such as
                                                   pitwall queue add -- codex "fix the flaky test";
                                                   --issue adds GitHub issue n as the prompt;
@@ -39,12 +39,13 @@ func queueCommand(args []string, out io.Writer) error {
 	}
 	flags := flag.NewFlagSet("queue "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var sessionName, preset, modelName, at, every string
+	var sessionName, preset, modelName, at, every, worktree string
 	var issue int
 	flags.StringVar(&sessionName, "s", "", "")
 	if command == "add" {
 		flags.StringVar(&at, "at", "", "")
 		flags.StringVar(&every, "every", "", "")
+		flags.StringVar(&worktree, "worktree", "", "")
 		flags.IntVar(&issue, "issue", 0, "")
 		flags.StringVar(&preset, "preset", "", "")
 		flags.StringVar(&modelName, "model", "", "")
@@ -84,6 +85,9 @@ func queueCommand(args []string, out io.Writer) error {
 	if !next.IsZero() && m.Level < proto.ScheduleLevel {
 		return errors.New("task schedules need a newer daemon; restart pitwall")
 	}
+	if worktree != "" && m.Level < proto.TaskWorktreeLevel {
+		return errors.New("fresh task worktrees need a newer daemon; restart pitwall")
+	}
 	state := m.State
 	if err := varsLevel(vars, m.Level); err != nil {
 		return err
@@ -107,7 +111,7 @@ func queueCommand(args []string, out io.Writer) error {
 		if cmd, err = withIssue(cmd, dir, issue); err != nil {
 			return err
 		}
-		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd, Env: vars, NextStart: next, Repeat: repeat}, Queue: true})
+		_, err = syncCLI(conn, proto.NewTask{Task: model.Task{SessionID: session.ID, Dir: dir, Cmd: cmd, Env: vars, NextStart: next, Repeat: repeat, Worktree: worktree, FreshWorktree: worktree != ""}, Queue: true})
 		return err
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(args[0], "#"))
@@ -132,6 +136,8 @@ func listTasks(out io.Writer, state model.State, tasks []model.Task) error {
 			folder = "~" + strings.TrimPrefix(folder, home)
 		}
 		switch {
+		case t.FreshWorktree:
+			folder += " (fresh worktree " + t.Worktree + " each run)"
 		case t.Worktree != "":
 			folder += " (new worktree " + t.Worktree + ")"
 		case t.Branch != "":

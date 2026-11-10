@@ -231,3 +231,14 @@ func TestTaskRejectsInvalidRepeat(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskRejectsInvalidFreshWorktree(t *testing.T) {
+	d := newDaemon(t, (&fakes{statsCalls: map[string]int{}}).options())
+	for _, task := range []model.Task{{FreshWorktree: true}, {FreshWorktree: true, Worktree: "!!!"},
+		{FreshWorktree: true, Worktree: "nightly", Branch: "main"}} {
+		task.Dir, task.Cmd = t.TempDir(), []string{"codex", "nightly"}
+		if err := d.handle(t.Context(), proto.NewTask{Task: task, Queue: true}); err == nil {
+			t.Fatalf("accepted invalid fresh worktree: %+v", task)
+		}
+	}
+}
