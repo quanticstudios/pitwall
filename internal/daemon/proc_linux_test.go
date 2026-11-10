@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/model"
 )
@@ -26,6 +27,7 @@ func fakeProcRoot(t *testing.T, procs map[int]fakeProc) {
 	old := procRoot
 	procRoot = root
 	t.Cleanup(func() { procRoot = old })
+	must(t, os.WriteFile(filepath.Join(root, "stat"), []byte("cpu 1 2 3\nbtime 50000\n"), 0o644))
 	for pid, p := range procs {
 		dir := filepath.Join(root, strconv.Itoa(pid))
 		task := filepath.Join(dir, "task", strconv.Itoa(pid))
@@ -88,29 +90,39 @@ func TestProcIdentifyInterpreter(t *testing.T) {
 	}
 }
 
-// An agent with any process of its own is busy, an MCP server included,
-// since nothing tells one from a dev server. A wrapper's agent counts as
-// the agent.
+// An agent is busy with a process it started after its first prompt, a
+// tool's, or in the second before it; what it started before, MCP servers
+// at launch, does not count. Without a known first prompt every process
+// counts. A wrapper's agent counts as the agent. The fake boots at 50000s
+// and the agent starts at tick 1000 (50010s); its first prompt is at
+// 50020s, tick 2000.
 func TestProcBusy(t *testing.T) {
+	prompt := time.Unix(50020, 0)
 	claude := fakeProc{comm: "claude", exe: "/usr/bin/claude", pgrp: 10, start: 1000}
+	mcp := fakeProc{comm: "node", pgrp: 10, start: 1001}
 	wrapper := fakeProc{comm: "node", exe: "/usr/bin/node", cmdline: "node\x00/usr/lib/node_modules/@openai/codex/bin/codex.js", pgrp: 10, start: 1000, children: "15"}
 	codex := fakeProc{comm: "codex", exe: "/usr/lib/codex", pgrp: 10, start: 1010}
 	for _, tc := range []struct {
 		name  string
 		procs map[int]fakeProc
+		tools time.Time
 		want  bool
 	}{
-		{"alone", map[int]fakeProc{10: claude}, false},
-		{"a wrapper's agent alone", map[int]fakeProc{10: wrapper, 15: codex}, false},
-		{"a shell", map[int]fakeProc{10: withChildren(claude, "13"), 13: {comm: "zsh", pgrp: 10, start: 1300}}, true},
-		{"a node server exec'd 15s in", map[int]fakeProc{10: withChildren(claude, "14"), 14: {comm: "node", pgrp: 10, start: 1150}}, true},
-		{"an MCP server from launch", map[int]fakeProc{10: withChildren(claude, "11"), 11: {comm: "node", pgrp: 10, start: 1001}}, true},
-		{"a wrapper's agent's shell", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "16"), 16: {comm: "bash", pgrp: 10, start: 1500}}, true},
-		{"unreadable", map[int]fakeProc{}, true},
+		{"alone", map[int]fakeProc{10: claude}, prompt, false},
+		{"MCP servers from launch", map[int]fakeProc{10: withChildren(claude, "11 12"), 11: mcp, 12: mcp}, prompt, false},
+		{"a startup shell before the prompt", map[int]fakeProc{10: withChildren(claude, "13"), 13: {comm: "zsh", pgrp: 10, start: 1300}}, prompt, false},
+		{"node server.js exec'd 15s after the prompt", map[int]fakeProc{10: withChildren(claude, "11 14"), 11: mcp, 14: {comm: "node", pgrp: 10, start: 3500}}, prompt, true},
+		{"a tool's shell", map[int]fakeProc{10: withChildren(claude, "13"), 13: {comm: "zsh", pgrp: 10, start: 2100}}, prompt, true},
+		{"a process in the second before the prompt", map[int]fakeProc{10: withChildren(claude, "14"), 14: {comm: "node", pgrp: 10, start: 1950}}, prompt, true},
+		{"no first prompt known", map[int]fakeProc{10: withChildren(claude, "11"), 11: mcp}, time.Time{}, true},
+		{"a wrapper's agent alone", map[int]fakeProc{10: wrapper, 15: codex}, prompt, false},
+		{"a wrapper's agent's MCP server", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "11"), 11: mcp}, prompt, false},
+		{"a wrapper's agent's tool shell", map[int]fakeProc{10: wrapper, 15: withChildren(codex, "16"), 16: {comm: "bash", pgrp: 10, start: 2500}}, prompt, true},
+		{"unreadable", map[int]fakeProc{}, prompt, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fakeProcRoot(t, tc.procs)
-			if got := procBusy(10); got != tc.want {
+			if got := procBusy(10, tc.tools); got != tc.want {
 				t.Fatalf("procBusy = %v, want %v", got, tc.want)
 			}
 		})

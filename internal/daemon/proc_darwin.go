@@ -4,6 +4,7 @@ import (
 	"golang.org/x/sys/unix"
 	"net"
 	"syscall"
+	"time"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -87,4 +88,4 @@ func peerPID(nc net.Conn) int {
 
 // procBusy cannot tell an agent's processes apart here, so it reports
 // busy and parking never ends the agent.
-func procBusy(int) bool { return true }
+func procBusy(int, time.Time) bool { return true }

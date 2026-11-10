@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -136,24 +137,47 @@ func children(pid int) []int {
 	return out
 }
 
-// procBusy reports whether the agent leading group pg runs any process of
-// its own: a shell, a dev server, a watcher or an MCP server, which
-// nothing tells apart. The agent a wrapper runs (node running Codex) is
-// looked into instead. An unreadable leader counts as busy.
-func procBusy(pg int) bool {
-	if statField(pg, 5) == 0 {
+// procBusy reports whether the agent leading group pg runs a process it
+// started at or after tools, its first prompt: a tool's shell, dev server
+// or watcher. What it started before, such as MCP servers at launch, does
+// not count. The agent a wrapper runs (node running Codex) is looked into
+// instead. A start time it cannot read, or within a second of tools,
+// counts as busy.
+func procBusy(pg int, tools time.Time) bool {
+	boot := bootTime()
+	if statField(pg, 5) == 0 || boot == 0 {
 		return true
 	}
+	// ponytail: assumes USER_HZ 100, as on every architecture pitwall ships for.
+	cutoff := (tools.Unix() - 1 - boot) * 100
 	var walk func(pid, depth int) bool
 	walk = func(pid, depth int) bool {
 		for _, c := range children(pid) {
-			if depth >= 2 || identifyProc(c, readComm(c)) == "" || walk(c, depth+1) {
+			switch start := int64(statField(c, 22)); {
+			case depth < 2 && identifyProc(c, readComm(c)) != "":
+				if walk(c, depth+1) {
+					return true
+				}
+			case start == 0 || start >= cutoff:
 				return true
 			}
 		}
 		return false
 	}
 	return walk(pg, 0)
+}
+
+// bootTime is the system's boot time in Unix seconds, from /proc/stat's
+// btime line, or 0.
+func bootTime() int64 {
+	b, _ := os.ReadFile(procRoot + "/stat")
+	for line := range strings.Lines(string(b)) {
+		if v, ok := strings.CutPrefix(line, "btime "); ok {
+			n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			return n
+		}
+	}
+	return 0
 }
 
 // procParent is pid's parent and process group, or 0s.

@@ -30,7 +30,7 @@ func parkDaemonWith(t *testing.T, edit func(*Options)) (*Daemon, *fakes) {
 		edit(o)
 	})
 	busy := agentBusy
-	agentBusy = func(Pane) bool { return false }
+	agentBusy = func(Pane, time.Time) bool { return false }
 	oldSettle := sendSettle.set(time.Millisecond)
 	t.Cleanup(func() {
 		agentBusy = busy
@@ -113,7 +113,7 @@ func TestParkNever(t *testing.T) {
 		{"background subagents", func(t *testing.T, d *Daemon, f *fakes) {
 			claudeHook(t, d, "a", `{"hook_event_name":"Stop","background_tasks":[{"type":"subagent","status":"running"}]}`)
 		}},
-		{"child processes", func(t *testing.T, d *Daemon, f *fakes) { agentBusy = func(Pane) bool { return true } }},
+		{"child processes", func(t *testing.T, d *Daemon, f *fakes) { agentBusy = func(Pane, time.Time) bool { return true } }},
 		{"no resume command", func(t *testing.T, d *Daemon, f *fakes) {
 			d.mu.Lock()
 			d.st.Panes[0].SessionID = ""
@@ -483,5 +483,46 @@ func TestParkedAcrossRestart(t *testing.T) {
 	// Pane b, a shell, starts again; a does not.
 	if started := len(f.panes) - n; started != 1 {
 		t.Fatalf("%d panes started, want only the shell", started)
+	}
+}
+
+// toolsSince is the first prompt of the agent's current process: now
+// before one for a start the daemon saw, zero for a process it did not see
+// start, and it starts over with each new process.
+func TestParkToolsSince(t *testing.T) {
+	d, f := parkDaemon(t)
+	now := time.Now().Add(time.Hour)
+	at := func(id string) time.Time {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return d.toolsSince(id, now)
+	}
+	if got := at("a"); !got.Equal(now) {
+		t.Fatalf("before any prompt: %v, want now", got)
+	}
+	if got := at("b"); !got.IsZero() {
+		t.Fatalf("a pane whose start it did not see: %v, want zero", got)
+	}
+	before := time.Now()
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"go"}`)
+	first := at("a")
+	if first.Before(before) || first.After(time.Now()) {
+		t.Fatalf("after the first prompt: %v, want its time", first)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"again"}`)
+	if got := at("a"); !got.Equal(first) {
+		t.Fatalf("after a second prompt: %v, want the first's %v", got, first)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop"}`)
+	park(t, d, f)
+	if got := at("a"); !got.IsZero() {
+		t.Fatalf("parked: %v, want zero", got)
+	}
+	if err := d.send(proto.Send{Pane: "a", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	claudeHook(t, d, "a", `{"hook_event_name":"SessionStart","source":"resume"}`)
+	if got := at("a"); !got.Equal(now) {
+		t.Fatalf("resumed, before a prompt: %v, want now", got)
 	}
 }
