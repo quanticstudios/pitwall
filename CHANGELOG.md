@@ -19,7 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
-- Monitor tabs use sector v0.1.3: the memory, disk and network graphs keep only the room their axis numbers need on the right, and the Cores card numbers cores 0 up, so an Intel hybrid CPU such as the i9-13900 reads "cores 0 to 23, 8 with two threads" instead of "cores 0 to 47".
+- Monitor tabs use sector v0.1.4: the memory, disk and network graphs keep only the room their axis labels need on the right, with each top number's unit on the line below it, and the Cores card numbers cores 0 up, so an Intel hybrid CPU such as the i9-13900 reads "cores 0 to 23, 8 with two threads" instead of "cores 0 to 47".
 
 ## v0.2.4
 
