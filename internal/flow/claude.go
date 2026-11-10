@@ -42,6 +42,7 @@ type claudeEntry struct {
 	IsMeta           bool   `json:"isMeta"`
 	IsSidechain      bool   `json:"isSidechain"`
 	IsCompactSummary bool   `json:"isCompactSummary"`
+	APIError         bool   `json:"isApiErrorMessage"`
 	Origin           *struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`

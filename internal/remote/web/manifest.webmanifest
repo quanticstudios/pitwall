@@ -1,7 +1,7 @@
 {
   "name": "pitwall",
   "short_name": "pitwall",
-  "description": "See which agents need you and answer them.",
+  "description": "Follow every pitwall tab, read its agent's chat and answer it.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -142,6 +142,11 @@ func (d *Daemon) remoteServer() *remote.Server {
 		Reply:       d.remoteReply,
 		Approve:     d.remoteApprove,
 		AnswerInput: d.remoteInput,
+		Tabs:        d.phoneTabs,
+		Changed:     d.phoneChanged,
+		ChatEntries: d.phoneChatEntries,
+		Send:        d.phoneSend,
+		Command:     d.phoneCommand,
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/session"
@@ -146,6 +147,21 @@ type Server struct {
 	Web *web.Client
 	WS  http.Handler
 
+	// Tabs lists every tab for the chat page, and Changed is closed at the
+	// daemon's next change. ChatEntries is a chat tab's transcript, and the
+	// model its latest turn used; ok is false for no such chat.
+	Tabs        func() []Tab
+	Changed     func() <-chan struct{}
+	ChatEntries func(chat string) (entries []flow.Entry, model string, ok bool)
+	// Send types text into pane's agent once it sits at its input box,
+	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
+	// keys, refused unless the agent waits at its input box.
+	Send    func(pane, text string) (id uint64, err error)
+	Command func(pane, command string) error
+
+	lmu  sync.Mutex
+	logs map[string]*paneLog // by pane, the transcripts the page reads
+
 	mu    sync.Mutex
 	fails []time.Time // failed pairings and tokens in the last failWindow
 	now   func() time.Time
@@ -177,12 +193,19 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.HandleFunc("GET /{$}", file("index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /app.js", file("app.js", "text/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /app.css", file("app.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /sw.js", file("sw.js", "text/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /manifest.webmanifest", file("manifest.webmanifest", "application/manifest+json"))
 	for _, png := range []string{"icon-192.png", "icon-512.png", "apple-touch-icon.png"} {
 		mux.HandleFunc("GET /"+png, file(png, "image/png"))
 	}
 	mux.HandleFunc("POST /api/pair", s.pair)
+	if s.Tabs != nil {
+		mux.Handle("GET /api/stream", sameOrigin(s.authed(s.stream)))
+		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
+		mux.Handle("POST /api/send", sameOrigin(s.authed(s.sendText)))
+		mux.Handle("POST /api/command", sameOrigin(s.authed(s.command)))
+	}
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})
 	}))
@@ -308,7 +331,7 @@ func named(w http.ResponseWriter, chat, request string) bool {
 func headers(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
-		hd.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		hd.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Set("Referrer-Policy", "no-referrer")
 		hd.Set("Cache-Control", "no-store")

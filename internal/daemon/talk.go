@@ -171,6 +171,10 @@ type letter struct {
 	images     []string // paths typed before the text
 	window     bool     // from the window, which judged the agent ready itself
 	seq        uint64   // the window's proto.Deliver.Seq
+	// phone is a phone message's id, 0 for any other; owner is the agent
+	// it was for.
+	phone uint64
+	owner model.Provider
 }
 
 // send queues m for its pane's agent, which gets it when it next sits at
@@ -227,6 +231,12 @@ func (d *Daemon) canQueue(pane string) error {
 // user's act for the loop guard and a resume, but as no key: nothing typed in
 // the pane holds it back.
 func (d *Daemon) windowDeliver(m proto.Deliver) error {
+	return d.userDeliver(m.Pane, letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
+}
+
+// userDeliver queues l, the user's own message, as windowDeliver does.
+func (d *Daemon) userDeliver(pane string, l letter) error {
+	m := proto.Deliver{Pane: pane, Text: l.text, Images: l.images}
 	d.mu.Lock()
 	dropped := false
 	defer func() {
@@ -245,7 +255,7 @@ func (d *Daemon) windowDeliver(m proto.Deliver) error {
 	delete(d.mail.sent, m.Pane)
 	dropped = d.dropResume(m.Pane)
 	d.unpark(m.Pane)
-	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], letter{text: m.Text, plain: true, images: m.Images, window: true, seq: m.Seq})
+	d.mail.queue[m.Pane] = append(d.mail.queue[m.Pane], l)
 	d.changed()
 	d.wake(m.Pane, 0)
 	return nil
@@ -300,6 +310,7 @@ func (d *Daemon) deliver(pane string) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 	d.mu.Lock()
+	d.dropOrphanPhone(pane)
 	if len(d.mail.queue[pane]) == 0 || d.waitsToWake(pane) {
 		d.mu.Unlock()
 		return // checkWaking wakes a parked pane's letters once it is back
@@ -351,6 +362,15 @@ func (d *Daemon) deliver(pane string) {
 		return
 	}
 	l := q[i]
+	// why: the agent a phone message was for may have left since the readiness check, or run a tool in the foreground.
+	if l.phone != 0 && (d.agentGone(pane, l) || d.agentAway(pane)) {
+		d.dropOrphanPhone(pane)
+		if len(d.mail.queue[pane]) > 0 {
+			d.wake(pane, sendLook.get())
+		}
+		d.mu.Unlock()
+		return
+	}
 	if len(q) == 1 {
 		delete(d.mail.queue, pane)
 	} else {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -162,3 +163,12 @@ func ScreenText(g vt.Grid, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// SwitchModelAsked reports Claude Code's "Switch model?" dialog, which /model
+// raises in a conversation, with "Yes, switch to" as its first option.
+func SwitchModelAsked(g vt.Grid) bool {
+	t := ScreenText(g, 20)
+	return strings.Contains(t, "Switch model?") && switchYes.MatchString(t)
+}
+
+var switchYes = regexp.MustCompile(`(?m)^\W*1\. Yes, switch to `)
