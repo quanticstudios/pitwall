@@ -19,7 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
-- An Android app, built with `sh scripts/apk.sh` and installed by hand: pitwall's sidebar as the home screen, with Waiting on you across sessions and Allow and Deny on a row, and each agent tab's chat with model, effort and send on the message box. It pairs with the link `pitwall remote pair` prints and reconnects on its own; see [Phone](docs/phone.md#android-app). The phone page's model list gains `opus[1m]`.
+- An Android app, built with `sh scripts/apk.sh` and installed by hand: pitwall's sidebar as the home screen, with Waiting on you across sessions and Allow and Deny on a row, and each agent tab's chat with model, effort and send on the message box. It pairs with the link `pitwall remote pair` prints, with as many computers as you like in one sidebar, and reconnects to each on its own; see [Phone](docs/phone.md#android-app). The phone page's model list gains `opus[1m]`.
 
 ## v0.2.6
 
