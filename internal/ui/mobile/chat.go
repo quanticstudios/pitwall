@@ -57,6 +57,10 @@ type chatEnv struct {
 	Retry   func() // reconnects now; nil hides Retry
 	Models  []string
 	Efforts []string
+	// Host is the machine the tab runs on, "" for the paired computer
+	// itself; Hosts are the machines, for the tag's color and up state.
+	Host  string
+	Hosts []sidebar.HostInfo
 	// Do runs call off the window's goroutine and done on it after.
 	Do func(call func(ctx context.Context, api chatAPI) error, done func(error))
 	// Now is the clock, for tests and the demo; zero means time.Now.
@@ -237,6 +241,12 @@ func (c *chatView) header(gtx C, th *theme.Theme, env chatEnv) D {
 										return D{}
 									}
 									return layout.Inset{Right: 7}.Layout(gtx, func(gtx C) D { return statePill(gtx, th, t, th.Bg) })
+								}),
+								layout.Rigid(func(gtx C) D {
+									if env.Host == "" {
+										return D{}
+									}
+									return layout.Inset{Right: 7}.Layout(gtx, func(gtx C) D { return hostTag(gtx, th, env) })
 								}),
 								layout.Flexed(1, func(gtx C) D {
 									return label(gtx, th, th.UIFont, 14, th.Muted, 1, c.agentLine(t))
@@ -733,4 +743,13 @@ func midFlex(gtx C, children ...layout.FlexChild) D {
 	call.Add(gtx.Ops)
 	off.Pop()
 	return D{Size: image.Pt(d.Size.X, max(h, d.Size.Y))}
+}
+
+// hostTag is the desktop's host tag for a tab on another machine, scaled
+// from its 17dp to the state pill's 20dp so the two sit level.
+func hostTag(gtx C, th *theme.Theme, env chatEnv) D {
+	gtx.Metric.PxPerDp *= 20.0 / 17
+	gtx.Metric.PxPerSp *= 20.0 / 17
+	gtx.Constraints.Min = image.Point{}
+	return sidebar.HostChip(gtx, th, env.Hosts, env.Host, th.Bg)
 }

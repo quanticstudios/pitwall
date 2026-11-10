@@ -23,13 +23,14 @@ import (
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
+	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
 // DemoStates are the chat states ChatDemo draws, as the design shows them.
 var DemoStates = []string{
 	"following", "scrolled", "ready", "queued", "six-lines", "sending", "not-sent",
-	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline",
+	"model-menu", "effort-menu", "model-pending", "long-name", "codex", "approval", "offline", "host",
 }
 
 // demoAPI answers the chat's calls after a short wait, as a computer would.
@@ -138,6 +139,9 @@ func demoChat(state string) (*chatView, chatEnv, bool) {
 	case "approval":
 		env.Tab.State, env.Tab.Label, env.Tab.Detail, env.Tab.Answer = "pending-approval", "Approval", demoRun, true
 		c.data.Entries = c.data.Entries[:6]
+	case "host":
+		env.Host = "box"
+		env.Hosts = []sidebar.HostInfo{{Up: true}, {Name: "box", Up: true}}
 	case "offline":
 		env.Online, env.Offline = false, "Offline, reconnecting in 4 s"
 		env.Retry = func() {}
