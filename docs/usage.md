@@ -1890,24 +1890,24 @@ and Changes view list every open port and have a link to the named URL.
 
 The daemon's HTTP proxy listens only on `127.0.0.1:7778`. Port 7778 is beside
 the phone page's default 7777 and needs no administrator privileges.
-`<branch>.<repo>.localhost:7778` forwards to the first open port in the tab's
-block. `<n>.<branch>.<repo>.localhost:7778` forwards to `PITWALL_PORT_BASE + n`,
+`<folder>.<repo>.localhost:7778` forwards to the first open port in the tab's
+block. `<n>.<folder>.<repo>.localhost:7778` forwards to `PITWALL_PORT_BASE + n`,
 where `n` starts at 0 and must fit inside the block. For example,
 `http://1.fix-login.web-app.localhost:7778` reaches the second port.
 WebSocket upgrades pass through for hot module reload.
 
-Branch and repo names become lowercase DNS labels. Runs of punctuation
-become a hyphen, leading and trailing hyphens disappear, and labels stop at
+Worktree folder and repo names become lowercase DNS labels. Runs of
+punctuation become a hyphen, leading and trailing hyphens disappear, and labels stop at
 63 characters. A name with no ASCII letters or digits becomes `worktree`.
 If two tabs produce the same name, the proxy returns 409 instead of choosing
 a tab. Use direct port URLs for those tabs. Unknown `.localhost` names get
 a plain 404 page listing the known names. Other Host values get 403.
 
-Each worktree pane also gets `PITWALL_URL`, such as
-`http://fix-login.web-app.localhost:7778`. The URL uses the branch at pane
-startup. Reopen the pane after changing its branch. The first-port route
-can take one probe interval to find a server that just started. A tab with
-no open ports gets 503; a port that stops answering can return 502 until
+Panes started while the proxy is listening also get `PITWALL_URL`, such as
+`http://fix-login.web-app.localhost:7778`. The name uses the worktree folder,
+so changing branches or entering detached HEAD does not change the URL.
+The first-port route can take one probe interval to find a server that
+just started. A tab with no open ports gets 503; a port that stops answering can return 502 until
 the next probe.
 
 [Chromium supports `.localhost` names without DNS setup](https://web.dev/articles/when-to-use-local-https).
@@ -1934,7 +1934,11 @@ port = 7778
 Set `enabled = false` to keep direct port URLs and omit `PITWALL_URL`.
 Restart the daemon and reopen panes after changing these settings. A port
 that another process holds prevents the proxy from starting; the daemon
-logs the bind error in `daemon.log`. Pick a free port in that case.
+logs the bind error in `daemon.log` and offers direct port URLs until it
+can bind. Panes started without a bound proxy get no `PITWALL_URL`; reopen
+them after the proxy starts. The GUI uses the bound port reported by the
+daemon, so a config edit cannot point links at another listener. Pick a
+free port if the configured one stays occupied.
 The proxy port must not overlap the worktree blocks.
 
 With `pitwall --host`, the daemon checks the host's ports, so the hover

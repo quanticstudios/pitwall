@@ -496,6 +496,7 @@ func NewWith(o Options) (*Daemon, error) {
 
 // fromState is a daemon holding st and no panes.
 func fromState(o Options, st model.State) *Daemon {
+	st.DevProxyPort = 0 // A handoff's listener belongs to the sending daemon.
 	if o.StatsInterval == 0 {
 		o.StatsInterval = 30 * time.Second
 	}

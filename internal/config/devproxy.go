@@ -5,7 +5,7 @@ import "fmt"
 // DevProxy is [dev_proxy], the local worktree HTTP proxy.
 type DevProxy struct {
 	Enabled *bool    `toml:"enabled" doc:"Serve named worktree dev servers on 127.0.0.1. Set false to keep direct port URLs. Restart the daemon and panes after changing these settings."`
-	Port    *float64 `toml:"port" min:"1024" max:"65535" doc:"Port for branch.repo.localhost URLs. Default 7778, beside the phone page's 7777. Never listens outside 127.0.0.1."`
+	Port    *float64 `toml:"port" min:"1024" max:"65535" doc:"Port for folder.repo.localhost URLs. Default 7778, beside the phone page's 7777. Never listens outside 127.0.0.1."`
 }
 
 // DevProxySettings is [dev_proxy] with defaults filled in.

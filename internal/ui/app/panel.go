@@ -155,7 +155,7 @@ func (u *ui) layoutPanel(gtx gl.Context, st *model.State, r image.Rectangle) {
 		in.Branch = st.Stats[ws.ID]
 		in.Ports, in.Listening = ws.Ports, st.Listening[ws.ID]
 		if u.hostOf(ws.ID) == "" {
-			in.DevURL = ws.DevURL(u.cfg.DevProxy.URLPort())
+			in.DevURL = ws.DevURL(st.DevProxyPort)
 		}
 		dir = ws.Path
 		if c := findChat(st, ws.Chat); c != nil {

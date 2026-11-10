@@ -3,12 +3,13 @@ package daemon
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"slices"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ import (
 )
 
 func devTab() model.Workspace {
-	return model.Workspace{ID: "w", Branch: "fix/login", WorktreeRoot: "/srv/web-app", Ports: model.PortBlock{First: 3010, Last: 3019}}
+	return model.Workspace{ID: "w", Branch: "fix/login", Path: "/srv/web-app/.worktrees/fix-login", WorktreeRoot: "/srv/web-app", Ports: model.PortBlock{First: 3010, Last: 3019}}
 }
 
 func TestDevRouting(t *testing.T) {
@@ -69,7 +70,7 @@ func TestDevRouting(t *testing.T) {
 	check(409)
 	d.st.Workspaces = d.st.Workspaces[:1]
 	d.st.Listening = map[string][]int{"w": {3012}}
-	d.o.DevProxy.Port = 3012
+	d.st.DevProxyPort = 3012
 	check(502)
 }
 
@@ -109,7 +110,9 @@ func TestDevProxyWebSocket(t *testing.T) {
 	ln.Close()
 	tab := devTab()
 	tab.Ports = model.PortBlock{First: port, Last: port}
-	d := &Daemon{o: Options{DevProxy: config.DevProxySettings{Enabled: true, Port: proxyPort}}, st: model.State{Workspaces: []model.Workspace{tab}, Listening: map[string][]int{"w": {port}}}}
+	d := newDaemon(t, (&fakes{statsCalls: map[string]int{}}).options())
+	d.o.DevProxy = config.DevProxySettings{Enabled: true, Port: proxyPort}
+	d.st.Workspaces, d.st.Listening = []model.Workspace{tab}, map[string][]int{"w": {port}}
 	stop := d.serveDevProxy()
 	if stop == nil {
 		t.Fatal("proxy did not bind")
@@ -139,8 +142,9 @@ func TestDevProxyWebSocket(t *testing.T) {
 		t.Fatalf("reply %x", frame)
 	}
 	stop()
-	if _, err := c.Read(make([]byte, 1)); err == nil {
-		t.Fatal("upgrade survived proxy shutdown")
+	c.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := c.Read(make([]byte, 1)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("upgrade survived proxy shutdown: %v", err)
 	}
 }
 
@@ -161,7 +165,9 @@ func TestDevProxyIPv6(t *testing.T) {
 	reserved.Close()
 	tab := devTab()
 	tab.Ports = model.PortBlock{First: port, Last: port}
-	d := &Daemon{o: Options{DevProxy: config.DevProxySettings{Enabled: true, Port: proxyPort}}, st: model.State{Workspaces: []model.Workspace{tab}, Listening: map[string][]int{"w": {port}}}}
+	d := newDaemon(t, (&fakes{statsCalls: map[string]int{}}).options())
+	d.o.DevProxy = config.DevProxySettings{Enabled: true, Port: proxyPort}
+	d.st.Workspaces, d.st.Listening = []model.Workspace{tab}, map[string][]int{"w": {port}}
 	stop := d.serveDevProxy()
 	if stop == nil {
 		t.Fatal("proxy did not bind")
@@ -196,22 +202,60 @@ func TestDevProxyBindFailure(t *testing.T) {
 	}
 }
 
-func TestWorktreeURLEnvironment(t *testing.T) {
+func TestDevProxyBoundState(t *testing.T) {
+	held, occupied := listen(t)
+	tab := devTab()
 	f := &fakes{statsCalls: map[string]int{}}
 	o := f.options()
-	o.DevProxy = config.DevProxySettings{Enabled: true, Port: 7778}
+	o.DevProxy = config.DevProxySettings{Enabled: true, Port: occupied}
+	o.Load = func() (model.State, error) {
+		return model.State{Workspaces: []model.Workspace{tab}, DevProxyPort: occupied}, nil
+	}
 	d := newDaemon(t, o)
-	tab := devTab()
-	d.st.Workspaces = []model.Workspace{tab}
-	if err := d.handle(t.Context(), proto.OpenPane{WorkspaceID: tab.ID}); err != nil {
-		t.Fatal(err)
+	next := 0
+	open := func(wantPort int) {
+		t.Helper()
+		if got := d.state().DevProxyPort; got != wantPort {
+			t.Fatalf("published port %d, want %d", got, wantPort)
+		}
+		if err := d.handle(t.Context(), proto.OpenPane{WorkspaceID: tab.ID}); err != nil {
+			t.Fatal(err)
+		}
+		got := ""
+		for _, entry := range f.pane(next).cfg.Env {
+			if value, ok := strings.CutPrefix(entry, "PITWALL_URL="); ok {
+				got = value
+			}
+		}
+		next++
+		if want := tab.DevURL(wantPort); got != want {
+			t.Fatalf("PITWALL_URL=%q, want %q", got, want)
+		}
 	}
-	want := "PITWALL_URL=http://fix-login.web-app.localhost:7778"
-	if !slices.Contains(f.pane(0).cfg.Env, want) {
-		t.Fatalf("missing %s", want)
+	open(0)
+	if stop := d.serveDevProxy(); stop != nil {
+		stop()
+		t.Fatal("proxy bound an occupied port")
 	}
-	d.o.DevProxy.Enabled = false
-	if slices.Contains(d.worktreeEnv(tab), want) {
-		t.Fatal("disabled proxy supplies PITWALL_URL")
+	open(0)
+	held.Close()
+	d.o.DevProxy.Port = 0
+	before := d.state().Version
+	stop := d.serveDevProxy()
+	if stop == nil {
+		t.Fatal("proxy did not bind")
 	}
+	defer stop()
+	bound := d.state().DevProxyPort
+	if bound == 0 || d.state().Version == before {
+		t.Fatal("bound port was not published")
+	}
+	d.o.DevProxy.Port = bound + 1
+	open(bound)
+	before = d.state().Version
+	stop()
+	if d.state().Version == before {
+		t.Fatal("proxy stop was not published")
+	}
+	open(0)
 }

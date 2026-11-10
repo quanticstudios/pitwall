@@ -10,7 +10,7 @@ import (
 )
 
 func TestDevURLClicks(t *testing.T) {
-	w := model.Workspace{ID: "w", Branch: "fix/login", WorktreeRoot: "/srv/web-app", Ports: model.PortBlock{First: 3010, Last: 3019}}
+	w := model.Workspace{ID: "w", Branch: "fix/login", Path: "/srv/web-app/.worktrees/fix-login", WorktreeRoot: "/srv/web-app", Ports: model.PortBlock{First: 3010, Last: 3019}}
 	s := Sidebar{DevProxyPort: 7778}
 	v := &view{st: &model.State{Listening: map[string][]int{"w": {3010}}}}
 	s.rows = map[string]*rowState{}
@@ -35,7 +35,7 @@ func TestDevURLClicks(t *testing.T) {
 }
 
 func TestDevURLLocalOnly(t *testing.T) {
-	w := model.Workspace{ID: "w", Branch: "fix/login", WorktreeRoot: "/srv/web-app", Ports: model.PortBlock{First: 3010, Last: 3019}}
+	w := model.Workspace{ID: "w", Branch: "fix/login", Path: "/srv/web-app/.worktrees/fix-login", WorktreeRoot: "/srv/web-app", Ports: model.PortBlock{First: 3010, Last: 3019}}
 	s := Sidebar{DevProxyPort: 7778}
 	if s.devURL(w) != "http://fix-login.web-app.localhost:7778" {
 		t.Fatal("local URL missing")

@@ -623,7 +623,6 @@ func (u *ui) layout(gtx gl.Context) {
 	}
 	// The board draws with the sidebar's hosts too, sidebar shown or not.
 	u.sidebar.Hosts, u.sidebar.HostOf, u.sidebar.TabNumber = u.hosts, nil, nil
-	u.sidebar.DevProxyPort = u.cfg.DevProxy.URLPort()
 	if len(u.hosts) > 1 {
 		u.sidebar.HostOf = u.hostOf
 	}
@@ -655,6 +654,7 @@ func (u *ui) layout(gtx gl.Context) {
 	u.sidebar.Answers = u.canAnswer()
 	u.sidebar.Shelves = u.link().Level >= proto.InboxLevel
 	st := u.b.State()
+	u.sidebar.DevProxyPort = st.DevProxyPort
 	for _, p := range u.panes {
 		p.rect = image.Rectangle{}
 	}

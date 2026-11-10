@@ -48,6 +48,7 @@ import (
 // TestWireFingerprint checks a layout change against testdata/wire.txt and
 // fails until the right number is bumped.
 //
+// Level 72 added State.DevProxyPort: the port the daemon's dev proxy bound.
 // Level 71 added Task.FreshWorktree and Workspace.TaskRun for disposable task worktrees.
 // Level 70 added NewSession.Monitor and model.Workspace.Monitor: Monitor
 // tabs. A client below MonitorTabLevel never sees one.
@@ -198,7 +199,7 @@ import (
 const Version = 18
 
 // Level is the count of additive changes within Version; see Version.
-const Level = 71
+const Level = 72
 
 // MonitorTabLevel added NewSession.Monitor and model.Workspace.Monitor.
 const MonitorTabLevel = 70

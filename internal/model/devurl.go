@@ -6,12 +6,12 @@ import (
 	"strings"
 )
 
-// DevHost is the worktree's branch.repo.localhost name, or empty without ports.
+// DevHost is the worktree's folder.repo.localhost name, or empty without ports.
 func (w Workspace) DevHost() string {
-	if w.Ports.First == 0 || w.WorktreeRoot == "" || w.Branch == "" {
+	if w.Ports.First == 0 || w.WorktreeRoot == "" || w.Path == "" {
 		return ""
 	}
-	return dnsLabel(w.Branch) + "." + dnsLabel(filepath.Base(w.WorktreeRoot)) + ".localhost"
+	return dnsLabel(filepath.Base(w.Path)) + "." + dnsLabel(filepath.Base(w.WorktreeRoot)) + ".localhost"
 }
 
 // DevURL is the worktree's URL on proxyPort, or empty when the proxy is off.

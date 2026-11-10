@@ -21,7 +21,7 @@ import (
 
 func (d *Daemon) worktreeEnv(w model.Workspace) []string {
 	env := portEnv(w.Ports)
-	if u := w.DevURL(d.o.DevProxy.URLPort()); u != "" {
+	if u := w.DevURL(d.st.DevProxyPort); u != "" {
 		env = append(env, "PITWALL_URL="+u)
 	}
 	return env
@@ -86,8 +86,16 @@ func (d *Daemon) serveDevProxy() func() {
 				mu.Unlock()
 			}
 		}}
+	d.mu.Lock()
+	d.st.DevProxyPort = ln.Addr().(*net.TCPAddr).Port
+	d.changed()
+	d.mu.Unlock()
 	go srv.Serve(ln)
-	return func() {
+	return sync.OnceFunc(func() {
+		d.mu.Lock()
+		d.st.DevProxyPort = 0
+		d.changed()
+		d.mu.Unlock()
 		srv.Close()
 		mu.Lock()
 		defer mu.Unlock()
@@ -95,7 +103,7 @@ func (d *Daemon) serveDevProxy() func() {
 			c.Close() // Server.Close leaves WebSocket connections open.
 		}
 		transport.CloseIdleConnections()
-	}
+	})
 }
 
 type devPortKey struct{}
@@ -125,6 +133,7 @@ func (d *Daemon) devHandler(proxy http.Handler) http.Handler {
 			return
 		}
 		d.mu.Lock()
+		proxyPort := d.st.DevProxyPort
 		var names []string
 		port, matches := 0, 0
 		for _, tab := range d.st.Workspaces {
@@ -165,7 +174,7 @@ func (d *Daemon) devHandler(proxy http.Handler) http.Handler {
 			http.Error(w, "No dev server is listening in this tab's port block", http.StatusServiceUnavailable)
 			return
 		}
-		if port == d.o.DevProxy.Port {
+		if port == proxyPort {
 			http.Error(w, "The target is the proxy's own port", http.StatusBadGateway)
 			return
 		}
