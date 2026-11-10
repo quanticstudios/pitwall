@@ -145,9 +145,13 @@ func AddWorktree(ctx context.Context, repoRoot, name string, from model.Worktree
 		return "", "", err
 	}
 	var args []string
+	record := "" // the branch a new branch starts from, recorded as fromKey
 	switch from.Kind {
 	case model.FromNew:
 		base := from.Ref
+		if q := Qualify(ctx, repoRoot, base); q != "" {
+			base, record = q, q // why: a tag of the same name must not win over the branch
+		}
 		if base == "" {
 			if base, err = defaultRef(ctx, repoRoot); err != nil {
 				return "", "", err
@@ -188,8 +192,15 @@ func AddWorktree(ctx context.Context, repoRoot, name string, from model.Worktree
 	if err := excludeWorktrees(ctx, repoRoot); err != nil {
 		return "", "", err
 	}
-	_, err = git(ctx, repoRoot, args...)
-	return path, branch, err
+	if _, err = git(ctx, repoRoot, args...); err != nil {
+		return path, branch, err
+	}
+	if record != "" {
+		// why: the review view offers it as a base; a failed write only
+		// leaves it out of that list, so the worktree stands.
+		git(ctx, repoRoot, "config", "branch."+branch+"."+fromKey, record)
+	}
+	return path, branch, nil
 }
 
 // excludeWorktrees adds /.worktrees/ to the repo's .git/info/exclude
@@ -493,6 +504,53 @@ func defaultRef(ctx context.Context, dir string) (string, error) {
 	return ref, nil
 }
 
+// baseRef is base, or the default branch's ref when base is "".
+func baseRef(ctx context.Context, dir, base string) (string, error) {
+	if base != "" {
+		if strings.HasPrefix(base, "-") {
+			return "", fmt.Errorf("no branch %q", base)
+		}
+		return base, nil
+	}
+	return defaultRef(ctx, dir)
+}
+
+// Qualify is the full ref of the branch name names in the repository at
+// dir: refs/heads/<name>, else refs/remotes/<name> for a remote branch
+// such as "origin/fix", or name when it is a full ref already; "" when no
+// branch has that name, as for a tag or a commit.
+func Qualify(ctx context.Context, dir, name string) string {
+	if name == "" || strings.HasPrefix(name, "-") {
+		return ""
+	}
+	cands := []string{"refs/heads/" + name, "refs/remotes/" + name}
+	if strings.HasPrefix(name, "refs/heads/") || strings.HasPrefix(name, "refs/remotes/") {
+		cands = []string{name}
+	}
+	for _, ref := range cands {
+		if hasRef(ctx, dir, ref) {
+			return ref
+		}
+	}
+	return ""
+}
+
+// fromKey is the git config key under branch.<name> that AddWorktree
+// records a new branch's --from in.
+const fromKey = "pitwall-base"
+
+// CreatedFrom is the full ref of the branch worktree's current branch was
+// made from by pitwall worktree new --from, "" when pitwall did not record
+// one or that branch is gone.
+func CreatedFrom(ctx context.Context, worktree string) string {
+	b, err := git(ctx, worktree, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return ""
+	}
+	out, _ := git(ctx, worktree, "config", "--get", "branch."+strings.TrimSpace(b)+"."+fromKey)
+	return Qualify(ctx, worktree, strings.TrimSpace(out))
+}
+
 func git(ctx context.Context, dir string, args ...string) (string, error) {
 	return gitWith(ctx, dir, nil, "", args...)
 }
@@ -761,11 +819,12 @@ type Patch struct {
 // unchanged line of a file in one hunk, so the review view can unfold it.
 const fullContext = 100000
 
-// Diff returns worktree's Patch. The user's config cannot change its
+// Diff returns worktree's Patch from its merge base with base, the
+// default branch when base is "". The user's config cannot change its
 // format: no color, external diff or textconv, the usual prefixes.
-func Diff(ctx context.Context, worktree string) (Patch, error) {
+func Diff(ctx context.Context, worktree, base string) (Patch, error) {
 	var p Patch
-	base, err := defaultRef(ctx, worktree)
+	base, err := baseRef(ctx, worktree, base)
 	if err != nil || base == "" {
 		return p, err
 	}
@@ -801,9 +860,10 @@ func ReadUntracked(root, path string) ([]byte, bool) {
 }
 
 // Discard puts paths in worktree back as they are at the merge base with
-// the default branch, in the index and the work tree, which removes a file
-// the merge base does not have. Untracked paths are deleted instead.
-func Discard(ctx context.Context, worktree string, paths []string, untracked bool) error {
+// base, the default branch when base is "", in the index and the work
+// tree, which removes a file the merge base does not have. Untracked paths
+// are deleted instead.
+func Discard(ctx context.Context, worktree, base string, paths []string, untracked bool) error {
 	root, ok := RepoRoot(ctx, worktree)
 	if !ok {
 		return notRepo(ctx, worktree)
@@ -822,7 +882,7 @@ func Discard(ctx context.Context, worktree string, paths []string, untracked boo
 	if err := refuseRepoFilter(ctx, root); err != nil {
 		return err
 	}
-	base, err := defaultRef(ctx, root)
+	base, err := baseRef(ctx, root, base)
 	if err != nil {
 		return err
 	}

@@ -150,6 +150,9 @@ type guiState struct {
 	// Reviewed is the review view's marks: repository root, then path,
 	// then the hash of the change that was reviewed (review.File.Hash).
 	Reviewed map[string]map[string]string `json:"reviewed,omitempty"`
+	// ReviewBase is the base each tab's review view diffs from, by tab id,
+	// when the user picked one other than the default branch.
+	ReviewBase map[string]reviewPick `json:"review_base,omitempty"`
 	// Recent is the command palette's last run actions, newest first
 	// (paletteEntry.id).
 	Recent []string `json:"recent_actions,omitempty"`

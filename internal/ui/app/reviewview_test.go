@@ -286,7 +286,7 @@ func TestReviewLayout(t *testing.T) {
 	t.Cleanup(func() { readDiff = old })
 	patch := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1,2 +1,2 @@\n x\n-y\n+z\n" +
 		"diff --git a/b.go b/b.go\n--- a/b.go\n+++ b/b.go\n@@ -1 +1 @@\n-p\n+q\n"
-	readDiff = func(context.Context, string) (gitstat.Patch, error) {
+	readDiff = func(context.Context, string, string) (gitstat.Patch, error) {
 		return gitstat.Patch{Base: "refs/heads/main", Root: "/repo", Diff: []byte(patch)}, nil
 	}
 	b := newAgentBackend(model.StateCompleted)
@@ -370,7 +370,7 @@ func TestReviewTurnScope(t *testing.T) {
 	file := func(name string) []byte {
 		return []byte("diff --git a/" + name + " b/" + name + "\n--- a/" + name + "\n+++ b/" + name + "\n@@ -1 +1 @@\n-p\n+q\n")
 	}
-	readDiff = func(context.Context, string) (gitstat.Patch, error) {
+	readDiff = func(context.Context, string, string) (gitstat.Patch, error) {
 		return gitstat.Patch{Base: "refs/heads/main", Root: "/repo", Diff: file("branch.go")}, nil
 	}
 	readTurn = func(_ context.Context, dir, ws string) (gitstat.Turn, error) {
