@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"image"
 	"log"
@@ -25,13 +26,41 @@ import (
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
 
-// readRefs, readFrom and readPRBase are what the base list reads; tests
+// readRefs, readFrom and readPRBase are what the base list reads, and
+// branchRef what the review checks a picked base still exists with; tests
 // replace them.
 var (
 	readRefs   = gitstat.ListRefs
 	readFrom   = gitstat.CreatedFrom
 	readPRBase = forge.Base
+	branchRef  = gitstat.Qualify
 )
+
+// reviewPick is a base picked in a tab's review view: Ref, a full ref such
+// as refs/heads/feature, while the tab is on Branch.
+type reviewPick struct {
+	Ref    string `json:"ref"`
+	Branch string `json:"branch"`
+}
+
+// pickOf is the base picked for tab id, "" for none or when the tab has
+// moved to another branch since.
+func (n *nav) pickOf(st *model.State, id string) string {
+	p, ok := n.reviewBase[id]
+	if ws := findWorkspace(st, id); !ok || ws == nil || ws.Branch != p.Branch {
+		return ""
+	}
+	return p.Ref
+}
+
+// refLabel is how the review names ref: "feature" for refs/heads/feature,
+// "origin/feature" for refs/remotes/origin/feature.
+func refLabel(ref string) string {
+	if l, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+		return l
+	}
+	return strings.TrimPrefix(ref, "refs/remotes/")
+}
 
 // basePicker is the review header's list of bases the Branch scope can
 // diff from, filtered by what is typed.
@@ -47,24 +76,38 @@ type basePicker struct {
 	mu    sync.Mutex
 	items []baseItem // nil while they are read
 	err   string
+	gen   int                // the read items may come from; a closed list's read is dropped
+	stop  context.CancelFunc // cancels that read
 }
 
-// baseItem is one row of the base list: ref is what git diffs from, ""
-// for the default branch; note says why the row is there.
+// close closes the list and drops its read.
+func (p *basePicker) close() {
+	p.open = false
+	p.mu.Lock()
+	if p.stop != nil {
+		p.stop()
+		p.stop = nil
+	}
+	p.gen++
+	p.items, p.err = nil, ""
+	p.mu.Unlock()
+}
+
+// baseItem is one row of the base list: ref is the full ref git diffs
+// from, "" for the default branch; note says why the row is there.
 type baseItem struct{ ref, label, note string }
 
-// baseItems is the base list: the default branch, the branch the tab's
-// worktree was made from, into, the branch its pull request merges into,
-// then the other local branches, each branch once, and never branch, the
-// tab's own.
+// baseItems is the base list: the default branch, from, the full ref of
+// the branch the tab's worktree was made from, into, the branch its pull
+// request merges into, then the other local branches, each branch once,
+// never branch, the tab's own, and never one refs no longer has.
 func baseItems(refs gitstat.Refs, from, into, branch string) []baseItem {
-	items := []baseItem{{label: refs.Default, note: "default branch"}}
-	if refs.Default == "" {
-		items[0].label = "default branch"
-	}
+	items := []baseItem{{label: cmp.Or(refs.Default, "default branch"), note: "default branch"}}
 	at := map[string]int{prBase(refs.Default): 0, branch: -1}
 	add := func(ref, note string) {
-		if ref == "" {
+		local, isLocal := strings.CutPrefix(ref, "refs/heads/")
+		remote, isRemote := strings.CutPrefix(ref, "refs/remotes/")
+		if !(isLocal && slices.Contains(refs.Local, local)) && !(isRemote && slices.Contains(refs.Remote, remote)) {
 			return
 		}
 		if i, ok := at[prBase(ref)]; ok {
@@ -74,18 +117,18 @@ func baseItems(refs gitstat.Refs, from, into, branch string) []baseItem {
 			return
 		}
 		at[prBase(ref)] = len(items)
-		items = append(items, baseItem{ref, ref, note})
+		items = append(items, baseItem{ref, refLabel(ref), note})
 	}
 	add(from, "created from")
 	if into != "" {
-		ref := into
-		if remote := "origin/" + into; slices.Contains(refs.Remote, remote) {
-			ref = remote
+		ref := "refs/heads/" + into
+		if slices.Contains(refs.Remote, "origin/"+into) {
+			ref = "refs/remotes/origin/" + into
 		}
 		add(ref, "pull request base")
 	}
 	for _, b := range refs.Local {
-		add(b, "")
+		add("refs/heads/"+b, "")
 	}
 	return items
 }
@@ -114,11 +157,14 @@ func (u *ui) openBases(st *model.State) {
 	if _, in, _ := r.turnState(); in {
 		return
 	}
+	p.close()
 	p.open, p.focusAsked, p.sel = true, false, 0
 	p.filter.SingleLine, p.filter.Submit = true, true
 	p.filter.SetText("")
+	ctx, cancel := context.WithTimeout(context.Background(), filesWait)
 	p.mu.Lock()
-	p.items, p.err = nil, ""
+	gen := p.gen
+	p.stop = cancel
 	p.mu.Unlock()
 	dir, branch, invalidate := r.dir, ws.Branch, u.invalidate
 	if invalidate == nil {
@@ -127,7 +173,6 @@ func (u *ui) openBases(st *model.State) {
 	pr, hasPR := st.PRs[r.ws]
 	gh := hasPR && ghInstalled()
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), filesWait)
 		defer cancel()
 		refs, err := readRefs(ctx, dir)
 		var base string
@@ -139,9 +184,11 @@ func (u *ui) openBases(st *model.State) {
 		}
 		items := baseItems(refs, readFrom(ctx, dir), base, branch)
 		p.mu.Lock()
-		p.items = items
-		if err != nil {
-			p.err = err.Error()
+		if p.gen == gen { // else the list closed, or opened again, meanwhile
+			p.items = items
+			if err != nil {
+				p.err = err.Error()
+			}
 		}
 		p.mu.Unlock()
 		invalidate()
@@ -157,32 +204,55 @@ func (p *basePicker) shownItems() ([]baseItem, []int) {
 }
 
 // pickBase makes ref, "" for the default branch, the review's base for
-// the tab and saves that, and closes the list.
+// the tab on its current branch and saves that, and closes the list.
 func (u *ui) pickBase(st *model.State, it baseItem) {
 	r := &u.review
-	r.bases.open, r.focus = false, true
+	r.bases.close()
+	r.focus = true
+	ws := findWorkspace(st, r.ws)
+	if ws == nil {
+		return
+	}
 	if u.nav.reviewBase == nil {
-		u.nav.reviewBase = map[string]string{}
+		u.nav.reviewBase = map[string]reviewPick{}
 		u.gui.ReviewBase = u.nav.reviewBase
 	}
 	if it.ref == "" {
 		delete(u.nav.reviewBase, r.ws)
 	} else {
-		u.nav.reviewBase[r.ws] = it.ref
+		u.nav.reviewBase[r.ws] = reviewPick{Ref: it.ref, Branch: ws.Branch}
 	}
 	for id := range u.nav.reviewBase { // a closed tab's pick goes too
 		if findWorkspace(st, id) == nil {
 			delete(u.nav.reviewBase, id)
 		}
 	}
-	if u.report != nil { // a real window, not a test
-		saveGUIState(u.gui)
-	}
+	u.saveGUI()
 	if it.ref != r.picked() {
 		r.setBase(it.ref)
 		r.sel, r.selPath = 0, ""
 	}
 	r.status = "Diffing from " + it.label
+}
+
+func (u *ui) saveGUI() {
+	if u.report != nil { // a real window, not a test
+		saveGUIState(u.gui)
+	}
+}
+
+// dropLost forgets the tab's pick once the review found its branch gone.
+func (u *ui) dropLost() {
+	r := &u.review
+	lost := r.takeLost()
+	if lost == "" {
+		return
+	}
+	if p, ok := u.nav.reviewBase[r.ws]; ok && p.Ref == lost {
+		delete(u.nav.reviewBase, r.ws)
+		u.saveGUI()
+	}
+	r.status = refLabel(lost) + " is gone; diffing from the default branch"
 }
 
 // baseKeys takes the base list's keys while it is open: Escape closes it,
@@ -212,7 +282,8 @@ func (u *ui) baseKeys(gtx gl.Context, st *model.State) bool {
 		}
 		switch e.Name {
 		case key.NameEscape:
-			p.open, r.focus = false, true
+			p.close()
+			r.focus = true
 			return false
 		case key.NameUpArrow:
 			p.sel = max(p.sel-1, 0)
@@ -267,7 +338,8 @@ func (u *ui) drawBases(gtx gl.Context, st *model.State) {
 			break
 		}
 		if _, ok := ev.(pointer.Event); ok {
-			p.open, r.focus = false, true
+			p.close()
+			r.focus = true
 			gtx.Execute(op.InvalidateCmd{})
 			return
 		}

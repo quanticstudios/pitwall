@@ -145,9 +145,13 @@ func AddWorktree(ctx context.Context, repoRoot, name string, from model.Worktree
 		return "", "", err
 	}
 	var args []string
+	record := "" // the branch a new branch starts from, recorded as fromKey
 	switch from.Kind {
 	case model.FromNew:
 		base := from.Ref
+		if q := Qualify(ctx, repoRoot, base); q != "" {
+			base, record = q, q // why: a tag of the same name must not win over the branch
+		}
 		if base == "" {
 			if base, err = defaultRef(ctx, repoRoot); err != nil {
 				return "", "", err
@@ -191,10 +195,10 @@ func AddWorktree(ctx context.Context, repoRoot, name string, from model.Worktree
 	if _, err = git(ctx, repoRoot, args...); err != nil {
 		return path, branch, err
 	}
-	if from.Kind == model.FromNew && from.Ref != "" {
+	if record != "" {
 		// why: the review view offers it as a base; a failed write only
 		// leaves it out of that list, so the worktree stands.
-		git(ctx, repoRoot, "config", "branch."+branch+"."+fromKey, from.Ref)
+		git(ctx, repoRoot, "config", "branch."+branch+"."+fromKey, record)
 	}
 	return path, branch, nil
 }
@@ -511,19 +515,40 @@ func baseRef(ctx context.Context, dir, base string) (string, error) {
 	return defaultRef(ctx, dir)
 }
 
+// Qualify is the full ref of the branch name names in the repository at
+// dir: refs/heads/<name>, else refs/remotes/<name> for a remote branch
+// such as "origin/fix", or name when it is a full ref already; "" when no
+// branch has that name, as for a tag or a commit.
+func Qualify(ctx context.Context, dir, name string) string {
+	if name == "" || strings.HasPrefix(name, "-") {
+		return ""
+	}
+	cands := []string{"refs/heads/" + name, "refs/remotes/" + name}
+	if strings.HasPrefix(name, "refs/heads/") || strings.HasPrefix(name, "refs/remotes/") {
+		cands = []string{name}
+	}
+	for _, ref := range cands {
+		if hasRef(ctx, dir, ref) {
+			return ref
+		}
+	}
+	return ""
+}
+
 // fromKey is the git config key under branch.<name> that AddWorktree
 // records a new branch's --from in.
 const fromKey = "pitwall-base"
 
-// CreatedFrom is the branch worktree's current branch was made from by
-// pitwall worktree new --from, "" when pitwall did not record one.
+// CreatedFrom is the full ref of the branch worktree's current branch was
+// made from by pitwall worktree new --from, "" when pitwall did not record
+// one or that branch is gone.
 func CreatedFrom(ctx context.Context, worktree string) string {
 	b, err := git(ctx, worktree, "symbolic-ref", "--quiet", "--short", "HEAD")
 	if err != nil {
 		return ""
 	}
 	out, _ := git(ctx, worktree, "config", "--get", "branch."+strings.TrimSpace(b)+"."+fromKey)
-	return strings.TrimSpace(out)
+	return Qualify(ctx, worktree, strings.TrimSpace(out))
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {

@@ -649,7 +649,8 @@ it. Pick the branch a stacked branch was made from, and the view shows only
 the stacked branch's own commits. The pick is per tab, kept in `gui.json`,
 and the Branch scope's diff and totals, Discard changes, Open in pager and
 Create pull request's `--base` all use it. Pick the default branch to go
-back. The sidebar's stats and the agent panel's Changes still count from the
+back. A pick holds while the tab stays on the branch it was made on, and the
+view drops it, with a line saying so, once that base branch is deleted. The sidebar's stats and the agent panel's Changes still count from the
 default branch. A new branch made from another, with `pitwall worktree new
 --from <branch>` or the New worktree tab dialog, records it in its git config
 as `branch.<name>.pitwall-base`; that is how the list knows it.

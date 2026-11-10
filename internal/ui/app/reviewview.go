@@ -100,8 +100,9 @@ type reviewView struct {
 	root   string
 	files  []review.File
 	// pick is the base the user picked for the Branch scope, "" for the
-	// default branch.
-	pick string
+	// default branch; lost is a pick whose branch a read found gone, until
+	// the window forgets it.
+	pick, lost string
 	// turnScope asks for This turn, the tab's latest checkpoint against
 	// its files, over Branch; inTurn says files are that. turn is the
 	// latest checkpoint, a zero one for none.
@@ -200,6 +201,15 @@ func (r *reviewView) setBase(base string) {
 	r.reload()
 }
 
+// takeLost is a pick whose branch is gone, once.
+func (r *reviewView) takeLost() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lost := r.lost
+	r.lost = ""
+	return lost
+}
+
 // picked is the base the user picked, "" for the default branch.
 func (r *reviewView) picked() string {
 	r.mu.Lock()
@@ -242,6 +252,7 @@ func (r *reviewView) markRoot(root string) string {
 // deliveries stay.
 func (r *reviewView) hide() {
 	r.on, r.editing = false, false
+	r.bases.close()
 	r.mu.Lock()
 	if r.stop != nil {
 		r.stop()
@@ -281,6 +292,14 @@ func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick cha
 		r.mu.Lock()
 		want, stage, pick := r.turnScope, r.stageScope, r.pick
 		r.mu.Unlock()
+		if pick != "" && !stage && branchRef(c, dir, pick) == "" { // the picked branch is gone
+			r.mu.Lock()
+			if r.pick == pick {
+				r.pick, r.lost = "", pick
+			}
+			r.mu.Unlock()
+			pick = ""
+		}
 		turn, err := readTurn(c, dir, ws)
 		if err != nil {
 			turn = gitstat.Turn{} // no checkpoint to show
@@ -793,7 +812,7 @@ func (u *ui) openReview(st *model.State, id, file string) {
 	// A finished turn opens on what it changed.
 	as := agentStateOf(st, ws)
 	done := as == model.StateCompleted || as == model.StatePROpen
-	u.review.show(id, st.LivePath(*ws), u.nav.reviewBase[id], done, invalidate)
+	u.review.show(id, st.LivePath(*ws), u.nav.pickOf(st, id), done, invalidate)
 	u.review.selPath, u.review.agentState = file, agentStateOf(st, ws)
 }
 
@@ -1074,6 +1093,7 @@ func (u *ui) layoutReview(gtx gl.Context, st *model.State) {
 		u.review.agentState = s
 		u.review.reload()
 	}
+	u.dropLost()
 	u.drawReview(gtx, st)
 	u.drawBases(gtx, st)
 	if r := &u.review; r.focus {

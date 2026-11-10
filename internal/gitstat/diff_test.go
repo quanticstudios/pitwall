@@ -117,10 +117,52 @@ func TestDiffStackedBase(t *testing.T) {
 	if got := files("feature"); !slices.Equal(got, []string{"stacked.txt"}) {
 		t.Errorf("against feature after Discard: %q", got)
 	}
-	if got := CreatedFrom(ctx, path); got != "feature" || branch != "stacked" {
+	if got := CreatedFrom(ctx, path); got != "refs/heads/feature" || branch != "stacked" {
 		t.Errorf("CreatedFrom = %q, branch %q", got, branch)
 	}
 	if got := CreatedFrom(ctx, dir); got != "" {
 		t.Errorf("CreatedFrom(main) = %q", got)
+	}
+}
+
+// TestDiffTagShadowsBranch has a tag named feature on main beside the
+// branch feature: a branch stacked on the branch starts from it and
+// records it in full, so its diff from that record lists only its own
+// file and Discard puts feature.txt back as the branch has it instead of
+// deleting it, as the tag's tree would.
+func TestDiffTagShadowsBranch(t *testing.T) {
+	dir := repo(t)
+	ctx := context.Background()
+	runGit(t, dir, "tag", "feature")
+	runGit(t, dir, "checkout", "-q", "-b", "feature")
+	writeFile(t, dir, "feature.txt", "f\n")
+	commit(t, dir)
+	runGit(t, dir, "checkout", "-q", "main")
+	path, _, err := AddWorktree(ctx, dir, "stacked", model.WorktreeFrom{Ref: "feature"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(path, "feature.txt")); err != nil {
+		t.Fatalf("the worktree started from the tag, not the branch: %v", err)
+	}
+	writeFile(t, path, "stacked.txt", "s\n")
+	commit(t, path)
+	writeFile(t, path, "feature.txt", "changed\n")
+	base := CreatedFrom(ctx, path)
+	if base != "refs/heads/feature" {
+		t.Fatalf("CreatedFrom = %q", base)
+	}
+	if err := Discard(ctx, path, base, []string{"feature.txt"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(path, "feature.txt")); err != nil || string(b) != "f\n" {
+		t.Errorf("feature.txt after Discard = %q, %v; want the branch's f", b, err)
+	}
+	p, err := Diff(ctx, path, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := string(p.Diff); !strings.Contains(d, "+++ b/stacked.txt") || strings.Contains(d, "feature.txt") {
+		t.Errorf("diff from %s:\n%s", base, d)
 	}
 }

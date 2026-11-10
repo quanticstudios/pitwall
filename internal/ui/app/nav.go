@@ -58,8 +58,8 @@ type nav struct {
 	// diff asks the window to open or close the review view.
 	diff bool
 	// reviewBase is the base picked in a tab's review view, by tab id;
-	// none for the default branch.
-	reviewBase map[string]string
+	// none for the default branch. pickOf reads it.
+	reviewBase map[string]reviewPick
 	// board asks the window to open or close the board.
 	board bool
 	// monitor asks the window to open the shown tab's machine's Monitor tab.

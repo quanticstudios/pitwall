@@ -277,7 +277,7 @@ func (u *ui) reviewHeader(gtx gl.Context, st *model.State, files []review.File, 
 	}
 	b := gitstat.BranchName(base)
 	if pick := r.picked(); pick != "" {
-		b = pick
+		b = refLabel(pick)
 	}
 	if b != "" && (b != branch || r.picked() != "") && !inTurn && !r.staged() {
 		parts = append(parts, part{th.Muted, "into " + b, true})

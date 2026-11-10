@@ -282,12 +282,20 @@ func TestReview(t *testing.T) {
 	}
 	// A base picked in the review view: the pager diffs from it and the
 	// pull request goes into it.
-	n.reviewBase = map[string]string{"w": "origin/feature"}
-	if got, want := n.review(&st, "w", "diff_pager"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: diffCmd("/repo", "origin/feature", nil)}); !reflect.DeepEqual(got, want) {
+	n.reviewBase = map[string]reviewPick{"w": {Ref: "refs/remotes/origin/feature", Branch: "feature"}}
+	if got, want := n.review(&st, "w", "diff_pager"), (proto.OpenPane{WorkspaceID: "w", Dir: layout.Horizontal, Cmd: diffCmd("/repo", "refs/remotes/origin/feature", nil)}); !reflect.DeepEqual(got, want) {
 		t.Errorf("diff_pager with a base = %+v, want %+v", got, want)
 	}
-	if got, want := n.review(&st, "w", "create_pr"), (fromTab{"w", proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo", "origin/feature")}}); !reflect.DeepEqual(got, want) || !strings.HasSuffix(strings.Join(want.ns.Cmd, " "), "--base feature") {
+	if got, want := n.review(&st, "w", "create_pr"), (fromTab{"w", proto.NewSession{Name: "PR feature", Cwd: "/repo", GroupID: "g", SessionID: "s", Cmd: prCmd("/repo", "refs/remotes/origin/feature")}}); !reflect.DeepEqual(got, want) || !strings.HasSuffix(strings.Join(want.ns.Cmd, " "), "--base feature") {
 		t.Errorf("create_pr with a base = %+v", got)
+	}
+	// A pick made on another branch of the tab no longer applies.
+	n.reviewBase["w"] = reviewPick{Ref: "refs/heads/feature", Branch: "stacked"}
+	if got := n.baseOf(&st, "w"); got != "refs/remotes/origin/main" {
+		t.Errorf("baseOf after the branch changed = %q", got)
+	}
+	if got, ok := n.review(&st, "w", "create_pr").(fromTab); !ok || strings.Contains(strings.Join(got.ns.Cmd, " "), "--base") {
+		t.Errorf("create_pr after the branch changed = %+v", got)
 	}
 	n.reviewBase = nil
 	ghInstalled = func() bool { return false }

@@ -152,7 +152,7 @@ type guiState struct {
 	Reviewed map[string]map[string]string `json:"reviewed,omitempty"`
 	// ReviewBase is the base each tab's review view diffs from, by tab id,
 	// when the user picked one other than the default branch.
-	ReviewBase map[string]string `json:"review_base,omitempty"`
+	ReviewBase map[string]reviewPick `json:"review_base,omitempty"`
 	// Recent is the command palette's last run actions, newest first
 	// (paletteEntry.id).
 	Recent []string `json:"recent_actions,omitempty"`

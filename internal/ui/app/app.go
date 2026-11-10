@@ -107,7 +107,7 @@ func Run(b Backend) error {
 	refreshSchemas()
 	u.gui = loadGUIState()
 	if u.gui.ReviewBase == nil {
-		u.gui.ReviewBase = map[string]string{}
+		u.gui.ReviewBase = map[string]reviewPick{}
 	}
 	u.nav.reviewBase = u.gui.ReviewBase // one map: saving u.gui saves nav's picks
 	u.nav.sidebarHidden = u.gui.SidebarHidden

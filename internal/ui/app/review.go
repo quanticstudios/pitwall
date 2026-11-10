@@ -91,7 +91,7 @@ func prBase(ref string) string {
 // baseOf is the base tab id's review diffs from: the one picked in its
 // review view, else the default branch's ref.
 func (n *nav) baseOf(st *model.State, id string) string {
-	if b := n.reviewBase[id]; b != "" {
+	if b := n.pickOf(st, id); b != "" {
 		return b
 	}
 	return st.Stats[id].Base
@@ -123,7 +123,7 @@ func (n *nav) review(st *model.State, id, act string) any {
 		return proto.OpenPane{WorkspaceID: id, Dir: layout.Horizontal, Cmd: []string{"sh", "-c", stageScript, "sh", dir}}
 	case act == "create_pr" && pr == "":
 		n.expectSession(st)
-		return fromTab{ws.ID, proto.NewSession{Name: "PR " + ws.Branch, Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: prCmd(dir, n.reviewBase[id])}}
+		return fromTab{ws.ID, proto.NewSession{Name: "PR " + ws.Branch, Cwd: dir, GroupID: ws.ProjectID, SessionID: ws.SessionID, Loose: ws.ProjectID == "", Cmd: prCmd(dir, n.pickOf(st, id))}}
 	}
 	log.Printf("%s on tab %s: %q %q", act, id, diff, pr)
 	return nil
