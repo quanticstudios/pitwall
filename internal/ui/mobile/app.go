@@ -60,10 +60,9 @@ type App struct {
 	session string // the State session the list shows
 	sb      sidebar.Sidebar
 
-	pair  pairView
-	list  listView
-	chat  chatView
-	sheet sheetView
+	pair pairView
+	list listView
+	chat chatView
 }
 
 // Run runs the app in w, with its pairing kept in dir, until w closes.
@@ -168,7 +167,6 @@ func (a *App) unpair(why string) {
 	phone.Forget(a.dir)
 	a.client, a.conn, a.tabs, a.st, a.session = nil, nil, nil, model.State{}, ""
 	a.chat = chatView{}
-	a.sheet = sheetView{}
 	a.pair.note = sentence(why)
 }
 
@@ -220,7 +218,6 @@ func (a *App) openChat(pane string) {
 
 func (a *App) closeChat() {
 	a.chat = chatView{}
-	a.sheet = sheetView{}
 	a.conn.Watch("")
 }
 
@@ -255,10 +252,10 @@ func (a *App) layout(gtx C) {
 	default:
 		a.chatLayout(gtx)
 	}
-	a.sheetLayout(gtx)
-	// Back, or Esc on a desktop, closes the sheet, then the chat. On the
-	// list it goes unread, so Android leaves the app.
-	if a.sheet.open == "" && a.chat.pane == "" {
+	// Back, or Esc on a desktop, closes the chat's menu, then its
+	// keyboard, then the chat. On the list it goes unread, so Android
+	// leaves the app.
+	if a.chat.pane == "" {
 		return
 	}
 	for {
@@ -267,9 +264,7 @@ func (a *App) layout(gtx C) {
 			break
 		}
 		if ke, ok := ev.(key.Event); ok && ke.State == key.Press {
-			if a.sheet.open != "" {
-				a.sheet = sheetView{}
-			} else {
+			if !a.chat.handleBack(gtx) {
 				a.closeChat()
 			}
 			a.w.Invalidate()
