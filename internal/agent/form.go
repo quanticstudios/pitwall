@@ -431,13 +431,22 @@ func commandLine(s string) (text string, indent int) {
 	return "", indent
 }
 
-// rowsFollow matches each command line's text and relative indent. A wrap moves
-// a word only when it would not fit, and cuts a word only on a full row.
+// rowsFollow matches each command line's text, relative indent and blank lines.
+// A wrap moves a word only when it would not fit, and cuts a word only on a full row.
 func rowsFollow(g vt.Grid, y int, rows []string, command string, gutter bool) bool {
-	lines := slices.DeleteFunc(strings.Split(command, "\n"), func(s string) bool {
-		text, _ := commandLine(s)
-		return text == ""
-	})
+	lines := strings.Split(command, "\n")
+	for len(lines) > 0 {
+		if text, _ := commandLine(lines[0]); text != "" {
+			break
+		}
+		lines = lines[1:]
+	}
+	for len(lines) > 0 {
+		if text, _ := commandLine(lines[len(lines)-1]); text != "" {
+			break
+		}
+		lines = lines[:len(lines)-1]
+	}
 	if len(lines) == 0 {
 		return false
 	}
@@ -447,6 +456,15 @@ func rowsFollow(g vt.Grid, y int, rows []string, command string, gutter bool) bo
 	for k, row := range rows {
 		r, indent := commandLine(row)
 		if r == "" {
+			if i != 0 {
+				return false
+			}
+			if prev >= 0 && line < len(lines) {
+				if text, _ := commandLine(lines[line]); text != "" {
+					return false
+				}
+				line++
+			}
 			continue
 		}
 		if line == len(lines) {
