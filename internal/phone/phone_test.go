@@ -99,8 +99,9 @@ type server struct {
 func newServer(t *testing.T) (*server, *httptest.Server) {
 	s := &server{changed: make(chan struct{}), tabs: []remote.Tab{{Item: remote.Item{Pane: "p1", Tab: "Fix the build", Session: "main", Agent: "claude", State: "working"}, ID: "w1", Send: true}}}
 	s.Server = &remote.Server{
-		Dir:   t.TempDir(),
-		Items: func() []remote.Item { return nil },
+		Dir:     t.TempDir(),
+		Version: "v9.9.9",
+		Items:   func() []remote.Item { return nil },
 		Tabs: func() []remote.Tab {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -113,7 +114,14 @@ func newServer(t *testing.T) (*server, *httptest.Server) {
 		},
 		Send: func(pane, text string) (uint64, error) { return 7, nil },
 	}
-	ts := httptest.NewServer(s.Handler())
+	h := s.Handler()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/stream" {
+			// why: Windows' clock can tick as rarely as every 15.6 ms, so a loopback answer measures no latency.
+			time.Sleep(20 * time.Millisecond)
+		}
+		h.ServeHTTP(w, r)
+	}))
 	t.Cleanup(ts.Close)
 	return s, ts
 }
@@ -165,7 +173,7 @@ func TestPairStreamSend(t *testing.T) {
 		}
 		return Event{}
 	}
-	if e := next(); e.Name != "hello" || e.Hello.Device != "pixel" || len(e.Hello.Models) == 0 {
+	if e := next(); e.Name != "hello" || e.Hello.Device != "pixel" || e.Hello.Version != "v9.9.9" || e.Hello.Latency < 15*time.Millisecond || len(e.Hello.Models) == 0 {
 		t.Fatalf("first event %+v", e)
 	}
 	if e := next(); e.Name != "tabs" || len(e.Tabs) != 1 || e.Tabs[0].Tab != "Fix the build" {
@@ -392,8 +400,9 @@ func TestState(t *testing.T) {
 func configFor(url string) config.RemoteSettings { return config.RemoteSettings{URL: url} }
 
 // TestFleet merges two machines' lists, each with a session named main and
-// a tab and pane of the same ids, as a copied state gives, and sends a
-// message about each machine's tab to that machine alone.
+// a tab and pane of the same ids, as a copied state gives, into one
+// session with a group per machine, and sends a message about each
+// machine's tab to that machine alone.
 func TestFleet(t *testing.T) {
 	var ms []Machine
 	var got [2]chan string
@@ -412,8 +421,8 @@ func TestFleet(t *testing.T) {
 	f.Set(b, []remote.Tab{tab("a1")})
 	f.Set(a, []remote.Tab{tab("a1"), tab("a2")})
 	st := f.State()
-	if len(st.Sessions) != 2 || st.Sessions[0].ID == st.Sessions[1].ID || len(st.Projects) != 2 {
-		t.Fatalf("sessions %+v, groups %+v; want one of each per machine", st.Sessions, st.Projects)
+	if len(st.Sessions) != 1 || len(st.Projects) != 2 || st.Projects[0].ID == st.Projects[1].ID {
+		t.Fatalf("sessions %+v, groups %+v; want one session and a group per machine", st.Sessions, st.Projects)
 	}
 	var order, panes []string
 	for _, w := range st.Workspaces {
@@ -428,10 +437,13 @@ func TestFleet(t *testing.T) {
 	if !slices.Equal(panes, []string{NS(a, "a1-p"), NS(a, "a2-p"), NS(b, "a1-p")}) {
 		t.Fatalf("activities' panes %v", panes)
 	}
-	if n := NeedsYou(&st, st.Sessions[0].ID); n != 2 {
-		t.Fatalf("NeedsYou of the first machine's main = %d; want 2", n)
+	if n := NeedsYou(&st, st.Sessions[0].ID); n != 3 {
+		t.Fatalf("NeedsYou of main = %d; want 3, both machines'", n)
 	}
-	for _, id := range []string{NS(b, "a1"), NS(b, "a1-p"), st.Sessions[1].ID, st.Projects[1].ID} {
+	if m, ok := f.Owner(st.Sessions[0].ID); !ok || m.ID != a {
+		t.Fatalf("Owner(main) = %v %v; want the first machine", m.Name, ok)
+	}
+	for _, id := range []string{NS(b, "a1"), NS(b, "a1-p"), st.Projects[1].ID} {
 		if m, ok := f.Owner(id); !ok || m.ID != b {
 			t.Fatalf("Owner(%q) = %v %v; want the second machine", id, m.Name, ok)
 		}
@@ -460,6 +472,58 @@ func TestFleet(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("no message")
 		}
+	}
+}
+
+// TestFleetSessions merges sessions of one name across machines: sessions
+// in the order the machines were paired, each merged session's items
+// each machine's in turn, MachinesOf in pairing order whatever order the
+// lists came in, and a tab's parent hanging it under that machine's tab.
+func TestFleetSessions(t *testing.T) {
+	ms := []Machine{{ID: "m1", Name: "laptop"}, {ID: "m2", Name: "box"}}
+	f := NewFleet(ms)
+	tab := func(id, session, group, parent string) remote.Tab {
+		return remote.Tab{Item: remote.Item{Pane: id + "-p", Tab: id, Session: session, Agent: "claude"}, ID: id, Group: group, Parent: parent}
+	}
+	f.Set("m2", []remote.Tab{tab("lead", "infra", "", ""), tab("w1", "infra", "", "lead"), tab("w2", "infra", "", "lead"), tab("x", "main", "", "")})
+	f.Set("m1", []remote.Tab{tab("x", "main", "", ""), tab("g", "main", "api", ""), tab("y", "solo", "", "")})
+	st := f.State()
+	var names []string
+	for _, s := range st.Sessions {
+		names = append(names, s.Name)
+	}
+	if !slices.Equal(names, []string{"main", "solo", "infra"}) {
+		t.Fatalf("sessions %v; want laptop's in its order, then box's new ones", names)
+	}
+	var order []string
+	for _, w := range st.Ordered("s:main") {
+		order = append(order, w.ID)
+	}
+	if !slices.Equal(order, []string{NS("m1", "x"), NS("m1", "g"), NS("m2", "x")}) {
+		t.Fatalf("main's tabs %v; want laptop's, then box's", order)
+	}
+	var on []string
+	for _, m := range f.MachinesOf("s:main") {
+		on = append(on, m.Name)
+	}
+	if !slices.Equal(on, []string{"laptop", "box"}) {
+		t.Fatalf("MachinesOf(main) = %v", on)
+	}
+	if got := f.MachinesOf("s:infra"); len(got) != 1 || got[0].ID != "m2" {
+		t.Fatalf("MachinesOf(infra) = %+v; want box alone", got)
+	}
+	kids := st.Workers("s:infra")[NS("m2", "lead")]
+	if len(kids) != 2 || kids[0].ID != NS("m2", "w1") || kids[1].ID != NS("m2", "w2") {
+		t.Fatalf("lead's workers %+v; want w1 and w2", kids)
+	}
+	if order := st.Ordered("s:infra"); len(order) != 3 || order[0].ID != NS("m2", "lead") {
+		t.Fatalf("infra %+v; want lead with its workers after it", order)
+	}
+	// A daemon too old to send parents gives flat rows.
+	f.Set("m2", []remote.Tab{tab("lead", "infra", "", ""), tab("w1", "infra", "", "")})
+	st = f.State()
+	if w := st.Workers("s:infra"); len(w) != 0 {
+		t.Fatalf("workers without parents: %+v", w)
 	}
 }
 
@@ -523,5 +587,25 @@ func TestChatReplay(t *testing.T) {
 	c.Add([]flow.Entry{{Seq: 6, Kind: flow.EntryUser, Text: "continue"}})
 	if c.Has(q) {
 		t.Fatal("a new prompt did not settle the message on its way")
+	}
+}
+
+// TestStateIcon gives a tab with an icon the folder IconDir names, which
+// ParseIconDir reads back, and a tab from an old daemon, with none, no
+// folder: its row stays as it was.
+func TestStateIcon(t *testing.T) {
+	st := stateOf("m/1", []remote.Tab{
+		{Item: remote.Item{Pane: "p1", Tab: "a", Session: "main"}, ID: "w1", Repo: "api", Icon: "abc"},
+		{Item: remote.Item{Pane: "p2", Tab: "b", Session: "main"}, ID: "w2", Repo: "api"},
+	})
+	dir := st.LivePath(st.Workspaces[0])
+	if m, hash, ok := ParseIconDir(dir); !ok || m != "m/1" || hash != "abc" || filepath.Base(dir) != "api" || st.Workspaces[0].RepoRoot != dir {
+		t.Fatalf("tab with an icon: folder %q (%q %q %v), repo root %q", dir, m, hash, ok, st.Workspaces[0].RepoRoot)
+	}
+	if dir := st.LivePath(st.Workspaces[1]); dir != "" || st.Workspaces[1].RepoRoot != "" {
+		t.Fatalf("tab from an old daemon: folder %q, repo root %q; want none", dir, st.Workspaces[1].RepoRoot)
+	}
+	if _, _, ok := ParseIconDir("/srv/src/api"); ok {
+		t.Fatal("a real folder parsed as an icon folder")
 	}
 }

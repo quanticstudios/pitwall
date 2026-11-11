@@ -149,6 +149,10 @@ type Server struct {
 	Web *web.Client
 	WS  http.Handler
 
+	// Version is the daemon's build, as pitwall version prints it; the
+	// stream's hello names it.
+	Version string
+
 	// Tabs lists every tab for the chat page, and Changed is closed at the
 	// daemon's next change. ChatEntries is a chat tab's transcript, and the
 	// model its latest turn used; ok is false for no such chat.
@@ -163,6 +167,8 @@ type Server struct {
 	Question  func(pane, id string, option int, text string) error
 	Upload    func(pane string, data []byte) (string, error)
 	SendImage func(pane, text, image string) (uint64, error)
+	// Icons, when set, serves the repo icons Tab.Icon names.
+	Icons *Icons
 
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
@@ -216,6 +222,9 @@ func (s *Server) Handler() http.Handler {
 		if s.Upload != nil {
 			mux.Handle("POST /api/upload", sameOrigin(s.authed(s.upload)))
 		}
+	}
+	if s.Icons != nil {
+		mux.Handle("GET /api/icon/{hash}", sameOrigin(s.authed(s.Icons.serve)))
 	}
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})

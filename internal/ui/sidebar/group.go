@@ -80,7 +80,7 @@ func (s *Sidebar) projectHeader(gtx layout.Context, v *view, p model.Project) la
 				return label(gtx, th, semibold(th.UIFont), th.Sp(theme.Large), nameCol, p.Name)
 			}},
 		}
-		if host := s.hostOf(p.ID); host != "" && !v.sectioned {
+		if host := s.hostOf(p.ID); host != "" && !v.sectioned && !s.AllHosts {
 			items = append(items, item{w: func(gtx layout.Context) layout.Dimensions { return HostChip(gtx, th, s.Hosts, host, bg) }})
 		}
 		for _, c := range summary {

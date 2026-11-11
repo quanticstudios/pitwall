@@ -62,10 +62,7 @@ func (s *Sidebar) answerClicks(gtx layout.Context, v *view, ws string, r *rowSta
 			s.startReply(ws, a.PaneID)
 		}
 	}
-	var a *model.Activity
-	if v.agents[ws] == nil {
-		a = v.ownActivity(ws)
-	}
+	a := s.choiceActivity(v, ws)
 	var asking *model.Activity
 	if s.answering(v, ws, false, a) {
 		asking = a

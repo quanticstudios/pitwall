@@ -140,7 +140,11 @@ type Options struct {
 	// PR is the pull request of the branch checked out at dir, nil for
 	// none (forge.View); nil never asks. ArchiveOnMerge reads [git]
 	// archive_on_merge; nil means off.
-	PR             func(ctx context.Context, dir string) (*model.PR, error)
+	PR func(ctx context.Context, dir string) (*model.PR, error)
+	// PRs batches timer reads by GitHub remote. PRWait reserves REST headroom.
+	PRs            func(context.Context, []string) map[string]forge.Result
+	PRWait         func(time.Time, time.Duration) time.Duration
+	PRInvalidate   func(string)
 	ArchiveOnMerge func() bool
 	// Settle reads [sidebar]: settle_after_days for settleLoop and
 	// settle_on_merge for pollPRs. nil settles nothing on its own.
@@ -260,16 +264,17 @@ type Daemon struct {
 	clipSeq     atomic.Uint64         // numbers OSC 52 writes as they arrive
 	// olderNoticed is set once olderNotice was shown; see foreignHook.
 	olderNoticed  bool
-	pushWake      chan struct{} // wakes pushLoop, nil when it is not running
-	phoneTick     chan struct{} // closed at the next change, nil while no phone stream waits
-	phoneSettings map[string]phoneSettings
+	pushWake      chan struct{}          // wakes pushLoop, nil when it is not running
+	phoneTick     chan struct{}          // closed at the next change, nil while no phone stream waits
 	phoneSeq      uint64                 // the last phone message's id
 	phoneDropped  map[string][]uint64    // pane: phone messages its agent left before they went in
+	phoneIcons    remote.Icons           // the repo icons the phone app's rows show
 	paneCmd       map[string]*sync.Mutex // pane: held while a phone slash command goes in
 	awakeWake     chan struct{}          // wakes keepAwakeLoop on activity changes
 	prs           prPoll                 // see pr.go
 	radar         radar                  // see radar.go
 	queue         taskQueue              // see task.go
+	phoneSettings map[string]phoneSettings
 	// replies is, per pane, the last message of its agent's latest
 	// finished turn, for proto.Read; see talk.go. Not in st: it would
 	// ride on every StateMsg.
@@ -328,6 +333,7 @@ func Defaults() Options {
 		log.Printf("timing log: %q", err)
 	}
 	awake := setting(config.Path(), func(s config.Settings) config.Settings { return s })
+	prs := forge.NewPoller()
 	return Options{
 		KeepAwake: func() (bool, time.Duration) {
 			s := awake()
@@ -355,7 +361,10 @@ func Defaults() Options {
 		Stats:             gitstat.Stats,
 		AddWorktree:       gitstat.AddWorktree,
 		RemoveWorktree:    gitstat.RemoveWorktree,
-		PR:                forge.View,
+		PR:                prs.View,
+		PRs:               prs.Poll,
+		PRWait:            prs.Wait,
+		PRInvalidate:      prs.Invalidate,
 		ArchiveOnMerge:    func() bool { s, _ := config.Load(); return s.ArchiveOnMerge },
 		Settle:            func() config.SidebarSettings { s, _ := config.Load(); return s.Sidebar },
 		AutoSendFailures:  func() bool { s, _ := config.Load(); return s.AutoSendFailures },
