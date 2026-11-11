@@ -30,11 +30,14 @@ import (
 type listView struct {
 	sessions, settings, retry widget.Clickable
 	// menu is the open menu: "sessions", "" for none.
-	menu  string
-	scrim widget.Clickable
-	rows  map[string]*widget.Clickable // the menu's sessions and the waiting rows, by id
-	add   widget.Clickable
-	note  string // why answering a row failed, or a machine left
+	menu      string
+	scrim     widget.Clickable
+	rows      map[string]*widget.Clickable // the menu's sessions and the waiting rows, by id
+	add       widget.Clickable
+	note      string // why answering a row failed, or a machine left
+	notePane  string
+	noteAt    int64
+	noteUntil time.Time
 	// waitFold opens and closes Waiting on you; waitOpen is whether it
 	// lists every tab or only a summary row.
 	waitFold widget.Clickable
@@ -58,6 +61,10 @@ const rowH unit.Dp = 35
 
 func (a *App) listLayout(gtx C) {
 	th, l := a.th, &a.list
+	l.expireNote(gtx.Now, l.noteAt, true)
+	if !l.noteUntil.IsZero() {
+		gtx.Execute(op.InvalidateCmd{At: l.noteUntil})
+	}
 	if l.sessions.Clicked(gtx) && (len(a.st.Sessions) > 1 || a.many()) {
 		l.menu = "sessions"
 	}
@@ -149,9 +156,18 @@ func (a *App) answerRow(ev sidebar.Answer) {
 	if !ok {
 		return
 	}
+	if ev.Allow && t.AllowBlocked != "" {
+		a.openChat(phone.NS(m.ID, t.ID))
+		return
+	}
 	a.do(m.ID, func(ctx context.Context, c *phone.Client) error { return c.Answer(ctx, t.Pane, ev.At, ev.Allow) }, func(err error) {
 		if err != nil {
+			if _, current, ok := a.fleet.Tab(ev.PaneID); !ok || current.At != ev.At {
+				return
+			}
 			a.list.note = sentence(err.Error())
+			a.list.notePane, a.list.noteAt = ev.PaneID, ev.At
+			a.list.noteUntil = time.Now().Add(6 * time.Second)
 		}
 	})
 }
@@ -663,4 +679,10 @@ func menuRow(gtx C, th *theme.Theme, c *widget.Clickable, current bool, w layout
 		call.Add(gtx.Ops)
 		return D{Size: size}
 	})
+}
+
+func (l *listView) expireNote(now time.Time, at int64, exists bool) {
+	if !l.noteUntil.IsZero() && (!now.Before(l.noteUntil) || !exists || at != l.noteAt) {
+		l.note, l.notePane, l.noteUntil = "", "", time.Time{}
+	}
 }

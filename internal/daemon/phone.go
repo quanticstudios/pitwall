@@ -37,6 +37,7 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	tabs := remote.Tabs(d.st, queued)
 	chats := make([]*chat, len(tabs))
 	panes := make([]Pane, len(tabs))
+	asked := make([]string, len(tabs))
 	for i, t := range tabs {
 		if t.Chat {
 			chats[i] = d.chats[t.Pane]
@@ -46,12 +47,21 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 		if settings, ok := d.phoneSettings[t.Pane]; ok && !t.Chat {
 			tabs[i].Model, tabs[i].Effort = settings.model, settings.effort
 		}
+		if ai := d.activityIndex(t.Pane); ai >= 0 {
+			asked[i] = d.askedOf(d.st.Activities[ai])
+		}
 		tabs[i].Dropped = slices.Clone(d.phoneDropped[t.Pane])
 	}
 	d.mu.Unlock()
 	for i, p := range panes {
 		if p != nil {
 			g := p.Snapshot()
+			if tabs[i].Answer {
+				a := model.Activity{Provider: tabs[i].Provider, State: model.AgentState(tabs[i].State)}
+				if err := confirmApproval(a, asked[i], g); err != nil {
+					tabs[i].AllowBlocked = "Allow is unavailable because pitwall cannot confirm this permission prompt. Deny or open it on the desktop."
+				}
+			}
 			tabs[i].Question = agent.ReadQuestion(tabs[i].Provider, g)
 			if q := tabs[i].Question; q != nil {
 				q.Prompt = logs.Redact(q.Prompt)
@@ -85,6 +95,22 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 		}
 	}
 	for i := range tabs {
+		if tabs[i].Queued > 0 && !tabs[i].Chat {
+			if _, err := d.readyWindow(tabs[i].Pane, true); err != nil {
+				tabs[i].Hold = err.Error()
+				if errors.Is(err, errDraft) {
+					tabs[i].Hold = "you are typing in this tab on the desktop"
+				}
+			} else {
+				d.mu.Lock()
+				if d.agentAway(tabs[i].Pane) {
+					tabs[i].Hold = "the agent has another command in the foreground"
+				} else if d.mail.drafting[tabs[i].Pane] && time.Since(d.mail.keyAt[tabs[i].Pane]) < sendQuiet.get() {
+					tabs[i].Hold = "you are typing in this tab on the desktop"
+				}
+				d.mu.Unlock()
+			}
+		}
 		tabs[i].Icon = d.phoneIcons.Of(tabs[i].Dir) // why: off d.mu, since it reads the disk
 	}
 	return tabs

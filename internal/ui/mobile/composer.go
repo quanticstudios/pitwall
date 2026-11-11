@@ -131,6 +131,9 @@ func queueLine(t remote.Tab, ps []*phone.Pending, notSent string) (bold, rest st
 	if n == 0 {
 		return "", "", false
 	}
+	if t.Hold != "" {
+		return "waiting:", t.Hold, false
+	}
 	if len(queued) > 0 {
 		rest = strings.Join(strings.Fields(queued[0].Message()), " ")
 	}
@@ -210,7 +213,9 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	}
 	if !env.Open || !t.Send {
 		msg := "This tab is not open now."
-		if env.Open {
+		if env.Open && t.Exited {
+			msg = t.Label + ". Open on desktop to restart the agent."
+		} else if env.Open {
 			msg = "This tab runs no agent, so it takes no messages from here."
 		}
 		return c.cmpFrame(gtx, th, func(gtx C) D {
@@ -345,7 +350,11 @@ func strip(gtx C, th *theme.Theme, bold, rest string, bad bool) D {
 			layout.Rigid(layout.Spacer{Width: 8}.Layout),
 			layout.Flexed(1, func(gtx C) D {
 				gtx.Constraints.Min.X = 0
-				return label(gtx, th, th.UIFont, 14, th.Muted, 1, rest)
+				lines := 1
+				if bold == "waiting:" {
+					lines = 0
+				}
+				return label(gtx, th, th.UIFont, 14, th.Muted, lines, rest)
 			}),
 		)
 	})

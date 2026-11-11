@@ -39,7 +39,9 @@ type payload struct {
 	Prompt         string          `json:"prompt"`
 	ToolName       string          `json:"tool_name"`
 	ToolInput      struct {
-		Description string `json:"description"`
+		Description string          `json:"description"`
+		Command     json.RawMessage `json:"command"`
+		FilePath    string          `json:"file_path"`
 		Questions   []struct {
 			Question    string `json:"question"`
 			MultiSelect bool   `json:"multiSelect"`
@@ -102,8 +104,8 @@ type payload struct {
 //	PreToolUse/PermissionRequest of
 //	  AskUserQuestion                       awaiting-input, Detail = first question
 //	  ExitPlanMode                          plan-ready
-//	PermissionRequest (other tools)         pending-approval, Detail = tool description or name
-//	Notification permission_prompt          pending-approval, Detail = message,
+//	PermissionRequest (other tools)         pending-approval, Detail = tool and command, file or description
+//	Notification permission_prompt          pending-approval, keeps a known request,
 //	                                        unless the pane already shows a question or plan
 //	Notification elicitation_dialog,
 //	  elicitation_url_dialog                awaiting-input, Detail = message
@@ -281,15 +283,23 @@ func mapEvent(p payload, prev *model.Activity) (state model.AgentState, detail s
 		if p.Event == "PreToolUse" {
 			return model.StateWorking, "", false, true
 		}
-		d := p.ToolInput.Description
-		if d == "" {
-			d = p.ToolName
+		d := p.ToolName
+		var command string
+		_ = json.Unmarshal(p.ToolInput.Command, &command)
+		if command == "" {
+			var argv []string
+			if json.Unmarshal(p.ToolInput.Command, &argv) == nil {
+				command = strings.Join(argv, " ")
+			}
+		}
+		if target := firstNonEmpty(command, p.ToolInput.FilePath, p.ToolInput.Description); target != "" {
+			d += "\n" + logs.Redact(target)
 		}
 		return model.StatePendingApproval, d, false, true
 	case "Notification":
 		switch p.NotificationType {
 		case "permission_prompt":
-			if prev != nil && (prev.State == model.StateAwaitingInput || prev.State == model.StatePlanReady) {
+			if prev != nil && (prev.State == model.StateAwaitingInput || prev.State == model.StatePlanReady || prev.State == model.StatePendingApproval && (p.SessionID == "" || prev.SessionID == "" || prev.SessionID == p.SessionID)) {
 				return "", "", false, false
 			}
 			return model.StatePendingApproval, p.Message, false, true
