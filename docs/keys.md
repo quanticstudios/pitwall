@@ -407,3 +407,11 @@ newest block. PageUp/PageDown scrolls the output. c copies the command, y
 copies the output, and Shift+Y copies both.
 Escape or q closes. See [shell integration](usage.md#shell-integration) for
 shell setup and [the browser](usage.md#command-scrollback-browser) for limits.
+
+### Markdown reader
+
+The [markdown reader](usage.md#markdown-reader) opens from a Ctrl+click on a
+markdown file in a pane. j/k or Down/Up scroll a little, Space and
+PageDown/PageUp a screen, Shift+Space and PageUp back. g or Home goes to the
+top, Shift+G or End to the bottom. Backspace returns to the file a link came
+from. Escape closes the reader.

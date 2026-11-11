@@ -1,0 +1,16 @@
+ Bash command
+ Write long probe line to file
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ printf '%s\n' 'probe-00 probe-01 probe-02 probe-03 probe-04 probe-05 probe-06 probe-07 probe-08 probe-09 probe-10
+ │ probe-11 probe-12 probe-13 probe-14 probe-15 probe-16 probe-17 probe-18 probe-19 probe-20 probe-21 probe-22 probe-23
+ │ probe-24 probe-25 probe-26 probe-27 probe-28 probe-29 probe-30 probe-31 probe-32 probe-33 probe-34 probe-35
+ │ probe-36 probe-37 probe-38 probe-39 probe-40 probe-41 probe-42 probe-43 probe-44' > /tmp/pitwall-multiline-probe
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Permission rule Bash requires confirmation for this command.
+ /permissions to update rules
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

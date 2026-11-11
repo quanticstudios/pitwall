@@ -1,0 +1,2 @@
+go test fuzz v1
+string(" \xba00λ\xce\xfe0000\x84000\xed0\x86")

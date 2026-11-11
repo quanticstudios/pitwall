@@ -18,6 +18,7 @@ func (u *ui) toggleBoard() {
 	}
 	u.settings.Hide()
 	u.review.hide()
+	u.reader.Close()
 	u.mon.on = false
 	u.boardOn, u.boardWS = true, u.nav.workspace
 	u.sidebar.BoardFocus()

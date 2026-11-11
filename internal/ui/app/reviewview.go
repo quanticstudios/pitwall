@@ -90,15 +90,16 @@ type reviewView struct {
 	ws  string // the tab shown; another tab closes the view
 	dir string // the tab's live directory
 
-	mu     sync.Mutex
-	gen    int
-	stop   context.CancelFunc
-	kick   chan struct{} // reads the diff again now
-	loaded bool
-	err    string
-	base   string
-	root   string
-	files  []review.File
+	readers sync.WaitGroup // tests wait for canceled readers before restoring git hooks
+	mu      sync.Mutex
+	gen     int
+	stop    context.CancelFunc
+	kick    chan struct{} // reads the diff again now
+	loaded  bool
+	err     string
+	base    string
+	root    string
+	files   []review.File
 	// pick is the base the user picked for the Branch scope, "" for the
 	// default branch; lost is a pick whose branch a read found gone, until
 	// the window forgets it.
@@ -179,6 +180,7 @@ func (r *reviewView) show(ws, dir, base string, turn bool, invalidate func()) {
 	r.stop, r.kick = cancel, make(chan struct{}, 1)
 	gen, kick := r.gen, r.kick
 	r.mu.Unlock()
+	r.readers.Add(1)
 	go r.load(ctx, gen, ws, dir, kick, invalidate)
 }
 
@@ -281,6 +283,7 @@ func (r *reviewView) reload() {
 // done, and invalidates when it changed: tab ws's latest turn's when This
 // turn is asked for and there is one, else the branch's.
 func (r *reviewView) load(ctx context.Context, gen int, ws, dir string, kick chan struct{}, invalidate func()) {
+	defer r.readers.Done()
 	t := time.NewTicker(filesEvery)
 	defer t.Stop()
 	var last []byte
@@ -811,6 +814,7 @@ func (u *ui) openReview(st *model.State, id, file string) {
 		return
 	}
 	u.settings.Hide()
+	u.reader.Close()
 	invalidate := u.invalidate
 	if invalidate == nil {
 		invalidate = func() {}

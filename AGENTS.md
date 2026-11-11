@@ -35,6 +35,7 @@ agent status next to split terminal panes. Sessions survive the window closing
 | `internal/ui/sidebar`  | The sidebar, and the board's drawing                           |
 | `internal/ui/board`    | The board's columns, scopes, held cards, from the state        |
 | `internal/ui/term`     | Grid renderer and pane input                                   |
+| `internal/ui/mdview`   | The markdown reader: parse, flowcharts, images, its overlay    |
 | `internal/ui/app`      | Window, splits, Alt navigation, switcher                       |
 | `cmd/pitwall`          | Entry point (orchestrator only)                                |
 

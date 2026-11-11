@@ -1,0 +1,2 @@
+go test fuzz v1
+string("flowchart \nC-.0-.C(())==0&0")

@@ -145,7 +145,9 @@ in `third_party/gioui.org-x`, changed so a line's spans share its baseline
 and URLs in inline code stay code; its license is in
 `third_party/gioui.org-x/LICENSE` and the changes in
 `third_party/gioui.org-x/PATCH.md`. `markdown` parses with goldmark (MIT),
-whose license is under the Go modules below.
+whose license is under the Go modules below. The desktop's markdown reader
+parses with goldmark too, with its GFM extension, and draws inline text with
+`richtext`.
 
 ### T3 Code
 

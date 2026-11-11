@@ -29,6 +29,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/phone"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/ui/kit"
+	"github.com/quanticstudios/pitwall/internal/ui/mdview"
 	"github.com/quanticstudios/pitwall/internal/ui/sidebar"
 	"github.com/quanticstudios/pitwall/internal/ui/theme"
 )
@@ -63,7 +64,9 @@ type chatEnv struct {
 	// Do runs call off the window's goroutine and done on it after.
 	Do func(call func(ctx context.Context, api chatAPI) error, done func(error))
 	// Now is the clock, for tests and the demo; zero means time.Now.
-	Now time.Time
+	Attach    bool
+	PickImage func(clipboard bool, done func([]byte, error))
+	Now       time.Time
 }
 
 func (e *chatEnv) now() time.Time {
@@ -199,7 +202,7 @@ func (c *chatView) layout(gtx C, th *theme.Theme, env chatEnv) (closed bool) {
 			)
 		}),
 		layout.Rigid(func(gtx C) D {
-			if !env.Open || !asks(t) {
+			if !env.Open || !asks(t) || t.Question != nil {
 				return D{}
 			}
 			return c.askCard(gtx, th, env)
@@ -431,13 +434,22 @@ func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
 	} else {
 		working = ""
 	}
+	hasQuestion := env.Open && env.Tab.Question != nil
+	if hasQuestion {
+		n++
+	}
 	return c.list.Layout(gtx, n, func(gtx C, i int) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		in := layout.Inset{Left: 16, Right: 16, Bottom: 10}
 		if i == 0 {
 			in.Bottom = 0
 		}
-		return in.Layout(gtx, func(gtx C) D { return c.logItem(gtx, th, i, working) })
+		return in.Layout(gtx, func(gtx C) D {
+			if hasQuestion && i == n-1 {
+				return c.askCard(gtx, th, env)
+			}
+			return c.logItem(gtx, th, i, working)
+		})
 	})
 }
 
@@ -470,7 +482,7 @@ func (c *chatView) logItem(gtx C, th *theme.Theme, i int, working string) D {
 			continue
 		}
 		if i == 0 {
-			return prompt(gtx, th, p.Text, 0.6)
+			return prompt(gtx, th, p.Message(), 0.6)
 		}
 		i--
 	}
@@ -601,7 +613,7 @@ func (c *chatView) markdown(gtx C, th *theme.Theme, rt *richtext.InteractiveText
 			spans = []richtext.SpanStyle{{Font: th.UIFont, Size: 16.5, Color: replyText, Content: p.text}}
 		}
 		if c.monoScale == 0 {
-			c.monoScale = monoScale(th)
+			c.monoScale = mdview.MonoScale(th)
 		}
 		for i := range spans {
 			if spans[i].Font.Typeface == th.MonoFont.Typeface {
@@ -614,7 +626,7 @@ func (c *chatView) markdown(gtx C, th *theme.Theme, rt *richtext.InteractiveText
 			spans = spans[:len(spans)-1]
 		}
 		spans[len(spans)-1].Content = strings.TrimRight(spans[len(spans)-1].Content, "\n")
-		p.spans = gluePunct(spans)
+		p.spans = mdview.GluePunct(spans)
 	}
 	for {
 		span, ev, ok := rt.Update(gtx)
@@ -636,7 +648,7 @@ var replyText = color.NRGBA{R: 0xe6, G: 0xe7, B: 0xea, A: 0xff}
 func codeBlock(gtx C, th *theme.Theme, s string) D {
 	return box(gtx, th.Surface, th.BorderSubtle, 12, layout.Inset{Left: 14, Right: 14, Top: 12, Bottom: 12}, func(gtx C) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return widget.Label{LineHeight: 21, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.MonoFont, 14, detab(s), colorOp(gtx, replyText))
+		return widget.Label{LineHeight: 21, LineHeightScale: 1}.Layout(gtx, th.Shaper, th.MonoFont, 14, mdview.Detab(s), colorOp(gtx, replyText))
 	})
 }
 
@@ -694,7 +706,7 @@ func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 				return layout.Inset{Left: 10, Right: 10, Bottom: 10}.Layout(gtx, func(gtx C) D {
 					return box(gtx, th.Bg, th.BorderSubtle, 9, layout.Inset{Left: 12, Right: 12, Top: 10, Bottom: 10}, func(gtx C) D {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						return widget.Label{MaxLines: 40, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, f, 13, detab(out), colorOp(gtx, toolOut))
+						return widget.Label{MaxLines: 40, Truncator: "…", LineHeight: 19.5, LineHeightScale: 1}.Layout(gtx, th.Shaper, f, 13, mdview.Detab(out), colorOp(gtx, toolOut))
 					})
 				})
 			}),
@@ -706,7 +718,7 @@ var toolOut = color.NRGBA{R: 0xcf, G: 0xd2, B: 0xd8, A: 0xff}
 
 // asks reports whether t waits on the user, for the card above the box.
 func asks(t remote.Tab) bool {
-	return t.Answer || len(t.Requests) > 0 || slices.Contains([]string{"pending-approval", "plan-ready", "awaiting-input"}, t.State)
+	return t.Question != nil || t.Answer || len(t.Requests) > 0 || slices.Contains([]string{"pending-approval", "plan-ready", "awaiting-input"}, t.State)
 }
 
 // The sidebar.Icon glyphs the chat draws.

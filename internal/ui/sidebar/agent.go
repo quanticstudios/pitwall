@@ -201,7 +201,7 @@ func Icon(gtx layout.Context, name string, size int, col color.NRGBA) layout.Dim
 		"x": icX, "circle-alert": icCircleAlert, "chevron-right": icChevronRight, "chevron-down": icChevronDown,
 		"archive": icArchive, "git-branch": icGitBranch, "search": icSearch, "file": icFile,
 		"chevron-left": icChevronLeft, "chevrons-up-down": icChevronsUpDown, "settings": icSettings, "clock": icClock,
-		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer}[name]
+		"loader": icLoader, "gauge": icGauge, "arrow-up": icArrowUp, "wifi-off": icWifiOff, "clipboard": icClipboard, "server": icServer, "paperclip": "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.2-9.19a4 4 0 0 1 5.65 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48"}[name]
 	if d == "" {
 		d = projectIcon(name)
 	}

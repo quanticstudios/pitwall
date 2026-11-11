@@ -264,6 +264,7 @@ type Hello struct {
 	Version string   `json:"version"` // the daemon's build; "" from an older daemon
 	Models  []string `json:"models"`
 	Efforts []string `json:"efforts"`
+	Upload  bool     `json:"upload"`
 	// Latency is how long the stream's request took to get its answer's
 	// first byte over an open connection: a round trip and the server's
 	// check of the token.
@@ -365,4 +366,41 @@ func decodeEvent(name string, data []byte) (Event, bool) {
 		return e, false
 	}
 	return e, json.Unmarshal(data, v) == nil
+}
+
+// Question answers the exact terminal question page shown by the stream.
+func (c *Client) Question(ctx context.Context, pane, id string, option int, text string) error {
+	return c.call(ctx, "POST", "api/question", map[string]any{"pane": pane, "id": id, "option": option, "text": text}, nil)
+}
+
+// Upload saves an image for pane and returns its attachment name.
+func (c *Client) Upload(ctx context.Context, pane string, data []byte) (string, error) {
+	r, err := c.request(ctx, "POST", "api/upload?pane="+url.QueryEscape(pane), nil)
+	if err != nil {
+		return "", err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	r.ContentLength = int64(len(data))
+	r.Header.Set("Content-Type", "application/octet-stream")
+	resp, err := c.http.Do(r)
+	if err != nil {
+		return "", untrusted(err)
+	}
+	defer resp.Body.Close()
+	if err := status(resp); err != nil {
+		return "", err
+	}
+	var out struct {
+		Image string `json:"image"`
+	}
+	err = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out)
+	return out.Image, err
+}
+
+func (c *Client) SendImage(ctx context.Context, pane, text, image string) (uint64, error) {
+	var out struct {
+		ID uint64 `json:"id"`
+	}
+	err := c.call(ctx, "POST", "api/send", map[string]string{"pane": pane, "text": text, "image": image}, &out)
+	return out.ID, err
 }

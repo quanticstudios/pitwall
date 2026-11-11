@@ -542,7 +542,7 @@ func TestPhoneRoutesNeedAuth(t *testing.T) {
 	d, _, _ := phoneDaemon(t)
 	h := d.remoteServer().Handler()
 	for _, rt := range []struct{ method, path string }{
-		{"GET", "/api/stream"}, {"GET", "/api/chat?pane=a&before=9"}, {"POST", "/api/send"}, {"POST", "/api/command"},
+		{"GET", "/api/stream"}, {"GET", "/api/chat?pane=a&before=9"}, {"POST", "/api/send"}, {"POST", "/api/command"}, {"POST", "/api/upload?pane=a"}, {"POST", "/api/question"},
 	} {
 		r := httptest.NewRequest(rt.method, rt.path, strings.NewReader(`{"pane":"a","text":"x","what":"model","value":"opus"}`))
 		w := httptest.NewRecorder()
