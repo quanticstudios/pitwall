@@ -260,6 +260,34 @@ func TestPhoneCapturedSuggestionAfterCtrlA(t *testing.T) {
 	}
 }
 
+// Captured from Claude Code 2.1.322, Opus 5.5 1M, high effort, without NO_COLOR.
+func TestPhoneCapturedSuggestionReports(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "claude-idle-suggestion.ansi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(120, 4, nil)
+	e.Write(b)
+	g := e.Snapshot()
+	if agent.Draft(model.ProviderClaude, g) {
+		t.Fatal("the captured faint suggestion is not a draft")
+	}
+	for _, wire := range []string{"\x1b[I", "\x1b[O", "\x1b[<64;2;3M", "\x1b[M`#%", "\x1b[O\x1b[<65;2;3M", "\x1b[200~\x1b[201~", "\x1b[97;1:3u"} {
+		t.Run(fmt.Sprintf("%x", wire), func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			d.mu.Lock()
+			d.panes["a"] = &capturedPhonePane{fakePane: f.pane(0), grid: g}
+			d.mu.Unlock()
+			d.noteUserKey("a", []byte(wire))
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			if d.mail.drafting["a"] || !d.mail.keyAt["a"].IsZero() {
+				t.Fatal("terminal report counts as typing over a captured suggestion")
+			}
+		})
+	}
+}
+
 func TestPhoneMidTurnHolds(t *testing.T) {
 	for _, tc := range []struct {
 		name, state string

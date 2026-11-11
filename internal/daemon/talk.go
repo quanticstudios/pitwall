@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -9,10 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"gioui.org/io/key"
-
 	"github.com/quanticstudios/pitwall/internal/agent"
-	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -416,9 +412,10 @@ func (d *Daemon) deliver(pane string) {
 
 // noteUserKey records the user's input into pane: it holds messages for
 // sendQuiet, resets the loop guard and drops a resume after a usage
-// limit. Focus and mouse reports are no keys.
+// limit. Only editing input starts a draft; reports are no keys.
 func (d *Daemon) noteUserKey(pane string, b []byte) {
-	if s := string(b); s == "\x1b[I" || s == "\x1b[O" || strings.HasPrefix(s, "\x1b[<") || strings.HasPrefix(s, "\x1b[M") {
+	pressed, draftKey, submitted := userKeys(b)
+	if len(b) > 0 && !pressed {
 		return
 	}
 	d.mu.Lock()
@@ -430,21 +427,13 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 		}
 	}()
 	d.mail.keyAt[pane] = time.Now()
-	draftKey := len(b) > 0
-	if draftKey && d.paneProvider(pane) == model.ProviderClaude {
-		p := d.panes[pane]
-		// Ctrl+A moves the cursor; NO_COLOR can leave its suggestion unstyled.
-		if string(b) == "\x01" || p != nil && bytes.Equal(b, input.Key(key.Event{Name: "A", Modifiers: key.ModCtrl, State: key.Press}, p.Modes())) {
-			draftKey = false
-		}
-	}
 	if draftKey { // a reply or an answer from the phone leaves no draft
 		if !d.mail.drafting[pane] {
 			d.mail.drafting[pane] = true
 			d.changed()
 		}
 		delete(d.mail.returnAt, pane)
-		if p := d.panes[pane]; p != nil && bytes.Equal(b, press(key.NameReturn, p.Modes())) {
+		if submitted {
 			d.mail.returnAt[pane] = time.Now()
 			delete(d.mail.daemonPrompt, pane)
 		}
@@ -459,8 +448,8 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 	}
 }
 
-// notePrompt ends typing after Return with no later key, even when a hook
-// takes longer than sendQuiet. Any later key keeps the draft. Callers hold d.mu.
+// notePrompt ends typing after Return with no later edit, even when a hook
+// takes longer than sendQuiet. Callers hold d.mu.
 func (d *Daemon) notePrompt(pane string, _ time.Time) {
 	if _, ok := d.mail.returnAt[pane]; ok {
 		delete(d.mail.returnAt, pane)

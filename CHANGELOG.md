@@ -23,7 +23,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 - The phone app and web page name the current Claude model families, including Fable 5.2. Versioned model ids supply their own family and version, hide date suffixes and show `[1m]` as 1M.
 
-- The Android app loads Claude Code's current model and effort and stops retrying refused picks. Phone messages go into Claude Code and Codex during a turn, holding for drafts, forms and approvals. Ctrl+A leaves an untouched Claude Code suggestion out of draft tracking, including with NO_COLOR. Delayed submission hooks release sent drafts.
+- The Android app loads Claude Code's current model and effort and stops retrying refused picks. Phone messages go into Claude Code and Codex during a turn, holding for drafts, forms and approvals. Focus and mouse reports, empty paste markers and cursor movement leave draft tracking alone. Return followed by a focus report still releases a submitted draft. Ctrl+A leaves an untouched Claude Code suggestion out of draft tracking, including with NO_COLOR. Delayed submission hooks release sent drafts.
 
 - Scrolling tabs and chat in the Android app reuses GPU path buffers across frames. Long chats no longer allocate a widget closure for every entry on each frame.
 
