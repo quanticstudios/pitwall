@@ -91,6 +91,8 @@ jobs:
           name: pitwall_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/*
           if-no-files-found: error
+          # why: the release job attaches these to the GitHub release within minutes; kept longer they only fill Actions storage.
+          retention-days: 1
 
   release:
     needs: build
