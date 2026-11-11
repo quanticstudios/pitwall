@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
+	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -62,8 +63,8 @@ func (ic *Icons) Of(dir string) string {
 	if root := repoicon.Root(dir); root != "" {
 		hash = NoIcon
 		for _, f := range repoicon.Files(root) {
-			b, err := os.ReadFile(f)
-			if err != nil || len(b) > repoicon.Max {
+			b, err := repoicon.Read(root, f)
+			if err != nil {
 				continue
 			}
 			if t := iconType(f, b); t != "" {
@@ -96,10 +97,44 @@ func iconType(name string, b []byte) string {
 		return "image/png"
 	case bytes.HasPrefix(b, []byte{0, 0, 1, 0}):
 		return "image/x-icon"
-	case strings.EqualFold(filepath.Ext(name), ".svg") && bytes.Contains(b, []byte("<svg")):
+	case strings.EqualFold(filepath.Ext(name), ".svg") && isSVG(b):
 		return "image/svg+xml"
 	}
 	return ""
+}
+
+// isSVG reports whether b is a well-formed XML document whose one root
+// element is svg, with nothing but space, comments, a declaration and a
+// doctype outside it.
+func isSVG(b []byte) bool {
+	d := xml.NewDecoder(bytes.NewReader(b))
+	d.Entity = xml.HTMLEntity
+	depth, roots := 0, 0
+	for {
+		tok, err := d.Token()
+		if err == io.EOF {
+			return roots == 1 && depth == 0
+		}
+		if err != nil {
+			return false
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if depth == 0 {
+				if roots > 0 || t.Name.Local != "svg" {
+					return false
+				}
+				roots++
+			}
+			depth++
+		case xml.EndElement:
+			depth--
+		case xml.CharData:
+			if depth == 0 && len(bytes.TrimSpace(t)) > 0 {
+				return false
+			}
+		}
+	}
 }
 
 // serve answers GET /api/icon/{hash} with the icon of that hash, and 304

@@ -27,6 +27,12 @@ func TestIcons(t *testing.T) {
 		"bare/.git/HEAD":           []byte("ref: refs/heads/main\n"),
 		"outside/favicon.png":      png,
 		"repo/.pitwall/secret.txt": []byte("token"),
+		"text/.git/HEAD":           []byte("ref: refs/heads/main\n"),
+		"text/favicon.svg":         []byte(`{"role":"user","text":"draw <svg width=1>"}`),
+		"svg/.git/HEAD":            []byte("ref: refs/heads/main\n"),
+		"svg/favicon.svg":          []byte(svgIcon),
+		"link/.git/HEAD":           []byte("ref: refs/heads/main\n"),
+		"linkdir/.git/HEAD":        []byte("ref: refs/heads/main\n"),
 	} {
 		p := filepath.Join(root, name)
 		os.MkdirAll(filepath.Dir(p), 0o755)
@@ -44,7 +50,10 @@ func TestIcons(t *testing.T) {
 	if len(hash) != 24 {
 		t.Fatalf("a repo with a PNG favicon: icon %q, want a hash", hash)
 	}
-	for dir, want := range map[string]string{filepath.Join(root, "fake"): NoIcon, filepath.Join(root, "bare"): NoIcon, filepath.Join(root, "outside"): ""} {
+	if got := s.Icons.Of(filepath.Join(root, "svg")); len(got) != 24 {
+		t.Errorf("a repo with an SVG favicon: icon %q, want a hash", got)
+	}
+	for dir, want := range map[string]string{filepath.Join(root, "text"): NoIcon, filepath.Join(root, "fake"): NoIcon, filepath.Join(root, "bare"): NoIcon, filepath.Join(root, "outside"): ""} {
 		if got := s.Icons.Of(dir); got != want {
 			t.Errorf("%s: icon %q, want %q", filepath.Base(dir), got, want)
 		}
@@ -79,6 +88,20 @@ func TestIcons(t *testing.T) {
 		}
 	}
 
+	// An icon that is a symlink out of its repo, to a private file, is not
+	// read, nor one under a folder that is.
+	if err := os.Symlink(filepath.Join(root, "outside/favicon.png"), filepath.Join(root, "link/favicon.png")); err != nil {
+		t.Log("no symlinks here:", err)
+	} else {
+		if got := s.Icons.Of(filepath.Join(root, "link")); got != NoIcon {
+			t.Errorf("a symlink out of the repo: icon %q, want %q", got, NoIcon)
+		}
+		os.Symlink(filepath.Join(root, "outside"), filepath.Join(root, "linkdir/public"))
+		if got := s.Icons.Of(filepath.Join(root, "linkdir")); got != NoIcon {
+			t.Errorf("a symlinked folder out of the repo: icon %q, want %q", got, NoIcon)
+		}
+	}
+
 	// A new icon in the repo shows once the folder is read again.
 	os.WriteFile(filepath.Join(repo, "public/favicon.png"), append(png, '2'), 0o644)
 	if s.Icons.Of(filepath.Join(repo, "src")) != hash {
@@ -89,3 +112,9 @@ func TestIcons(t *testing.T) {
 		t.Fatal("a changed icon kept its hash after iconRecheck")
 	}
 }
+
+const svgIcon = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- an icon -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><title>a&nbsp;b</title><circle cx="8" cy="8" r="7"/></svg>
+`
