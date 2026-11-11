@@ -1,5 +1,5 @@
-// Package forge asks the gh CLI for the pull request of a branch, and
-// decides how soon to ask again, and for a repository's open issues.
+// Package forge reads GitHub pull requests through conditional REST requests
+// authenticated by gh, and fetches issue and review prompts on demand.
 package forge
 
 import (
@@ -27,21 +27,13 @@ var (
 	ErrRateLimited = errors.New("GitHub rate limit")
 )
 
-// Fields is what View asks gh for.
+// Fields describes the sidebar fields accepted by Parse.
 const Fields = "number,state,isDraft,url,reviewDecision,mergeable,statusCheckRollup,mergeStateStatus,latestReviews,headRefOid,baseRefName,commits"
 
 // View is the pull request of the branch checked out at dir, nil when it
 // has none.
 func View(ctx context.Context, dir string) (*model.PR, error) {
-	out, err := gh(ctx, dir, "pr", "view", "--json", Fields)
-	if err != nil || out == nil {
-		return nil, err
-	}
-	pr, err := Parse(out)
-	if err != nil {
-		return nil, err
-	}
-	return &pr, nil
+	return NewPoller().View(ctx, dir)
 }
 
 // Base is the branch pull request number of the repository at dir merges
@@ -108,34 +100,38 @@ func failed(args []string, stderr []byte, err error) error {
 
 // ghPR is gh pr view --json Fields.
 type ghPR struct {
-	Number         int    `json:"number"`
-	State          string `json:"state"`
-	IsDraft        bool   `json:"isDraft"`
-	URL            string `json:"url"`
-	ReviewDecision string `json:"reviewDecision"`
-	Mergeable      string `json:"mergeable"`
-	MergeState     string `json:"mergeStateStatus"` // CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, UNKNOWN, UNSTABLE...
-	Head           string `json:"headRefOid"`
-	Base           string `json:"baseRefName"`
-	Reviews        []struct {
-		ID     string `json:"id"`
-		Author struct {
-			Login string `json:"login"`
-		} `json:"author"`
-		State       string    `json:"state"`
-		SubmittedAt time.Time `json:"submittedAt"`
-	} `json:"latestReviews"`
-	Commits []struct {
-		CommittedDate time.Time `json:"committedDate"`
-	} `json:"commits"`
-	Checks []struct {
-		Type       string `json:"__typename"` // CheckRun or StatusContext
-		Name       string `json:"name"`       // a CheckRun's
-		Context    string `json:"context"`    // a StatusContext's name
-		Status     string `json:"status"`     // a CheckRun's: QUEUED, IN_PROGRESS, COMPLETED...
-		Conclusion string `json:"conclusion"` // a completed CheckRun's
-		State      string `json:"state"`      // a StatusContext's
-	} `json:"statusCheckRollup"`
+	Number         int        `json:"number"`
+	State          string     `json:"state"`
+	IsDraft        bool       `json:"isDraft"`
+	URL            string     `json:"url"`
+	ReviewDecision string     `json:"reviewDecision"`
+	Mergeable      string     `json:"mergeable"`
+	MergeState     string     `json:"mergeStateStatus"` // CLEAN, BEHIND, BLOCKED, DIRTY, DRAFT, UNKNOWN, UNSTABLE...
+	Head           string     `json:"headRefOid"`
+	Base           string     `json:"baseRefName"`
+	Reviews        []ghReview `json:"latestReviews"`
+	Commits        []ghCommit `json:"commits"`
+	Checks         []ghCheck  `json:"statusCheckRollup"`
+}
+
+type ghReview struct {
+	ID     string `json:"id"`
+	Author struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	State       string    `json:"state"`
+	SubmittedAt time.Time `json:"submittedAt"`
+}
+type ghCommit struct {
+	CommittedDate time.Time `json:"committedDate"`
+}
+type ghCheck struct {
+	Type       string `json:"__typename"`
+	Name       string `json:"name"`
+	Context    string `json:"context"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	State      string `json:"state"`
 }
 
 // Parse reads gh pr view --json Fields.
@@ -144,6 +140,10 @@ func Parse(data []byte) (model.PR, error) {
 	if err := json.Unmarshal(data, &g); err != nil {
 		return model.PR{}, err
 	}
+	return parse(g), nil
+}
+
+func parse(g ghPR) model.PR {
 	pr := model.PR{Number: g.Number, State: model.PRState(strings.ToLower(g.State)), Draft: g.IsDraft, URL: g.URL, Conflicts: g.Mergeable == "CONFLICTING"}
 	switch g.ReviewDecision {
 	case "APPROVED":
@@ -194,7 +194,7 @@ func Parse(data []byte) (model.PR, error) {
 	}
 	pr.Head = g.Head
 	pr.Reason, pr.Detail = readiness(g, pr)
-	return pr, nil
+	return pr
 }
 
 // Adapted from forge (MIT): internal/land/pr.go (PRState)
@@ -280,7 +280,7 @@ func listText(items []string) string {
 	return strings.Join(items[:3], ", ") + fmt.Sprintf(" +%d more", len(items)-3)
 }
 
-// How long View waits before asking about the same branch again.
+// Polling intervals for branches sharing a repository REST snapshot.
 const (
 	OpenEvery  = time.Minute      // an open PR, whose checks and review move
 	QuietEvery = 5 * time.Minute  // no PR, or a closed one
@@ -288,7 +288,7 @@ const (
 	// MergedEvery is for a merged PR, which is final: only a change of
 	// branch, or a gh command ending in one of its tabs, asks sooner.
 	MergedEvery = 24 * time.Hour
-	// RateLimitPause stops every View once GitHub says the rate limit is hit.
+	// RateLimitPause is the fallback for PR readers without budget headers.
 	RateLimitPause = 15 * time.Minute
 	// MaxBackoff caps the wait after errors in a row, which doubles from a
 	// minute.

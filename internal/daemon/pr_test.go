@@ -175,3 +175,74 @@ func TestPollPRsErrors(t *testing.T) {
 		t.Fatal("gh logged out still shows the PR")
 	}
 }
+
+// Timer reads use the batch path and honor its shared budget before new tabs.
+func TestPollPRsBatch(t *testing.T) {
+	f := &fakes{statsCalls: map[string]int{}}
+	o := f.options()
+	o.PR = func(context.Context, string) (*model.PR, error) {
+		t.Fatal("timer used the individual PR reader")
+		return nil, nil
+	}
+	calls := 0
+	merged := false
+	o.PRs = func(_ context.Context, dirs []string) map[string]forge.Result {
+		calls++
+		if len(dirs) != 2 {
+			t.Fatalf("batch directories: %v", dirs)
+		}
+		result := map[string]forge.Result{}
+		for i, dir := range dirs {
+			state := model.PROpen
+			if merged {
+				state = model.PRMerged
+			}
+			result[dir] = forge.Result{PR: &model.PR{Number: i + 1, State: state}}
+		}
+		return result
+	}
+	now := time.Now()
+	pause := time.Time{}
+	o.PRWait = func(at time.Time, interval time.Duration) time.Duration {
+		if at.Before(pause) {
+			return pause.Sub(at)
+		}
+		return interval * 5
+	}
+	invalidated := 0
+	o.PRInvalidate = func(string) { invalidated++ }
+	d, err := NewWith(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.st.Sessions = []model.Session{{ID: "s"}}
+	d.st.Workspaces = []model.Workspace{{ID: "a", SessionID: "s", Path: "/repo/a", Branch: "a"}, {ID: "b", SessionID: "s", Path: "/repo/b", Branch: "b"}}
+	d.clients[&client{focus: "p"}] = struct{}{}
+	d.pollPRs(context.Background(), now)
+	if calls != 1 || len(d.st.PRs) != 2 {
+		t.Fatalf("calls %d, PRs %v", calls, d.st.PRs)
+	}
+	d.pollPRs(context.Background(), now.Add(time.Minute))
+	if calls != 1 {
+		t.Fatal("daemon ignored the 20% slowdown")
+	}
+	pause = now.Add(time.Hour)
+	d.pokePR("a")
+	d.pokePR("b")
+	if invalidated != 2 {
+		t.Fatal("gh commands did not invalidate the repo snapshot")
+	}
+	d.pollPRs(context.Background(), now.Add(10*time.Minute))
+	if calls != 1 || len(d.st.PRs) != 2 {
+		t.Fatal("pause did not retain the current PRs")
+	}
+	merged = true
+	d.pollPRs(context.Background(), pause)
+	if calls != 2 || d.st.PRs["a"].State != model.PRMerged {
+		t.Fatal("reset did not resume the batch")
+	}
+	d.pollPRs(context.Background(), pause.Add(time.Hour))
+	if calls != 2 {
+		t.Fatal("daemon polled a final merged PR")
+	}
+}
