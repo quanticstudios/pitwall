@@ -495,6 +495,7 @@ type claudeMenus struct {
 	saved, sessionSet int
 	confirm           bool
 	missing           bool // the picker has no Haiku row, its last
+	narrow            bool // the footers wrap after "session"
 }
 
 // models are the picker's rows.
@@ -517,6 +518,12 @@ func fakeClaudeMenus(p *fakePane) *claudeMenus {
 		prompt = []string{"────────", "> "}
 	}
 	p.mu.Unlock()
+	footer := func(row string) []string {
+		if a, b, ok := strings.Cut(row, " session "); ok && m.narrow {
+			return []string{a + " session", "  " + b}
+		}
+		return []string{row}
+	}
 	draw := func() {
 		switch open {
 		case "model":
@@ -532,10 +539,10 @@ func fakeClaudeMenus(p *fakePane) *claudeMenus {
 				p.screen = append(rows, "  ❯ ▸   More models", "", "  Enter to expand · Esc to cancel")
 				return
 			}
-			p.screen = append(rows, "    ▸   More models", "", "  Enter to set as default · s to use this session only · Esc to cancel")
+			p.screen = append(append(rows, "    ▸   More models", ""), footer("  Enter to set as default · s to use this session only · Esc to cancel")...)
 		case "effort":
 			col := strings.Index(labels+" ", " "+levels[at]+" ") + 1 + len(levels[at])/2
-			p.screen = []string{"────────", "  Effort", strings.Repeat(" ", col) + "▲", labels, "", "  ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel"}
+			p.screen = append([]string{"────────", "  Effort", strings.Repeat(" ", col) + "▲", labels, ""}, footer("  ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel")...)
 		default:
 			p.screen = prompt
 		}
@@ -674,6 +681,87 @@ func TestPhoneCommandMenuNeverOpens(t *testing.T) {
 	}
 	if got := f.pane(0).got(); got != "/effort\r" {
 		t.Errorf("typed %q", got)
+	}
+}
+
+// A narrow pane wraps the menus' footers onto two rows: a pick still goes
+// in, and a pick the picker lacks still closes it with Esc.
+func TestPhoneCommandWrappedFooter(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	menus := fakeClaudeMenus(f.pane(0))
+	menus.mu.Lock()
+	menus.narrow, menus.missing = true, true
+	menus.mu.Unlock()
+	if err := d.phoneCommand("a", "/effort xhigh"); err != nil {
+		t.Fatal(err)
+	}
+	gotAfter(t, f.pane(0), 0, len("/effort\r\x1b[C\x1b[Cs"))
+	if err := d.phoneCommand("a", "/model haiku"); err == nil || !strings.Contains(err.Error(), "offers no haiku model") {
+		t.Errorf("model missing from the picker: %v", err)
+	}
+	want := "/effort\r\x1b[C\x1b[Cs/model\r" + strings.Repeat("\x1b[A", 3) + strings.Repeat("\x1b[B", 4) + "\x1b"
+	if got := gotAfter(t, f.pane(0), 0, len(want)); got != want {
+		t.Errorf("typed %q, want %q", got, want)
+	}
+}
+
+// Desktop keys bypass sendMu. While another pane's delivery holds it, the
+// user closes the picker and starts a draft, or moves the picker's cursor:
+// the phone's pick stops and presses nothing more.
+func TestPhoneCommandStopsForDesktopKeys(t *testing.T) {
+	picker := func(cursor int) []string {
+		rows := []string{"────────", "  Select model"}
+		for i, name := range []string{"Default (recommended)", "Opus", "Sonnet"} {
+			mark := "  "
+			if i+1 == cursor {
+				mark = "❯ "
+			}
+			rows = append(rows, fmt.Sprintf("  %s%d. %s", mark, i+1, name))
+		}
+		return append(rows, "", "  Enter to set as default · s to use this session only · Esc to cancel")
+	}
+	for _, tc := range []struct {
+		keys  string
+		after []string
+	}{
+		{"\x1bmy draft", []string{"────────", "> my draft"}},
+		{"\x1b[B", picker(2)},
+	} {
+		d, f, _ := phoneDaemon(t)
+		p := f.pane(0)
+		setScreen(p, []string{"────────", "> "})
+		typed := make(chan struct{})
+		var once sync.Once
+		p.mu.Lock()
+		p.wrote = func() {
+			if strings.HasSuffix(string(p.input), "/model\r") {
+				once.Do(func() { close(typed) })
+			}
+		}
+		p.mu.Unlock()
+		done := make(chan error, 1)
+		go func() { done <- d.phoneCommand("a", "/model sonnet") }()
+		<-typed
+		d.sendMu.Lock() // another pane's delivery
+		read := p.snaps.Load()
+		setScreen(p, picker(1))
+		for p.snaps.Load() == read {
+			time.Sleep(time.Millisecond)
+		}
+		time.Sleep(50 * time.Millisecond) // the walk read the picker and waits for sendMu
+		d.noteUserKey("a", []byte(tc.keys))
+		if err := d.handle(context.Background(), proto.Input{Pane: "a", Data: []byte(tc.keys)}); err != nil {
+			t.Fatal(err)
+		}
+		setScreen(p, tc.after)
+		d.sendMu.Unlock()
+		if err := <-done; err == nil || !strings.Contains(err.Error(), "typed in that pane") {
+			t.Errorf("%q: err %v", tc.keys, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+		if got := p.got(); got != "/model\r"+tc.keys {
+			t.Errorf("%q: typed %q", tc.keys, got)
+		}
 	}
 }
 

@@ -126,7 +126,9 @@ has no row for the pick or the menu does not move to it, pitwall closes it
 with Esc, which saves nothing, and the phone says why. A pick goes in only
 while Claude Code sits at its input box: not during a turn, a question or a
 form, and not over a draft. One pick goes in at a time, never while a
-queued message is being typed, and the buttons wait for it. When Claude
+queued message is being typed, and the buttons wait for it. If you type in
+that tab on the computer while a pick is under way, or its menu closes,
+pitwall stops and presses nothing more. When Claude
 Code asks "Switch model?" in a conversation, pitwall answers yes, since
 your pick already did. Claude Code then reads the whole conversation again
 on the new model.

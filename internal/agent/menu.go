@@ -30,12 +30,24 @@ func menuRows(g vt.Grid) []string {
 	return rows
 }
 
-// SessionMenuUp reports a /model picker or /effort slider that offers a
-// session-only pick, open or not yet read in full.
+// SessionMenuUp reports an open /model picker or /effort slider, read in
+// full or not: its footer offers a session-only pick, or the picker's title
+// shows while its cursor sits on a row that takes no s, such as More models.
 func SessionMenuUp(g vt.Grid) bool {
-	return slices.ContainsFunc(menuRows(g), func(l string) bool {
-		return strings.Contains(l, "s to use this session only") || strings.Contains(l, "s for this session only")
-	})
+	rows := menuRows(g)
+	return footerSays(rows, modelFooter) || footerSays(rows, effortFooter) ||
+		slices.ContainsFunc(rows, func(l string) bool { return strings.TrimSpace(l) == "Select model" })
+}
+
+// The footers of the /model picker and the /effort slider name s.
+const modelFooter, effortFooter = "s to use this session only", "s for this session only"
+
+// footerSays reports whether rows say phrase, on one row or wrapped onto
+// more: a narrow pane splits a footer at a space, or mid-word when the
+// terminal wraps it.
+func footerSays(rows []string, phrase string) bool {
+	squash := func(s string) string { return strings.Join(strings.Fields(s), "") }
+	return strings.Contains(squash(strings.Join(rows, "")), squash(phrase))
 }
 
 // MenuRow is a row of Claude Code's /model picker: its number, from 1, and
@@ -55,7 +67,7 @@ var modelMenuRow = regexp.MustCompile(`^\s*(?:(❯)|[↑↓])?\s*([0-9]+)\.\s+(\
 // session-only pick is open.
 func ModelMenu(g vt.Grid) (rows []MenuRow, cursor int, ok bool) {
 	lines := menuRows(g)
-	if !slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "s to use this session only") }) {
+	if !footerSays(lines, modelFooter) {
 		return nil, 0, false
 	}
 	for _, l := range lines {
@@ -99,7 +111,7 @@ var effortLevels = []string{"low", "medium", "high", "xhigh", "max"}
 // session-only pick is open.
 func EffortMenu(g vt.Grid) (levels []string, at int, ok bool) {
 	lines := menuRows(g)
-	if !slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "s for this session only") }) {
+	if !footerSays(lines, effortFooter) {
 		return nil, -1, false
 	}
 	for i := 1; i < len(lines); i++ {

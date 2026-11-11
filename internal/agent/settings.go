@@ -34,7 +34,7 @@ func ClaudeSettings(g vt.Grid) (model, effort string) {
 		return cleanClaudeSettings(model, effort)
 	}
 	for i := len(rows) - 1; i >= 0; i-- {
-		row := strings.TrimSpace(rows[i])
+		row := strings.TrimSpace(withWrapped(g, rows, i))
 		if model == "" && strings.HasPrefix(row, "⎿  Set model to ") {
 			var tail string
 			model, _, _ = strings.Cut(strings.TrimPrefix(row, "⎿  Set model to "), " and saved")
@@ -72,6 +72,29 @@ func ClaudeSettings(g vt.Grid) (model, effort string) {
 		}
 	}
 	return cleanClaudeSettings(model, effort)
+}
+
+// withWrapped is row i of rows, g's, and when it is an acknowledgement the
+// rows a narrow pane wrapped it onto: the terminal's soft wraps, and Claude
+// Code's own, indented past the ⎿.
+func withWrapped(g vt.Grid, rows []string, i int) string {
+	s := rows[i]
+	indent := strings.Index(s, "⎿")
+	if indent < 0 || strings.TrimSpace(s[:indent]) != "" {
+		return s
+	}
+	for j := i + 1; j < len(rows); j++ {
+		next := strings.TrimSpace(rows[j])
+		switch {
+		case j-1 < len(g.Wrapped) && g.Wrapped[j-1]:
+			s += rows[j]
+		case next != "" && !strings.HasPrefix(next, "⎿") && len(rows[j])-len(strings.TrimLeft(rows[j], " ")) > indent:
+			s = strings.TrimRight(s, " ") + " " + next
+		default:
+			return s
+		}
+	}
+	return s
 }
 
 var claudeSettingModel = regexp.MustCompile(`^(Opus|Sonnet|Haiku|Fable) [0-9]+(\.[0-9]+){0,2}( 1M)?$`)

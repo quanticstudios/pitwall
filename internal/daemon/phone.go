@@ -20,6 +20,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // The phone page's chat: every tab in the sidebar's order, each agent's
@@ -267,27 +268,40 @@ func (d *Daemon) paneExited(pane string) bool {
 // nothing. Only while the agent waits at its input box: not during a turn,
 // a question or a form, and not into the user's draft. Commands to one
 // pane take turns; sendMu, which every pane's delivery takes, is held only
-// while keys go in.
+// while keys go in. Before each key, under sendMu, the menu it is for must
+// still show and nobody may have typed in the pane: desktop keys bypass
+// sendMu, so the user can close the menu and start a draft while a key
+// waits for it.
 func (d *Daemon) phoneCommand(pane, command string) error {
 	what, value, _ := strings.Cut(strings.TrimPrefix(command, "/"), " ")
 	if what != "model" && what != "effort" {
 		return fmt.Errorf("pitwall sets only the model and the effort, not %q", command)
 	}
 	defer d.paneCommandLock(pane)()
-	p, err := d.typeCommand(pane, "/"+what)
+	p, since, err := d.typeCommand(pane, "/"+what)
 	if err != nil {
 		return err
 	}
-	if err := d.pickForSession(pane, p, what, value); err != nil || what != "model" {
+	m := menuKeys{d, pane, p, since}
+	if err := m.pickForSession(what, value); err != nil || what != "model" {
 		return err
 	}
 	// why: in a conversation Claude Code asks to confirm the switch, which the phone's pick already did.
 	for deadline := time.Now().Add(switchWait.get()); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if agent.SwitchModelAsked(p.Snapshot()) {
-			return d.pressKeys(pane, p, "1")
+			return m.press(agent.SwitchModelAsked, "1")
 		}
 	}
 	return nil
+}
+
+// menuKeys presses keys into the menu a phone command opened in pane p at
+// since, the time of the user's last key then.
+type menuKeys struct {
+	d     *Daemon
+	pane  string
+	p     Pane
+	since time.Time
 }
 
 // pickForSession moves the open /model picker or /effort slider in p to
@@ -295,10 +309,11 @@ func (d *Daemon) phoneCommand(pane, command string) error {
 // A picker taller than its pane shows only some rows. While the pick is out
 // of view it walks up to the first row, as Up there wraps to the picker's
 // "More models" row, then down until the rows end.
-func (d *Daemon) pickForSession(pane string, p Pane, what, value string) error {
+func (m menuKeys) pickForSession(what, value string) error {
 	back, forth, top := key.NameUpArrow, key.NameDownArrow, 1
+	up := func(g vt.Grid) bool { _, _, ok := agent.ModelMenu(g); return ok }
 	read := func() (target, at int, ok bool) {
-		g := p.Snapshot()
+		g := m.p.Snapshot()
 		if what == "model" {
 			rows, cursor, ok := agent.ModelMenu(g)
 			return agent.ModelRow(rows, value), cursor, ok
@@ -308,12 +323,13 @@ func (d *Daemon) pickForSession(pane string, p Pane, what, value string) error {
 	}
 	if what == "effort" {
 		back, forth, top = key.NameLeftArrow, key.NameRightArrow, 0
+		up = func(g vt.Grid) bool { _, _, ok := agent.EffortMenu(g); return ok }
 	}
 	target, at, ok := waitMenu(read, func(_, _ int, ok bool) bool { return ok })
 	if !ok {
 		err := fmt.Errorf("Claude Code's /%s menu did not open, so nothing changed; try again in a moment", what)
-		if agent.SessionMenuUp(p.Snapshot()) {
-			return d.cancelMenu(pane, p, err)
+		if agent.SessionMenuUp(m.p.Snapshot()) {
+			return m.cancel(err)
 		}
 		return err
 	}
@@ -321,7 +337,7 @@ func (d *Daemon) pickForSession(pane string, p Pane, what, value string) error {
 	walk := back
 	for range maxMenuSteps {
 		if target == at {
-			return d.pressKeys(pane, p, "s")
+			return m.press(up, "s")
 		}
 		looking := target < 0
 		if looking && walk == back && at == top {
@@ -334,26 +350,26 @@ func (d *Daemon) pickForSession(pane string, p Pane, what, value string) error {
 		case target >= 0:
 			step = back
 		}
-		if err := d.pressKeys(pane, p, step); err != nil {
+		if err := m.press(up, step); err != nil {
 			return err
 		}
 		from := at
 		target, at, ok = waitMenu(read, func(_, at int, ok bool) bool { return ok && at != from })
 		switch {
 		case !ok && looking && step == forth:
-			return d.cancelMenu(pane, p, offersNo) // past the last row
+			return m.cancel(offersNo) // past the last row
 		case !ok:
-			return d.cancelMenu(pane, p, fmt.Errorf("Claude Code's /%s menu changed, so nothing changed", what))
+			return m.cancel(fmt.Errorf("Claude Code's /%s menu changed, so nothing changed", what))
 		case at != from:
 		case looking && walk == back:
 			walk = forth // a slider stops at its lowest level
 		case looking:
-			return d.cancelMenu(pane, p, offersNo)
+			return m.cancel(offersNo)
 		default:
-			return d.cancelMenu(pane, p, fmt.Errorf("Claude Code's /%s menu did not move to %s, so nothing changed", what, value))
+			return m.cancel(fmt.Errorf("Claude Code's /%s menu did not move to %s, so nothing changed", what, value))
 		}
 	}
-	return d.cancelMenu(pane, p, fmt.Errorf("Claude Code's /%s menu did not move to %s, so nothing changed", what, value))
+	return m.cancel(fmt.Errorf("Claude Code's /%s menu did not move to %s, so nothing changed", what, value))
 }
 
 // maxMenuSteps caps the keys pickForSession presses in one menu.
@@ -370,53 +386,65 @@ func waitMenu(read func() (int, int, bool), done func(int, int, bool) bool) (tar
 	}
 }
 
-// cancelMenu closes the open menu with Esc, which saves nothing, and
-// returns err.
-func (d *Daemon) cancelMenu(pane string, p Pane, err error) error {
-	if e := d.pressKeys(pane, p, key.NameEscape); e != nil {
+// cancel closes the open menu with Esc, which saves nothing, and returns
+// err.
+func (m menuKeys) cancel(err error) error {
+	if e := m.press(agent.SessionMenuUp, key.NameEscape); e != nil {
 		return e
 	}
 	return err
 }
 
-// pressKeys presses keys in pane, under sendMu.
-func (d *Daemon) pressKeys(pane string, p Pane, keys ...key.Name) error {
+// press presses k under sendMu, if the pane is still p, nobody typed in it
+// since m.since, and up reads its screen as the menu k is for.
+func (m menuKeys) press(up func(vt.Grid) bool, k key.Name) error {
+	d := m.d
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
-	for _, k := range keys {
-		if err := d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())}); err != nil {
-			return err
-		}
+	d.mu.Lock()
+	same, typed := d.panes[m.pane] == m.p, d.mail.keyAt[m.pane].After(m.since)
+	d.mu.Unlock()
+	switch {
+	case !same:
+		return errors.New("that pane closed, so pitwall stopped")
+	case typed:
+		return errors.New("someone typed in that pane, so pitwall left Claude Code's menu to them")
+	case !up(m.p.Snapshot()):
+		return errors.New("Claude Code's menu closed, so pitwall stopped")
 	}
-	return nil
+	return d.handle(context.Background(), proto.Input{Pane: m.pane, Data: press(k, m.p.Modes())})
 }
 
 // typeCommand checks pane is ready for command and types it with Enter,
-// under sendMu, as deliver types a message.
-func (d *Daemon) typeCommand(pane, command string) (Pane, error) {
+// under sendMu, as deliver types a message. since is the time it records as
+// the user's last key in pane.
+func (d *Daemon) typeCommand(pane, command string) (_ Pane, since time.Time, err error) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
 	d.mu.Lock()
 	prov := d.paneProvider(pane)
 	d.mu.Unlock()
 	if prov != model.ProviderClaude {
-		return nil, errors.New("only Claude Code takes the model and effort from here")
+		return nil, since, errors.New("only Claude Code takes the model and effort from here")
 	}
 	p, busy, err := d.ready(pane)
 	if err != nil {
 		if busy {
-			return nil, fmt.Errorf("%w; try again when it waits at its input box", err)
+			return nil, since, fmt.Errorf("%w; try again when it waits at its input box", err)
 		}
-		return nil, err
+		return nil, since, err
 	}
 	if agent.FormUp(p.Snapshot(), "") {
-		return nil, errors.New("that pane shows a form; answer it in its tab")
+		return nil, since, errors.New("that pane shows a form; answer it in its tab")
 	}
 	d.noteUserKey(pane, nil)
+	d.mu.Lock()
+	since = d.mail.keyAt[pane]
+	d.mu.Unlock()
 	if err := d.handle(context.Background(), proto.Input{Pane: pane, Data: input.Text(remote.Clean(command))}); err != nil {
-		return nil, err
+		return nil, since, err
 	}
-	return p, d.pressEnter(pane, p, command)
+	return p, since, d.pressEnter(pane, p, command)
 }
 
 // paneCommandLock locks pane's slash commands and returns the unlock.

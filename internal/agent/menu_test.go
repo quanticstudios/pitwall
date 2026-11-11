@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"os"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // claude-model-menu.txt and claude-effort-menu.txt are Claude Code 2.1.322's
@@ -38,6 +42,9 @@ func TestModelMenu(t *testing.T) {
 	if SessionMenuUp(screenFixture(t, "claude-idle.txt")) || !SessionMenuUp(screenFixture(t, "claude-effort-menu.txt")) {
 		t.Error("SessionMenuUp")
 	}
+	if !SessionMenuUp(gridOf("────────", "  Select model", "    1. Opus", "  ❯ ▸   More models", "", "  Enter to expand · Esc to cancel")) {
+		t.Error("SessionMenuUp on More models")
+	}
 }
 
 func TestEffortMenu(t *testing.T) {
@@ -61,5 +68,30 @@ func TestEffortMenu(t *testing.T) {
 		if _, _, ok := EffortMenu(screenFixture(t, file)); ok {
 			t.Errorf("%s read as the /effort slider", file)
 		}
+	}
+}
+
+// A narrow pane wraps a menu's footer onto two rows. The picker is the
+// captured claude-model-menu.txt drawn 50 columns wide, where the terminal
+// splits "s to use this session only" after "session".
+func TestMenuFooterWrapped(t *testing.T) {
+	b, err := os.ReadFile("testdata/claude-model-menu.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(50, 40, nil)
+	e.Write([]byte(strings.ReplaceAll(strings.TrimRight(string(b), "\n"), "\n", "\r\n")))
+	g := e.Snapshot()
+	rows, cursor, ok := ModelMenu(g)
+	want := []MenuRow{{1, "Default (recommended)"}, {2, "Opus"}, {3, "Fable"}, {4, "Sonnet"}, {5, "Haiku"}}
+	if !ok || cursor != 5 || !slices.Equal(rows, want) || !SessionMenuUp(g) {
+		t.Fatalf("50-column picker: %v %d %v %v", rows, cursor, ok, SessionMenuUp(g))
+	}
+	// Claude Code wraps the slider's footer at a space, indented.
+	slider := gridOf("────────", "  Effort", "", "                   ──────────────────────────────▲───────────",
+		"                   low     medium     high     xhigh      max", "",
+		"  ←/→ to adjust · Enter to confirm · s for this", "  session only · Esc to cancel")
+	if levels, at, ok := EffortMenu(slider); !ok || at != 3 || !slices.Equal(levels, effortLevels) || !SessionMenuUp(slider) {
+		t.Errorf("wrapped slider: %q %d %v", levels, at, ok)
 	}
 }
