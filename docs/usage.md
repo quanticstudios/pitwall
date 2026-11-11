@@ -1263,7 +1263,9 @@ same unless `open_path` is set.
 
 The file is drawn in a column about 72 characters wide in your theme's
 fonts and colors: headings, lists, task lists, tables, block quotes,
-inline and fenced code, links and rules. Local images (PNG, JPEG, GIF's
+inline and fenced code, links and rules. A code line wider than the
+column, or a table whose columns would drop under 112dp, scrolls sideways:
+use a sideways wheel or touchpad swipe, or drag the bar under it. Local images (PNG, JPEG, GIF's
 first frame, WebP and SVG) are read relative to the file and scaled down to
 the column. Images from `http` and `https` URLs are downloaded with a
 10-second timeout and a 5 MiB limit, from public addresses only: never
