@@ -532,10 +532,10 @@ func FuzzParseMermaid(f *testing.F) {
 	})
 }
 
-// TestSVGSafe: an SVG oksvg would recurse in forever, or that copies
-// itself out to millions of elements, is not drawn, and does not crash
-// the process; a <use> of a defined shape still draws, and a tall SVG is
-// drawn no larger than MaxSide.
+// TestSVGSafe: an SVG with a <use>, which oksvg could recurse in forever
+// or copy out to millions of elements, is not drawn and does not crash
+// the process, nor is one nested too deep or with too many elements; a
+// plain SVG still draws, and a tall SVG is drawn no larger than MaxSide.
 func TestSVGSafe(t *testing.T) {
 	defer debug.SetMaxStack(debug.SetMaxStack(64 << 20)) // a regression fails fast
 	head := `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="10" height="10" viewBox="0 0 10 10">`
@@ -545,21 +545,26 @@ func TestSVGSafe(t *testing.T) {
 	}
 	laughs += `</defs><use href="#r11"/>`
 	for name, body := range map[string]string{
-		"self":     `<defs><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
-		"sibling":  `<defs><g id="a"></g><use href="#a"/></defs><use href="#a"/>`,
-		"cycle":    `<defs><g id="a"><use xlink:href="#b"/></g><g id="b"><use xlink:href="#a"/></g></defs><use xlink:href="#a"/>`,
-		"twice":    `<defs><g id="a"><rect width="1" height="1"/></g><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
-		"external": `<use href="other.svg#a"/>`,
-		"deep":     strings.Repeat("<g>", maxSVGDepth+1) + strings.Repeat("</g>", maxSVGDepth+1),
-		"laughs":   laughs,
+		"self":      `<defs><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
+		"sibling":   `<defs><g id="a"></g><use href="#a"/></defs><use href="#a"/>`,
+		"cycle":     `<defs><g id="a"><use xlink:href="#b"/></g><g id="b"><use xlink:href="#a"/></g></defs><use xlink:href="#a"/>`,
+		"twice":     `<defs><g id="a"><rect width="1" height="1"/></g><g id="a"><use href="#a"/></g></defs><use href="#a"/>`,
+		"external":  `<use href="other.svg#a"/>`,
+		"plain use": `<defs><rect id="r" width="5" height="5"/></defs><use href="#r"/>`,
+		"deep":      strings.Repeat("<g>", maxSVGDepth+1) + strings.Repeat("</g>", maxSVGDepth+1),
+		"many":      strings.Repeat(`<rect width="1" height="1"/>`, maxSVGElems+1),
+		"laughs":    laughs,
 	} {
 		if img, err := Decode([]byte(head+body+"</svg>"), 100); err == nil {
 			t.Errorf("%s: drawn %v", name, img.Bounds())
 		}
+		if err := svgSafe([]byte(head + body + "</svg>")); strings.Contains(body, "<use") && (err == nil || !strings.Contains(err.Error(), "<use>")) {
+			t.Errorf("%s: refused for %v, not its <use>", name, err)
+		}
 	}
-	ok := head + `<defs><rect id="r" width="5" height="5" fill="red"/></defs><use href="#r"/><use href="#r" x="5" y="5"/></svg>`
-	if _, err := Decode([]byte(ok), 100); err != nil {
-		t.Errorf("a plain <use>: %v", err)
+	ok := head + `<g fill="red"><rect width="5" height="5"/><circle cx="7" cy="7" r="2"/></g></svg>`
+	if img, err := Decode([]byte(ok), 100); err != nil || img.Bounds().Dx() != 10 {
+		t.Errorf("a plain SVG: %v, %v", img, err)
 	}
 	tall := `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="40000" viewBox="0 0 400 40000"><rect width="400" height="40000"/></svg>`
 	if img, err := Decode([]byte(tall), 800); err != nil || img.Bounds().Dy() > MaxSide || img.Bounds().Dx() > MaxSide {

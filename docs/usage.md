@@ -1271,9 +1271,8 @@ from this machine, your local network, link-local addresses or the
 tailnet (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), after redirects too.
 Local ones may be up to 20 MiB. Two images load at a time, and the reader
 keeps up to 256 MiB of decoded images, dropping those of files read
-before first. An SVG with a `<use>` that refers to itself or outside the
-file, more than 64 levels deep, or more than 20,000 elements is not
-drawn. An image that does not load shows its alt text, address and the
+before first. An SVG with a `<use>` element, more than 64 levels deep,
+or more than 20,000 elements is not drawn. An image that does not load shows its alt text, address and the
 reason.
 
 A ` ```mermaid ` block with a flowchart (`graph` or `flowchart`, any

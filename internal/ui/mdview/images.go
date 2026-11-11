@@ -320,128 +320,40 @@ func rasterSVG(b []byte, width int) (img image.Image) {
 // Caps on an SVG before oksvg reads it.
 const (
 	maxSVGDepth = 64    // nested elements
-	maxSVGElems = 20000 // elements, each <use> counted as what it copies
+	maxSVGElems = 20000 // elements
 )
 
 // svgSafe refuses an SVG oksvg could recurse forever in or spend too long
-// on: deeper than maxSVGDepth, a <use> that reaches itself or points
-// outside the file, or more than maxSVGElems elements once each <use> is
-// replaced by what it copies. oksvg draws a <use> by drawing its target
-// again, with no check for a cycle, so svgSafe builds the table of
-// definitions the way oksvg's reader does: inside <defs>, every element
-// joins the definition of the last element with an id before it, even
-// after that element closed.
+// on: one with a <use>, deeper than maxSVGDepth, or with more than
+// maxSVGElems elements. oksvg draws a <use> by drawing its target again,
+// with no check for a cycle, and a Go stack overflow cannot be recovered.
 func svgSafe(b []byte) error {
-	type def struct{ id, tag, href string }
-	var (
-		defs           = map[string][]def{} // by the id of its first element
-		cur            []def                // the definition being read
-		costs          = map[string]int{}   // drawn elements per id, for defs as they are now
-		inDefs, inGrad bool
-		depth, n       int
-	)
-	// reading marks an id whose cost is being added up.
-	const reading = -1
-	var cost func(href string) (int, error)
-	cost = func(href string) (int, error) {
-		id, ok := strings.CutPrefix(href, "#")
-		if !ok {
-			return 0, nil // oksvg stops with an error
-		}
-		switch c, ok := costs[id]; {
-		case ok && c == reading:
-			return 0, errors.New("SVG <use> reaches itself")
-		case ok:
-			return c, nil
-		}
-		costs[id] = reading
-		c := 0
-		for _, d := range defs[id] {
-			if d.tag == "endg" {
-				continue
-			}
-			c++
-			if d.tag == "use" {
-				u, err := cost(d.href)
-				if err != nil {
-					return 0, err
-				}
-				c = min(c+u, maxSVGElems+1)
-			}
-		}
-		costs[id] = c
-		return c, nil
-	}
-	flush := func() {
-		if len(cur) > 0 {
-			defs[cur[0].id], cur, costs = cur, nil, map[string]int{}
-		}
-	}
+	depth, n := 0, 0
 	d := xml.NewDecoder(bytes.NewReader(b))
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
-			break
+			return nil
 		}
 		if err != nil {
 			return err
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			if depth >= maxSVGDepth {
+			switch {
+			case t.Name.Local == "use":
+				return errors.New("SVG has a <use>")
+			case depth >= maxSVGDepth:
 				return errors.New("SVG nested too deep")
 			}
 			depth++
-			name, id, href := t.Name.Local, "", ""
-			for _, a := range t.Attr {
-				switch a.Name.Local {
-				case "id":
-					id = a.Value
-				case "href":
-					href = a.Value
-				}
-			}
-			if name == "use" && !strings.HasPrefix(href, "#") {
-				return errors.New("SVG <use> outside the file")
-			}
-			// Mirrors oksvg's readStartElement and draw functions.
-			grad := name == "radialGradient" || name == "linearGradient"
-			switch {
-			case inDefs && !grad && !inGrad:
-				if id != "" {
-					flush()
-				}
-				cur = append(cur, def{id, name, href})
-			case name == "defs":
-				inDefs = true
-			case grad:
-				inGrad = true
-			case name == "use":
-				c, err := cost(href)
-				if err != nil {
-					return err
-				}
-				n += c
-			}
 			if n++; n > maxSVGElems {
 				return errors.New("SVG has too many elements")
 			}
 		case xml.EndElement:
 			depth--
-			switch t.Name.Local {
-			case "g":
-				if inDefs {
-					cur = append(cur, def{tag: "endg"})
-				}
-			case "defs":
-				flush()
-				inDefs = false
-			case "radialGradient", "linearGradient":
-				inGrad = false
-			}
 		}
 	}
-	return nil
 }
 
 var svgDims = regexp.MustCompile(`(?s)<svg\b[^>]*`)
