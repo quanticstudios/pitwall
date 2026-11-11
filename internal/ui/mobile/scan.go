@@ -27,11 +27,16 @@ type frame struct {
 
 // camFeed is what the camera's thread hands the window: the newest frame
 // and whether a decode runs. Pairing's state resets wholesale, so this
-// lives on App.
+// lives on App. gen counts ended scans, on the window's goroutine only,
+// so a scan's late decode or failure cannot act on the scan after it.
 type camFeed struct {
 	latest atomic.Pointer[frame]
 	busy   atomic.Bool
+	gen    int
 }
+
+// openCamera is startCamera, which tests replace.
+var openCamera = startCamera
 
 // decodeQR reads a QR code from a w by h picture's brightness bytes.
 func decodeQR(y []byte, w, h int) (string, error) {
@@ -55,7 +60,8 @@ func decodeQR(y []byte, w, h int) (string, error) {
 func (a *App) startScan() {
 	p := &a.pair
 	p.scanning, p.note = true, ""
-	startCamera(func(f frame) {
+	gen := a.cam.gen
+	openCamera(func(f frame) {
 		a.cam.latest.Store(&f)
 		a.w.Invalidate()
 		if !a.cam.busy.CompareAndSwap(false, true) {
@@ -69,7 +75,7 @@ func (a *App) startScan() {
 			}
 			server, code, err := phone.ParseScan(text)
 			a.post(func() {
-				if !p.scanning {
+				if a.cam.gen != gen {
 					return
 				}
 				if err != nil {
@@ -83,7 +89,7 @@ func (a *App) startScan() {
 		}()
 	}, func(why string) {
 		a.post(func() {
-			if p.scanning {
+			if a.cam.gen == gen {
 				a.stopScan()
 				p.note = why
 			}
@@ -93,6 +99,7 @@ func (a *App) startScan() {
 
 func (a *App) stopScan() {
 	stopCamera()
+	a.cam.gen++
 	a.pair.scanning, a.pair.shown = false, nil
 	a.cam.latest.Store(nil)
 }
