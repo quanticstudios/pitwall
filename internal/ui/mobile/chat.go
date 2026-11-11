@@ -75,13 +75,15 @@ func (e *chatEnv) now() time.Time {
 
 // chatView is an open tab's chat.
 type chatView struct {
-	pane    string
-	data    phone.Chat
-	list    layout.List
-	rows    map[int64]*entryRow
-	loading bool // a page of older entries is on its way
-	fresh   bool // new entries came while scrolled up
-	md      *markdown.Renderer
+	pane       string
+	data       phone.Chat
+	tab        remote.Tab
+	tabUpdates uint64
+	list       layout.List
+	rows       map[int64]*entryRow
+	loading    bool // a page of older entries is on its way
+	fresh      bool // new entries came while scrolled up
+	md         *markdown.Renderer
 
 	monoScale float32 // inline code's size over the text's; see monoScale
 
@@ -126,7 +128,10 @@ func (c *chatView) add(e phone.Entries) {
 }
 
 // update moves the sent messages along with t, from a new tab list.
-func (c *chatView) update(t remote.Tab, now time.Time) { c.data.Update(t, now) }
+func (c *chatView) update(t remote.Tab, now time.Time) {
+	c.tab, c.tabUpdates = t, c.tabUpdates+1
+	c.data.Update(t, now)
+}
 
 // handleBack is Back on the chat: it closes a menu, and false means
 // there was none, so Back goes to the sidebar. A focused field is not a
@@ -265,7 +270,7 @@ func (c *chatView) agentLine(t remote.Tab) string {
 	if n := agentName(t.Agent); n != "" {
 		parts = append(parts, n)
 	}
-	if m := c.cmp.modelShown(c.data.Model); m != "" {
+	if m := c.cmp.modelShown(c.currentModel(t)); m != "" {
 		parts = append(parts, m)
 	}
 	return strings.Join(parts, " · ")

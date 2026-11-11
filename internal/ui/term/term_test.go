@@ -532,6 +532,10 @@ func TestFocusReports(t *testing.T) {
 		}
 	}
 	frame(on, true)
+	if got := frame(on, true, key.Event{Name: key.NameReturn, State: key.Press}, key.FocusEvent{Focus: false}); got != "\r\x1b[O" {
+		t.Errorf("Return and window blur = %q", got)
+	}
+	frame(on, true, key.FocusEvent{Focus: true})
 	if got := string(v.Blur()); got != "\x1b[O" {
 		t.Errorf("Blur = %q", got)
 	}

@@ -19,7 +19,12 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- Phone model and effort chips retain terminal setting changes made while the phone is closed, after the acknowledgements scroll away.
+- Phone model and effort chips ignore mentions in transcript text. Esc protects a prompt Claude Code restores on interruption from queued phone and window messages.
+- Terminal draft tracking rejects Kitty key codes outside the Unicode range before converting them to runes.
 - The Android app pairs by scanning the QR code `pitwall remote pair` or Settings, Phone shows: Scan QR code on the pairing screen and on Add machine opens the camera, which the app asks for on that first tap. Paste and the address and code stay.
+- The phone app and web page name the current Claude model families, including Fable 5.2. Versioned model ids supply their own family and version, hide date suffixes and show `[1m]` as 1M.
+- The Android app loads Claude Code's current model and effort and stops retrying refused picks. Phone messages go into Claude Code and Codex during a turn, holding for drafts, forms and approvals. Focus and mouse reports, empty paste markers and cursor movement leave draft tracking alone. Return followed by a focus report still releases a submitted draft. Ctrl+A leaves an untouched Claude Code suggestion out of draft tracking, including with NO_COLOR. Delayed submission hooks release sent drafts.
 - Scrolling tabs and chat in the Android app reuses GPU path buffers across frames. Long chats no longer allocate a widget closure for every entry on each frame.
 - Pull request status uses one conditional REST list per GitHub repository across its worktrees. Unrelated branch pushes do not re-read each pull request. Fork checkouts retain their pull request status, and finished checks refresh conditionally to detect reruns. Branches that track a base or local branch match their own pull requests. Low REST headroom slows polling, and exhausted headroom pauses requests until GitHub resets the budget.
 

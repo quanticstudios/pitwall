@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // phoneDaemon is a daemon with tab w1 running Claude Code in pane a at its
@@ -91,6 +93,152 @@ func TestPhoneTabs(t *testing.T) {
 	}
 }
 
+func TestPhoneCurrentSettings(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	setScreen(f.pane(0), []string{"────────", "❯ ", "────────", "Opus 5.5 · high · project · 8% 83k/1.0M"})
+	tab := d.phoneTabs()[0]
+	if tab.Model != "Opus 5.5 1M" || tab.Effort != "high" {
+		t.Fatalf("current terminal settings: %+v", tab)
+	}
+	setScreen(f.pane(0), []string{"────────", "❯ ", "────────", "Sonnet 5.5 · low · project"})
+	tab = d.phoneTabs()[0]
+	if tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+		t.Fatalf("external change: %+v", tab)
+	}
+	setScreen(f.pane(0), []string{"────────", "❯ ", "────────"})
+	tab = d.phoneTabs()[0]
+	if tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+		t.Fatalf("settings lost off screen: %+v", tab)
+	}
+}
+
+func TestPhoneSettingsOutsideFrames(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	p := f.pane(0)
+	setScreen(p, []string{"────────", "❯ ", "────────", "Sonnet 5.5 · low · project"})
+	c := &client{frames: map[string]proto.Frame{}}
+	d.mu.Lock()
+	d.clients[c] = struct{}{}
+	d.mu.Unlock()
+	if _, ok := d.pushFrame("a", p); !ok {
+		t.Fatal("GUI receives no frame")
+	}
+	d.mu.Lock()
+	settings := d.phoneSettings["a"]
+	d.mu.Unlock()
+	if settings != (phoneSettings{}) {
+		t.Fatalf("frame parses phone settings: %+v", settings)
+	}
+	if tab := d.phoneTabs()[0]; tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+		t.Fatalf("phone request misses settings: %+v", tab)
+	}
+	d.mu.Lock()
+	delete(d.clients, c)
+	d.mu.Unlock()
+	changed := d.phoneChanged()
+	setScreen(p, []string{"────────", "❯ ", "────────", "Sonnet 5.5 · high · project"})
+	d.pushFrame("a", p)
+	select {
+	case <-changed:
+	default:
+		t.Fatal("terminal output does not wake the phone stream")
+	}
+	if tab := d.phoneTabs()[0]; tab.Effort != "high" {
+		t.Fatalf("phone request misses redrawn settings: %+v", tab)
+	}
+}
+
+func TestPhoneSettingsWhileClosed(t *testing.T) {
+	for _, gui := range []bool{false, true} {
+		t.Run(fmt.Sprintf("gui=%t", gui), func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			p := f.pane(0)
+			if gui {
+				d.mu.Lock()
+				d.clients[&client{frames: map[string]proto.Frame{}}] = struct{}{}
+				d.mu.Unlock()
+			}
+			setScreen(p, []string{"▝▜ Opus 5.5 with high effort", "────────", "❯ ", "────────"})
+			if tab := d.phoneTabs()[0]; tab.Model != "Opus 5.5" || tab.Effort != "high" {
+				t.Fatalf("initial settings: %+v", tab)
+			}
+			p.draw("⎿  Set model to Sonnet 5.5", "⎿  Set effort level to low", "────────", "❯ ", "────────")
+			waitUntil(t, "settings cached without a phone request", func() bool {
+				d.mu.Lock()
+				defer d.mu.Unlock()
+				return d.phoneSettings["a"] == (phoneSettings{model: "Sonnet 5.5", effort: "low"})
+			})
+			p.draw("reply after settings scroll away", "────────", "❯ ", "────────")
+			if tab := d.phoneTabs()[0]; tab.Model != "Sonnet 5.5" || tab.Effort != "low" {
+				t.Fatalf("reopened phone has stale settings: %+v", tab)
+			}
+		})
+	}
+}
+
+func TestPhoneEscapeRestoresDraft(t *testing.T) {
+	for _, wire := range []string{"\x1b", "\x1b[27u", "\x1b\x1b", "\x1b[27u\x1b[27u"} {
+		t.Run(fmt.Sprintf("%x", wire), func(t *testing.T) {
+			d, p := draftDaemon(t)
+			d.noteUserKey("a", []byte("refactor X\r"))
+			claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"refactor X"}`)
+			d.mu.Lock()
+			drafting := d.mail.drafting["a"]
+			d.mu.Unlock()
+			if drafting {
+				t.Fatal("submission leaves draft tracking set")
+			}
+			d.noteUserKey("a", []byte(wire))
+			setScreen(p, []string{"────────", "❯ refactor X", "────────"})
+			claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"interrupted"}`)
+			if _, err := d.readyWindow("a", false); err != errDraft {
+				t.Fatalf("window message ignores restored draft: %v", err)
+			}
+			if _, err := d.phoneSend("a", "phone text"); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(2 * sendQuiet.get())
+			if got := p.got(); got != "" {
+				t.Fatalf("phone text enters restored draft: %q", got)
+			}
+			if !draftHeld(d, "a") {
+				t.Fatal("restored draft has no hold")
+			}
+			setScreen(p, []string{"────────", "❯ ", "────────"})
+			if got := gotAfter(t, p, 0, len("phone text\r")); got != "phone text\r" {
+				t.Fatalf("cleared draft keeps phone message: %q", got)
+			}
+		})
+	}
+}
+
+func TestPhoneDelayedSubmissionReleasesDraft(t *testing.T) {
+	d, f, do := phoneDaemon(t)
+	d.o.Derive = agent.Derive
+	p := f.pane(0)
+	setScreen(p, []string{"────────", "❯ Try a test", "────────"})
+	d.noteUserKey("a", []byte("\r"))
+	d.mu.Lock()
+	d.mail.returnAt["a"] = time.Now().Add(-5 * time.Second)
+	d.mu.Unlock()
+	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"write a function"}`)
+	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"done"}`)
+	if st, body := do("POST", "/api/command", `{"pane":"a","what":"effort","value":"high"}`); st != 200 {
+		t.Fatalf("empty box refused: %d %s", st, body)
+	}
+	gotAfter(t, p, 0, len("/effort high\r"))
+	d.mu.Lock()
+	d.mail.keyAt["a"] = time.Now().Add(-5 * time.Second)
+	d.mu.Unlock()
+	n := len(p.got())
+	if st, body := do("POST", "/api/send", `{"pane":"a","text":"next"}`); st != 200 {
+		t.Fatalf("send: %d %s", st, body)
+	}
+	if got := gotAfter(t, p, n, len("next\r")); got != "next\r" {
+		t.Fatalf("queue did not drain: %q", got)
+	}
+}
+
 func TestPhoneSend(t *testing.T) {
 	d, f, do := phoneDaemon(t)
 	send := func(pane, text string) int {
@@ -109,26 +257,28 @@ func TestPhoneSend(t *testing.T) {
 	if st := send("sh", "ls"); st != 409 || f.pane(1).got() != "" {
 		t.Errorf("shell: %d %q", st, f.pane(1).got())
 	}
-	// Working: queued until the turn ends.
+	// Claude Code accepts input during a turn and decides when to read it.
 	event(t, d, "a", "working")
 	n := len(f.pane(0).got())
 	if st := send("a", "next"); st != 200 {
 		t.Fatalf("send while working: %d", st)
 	}
-	time.Sleep(50 * time.Millisecond)
-	if got := f.pane(0).got()[n:]; got != "" || d.phoneTabs()[0].Queued != 1 {
-		t.Fatalf("typed into a running turn: %q, queued %d", got, d.phoneTabs()[0].Queued)
+	if got := gotAfter(t, f.pane(0), n, len("next\r")); got != "next\r" {
+		t.Fatalf("mid-turn input: %q", got)
 	}
-	// Done, but a form on screen: still queued.
+	// A form on screen still holds a new phone message.
+	n = len(f.pane(0).got())
 	setScreen(f.pane(0), []string{" Do you want to proceed?", " > 1. Yes", "   2. No", " Esc to cancel"})
-	event(t, d, "a", "completed")
+	if st := send("a", "after form"); st != 200 {
+		t.Fatalf("send over a form: %d", st)
+	}
 	time.Sleep(50 * time.Millisecond)
 	if got := f.pane(0).got()[n:]; got != "" {
 		t.Fatalf("typed into a form: %q", got)
 	}
 	// Back at the input box: typed.
 	setScreen(f.pane(0), []string{"> "})
-	if got := gotAfter(t, f.pane(0), n, len("next\r")); got != "next\r" {
+	if got := gotAfter(t, f.pane(0), n, len("after form\r")); got != "after form\r" {
 		t.Errorf("queued message typed %q", got)
 	}
 	if st := send("a", " \x03 "); st != 409 {
@@ -140,6 +290,194 @@ func TestPhoneSend(t *testing.T) {
 	d.mu.Unlock()
 	if st := send("a", "hello"); st != 409 || d.phoneTabs()[0].Send {
 		t.Errorf("exited agent: %d", st)
+	}
+}
+
+type capturedPhonePane struct {
+	*fakePane
+	grid vt.Grid
+}
+
+func (p *capturedPhonePane) Snapshot() vt.Grid { return p.grid }
+
+// These box rows were captured from Claude Code 2.1.322, Opus 5.5 1M,
+// high effort, with NO_COLOR=1. Ctrl+A leaves the suggestion unchanged.
+func TestPhoneCapturedSuggestionAfterCtrlA(t *testing.T) {
+	for _, wire := range []string{"\x01", "\x1b[97;5u"} {
+		for _, draft := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%x/draft=%v", wire, draft), func(t *testing.T) {
+				d, f, do := phoneDaemon(t)
+				name := "claude-idle-suggestion-no-color.ansi"
+				if draft {
+					name = "claude-draft-no-color.ansi"
+				}
+				b, err := os.ReadFile(filepath.Join("testdata", name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				e := vt.New(120, 4, nil)
+				e.Write(b)
+				g := e.Snapshot()
+				if !agent.Draft(model.ProviderClaude, g) {
+					t.Fatal("the unstyled capture must exercise the draft check")
+				}
+				p := f.pane(0)
+				p.mu.Lock()
+				p.modes.KittyKeyboard = 5
+				p.mu.Unlock()
+				d.mu.Lock()
+				d.panes["a"] = &capturedPhonePane{fakePane: p, grid: g}
+				d.mu.Unlock()
+				if draft {
+					d.noteUserKey("a", []byte("ACTUAL_DRAFT_KEEP"))
+				}
+				d.noteUserKey("a", []byte(wire))
+				status, body := do("POST", "/api/command", `{"pane":"a","what":"effort","value":"high"}`)
+				if draft {
+					if status != 409 || !strings.Contains(body, errDraft.Error()) {
+						t.Fatalf("draft: %d %s", status, body)
+					}
+				} else if status != 200 {
+					t.Fatalf("suggestion: %d %s", status, body)
+				} else {
+					gotAfter(t, p, 0, len("/effort high\r"))
+				}
+				before := len(p.got())
+				if _, err := d.phoneSend("a", "phone message"); err != nil {
+					t.Fatal(err)
+				}
+				if draft {
+					time.Sleep(50 * time.Millisecond)
+					if got := p.got()[before:]; got != "" || d.phoneTabs()[0].Queued != 1 {
+						t.Fatalf("draft received %q, queued %d", got, d.phoneTabs()[0].Queued)
+					}
+				} else if got := gotAfter(t, p, before, len("phone message\r")); got != "phone message\r" {
+					t.Fatalf("suggestion held message: %q", got)
+				}
+			})
+		}
+	}
+}
+
+// Captured from Claude Code 2.1.322, Opus 5.5 1M, high effort, without NO_COLOR.
+func TestPhoneCapturedSuggestionReports(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "claude-idle-suggestion.ansi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := vt.New(120, 4, nil)
+	e.Write(b)
+	g := e.Snapshot()
+	if agent.Draft(model.ProviderClaude, g) {
+		t.Fatal("the captured faint suggestion is not a draft")
+	}
+	for _, wire := range []string{"\x1b[I", "\x1b[O", "\x1b[<64;2;3M", "\x1b[M`#%", "\x1b[O\x1b[<65;2;3M", "\x1b[200~\x1b[201~", "\x1b[97;1:3u"} {
+		t.Run(fmt.Sprintf("%x", wire), func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			d.mu.Lock()
+			d.panes["a"] = &capturedPhonePane{fakePane: f.pane(0), grid: g}
+			d.mu.Unlock()
+			d.noteUserKey("a", []byte(wire))
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			if d.mail.drafting["a"] || !d.mail.keyAt["a"].IsZero() {
+				t.Fatal("terminal report counts as typing over a captured suggestion")
+			}
+		})
+	}
+}
+
+func TestPhoneMidTurnHolds(t *testing.T) {
+	for _, tc := range []struct {
+		name, state string
+		screen      []string
+		draft       bool
+	}{
+		{"draft", "working", claudeBox, true},
+		{"approval", "pending-approval", []string{"> "}, false},
+		{"question form", "awaiting-input", []string{" Do you want to proceed?", " > 1. Yes", "   2. No", " Esc to cancel"}, false},
+		{"plan", "plan-ready", []string{"> "}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			p := f.pane(0)
+			setScreen(p, tc.screen)
+			event(t, d, "a", tc.state)
+			if tc.draft {
+				d.noteUserKey("a", []byte("draft"))
+				d.mu.Lock()
+				d.mail.keyAt["a"] = time.Now().Add(-time.Hour)
+				d.mu.Unlock()
+			}
+			if _, err := d.phoneSend("a", "held"); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(100 * time.Millisecond)
+			if got := p.got(); got != "" || d.phoneTabs()[0].Queued != 1 {
+				t.Fatalf("hold: typed %q, queue %d", got, d.phoneTabs()[0].Queued)
+			}
+			setScreen(p, []string{"────────", "❯ ", "────────"})
+			event(t, d, "a", "working")
+			if got := gotAfter(t, p, 0, len("held\r")); got != "held\r" {
+				t.Fatalf("released during turn: %q", got)
+			}
+		})
+	}
+}
+
+func TestPhoneWorkingProviders(t *testing.T) {
+	for _, prov := range []model.Provider{model.ProviderClaude, model.ProviderCodex, model.ProviderGemini} {
+		t.Run(string(prov), func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			d.mu.Lock()
+			d.setProvider("a", prov)
+			d.st.Activities[d.activityIndex("a")].State = model.StateWorking
+			d.mail.typed["a"] = time.Now()
+			d.mu.Unlock()
+			for _, text := range []string{"first", "second"} {
+				if _, err := d.phoneSend("a", text); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p := f.pane(0)
+			if prov == model.ProviderGemini {
+				time.Sleep(100 * time.Millisecond)
+				if got := p.got(); got != "" || d.phoneTabs()[0].Queued != 2 {
+					t.Fatalf("unsupported agent: typed %q, queued %d", got, d.phoneTabs()[0].Queued)
+				}
+				return
+			}
+			if got := gotAfter(t, p, 0, len("first\rsecond\r")); got != "first\rsecond\r" {
+				t.Fatalf("mid-turn order: %q", got)
+			}
+		})
+	}
+}
+
+func TestPhonePassesWindowDuringTurn(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	event(t, d, "a", "working")
+	if err := d.windowDeliver(proto.Deliver{Pane: "a", Text: "window"}); err != nil {
+		t.Fatal(err)
+	}
+	// An earlier delivery's missing hook must not hold mid-turn phone input.
+	d.mu.Lock()
+	d.mail.typed["a"] = time.Now()
+	d.mu.Unlock()
+	if _, err := d.phoneSend("a", "phone"); err != nil {
+		t.Fatal(err)
+	}
+	p := f.pane(0)
+	if got := gotAfter(t, p, 0, len("phone\r")); got != "phone\r" {
+		t.Fatalf("during turn: %q", got)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := p.got(); got != "phone\r" {
+		t.Fatalf("window delivery changed: %q", got)
+	}
+	event(t, d, "a", "completed")
+	if got := gotAfter(t, p, len("phone\r"), len("window\r")); got != "window\r" {
+		t.Fatalf("after turn: %q", got)
 	}
 }
 
@@ -318,13 +656,15 @@ func TestPhoneMessageDroppedWhenAgentExits(t *testing.T) {
 	oldSettle, oldLook, oldReply := sendSettle.set(time.Millisecond), sendLook.set(10*time.Millisecond), replyDelay.set(time.Millisecond)
 	t.Cleanup(func() { sendSettle.set(oldSettle); sendLook.set(oldLook); replyDelay.set(oldReply) })
 	d, lp, id := liveDaemon(t, model.StateWorking)
+	d.sendMu.Lock()
 	msg, err := d.phoneSend(id, "echo PHONE-MESSAGE")
-	if err != nil || msg == 0 {
-		t.Fatalf("send: %d %v", msg, err)
-	}
 	// The agent exits: its shell takes the foreground and shows a prompt.
 	lp.show("$ ", false)
 	lp.fgGroup.Store(50)
+	d.sendMu.Unlock()
+	if err != nil || msg == 0 {
+		t.Fatalf("send: %d %v", msg, err)
+	}
 	waitUntil(t, "the message dropped", func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
