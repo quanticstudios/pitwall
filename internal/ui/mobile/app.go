@@ -93,7 +93,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 	a := &App{w: w, th: th, dir: dir, ui: make(chan func(), 256)}
 	a.sb.TreeOnly, a.sb.Fill, a.sb.Touch, a.sb.ExpandAll, a.sb.Answers = true, true, true, true, true
 	// why: no machine is the phone's own; a worker's state shows on its parent's strip, a tap opens its row.
-	a.sb.AllHosts, a.sb.SeparateWorkers = true, true
+	a.sb.AllHosts, a.sb.SeparateWorkers, a.sb.Rev = true, true, 1
 	a.pair.init()
 	if ms, err := phone.LoadMachines(dir); err != nil {
 		a.pair.note = sentence(err.Error())
@@ -192,6 +192,7 @@ func (a *App) setMachines(ms []phone.Machine) {
 	a.fleet, a.links = nil, map[string]*link{}
 	if len(ms) == 0 {
 		a.st, a.session = model.State{}, ""
+		a.sb.Rev++
 		a.chat, a.chatM, a.machines = chatView{}, "", false
 		return
 	}
@@ -287,6 +288,7 @@ func (a *App) renameMachine(id, name string) {
 // refresh takes the fleet's merged list and keeps the session shown.
 func (a *App) refresh() {
 	a.st = a.fleet.State()
+	a.sb.Rev++ // why: the sidebar keeps its indexes until the state changes
 	if !a.picked || a.st.Session(a.session) == nil {
 		a.session, a.picked = "", false
 		if len(a.st.Sessions) > 0 {

@@ -12,6 +12,8 @@ import (
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/widget"
+
+	"github.com/quanticstudios/pitwall/internal/model"
 )
 
 // click applies a plain, Ctrl, Shift or Alt click on tab id.
@@ -205,8 +207,15 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 			}
 		}
 	}
+	near := s.nearRows()
 	for _, ws := range v.st.Workspaces {
 		r := s.row(ws.ID)
+		if near != nil && !near[ws.ID] && !s.rowBusy(gtx, ws.ID, r) {
+			// why: a row off screen takes no input, but its choices must
+			// read as drawn by the time it scrolls in and takes a press.
+			r.choices.shown = choicesOf(s.choiceActivity(v, ws.ID))
+			continue
+		}
 		// The count folds the sub-rows; the row under it takes the same
 		// click, which must not also open the tab.
 		folding := false
@@ -504,7 +513,10 @@ func (s *Sidebar) update(gtx layout.Context, v *view) {
 	for _, c := range s.moveBtn {
 		drain(c)
 	}
-	for _, r := range s.rows {
+	for id, r := range s.rows {
+		if near != nil && !near[id] && !s.rowBusy(gtx, id, r) {
+			continue // drew nowhere it could take input
+		}
 		drain(&r.click)
 		drain(&r.more)
 		drain(&r.close)
@@ -590,4 +602,60 @@ func (s *Sidebar) tabOptions(v *view, id string, set func(*SetTabOptions)) {
 	}
 	s.closeMenus()
 	clear(s.selected)
+}
+
+// nearRows is the tabs whose rows, or sub-rows, were within a screen of
+// the tree's view in the last frame, which alone can have taken input
+// since: nil, for every tab, before the first frame and during a drag.
+func (s *Sidebar) nearRows() map[string]bool {
+	if len(s.elems) == 0 || s.drag.active || s.height <= 0 {
+		return nil
+	}
+	// ponytail: a screen of slack either way covers rows mid-slide; the
+	// rows far away are what the polling costs.
+	lo, hi := s.list.Position.Offset-s.height, s.list.Position.Offset+2*s.height
+	near := map[string]bool{}
+	for _, e := range s.elems {
+		if e.bot > lo && e.top < hi && (e.kind == 's' || e.kind == 'a') {
+			near[e.id] = true
+			if e.parent != "" {
+				near[e.parent] = true
+			}
+		}
+	}
+	return near
+}
+
+// rowBusy reports whether tab id's row is in the middle of an input that
+// must finish even off screen: a press, the focus, its menu, its name
+// being edited, its reply box or its hover card.
+func (s *Sidebar) rowBusy(gtx layout.Context, id string, r *rowState) bool {
+	switch id {
+	case s.menuWS, s.killArmed, s.renaming, s.replying, s.hover.shown, s.cardAt:
+		return true
+	}
+	if gtx.Focused(&r.click) {
+		return true
+	}
+	for _, c := range []*widget.Clickable{&r.click, &r.more, &r.close, &r.allow, &r.deny, &r.plan, &r.reply,
+		&r.pr, &r.archive, &r.settle, &r.port, &r.fold, &r.kids, &r.choices.more} {
+		if c.Pressed() {
+			return true
+		}
+	}
+	for i := range r.choices.btn {
+		if r.choices.btn[i].Pressed() {
+			return true
+		}
+	}
+	return false
+}
+
+// choiceActivity is the activity whose buttons tab id's row draws, as
+// answerClicks reads it.
+func (s *Sidebar) choiceActivity(v *view, id string) *model.Activity {
+	if v.agents[id] != nil {
+		return nil
+	}
+	return v.ownActivity(id)
 }
