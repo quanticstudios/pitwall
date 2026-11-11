@@ -565,6 +565,7 @@ func (c *chatView) sendDraft(env chatEnv) {
 	k.sending, k.notSent = true, ""
 	pane := c.pane
 	p := c.data.Send(text)
+	tabUpdates := c.tabUpdates
 	var id uint64
 	env.Do(func(ctx context.Context, api chatAPI) (err error) {
 		id, err = api.Send(ctx, pane, text)
@@ -583,7 +584,14 @@ func (c *chatView) sendDraft(env chatEnv) {
 			k.ed.SetText("")
 		}
 		if c.data.Has(p) { // else the transcript showed it before this answer
-			c.data.Sent(p, id, env.Tab, env.now())
+			tab := env.Tab
+			if c.tabUpdates != tabUpdates {
+				tab = c.tab
+			}
+			c.data.Sent(p, id, tab, env.now())
+			if c.tabUpdates != tabUpdates {
+				c.data.Update(tab, env.now()) // the queue can drain before the HTTP answer arrives
+			}
 		}
 		c.list.Position = layout.Position{BeforeEnd: false}
 	})

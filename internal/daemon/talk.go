@@ -261,10 +261,9 @@ func (d *Daemon) userDeliver(pane string, l letter) error {
 	return nil
 }
 
-// readyWindow is ready for a letter from the window: an agent the window may
-// reply to, question or no hooks included, unless a turn began since, the
-// user's draft sits in its box or its screen shows a form Enter would answer.
-func (d *Daemon) readyWindow(pane string) (Pane, error) {
+// readyWindow checks a user letter. Phone messages can steer Claude Code and
+// Codex during a turn, but cannot answer a form or approval.
+func (d *Daemon) readyWindow(pane string, phone bool) (Pane, error) {
 	d.mu.Lock()
 	p := d.panes[pane]
 	var prov model.Provider
@@ -277,10 +276,13 @@ func (d *Daemon) readyWindow(pane string) (Pane, error) {
 	}
 	drafting := d.mail.drafting[pane]
 	d.mu.Unlock()
+	steer := phone && (prov == model.ProviderClaude || prov == model.ProviderCodex)
 	switch {
 	case p == nil:
 		return nil, fmt.Errorf("no running pane %s", pane)
-	case a.State != "" && !remote.Replies(a.State):
+	case phone && (a.State == model.StatePendingApproval || a.State == model.StatePlanReady):
+		return nil, fmt.Errorf("%s waits on the user", prov)
+	case a.State != "" && !remote.Replies(a.State) && !(steer && a.State == model.StateWorking):
 		return nil, fmt.Errorf("%s is busy", prov)
 	case drafting && agent.Draft(prov, p.Snapshot()):
 		return nil, errDraft
@@ -299,13 +301,11 @@ func (d *Daemon) wake(pane string, wait time.Duration) {
 	d.mail.wake[pane] = time.AfterFunc(wait, func() { d.deliver(pane) })
 }
 
-// deliver types pane's next message, under a header, once its agent sits
-// at its prompt: sendSettle after its last hook, sendQuiet after the
-// user's last key, and once the turn the last message started has
-// reported, and not into the user's draft. A hold that ends at a known time
-// wakes deliver then; for a turn running or a question, the next hook or
-// user key does; for a draft or a letter from the window, whose agent may send
-// no hooks, sendLook.
+// deliver types pane's next message without entering the user's draft or a
+// form. Phone messages can steer supported agents during a turn. Other
+// messages wait for idle, sendSettle after a hook, sendQuiet after a key,
+// and the hook for the last message. Known delays wake deliver then;
+// drafts and window or phone letters poll at sendLook.
 func (d *Daemon) deliver(pane string) {
 	d.sendMu.Lock()
 	defer d.sendMu.Unlock()
@@ -315,28 +315,22 @@ func (d *Daemon) deliver(pane string) {
 		d.mu.Unlock()
 		return // checkWaking wakes a parked pane's letters once it is back
 	}
-	now, hook := time.Now(), d.live.hookAt[pane]
-	wait := max(hook.Add(sendSettle.get()).Sub(now), d.mail.keyAt[pane].Add(sendQuiet.get()).Sub(now))
-	// why: Windows' clock can stamp a fast hook with the time of the typing
-	// itself; the hook before the typing is at least sendSettle older.
-	if t := d.mail.typed[pane]; hook.Before(t) {
-		wait = max(wait, t.Add(sendStart).Sub(now))
-	}
-	if wait > 0 {
-		d.wake(pane, wait)
-		d.mu.Unlock()
-		return
-	}
 	first := slices.IndexFunc(d.mail.queue[pane], func(l letter) bool { return l.window })
+	phone := slices.IndexFunc(d.mail.queue[pane], func(l letter) bool { return l.phone != 0 })
+	firstPhone := first >= 0 && d.mail.queue[pane][first].phone != 0
 	d.mu.Unlock()
 	// i is the letter to type: the first, or a letter from the window, which
 	// passes one that cannot go, as that one may wait on the question it answers.
 	i, p, err := 0, Pane(nil), error(nil)
 	if first == 0 {
-		p, err = d.readyWindow(pane)
+		p, err = d.readyWindow(pane, firstPhone)
 	} else if p, _, err = d.ready(pane); err != nil && first > 0 {
 		i = first
-		p, err = d.readyWindow(pane)
+		p, err = d.readyWindow(pane, firstPhone)
+	}
+	if err != nil && phone > first {
+		i = phone
+		p, err = d.readyWindow(pane, true)
 	}
 	d.mu.Lock()
 	held := errors.Is(err, errDraft)
@@ -362,6 +356,24 @@ func (d *Daemon) deliver(pane string) {
 		return
 	}
 	l := q[i]
+	now, hook := time.Now(), d.live.hookAt[pane]
+	wait := d.mail.keyAt[pane].Add(sendQuiet.get()).Sub(now)
+	if l.phone != 0 && (l.owner == model.ProviderClaude || l.owner == model.ProviderCodex) {
+		if !d.mail.drafting[pane] {
+			wait = 0
+		}
+	} else {
+		wait = max(wait, hook.Add(sendSettle.get()).Sub(now))
+		// why: Windows can stamp a fast hook with the time of the typing itself.
+		if t := d.mail.typed[pane]; hook.Before(t) {
+			wait = max(wait, t.Add(sendStart).Sub(now))
+		}
+	}
+	if wait > 0 {
+		d.wake(pane, wait)
+		d.mu.Unlock()
+		return
+	}
 	// why: the agent a phone message was for may have left since the readiness check, or run a tool in the foreground.
 	if l.phone != 0 && (d.agentGone(pane, l) || d.agentAway(pane)) {
 		d.dropOrphanPhone(pane)

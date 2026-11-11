@@ -322,6 +322,27 @@ func TestSendBeforeAnswer(t *testing.T) {
 	}
 }
 
+func TestQueueDrainsBeforeSendAnswer(t *testing.T) {
+	for _, queued := range []int{0, 1} {
+		c := newChat("p1")
+		var done func(error)
+		env := chatEnv{Online: true, Tab: remote.Tab{Item: remote.Item{Pane: "p1", State: "working"}},
+			Do: func(call func(context.Context, chatAPI) error, d func(error)) {
+				err := call(context.Background(), &fakeAPI{})
+				done = func(error) { d(err) }
+			}}
+		setDraft(&c.cmp.ed, "steer")
+		c.sendDraft(env)
+		tab := env.Tab
+		tab.Queued = queued
+		c.update(tab, time.Now())
+		done(nil)
+		if len(c.data.Pending) != 1 || c.data.Pending[0].Queued != (queued > 0) {
+			t.Fatalf("server queue %d, pending %+v", queued, c.data.Pending)
+		}
+	}
+}
+
 func TestPageInKeepsPlace(t *testing.T) {
 	c := newChat("p1")
 	c.reset(phone.Entries{Entries: []flow.Entry{{Seq: 10}, {Seq: 11}}, More: true})

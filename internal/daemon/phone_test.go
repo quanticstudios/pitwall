@@ -156,26 +156,28 @@ func TestPhoneSend(t *testing.T) {
 	if st := send("sh", "ls"); st != 409 || f.pane(1).got() != "" {
 		t.Errorf("shell: %d %q", st, f.pane(1).got())
 	}
-	// Working: queued until the turn ends.
+	// Claude Code accepts input during a turn and decides when to read it.
 	event(t, d, "a", "working")
 	n := len(f.pane(0).got())
 	if st := send("a", "next"); st != 200 {
 		t.Fatalf("send while working: %d", st)
 	}
-	time.Sleep(50 * time.Millisecond)
-	if got := f.pane(0).got()[n:]; got != "" || d.phoneTabs()[0].Queued != 1 {
-		t.Fatalf("typed into a running turn: %q, queued %d", got, d.phoneTabs()[0].Queued)
+	if got := gotAfter(t, f.pane(0), n, len("next\r")); got != "next\r" {
+		t.Fatalf("mid-turn input: %q", got)
 	}
-	// Done, but a form on screen: still queued.
+	// A form on screen still holds a new phone message.
+	n = len(f.pane(0).got())
 	setScreen(f.pane(0), []string{" Do you want to proceed?", " > 1. Yes", "   2. No", " Esc to cancel"})
-	event(t, d, "a", "completed")
+	if st := send("a", "after form"); st != 200 {
+		t.Fatalf("send over a form: %d", st)
+	}
 	time.Sleep(50 * time.Millisecond)
 	if got := f.pane(0).got()[n:]; got != "" {
 		t.Fatalf("typed into a form: %q", got)
 	}
 	// Back at the input box: typed.
 	setScreen(f.pane(0), []string{"> "})
-	if got := gotAfter(t, f.pane(0), n, len("next\r")); got != "next\r" {
+	if got := gotAfter(t, f.pane(0), n, len("after form\r")); got != "after form\r" {
 		t.Errorf("queued message typed %q", got)
 	}
 	if st := send("a", " \x03 "); st != 409 {
@@ -187,6 +189,100 @@ func TestPhoneSend(t *testing.T) {
 	d.mu.Unlock()
 	if st := send("a", "hello"); st != 409 || d.phoneTabs()[0].Send {
 		t.Errorf("exited agent: %d", st)
+	}
+}
+
+func TestPhoneMidTurnHolds(t *testing.T) {
+	for _, tc := range []struct {
+		name, state string
+		screen      []string
+		draft       bool
+	}{
+		{"draft", "working", claudeBox, true},
+		{"approval", "pending-approval", []string{"> "}, false},
+		{"question form", "awaiting-input", []string{" Do you want to proceed?", " > 1. Yes", "   2. No", " Esc to cancel"}, false},
+		{"plan", "plan-ready", []string{"> "}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			p := f.pane(0)
+			setScreen(p, tc.screen)
+			event(t, d, "a", tc.state)
+			if tc.draft {
+				d.noteUserKey("a", []byte("draft"))
+				d.mu.Lock()
+				d.mail.keyAt["a"] = time.Now().Add(-time.Hour)
+				d.mu.Unlock()
+			}
+			if _, err := d.phoneSend("a", "held"); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(100 * time.Millisecond)
+			if got := p.got(); got != "" || d.phoneTabs()[0].Queued != 1 {
+				t.Fatalf("hold: typed %q, queue %d", got, d.phoneTabs()[0].Queued)
+			}
+			setScreen(p, []string{"────────", "❯ ", "────────"})
+			event(t, d, "a", "working")
+			if got := gotAfter(t, p, 0, len("held\r")); got != "held\r" {
+				t.Fatalf("released during turn: %q", got)
+			}
+		})
+	}
+}
+
+func TestPhoneWorkingProviders(t *testing.T) {
+	for _, prov := range []model.Provider{model.ProviderClaude, model.ProviderCodex, model.ProviderGemini} {
+		t.Run(string(prov), func(t *testing.T) {
+			d, f, _ := phoneDaemon(t)
+			d.mu.Lock()
+			d.setProvider("a", prov)
+			d.st.Activities[d.activityIndex("a")].State = model.StateWorking
+			d.mail.typed["a"] = time.Now()
+			d.mu.Unlock()
+			for _, text := range []string{"first", "second"} {
+				if _, err := d.phoneSend("a", text); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p := f.pane(0)
+			if prov == model.ProviderGemini {
+				time.Sleep(100 * time.Millisecond)
+				if got := p.got(); got != "" || d.phoneTabs()[0].Queued != 2 {
+					t.Fatalf("unsupported agent: typed %q, queued %d", got, d.phoneTabs()[0].Queued)
+				}
+				return
+			}
+			if got := gotAfter(t, p, 0, len("first\rsecond\r")); got != "first\rsecond\r" {
+				t.Fatalf("mid-turn order: %q", got)
+			}
+		})
+	}
+}
+
+func TestPhonePassesWindowDuringTurn(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	event(t, d, "a", "working")
+	if err := d.windowDeliver(proto.Deliver{Pane: "a", Text: "window"}); err != nil {
+		t.Fatal(err)
+	}
+	// An earlier delivery's missing hook must not hold mid-turn phone input.
+	d.mu.Lock()
+	d.mail.typed["a"] = time.Now()
+	d.mu.Unlock()
+	if _, err := d.phoneSend("a", "phone"); err != nil {
+		t.Fatal(err)
+	}
+	p := f.pane(0)
+	if got := gotAfter(t, p, 0, len("phone\r")); got != "phone\r" {
+		t.Fatalf("during turn: %q", got)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := p.got(); got != "phone\r" {
+		t.Fatalf("window delivery changed: %q", got)
+	}
+	event(t, d, "a", "completed")
+	if got := gotAfter(t, p, len("phone\r"), len("window\r")); got != "window\r" {
+		t.Fatalf("after turn: %q", got)
 	}
 }
 

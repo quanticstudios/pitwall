@@ -122,9 +122,9 @@ func cutOut(s string) string {
 	return s
 }
 
-// phoneSend queues text for pane's agent as the window's send does: typed
-// once the agent sits at its input box with no form on screen and no draft
-// of the user's in it. It returns the message's id, which a tab lists in
+// phoneSend types text into Claude Code or Codex even during a turn, holding
+// for the user's draft, forms and approvals. Other agents wait for idle.
+// It returns the message's id, which a tab lists in
 // Dropped if the agent leaves the pane before the message goes in. A chat
 // tab gets it as a turn, or queued behind one, with id 0. A shell never
 // gets it.
