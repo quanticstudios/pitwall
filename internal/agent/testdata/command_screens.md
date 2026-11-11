@@ -19,8 +19,8 @@ and 70 rows for the clipped form. The JSON records each replay's dimensions.
 
 Claude draws a `│` gutter on each command row and expands tabs to spaces.
 Codex prefixes the first command row with `$ ` and indents later rows. Codex
-drops tabs between tokens, so its tabs capture cannot match the normalized
-input and must refuse. Tabs used for indentation still match in both agents.
+drops tabs between tokens and in indentation, so commands containing tabs
+refuse in Codex. Claude tab indentation uses 8-column stops.
 
 Both agents wrap long lines between words. Both permission dialogs draw all
 150 heredoc lines and scroll their opening rows off a short terminal. Neither
@@ -29,7 +29,11 @@ above its dialog uses `… +N lines`. Claude's compact transcript ends long tool
 previews with `…`; Ctrl+O opens the detailed transcript and hides the dialog.
 
 A truncated prefix cannot identify a command that differs only in hidden text.
-`CommandShown` therefore requires the full command, with whitespace normalized.
+`CommandShown` therefore requires the full command. It compares each nonblank
+line with its relative indentation, collapsing only spaces and tabs within a
+line. A screen row continues the same line only where the next word cannot fit
+before the right margin, or a full row splits a word. Other Unicode whitespace
+and control characters refuse.
 Count markers, an ellipsis, missing opening rows, and unknown layouts refuse.
 The synthetic count-marker cases in `form_test.go` cover prefixes longer than
 80 characters that fit two different commands.

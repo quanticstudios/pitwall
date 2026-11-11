@@ -422,6 +422,9 @@ func TestAnswerMultilineCommand(t *testing.T) {
 			d.o.Derive = agent.Derive
 			ctx := context.Background()
 			command := "printf first\n\tprintf second\n\n    printf third"
+			if provider == model.ProviderCodex {
+				command = strings.ReplaceAll(command, "\t", "        ")
+			}
 			payload, err := json.Marshal(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s", "tool_name": "Bash", "tool_input": map[string]string{"command": command}})
 			if err != nil {
 				t.Fatal(err)
@@ -433,9 +436,9 @@ func TestAnswerMultilineCommand(t *testing.T) {
 			at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
 			d.mu.Unlock()
 			show := func(second string) {
-				rows := commandForm(" │ printf first", " │    printf   "+second, " │", " │     printf third")
+				rows := commandForm(" │ printf first", " │         printf   "+second, " │", " │     printf third")
 				if provider == model.ProviderCodex {
-					rows = []string{"Would you like to run the following command?", "  $ printf first", "    printf   " + second, "", "      printf third", "", "› 1. Yes, proceed (y)", "  2. Yes, and don't ask again for this command (a)", "  3. No, and tell Codex what to do differently (esc)", "Press enter to confirm or esc to cancel"}
+					rows = []string{"Would you like to run the following command?", "  $ printf first", "          printf   " + second, "", "      printf third", "", "› 1. Yes, proceed (y)", "  2. Yes, and don't ask again for this command (a)", "  3. No, and tell Codex what to do differently (esc)", "Press enter to confirm or esc to cancel"}
 				}
 				f.pane(0).mu.Lock()
 				f.pane(0).screen = rows

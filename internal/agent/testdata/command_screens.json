@@ -109,6 +109,6 @@
     "cols": 120,
     "rows": 70,
     "command": "printf '%s\\n' first-probe > /tmp/pitwall-multiline-probe\n\tprintf '%s\\n' 'tabbed probe' >> /tmp/pitwall-multiline-probe\n    printf '%s\\n' 'indented probe' >> /tmp/pitwall-multiline-probe",
-    "shown": true
+    "shown": false
   }
 ]

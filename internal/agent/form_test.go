@@ -444,7 +444,7 @@ func TestCommandGutterOnEveryRow(t *testing.T) {
 	}
 }
 
-// Commands and screens normalize whitespace; punctuation and missing words still differ.
+// Commands normalize spaces and tabs within lines and preserve relative indentation.
 func TestCommandWhitespace(t *testing.T) {
 	long := "cd /tmp/x && go test -race -timeout 5m ./internal/daemon ./internal/agent"
 	for _, tc := range []struct {
@@ -464,17 +464,17 @@ func TestCommandWhitespace(t *testing.T) {
 		{"a leading newline", 100, []string{" echo safe"}, "\necho safe", true},
 		{"a trailing tab", 100, []string{" echo safe"}, "echo safe\t", true},
 		{"a leading tab", 100, []string{" echo safe"}, "\techo safe", true},
-		{"a trailing carriage return", 100, []string{" echo safe"}, "echo safe\r", true},
-		{"a trailing nonbreaking space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u00a0", true},
-		{"a trailing em space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u2003", true},
-		{"a trailing ideographic space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u3000", true},
-		{"a nonbreaking space inside", 100, []string{" rm -- /tmp/a\u00a0b"}, "rm -- /tmp/a\u00a0b", true},
+		{"a trailing carriage return", 100, []string{" echo safe"}, "echo safe\r", false},
+		{"a trailing nonbreaking space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u00a0", false},
+		{"a trailing em space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u2003", false},
+		{"a trailing ideographic space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u3000", false},
+		{"a nonbreaking space inside", 100, []string{" rm -- /tmp/a\u00a0b"}, "rm -- /tmp/a\u00a0b", false},
 
 		{"wrapped between words", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, long, true},
 		{"wrapped with a space on the next row", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "  ./internal/daemon ./internal/agent"}, long, true},
 		{"wrapped inside a word", 48, []string{" cd /tmp/x && go test -race -timeout 5m ./inter", " nal/daemon ./internal/agent"}, long, true},
 		{"wrapped and changed", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/remote"}, long, false},
-		{"a newline on screen, where the word would fit", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe rm -rf /tmp/victim", true},
+		{"a newline on screen, where the word would fit", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe rm -rf /tmp/victim", false},
 		{"a newline on screen, inside a short row", 100, []string{" rm -rf /tmp", " /x"}, "rm -rf /tmp/x", false},
 		{"a newline at the pane's edge looks like a wrap", 14, []string{" echo safe", " rm -rf /tmp"}, "echo safe rm -rf /tmp", true},
 
@@ -482,7 +482,7 @@ func TestCommandWhitespace(t *testing.T) {
 		{"a space more after the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "   ./internal/daemon ./internal/agent"}, long, true},
 
 		{"a multi-line command", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", true},
-		{"a newline only in the command", 100, []string{" echo safe rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", true},
+		{"a newline only in the command", 100, []string{" echo safe rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
 		{"a newline off screen", 100, []string{" echo safe"}, "rm -rf /tmp/victim\necho safe", false},
 		{"a tab off screen", 100, []string{" echo safe", " +3 lines (ctrl+o to see more)"}, "echo safe\tb", false},
 	} {
@@ -502,6 +502,7 @@ func TestCommandWhitespace(t *testing.T) {
 	}{
 		{"cut inside a word", "echo " + strings.Repeat("界", 20) + "/x", []string{" echo " + strings.Repeat("界", 20) + "/x"}},
 		{"moved between words", "echo " + six + " " + eight, []string{" echo " + six, " " + eight}},
+		{"moved between words with a gutter", "echo " + six + " " + eight, []string{" │ echo " + six, " │ " + eight}},
 	} {
 		e := vt.New(30, 30, nil)
 		e.Write([]byte(strings.Join(append(append([]string{"╌╌╌"}, tc.rows...), "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No"), "\r\n")))
@@ -513,6 +514,50 @@ func TestCommandWhitespace(t *testing.T) {
 	e.Write([]byte(strings.Join([]string{"  $ go test -race -timeout 5m ./internal", "    /agent", "", "› 1. Yes, proceed (y)", "  2. No (esc)"}, "\r\n")))
 	if !CommandShown(model.ProviderCodex, e.Snapshot(), "go test -race -timeout 5m ./internal/agent") {
 		t.Error("codex, wrapped: not shown")
+	}
+}
+
+// Line breaks and indentation must identify the command from the hook.
+func TestCommandLineStructure(t *testing.T) {
+	for _, p := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+		for _, tc := range []struct {
+			name, command string
+			rows          []string
+			want          bool
+		}{
+			{"split echo", "echo cleanup rm -rf /tmp/work", []string{"echo cleanup", "rm -rf /tmp/work"}, false},
+			{"dedented Python", "python3 <<'PY'\nif False:\n    shutil.rmtree('/tmp/work')\nPY", []string{"python3 <<'PY'", "if False:", "shutil.rmtree('/tmp/work')", "PY"}, false},
+			{"joined commands", "echo cleanup\nrm -rf /tmp/work", []string{"echo cleanup rm -rf /tmp/work"}, false},
+			{"missing tab indent", "if true; then\n\trm -rf /tmp/work\nfi", []string{"if true; then", "rm -rf /tmp/work", "fi"}, false},
+			{"NBSP separator", "echo hi\u00a0&& rm -rf /tmp/work", []string{"echo hi && rm -rf /tmp/work"}, false},
+			{"same Python indent", "python3 <<'PY'\nif False:\n    shutil.rmtree('/tmp/work')\nPY", []string{"python3 <<'PY'", "if False:", "    shutil.rmtree('/tmp/work')", "PY"}, true},
+			{"relative indent", "  echo one\n    echo two\necho three", []string{"  echo one", "    echo two", "echo three"}, true},
+			{"blank lines", "echo one\n \t\n echo two", []string{"echo one", "", " ", " echo two"}, p == model.ProviderClaude},
+			{"tab stop", " echo one\n \techo two", []string{" echo one", "        echo two"}, p == model.ProviderClaude},
+			{"tab on first line", "\techo one\n        echo two", []string{"echo one", "echo two"}, p == model.ProviderClaude},
+			{"Codex tab between words", "echo\tone", []string{"echo one"}, p == model.ProviderClaude},
+		} {
+			t.Run(string(p)+"/"+tc.name, func(t *testing.T) {
+				rows := []string{" Bash command", "╌╌╌"}
+				for i, r := range tc.rows {
+					if p == model.ProviderClaude {
+						rows = append(rows, " │ "+r)
+					} else if i == 0 {
+						rows = []string{"  $ " + r}
+					} else {
+						rows = append(rows, "  "+r)
+					}
+				}
+				if p == model.ProviderClaude {
+					rows = append(rows, "╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. No")
+				} else {
+					rows = append(rows, "", "› 1. Yes, proceed (y)", "  2. No (esc)")
+				}
+				if got := CommandShown(p, gridOf(rows...), tc.command); got != tc.want {
+					t.Errorf("got %v, want %v", got, tc.want)
+				}
+			})
+		}
 	}
 }
 

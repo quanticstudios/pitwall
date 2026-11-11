@@ -286,13 +286,17 @@ func optionText(rows []string, opts []formOption, i int) (text string, ok bool) 
 const wrapSlack = 4
 
 // CommandShown reports whether the permission prompt on g's screen shows all of
-// command, with whitespace normalized and wrapped rows joined. An incomplete
-// command or an unknown layout does not identify the hook's command.
+// command, preserving line breaks and relative indentation while joining wraps.
+// An incomplete command or an unknown layout does not identify the hook's command.
 func CommandShown(p model.Provider, g vt.Grid, command string) bool {
-	if p != model.ProviderClaude && p != model.ProviderCodex || strings.ContainsFunc(command, func(r rune) bool { return !unicode.IsSpace(r) && !unicode.IsGraphic(r) }) {
+	if p != model.ProviderClaude && p != model.ProviderCodex || p == model.ProviderCodex && strings.Contains(command, "\t") {
 		return false
 	}
-	want := strings.Join(strings.Fields(command), " ")
+	if strings.ContainsFunc(command, func(r rune) bool {
+		return r != ' ' && r != '\t' && r != '\n' && (unicode.IsSpace(r) || !unicode.IsGraphic(r))
+	}) {
+		return false
+	}
 	rows := screenRows(g)
 	opts := formOptions(rows)
 	if len(opts) == 0 {
@@ -311,7 +315,7 @@ func CommandShown(p model.Provider, g vt.Grid, command string) bool {
 	for c.from < c.to && rows[c.from] == "" {
 		c.from++
 	}
-	return commandFits(g, c.from, rows[c.from:c.to], c.start, want)
+	return commandFits(g, c.from, rows[c.from:c.to], c.start, command)
 }
 
 // commandSpan is the rows from up to to that hold a command. start is false when
@@ -369,13 +373,13 @@ func nextRule(rows []string, y int) int {
 func ruleOf(row, dash string) bool { return row != "" && strings.Trim(row, " "+dash) == "" }
 
 // codexCommand is where a Codex prompt's command is in the rows above its
-// options: from the row that starts with "$ ", which it blanks in above. With no
+// options: from the row that starts with "$ ", which it removes in above. With no
 // such row, it has scrolled off or this is not a command.
 func codexCommand(above []string) commandSpan {
 	for y := len(above) - 1; y >= 0; y-- {
 		t := strings.TrimLeft(above[y], " ")
 		if s, ok := strings.CutPrefix(t, "$ "); ok {
-			above[y] = strings.Repeat(" ", len(above[y])-len(t)+2) + s
+			above[y] = strings.Repeat(" ", len(above[y])-len(t)) + s
 			return commandSpan{y, len(above), true}
 		}
 	}
@@ -409,40 +413,75 @@ func commandFits(g vt.Grid, y int, rows []string, start bool, want string) bool 
 	if gutters != 0 && gutters != nonempty {
 		return false
 	}
-	for i, r := range rows {
-		rows[i] = strings.Join(strings.Fields(r), " ")
-	}
-	e, ok := rowsFollow(g, y, rows, want)
-	return ok && e == len(want)
+	return rowsFollow(g, y, rows, want, gutters != 0)
 }
 
-// rowsFollow matches rows, which start at row y of g, against want and returns
-// where they end. A row boundary can stand for whitespace, or cut a
-// word only when the preceding row reaches the agent's right margin.
-func rowsFollow(g vt.Grid, y int, rows []string, want string) (end int, ok bool) {
+// commandLine collapses spaces and tabs within a line and measures its indent.
+func commandLine(s string) (text string, indent int) {
+	for _, r := range s {
+		switch r {
+		case ' ':
+			indent++
+		case '\t':
+			indent += 8 - indent%8
+		default:
+			return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return r == ' ' || r == '\t' }), " "), indent
+		}
+	}
+	return "", indent
+}
+
+// rowsFollow matches each command line's text and relative indent. A wrap moves
+// a word only when it would not fit, and cuts a word only on a full row.
+func rowsFollow(g vt.Grid, y int, rows []string, command string, gutter bool) bool {
+	lines := slices.DeleteFunc(strings.Split(command, "\n"), func(s string) bool {
+		text, _ := commandLine(s)
+		return text == ""
+	})
+	if len(lines) == 0 {
+		return false
+	}
+	_, base := commandLine(lines[0])
 	full := g.Cols - wrapSlack
-	i, prev := 0, -1
-	for k, r := range rows {
+	line, i, prev, screenBase := 0, 0, -1, 0
+	for k, row := range rows {
+		r, indent := commandLine(row)
 		if r == "" {
 			continue
 		}
-		if prev >= 0 {
-			switch {
-			case i == len(want):
-				return 0, false
+		if line == len(lines) {
+			return false
+		}
+		want, wantIndent := commandLine(lines[line])
+		if prev < 0 {
+			screenBase = indent
+		}
+		if i == 0 {
+			if indent-screenBase != wantIndent-base {
+				return false
+			}
+		} else {
+			switch used := rowCells(g, y+prev); {
 			case want[i] == ' ':
+				if used+1+wordCells(g, y+k, gutter) <= full {
+					return false
+				}
 				i++
-			case rowCells(g, y+prev) < full:
-				return 0, false
+			case used < full:
+				return false
 			}
 		}
 		if !strings.HasPrefix(want[i:], r) {
-			return 0, false
+			return false
 		}
 		i += len(r)
+		if i == len(want) {
+			line++
+			i = 0
+		}
 		prev = k
 	}
-	return i, true
+	return line == len(lines)
 }
 
 // blankCell reports a cell with nothing drawn in it. A wide character's second
@@ -457,6 +496,27 @@ func rowCells(g vt.Grid, y int) int {
 		}
 	}
 	return 0
+}
+
+// wordCells measures the first word after the row's indent and optional gutter.
+func wordCells(g vt.Grid, y int, gutter bool) int {
+	n := 0
+	for x := 0; x < g.Cols; x++ {
+		c := g.At(x, y)
+		if gutter {
+			if c.Content == "│" {
+				gutter = false
+			}
+			continue
+		}
+		switch {
+		case !blankCell(c):
+			n++
+		case n > 0:
+			return n
+		}
+	}
+	return n
 }
 
 // squeeze keeps s's letters and digits, lowercased: a terminal wraps and
