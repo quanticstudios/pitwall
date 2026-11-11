@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"slices"
 	"strings"
+	"time"
 
 	"gioui.org/font"
 	"gioui.org/io/key"
@@ -36,15 +37,16 @@ type composer struct {
 	modelChip, effChip              widget.Clickable
 	scrim                           widget.Clickable
 	items                           map[string]*widget.Clickable
-	sending                         bool    // a send is on its way
-	notSent                         string  // why the last message did not go in
-	menu                            string  // "model" or "effort" while its menu is open
-	picks                           []*pick // picks waiting for the agent to sit idle, one per setting, oldest first
-	picking                         bool    // the first pick is on its way
-	model, modelAt                  string  // the last model picked, and the turn's model then
-	effort, effortAt                string  // the last effort picked, and the server's effort then
-	note                            string  // a pick that failed
-	chipX                           [2]int  // the chips' left edges, which the menus open above
+	sending                         bool         // a send is on its way
+	notSent                         string       // why the last message did not go in
+	menu                            string       // "model" or "effort" while its menu is open
+	picks                           []*pick      // picks waiting for the agent to sit idle, one per setting, oldest first
+	picking                         bool         // the first pick is on its way
+	model, modelAt                  string       // the last model picked, and the turn's model then, until settle drops it
+	effort, effortAt                string       // the last effort picked, and the server's effort then, until settle drops it
+	pickedUntil                     [2]time.Time // when settle drops the model and the effort pick
+	note                            string       // a pick that failed
+	chipX                           [2]int       // the chips' left edges, which the menus open above
 	chipW                           [2]int
 	inited                          bool
 }
@@ -129,6 +131,9 @@ func queueLine(t remote.Tab, ps []*phone.Pending, notSent string) (bold, rest st
 	if n == 0 {
 		return "", "", false
 	}
+	if t.Hold != "" {
+		return "waiting:", t.Hold, false
+	}
 	if len(queued) > 0 {
 		rest = strings.Join(strings.Fields(queued[0].Message()), " ")
 	}
@@ -152,10 +157,33 @@ func takeNotSent(c *phone.Chat, draft string) (why, text string) {
 	return p.Err, p.Text
 }
 
-// modelShown is the model chip's name: the last pick until a turn reports
-// another model, else the turn's, else nothing.
+// pickHold is the longest a pick shows on its chip while the session has
+// not reported it. Past that the session's own setting shows, so a pick
+// that did not apply does not stay on the chip.
+const pickHold = 5 * time.Second
+
+// settle drops a pick once the session reports a change, its own or one
+// made on the computer, or once pickHold passes, so the chips then show
+// what the session runs. It returns when the next pick drops by time.
+func (k *composer) settle(turn, effort string, now time.Time) (next time.Time) {
+	if k.model != "" && (turn != k.modelAt || !now.Before(k.pickedUntil[0])) {
+		k.model = ""
+	}
+	if k.effort != "" && (effort != k.effortAt || !now.Before(k.pickedUntil[1])) {
+		k.effort = ""
+	}
+	for i, held := range []bool{k.model != "", k.effort != ""} {
+		if held && (next.IsZero() || k.pickedUntil[i].Before(next)) {
+			next = k.pickedUntil[i]
+		}
+	}
+	return next
+}
+
+// modelShown is the model chip's name: a pick settle keeps, else the
+// turn's model, else nothing.
 func (k *composer) modelShown(turn string) string {
-	if k.model != "" && turn == k.modelAt {
+	if k.model != "" {
 		return modelName(k.model)
 	}
 	if turn == "" {
@@ -185,7 +213,9 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 	}
 	if !env.Open || !t.Send {
 		msg := "This tab is not open now."
-		if env.Open {
+		if env.Open && t.Exited {
+			msg = t.Label + ". Open on desktop to restart the agent."
+		} else if env.Open {
 			msg = "This tab runs no agent, so it takes no messages from here."
 		}
 		return c.cmpFrame(gtx, th, func(gtx C) D {
@@ -199,6 +229,9 @@ func (c *chatView) composer(gtx C, th *theme.Theme, env chatEnv) D {
 		setDraft(&k.ed, text)
 	}
 	c.firePick(env)
+	if next := k.settle(c.currentModel(t), t.Effort, env.now()); !next.IsZero() {
+		gtx.Execute(op.InvalidateCmd{At: next})
+	}
 	k.ed.ReadOnly = k.sending
 	draft := k.ed.Text()
 	if k.attachment != nil {
@@ -317,7 +350,11 @@ func strip(gtx C, th *theme.Theme, bold, rest string, bad bool) D {
 			layout.Rigid(layout.Spacer{Width: 8}.Layout),
 			layout.Flexed(1, func(gtx C) D {
 				gtx.Constraints.Min.X = 0
-				return label(gtx, th, th.UIFont, 14, th.Muted, 1, rest)
+				lines := 1
+				if bold == "waiting:" {
+					lines = 0
+				}
+				return label(gtx, th, th.UIFont, 14, th.Muted, lines, rest)
 			}),
 		)
 	})
@@ -647,9 +684,9 @@ func (c *chatView) firePick(env chatEnv) {
 		}
 		k.note = ""
 		if p.what == "model" {
-			k.model, k.modelAt = p.value, c.currentModel(env.Tab)
+			k.model, k.modelAt, k.pickedUntil[0] = p.value, c.currentModel(env.Tab), env.now().Add(pickHold)
 		} else {
-			k.effort, k.effortAt = p.value, env.Tab.Effort
+			k.effort, k.effortAt, k.pickedUntil[1] = p.value, env.Tab.Effort, env.now().Add(pickHold)
 		}
 	})
 }

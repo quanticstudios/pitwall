@@ -53,6 +53,13 @@ type claudeEntry struct {
 		Model      string          `json:"model"`
 		Usage      *claudeUsage    `json:"usage"`
 	} `json:"message"`
+	Attachment struct {
+		Type   string          `json:"type"`
+		Prompt json.RawMessage `json:"prompt"`
+		Origin *struct {
+			Kind string `json:"kind"`
+		} `json:"origin"`
+	} `json:"attachment"`
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
 }
 
@@ -85,6 +92,10 @@ func (c *claude) line(b *builder, line []byte) {
 	}
 	ts := parseTime(e.Timestamp)
 	switch e.Type {
+	case "attachment":
+		if text := e.queuedPrompt(); text != "" {
+			b.prompt(ts, text)
+		}
 	case "user":
 		c.user(b, e)
 	case "assistant":
@@ -429,4 +440,12 @@ func idString(raw json.RawMessage) string {
 		return n.String()
 	}
 	return ""
+}
+
+func (e claudeEntry) queuedPrompt() string {
+	a := e.Attachment
+	if a.Type != "queued_command" || a.Origin != nil && a.Origin.Kind != "human" {
+		return ""
+	}
+	return claudeResult(a.Prompt)
 }

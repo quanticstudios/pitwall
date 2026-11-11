@@ -149,6 +149,7 @@ func (d *Daemon) remoteServer() *remote.Server {
 		ChatEntries: d.phoneChatEntries,
 		Send:        d.phoneSend,
 		Command:     d.phoneCommand,
+		OpenDesktop: d.phoneOpenDesktop,
 		Question:    d.phoneQuestion,
 		Upload:      d.phoneUpload,
 		SendImage:   d.phoneSendImage,
@@ -278,13 +279,15 @@ func (d *Daemon) remoteAnswer(pane string, at int64, allow bool) error {
 	if a.State != model.StatePendingApproval || !known {
 		return errors.New("that pane is not asking permission")
 	}
-	// why: a hook can leave the state behind the screen; the key goes only to a permission prompt on it, as 1 picks the first option of a plan or question too.
+	// A late hook can leave an approval card visible after its prompt closes.
 	g := p.Snapshot()
 	if agent.State(g) != model.StatePendingApproval {
-		return errors.New("the pane shows no prompt to answer")
+		return errors.New("the pane shows no permission prompt to answer")
 	}
-	if err := sameCommand(a, asked, g); err != nil {
-		return err
+	if allow {
+		if err := sameCommand(a, asked, g); err != nil {
+			return err
+		}
 	}
 	d.noteUserKey(pane, nil)
 	return d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())})
@@ -476,4 +479,39 @@ func press(k key.Name, m vt.Modes) []byte {
 		return input.Text(" ")
 	}
 	return input.Text(strings.ToLower(string(k)))
+}
+
+func confirmApproval(a model.Activity, asked string, g vt.Grid) error {
+	if agent.State(g) != model.StatePendingApproval {
+		return errors.New("the pane shows no permission prompt to confirm")
+	}
+	return sameCommand(a, asked, g)
+}
+
+func (d *Daemon) phoneOpenDesktop(pane string) error {
+	d.mu.Lock()
+	var workspace string
+	for _, p := range d.st.Panes {
+		if p.ID == pane {
+			workspace = p.WorkspaceID
+			break
+		}
+	}
+	shown := false
+	if w := d.workspace(workspace); w != nil {
+		for c := range d.clients {
+			if c.moves && c.session == w.SessionID {
+				shown = true
+				break
+			}
+		}
+	}
+	d.mu.Unlock()
+	if workspace == "" {
+		return errors.New("that tab is no longer open")
+	}
+	if !shown {
+		return errors.New("open pitwall on the desktop to answer this prompt")
+	}
+	return d.focusSession(proto.FocusSession{WorkspaceID: workspace, Pane: pane})
 }

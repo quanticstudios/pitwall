@@ -322,6 +322,10 @@ func (a *App) event(f *phone.Fleet, l *link, e phone.Event) {
 		l.hello = e.Hello
 	case "tabs":
 		f.Set(l.m.ID, e.Tabs)
+		if a.list.notePane != "" {
+			_, t, exists := f.Tab(a.list.notePane)
+			a.list.expireNote(time.Now(), t.At, exists)
+		}
 		a.refresh()
 	case "reset":
 		if e.Pane == a.chat.pane && a.chat.pane != "" && a.chatM == l.m.ID {
@@ -434,6 +438,9 @@ func (a *App) chatLayout(gtx C) {
 			pickImage(clip, func(b []byte, err error) { a.post(func() { done(b, err) }) })
 		},
 		Retry: l.conn.Retry, OpenFile: a.fileOpener(l, t.ID),
+		OpenDesktop: func(done func(error)) {
+			a.do(l.m.ID, func(ctx context.Context, c *phone.Client) error { return c.OpenDesktop(ctx, t.Pane) }, done)
+		},
 		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
 			a.do(l.m.ID, func(ctx context.Context, c *phone.Client) error { return call(ctx, c) }, done)
 		}}

@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func TestClaudeEntries(t *testing.T) {
 		`{"type":"user","origin":{"kind":"task-notification"},"message":{"content":"done"}}`,
 		`not json`,
 	)
-	want := "user:fix the test|assistant:Looking.|tool:Bash go test ./...=FAIL!|error:API Error: 529|error:Interrupted"
+	want := "user:fix the test|assistant:Looking.|tool:Bash go test ./...\nmore=FAIL!|error:API Error: 529|error:Interrupted"
 	if got := short(l.Last(10)); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
@@ -177,5 +178,70 @@ func TestToolPath(t *testing.T) {
 	es := l.Last(10)
 	if len(es) != 2 || es[0].Arg != "phone.md" || es[0].Path != "/w/repo/docs/phone.md" || es[1].Path != "" {
 		t.Errorf("entries %+v", es)
+	}
+}
+
+func TestCapturedQueuedCommand(t *testing.T) {
+	const prompt = "Also run Bash exactly as echo queued-qa after the sleep. Keep this message in the conversation."
+	for range 2 {
+		l := NewLog(model.ProviderClaude, "testdata/claude/queued-command.jsonl")
+		l.Poll()
+		es := l.Last(100)
+		found := -1
+		for i, e := range es {
+			if e.Kind == EntryUser && e.Text == prompt {
+				if found >= 0 {
+					t.Fatal("duplicate prompt")
+				}
+				found = i
+			}
+		}
+		if found < 1 || found+1 >= len(es) || es[found-1].Arg != "sleep 10" || es[found+1].Arg != "echo first" {
+			t.Fatalf("queued prompt order: %s", short(es))
+		}
+	}
+	data, err := os.ReadFile("testdata/claude/queued-command.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBuilder(model.ProviderClaude)
+	c := &claude{}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		c.line(b, []byte(line))
+	}
+	if len(b.turns) != 2 || b.turns[1].Prompt != prompt {
+		t.Fatalf("turn prompts: %#v", b.turns)
+	}
+}
+
+func TestCapturedCodexExec(t *testing.T) {
+	l := NewLog(model.ProviderCodex, "testdata/codex/exec.jsonl")
+	l.Poll()
+	es := l.Last(10)
+	if len(es) != 1 || es[0].Arg != "printf codex-qa-ok" || !es[0].Done || strings.TrimSpace(es[0].Out) != "codex-qa-ok" {
+		t.Fatalf("exec: %#v", es)
+	}
+}
+
+func TestExecOutputAndComputedCommands(t *testing.T) {
+	for _, src := range []string{`text(await tools.exec_command({cmd: command}));`, `text(await tools.exec_command({cmd:"echo " + value}));`, `await tools.exec_command({cmd:command}); await tools.exec_command({cmd:"echo literal"});`} {
+		if got := execCommand(src); got != src {
+			t.Fatalf("computed command changed: %q", got)
+		}
+	}
+	for _, text := range []string{"42", `{"answer":42}`, "plain output"} {
+		raw, _ := json.Marshal([]map[string]string{{"type": "input_text", "text": "Script completed\nWall time 1 second\nOutput:\n"}, {"type": "input_text", "text": text}})
+		if got := codexOutput(raw); got != text {
+			t.Fatalf("output: %q, want %q", got, text)
+		}
+	}
+}
+
+func TestCapturedMultilineCommandKeepsEveryLine(t *testing.T) {
+	l := NewLog(model.ProviderClaude, "testdata/claude/multiline-command.jsonl")
+	l.Poll()
+	es := l.Last(10)
+	if len(es) != 1 || es[0].Arg != "touch /tmp/qa-daemon-fixed-first.txt\ntouch /tmp/qa-daemon-fixed-second.txt" {
+		t.Fatalf("command: %#v", es)
 	}
 }

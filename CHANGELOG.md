@@ -20,6 +20,12 @@ pushes the tag once, which starts the release build. Either step takes
 ## Unreleased
 
 - The Android app draws an agent's replies as the markdown reader draws a file: tables get a grid whose columns stay at least 112dp wide and that scrolls sideways when they do not fit, code blocks scroll sideways, and task lists, quotes, headings and mermaid flowcharts look as on the desktop. A markdown path or link in a reply, and Open on a file tool's row, show the file full screen, its images too, with Back through the links it followed. The computer serves the file only from the tab's repo or folder; with an older pitwall, paths stay plain text. In the desktop reader too, a long code line or a wide table scrolls sideways instead of wrapping or running past the column. See [Phone](docs/phone.md#markdown-files).
+- Keep messages sent during a Claude Code turn in the phone chat at their transcript position after reopening it.
+- Keep permission requests' tool and full command or file on the phone. Deny presses Esc only while a permission prompt is on screen; unavailable Allow offers Deny and Open on desktop.
+- Start Claude Code fresh after a daemon restart when its session has no transcript. Phone tabs show exited agents and their exit codes.
+- Show shell commands and output inside Codex exec calls in the phone chat.
+- Clear phone sidebar answer refusals when their prompt ends or after six seconds. Show why queued messages wait above the composer.
+- A model or effort pick on the phone changes only that Claude Code session. pitwall used to type `/model <name>` or `/effort <level>`, which Claude Code 2.1.322 also saves as the default for every new session. It now opens Claude Code's `/model` picker or `/effort` slider, moves to the pick and presses `s`, the key for this session only, and closes the menu with Esc if the pick is not there. The chips show what the session runs: a change made on the computer replaces the phone's pick, and a pick the session never reports gives way after 5 seconds.
 
 ## v0.2.8
 

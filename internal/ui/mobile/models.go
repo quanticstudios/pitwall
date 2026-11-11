@@ -79,12 +79,11 @@ func (c *chatView) currentModel(t remote.Tab) string {
 	return c.data.Model
 }
 
+// effortShown is the effort chip's level: a pick settle keeps, else the
+// session's.
 func (k *composer) effortShown(current string) string {
-	if k.effort != "" && current == k.effortAt {
+	if k.effort != "" {
 		return k.effort
 	}
-	if current != "" {
-		return current
-	}
-	return k.effort
+	return current
 }

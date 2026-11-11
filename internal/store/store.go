@@ -60,6 +60,23 @@ func Path() string { return filepath.Join(config.StateDir(), "state.json") }
 // tabs replaces one with tabs, it copies the one on disk there, so a failed
 // restore or a bad start cannot leave no good copy.
 func Save(path string, s model.State) error {
+	s.Panes = slices.Clone(s.Panes)
+	for i := range s.Panes {
+		p := &s.Panes[i]
+		if p.Provider != model.ProviderClaude || p.SessionID == "" || p.Transcript == "" || p.Exited {
+			continue
+		}
+		info, err := os.Stat(p.Transcript)
+		if !errors.Is(err, os.ErrNotExist) && !(err == nil && info.Mode().IsRegular() && info.Size() == 0) {
+			continue
+		}
+		// A SessionStart hook names an id before Claude writes a conversation.
+		cmd := RestoreCmd(*p)
+		if len(cmd) >= 3 && cmd[len(cmd)-2] == "--resume" {
+			p.Cmd = slices.Clone(cmd[:len(cmd)-2])
+			p.SessionID, p.Held = "", false
+		}
+	}
 	data, err := json.MarshalIndent(snapshot{formatVersion, &s}, "", "  ")
 	if err != nil {
 		return err

@@ -216,19 +216,18 @@ its sidebar row, or on the asking pane's own row when the tab lists its
 agents, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
 focused pane, else for the shown tab. They press the same keys the
 [phone page](phone.md) does, and only while the row is current and the pane
-shows a permission prompt.
+shows a permission prompt. Deny presses Esc without comparing the command
+on that prompt.
 
-When the agent's hook reported a shell command, Allow, Deny and Always also
-need the prompt to show that command. pitwall allows for line wrapping and the
-prompt's own indent, and any other difference counts, spaces included. If the
-prompt shows only part of a long command, the part it shows is what pitwall
-compares, and the rest goes unchecked. pitwall cannot compare a command with a
-line break, which means any multi-line command, a tab, a space other than a
-plain one or a character that does not print, even at its very start or end, so
-it always refuses those. On a refusal, a mismatch or a prompt
-layout pitwall cannot read a command from, such as a form scrolled past its title
-with several blocks of text left on screen, nothing is pressed and a notice in the
-window says why, until you close it or an answer lands.
+When the agent's hook reported a shell command, Allow and Always also
+need the prompt to show the complete command. pitwall compares the lines,
+relative indentation and interior blank lines, allowing for wrapped rows.
+Claude commands may contain tabs in indentation; Codex commands with tabs
+require an answer in their tab because Codex does not show the tabs.
+Clipped or hidden command text, unsupported whitespace and unknown prompt
+layouts prevent Allow and Always. Deny requires a permission prompt on
+screen but does not compare its command. On a refusal, nothing is pressed
+and a notice in the window says why, until you close it or an answer lands.
 
 An edit, a fetch or any other prompt with no reported command gets no such
 comparison, and neither does a row whose report came before a daemon restart.

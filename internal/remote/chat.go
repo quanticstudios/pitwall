@@ -22,17 +22,22 @@ import (
 // holds what the sidebar shows, never a pane's screen.
 type Tab struct {
 	Item
-	ID     string `json:"id"`              // the tab's workspace id
-	Group  string `json:"group,omitempty"` // its group's name
-	Repo   string `json:"repo,omitempty"`  // its repo's or folder's base name
-	Branch string `json:"branch,omitempty"`
-	Model  string `json:"model,omitempty"`
-	Effort string `json:"effort,omitempty"`
-	Chat   bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
-	Send   bool   `json:"send"`           // the composer works: the pane runs an agent
-	Attach bool   `json:"attach,omitempty"`
-	Picker bool   `json:"picker"` // model and effort: Claude Code in a terminal
-	Queued int    `json:"queued,omitempty"`
+	ID           string `json:"id"`              // the tab's workspace id
+	Group        string `json:"group,omitempty"` // its group's name
+	Repo         string `json:"repo,omitempty"`  // its repo's or folder's base name
+	Branch       string `json:"branch,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Effort       string `json:"effort,omitempty"`
+	Chat         bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
+	Send         bool   `json:"send"`           // the composer works: the pane runs an agent
+	Attach       bool   `json:"attach,omitempty"`
+	Picker       bool   `json:"picker"` // model and effort: Claude Code in a terminal
+	Queued       int    `json:"queued,omitempty"`
+	Hold         string `json:"hold,omitempty"`
+	AllowBlocked string `json:"allowBlocked,omitempty"`
+	Exited       bool   `json:"exited,omitempty"`
+	ExitCode     int    `json:"exitCode,omitempty"`
+	ExitUnknown  bool   `json:"exitUnknown,omitempty"`
 	// Dropped are the ids of phone messages the pane's agent left before
 	// they went in, which the page shows as not sent.
 	Dropped []uint64 `json:"dropped,omitempty"`
@@ -106,6 +111,7 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 			return t, false
 		}
 		t.Pane, t.Provider, t.Transcript, exited = p.ID, p.Provider, p.Transcript, p.Exited
+		t.Exited, t.ExitCode, t.ExitUnknown = p.Exited, p.ExitCode, p.ExitUnknown
 	}
 	if i := slices.IndexFunc(st.Activities, func(a model.Activity) bool { return a.PaneID == t.Pane }); i >= 0 {
 		a := st.AwaitPR(st.Activities[i])
@@ -116,6 +122,13 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 		if !t.Chat {
 			t.Answer, t.Reply = Answerable(a), TakesReply(a)
 		}
+	}
+	if exited {
+		t.State, t.Label, t.Detail = "exited", fmt.Sprintf("Exited %d", t.ExitCode), ""
+		if t.ExitUnknown {
+			t.Label = "Exited, code unknown"
+		}
+		t.Answer, t.Reply = false, false
 	}
 	t.Agent = string(t.Provider)
 	if !t.Chat && !exited {

@@ -243,20 +243,45 @@ func (f *fakeAPI) Command(ctx context.Context, pane, what, value string) error {
 func TestCurrentSettings(t *testing.T) {
 	c := newChat("p1")
 	c.data.Model = "claude-haiku-5-5"
+	now := time.Unix(1000, 0)
 	tab := remote.Tab{Model: "opus[1m]", Effort: "high"}
 	if c.cmp.modelShown(c.currentModel(tab)) != "Opus 5.5 1M" || c.cmp.effortShown(tab.Effort) != "high" {
 		t.Fatal("fresh app did not load settings")
 	}
-	c.cmp.model, c.cmp.modelAt = "sonnet", tab.Model
-	c.cmp.effort, c.cmp.effortAt = "max", tab.Effort
+	pick := func(m, e string) {
+		c.cmp.model, c.cmp.modelAt = m, tab.Model
+		c.cmp.effort, c.cmp.effortAt = e, tab.Effort
+		c.cmp.pickedUntil = [2]time.Time{now.Add(pickHold), now.Add(pickHold)}
+	}
+	pick("sonnet", "max")
+	if next := c.cmp.settle(c.currentModel(tab), tab.Effort, now); !next.Equal(now.Add(pickHold)) {
+		t.Errorf("next redraw at %v", next)
+	}
 	if c.cmp.modelShown(c.currentModel(tab)) != "Sonnet 5.5" || c.cmp.effortShown(tab.Effort) != "max" {
-		t.Fatal("pick did not update while the server redraws")
+		t.Fatal("pick did not show before the session reported it")
 	}
-	tab.Model, tab.Effort = "haiku", "low"
-	if c.cmp.modelShown(c.currentModel(tab)) != "Haiku 5.5" || c.cmp.effortShown(tab.Effort) != "low" {
-		t.Fatal("external settings did not update")
+	// The session reports the pick, then the computer switches back: the
+	// chips follow the session, not the phone's last pick.
+	tab.Model, tab.Effort = "Sonnet 5.5", "max"
+	c.cmp.settle(c.currentModel(tab), tab.Effort, now)
+	tab.Model, tab.Effort = "opus[1m]", "high"
+	c.cmp.settle(c.currentModel(tab), tab.Effort, now)
+	if got, e := c.cmp.modelShown(c.currentModel(tab)), c.cmp.effortShown(tab.Effort); got != "Opus 5.5 1M" || e != "high" {
+		t.Fatalf("after a change on the computer: %q %q", got, e)
 	}
-	if c.currentModel(remote.Tab{}) != c.data.Model || c.cmp.effortShown("") != "max" {
+	// A pick the session never reports gives way after pickHold.
+	pick("haiku", "low")
+	c.cmp.settle(c.currentModel(tab), tab.Effort, now.Add(pickHold-time.Millisecond))
+	if c.cmp.modelShown(c.currentModel(tab)) != "Haiku 5.5" {
+		t.Fatal("pick dropped before pickHold")
+	}
+	if next := c.cmp.settle(c.currentModel(tab), tab.Effort, now.Add(pickHold)); !next.IsZero() {
+		t.Errorf("next redraw at %v after both dropped", next)
+	}
+	if got, e := c.cmp.modelShown(c.currentModel(tab)), c.cmp.effortShown(tab.Effort); got != "Opus 5.5 1M" || e != "high" {
+		t.Fatalf("a pick that did not apply: %q %q", got, e)
+	}
+	if c.currentModel(remote.Tab{}) != c.data.Model || c.cmp.effortShown("") != "" {
 		t.Fatal("old daemon fallback failed")
 	}
 }
@@ -312,6 +337,7 @@ func TestPickWaitsForIdle(t *testing.T) {
 		t.Errorf("after: picks %v, picking %v, chip %q", c.cmp.picks, c.cmp.picking, c.cmp.modelShown(c.data.Model))
 	}
 	// The next turn reports its own model, which the chip then follows.
+	c.cmp.settle("claude-haiku-5-5", "", time.Now())
 	if got := c.cmp.modelShown("claude-haiku-5-5"); got != "Haiku 5.5" {
 		t.Errorf("after a turn, the chip says %q", got)
 	}
@@ -546,5 +572,62 @@ func TestGluePunct(t *testing.T) {
 		if got := text(mdview.GluePunct(sp(c.in...))); !slices.Equal(got, c.want) {
 			t.Errorf("mdview.GluePunct(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestQueueLineExplainsDesktopDraft(t *testing.T) {
+	tab := remote.Tab{Queued: 1, Hold: "you are typing in this tab on the desktop"}
+	bold, rest, bad := queueLine(tab, nil, "")
+	if bold != "waiting:" || rest != tab.Hold || bad {
+		t.Fatalf("queue: %q %q %v", bold, rest, bad)
+	}
+	tab.Queued = 0
+	if bold, _, _ := queueLine(tab, nil, ""); bold != "" {
+		t.Fatal("hold remains after delivery")
+	}
+}
+
+func TestRefusalNoteExpires(t *testing.T) {
+	now := time.Unix(100, 0)
+	for _, tc := range []struct {
+		name          string
+		elapsed       time.Duration
+		at            int64
+		exists, clear bool
+	}{
+		{"same prompt", time.Second, 7, true, false},
+		{"next prompt", time.Second, 8, true, true},
+		{"closed", time.Second, 7, false, true},
+		{"timeout", 6 * time.Second, 7, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := listView{note: "refused", notePane: "p", noteAt: 7, noteUntil: now.Add(6 * time.Second)}
+			l.expireNote(now.Add(tc.elapsed), tc.at, tc.exists)
+			if (l.note == "") != tc.clear {
+				t.Fatalf("note: %q", l.note)
+			}
+		})
+	}
+}
+
+func TestApprovalPreflightBlocksAllowBeforeRequest(t *testing.T) {
+	c := newChat("p")
+	var ops op.Ops
+	gtx := C{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 800)}}
+	calls, desktop := 0, 0
+	env := chatEnv{Tab: remote.Tab{Item: remote.Item{Pane: "p", Agent: "claude", State: "pending-approval", Answer: true, Detail: "Bash\necho first\necho second"}, AllowBlocked: "Cannot confirm this command."},
+		Do:          func(call func(context.Context, chatAPI) error, done func(error)) { calls++ },
+		OpenDesktop: func(done func(error)) { desktop++; done(nil) },
+	}
+	c.askCard(gtx, Theme(), env)
+	c.card.allow.Click()
+	c.askCard(gtx, Theme(), env)
+	if calls != 0 {
+		t.Fatal("unconfirmed Allow sent a request")
+	}
+	c.card.desktop.Click()
+	c.askCard(gtx, Theme(), env)
+	if desktop != 1 {
+		t.Fatal("Open on desktop did not focus the desktop")
 	}
 }

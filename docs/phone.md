@@ -117,14 +117,26 @@ queues behind the running one.
 A Claude Code tab has a button in its header with the model its latest
 turn used. It offers the models `default`, `fable`, `opus`, `opus[1m]`,
 `sonnet` and `haiku`, and the effort levels `low`, `medium`, `high`, `xhigh` and `max`.
-A pick types `/model <name>` or `/effort <level>` into Claude Code as keys
-and presses Enter, only while Claude Code sits at its input box: not during
-a turn, a question or a form, and not over a draft. One pick goes in at a
-time, never while a queued message is being typed, and the buttons wait
-for it. When Claude Code asks
-"Switch model?" in a conversation, pitwall answers yes, since your pick
-already did. Claude Code then reads the whole conversation again on the new
-model, and saves the model as your default, as typing `/model` does.
+A pick changes only that tab's Claude Code session, never the default
+model or effort of new sessions. Typing `/model <name>` or `/effort <level>`
+would save it as that default, so pitwall types `/model` or `/effort` alone,
+moves Claude Code's picker or slider to your pick, checks the screen shows
+it, and presses `s`, Claude Code's key for this session only. If the picker
+has no row for the pick or the menu does not move to it, pitwall closes it
+with Esc, which saves nothing, and the phone says why. A pick goes in only
+while Claude Code sits at its input box: not during a turn, a question or a
+form, and not over a draft. One pick goes in at a time, never while a
+queued message is being typed, and the buttons wait for it. If you type in
+that tab on the computer while a pick is under way, or its menu closes,
+pitwall stops and presses nothing more. When Claude
+Code asks "Switch model?" in a conversation, pitwall answers yes, since
+your pick already did. Claude Code then reads the whole conversation again
+on the new model.
+
+The buttons show what the session runs, as Claude Code's screen reports it.
+Your pick shows until the session reports a change, or for 5 seconds if it
+never does, so a pick that did not apply and a change made on the computer
+both show as they are.
 
 Codex has no picker here: its `/model` opens a menu that pitwall cannot
 drive safely.
@@ -133,11 +145,19 @@ drive safely.
 
 When the open tab waits on you, a card above the box says what for.
 Allow presses the first option of the agent's prompt, Yes: `1` for Claude
-Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
-the card is current and the pane's screen has a permission prompt on it.
-When the agent's hook reported a shell command, the prompt must also show
-that command, as much of it as fits on screen, and a command with a line
-break or a tab is always refused; [Usage](usage.md) has the details. A
+Code and `y` for Codex. Deny presses Esc. Both actions require the card to
+be current and a permission prompt to be on the screen. Deny does not
+compare the command on that prompt.
+The card keeps the tool and its full command or file. Long commands scroll
+inside the card, and expanding a tool row shows every command line.
+If pitwall cannot confirm the permission prompt, the card explains why and
+offers Deny and Open on desktop. Open on desktop focuses an existing
+pitwall window showing that session.
+When the agent's hook reported a shell command, Allow requires the prompt
+to show the complete command, including its lines and indentation. Claude
+commands may contain tabs; Codex commands with tabs require an answer on
+the desktop. Hidden or clipped command text prevents Allow;
+[Usage](usage.md) has the details. A
 plain-text question takes an answer through the composer. Other terminal
 forms take no typed answer through the composer, since Enter would select
 an option. Claude Code and Codex terminal questions appear inline in the

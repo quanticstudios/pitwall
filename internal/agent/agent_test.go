@@ -56,7 +56,7 @@ func TestDerive(t *testing.T) {
 		{"claude_ask_user_question", claude, model.StateWorking, true, model.StateAwaitingInput, "Which database should the cache use?"},
 		{"claude_permission_request_ask", claude, model.StateWorking, true, model.StateAwaitingInput, "Which database should the cache use?"},
 		{"claude_exit_plan_mode", claude, model.StateWorking, true, model.StatePlanReady, ""},
-		{"claude_permission_request", claude, model.StateWorking, true, model.StatePendingApproval, "Remove node_modules directory"},
+		{"claude_permission_request", claude, model.StateWorking, true, model.StatePendingApproval, "Bash\nrm -rf node_modules"},
 		{"claude_notification_permission", claude, model.StateWorking, true, model.StatePendingApproval, "Claude needs your permission to use Bash"},
 		{"claude_notification_permission", claude, model.StateAwaitingInput, false, none, ""},
 		{"claude_notification_permission", claude, model.StatePlanReady, false, none, ""},
@@ -75,7 +75,7 @@ func TestDerive(t *testing.T) {
 		{"codex_notify", codex, model.StateWorking, true, model.StateCompleted, "Rename complete and verified cargo build succeeds."},
 		{"codex_user_prompt_submit", codex, none, true, model.StateWorking, ""},
 		{"codex_pre_tool_use", codex, model.StatePendingApproval, true, model.StateWorking, ""},
-		{"codex_permission_request", codex, model.StateWorking, true, model.StatePendingApproval, "Allow network access to push?"},
+		{"codex_permission_request", codex, model.StateWorking, true, model.StatePendingApproval, "Bash\ngit push"},
 		{"codex_stop", codex, model.StateWorking, true, model.StateCompleted, "Done. Want me to open a PR?"},
 		{"codex_interrupt", codex, model.StateWorking, true, none, ""},
 		{"codex_side_fork", codex, model.StateWorking, false, none, ""},
@@ -680,6 +680,40 @@ func TestToolFailure(t *testing.T) {
 		f, ok := ToolFailure(c.provider, []byte(c.payload))
 		if f != c.want || ok != c.ok {
 			t.Errorf("ToolFailure(%s, %s) = %+v %v", c.provider, c.payload, f, ok)
+		}
+	}
+}
+
+func TestPermissionNotificationKeepsToolDetail(t *testing.T) {
+	now := time.Now()
+	request, err := os.ReadFile("testdata/claude_permission_request.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := Derive(nil, model.ProviderClaude, request, now)
+	if !ok || a.Detail != "Bash\nrm -rf node_modules" {
+		t.Fatalf("request: %#v, %v", a, ok)
+	}
+	notification, err := os.ReadFile("testdata/claude_notification_permission.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, changed := Derive(&a, model.ProviderClaude, notification, now.Add(time.Second))
+	if changed && next.Detail != a.Detail {
+		t.Fatalf("notification replaces detail: %#v", next)
+	}
+}
+
+func TestPermissionDetailTargets(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{`{"file_path":"notes.md"}`, "Edit\nnotes.md"},
+		{`{"command":["echo","hello"]}`, "Edit\necho hello"},
+		{`{"command":"echo first\necho second"}`, "Edit\necho first\necho second"},
+	} {
+		raw := []byte(`{"hook_event_name":"PermissionRequest","tool_name":"Edit","tool_input":` + tc.input + `}`)
+		a, ok := Derive(nil, model.ProviderClaude, raw, time.Now())
+		if !ok || a.Detail != tc.want {
+			t.Fatalf("detail: %#v, %v", a, ok)
 		}
 	}
 }

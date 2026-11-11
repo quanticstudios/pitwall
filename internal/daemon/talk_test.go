@@ -67,7 +67,7 @@ func TestPrompt(t *testing.T) {
 	claudeHook(t, d, "a", `{"hook_event_name":"UserPromptSubmit","prompt":"plan"}`)
 	refused("a", "working")
 	claudeHook(t, d, "a", `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"description":"Run make"}}`)
-	refused("a", "waits on the user: Run make")
+	refused("a", "waits on the user: Bash\nRun make")
 	claudeHook(t, d, "a", `{"hook_event_name":"Stop","last_assistant_message":"done"}`)
 	f.pane(0).mu.Lock()
 	f.pane(0).screen = []string{" Do you want to proceed?", " > 1. Yes", " Esc to cancel"}

@@ -429,3 +429,8 @@ func (c *Client) SendImage(ctx context.Context, pane, text, image string) (uint6
 	err := c.call(ctx, "POST", "api/send", map[string]string{"pane": pane, "text": text, "image": image}, &out)
 	return out.ID, err
 }
+
+// OpenDesktop focuses pane in an existing desktop window.
+func (c *Client) OpenDesktop(ctx context.Context, pane string) error {
+	return c.call(ctx, "POST", "api/open", map[string]string{"pane": pane}, nil)
+}

@@ -62,9 +62,10 @@ type chatEnv struct {
 	// Do runs call off the window's goroutine and done on it after.
 	Do func(call func(ctx context.Context, api chatAPI) error, done func(error))
 	// Now is the clock, for tests and the demo; zero means time.Now.
-	Attach    bool
-	PickImage func(clipboard bool, done func([]byte, error))
-	Now       time.Time
+	OpenDesktop func(done func(error))
+	Attach      bool
+	PickImage   func(clipboard bool, done func([]byte, error))
+	Now         time.Time
 	// OpenFile opens a markdown file the tab names in the reader, by its
 	// path and #fragment; nil when the computer serves no files, and then
 	// a path in a reply is plain text.
@@ -680,6 +681,9 @@ func (c *chatView) tool(gtx C, th *theme.Theme, r *entryRow, e flow.Entry) D {
 				out, f := e.Out, th.MonoFont
 				if out == "" {
 					out, f = map[bool]string{true: "No output.", false: "Running."}[e.Done], th.UIFont
+				}
+				if e.Arg != "" {
+					out = e.Arg + "\n\n" + out
 				}
 				return layout.Inset{Left: 10, Right: 10, Bottom: 10}.Layout(gtx, func(gtx C) D {
 					return box(gtx, th.Bg, th.BorderSubtle, 9, layout.Inset{Left: 12, Right: 12, Top: 10, Bottom: 10}, func(gtx C) D {

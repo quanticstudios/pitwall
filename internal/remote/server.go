@@ -162,11 +162,12 @@ type Server struct {
 	// Send types text into pane's agent once it sits at its input box,
 	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
 	// keys, refused unless the agent waits at its input box.
-	Send      func(pane, text string) (id uint64, err error)
-	Command   func(pane, command string) error
-	Question  func(pane, id string, option int, text string) error
-	Upload    func(pane string, data []byte) (string, error)
-	SendImage func(pane, text, image string) (uint64, error)
+	Send        func(pane, text string) (id uint64, err error)
+	Command     func(pane, command string) error
+	OpenDesktop func(pane string) error
+	Question    func(pane, id string, option int, text string) error
+	Upload      func(pane string, data []byte) (string, error)
+	SendImage   func(pane, text, image string) (uint64, error)
 	// Folder is tab's working directory and the folder, its repo's or
 	// the one it runs in, that the files the phone reads for it must be
 	// in; ok is false for no such tab. Nil serves no files.
@@ -220,6 +221,21 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
 		mux.Handle("POST /api/send", sameOrigin(s.authed(s.sendText)))
 		mux.Handle("POST /api/command", sameOrigin(s.authed(s.command)))
+		if s.OpenDesktop != nil {
+			mux.Handle("POST /api/open", sameOrigin(s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
+				var req struct {
+					Pane string `json:"pane"`
+				}
+				if !decode(w, r, &req) {
+					return
+				}
+				if err := s.OpenDesktop(req.Pane); err != nil {
+					http.Error(w, err.Error(), http.StatusConflict)
+					return
+				}
+				writeJSON200(w, map[string]any{})
+			})))
+		}
 		if s.Question != nil {
 			mux.Handle("POST /api/question", sameOrigin(s.authed(s.question)))
 		}

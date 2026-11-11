@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -103,7 +104,7 @@ func (b *builder) active(ts time.Time) *Turn {
 
 func (b *builder) call(ts time.Time, id, tool, arg string) {
 	t := b.active(ts)
-	t.Calls = append(t.Calls, Call{Time: ts, Tool: tool, Arg: cut(arg, 120), Running: true})
+	t.Calls = append(t.Calls, Call{Time: ts, Tool: tool, Arg: cut(firstLine(arg), 120), Running: true})
 	if id != "" {
 		b.calls[id] = ref{b.dropped + len(b.turns) - 1, len(t.Calls) - 1}
 	}
@@ -310,7 +311,7 @@ func filePath(tool string, input json.RawMessage) string {
 	return ""
 }
 
-// arg is Call.Arg for a tool's input: a command's first line, a file's base
+// arg is a tool's command, a file's base
 // name, a pattern or query, a fetched URL's host, else "".
 func arg(tool string, input json.RawMessage) string {
 	var in map[string]json.RawMessage
@@ -332,7 +333,7 @@ func arg(tool string, input json.RawMessage) string {
 		if json.Unmarshal(in["command"], &argv) == nil {
 			return command(argv)
 		}
-		return firstLine(str("command", "cmd"))
+		return strings.TrimSpace(str("command", "cmd"))
 	case "Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "read", "edit", "write", "read_file", "write_file", "replace":
 		if p := str("file_path", "path", "notebook_path"); p != "" {
 			return path.Base(strings.ReplaceAll(p, `\`, "/"))
@@ -355,9 +356,9 @@ func arg(tool string, input json.RawMessage) string {
 // the words joined.
 func command(argv []string) string {
 	if len(argv) >= 3 && (argv[1] == "-lc" || argv[1] == "-c") {
-		return firstLine(argv[2])
+		return strings.TrimSpace(argv[2])
 	}
-	return firstLine(strings.Join(argv, " "))
+	return strings.TrimSpace(strings.Join(argv, " "))
 }
 
 // patchFile is the base name of the first file an apply_patch patch touches.
@@ -370,4 +371,33 @@ func patchFile(patch string) string {
 		}
 	}
 	return ""
+}
+
+// shortcut: exec wrappers with computed commands keep their source; parse literals only until a structured call log exists.
+var execShell = regexp.MustCompile(`\btools\.(?:exec_command|shell_command)\s*\(\s*\{\s*`)
+var execArg = regexp.MustCompile(`(?s)(?:"(?:cmd|command)"|\b(?:cmd|command))\s*:\s*("(?:\\.|[^"\\])*")\s*[,}]`)
+
+func execCommand(source string) string {
+	var commands []string
+	locs := execShell.FindAllStringIndex(source, -1)
+	for i, loc := range locs {
+		end := len(source)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		rest := source[loc[1]:end]
+		// The command must be a literal in this call's options.
+		m := execArg.FindStringSubmatch(rest)
+		if len(m) == 0 {
+			return source
+		}
+		var cmd string
+		if json.Unmarshal([]byte(m[1]), &cmd) == nil {
+			commands = append(commands, cmd)
+		}
+	}
+	if len(commands) == 0 {
+		return source
+	}
+	return strings.Join(commands, "\n")
 }
