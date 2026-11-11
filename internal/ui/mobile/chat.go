@@ -408,41 +408,68 @@ func (c *chatView) pageIn(es []flow.Entry, more bool) {
 // log is the scrolling chat: the loading line, the entries, the messages
 // on their way and the Working line.
 func (c *chatView) log(gtx C, th *theme.Theme, env chatEnv) D {
-	t := env.Tab
-	var items []layout.Widget
-	items = append(items, func(gtx C) D {
-		if !c.loading {
-			return D{Size: image.Pt(0, gtx.Dp(10))}
-		}
-		return loadingLine(gtx, th)
-	})
+	n := 1 + len(c.data.Entries)
 	if c.data.None {
-		items = append(items, noteItem(th, "No transcript to show. pitwall shows the state of a shell or of an agent without hooks, never its screen."))
+		n++
 	}
 	if c.data.Gone {
-		items = append(items, noteItem(th, "This tab closed."))
-	}
-	for i := range c.data.Entries {
-		e := c.data.Entries[i]
-		items = append(items, func(gtx C) D { return c.entry(gtx, th, e) })
+		n++
 	}
 	for _, p := range c.data.Pending {
-		if p.Queued || p.Err != "" || !p.Sent {
-			continue // the composer's line shows these
+		if p.Sent && !p.Queued && p.Err == "" {
+			n++
 		}
-		items = append(items, func(gtx C) D { return prompt(gtx, th, p.Text, 0.6) })
 	}
-	if w, ok := c.data.Working(t); ok && env.Open {
-		items = append(items, func(gtx C) D { return workingLine(gtx, th, w) })
+	working, busy := c.data.Working(env.Tab)
+	if busy && env.Open {
+		n++
+	} else {
+		working = ""
 	}
-	return c.list.Layout(gtx, len(items), func(gtx C, i int) D {
+	return c.list.Layout(gtx, n, func(gtx C, i int) D {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		in := layout.Inset{Left: 16, Right: 16, Bottom: 10}
 		if i == 0 {
 			in.Bottom = 0
 		}
-		return in.Layout(gtx, items[i])
+		return in.Layout(gtx, func(gtx C) D { return c.logItem(gtx, th, i, working) })
 	})
+}
+
+func (c *chatView) logItem(gtx C, th *theme.Theme, i int, working string) D {
+	if i == 0 {
+		if c.loading {
+			return loadingLine(gtx, th)
+		}
+		return D{Size: image.Pt(0, gtx.Dp(10))}
+	}
+	i--
+	if c.data.None {
+		if i == 0 {
+			return label(gtx, th, th.UIFont, 15, th.Muted, 0, "No transcript to show. pitwall shows the state of a shell or of an agent without hooks, never its screen.")
+		}
+		i--
+	}
+	if c.data.Gone {
+		if i == 0 {
+			return label(gtx, th, th.UIFont, 15, th.Muted, 0, "This tab closed.")
+		}
+		i--
+	}
+	if i < len(c.data.Entries) {
+		return c.entry(gtx, th, c.data.Entries[i])
+	}
+	i -= len(c.data.Entries)
+	for _, p := range c.data.Pending {
+		if !p.Sent || p.Queued || p.Err != "" {
+			continue
+		}
+		if i == 0 {
+			return prompt(gtx, th, p.Text, 0.6)
+		}
+		i--
+	}
+	return workingLine(gtx, th, working)
 }
 
 func loadingLine(gtx C, th *theme.Theme) D {
@@ -463,10 +490,6 @@ func workingLine(gtx C, th *theme.Theme, w string) D {
 		layout.Rigid(layout.Spacer{Width: 9}.Layout),
 		layout.Flexed(1, func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Muted, 1, w) }),
 	)
-}
-
-func noteItem(th *theme.Theme, s string) layout.Widget {
-	return func(gtx C) D { return label(gtx, th, th.UIFont, 15, th.Muted, 0, s) }
 }
 
 // newPill is the New messages button over the bottom of the log.
