@@ -17,6 +17,7 @@ let pane = '';          // the open chat's pane, '' on the list
 let model = '';         // the open chat's model, from its transcript
 let first = 0, hasMore = false, loadingOlder = false;
 const shown = new Map(); // seq: element of the open chat
+let attachment = null, imageSending = false;
 let pending = [];        // messages sent from here, not yet in the transcript
 let stick = true;        // the log was at its bottom
 let ctrl = null, backoff = 1000, retry = 0;
@@ -225,6 +226,7 @@ function showList() {
 function openChat(p, push) {
   if (!p) return;
   if (push) history.pushState({ pane: p }, '', '#pane=' + encodeURIComponent(p));
+  if (p !== pane) clearAttachment();
   pane = p;
   home.hidden = true;
   chat.hidden = false;
@@ -305,7 +307,7 @@ function add(es, quiet) {
         if (!first || e.seq < first) first = e.seq;
       }
       shown.set(e.seq, node);
-      if (e.kind === 'user') settle(e.text);
+      if (e.kind === 'user') settle(e.text, e.seq);
     }
   });
   if (fresh && !quiet && !was) newpill.hidden = false;
@@ -459,6 +461,7 @@ function renderChatState() {
   }
   renderAsks(t);
   composer.hidden = !(t && t.send);
+  $("attach").hidden = !(t && t.attach && hello.upload);
   cnote.hidden = !!(t && t.send);
   if (!t) cnote.textContent = 'This tab is not open now.';
   else if (!t.send) cnote.textContent = 'This tab runs no agent, so it takes no messages from here.';
@@ -496,8 +499,8 @@ function prettyModel(m) {
 
 function renderAsks(t) {
   const want = [];
-  if (t && (t.answer || (t.requests && t.requests.length) || ['pending-approval', 'plan-ready', 'awaiting-input'].includes(t.state))) {
-    const k = [t.pane, t.at, (t.requests || []).map((r) => r.id)].join('|');
+  if (t && (t.question || t.answer || (t.requests && t.requests.length) || ['pending-approval', 'plan-ready', 'awaiting-input'].includes(t.state))) {
+    const k = [t.pane, t.at, t.question && t.question.id, (t.requests || []).map((r) => r.id)].join('|');
     const c = cards.get(k) || askCard(t);
     cards.clear();
     cards.set(k, c);
@@ -514,7 +517,33 @@ function askCard(t) {
   const note = el('p', 'note');
   const done = (msg) => { note.className = 'note'; note.textContent = msg; };
   const failed = (e) => { if (e.message !== 'unpaired') { note.className = 'note bad'; note.textContent = e.message; } };
-  if (t.requests && t.requests.length) {
+  if (t.question) {
+    const q = t.question;
+    c.append(el('div', 'label', 'Question'), el('p', 'detail', q.prompt));
+    const buttons = [];
+    const answer = (option, text = '') => {
+      buttons.forEach((b) => { b.disabled = true; });
+      api('/api/question', { pane: t.pane, id: q.id, option, text })
+        .catch((e) => { buttons.forEach((b) => { b.disabled = false; }); failed(e); });
+    };
+    q.options.forEach((o, i) => {
+      const b = el('button', 'btn question-option' + (o.selected ? ' primary' : ''), (q.multi ? (o.selected ? '✓ ' : '□ ') : '') + o.label);
+      if (q.multi) b.setAttribute('aria-pressed', String(o.selected));
+      b.onclick = () => answer(i);
+      buttons.push(b); c.append(b);
+    });
+    if (q.other) {
+      const other = el('textarea', 'field');
+      other.placeholder = 'Other'; other.setAttribute('aria-label', 'Other'); other.rows = 1;
+      const send = el('button', 'btn', 'Send Other');
+      send.onclick = () => { if (other.value.trim()) answer(-2, other.value); };
+      buttons.push(send); c.append(other, send);
+    }
+    if (q.submit) {
+      const submit = el('button', 'btn primary', 'Submit'); submit.onclick = () => answer(-1);
+      buttons.push(submit); c.append(submit);
+    }
+  } else if (t.requests && t.requests.length) {
     t.requests.forEach((r) => c.append(request(t.pane, r, done, failed)));
   } else {
     c.append(el('div', 'label', t.label || 'Waiting'));
@@ -644,8 +673,10 @@ text.addEventListener('keydown', (e) => {
 composer.onsubmit = (e) => {
   e.preventDefault();
   const body = text.value;
-  if (!body.trim() || !pane) return;
-  const p = { text: body, node: el('div', 'msg user pending', body) };
+  const image = attachment, target = pane;
+  if (imageSending || (!body.trim() && !image) || !target) return;
+  if (image) { imageSending = true; $("send").disabled = true; }
+  const p = { text: body, image: !!image, after: Math.max(0, ...shown.keys()), node: el('div', 'msg user pending', body || (image ? 'Picture' : '')) };
   p.label = el('span', 'state', 'Sending');
   p.node.append(p.label);
   pending.push(p);
@@ -654,8 +685,10 @@ composer.onsubmit = (e) => {
   text.value = '';
   grow();
   const t = tabOf(pane);
-  api('/api/send', { pane, text: body })
+  (image ? uploadImage(target, image.file) : Promise.resolve(''))
+    .then((image) => api('/api/send', { pane: target, text: body, image }))
     .then((r) => {
+      if (attachment === image) clearAttachment();
       p.id = r.id;
       p.sent = true;
       p.queued = !!t && (t.queued > 0 || !['', 'completed', 'error', 'pr-open', 'awaiting-input'].includes(t.state || ''));
@@ -667,14 +700,14 @@ composer.onsubmit = (e) => {
       p.node.classList.add('failed');
       p.label.textContent = 'Not sent: ' + err.message;
       p.failed = true;
-    });
+    }).finally(() => { imageSending = false; $("send").disabled = false; });
 };
 
 function norm(s) { return (s || '').replace(/\s+/g, ' ').trim(); }
 
 // settle drops the pending message the transcript now shows.
-function settle(t) {
-  const i = pending.findIndex((p) => p.sent && norm(p.text) === norm(t));
+function settle(t, seq) {
+  const i = pending.findIndex((p) => seq > p.after && norm(p.image ? p.text.replace(/\[Image #\d+\]/g, "") : p.text) === norm(p.image ? t.replace(/\[Image #\d+\]/g, "") : t));
   if (i >= 0) {
     pending[i].node.remove();
     pending.splice(i, 1);
@@ -834,3 +867,30 @@ function start() {
 }
 
 start();
+
+function clearAttachment() {
+  if (attachment) URL.revokeObjectURL(attachment.url);
+  attachment = null;
+  $('attachment').replaceChildren(); $('attachment').hidden = true; $('photo').value = '';
+}
+function attachImage(file) {
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { cnote.hidden = false; cnote.textContent = 'The image is over 20 MiB.'; return; }
+  clearAttachment();
+  attachment = { file, url: URL.createObjectURL(file) };
+  const img = el('img'); img.src = attachment.url; img.alt = 'Attached picture'; img.width = img.height = 48;
+  const remove = el('button', 'btn', 'Remove picture'); remove.onclick = clearAttachment;
+  $('attachment').append(img, remove); $('attachment').hidden = false;
+}
+async function uploadImage(pane, file) {
+  const r = await fetch('/api/upload?pane=' + encodeURIComponent(pane), { method: 'POST', headers: { Authorization: 'Bearer ' + token }, body: file });
+  if (!r.ok) throw new Error(await r.text());
+  return (await r.json()).image;
+}
+$('attach').onclick = () => $('photo').click();
+$('photo').onchange = () => attachImage($('photo').files[0]);
+text.addEventListener('paste', (e) => {
+  if ($('attach').hidden) return;
+  const file = Array.from(e.clipboardData.files).find((f) => f.type.startsWith('image/'));
+  if (file) { e.preventDefault(); attachImage(file); }
+});

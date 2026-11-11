@@ -30,7 +30,8 @@ type Tab struct {
 	Effort string `json:"effort,omitempty"`
 	Chat   bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
 	Send   bool   `json:"send"`           // the composer works: the pane runs an agent
-	Picker bool   `json:"picker"`         // model and effort: Claude Code in a terminal
+	Attach bool   `json:"attach,omitempty"`
+	Picker bool   `json:"picker"` // model and effort: Claude Code in a terminal
 	Queued int    `json:"queued,omitempty"`
 	// Dropped are the ids of phone messages the pane's agent left before
 	// they went in, which the page shows as not sent.
@@ -199,7 +200,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 		fl.Flush()
 		return true
 	}
-	if !send("hello", map[string]any{"device": d.Name, "web": s.Web != nil, "models": Models, "efforts": Efforts}) {
+	if !send("hello", map[string]any{"device": d.Name, "web": s.Web != nil, "models": Models, "efforts": Efforts, "upload": s.Upload != nil}) {
 		return
 	}
 	log.Printf("remote: %q opened the stream", d.Name)
@@ -240,6 +241,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, d Device) {
 			time.Sleep(tabsSettle)
 			fresh = true
 		case <-poll.C:
+			fresh = true // question pages can change without another activity hook
 		case <-ping.C:
 			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
 				return
@@ -362,13 +364,24 @@ func (s *Server) older(w http.ResponseWriter, r *http.Request, _ Device) {
 // sendText types or queues the phone's message for a tab's agent.
 func (s *Server) sendText(w http.ResponseWriter, r *http.Request, d Device) {
 	var req struct {
-		Pane string `json:"pane"`
-		Text string `json:"text"`
+		Pane  string `json:"pane"`
+		Text  string `json:"text"`
+		Image string `json:"image"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	id, err := s.Send(req.Pane, req.Text)
+	var id uint64
+	var err error
+	if req.Image != "" {
+		if s.SendImage == nil {
+			http.Error(w, "images are unavailable", http.StatusNotFound)
+			return
+		}
+		id, err = s.SendImage(req.Pane, req.Text, req.Image)
+	} else {
+		id, err = s.Send(req.Pane, req.Text)
+	}
 	if err != nil {
 		log.Printf("remote: %q: message to pane %s refused: %q", d.Name, req.Pane, err)
 		http.Error(w, err.Error(), http.StatusConflict)

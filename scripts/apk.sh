@@ -27,13 +27,13 @@ if [ ! -f "$key" ]; then
         -validity 10000 >/dev/null 2>&1
 fi
 
-# why: this gogio compiles only gioui.org/app's Java, but takes a .jar from any Go package's folder.
+# gogio includes jars from Go package folders; compile the phone's Java here.
 platform=$(ls -d "$sdk"/platforms/android-* | sort -V | tail -n 1)
 classes=$(mktemp -d)
-jar=internal/ui/mobile/qrscan.jar
+jar=internal/ui/mobile/phone-platform.jar
 trap 'rm -rf "$classes" "$jar"' EXIT
 mise exec "$java" -- javac -source 1.8 -target 1.8 -Xlint:-options -bootclasspath "$platform/android.jar" \
-    -d "$classes" internal/ui/mobile/QRScan.java
+    -d "$classes" internal/ui/mobile/*.java
 mise exec "$java" -- jar cf "$jar" -C "$classes" .
 
 ANDROID_HOME=$sdk ANDROID_SDK_ROOT=$sdk ANDROID_NDK_ROOT=$ndk GOFLAGS=-tags=novulkan \

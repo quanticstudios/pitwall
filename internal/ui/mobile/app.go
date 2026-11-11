@@ -104,6 +104,7 @@ func Run(w *app.Window, th *theme.Theme, dir string) error {
 			return e.Err
 		case app.ViewEvent:
 			setCameraView(e)
+			setImageView(e)
 		case app.ConfigEvent:
 			// why: back in the foreground, a stream from before the phone slept may be dead without an error.
 			if e.Config.Focused && !a.focused {
@@ -392,7 +393,10 @@ func (a *App) chatLayout(gtx C) {
 	gtx.Metric.PxPerSp /= zoom
 	t, open := a.tab()
 	l := a.links[a.chatM]
-	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts,
+	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts, Attach: l.hello.Upload && t.Attach && canPickImage,
+		PickImage: func(clip bool, done func([]byte, error)) {
+			pickImage(clip, func(b []byte, err error) { a.post(func() { done(b, err) }) })
+		},
 		Retry: l.conn.Retry,
 		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
 			a.do(l.m.ID, func(ctx context.Context, c *phone.Client) error { return call(ctx, c) }, done)

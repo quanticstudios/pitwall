@@ -37,7 +37,7 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	for i, t := range tabs {
 		if t.Chat {
 			chats[i] = d.chats[t.Pane]
-		} else if t.Provider == model.ProviderClaude {
+		} else if t.Provider == model.ProviderClaude || t.Provider == model.ProviderCodex {
 			panes[i] = d.panes[t.Pane]
 		}
 		if settings, ok := d.phoneSettings[t.Pane]; ok && !t.Chat {
@@ -48,7 +48,23 @@ func (d *Daemon) phoneTabs() []remote.Tab {
 	d.mu.Unlock()
 	for i, p := range panes {
 		if p != nil {
-			m, e := agent.ClaudeSettings(p.Snapshot())
+			g := p.Snapshot()
+			tabs[i].Question = agent.ReadQuestion(tabs[i].Provider, g)
+			if q := tabs[i].Question; q != nil {
+				q.Prompt = logs.Redact(q.Prompt)
+				for j := range q.Options {
+					q.Options[j].Label = logs.Redact(q.Options[j].Label)
+				}
+			}
+			if q := tabs[i].Question; q != nil {
+				tabs[i].State = "awaiting-input"
+				tabs[i].Label = "Input"
+				tabs[i].Detail = q.Prompt
+				tabs[i].Answer = false
+				tabs[i].Reply = false
+			}
+			tabs[i].Attach = tabs[i].Send
+			m, e := agent.ClaudeSettings(g)
 			d.mu.Lock()
 			d.keepClaudeSettings(tabs[i].Pane, p, m, e)
 			d.mu.Unlock()
@@ -131,6 +147,10 @@ func cutOut(s string) string {
 // tab gets it as a turn, or queued behind one, with id 0. A shell never
 // gets it.
 func (d *Daemon) phoneSend(pane, text string) (uint64, error) {
+	return d.phoneSendPaths(pane, text, nil)
+}
+
+func (d *Daemon) phoneSendPaths(pane, text string, images []string) (uint64, error) {
 	d.mu.Lock()
 	c := d.chats[pane]
 	prov := d.paneProvider(pane)
@@ -149,7 +169,7 @@ func (d *Daemon) phoneSend(pane, text string) (uint64, error) {
 	}
 	d.mu.Lock()
 	d.phoneSeq++
-	l := letter{text: text, plain: true, window: true, phone: d.phoneSeq, owner: prov}
+	l := letter{text: text, images: images, plain: true, window: true, phone: d.phoneSeq, owner: prov}
 	d.mu.Unlock()
 	return l.phone, d.userDeliver(pane, l)
 }

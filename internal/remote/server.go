@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -37,7 +38,8 @@ type Item struct {
 	Reply   bool   `json:"reply"`  // a reply works
 	// Requests are a chat's pending approvals and input requests, which
 	// the page answers by id; the daemon fills them from the snapshot.
-	Requests []Request `json:"requests,omitempty"`
+	Requests []Request       `json:"requests,omitempty"`
+	Question *agent.Question `json:"question,omitempty"`
 }
 
 // Request is one of a chat's pending approvals or input requests.
@@ -156,8 +158,11 @@ type Server struct {
 	// Send types text into pane's agent once it sits at its input box,
 	// queued until then; id names the message in Tab.Dropped. Command types a slash command there now, as
 	// keys, refused unless the agent waits at its input box.
-	Send    func(pane, text string) (id uint64, err error)
-	Command func(pane, command string) error
+	Send      func(pane, text string) (id uint64, err error)
+	Command   func(pane, command string) error
+	Question  func(pane, id string, option int, text string) error
+	Upload    func(pane string, data []byte) (string, error)
+	SendImage func(pane, text, image string) (uint64, error)
 
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
@@ -205,6 +210,12 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
 		mux.Handle("POST /api/send", sameOrigin(s.authed(s.sendText)))
 		mux.Handle("POST /api/command", sameOrigin(s.authed(s.command)))
+		if s.Question != nil {
+			mux.Handle("POST /api/question", sameOrigin(s.authed(s.question)))
+		}
+		if s.Upload != nil {
+			mux.Handle("POST /api/upload", sameOrigin(s.authed(s.upload)))
+		}
 	}
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})

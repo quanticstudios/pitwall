@@ -138,10 +138,14 @@ the card is current and the pane's screen has a permission prompt on it.
 When the agent's hook reported a shell command, the prompt must also show
 that command, as much of it as fits on screen, and a command with a line
 break or a tab is always refused; [Usage](usage.md) has the details. A
-question takes your answer through the box. A screen that shows a form
-takes no typed answer here, as Enter would answer the form, so answer it in
-its tab or from the sidebar's buttons. The buttons for options, Always and
-Approve plan are on the sidebar only. pi has no permission prompts.
+plain-text question takes an answer through the composer. Other terminal
+forms take no typed answer through the composer, since Enter would select
+an option. Claude Code and Codex terminal questions appear inline in the
+chat with 48 dp option buttons. MultiSelect questions have toggles and Submit. Other
+takes a typed answer. Several questions advance one page at a time, then
+show the agent's review or submit page. Each answer names the current page;
+a changed page refuses an older tap. Always and Approve plan remain on
+the sidebar. pi has no permission prompts.
 
 A chat tab shows what its agent asks in full: the tool and its command or
 file for an approval, the whole text of a plan, and each question of an
@@ -160,6 +164,23 @@ sidebar as the home screen, and each agent tab's chat with model, effort
 and send on the message box. It talks to the phone page's API, so turn the
 page on and reach it as above first. There is no store listing; you build
 the APK and install it yourself.
+
+### Pictures
+
+In a Claude Code or Codex terminal chat, tap the paperclip to choose a
+picture, or the clipboard button to paste a picture copied by another
+Android app. Android grants access to the chosen picture without a storage
+permission. The composer shows a thumbnail with a remove button. Send
+uploads the picture with the message; an upload or send failure keeps it
+in the composer for retry. One picture fits each message.
+
+The phone page also accepts a picture through Attach picture or a paste
+into the message box. Pictures must be PNG, JPEG, GIF or WebP, up to
+20 MiB. The Android preview accepts up to 40 megapixels. The authenticated
+upload checks the bytes and saves a private file under `paste/<tab>/` in
+the daemon's state folder. The existing desktop image delivery pastes that
+file's path into the agent before the message. Closing the tab removes its
+paste folder. An older daemon without uploads hides the attachment controls.
 
 ### Build
 

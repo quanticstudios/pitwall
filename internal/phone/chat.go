@@ -1,6 +1,7 @@
 package phone
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -24,7 +25,8 @@ type Chat struct {
 // Pending is a message sent from here: Sending, then Queued or Sent, until
 // the transcript shows it; or Not sent, with Err.
 type Pending struct {
-	Text string
+	Text  string
+	Image bool
 	// After is the newest entry's seq when the message went out: only a
 	// later entry can be it, not an old prompt of the same words.
 	After  int64
@@ -111,7 +113,7 @@ func norm(s string) string { return strings.Join(strings.Fields(s), " ") }
 // transcript can show a prompt before the send's answer comes.
 func (c *Chat) settle(e flow.Entry) {
 	if i := slices.IndexFunc(c.Pending, func(p *Pending) bool {
-		return p.Err == "" && e.Seq > p.After && norm(p.Text) == norm(e.Text)
+		return p.Err == "" && e.Seq > p.After && pendingText(p.Text, p.Image) == pendingText(e.Text, p.Image)
 	}); i >= 0 {
 		c.Pending = slices.Delete(c.Pending, i, i+1)
 	}
@@ -196,3 +198,20 @@ func (c *Chat) Working(t remote.Tab) (string, bool) {
 
 // ShortModel is a model's name without its "claude-" prefix.
 func ShortModel(m string) string { return strings.TrimPrefix(m, "claude-") }
+
+var imageMarker = regexp.MustCompile(`\[Image #\d+\]`)
+
+func pendingText(s string, image bool) string {
+	if image {
+		s = imageMarker.ReplaceAllString(s, "")
+	}
+	return norm(s)
+}
+
+// Message is the draft's text, with a label for a picture sent alone.
+func (p *Pending) Message() string {
+	if strings.TrimSpace(p.Text) == "" && p.Image {
+		return "Picture"
+	}
+	return p.Text
+}
