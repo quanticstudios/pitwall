@@ -89,7 +89,6 @@ type link struct {
 func Run(w *app.Window, th *theme.Theme, dir string) error {
 	a := &App{w: w, th: th, dir: dir, ui: make(chan func(), 256)}
 	a.sb.TreeOnly, a.sb.Fill, a.sb.Touch, a.sb.ExpandAll, a.sb.Answers = true, true, true, true, true
-	a.sb.SeparateWorkers = true
 	a.pair.init()
 	if ms, err := phone.LoadMachines(dir); err != nil {
 		a.pair.note = sentence(err.Error())

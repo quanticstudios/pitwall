@@ -62,18 +62,18 @@ func pairDevice(t *testing.T, s *Server, h http.Handler, name string) (token str
 	return r.Token
 }
 
-func TestTabSettingsAndParent(t *testing.T) {
+func TestTabSettings(t *testing.T) {
 	st := model.State{
 		Sessions:   []model.Session{{ID: "s", Name: "main"}},
-		Workspaces: []model.Workspace{{ID: "w", SessionID: "s", Chat: "c", Parent: "parent"}},
+		Workspaces: []model.Workspace{{ID: "w", SessionID: "s", Chat: "c"}},
 		Chats:      []model.Chat{{ID: "c", Provider: model.ProviderClaude, Model: "opus[1m]", Effort: "high"}},
 	}
 	tab, ok := tabOf(st, st.Sessions[0], st.Workspaces[0])
-	if !ok || tab.Model != "opus[1m]" || tab.Effort != "high" || tab.Parent != "parent" {
+	if !ok || tab.Model != "opus[1m]" || tab.Effort != "high" {
 		t.Fatalf("tab %+v, ok %v", tab, ok)
 	}
 	b, err := json.Marshal(tab)
-	if err != nil || !strings.Contains(string(b), `"model":"opus[1m]"`) || !strings.Contains(string(b), `"parent":"parent"`) {
+	if err != nil || !strings.Contains(string(b), `"model":"opus[1m]"`) {
 		t.Fatalf("wire %s, %v", b, err)
 	}
 }

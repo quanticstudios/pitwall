@@ -26,7 +26,6 @@ type Tab struct {
 	Group  string `json:"group,omitempty"` // its group's name
 	Repo   string `json:"repo,omitempty"`  // its repo's or folder's base name
 	Branch string `json:"branch,omitempty"`
-	Parent string `json:"parent,omitempty"` // the tab whose worker this is
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 	Chat   bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
@@ -69,7 +68,7 @@ func Tabs(st model.State, queued map[string]int) []Tab {
 }
 
 func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
-	t, exited := Tab{ID: w.ID, Branch: w.Branch, Parent: w.Parent}, false
+	t, exited := Tab{ID: w.ID, Branch: w.Branch}, false
 	t.Tab, t.Session = w.Label, s.Name
 	if w.RepoRoot != "" {
 		t.Repo = filepath.Base(w.RepoRoot)
