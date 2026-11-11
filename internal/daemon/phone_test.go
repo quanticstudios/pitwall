@@ -656,13 +656,15 @@ func TestPhoneMessageDroppedWhenAgentExits(t *testing.T) {
 	oldSettle, oldLook, oldReply := sendSettle.set(time.Millisecond), sendLook.set(10*time.Millisecond), replyDelay.set(time.Millisecond)
 	t.Cleanup(func() { sendSettle.set(oldSettle); sendLook.set(oldLook); replyDelay.set(oldReply) })
 	d, lp, id := liveDaemon(t, model.StateWorking)
+	d.sendMu.Lock()
 	msg, err := d.phoneSend(id, "echo PHONE-MESSAGE")
-	if err != nil || msg == 0 {
-		t.Fatalf("send: %d %v", msg, err)
-	}
 	// The agent exits: its shell takes the foreground and shows a prompt.
 	lp.show("$ ", false)
 	lp.fgGroup.Store(50)
+	d.sendMu.Unlock()
+	if err != nil || msg == 0 {
+		t.Fatalf("send: %d %v", msg, err)
+	}
 	waitUntil(t, "the message dropped", func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
