@@ -529,6 +529,12 @@ func TestDraftSurvivesOtherTurn(t *testing.T) {
 	otherTurn()
 }
 
+func TestCSIKeyRejectsNegativeCode(t *testing.T) {
+	if key, edit, enter := csiKey("\x1b[-4294967199u"); key || edit || enter {
+		t.Fatalf("negative key code: pressed=%v edited=%v enter=%v", key, edit, enter)
+	}
+}
+
 func TestDraftInputReports(t *testing.T) {
 	for _, tt := range []struct {
 		name, data string
@@ -547,6 +553,11 @@ func TestDraftInputReports(t *testing.T) {
 		{"resize report", "\x1b[8;36;120t", false},
 		{"device attributes", "\x1b[?1;2c", false},
 		{"cursor position", "\x1b[33;2R", false},
+		{"Kitty above Unicode", "\x1b[1114112u", false},
+		{"Kitty overflowing text", "\x1b[4294967393u", false},
+		{"Kitty overflowing Ctrl U", "\x1b[4294967413;5u", false},
+		{"Kitty overflowing Alt B", "\x1b[4294967394;3u", false},
+		{"Kitty Unicode limit", "\x1b[1114111u", true},
 		{"home", "\x1b[H", true},
 		{"end", "\x1bOF", true},
 		{"left", "\x1b[D", true},

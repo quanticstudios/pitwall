@@ -86,6 +86,9 @@ func csiKey(seq string) (pressed, edited, enter bool) {
 	}
 	switch final {
 	case 'u':
+		if code < 0 || code > unicode.MaxRune {
+			return
+		}
 		pressed = true
 		if code == 13 || code == 57414 {
 			return true, true, mods == 1

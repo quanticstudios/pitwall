@@ -21,6 +21,8 @@ pushes the tag once, which starts the release build. Either step takes
 
 - Phone model and effort chips ignore mentions in transcript text. Esc protects a prompt Claude Code restores on interruption from queued phone and window messages.
 
+- Terminal draft tracking rejects Kitty key codes outside the Unicode range before converting them to runes.
+
 - The Android app pairs by scanning the QR code `pitwall remote pair` or Settings, Phone shows: Scan QR code on the pairing screen and on Add machine opens the camera, which the app asks for on that first tap. Paste and the address and code stay.
 
 - The phone app and web page name the current Claude model families, including Fable 5.2. Versioned model ids supply their own family and version, hide date suffixes and show `[1m]` as 1M.
