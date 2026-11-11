@@ -216,9 +216,10 @@ its sidebar row, or on the asking pane's own row when the tab lists its
 agents, and Ctrl+Shift+Y and Ctrl+Shift+D press them for the
 focused pane, else for the shown tab. They press the same keys the
 [phone page](phone.md) does, and only while the row is current and the pane
-shows a permission prompt.
+shows a permission prompt for Allow. Deny presses Esc without reading the
+screen.
 
-When the agent's hook reported a shell command, Allow, Deny and Always also
+When the agent's hook reported a shell command, Allow and Always also
 need the prompt to show that command. pitwall allows for line wrapping and the
 prompt's own indent, and any other difference counts, spaces included. If the
 prompt shows only part of a long command, the part it shows is what pitwall

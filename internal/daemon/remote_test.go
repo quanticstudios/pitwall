@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -351,7 +352,7 @@ func commandForm(rows ...string) []string {
 	return append(form, " ╌╌╌╌╌╌", " Do you want to proceed?", " ❯ 1. Yes", "   2. Yes, and don't ask again for mkdir", "   3. No", "", " Esc to cancel · Tab to amend")
 }
 
-// Allow, Deny and Always land only on the command the hook reported, which an
+// Allow and Always land only on the command the hook reported, which an
 // agent's next prompt can replace before its own hook arrives. Whichever way
 // the answer is sent, it goes through remoteAnswer or pressOffer.
 func TestAnswerNeedsTheCommand(t *testing.T) {
@@ -379,7 +380,6 @@ func TestAnswerNeedsTheCommand(t *testing.T) {
 	show(" go test -race -timeout 5m ./internal/daemon ./internal/agent ./internal/secret")
 	for name, answer := range map[string]func() error{
 		"allow":  func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) },
-		"deny":   func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) },
 		"always": func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) },
 	} {
 		if err := answer(); err == nil || !strings.Contains(err.Error(), "answer it in its tab") || f.pane(0).got() != "" {
@@ -455,7 +455,6 @@ func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
 			f.pane(0).mu.Unlock()
 			for name, answer := range map[string]func() error{
 				"allow":  func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) },
-				"deny":   func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) },
 				"always": func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) },
 			} {
 				if err := answer(); err == nil || !strings.Contains(err.Error(), "answer it in its tab") || f.pane(0).got() != "" {
@@ -905,5 +904,80 @@ func TestSnapshotCarriesTheCommand(t *testing.T) {
 	}
 	if got := command(`{"hook_event_name":"PostToolUse","session_id":"s","tool_name":"Bash"}`); got != "" {
 		t.Errorf("after the tool ran: %q", got)
+	}
+}
+
+func TestDenyWithoutScreenConfirmation(t *testing.T) {
+	for _, screen := range [][]string{nil, {"different prompt"}, commandForm("echo different")} {
+		d, f, _ := remoteDaemon(t)
+		d.mu.Lock()
+		a := d.st.Activities[d.activityIndex("a")]
+		d.live.asked = map[string]askedCommand{"a": {"echo expected", a.UpdatedAt}}
+		d.mu.Unlock()
+		f.pane(0).mu.Lock()
+		f.pane(0).screen = screen
+		f.pane(0).input = nil
+		f.pane(0).mu.Unlock()
+		if err := d.remoteAnswer("a", a.UpdatedAt.UnixNano(), false); err != nil {
+			t.Fatal(err)
+		}
+		if got := gotAfter(t, f.pane(0), 0, 1); got != "\x1b" {
+			t.Fatalf("deny sent %q", got)
+		}
+	}
+}
+
+func TestPhoneApprovalPreflight(t *testing.T) {
+	d, f, _ := remoteDaemon(t)
+	d.o.Derive = agent.Derive
+	payload := `{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash","tool_input":{"command":"touch /tmp/qa-daemon-first.txt\ntouch /tmp/qa-daemon-second.txt"}}`
+	if err := d.agentEvent(context.Background(), proto.AgentEvent{Pane: "a", Provider: model.ProviderClaude, Payload: []byte(payload)}); err != nil {
+		t.Fatal(err)
+	}
+	screen, err := os.ReadFile("../agent/testdata/claude-permission-multiline-qa.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setScreen(f.pane(0), strings.Split(string(screen), "\n"))
+	tabs := d.phoneTabs()
+	if !strings.Contains(tabs[0].Detail, "touch /tmp/qa-daemon-first.txt\ntouch /tmp/qa-daemon-second.txt") {
+		t.Fatalf("detail: %q", tabs[0].Detail)
+	}
+	// A different command cannot be allowed, but Deny remains available.
+	setScreen(f.pane(0), commandForm("echo different"))
+	tabs = d.phoneTabs()
+	if !tabs[0].Answer || tabs[0].AllowBlocked == "" {
+		t.Fatalf("preflight: %#v", tabs[0])
+	}
+	setScreen(f.pane(0), commandForm("touch /tmp/qa-daemon-first.txt", "touch /tmp/qa-daemon-second.txt"))
+	if err := d.remoteAnswer("a", tabs[0].At, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPhoneOpenDesktop(t *testing.T) {
+	d, _, do := remoteDaemon(t)
+	if code, _ := do("POST", "/api/open", `{"pane":"missing"}`); code != 409 {
+		t.Fatalf("closed pane: %d", code)
+	}
+	if code, _ := do("POST", "/api/open", `{"pane":"a"}`); code != 409 {
+		t.Fatalf("no window: %d", code)
+	}
+	d.mu.Lock()
+	c := &client{session: "s", moves: true, wake: make(chan struct{}, 1)}
+	d.clients[c] = struct{}{}
+	d.mu.Unlock()
+	defer func() { d.mu.Lock(); delete(d.clients, c); d.mu.Unlock() }()
+	if code, body := do("POST", "/api/open", `{"pane":"a"}`); code != 200 {
+		t.Fatalf("open: %d %s", code, body)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.msgs) != 1 {
+		t.Fatalf("focus requests: %#v", c.msgs)
+	}
+	focus, ok := c.msgs[0].(proto.FocusSession)
+	if !ok || focus.WorkspaceID != "w" || focus.Pane != "a" {
+		t.Fatalf("focus: %#v", c.msgs[0])
 	}
 }

@@ -16,7 +16,7 @@ type Entry struct {
 	Kind   string `json:"kind"` // user, assistant, tool, error
 	Text   string `json:"text,omitempty"`
 	Tool   string `json:"tool,omitempty"`
-	Arg    string `json:"arg,omitempty"` // a short summary: the command, the file
+	Arg    string `json:"arg,omitempty"` // the command or a summary of the file
 	Out    string `json:"out,omitempty"` // the call's result, cut to maxOut bytes
 	Done   bool   `json:"done,omitempty"`
 	Failed bool   `json:"failed,omitempty"`
@@ -36,7 +36,6 @@ const (
 	maxEntries = 2000
 	maxText    = 32000 // runes of a prompt or a reply
 	maxOut     = 4000  // bytes of a call's result
-	maxArg     = 200   // runes of a call's summary
 )
 
 // Log is an agent session file read as chat entries, from the part of the
@@ -134,7 +133,7 @@ func (l *Log) text(kind, text string) {
 }
 
 func (l *Log) call(id, tool, arg string) {
-	l.add(Entry{Kind: EntryTool, Tool: tool, Arg: cut(arg, maxArg)}, id)
+	l.add(Entry{Kind: EntryTool, Tool: tool, Arg: cut(arg, maxText)}, id)
 }
 
 // result ends the call id with its output.
@@ -166,6 +165,8 @@ func (l *Log) claude(line []byte) {
 		return
 	}
 	switch e.Type {
+	case "attachment":
+		l.text(EntryUser, e.queuedPrompt())
 	case "assistant":
 		if m := e.Message.Model; m != "" && m != "<synthetic>" {
 			l.Model = m
@@ -267,6 +268,9 @@ func (l *Log) codex(line []byte) {
 		l.call(p.CallID, p.Name, arg(p.Name, args))
 	case "response_item/custom_tool_call":
 		a := firstLine(p.Input)
+		if p.Name == "exec" {
+			a = execCommand(p.Input)
+		}
 		if p.Name == "apply_patch" {
 			a = patchFile(p.Input)
 		}
@@ -304,7 +308,19 @@ func codexOutput(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &c) == nil && c.Content != nil {
 		return codexText(c.Content)
 	}
-	return codexText(raw)
+	text := codexText(raw)
+	if strings.HasPrefix(text, "Script completed\n") {
+		if _, out, ok := strings.Cut(text, "\nOutput:\n"); ok {
+			text = strings.TrimSpace(out)
+		}
+	}
+	var result struct {
+		Output *string `json:"output"`
+	}
+	if json.Unmarshal([]byte(text), &result) == nil && result.Output != nil {
+		return *result.Output
+	}
+	return text
 }
 
 func (l *Log) pi(line []byte) {

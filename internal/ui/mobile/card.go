@@ -22,15 +22,16 @@ import (
 // cardState is the card of what the open tab asks, kept while the tab
 // asks the same thing, so typing survives a new list.
 type cardState struct {
-	key               string
-	allow, deny       widget.Clickable
-	reqs              []*reqState
-	busy              bool
-	note              string
-	bad               bool
-	questionBtns      []widget.Clickable
-	other             widget.Editor
-	submit, otherSend widget.Clickable
+	key                  string
+	detail               layout.List
+	allow, deny, desktop widget.Clickable
+	reqs                 []*reqState
+	busy                 bool
+	note                 string
+	bad                  bool
+	questionBtns         []widget.Clickable
+	other                widget.Editor
+	submit, otherSend    widget.Clickable
 }
 
 // reqState is one of a chat tab's requests: an approval, a plan or a
@@ -52,7 +53,7 @@ func cardKey(t remote.Tab) string {
 	if t.Question != nil {
 		qid = t.Question.ID
 	}
-	return fmt.Sprintf("%s|%d|%s|%s|%s", t.Pane, t.At, t.State, strings.Join(ids, ","), qid)
+	return fmt.Sprintf("%s|%d|%s|%s|%s|%s", t.Pane, t.At, t.State, strings.Join(ids, ","), qid, t.AllowBlocked)
 }
 
 // askCard is the card above the composer while the tab asks something:
@@ -61,7 +62,7 @@ func cardKey(t remote.Tab) string {
 func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 	k, t := &c.card, env.Tab
 	if key := cardKey(t); key != k.key {
-		*k = cardState{key: key}
+		*k = cardState{key: key, detail: layout.List{Axis: layout.Vertical}}
 		if t.Question != nil {
 			k.questionBtns = make([]widget.Clickable, len(t.Question.Options))
 		}
@@ -89,13 +90,17 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 		env.Do(func(ctx context.Context, api chatAPI) error { return api.Answer(ctx, pane, at, allow) },
 			done(map[bool]string{true: "Allowed.", false: "Denied."}[allow]))
 	}
-	if k.allow.Clicked(gtx) && !k.busy {
+	if k.allow.Clicked(gtx) && !k.busy && t.AllowBlocked == "" {
 		answer(true)
 	}
 	if k.deny.Clicked(gtx) && !k.busy {
 		answer(false)
 	}
 
+	if k.desktop.Clicked(gtx) && !k.busy && env.OpenDesktop != nil {
+		k.busy = true
+		env.OpenDesktop(done("Opened on desktop."))
+	}
 	agent := agentName(t.Agent)
 	if agent == "" {
 		agent = "The agent"
@@ -123,11 +128,18 @@ func (c *chatView) askCard(gtx C, th *theme.Theme, env chatEnv) D {
 		switch {
 		case t.Detail == "":
 		case t.State == "pending-approval": // what it wants to run
-			w = append(w, gap(10), func(gtx C) D { return pre(gtx, th, t.Detail, 8) })
+			w = append(w, gap(10), func(gtx C) D {
+				gtx.Constraints.Max.Y = min(gtx.Constraints.Max.Y, gtx.Dp(220))
+				return k.detail.Layout(gtx, 1, func(gtx C, _ int) D { return pre(gtx, th, t.Detail, 0) })
+			})
 		default: // a question, a plan or an error, in words
 			w = append(w, gap(8), func(gtx C) D { return label(gtx, th, th.UIFont, 16, th.Fg, 8, t.Detail) })
 		}
 		switch {
+		case t.Answer && t.AllowBlocked != "":
+			w = append(w, gap(10), func(gtx C) D { return label(gtx, th, th.UIFont, 13.5, th.Muted, 0, t.AllowBlocked) }, gap(12), func(gtx C) D {
+				return twoButtons(gtx, th, &k.deny, "Deny", &k.desktop, "Open on desktop", !k.busy)
+			})
 		case t.Answer:
 			w = append(w, gap(12), func(gtx C) D {
 				return twoButtons(gtx, th, &k.deny, "Deny", &k.allow, "Allow", !k.busy)

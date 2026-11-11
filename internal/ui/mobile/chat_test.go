@@ -537,3 +537,60 @@ func TestGluePunct(t *testing.T) {
 		}
 	}
 }
+
+func TestQueueLineExplainsDesktopDraft(t *testing.T) {
+	tab := remote.Tab{Queued: 1, Hold: "you are typing in this tab on the desktop"}
+	bold, rest, bad := queueLine(tab, nil, "")
+	if bold != "waiting:" || rest != tab.Hold || bad {
+		t.Fatalf("queue: %q %q %v", bold, rest, bad)
+	}
+	tab.Queued = 0
+	if bold, _, _ := queueLine(tab, nil, ""); bold != "" {
+		t.Fatal("hold remains after delivery")
+	}
+}
+
+func TestRefusalNoteExpires(t *testing.T) {
+	now := time.Unix(100, 0)
+	for _, tc := range []struct {
+		name          string
+		elapsed       time.Duration
+		at            int64
+		exists, clear bool
+	}{
+		{"same prompt", time.Second, 7, true, false},
+		{"next prompt", time.Second, 8, true, true},
+		{"closed", time.Second, 7, false, true},
+		{"timeout", 6 * time.Second, 7, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := listView{note: "refused", notePane: "p", noteAt: 7, noteUntil: now.Add(6 * time.Second)}
+			l.expireNote(now.Add(tc.elapsed), tc.at, tc.exists)
+			if (l.note == "") != tc.clear {
+				t.Fatalf("note: %q", l.note)
+			}
+		})
+	}
+}
+
+func TestApprovalPreflightBlocksAllowBeforeRequest(t *testing.T) {
+	c := newChat("p")
+	var ops op.Ops
+	gtx := C{Ops: &ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Constraints{Max: image.Pt(412, 800)}}
+	calls, desktop := 0, 0
+	env := chatEnv{Tab: remote.Tab{Item: remote.Item{Pane: "p", Agent: "claude", State: "pending-approval", Answer: true, Detail: "Bash\necho first\necho second"}, AllowBlocked: "Cannot confirm this command."},
+		Do:          func(call func(context.Context, chatAPI) error, done func(error)) { calls++ },
+		OpenDesktop: func(done func(error)) { desktop++; done(nil) },
+	}
+	c.askCard(gtx, Theme(), env)
+	c.card.allow.Click()
+	c.askCard(gtx, Theme(), env)
+	if calls != 0 {
+		t.Fatal("unconfirmed Allow sent a request")
+	}
+	c.card.desktop.Click()
+	c.askCard(gtx, Theme(), env)
+	if desktop != 1 {
+		t.Fatal("Open on desktop did not focus the desktop")
+	}
+}

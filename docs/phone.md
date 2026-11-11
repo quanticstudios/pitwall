@@ -133,8 +133,13 @@ drive safely.
 
 When the open tab waits on you, a card above the box says what for.
 Allow presses the first option of the agent's prompt, Yes: `1` for Claude
-Code and `y` for Codex. Deny presses Esc. pitwall sends either only while
-the card is current and the pane's screen has a permission prompt on it.
+Code and `y` for Codex. Deny presses Esc while the card is current, without
+checking the screen. Allow also needs a permission prompt on the screen.
+The card keeps the tool and its full command or file. Long commands scroll
+inside the card, and expanding a tool row shows every command line.
+If pitwall cannot confirm the permission prompt, the card explains why and
+offers Deny and Open on desktop. Open on desktop focuses an existing
+pitwall window showing that session.
 When the agent's hook reported a shell command, the prompt must also show
 that command, as much of it as fits on screen, and a command with a line
 break or a tab is always refused; [Usage](usage.md) has the details. A

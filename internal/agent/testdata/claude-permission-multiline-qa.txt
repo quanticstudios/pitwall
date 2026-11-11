@@ -1,0 +1,36 @@
+
+
+  Ran 1 shell command
+
+❯ Also run Bash exactly as echo queued-qa after the sleep. Keep this message in the conversation.
+
+  Ran 2 shell commands
+
+● I ran all three commands as separate Bash calls, in this order: sleep 10, echo first, then echo queued-qa. The last
+  one came from your mid-turn message. I didn't change any files.
+
+✻ Churned for 14s · done 10:44 PM
+
+❯ Run Bash as exactly this two-line command, without changing its lines: touch /tmp/qa-daemon-first.txt
+  touch /tmp/qa-daemon-second.txt
+
+  Creating two empty files in /tmp
+  ⎿  $ touch /tmp/qa-daemon-first.txt
+     touch /tmp/qa-daemon-second.txt
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ Create two empty files in /tmp
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ touch /tmp/qa-daemon-first.txt
+ │ touch /tmp/qa-daemon-second.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for touch /tmp/qa-daemon-first.txt and touch /tmp/qa-daemon-second.txt commands in
+      /tmp/pitwall-demo/project
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend

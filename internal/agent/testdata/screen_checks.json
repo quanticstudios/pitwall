@@ -56,5 +56,6 @@
   {"file": "claude-ask-single.txt", "provider": "claude", "screen": 2, "state": "awaiting-input"},
   {"file": "codex-ask-single.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},
   {"file": "codex-ask-notes.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},
-  {"file": "codex-ask-several.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"}
+  {"file": "codex-ask-several.txt", "provider": "codex", "screen": 2, "state": "awaiting-input"},
+  {"file":"claude-permission-multiline-qa.txt","provider":"claude","screen":2,"state":"pending-approval"}
 ]

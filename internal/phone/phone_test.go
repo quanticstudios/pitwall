@@ -609,3 +609,22 @@ func TestStateIcon(t *testing.T) {
 		t.Fatal("a real folder parsed as an icon folder")
 	}
 }
+
+func TestCapturedQueuedPromptSettlesPending(t *testing.T) {
+	log := flow.NewLog(model.ProviderClaude, "../flow/testdata/claude/queued-command.jsonl")
+	log.Poll()
+	c := Chat{}
+	prompt := "Also run Bash exactly as echo queued-qa after the sleep. Keep this message in the conversation."
+	c.Send(prompt)
+	c.Add(log.Last(100))
+	if len(c.Pending) != 0 {
+		t.Fatalf("pending: %#v", c.Pending)
+	}
+}
+
+func TestExitedTabState(t *testing.T) {
+	st := State([]remote.Tab{{Item: remote.Item{Pane: "p", Agent: "claude", State: "exited", Label: "Exited 1", Session: "s"}, ID: "w", Exited: true, ExitCode: 1}})
+	if len(st.Panes) != 1 || !st.Panes[0].Exited || st.Panes[0].ExitCode != 1 {
+		t.Fatalf("panes: %#v", st.Panes)
+	}
+}
