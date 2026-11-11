@@ -1,0 +1,70 @@
+
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  Reason: Capture this shell approval dialog
+
+  $ cat <<'PITWALL_EOF' > /tmp/pitwall-multiline-probe
+  probe line 001: multiline permission capture
+  probe line 002: multiline permission capture
+  probe line 003: multiline permission capture
+  probe line 004: multiline permission capture
+  probe line 005: multiline permission capture
+  probe line 006: multiline permission capture
+  probe line 007: multiline permission capture
+  probe line 008: multiline permission capture
+  probe line 009: multiline permission capture
+  probe line 010: multiline permission capture
+  probe line 011: multiline permission capture
+  probe line 012: multiline permission capture
+  probe line 013: multiline permission capture
+  probe line 014: multiline permission capture
+  probe line 015: multiline permission capture
+  probe line 016: multiline permission capture
+  probe line 017: multiline permission capture
+  probe line 018: multiline permission capture
+  probe line 019: multiline permission capture
+  probe line 020: multiline permission capture
+  probe line 021: multiline permission capture
+  probe line 022: multiline permission capture
+  probe line 023: multiline permission capture
+  probe line 024: multiline permission capture
+  probe line 025: multiline permission capture
+  probe line 026: multiline permission capture
+  probe line 027: multiline permission capture
+  probe line 028: multiline permission capture
+  probe line 029: multiline permission capture
+  probe line 030: multiline permission capture
+  probe line 031: multiline permission capture
+  probe line 032: multiline permission capture
+  probe line 033: multiline permission capture
+  probe line 034: multiline permission capture
+  probe line 035: multiline permission capture
+  probe line 036: multiline permission capture
+  probe line 037: multiline permission capture
+  probe line 038: multiline permission capture
+  probe line 039: multiline permission capture
+  probe line 040: multiline permission capture
+  probe line 041: multiline permission capture
+  probe line 042: multiline permission capture
+  probe line 043: multiline permission capture
+  probe line 044: multiline permission capture
+  probe line 045: multiline permission capture
+  probe line 046: multiline permission capture
+  probe line 047: multiline permission capture
+  probe line 048: multiline permission capture
+  probe line 049: multiline permission capture
+  probe line 050: multiline permission capture
+  probe line 051: multiline permission capture
+  probe line 052: multiline permission capture
+  probe line 053: multiline permission capture
+  probe line 054: multiline permission capture
+  probe line 055: multiline permission capture
+  probe line 056: multiline permission capture
+  probe line 057: multiline permission capture
+  [… 158 lines] ^a view all
+› 1. Yes, proceed (y)
+  2. No, and tell Codex what to do differently (esc)
+  Press enter to confirm or esc to cancel

@@ -285,18 +285,14 @@ func optionText(rows []string, opts []formOption, i int) (text string, ok bool) 
 // count as full: the agent's right margin.
 const wrapSlack = 4
 
-// CommandShown reports whether the permission prompt on g's screen asks to run
-// command, as far as the screen shows it. Rows must match it byte for byte, apart
-// from the prompt's indent and a row end where wrapping could have split it. A
-// prompt that shows part of a long command is compared on that part. A layout it
-// does not know has no command to compare, so that is false too.
+// CommandShown reports whether the permission prompt on g's screen shows all of
+// command, with whitespace normalized and wrapped rows joined. An incomplete
+// command or an unknown layout does not identify the hook's command.
 func CommandShown(p model.Provider, g vt.Grid, command string) bool {
-	// why: a newline, tab or other space has no one way to look on screen, and
-	// part of the command may be off screen. A refusal costs one trip to the tab.
-	if strings.ContainsFunc(command, func(r rune) bool { return r != ' ' && (unicode.IsSpace(r) || !unicode.IsGraphic(r)) }) {
+	if p != model.ProviderClaude && p != model.ProviderCodex || strings.ContainsFunc(command, func(r rune) bool { return !unicode.IsSpace(r) && !unicode.IsGraphic(r) }) {
 		return false
 	}
-	want := strings.Trim(command, " ")
+	want := strings.Join(strings.Fields(command), " ")
 	rows := screenRows(g)
 	opts := formOptions(rows)
 	if len(opts) == 0 {
@@ -386,69 +382,57 @@ func codexCommand(above []string) commandSpan {
 	return commandSpan{0, len(above), false}
 }
 
-// commandFits reports whether rows, which start at row y of g, show want. Without
-// start its first rows may be off screen, and a count row or a final ellipsis
-// says its last ones are hidden.
+// commandFits reports whether rows, which start at row y of g, show all of want.
 func commandFits(g vt.Grid, y int, rows []string, start bool, want string) bool {
+	if !start || want == "" || len(rows) == 0 {
+		return false
+	}
 	rows = slices.Clone(rows)
-	end := true
-	if n := len(rows) - 1; n >= 0 {
-		if last := strings.TrimLeft(rows[n], " "); hiddenRows.MatchString(last) {
-			start = start && !strings.Contains(last, "above")
-			rows, end = rows[:n], false
-		} else if t, ok := strings.CutSuffix(rows[n], "…"); ok {
-			rows[n], end = strings.TrimRight(t, " "), false
-		}
+	last := strings.TrimSpace(rows[len(rows)-1])
+	// A prefix of any length also fits a command that differs only in hidden text.
+	if hiddenRows.MatchString(last) || strings.HasSuffix(last, "…") {
+		return false
 	}
 	gutters := 0
+	nonempty := 0
 	for i, r := range rows {
+		if strings.TrimSpace(r) == "" {
+			continue
+		}
+		nonempty++
 		if t, ok := strings.CutPrefix(strings.TrimLeft(r, " "), "│"); ok {
 			rows[i] = strings.TrimPrefix(t, " ")
 			gutters++
 		}
 	}
-	// Some rows with a gutter means a │ of the command's own may be among them,
-	// and a blank row is no part of a wrapped line.
-	if len(rows) == 0 || gutters != 0 && gutters != len(rows) || slices.Contains(rows, "") {
+	// Some rows with a gutter means a │ of the command's own may be among them.
+	if gutters != 0 && gutters != nonempty {
 		return false
 	}
-	indent := len(rows[0])
-	for _, r := range rows {
-		indent = min(indent, len(r)-len(strings.TrimLeft(r, " ")))
-	}
 	for i, r := range rows {
-		rows[i] = r[indent:]
+		rows[i] = strings.Join(strings.Fields(r), " ")
 	}
-	rows[0] = strings.TrimLeft(rows[0], " ")
-	for i := 0; i < len(want); i++ {
-		if e, ok := rowsFollow(g, y, rows, want, i); ok && (!end || e == len(want)) {
-			return true
-		}
-		if start {
-			return false
-		}
-	}
-	return false
+	e, ok := rowsFollow(g, y, rows, want)
+	return ok && e == len(want)
 }
 
-// rowsFollow matches rows, which start at row y of g, against want from byte i
-// and returns where they end. Wrapping moves a word down only if it would not
-// fit, and cuts one only on a full row, so any other row end is not in the
-// command.
-func rowsFollow(g vt.Grid, y int, rows []string, want string, i int) (end int, ok bool) {
+// rowsFollow matches rows, which start at row y of g, against want and returns
+// where they end. A row boundary can stand for whitespace, or cut a
+// word only when the preceding row reaches the agent's right margin.
+func rowsFollow(g vt.Grid, y int, rows []string, want string) (end int, ok bool) {
 	full := g.Cols - wrapSlack
+	i, prev := 0, -1
 	for k, r := range rows {
-		if k > 0 {
-			switch used := rowCells(g, y+k-1); {
+		if r == "" {
+			continue
+		}
+		if prev >= 0 {
+			switch {
 			case i == len(want):
 				return 0, false
 			case want[i] == ' ':
-				if used+1+wordCells(g, y+k) <= full {
-					return 0, false
-				}
 				i++
-				r = strings.TrimPrefix(r, " ")
-			case used < full:
+			case rowCells(g, y+prev) < full:
 				return 0, false
 			}
 		}
@@ -456,6 +440,7 @@ func rowsFollow(g vt.Grid, y int, rows []string, want string, i int) (end int, o
 			return 0, false
 		}
 		i += len(r)
+		prev = k
 	}
 	return i, true
 }
@@ -472,20 +457,6 @@ func rowCells(g vt.Grid, y int) int {
 		}
 	}
 	return 0
-}
-
-// wordCells is how many cells the first word of row y of g takes.
-func wordCells(g vt.Grid, y int) int {
-	n := 0
-	for x := 0; x < g.Cols; x++ {
-		switch {
-		case !blankCell(g.At(x, y)):
-			n++
-		case n > 0:
-			return n
-		}
-	}
-	return n
 }
 
 // squeeze keeps s's letters and digits, lowercased: a terminal wraps and

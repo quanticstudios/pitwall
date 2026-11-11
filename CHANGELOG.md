@@ -19,6 +19,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 ## Unreleased
 
+- Allow and Deny in the sidebar and phone match complete multi-line shell commands, tabs, indentation and wrapped rows. Commands with missing or hidden text still require an answer in their tab.
 - The Android app pairs by scanning the QR code `pitwall remote pair` or Settings, Phone shows: Scan QR code on the pairing screen and on Add machine opens the camera, which the app asks for on that first tap. Paste and the address and code stay.
 - Scrolling tabs and chat in the Android app reuses GPU path buffers across frames. Long chats no longer allocate a widget closure for every entry on each frame.
 - An Android app, built with `sh scripts/apk.sh` and installed by hand: pitwall's sidebar as the home screen, with Waiting on you across sessions and Allow and Deny on a row, and each agent tab's chat with model, effort and send on the message box. It pairs with the link `pitwall remote pair` prints, with as many computers as you like in one sidebar, and reconnects to each on its own; see [Phone](docs/phone.md#android-app). The phone page's model list gains `opus[1m]`.

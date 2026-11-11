@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"slices"
 	"strings"
@@ -10,6 +11,51 @@ import (
 	"github.com/quanticstudios/pitwall/internal/model"
 	"github.com/quanticstudios/pitwall/internal/vt"
 )
+
+func TestCommandCapturedScreens(t *testing.T) {
+	b, err := os.ReadFile("testdata/command_screens.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		File       string
+		Provider   model.Provider
+		Cols, Rows int
+		Command    string
+		Shown      bool
+	}
+	if err := json.Unmarshal(b, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range cases {
+		t.Run(tc.File, func(t *testing.T) {
+			b, err := os.ReadFile("testdata/" + tc.File)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e := vt.New(tc.Cols, tc.Rows, nil)
+			e.Write([]byte(strings.ReplaceAll(string(b), "\n", "\r\n")))
+			g := e.Snapshot()
+			if State(g) != model.StatePendingApproval {
+				t.Fatal("capture is not a permission prompt")
+			}
+			if got := CommandShown(tc.Provider, g, tc.Command); got != tc.Shown {
+				t.Errorf("own command: got %v, want %v", got, tc.Shown)
+			}
+			changed := strings.Replace(tc.Command, "second-probe", "another-probe", 1)
+			changed = strings.Replace(changed, "line 30:", "line 31:", 1)
+			changed = strings.Replace(changed, "line 150:", "line 151:", 1)
+			changed = strings.Replace(changed, "tabbed probe", "another probe", 1)
+			changed = strings.Replace(changed, "probe-44", "probe-45", 1)
+			if changed == tc.Command {
+				t.Fatal("missing changed command")
+			}
+			if CommandShown(tc.Provider, g, changed) {
+				t.Error("accepted a different command with the same first line or wrapped prefix")
+			}
+		})
+	}
+}
 
 func TestOffers(t *testing.T) {
 	question := model.Activity{Provider: model.ProviderClaude, State: model.StateAwaitingInput,
@@ -268,6 +314,7 @@ func TestCommandShown(t *testing.T) {
 	claudeP, codexP := model.ProviderClaude, model.ProviderCodex
 	mkdir := "mkdir /tmp/x/perm-test"
 	long := "cd /tmp/x && go test -race -timeout 5m ./internal/daemon ./internal/agent"
+	prefix := "printf '%s' '" + strings.Repeat("x", 100)
 	for _, tc := range []struct {
 		name    string
 		p       model.Provider
@@ -299,15 +346,22 @@ func TestCommandShown(t *testing.T) {
 		{"only the count row left", claudeP, claude(" +3 lines, +2 above (ctrl+o to see more)"), mkdir, false},
 		{"a blank row", claudeP, full(" mkdir /tmp/x", "", " /perm-test"), mkdir, false},
 
-		{"top scrolled off", claudeP, claude(" ./internal/daemon ./internal/agent"), long, true},
+		{"top scrolled off", claudeP, claude(" ./internal/daemon ./internal/agent"), long, false},
 		{"top scrolled off, changed", claudeP, claude(" ./internal/daemon ./internal/remote"), long, false},
 		{"top scrolled off, end differs", claudeP, claude(" go test -race -timeout 5m"), long, false},
-		{"cut with a count", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " +3 lines (ctrl+o to see more)"), long, true},
+		{"cut with a count", claudeP, full(" cd /tmp/x && go test -race -timeout 5m", " +3 lines (ctrl+o to see more)"), long, false},
 		{"cut with a count, changed", claudeP, full(" cd /tmp && go test -race -timeout 5m", " +3 lines (ctrl+o to see more)"), long, false},
-		{"cut in the middle", claudeP, full(" -race -timeout 5m", " +3 lines, +2 above (ctrl+o to see more)"), long, true},
-		{"cut with an ellipsis", claudeP, full(" cd /tmp/x && go test …"), long, true},
+		{"cut in the middle", claudeP, full(" -race -timeout 5m", " +3 lines, +2 above (ctrl+o to see more)"), long, false},
+		{"cut with an ellipsis", claudeP, full(" cd /tmp/x && go test …"), long, false},
 		{"cut with an ellipsis, changed", claudeP, full(" cd /tmp/y && go test …"), long, false},
 		{"nothing to read", claudeP, full(" …"), long, false},
+		{"a long prefix with hidden text", claudeP, full(" "+prefix, " +3 lines (ctrl+o to see more)"), prefix + " first'", false},
+		{"the same prefix fits another command", claudeP, full(" "+prefix, " +3 lines (ctrl+o to see more)"), prefix + " second'", false},
+		{"a long prefix without a marker", claudeP, full(" " + prefix), prefix + " first'", false},
+		{"an empty command", claudeP, full(" echo safe"), "\t\n", false},
+		{"a control character", claudeP, full(" echo safe"), "echo safe\x00", false},
+		{"an escape sequence", claudeP, full(" echo safe"), "echo \x1b[31msafe", false},
+		{"an unknown provider", model.ProviderPi, full(" echo safe"), "echo safe", false},
 
 		{"no rules", claudeP, gridOf("Bash command", " "+mkdir, "Do you want to proceed?", "❯ 1. Yes", "  2. No", "Esc to cancel"), mkdir, false},
 		{"no options", claudeP, gridOf(rule, " "+mkdir, rule), mkdir, false},
@@ -390,8 +444,7 @@ func TestCommandGutterOnEveryRow(t *testing.T) {
 	}
 }
 
-// Whitespace can change what a command does, so only what a prompt adds to it
-// is left out: its indent and gutter, and a row end wrapping could have made.
+// Commands and screens normalize whitespace; punctuation and missing words still differ.
 func TestCommandWhitespace(t *testing.T) {
 	long := "cd /tmp/x && go test -race -timeout 5m ./internal/daemon ./internal/agent"
 	for _, tc := range []struct {
@@ -402,34 +455,34 @@ func TestCommandWhitespace(t *testing.T) {
 		want    bool
 	}{
 		{"same", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep  safe'", true},
-		{"a quoted space less", 100, []string{" rm -- '/tmp/keep safe'"}, "rm -- '/tmp/keep  safe'", false},
-		{"a quoted space more", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep safe'", false},
-		{"a tab, drawn as spaces", 100, []string{" printf 'a    b'"}, "printf 'a\tb'", false},
+		{"a quoted space less", 100, []string{" rm -- '/tmp/keep safe'"}, "rm -- '/tmp/keep  safe'", true},
+		{"a quoted space more", 100, []string{" rm -- '/tmp/keep  safe'"}, "rm -- '/tmp/keep safe'", true},
+		{"a tab, drawn as spaces", 100, []string{" printf 'a    b'"}, "printf 'a\tb'", true},
 		{"a tab, not drawn", 100, []string{" mkdir '/tmp/ab'"}, "mkdir '/tmp/a\tb'", false},
 		{"plain spaces around it", 100, []string{" echo safe"}, "  echo safe ", true},
-		{"a trailing newline", 100, []string{" echo safe"}, "echo safe\n", false},
-		{"a leading newline", 100, []string{" echo safe"}, "\necho safe", false},
-		{"a trailing tab", 100, []string{" echo safe"}, "echo safe\t", false},
-		{"a leading tab", 100, []string{" echo safe"}, "\techo safe", false},
-		{"a trailing carriage return", 100, []string{" echo safe"}, "echo safe\r", false},
-		{"a trailing nonbreaking space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u00a0", false},
-		{"a trailing em space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u2003", false},
-		{"a trailing ideographic space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u3000", false},
-		{"a nonbreaking space inside", 100, []string{" rm -- /tmp/a\u00a0b"}, "rm -- /tmp/a\u00a0b", false},
+		{"a trailing newline", 100, []string{" echo safe"}, "echo safe\n", true},
+		{"a leading newline", 100, []string{" echo safe"}, "\necho safe", true},
+		{"a trailing tab", 100, []string{" echo safe"}, "echo safe\t", true},
+		{"a leading tab", 100, []string{" echo safe"}, "\techo safe", true},
+		{"a trailing carriage return", 100, []string{" echo safe"}, "echo safe\r", true},
+		{"a trailing nonbreaking space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u00a0", true},
+		{"a trailing em space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u2003", true},
+		{"a trailing ideographic space", 100, []string{" rm -- /tmp/keep"}, "rm -- /tmp/keep\u3000", true},
+		{"a nonbreaking space inside", 100, []string{" rm -- /tmp/a\u00a0b"}, "rm -- /tmp/a\u00a0b", true},
 
 		{"wrapped between words", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, long, true},
 		{"wrapped with a space on the next row", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "  ./internal/daemon ./internal/agent"}, long, true},
 		{"wrapped inside a word", 48, []string{" cd /tmp/x && go test -race -timeout 5m ./inter", " nal/daemon ./internal/agent"}, long, true},
 		{"wrapped and changed", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/remote"}, long, false},
-		{"a newline on screen, where the word would fit", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe rm -rf /tmp/victim", false},
+		{"a newline on screen, where the word would fit", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe rm -rf /tmp/victim", true},
 		{"a newline on screen, inside a short row", 100, []string{" rm -rf /tmp", " /x"}, "rm -rf /tmp/x", false},
 		{"a newline at the pane's edge looks like a wrap", 14, []string{" echo safe", " rm -rf /tmp"}, "echo safe rm -rf /tmp", true},
 
-		{"a space more before the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, strings.Replace(long, " ./internal/daemon", "  ./internal/daemon", 1), false},
-		{"a space more after the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "   ./internal/daemon ./internal/agent"}, long, false},
+		{"a space more before the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", " ./internal/daemon ./internal/agent"}, strings.Replace(long, " ./internal/daemon", "  ./internal/daemon", 1), true},
+		{"a space more after the row end", 48, []string{" cd /tmp/x && go test -race -timeout 5m", "   ./internal/daemon ./internal/agent"}, long, true},
 
-		{"a multi-line command", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
-		{"a newline only in the command", 100, []string{" echo safe rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", false},
+		{"a multi-line command", 100, []string{" echo safe", " rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", true},
+		{"a newline only in the command", 100, []string{" echo safe rm -rf /tmp/victim"}, "echo safe\nrm -rf /tmp/victim", true},
 		{"a newline off screen", 100, []string{" echo safe"}, "rm -rf /tmp/victim\necho safe", false},
 		{"a tab off screen", 100, []string{" echo safe", " +3 lines (ctrl+o to see more)"}, "echo safe\tb", false},
 	} {

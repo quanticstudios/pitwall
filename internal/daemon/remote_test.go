@@ -414,8 +414,74 @@ func TestAnswerNeedsTheCommand(t *testing.T) {
 	}
 }
 
-// What cannot be compared is refused through the whole answer path: a command
-// with a newline or tab, and a screen with no row of the command left.
+// The sidebar and phone match complete multi-line commands and reject stale rows.
+func TestAnswerMultilineCommand(t *testing.T) {
+	for _, provider := range []model.Provider{model.ProviderClaude, model.ProviderCodex} {
+		t.Run(string(provider), func(t *testing.T) {
+			d, f, phone := remoteDaemon(t)
+			d.o.Derive = agent.Derive
+			ctx := context.Background()
+			command := "printf first\n\tprintf second\n\n    printf third"
+			payload, err := json.Marshal(map[string]any{"hook_event_name": "PermissionRequest", "session_id": "s", "tool_name": "Bash", "tool_input": map[string]string{"command": command}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := d.agentEvent(ctx, proto.AgentEvent{Pane: "a", Provider: provider, Payload: payload}); err != nil {
+				t.Fatal(err)
+			}
+			d.mu.Lock()
+			at := d.st.Activities[d.activityIndex("a")].UpdatedAt.UnixNano()
+			d.mu.Unlock()
+			show := func(second string) {
+				rows := commandForm(" │ printf first", " │    printf   "+second, " │", " │     printf third")
+				if provider == model.ProviderCodex {
+					rows = []string{"Would you like to run the following command?", "  $ printf first", "    printf   " + second, "", "      printf third", "", "› 1. Yes, proceed (y)", "  2. Yes, and don't ask again for this command (a)", "  3. No, and tell Codex what to do differently (esc)", "Press enter to confirm or esc to cancel"}
+				}
+				f.pane(0).mu.Lock()
+				f.pane(0).screen = rows
+				f.pane(0).mu.Unlock()
+			}
+			always := "2"
+			allow := "1"
+			if provider == model.ProviderCodex {
+				always, allow = "a", "y"
+			}
+			for _, answer := range []struct {
+				name, want string
+				run        func() error
+			}{
+				{"sidebar", allow, func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at, Allow: true}) }},
+				{"deny", "\x1b", func() error { return d.handle(ctx, proto.Answer{Pane: "a", At: at}) }},
+				{"always", always, func() error { return d.handle(ctx, proto.Press{Pane: "a", At: at, Label: agent.AllowAlways}) }},
+				{"phone", allow, func() error {
+					status, body := phone("POST", "/api/answer", fmt.Sprintf(`{"pane":"a","at":"%d","allow":true}`, at))
+					if status != http.StatusOK {
+						return fmt.Errorf("HTTP %d: %s", status, body)
+					}
+					return nil
+				}},
+			} {
+				t.Run(answer.name, func(t *testing.T) {
+					show("second")
+					before := len(f.pane(0).got())
+					if err := answer.run(); err != nil {
+						t.Fatal(err)
+					}
+					if got := gotAfter(t, f.pane(0), before, len(answer.want)); got != answer.want {
+						t.Fatalf("sent %q, want %q", got, answer.want)
+					}
+					show("different")
+					before = len(f.pane(0).got())
+					if err := answer.run(); err == nil || len(f.pane(0).got()) != before {
+						t.Fatalf("answered a different command with the same first line: %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+// Missing command text is refused through the whole answer path.
 func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
 	for _, tc := range []struct {
 		name, command string
@@ -424,14 +490,8 @@ func TestAnswerRefusesWhatItCannotCompare(t *testing.T) {
 	}{
 		{"only the count row", "echo safe", []string{" +3 lines, +2 above (ctrl+o to see more)"}, true},
 		{"a tab", "mkdir '/tmp/a\tb'", []string{" mkdir '/tmp/ab'"}, false},
-		{"a newline", "echo safe\nrm -rf /tmp/victim", []string{" echo safe", " rm -rf /tmp/victim"}, false},
-		{"spaces before a newline", "printf '%s' 'a  \nb'", []string{" printf '%s' 'a", " b'"}, false},
 		{"a newline off screen", "rm -rf /tmp/victim\necho safe", []string{" echo safe"}, true},
 		{"scrolled past the title, with several blocks", "echo safe", []string{" rm -rf /tmp/wrong", " ╌╌╌╌╌╌", " echo safe"}, true},
-		{"a trailing newline", "echo safe\n", []string{" echo safe"}, false},
-		{"a leading tab", "\techo safe", []string{" echo safe"}, false},
-		{"a trailing carriage return", "echo safe\r", []string{" echo safe"}, false},
-		{"a trailing nonbreaking space", "rm -- /tmp/keep\u00a0", []string{" rm -- /tmp/keep"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d, f, _ := remoteDaemon(t)
