@@ -40,8 +40,8 @@ type Tab struct {
 	Provider   model.Provider `json:"-"`
 }
 
-// Models and Efforts are what the model picker offers Claude Code, as
-// claude --model and --effort take them.
+// Models keeps Claude Code's family aliases so picks follow current releases.
+// Models and Efforts are accepted by Claude Code 2.1.322's slash commands and flags.
 var (
 	Models  = []string{"default", "fable", "opus", "opus[1m]", "sonnet", "haiku"}
 	Efforts = []string{"low", "medium", "high", "xhigh", "max"}

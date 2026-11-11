@@ -1,38 +1,55 @@
 package mobile
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/quanticstudios/pitwall/internal/remote"
 )
 
-// modelNames names the models a turn reports and the picks the model menu
-// offers (remote.Models): the name a person reads, never the id.
-var modelNames = map[string]string{
-	"default":  "Default",
-	"fable":    "Fable 5.1",
-	"opus":     "Opus 5.5",
-	"opus[1m]": "Opus 5.5 1M",
-	"sonnet":   "Sonnet 5.5",
-	"haiku":    "Haiku 5.5",
-
-	"claude-fable-5-1":    "Fable 5.1",
-	"claude-opus-5-5":     "Opus 5.5",
-	"claude-opus-5-5[1m]": "Opus 5.5 1M",
-	"claude-sonnet-5-5":   "Sonnet 5.5",
-	"claude-haiku-5-5":    "Haiku 5.5",
-	"gpt-6.1-sol":         "GPT-6.1 Sol",
-	"gpt-6-1-sol":         "GPT-6.1 Sol",
+// modelAliases names Claude Code's moving family aliases.
+var modelAliases = map[string]string{
+	"default": "Default",
+	"fable":   "Fable 5.2",
+	"opus":    "Opus 5.5",
+	"sonnet":  "Sonnet 5.5",
+	"haiku":   "Haiku 5.5",
 }
 
-// modelName is id's name. An id the table lacks shows as it is, less a
-// "claude-" prefix.
+var modelVersion = regexp.MustCompile(`^([a-z]+)-([0-9]+)(?:[.-]([0-9]+))?(?:-([a-z0-9-]+))?$`)
+
+// modelName reads the family and version from an id, leaving unknown ids intact.
 func modelName(id string) string {
-	if n, ok := modelNames[strings.ToLower(id)]; ok {
-		return n
+	wide := ""
+	if strings.HasSuffix(strings.ToLower(id), "[1m]") {
+		id, wide = id[:len(id)-4], " 1M"
 	}
-	return strings.TrimPrefix(id, "claude-")
+	if name, ok := modelAliases[strings.ToLower(id)]; ok {
+		return name + wide
+	}
+	short := id
+	if strings.HasPrefix(strings.ToLower(short), "claude-") {
+		short = short[len("claude-"):]
+	}
+	m := modelVersion.FindStringSubmatch(strings.ToLower(short))
+	if m == nil {
+		return short + wide
+	}
+	version := m[2]
+	if m[3] != "" && len(m[3]) != 8 { // a date suffix is not a minor version
+		version += "." + m[3]
+	}
+	if m[1] == "gpt" {
+		name := "GPT-" + version
+		for _, word := range strings.Split(m[4], "-") {
+			if word != "" {
+				name += " " + strings.ToUpper(word[:1]) + word[1:]
+			}
+		}
+		return name + wide
+	}
+	return strings.ToUpper(m[1][:1]) + m[1][1:] + " " + version + wide
 }
 
 // modelNote is the line under a pick in the model menu.

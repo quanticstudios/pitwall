@@ -466,24 +466,32 @@ function renderChatState() {
   updatePending(t);
 }
 
-function shortModel(m) { return (m || '').replace(/^claude-/, ''); }
+const modelAliases = {
+  default: 'Default',
+  fable: 'Fable 5.2',
+  opus: 'Opus 5.5',
+  sonnet: 'Sonnet 5.5',
+  haiku: 'Haiku 5.5',
+};
 
-// prettyModel names a model as people say it: claude-opus-5-5[1m] is
-// "Opus 5.5 1M", sonnet-4-5-20250929 is "Sonnet 4.5", opus is "Opus",
-// gpt-6.1-sol is "GPT-6.1 Sol".
+function shortModel(m) { return (m || '').replace(/^claude-/i, ''); }
+
+// Versioned ids carry their own name; only moving aliases need a table.
 function prettyModel(m) {
-  const id = shortModel(m);
-  if (!id) return '';
+  let id = m || '';
   const wide = /\[1m\]$/i.test(id) ? ' 1M' : '';
-  const parts = id.replace(/\[1m\]$/i, '').split('-');
-  if (parts[0] === 'gpt') return id.replace(/^gpt-/, 'GPT-').replace(/-([a-z])/g, (_, c) => ' ' + c.toUpperCase());
-  if (!/^[a-z]+$/.test(parts[0])) return id + wide;
-  const nums = [];
-  for (const p of parts.slice(1)) {
-    if (!/^\d{1,2}$/.test(p)) break; // why: a date suffix such as 20250929 is not part of the version
-    nums.push(p);
+  id = id.replace(/\[1m\]$/i, '');
+  const alias = id.toLowerCase();
+  if (Object.hasOwn(modelAliases, alias)) return modelAliases[alias] + wide;
+  const short = shortModel(id);
+  const parts = /^([a-z]+)-([0-9]+)(?:[.-]([0-9]+))?(?:-([a-z0-9-]+))?$/.exec(short.toLowerCase());
+  if (!parts) return short + wide;
+  const version = parts[2] + (parts[3] && parts[3].length !== 8 ? '.' + parts[3] : '');
+  if (parts[1] === 'gpt') {
+    const words = (parts[4] || '').split('-').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1));
+    return 'GPT-' + version + (words.length ? ' ' + words.join(' ') : '') + wide;
   }
-  return parts[0][0].toUpperCase() + parts[0].slice(1) + (nums.length ? ' ' + nums.join('.') : '') + wide;
+  return parts[1][0].toUpperCase() + parts[1].slice(1) + ' ' + version + wide;
 }
 
 function renderAsks(t) {
@@ -694,7 +702,7 @@ function updatePending(t) {
 
 function choices(box, what, values) {
   box.replaceChildren(...values.map((v) => {
-    const b = el('button', 'btn' + (what === 'model' && shortModel(model).includes(v) ? ' on' : ''), what === 'model' ? prettyModel(v) : v);
+    const b = el('button', 'btn' + (what === 'model' && prettyModel(model) === prettyModel(v) ? ' on' : ''), what === 'model' ? prettyModel(v) : v);
     b.onclick = () => {
       const note = $('mnote');
       const all = sheet.querySelectorAll('.choices .btn');

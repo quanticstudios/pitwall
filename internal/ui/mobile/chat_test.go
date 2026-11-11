@@ -2,9 +2,12 @@ package mobile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -24,22 +27,74 @@ import (
 )
 
 func TestModelName(t *testing.T) {
-	for id, want := range map[string]string{
-		"claude-opus-5-5":     "Opus 5.5",
-		"claude-opus-5-5[1m]": "Opus 5.5 1M",
-		"Claude-Sonnet-5-5":   "Sonnet 5.5",
-		"opus[1m]":            "Opus 5.5 1M",
-		"default":             "Default",
-		"gpt-6.1-sol":         "GPT-6.1 Sol",
-		"claude-mystery-9":    "mystery-9", // not in the table: the id, less claude-
-		"":                    "",
-	} {
+	cases := map[string]string{
+		"":                               "",
+		"default":                        "Default",
+		"fable":                          "Fable 5.2",
+		"FABLE":                          "Fable 5.2",
+		"opus":                           "Opus 5.5",
+		"opus[1m]":                       "Opus 5.5 1M",
+		"sonnet":                         "Sonnet 5.5",
+		"sonnet[1M]":                     "Sonnet 5.5 1M",
+		"haiku":                          "Haiku 5.5",
+		"claude-fable-5-1":               "Fable 5.1",
+		"claude-fable-5-2":               "Fable 5.2",
+		"claude-opus-5-5":                "Opus 5.5",
+		"claude-opus-5-5[1m]":            "Opus 5.5 1M",
+		"Claude-Sonnet-5-5":              "Sonnet 5.5",
+		"claude-haiku-5-5":               "Haiku 5.5",
+		"sonnet-4-5-20250929":            "Sonnet 4.5",
+		"claude-opus-5-20261111":         "Opus 5",
+		"claude-fable-6-3-20271111[1m]":  "Fable 6.3 1M",
+		"claude-future-8-12-preview[1m]": "Future 8.12 1M",
+		"gpt-6.1-sol":                    "GPT-6.1 Sol",
+		"gpt-6-1-sol":                    "GPT-6.1 Sol",
+		"gpt-6-sol":                      "GPT-6 Sol",
+		"gpt-6.2-sol-fast":               "GPT-6.2 Sol Fast",
+		"claude-mystery-9":               "Mystery 9",
+		"claude-custom-model":            "custom-model",
+		"constructor":                    "constructor",
+		"__proto__":                      "__proto__",
+	}
+	for id, want := range cases {
 		if got := modelName(id); got != want {
 			t.Errorf("modelName(%q) = %q, want %q", id, got, want)
 		}
 	}
+	t.Run("web", func(t *testing.T) {
+		node, err := exec.LookPath("node")
+		if err != nil {
+			t.Skip("node is not installed")
+		}
+		b, err := os.ReadFile("../../remote/web/app.js")
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := string(b)
+		start, end := strings.Index(source, "const modelAliases ="), strings.Index(source, "function renderAsks(")
+		if start < 0 || end < start {
+			t.Fatal("cannot locate web model formatter")
+		}
+		b, err = json.Marshal(cases)
+		if err != nil {
+			t.Fatal(err)
+		}
+		script := source[start:end] + `
+const assert = require('node:assert/strict');
+for (const [id, want] of Object.entries(JSON.parse(require('node:fs').readFileSync(0, 'utf8')))) {
+  assert.equal(prettyModel(id), want, id);
+}
+`
+		cmd := exec.Command(node, "-e", script)
+		cmd.Stdin = strings.NewReader(string(b))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("web model names: %v\n%s", err, out)
+		}
+	})
 	for _, c := range []struct{ pick, current, want string }{
 		{"default", "claude-opus-5-5", "what Claude Code starts with"},
+		{"fable", "claude-fable-5-2", "now"},
+		{"fable", "claude-fable-5-1", ""},
 		{"opus", "claude-opus-5-5", "now"},
 		{"opus[1m]", "claude-opus-5-5", "1M context"},
 		{"opus[1m]", "claude-opus-5-5[1m]", "now"},
