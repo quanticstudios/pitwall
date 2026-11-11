@@ -95,13 +95,14 @@ screen.
 
 ## Send a message
 
-Every agent tab has a box at the bottom. What you send goes the way the
-window's own send does: it waits until the agent sits at its input box with
-no form on screen and no draft of yours in it, then goes in as a paste
+Every agent tab has a box at the bottom. Claude Code and Codex receive a
+message in their input box even during a turn, then decide when to read it.
+Other agents receive it once their turn ends. A draft of yours, a form or
+an approval holds the message in pitwall's queue. It goes in as a paste
 followed by Enter, with control characters removed, so it cannot press keys
-or end the paste. While the agent works or waits on an approval, the message
-shows as Queued, then as Sent once it goes in, until it shows up in the
-chat. While a tool of the agent's holds the terminal, the message waits.
+or end the paste. The message shows as Queued while pitwall holds it, then
+as Sent once it goes in, until it shows up in the chat. While a tool of
+the agent's holds the terminal, the message waits.
 If the agent exits before the message goes in, pitwall drops it and the
 page marks it "Not sent: the agent exited"; it never goes to the shell left
 behind. A shell

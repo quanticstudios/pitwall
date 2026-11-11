@@ -2,9 +2,12 @@ package mobile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
+	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -24,22 +27,74 @@ import (
 )
 
 func TestModelName(t *testing.T) {
-	for id, want := range map[string]string{
-		"claude-opus-5-5":     "Opus 5.5",
-		"claude-opus-5-5[1m]": "Opus 5.5 1M",
-		"Claude-Sonnet-5-5":   "Sonnet 5.5",
-		"opus[1m]":            "Opus 5.5 1M",
-		"default":             "Default",
-		"gpt-6.1-sol":         "GPT-6.1 Sol",
-		"claude-mystery-9":    "mystery-9", // not in the table: the id, less claude-
-		"":                    "",
-	} {
+	cases := map[string]string{
+		"":                               "",
+		"default":                        "Default",
+		"fable":                          "Fable 5.2",
+		"FABLE":                          "Fable 5.2",
+		"opus":                           "Opus 5.5",
+		"opus[1m]":                       "Opus 5.5 1M",
+		"sonnet":                         "Sonnet 5.5",
+		"sonnet[1M]":                     "Sonnet 5.5 1M",
+		"haiku":                          "Haiku 5.5",
+		"claude-fable-5-1":               "Fable 5.1",
+		"claude-fable-5-2":               "Fable 5.2",
+		"claude-opus-5-5":                "Opus 5.5",
+		"claude-opus-5-5[1m]":            "Opus 5.5 1M",
+		"Claude-Sonnet-5-5":              "Sonnet 5.5",
+		"claude-haiku-5-5":               "Haiku 5.5",
+		"sonnet-4-5-20250929":            "Sonnet 4.5",
+		"claude-opus-5-20261111":         "Opus 5",
+		"claude-fable-6-3-20271111[1m]":  "Fable 6.3 1M",
+		"claude-future-8-12-preview[1m]": "Future 8.12 1M",
+		"gpt-6.1-sol":                    "GPT-6.1 Sol",
+		"gpt-6-1-sol":                    "GPT-6.1 Sol",
+		"gpt-6-sol":                      "GPT-6 Sol",
+		"gpt-6.2-sol-fast":               "GPT-6.2 Sol Fast",
+		"claude-mystery-9":               "Mystery 9",
+		"claude-custom-model":            "custom-model",
+		"constructor":                    "constructor",
+		"__proto__":                      "__proto__",
+	}
+	for id, want := range cases {
 		if got := modelName(id); got != want {
 			t.Errorf("modelName(%q) = %q, want %q", id, got, want)
 		}
 	}
+	t.Run("web", func(t *testing.T) {
+		node, err := exec.LookPath("node")
+		if err != nil {
+			t.Skip("node is not installed")
+		}
+		b, err := os.ReadFile("../../remote/web/app.js")
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := string(b)
+		start, end := strings.Index(source, "const modelAliases ="), strings.Index(source, "function renderAsks(")
+		if start < 0 || end < start {
+			t.Fatal("cannot locate web model formatter")
+		}
+		b, err = json.Marshal(cases)
+		if err != nil {
+			t.Fatal(err)
+		}
+		script := source[start:end] + `
+const assert = require('node:assert/strict');
+for (const [id, want] of Object.entries(JSON.parse(require('node:fs').readFileSync(0, 'utf8')))) {
+  assert.equal(prettyModel(id), want, id);
+}
+`
+		cmd := exec.Command(node, "-e", script)
+		cmd.Stdin = strings.NewReader(string(b))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("web model names: %v\n%s", err, out)
+		}
+	})
 	for _, c := range []struct{ pick, current, want string }{
 		{"default", "claude-opus-5-5", "what Claude Code starts with"},
+		{"fable", "claude-fable-5-2", "now"},
+		{"fable", "claude-fable-5-1", ""},
 		{"opus", "claude-opus-5-5", "now"},
 		{"opus[1m]", "claude-opus-5-5", "1M context"},
 		{"opus[1m]", "claude-opus-5-5[1m]", "now"},
@@ -165,6 +220,49 @@ func (f *fakeAPI) Command(ctx context.Context, pane, what, value string) error {
 	return f.err
 }
 
+func TestCurrentSettings(t *testing.T) {
+	c := newChat("p1")
+	c.data.Model = "claude-haiku-5-5"
+	tab := remote.Tab{Model: "opus[1m]", Effort: "high"}
+	if c.cmp.modelShown(c.currentModel(tab)) != "Opus 5.5 1M" || c.cmp.effortShown(tab.Effort) != "high" {
+		t.Fatal("fresh app did not load settings")
+	}
+	c.cmp.model, c.cmp.modelAt = "sonnet", tab.Model
+	c.cmp.effort, c.cmp.effortAt = "max", tab.Effort
+	if c.cmp.modelShown(c.currentModel(tab)) != "Sonnet 5.5" || c.cmp.effortShown(tab.Effort) != "max" {
+		t.Fatal("pick did not update while the server redraws")
+	}
+	tab.Model, tab.Effort = "haiku", "low"
+	if c.cmp.modelShown(c.currentModel(tab)) != "Haiku 5.5" || c.cmp.effortShown(tab.Effort) != "low" {
+		t.Fatal("external settings did not update")
+	}
+	if c.currentModel(remote.Tab{}) != c.data.Model || c.cmp.effortShown("") != "max" {
+		t.Fatal("old daemon fallback failed")
+	}
+}
+
+func TestRefusedPickStops(t *testing.T) {
+	api := &fakeAPI{err: errors.New("the user has a draft in the agent's input box; try again when it waits at its input box")}
+	c := newChat("p1")
+	env := chatEnv{Online: true, Tab: remote.Tab{Item: remote.Item{Pane: "p1", State: "completed"}},
+		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
+			done(call(context.Background(), api))
+		}}
+	c.cmp.choose(&pick{"effort", "max"})
+	for range 100 {
+		c.firePick(env)
+	}
+	if len(api.commands) != 1 || len(c.cmp.picks) != 0 || c.cmp.picking || c.cmp.note == "" {
+		t.Fatalf("commands %d, pending %d, picking %v, note %q", len(api.commands), len(c.cmp.picks), c.cmp.picking, c.cmp.note)
+	}
+	api.err = nil
+	c.cmp.choose(&pick{"effort", "max"})
+	c.firePick(env)
+	if len(api.commands) != 2 || c.cmp.effort != "max" || c.cmp.note != "" {
+		t.Fatal("manual retry failed")
+	}
+}
+
 func TestPickWaitsForIdle(t *testing.T) {
 	api := &fakeAPI{}
 	c := newChat("p1")
@@ -198,12 +296,12 @@ func TestPickWaitsForIdle(t *testing.T) {
 		t.Errorf("after a turn, the chip says %q", got)
 	}
 
-	// A turn that began before the pick went in leaves it waiting.
+	// A refused pick stops until the user picks it again.
 	api.err = errors.New("Claude Code is working; try again when it waits at its input box")
 	c.cmp.choose(&pick{"model", "haiku"})
 	c.firePick(env)
 	later[len(later)-1]()
-	if c.cmp.pending("model") == nil || c.cmp.picking || c.cmp.note != "" {
+	if c.cmp.pending("model") != nil || c.cmp.picking || c.cmp.note == "" {
 		t.Errorf("busy refusal: picks %v, picking %v, note %q", c.cmp.picks, c.cmp.picking, c.cmp.note)
 	}
 	c.cmp.picks = nil
@@ -276,6 +374,27 @@ func TestSendBeforeAnswer(t *testing.T) {
 	c.sendDraft(env)
 	if len(c.data.Pending) != 0 || c.cmp.ed.Text() != "again" || c.cmp.notSent != "offline" {
 		t.Fatalf("failed: pending %+v, box %q, line %q", c.data.Pending, c.cmp.ed.Text(), c.cmp.notSent)
+	}
+}
+
+func TestQueueDrainsBeforeSendAnswer(t *testing.T) {
+	for _, queued := range []int{0, 1} {
+		c := newChat("p1")
+		var done func(error)
+		env := chatEnv{Online: true, Tab: remote.Tab{Item: remote.Item{Pane: "p1", State: "working"}},
+			Do: func(call func(context.Context, chatAPI) error, d func(error)) {
+				err := call(context.Background(), &fakeAPI{})
+				done = func(error) { d(err) }
+			}}
+		setDraft(&c.cmp.ed, "steer")
+		c.sendDraft(env)
+		tab := env.Tab
+		tab.Queued = queued
+		c.update(tab, time.Now())
+		done(nil)
+		if len(c.data.Pending) != 1 || c.data.Pending[0].Queued != (queued > 0) {
+			t.Fatalf("server queue %d, pending %+v", queued, c.data.Pending)
+		}
 	}
 }
 

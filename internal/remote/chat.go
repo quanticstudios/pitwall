@@ -26,6 +26,8 @@ type Tab struct {
 	Group  string `json:"group,omitempty"` // its group's name
 	Repo   string `json:"repo,omitempty"`  // its repo's or folder's base name
 	Branch string `json:"branch,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
 	Chat   bool   `json:"chat,omitempty"` // a chat tab: pitwall chat drives it
 	Send   bool   `json:"send"`           // the composer works: the pane runs an agent
 	Picker bool   `json:"picker"`         // model and effort: Claude Code in a terminal
@@ -45,8 +47,8 @@ type Tab struct {
 	Provider   model.Provider `json:"-"`
 }
 
-// Models and Efforts are what the model picker offers Claude Code, as
-// claude --model and --effort take them.
+// Models keeps Claude Code's family aliases so picks follow current releases.
+// Models and Efforts are accepted by Claude Code 2.1.322's slash commands and flags.
 var (
 	Models  = []string{"default", "fable", "opus", "opus[1m]", "sonnet", "haiku"}
 	Efforts = []string{"low", "medium", "high", "xhigh", "max"}
@@ -87,6 +89,7 @@ func tabOf(st model.State, s model.Session, w model.Workspace) (Tab, bool) {
 			return t, false
 		}
 		t.Pane, t.Chat, t.Provider, t.Send = w.Chat, true, st.Chats[i].Provider, true
+		t.Model, t.Effort = st.Chats[i].Model, st.Chats[i].Effort
 	} else {
 		var p *model.Pane
 		if aps := st.AgentPanes(w); len(aps) > 0 {
