@@ -163,6 +163,7 @@ type opKey struct {
 	outline        bool
 	strokeWidth    float32
 	sx, hx, sy, hy float32
+	pathHash       uint64
 	ops.Key
 }
 
@@ -1019,12 +1020,13 @@ loop:
 			quads.key.strokeWidth = decodeStrokeOp(encOp.Data)
 
 		case ops.TypePath:
+			// pitwall: generated paths keep their GPU buffers across frames and scroll offsets.
+			quads.key.pathHash = binary.LittleEndian.Uint64(encOp.Data[1:])
 			encOp, ok = r.Decode()
 			if !ok {
 				break loop
 			}
 			quads.aux = encOp.Data[ops.TypeAuxLen:]
-			quads.key.Key = encOp.Key
 
 		case ops.TypeClip:
 			var op ops.ClipOp

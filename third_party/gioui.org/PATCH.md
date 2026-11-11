@@ -17,6 +17,11 @@ in `LICENSE`. Tests, testdata, `.builds` and the flake files are removed.
 
 Each change is marked `pitwall` in a comment:
 
+- `gpu/gpu.go`, `drawOps.collectOps`: the OpenGL renderer keys generated
+  paths by the geometry hash in the path operation, together with the
+  transform, stroke width and outline flag. Identical paths reuse GPU
+  buffers across frames and scroll offsets. `gpu/pathcache_test.go` checks
+  buffer reuse and invalidation for changed geometry, scale and stroke.
 - `app/window.go`, `Window.FrameSubmitted`: an optional benchmark callback
   runs after ops processing and before frame acknowledgement and presentation.
   It excludes a hidden X11 surface's vsync wait from frame work. Its order has
