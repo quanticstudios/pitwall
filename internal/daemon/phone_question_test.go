@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -123,8 +124,8 @@ func TestPhoneUploadAndSendImage(t *testing.T) {
 	if b, err := os.ReadFile(files[0]); err != nil || string(b) != string(png) {
 		t.Fatal("image bytes not saved")
 	}
-	if info, _ := os.Stat(files[0]); info.Mode().Perm() != 0600 {
-		t.Fatal("image is not private")
+	if info, err := os.Stat(files[0]); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("image permissions: %v, %v", info, err)
 	}
 	if code, _ := call("POST", "/api/upload?pane=a", "plain text"); code != 400 {
 		t.Fatalf("text upload %d", code)

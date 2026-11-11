@@ -878,7 +878,7 @@ function attachImage(file) {
   if (file.size > 20 * 1024 * 1024) { cnote.hidden = false; cnote.textContent = 'The image is over 20 MiB.'; return; }
   clearAttachment();
   attachment = { file, url: URL.createObjectURL(file) };
-  const img = el('img'); img.src = attachment.url; img.alt = 'Attached picture'; img.width = img.height = 48;
+  const img = document.createElement('img'); img.src = attachment.url; img.alt = 'Attached picture'; img.width = img.height = 48;
   const remove = el('button', 'btn', 'Remove picture'); remove.onclick = clearAttachment;
   $('attachment').append(img, remove); $('attachment').hidden = false;
 }
