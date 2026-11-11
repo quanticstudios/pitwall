@@ -43,7 +43,7 @@ type Doc struct {
 	mono    float32
 	texts   map[int]*richtext.InteractiveText
 	styles  map[int][]richtext.SpanStyle // texts' spans styled, by the same key
-	clicks  map[int]*widget.Clickable // image links
+	clicks  map[int]*widget.Clickable    // image links
 	wide    map[int]*sideways
 	natural map[int][]int // a table's columns, unwrapped
 	cellOps op.Ops
