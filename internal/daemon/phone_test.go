@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/quanticstudios/pitwall/internal/proto"
 	"github.com/quanticstudios/pitwall/internal/remote"
 	"github.com/quanticstudios/pitwall/internal/session"
+	"github.com/quanticstudios/pitwall/internal/vt"
 )
 
 // phoneDaemon is a daemon with tab w1 running Claude Code in pane a at its
@@ -189,6 +191,72 @@ func TestPhoneSend(t *testing.T) {
 	d.mu.Unlock()
 	if st := send("a", "hello"); st != 409 || d.phoneTabs()[0].Send {
 		t.Errorf("exited agent: %d", st)
+	}
+}
+
+type capturedPhonePane struct {
+	*fakePane
+	grid vt.Grid
+}
+
+func (p *capturedPhonePane) Snapshot() vt.Grid { return p.grid }
+
+// These box rows were captured from Claude Code 2.1.322, Opus 5.5 1M,
+// high effort, with NO_COLOR=1. Ctrl+A leaves the suggestion unchanged.
+func TestPhoneCapturedSuggestionAfterCtrlA(t *testing.T) {
+	for _, wire := range []string{"\x01", "\x1b[97;5u"} {
+		for _, draft := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%x/draft=%v", wire, draft), func(t *testing.T) {
+				d, f, do := phoneDaemon(t)
+				name := "claude-idle-suggestion-no-color.ansi"
+				if draft {
+					name = "claude-draft-no-color.ansi"
+				}
+				b, err := os.ReadFile(filepath.Join("testdata", name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				e := vt.New(120, 4, nil)
+				e.Write(b)
+				g := e.Snapshot()
+				if !agent.Draft(model.ProviderClaude, g) {
+					t.Fatal("the unstyled capture must exercise the draft check")
+				}
+				p := f.pane(0)
+				p.mu.Lock()
+				p.modes.KittyKeyboard = 5
+				p.mu.Unlock()
+				d.mu.Lock()
+				d.panes["a"] = &capturedPhonePane{fakePane: p, grid: g}
+				d.mu.Unlock()
+				if draft {
+					d.noteUserKey("a", []byte("ACTUAL_DRAFT_KEEP"))
+				}
+				d.noteUserKey("a", []byte(wire))
+				status, body := do("POST", "/api/command", `{"pane":"a","what":"effort","value":"high"}`)
+				if draft {
+					if status != 409 || !strings.Contains(body, errDraft.Error()) {
+						t.Fatalf("draft: %d %s", status, body)
+					}
+				} else if status != 200 {
+					t.Fatalf("suggestion: %d %s", status, body)
+				} else {
+					gotAfter(t, p, 0, len("/effort high\r"))
+				}
+				before := len(p.got())
+				if _, err := d.phoneSend("a", "phone message"); err != nil {
+					t.Fatal(err)
+				}
+				if draft {
+					time.Sleep(50 * time.Millisecond)
+					if got := p.got()[before:]; got != "" || d.phoneTabs()[0].Queued != 1 {
+						t.Fatalf("draft received %q, queued %d", got, d.phoneTabs()[0].Queued)
+					}
+				} else if got := gotAfter(t, p, before, len("phone message\r")); got != "phone message\r" {
+					t.Fatalf("suggestion held message: %q", got)
+				}
+			})
+		}
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"gioui.org/io/key"
 
 	"github.com/quanticstudios/pitwall/internal/agent"
+	"github.com/quanticstudios/pitwall/internal/input"
 	"github.com/quanticstudios/pitwall/internal/layout"
 	"github.com/quanticstudios/pitwall/internal/logs"
 	"github.com/quanticstudios/pitwall/internal/model"
@@ -429,7 +430,15 @@ func (d *Daemon) noteUserKey(pane string, b []byte) {
 		}
 	}()
 	d.mail.keyAt[pane] = time.Now()
-	if len(b) > 0 { // a reply or an answer from the phone leaves no draft
+	draftKey := len(b) > 0
+	if draftKey && d.paneProvider(pane) == model.ProviderClaude {
+		p := d.panes[pane]
+		// Ctrl+A moves the cursor; NO_COLOR can leave its suggestion unstyled.
+		if string(b) == "\x01" || p != nil && bytes.Equal(b, input.Key(key.Event{Name: "A", Modifiers: key.ModCtrl, State: key.Press}, p.Modes())) {
+			draftKey = false
+		}
+	}
+	if draftKey { // a reply or an answer from the phone leaves no draft
 		if !d.mail.drafting[pane] {
 			d.mail.drafting[pane] = true
 			d.changed()

@@ -21,7 +21,7 @@ pushes the tag once, which starts the release build. Either step takes
 
 - The Android app pairs by scanning the QR code `pitwall remote pair` or Settings, Phone shows: Scan QR code on the pairing screen and on Add machine opens the camera, which the app asks for on that first tap. Paste and the address and code stay.
 
-- The Android app loads Claude Code's current model and effort and stops retrying refused picks. Phone messages go into Claude Code and Codex during a turn, holding for drafts, forms and approvals. Delayed submission hooks release sent drafts.
+- The Android app loads Claude Code's current model and effort and stops retrying refused picks. Phone messages go into Claude Code and Codex during a turn, holding for drafts, forms and approvals. Ctrl+A leaves an untouched Claude Code suggestion out of draft tracking, including with NO_COLOR. Delayed submission hooks release sent drafts.
 
 - Scrolling tabs and chat in the Android app reuses GPU path buffers across frames. Long chats no longer allocate a widget closure for every entry on each frame.
 
