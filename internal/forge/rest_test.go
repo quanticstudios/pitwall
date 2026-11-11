@@ -107,6 +107,8 @@ func newRESTFake(t *testing.T) *restFake {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake gh uses sh")
 	}
+	// Race builds otherwise wait a second at the exit of every fake gh call.
+	t.Setenv("GORACE", os.Getenv("GORACE")+" atexit_sleep_ms=0")
 	f := &restFake{t, t.TempDir()}
 	bin := t.TempDir()
 	exe, err := os.Executable()
