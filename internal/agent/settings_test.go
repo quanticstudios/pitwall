@@ -20,6 +20,11 @@ func TestClaudeSettings(t *testing.T) {
 		{"────────\n❯ \n────────\n Opus private text · secret · project", "", ""},
 		{"  ⎿  Set model to Opus private text\n  ⎿  Set effort level to secret\n────────\n❯ \n────────", "", ""},
 		{"  ⎿  Set model to Opus 5.5 (1M context) and saved as your default for new sessions\n────────\n❯ \n────────", "Opus 5.5 1M", ""},
+		{"  ⎿  Set model to Haiku 5.5 for this session only with medium effort\n────────\n❯ \n────────", "Haiku 5.5", "medium"},
+		{"  ⎿  Set model to Opus 5.5 (default) for this session only\n────────\n❯ \n────────", "Opus 5.5", ""},
+		{"  ⎿  Set model to Sonnet 5.5 for this session only\n  ⎿  Kept model as Opus 5.5 (default)\n────────\n❯ \n────────", "Opus 5.5", ""},
+		{"  ⎿  Set effort level to xhigh (this session only): Deeper reasoning than high\n  ⎿  Set model to Haiku 5.5 for this session only with medium effort\n────────\n❯ \n────────", "Haiku 5.5", "medium"},
+		{"  ⎿  Set model to Haiku 5.5 for this session only with medium effort\n  ⎿  Set effort level to xhigh (this session only): Deeper reasoning than high\n────────\n❯ \n────────", "Haiku 5.5", "xhigh"},
 	} {
 		e := vt.New(100, 10, nil)
 		e.Write([]byte(strings.ReplaceAll(tc.text, "\n", "\r\n")))

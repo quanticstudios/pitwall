@@ -1,0 +1,26 @@
+❯ /effort
+  ⎿  Set effort level to xhigh (this session only): Deeper reasoning than high, just below maximum
+     (on supported models)
+
+❯ /model
+  ⎿  Kept model as Haiku 5.5
+
+❯ /effort
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Effort
+
+                   Faster                             Smarter
+                   ──────────────────────────────▲───────────      Ultracode  off
+                   low     medium     high     xhigh      max      Tab to toggle
+
+                          ~3.9x the estimated cost of medium (the default)
+
+
+  ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel
+
+
+
+
+
+

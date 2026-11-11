@@ -17,6 +17,10 @@ run `sh scripts/release.sh --tag`. It tags the release commit on `main` and
 pushes the tag once, which starts the release build. Either step takes
 `--dry-run`.
 
+## Unreleased
+
+- A model or effort pick on the phone changes only that Claude Code session. pitwall used to type `/model <name>` or `/effort <level>`, which Claude Code 2.1.322 also saves as the default for every new session. It now opens Claude Code's `/model` picker or `/effort` slider, moves to the pick and presses `s`, the key for this session only, and closes the menu with Esc if the pick is not there. The chips show what the session runs: a change made on the computer replaces the phone's pick, and a pick the session never reports gives way after 5 seconds.
+
 ## v0.2.7
 
 - The Android app's list draws a session with the same name on several machines as one, as the window's sidebar draws a shared session: each machine's tabs under a thin line with its name and latency, or offline in red, and no machine chip on any row. Tabs an agent opened hang under its tab behind a bar of their states. The gear shows the app's version and each machine's pitwall version, and `scripts/apk.sh` stamps the APK with a version from the highest release tag in its history, whose code grows with each commit, so each build installs over the last. Waiting on you folds two or more tabs into one row until tapped. Rows lead with their repo's icon, or its letter tile, as in the window's sidebar.

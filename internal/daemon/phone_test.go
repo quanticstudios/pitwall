@@ -32,7 +32,7 @@ func phoneDaemon(t *testing.T) (*Daemon, *fakes, func(method, path, body string)
 	t.Helper()
 	oldDelay, oldStill := settleDelay.set(20*time.Millisecond), stillFor.set(10*time.Millisecond)
 	oldSettle, oldLook, oldReply := sendSettle.set(time.Millisecond), sendLook.set(10*time.Millisecond), replyDelay.set(time.Millisecond)
-	oldSwitch := switchWait.set(300 * time.Millisecond)
+	oldSwitch, oldMenu := switchWait.set(300*time.Millisecond), menuWait.set(200*time.Millisecond)
 	f := &fakes{statsCalls: map[string]int{}}
 	ws := func(id, pane, project string, detached bool) model.Workspace {
 		return model.Workspace{ID: id, SessionID: "s", Name: id, ProjectID: project, Detached: detached, Branch: "main",
@@ -60,6 +60,7 @@ func phoneDaemon(t *testing.T) (*Daemon, *fakes, func(method, path, body string)
 		sendLook.set(oldLook)
 		replyDelay.set(oldReply)
 		switchWait.set(oldSwitch)
+		menuWait.set(oldMenu)
 	})
 	setScreen(f.pane(0), []string{"SECRET-SCROLLBACK token=abc", "> "})
 	event(t, d, "a", "completed")
@@ -217,6 +218,7 @@ func TestPhoneDelayedSubmissionReleasesDraft(t *testing.T) {
 	d.o.Derive = agent.Derive
 	p := f.pane(0)
 	setScreen(p, []string{"────────", "❯ Try a test", "────────"})
+	fakeClaudeMenus(p)
 	d.noteUserKey("a", []byte("\r"))
 	d.mu.Lock()
 	d.mail.returnAt["a"] = time.Now().Add(-5 * time.Second)
@@ -226,7 +228,7 @@ func TestPhoneDelayedSubmissionReleasesDraft(t *testing.T) {
 	if st, body := do("POST", "/api/command", `{"pane":"a","what":"effort","value":"high"}`); st != 200 {
 		t.Fatalf("empty box refused: %d %s", st, body)
 	}
-	gotAfter(t, p, 0, len("/effort high\r"))
+	gotAfter(t, p, 0, len("/effort\r\x1b[Cs"))
 	d.mu.Lock()
 	d.mail.keyAt["a"] = time.Now().Add(-5 * time.Second)
 	d.mu.Unlock()
@@ -337,10 +339,10 @@ func TestPhoneCapturedSuggestionAfterCtrlA(t *testing.T) {
 					if status != 409 || !strings.Contains(body, errDraft.Error()) {
 						t.Fatalf("draft: %d %s", status, body)
 					}
-				} else if status != 200 {
+				} else if strings.Contains(body, errDraft.Error()) {
 					t.Fatalf("suggestion: %d %s", status, body)
-				} else {
-					gotAfter(t, p, 0, len("/effort high\r"))
+				} else if got := gotAfter(t, p, 0, len("/effort\r")); got != "/effort\r" {
+					t.Fatalf("suggestion: typed %q", got) // this fixed screen never shows the slider
 				}
 				before := len(p.got())
 				if _, err := d.phoneSend("a", "phone message"); err != nil {
@@ -481,58 +483,196 @@ func TestPhonePassesWindowDuringTurn(t *testing.T) {
 	}
 }
 
+// claudeMenus makes p answer like Claude Code 2.1.322: Enter after /model
+// or /effort opens its picker or slider on the session's setting, arrows
+// move it, s applies the pick to the session only, Esc closes it, and Enter
+// on it saves the pick as the default for new sessions, which it counts in
+// saved. Below the picker's last model, and Up from its first, is the
+// "More models" row, which takes no s. With confirm set, a model pick raises the "Switch model?" dialog,
+// which 1 answers.
+type claudeMenus struct {
+	mu                sync.Mutex
+	saved, sessionSet int
+	confirm           bool
+	missing           bool // the picker has no Haiku row, its last
+}
+
+// models are the picker's rows.
+func (m *claudeMenus) models(all []string) []string {
+	if m.missing {
+		return all[:len(all)-1]
+	}
+	return all
+}
+
+func fakeClaudeMenus(p *fakePane) *claudeMenus {
+	m := &claudeMenus{}
+	models := []string{"Default (recommended)", "Opus", "Fable", "Sonnet", "Haiku"}
+	labels := "  low     medium     high     xhigh      max      Tab to toggle"
+	levels := []string{"low", "medium", "high", "xhigh", "max"}
+	open, at, seen, model, effort := "", 0, 0, 3, 1
+	p.mu.Lock()
+	prompt := p.screen
+	if prompt == nil {
+		prompt = []string{"────────", "> "}
+	}
+	p.mu.Unlock()
+	draw := func() {
+		switch open {
+		case "model":
+			rows := []string{"────────", "  Select model"}
+			for i, name := range m.models(models) {
+				cur := "  "
+				if i == at {
+					cur = "❯ "
+				}
+				rows = append(rows, fmt.Sprintf("  %s%d. %s", cur, len(rows)-1, name))
+			}
+			if at == len(m.models(models)) {
+				p.screen = append(rows, "  ❯ ▸   More models", "", "  Enter to expand · Esc to cancel")
+				return
+			}
+			p.screen = append(rows, "    ▸   More models", "", "  Enter to set as default · s to use this session only · Esc to cancel")
+		case "effort":
+			col := strings.Index(labels+" ", " "+levels[at]+" ") + 1 + len(levels[at])/2
+			p.screen = []string{"────────", "  Effort", strings.Repeat(" ", col) + "▲", labels, "", "  ←/→ to adjust · Enter to confirm · s for this session only · Esc to cancel"}
+		default:
+			p.screen = prompt
+		}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.wrote = func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		in := string(p.input[seen:])
+		seen = len(p.input)
+		all := string(p.input)
+		n, wrap := len(m.models(models))+1, true // and More models
+		if open == "effort" {
+			n, wrap = len(levels), false
+		}
+		switch {
+		case open == "" && strings.HasSuffix(all, "/model\r"):
+			open, at, prompt = "model", model, p.screen
+		case open == "" && strings.HasSuffix(all, "/effort\r"):
+			open, at, prompt = "effort", effort, p.screen
+		case open == "switch" && in == "1":
+			open = ""
+		case open == "" || open == "switch":
+		case in == "\x1b[B" || in == "\x1b[C":
+			at = min(at+1, n-1)
+		case (in == "\x1b[A" || in == "\x1b[D") && at == 0 && wrap:
+			at = n - 1
+		case in == "\x1b[A" || in == "\x1b[D":
+			at = max(at-1, 0)
+		case in == "s":
+			m.sessionSet++
+			picked := open
+			if open == "model" {
+				model = at
+			} else {
+				effort = at
+			}
+			open = ""
+			if m.confirm && picked == "model" {
+				open = "switch"
+				p.screen = []string{"   Switch model?", "   ❯ 1. Yes, switch to " + models[at], "     2. No, go back"}
+				return
+			}
+		case in == "\r":
+			m.saved++
+			open = ""
+		case in == "\x1b":
+			open = ""
+		}
+		draw()
+	}
+	draw()
+	return m
+}
+
 func TestPhoneCommand(t *testing.T) {
 	d, f, do := phoneDaemon(t)
-	cmd := func(what, value string) int {
+	menus := fakeClaudeMenus(f.pane(0))
+	cmd := func(what, value string) (int, string) {
 		b, _ := json.Marshal(map[string]string{"pane": "a", "what": what, "value": value})
-		st, _ := do("POST", "/api/command", string(b))
-		return st
+		return do("POST", "/api/command", string(b))
 	}
-	if st := cmd("model", "opus"); st != 200 {
-		t.Fatalf("model: %d", st)
+	if st, body := cmd("model", "haiku"); st != 200 {
+		t.Fatalf("model: %d %s", st, body)
 	}
-	if got := gotAfter(t, f.pane(0), 0, len("/model opus\r")); got != "/model opus\r" {
+	if got := gotAfter(t, f.pane(0), 0, len("/model\r\x1b[Bs")); got != "/model\r\x1b[Bs" {
 		t.Errorf("typed %q", got)
 	}
-	// In a conversation Claude Code asks to confirm; the pick confirms it.
+	// Up the list, and in a conversation Claude Code asks to confirm; the pick confirms it.
+	menus.mu.Lock()
+	menus.confirm = true
+	menus.mu.Unlock()
 	n := len(f.pane(0).got())
-	go func() {
-		for !strings.HasSuffix(f.pane(0).got(), "/model sonnet\r") {
-			time.Sleep(time.Millisecond)
-		}
-		setScreen(f.pane(0), []string{"   Switch model?", "   Your next response will be slower", "   ❯ 1. Yes, switch to Sonnet 5.5", "     2. No, go back"})
-	}()
-	if st := cmd("model", "sonnet"); st != 200 {
-		t.Fatalf("model: %d", st)
+	if st, body := cmd("model", "opus"); st != 200 {
+		t.Fatalf("model: %d %s", st, body)
 	}
-	if got := gotAfter(t, f.pane(0), n, len("/model sonnet\r1")); got != "/model sonnet\r1" {
+	if got := gotAfter(t, f.pane(0), n, len("/model\r\x1b[A\x1b[A\x1b[As1")); got != "/model\r\x1b[A\x1b[A\x1b[As1" {
 		t.Errorf("confirm typed %q", got)
 	}
-	setScreen(f.pane(0), []string{"> "})
 	n = len(f.pane(0).got())
-	if st := cmd("effort", "xhigh"); st != 200 {
-		t.Fatalf("effort: %d", st)
+	if st, body := cmd("effort", "xhigh"); st != 200 {
+		t.Fatalf("effort: %d %s", st, body)
 	}
-	if got := gotAfter(t, f.pane(0), n, len("/effort xhigh\r")); got != "/effort xhigh\r" {
+	if got := gotAfter(t, f.pane(0), n, len("/effort\r\x1b[C\x1b[Cs")); got != "/effort\r\x1b[C\x1b[Cs" {
 		t.Errorf("typed %q", got)
 	}
+	// A pick the picker does not offer: it walks up to the first row, down
+	// past the last, and closes the picker with Esc.
+	menus.mu.Lock()
+	menus.missing = true
+	menus.mu.Unlock()
+	n = len(f.pane(0).got())
+	if st, body := cmd("model", "haiku"); st != 409 || !strings.Contains(body, "offers no haiku model") {
+		t.Errorf("model missing from the picker: %d %s", st, body)
+	}
+	missing := "/model\r\x1b[A" + strings.Repeat("\x1b[B", 4) + "\x1b"
+	if got := gotAfter(t, f.pane(0), n, len(missing)); got != missing {
+		t.Errorf("typed %q", got)
+	}
+	menus.mu.Lock()
+	if menus.saved != 0 || menus.sessionSet != 3 {
+		t.Errorf("saved as the default %d times, set for the session %d", menus.saved, menus.sessionSet)
+	}
+	menus.mu.Unlock()
 	n = len(f.pane(0).got())
 	for _, tc := range []struct{ what, value string }{{"model", "opus; rm"}, {"model", "x\r/exit"}, {"effort", "huge"}, {"clear", ""}} {
-		if st := cmd(tc.what, tc.value); st != 400 {
+		if st, _ := cmd(tc.what, tc.value); st != 400 {
 			t.Errorf("%s %q: %d", tc.what, tc.value, st)
 		}
 	}
 	event(t, d, "a", "working")
-	if st := cmd("model", "sonnet"); st != 409 {
+	if st, _ := cmd("model", "sonnet"); st != 409 {
 		t.Errorf("model during a turn: %d", st)
 	}
 	event(t, d, "a", "completed")
 	setScreen(f.pane(0), []string{" Do you want to proceed?", " > 1. Yes", "   2. No", " Esc to cancel"})
-	if st := cmd("model", "sonnet"); st != 409 {
+	if st, _ := cmd("model", "sonnet"); st != 409 {
 		t.Errorf("model on a form: %d", st)
 	}
 	time.Sleep(20 * time.Millisecond)
 	if got := f.pane(0).got()[n:]; got != "" {
+		t.Errorf("typed %q", got)
+	}
+}
+
+// A menu that never opens leaves the pane alone: no Esc, no key for it.
+func TestPhoneCommandMenuNeverOpens(t *testing.T) {
+	d, f, _ := phoneDaemon(t)
+	old := menuWait.set(50 * time.Millisecond)
+	t.Cleanup(func() { menuWait.set(old) })
+	setScreen(f.pane(0), []string{"────────", "> "})
+	err := d.phoneCommand("a", "/effort high")
+	if err == nil || !strings.Contains(err.Error(), "did not open") {
+		t.Fatalf("err %v", err)
+	}
+	if got := f.pane(0).got(); got != "/effort\r" {
 		t.Errorf("typed %q", got)
 	}
 }
@@ -679,6 +819,7 @@ func TestPhoneMessageDroppedWhenAgentExits(t *testing.T) {
 // Two quick picks take turns: each command goes in whole, with its Enter.
 func TestPhoneCommandsTakeTurns(t *testing.T) {
 	_, f, do := phoneDaemon(t)
+	fakeClaudeMenus(f.pane(0))
 	old := replyDelay.set(30 * time.Millisecond)
 	t.Cleanup(func() { replyDelay.set(old) })
 	var wg sync.WaitGroup
@@ -690,8 +831,9 @@ func TestPhoneCommandsTakeTurns(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	got := gotAfter(t, f.pane(0), 0, len("/effort low\r/effort high\r"))
-	if got != "/effort low\r/effort high\r" && got != "/effort high\r/effort low\r" {
+	// From medium: low is one step left, then high two right; or high one right, then low two left.
+	got := gotAfter(t, f.pane(0), 0, len("/effort\r\x1b[Ds/effort\r\x1b[C\x1b[Cs"))
+	if got != "/effort\r\x1b[Ds/effort\r\x1b[C\x1b[Cs" && got != "/effort\r\x1b[Cs/effort\r\x1b[D\x1b[Ds" {
 		t.Errorf("typed %q", got)
 	}
 }
@@ -756,9 +898,10 @@ func TestPhoneModelDoesNotBlockOtherPane(t *testing.T) {
 	t.Cleanup(func() { switchWait.set(old) })
 	event(t, d, "sh", "completed")
 	setScreen(f.pane(1), []string{"> "})
+	fakeClaudeMenus(f.pane(0))
 	done := make(chan error, 1)
 	go func() { done <- d.phoneCommand("a", "/model opus") }()
-	gotAfter(t, f.pane(0), 0, len("/model opus\r"))
+	gotAfter(t, f.pane(0), 0, len("/model\r\x1b[A\x1b[As"))
 	if _, err := d.phoneSend("sh", "OTHER"); err != nil {
 		t.Fatal(err)
 	}

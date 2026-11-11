@@ -1,0 +1,19 @@
+❯ Reply with the word ok only.
+
+● ok
+
+✻ Churned for 1s · done 10:53 PM
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Select model
+   Switch between Claude models. Your pick becomes the default for new
+   sessions. For other/previous model names, specify with --model.
+
+   ↑ 3.  Fable 5.2              For your toughest challenges
+   ❯ 4.  Sonnet 5.5 ✔           Most efficient for simpler tasks
+      … +2 models
+
+   ○ Low effort ←/→ to adjust
+
+   Use /fast to turn on Fast mode (Opus 5.5).
+
+   Enter to set as default · s to use this session only · Esc to cancel

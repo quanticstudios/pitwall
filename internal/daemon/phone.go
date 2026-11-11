@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"gioui.org/io/key"
+
 	"github.com/quanticstudios/pitwall/internal/agent"
 	"github.com/quanticstudios/pitwall/internal/flow"
 	"github.com/quanticstudios/pitwall/internal/input"
@@ -256,23 +258,134 @@ func (d *Daemon) paneExited(pane string) bool {
 	return i >= 0 && d.st.Panes[i].Exited
 }
 
-// phoneCommand types command, a slash command, into Claude Code's input box
-// as keys, not a paste, so Claude Code runs it, and presses Enter. Only
-// while the agent waits there: not during a turn, a question or a form, and
-// not into the user's draft. Commands to one pane take turns; sendMu, which
-// every pane's delivery takes, is held only while keys go in.
+// phoneCommand sets a Claude Code pane's model or effort for its running
+// session only, from command, "/model <name>" or "/effort <level>". Claude
+// Code saves a typed "/model <name>" as the default for every new session,
+// so this opens the bare /model picker or /effort slider instead, moves to
+// the pick, checks the screen shows it, and presses s, the key for this
+// session only. Anything unexpected closes the menu with Esc and changes
+// nothing. Only while the agent waits at its input box: not during a turn,
+// a question or a form, and not into the user's draft. Commands to one
+// pane take turns; sendMu, which every pane's delivery takes, is held only
+// while keys go in.
 func (d *Daemon) phoneCommand(pane, command string) error {
+	what, value, _ := strings.Cut(strings.TrimPrefix(command, "/"), " ")
+	if what != "model" && what != "effort" {
+		return fmt.Errorf("pitwall sets only the model and the effort, not %q", command)
+	}
 	defer d.paneCommandLock(pane)()
-	p, err := d.typeCommand(pane, command)
-	if err != nil || !strings.HasPrefix(command, "/model ") {
+	p, err := d.typeCommand(pane, "/"+what)
+	if err != nil {
+		return err
+	}
+	if err := d.pickForSession(pane, p, what, value); err != nil || what != "model" {
 		return err
 	}
 	// why: in a conversation Claude Code asks to confirm the switch, which the phone's pick already did.
 	for deadline := time.Now().Add(switchWait.get()); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if agent.SwitchModelAsked(p.Snapshot()) {
-			d.sendMu.Lock()
-			defer d.sendMu.Unlock()
-			return d.handle(context.Background(), proto.Input{Pane: pane, Data: press("1", p.Modes())})
+			return d.pressKeys(pane, p, "1")
+		}
+	}
+	return nil
+}
+
+// pickForSession moves the open /model picker or /effort slider in p to
+// value one step at a time, reading the screen after each, and presses s.
+// A picker taller than its pane shows only some rows. While the pick is out
+// of view it walks up to the first row, as Up there wraps to the picker's
+// "More models" row, then down until the rows end.
+func (d *Daemon) pickForSession(pane string, p Pane, what, value string) error {
+	back, forth, top := key.NameUpArrow, key.NameDownArrow, 1
+	read := func() (target, at int, ok bool) {
+		g := p.Snapshot()
+		if what == "model" {
+			rows, cursor, ok := agent.ModelMenu(g)
+			return agent.ModelRow(rows, value), cursor, ok
+		}
+		levels, at, ok := agent.EffortMenu(g)
+		return slices.Index(levels, value), at, ok
+	}
+	if what == "effort" {
+		back, forth, top = key.NameLeftArrow, key.NameRightArrow, 0
+	}
+	target, at, ok := waitMenu(read, func(_, _ int, ok bool) bool { return ok })
+	if !ok {
+		err := fmt.Errorf("Claude Code's /%s menu did not open, so nothing changed; try again in a moment", what)
+		if agent.SessionMenuUp(p.Snapshot()) {
+			return d.cancelMenu(pane, p, err)
+		}
+		return err
+	}
+	offersNo := fmt.Errorf("Claude Code here offers no %s %s, so nothing changed", value, what)
+	walk := back
+	for range maxMenuSteps {
+		if target == at {
+			return d.pressKeys(pane, p, "s")
+		}
+		looking := target < 0
+		if looking && walk == back && at == top {
+			walk = forth
+		}
+		step := walk
+		switch {
+		case target > at:
+			step = forth
+		case target >= 0:
+			step = back
+		}
+		if err := d.pressKeys(pane, p, step); err != nil {
+			return err
+		}
+		from := at
+		target, at, ok = waitMenu(read, func(_, at int, ok bool) bool { return ok && at != from })
+		switch {
+		case !ok && looking && step == forth:
+			return d.cancelMenu(pane, p, offersNo) // past the last row
+		case !ok:
+			return d.cancelMenu(pane, p, fmt.Errorf("Claude Code's /%s menu changed, so nothing changed", what))
+		case at != from:
+		case looking && walk == back:
+			walk = forth // a slider stops at its lowest level
+		case looking:
+			return d.cancelMenu(pane, p, offersNo)
+		default:
+			return d.cancelMenu(pane, p, fmt.Errorf("Claude Code's /%s menu did not move to %s, so nothing changed", what, value))
+		}
+	}
+	return d.cancelMenu(pane, p, fmt.Errorf("Claude Code's /%s menu did not move to %s, so nothing changed", what, value))
+}
+
+// maxMenuSteps caps the keys pickForSession presses in one menu.
+const maxMenuSteps = 40
+
+// waitMenu reads the menu until done says so or menuWait passes, and
+// returns the last read.
+func waitMenu(read func() (int, int, bool), done func(int, int, bool) bool) (target, at int, ok bool) {
+	for deadline := time.Now().Add(menuWait.get()); ; time.Sleep(20 * time.Millisecond) {
+		target, at, ok = read()
+		if done(target, at, ok) || time.Now().After(deadline) {
+			return target, at, ok
+		}
+	}
+}
+
+// cancelMenu closes the open menu with Esc, which saves nothing, and
+// returns err.
+func (d *Daemon) cancelMenu(pane string, p Pane, err error) error {
+	if e := d.pressKeys(pane, p, key.NameEscape); e != nil {
+		return e
+	}
+	return err
+}
+
+// pressKeys presses keys in pane, under sendMu.
+func (d *Daemon) pressKeys(pane string, p Pane, keys ...key.Name) error {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+	for _, k := range keys {
+		if err := d.handle(context.Background(), proto.Input{Pane: pane, Data: press(k, p.Modes())}); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -324,6 +437,10 @@ func (d *Daemon) paneCommandLock(pane string) func() {
 
 // switchWait is how long after /model the confirm dialog may take to show.
 var switchWait = newTiming(1500 * time.Millisecond)
+
+// menuWait is how long Claude Code may take to open or move its /model
+// picker or /effort slider.
+var menuWait = newTiming(3 * time.Second)
 
 type phoneSettings struct{ model, effort string }
 

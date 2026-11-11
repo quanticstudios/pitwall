@@ -36,7 +36,16 @@ func ClaudeSettings(g vt.Grid) (model, effort string) {
 	for i := len(rows) - 1; i >= 0; i-- {
 		row := strings.TrimSpace(rows[i])
 		if model == "" && strings.HasPrefix(row, "⎿  Set model to ") {
+			var tail string
 			model, _, _ = strings.Cut(strings.TrimPrefix(row, "⎿  Set model to "), " and saved")
+			model, tail, _ = strings.Cut(model, " for this session only")
+			model = strings.TrimSuffix(model, " (default)")
+			if w := strings.Fields(tail); effort == "" && len(w) == 3 && w[0] == "with" && w[2] == "effort" {
+				effort = w[1]
+			}
+		}
+		if model == "" && strings.HasPrefix(row, "⎿  Kept model as ") {
+			model = strings.TrimSuffix(strings.TrimPrefix(row, "⎿  Kept model as "), " (default)")
 		}
 		if effort == "" && strings.HasPrefix(row, "⎿  Set effort level to ") {
 			effort = strings.Fields(strings.TrimPrefix(row, "⎿  Set effort level to "))[0]
