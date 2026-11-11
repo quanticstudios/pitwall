@@ -164,6 +164,24 @@ func ParseInvite(link, code string) (server, pairCode string, err error) {
 	return u.String(), code, nil
 }
 
+// ErrNotPairing is ParseScan's error for a QR code that holds something
+// other than a pairing link.
+var ErrNotPairing = errors.New("that QR code is not a pitwall pairing link")
+
+// ParseScan reads a scanned QR code, which must be the link pitwall
+// remote pair shows: an http or https address with a #pair= code. A
+// Wi-Fi code, another site's address or plain text is ErrNotPairing.
+func ParseScan(text string) (server, pairCode string, err error) {
+	u, err := url.Parse(strings.TrimSpace(text))
+	if err != nil || u.Host == "" || u.Scheme != "http" && u.Scheme != "https" {
+		return "", "", ErrNotPairing
+	}
+	if frag, _ := url.ParseQuery(u.Fragment); frag.Get("pair") == "" {
+		return "", "", ErrNotPairing
+	}
+	return ParseInvite(text, "")
+}
+
 // SamePin reports whether two SHA-256 fingerprints match, whatever their
 // case, colons or spaces.
 func SamePin(a, b string) bool {
