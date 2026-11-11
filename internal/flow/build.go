@@ -290,6 +290,26 @@ func parseTime(s string) time.Time {
 	return t
 }
 
+// filePath is the file a file tool's input names, "" for another tool.
+func filePath(tool string, input json.RawMessage) string {
+	switch tool {
+	case "Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "read", "edit", "write", "read_file", "write_file", "replace":
+	default:
+		return ""
+	}
+	var in map[string]json.RawMessage
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	for _, k := range []string{"file_path", "path", "notebook_path"} {
+		var s string
+		if json.Unmarshal(in[k], &s) == nil && s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 // arg is Call.Arg for a tool's input: a command's first line, a file's base
 // name, a pattern or query, a fetched URL's host, else "".
 func arg(tool string, input json.RawMessage) string {

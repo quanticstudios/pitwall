@@ -25,6 +25,22 @@ var lineSuffix = regexp.MustCompile(`(:\d+)+$`)
 // file:// URL. ok is false for anything else: a web URL, another
 // scheme, a file that is not markdown.
 func LinkPath(link, dir string) (path, frag string, ok bool) {
+	return linkPath(link, dir, true)
+}
+
+// linkPath is LinkPath, with ~/ the home folder only when home is set.
+func linkPath(link, dir string, home bool) (string, string, bool) {
+	p, frag, ok := MarkdownLink(link)
+	if !ok {
+		return "", "", false
+	}
+	return resolve(p, dir, home), frag, true
+}
+
+// MarkdownLink is the markdown file link names, as written, and its
+// #fragment: link is as LinkPath takes it, and a file:// URL gives its
+// path. ok is false for anything else.
+func MarkdownLink(link string) (path, frag string, ok bool) {
 	if u, err := url.Parse(link); err == nil && len(u.Scheme) > 1 {
 		if !strings.EqualFold(u.Scheme, "file") {
 			return "", "", false
@@ -45,7 +61,7 @@ func LinkPath(link, dir string) (path, frag string, ok bool) {
 	if !IsMarkdown(p) {
 		return "", "", false
 	}
-	return Resolve(p, dir), frag, true
+	return p, frag, true
 }
 
 // openable reports whether a link may go to the OS opener: web, file and

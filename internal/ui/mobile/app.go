@@ -66,12 +66,13 @@ type App struct {
 	// machines shows the list of paired machines.
 	adding, machines bool
 
-	pair  pairView
-	cam   camFeed
-	list  listView
-	mach  machinesView
-	chat  chatView
-	chatM string // the machine the open chat's tab is on
+	pair   pairView
+	cam    camFeed
+	list   listView
+	mach   machinesView
+	chat   chatView
+	chatM  string // the machine the open chat's tab is on
+	reader readerView
 }
 
 // link is one paired machine's stream and how it is going.
@@ -191,6 +192,7 @@ func (a *App) setMachines(ms []phone.Machine) {
 	if len(ms) == 0 {
 		a.st, a.session = model.State{}, ""
 		a.chat, a.chatM, a.machines = chatView{}, "", false
+		a.closeReader()
 		return
 	}
 	f := phone.NewFleet(ms)
@@ -257,6 +259,9 @@ func (a *App) removeMachine(id, why string) {
 	}
 	if a.chatM == id {
 		a.chat, a.chatM = chatView{}, ""
+	}
+	if a.reader.machine == id {
+		a.closeReader()
 	}
 	a.setMachines(ms)
 	if len(ms) == 0 {
@@ -393,7 +398,7 @@ func (a *App) chatLayout(gtx C) {
 	t, open := a.tab()
 	l := a.links[a.chatM]
 	env := chatEnv{Tab: t, Open: open, Online: l.online, Models: l.hello.Models, Efforts: l.hello.Efforts,
-		Retry: l.conn.Retry,
+		Retry: l.conn.Retry, OpenFile: a.fileOpener(l, t.ID),
 		Do: func(call func(context.Context, chatAPI) error, done func(error)) {
 			a.do(l.m.ID, func(ctx context.Context, c *phone.Client) error { return call(ctx, c) }, done)
 		}}
@@ -412,11 +417,15 @@ func (a *App) chatLayout(gtx C) {
 // screen names what the window shows, so a frame can tell it changed.
 type screen struct {
 	pairing, machines, manual, scanning bool
-	untrusted, chat, menu               string
+	untrusted, chat, menu, reader       string
 }
 
 func (a *App) screen() screen {
-	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.pair.untrusted, a.chat.pane, a.list.menu}
+	reader := ""
+	if a.reader.v != nil {
+		reader = a.reader.v.Path()
+	}
+	return screen{a.fleet == nil || a.adding, a.machines, a.pair.manual, a.pair.scanning, a.pair.untrusted, a.chat.pane, a.list.menu, reader}
 }
 
 func (a *App) layout(gtx C) {
@@ -426,6 +435,20 @@ func (a *App) layout(gtx C) {
 		return
 	case a.machines:
 		a.machinesLayout(gtx)
+		return
+	case a.reader.v != nil:
+		a.readerLayout(gtx)
+		// Back, or Esc on a desktop, goes back a file, then to the chat.
+		for {
+			ev, ok := gtx.Event(key.Filter{Name: key.NameBack}, key.Filter{Name: key.NameEscape})
+			if !ok {
+				break
+			}
+			if ke, ok := ev.(key.Event); ok && ke.State == key.Press && a.reader.v != nil {
+				a.readerBack()
+				a.w.Invalidate()
+			}
+		}
 		return
 	case a.chat.pane == "" || a.links[a.chatM] == nil:
 		a.listLayout(gtx)

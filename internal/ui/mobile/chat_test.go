@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
-	"gioui.org/x/markdown"
 	"gioui.org/x/richtext"
 
 	"github.com/quanticstudios/pitwall/internal/flow"
@@ -56,19 +54,39 @@ func TestModelName(t *testing.T) {
 	}
 }
 
-func TestSplitFences(t *testing.T) {
-	got := splitFences("Found it.\n\n```go\nfunc f() {\n}\n```\nDone.\n```\nstill streaming")
-	want := []mdPart{{text: "Found it."}, {code: true, text: "func f() {\n}"}, {text: "Done."}, {code: true, text: "still streaming"}}
-	if len(got) != len(want) {
-		t.Fatalf("parts = %+v", got)
-	}
-	for i := range want {
-		if got[i].code != want[i].code || got[i].text != want[i].text {
-			t.Errorf("part %d = %+v, want %+v", i, got[i], want[i])
+// A reply's markdown paths become links, in text and inline code, and a
+// still streaming code fence runs to the end; URLs, links already, code
+// blocks and paths inside longer words stay as they are.
+func TestLinkPaths(t *testing.T) {
+	src := "Wrote `docs/phone.md` and ../README.md:12, see [guide](https://example.com/a.md).\n\n" +
+		"| File | Note |\n|-|-|\n| ~/w/CHANGELOG.md | x.mdx, example.com/b.md/c |\n\n```\ncat docs/phone.md\nstill streaming"
+	blocks := mdview.Parse([]byte(src))
+	linkPaths(blocks)
+	var links []string
+	add := func(spans []mdview.Span) {
+		for _, s := range spans {
+			if s.Link != "" {
+				links = append(links, s.Link)
+			}
 		}
 	}
-	if p := splitFences("just text"); len(p) != 1 || p[0].code {
-		t.Errorf("plain text = %+v", p)
+	for _, b := range blocks {
+		add(b.Spans)
+		for _, r := range b.Rows {
+			for _, c := range r {
+				add(c)
+			}
+		}
+	}
+	want := []string{"docs/phone.md", "../README.md:12", "https://example.com/a.md", "~/w/CHANGELOG.md"}
+	if !slices.Equal(links, want) {
+		t.Errorf("links %q, want %q", links, want)
+	}
+	if last := blocks[len(blocks)-1]; last.Kind != mdview.Code || last.Text != "cat docs/phone.md\nstill streaming" {
+		t.Errorf("unclosed fence: %+v", last)
+	}
+	if p, frag, ok := mdview.MarkdownLink("../README.md:12"); !ok || p != "../README.md" || frag != "" {
+		t.Errorf("MarkdownLink = %q %q %v", p, frag, ok)
 	}
 }
 
@@ -368,23 +386,14 @@ func TestInlineCode(t *testing.T) {
 
 // A URL in inline code stays code; a bare one still becomes a link.
 func TestCodeURL(t *testing.T) {
-	r := markdown.NewRenderer()
-	linkCol := color.NRGBA{B: 0xff, A: 0xff}
-	r.Config.InteractiveColor = linkCol
-	spans, err := r.Render([]byte("Run `curl -fsSL https://example.com/get.sh | sh`, or read https://example.com/docs"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := mdview.Parse([]byte("Run `curl -fsSL https://example.com/get.sh | sh`, or read https://example.com/docs"))
 	var code, link string
-	for _, s := range spans {
-		if strings.Contains(s.Content, "[") {
-			t.Errorf("markdown leaked into %q", s.Content)
+	for _, s := range b[0].Spans {
+		if s.Mono {
+			code = s.Text
 		}
-		if strings.Contains(s.Content, "get.sh") {
-			code = s.Content
-		}
-		if s.Color == linkCol {
-			link = s.Content
+		if s.Link != "" {
+			link = s.Text
 		}
 	}
 	if code != "curl -fsSL https://example.com/get.sh | sh" || link != "https://example.com/docs" {

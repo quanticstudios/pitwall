@@ -83,7 +83,7 @@ func (d *Daemon) phoneChatEntries(id string) ([]flow.Entry, string, bool) {
 					continue
 				}
 				t := it.Tool
-				e.Kind, e.Text, e.Tool, e.Arg = flow.EntryTool, "", t.ToolName, flow.ToolArg(*t)
+				e.Kind, e.Text, e.Tool, e.Arg, e.Path = flow.EntryTool, "", t.ToolName, flow.ToolArg(*t), flow.ToolPath(*t)
 				e.Out, e.Done, e.Failed = cutOut(t.Output), t.Status != "running", t.Status == "failed"
 			default:
 				continue

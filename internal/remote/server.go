@@ -158,6 +158,10 @@ type Server struct {
 	// keys, refused unless the agent waits at its input box.
 	Send    func(pane, text string) (id uint64, err error)
 	Command func(pane, command string) error
+	// Folder is tab's working directory and the folder, its repo's or
+	// the one it runs in, that the files the phone reads for it must be
+	// in; ok is false for no such tab. Nil serves no files.
+	Folder func(tab string) (cwd, root string, ok bool)
 
 	lmu  sync.Mutex
 	logs map[string]*paneLog // by pane, the transcripts the page reads
@@ -205,6 +209,9 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("GET /api/chat", sameOrigin(s.authed(s.older)))
 		mux.Handle("POST /api/send", sameOrigin(s.authed(s.sendText)))
 		mux.Handle("POST /api/command", sameOrigin(s.authed(s.command)))
+	}
+	if s.Folder != nil {
+		mux.Handle("GET /api/file", sameOrigin(s.authed(s.file)))
 	}
 	mux.HandleFunc("GET /api/items", s.authed(func(w http.ResponseWriter, r *http.Request, d Device) {
 		writeJSON200(w, map[string]any{"items": s.Items(), "device": d.Name, "web": s.Web != nil})

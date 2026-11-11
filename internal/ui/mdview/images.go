@@ -46,7 +46,11 @@ type Where struct {
 // ResolveImage is where src points from a file in dir. A data: URL or
 // another scheme gives an error, which the reader shows with the alt
 // text.
-func ResolveImage(src, dir string) (Where, error) {
+func ResolveImage(src, dir string) (Where, error) { return resolveImage(src, dir, true) }
+
+// resolveImage is ResolveImage, with ~/ the home folder only when home
+// is set.
+func resolveImage(src, dir string, home bool) (Where, error) {
 	src = strings.TrimSpace(src)
 	if src == "" {
 		return Where{}, errors.New("no source")
@@ -65,16 +69,22 @@ func ResolveImage(src, dir string) (Where, error) {
 	if u, err := url.PathUnescape(p); err == nil {
 		p = u
 	}
-	return Where{Path: Resolve(p, dir)}, nil
+	return Where{Path: resolve(p, dir, home)}, nil
 }
 
 // Resolve is path p read from dir: ~/ is the home folder, a relative
 // path is dir's.
-func Resolve(p, dir string) string {
-	if rest, ok := strings.CutPrefix(p, "~/"); ok {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, rest)
+func Resolve(p, dir string) string { return resolve(p, dir, true) }
+
+// resolve is Resolve; without home, ~/ stays for the computer to read.
+func resolve(p, dir string, home bool) string {
+	if rest, ok := strings.CutPrefix(p, "~/"); ok && home {
+		if h, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(h, rest)
 		}
+	}
+	if strings.HasPrefix(p, "~/") || p == "~" {
+		return filepath.Clean(p)
 	}
 	p = filepath.FromSlash(p)
 	if !filepath.IsAbs(p) {

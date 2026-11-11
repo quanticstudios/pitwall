@@ -12,12 +12,15 @@ import (
 // prompt, a reply, a tool call with its result, or an error. Thinking and
 // the agent's own bookkeeping are left out.
 type Entry struct {
-	Seq    int64  `json:"seq"`
-	Kind   string `json:"kind"` // user, assistant, tool, error
-	Text   string `json:"text,omitempty"`
-	Tool   string `json:"tool,omitempty"`
-	Arg    string `json:"arg,omitempty"` // a short summary: the command, the file
-	Out    string `json:"out,omitempty"` // the call's result, cut to maxOut bytes
+	Seq  int64  `json:"seq"`
+	Kind string `json:"kind"` // user, assistant, tool, error
+	Text string `json:"text,omitempty"`
+	Tool string `json:"tool,omitempty"`
+	Arg  string `json:"arg,omitempty"` // a short summary: the command, the file
+	Out  string `json:"out,omitempty"` // the call's result, cut to maxOut bytes
+	// Path is a file tool's file in full, as the agent named it, for the
+	// phone to open.
+	Path   string `json:"path,omitempty"`
 	Done   bool   `json:"done,omitempty"`
 	Failed bool   `json:"failed,omitempty"`
 	rev    int64
@@ -137,6 +140,11 @@ func (l *Log) call(id, tool, arg string) {
 	l.add(Entry{Kind: EntryTool, Tool: tool, Arg: cut(arg, maxArg)}, id)
 }
 
+// tool adds a call of tool with its JSON input.
+func (l *Log) tool(id, tool string, input json.RawMessage) {
+	l.add(Entry{Kind: EntryTool, Tool: tool, Arg: cut(arg(tool, input), maxArg), Path: filePath(tool, input)}, id)
+}
+
 // result ends the call id with its output.
 func (l *Log) result(id, out string, failed bool) {
 	seq, ok := l.calls[id]
@@ -181,7 +189,7 @@ func (l *Log) claude(line []byte) {
 			case bl.Type == "text":
 				l.text(EntryAssistant, bl.Text)
 			case bl.Type == "tool_use":
-				l.call(bl.ID, bl.Name, arg(bl.Name, bl.Input))
+				l.tool(bl.ID, bl.Name, bl.Input)
 			}
 		}
 	case "user":
@@ -264,7 +272,7 @@ func (l *Log) codex(line []byte) {
 		if json.Unmarshal(args, &s) == nil {
 			args = json.RawMessage(s)
 		}
-		l.call(p.CallID, p.Name, arg(p.Name, args))
+		l.tool(p.CallID, p.Name, args)
 	case "response_item/custom_tool_call":
 		a := firstLine(p.Input)
 		if p.Name == "apply_patch" {
@@ -336,7 +344,7 @@ func (l *Log) pi(line []byte) {
 			case "text":
 				l.text(EntryAssistant, bl.Text)
 			case "toolCall":
-				l.call(bl.ID, bl.Name, arg(bl.Name, bl.Arguments))
+				l.tool(bl.ID, bl.Name, bl.Arguments)
 			}
 		}
 		switch m.StopReason {

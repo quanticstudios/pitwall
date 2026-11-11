@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -147,7 +148,29 @@ func (d *Daemon) remoteServer() *remote.Server {
 		ChatEntries: d.phoneChatEntries,
 		Send:        d.phoneSend,
 		Command:     d.phoneCommand,
+		Folder:      d.phoneFolder,
 	}
+}
+
+// phoneFolder is a listed tab's working directory, its first agent's or
+// the one it started in, and its repo, or its folder outside one.
+func (d *Daemon) phoneFolder(tab string) (cwd, root string, ok bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	i := slices.IndexFunc(d.st.Workspaces, func(w model.Workspace) bool { return w.ID == tab })
+	if i < 0 {
+		return "", "", false
+	}
+	w := d.st.Workspaces[i]
+	root = cmp.Or(w.RepoRoot, w.Path)
+	if w.Detached || w.Monitor || root == "" {
+		return "", "", false
+	}
+	cwd = w.Path
+	if aps := d.st.AgentPanes(w); len(aps) > 0 && aps[0].Pane.Cwd != "" {
+		cwd = aps[0].Pane.Cwd
+	}
+	return cwd, root, true
 }
 
 // remoteItems is what the phone page lists, with each chat's pending
