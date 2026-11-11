@@ -24,6 +24,7 @@ pushes the tag once, which starts the release build. Either step takes
 - Start Claude Code fresh after a daemon restart when its session has no transcript. Phone tabs show exited agents and their exit codes.
 - Show shell commands and output inside Codex exec calls in the phone chat.
 - Clear phone sidebar answer refusals when their prompt ends or after six seconds. Show why queued messages wait above the composer.
+- A model or effort pick on the phone changes only that Claude Code session. pitwall used to type `/model <name>` or `/effort <level>`, which Claude Code 2.1.322 also saves as the default for every new session. It now opens Claude Code's `/model` picker or `/effort` slider, moves to the pick and presses `s`, the key for this session only, and closes the menu with Esc if the pick is not there. The chips show what the session runs: a change made on the computer replaces the phone's pick, and a pick the session never reports gives way after 5 seconds.
 
 ## v0.2.8
 

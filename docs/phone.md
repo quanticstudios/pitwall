@@ -117,14 +117,26 @@ queues behind the running one.
 A Claude Code tab has a button in its header with the model its latest
 turn used. It offers the models `default`, `fable`, `opus`, `opus[1m]`,
 `sonnet` and `haiku`, and the effort levels `low`, `medium`, `high`, `xhigh` and `max`.
-A pick types `/model <name>` or `/effort <level>` into Claude Code as keys
-and presses Enter, only while Claude Code sits at its input box: not during
-a turn, a question or a form, and not over a draft. One pick goes in at a
-time, never while a queued message is being typed, and the buttons wait
-for it. When Claude Code asks
-"Switch model?" in a conversation, pitwall answers yes, since your pick
-already did. Claude Code then reads the whole conversation again on the new
-model, and saves the model as your default, as typing `/model` does.
+A pick changes only that tab's Claude Code session, never the default
+model or effort of new sessions. Typing `/model <name>` or `/effort <level>`
+would save it as that default, so pitwall types `/model` or `/effort` alone,
+moves Claude Code's picker or slider to your pick, checks the screen shows
+it, and presses `s`, Claude Code's key for this session only. If the picker
+has no row for the pick or the menu does not move to it, pitwall closes it
+with Esc, which saves nothing, and the phone says why. A pick goes in only
+while Claude Code sits at its input box: not during a turn, a question or a
+form, and not over a draft. One pick goes in at a time, never while a
+queued message is being typed, and the buttons wait for it. If you type in
+that tab on the computer while a pick is under way, or its menu closes,
+pitwall stops and presses nothing more. When Claude
+Code asks "Switch model?" in a conversation, pitwall answers yes, since
+your pick already did. Claude Code then reads the whole conversation again
+on the new model.
+
+The buttons show what the session runs, as Claude Code's screen reports it.
+Your pick shows until the session reports a change, or for 5 seconds if it
+never does, so a pick that did not apply and a change made on the computer
+both show as they are.
 
 Codex has no picker here: its `/model` opens a menu that pitwall cannot
 drive safely.

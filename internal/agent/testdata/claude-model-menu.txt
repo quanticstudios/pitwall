@@ -1,0 +1,26 @@
+❯ /model
+  ⎿  Set model to Haiku 5.5 for this session only with medium effort
+
+❯ /effort
+  ⎿  Set effort level to xhigh (this session only): Deeper reasoning than high, just below maximum
+     (on supported models)
+
+❯ /model
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous
+  model names, specify with --model.
+
+    1. Default (recommended)  Opus 5.5 · Best for everyday, complex tasks
+    2. Opus                   Opus 5.5 · Best for everyday, complex tasks
+    3. Fable                  Fable 5.1 · Most capable for your hardest and longest-running tasks
+    4. Sonnet                 Sonnet 5.5 · Efficient for routine tasks
+  ❯ 5. Haiku ✔                Haiku 5.5 · Fastest for quick answers
+
+  ◉ xHigh effort ←/→ to adjust
+
+  Use /fast to turn on Fast mode (Opus 5.5).
+
+  Enter to set as default · s to use this session only · Esc to cancel
+

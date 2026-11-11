@@ -1,4 +1,7 @@
 [
+  {"file": "claude-model-menu-scrolled.txt", "provider": "claude", "screen": 2, "state": "pending-approval"},
+  {"file": "claude-model-menu.txt", "provider": "claude", "screen": 2, "state": "pending-approval"},
+  {"file": "claude-effort-menu.txt", "provider": "claude", "screen": 2, "state": "pending-approval"},
   {"file": "claude-draft-rule.txt", "provider": "claude", "screen": 0, "state": ""},
   {"file": "codex-draft-third-line.txt", "provider": "codex", "screen": 0, "state": ""},
   {"file": "codex-placeholder-words.txt", "provider": "codex", "screen": 0, "state": ""},
